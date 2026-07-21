@@ -372,10 +372,14 @@ namespace DTXMania.Game.Lib.Resources
             // Sort for consistent ordering (default skin first). The comparator
             // pins _defaultSkinPath to the top regardless of whether it came from
             // app-data or the bundled root, then falls back to ordinal name order.
+            // Use OrdinalIgnoreCase for the default-path compare so a case variant
+            // of the default path (e.g. "SYSTEM" vs "System" on a case-insensitive
+            // filesystem) still pins to the top instead of leaking into the
+            // alphabetic section as a separate entry.
             skinPaths.Sort((a, b) =>
             {
-                if (a == _defaultSkinPath) return -1;
-                if (b == _defaultSkinPath) return 1;
+                if (string.Equals(a, _defaultSkinPath, StringComparison.OrdinalIgnoreCase)) return -1;
+                if (string.Equals(b, _defaultSkinPath, StringComparison.OrdinalIgnoreCase)) return 1;
                 return string.Compare(a, b, StringComparison.OrdinalIgnoreCase);
             });
 

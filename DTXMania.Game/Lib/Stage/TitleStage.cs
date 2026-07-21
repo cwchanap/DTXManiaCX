@@ -223,9 +223,12 @@ namespace DTXMania.Game.Lib.Stage
                 _versionFont?.RemoveReference();
                 _whitePixel?.Dispose();
                 _spriteBatch?.Dispose();
-                _resourceManager?.Dispose();
-
-                // Cleanup sound resources
+                // NOTE: _resourceManager is the shared game-level instance
+                // (_game.ResourceManager assigned in InitializeResources), not a
+                // stage-owned one. Other stages reuse it after TitleStage
+                // deactivates, so disposing it here would leave every subsequent
+                // stage touching a disposed Object. Drop only the local
+                // reference; the game owns the lifetime.
                 _cursorMoveSound?.Dispose();
                 _selectSound?.Dispose();
                 _gameStartSound?.Dispose();

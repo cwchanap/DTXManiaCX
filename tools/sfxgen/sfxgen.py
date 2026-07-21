@@ -17,6 +17,7 @@ Python 3.9+, stdlib only except ffmpeg/ffprobe (external binaries) for encode/de
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -25,6 +26,7 @@ import urllib.request
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 MANIFEST_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "manifest.json")
 RAW_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "raw")
+SOUNDPATH_CS = os.path.join(REPO_ROOT, "DTXMania.Game", "Lib", "Resources", "SoundPath.cs")
 API_URL = "https://api.elevenlabs.io/v1/sound-generation"
 
 # Hard cap on a single sound-generation response. The manifest caps
@@ -39,6 +41,21 @@ MAX_RESPONSE_BYTES = 50 * 1024 * 1024
 def load_sounds(manifest_path):
     with open(manifest_path, encoding="utf-8") as f:
         return json.load(f)["sounds"]
+
+
+def scan_sound_paths():
+    """All Sounds/*.ogg literals in SoundPath.cs, sorted.
+
+    Mirrors skingen.scan_texture_paths so the test suite can catch drift in
+    either direction between the C# constants and the sfxgen manifest: a new
+    sound added to SoundPath.cs but missing from manifest.json (or vice versa)
+    is a bug — the pack would either ship without the asset (CxNeonPackTests
+    catches this) or the manifest would reference a sound the game never plays
+    (only this scan catches that).
+    """
+    with open(SOUNDPATH_CS, encoding="utf-8") as f:
+        source = f.read()
+    return sorted(set(re.findall(r'"(Sounds/[^"]+\.ogg)"', source)))
 
 
 def output_dir(manifest_path):

@@ -42,10 +42,19 @@ def _make_silent_ogg_opus(path, seconds=0.1):
 
 class ManifestTests(unittest.TestCase):
     def test_manifest_matches_soundpath_inventory(self):
+        # Derive the expected inventory from SoundPath.cs instead of hardcoding
+        # it, so drift in either direction is caught: a sound in the manifest
+        # but not in SoundPath.cs would never be played by the game, and a
+        # sound in SoundPath.cs but not in the manifest would be missing from
+        # the pack. Mirrors skingen's
+        # test_manifest_covers_every_scanned_texture_path.
         names = {s["file"] for s in sfxgen.load_sounds(sfxgen.MANIFEST_PATH)}
-        expected = {"Move.ogg", "Decide.ogg", "Game start.ogg", "Now loading.ogg",
-                    "Stage Clear.ogg", "Full Combo.ogg", "Excellent.ogg", "New Record.ogg"}
-        self.assertEqual(names, expected)
+        expected = {os.path.basename(p) for p in sfxgen.scan_sound_paths()}
+        self.assertEqual(names, expected,
+                         "Manifest and SoundPath.cs disagree on the sound inventory "
+                         "(add missing sounds to manifest.json or remove stale ones "
+                         "from SoundPath.cs):\n  manifest-only: %s\n  soundpath-only: %s"
+                         % (sorted(names - expected), sorted(expected - names)))
 
     def test_every_sound_has_prompt_and_duration(self):
         for sound in sfxgen.load_sounds(sfxgen.MANIFEST_PATH):

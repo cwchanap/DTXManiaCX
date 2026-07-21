@@ -499,9 +499,6 @@ namespace DTXMania.Game.Lib.Stage.Result
             theme.GetColor("Result.PercentText", Color.White);
 
         /// <summary>
-        /// Song title color: "Result.TitleText" → NX white.
-        /// </summary>
-        /// <summary>
         /// Colour for the numeric values that are not judgement counts (level,
         /// play %, skill). NX draws them plain white; skins with their own
         /// neutral ramp keep them on the same step as the rest of the screen.
@@ -509,6 +506,9 @@ namespace DTXMania.Game.Lib.Stage.Result
         internal static Color ResolveValueColor(ISkinTheme theme) =>
             theme.GetColor("Result.ValueText", Color.White);
 
+        /// <summary>
+        /// Song title color: "Result.TitleText" → NX white.
+        /// </summary>
         internal static Color ResolveTitleColor(ISkinTheme theme) =>
             theme.GetColor("Result.TitleText", Color.White);
 

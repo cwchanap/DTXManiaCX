@@ -11,6 +11,7 @@ order, in batches) and the validators tell you exactly what is still missing.
 A complete original pack can be produced without an external image API:
 
 ```bash
+pip install "Pillow>=10,<12"               # required by generate_source.py and skingen.py
 python3 tools/skingen/generate_source.py   # writes source/ + wires copy recipes
 python3 tools/skingen/skingen.py compose   # builds System/CXNeon/Graphics/
 python3 tools/skingen/skingen.py validate
@@ -114,4 +115,5 @@ is installed under app-data as above. An absolute path to the worktree
 `System/CXNeon/` also works for a one-off preview, but that skin only stays in
 the dropdown while it is the active external skin.
 
-Stages can be screenshotted through the dtxmania MCP flow for visual review.
+Stages can be screenshotted through the MCP server's `game_*` tools
+(`game_click`, `game_drag`, `game_get_state`, `game_send_key`) for visual review.

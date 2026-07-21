@@ -101,6 +101,30 @@ jobs:
         python -m unittest discover -s tools/skingen -p "test_*.py" -v
         python -m unittest discover -s tools/sfxgen -p "test_*.py" -v
 
+    - name: Validate committed CX Neon pack (integrity gate)
+      shell: bash
+      run: |
+        # skingen/sfxgen `validate` decode every committed System/CXNeon asset
+        # and check it matches the manifest dimensions / decodes as a real
+        # image/audio file. CxNeonPackTests (run above) only checks File.Exists,
+        # so without this gate a corrupt or wrong-dimension image would pass CI
+        # and ship — exactly the gap the release.yml integrity gate closes, but
+        # regular CI never ran it. The pack is now committed (131 Graphics, 8
+        # Sounds), so a missing Graphics/ or Sounds/ is a regression, not an
+        # interim state — fail-closed (no self-skip), matching release.yml.
+        if [ ! -d "System/CXNeon/Graphics" ] || [ ! -d "System/CXNeon/Sounds" ]; then
+          echo "::error::CX Neon pack missing from repo (System/CXNeon/Graphics or Sounds). Run tools/skingen/ and tools/sfxgen/ to produce it before merging." >&2
+          exit 1
+        fi
+        # sfxgen validate decodes every OGG via ffmpeg; install a full
+        # OGG/Vorbis-capable build so _decode_ok doesn't fail-close every
+        # sound and false-positive the gate. brew/choco exit 0 when the
+        # package is already installed, so this is a no-op on cached runners.
+        if [ "$RUNNER_OS" = "macOS" ]; then brew install ffmpeg; fi
+        if [ "$RUNNER_OS" = "Windows" ]; then choco install ffmpeg -y --no-progress; fi
+        python tools/skingen/skingen.py validate
+        python tools/sfxgen/sfxgen.py validate
+
   build-and-test-macos:
     runs-on: macos-latest
     
@@ -164,6 +188,25 @@ jobs:
         pip install "Pillow>=10,<12"
         python -m unittest discover -s tools/skingen -p "test_*.py" -v
         python -m unittest discover -s tools/sfxgen -p "test_*.py" -v
+
+    - name: Validate committed CX Neon pack (integrity gate)
+      shell: bash
+      run: |
+        # Mirror the Windows leg: run skingen/sfxgen `validate` against the
+        # committed System/CXNeon pack so a corrupt or wrong-dimension asset
+        # fails CI here, not just in the manual release job. CxNeonPackTests
+        # (run above) only checks File.Exists. Fail-closed if the pack is
+        # missing — it is committed, so absence is a regression.
+        if [ ! -d "System/CXNeon/Graphics" ] || [ ! -d "System/CXNeon/Sounds" ]; then
+          echo "::error::CX Neon pack missing from repo (System/CXNeon/Graphics or Sounds). Run tools/skingen/ and tools/sfxgen/ to produce it before merging." >&2
+          exit 1
+        fi
+        # sfxgen validate decodes every OGG via ffmpeg; install a full
+        # OGG/Vorbis-capable build so _decode_ok doesn't fail-close every
+        # sound and false-positive the gate. brew exits 0 when already installed.
+        brew install ffmpeg
+        python tools/skingen/skingen.py validate
+        python tools/sfxgen/sfxgen.py validate
 
   gameplay-e2e-windows:
     runs-on: windows-latest

@@ -19,6 +19,21 @@ namespace DTXMania.Game.Lib.Song.Components
     /// DTXManiaNX-compatible status panel for displaying detailed song information
     /// Equivalent to CActSelectStatusPanel from DTXManiaNX
     /// </summary>
+    /// <remarks>
+    /// LIFETIME CONTRACT: This panel loads ~12 reference-counted ITexture handles
+    /// in <see cref="InitializeAuthenticGraphics"/>, which must be called once after
+    /// construction before the panel is drawn. The handles are released in
+    /// <see cref="Dispose(bool)"/>. The panel is owned by SongSelectionStage's
+    /// UIManager (added as a child of _mainPanel), and SongSelectionStage rebuilds
+    /// the entire UIManager on every Activate/Deactivate cycle — so a fresh
+    /// SongStatusPanel is constructed and re-loaded with fresh textures each time
+    /// the stage activates. Do NOT cache a SongStatusPanel instance across
+    /// activations: the previous UIManager's Dispose cascades to this panel and
+    /// releases all 12 handles, leaving the fields pointing at disposed textures.
+    /// If the UIManager-rebuild contract ever changes, InitializeAuthenticGraphics
+    /// must be re-called before any Draw, or the panel will hit the
+    /// ManagedTexture use-after-dispose Debug.Assert.
+    /// </remarks>
     public class SongStatusPanel : UIElement
     {
         #region Constants
@@ -42,7 +57,10 @@ namespace DTXMania.Game.Lib.Song.Components
         private DefaultGraphicsGenerator _graphicsGenerator;
         private GraphicsDevice _cachedGraphicsDevice;
 
-        // DTXManiaNX authentic graphics (Phase 3)
+        // DTXManiaNX authentic graphics (Phase 3). All ~12 ITexture handles below
+        // are loaded by InitializeAuthenticGraphics and released by Dispose; see
+        // the class-level LIFETIME CONTRACT remark for the rebuild-on-activate
+        // invariant the stage relies on.
         private ITexture _statusPanelTexture;
         private IResourceManager _resourceManager;
 
