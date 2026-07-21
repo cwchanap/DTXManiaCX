@@ -46,6 +46,12 @@ namespace DTXMania.Game.Lib.Stage
 
         private IConfigManager _configManager;
         private SkinManager? _skinManager;
+        // Disambiguated skin options (path + label) captured during
+        // SetupConfigItems. Used to build the dropdown and to resolve the
+        // current skin's displayed label, so a custom skin whose leaf name
+        // collides with "Default" still shows its disambiguated label (e.g.
+        // "Default (System)") rather than the bare colliding label.
+        private IReadOnlyList<SkinManager.SkinOption> _skinOptions = Array.Empty<SkinManager.SkinOption>();
         // Full path of the active skin when it lives outside the discovered system
         // skins (e.g. a dev-preview checkout). Captured during SetupConfigItems so
         // SwitchSkin can re-select it by path after the player switches away —
@@ -478,10 +484,14 @@ namespace DTXMania.Game.Lib.Stage
             {
                 _skinManager?.Dispose();
                 _skinManager = new SkinManager(_game.ResourceManager, _configManager.Config.SystemSkinRoot);
-                var availableSkinPaths = _skinManager.AvailableSystemSkins.ToList();
-                var defaultSkinPath = _skinManager.DefaultSkinPath;
-                var skinNames = availableSkinPaths
-                    .Select(path => SkinManager.GetSkinName(path, defaultSkinPath))
+                // Build the dropdown from the disambiguated options so a custom
+                // skin whose leaf collides with "Default" gets a distinct label
+                // (e.g. "Default (System)") and remains selectable. Switching
+                // back is resolved by the same labels via SwitchToSystemSkin.
+                _skinOptions = _skinManager.GetAvailableSkinOptions();
+                var availableSkinPaths = _skinOptions.Select(o => o.Path).ToList();
+                var skinNames = _skinOptions
+                    .Select(o => o.Name)
                     .Where(name => !string.IsNullOrEmpty(name))
                     .ToList();
 
@@ -495,7 +505,7 @@ namespace DTXMania.Game.Lib.Stage
                 _externalSkinPath = null;
                 _externalSkinLabel = null;
                 var currentSkinPath = _game.ResourceManager.GetCurrentEffectiveSkinPath();
-                var currentSkinName = SkinManager.GetSkinName(currentSkinPath, _skinManager?.DefaultSkinPath);
+                var currentSkinName = GetCurrentSkinName();
                 // A current path that doesn't validate on disk is only "current"
                 // because ResourceManager falls back to the bundled root for asset
                 // resolution — it isn't a real selectable skin. Treat it as known
@@ -625,8 +635,46 @@ namespace DTXMania.Game.Lib.Stage
             if (!SkinManager.ValidateSkinPath(path))
                 return "Default";
 
+            // Prefer the disambiguated label from the captured options so a
+            // current skin whose leaf collides with "Default" shows its
+            // disambiguated label (e.g. "Default (System)") and matches the
+            // dropdown entry instead of falling back to the bare colliding
+            // label, which would leave the dropdown highlighting nothing.
+            if (TryGetDisambiguatedSkinName(path, out var disambiguated))
+                return disambiguated;
+
             var name = SkinManager.GetSkinName(path, _skinManager?.DefaultSkinPath);
             return string.IsNullOrEmpty(name) ? "Default" : name;
+        }
+
+        private bool TryGetDisambiguatedSkinName(string path, out string name)
+        {
+            name = string.Empty;
+            if (_skinOptions.Count == 0 || string.IsNullOrEmpty(path))
+                return false;
+
+            string Normalize(string p)
+            {
+                try
+                {
+                    return Path.GetFullPath(p.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+                }
+                catch
+                {
+                    return p.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                }
+            }
+
+            var normalized = Normalize(path);
+            foreach (var option in _skinOptions)
+            {
+                if (string.Equals(normalized, Normalize(option.Path), StringComparison.OrdinalIgnoreCase))
+                {
+                    name = option.Name;
+                    return !string.IsNullOrEmpty(name);
+                }
+            }
+            return false;
         }
 
         private static bool IsSameSkinPath(string candidate, IEnumerable<string> knownPaths)
