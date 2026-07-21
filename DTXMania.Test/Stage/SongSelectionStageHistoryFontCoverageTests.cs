@@ -1,6 +1,7 @@
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Test.TestData;
+using Microsoft.Xna.Framework.Graphics;
 using Moq;
 using Xunit;
 
@@ -23,8 +24,7 @@ namespace DTXMania.Test.Stage
             }));
             resourceManager.Setup(value => value.LoadFont("ShareTechMono", 18))
                 .Returns(historyFont.Object);
-            var stage = new SongSelectionStage(ReflectionHelpers.CreateGame(resourceManager.Object));
-            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+            var stage = CreateStage(resourceManager);
 
             ReflectionHelpers.InvokePrivateMethod(stage, "InitializeUI", uiFont.Object);
 
@@ -45,8 +45,7 @@ namespace DTXMania.Test.Stage
             }));
             resourceManager.Setup(value => value.LoadFont("BrokenHistory", 21))
                 .Throws(new System.InvalidOperationException("history font unavailable"));
-            var stage = new SongSelectionStage(ReflectionHelpers.CreateGame(resourceManager.Object));
-            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+            var stage = CreateStage(resourceManager);
 
             var exception = Record.Exception(() =>
                 ReflectionHelpers.InvokePrivateMethod(stage, "InitializeUI", uiFont.Object));
@@ -54,6 +53,19 @@ namespace DTXMania.Test.Stage
             Assert.Null(exception);
             Assert.Null(ReflectionHelpers.GetPrivateField<IFont>(stage, "_historyFont"));
             resourceManager.Verify(value => value.LoadFont("BrokenHistory", 21), Times.Once);
+        }
+
+        private static SongSelectionStage CreateStage(Mock<IResourceManager> resourceManager)
+        {
+            var game = new Mock<IStageGame>();
+            game.SetupGet(value => value.GraphicsDevice)
+                .Returns(ReflectionHelpers.CreateUninitialized<GraphicsDevice>());
+            game.SetupGet(value => value.ResourceManager).Returns(resourceManager.Object);
+
+            var stage = ReflectionHelpers.CreateUninitialized<SongSelectionStage>();
+            ReflectionHelpers.SetPrivateField(stage, "_game", game.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+            return stage;
         }
     }
 }
