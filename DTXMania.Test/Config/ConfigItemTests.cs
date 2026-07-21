@@ -126,6 +126,42 @@ namespace DTXMania.Test.Config
             Assert.True(eventRaised);
         }
 
+        [Fact]
+        public void ResyncFromCurrent_AfterRejectedAdvance_ShouldRepinIndexToCurrentValue()
+        {
+            // Simulates a rejected switch: NextValue advances the index and
+            // invokes setValue, but the caller's current value does not
+            // actually change (the switch was rejected externally). Without
+            // ResyncFromCurrent the index stays on the rejected option, so
+            // the next NextValue wraps from the wrong position. Resyncing
+            // from the still-current value re-pins the index so the next
+            // advance re-attempts the rejected entry.
+            _currentValue = "Option1";
+            var item = CreateItem();
+            // NextValue advances the index to Option2 and calls setValue, but
+            // we simulate a rejected switch by immediately reverting.
+            item.NextValue();
+            _currentValue = "Option1"; // external rejection — value unchanged
+            // The dropdown's index is now on Option2 while the current value
+            // is Option1. Resync pins it back to Option1.
+            item.ResyncFromCurrent();
+            // The next NextValue should advance to Option2 again (not wrap to
+            // Option1), proving the index was re-pinned to Option1.
+            item.NextValue();
+            Assert.Equal("Option2", _currentValue);
+        }
+
+        [Fact]
+        public void ResyncFromCurrent_WhenCurrentValueNotInOptions_ShouldFallBackToZero()
+        {
+            _currentValue = "Unlisted";
+            var item = CreateItem();
+            item.ResyncFromCurrent();
+            // Falls back to index 0, so NextValue advances to Option2.
+            item.NextValue();
+            Assert.Equal("Option2", _currentValue);
+        }
+
         #endregion
 
         #region PreviousValue Tests

@@ -125,6 +125,48 @@ namespace DTXMania.Test.Config
         }
 
         [Fact]
+        public void SkinDropdown_NextValue_WithFailedSwitch_ShouldResyncIndexAndRetryOnNextAttempt()
+        {
+            // Regression guard: DropdownConfigItem.NextValue advances the
+            // private index BEFORE invoking the setValue callback (SwitchSkin).
+            // When the switch fails (e.g. the target skin disappeared between
+            // discovery and selection), the index is left on the rejected
+            // option while GetCurrentSkinName still reports the old skin. The
+            // next NextValue would then wrap from the wrong index and skip the
+            // retry. SwitchSkin must resync the dropdown index on failure so
+            // the next attempt re-tries the rejected entry once it is valid
+            // again.
+            var (stage, _, resourceManager, inputManager) = CreateStage();
+            using (inputManager)
+            {
+                ReflectionHelpers.InvokePrivateMethod(stage, "SetupConfigItems");
+                var item = GetSkinItem(stage);
+
+                // Delete CXNeon so the first NextValue's switch fails validation.
+                Directory.Delete(Path.Combine(_skinRoot, "CXNeon"), recursive: true);
+
+                // First NextValue: dropdown advances to CXNeon, SwitchSkin
+                // fails (skin no longer validates), index resyncs to Default.
+                item.NextValue();
+                Assert.Contains("System", resourceManager.GetCurrentEffectiveSkinPath());
+                Assert.DoesNotContain("CXNeon", resourceManager.GetCurrentEffectiveSkinPath());
+                Assert.Equal("Skin: Default", item.GetDisplayText());
+
+                // Recreate CXNeon so the next attempt can succeed.
+                CreateSkin(Path.Combine(_skinRoot, "CXNeon"));
+
+                // Second NextValue: with the resync fix the index was pinned
+                // back to Default, so this advances to CXNeon again and the
+                // switch now succeeds. Without the fix the index was left on
+                // CXNeon, so this wraps to Default and switches to Default
+                // (already active) — CXNeon would be silently skipped.
+                item.NextValue();
+                Assert.Contains("CXNeon", resourceManager.GetCurrentEffectiveSkinPath());
+                Assert.Equal("Skin: CXNeon", item.GetDisplayText());
+            }
+        }
+
+        [Fact]
         public void SkinDropdown_DisplayText_ShouldTrackEffectiveSkin()
         {
             var (stage, _, resourceManager, inputManager) = CreateStage();

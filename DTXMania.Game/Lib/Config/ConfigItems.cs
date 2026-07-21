@@ -82,10 +82,25 @@ namespace DTXMania.Game.Lib.Config
                 throw new ArgumentException("Available values cannot be empty", nameof(availableValues));
 
             // Find current index
+            _currentIndex = ResolveCurrentIndex();
+        }
+
+        /// <summary>
+        /// Recomputes <see cref="_currentIndex"/> from the current value
+        /// reported by <see cref="_getCurrentValue"/>. Callers that reject a
+        /// switch (e.g. a skin switch whose target disappears after the
+        /// dropdown has already advanced its index) should invoke this to
+        /// re-pin the index to the still-effective value; otherwise the next
+        /// Previous/Next action starts from the rejected entry and can skip
+        /// or retry options.
+        /// </summary>
+        public void ResyncFromCurrent() => _currentIndex = ResolveCurrentIndex();
+
+        private int ResolveCurrentIndex()
+        {
             var currentValue = _getCurrentValue();
-            _currentIndex = Array.IndexOf(_availableValues, currentValue);
-            if (_currentIndex < 0)
-                _currentIndex = 0;
+            var index = Array.IndexOf(_availableValues, currentValue);
+            return index < 0 ? 0 : index;
         }
 
         public override string GetDisplayText()

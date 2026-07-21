@@ -507,6 +507,43 @@ namespace DTXMania.Test.Resources
             Assert.DoesNotContain(names, n => n.Contains('('));
         }
 
+        [Fact]
+        public void GetAvailableSkinOptions_WithDisambiguatedLabelCollidingWithLiteralDir_KeepsLabelsUnique()
+        {
+            // Regression guard: when the system skin root is literally named
+            // "System" (the production layout), a colliding <root>/Default/
+            // disambiguates to "Default (System)". A separate <root>/
+            // "Default (System)" directory has that exact string as its base
+            // label. The literal entry bypassed the `collisions` set (its
+            // base label appeared only once), so without comparing every
+            // candidate against `used` the dropdown showed two identical
+            // "Default (System)" labels and GetSkinPathFromName could only
+            // resolve one of them.
+            var systemRoot = Path.Combine(_testSkinRoot, "System");
+            CreateTestSkinAt(systemRoot);
+            CreateTestSkinAt(Path.Combine(systemRoot, "Default"));
+            CreateTestSkinAt(Path.Combine(systemRoot, "Default (System)"));
+            System.Threading.Thread.Sleep(20);
+
+            using var skinManager = new SkinManager(_mockResourceManager.Object, systemRoot);
+            skinManager.RefreshAvailableSkins();
+
+            var options = skinManager.GetAvailableSkinOptions();
+            var names = options.Select(o => o.Name).ToList();
+
+            // Every dropdown label must be unique so each skin is selectable.
+            Assert.Equal(names.Count, names.Distinct(StringComparer.OrdinalIgnoreCase).Count());
+            // The actual default root keeps the bare "Default" label.
+            Assert.Contains("Default", names, StringComparer.OrdinalIgnoreCase);
+            // All three skins have a "Default"-prefixed label: the bare
+            // default root, the colliding <root>/Default/ disambiguated to
+            // "Default (System)", and the literal <root>/Default (System)/
+            // further disambiguated because "Default (System)" was already
+            // taken. Each must be distinct so GetSkinPathFromName can resolve
+            // every skin.
+            Assert.Equal(3, names.Count(n => n.StartsWith("Default", StringComparison.OrdinalIgnoreCase)));
+        }
+
         #endregion
 
         #region Helper Methods
