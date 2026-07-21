@@ -814,7 +814,11 @@ namespace DTXMania.Test.Stage
             stage.Dispose();
 
             menuTexture.Verify(x => x.RemoveReference(), Times.Once);
-            resourceManager.Verify(x => x.Dispose(), Times.Once);
+            // _resourceManager is the shared game-level instance
+            // (_game.ResourceManager), not a stage-owned one. Other stages
+            // reuse it after TitleStage deactivates, so Dispose must NOT be
+            // called here — only the local field reference is dropped.
+            resourceManager.Verify(x => x.Dispose(), Times.Never);
             cursorSound.Verify(x => x.Dispose(), Times.Once);
             selectSound.Verify(x => x.Dispose(), Times.Once);
             gameStartSound.Verify(x => x.Dispose(), Times.Once);

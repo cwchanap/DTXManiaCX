@@ -99,38 +99,49 @@ jobs:
             Write-Host 'CX Neon pack not yet produced — skipping pack validation.'
             exit 0
           }
+          # $ErrorActionPreference does not propagate to native commands in
+          # pwsh, so a non-zero exit from pip/choco/python/dotnet would be
+          # silently swallowed and the step would succeed. Mirror the macOS
+          # leg (shell: bash, where `set -e` is the GitHub Actions default)
+          # by checking $LASTEXITCODE after every native invocation. Without
+          # this, skingen.py validate could exit 1 on a corrupt image while
+          # CxNeonPackTests (File.Exists only) passes and a broken asset ships.
           pip install "Pillow>=10,<12"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # sfxgen validate decodes every OGG via ffmpeg; ensure a full
           # OGG/Vorbis-capable build is on PATH before running it.
           choco install ffmpeg -y --no-progress
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tools/skingen/skingen.py validate
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tools/sfxgen/sfxgen.py validate
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           dotnet test DTXMania.Test/DTXMania.Test.csproj `
             --configuration Release `
             --filter 'FullyQualifiedName~CxNeonPackTests' `
             --verbosity normal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Stage base System skin (flatten CX Neon or fall back to repo System)
+      - name: Stage base System skin (flatten CX Neon; fail if pack is missing)
         shell: pwsh
         run: |
           # Flatten the CX Neon pack into the base System layout the
           # ResourceManager expects (Graphics/, Sounds/, Theme.ini at the System
-          # root) and pass the staging dir to Inno Setup via SystemSkinDir. When
-          # the pack has not been produced yet, fall back to the repo-root System\
-          # so releases keep shipping the legacy skin until CX Neon is ready.
-          # Mirrors the build-and-test.yml build-artifacts bundle step.
+          # root) and pass the staging dir to Inno Setup via SystemSkinDir.
+          #
+          # Fail-closed: the CX Neon pack is complete and committed, so a missing
+          # Graphics/ or Sounds/ is a real regression, not an interim state. The
+          # prior ::warning:: fallback shipped repo-root System\ — which contains
+          # NX/GITADORA-derived assets the project no longer has rights to
+          # redistribute — and was only acceptable while the pack was being
+          # produced. Produce the pack via tools/skingen/ and tools/sfxgen/ before
+          # cutting a release.
           $dest = Join-Path $PWD 'publish\system-skin'
           if (-not (Test-Path 'System/CXNeon/Graphics') -or -not (Test-Path 'System/CXNeon/Sounds')) {
-            # ::warning:: surfaces as a GitHub Actions annotation on this step
-            # so the release isn't silently shipping NX/GITADORA-derived assets.
-            # The fallback is intentional (interim) per the spec decision; this
-            # annotation makes the gap visible on every release that hits it.
             $missing = @()
             if (-not (Test-Path 'System/CXNeon/Graphics')) { $missing += 'Graphics' }
             if (-not (Test-Path 'System/CXNeon/Sounds'))   { $missing += 'Sounds' }
-            Write-Host "::warning::CX Neon pack incomplete ($($missing -join ', ') missing under System/CXNeon/). Shipping repo-root System\ as-is, which contains NX/GITADORA-derived assets. Produce the CX Neon pack via tools/skingen/ and tools/sfxgen/ to ship the CX Neon skin in releases."
-            "SYSTEM_SKIN_DIR=$(Join-Path $PWD 'System')" | Out-File -FilePath $env:GITHUB_ENV -Append
-            exit 0
+            throw "CX Neon pack incomplete ($($missing -join ', ') missing under System/CXNeon/). Refusing to ship repo-root System\ (NX/GITADORA-derived assets). Produce the pack via tools/skingen/ and tools/sfxgen/ before releasing."
           }
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
           Copy-Item -Path 'System/CXNeon/Graphics' -Destination "$dest/Graphics" -Recurse -Force
@@ -330,25 +341,25 @@ jobs:
             --filter 'FullyQualifiedName~CxNeonPackTests' \
             --verbosity normal
 
-      - name: Stage base System skin (flatten CX Neon or fall back to repo System)
+      - name: Stage base System skin (flatten CX Neon; fail if pack is missing)
         run: |
           # Flatten the CX Neon pack into the base System layout the
           # ResourceManager expects (Graphics/, Sounds/, Theme.ini at the System
-          # root) and pass the staging dir to build-dmg.sh. When the pack has not
-          # been produced yet, fall back to the repo-root System/ so releases keep
-          # shipping the legacy skin until CX Neon is ready. Mirrors the
-          # build-and-test.yml build-artifacts bundle step.
+          # root) and pass the staging dir to build-dmg.sh.
+          #
+          # Fail-closed: the CX Neon pack is complete and committed, so a missing
+          # Graphics/ or Sounds/ is a real regression, not an interim state. The
+          # prior ::warning:: fallback shipped repo-root System/ — which contains
+          # NX/GITADORA-derived assets the project no longer has rights to
+          # redistribute — and was only acceptable while the pack was being
+          # produced. Produce the pack via tools/skingen/ and tools/sfxgen/ before
+          # cutting a release. Mirrors the windows-installer leg.
           if [ ! -d "System/CXNeon/Graphics" ] || [ ! -d "System/CXNeon/Sounds" ]; then
-            # ::warning:: surfaces as a GitHub Actions annotation on this step
-            # so the release isn't silently shipping NX/GITADORA-derived assets.
-            # The fallback is intentional (interim) per the spec decision; this
-            # annotation makes the gap visible on every release that hits it.
             missing=""
             [ ! -d "System/CXNeon/Graphics" ] && missing="Graphics"
             [ ! -d "System/CXNeon/Sounds" ]   && missing="${missing:+$missing, }Sounds"
-            echo "::warning::CX Neon pack incomplete (${missing:-unknown} missing under System/CXNeon/). Shipping repo-root System/ as-is, which contains NX/GITADORA-derived assets. Produce the CX Neon pack via tools/skingen/ and tools/sfxgen/ to ship the CX Neon skin in releases."
-            echo "SYSTEM_SKIN_DIR=$PWD/System" >> "$GITHUB_ENV"
-            exit 0
+            echo "::error::CX Neon pack incomplete (${missing:-unknown} missing under System/CXNeon/). Refusing to ship repo-root System/ (NX/GITADORA-derived assets). Produce the pack via tools/skingen/ and tools/sfxgen/ before releasing." >&2
+            exit 1
           fi
           dest="$PWD/publish/system-skin"
           mkdir -p "$dest"

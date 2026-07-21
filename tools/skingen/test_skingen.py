@@ -5,6 +5,7 @@ import unittest
 
 from PIL import Image
 
+import generate_source
 import skingen
 
 
@@ -487,6 +488,59 @@ class PromptsTests(unittest.TestCase):
         out = os.path.join(self.tmp.name, "PROMPTS.md")
         missing = skingen.render_prompts(manifest, descriptors, "S", out)
         self.assertEqual(missing, ["Graphics/uncovered.png"])
+
+
+class GenerateSourceSmokeTests(unittest.TestCase):
+    """Smoke test for generate_source.py (951 lines, previously zero coverage).
+
+    build_all() procedurally generates every CX Neon source image and writes
+    them to SOURCE_ROOT. The test patches SOURCE_ROOT to a temp dir so the
+    real source/ tree is untouched, then asserts the generator produces a
+    non-trivial set of valid, decodable images — catching regressions where
+    a refactor silently breaks a whole family of assets (e.g. a bad font
+    path makes every text sheet empty, or a color helper returns None and
+    every panel becomes a 0x0 image).
+    """
+
+    def test_build_all_produces_valid_source_images(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            original_root = generate_source.SOURCE_ROOT
+            original_force = generate_source.FORCE_OVERWRITE
+            generate_source.SOURCE_ROOT = tmp
+            generate_source.FORCE_OVERWRITE = True
+            try:
+                sources = generate_source.build_all()
+            finally:
+                generate_source.SOURCE_ROOT = original_root
+                generate_source.FORCE_OVERWRITE = original_force
+
+            # The shipped pack has 134 Graphics assets; accept any non-trivial
+            # count so the test doesn't break when new assets are added, but
+            # catches a refactor that silently empties half the output.
+            self.assertGreater(
+                len(sources), 100,
+                "build_all() produced too few sources — likely a regression "
+                "in a generator branch (expected >100, got %d)" % len(sources))
+
+            # Key stage backgrounds that must always be present:
+            for key in ("Graphics/1_background.jpg",
+                        "Graphics/2_background.jpg",
+                        "Graphics/7_background.jpg",
+                        "Graphics/8_background.jpg"):
+                self.assertIn(key, sources,
+                              "build_all() missing key asset: %s" % key)
+
+            # A sample of written files must exist and fully decode (not just
+            # have a valid header — img.load() forces the pixel decode, same
+            # standard as skingen.validate_pack uses).
+            for rel, source_rel in list(sources.items())[:5]:
+                path = os.path.join(tmp, source_rel)
+                self.assertTrue(os.path.isfile(path),
+                                "build_all() did not write %s" % source_rel)
+                with Image.open(path) as img:
+                    img.load()
+                    self.assertGreater(img.size[0], 0)
+                    self.assertGreater(img.size[1], 0)
 
 
 if __name__ == "__main__":

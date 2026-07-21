@@ -215,15 +215,20 @@ namespace DTXMania.Game.Lib.Resources
 
         #region Drawing Methods
 
-        // Debug-only use-after-dispose guard. EvictSkinDependentCache disposes cached
-        // textures directly (bypassing refcounting) on skin switch; any stage that draws
-        // a skin-dependent texture between SkinChanged and its own OnActivate hits a
-        // disposed GPU resource. The assert makes that contract violation loud in debug
-        // builds. See ResourceManager.EvictSkinDependentCache remarks for the full invariant.
+        // Debug-only use-after-dispose guard. The most common path is
+        // EvictSkinDependentCache disposing cached textures directly (bypassing
+        // refcounting) on skin switch; any stage that draws a skin-dependent
+        // texture between SkinChanged and its own OnActivate hits a disposed GPU
+        // resource. Other paths (explicit Dispose, ResourceManager teardown) can
+        // also trip the assert. The assert makes any such contract violation
+        // loud in debug builds. See ResourceManager.EvictSkinDependentCache
+        // remarks for the skin-switch invariant.
         private const string UseAfterDisposeMessage =
-            "ManagedTexture.Draw called after Dispose. A stage drew a skin-dependent " +
-            "texture between SkinChanged and its own OnActivate; stages must reload on " +
-            "OnActivate before drawing. See ResourceManager.EvictSkinDependentCache.";
+            "ManagedTexture.Draw called after Dispose. The texture was disposed " +
+            "(commonly by EvictSkinDependentCache during a skin switch — stages " +
+            "must reload skin-dependent textures on OnActivate before drawing; " +
+            "other dispose paths are explicit Dispose or ResourceManager teardown). " +
+            "See ResourceManager.EvictSkinDependentCache.";
 
         public void Draw(SpriteBatch spriteBatch, Vector2 position)
         {
