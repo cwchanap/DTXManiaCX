@@ -534,7 +534,22 @@ namespace DTXMania.Game.Lib.Stage
                 {
                     var label = currentSkinName;
                     if (skinNames.Contains(currentSkinName, StringComparer.OrdinalIgnoreCase))
-                        label = currentSkinName + " (external)";
+                    {
+                        // Generate a label unique across ALL existing entries — not
+                        // just the colliding bare name. A system skin literally named
+                        // "Foo (external)" would otherwise duplicate the suffix we
+                        // pick for an external "Foo", and SwitchSkin routes every
+                        // label matching _externalSkinLabel to the external path,
+                        // making the colliding system skin unreachable.
+                        var baseLabel = currentSkinName + " (external)";
+                        label = baseLabel;
+                        var suffix = 2;
+                        while (skinNames.Contains(label, StringComparer.OrdinalIgnoreCase))
+                        {
+                            label = $"{baseLabel} {suffix}";
+                            suffix++;
+                        }
+                    }
                     skinNames.Insert(0, label);
                     // Remember the full path so SwitchSkin can re-select this skin by
                     // path — SwitchToSystemSkin only resolves discovered system skins.

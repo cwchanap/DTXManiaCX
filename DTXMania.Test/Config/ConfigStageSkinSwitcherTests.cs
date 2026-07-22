@@ -357,6 +357,61 @@ namespace DTXMania.Test.Config
         }
 
         [Fact]
+        public void SetupConfigItems_WithExternalSkinCollidingOnExternalSuffix_ShouldProduceUniqueLabel()
+        {
+            // Regression: when an external skin is named "Foo" and the discovered
+            // system skins include both "Foo" (which triggers the " (external)"
+            // suffix) and "Foo (external)" (which collides with that suffix), the
+            // old logic produced two dropdown entries both labeled "Foo (external)".
+            // SwitchSkin routes every label matching _externalSkinLabel to the
+            // external path, so the system skin "Foo (external)" was unreachable.
+            // The external label must be disambiguated against ALL existing
+            // labels, not just the bare colliding name.
+            var externalSkinDir = Path.Combine(_tempBase, "ExternalSkins", "Foo");
+            CreateSkin(externalSkinDir);
+            var externalSkinPath = externalSkinDir + Path.DirectorySeparatorChar;
+            // System skin named "Foo" (triggers the suffix) and a second system
+            // skin literally named "Foo (external)" (collides with the suffix).
+            CreateSkin(Path.Combine(_skinRoot, "Foo"));
+            CreateSkin(Path.Combine(_skinRoot, "Foo (external)"));
+
+            var (stage, configManager, resourceManager, inputManager) = CreateStage();
+            using (inputManager)
+            {
+                // Start on the external "Foo" skin so SetupConfigItems treats it
+                // as current and inserts an external entry.
+                resourceManager.SetSkinPath(externalSkinPath);
+                configManager.Config.SkinPath = externalSkinPath;
+
+                ReflectionHelpers.InvokePrivateMethod(stage, "SetupConfigItems");
+
+                var item = GetSkinItem(stage) as DropdownConfigItem;
+                Assert.NotNull(item);
+                var options = ReflectionHelpers.GetPrivateField<string[]>(item, "_availableValues");
+
+                // No duplicate labels allowed.
+                var distinctCount = options.Select(o => o).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+                Assert.Equal(options.Length, distinctCount);
+
+                // The external entry must be disambiguated beyond "Foo (external)"
+                // (which is the system skin's label) — expect "Foo (external) 2".
+                Assert.Contains("Foo (external) 2", options);
+                Assert.Contains("Foo (external)", options);
+
+                // The system skin "Foo (external)" must remain reachable: its
+                // label does NOT match _externalSkinLabel, so SwitchSkin falls
+                // through to SwitchToSystemSkin.
+                var externalLabel = ReflectionHelpers.GetPrivateField<string?>(stage, "_externalSkinLabel");
+                Assert.Equal("Foo (external) 2", externalLabel);
+
+                ReflectionHelpers.InvokePrivateMethod(stage, "SwitchSkin", "Foo (external)");
+                var effective = resourceManager.GetCurrentEffectiveSkinPath();
+                Assert.Contains("Foo (external)", effective);
+                Assert.DoesNotContain("ExternalSkins", effective);
+            }
+        }
+
+        [Fact]
         public void SetupConfigItems_WithInvalidCurrentSkinPath_ShouldNotRegisterExternalEntry()
         {
             // When the current skin path is invalid (e.g. an app-data System
