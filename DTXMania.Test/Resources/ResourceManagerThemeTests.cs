@@ -115,20 +115,45 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
-        public void CurrentTheme_WithFallbackSkinTheme_ShouldUseFallbackWhenEffectiveHasNone()
+        public void CurrentTheme_WithFallbackSkinTheme_ShouldUseFallbackWhenEffectiveIsDefaultAndHasNone()
         {
-            // Effective skin has no Theme.ini; the fallback skin path does.
-            // ResolveThemeFilePath should skip the effective path and load from fallback.
-            var skinWithoutTheme = Path.Combine(_testDataPath, "System", "NoTheme");
-            Directory.CreateDirectory(skinWithoutTheme);
-            _resourceManager.SetSkinPath(skinWithoutTheme);
+            // The default skin (effective == _fallbackSkinPath) has no Theme.ini
+            // at the effective path, but the fallback path (same directory, just
+            // the redundant second tier) also misses. The bundled tier has one.
+            // This verifies the isDefaultSkin gate allows the bundled tier for
+            // the default skin when both effective and fallback tiers miss.
+            var defaultSkin = Path.Combine(_testDataPath, "System", "DefaultEmpty");
+            Directory.CreateDirectory(defaultSkin);
+            SetPrivateField(_resourceManager, "_fallbackSkinPath", defaultSkin + Path.DirectorySeparatorChar);
+            _resourceManager.SetSkinPath(defaultSkin);
+
+            var bundledSkin = Path.Combine(_testDataPath, "System", "BundledSkin");
+            Directory.CreateDirectory(bundledSkin);
+            File.WriteAllText(Path.Combine(bundledSkin, "Theme.ini"), "UI.Accent=#EF4444\n");
+            SetPrivateField(_resourceManager, "_bundledSystemSkinRoot", bundledSkin + Path.DirectorySeparatorChar);
+
+            // Default skin has no Theme.ini; bundled tier provides it.
+            Assert.Equal(new Color(0xEF, 0x44, 0x44), _resourceManager.CurrentTheme.GetColor("UI.Accent", Color.White));
+        }
+
+        [Fact]
+        public void CurrentTheme_WithCustomSkinAndNoTheme_ShouldReturnEmptyNotFallback()
+        {
+            // A custom/box.def skin (effective != _fallbackSkinPath) without
+            // Theme.ini must return Empty — no fallback or bundled tier. This
+            // preserves byte-identical NX behavior for legacy skins and prevents
+            // CX Neon layout overrides from leaking into custom artwork.
+            var customSkin = Path.Combine(_testDataPath, "System", "CustomNoTheme");
+            Directory.CreateDirectory(customSkin);
+            _resourceManager.SetSkinPath(customSkin);
 
             var fallbackSkin = Path.Combine(_testDataPath, "System", "FallbackSkin");
             Directory.CreateDirectory(fallbackSkin);
             File.WriteAllText(Path.Combine(fallbackSkin, "Theme.ini"), "UI.Accent=#EF4444\n");
             SetPrivateField(_resourceManager, "_fallbackSkinPath", fallbackSkin + Path.DirectorySeparatorChar);
 
-            Assert.Equal(new Color(0xEF, 0x44, 0x44), _resourceManager.CurrentTheme.GetColor("UI.Accent", Color.White));
+            // Custom skin has no Theme.ini and is NOT the default → Empty.
+            Assert.Equal(Color.Red, _resourceManager.CurrentTheme.GetColor("UI.Accent", Color.Red));
         }
 
         [Fact]
@@ -165,18 +190,16 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
-        public void CurrentTheme_WithBundledSkinTheme_ShouldUseBundledWhenNeitherEffectiveNorFallbackHasOne()
+        public void CurrentTheme_WithBundledSkinTheme_ShouldUseBundledWhenDefaultSkinHasNoTheme()
         {
-            // Neither effective nor fallback skin has Theme.ini, but the bundled
-            // System skin root does. ResolveThemeFilePath should fall through both
-            // and load from the bundled tier.
-            var skinWithoutTheme = Path.Combine(_testDataPath, "System", "NoTheme");
-            Directory.CreateDirectory(skinWithoutTheme);
-            _resourceManager.SetSkinPath(skinWithoutTheme);
-
-            var fallbackWithoutTheme = Path.Combine(_testDataPath, "System", "FallbackEmpty");
-            Directory.CreateDirectory(fallbackWithoutTheme);
-            SetPrivateField(_resourceManager, "_fallbackSkinPath", fallbackWithoutTheme + Path.DirectorySeparatorChar);
+            // The default skin (effective == _fallbackSkinPath) has no Theme.ini,
+            // and the fallback path (same as effective) also misses. The bundled
+            // System skin root has one. ResolveThemeFilePath should fall through
+            // to the bundled tier for the default skin.
+            var defaultSkin = Path.Combine(_testDataPath, "System", "DefaultEmpty");
+            Directory.CreateDirectory(defaultSkin);
+            SetPrivateField(_resourceManager, "_fallbackSkinPath", defaultSkin + Path.DirectorySeparatorChar);
+            _resourceManager.SetSkinPath(defaultSkin);
 
             var bundledSkin = Path.Combine(_testDataPath, "System", "BundledSkin");
             Directory.CreateDirectory(bundledSkin);
@@ -184,6 +207,30 @@ namespace DTXMania.Test.Resources
             SetPrivateField(_resourceManager, "_bundledSystemSkinRoot", bundledSkin + Path.DirectorySeparatorChar);
 
             Assert.Equal(new Color(0xF5, 0x9E, 0x0B), _resourceManager.CurrentTheme.GetColor("UI.Accent", Color.White));
+        }
+
+        [Fact]
+        public void CurrentTheme_WithCustomSkinAndNoTheme_ShouldNotUseBundledTheme()
+        {
+            // A custom skin (effective != _fallbackSkinPath) without Theme.ini
+            // must NOT pick up the bundled CX Neon theme — that would apply CX
+            // Neon layout overrides to artwork the theme was never designed for.
+            var customSkin = Path.Combine(_testDataPath, "System", "CustomNoTheme");
+            Directory.CreateDirectory(customSkin);
+            _resourceManager.SetSkinPath(customSkin);
+
+            var fallbackSkin = Path.Combine(_testDataPath, "System", "FallbackEmpty");
+            Directory.CreateDirectory(fallbackSkin);
+            SetPrivateField(_resourceManager, "_fallbackSkinPath", fallbackSkin + Path.DirectorySeparatorChar);
+
+            var bundledSkin = Path.Combine(_testDataPath, "System", "BundledSkin");
+            Directory.CreateDirectory(bundledSkin);
+            File.WriteAllText(Path.Combine(bundledSkin, "Theme.ini"), "UI.Accent=#F59E0B\n");
+            SetPrivateField(_resourceManager, "_bundledSystemSkinRoot", bundledSkin + Path.DirectorySeparatorChar);
+
+            // Custom skin has no Theme.ini and is NOT the default → Empty,
+            // even though the bundled tier has a Theme.ini.
+            Assert.Equal(Color.Red, _resourceManager.CurrentTheme.GetColor("UI.Accent", Color.Red));
         }
     }
 }

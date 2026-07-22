@@ -70,6 +70,22 @@ jobs:
           -p:PublishReadyToRun=false -p:TieredCompilation=false
           -o ./publish/win
 
+      - name: Verify OFL font license files in publish output
+        shell: pwsh
+        run: |
+          # The SIL Open Font License requires every redistributed copy to
+          # include the copyright notice and license text. The .csproj copies
+          # them to Licenses/ via None + CopyToOutputDirectory. Fail the build
+          # if either file is missing from the publish output.
+          $licenses = @(
+            'publish/win/Licenses/Orbitron-OFL.txt',
+            'publish/win/Licenses/ShareTechMono-OFL.txt'
+          )
+          foreach ($f in $licenses) {
+            if (-not (Test-Path $f)) { throw "Missing OFL license file: $f" }
+            Write-Host "Found: $f"
+          }
+
       - name: Install Inno Setup
         shell: pwsh
         run: choco install innosetup --no-progress -y
@@ -233,6 +249,17 @@ jobs:
           -c Release -r osx-arm64 --self-contained
           -p:PublishReadyToRun=false -p:TieredCompilation=false
           -o ./publish/mac
+
+      - name: Verify OFL font license files in publish output
+        run: |
+          # The SIL Open Font License requires every redistributed copy to
+          # include the copyright notice and license text. The .csproj copies
+          # them to Licenses/ via None + CopyToOutputDirectory. Fail the build
+          # if either file is missing from the publish output.
+          for f in publish/mac/Licenses/Orbitron-OFL.txt publish/mac/Licenses/ShareTechMono-OFL.txt; do
+            if [ ! -f "$f" ]; then echo "::error::Missing OFL license file: $f" >&2; exit 1; fi
+            echo "Found: $f"
+          done
 
       - name: Build native arm64 ffmpeg (MP3 decode)
         run: |

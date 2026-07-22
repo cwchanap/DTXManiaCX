@@ -722,7 +722,7 @@ namespace DTXMania.Game.Lib.Stage
             {
                 if (string.IsNullOrEmpty(known))
                     continue;
-                if (string.Equals(normalizedCandidate, Normalize(known), StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(normalizedCandidate, Normalize(known), AppPaths.SkinPathComparison))
                     return true;
             }
 

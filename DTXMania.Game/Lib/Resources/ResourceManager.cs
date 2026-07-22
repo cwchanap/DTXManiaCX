@@ -402,12 +402,12 @@ namespace DTXMania.Game.Lib.Resources
                 // component. Two skins using the same family share one cached entry,
                 // which is correct because the underlying asset is identical.
                 //
-                // OrdinalIgnoreCase matches ConfigManager.SetSkinPath's comparison so
-                // both layers agree on whether a path change is "real". A casing-only
-                // difference on a case-insensitive FS would otherwise evict the cache
-                // and raise SkinChanged here while ConfigManager treats it as a no-op,
-                // causing a restart to load the old path.
-                if (!string.Equals(oldSkinPath, _currentSkinPath, StringComparison.OrdinalIgnoreCase))
+                // AppPaths.SkinPathComparison matches ConfigManager.SetSkinPath's
+                // comparison so both layers agree on whether a path change is "real".
+                // A casing-only difference on a case-insensitive FS would otherwise
+                // evict the cache and raise SkinChanged here while ConfigManager
+                // treats it as a no-op, causing a restart to load the old path.
+                if (!string.Equals(oldSkinPath, _currentSkinPath, AppPaths.SkinPathComparison))
                 {
                     EvictSkinDependentCache();
                 }
@@ -612,7 +612,7 @@ namespace DTXMania.Game.Lib.Resources
                 }
                 _currentTheme = null;
 
-                if (!string.Equals(oldEffective, EffectiveSkinPathNoLock(), StringComparison.OrdinalIgnoreCase))
+                if (!string.Equals(oldEffective, EffectiveSkinPathNoLock(), AppPaths.SkinPathComparison))
                 {
                     EvictSkinDependentCache();
                 }
@@ -634,7 +634,7 @@ namespace DTXMania.Game.Lib.Resources
                 Debug.WriteLine($"Box.def skin usage: {(_useBoxDefSkin ? "enabled" : "disabled")}");
                 _currentTheme = null;
 
-                if (!string.Equals(oldEffective, EffectiveSkinPathNoLock(), StringComparison.OrdinalIgnoreCase))
+                if (!string.Equals(oldEffective, EffectiveSkinPathNoLock(), AppPaths.SkinPathComparison))
                 {
                     EvictSkinDependentCache();
                 }
@@ -724,7 +724,7 @@ namespace DTXMania.Game.Lib.Resources
                         if (_currentTheme != null)
                             return _currentTheme;
                         if (!string.Equals(GetCurrentEffectiveSkinPath(), loadedForSkinPath,
-                                            StringComparison.OrdinalIgnoreCase))
+                                            AppPaths.SkinPathComparison))
                             continue;
                         _currentTheme = loaded;
                         return _currentTheme;
@@ -734,11 +734,20 @@ namespace DTXMania.Game.Lib.Resources
         }
 
         /// <summary>
-        /// Finds Theme.ini using the same candidate order as texture resolution:
-        /// effective skin path, then fallback skin path, then the read-only bundled
-        /// System skin root (macOS .app / portable build). This third tier is how a
-        /// release build — where CX Neon *is* System/ — picks up its Theme.ini even
-        /// when the writable app-data skin directory doesn't have one.
+        /// Finds Theme.ini for the effective skin. Unlike texture resolution
+        /// (which falls through effective → fallback → bundled for every skin),
+        /// theme resolution is gated on whether the effective skin IS the default
+        /// skin. A custom or box.def skin without its own Theme.ini gets
+        /// <see cref="SkinTheme.Empty"/> — this preserves byte-identical NX
+        /// behavior for legacy/box.def skins and prevents CX Neon layout
+        /// overrides from leaking into skins that use different artwork.
+        ///
+        /// When the effective skin is the default (i.e. equals
+        /// <see cref="_fallbackSkinPath"/>), all three tiers are consulted:
+        /// effective, fallback, then the read-only bundled root. The bundled
+        /// tier is how a clean install — where the app-data System root is a
+        /// placeholder but CX Neon lives in the bundled root — picks up its
+        /// Theme.ini.
         /// </summary>
         /// <param name="effectiveSkinPath">
         /// Snapshot of the effective skin path from the caller so resolution and
@@ -749,6 +758,16 @@ namespace DTXMania.Game.Lib.Resources
             var effectivePath = Path.Combine(effectiveSkinPath ?? string.Empty, SkinTheme.ThemeFileName);
             if (File.Exists(effectivePath))
                 return effectivePath;
+
+            // Only the default skin consults the fallback and bundled tiers.
+            // A custom/box.def skin with no Theme.ini returns Empty so legacy
+            // skins keep NX behavior (design requirement: "NX skin behavior
+            // must stay byte-identical with no Theme.ini").
+            var isDefaultSkin = !string.IsNullOrEmpty(effectiveSkinPath)
+                && string.Equals(effectiveSkinPath, _fallbackSkinPath, AppPaths.SkinPathComparison);
+
+            if (!isDefaultSkin)
+                return string.Empty;
 
             var fallbackPath = Path.Combine(_fallbackSkinPath, SkinTheme.ThemeFileName);
             if (File.Exists(fallbackPath))
@@ -954,22 +973,38 @@ namespace DTXMania.Game.Lib.Resources
 
         private void InitializeDefaultSkinPath()
         {
-            // DTXMania pattern: Default skin uses System/Graphics/ directly, custom skins use System/{SkinName}/Graphics/
-            // Use cached app data root for testability and consistency
-            var defaultPath = NormalizePath(Path.Combine(_cachedAppDataRoot, "System"));
+            // The default skin is the bundled root ({app}\System on Windows,
+            // Contents/Resources/System on macOS) — application-managed content
+            // replaced on every upgrade. The writable app-data System root is
+            // scanned for custom skin subdirectories only; it is no longer the
+            // default skin itself. This avoids the mixed-skin problem where
+            // old NX assets in app-data shadowed the bundled CX Neon skin.
+            //
+            // Prefer the bundled root when it validates. Fall back to app-data
+            // System (e.g. dev builds with no bundled root, or users who
+            // explicitly populated app-data). Create the app-data directory
+            // structure either way so custom-skin discovery has a place to scan.
+            var appDataSystemPath = NormalizePath(Path.Combine(_cachedAppDataRoot, "System"));
 
-            if (ValidateSkinPath(defaultPath))
+            if (_bundledSystemSkinRoot != null && ValidateSkinPath(_bundledSystemSkinRoot))
             {
-                _currentSkinPath = _fallbackSkinPath = defaultPath;
-                Debug.WriteLine($"ResourceManager: Using default skin path: {defaultPath}");
+                _currentSkinPath = _fallbackSkinPath = _bundledSystemSkinRoot;
+                Debug.WriteLine($"ResourceManager: Using bundled default skin path: {_bundledSystemSkinRoot}");
+            }
+            else if (ValidateSkinPath(appDataSystemPath))
+            {
+                _currentSkinPath = _fallbackSkinPath = appDataSystemPath;
+                Debug.WriteLine($"ResourceManager: Using app-data default skin path: {appDataSystemPath}");
             }
             else
             {
-                // Fallback to System/Graphics/ even if validation fails (DTXMania compatibility)
-                _currentSkinPath = _fallbackSkinPath = defaultPath;
-                Debug.WriteLine($"ResourceManager: Fallback to default skin path: {defaultPath} (validation failed)");
-
-                // Create default skin directory structure if it doesn't exist
+                // No validating skin on disk. Use app-data System as the path
+                // (DTXMania compatibility) and create the directory structure so
+                // custom-skin discovery has a place to scan. The bundled root
+                // (if non-null but non-validating) stays as _bundledSystemSkinRoot
+                // for ResolvePath's third-tier fallback.
+                _currentSkinPath = _fallbackSkinPath = appDataSystemPath;
+                Debug.WriteLine($"ResourceManager: Fallback to app-data skin path: {appDataSystemPath} (validation failed)");
                 CreateDefaultSkinStructure();
             }
         }

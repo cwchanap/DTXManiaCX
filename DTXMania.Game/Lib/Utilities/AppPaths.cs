@@ -14,6 +14,34 @@ namespace DTXMania.Game.Lib.Utilities
         private const string AppDataRootOverrideEnvVar = "DTXMANIA_APPDATA_ROOT";
 
         /// <summary>
+        /// Platform-aware comparer for skin path equality. Windows filesystems
+        /// are case-insensitive by default (NTFS/ReFS), so OrdinalIgnoreCase
+        /// matches the OS behavior. macOS APFS is case-insensitive by default
+        /// but can be case-sensitive; Linux ext4/btrfs are always case-sensitive.
+        /// Using Ordinal on non-Windows avoids treating <c>System/Neon</c> and
+        /// <c>System/neon</c> as the same skin, which would skip cache eviction,
+        /// refuse to persist the new path, and deduplicate discovery entries on
+        /// case-sensitive volumes. Display-label comparisons (dropdown text,
+        /// skin names shown to the user) should remain OrdinalIgnoreCase
+        /// regardless of platform.
+        /// </summary>
+        public static StringComparer SkinPathComparer =>
+            OperatingSystem.IsWindows()
+                ? StringComparer.OrdinalIgnoreCase
+                : StringComparer.Ordinal;
+
+        /// <summary>
+        /// <see cref="StringComparison"/> equivalent of
+        /// <see cref="SkinPathComparer"/> for use with
+        /// <see cref="string.Equals(string, string, StringComparison)"/> and
+        /// <see cref="string.Compare(string, string, StringComparison)"/>.
+        /// </summary>
+        public static StringComparison SkinPathComparison =>
+            OperatingSystem.IsWindows()
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal;
+
+        /// <summary>
         /// Get the base application data directory for the current OS.
         /// DTXMANIA_APPDATA_ROOT overrides the OS-specific default when set.
         /// Windows: %LOCALAPPDATA%\DTXManiaCX
