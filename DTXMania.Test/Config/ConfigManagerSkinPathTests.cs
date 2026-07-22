@@ -127,5 +127,30 @@ namespace DTXMania.Test.Config
             manager3.LoadConfig(ConfigPath);
             Assert.Equal(skinB, manager3.Config.SkinPath);
         }
+
+        [Fact]
+        public void SkinPath_ContainingEqualsSign_ShouldRoundTripAcrossRestart()
+        {
+            // A directory name containing '=' is legal. The loader must split on
+            // the first '=' only so the value (which may itself contain '=') is
+            // preserved verbatim. Without a 2-count split, the line
+            // "SkinPath=/path/CX=Neon/" produces 3 pieces and is silently
+            // discarded, so the selected skin works during the current session
+            // but its configuration is lost on the next startup.
+            var skinWithEquals = Path.Combine(_tempDir, "Skins", "CX=Neon") + Path.DirectorySeparatorChar;
+            Directory.CreateDirectory(skinWithEquals);
+
+            // --- First "session": set the skin path and persist ---
+            var manager1 = new ConfigManager();
+            manager1.SetSkinPath(ConfigPath, skinWithEquals);
+            manager1.FlushPendingSave();
+            Assert.True(File.Exists(ConfigPath));
+            Assert.Contains($"SkinPath={skinWithEquals}", File.ReadAllText(ConfigPath));
+
+            // --- "Restart": new ConfigManager loads the persisted config ---
+            var manager2 = new ConfigManager();
+            manager2.LoadConfig(ConfigPath);
+            Assert.Equal(skinWithEquals, manager2.Config.SkinPath);
+        }
     }
 }
