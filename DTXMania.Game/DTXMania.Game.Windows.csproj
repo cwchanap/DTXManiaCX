@@ -32,6 +32,15 @@
     <PackageReference Include="System.Text.Encoding.CodePages" Version="9.0.17" />
   </ItemGroup>
 
+  <!-- SIL Open Font License files for Orbitron and ShareTechMono. The OFL
+       requires every redistributed copy to include the copyright notice and
+       license text. Copy them to a Licenses/ directory in the output so they
+       ship in every artifact (installer, DMG, portable). -->
+  <ItemGroup>
+    <None Include="Content\Orbitron-OFL.txt" CopyToOutputDirectory="PreserveNewest" Link="Licenses\Orbitron-OFL.txt" />
+    <None Include="Content\ShareTechMono-OFL.txt" CopyToOutputDirectory="PreserveNewest" Link="Licenses\ShareTechMono-OFL.txt" />
+  </ItemGroup>
+
   
   <Target Name="RestoreDotnetTools" BeforeTargets="Restore">
     <Message Text="Restoring dotnet tools" Importance="High" />

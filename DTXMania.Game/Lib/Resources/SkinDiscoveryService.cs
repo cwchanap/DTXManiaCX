@@ -134,7 +134,7 @@ namespace DTXMania.Game.Lib.Resources
                 var skinDirectoryName = Path.GetFileName(normalizedSkinPath);
                 skinInfo.IsDefault = string.Equals(skinInfo.Name, "Default", StringComparison.OrdinalIgnoreCase) ||
                                      string.Equals(skinDirectoryName, "System", StringComparison.OrdinalIgnoreCase) ||
-                                     string.Equals(normalizedSkinPath, normalizedSystemSkinRoot, StringComparison.OrdinalIgnoreCase);
+                                     string.Equals(normalizedSkinPath, normalizedSystemSkinRoot, AppPaths.SkinPathComparison);
 
                 // Validate required files
                 var missingFiles = new List<string>();

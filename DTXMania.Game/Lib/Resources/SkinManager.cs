@@ -162,7 +162,7 @@ namespace DTXMania.Game.Lib.Resources
                 // against `used` — not only `collisions` — keeps dropdown
                 // labels unique so GetSkinPathFromName can resolve each one.
                 var isDefaultRoot = _defaultSkinPath != null
-                    && string.Equals(paths[i], _defaultSkinPath, StringComparison.OrdinalIgnoreCase);
+                    && string.Equals(paths[i], _defaultSkinPath, AppPaths.SkinPathComparison);
                 if (!isDefaultRoot && (collisions.Contains(label) || used.Contains(label)))
                     label = DisambiguateLabel(label, paths[i], used);
 
@@ -370,7 +370,7 @@ namespace DTXMania.Game.Lib.Resources
                     if (string.Equals(
                         normalizedPath,
                         normalizedDefault,
-                        StringComparison.OrdinalIgnoreCase))
+                        AppPaths.SkinPathComparison))
                     {
                         return "Default";
                     }
@@ -419,22 +419,27 @@ namespace DTXMania.Game.Lib.Resources
         {
             var fullSystemSkinRoot = Path.GetFullPath(_systemSkinRoot);
             var skinPaths = new List<string>();
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var seen = new HashSet<string>(AppPaths.SkinPathComparer);
 
-            // The "Default" skin: prefer the writable app-data System root; fall
-            // back to the read-only bundled System skin (macOS .app
-            // Contents/Resources/System or portable System/ sibling) so a clean
-            // install still lists Default even when app-data is empty.
-            // ResourceManager uses the same bundled root as its ultimate fallback,
-            // so the dropdown stays consistent with runtime asset resolution.
+            // The "Default" skin is the bundled root ({app}\System on Windows,
+            // Contents/Resources/System on macOS) — application-managed content.
+            // Prefer it when it validates so the dropdown matches the runtime
+            // default. Fall back to the writable app-data System root only when
+            // no bundled root exists (e.g. dev builds). The app-data System root
+            // is still scanned below for custom skin subdirectories regardless.
             string? defaultRoot = null;
-            if (ValidateSkinPath(fullSystemSkinRoot))
+            var bundledRoot = ResolveBundledSystemSkinRoot();
+            if (bundledRoot != null && ValidateSkinPath(bundledRoot))
+            {
+                defaultRoot = bundledRoot;
+            }
+            else if (ValidateSkinPath(fullSystemSkinRoot))
             {
                 defaultRoot = fullSystemSkinRoot;
             }
             else
             {
-                defaultRoot = ResolveBundledSystemSkinRoot();
+                defaultRoot = bundledRoot;
             }
 
             if (defaultRoot != null)
@@ -481,15 +486,15 @@ namespace DTXMania.Game.Lib.Resources
             // Sort for consistent ordering (default skin first). The comparator
             // pins _defaultSkinPath to the top regardless of whether it came from
             // app-data or the bundled root, then falls back to ordinal name order.
-            // Use OrdinalIgnoreCase for the default-path compare so a case variant
+            // Use SkinPathComparison for the default-path compare so a case variant
             // of the default path (e.g. "SYSTEM" vs "System" on a case-insensitive
             // filesystem) still pins to the top instead of leaking into the
             // alphabetic section as a separate entry.
             skinPaths.Sort((a, b) =>
             {
-                if (string.Equals(a, _defaultSkinPath, StringComparison.OrdinalIgnoreCase)) return -1;
-                if (string.Equals(b, _defaultSkinPath, StringComparison.OrdinalIgnoreCase)) return 1;
-                return string.Compare(a, b, StringComparison.OrdinalIgnoreCase);
+                if (string.Equals(a, _defaultSkinPath, AppPaths.SkinPathComparison)) return -1;
+                if (string.Equals(b, _defaultSkinPath, AppPaths.SkinPathComparison)) return 1;
+                return string.Compare(a, b, AppPaths.SkinPathComparison);
             });
 
             return skinPaths.ToArray();

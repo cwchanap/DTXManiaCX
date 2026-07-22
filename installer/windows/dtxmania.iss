@@ -64,15 +64,16 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 ; Self-contained game files from the win-x64 publish output
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
-; Default System skin → per-user app-data so the game finds it on first launch.
-; {localappdata} resolves to %LOCALAPPDATA%, matching AppPaths.GetDefaultSystemSkinRoot().
-; SystemSkinDir is passed by the release workflow (absolute path to the flattened
-; CX Neon staging dir, or repo-root System\ for local builds). Inno Setup resolves
-; Source: relative to this .iss file's directory, so an absolute SystemSkinDir
-; avoids any cwd ambiguity in CI.
-; onlyifdoesntexist: seed defaults on first install only; never overwrite a user's
-; customized skin on upgrade. uninsneveruninstall: never wipe the user's skin dir.
-Source: "{#SystemSkinDir}\*"; DestDir: "{localappdata}\DTXManiaCX\System"; Flags: recursesubdirs createallsubdirs ignoreversion uninsneveruninstall onlyifdoesntexist
+; Default System skin → application directory ({app}\System). The default skin
+; is application-managed content, not user data: it is replaced on every upgrade
+; and removed on uninstall. Custom skins live under per-user app-data
+; (%LOCALAPPDATA%\DTXManiaCX\System\{SkinName}\) and are never touched by the
+; installer. Shipping to {app}\System avoids the mixed-skin problem where
+; onlyifdoesntexist + uninsneveruninstall left old NX assets behind after an
+; upgrade, producing a hybrid of NX artwork and CX Neon layout overrides.
+; AppPaths.GetBundledSystemSkinRootCandidates() includes {baseDir}\System, so
+; ResourceManager and SkinManager resolve this as the bundled/default skin root.
+Source: "{#SystemSkinDir}\*"; DestDir: "{app}\System"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

@@ -657,7 +657,7 @@ namespace DTXMania.Game.Lib.Config
             // the config dirty (triggering a redundant write) on every switch.
             if (string.Equals(NormalizeSkinPathForComparison(skinPath),
                               NormalizeSkinPathForComparison(Config.SkinPath),
-                              StringComparison.OrdinalIgnoreCase))
+                              AppPaths.SkinPathComparison))
                 return;
 
             Config.SkinPath = skinPath;
@@ -936,6 +936,29 @@ namespace DTXMania.Game.Lib.Config
             return path.Trim().Replace('\\', '/').TrimEnd('/');
         }
 
+        /// <summary>
+        /// Resolves the first validating bundled System skin root from
+        /// <see cref="AppPaths.GetBundledSystemSkinRootCandidates"/>, or null
+        /// when none exists on disk. Used to migrate the default SkinPath from
+        /// the old app-data location to the application-managed bundled root.
+        /// </summary>
+        private static string? ResolveValidatingBundledSystemSkinRoot()
+        {
+            foreach (var candidate in AppPaths.GetBundledSystemSkinRootCandidates())
+            {
+                try
+                {
+                    if (PathValidator.IsValidSkinPath(candidate))
+                        return Path.GetFullPath(candidate);
+                }
+                catch
+                {
+                    // Candidate doesn't exist or is inaccessible — try the next.
+                }
+            }
+            return null;
+        }
+
         private static bool IsLegacyDefaultSongsPath(string? path, string defaultSongsPath)
         {
             if (string.IsNullOrWhiteSpace(path))
@@ -971,6 +994,26 @@ namespace DTXMania.Game.Lib.Config
                 ? defaultSongsPath
                 : AppPaths.ResolvePathOrDefault(Config.DTXPath, defaultSongsPath);
             Config.SkinPath = AppPaths.ResolvePathOrDefault(Config.SkinPath, Config.SystemSkinRoot);
+
+            // Migrate SkinPath from the old app-data default to the bundled root.
+            // The default skin is now application-managed content shipped under
+            // {app}\System (Windows) or Contents/Resources/System (macOS), not
+            // per-user app-data. A user whose Config.ini still points to the old
+            // app-data System root (from a previous installer version) would
+            // otherwise load stale NX assets instead of the bundled CX Neon skin.
+            // Only migrate when the SkinPath equals the old default — explicitly
+            // selected custom skins are left alone.
+            var bundledRoot = ResolveValidatingBundledSystemSkinRoot();
+            if (bundledRoot != null &&
+                string.Equals(NormalizePathForComparison(Config.SkinPath),
+                              NormalizePathForComparison(Config.SystemSkinRoot),
+                              AppPaths.SkinPathComparison))
+            {
+                _logger.LogInformation(
+                    "Migrating SkinPath from app-data default '{OldPath}' to bundled root '{NewPath}'",
+                    Config.SkinPath, bundledRoot);
+                Config.SkinPath = bundledRoot;
+            }
 
             void EnsureDirectorySafe(string path)
             {
