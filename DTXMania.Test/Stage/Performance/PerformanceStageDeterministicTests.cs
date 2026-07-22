@@ -279,6 +279,83 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void LoadSkillPanelTexture_WhenThemedOverrideIs1x1Fallback_ShouldDisposeFallbackAndRetryWithDefault()
+    {
+        // Regression test for a GPU texture leak: when a custom/partial skin
+        // omits Performance.SkillPanelTexture (or points it at a missing file),
+        // ResourceManager.LoadTexture returns a fresh uncached 1x1 fallback.
+        // RemoveReference() does not dispose (by design — disposal is reserved
+        // for EvictSkinDependentCache / CollectUnusedResources, neither of
+        // which can see uncached fallbacks), so the previous implementation
+        // leaked one GPU Texture2D per Performance-stage activation. The fix
+        // is to Dispose() the fallback before retrying with the NX default.
+        var stage = CreateStage();
+
+        const string themedPath = "Graphics/7_SkillPanel_perf.png";
+        var theme = SkinTheme.Parse(new[] { $"Performance.SkillPanelTexture={themedPath}" });
+
+        var fallbackTexture = new Mock<ITexture>();
+        fallbackTexture.SetupGet(x => x.Width).Returns(1);
+        fallbackTexture.SetupGet(x => x.Height).Returns(1);
+        fallbackTexture.Setup(x => x.RemoveReference());
+        fallbackTexture.Setup(x => x.Dispose());
+
+        var defaultTexture = new Mock<ITexture>();
+        defaultTexture.SetupGet(x => x.Width).Returns(180);
+        defaultTexture.SetupGet(x => x.Height).Returns(96);
+
+        var resourceManager = new Mock<IResourceManager>();
+        resourceManager.SetupGet(x => x.CurrentTheme).Returns(theme);
+        resourceManager.Setup(x => x.LoadTexture(themedPath)).Returns(fallbackTexture.Object);
+        resourceManager.Setup(x => x.LoadTexture(TexturePath.SkillPanel)).Returns(defaultTexture.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+
+        var result = (ITexture?)ReflectionHelpers.InvokePrivateMethod(stage, "LoadSkillPanelTexture", theme);
+
+        Assert.Same(defaultTexture.Object, result);
+        // The fallback must be disposed (not merely RemoveReference'd) so the
+        // underlying GPU Texture2D is released. RemoveReference alone leaves
+        // the fallback alive with no owner, leaking one texture per activation.
+        fallbackTexture.Verify(x => x.Dispose(), Times.Once);
+        fallbackTexture.Verify(x => x.RemoveReference(), Times.Never);
+        resourceManager.Verify(x => x.LoadTexture(TexturePath.SkillPanel), Times.Once);
+    }
+
+    [Fact]
+    public void LoadSkillPanelTexture_WhenThemedOverrideEqualsDefaultPath_ShouldReturnNullWithoutDisposing()
+    {
+        // When the resolved override path is already the NX default and that
+        // load fails (1x1 fallback), there is nothing left to retry. The
+        // method returns null and must still dispose the fallback (the leak
+        // applies equally to this branch — the fallback is uncached either
+        // way) but must not attempt a redundant second load of the same path.
+        var stage = CreateStage();
+
+        // Themeless skin resolves to TexturePath.SkillPanel (the default).
+        var theme = SkinTheme.Empty;
+
+        var fallbackTexture = new Mock<ITexture>();
+        fallbackTexture.SetupGet(x => x.Width).Returns(1);
+        fallbackTexture.SetupGet(x => x.Height).Returns(1);
+        fallbackTexture.Setup(x => x.RemoveReference());
+        fallbackTexture.Setup(x => x.Dispose());
+
+        var resourceManager = new Mock<IResourceManager>();
+        resourceManager.SetupGet(x => x.CurrentTheme).Returns(theme);
+        resourceManager.Setup(x => x.LoadTexture(TexturePath.SkillPanel)).Returns(fallbackTexture.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+
+        var result = (ITexture?)ReflectionHelpers.InvokePrivateMethod(stage, "LoadSkillPanelTexture", theme);
+
+        Assert.Null(result);
+        // Single load attempt (no retry on the same default path).
+        resourceManager.Verify(x => x.LoadTexture(TexturePath.SkillPanel), Times.Once);
+        // Fallback is still disposed — the leak fix applies to both branches.
+        fallbackTexture.Verify(x => x.Dispose(), Times.Once);
+        fallbackTexture.Verify(x => x.RemoveReference(), Times.Never);
+    }
+
+    [Fact]
     public void InitializeAutoPlay_WhenConfigEnablesAutoPlay_ShouldEnableAndResetIndex()
     {
         var game = ReflectionHelpers.CreateGame();

@@ -979,9 +979,15 @@ namespace DTXMania.Game.Lib.Stage
             if (texture != null && texture.Width > 1 && texture.Height > 1)
                 return texture;
 
-            // Override was empty, missing, or the 1x1 fallback. Release the
-            // fallback ref and retry with the NX default asset path.
-            texture?.RemoveReference();
+            // Override was empty, missing, or the 1x1 fallback. Dispose the
+            // fallback and retry with the NX default asset path. The fallback
+            // is uncached (CreateFallbackTexture does not add it to the
+            // ResourceManager cache) and RemoveReference() deliberately does
+            // not auto-dispose, so disposing here is the only way to release
+            // the underlying GPU Texture2D — otherwise every Performance-stage
+            // activation with a missing/invalid themed override leaks a 1x1
+            // texture.
+            texture?.Dispose();
             var defaultPath = TexturePath.SkillPanel;
             if (string.Equals(overridePath, defaultPath, StringComparison.Ordinal))
                 return null; // already tried the default; nothing left to retry
