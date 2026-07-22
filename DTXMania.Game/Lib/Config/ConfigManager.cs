@@ -73,7 +73,9 @@ namespace DTXMania.Game.Lib.Config
                 if (string.IsNullOrWhiteSpace(line) || line.StartsWith(';'))
                     continue;
 
-                var parts = line.Split('=');
+                // Split on the first '=' only so values containing '='
+                // (e.g. skin paths like "Skins/CX=Neon") survive a round-trip.
+                var parts = line.Split('=', 2);
                 if (parts.Length != 2)
                     continue;
 
