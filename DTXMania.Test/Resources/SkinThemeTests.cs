@@ -233,5 +233,20 @@ namespace DTXMania.Test.Resources
             var theme = SkinTheme.Parse(new[] { "Result.FontValueFamily=Orbitron" });
             Assert.Equal("Orbitron", theme.GetString("Result.FontValueFamily", string.Empty));
         }
+
+        [Theory]
+        [InlineData("")]
+        [InlineData("   ")]
+        [InlineData("\t")]
+        public void GetString_WithBlankValue_ShouldReturnFallback(string raw)
+        {
+            // ISkinTheme contract: getters return the fallback for absent OR
+            // malformed values. A blank font family / texture path is malformed
+            // (it would throw downstream and trigger a NotoSerifJP clobber), so
+            // the getter must hand the caller its fallback rather than "".
+            var theme = SkinTheme.Parse(new[] { $"Result.FontValueFamily={raw}" });
+
+            Assert.Equal("fallback", theme.GetString("Result.FontValueFamily", "fallback"));
+        }
     }
 }

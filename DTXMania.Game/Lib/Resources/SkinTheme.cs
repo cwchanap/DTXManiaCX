@@ -125,7 +125,21 @@ namespace DTXMania.Game.Lib.Resources
 
         public string GetString(string key, string fallback)
         {
-            return _values.TryGetValue(key, out var raw) ? raw : fallback;
+            if (!_values.TryGetValue(key, out var raw))
+                return fallback;
+
+            // A blank value (e.g. "Key=" with trailing whitespace trimmed by Parse)
+            // is malformed, not an intentional empty string — every caller treats
+            // the result as a font family, texture path, or bool-parse input, none
+            // of which accept "". Honour the ISkinTheme contract and return the
+            // fallback so a mis-edited Theme.ini can't clobber the caller's default.
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                WarnMalformed(key, raw);
+                return fallback;
+            }
+
+            return raw;
         }
 
         public Point GetPoint(string key, Point fallback)
