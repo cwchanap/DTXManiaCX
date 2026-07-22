@@ -991,7 +991,19 @@ namespace DTXMania.Game.Lib.Stage
             var defaultPath = TexturePath.SkillPanel;
             if (string.Equals(overridePath, defaultPath, StringComparison.Ordinal))
                 return null; // already tried the default; nothing left to retry
-            return TryLoadTexture(defaultPath);
+
+            // The second attempt may also fail (missing default asset in a
+            // broken installation). Validate it the same way: a 1x1 result is
+            // CreateFallbackTexture's uncached fallback, which would leak
+            // because CleanupPerformanceUIAssets only calls RemoveReference
+            // (which does not dispose). Dispose and return null so the panel
+            // is simply not drawn rather than leaking a GPU texture on every
+            // activation.
+            var defaultTexture = TryLoadTexture(defaultPath);
+            if (defaultTexture != null && defaultTexture.Width > 1 && defaultTexture.Height > 1)
+                return defaultTexture;
+            defaultTexture?.Dispose();
+            return null;
         }
 
         /// <summary>

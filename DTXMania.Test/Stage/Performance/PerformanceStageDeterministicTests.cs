@@ -356,6 +356,52 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void LoadSkillPanelTexture_WhenDefaultAssetAlsoIs1x1Fallback_ShouldDisposeAndReturnNull()
+    {
+        // Regression test for a second GPU texture leak: when both the themed
+        // override and the NX default asset resolve to CreateFallbackTexture's
+        // 1x1 fallback (e.g. a broken installation missing both files), the
+        // previous implementation returned the second fallback without
+        // validating it. Like the first fallback, it is uncached and has
+        // AddReference called, but CleanupPerformanceUIAssets only calls
+        // RemoveReference (which does not dispose), so it leaked one GPU
+        // Texture2D per activation. The fix validates the second result too,
+        // disposes it, and returns null so the panel is simply not drawn.
+        var stage = CreateStage();
+
+        const string themedPath = "Graphics/7_SkillPanel_perf.png";
+        var theme = SkinTheme.Parse(new[] { $"Performance.SkillPanelTexture={themedPath}" });
+
+        var themedFallback = new Mock<ITexture>();
+        themedFallback.SetupGet(x => x.Width).Returns(1);
+        themedFallback.SetupGet(x => x.Height).Returns(1);
+        themedFallback.Setup(x => x.RemoveReference());
+        themedFallback.Setup(x => x.Dispose());
+
+        var defaultFallback = new Mock<ITexture>();
+        defaultFallback.SetupGet(x => x.Width).Returns(1);
+        defaultFallback.SetupGet(x => x.Height).Returns(1);
+        defaultFallback.Setup(x => x.RemoveReference());
+        defaultFallback.Setup(x => x.Dispose());
+
+        var resourceManager = new Mock<IResourceManager>();
+        resourceManager.SetupGet(x => x.CurrentTheme).Returns(theme);
+        resourceManager.Setup(x => x.LoadTexture(themedPath)).Returns(themedFallback.Object);
+        resourceManager.Setup(x => x.LoadTexture(TexturePath.SkillPanel)).Returns(defaultFallback.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+
+        var result = (ITexture?)ReflectionHelpers.InvokePrivateMethod(stage, "LoadSkillPanelTexture", theme);
+
+        Assert.Null(result);
+        // Both fallbacks must be disposed — neither is cached, so neither will
+        // be reached by EvictSkinDependentCache or CollectUnusedResources.
+        themedFallback.Verify(x => x.Dispose(), Times.Once);
+        defaultFallback.Verify(x => x.Dispose(), Times.Once);
+        themedFallback.Verify(x => x.RemoveReference(), Times.Never);
+        defaultFallback.Verify(x => x.RemoveReference(), Times.Never);
+    }
+
+    [Fact]
     public void InitializeAutoPlay_WhenConfigEnablesAutoPlay_ShouldEnableAndResetIndex()
     {
         var game = ReflectionHelpers.CreateGame();
