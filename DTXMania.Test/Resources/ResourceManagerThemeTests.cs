@@ -29,6 +29,9 @@ namespace DTXMania.Test.Resources
             _testDataPath = Path.Combine(Path.GetTempPath(), "DTXManiaCX_Tests", Guid.NewGuid().ToString());
             _skinRoot = Path.Combine(_testDataPath, "System", "CXNeon");
             Directory.CreateDirectory(Path.Combine(_skinRoot, "Graphics"));
+            // Validation file so ValidateSkinPath returns true and SetSkinPath
+            // retains _skinRoot instead of falling back to _fallbackSkinPath.
+            File.WriteAllText(Path.Combine(_skinRoot, "Graphics", "1_background.jpg"), "");
             _resourceManager = new HeadlessResourceManager();
         }
 
@@ -72,7 +75,9 @@ namespace DTXMania.Test.Resources
             Assert.Equal(new Color(0x22, 0xD3, 0xEE), _resourceManager.CurrentTheme.GetColor("UI.Accent", Color.White));
 
             var otherSkin = Path.Combine(_testDataPath, "System", "Other");
-            Directory.CreateDirectory(otherSkin);
+            Directory.CreateDirectory(Path.Combine(otherSkin, "Graphics"));
+            // Validation file so SetSkinPath retains otherSkin.
+            File.WriteAllText(Path.Combine(otherSkin, "Graphics", "1_background.jpg"), "");
             File.WriteAllText(Path.Combine(otherSkin, "Theme.ini"), "UI.Accent=#E879F9\n");
             _resourceManager.SetSkinPath(otherSkin);
 
@@ -162,23 +167,25 @@ namespace DTXMania.Test.Resources
         [Fact]
         public void CurrentTheme_WithInvalidConfiguredSkin_ShouldUseFallbackTheme()
         {
-            // A deleted/invalid configured skin path means texture resolution
-            // is silently falling through to the bundled CX Neon assets. The
-            // theme must follow suit — consulting the fallback/bundled tiers —
-            // so CX Neon textures render with CX Neon theme overrides (fonts,
-            // positions, scaling), not NX defaults. Returning Empty here would
-            // apply NX layout to CX Neon artwork.
+            // A deleted/invalid configured skin path is treated as completely
+            // unavailable: SetSkinPath replaces it with _fallbackSkinPath so
+            // all resources and the theme share the same origin. The theme
+            // loads from the fallback skin's Theme.ini.
             var invalidSkin = Path.Combine(_testDataPath, "System", "DeletedSkin");
             // Directory exists but lacks validation files → ValidateSkinPath=false.
             Directory.CreateDirectory(invalidSkin);
-            _resourceManager.SetSkinPath(invalidSkin);
 
             var fallbackSkin = Path.Combine(_testDataPath, "System", "FallbackSkin");
             Directory.CreateDirectory(fallbackSkin);
             File.WriteAllText(Path.Combine(fallbackSkin, "Theme.ini"), "UI.Accent=#EF4444\n");
+            // Set _fallbackSkinPath BEFORE SetSkinPath so the invalid path is
+            // replaced with the intended fallback, not the constructor's default.
             SetPrivateField(_resourceManager, "_fallbackSkinPath", fallbackSkin + Path.DirectorySeparatorChar);
 
-            // Invalid skin → consult fallback tier → fallback Theme.ini.
+            _resourceManager.SetSkinPath(invalidSkin);
+
+            // Invalid skin → SetSkinPath falls back to _fallbackSkinPath →
+            // theme loads from fallback Theme.ini.
             Assert.Equal(new Color(0xEF, 0x44, 0x44),
                 _resourceManager.CurrentTheme.GetColor("UI.Accent", Color.Red));
         }
@@ -186,14 +193,12 @@ namespace DTXMania.Test.Resources
         [Fact]
         public void CurrentTheme_WithInvalidConfiguredSkin_ShouldUseBundledTheme()
         {
-            // Same scenario as above but the fallback tier also misses
+            // Same scenario as above but the fallback skin also lacks
             // Theme.ini; the bundled tier provides it. An invalid configured
-            // path must consult all three tiers (effective → fallback →
-            // bundled), matching how texture resolution falls through for the
-            // same invalid path.
+            // path is replaced with _fallbackSkinPath (which itself has no
+            // Theme.ini), so resolution falls through to the bundled tier.
             var invalidSkin = Path.Combine(_testDataPath, "System", "DeletedSkin");
             Directory.CreateDirectory(invalidSkin);
-            _resourceManager.SetSkinPath(invalidSkin);
 
             var fallbackSkin = Path.Combine(_testDataPath, "System", "FallbackEmpty");
             Directory.CreateDirectory(fallbackSkin);
@@ -204,7 +209,10 @@ namespace DTXMania.Test.Resources
             File.WriteAllText(Path.Combine(bundledSkin, "Theme.ini"), "UI.Accent=#F59E0B\n");
             SetPrivateField(_resourceManager, "_bundledSystemSkinRoot", bundledSkin + Path.DirectorySeparatorChar);
 
-            // Invalid skin → fallback misses → bundled tier provides Theme.ini.
+            _resourceManager.SetSkinPath(invalidSkin);
+
+            // Invalid skin → _currentSkinPath = fallback (no Theme.ini) →
+            // fallback tier misses → bundled tier provides Theme.ini.
             Assert.Equal(new Color(0xF5, 0x9E, 0x0B),
                 _resourceManager.CurrentTheme.GetColor("UI.Accent", Color.Red));
         }
@@ -224,7 +232,9 @@ namespace DTXMania.Test.Resources
                 _resourceManager.CurrentTheme.GetColor("UI.Accent", Color.White));
 
             var otherSkin = Path.Combine(_testDataPath, "System", "Other");
-            Directory.CreateDirectory(otherSkin);
+            Directory.CreateDirectory(Path.Combine(otherSkin, "Graphics"));
+            // Validation file so SetSkinPath retains otherSkin.
+            File.WriteAllText(Path.Combine(otherSkin, "Graphics", "1_background.jpg"), "");
             File.WriteAllText(Path.Combine(otherSkin, "Theme.ini"), "UI.Accent=#E879F9\n");
 
             Color? colorObservedByHandler = null;

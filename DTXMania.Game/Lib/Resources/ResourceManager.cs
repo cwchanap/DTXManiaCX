@@ -377,12 +377,26 @@ namespace DTXMania.Game.Lib.Resources
             lock (_lockObject)
             {
                 var oldSkinPath = _currentSkinPath;
-                _currentSkinPath = NormalizePath(skinPath);
+                var requestedPath = NormalizePath(skinPath);
 
-                // Validate skin path
-                if (!ValidateSkinPath(_currentSkinPath))
+                // Validate skin path. An invalid configured skin (deleted,
+                // moved, or missing validation files) must be treated as
+                // completely unavailable — not retained with per-file
+                // fallback. Without this, a partially damaged skin (missing
+                // validation backgrounds but retaining other graphics) would
+                // load custom textures from the damaged directory while the
+                // theme resolution falls through to the bundled CX Neon
+                // theme, recreating the artwork/layout mismatch this design
+                // was intended to prevent. Resolving to _fallbackSkinPath
+                // ensures the theme and all assets have the same origin.
+                if (ValidateSkinPath(requestedPath))
                 {
-                    Debug.WriteLine($"Warning: Skin path validation failed for {_currentSkinPath}");
+                    _currentSkinPath = requestedPath;
+                }
+                else
+                {
+                    Debug.WriteLine($"Warning: Skin path validation failed for {requestedPath}; falling back to {_fallbackSkinPath}");
+                    _currentSkinPath = _fallbackSkinPath;
                 }
 
                 // Invalidate the cached theme before notifying subscribers so
@@ -1164,8 +1178,16 @@ namespace DTXMania.Game.Lib.Resources
             if (string.IsNullOrEmpty(path))
                 return path;
 
-            // Normalize file path for case-insensitive comparison without adding directory separator
-            return path.Replace('\\', '/').ToLowerInvariant();
+            // Normalize separators on every platform. Lowercase only on
+            // Windows (NTFS/ReFS are case-insensitive by default) so the cache
+            // treats Graphics/Panel.png and Graphics/panel.png as the same
+            // file. On macOS/Linux, preserve case so distinct files on a
+            // case-sensitive volume get distinct cache entries — matching
+            // AppPaths.SkinPathComparison's platform-aware semantics.
+            var normalized = path.Replace('\\', '/');
+            return OperatingSystem.IsWindows()
+                ? normalized.ToLowerInvariant()
+                : normalized;
         }
 
         private bool ValidateSkinPath(string skinPath)

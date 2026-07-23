@@ -8,6 +8,7 @@ using Xunit;
 namespace DTXMania.Test.Config
 {
     [Trait("Category", "Unit")]
+    [Collection("AppPaths")]
     public class ConfigManagerSkinPathTests : IDisposable
     {
         private readonly string _tempDir;
@@ -220,25 +221,32 @@ namespace DTXMania.Test.Config
             // absolute bundled root was persisted directly. On load, such a
             // path should be recognized as a bundled candidate and remapped to
             // the "Default" token so future relocations don't stale it.
-            var bundledCandidates = AppPaths.GetBundledSystemSkinRootCandidates()
-                .Where(c => PathValidator.IsValidSkinPath(c))
-                .ToList();
-            if (bundledCandidates.Count == 0)
-            {
-                // No bundled root validates in this test environment — skip
-                // rather than fabricate a path that wouldn't exercise the
-                // migration branch.
-                return;
-            }
-
-            var oldBundledPath = bundledCandidates[0];
+            // The migration must also be PERSISTED to the file — not just
+            // applied in memory — so a relocation before the next
+            // setter-triggered save doesn't leave the stale absolute path.
+            //
+            // Use the app-data default System root as the "old absolute path"
+            // so the test always exercises the migration branch regardless of
+            // whether a bundled candidate validates in this environment.
+            // IsDefaultSkinPath recognizes the app-data default as a path that
+            // should be stored as the "Default" token.
+            var oldAbsolutePath = AppPaths.GetDefaultSystemSkinRoot();
+            Directory.CreateDirectory(Path.Combine(oldAbsolutePath, "Graphics"));
             File.WriteAllText(ConfigPath,
-                $"[System]\nSkinPath={oldBundledPath}\n");
+                $"[System]\nSkinPath={oldAbsolutePath}\n");
 
             var manager = new ConfigManager();
             manager.LoadConfig(ConfigPath);
 
+            // In-memory value migrated to the token.
             Assert.Equal(ConfigManager.DefaultSkinPathToken, manager.Config.SkinPath);
+
+            // Persisted file contents also migrated — the absolute path is
+            // gone and the token is in its place.
+            var persistedContents = File.ReadAllText(ConfigPath);
+            Assert.Contains($"SkinPath={ConfigManager.DefaultSkinPathToken}",
+                persistedContents);
+            Assert.DoesNotContain($"SkinPath={oldAbsolutePath}", persistedContents);
         }
 
         [Fact]
@@ -314,6 +322,51 @@ namespace DTXMania.Test.Config
             {
                 Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", prevRoot);
             }
+        }
+
+        [Fact]
+        public void DefaultToken_ResolvesToCurrentBundledRootAcrossRelocation()
+        {
+            // Deterministic relocation test: create two fake bundled roots
+            // (location A and B), each with a validating System skin, and
+            // verify the "Default" token resolves to the bundled root at the
+            // given base directory. This exercises the actual relocation
+            // scenario (bundled root A → bundled root B) without mutating
+            // AppContext.BaseDirectory, which is immutable at runtime.
+            var installA = Path.Combine(_tempDir, "installA");
+            var installB = Path.Combine(_tempDir, "installB");
+            Directory.CreateDirectory(installA);
+            Directory.CreateDirectory(installB);
+
+            // Create validating bundled System skins at both locations.
+            // PathValidator.IsValidSkinPath checks for Graphics/1_background.jpg
+            // or Graphics/2_background.jpg under the skin root.
+            var systemA = Path.Combine(installA, "System");
+            var systemB = Path.Combine(installB, "System");
+            Directory.CreateDirectory(Path.Combine(systemA, "Graphics"));
+            Directory.CreateDirectory(Path.Combine(systemB, "Graphics"));
+            File.WriteAllText(Path.Combine(systemA, "Graphics", "1_background.jpg"), "bg");
+            File.WriteAllText(Path.Combine(systemB, "Graphics", "1_background.jpg"), "bg");
+
+            // At install A, "Default" resolves to A's bundled System root.
+            var resolvedA = ConfigManager.ResolveSkinPath(
+                ConfigManager.DefaultSkinPathToken, installA);
+            Assert.True(Path.IsPathRooted(resolvedA));
+            Assert.Equal(
+                Path.GetFullPath(systemA).TrimEnd('/', Path.DirectorySeparatorChar),
+                resolvedA.TrimEnd('/', Path.DirectorySeparatorChar));
+
+            // At install B, "Default" resolves to B's bundled System root —
+            // a DIFFERENT absolute path, proving the token tracks the current
+            // install location rather than a stale persisted path.
+            var resolvedB = ConfigManager.ResolveSkinPath(
+                ConfigManager.DefaultSkinPathToken, installB);
+            Assert.True(Path.IsPathRooted(resolvedB));
+            Assert.Equal(
+                Path.GetFullPath(systemB).TrimEnd('/', Path.DirectorySeparatorChar),
+                resolvedB.TrimEnd('/', Path.DirectorySeparatorChar));
+
+            Assert.NotEqual(resolvedA, resolvedB);
         }
     }
 }

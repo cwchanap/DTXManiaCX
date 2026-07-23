@@ -106,6 +106,69 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
+        public void SetSkinPath_WithInvalidSkin_ShouldFallBackToFallbackSkinPath()
+        {
+            // An invalid configured skin (missing validation backgrounds) must
+            // be treated as completely unavailable. SetSkinPath should replace
+            // it with _fallbackSkinPath so all resources and the theme share
+            // the same origin — not retain the invalid path and fall back
+            // per file.
+            var fallbackSkin = _defaultSkinRoot;
+            var resourceManager = CreateTestableResourceManager(null, fallbackSkin);
+            SkinChangedEventArgs? eventArgs = null;
+            resourceManager.SkinChanged += (_, args) => eventArgs = args;
+
+            // Create a damaged skin: has a custom texture but lacks validation
+            // backgrounds, so ValidateSkinPath returns false.
+            var damagedSkin = Path.Combine(_testDataPath, "System", "DamagedSkin");
+            Directory.CreateDirectory(Path.Combine(damagedSkin, "Graphics"));
+            File.WriteAllText(Path.Combine(damagedSkin, "Graphics", "custom.png"), "custom");
+
+            resourceManager.SetSkinPath(damagedSkin);
+
+            // Effective skin is the fallback, not the damaged directory.
+            Assert.Equal(NormalizeDirectory(fallbackSkin),
+                resourceManager.GetCurrentEffectiveSkinPath());
+            // SkinChanged fired (from the initial default to the fallback).
+            Assert.NotNull(eventArgs);
+        }
+
+        [Fact]
+        public void LoadTexture_WithInvalidConfiguredSkin_ShouldLoadFromFallbackNotDamagedSkin()
+        {
+            // Regression: a partially damaged skin (missing validation
+            // backgrounds but retaining other graphics) must NOT load its
+            // custom textures. SetSkinPath replaces the invalid path with
+            // _fallbackSkinPath, so LoadTexture resolves against the fallback
+            // skin — not the damaged directory.
+            var fallbackSkin = _defaultSkinRoot;
+            // Put a texture in the fallback skin.
+            File.WriteAllText(Path.Combine(fallbackSkin, "Graphics", "shared.png"), "fallback");
+
+            var damagedSkin = Path.Combine(_testDataPath, "System", "DamagedSkin");
+            Directory.CreateDirectory(Path.Combine(damagedSkin, "Graphics"));
+            // Damaged skin has the same texture file but with different content.
+            File.WriteAllText(Path.Combine(damagedSkin, "Graphics", "shared.png"), "damaged");
+
+            var resourceManager = CreateTestableResourceManager(null, fallbackSkin);
+            string? resolvedPath = null;
+            resourceManager.CreateTextureCoreHandler = (resolved, _, _) =>
+            {
+                resolvedPath = resolved;
+                return CreateTextureMock().Object;
+            };
+
+            resourceManager.SetSkinPath(damagedSkin);
+            resourceManager.LoadTexture("Graphics/shared.png");
+
+            // The texture must be loaded from the fallback skin, not the
+            // damaged directory.
+            Assert.Equal(
+                Path.GetFullPath(Path.Combine(fallbackSkin, "Graphics", "shared.png")),
+                resolvedPath);
+        }
+
+        [Fact]
         public void ResolvePath_WithBoxDefEnabled_ShouldUseBoxDefSkin()
         {
             var resourceManager = CreateResourceManager(_customSkinRoot, _defaultSkinRoot);
@@ -161,7 +224,8 @@ namespace DTXMania.Test.Resources
             var resourceManager = CreateResourceManager();
             var textureCache = GetPrivateField<ConcurrentDictionary<string, ITexture>>(resourceManager, "_textureCache");
             var cachedTexture = CreateTextureMock();
-            textureCache["graphics/test.png|False"] = cachedTexture.Object;
+            var cacheKey = $"{NormalizeFilePathForTest("Graphics/Test.png")}|False";
+            textureCache[cacheKey] = cachedTexture.Object;
 
             var loadedTexture = resourceManager.LoadTexture("Graphics/Test.png");
 
@@ -169,6 +233,48 @@ namespace DTXMania.Test.Resources
             cachedTexture.Verify(x => x.AddReference(), Times.Once);
             Assert.Equal(1, GetPrivateField<int>(resourceManager, "_cacheHits"));
             Assert.Equal(0, GetPrivateField<int>(resourceManager, "_cacheMisses"));
+        }
+
+        [Fact]
+        public void LoadTexture_CacheKeyCaseSensitivity_ShouldMatchPlatformBehavior()
+        {
+            // On Windows (case-insensitive FS), paths differing only by case
+            // share one cache entry. On macOS/Linux (case-sensitive FS), they
+            // get distinct entries so Graphics/Panel.png and Graphics/panel.png
+            // — distinct files on a case-sensitive volume — are not conflated.
+            var resourceManager = CreateTestableResourceManager(_customSkinRoot, _defaultSkinRoot);
+            var textureCache = GetPrivateField<ConcurrentDictionary<string, ITexture>>(resourceManager, "_textureCache");
+
+            // Create the file on disk so the cache-miss path can succeed.
+            // On a case-insensitive FS (macOS default, Windows) both names
+            // resolve to the same file. On a case-sensitive FS (Linux) they
+            // are distinct files — create both so the load succeeds either way.
+            File.WriteAllText(Path.Combine(_customSkinRoot, "Graphics", "Panel.png"), "panel");
+            try { File.WriteAllText(Path.Combine(_customSkinRoot, "Graphics", "panel.png"), "panel"); }
+            catch (IOException) { /* case-insensitive FS: same file, already written */ }
+            var upperTexture = CreateTextureMock();
+            var lowerTexture = CreateTextureMock();
+            resourceManager.CreateTextureCoreHandler = (resolved, _, _) =>
+            {
+                return resolved.EndsWith("Panel.png") ? upperTexture.Object : lowerTexture.Object;
+            };
+
+            var loadedUpper = resourceManager.LoadTexture("Graphics/Panel.png");
+            Assert.Same(upperTexture.Object, loadedUpper);
+
+            // A path differing only by case should hit on Windows but miss on
+            // case-sensitive platforms, where it is a distinct cache key.
+            var loadedLower = resourceManager.LoadTexture("Graphics/panel.png");
+            if (OperatingSystem.IsWindows())
+            {
+                Assert.Same(upperTexture.Object, loadedLower);
+            }
+            else
+            {
+                Assert.Same(lowerTexture.Object, loadedLower);
+                // Distinct cache entries on case-sensitive volumes.
+                Assert.Equal(2, textureCache.Count);
+            }
         }
 
         [Fact]
@@ -189,7 +295,8 @@ namespace DTXMania.Test.Resources
                 creationParams = parameters;
                 return reloadedTexture.Object;
             };
-            textureCache["graphics/fallback_only.png|False"] = disposedTexture.Object;
+            var disposedKey = $"{NormalizeFilePathForTest("Graphics/Fallback_Only.png")}|False";
+            textureCache[disposedKey] = disposedTexture.Object;
 
             var loadedTexture = resourceManager.LoadTexture("Graphics/Fallback_Only.png");
 
@@ -201,7 +308,7 @@ namespace DTXMania.Test.Resources
             reloadedTexture.Verify(x => x.AddReference(), Times.Once);
             Assert.Equal(0, GetPrivateField<int>(resourceManager, "_cacheHits"));
             Assert.Equal(1, GetPrivateField<int>(resourceManager, "_cacheMisses"));
-            Assert.Same(reloadedTexture.Object, textureCache["graphics/fallback_only.png|False"]);
+            Assert.Same(reloadedTexture.Object, textureCache[disposedKey]);
         }
 
         [Fact]
@@ -262,7 +369,8 @@ namespace DTXMania.Test.Resources
             var resourceManager = CreateResourceManager();
             var fontCache = GetPrivateField<ConcurrentDictionary<string, IFont>>(resourceManager, "_fontCache");
             var cachedFont = CreateFontMock();
-            fontCache["fonts/test.ttf|24|Regular"] = cachedFont.Object;
+            var fontKey = $"{NormalizeFilePathForTest("Fonts/Test.ttf")}|24|Regular";
+            fontCache[fontKey] = cachedFont.Object;
 
             var loadedFont = resourceManager.LoadFont("Fonts/Test.ttf", 24);
 
@@ -291,19 +399,20 @@ namespace DTXMania.Test.Resources
                 style = fontStyle;
                 return reloadedFont.Object;
             };
-            fontCache["fonts/test.ttf|24|Bold"] = disposedFont.Object;
+            var disposedFontKey = $"{NormalizeFilePathForTest("Fonts/Test.ttf")}|24|Bold";
+            fontCache[disposedFontKey] = disposedFont.Object;
 
             var loadedFont = resourceManager.LoadFont("Fonts/Test.ttf", 24, FontStyle.Bold);
 
             Assert.Same(reloadedFont.Object, loadedFont);
-            Assert.Equal("fonts/test.ttf", normalizedPath);
+            Assert.Equal(NormalizeFilePathForTest("Fonts/Test.ttf"), normalizedPath);
             Assert.Equal(24, size);
             Assert.Equal(FontStyle.Bold, style);
             disposedFont.Verify(x => x.AddReference(), Times.Once);
             reloadedFont.Verify(x => x.AddReference(), Times.Once);
             Assert.Equal(0, GetPrivateField<int>(resourceManager, "_cacheHits"));
             Assert.Equal(1, GetPrivateField<int>(resourceManager, "_cacheMisses"));
-            Assert.Same(reloadedFont.Object, fontCache["fonts/test.ttf|24|Bold"]);
+            Assert.Same(reloadedFont.Object, fontCache[disposedFontKey]);
         }
 
         [Fact]
@@ -342,7 +451,7 @@ namespace DTXMania.Test.Resources
             var resourceManager = CreateResourceManager();
             var soundCache = GetPrivateField<ConcurrentDictionary<string, ISound>>(resourceManager, "_soundCache");
             var cachedSound = CreateSoundMock();
-            soundCache["sounds/test.ogg".ToLowerInvariant()] = cachedSound.Object;
+            soundCache[NormalizeFilePathForTest("Sounds/Test.ogg")] = cachedSound.Object;
 
             var loadedSound = resourceManager.LoadSound("Sounds/Test.ogg");
 
@@ -371,7 +480,8 @@ namespace DTXMania.Test.Resources
                 resolvedPath = resolved;
                 return reloadedSound.Object;
             };
-            soundCache["sounds/fallback_only.ogg"] = disposedSound.Object;
+            var disposedSoundKey = NormalizeFilePathForTest("Sounds/Fallback_Only.ogg");
+            soundCache[disposedSoundKey] = disposedSound.Object;
 
             var loadedSound = resourceManager.LoadSound("Sounds/Fallback_Only.ogg");
 
@@ -381,7 +491,7 @@ namespace DTXMania.Test.Resources
             reloadedSound.Verify(x => x.AddReference(), Times.Once);
             Assert.Equal(0, GetPrivateField<int>(resourceManager, "_cacheHits"));
             Assert.Equal(1, GetPrivateField<int>(resourceManager, "_cacheMisses"));
-            Assert.Same(reloadedSound.Object, soundCache["sounds/fallback_only.ogg"]);
+            Assert.Same(reloadedSound.Object, soundCache[disposedSoundKey]);
         }
 
         [Fact]
@@ -1009,8 +1119,12 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
-        public void SetSkinPath_WithInvalidSkin_ShouldStillRaiseSkinChanged()
+        public void SetSkinPath_WithInvalidSkin_ShouldFallBackToFallbackSkinAndRaiseSkinChanged()
         {
+            // An invalid skin path (missing validation files) is replaced with
+            // _fallbackSkinPath so all resources and the theme share the same
+            // origin. SkinChanged still fires when the fallback differs from
+            // the previous skin.
             var invalidSkin = Path.Combine(_testDataPath, "InvalidSkin");
             var resourceManager = CreateResourceManager(_customSkinRoot, _defaultSkinRoot);
             SkinChangedEventArgs? eventArgs = null;
@@ -1020,10 +1134,12 @@ namespace DTXMania.Test.Resources
 
             resourceManager.SetSkinPath(invalidSkin);
 
-            Assert.Equal(NormalizeDirectory(invalidSkin), resourceManager.GetCurrentEffectiveSkinPath());
+            // Effective skin is the fallback, not the invalid path.
+            Assert.Equal(NormalizeDirectory(_defaultSkinRoot),
+                resourceManager.GetCurrentEffectiveSkinPath());
             Assert.NotNull(eventArgs);
             Assert.Equal(NormalizeDirectory(_customSkinRoot), eventArgs!.OldSkinPath);
-            Assert.Equal(NormalizeDirectory(invalidSkin), eventArgs.NewSkinPath);
+            Assert.Equal(NormalizeDirectory(_defaultSkinRoot), eventArgs.NewSkinPath);
         }
 
         [Fact]
@@ -1638,6 +1754,19 @@ namespace DTXMania.Test.Resources
             return fullPath.EndsWith(Path.DirectorySeparatorChar.ToString())
                 ? fullPath
                 : fullPath + Path.DirectorySeparatorChar;
+        }
+
+        /// <summary>
+        /// Mirrors ResourceManager.NormalizeFilePath so tests can compute the
+        /// exact cache key the production code will produce for a given path.
+        /// Lowercases on Windows (case-insensitive FS), preserves case elsewhere.
+        /// </summary>
+        private static string NormalizeFilePathForTest(string path)
+        {
+            var normalized = path.Replace('\\', '/');
+            return OperatingSystem.IsWindows()
+                ? normalized.ToLowerInvariant()
+                : normalized;
         }
     }
 }
