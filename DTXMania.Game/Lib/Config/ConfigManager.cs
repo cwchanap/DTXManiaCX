@@ -404,6 +404,14 @@ namespace DTXMania.Game.Lib.Config
                     if (int.TryParse(value, out var scrollSpeed))
                         Config.ScrollSpeed = ScrollSpeedRange.SnapAndClamp(scrollSpeed);
                     break;
+                case "PlaySpeedPercent":
+                    if (int.TryParse(value, out var playSpeedPercent))
+                        Config.PlaySpeedPercent = PlaySpeedRange.SnapAndClamp(playSpeedPercent);
+                    break;
+                case "PitchSemitones":
+                    if (int.TryParse(value, out var pitchSemitones))
+                        Config.PitchSemitones = PitchRange.SnapAndClamp(pitchSemitones);
+                    break;
                 case "AutoPlay":
                     if (TryParseBool(value, out var autoPlay))
                         Config.AutoPlay = autoPlay;
@@ -511,6 +519,8 @@ namespace DTXMania.Game.Lib.Config
             
             sb.AppendLine("[Game]");
             sb.AppendLine($"ScrollSpeed={Config.ScrollSpeed}");
+            sb.AppendLine($"PlaySpeedPercent={PlaySpeedRange.SnapAndClamp(Config.PlaySpeedPercent)}");
+            sb.AppendLine($"PitchSemitones={PitchRange.SnapAndClamp(Config.PitchSemitones)}");
             sb.AppendLine($"AutoPlay={Config.AutoPlay}");
             sb.AppendLine($"NoFail={Config.NoFail}");
             sb.AppendLine($"AudioLatencyOffsetMs={Config.AudioLatencyOffsetMs}");
@@ -600,6 +610,26 @@ namespace DTXMania.Game.Lib.Config
         public void AdjustScrollSpeed(string configFilePath, int stepDelta)
         {
             SetScrollSpeed(configFilePath, Config.ScrollSpeed + stepDelta * ScrollSpeedRange.Step);
+        }
+
+        public void SetPlaySpeedPercent(int percent)
+        {
+            var snapped = PlaySpeedRange.SnapAndClamp(percent);
+            if (snapped == Config.PlaySpeedPercent)
+                return;
+
+            Config.PlaySpeedPercent = snapped;
+            MarkDirty();
+        }
+
+        public void SetPitchSemitones(int semitones)
+        {
+            var snapped = PitchRange.SnapAndClamp(semitones);
+            if (snapped == Config.PitchSemitones)
+                return;
+
+            Config.PitchSemitones = snapped;
+            MarkDirty();
         }
 
         /// <summary>

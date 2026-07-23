@@ -48,6 +48,32 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
+        public void JudgementManager_LatencyCompensatedHitClock_ShouldNotDelayRawLogicalMiss()
+        {
+            var mockInputManager = new MockInputManagerCompat();
+            var chartManager = CreateSimpleTestChart();
+            var judgementManager = new JudgementManager(
+                mockInputManager,
+                chartManager);
+
+            JudgementEvent? missEvent = null;
+            judgementManager.JudgementMade += (_, e) =>
+            {
+                if (e.Type == JudgementType.Miss)
+                    missEvent = e;
+            };
+
+            // The compensated hit clock remains at the note time, but the raw
+            // logical chart clock is 300ms late and must drive the timeout scan.
+            judgementManager.Update(
+                pendingHitTimeMs: 1000.0,
+                missScanTimeMs: 1300.0);
+
+            Assert.NotNull(missEvent);
+            Assert.InRange(missEvent!.DeltaMs, 299.0, 301.0);
+        }
+
+        [Fact]
         public void JudgementManager_InputProcessingDisabled_WhenInactive()
         {
             // Arrange

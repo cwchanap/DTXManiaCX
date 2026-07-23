@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -107,7 +108,7 @@ public class SongManagerUpdateScoreTests : IDisposable
 
         var result = await _manager.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
 
-        Assert.True(result);
+        Assert.True(result.IsSuccess);
 
         var scores = await _manager.GetTopScoresAsync(EInstrumentPart.DRUMS, limit: 1);
         var score = Assert.Single(scores);
@@ -119,21 +120,23 @@ public class SongManagerUpdateScoreTests : IDisposable
     }
 
     [Fact]
-    public async Task UpdateScoreAsync_WithSummaryWithoutDatabaseService_ShouldReturnFalse()
+    public async Task UpdateScoreAsync_WithSummaryWithoutDatabaseService_ShouldReturnFailed()
     {
         var result = await _manager.UpdateScoreAsync(1, EInstrumentPart.DRUMS, new PerformanceSummary());
 
-        Assert.False(result);
+        Assert.Equal(ScoreSaveStatus.Failed, result.Status);
     }
 
     [Fact]
-    public async Task UpdateScoreAsync_WithSummaryWhenDatabaseServiceThrows_ShouldReturnFalse()
+    public async Task UpdateScoreAsync_WithSummaryWhenDatabaseServiceThrows_ShouldPropagate()
     {
         SetPrivateField(_manager, "_databaseService", new SongDatabaseService(_testDbPath));
 
-        var result = await _manager.UpdateScoreAsync(1, EInstrumentPart.DRUMS, new PerformanceSummary());
-
-        Assert.False(result);
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => _manager.UpdateScoreAsync(
+                1,
+                EInstrumentPart.DRUMS,
+                new PerformanceSummary()));
     }
 
     [Fact]
@@ -168,6 +171,8 @@ public class SongManagerUpdateScoreTests : IDisposable
         var (scoreNode, drumScore) = FindScoreByChartId(_manager.RootSongs, chart.Id);
         Assert.NotNull(scoreNode);
         Assert.NotNull(drumScore);
+        var difficultyIndex = Array.IndexOf(scoreNode!.Scores, drumScore);
+        Assert.True(difficultyIndex >= 0);
         Assert.Empty(drumScore!.PlayHistoryLines);
         Assert.Equal(0, drumScore.PlayCount);
 
@@ -189,13 +194,16 @@ public class SongManagerUpdateScoreTests : IDisposable
         };
 
         var result = await _manager.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
-        Assert.True(result);
+        Assert.True(result.IsSuccess);
 
-        // The same in-memory score object (by reference) should now reflect the play.
-        Assert.Equal(1, drumScore.PlayCount);
-        Assert.NotEmpty(drumScore.PlayHistoryLines);
-        Assert.Contains(drumScore.PlayHistoryLines, line => line.Contains("Cleared"));
-        Assert.Equal(950_000, drumScore.BestScore);
+        var refreshed = scoreNode.GetScore(difficultyIndex, 100);
+        Assert.NotNull(refreshed);
+        Assert.NotSame(drumScore, refreshed);
+        Assert.Equal(0, drumScore.PlayCount);
+        Assert.Equal(1, refreshed!.PlayCount);
+        Assert.NotEmpty(refreshed.PlayHistoryLines);
+        Assert.Contains(refreshed.PlayHistoryLines, line => line.Contains("Cleared"));
+        Assert.Equal(950_000, refreshed.BestScore);
     }
 
     [Fact]
@@ -213,8 +221,11 @@ public class SongManagerUpdateScoreTests : IDisposable
         var songs = await db.GetSongsAsync();
         var chart = Assert.Single(songs).Charts.First();
 
-        var (_, drumScore) = FindScoreByChartId(_manager.RootSongs, chart.Id);
+        var (scoreNode, drumScore) = FindScoreByChartId(_manager.RootSongs, chart.Id);
+        Assert.NotNull(scoreNode);
         Assert.NotNull(drumScore);
+        var difficultyIndex = Array.IndexOf(scoreNode!.Scores, drumScore);
+        Assert.True(difficultyIndex >= 0);
 
         var summary1 = new PerformanceSummary
         {
@@ -225,8 +236,10 @@ public class SongManagerUpdateScoreTests : IDisposable
         };
         await _manager.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary1);
 
-        Assert.Single(drumScore!.PlayHistoryLines);
-        Assert.Equal(1, drumScore.PlayCount);
+        var firstRefresh = scoreNode.GetScore(difficultyIndex, 100);
+        Assert.NotNull(firstRefresh);
+        Assert.Single(firstRefresh!.PlayHistoryLines);
+        Assert.Equal(1, firstRefresh.PlayCount);
 
         var summary2 = new PerformanceSummary
         {
@@ -237,11 +250,15 @@ public class SongManagerUpdateScoreTests : IDisposable
         };
         await _manager.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary2);
 
-        Assert.Equal(2, drumScore.PlayCount);
-        Assert.Equal(2, drumScore.PlayHistoryLines.Count);
+        var secondRefresh = scoreNode.GetScore(difficultyIndex, 100);
+        Assert.NotNull(secondRefresh);
+        Assert.NotSame(firstRefresh, secondRefresh);
+        Assert.Equal(1, firstRefresh.PlayCount);
+        Assert.Equal(2, secondRefresh!.PlayCount);
+        Assert.Equal(2, secondRefresh.PlayHistoryLines.Count);
         // The most-recent play (DisplayOrder ascending after merger's newest-first
         // re-order) should mention "Failed" since summary2 had ClearFlag=false.
-        Assert.Contains(drumScore.PlayHistoryLines, line => line.Contains("Failed"));
+        Assert.Contains(secondRefresh.PlayHistoryLines, line => line.Contains("Failed"));
     }
 
     [Fact]
@@ -266,6 +283,8 @@ public class SongManagerUpdateScoreTests : IDisposable
         Assert.NotNull(secondNode);
         var firstScore = Assert.Single(firstNode!.Scores.Where(s => s != null && s.Instrument == EInstrumentPart.DRUMS))!;
         var secondScore = Assert.Single(secondNode!.Scores.Where(s => s != null && s.Instrument == EInstrumentPart.DRUMS))!;
+        var firstDifficultyIndex = Array.IndexOf(firstNode.Scores, firstScore);
+        var secondDifficultyIndex = Array.IndexOf(secondNode.Scores, secondScore);
         Assert.Equal(0, firstScore.ChartId);
         Assert.Equal(0, secondScore.ChartId);
 
@@ -282,18 +301,94 @@ public class SongManagerUpdateScoreTests : IDisposable
             ChartLevel = 50, ChartLevelDec = 0
         };
         var result = await _manager.UpdateScoreAsync(secondChart.Id, EInstrumentPart.DRUMS, summary);
-        Assert.True(result);
+        Assert.True(result.IsSuccess);
 
         // The played song's cached score must reflect the play ...
-        Assert.Equal(1, secondScore.PlayCount);
-        Assert.Equal(910_000, secondScore.BestScore);
-        Assert.Equal(secondChart.Id, secondScore.ChartId); // stamped onto the correct node
+        var refreshedSecond = secondNode.GetScore(secondDifficultyIndex, 100);
+        Assert.NotNull(refreshedSecond);
+        Assert.Equal(1, refreshedSecond!.PlayCount);
+        Assert.Equal(910_000, refreshedSecond.BestScore);
+        Assert.Equal(secondChart.Id, refreshedSecond.ChartId);
 
         // ... and the OTHER song's cache must remain untouched (the bug would have
         // overwritten firstScore and stamped it with secondChart.Id).
-        Assert.Equal(0, firstScore.PlayCount);
-        Assert.Equal(0, firstScore.BestScore);
-        Assert.Equal(0, firstScore.ChartId);
+        var refreshedFirst = firstNode.GetScore(firstDifficultyIndex, 100);
+        Assert.NotNull(refreshedFirst);
+        Assert.Equal(0, refreshedFirst!.PlayCount);
+        Assert.Equal(0, refreshedFirst.BestScore);
+        Assert.Equal(0, refreshedFirst.ChartId);
+    }
+
+    [Fact]
+    public async Task UpdateScoreAsync_NonDefaultSpeed_RefreshesAllMatchingNodesOnly()
+    {
+        var songsRoot = Path.Combine(_testRoot, "VariantSongs");
+        var songFolder = Path.Combine(songsRoot, "Variant Song");
+        Directory.CreateDirectory(songFolder);
+
+        await CreateDtxFileAsync(
+            Path.Combine(songFolder, "variant.dtx"),
+            "Variant Song",
+            "Test Artist",
+            "Rock",
+            50);
+        await InitializeAndEnumerateAsync(songsRoot);
+
+        var db = _manager.DatabaseService!;
+        var chart = Assert.Single(await db.GetSongsAsync()).Charts.First();
+        var (canonicalNode, metadata) = FindScoreByChartId(_manager.RootSongs, chart.Id);
+        Assert.NotNull(canonicalNode);
+        Assert.NotNull(metadata);
+        var difficultyIndex = Array.IndexOf(canonicalNode!.Scores, metadata);
+        var defaultBefore = canonicalNode.GetScore(difficultyIndex, 100);
+        Assert.NotNull(defaultBefore);
+
+        var duplicateNode = new SongListNode
+        {
+            Type = NodeType.Score,
+            DatabaseSongId = canonicalNode.DatabaseSongId,
+        };
+        duplicateNode.SetScore(difficultyIndex, metadata!.Clone());
+        var roots = GetPrivateField<List<SongListNode>>(_manager, "_rootSongs");
+        Assert.NotNull(roots);
+        roots!.Add(duplicateNode);
+
+        var summary = new PerformanceSummary
+        {
+            RunId = Guid.NewGuid(),
+            PlaySpeedPercent = 75,
+            PitchSemitones = -3,
+            Score = 875_000,
+            MaxCombo = 90,
+            ClearFlag = true,
+            PerfectCount = 90,
+            GreatCount = 10,
+            TotalNotes = 100,
+            PlayingSkill = 90.0,
+            GameSkill = 140.0,
+            ChartLevel = 50,
+            CompletionReason = CompletionReason.SongComplete,
+        };
+
+        var result = await _manager.UpdateScoreAsync(
+            chart.Id,
+            EInstrumentPart.DRUMS,
+            summary);
+
+        Assert.True(result.IsSuccess);
+        var canonicalSlow = canonicalNode.GetScore(difficultyIndex, 75);
+        var duplicateSlow = duplicateNode.GetScore(difficultyIndex, 75);
+        Assert.NotNull(canonicalSlow);
+        Assert.NotNull(duplicateSlow);
+        Assert.Equal(875_000, canonicalSlow!.BestScore);
+        Assert.Equal(875_000, duplicateSlow!.BestScore);
+        Assert.Equal(-3, Assert.Single(canonicalSlow.PerformanceHistory).PitchSemitones);
+        var defaultAfter = canonicalNode.GetScore(difficultyIndex, 100);
+        Assert.NotNull(defaultAfter);
+        Assert.Equal(defaultBefore!.BestScore, defaultAfter!.BestScore);
+        Assert.Equal(0, defaultBefore.PlayCount);
+        Assert.Equal(0, defaultAfter.PlayCount);
+        Assert.Equal(100, canonicalNode.Scores[difficultyIndex].PlaySpeedPercent);
     }
 
     /// <summary>

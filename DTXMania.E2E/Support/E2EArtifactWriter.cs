@@ -26,6 +26,7 @@ public static class E2EArtifactWriter
         Directory.CreateDirectory(fixture.ArtifactRoot);
         File.Copy(fixture.ConfigPath, Path.Combine(fixture.ArtifactRoot, "config.ini"), overwrite: true);
         File.Copy(fixture.ChartPath, Path.Combine(fixture.ArtifactRoot, "autoplay-smoke.dtx"), overwrite: true);
+        File.Copy(fixture.AudioPath, Path.Combine(fixture.ArtifactRoot, E2EFixtureBuilder.AudioFileName), overwrite: true);
     }
 
     private static string GetArtifactPath(E2EFixture fixture, string fileName)

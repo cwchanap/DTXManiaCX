@@ -7,6 +7,7 @@ using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Game.Lib.Stage.Result;
+using DTXMania.Game.Lib.UI.Layout;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Moq;
@@ -17,6 +18,68 @@ namespace DTXMania.Test.Stage.Result;
 [Trait("Category", "Unit")]
 public class ResultScreenRendererTests
 {
+    [Fact]
+    public void DrawModelText_ShouldPlacePlaybackAndSavePresentationInDedicatedRegion()
+    {
+        var resources = new Mock<IResourceManager>();
+        var smallFont = new Mock<IFont>();
+        var renderer = new ResultScreenRenderer(resources.Object, smallFont.Object, null, null);
+        var model = ResultScreenModel.Create(
+            new PerformanceSummary
+            {
+                PlaySpeedPercent = 75,
+                PitchSemitones = 3
+            },
+            null,
+            0,
+            null,
+            null,
+            new ResultSavePresentation(ResultSaveState.Failed, "database busy"));
+        var drawModelText = typeof(ResultScreenRenderer).GetMethod(
+            "DrawModelText",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+        drawModelText!.Invoke(renderer, new object?[] { null, model });
+
+        smallFont.Verify(x => x.DrawString(
+            It.IsAny<SpriteBatch>(),
+            "PLAY 0.75x · PITCH +3 st",
+            ResultUILayout.PlaybackPresentation.ProfilePosition,
+            ResultUILayout.PlaybackPresentation.ProfileColor),
+            Times.Once);
+        smallFont.Verify(x => x.DrawString(
+            It.IsAny<SpriteBatch>(),
+            "SCORE BUCKET: SPEED 0.75x · PITCH NOT SPLIT",
+            ResultUILayout.PlaybackPresentation.ScoreBucketPosition,
+            ResultUILayout.PlaybackPresentation.ScoreBucketColor),
+            Times.Once);
+        smallFont.Verify(x => x.DrawString(
+            It.IsAny<SpriteBatch>(),
+            "SCORE SAVE: FAILED",
+            ResultUILayout.PlaybackPresentation.SaveStatusPosition,
+            ResultUILayout.PlaybackPresentation.FailedColor),
+            Times.Once);
+        smallFont.Verify(x => x.DrawStringWrapped(
+            It.IsAny<SpriteBatch>(),
+                "PRESS ENTER TO RETRY · BACK TO LEAVE WITHOUT SAVING · database busy",
+            ResultUILayout.PlaybackPresentation.SaveGuidanceBounds,
+            ResultUILayout.PlaybackPresentation.GuidanceColor,
+            TextAlignment.Left),
+            Times.Once);
+    }
+
+    [Theory]
+    [InlineData(ResultSaveState.NotStarted)]
+    [InlineData(ResultSaveState.Saving)]
+    [InlineData(ResultSaveState.Saved)]
+    [InlineData(ResultSaveState.Failed)]
+    public void ResolveSaveStatusColor_ShouldReturnConfiguredColor(ResultSaveState state)
+    {
+        var color = ResultScreenRenderer.ResolveSaveStatusColor(state);
+
+        Assert.NotEqual(default, color);
+    }
+
     [Fact]
     public void CreateViewportTransform_ExactNXSize_ShouldUseIdentityScale()
     {

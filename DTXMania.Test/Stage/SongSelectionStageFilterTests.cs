@@ -1,6 +1,7 @@
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Filtering;
 using DTXMania.Game.Lib.Stage;
+using DTXMania.Game.Lib.Config;
 using System.Collections.Generic;
 using Xunit;
 
@@ -182,6 +183,42 @@ namespace DTXMania.Test.Stage
             var node = new SongListNode { Title = "A" };
             var list = new List<SongListNode> { node, new SongListNode { Title = "B" } };
             Assert.Equal(0, SongSelectionStage.ClampSelectionIndex(node, list));
+        }
+
+        #endregion
+
+        #region Recent Plays labels
+
+        [Fact]
+        public void FormatRecentPlayDisplayTitle_WithVariantSpeed_ShouldLabelExactLatestSpeed()
+        {
+            var node = new SongListNode { Title = "Recent Song" };
+            node.RecentPlaySpeedPercent = 75;
+
+            var result = SongSelectionStage.FormatRecentPlayDisplayTitle(node);
+
+            Assert.Equal("Recent Song [0.75x]", result);
+        }
+
+        [Fact]
+        public void FormatRecentPlayDisplayTitle_WithoutRecentSpeed_ShouldKeepTitle()
+        {
+            var node = new SongListNode { Title = "Browse Song" };
+
+            var result = SongSelectionStage.FormatRecentPlayDisplayTitle(node);
+
+            Assert.Equal("Browse Song", result);
+        }
+
+        [Fact]
+        public void FormatRecentPlayDisplayTitle_WhenAlreadyLabeled_ShouldNotDuplicateSuffix()
+        {
+            var node = new SongListNode { Title = "Recent Song [1.50x]" };
+            node.RecentPlaySpeedPercent = PlaySpeedRange.Max;
+
+            var result = SongSelectionStage.FormatRecentPlayDisplayTitle(node);
+
+            Assert.Equal("Recent Song [1.50x]", result);
         }
 
         #endregion

@@ -23,6 +23,7 @@ public sealed class E2EFixtureBuilderTests
             Assert.Equal(Path.Combine(fixture.RunRoot, "DTXFiles"), fixture.DtxRoot);
             Assert.Equal(Path.Combine(fixture.DtxRoot, "AutoPlaySmoke"), fixture.SongDirectory);
             Assert.Equal(Path.Combine(fixture.SongDirectory, "autoplay-smoke.dtx"), fixture.ChartPath);
+            Assert.Equal(Path.Combine(fixture.SongDirectory, E2EFixtureBuilder.AudioFileName), fixture.AudioPath);
             Assert.Equal(Path.Combine(fixture.RunRoot, "TestResults", "e2e"), fixture.ArtifactRoot);
             Assert.Equal(new Uri("http://127.0.0.1:18080/"), fixture.ApiBaseUri);
             Assert.Equal(new Uri("http://127.0.0.1:18080/jsonrpc"), fixture.JsonRpcUri);
@@ -37,6 +38,7 @@ public sealed class E2EFixtureBuilderTests
             Assert.True(Directory.Exists(fixture.ArtifactRoot));
             Assert.True(File.Exists(fixture.ConfigPath));
             Assert.True(File.Exists(fixture.ChartPath));
+            Assert.True(File.Exists(fixture.AudioPath));
 
             // The sandbox skin must ship a valid hit_fx.png so it mirrors the bundled
             // System skin (validated by DefaultSkinAssetsTests).
@@ -53,6 +55,8 @@ public sealed class E2EFixtureBuilderTests
             Assert.Contains("GameApiPort=18080", config);
             Assert.Contains("AutoPlay=True", config);
             Assert.Contains("NoFail=True", config);
+            Assert.Contains("PlaySpeedPercent=100", config);
+            Assert.Contains("PitchSemitones=0", config);
             Assert.Contains("ScreenWidth=1280", config);
             Assert.Contains("ScreenHeight=720", config);
             Assert.Contains("FullScreen=False", config);
@@ -65,7 +69,14 @@ public sealed class E2EFixtureBuilderTests
             var chart = File.ReadAllText(fixture.ChartPath);
             Assert.Contains("#TITLE: E2E AutoPlay Smoke", chart);
             Assert.Contains("#BPM: 120", chart);
+            Assert.Contains($"#WAV01: {E2EFixtureBuilder.AudioFileName}", chart);
+            Assert.Contains("#00001:", chart);
             Assert.Contains("#00011:", chart);
+
+            var audioBytes = File.ReadAllBytes(fixture.AudioPath);
+            Assert.True(audioBytes.Length > 44);
+            Assert.Equal("RIFF", System.Text.Encoding.ASCII.GetString(audioBytes, 0, 4));
+            Assert.Equal("WAVE", System.Text.Encoding.ASCII.GetString(audioBytes, 8, 4));
 
             var configManager = new ConfigManager();
             configManager.LoadConfig(fixture.ConfigPath);
@@ -75,6 +86,8 @@ public sealed class E2EFixtureBuilderTests
             Assert.Equal(18080, configManager.Config.GameApiPort);
             Assert.True(configManager.Config.AutoPlay);
             Assert.True(configManager.Config.NoFail);
+            Assert.Equal(100, configManager.Config.PlaySpeedPercent);
+            Assert.Equal(0, configManager.Config.PitchSemitones);
             Assert.Equal(fixture.DtxRoot, configManager.Config.DTXPath);
             Assert.Equal(fixture.SkinRoot, configManager.Config.SkinPath);
             Assert.Equal(fixture.SkinRoot, configManager.Config.SystemSkinRoot);
@@ -92,6 +105,43 @@ public sealed class E2EFixtureBuilderTests
         {
             if (Directory.Exists(root))
                 Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Build_WithPlaybackProfile_ShouldWriteCanonicalSpeedPitchAndDeterministicAudio()
+    {
+        var firstRoot = Path.Combine(Path.GetTempPath(), "dtx-e2e-fixture-" + Guid.NewGuid().ToString("N"));
+        var secondRoot = Path.Combine(Path.GetTempPath(), "dtx-e2e-fixture-" + Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            var first = E2EFixtureBuilder.Build(
+                firstRoot,
+                Directory.GetCurrentDirectory(),
+                apiPort: 18080,
+                playSpeedPercent: 77,
+                pitchSemitones: 3);
+            var second = E2EFixtureBuilder.Build(
+                secondRoot,
+                Directory.GetCurrentDirectory(),
+                apiPort: 18081,
+                playSpeedPercent: 75,
+                pitchSemitones: 3);
+
+            var config = File.ReadAllText(first.ConfigPath);
+            Assert.Contains("PlaySpeedPercent=75", config);
+            Assert.Contains("PitchSemitones=3", config);
+            Assert.Equal(
+                File.ReadAllBytes(first.AudioPath),
+                File.ReadAllBytes(second.AudioPath));
+        }
+        finally
+        {
+            if (Directory.Exists(firstRoot))
+                Directory.Delete(firstRoot, recursive: true);
+            if (Directory.Exists(secondRoot))
+                Directory.Delete(secondRoot, recursive: true);
         }
     }
 

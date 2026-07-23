@@ -428,6 +428,11 @@ public class PerformanceStageCoverageTests
         ReflectionHelpers.SetPrivateField(stage, "_comboManager", new ComboManager());
         ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", new GaugeManager());
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", new JudgementManager(new MockInputManagerCompat(), CreateChartManagerWithSingleNote()));
+        ReflectionHelpers.SetPrivateField(stage, "_totalTime", 10.0);
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_chartEndReachedRealTimeSeconds",
+            7.0);
 
         ReflectionHelpers.InvokePrivateMethod(stage, "CheckStageCompletion", 5000.0);
 
@@ -672,21 +677,13 @@ public class PerformanceStageCoverageTests
 
     private static SongTimer CreateStoppedSongTimer()
     {
-#pragma warning disable SYSLIB0050
-        var timer = (SongTimer)FormatterServices.GetUninitializedObject(typeof(SongTimer));
-#pragma warning restore SYSLIB0050
-        ReflectionHelpers.SetPrivateField(timer, "_disposed", true);
-        return timer;
+        return new SongTimer();
     }
 
     private static SongTimer CreatePlayingSongTimer()
     {
-#pragma warning disable SYSLIB0050
-        var timer = (SongTimer)FormatterServices.GetUninitializedObject(typeof(SongTimer));
-#pragma warning restore SYSLIB0050
-        ReflectionHelpers.SetPrivateField(timer, "_disposed", false);
-        ReflectionHelpers.SetPrivateField(timer, "_isPlaying", true);
-        ReflectionHelpers.SetPrivateField(timer, "_startTime", TimeSpan.Zero);
+        var timer = new SongTimer();
+        timer.Play(new GameTime(TimeSpan.Zero, TimeSpan.Zero));
         return timer;
     }
 

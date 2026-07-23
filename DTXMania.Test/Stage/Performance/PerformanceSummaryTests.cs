@@ -1,3 +1,4 @@
+using System;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage.Performance;
 using Xunit;
@@ -28,6 +29,10 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Equal(0, summary.TotalNotes);
             Assert.Equal(0.0f, summary.FinalLife);
             Assert.Equal(CompletionReason.Unknown, summary.CompletionReason);
+            Assert.Equal(Guid.Empty, summary.RunId);
+            Assert.Equal(100, summary.PlaySpeedPercent);
+            Assert.Equal(0, summary.PitchSemitones);
+            Assert.False(summary.IsSavable);
         }
 
         [Fact]
@@ -38,6 +43,35 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Equal(0.0, summary.GameSkill);
             Assert.Equal(0, summary.ChartLevel);
             Assert.Equal(0, summary.ChartLevelDec);
+        }
+
+        [Theory]
+        [InlineData(CompletionReason.SongComplete, true)]
+        [InlineData(CompletionReason.PlayerFailed, true)]
+        [InlineData(CompletionReason.PlayerQuit, false)]
+        [InlineData(CompletionReason.Unknown, false)]
+        public void IsSavable_ShouldRequireRunIdentityAndSupportedCompletionReason(
+            CompletionReason reason,
+            bool expected)
+        {
+            var summary = new PerformanceSummary
+            {
+                RunId = Guid.NewGuid(),
+                CompletionReason = reason
+            };
+
+            Assert.Equal(expected, summary.IsSavable);
+        }
+
+        [Fact]
+        public void IsSavable_WithoutRunIdentity_ShouldReturnFalse()
+        {
+            var summary = new PerformanceSummary
+            {
+                CompletionReason = CompletionReason.SongComplete
+            };
+
+            Assert.False(summary.IsSavable);
         }
 
         #endregion

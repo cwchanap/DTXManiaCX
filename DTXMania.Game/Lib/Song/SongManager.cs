@@ -1715,11 +1715,28 @@ namespace DTXMania.Game.Lib.Song
         /// </summary>
         public async Task<List<SongScoreEntity>> GetTopScoresAsync(EInstrumentPart instrument, int limit = 10)
         {
+            return await GetTopScoresForSpeedAsync(
+                instrument,
+                PlaySpeedRange.Default,
+                limit).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Gets top scores for one explicit gameplay-speed bucket.
+        /// </summary>
+        public async Task<List<SongScoreEntity>> GetTopScoresForSpeedAsync(
+            EInstrumentPart instrument,
+            int playSpeedPercent,
+            int limit = 10)
+        {
             if (_databaseService == null) return new List<SongScoreEntity>();
 
             try
             {
-                return await _databaseService.GetTopScoresAsync(instrument, limit);
+                return await _databaseService.GetTopScoresForSpeedAsync(
+                    instrument,
+                    playSpeedPercent,
+                    limit).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -1754,64 +1771,65 @@ namespace DTXMania.Game.Lib.Song
         /// fields on the song-list node reflect the just-saved play without a full
         /// song-database reload.
         /// </summary>
-        public async Task<bool> UpdateScoreAsync(int chartId, EInstrumentPart instrument, DTXMania.Game.Lib.Stage.Performance.PerformanceSummary summary)
+        public async Task<ScoreSaveResult> UpdateScoreAsync(
+            int chartId,
+            EInstrumentPart instrument,
+            DTXMania.Game.Lib.Stage.Performance.PerformanceSummary summary)
         {
-            if (_databaseService == null) return false;
+            if (_databaseService == null)
+            {
+                return ScoreSaveResult.Failed(
+                    "The song database is unavailable, so the result could not be saved.");
+            }
 
-            try
+            var result = await _databaseService
+                .UpdateScoreAsync(chartId, instrument, summary)
+                .ConfigureAwait(false);
+
+            if (result.IsSuccess)
             {
-                await _databaseService.UpdateScoreAsync(chartId, instrument, summary);
-                await RefreshInMemoryScoreForChartAsync(chartId, instrument).ConfigureAwait(false);
-                return true;
+                await RefreshInMemoryScoreForChartAsync(
+                    chartId,
+                    instrument,
+                    summary.PlaySpeedPercent).ConfigureAwait(false);
             }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"SongManager: Error updating score (summary): {ex.Message}");
-                return false;
-            }
+
+            return result;
         }
 
         /// <summary>
-        /// Refreshes the in-memory score cache for a single chart+instrument after a
+        /// Refreshes the in-memory score cache for a single chart+instrument+speed after a
         /// database write. Re-queries the fresh <see cref="SongScore"/> (with
-        /// <see cref="SongScore.PerformanceHistory"/> eagerly loaded) and copies its
-        /// fields onto the matching <see cref="SongListNode.Scores"/> entry in-place,
-        /// preserving node identity so song-selection navigation state is not orphaned.
+        /// <see cref="SongScore.PerformanceHistory"/> eagerly loaded), clones the current
+        /// variant map, replaces only the matching speed, and atomically publishes the
+        /// complete new snapshot. The fixed score slot is replaced only for 1.00x.
         /// Silently no-ops when the DB service is unavailable or the node cannot be found.
         /// </summary>
-        private async Task RefreshInMemoryScoreForChartAsync(int chartId, EInstrumentPart instrument)
+        private async Task RefreshInMemoryScoreForChartAsync(
+            int chartId,
+            EInstrumentPart instrument,
+            int playSpeedPercent)
         {
             var db = GetDatabaseServiceSnapshot();
             if (db == null) return;
 
-            SongScore? fresh;
-            try
-            {
-                fresh = await db.GetScoreWithHistoryAsync(chartId, instrument).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"SongManager: Failed to refresh in-memory score cache for chart {chartId}: {ex.Message}");
-                return;
-            }
+            var fresh = await db.GetScoreWithHistoryAsync(
+                chartId,
+                instrument,
+                playSpeedPercent).ConfigureAwait(false);
 
             if (fresh == null) return;
 
             lock (_lockObject)
             {
                 foreach (var root in _rootSongs)
-                {
-                    if (TryUpdateNodeScore(root, chartId, instrument, fresh))
-                        return;
-                }
+                    PublishNodeScoreVariant(root, chartId, instrument, playSpeedPercent, fresh);
             }
         }
 
         /// <summary>
-        /// Recursively walks the song-list tree looking for a Score node whose
-        /// <see cref="SongListNode.Scores"/> array contains an entry matching
-        /// <paramref name="chartId"/> + <paramref name="instrument"/>. Copies the fresh
-        /// DB field values onto that entry in-place. Returns true when a match was found.
+        /// Recursively walks the complete song-list tree and publishes the fresh score
+        /// into every canonical node containing the matching chart and instrument.
         /// When the in-memory score carries a zero ChartId (legacy set.def nodes),
         /// falls back to matching by Instrument + DifficultyLevel, mirroring the logic
         /// in <see cref="SongListNode.PopulatePlayHistoryFromCharts"/>. Unlike that
@@ -1821,8 +1839,15 @@ namespace DTXMania.Game.Lib.Song
         /// with a different legacy node from hijacking the refresh and stamping the
         /// wrong song's cached score/history with this chart id.
         /// </summary>
-        private static bool TryUpdateNodeScore(SongListNode node, int chartId, EInstrumentPart instrument, SongScore fresh)
+        private static bool PublishNodeScoreVariant(
+            SongListNode node,
+            int chartId,
+            EInstrumentPart instrument,
+            int playSpeedPercent,
+            SongScore fresh)
         {
+            bool updated = false;
+
             if (node.Type == NodeType.Score)
             {
                 // Owning song of the just-played chart, resolved from the eagerly-loaded
@@ -1831,8 +1856,11 @@ namespace DTXMania.Game.Lib.Song
                 // the same instrument + numeric difficulty level.
                 int? owningSongId = fresh.Chart?.SongId;
 
-                foreach (var score in node.Scores)
+                for (int difficultyIndex = 0;
+                    difficultyIndex < node.Scores.Length;
+                    difficultyIndex++)
                 {
+                    var score = node.Scores[difficultyIndex];
                     if (score == null) continue;
                     if (score.Instrument != instrument) continue;
 
@@ -1856,10 +1884,18 @@ namespace DTXMania.Game.Lib.Song
 
                     if (match)
                     {
-                        CopyScoreFieldsToCache(score, fresh);
-                        // Stamp the ChartId so subsequent refreshes hit the fast path.
-                        score.ChartId = chartId;
-                        return true;
+                        var published = CreateScoreSnapshot(fresh);
+                        published.ChartId = chartId;
+                        published.PlaySpeedPercent = playSpeedPercent;
+
+                        var variants = node.ScoreVariants.ToDictionary(
+                            pair => pair.Key,
+                            pair => pair.Value);
+                        variants[new ScoreVariantKey(
+                            difficultyIndex,
+                            playSpeedPercent)] = published;
+                        node.PublishScoreVariants(variants);
+                        updated = true;
                     }
                 }
             }
@@ -1868,45 +1904,38 @@ namespace DTXMania.Game.Lib.Song
             {
                 foreach (var child in node.Children)
                 {
-                    if (TryUpdateNodeScore(child, chartId, instrument, fresh))
-                        return true;
+                    if (PublishNodeScoreVariant(
+                        child,
+                        chartId,
+                        instrument,
+                        playSpeedPercent,
+                        fresh))
+                    {
+                        updated = true;
+                    }
                 }
             }
 
-            return false;
+            return updated;
         }
 
         /// <summary>
-        /// Copies the mutable display fields from <paramref name="source"/> (a fresh,
-        /// AsNoTracking DB read) onto <paramref name="target"/> (the in-memory cache
-        /// entry), matching the field set used by
-        /// <see cref="SongListNode.PopulatePlayHistoryFromCharts"/>. Rebuilds
-        /// <see cref="SongScore.PlayHistoryLines"/> from the scoped
-        /// <see cref="PerformanceHistory"/> rows.
+        /// Creates a detached score snapshot with only its own pitch-bearing history
+        /// rows and rebuilds the legacy display lines from that scoped collection.
         /// </summary>
-        private static void CopyScoreFieldsToCache(SongScore target, SongScore source)
+        private static SongScore CreateScoreSnapshot(SongScore source)
         {
-            target.PlayCount          = source.PlayCount;
-            target.BestRank           = source.BestRank;
-            target.BestScore          = source.BestScore;
-            target.BestSkillPoint     = source.BestSkillPoint;
-            target.BestAchievementRate = source.BestAchievementRate;
-            target.FullCombo          = source.FullCombo;
-            target.Excellent          = source.Excellent;
-            target.ClearCount         = source.ClearCount;
-            target.MaxCombo           = source.MaxCombo;
-            target.HighSkill          = source.HighSkill;
-            target.SongSkill          = source.SongSkill;
-            target.LastPlayedAt       = source.LastPlayedAt;
-            target.LastScore          = source.LastScore;
-            target.LastSkillPoint     = source.LastSkillPoint;
-            target.PlayHistoryLines   = (source.PerformanceHistory ?? Enumerable.Empty<PerformanceHistory>())
+            var snapshot = source.Clone();
+            snapshot.PerformanceHistory = snapshot.PerformanceHistory
                 .Where(h => h.SongScoreId == source.Id)
                 .OrderBy(h => h.DisplayOrder)
-                .Select(h => h.HistoryLine)
+                .ToList();
+            snapshot.PlayHistoryLines = snapshot.PerformanceHistory
+                .Select(history => history.HistoryLine)
                 .Where(line => !string.IsNullOrWhiteSpace(line))
                 .Take(GameConstants.PlayHistory.MaxRecentPlays)
                 .ToList();
+            return snapshot;
         }
 
         /// <summary>
@@ -2013,7 +2042,17 @@ namespace DTXMania.Game.Lib.Song
                 var charts = song.Charts?.ToArray() ?? Array.Empty<SongChart>();
                 var node = CreateSongNodeFromDatabaseEntities(song, charts);
                 if (node != null)
+                {
+                    node.RecentPlaySpeedPercent = charts
+                        .SelectMany(chart =>
+                            chart.Scores ?? Enumerable.Empty<SongScore>())
+                        .Where(score => score.LastPlayedAt.HasValue)
+                        .OrderByDescending(score => score.LastPlayedAt)
+                        .ThenByDescending(score => score.Id)
+                        .Select(score => (int?)score.PlaySpeedPercent)
+                        .FirstOrDefault();
                     nodes.Add(node);
+                }
             }
             return nodes;
         }
@@ -2674,13 +2713,27 @@ namespace DTXMania.Game.Lib.Song
 
                 // Use the first chart for the primary file path
                 var primaryChart = charts[0];
+                var orderedCharts = charts
+                    .OrderBy(c => (c.HasDrumChart && c.DrumLevel > 0) ? 0 : 1)
+                    .ThenBy(c => c.DrumLevel)
+                    .ToArray();
 
                 // Create the song node using the first chart
-                var songNode = SongListNode.CreateSongNode(song, primaryChart);
+                var songNode = SongListNode.CreateSongNode(
+                    song,
+                    primaryChart,
+                    hydratePersistedScores: false);
 
                 // If there are multiple charts, populate the difficulties
                 if (charts.Length > 1)
                 {
+                    // The factory seeded slots from only the primary chart. Rebuild the
+                    // complete multi-chart metadata layout from scratch so unused
+                    // instrument slots from that chart cannot survive the ordered pass.
+                    songNode.Scores = new SongScore[5];
+                    songNode.PublishScoreVariants(
+                        Array.Empty<KeyValuePair<ScoreVariantKey, SongScore>>());
+
                     // Recover the authentic difficulty-tier labels (BASIC/ADVANCED/EXTREME/...) from the
                     // SET.def when the persisted chart label is empty, so the performance-stage difficulty
                     // badge selects the matching cell instead of always falling back to the DTX cell.
@@ -2699,10 +2752,6 @@ namespace DTXMania.Game.Lib.Song
                     // place an EXTREME chart's label in slot 0 while difficulty 0 loads the BASIC chart,
                     // making the performance-stage badge show the wrong difficulty cell. Non-drum charts
                     // (DrumLevel == 0) sort after drum charts, matching the drum-first selection fallback.
-                    var orderedCharts = charts
-                        .OrderBy(c => (c.HasDrumChart && c.DrumLevel > 0) ? 0 : 1)
-                        .ThenBy(c => c.DrumLevel)
-                        .ToArray();
                     foreach (var chart in orderedCharts.Take(5)) // Limit to 5 difficulties
                     {
                         if (scoreIndex >= songNode.Scores.Length) break;
@@ -2729,21 +2778,22 @@ namespace DTXMania.Game.Lib.Song
 
                         string difficultyLabelText = ResolveDifficultyLabel(chart, setDefLabels, scoreIndex);
 
-                        songNode.Scores[scoreIndex] = new DTXMania.Game.Lib.Song.Entities.SongScore
+                        songNode.SetScore(scoreIndex, new DTXMania.Game.Lib.Song.Entities.SongScore
                         {
                             ChartId = chart.Id,
                             Instrument = primaryInstrument,
                             DifficultyLevel = difficultyLevel,
                             DifficultyLabel = difficultyLabelText
-                        };
+                        });
 
                         songNode.DifficultyLabels[scoreIndex] = difficultyLabelText;
                         scoreIndex++;
                     }
                 }
 
-                // Populate play history from persisted score records (if eagerly loaded).
-                songNode.PopulatePlayHistoryFromCharts(charts);
+                // Metadata slots are now final. Publish every eagerly loaded persisted
+                // speed as one complete immutable snapshot; only 1.00x replaces Scores.
+                HydrateScoreVariants(songNode, charts);
 
                 return songNode;
             }
@@ -2752,6 +2802,47 @@ namespace DTXMania.Game.Lib.Song
                 Debug.WriteLine($"SongManager: Error creating song node from database entities: {ex.Message}");
                 return null;
             }
+        }
+
+        private static void HydrateScoreVariants(
+            SongListNode songNode,
+            IEnumerable<SongChart> charts)
+        {
+            var chartArray = charts.ToArray();
+            var variants = new Dictionary<ScoreVariantKey, SongScore>();
+
+            for (int difficultyIndex = 0;
+                difficultyIndex < songNode.Scores.Length;
+                difficultyIndex++)
+            {
+                var metadata = songNode.Scores[difficultyIndex];
+                if (metadata == null)
+                    continue;
+
+                metadata.PlaySpeedPercent = PlaySpeedRange.Default;
+                variants[new ScoreVariantKey(
+                    difficultyIndex,
+                    PlaySpeedRange.Default)] = metadata.Clone();
+
+                var persistedScores = chartArray
+                    .Where(chart => metadata.ChartId != 0
+                        ? chart.Id == metadata.ChartId
+                        : chart.GetDifficultyLevel(
+                            metadata.Instrument.ToString()) == metadata.DifficultyLevel)
+                    .SelectMany(chart =>
+                        chart.Scores ?? Enumerable.Empty<SongScore>())
+                    .Where(score => score.Instrument == metadata.Instrument);
+
+                foreach (var persisted in persistedScores)
+                {
+                    var snapshot = CreateScoreSnapshot(persisted);
+                    variants[new ScoreVariantKey(
+                        difficultyIndex,
+                        persisted.PlaySpeedPercent)] = snapshot;
+                }
+            }
+
+            songNode.PublishScoreVariants(variants);
         }
 
         /// <summary>

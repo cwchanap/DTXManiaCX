@@ -47,6 +47,8 @@ namespace DTXMania.Game.Lib.UI.Layout
         /// Ready state pulse frequency for text animation
         /// </summary>
         public const double ReadyPulseFrequency = 2.0;
+
+        public const double AudioPreparationProgressDelaySeconds = 0.25;
         
         #endregion
         

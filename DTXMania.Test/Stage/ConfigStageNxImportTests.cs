@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -9,6 +10,7 @@ using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage;
+using DTXMania.Game.Lib.Stage.Config;
 using DTXMania.Test.TestData;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Xna.Framework.Graphics;
@@ -53,6 +55,26 @@ public class ConfigStageNxImportTests : IDisposable
         if (includePanels)
         {
             ReflectionHelpers.InvokePrivateMethod(stage, "InitializePanels");
+        }
+    }
+
+    [Fact]
+    public void SetupConfigItems_NxImportHelp_ShouldExplainLegacySpeedBucket()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            var categories = ReflectionHelpers.GetPrivateField<List<ConfigCategory>>(
+                stage,
+                "_categories");
+            var importItem = categories
+                .SelectMany(category => category.Items)
+                .Single(item => item.Name == "Import NX Scores");
+
+            Assert.Contains(
+                "legacy 1.00x score bucket",
+                importItem.Description);
         }
     }
 
