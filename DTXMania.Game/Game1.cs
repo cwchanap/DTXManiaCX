@@ -242,7 +242,12 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame
 
         var config = ConfigManager.Config;
         ResourceManager.SetUseBoxDefSkin(config.UseBoxDefSkin);
-        ResourceManager.SetSkinPath(config.SkinPath);
+        // Resolve the "Default" token (if present) to the current bundled
+        // System skin root so ResourceManager receives an absolute path. The
+        // token survives app relocations; resolving here picks up the current
+        // install location on every launch.
+        ResourceManager.SetSkinPath(
+            Lib.Config.ConfigManager.ResolveSkinPath(config.SkinPath));
 
         StageManager?.ChangeStage(StageType.Startup);
 

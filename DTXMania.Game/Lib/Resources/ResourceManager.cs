@@ -737,17 +737,21 @@ namespace DTXMania.Game.Lib.Resources
         /// Finds Theme.ini for the effective skin. Unlike texture resolution
         /// (which falls through effective → fallback → bundled for every skin),
         /// theme resolution is gated on whether the effective skin IS the default
-        /// skin. A custom or box.def skin without its own Theme.ini gets
-        /// <see cref="SkinTheme.Empty"/> — this preserves byte-identical NX
+        /// skin (or an invalid path that ResourceManager is silently falling
+        /// back from). A valid custom or box.def skin without its own Theme.ini
+        /// gets <see cref="SkinTheme.Empty"/> — this preserves byte-identical NX
         /// behavior for legacy/box.def skins and prevents CX Neon layout
         /// overrides from leaking into skins that use different artwork.
         ///
         /// When the effective skin is the default (i.e. equals
-        /// <see cref="_fallbackSkinPath"/>), all three tiers are consulted:
-        /// effective, fallback, then the read-only bundled root. The bundled
-        /// tier is how a clean install — where the app-data System root is a
-        /// placeholder but CX Neon lives in the bundled root — picks up its
-        /// Theme.ini.
+        /// <see cref="_fallbackSkinPath"/>) OR is invalid/deleted (so that
+        /// texture resolution is already silently serving bundled CX Neon
+        /// assets), all three tiers are consulted: effective, fallback, then
+        /// the read-only bundled root. Without the invalid-path branch, a
+        /// deleted configured skin would load CX Neon textures via fallback
+        /// while returning SkinTheme.Empty — applying NX defaults instead of
+        /// the CX Neon font/position/scaling overrides the bundled assets
+        /// were designed for.
         /// </summary>
         /// <param name="effectiveSkinPath">
         /// Snapshot of the effective skin path from the caller so resolution and
@@ -759,16 +763,24 @@ namespace DTXMania.Game.Lib.Resources
             if (File.Exists(effectivePath))
                 return effectivePath;
 
-            // Only the default skin consults the fallback and bundled tiers.
-            // A custom/box.def skin with no Theme.ini returns Empty so legacy
-            // skins keep NX behavior (design requirement: "NX skin behavior
-            // must stay byte-identical with no Theme.ini").
+            // Distinguish valid custom skins from invalid/deleted paths.
+            // A valid custom skin (effective validates on disk AND is not the
+            // default root) with no Theme.ini returns Empty — preserving NX
+            // behavior for legacy skins and preventing CX Neon overrides from
+            // leaking into custom artwork.
+            // An invalid path (deleted, moved, incomplete) means texture
+            // resolution is already falling through to the bundled CX Neon
+            // assets, so the theme must follow suit and consult the
+            // fallback/bundled tiers — otherwise CX Neon textures render with
+            // NX theme defaults (wrong fonts, positions, scaling).
+            var effectiveIsValid = ValidateSkinPath(effectiveSkinPath);
             var isDefaultSkin = !string.IsNullOrEmpty(effectiveSkinPath)
                 && string.Equals(effectiveSkinPath, _fallbackSkinPath, AppPaths.SkinPathComparison);
 
-            if (!isDefaultSkin)
+            if (effectiveIsValid && !isDefaultSkin)
                 return string.Empty;
 
+            // Invalid or default → consult fallback then bundled tiers.
             var fallbackPath = Path.Combine(_fallbackSkinPath, SkinTheme.ThemeFileName);
             if (File.Exists(fallbackPath))
                 return fallbackPath;

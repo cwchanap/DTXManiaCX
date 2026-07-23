@@ -302,6 +302,64 @@ namespace DTXMania.Test.Config
         }
 
         [Fact]
+        public void TryGetDisambiguatedSkinName_WithCaseDistinctPaths_ShouldNotConflateOnCaseSensitivePlatforms()
+        {
+            // On case-sensitive platforms (non-Windows), two skins named "Neon"
+            // and "neon" are distinct. TryGetDisambiguatedSkinName must use
+            // AppPaths.SkinPathComparison (Ordinal on non-Windows) so the
+            // lowercase path resolves to the lowercase label, not the
+            // uppercase one. The old OrdinalIgnoreCase comparison conflated
+            // them, making the dropdown show the wrong label and initialize
+            // at the wrong index.
+            //
+            // This test sets _skinOptions directly (bypassing filesystem
+            // discovery) so it runs on any platform — including macOS with a
+            // case-insensitive APFS volume where two case-distinct directories
+            // cannot coexist.
+            var (stage, _, resourceManager, inputManager) = CreateStage();
+            using (inputManager)
+            {
+                var neonUpper = Path.Combine(_skinRoot, "Neon") + Path.DirectorySeparatorChar;
+                var neonLower = Path.Combine(_skinRoot, "neon") + Path.DirectorySeparatorChar;
+
+                // Create the lowercase skin so ValidateSkinPath passes and
+                // GetCurrentSkinName reaches TryGetDisambiguatedSkinName
+                // instead of short-circuiting to "Default". On a
+                // case-insensitive FS this also satisfies the uppercase path.
+                CreateSkin(Path.Combine(_skinRoot, "neon"));
+
+                var options = new List<SkinManager.SkinOption>
+                {
+                    new SkinManager.SkinOption(neonUpper, "Neon"),
+                    new SkinManager.SkinOption(neonLower, "neon"),
+                };
+                ReflectionHelpers.SetPrivateField(stage, "_skinOptions", options);
+
+                // Set the effective skin to the lowercase path.
+                resourceManager.SetSkinPath(neonLower);
+
+                // On non-Windows (Ordinal comparison), the lowercase path must
+                // resolve to the "neon" label, not "Neon". On Windows
+                // (OrdinalIgnoreCase), both paths are equivalent so either
+                // label is acceptable — but the test still verifies the
+                // comparison doesn't throw or misbehave.
+                var name = ReflectionHelpers.InvokePrivateMethod<string>(stage, "GetCurrentSkinName");
+
+                if (!OperatingSystem.IsWindows())
+                {
+                    Assert.Equal("neon", name);
+                }
+                else
+                {
+                    // On Windows, case-insensitive comparison means either
+                    // label can match. Just verify it's one of them.
+                    Assert.True(name == "Neon" || name == "neon",
+                        $"Expected 'Neon' or 'neon', got '{name}'");
+                }
+            }
+        }
+
+        [Fact]
         public void OnDeactivate_AfterSetupConfigItems_ShouldDisposeSkinManager()
         {
             // OnDeactivate must dispose the SkinManager created by SetupConfigItems.

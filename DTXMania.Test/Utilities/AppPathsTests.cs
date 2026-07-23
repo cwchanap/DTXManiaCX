@@ -370,13 +370,26 @@ public class AppPathsEnvironmentTests
         // the exact expected paths rather than path suffixes (the bin dir is not inside
         // a real .app/Contents/MacOS/ structure during tests).
         var baseDir = AppContext.BaseDirectory;
-        var expectedBundle = Path.GetFullPath(Path.Combine(baseDir, "..", "Resources", "System"));
         var expectedPortable = Path.GetFullPath(Path.Combine(baseDir, "System"));
 
         var candidates = AppPaths.GetBundledSystemSkinRootCandidates().ToList();
 
-        Assert.Contains(expectedBundle, candidates);
+        // The portable candidate is always present on every platform.
         Assert.Contains(expectedPortable, candidates);
+
+        // The macOS bundle candidate is only yielded on macOS.
+        if (OperatingSystem.IsMacOS())
+        {
+            var expectedBundle = Path.GetFullPath(Path.Combine(baseDir, "..", "Resources", "System"));
+            Assert.Contains(expectedBundle, candidates);
+            // macOS: bundle candidate comes first (priority order).
+            Assert.Equal(expectedBundle, candidates[0]);
+        }
+        else
+        {
+            // Non-macOS: only the portable candidate should be present.
+            Assert.Single(candidates);
+        }
     }
 
     [Theory]
@@ -391,14 +404,26 @@ public class AppPathsEnvironmentTests
     }
 
     [Fact]
-    public void GetBundledSystemSkinRootCandidates_WithExplicitBaseDir_ShouldReturnBundleAndPortableCandidates()
+    public void GetBundledSystemSkinRootCandidates_WithExplicitBaseDir_ShouldReturnPlatformSpecificCandidates()
     {
         var baseDir = Path.GetTempPath();
 
         var candidates = AppPaths.GetBundledSystemSkinRootCandidates(baseDir).ToList();
 
-        var expectedBundle = Path.GetFullPath(Path.Combine(baseDir, "..", "Resources", "System"));
         var expectedPortable = Path.GetFullPath(Path.Combine(baseDir, "System"));
-        Assert.Equal(new[] { expectedBundle, expectedPortable }, candidates);
+        Assert.Contains(expectedPortable, candidates);
+
+        if (OperatingSystem.IsMacOS())
+        {
+            var expectedBundle = Path.GetFullPath(Path.Combine(baseDir, "..", "Resources", "System"));
+            Assert.Equal(new[] { expectedBundle, expectedPortable }, candidates);
+        }
+        else
+        {
+            // Windows/Linux: only the portable candidate — a sibling
+            // ../Resources/System is unrelated to the app and must not
+            // silently replace the packaged <app>/System skin.
+            Assert.Equal(new[] { expectedPortable }, candidates);
+        }
     }
 }

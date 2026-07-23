@@ -691,7 +691,7 @@ namespace DTXMania.Game.Lib.Stage
             var normalized = Normalize(path);
             foreach (var option in _skinOptions)
             {
-                if (string.Equals(normalized, Normalize(option.Path), StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(normalized, Normalize(option.Path), AppPaths.SkinPathComparison))
                 {
                     name = option.Name;
                     return !string.IsNullOrEmpty(name);
@@ -784,8 +784,18 @@ namespace DTXMania.Game.Lib.Stage
             // Other stages reload on their next OnActivate when the player navigates
             // to them, and their draw paths null-guard cached references.
 
+            // Persist the skin selection. When the player selected "Default"
+            // (the bundled default root), persist the logical "Default" token
+            // rather than the absolute bundled path — the token resolves to
+            // the current install location at runtime, surviving app
+            // relocations. For custom/external skins, persist the absolute
+            // effective path as before.
+            var effectivePath = _game.ResourceManager.GetCurrentEffectiveSkinPath();
+            var persistedPath = string.Equals(skinName, "Default", StringComparison.OrdinalIgnoreCase)
+                ? ConfigManager.DefaultSkinPathToken
+                : effectivePath;
             _configManager.SetSkinPath(AppPaths.GetConfigFilePath(),
-                _game.ResourceManager.GetCurrentEffectiveSkinPath());
+                persistedPath);
 
             _logger.LogInformation("Switched skin to '{SkinName}'", skinName);
 
