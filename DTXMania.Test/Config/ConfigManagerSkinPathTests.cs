@@ -316,6 +316,88 @@ namespace DTXMania.Test.Config
         }
 
         [Fact]
+        public void LoadConfig_WithGenuineBundledPath_ShouldMigrateAndPersistToDefaultToken()
+        {
+            // End-to-end migration test using a GENUINE bundled path (not the
+            // app-data default). The previous companion test
+            // (LoadConfig_WithOldAbsoluteBundledPathFromExplicitBaseDir) only
+            // exercised candidate resolution and token mapping through the
+            // internal seams — it never wrote the bundled path to Config.ini,
+            // called LoadConfig, or verified the file was rewritten.
+            //
+            // This test closes that gap via the LoadConfig(filePath, baseDir)
+            // seam: it creates a fake install directory with a validating
+            // System skin, writes that bundled root as the "old absolute
+            // bundled path" into Config.ini, calls LoadConfig with the fake
+            // install as the base dir, and asserts BOTH the in-memory value
+            // AND the persisted file contents migrated to the "Default" token.
+            // This is the complete load-and-persist migration the reviewer
+            // flagged as missing.
+            var installDir = Path.Combine(_tempDir, "fakeInstall");
+            Directory.CreateDirectory(installDir);
+            var systemRoot = Path.Combine(installDir, "System");
+            Directory.CreateDirectory(Path.Combine(systemRoot, "Graphics"));
+            File.WriteAllText(Path.Combine(systemRoot, "Graphics", "1_background.jpg"), "bg");
+
+            // Resolve the genuine bundled root from the fake install dir. On
+            // macOS the first candidate is ../Resources/System (a sibling of
+            // installDir, which doesn't exist here), so this falls through to
+            // the installDir/System candidate that does validate.
+            var bundledRoot = ConfigManager.ResolveValidatingBundledSystemSkinRoot(installDir);
+            Assert.NotNull(bundledRoot);
+            Assert.True(PathValidator.IsValidSkinPath(bundledRoot!),
+                "Fake install's System root must validate so IsDefaultSkinPath recognizes it");
+
+            // Write the genuine bundled path as the stale "old format" value.
+            File.WriteAllText(ConfigPath,
+                $"[System]\nSkinPath={bundledRoot}\n");
+
+            var manager = new ConfigManager();
+            // Use the baseDir seam so LoadConfig resolves bundled candidates
+            // from the fake install, not AppContext.BaseDirectory.
+            manager.LoadConfig(ConfigPath, installDir);
+
+            // In-memory value migrated to the token.
+            Assert.Equal(ConfigManager.DefaultSkinPathToken, manager.Config.SkinPath);
+
+            // Persisted file contents also migrated — the absolute bundled
+            // path is gone and the token is in its place.
+            var persistedContents = File.ReadAllText(ConfigPath);
+            Assert.Contains($"SkinPath={ConfigManager.DefaultSkinPathToken}",
+                persistedContents);
+            Assert.DoesNotContain($"SkinPath={bundledRoot}", persistedContents);
+        }
+
+        [Fact]
+        public void IsDefaultSkinPath_WithGenuineBundledPathAndMatchingBaseDir_ShouldReturnTrue()
+        {
+            // Direct unit test of the IsDefaultSkinPath(path, baseDir) seam:
+            // a genuine bundled root from a fake install dir must be
+            // recognized as a default skin path so LoadConfig migrates it to
+            // the token. This complements the end-to-end test above by
+            // pinning the recognition logic independently of the load flow.
+            var installDir = Path.Combine(_tempDir, "fakeInstall");
+            Directory.CreateDirectory(installDir);
+            var systemRoot = Path.Combine(installDir, "System");
+            Directory.CreateDirectory(Path.Combine(systemRoot, "Graphics"));
+            File.WriteAllText(Path.Combine(systemRoot, "Graphics", "1_background.jpg"), "bg");
+
+            var bundledRoot = ConfigManager.ResolveValidatingBundledSystemSkinRoot(installDir);
+            Assert.NotNull(bundledRoot);
+
+            Assert.True(ConfigManager.IsDefaultSkinPath(bundledRoot!, installDir),
+                "Genuine bundled root from the matching base dir must be recognized as a default skin path");
+
+            // A non-matching base dir must NOT recognize it — proving the
+            // recognition is baseDir-dependent, not a false positive from the
+            // app-data default branch.
+            var otherDir = Path.Combine(_tempDir, "otherInstall");
+            Directory.CreateDirectory(otherDir);
+            Assert.False(ConfigManager.IsDefaultSkinPath(bundledRoot!, otherDir),
+                "Genuine bundled root must not be recognized from an unrelated base dir");
+        }
+
+        [Fact]
         public void LoadConfig_WithDefaultToken_ShouldPreserveTokenAcrossRestart()
         {
             // A config that already stores the "Default" token should keep it
