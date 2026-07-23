@@ -62,6 +62,16 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
+[InstallDelete]
+; Remove the entire installer-owned default skin tree before copying the new
+; release. [Files] with ignoreversion only overwrites/creates files — files
+; dropped from SystemSkinDir in a newer release (e.g. obsolete NX assets from
+; prior installs) would otherwise survive the upgrade and produce a hybrid
+; skin. This runs before [Files] on every install (a no-op on fresh installs
+; where {app}\System does not yet exist). Per-user custom skins live under
+; %LOCALAPPDATA%\DTXManiaCX\System\{SkinName}\ and are never touched here.
+Type: filesandordirs; Name: "{app}\System"
+
 [Files]
 ; Self-contained game files from the win-x64 publish output
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
