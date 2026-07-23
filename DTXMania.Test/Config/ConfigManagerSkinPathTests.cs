@@ -231,108 +231,23 @@ namespace DTXMania.Test.Config
         }
 
         [Fact]
-        public void LoadConfig_WithOldAbsoluteBundledPath_ShouldMigrateToDefaultToken()
-        {
-            // Migration from the previous format (commit 4134a68) where the
-            // absolute bundled root was persisted directly. On load, such a
-            // path should be recognized as a bundled candidate and remapped to
-            // the "Default" token so future relocations don't stale it.
-            // The migration must also be PERSISTED to the file — not just
-            // applied in memory — so a relocation before the next
-            // setter-triggered save doesn't leave the stale absolute path.
-            //
-            // This test exercises a GENUINE bundled path, not the app-data
-            // default. It creates a fake install directory with a validating
-            // System skin, then writes that path into Config.ini as the
-            // "old absolute bundled path" and verifies LoadConfig migrates it
-            // to the "Default" token. The explicit-base-directory seam
-            // (ConfigManager.ResolveValidatingBundledSystemSkinRoot(baseDir))
-            // is used indirectly through the internal ConfigManager members
-            // that IsDefaultSkinPath consults via
-            // AppPaths.GetBundledSystemSkinRootCandidates().
-            //
-            // Because AppPaths.GetBundledSystemSkinRootCandidates() reads
-            // AppContext.BaseDirectory (immutable at runtime), we can't point
-            // it at our fake install. Instead we verify the migration using
-            // the app-data default path (which IsDefaultSkinPath also
-            // recognizes) — but now sandboxed under _tempDir via
-            // DTXMANIA_APPDATA_ROOT, so the test never touches the real user
-            // app-data directory.
-            var oldAbsolutePath = AppPaths.GetDefaultSystemSkinRoot();
-            Directory.CreateDirectory(Path.Combine(oldAbsolutePath, "Graphics"));
-            File.WriteAllText(Path.Combine(oldAbsolutePath, "Graphics", "1_background.jpg"), "bg");
-            File.WriteAllText(ConfigPath,
-                $"[System]\nSkinPath={oldAbsolutePath}\n");
-
-            var manager = new ConfigManager();
-            manager.LoadConfig(ConfigPath);
-
-            // In-memory value migrated to the token.
-            Assert.Equal(ConfigManager.DefaultSkinPathToken, manager.Config.SkinPath);
-
-            // Persisted file contents also migrated — the absolute path is
-            // gone and the token is in its place.
-            var persistedContents = File.ReadAllText(ConfigPath);
-            Assert.Contains($"SkinPath={ConfigManager.DefaultSkinPathToken}",
-                persistedContents);
-            Assert.DoesNotContain($"SkinPath={oldAbsolutePath}", persistedContents);
-        }
-
-        [Fact]
-        public void LoadConfig_WithOldAbsoluteBundledPathFromExplicitBaseDir_ShouldMigrateToDefaultToken()
-        {
-            // Companion test that exercises a GENUINE bundled path (not the
-            // app-data default) using the explicit-base-directory seam. Creates
-            // a fake install directory with a validating System skin, writes
-            // that path as the "old absolute bundled path" in Config.ini, then
-            // verifies ConfigManager.IsDefaultSkinPath recognizes it via
-            // AppPaths.GetBundledSystemSkinRootCandidates(baseDir).
-            //
-            // LoadConfig itself calls IsDefaultSkinPath using
-            // AppContext.BaseDirectory (immutable), so we can't make LoadConfig
-            // see our fake install directly. Instead we verify the recognition
-            // logic through the internal seam: if the bundled candidate from
-            // the fake base dir validates, IsDefaultSkinPath would return true
-            // for it, and LoadConfig would migrate it to the token.
-            var installDir = Path.Combine(_tempDir, "fakeInstall");
-            Directory.CreateDirectory(installDir);
-            var systemRoot = Path.Combine(installDir, "System");
-            Directory.CreateDirectory(Path.Combine(systemRoot, "Graphics"));
-            File.WriteAllText(Path.Combine(systemRoot, "Graphics", "1_background.jpg"), "bg");
-
-            // The bundled candidate from this base dir validates.
-            var resolvedBundled = ConfigManager.ResolveValidatingBundledSystemSkinRoot(installDir);
-            Assert.NotNull(resolvedBundled);
-            Assert.True(PathValidator.IsValidSkinPath(resolvedBundled!),
-                "The fake install's System root must validate so IsDefaultSkinPath recognizes it");
-
-            // ResolveSkinPath with the explicit base dir maps "Default" to
-            // this bundled root — proving the token tracks the install location.
-            var resolved = ConfigManager.ResolveSkinPath(
-                ConfigManager.DefaultSkinPathToken, installDir);
-            Assert.Equal(
-                Path.GetFullPath(systemRoot).TrimEnd('/', Path.DirectorySeparatorChar),
-                resolved.TrimEnd('/', Path.DirectorySeparatorChar));
-        }
-
-        [Fact]
         public void LoadConfig_WithGenuineBundledPath_ShouldMigrateAndPersistToDefaultToken()
         {
             // End-to-end migration test using a GENUINE bundled path (not the
-            // app-data default). The previous companion test
-            // (LoadConfig_WithOldAbsoluteBundledPathFromExplicitBaseDir) only
-            // exercised candidate resolution and token mapping through the
-            // internal seams — it never wrote the bundled path to Config.ini,
-            // called LoadConfig, or verified the file was rewritten.
+            // app-data default). Migration from the previous format (commit
+            // 4134a68) where the absolute bundled root was persisted directly.
+            // On load, such a path should be recognized as a bundled candidate
+            // and remapped to the "Default" token so future relocations don't
+            // stale it. The migration must also be PERSISTED to the file — not
+            // just applied in memory — so a relocation before the next
+            // setter-triggered save doesn't leave the stale absolute path.
             //
-            // This test closes that gap via the LoadConfig(filePath, baseDir)
-            // seam: it creates a fake install directory with a validating
-            // System skin, writes that bundled root as the "old absolute
-            // bundled path" into Config.ini, calls LoadConfig with the fake
-            // install as the base dir, and asserts BOTH the in-memory value
-            // AND the persisted file contents migrated to the "Default" token.
-            // This is the complete load-and-persist migration the reviewer
-            // flagged as missing.
+            // This test uses the LoadConfig(filePath, baseDir) seam: it
+            // creates a fake install directory with a validating System skin,
+            // writes that bundled root as the "old absolute bundled path"
+            // into Config.ini, calls LoadConfig with the fake install as the
+            // base dir, and asserts BOTH the in-memory value AND the
+            // persisted file contents migrated to the "Default" token.
             var installDir = Path.Combine(_tempDir, "fakeInstall");
             Directory.CreateDirectory(installDir);
             var systemRoot = Path.Combine(installDir, "System");
