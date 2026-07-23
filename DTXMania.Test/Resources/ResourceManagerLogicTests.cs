@@ -906,25 +906,57 @@ namespace DTXMania.Test.Resources
         [Fact]
         public void SetBoxDefSkinPath_WithRelativePath_ShouldPreserveRelativePath()
         {
-            var resourceManager = CreateResourceManager();
+            // Create a validating skin at a relative path so SetBoxDefSkinPath's
+            // validation accepts it. The path is relative to CWD (the test
+            // output directory); cleanup removes it after the test.
+            var relativePath = "songs/mysong/skin";
+            Directory.CreateDirectory(Path.Combine(relativePath, "Graphics"));
+            File.WriteAllText(Path.Combine(relativePath, "Graphics", "1_background.jpg"), "bg");
+            try
+            {
+                var resourceManager = CreateResourceManager();
 
-            resourceManager.SetBoxDefSkinPath("songs/mysong/skin");
+                resourceManager.SetBoxDefSkinPath(relativePath);
 
-            var effectivePath = resourceManager.GetCurrentEffectiveSkinPath();
-            Assert.False(Path.IsPathRooted(effectivePath));
-            Assert.EndsWith(Path.DirectorySeparatorChar.ToString(), effectivePath);
-            Assert.Contains("songs/mysong/skin", effectivePath.Replace('\\', '/'));
+                var effectivePath = resourceManager.GetCurrentEffectiveSkinPath();
+                Assert.False(Path.IsPathRooted(effectivePath));
+                Assert.EndsWith(Path.DirectorySeparatorChar.ToString(), effectivePath);
+                Assert.Contains("songs/mysong/skin", effectivePath.Replace('\\', '/'));
+            }
+            finally
+            {
+                if (Directory.Exists("songs"))
+                    Directory.Delete("songs", recursive: true);
+            }
         }
 
         [Fact]
         public void SetBoxDefSkinPath_WithEmptyValue_ShouldClearOverride()
         {
             var resourceManager = CreateResourceManager();
-            resourceManager.SetBoxDefSkinPath("songs/mysong/skin");
+            // Use the pre-created valid _boxDefSkinRoot so the initial set
+            // actually takes effect (validation rejects non-existent paths).
+            resourceManager.SetBoxDefSkinPath(_boxDefSkinRoot);
 
             resourceManager.SetBoxDefSkinPath(string.Empty);
 
             Assert.Equal(NormalizeDirectory(AppPaths.GetDefaultSystemSkinRoot()), resourceManager.GetCurrentEffectiveSkinPath());
+        }
+
+        [Fact]
+        public void SetBoxDefSkinPath_WithInvalidPath_ShouldClearOverride()
+        {
+            // An invalid box.def path (non-existent directory) must be rejected
+            // and the override cleared, mirroring SetSkinPath's all-or-nothing
+            // fallback. Without this, an invalid path would take priority in
+            // ResolvePath while missing files fall through individually,
+            // reproducing the damaged-skin mixture SetSkinPath prevents.
+            var resourceManager = CreateResourceManager();
+            var defaultEffective = resourceManager.GetCurrentEffectiveSkinPath();
+
+            resourceManager.SetBoxDefSkinPath(Path.Combine(_testDataPath, "NonExistentSkin"));
+
+            Assert.Equal(defaultEffective, resourceManager.GetCurrentEffectiveSkinPath());
         }
 
         [Fact]

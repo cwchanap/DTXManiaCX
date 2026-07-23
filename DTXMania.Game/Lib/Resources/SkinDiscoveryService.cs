@@ -128,13 +128,21 @@ namespace DTXMania.Game.Lib.Resources
                     LastModified = Directory.GetLastWriteTime(fullSkinPath)
                 };
 
-                // Check if this is the default skin (System/ path)
+                // IsDefault is based exclusively on full-path equality with the
+                // runtime default skin root (_systemSkinRoot). The previous
+                // name-based checks (leaf directory named "Default" or "System")
+                // over-mapped any custom skin whose leaf happened to match those
+                // names — e.g. a user-installed System/Default/ directory would
+                // be marked default despite not being the actual default root.
+                // SkinManager disambiguates custom skins named Default; this
+                // service must agree by using path equality only. Since
+                // DiscoverSkins only scans CHILD directories of
+                // _systemSkinRoot, none of those children can equal the root
+                // itself, so discovered entries are never default — only a
+                // direct AnalyzeSkin call on the root path can be.
                 var normalizedSkinPath = fullSkinPath.TrimEnd(Path.DirectorySeparatorChar, '/', '\\');
                 var normalizedSystemSkinRoot = Path.GetFullPath(_systemSkinRoot).TrimEnd(Path.DirectorySeparatorChar, '/', '\\');
-                var skinDirectoryName = Path.GetFileName(normalizedSkinPath);
-                skinInfo.IsDefault = string.Equals(skinInfo.Name, "Default", StringComparison.OrdinalIgnoreCase) ||
-                                     string.Equals(skinDirectoryName, "System", StringComparison.OrdinalIgnoreCase) ||
-                                     string.Equals(normalizedSkinPath, normalizedSystemSkinRoot, AppPaths.SkinPathComparison);
+                skinInfo.IsDefault = string.Equals(normalizedSkinPath, normalizedSystemSkinRoot, AppPaths.SkinPathComparison);
 
                 // Validate required files
                 var missingFiles = new List<string>();
