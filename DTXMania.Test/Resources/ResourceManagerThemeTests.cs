@@ -91,7 +91,8 @@ namespace DTXMania.Test.Resources
             _resourceManager.SetSkinPath(_skinRoot);
 
             var boxDefSkin = Path.Combine(_testDataPath, "Songs", "BoxSkin");
-            Directory.CreateDirectory(boxDefSkin);
+            Directory.CreateDirectory(Path.Combine(boxDefSkin, "Graphics"));
+            File.WriteAllText(Path.Combine(boxDefSkin, "Graphics", "1_background.jpg"), "bg");
             File.WriteAllText(Path.Combine(boxDefSkin, "Theme.ini"), "UI.Accent=#EF4444\n");
             _resourceManager.SetBoxDefSkinPath(boxDefSkin);
             _resourceManager.SetUseBoxDefSkin(true);

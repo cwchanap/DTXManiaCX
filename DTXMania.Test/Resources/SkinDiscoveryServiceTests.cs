@@ -212,9 +212,34 @@ Version=2.0");
         }
 
         [Fact]
-        public void AnalyzeSkin_WithDefaultSkin_MarksAsDefault()
+        public void AnalyzeSkin_WithRootPath_MarksAsDefault()
         {
-            // Arrange
+            // Arrange — the default skin is the root itself (_testSkinRoot),
+            // not a child named "Default". IsDefault is based on full-path
+            // equality with the runtime default root, not on the leaf
+            // directory name. Create a validating skin at the root so
+            // AnalyzeSkin accepts it and the path-equality check fires.
+            var graphicsPath = Path.Combine(_testSkinRoot, "Graphics");
+            Directory.CreateDirectory(graphicsPath);
+            File.WriteAllText(Path.Combine(graphicsPath, "1_background.jpg"), "test");
+            File.WriteAllText(Path.Combine(graphicsPath, "2_background.jpg"), "test");
+
+            // Act
+            var result = _discoveryService.AnalyzeSkin(_testSkinRoot);
+
+            // Assert
+            Assert.NotNull(result);
+            Assert.True(result.IsDefault);
+        }
+
+        [Fact]
+        public void AnalyzeSkin_WithChildNamedDefault_DoesNotMarkAsDefault()
+        {
+            // Arrange — a user-installed child whose leaf directory is literally
+            // "Default" must NOT be marked as the default skin. The previous
+            // name-based check over-mapped any such child; IsDefault must be
+            // based exclusively on full-path equality with the runtime default
+            // root, and a child directory can never equal its parent.
             var skinPath = CreateTestSkin("Default");
 
             // Act
@@ -222,7 +247,7 @@ Version=2.0");
 
             // Assert
             Assert.NotNull(result);
-            Assert.True(result.IsDefault);
+            Assert.False(result.IsDefault);
         }
 
         [Fact]

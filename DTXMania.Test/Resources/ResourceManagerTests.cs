@@ -71,17 +71,29 @@ namespace DTXMania.Test.Resources
             if (graphicsDeviceService.GraphicsDevice == null)
                 return;
 
-            using var resourceManager = new ResourceManager(graphicsDeviceService.GraphicsDevice);
+            // Create a validating skin at a relative path so SetBoxDefSkinPath's
+            // validation accepts it. Cleanup removes it after the test.
             var relativePath = "songs/mysong/skin";
+            Directory.CreateDirectory(Path.Combine(relativePath, "Graphics"));
+            File.WriteAllText(Path.Combine(relativePath, "Graphics", "1_background.jpg"), "bg");
+            try
+            {
+                using var resourceManager = new ResourceManager(graphicsDeviceService.GraphicsDevice);
 
-            // Act
-            resourceManager.SetBoxDefSkinPath(relativePath);
+                // Act
+                resourceManager.SetBoxDefSkinPath(relativePath);
 
-            // Assert - Should preserve relative path (normalized separators but still relative)
-            var effectivePath = resourceManager.GetCurrentEffectiveSkinPath();
-            Assert.False(Path.IsPathRooted(effectivePath),
-                "Relative box.def skin paths should be preserved, not rewritten against app data root");
-            Assert.Contains("songs", effectivePath.Replace('\\', '/'));
+                // Assert - Should preserve relative path (normalized separators but still relative)
+                var effectivePath = resourceManager.GetCurrentEffectiveSkinPath();
+                Assert.False(Path.IsPathRooted(effectivePath),
+                    "Relative box.def skin paths should be preserved, not rewritten against app data root");
+                Assert.Contains("songs", effectivePath.Replace('\\', '/'));
+            }
+            finally
+            {
+                if (Directory.Exists("songs"))
+                    Directory.Delete("songs", recursive: true);
+            }
         }
 
         [Fact]
@@ -94,7 +106,8 @@ namespace DTXMania.Test.Resources
 
             using var resourceManager = new ResourceManager(graphicsDeviceService.GraphicsDevice);
             var absolutePath = Path.GetFullPath(Path.Combine(_testDataPath, "CustomSkin"));
-            Directory.CreateDirectory(absolutePath);
+            Directory.CreateDirectory(Path.Combine(absolutePath, "Graphics"));
+            File.WriteAllText(Path.Combine(absolutePath, "Graphics", "1_background.jpg"), "bg");
 
             // Act
             resourceManager.SetBoxDefSkinPath(absolutePath);
@@ -117,6 +130,9 @@ namespace DTXMania.Test.Resources
             using var resourceManager = new ResourceManager(graphicsDeviceService.GraphicsDevice);
 
             var defaultEffectivePath = resourceManager.GetCurrentEffectiveSkinPath();
+            // Use a path that doesn't exist — validation rejects it, so the
+            // override is already cleared. Then clearing with empty/null
+            // should keep the default effective path.
             resourceManager.SetBoxDefSkinPath("songs/test/skin");
 
             // Act

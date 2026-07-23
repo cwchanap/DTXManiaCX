@@ -583,6 +583,14 @@ namespace DTXMania.Game.Lib.Resources
             // SetSkinPath instead. The theme cache is always invalidated here
             // regardless of whether eviction runs, so the next CurrentTheme read
             // reloads for the (possibly) new effective skin.
+            //
+            // Validation invariant: an invalid box.def path (deleted, moved, or
+            // missing validation files) is rejected and the override is cleared,
+            // mirroring SetSkinPath's all-or-nothing fallback. Without this, an
+            // invalid box.def path would take priority in ResolvePath while
+            // missing files fall through individually to _fallbackSkinPath,
+            // reproducing the damaged-skin mixture (custom textures + CX Neon
+            // fallback theme) that SetSkinPath's validation prevents.
             lock (_lockObject)
             {
                 var oldPath = _boxDefSkinPath;
@@ -601,22 +609,40 @@ namespace DTXMania.Game.Lib.Resources
                 {
                     _boxDefSkinPath = "";
                 }
-                else if (Path.IsPathRooted(path))
-                {
-                    // Absolute paths: normalize normally
-                    _boxDefSkinPath = NormalizePath(path);
-                }
                 else
                 {
-                    // Relative paths: preserve as-is, just ensure proper separators
-                    // Path.GetFullPath will resolve them relative to current directory when used
-                    _boxDefSkinPath = path.Replace('\\', Path.DirectorySeparatorChar)
-                                          .Replace('/', Path.DirectorySeparatorChar);
-
-                    // Ensure trailing separator for consistency
-                    if (!_boxDefSkinPath.EndsWith(Path.DirectorySeparatorChar.ToString()))
+                    // Normalize the candidate for both storage and validation.
+                    // Relative paths are preserved as relative (resolved against
+                    // CWD at lookup time), but validation uses the same CWD now.
+                    string candidate;
+                    if (Path.IsPathRooted(path))
                     {
-                        _boxDefSkinPath += Path.DirectorySeparatorChar;
+                        candidate = NormalizePath(path);
+                    }
+                    else
+                    {
+                        candidate = path.Replace('\\', Path.DirectorySeparatorChar)
+                                        .Replace('/', Path.DirectorySeparatorChar);
+                        if (!candidate.EndsWith(Path.DirectorySeparatorChar.ToString()))
+                        {
+                            candidate += Path.DirectorySeparatorChar;
+                        }
+                    }
+
+                    // Validate the effective box-def directory. PathValidator
+                    // works with both absolute and relative paths (uses
+                    // Directory.Exists / File.Exists, which resolve relative
+                    // paths against the current working directory). An invalid
+                    // path clears the override so ResolvePath falls back to
+                    // _currentSkinPath instead of serving a mixed skin.
+                    if (ValidateSkinPath(candidate))
+                    {
+                        _boxDefSkinPath = candidate;
+                    }
+                    else
+                    {
+                        Debug.WriteLine($"Warning: Box.def skin path validation failed for {candidate}; clearing override");
+                        _boxDefSkinPath = "";
                     }
                 }
 

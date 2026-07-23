@@ -14,14 +14,16 @@
   #error "SourceDir must be defined (pass an absolute /DSourceDir=<path\to\publish\win> to iscc; Inno Setup resolves Source: relative to this .iss file's directory)"
 #endif
 
-; SystemSkinDir is the absolute path to the base System skin shipped into
-; per-user app-data on first install. The release workflow flattens the CX Neon
-; pack (System/CXNeon/{Graphics,Sounds,Theme.ini}) into a staging dir and passes
-; it here so releases ship the layout ResourceManager expects, not the nested
-; System/CXNeon/ source tree. Defaults to the repo-root System\ for local/dev
-; builds that invoke iscc without the define.
+; SystemSkinDir is the absolute path to the flattened CX Neon skin shipped
+; into the application directory ({app}\System) on install. The release
+; workflow flattens the CX Neon pack (System/CXNeon/{Graphics,Sounds,Theme.ini})
+; into a staging dir and passes it here so releases ship the layout
+; ResourceManager expects, not the nested System/CXNeon/ source tree. Defaults
+; to the repo's System\CXNeon for local/dev builds that invoke iscc without
+; the define — pointing at System\ (the parent) would copy both the NX
+; Graphics\ tree and the CXNeon\ subtree, producing a hybrid install.
 #ifndef SystemSkinDir
-  #define SystemSkinDir "..\..\System"
+  #define SystemSkinDir "..\..\System\CXNeon"
 #endif
 
 #define MyAppName      "DTXManiaCX"
