@@ -94,7 +94,37 @@ namespace DTXMania.Game.Lib.Config
                 ParseConfigLine(key, value);
             }
 
+            // Capture the pre-normalization SkinPath so we can detect whether
+            // NormalizeConfigPaths migrated it (e.g. absolute bundled path →
+            // "Default" token). Migration changes must be persisted immediately
+            // — otherwise a relocation before the next setter-triggered save
+            // would leave the stale absolute path in Config.ini, breaking the
+            // token's relocation-survival guarantee.
+            var skinPathBeforeNormalization = Config.SkinPath;
+
             NormalizeConfigPaths();
+
+            var skinPathMigrated = !string.Equals(
+                skinPathBeforeNormalization, Config.SkinPath,
+                AppPaths.SkinPathComparison);
+
+            if (skinPathMigrated)
+            {
+                try
+                {
+                    SaveConfig(filePath);
+                    _logger.LogInformation(
+                        "Migrated SkinPath from '{OldPath}' to '{NewPath}' and persisted the change to the config file.",
+                        skinPathBeforeNormalization, Config.SkinPath);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex,
+                        "Failed to persist SkinPath migration from '{OldPath}' to '{NewPath}'. " +
+                        "In-memory value is correct; the file will be updated on the next save.",
+                        skinPathBeforeNormalization, Config.SkinPath);
+                }
+            }
 
             // Security: If Game API is enabled but no API key is set, generate one and save
             if (Config.EnableGameApi && string.IsNullOrEmpty(Config.GameApiKey))
@@ -953,7 +983,18 @@ namespace DTXMania.Game.Lib.Config
         /// </summary>
         private static string? ResolveValidatingBundledSystemSkinRoot()
         {
-            foreach (var candidate in AppPaths.GetBundledSystemSkinRootCandidates())
+            return ResolveValidatingBundledSystemSkinRoot(AppContext.BaseDirectory);
+        }
+
+        /// <summary>
+        /// Internal overload accepting an explicit base directory so relocation
+        /// scenarios (bundled root A → bundled root B) can be tested
+        /// deterministically without mutating <see cref="AppContext.BaseDirectory"/>,
+        /// which is immutable at runtime.
+        /// </summary>
+        internal static string? ResolveValidatingBundledSystemSkinRoot(string baseDir)
+        {
+            foreach (var candidate in AppPaths.GetBundledSystemSkinRootCandidates(baseDir))
             {
                 try
                 {
@@ -988,6 +1029,22 @@ namespace DTXMania.Game.Lib.Config
         }
 
         /// <summary>
+        /// Internal overload accepting an explicit base directory so the
+        /// "Default" token's resolution to the bundled root can be tested
+        /// across simulated relocation targets without mutating
+        /// <see cref="AppContext.BaseDirectory"/>.
+        /// </summary>
+        internal static string ResolveSkinPath(string configuredPath, string baseDir)
+        {
+            if (string.IsNullOrWhiteSpace(configuredPath) ||
+                string.Equals(configuredPath.Trim(), DefaultSkinPathToken, StringComparison.OrdinalIgnoreCase))
+            {
+                return ResolveDefaultSkinPath(baseDir);
+            }
+            return configuredPath;
+        }
+
+        /// <summary>
         /// Returns the absolute path for the default skin: the first validating
         /// bundled System skin root, or the app-data System root when no bundled
         /// root validates (e.g. dev builds without a bundled skin).
@@ -995,6 +1052,19 @@ namespace DTXMania.Game.Lib.Config
         private static string ResolveDefaultSkinPath()
         {
             var bundled = ResolveValidatingBundledSystemSkinRoot();
+            if (bundled != null)
+                return bundled;
+            return AppPaths.GetDefaultSystemSkinRoot();
+        }
+
+        /// <summary>
+        /// Overload accepting an explicit base directory for deterministic
+        /// relocation testing. Falls back to the app-data default when no
+        /// bundled root validates from the given base directory.
+        /// </summary>
+        private static string ResolveDefaultSkinPath(string baseDir)
+        {
+            var bundled = ResolveValidatingBundledSystemSkinRoot(baseDir);
             if (bundled != null)
                 return bundled;
             return AppPaths.GetDefaultSystemSkinRoot();
