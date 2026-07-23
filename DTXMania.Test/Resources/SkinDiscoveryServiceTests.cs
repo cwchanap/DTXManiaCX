@@ -212,7 +212,7 @@ Version=2.0");
         }
 
         [Fact]
-        public void AnalyzeSkin_WithRootPath_MarksAsDefault()
+        public void AnalyzeSkin_WithRootPath_ShouldMarkAsDefault()
         {
             // Arrange — the default skin is the root itself (_testSkinRoot),
             // not a child named "Default". IsDefault is based on full-path
@@ -233,7 +233,7 @@ Version=2.0");
         }
 
         [Fact]
-        public void AnalyzeSkin_WithChildNamedDefault_DoesNotMarkAsDefault()
+        public void AnalyzeSkin_WithChildNamedDefault_ShouldNotMarkAsDefault()
         {
             // Arrange — a user-installed child whose leaf directory is literally
             // "Default" must NOT be marked as the default skin. The previous
