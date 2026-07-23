@@ -178,7 +178,7 @@ jobs:
           & $iscc /DMyAppVersion="$env:APP_VERSION" "/DSourceDir=$sourceDir" "/DSystemSkinDir=$env:SYSTEM_SKIN_DIR" "installer\windows\dtxmania.iss"
 
       - name: Upload installer artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: dtxmania-windows-installer-${{ env.APP_VERSION }}
           path: installer/windows/Output/DTXMania-Setup-${{ env.APP_VERSION }}.exe
@@ -408,7 +408,7 @@ jobs:
             ./output
 
       - name: Upload DMG artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: dtxmania-macos-dmg-${{ env.APP_VERSION }}
           path: output/DTXMania-${{ env.APP_VERSION }}-arm64.dmg
