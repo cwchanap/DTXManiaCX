@@ -64,13 +64,32 @@ namespace DTXMania.Game.Lib.Config
         }
 
         public void LoadConfig(string filePath)
+            => LoadConfig(filePath, AppContext.BaseDirectory);
+
+        /// <summary>
+        /// Internal overload of <see cref="LoadConfig(string)"/> that resolves
+        /// bundled System skin root candidates from an explicit
+        /// <paramref name="baseDir"/> instead of
+        /// <see cref="AppContext.BaseDirectory"/> (immutable at runtime). This
+        /// is the seam that lets the migration test exercise the COMPLETE
+        /// load-and-persist flow against a genuine bundled path written from a
+        /// fake install directory — writing the fake install's validating
+        /// System root into Config.ini, calling this overload, and verifying
+        /// the file is rewritten to <see cref="DefaultSkinPathToken"/> —
+        /// without mutating <see cref="AppContext.BaseDirectory"/>.
+        /// </summary>
+        /// <param name="filePath">Path to the Config.ini file to load.</param>
+        /// <param name="baseDir">
+        /// Base directory for bundled System skin root candidate resolution.
+        /// </param>
+        internal void LoadConfig(string filePath, string baseDir)
         {
             _loadedConfigPath = filePath;
             EnsureConfigDirectory(filePath);
             Config.MidiVelocityThresholds.Clear();
             if (!File.Exists(filePath))
             {
-                NormalizeConfigPaths();
+                NormalizeConfigPaths(baseDir);
                 SaveConfig(filePath); // Create default config
                 return;
             }
@@ -102,7 +121,7 @@ namespace DTXMania.Game.Lib.Config
             // token's relocation-survival guarantee.
             var skinPathBeforeNormalization = Config.SkinPath;
 
-            NormalizeConfigPaths();
+            NormalizeConfigPaths(baseDir);
 
             var skinPathMigrated = !string.Equals(
                 skinPathBeforeNormalization, Config.SkinPath,
@@ -1085,7 +1104,7 @@ namespace DTXMania.Game.Lib.Config
                 || string.Equals(normalized, "./Songs", StringComparison.OrdinalIgnoreCase);
         }
 
-        private void NormalizeConfigPaths()
+        private void NormalizeConfigPaths(string baseDir)
         {
             var defaultSystemSkinRoot = AppPaths.GetDefaultSystemSkinRoot();
             var defaultSongsPath = AppPaths.GetDefaultSongsPath();
@@ -1123,7 +1142,7 @@ namespace DTXMania.Game.Lib.Config
             else
             {
                 var resolvedSkinPath = AppPaths.ResolvePathOrDefault(Config.SkinPath, Config.SystemSkinRoot);
-                Config.SkinPath = IsDefaultSkinPath(resolvedSkinPath)
+                Config.SkinPath = IsDefaultSkinPath(resolvedSkinPath, baseDir)
                     ? DefaultSkinPathToken
                     : resolvedSkinPath;
             }
@@ -1159,9 +1178,36 @@ namespace DTXMania.Game.Lib.Config
         /// Returns true when the resolved absolute path is the app-data default
         /// System root or any validating bundled System skin root candidate —
         /// all representations that should be persisted as the
-        /// <see cref="DefaultSkinPathToken"/> token.
+        /// <see cref="DefaultSkinPathToken"/> token. Uses
+        /// <see cref="AppContext.BaseDirectory"/> for bundled candidate
+        /// resolution; see <see cref="IsDefaultSkinPath(string, string)"/> for
+        /// the testable overload that accepts an explicit base directory.
         /// </summary>
         private static bool IsDefaultSkinPath(string resolvedPath)
+            => IsDefaultSkinPath(resolvedPath, AppContext.BaseDirectory);
+
+        /// <summary>
+        /// Testable overload of <see cref="IsDefaultSkinPath(string)"/> that
+        /// resolves bundled candidates from an explicit
+        /// <paramref name="baseDir"/> instead of
+        /// <see cref="AppContext.BaseDirectory"/> (immutable at runtime). This
+        /// is the seam that lets the load-and-persist migration test exercise a
+        /// GENUINE bundled path — writing a fake install's validating System
+        /// root into Config.ini and verifying LoadConfig rewrites it to the
+        /// <see cref="DefaultSkinPathToken"/> token — without mutating
+        /// <see cref="AppContext.BaseDirectory"/>.
+        /// </summary>
+        /// <param name="resolvedPath">Resolved absolute skin path to test.</param>
+        /// <param name="baseDir">
+        /// Base directory to resolve bundled System skin root candidates from
+        /// (mirrors <see cref="AppPaths.GetBundledSystemSkinRootCandidates(string)"/>).
+        /// </param>
+        /// <returns>
+        /// True when <paramref name="resolvedPath"/> is the app-data default
+        /// System root or any validating bundled candidate from
+        /// <paramref name="baseDir"/>.
+        /// </returns>
+        internal static bool IsDefaultSkinPath(string resolvedPath, string baseDir)
         {
             if (string.IsNullOrEmpty(resolvedPath))
                 return false;
@@ -1172,10 +1218,10 @@ namespace DTXMania.Game.Lib.Config
                               AppPaths.SkinPathComparison))
                 return true;
 
-            // Any validating bundled root candidate (includes the previous
-            // format's absolute bundled path and the current location's
-            // bundled root).
-            foreach (var candidate in AppPaths.GetBundledSystemSkinRootCandidates())
+            // Any validating bundled root candidate from the given base dir
+            // (includes the previous format's absolute bundled path and the
+            // current location's bundled root).
+            foreach (var candidate in AppPaths.GetBundledSystemSkinRootCandidates(baseDir))
             {
                 try
                 {
