@@ -20,6 +20,8 @@ namespace DTXMania.Game.Lib.Song.Entities
 
         public DateTime PerformedAt { get; set; }
 
+        public int PitchSemitones { get; set; }
+
         [MaxLength(500)]
         public string HistoryLine { get; set; } = "";
 

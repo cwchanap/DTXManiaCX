@@ -12,6 +12,22 @@ namespace DTXMania.Game.Lib.Stage.Performance
         #region Properties
 
         /// <summary>
+        /// Immutable idempotency identity for this finalized run.
+        /// Empty means the object did not originate from a completed gameplay run.
+        /// </summary>
+        public Guid RunId { get; init; }
+
+        /// <summary>
+        /// Frozen gameplay speed used for this run.
+        /// </summary>
+        public int PlaySpeedPercent { get; init; } = 100;
+
+        /// <summary>
+        /// Frozen independent pitch used for this run.
+        /// </summary>
+        public int PitchSemitones { get; init; }
+
+        /// <summary>
         /// Final score achieved
         /// </summary>
         public int Score { get; set; }
@@ -90,6 +106,16 @@ namespace DTXMania.Game.Lib.Stage.Performance
         #endregion
 
         #region Calculated Properties
+
+        /// <summary>
+        /// Only genuine completed/failed gameplay runs with an assigned run
+        /// identity may enter score persistence.
+        /// </summary>
+        public bool IsSavable =>
+            RunId != Guid.Empty &&
+            CompletionReason is
+                CompletionReason.SongComplete or
+                CompletionReason.PlayerFailed;
 
         /// <summary>
         /// Total number of judgements made

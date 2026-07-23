@@ -182,6 +182,53 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void PopulateTelemetry_WhenAudioPreparationInProgress_ShouldExposeFrozenProfileAndMetrics()
+    {
+        var stage = CreateStage();
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_playbackModifiers",
+            new PlaybackModifiers(75, -3));
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_audioPreparationProgress",
+            new AudioPreparationProgress(
+                CompletedCount: 3,
+                TotalCount: 5,
+                CurrentRole: "chip",
+                CacheHitCount: 2,
+                Elapsed: TimeSpan.FromSeconds(1),
+                DecodedByteEstimate: 4096));
+
+        var telemetry = new GameTelemetrySnapshot();
+
+        stage.PopulateTelemetry(telemetry);
+
+        Assert.Equal(75, telemetry.PlaySpeedPercent);
+        Assert.Equal(-3, telemetry.PitchSemitones);
+        Assert.True(telemetry.PlaybackProfileFrozen);
+        Assert.Equal(3, telemetry.AudioPreparationCompleted);
+        Assert.Equal(5, telemetry.AudioPreparationTotal);
+        Assert.Equal(2, telemetry.AudioPreparationCacheHits);
+        Assert.Equal(4096L, telemetry.PreparedAudioBytes);
+    }
+
+    [Fact]
+    public void PopulateTelemetry_WhenAudioPreparationHasNotReported_ShouldExposeZeroMetrics()
+    {
+        var stage = CreateStage();
+
+        var telemetry = new GameTelemetrySnapshot();
+
+        stage.PopulateTelemetry(telemetry);
+
+        Assert.Equal(0, telemetry.AudioPreparationCompleted);
+        Assert.Equal(0, telemetry.AudioPreparationTotal);
+        Assert.Equal(0, telemetry.AudioPreparationCacheHits);
+        Assert.Equal(0L, telemetry.PreparedAudioBytes);
+    }
+
+    [Fact]
     public void PopulateTelemetry_WhenChartManagerMissing_ShouldReportPerformanceNotReady()
     {
         var stage = CreateStage();
@@ -200,9 +247,9 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public async Task InitializeGameplayAsync_WhenChartHasNoBackgroundAudio_ShouldCreateSilentSongTimer()
+    public async Task InitializeGameplayAsync_WhenChartHasNoBackgroundAudio_ShouldCreateSpeedAwareSilentSongTimer()
     {
-        var stage = CreateStage();
+        var stage = CreateInspectableStage();
         var chart = new ParsedChart("silent-clock.dtx");
         chart.AddNote(new Note(0, 0, 96, 0x11, "01"));
         chart.FinalizeChart();
@@ -211,6 +258,10 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
         ReflectionHelpers.SetPrivateField(stage, "_inputManager", new MockInputManagerCompat());
         ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_playbackModifiers",
+            new PlaybackModifiers(50, 0));
 
         var initializeTask = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "InitializeGameplayAsync")!;
         await initializeTask;
@@ -226,7 +277,7 @@ public class PerformanceStageDeterministicTests
 
         Assert.True(timer!.IsPlaying);
         Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
-        Assert.Equal(500.0, timer.GetCurrentMs(new GameTime(TimeSpan.FromMilliseconds(1500), TimeSpan.Zero)));
+        Assert.Equal(250.0, timer.GetCurrentMs(new GameTime(TimeSpan.FromMilliseconds(1500), TimeSpan.Zero)));
     }
 
     [Fact]
@@ -641,14 +692,70 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void GetPlayerJudgementTimeMs_WhenAudioLatencyOffsetConfigured_ShouldSubtractOffsetAndClamp()
+    public void ProcessBGMEvents_WhenSeveralEventsAreDue_ShouldTriggerChronologically()
+    {
+        var stage = CreateStage();
+        var played = new List<string>();
+        var sounds = new Dictionary<string, ISound>();
+        foreach (var wavId in new[] { "01", "02", "03" })
+        {
+            var capturedId = wavId;
+            var sound = new Mock<ISound>();
+            sound.Setup(s => s.Play(
+                    It.IsAny<float>(),
+                    It.IsAny<float>(),
+                    It.IsAny<float>()))
+                .Callback(() => played.Add(capturedId))
+                .Returns((SoundEffectInstance)null!);
+            sounds[wavId] = sound.Object;
+        }
+
+        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", sounds);
+        ReflectionHelpers.SetPrivateField(stage, "_scheduledBGMEvents",
+            new List<BGMEvent>
+            {
+                new() { WavId = "03", TimeMs = 900.0 },
+                new() { WavId = "01", TimeMs = 100.0 },
+                new() { WavId = "02", TimeMs = 500.0 },
+                new() { WavId = "future", TimeMs = 1200.0 }
+            });
+
+        ReflectionHelpers.InvokePrivateMethod(
+            stage,
+            "ProcessBGMEvents",
+            1000.0);
+
+        Assert.Equal(new[] { "01", "02", "03" }, played);
+        var remaining = ReflectionHelpers.GetPrivateField<List<BGMEvent>>(
+            stage,
+            "_scheduledBGMEvents");
+        Assert.Single(remaining);
+        Assert.Equal("future", remaining[0].WavId);
+    }
+
+    [Theory]
+    [InlineData(50, 875.0)]
+    [InlineData(100, 750.0)]
+    [InlineData(150, 625.0)]
+    public void GetPlayerJudgementTimeMs_WhenAudioLatencyOffsetConfigured_ShouldScaleRealOffset(
+        int playSpeedPercent,
+        double expectedLogicalTimeMs)
     {
         var game = ReflectionHelpers.CreateGame();
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager),
             CreateConfigManager(new ConfigData { AudioLatencyOffsetMs = 250 }));
         var stage = CreateStage(game);
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_playbackModifiers",
+            new PlaybackModifiers(playSpeedPercent, 0));
 
-        Assert.Equal(750.0, ReflectionHelpers.InvokePrivateMethod<double>(stage, "GetPlayerJudgementTimeMs", 1000.0));
+        Assert.Equal(
+            expectedLogicalTimeMs,
+            ReflectionHelpers.InvokePrivateMethod<double>(
+                stage,
+                "GetPlayerJudgementTimeMs",
+                1000.0));
         Assert.Equal(0.0, ReflectionHelpers.InvokePrivateMethod<double>(stage, "GetPlayerJudgementTimeMs", 100.0));
     }
 
@@ -663,6 +770,30 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplayManagers", 1301.0, 1301.0);
 
         Assert.Equal(1, judgementManager.GetJudgementCount(JudgementType.Miss));
+    }
+
+    [Fact]
+    public void UpdateGameplayManagers_LatencyCompensatedHitClock_ShouldNotDelayRawLogicalMisses()
+    {
+        var stage = CreateStage();
+        var judgementManager = new JudgementManager(
+            new MockInputManagerCompat(),
+            CreateChartManagerWithSingleNote());
+        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", false);
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_judgementManager",
+            judgementManager);
+
+        ReflectionHelpers.InvokePrivateMethod(
+            stage,
+            "UpdateGameplayManagers",
+            1301.0,
+            1000.0);
+
+        Assert.Equal(
+            1,
+            judgementManager.GetJudgementCount(JudgementType.Miss));
     }
 
     [Fact]
@@ -887,11 +1018,8 @@ public class PerformanceStageDeterministicTests
         var stubWavPath = WriteTempStubWav();
         try
         {
-            var cache = new ChipSoundCache(_ => soundMock.Object);
-            cache.PreloadAsync(new Dictionary<string, string>
-            {
-                ["07"] = stubWavPath,
-            }).GetAwaiter().GetResult();
+            var cache = new ChipSoundCache(
+                new Dictionary<string, ISound> { ["07"] = soundMock.Object });
 
             ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
             ReflectionHelpers.SetPrivateField(stage, "_chipSoundCache", cache);
@@ -1020,9 +1148,8 @@ public class PerformanceStageDeterministicTests
         try
         {
             var soundMock = new Mock<ISound>();
-            var cache = new ChipSoundCache(_ => soundMock.Object);
-            cache.PreloadAsync(new Dictionary<string, string> { ["07"] = stubWavPath })
-                 .GetAwaiter().GetResult();
+            var cache = new ChipSoundCache(
+                new Dictionary<string, ISound> { ["07"] = soundMock.Object });
             ReflectionHelpers.SetPrivateField(stage, "_chipSoundCache", cache);
 
             // Set timer to playing state at 1010ms (within note's hit window)
@@ -1068,9 +1195,8 @@ public class PerformanceStageDeterministicTests
         try
         {
             var soundMock = new Mock<ISound>();
-            var cache = new ChipSoundCache(_ => soundMock.Object);
-            cache.PreloadAsync(new Dictionary<string, string> { ["07"] = stubWavPath })
-                 .GetAwaiter().GetResult();
+            var cache = new ChipSoundCache(
+                new Dictionary<string, ISound> { ["07"] = soundMock.Object });
             ReflectionHelpers.SetPrivateField(stage, "_chipSoundCache", cache);
 
             // Drive _songTimer.GetCurrentMs(_currentGameTime) -> 1010ms (10ms past the note)
@@ -1111,9 +1237,8 @@ public class PerformanceStageDeterministicTests
         try
         {
             var soundMock = new Mock<ISound>();
-            var cache = new ChipSoundCache(_ => soundMock.Object);
-            cache.PreloadAsync(new Dictionary<string, string> { ["07"] = stubWavPath })
-                 .GetAwaiter().GetResult();
+            var cache = new ChipSoundCache(
+                new Dictionary<string, ISound> { ["07"] = soundMock.Object });
             ReflectionHelpers.SetPrivateField(stage, "_chipSoundCache", cache);
 
             ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreatePlayingSongTimer());
@@ -1161,9 +1286,8 @@ public class PerformanceStageDeterministicTests
         try
         {
             var soundMock = new Mock<ISound>();
-            var cache = new ChipSoundCache(_ => soundMock.Object);
-            cache.PreloadAsync(new Dictionary<string, string> { ["07"] = stubWavPath })
-                 .GetAwaiter().GetResult();
+            var cache = new ChipSoundCache(
+                new Dictionary<string, ISound> { ["07"] = soundMock.Object });
             ReflectionHelpers.SetPrivateField(stage, "_chipSoundCache", cache);
 
             // Raw clock at 1200ms. Without compensation, distance to note = 200ms > PoorWindow (150ms) → no chip.
@@ -1205,9 +1329,8 @@ public class PerformanceStageDeterministicTests
         try
         {
             var soundMock = new Mock<ISound>();
-            var cache = new ChipSoundCache(_ => soundMock.Object);
-            cache.PreloadAsync(new Dictionary<string, string> { ["07"] = stubWavPath })
-                 .GetAwaiter().GetResult();
+            var cache = new ChipSoundCache(
+                new Dictionary<string, ISound> { ["07"] = soundMock.Object });
             ReflectionHelpers.SetPrivateField(stage, "_chipSoundCache", cache);
 
             // No _songTimer set — defaults to null, so IsPlaying is false.
@@ -1324,6 +1447,44 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void PopulateTelemetry_WhenSongTimerPaused_ShouldReportFrozenLogicalTime()
+    {
+        var stage = CreateStage();
+        var chart = new ParsedChart("paused-telemetry.dtx");
+        chart.Notes.Add(new Note { Id = 1, LaneIndex = 0, TimeMs = 100 });
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_chartManager",
+            new ChartManager(chart));
+        var timer = new SongTimer(150);
+        timer.Play(new GameTime(TimeSpan.Zero, TimeSpan.Zero));
+        timer.Pause(new GameTime(
+            TimeSpan.FromMilliseconds(1000),
+            TimeSpan.Zero));
+        ReflectionHelpers.SetPrivateField(stage, "_songTimer", timer);
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_currentGameTime",
+            new GameTime(TimeSpan.FromMilliseconds(5000), TimeSpan.Zero));
+        ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
+        ReflectionHelpers.SetPrivateField(stage, "_isReady", false);
+        ReflectionHelpers.SetPrivateField(stage, "_stageCompleted", false);
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_playbackModifiers",
+            new PlaybackModifiers(150, -4));
+
+        var telemetry = new GameTelemetrySnapshot();
+        stage.PopulateTelemetry(telemetry);
+
+        Assert.Equal(1500.0, telemetry.CurrentSongTimeMs);
+        Assert.True(telemetry.PerformanceReady);
+        Assert.Equal(150, telemetry.PlaySpeedPercent);
+        Assert.Equal(-4, telemetry.PitchSemitones);
+        Assert.True(telemetry.PlaybackProfileFrozen);
+    }
+
+    [Fact]
     public void PopulateTelemetry_WhenSongTimerPlayingButCurrentGameTimeNull_ShouldReportZeroSongTime()
     {
         // Exercises the branch where songTimerPlaying is true but currentGameTime is null,
@@ -1393,6 +1554,36 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void OnLaneHitForPadFeedback_ShouldFrameSampleLogicalClockAtFrozenSpeed()
+    {
+        var stage = CreateStage();
+        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", false);
+        var timer = new SongTimer(150);
+        timer.Play(new GameTime(TimeSpan.Zero, TimeSpan.Zero));
+        ReflectionHelpers.SetPrivateField(stage, "_songTimer", timer);
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_currentGameTime",
+            new GameTime(TimeSpan.FromMilliseconds(1000), TimeSpan.Zero));
+        ReflectionHelpers.SetPrivateField(stage, "_padRenderer", null);
+
+        ReflectionHelpers.InvokePrivateMethod(
+            stage,
+            "OnLaneHitForPadFeedback",
+            null,
+            new LaneHitEventArgs(
+                3,
+                new ButtonState("Key.L", true, 1.0f)));
+
+        var lastHit =
+            ReflectionHelpers.GetPrivateField<PerformanceStage.LastLaneHit?>(
+                stage,
+                "_lastLaneHit");
+        Assert.NotNull(lastHit);
+        Assert.Equal(1500.0, lastHit!.SongTimeMs);
+    }
+
+    [Fact]
     public void OnPlayerFailed_WhenNoFailDisabled_ShouldFinalizePerformanceAndTransitionToResult()
     {
         var game = ReflectionHelpers.CreateGame();
@@ -1437,6 +1628,11 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_comboManager", new ComboManager());
         ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", new GaugeManager());
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", new JudgementManager(new MockInputManagerCompat(), CreateChartManagerWithSingleNote()));
+        ReflectionHelpers.SetPrivateField(stage, "_totalTime", 10.0);
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_chartEndReachedRealTimeSeconds",
+            7.0);
 
         ReflectionHelpers.InvokePrivateMethod(stage, "CheckStageCompletion", 5000.0);
 
@@ -1468,6 +1664,11 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(gaugeManager, "_currentLife", 0.0f);
         ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", gaugeManager);
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", new JudgementManager(new MockInputManagerCompat(), CreateChartManagerWithSingleNote()));
+        ReflectionHelpers.SetPrivateField(stage, "_totalTime", 10.0);
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_chartEndReachedRealTimeSeconds",
+            7.0);
 
         ReflectionHelpers.InvokePrivateMethod(stage, "CheckStageCompletion", 5000.0);
 
@@ -1475,6 +1676,91 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(CompletionReason.SongComplete, summary.CompletionReason);
         Assert.True(summary.ClearFlag);
         stageManager.Verify(x => x.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()), Times.Once);
+    }
+
+    [Theory]
+    [InlineData(50)]
+    [InlineData(100)]
+    [InlineData(150)]
+    public void CheckStageCompletion_PostChartBuffer_ShouldRemainThreeRealSeconds(
+        int playSpeedPercent)
+    {
+        var stage = CreateStage();
+        var stageManager = new Mock<IStageManager>();
+        stage.StageManager = stageManager.Object;
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_playbackModifiers",
+            new PlaybackModifiers(playSpeedPercent, 0));
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_parsedChart",
+            new ParsedChart("real-buffer.dtx") { DurationMs = 1000.0 });
+        ReflectionHelpers.SetPrivateField(stage, "_totalTime", 10.0);
+
+        ReflectionHelpers.InvokePrivateMethod(
+            stage,
+            "CheckStageCompletion",
+            1000.0);
+        ReflectionHelpers.SetPrivateField(stage, "_totalTime", 12.999);
+        ReflectionHelpers.InvokePrivateMethod(
+            stage,
+            "CheckStageCompletion",
+            5000.0);
+
+        Assert.False(ReflectionHelpers.GetPrivateField<bool>(
+            stage,
+            "_stageCompleted"));
+
+        ReflectionHelpers.SetPrivateField(stage, "_totalTime", 13.0);
+        ReflectionHelpers.InvokePrivateMethod(
+            stage,
+            "CheckStageCompletion",
+            5000.0);
+
+        Assert.True(ReflectionHelpers.GetPrivateField<bool>(
+            stage,
+            "_stageCompleted"));
+    }
+
+    [Fact]
+    public void CheckStageCompletion_WhenLogicalTimeReturnsBeforeChartEnd_ShouldResetRealBuffer()
+    {
+        var stage = CreateStage();
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_parsedChart",
+            new ParsedChart("reset-buffer.dtx") { DurationMs = 1000.0 });
+        ReflectionHelpers.SetPrivateField(stage, "_totalTime", 10.0);
+        ReflectionHelpers.InvokePrivateMethod(
+            stage,
+            "CheckStageCompletion",
+            1000.0);
+
+        ReflectionHelpers.SetPrivateField(stage, "_totalTime", 12.0);
+        ReflectionHelpers.InvokePrivateMethod(
+            stage,
+            "CheckStageCompletion",
+            900.0);
+
+        Assert.Null(ReflectionHelpers.GetPrivateField<double?>(
+            stage,
+            "_chartEndReachedRealTimeSeconds"));
+
+        ReflectionHelpers.SetPrivateField(stage, "_totalTime", 20.0);
+        ReflectionHelpers.InvokePrivateMethod(
+            stage,
+            "CheckStageCompletion",
+            1000.0);
+        ReflectionHelpers.SetPrivateField(stage, "_totalTime", 22.5);
+        ReflectionHelpers.InvokePrivateMethod(
+            stage,
+            "CheckStageCompletion",
+            5000.0);
+
+        Assert.False(ReflectionHelpers.GetPrivateField<bool>(
+            stage,
+            "_stageCompleted"));
     }
 
     [Fact]
@@ -1558,7 +1844,7 @@ public class PerformanceStageDeterministicTests
         pauseOverlayTexture.Verify(x => x.RemoveReference(), Times.Once);
         dangerOverlayTexture.Verify(x => x.RemoveReference(), Times.Once);
         skillPanelTexture.Verify(x => x.RemoveReference(), Times.Once);
-        bgmSound.Verify(x => x.Dispose(), Times.Once);
+        bgmSound.Verify(x => x.Dispose(), Times.Never);
         Assert.Empty(ReflectionHelpers.GetPrivateField<List<BGMEvent>>(stage, "_scheduledBGMEvents"));
         Assert.Empty(ReflectionHelpers.GetPrivateField<Dictionary<string, ISound>>(stage, "_bgmSounds"));
     }
@@ -1697,8 +1983,12 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(0.5, ReflectionHelpers.GetPrivateField<double>(stage, "_readyCountdown"));
     }
 
-    [Fact]
-    public void UpdateGameplay_WhenReadyCountdownStillActive_ShouldDecreaseCountdownWithoutStartingSong()
+    [Theory]
+    [InlineData(50)]
+    [InlineData(100)]
+    [InlineData(150)]
+    public void UpdateGameplay_WhenReadyCountdownStillActive_ShouldUseRealTimeAtEveryPlaySpeed(
+        int playSpeedPercent)
     {
         var stage = CreateStage();
         var judgementManager = new JudgementManager(new MockInputManagerCompat(), CreateChartManagerWithSingleNote());
@@ -1706,6 +1996,10 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
         ReflectionHelpers.SetPrivateField(stage, "_readyCountdown", 0.75);
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_playbackModifiers",
+            new PlaybackModifiers(playSpeedPercent, 0));
 
         ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplay", 0.25);
 
@@ -2528,6 +2822,63 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void DrawNotesAndOverlays_WhenSongTimerPaused_ShouldUseCachedLogicalTime()
+    {
+        var stage = CreateStage();
+        var noteRenderer = CreateNoteRenderer();
+        var parsedChart = new ParsedChart("draw-paused-note.dtx") { Bpm = 120.0 };
+        parsedChart.AddNote(new Note
+        {
+            LaneIndex = 0,
+            Channel = 0x13,
+            TimeMs = 4000.0,
+            Value = "01"
+        });
+        parsedChart.FinalizeChart();
+        var timer = new SongTimer(150);
+        timer.Play(new GameTime(TimeSpan.Zero, TimeSpan.Zero));
+        timer.Pause(new GameTime(
+            TimeSpan.FromMilliseconds(1000),
+            TimeSpan.Zero));
+
+        ReflectionHelpers.SetPrivateField(
+            noteRenderer,
+            "<EffectiveLookAheadMs>k__BackingField",
+            3000.0);
+        ReflectionHelpers.SetPrivateField(stage, "_noteRenderer", noteRenderer);
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_chartManager",
+            new ChartManager(parsedChart));
+        ReflectionHelpers.SetPrivateField(stage, "_songTimer", timer);
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_currentGameTime",
+            new GameTime(
+                TimeSpan.FromMilliseconds(5000),
+                TimeSpan.FromSeconds(0.016)));
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_spriteBatch",
+            CreateSpriteBatchStub(new Viewport(0, 0, 1280, 720)));
+
+        var notesException = Record.Exception(
+            () => ReflectionHelpers.InvokePrivateMethod(stage, "DrawNotes"));
+        var overlaysException = Record.Exception(
+            () => ReflectionHelpers.InvokePrivateMethod(
+                stage,
+                "DrawNoteOverlays"));
+
+        Assert.Null(notesException);
+        Assert.Null(overlaysException);
+        Assert.Equal(
+            1500.0,
+            timer.GetCurrentMs(new GameTime(
+                TimeSpan.FromMilliseconds(5000),
+                TimeSpan.Zero)));
+    }
+
+    [Fact]
     public void DrawGameplayState_WhenLoading_ShouldUseFallbackRectangleDrawerForCenteredText()
     {
         var stage = CreateStage();
@@ -2951,6 +3302,10 @@ public class PerformanceStageDeterministicTests
     public void FinalizePerformance_WhenManagersAreMissing_ShouldBuildZeroedSummaryAndPauseInput()
     {
         var stage = CreateStage();
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_playbackModifiers",
+            new PlaybackModifiers(75, -4));
 
         ReflectionHelpers.InvokePrivateMethod(stage, "FinalizePerformance", CompletionReason.SongComplete);
 
@@ -2959,8 +3314,81 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(0, summary.Score);
         Assert.Equal(0, summary.TotalNotes);
         Assert.True(summary.ClearFlag);
+        Assert.NotEqual(Guid.Empty, summary.RunId);
+        Assert.Equal(75, summary.PlaySpeedPercent);
+        Assert.Equal(-4, summary.PitchSemitones);
+        Assert.True(summary.IsSavable);
         Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_stageCompleted"));
         Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_inputPaused"));
+    }
+
+    [Fact]
+    public void FinalizePerformance_ShouldUseFrozenProfileInsteadOfMutableConfig()
+    {
+        var config = new ConfigData
+        {
+            PlaySpeedPercent = 150,
+            PitchSemitones = 12
+        };
+        var game = ReflectionHelpers.CreateGame();
+        ReflectionHelpers.SetProperty(
+            game,
+            nameof(BaseGame.ConfigManager),
+            CreateConfigManager(config));
+        var stage = CreateStage(game);
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_playbackModifiers",
+            new PlaybackModifiers(75, -4));
+
+        ReflectionHelpers.InvokePrivateMethod(
+            stage,
+            "FinalizePerformance",
+            CompletionReason.SongComplete);
+
+        var summary = ReflectionHelpers.GetPrivateField<PerformanceSummary>(
+            stage,
+            "_performanceSummary");
+        Assert.Equal(75, summary.PlaySpeedPercent);
+        Assert.Equal(-4, summary.PitchSemitones);
+        Assert.NotEqual(Guid.Empty, summary.RunId);
+    }
+
+    [Fact]
+    public void FinalizePerformance_WhenPlayerQuits_ShouldNotMarkRunClearOrSavable()
+    {
+        var stage = CreateStage();
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_playbackModifiers",
+            new PlaybackModifiers(100, 0));
+
+        ReflectionHelpers.InvokePrivateMethod(
+            stage,
+            "FinalizePerformance",
+            CompletionReason.PlayerQuit);
+
+        var summary = ReflectionHelpers.GetPrivateField<PerformanceSummary>(
+            stage,
+            "_performanceSummary");
+        Assert.NotEqual(Guid.Empty, summary.RunId);
+        Assert.False(summary.ClearFlag);
+        Assert.False(summary.IsSavable);
+    }
+
+    [Fact]
+    public void FailLoading_ShouldNotCreateSavablePerformanceSummary()
+    {
+        var stage = CreateStage();
+
+        ReflectionHelpers.InvokePrivateMethod(
+            stage,
+            "FailLoading",
+            "decode failed");
+
+        Assert.Null(ReflectionHelpers.GetPrivateField<PerformanceSummary?>(
+            stage,
+            "_performanceSummary"));
     }
 
     [Fact]
@@ -3122,7 +3550,7 @@ public class PerformanceStageDeterministicTests
     {
         var stage = CreateStage();
         var soundMock = new Mock<ISound>();
-        var cache = new ChipSoundCache(_ => soundMock.Object);
+        var cache = new ChipSoundCache();
         ReflectionHelpers.SetPrivateField(stage, "_chipSoundCache", cache);
 
         var ex = Record.Exception(() =>
@@ -3137,7 +3565,7 @@ public class PerformanceStageDeterministicTests
     {
         var stage = CreateStage();
         var soundMock = new Mock<ISound>();
-        var cache = new ChipSoundCache(_ => soundMock.Object);
+        var cache = new ChipSoundCache();
         ReflectionHelpers.SetPrivateField(stage, "_chipSoundCache", cache);
         var note = new Note(laneIndex: 0, bar: 0, tick: 0, channel: 0x11, value: "");
 
@@ -3174,8 +3602,8 @@ public class PerformanceStageDeterministicTests
         var stubWavPath = WriteTempStubWav();
         try
         {
-            var cache = new ChipSoundCache(_ => soundMock.Object);
-            cache.PreloadAsync(new Dictionary<string, string> { ["07"] = stubWavPath }).GetAwaiter().GetResult();
+            var cache = new ChipSoundCache(
+                new Dictionary<string, ISound> { ["07"] = soundMock.Object });
             ReflectionHelpers.SetPrivateField(stage, "_chipSoundCache", cache);
 
             var note = new Note(laneIndex: 0, bar: 0, tick: 0, channel: 0x11, value: "07") { TimeMs = 100.0 };
@@ -3541,11 +3969,7 @@ public class PerformanceStageDeterministicTests
 
     private static SongTimer CreateStoppedSongTimer()
     {
-#pragma warning disable SYSLIB0050
-        var timer = (SongTimer)FormatterServices.GetUninitializedObject(typeof(SongTimer));
-#pragma warning restore SYSLIB0050
-        ReflectionHelpers.SetPrivateField(timer, "_disposed", true);
-        return timer;
+        return new SongTimer();
     }
 
     /// <summary>
@@ -3565,12 +3989,8 @@ public class PerformanceStageDeterministicTests
 
     private static SongTimer CreatePlayingSongTimer()
     {
-#pragma warning disable SYSLIB0050
-        var timer = (SongTimer)FormatterServices.GetUninitializedObject(typeof(SongTimer));
-#pragma warning restore SYSLIB0050
-        ReflectionHelpers.SetPrivateField(timer, "_disposed", false);
-        ReflectionHelpers.SetPrivateField(timer, "_isPlaying", true);
-        ReflectionHelpers.SetPrivateField(timer, "_startTime", TimeSpan.Zero);
+        var timer = new SongTimer();
+        timer.Play(new GameTime(TimeSpan.Zero, TimeSpan.Zero));
         return timer;
     }
 
@@ -3606,6 +4026,11 @@ public class PerformanceStageDeterministicTests
         public Color? DrawFallbackTextureColor { get; private set; }
 
         public float? DrawFallbackTextureDepth { get; private set; }
+
+        protected override PlaybackAudioVariantCache CreateAudioVariantCache() =>
+            new(Path.Combine(
+                Path.GetTempPath(),
+                "DTXMania_PerformanceStage_TestCache_" + Guid.NewGuid().ToString("N")));
 
         internal override void DrawFallbackTexture(Texture2D texture, Rectangle destinationRectangle, Color color, float layerDepth)
         {

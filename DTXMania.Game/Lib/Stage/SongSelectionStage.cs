@@ -136,6 +136,7 @@ namespace DTXMania.Game.Lib.Stage
         private PreviewImagePanel _previewImagePanel;
         private UILabel _titleLabel;
         private UILabel _breadcrumbLabel;
+        private UILabel _playbackProfileLabel;
         private UIPanel _mainPanel;
 
         // Input tracking using InputManager
@@ -562,6 +563,18 @@ namespace DTXMania.Game.Lib.Stage
                 HorizontalAlignment = DTXMania.Game.Lib.UI.Components.TextAlignment.Left
             };
 
+            // Active speed/pitch profile. Text is populated by SynchronizeActivePlaySpeed
+            // from the same config snapshot used by speed-scoped score consumers.
+            _playbackProfileLabel = new UILabel("")
+            {
+                Position = SongSelectionUILayout.UILabels.PlaybackProfile.Position,
+                Size = SongSelectionUILayout.UILabels.PlaybackProfile.Size,
+                Font = uiFont?.SpriteFont,
+                TextColor = Color.LightGreen,
+                HasShadow = true,
+                HorizontalAlignment = DTXMania.Game.Lib.UI.Components.TextAlignment.Left
+            };
+
             // Create DTXManiaNX-style song list display
             // Use full screen width to accommodate curved layout coordinates
             _songListDisplay = new SongListDisplay
@@ -636,6 +649,11 @@ namespace DTXMania.Game.Lib.Stage
             };
             _playHistoryPanel.Initialize(_resourceManager);
 
+            // The selected config profile is the source of truth for every score-derived
+            // song-select surface. Set it before CurrentList is populated and begins raising
+            // selection events.
+            SynchronizeActivePlaySpeed();
+
             // Initialize preview image panel
             try
             {
@@ -656,6 +674,7 @@ namespace DTXMania.Game.Lib.Stage
             // Add components to panel
             _mainPanel.AddChild(_titleLabel);
             _mainPanel.AddChild(_breadcrumbLabel);
+            _mainPanel.AddChild(_playbackProfileLabel);
             _mainPanel.AddChild(_songListDisplay);
             _mainPanel.AddChild(_statusPanel);
             _mainPanel.AddChild(_playHistoryPanel);
@@ -846,10 +865,13 @@ namespace DTXMania.Game.Lib.Stage
 
         private void OnSongSelectionChanged(object sender, SongSelectionChangedEventArgs e)
         {
-            
+            int playSpeedPercent = SynchronizeActivePlaySpeed();
             _selectedSong = e.SelectedSong;
             _currentDifficulty = e.CurrentDifficulty;
-            _playHistoryPanel?.UpdateSongInfo(e.SelectedSong, e.CurrentDifficulty);
+            _playHistoryPanel?.UpdateSongInfo(
+                e.SelectedSong,
+                e.CurrentDifficulty,
+                playSpeedPercent);
 
             // Handle preview sound on selection change
             StopCurrentPreview();
@@ -895,7 +917,10 @@ namespace DTXMania.Game.Lib.Stage
                 // Always update status panel content even during scrolling (critical for song display)
                 if (e.SelectedSong != null && e.SelectedSong.Type == NodeType.Score)
                 {
-                    _statusPanel?.UpdateSongInfo(e.SelectedSong, e.CurrentDifficulty);
+                    _statusPanel?.UpdateSongInfo(
+                        e.SelectedSong,
+                        e.CurrentDifficulty,
+                        playSpeedPercent);
                 }
                 
                 return; // Skip other heavy updates during scrolling
@@ -908,7 +933,10 @@ namespace DTXMania.Game.Lib.Stage
             _songListDisplay?.InvalidateVisuals();
 
             // Update status panel (now cached for performance)
-            _statusPanel?.UpdateSongInfo(e.SelectedSong, e.CurrentDifficulty);
+            _statusPanel?.UpdateSongInfo(
+                e.SelectedSong,
+                e.CurrentDifficulty,
+                playSpeedPercent);
 
             // Update breadcrumb (lightweight operation)
             UpdateBreadcrumb();
@@ -925,10 +953,11 @@ namespace DTXMania.Game.Lib.Stage
         private void OnDifficultyChanged(object sender, DifficultyChangedEventArgs e)
         {
             _currentDifficulty = e.NewDifficulty;
+            int playSpeedPercent = SynchronizeActivePlaySpeed();
 
             // Update status panel
-            _statusPanel.UpdateSongInfo(e.Song, e.NewDifficulty);
-            _playHistoryPanel?.UpdateSongInfo(e.Song, e.NewDifficulty);
+            _statusPanel.UpdateSongInfo(e.Song, e.NewDifficulty, playSpeedPercent);
+            _playHistoryPanel?.UpdateSongInfo(e.Song, e.NewDifficulty, playSpeedPercent);
         }
 
         private void HandleSongActivation(SongListNode node)
@@ -1074,7 +1103,10 @@ namespace DTXMania.Game.Lib.Stage
             try
             {
                 var roots = SongManager.Instance.RootSongs;
-                _filteredView = _filterService.Apply(roots, _filterCriteria);
+                _filteredView = _filterService.Apply(
+                    roots,
+                    _filterCriteria,
+                    SynchronizeActivePlaySpeed());
                 _showEmptyFilterMessage = _filteredView.Count == 0;
             }
             catch (System.Exception ex)
@@ -1114,6 +1146,7 @@ namespace DTXMania.Game.Lib.Stage
         private void PopulateRecentPlaysList()
         {
             var nodes = _recentPlayNodes ?? new List<SongListNode>();
+            LabelRecentPlayNodes(nodes);
             _songListDisplay.CurrentList = new List<SongListNode>(nodes);
             // Show empty message only when the load succeeded but returned nothing.
             // A failed load gets its own distinct message in the draw path.
@@ -1640,8 +1673,15 @@ namespace DTXMania.Game.Lib.Stage
                             _songListDisplay.CurrentDifficulty = _currentDifficulty;
 
                             // Update status panel
-                            _statusPanel.UpdateSongInfo(_selectedSong, _currentDifficulty);
-                            _playHistoryPanel?.UpdateSongInfo(_selectedSong, _currentDifficulty);
+                            int playSpeedPercent = SynchronizeActivePlaySpeed();
+                            _statusPanel.UpdateSongInfo(
+                                _selectedSong,
+                                _currentDifficulty,
+                                playSpeedPercent);
+                            _playHistoryPanel?.UpdateSongInfo(
+                                _selectedSong,
+                                _currentDifficulty,
+                                playSpeedPercent);
 
                             // Difficulty changed - play navigation sound
                             PlayCursorMoveSound();
@@ -1659,6 +1699,78 @@ namespace DTXMania.Game.Lib.Stage
             ? theme.GetColor("SongSelect.TabActive",
                 theme.GetColor("UI.Accent", SongSelectionUILayout.Tabs.ActiveColor))
             : theme.GetColor("SongSelect.TabInactive", SongSelectionUILayout.Tabs.InactiveColor);
+
+        /// <summary>
+        /// Formats a detached Recent Plays node with the exact speed of the persisted
+        /// play that caused it to appear in the cross-speed recent query.
+        /// </summary>
+        internal static string FormatRecentPlayDisplayTitle(SongListNode node)
+        {
+            if (node == null)
+                return "";
+
+            string title = node.DisplayTitle ?? "Unknown Song";
+            if (!node.RecentPlaySpeedPercent.HasValue)
+                return title;
+
+            string suffix = $" [{PlaySpeedRange.Format(node.RecentPlaySpeedPercent.Value)}]";
+            return title.EndsWith(suffix, StringComparison.Ordinal)
+                ? title
+                : title + suffix;
+        }
+
+        private static void LabelRecentPlayNodes(IEnumerable<SongListNode> nodes)
+        {
+            foreach (var node in nodes)
+            {
+                if (node?.RecentPlaySpeedPercent.HasValue == true)
+                    node.Title = FormatRecentPlayDisplayTitle(node);
+            }
+        }
+
+        /// <summary>
+        /// Creates the invariant user-facing playback-profile label.
+        /// </summary>
+        internal static string CreatePlaybackProfileText(
+            int playSpeedPercent,
+            int pitchSemitones)
+        {
+            return $"PLAY {PlaySpeedRange.Format(playSpeedPercent)} · " +
+                $"PITCH {PitchRange.Format(pitchSemitones)}";
+        }
+
+        /// <summary>
+        /// Copies the current config profile to every score-aware song-selection component
+        /// and the profile label, then returns the canonical speed for explicit score lookups.
+        /// </summary>
+        private int SynchronizeActivePlaySpeed()
+        {
+            var config = _configManager?.Config;
+            int playSpeedPercent = PlaySpeedRange.SnapAndClamp(
+                config?.PlaySpeedPercent ?? PlaySpeedRange.Default);
+            int pitchSemitones = PitchRange.SnapAndClamp(
+                config?.PitchSemitones ?? PitchRange.Default);
+
+            if (_songListDisplay != null)
+                _songListDisplay.PlaySpeedPercent = playSpeedPercent;
+            if (_statusPanel != null)
+                _statusPanel.PlaySpeedPercent = playSpeedPercent;
+            if (_playHistoryPanel != null)
+                _playHistoryPanel.PlaySpeedPercent = playSpeedPercent;
+            if (_playbackProfileLabel != null)
+            {
+                _playbackProfileLabel.Text = CreatePlaybackProfileText(
+                    playSpeedPercent,
+                    pitchSemitones);
+                // UILabel auto-sizes when text changes and a SpriteFont is present.
+                // Reassert the authored bounds so runtime refreshes retain the
+                // centralized SongSelectionUILayout contract.
+                _playbackProfileLabel.Size =
+                    SongSelectionUILayout.UILabels.PlaybackProfile.Size;
+            }
+
+            return playSpeedPercent;
+        }
 
         /// <summary>
         /// Optional display font family for the tab-bar labels
@@ -2578,6 +2690,12 @@ namespace DTXMania.Game.Lib.Stage
             telemetry.SelectedSongTitle = _selectedSong?.DisplayTitle ?? _selectedSong?.Title;
             telemetry.SelectedDifficulty = _currentDifficulty;
             telemetry.InStatusPanel = _isInStatusPanel;
+            var config = _configManager?.Config ?? _game?.ConfigManager?.Config;
+            telemetry.PlaySpeedPercent = PlaySpeedRange.SnapAndClamp(
+                config?.PlaySpeedPercent ?? PlaySpeedRange.Default);
+            telemetry.PitchSemitones = PitchRange.SnapAndClamp(
+                config?.PitchSemitones ?? PitchRange.Default);
+            telemetry.PlaybackProfileFrozen = false;
         }
 
         #endregion

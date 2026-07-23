@@ -8,6 +8,7 @@ public sealed record E2EFixture(
     string SongDirectory,
     string ConfigPath,
     string ChartPath,
+    string AudioPath,
     string ArtifactRoot,
     int ApiPort,
     string ApiKey)

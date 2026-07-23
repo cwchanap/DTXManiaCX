@@ -1,5 +1,6 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.UI;
 using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Game.Lib.Resources;
@@ -11,6 +12,7 @@ using System.Linq;
 
 // Type alias for SongScore to use the EF Core entity
 using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
+using SongChart = DTXMania.Game.Lib.Song.Entities.SongChart;
 using EInstrumentPart = DTXMania.Game.Lib.Song.Entities.EInstrumentPart;
 
 namespace DTXMania.Game.Lib.Song.Components
@@ -47,6 +49,7 @@ namespace DTXMania.Game.Lib.Song.Components
         private readonly object _updateLock = new object();
         private SongListNode _currentSong;
         private int _currentDifficulty;
+        private int _playSpeedPercent = PlaySpeedRange.Default;
         private SpriteFont _font;
         private SpriteFont _smallFont;
         private IFont _managedFont;
@@ -172,6 +175,23 @@ namespace DTXMania.Game.Lib.Song.Components
         /// Empty = nothing rendered.
         /// </summary>
         public string FolderHint { get; set; } = "";
+
+        /// <summary>
+        /// Exact play-speed profile used by score, rank, skill, and graph displays.
+        /// </summary>
+        public int PlaySpeedPercent
+        {
+            get
+            {
+                lock (_updateLock)
+                    return _playSpeedPercent;
+            }
+            set
+            {
+                lock (_updateLock)
+                    _playSpeedPercent = value;
+            }
+        }
 
         /// <summary>
         /// Initialize graphics generator for enhanced rendering
@@ -440,11 +460,23 @@ namespace DTXMania.Game.Lib.Song.Components
         /// <param name="difficulty">Current difficulty level</param>
         public void UpdateSongInfo(SongListNode song, int difficulty)
         {
+            UpdateSongInfo(song, difficulty, PlaySpeedPercent);
+        }
+
+        /// <summary>
+        /// Updates the displayed song and selects one exact score-speed profile.
+        /// </summary>
+        public void UpdateSongInfo(
+            SongListNode song,
+            int difficulty,
+            int playSpeedPercent)
+        {
             // Force immediate state update - no lazy updates
             lock (_updateLock)
             {
                 _currentSong = song;
                 _currentDifficulty = difficulty;
+                _playSpeedPercent = playSpeedPercent;
             }
         }
 
@@ -568,11 +600,13 @@ namespace DTXMania.Game.Lib.Song.Components
             // Thread-safe capture of current state
             SongListNode currentSong;
             int currentDifficulty;
+            int playSpeedPercent;
             
             lock (_updateLock)
             {
                 currentSong = _currentSong;
                 currentDifficulty = _currentDifficulty;
+                playSpeedPercent = _playSpeedPercent;
             }
             
             // Check for songs (including those with database metadata) 
@@ -583,7 +617,12 @@ namespace DTXMania.Game.Lib.Song.Components
             if (songType == NodeType.Score && (scoresLength > 0 || hasDatabase))
             {
                 // Draw DTXManiaNX authentic layout
-                DrawDTXManiaNXLayout(spriteBatch, bounds, currentSong, currentDifficulty);
+                DrawDTXManiaNXLayout(
+                    spriteBatch,
+                    bounds,
+                    currentSong,
+                    currentDifficulty,
+                    playSpeedPercent);
             }
             else
             {
@@ -592,19 +631,39 @@ namespace DTXMania.Game.Lib.Song.Components
             }
         }
 
-        private void DrawDTXManiaNXLayout(SpriteBatch spriteBatch, Rectangle bounds, SongListNode currentSong, int currentDifficulty)
+        private void DrawDTXManiaNXLayout(
+            SpriteBatch spriteBatch,
+            Rectangle bounds,
+            SongListNode currentSong,
+            int currentDifficulty,
+            int playSpeedPercent)
         {
             // Draw BPM and song duration section (top area)
             DrawBPMSection(spriteBatch, bounds, currentSong, currentDifficulty);
 
             // Draw skill point section (above BPM)
-            DrawSkillPointSection(spriteBatch, bounds, currentSong, currentDifficulty);
+            DrawSkillPointSection(
+                spriteBatch,
+                bounds,
+                currentSong,
+                currentDifficulty,
+                playSpeedPercent);
 
             // Draw 3×5 difficulty grid (main area)
-            DrawDifficultyGrid(spriteBatch, bounds, currentSong, currentDifficulty);
+            DrawDifficultyGrid(
+                spriteBatch,
+                bounds,
+                currentSong,
+                currentDifficulty,
+                playSpeedPercent);
 
             // Draw graph panel area (bottom area)
-            DrawGraphPanel(spriteBatch, bounds);
+            DrawGraphPanel(
+                spriteBatch,
+                bounds,
+                currentSong,
+                currentDifficulty,
+                playSpeedPercent);
         }
 
         private void DrawSimplifiedInfo(SpriteBatch spriteBatch, Rectangle bounds, SongListNode currentSong, int currentDifficulty)
@@ -842,9 +901,17 @@ namespace DTXMania.Game.Lib.Song.Components
         }
 
         [ExcludeFromCodeCoverage]
-        private void DrawSkillPointSection(SpriteBatch spriteBatch, Rectangle bounds, SongListNode currentSong, int currentDifficulty)
+        private void DrawSkillPointSection(
+            SpriteBatch spriteBatch,
+            Rectangle bounds,
+            SongListNode currentSong,
+            int currentDifficulty,
+            int playSpeedPercent)
         {
-            var score = GetCurrentScore(currentSong, currentDifficulty);
+            var score = ResolveScore(
+                currentSong,
+                currentDifficulty,
+                playSpeedPercent);
             if (score == null)
                 return;
 
@@ -886,7 +953,12 @@ namespace DTXMania.Game.Lib.Song.Components
             DrawTextWithShadow(spriteBatch, skillFont, skillValue, new Vector2(skillTextX, skillTextY), Color.Yellow);
         }
 
-        private void DrawDifficultyGrid(SpriteBatch spriteBatch, Rectangle bounds, SongListNode currentSong, int currentDifficulty)
+        private void DrawDifficultyGrid(
+            SpriteBatch spriteBatch,
+            Rectangle bounds,
+            SongListNode currentSong,
+            int currentDifficulty,
+            int playSpeedPercent)
         {
             // Draw difficulty panel background texture if available
             if (_difficultyPanelTexture != null)
@@ -949,7 +1021,14 @@ namespace DTXMania.Game.Lib.Song.Components
                     {
                         // Use SongSelectionUILayout method to get cell content position (moved down 20px from panel)
                         var cellContentPosition = SongSelectionUILayout.DifficultyGrid.GetCellContentPosition(i, j);
-                        DrawDifficultyCell(spriteBatch, (int)cellContentPosition.X, (int)cellContentPosition.Y, i, j, chartForThisPosition);
+                        DrawDifficultyCell(
+                            spriteBatch,
+                            (int)cellContentPosition.X,
+                            (int)cellContentPosition.Y,
+                            i,
+                            j,
+                            chartForThisPosition,
+                            playSpeedPercent);
                     }
                 }
             }
@@ -958,7 +1037,14 @@ namespace DTXMania.Game.Lib.Song.Components
             DrawDifficultyFrame(spriteBatch);
         }
 
-        private void DrawDifficultyCell(SpriteBatch spriteBatch, int x, int y, int gridRow, int instrument, ChartLevelInfo chartInfo)
+        private void DrawDifficultyCell(
+            SpriteBatch spriteBatch,
+            int x,
+            int y,
+            int gridRow,
+            int instrument,
+            ChartLevelInfo chartInfo,
+            int playSpeedPercent)
         {
             // Use DTXManiaNX authentic cell dimensions from SongSelectionUILayout
             var cellSize = SongSelectionUILayout.DifficultyGrid.CellSize;
@@ -966,7 +1052,16 @@ namespace DTXMania.Game.Lib.Song.Components
             var cellHeight = (int)cellSize.Y;
 
             // Only draw cell content (no background or borders) - the panel texture provides the background
-            DrawDifficultyCellContent(spriteBatch, x, y, cellWidth, cellHeight, gridRow, instrument, chartInfo);
+            DrawDifficultyCellContent(
+                spriteBatch,
+                x,
+                y,
+                cellWidth,
+                cellHeight,
+                gridRow,
+                instrument,
+                chartInfo,
+                playSpeedPercent);
         }
 
         private void DrawDifficultyFrame(SpriteBatch spriteBatch)
@@ -999,7 +1094,16 @@ namespace DTXMania.Game.Lib.Song.Components
             _difficultyFrameTexture.Draw(spriteBatch, selectedCellPosition);
         }
 
-        private void DrawDifficultyCellContent(SpriteBatch spriteBatch, int x, int y, int cellWidth, int cellHeight, int gridRow, int instrument, ChartLevelInfo chartInfo)
+        private void DrawDifficultyCellContent(
+            SpriteBatch spriteBatch,
+            int x,
+            int y,
+            int cellWidth,
+            int cellHeight,
+            int gridRow,
+            int instrument,
+            ChartLevelInfo chartInfo,
+            int playSpeedPercent)
         {
             // Numbers are positioned relative to the panel cell origin (not the +20px content
             // offset) so they sit pixel-aligned inside the cell's dark box, matching NX.
@@ -1025,10 +1129,24 @@ namespace DTXMania.Game.Lib.Song.Components
             }
 
             // D8: draw rank and FC badge if player has history for this cell (NX nBoxY+5).
-            DrawRankSymbol(spriteBatch, x, y, chartInfo, instrument);
+            DrawRankSymbol(
+                spriteBatch,
+                x,
+                y,
+                chartInfo,
+                instrument,
+                playSpeedPercent);
 
             // Achievement rate per cell. NX: tDrawAchievementRate(nBoxX + nPanelW - 157, nBoxY + nPanelH - 27).
-            DrawAchievementRate(spriteBatch, nBoxX, nBoxY, nPanelW, nPanelH, chartInfo, instrument);
+            DrawAchievementRate(
+                spriteBatch,
+                nBoxX,
+                nBoxY,
+                nPanelW,
+                nPanelH,
+                chartInfo,
+                instrument,
+                playSpeedPercent);
         }
 
         /// <summary>
@@ -1061,7 +1179,15 @@ namespace DTXMania.Game.Lib.Song.Components
         /// Draws the per-cell achievement rate (best skill) using the 5_skill number.png bitmap font,
         /// or a 100% MAX badge. Mirrors DTXManiaNX (only drawn when the value is non-zero).
         /// </summary>
-        private void DrawAchievementRate(SpriteBatch spriteBatch, int nBoxX, int nBoxY, int nPanelW, int nPanelH, ChartLevelInfo chartInfo, int instrumentColumn)
+        private void DrawAchievementRate(
+            SpriteBatch spriteBatch,
+            int nBoxX,
+            int nBoxY,
+            int nPanelW,
+            int nPanelH,
+            ChartLevelInfo chartInfo,
+            int instrumentColumn,
+            int playSpeedPercent)
         {
             var instrumentPart = instrumentColumn switch
             {
@@ -1071,7 +1197,10 @@ namespace DTXMania.Game.Lib.Song.Components
                 _ => EInstrumentPart.DRUMS
             };
 
-            var score = chartInfo.Chart.Scores?.FirstOrDefault(s => s.Instrument == instrumentPart);
+            var score = ResolveChartScore(
+                chartInfo.Chart,
+                instrumentPart,
+                playSpeedPercent);
             var mode = ClassifyAchievementRate(score);
             if (mode == AchievementRateMode.Skip)
                 return;
@@ -1104,7 +1233,13 @@ namespace DTXMania.Game.Lib.Song.Components
         /// Draws the rank/FC badge icons for a difficulty cell (D8: performance history).
         /// Matches NX: rank at nBoxX+7,nBoxY+5; FC badge at nBoxX+42,nBoxY+5.
         /// </summary>
-        private void DrawRankSymbol(SpriteBatch spriteBatch, int x, int y, ChartLevelInfo chartInfo, int instrumentColumn)
+        private void DrawRankSymbol(
+            SpriteBatch spriteBatch,
+            int x,
+            int y,
+            ChartLevelInfo chartInfo,
+            int instrumentColumn,
+            int playSpeedPercent)
         {
             if (_skillIconTexture == null) return;
 
@@ -1116,7 +1251,10 @@ namespace DTXMania.Game.Lib.Song.Components
                 _ => EInstrumentPart.DRUMS
             };
 
-            var score = chartInfo.Chart.Scores?.FirstOrDefault(s => s.Instrument == instrumentPart);
+            var score = ResolveChartScore(
+                chartInfo.Chart,
+                instrumentPart,
+                playSpeedPercent);
             if (score == null || score.PlayCount == 0) return;
 
             // x,y = GetCellContentPosition = (cellLeft, cellTop+20); NX draws at cellTop+5 → y-15
@@ -1152,11 +1290,21 @@ namespace DTXMania.Game.Lib.Song.Components
             DrawTextWithShadow(spriteBatch, font, text, new Vector2(x + cellWidth - textWidth - rightPadding, y + nxTopOffset), color);
         }
 
-        private void DrawGraphPanel(SpriteBatch spriteBatch, Rectangle bounds)
+        private void DrawGraphPanel(
+            SpriteBatch spriteBatch,
+            Rectangle bounds,
+            SongListNode currentSong,
+            int currentDifficulty,
+            int playSpeedPercent)
         {
             // Get the chart for the current difficulty level
-            var chart = GetCurrentDifficultyChart(_currentSong, _currentDifficulty);
-            var score = GetCurrentScore(_currentSong, _currentDifficulty);
+            var chart = GetCurrentDifficultyChart(
+                currentSong,
+                currentDifficulty);
+            var score = ResolveScore(
+                currentSong,
+                currentDifficulty,
+                playSpeedPercent);
             if (chart == null)
                 return;
 
@@ -1479,12 +1627,38 @@ namespace DTXMania.Game.Lib.Song.Components
             }
         }
 
-        private SongScore GetCurrentScore(SongListNode currentSong, int currentDifficulty)
+        internal static SongScore ResolveScore(
+            SongListNode currentSong,
+            int currentDifficulty,
+            int playSpeedPercent)
         {
             if (currentSong?.Scores == null || currentDifficulty < 0 || currentDifficulty >= currentSong.Scores.Length)
                 return null;
 
-            return currentSong.Scores[currentDifficulty];
+            return playSpeedPercent == PlaySpeedRange.Default
+                ? currentSong.GetScore(currentDifficulty)
+                : currentSong.GetScore(currentDifficulty, playSpeedPercent);
+        }
+
+        // Retained for reflection-based legacy tests and compatibility helpers.
+        private SongScore GetCurrentScore(
+            SongListNode currentSong,
+            int currentDifficulty)
+        {
+            return ResolveScore(
+                currentSong,
+                currentDifficulty,
+                PlaySpeedRange.Default);
+        }
+
+        internal static SongScore ResolveChartScore(
+            SongChart chart,
+            EInstrumentPart instrument,
+            int playSpeedPercent)
+        {
+            return chart?.Scores?.FirstOrDefault(score =>
+                score.Instrument == instrument
+                && score.PlaySpeedPercent == playSpeedPercent);
         }
 
         private string GetInstrumentFromDifficulty(int difficulty)

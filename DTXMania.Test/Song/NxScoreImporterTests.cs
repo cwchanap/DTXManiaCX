@@ -40,10 +40,13 @@ namespace DTXMania.Test.Song
             return chart;
         }
 
-        private SongScore Load(int chartId)
+        private SongScore Load(int chartId, int playSpeedPercent = 100)
         {
             using var ctx = new SongDbContext(_options);
-            return ctx.SongScores.AsNoTracking().First(s => s.ChartId == chartId && s.Instrument == EInstrumentPart.DRUMS);
+            return ctx.SongScores.AsNoTracking().First(
+                s => s.ChartId == chartId
+                    && s.Instrument == EInstrumentPart.DRUMS
+                    && s.PlaySpeedPercent == playSpeedPercent);
         }
 
         private static NxScoreData Mas() => new()
@@ -112,6 +115,85 @@ namespace DTXMania.Test.Song
             var s = Load(chart.Id);
             Assert.Equal(79, s.PlayCount);
             Assert.Equal(72, s.ClearCount);
+        }
+
+        [Fact]
+        public async Task Import_ShouldOnlyMergeDefaultSpeedAndPreserveSlowerVariant()
+        {
+            var chart = SeedChart();
+            int slowerScoreId;
+
+            using (var ctx = new SongDbContext(_options))
+            {
+                var slowerScore = new SongScore
+                {
+                    ChartId = chart.Id,
+                    Instrument = EInstrumentPart.DRUMS,
+                    PlaySpeedPercent = 75,
+                    BestScore = 123456,
+                    BestPerfect = 12,
+                    PlayCount = 3,
+                    ClearCount = 2,
+                    NxImportedPlayCount = 1,
+                    NxImportedClearCount = 1,
+                    LastScore = 120000,
+                    LastPlayedAt = new DateTime(2030, 1, 1),
+                };
+                ctx.SongScores.Add(slowerScore);
+                ctx.SaveChanges();
+                slowerScoreId = slowerScore.Id;
+
+                ctx.PerformanceHistory.Add(new PerformanceHistory
+                {
+                    SongId = chart.SongId,
+                    SongScoreId = slowerScoreId,
+                    HistoryLine = "0.75x CX history",
+                    PerformedAt = new DateTime(2030, 1, 1),
+                    DisplayOrder = 1,
+                    PitchSemitones = 3,
+                });
+                ctx.SaveChanges();
+            }
+
+            var data = Mas();
+            data.History = new[]
+            {
+                new NxHistoryLine
+                {
+                    Text = "79.26/5/15 Cleared (S: 94.37)",
+                    Date = new DateTime(2026, 5, 15),
+                },
+            };
+
+            await Merge(chart, data);
+
+            var defaultScore = Load(chart.Id, 100);
+            var slowerScoreAfterImport = Load(chart.Id, 75);
+
+            Assert.Equal(100, defaultScore.PlaySpeedPercent);
+            Assert.Equal(data.BestScore, defaultScore.BestScore);
+            Assert.Equal(data.PlayCount, defaultScore.PlayCount);
+
+            Assert.Equal(slowerScoreId, slowerScoreAfterImport.Id);
+            Assert.Equal(123456, slowerScoreAfterImport.BestScore);
+            Assert.Equal(12, slowerScoreAfterImport.BestPerfect);
+            Assert.Equal(3, slowerScoreAfterImport.PlayCount);
+            Assert.Equal(2, slowerScoreAfterImport.ClearCount);
+            Assert.Equal(1, slowerScoreAfterImport.NxImportedPlayCount);
+            Assert.Equal(1, slowerScoreAfterImport.NxImportedClearCount);
+            Assert.Equal(120000, slowerScoreAfterImport.LastScore);
+            Assert.Equal(new DateTime(2030, 1, 1), slowerScoreAfterImport.LastPlayedAt);
+
+            using var verifyCtx = new SongDbContext(_options);
+            var defaultHistory = verifyCtx.PerformanceHistory.AsNoTracking()
+                .Single(row => row.SongScoreId == defaultScore.Id);
+            var slowerHistory = verifyCtx.PerformanceHistory.AsNoTracking()
+                .Single(row => row.SongScoreId == slowerScoreId);
+
+            Assert.Equal(0, defaultHistory.PitchSemitones);
+            Assert.Equal("79.26/5/15 Cleared (S: 94.37)", defaultHistory.HistoryLine);
+            Assert.Equal(3, slowerHistory.PitchSemitones);
+            Assert.Equal("0.75x CX history", slowerHistory.HistoryLine);
         }
 
         [Fact]

@@ -1,5 +1,6 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.UI;
 using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Game.Lib.Resources;
@@ -50,6 +51,7 @@ namespace DTXMania.Game.Lib.Song.Components
         // Fast scroll mode flag to skip preview image loading during active scrolling
         private bool _isFastScrollMode = false;
         private bool _disposed = false;
+        private int _playSpeedPercent = PlaySpeedRange.Default;
 
         #endregion
 
@@ -78,6 +80,23 @@ namespace DTXMania.Game.Lib.Song.Components
         #endregion
 
         #region Public Methods
+
+        /// <summary>
+        /// Exact speed profile used by compatibility overloads.
+        /// Changing it invalidates cached clear-lamp textures.
+        /// </summary>
+        public int PlaySpeedPercent
+        {
+            get => _playSpeedPercent;
+            set
+            {
+                if (_playSpeedPercent == value)
+                    return;
+
+                _playSpeedPercent = value;
+                _clearLampCache.Clear();
+            }
+        }
 
         /// <summary>
         /// Generate or retrieve cached title texture for a song node
@@ -164,6 +183,22 @@ namespace DTXMania.Game.Lib.Song.Components
         /// </summary>
         public SongBarInfo GenerateBarInfo(SongListNode songNode, int difficulty, bool isSelected = false)
         {
+            return GenerateBarInfo(
+                songNode,
+                difficulty,
+                PlaySpeedPercent,
+                isSelected);
+        }
+
+        /// <summary>
+        /// Generates bar information for one exact score-speed profile.
+        /// </summary>
+        public SongBarInfo GenerateBarInfo(
+            SongListNode songNode,
+            int difficulty,
+            int playSpeedPercent,
+            bool isSelected = false)
+        {
             if (songNode == null)
                 return null;
 
@@ -174,13 +209,17 @@ namespace DTXMania.Game.Lib.Song.Components
                 TitleString = GetDisplayText(songNode),
                 TextColor = GetNodeTypeColor(songNode),
                 DifficultyLevel = difficulty,
+                PlaySpeedPercent = playSpeedPercent,
                 IsSelected = isSelected
             };
 
             // Generate textures
             barInfo.TitleTexture = GenerateTitleTexture(songNode);
             barInfo.PreviewImage = GeneratePreviewImageTexture(songNode);
-            barInfo.ClearLamp = GenerateClearLampTexture(songNode, difficulty);
+            barInfo.ClearLamp = GenerateClearLampTexture(
+                songNode,
+                difficulty,
+                playSpeedPercent);
 
             return barInfo;
         }
@@ -190,12 +229,32 @@ namespace DTXMania.Game.Lib.Song.Components
         /// </summary>
         public void UpdateBarInfo(SongBarInfo barInfo, int newDifficulty, bool isSelected)
         {
+            UpdateBarInfo(
+                barInfo,
+                newDifficulty,
+                PlaySpeedPercent,
+                isSelected);
+        }
+
+        /// <summary>
+        /// Updates cached bar state for one exact score-speed profile.
+        /// </summary>
+        public void UpdateBarInfo(
+            SongBarInfo barInfo,
+            int newDifficulty,
+            int playSpeedPercent,
+            bool isSelected)
+        {
             if (barInfo == null)
                 return;
 
-            var stateChanged = barInfo.DifficultyLevel != newDifficulty || barInfo.IsSelected != isSelected;
+            var stateChanged =
+                barInfo.DifficultyLevel != newDifficulty
+                || barInfo.PlaySpeedPercent != playSpeedPercent
+                || barInfo.IsSelected != isSelected;
 
             barInfo.DifficultyLevel = newDifficulty;
+            barInfo.PlaySpeedPercent = playSpeedPercent;
             barInfo.IsSelected = isSelected;
             barInfo.TextColor = isSelected ? Color.Yellow : GetNodeTypeColor(barInfo.SongNode);
 
@@ -204,7 +263,10 @@ namespace DTXMania.Game.Lib.Song.Components
             {
                 barInfo.ClearLamp?.RemoveReference();
                 barInfo.ClearLamp = null;
-                barInfo.ClearLamp = GenerateClearLampTexture(barInfo.SongNode, newDifficulty);
+                barInfo.ClearLamp = GenerateClearLampTexture(
+                    barInfo.SongNode,
+                    newDifficulty,
+                    playSpeedPercent);
             }
         }
 
@@ -214,10 +276,27 @@ namespace DTXMania.Game.Lib.Song.Components
         /// </summary>
         public ITexture GenerateClearLampTexture(SongListNode songNode, int difficulty)
         {
+            return GenerateClearLampTexture(
+                songNode,
+                difficulty,
+                PlaySpeedPercent);
+        }
+
+        /// <summary>
+        /// Generates a clear lamp from one exact speed variant.
+        /// </summary>
+        public ITexture GenerateClearLampTexture(
+            SongListNode songNode,
+            int difficulty,
+            int playSpeedPercent)
+        {
             if (songNode?.Type != NodeType.Score)
                 return null;
 
-            var cacheKey = GetClearLampCacheKey(songNode, difficulty);
+            var cacheKey = GetClearLampCacheKey(
+                songNode,
+                difficulty,
+                playSpeedPercent);
             if (_clearLampCache.TryGet(cacheKey, out var cachedTexture))
             {
                 cachedTexture.AddReference();
@@ -229,7 +308,10 @@ namespace DTXMania.Game.Lib.Song.Components
             if (_graphicsGenerator == null)
                 return null;
 
-            var clearStatus = GetClearStatus(songNode, difficulty);
+            var clearStatus = ResolveClearStatus(
+                songNode,
+                difficulty,
+                playSpeedPercent);
             var texture = _graphicsGenerator.GenerateEnhancedClearLamp(difficulty, clearStatus);
 
             if (texture != null)
@@ -255,6 +337,22 @@ namespace DTXMania.Game.Lib.Song.Components
         /// </summary>
         public SongBarInfo GenerateBarInfoWithPriority(SongListNode songNode, int difficulty, bool isSelected = false)
         {
+            return GenerateBarInfoWithPriority(
+                songNode,
+                difficulty,
+                PlaySpeedPercent,
+                isSelected);
+        }
+
+        /// <summary>
+        /// Generates priority bar information for one exact speed profile.
+        /// </summary>
+        public SongBarInfo GenerateBarInfoWithPriority(
+            SongListNode songNode,
+            int difficulty,
+            int playSpeedPercent,
+            bool isSelected = false)
+        {
             if (songNode == null)
                 return null;
 
@@ -268,6 +366,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 TitleString = GetDisplayText(songNode),
                 TextColor = GetNodeTypeColor(songNode),
                 DifficultyLevel = difficulty,
+                PlaySpeedPercent = playSpeedPercent,
                 IsSelected = isSelected
             };
 
@@ -280,7 +379,10 @@ namespace DTXMania.Game.Lib.Song.Components
                 barInfo.PreviewImage = GeneratePreviewImageTexture(songNode);
             }
             
-            barInfo.ClearLamp = GenerateClearLampTexture(songNode, difficulty);
+            barInfo.ClearLamp = GenerateClearLampTexture(
+                songNode,
+                difficulty,
+                playSpeedPercent);
 
             // Performance metrics logging
             stopwatch.Stop();
@@ -468,10 +570,16 @@ namespace DTXMania.Game.Lib.Song.Components
             return $"{songNode.Type}_{songNode.DisplayTitle}_{songNode.GetHashCode()}";
         }
 
-        private string GetClearLampCacheKey(SongListNode songNode, int difficulty)
+        private string GetClearLampCacheKey(
+            SongListNode songNode,
+            int difficulty,
+            int playSpeedPercent)
         {
-            var clearStatus = GetClearStatus(songNode, difficulty);
-            return $"{songNode.GetHashCode()}_{difficulty}_{clearStatus}";
+            var clearStatus = ResolveClearStatus(
+                songNode,
+                difficulty,
+                playSpeedPercent);
+            return $"{songNode.GetHashCode()}_{difficulty}_{playSpeedPercent}_{clearStatus}";
         }
 
         private string GetDisplayText(SongListNode songNode)
@@ -498,26 +606,27 @@ namespace DTXMania.Game.Lib.Song.Components
             };
         }
 
-        private ClearStatus GetClearStatus(SongListNode songNode, int difficulty)
+        internal static ClearStatus ResolveClearStatus(
+            SongListNode songNode,
+            int difficulty,
+            int playSpeedPercent)
         {
-            // TODO: Get actual clear status from song scores
-            // For now, return a placeholder based on difficulty
-            if (songNode.Scores?.Length > difficulty && songNode.Scores[difficulty] != null)
-            {
-                var score = songNode.Scores[difficulty];
-                if (score.PlayCount <= 0)
-                    return ClearStatus.NotPlayed;
+            if (songNode == null)
+                return ClearStatus.NotPlayed;
 
-                if (score.FullCombo)
-                    return ClearStatus.FullCombo;
-                else if (SongScore.ComputeRankIndex(
-                    SongScore.NormalizeStoredBestRank(score.BestRank)) <= 2)
-                    return ClearStatus.Clear;
+            var score = playSpeedPercent == PlaySpeedRange.Default
+                ? songNode.GetScore(difficulty)
+                : songNode.GetScore(difficulty, playSpeedPercent);
+            if (score == null || score.PlayCount <= 0)
+                return ClearStatus.NotPlayed;
 
-                return ClearStatus.Failed;
-            }
-            
-            return ClearStatus.NotPlayed;
+            if (score.FullCombo)
+                return ClearStatus.FullCombo;
+
+            return SongScore.ComputeRankIndex(
+                    SongScore.NormalizeStoredBestRank(score.BestRank)) <= 2
+                ? ClearStatus.Clear
+                : ClearStatus.Failed;
         }
 
         private BarType GetBarType(SongListNode songNode)
@@ -606,6 +715,7 @@ namespace DTXMania.Game.Lib.Song.Components
             public ITexture PreviewImage { get; set; }
             public ITexture ClearLamp { get; set; }
             public int DifficultyLevel { get; set; }
+            public int PlaySpeedPercent { get; set; } = PlaySpeedRange.Default;
             public bool IsSelected { get; set; }
             
             public void Dispose()

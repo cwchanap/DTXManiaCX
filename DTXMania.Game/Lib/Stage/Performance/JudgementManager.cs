@@ -94,18 +94,34 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <param name="currentSongTimeMs">Current song time in milliseconds</param>
         public void Update(double currentSongTimeMs)
         {
+            Update(currentSongTimeMs, currentSongTimeMs);
+        }
+
+        /// <summary>
+        /// Updates hit processing and miss scanning from their respective clocks.
+        /// Pending player hits use the latency-compensated logical time, while
+        /// misses use raw logical chart time so output latency cannot delay them.
+        /// </summary>
+        /// <param name="pendingHitTimeMs">
+        /// Latency-compensated logical time used for queued player hits.
+        /// </param>
+        /// <param name="missScanTimeMs">
+        /// Raw logical chart time used for timeout-based miss detection.
+        /// </param>
+        public void Update(double pendingHitTimeMs, double missScanTimeMs)
+        {
             if (_disposed)
                 return;
 
             // Process pending lane hit events from the input system (only when active)
             if (IsActive)
             {
-                ProcessPendingLaneHits(currentSongTimeMs);
+                ProcessPendingLaneHits(pendingHitTimeMs);
             }
 
             // Check for missed notes (timeout scanner) - always run regardless of IsActive
             // Miss detection must run even during ready countdown to prevent notes getting stuck
-            ProcessMissedNotes(currentSongTimeMs);
+            ProcessMissedNotes(missScanTimeMs);
         }
 
         /// <summary>

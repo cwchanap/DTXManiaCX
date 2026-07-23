@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
@@ -12,6 +13,95 @@ namespace DTXMania.Test.Stage.Result;
 [Trait("Category", "Unit")]
 public class ResultScreenModelTests
 {
+    [Fact]
+    public void Create_ShouldExposeFrozenPlaybackProfileAndSpeedScopedBucket()
+    {
+        var summary = new PerformanceSummary
+        {
+            PlaySpeedPercent = 75,
+            PitchSemitones = 3
+        };
+
+        var model = ResultScreenModel.Create(summary, null, 0, null, null);
+
+        Assert.Equal("PLAY 0.75x · PITCH +3 st", model.PlaybackProfileText);
+        Assert.Equal("SCORE BUCKET: SPEED 0.75x · PITCH NOT SPLIT", model.ScoreBucketText);
+    }
+
+    [Fact]
+    public void Create_PlaybackLabels_ShouldRemainInvariantUnderDecimalCommaCulture()
+    {
+        var originalCulture = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR");
+            var model = ResultScreenModel.Create(
+                new PerformanceSummary
+                {
+                    PlaySpeedPercent = 75,
+                    PitchSemitones = 3
+                },
+                null,
+                0,
+                null,
+                null);
+
+            Assert.Equal("PLAY 0.75x · PITCH +3 st", model.PlaybackProfileText);
+            Assert.Equal("SCORE BUCKET: SPEED 0.75x · PITCH NOT SPLIT", model.ScoreBucketText);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = originalCulture;
+        }
+    }
+
+    [Theory]
+    [InlineData(ResultSaveState.NotStarted, "SCORE SAVE: NOT STARTED")]
+    [InlineData(ResultSaveState.Saving, "SCORE SAVE: SAVING…")]
+    [InlineData(ResultSaveState.Saved, "SCORE SAVE: SAVED")]
+    [InlineData(ResultSaveState.Failed, "SCORE SAVE: FAILED")]
+    public void SetSavePresentation_ShouldExposeStableStatusText(
+        ResultSaveState state,
+        string expectedStatus)
+    {
+        var model = ResultScreenModel.Create(Summary(), null, 0, null, null);
+
+        model.SetSavePresentation(new ResultSavePresentation(state));
+
+        Assert.Equal(state, model.SavePresentation.State);
+        Assert.Equal(expectedStatus, model.SaveStatusText);
+    }
+
+    [Fact]
+    public void SetSavePresentation_FailedWithError_ShouldExposeRetryGuidance()
+    {
+        var model = ResultScreenModel.Create(Summary(), null, 0, null, null);
+
+        model.SetSavePresentation(new ResultSavePresentation(
+            ResultSaveState.Failed,
+            "database busy"));
+
+        Assert.Equal(
+            "PRESS ENTER TO RETRY · BACK TO LEAVE WITHOUT SAVING · database busy",
+            model.SaveGuidanceText);
+    }
+
+    [Fact]
+    public void SetSavePresentation_NonFailure_ShouldClearPreviousGuidance()
+    {
+        var model = ResultScreenModel.Create(
+            Summary(),
+            null,
+            0,
+            null,
+            null,
+            new ResultSavePresentation(ResultSaveState.Failed, "database busy"));
+
+        model.SetSavePresentation(new ResultSavePresentation(ResultSaveState.Saving));
+
+        Assert.Equal(string.Empty, model.SaveGuidanceText);
+    }
+
     [Theory]
     [InlineData(95.0, ResultRank.SS, "SS")]
     [InlineData(94.99, ResultRank.S, "S")]

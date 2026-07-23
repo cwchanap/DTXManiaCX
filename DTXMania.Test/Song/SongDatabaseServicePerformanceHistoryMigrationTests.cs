@@ -11,6 +11,7 @@ using Xunit;
 namespace DTXMania.Test.Song
 {
     [Trait("Category", "Integration")]
+    [Collection("Song database migration")]
     public class SongDatabaseServicePerformanceHistoryMigrationTests : IDisposable
     {
         private readonly string _dbPath;
@@ -41,7 +42,10 @@ namespace DTXMania.Test.Song
             Assert.Equal(1, await ScalarAsync(
                 "SELECT COUNT(*) FROM pragma_table_info('PerformanceHistory') WHERE name='SongScoreId'"));
             Assert.Equal(1, await ScalarAsync(
-                "SELECT COUNT(*) FROM PerformanceHistory WHERE SongId=1 AND SongScoreId IS NULL AND HistoryLine='Legacy run'"));
+                "SELECT COUNT(*) FROM pragma_table_info('PerformanceHistory') WHERE name='PitchSemitones'"));
+            Assert.Equal(1, await ScalarAsync(
+                "SELECT COUNT(*) FROM PerformanceHistory " +
+                "WHERE SongId=1 AND SongScoreId IS NULL AND PitchSemitones=0 AND HistoryLine='Legacy run'"));
             Assert.Equal(0, await ScalarAsync(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='IX_PerformanceHistory_SongId_DisplayOrder'"));
             Assert.Equal(1, await ScalarAsync(
@@ -138,8 +142,13 @@ namespace DTXMania.Test.Song
             await ExecuteAsync(
                 "ALTER TABLE PerformanceHistory ADD COLUMN SongScoreId INTEGER NULL");
             await ExecuteAsync(
-                "INSERT INTO PerformanceHistory (SongId, SongScoreId, PerformedAt, HistoryLine, DisplayOrder) " +
-                "VALUES (1, 1, '2026-06-14 00:00:00', 'Scoped run pre-crash', 1)");
+                "ALTER TABLE PerformanceHistory ADD COLUMN PitchSemitones INTEGER NOT NULL DEFAULT 0");
+            await ExecuteAsync(
+                "UPDATE PerformanceHistory SET PitchSemitones=-2 WHERE HistoryLine='Legacy run'");
+            await ExecuteAsync(
+                "INSERT INTO PerformanceHistory (" +
+                "SongId, SongScoreId, PerformedAt, HistoryLine, DisplayOrder, PitchSemitones) " +
+                "VALUES (1, 1, '2026-06-14 00:00:00', 'Scoped run pre-crash', 1, -4)");
 
             // Before migration: column exists, no SET NULL FK.
             Assert.Equal(1, await ScalarAsync(
@@ -157,9 +166,11 @@ namespace DTXMania.Test.Song
                 "SELECT COUNT(*) FROM pragma_foreign_key_list('PerformanceHistory') " +
                 "WHERE [table]='SongScores' AND [from]='SongScoreId' AND [on_delete]='SET NULL'"));
             Assert.Equal(1, await ScalarAsync(
-                "SELECT COUNT(*) FROM PerformanceHistory WHERE SongId=1 AND SongScoreId IS NULL AND HistoryLine='Legacy run'"));
+                "SELECT COUNT(*) FROM PerformanceHistory " +
+                "WHERE SongId=1 AND SongScoreId IS NULL AND PitchSemitones=-2 AND HistoryLine='Legacy run'"));
             Assert.Equal(1, await ScalarAsync(
-                "SELECT COUNT(*) FROM PerformanceHistory WHERE SongId=1 AND SongScoreId=1 AND HistoryLine='Scoped run pre-crash'"));
+                "SELECT COUNT(*) FROM PerformanceHistory " +
+                "WHERE SongId=1 AND SongScoreId=1 AND PitchSemitones=-4 AND HistoryLine='Scoped run pre-crash'"));
         }
 
         /// <summary>

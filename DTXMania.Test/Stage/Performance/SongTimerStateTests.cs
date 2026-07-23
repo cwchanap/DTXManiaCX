@@ -1,9 +1,9 @@
 #nullable enable
 
 using System;
+using System.Reflection;
 using System.Runtime.Serialization;
 using DTXMania.Game.Lib.Stage.Performance;
-using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Audio;
 using Xunit;
@@ -13,411 +13,197 @@ namespace DTXMania.Test.Stage.Performance
     [Trait("Category", "Unit")]
     public class SongTimerStateTests
     {
-        // ---------------------------------------------------------------
-        // Factory helper – bypasses constructor to avoid SoundEffectInstance
-        // ---------------------------------------------------------------
-        private static SongTimer CreateTimer(bool isPlaying = false, bool disposed = false)
-        {
-#pragma warning disable SYSLIB0050
-            var timer = (SongTimer)FormatterServices.GetUninitializedObject(typeof(SongTimer));
-#pragma warning restore SYSLIB0050
-            ReflectionHelpers.SetPrivateField(timer, "_isPlaying", isPlaying);
-            ReflectionHelpers.SetPrivateField(timer, "_disposed", disposed);
-            ReflectionHelpers.SetPrivateField(timer, "_systemStartTime", DateTime.UtcNow - TimeSpan.FromMilliseconds(250));
-            ReflectionHelpers.SetPrivateField(timer, "_startTime", TimeSpan.FromMilliseconds(100));
-            // _soundInstance left null intentionally – tests the null-guard paths
-            return timer;
-        }
-
-        // ---------------------------------------------------------------
-        // IsPlaying
-        // Note: the soundState == SoundState.Playing branch inside IsPlaying is
-        // not reachable through the null _soundInstance reflection seam used here.
-        // The tests below intentionally cover the muted/null branch only.
-        // ---------------------------------------------------------------
-
         [Fact]
-        public void IsPlaying_WhenInternalFlagTrueAndSoundInstanceNull_ShouldReturnTrue()
+        public void Play_WhenSilentTimer_ShouldUseLogicalGameTimeClock()
         {
-            // When the backing sound is absent, the timer should still report the stored playing state.
-            var timer = CreateTimer(isPlaying: true);
+            using var timer = new SongTimer();
+
+            Assert.True(timer.Play(At(100)));
+
             Assert.True(timer.IsPlaying);
+            Assert.False(timer.IsPaused);
+            Assert.Equal(400.0, timer.GetCurrentMs(At(500)));
         }
 
         [Fact]
-        public void IsPlaying_WhenInternalFlagFalse_ShouldReturnFalse()
+        public void Play_WithConfiguredSpeed_ShouldScaleLogicalTime()
         {
-            var timer = CreateTimer(isPlaying: false);
+            using var timer = new SongTimer(50);
+            Assert.True(timer.Play(At(0)));
+
+            Assert.Equal(500.0, timer.GetCurrentMs(At(1000)));
+        }
+
+        [Fact]
+        public void Pause_ShouldExposeFrozenLogicalPosition()
+        {
+            using var timer = new SongTimer(150);
+            Assert.True(timer.Play(At(0)));
+
+            timer.Pause(At(200));
+
             Assert.False(timer.IsPlaying);
+            Assert.True(timer.IsPaused);
+            Assert.Equal(300.0, timer.GetCurrentMs(At(1000)));
         }
 
-        // ---------------------------------------------------------------
-        // GetCurrentMs(GameTime)
-        // ---------------------------------------------------------------
-
         [Fact]
-        public void GetCurrentMs_GameTime_WhenNotPlaying_ShouldReturnZero()
+        public void Pause_ThenResume_ShouldPreserveLogicalPosition()
         {
-            var timer = CreateTimer(isPlaying: false);
-            var gameTime = new GameTime(TimeSpan.FromMilliseconds(500), TimeSpan.Zero);
-            Assert.Equal(0.0, timer.GetCurrentMs(gameTime));
+            using var timer = new SongTimer();
+            Assert.True(timer.Play(At(100)));
+            timer.Pause(At(600));
+
+            timer.Resume(At(1200));
+
+            Assert.True(timer.IsPlaying);
+            Assert.False(timer.IsPaused);
+            Assert.Equal(1000.0, timer.GetCurrentMs(At(1700)));
         }
 
         [Fact]
-        public void GetCurrentMs_GameTime_WhenDisposed_ShouldReturnZero()
+        public void Stop_ShouldResetLogicalState()
         {
-            var timer = CreateTimer(isPlaying: true, disposed: true);
-            var gameTime = new GameTime(TimeSpan.FromMilliseconds(500), TimeSpan.Zero);
-            Assert.Equal(0.0, timer.GetCurrentMs(gameTime));
+            using var timer = new SongTimer();
+            Assert.True(timer.Play(At(0)));
+
+            timer.Stop();
+
+            Assert.False(timer.IsPlaying);
+            Assert.False(timer.IsPaused);
+            Assert.Equal(0.0, timer.GetCurrentMs(At(500)));
         }
 
         [Fact]
-        public void GetCurrentMs_GameTime_WhenPlaying_ShouldReturnElapsedMs()
-        {
-            // _startTime = 100 ms, totalGameTime = 500 ms → elapsed = 400 ms
-            var timer = CreateTimer(isPlaying: true);
-            var gameTime = new GameTime(TimeSpan.FromMilliseconds(500), TimeSpan.Zero);
-            Assert.Equal(400.0, timer.GetCurrentMs(gameTime));
-        }
-
-        // ---------------------------------------------------------------
-        // GetCurrentMs() – system-clock variant
-        // ---------------------------------------------------------------
-
-        [Fact]
-        public void GetCurrentMs_WhenNotPlaying_ShouldReturnZero()
-        {
-            var timer = CreateTimer(isPlaying: false);
-            Assert.Equal(0.0, timer.GetCurrentMs());
-        }
-
-        [Fact]
-        public void GetCurrentMs_WhenDisposed_ShouldReturnZero()
-        {
-            var timer = CreateTimer(isPlaying: true, disposed: true);
-            Assert.Equal(0.0, timer.GetCurrentMs());
-        }
-
-        [Fact]
-        public void GetCurrentMs_WhenPlaying_ShouldReturnPositiveElapsed()
-        {
-            // _systemStartTime is 250 ms in the past → result should be ≥ 250 ms
-            var timer = CreateTimer(isPlaying: true);
-            var ms = timer.GetCurrentMs();
-            Assert.InRange(ms, 200.0, 10_000.0);
-        }
-
-        // ---------------------------------------------------------------
-        // Volume & IsLooped – null-guard defaults
-        // ---------------------------------------------------------------
-
-        [Fact]
-        public void Volume_Get_WhenSoundInstanceNull_ShouldReturnZero()
-        {
-            var timer = CreateTimer();
-            Assert.Equal(0f, timer.Volume);
-        }
-
-        [Fact]
-        public void Volume_Set_WhenSoundInstanceNull_ShouldNotThrow()
-        {
-            var timer = CreateTimer();
-            // Must not throw
-            var ex = Record.Exception(() => timer.Volume = 0.5f);
-            Assert.Null(ex);
-        }
-
-        [Fact]
-        public void Pan_Get_WhenSoundInstanceNull_ShouldReturnCentered()
-        {
-            var timer = CreateTimer();
-            Assert.Equal(0f, timer.Pan);
-        }
-
-        [Fact]
-        public void Pan_Set_WhenSoundInstanceNull_ShouldNotThrow()
-        {
-            var timer = CreateTimer();
-            var ex = Record.Exception(() => timer.Pan = -0.5f);
-            Assert.Null(ex);
-        }
-
-        // ---------------------------------------------------------------
-        // Pan – non-null _soundInstance paths.
-        // SoundEffectInstance is created via GetUninitializedObject so its
-        // Pan/Volume backing fields are usable without a native audio device.
-        // ---------------------------------------------------------------
-
-        [Fact]
-        public void Pan_Get_WhenSoundInstancePresent_ShouldReturnInstancePan()
-        {
-            var instance = CreateSoundEffectInstance();
-            instance.Pan = 0.25f;
-            var timer = new SongTimer(instance);
-
-            Assert.Equal(0.25f, timer.Pan);
-        }
-
-        [Fact]
-        public void Pan_Set_WhenSoundInstancePresent_ShouldClampAndAssignToInstance()
+        public void Update_WhenBackgroundInstanceIsStopped_ShouldKeepLogicalClockRunning()
         {
             var instance = CreateSoundEffectInstance();
             var timer = new SongTimer(instance);
+            StartLogicalClock(timer, At(0));
 
-            timer.Pan = 0.75f;
-            Assert.Equal(0.75f, instance.Pan);
-            Assert.Equal(0.75f, timer.Pan);
+            Assert.Equal(SoundState.Stopped, instance.State);
+
+            timer.Update(At(500));
+
+            Assert.True(timer.IsPlaying);
+            Assert.Equal(500.0, timer.GetCurrentMs(At(500)));
         }
 
         [Theory]
-        [InlineData(2.0f, 1.0f)]
         [InlineData(-2.0f, -1.0f)]
-        public void Pan_Set_WhenSoundInstancePresent_ShouldClampToValidRange(float input, float expected)
+        [InlineData(-0.5f, -0.5f)]
+        [InlineData(0.5f, 0.5f)]
+        [InlineData(2.0f, 1.0f)]
+        public void Pitch_SetBeforePlayback_ShouldClampAndAssignToInstance(
+            float requested,
+            float expected)
         {
             var instance = CreateSoundEffectInstance();
             var timer = new SongTimer(instance);
 
-            timer.Pan = input;
+            timer.Pitch = requested;
 
-            Assert.Equal(expected, instance.Pan);
-            Assert.Equal(expected, timer.Pan);
+            Assert.Equal(expected, instance.Pitch);
+            Assert.Equal(expected, timer.Pitch);
         }
 
         [Fact]
-        public void IsLooped_Get_WhenSoundInstanceNull_ShouldReturnFalse()
+        public void Pitch_WhenSoundInstanceIsAbsent_ShouldUseNeutralDefault()
         {
-            var timer = CreateTimer();
+            using var timer = new SongTimer();
+
+            timer.Pitch = 0.5f;
+
+            Assert.Equal(0f, timer.Pitch);
+        }
+
+        [Theory]
+        [InlineData(-2.0f, -1.0f)]
+        [InlineData(0.75f, 0.75f)]
+        [InlineData(2.0f, 1.0f)]
+        public void Pan_ShouldClampAndAssignToInstance(float requested, float expected)
+        {
+            var instance = CreateSoundEffectInstance();
+            var timer = new SongTimer(instance);
+
+            timer.Pan = requested;
+
+            Assert.Equal(expected, timer.Pan);
+            Assert.Equal(expected, instance.Pan);
+        }
+
+        [Fact]
+        public void SilentTimer_AudioProperties_ShouldUseSafeDefaults()
+        {
+            using var timer = new SongTimer();
+
+            timer.Volume = 0.5f;
+            timer.Pan = -0.5f;
+            timer.IsLooped = true;
+
+            Assert.Equal(0f, timer.Volume);
+            Assert.Equal(0f, timer.Pan);
             Assert.False(timer.IsLooped);
         }
 
         [Fact]
-        public void IsLooped_Set_WhenSoundInstanceNull_ShouldNotThrow()
+        public void SetPosition_WhenRunning_ShouldUseLogicalMilliseconds()
         {
-            var timer = CreateTimer();
-            var ex = Record.Exception(() => timer.IsLooped = true);
-            Assert.Null(ex);
-        }
+            using var timer = new SongTimer(50);
+            Assert.True(timer.Play(At(0)));
 
-        // ---------------------------------------------------------------
-        // Guard clauses – disposed state
-        // ---------------------------------------------------------------
+            timer.SetPosition(2000.0, At(100));
 
-        [Fact]
-        public void Pause_WhenDisposed_ShouldNotThrow()
-        {
-            var timer = CreateTimer(isPlaying: true, disposed: true);
-            var gameTime = new GameTime(TimeSpan.FromMilliseconds(100), TimeSpan.Zero);
-            var ex = Record.Exception(() => timer.Pause(gameTime));
-            Assert.Null(ex);
+            Assert.Equal(2250.0, timer.GetCurrentMs(At(600)));
         }
 
         [Fact]
-        public void Stop_WhenDisposed_ShouldNotThrow()
+        public void DisposedTimer_ShouldRejectPlaybackAndIgnoreStateChanges()
         {
-            var timer = CreateTimer(isPlaying: true, disposed: true);
-            var ex = Record.Exception(() => timer.Stop());
-            Assert.Null(ex);
+            var timer = new SongTimer();
+            timer.Dispose();
+
+            Assert.False(timer.Play(At(0)));
+            Assert.Null(Record.Exception(() => timer.Pause(At(100))));
+            Assert.Null(Record.Exception(() => timer.Resume(At(100))));
+            Assert.Null(Record.Exception(timer.Stop));
+            Assert.Null(Record.Exception(() => timer.Update(At(100))));
+            Assert.Null(Record.Exception(() => timer.SetPosition(500.0, At(100))));
+            Assert.Equal(0.0, timer.GetCurrentMs(At(100)));
         }
-
-        [Fact]
-        public void Update_WhenDisposed_ShouldNotThrow()
-        {
-            var timer = CreateTimer(isPlaying: true, disposed: true);
-            var gameTime = new GameTime(TimeSpan.FromMilliseconds(100), TimeSpan.Zero);
-            var ex = Record.Exception(() => timer.Update(gameTime));
-            Assert.Null(ex);
-        }
-
-        [Fact]
-        public void SetPosition_WhenDisposed_ShouldNotThrow()
-        {
-            var timer = CreateTimer(isPlaying: true, disposed: true);
-            var gameTime = new GameTime(TimeSpan.FromMilliseconds(100), TimeSpan.Zero);
-            var ex = Record.Exception(() => timer.SetPosition(500.0, gameTime));
-            Assert.Null(ex);
-        }
-
-        [Fact]
-        public void Resume_WhenDisposed_ShouldNotThrow()
-        {
-            var timer = CreateTimer(isPlaying: false, disposed: true);
-            var gameTime = new GameTime(TimeSpan.FromMilliseconds(100), TimeSpan.Zero);
-            var ex = Record.Exception(() => timer.Resume(gameTime));
-            Assert.Null(ex);
-        }
-
-        // ---------------------------------------------------------------
-        // Guard clauses – null _soundInstance (not disposed)
-        // ---------------------------------------------------------------
-
-        [Fact]
-        public void Pause_WhenSoundInstanceNull_ShouldNotThrow()
-        {
-            var timer = CreateTimer(isPlaying: true);
-            var gameTime = new GameTime(TimeSpan.FromMilliseconds(100), TimeSpan.Zero);
-            var ex = Record.Exception(() => timer.Pause(gameTime));
-            Assert.Null(ex);
-        }
-
-        [Fact]
-        public void Stop_WhenSoundInstanceNull_ShouldNotThrow()
-        {
-            var timer = CreateTimer(isPlaying: true);
-            var ex = Record.Exception(() => timer.Stop());
-            Assert.Null(ex);
-        }
-
-        [Fact]
-        public void Resume_WhenSoundInstanceNull_ShouldNotThrow()
-        {
-            var timer = CreateTimer(isPlaying: false);
-            var gameTime = new GameTime(TimeSpan.FromMilliseconds(100), TimeSpan.Zero);
-            var ex = Record.Exception(() => timer.Resume(gameTime));
-            Assert.Null(ex);
-        }
-
-        [Fact]
-        public void SetPosition_WhenSoundInstanceNull_ShouldNotThrow()
-        {
-            var timer = CreateTimer(isPlaying: true);
-            var gameTime = new GameTime(TimeSpan.FromMilliseconds(100), TimeSpan.Zero);
-            var ex = Record.Exception(() => timer.SetPosition(250.0, gameTime));
-            Assert.Null(ex);
-        }
-
-        [Fact]
-        public void Update_WhenNotDisposed_ShouldNotThrow()
-        {
-            var timer = CreateTimer(isPlaying: false);
-            var gameTime = new GameTime(TimeSpan.FromMilliseconds(100), TimeSpan.Zero);
-            var ex = Record.Exception(() => timer.Update(gameTime));
-            Assert.Null(ex);
-        }
-
-        [Fact]
-        public void Update_WhenPlayingAndSoundInstanceNull_ShouldNotThrow()
-        {
-            var timer = CreateTimer(isPlaying: true);
-            var gameTime = new GameTime(TimeSpan.FromMilliseconds(100), TimeSpan.Zero);
-
-            var ex = Record.Exception(() => timer.Update(gameTime));
-
-            Assert.Null(ex);
-        }
-
-        // ---------------------------------------------------------------
-        // Dispose – idempotency
-        // ---------------------------------------------------------------
 
         [Fact]
         public void Dispose_CalledTwice_ShouldNotThrow()
         {
-            var timer = CreateTimer(isPlaying: false);
-            // First Dispose() releases state; second Dispose() should be a no-op.
+            var timer = new SongTimer();
             timer.Dispose();
-            var ex = Record.Exception(() => timer.Dispose());
-            Assert.Null(ex);
+
+            Assert.Null(Record.Exception(timer.Dispose));
         }
 
-        // ---------------------------------------------------------------
-        // IsFinished – null _soundInstance
-        // ---------------------------------------------------------------
-
-        [Fact]
-        public void IsFinished_WhenSoundInstanceNull_ShouldReturnFalse()
+        private static void StartLogicalClock(SongTimer timer, GameTime gameTime)
         {
-            // _soundInstance?.State == SoundState.Stopped → null == Stopped → false
-            var timer = CreateTimer(isPlaying: true);
-            Assert.False(timer.IsFinished);
+            var field = typeof(SongTimer).GetField(
+                "_playbackClock",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(field);
+
+            var clock = Assert.IsType<PlaybackClock>(field!.GetValue(timer));
+            clock.Start(gameTime);
         }
 
-        // ---------------------------------------------------------------
-        // Play – silent timer / disposed guard paths
-        // ---------------------------------------------------------------
-
-        [Fact]
-        public void Play_WhenSilentTimer_ShouldUseGameTimeClock()
+        private static GameTime At(double totalMilliseconds)
         {
-            var timer = new SongTimer();
-            var start = new GameTime(TimeSpan.FromMilliseconds(100), TimeSpan.Zero);
-
-            Assert.True(timer.Play(start));
-
-            Assert.True(timer.IsPlaying);
-            Assert.Equal(400.0, timer.GetCurrentMs(new GameTime(TimeSpan.FromMilliseconds(500), TimeSpan.Zero)));
+            return new GameTime(
+                TimeSpan.FromMilliseconds(totalMilliseconds),
+                TimeSpan.Zero);
         }
 
-        [Fact]
-        public void Play_WhenDisposed_ShouldReturnFalse()
-        {
-            var timer = CreateTimer(isPlaying: false, disposed: true);
-            var gameTime = new GameTime(TimeSpan.FromMilliseconds(100), TimeSpan.Zero);
-            Assert.False(timer.Play(gameTime));
-        }
-
-        // ---------------------------------------------------------------
-        // Pause / Resume – elapsed position preservation
-        // ---------------------------------------------------------------
-
-        [Fact]
-        public void Pause_ThenResume_ShouldPreserveElapsedPosition()
-        {
-            // Use a real SongTimer (silent) for deterministic GameTime-based testing.
-            // Both Pause(GameTime) and Resume(GameTime) now use the GameTime clock,
-            // so the elapsed position is preserved exactly.
-            var timer = new SongTimer();
-            var start = new GameTime(TimeSpan.FromMilliseconds(100), TimeSpan.Zero);
-            Assert.True(timer.Play(start));
-
-            // Elapsed at gameTime 600 ms → 500 ms
-            var beforePause = new GameTime(TimeSpan.FromMilliseconds(600), TimeSpan.Zero);
-            var elapsedBefore = timer.GetCurrentMs(beforePause);
-            Assert.Equal(500.0, elapsedBefore);
-
-            // Pause using GameTime — caches 500 ms from the GameTime clock
-            timer.Pause(beforePause);
-            Assert.False(timer.IsPlaying);
-
-            // Resume at gameTime 1200 ms — elapsed should continue from 500 ms
-            var atResume = new GameTime(TimeSpan.FromMilliseconds(1200), TimeSpan.Zero);
-            timer.Resume(atResume);
-
-            // After resume: elapsed = 1700 - (1200 - 500) = 1000 ms
-            var afterResume = new GameTime(TimeSpan.FromMilliseconds(1700), TimeSpan.Zero);
-            var elapsedAfter = timer.GetCurrentMs(afterResume);
-            Assert.Equal(1000.0, elapsedAfter);
-        }
-
-        [Fact]
-        public void Pause_ShouldCacheElapsedBeforeClearingIsPlaying()
-        {
-            var timer = new SongTimer();
-            var start = new GameTime(TimeSpan.FromMilliseconds(0), TimeSpan.Zero);
-            Assert.True(timer.Play(start));
-
-            // Pause caches the elapsed position from the GameTime clock
-            var atPause = new GameTime(TimeSpan.FromMilliseconds(250), TimeSpan.Zero);
-            timer.Pause(atPause);
-
-            // _cachedElapsedMs should be exactly 250 (GameTime-based, no jitter)
-            var cachedMs = ReflectionHelpers.GetPrivateField<double>(timer, "_cachedElapsedMs");
-            Assert.Equal(250.0, cachedMs);
-        }
-
-        // ---------------------------------------------------------------
-        // Helpers
-        // ---------------------------------------------------------------
-
-        /// <summary>
-        /// Creates a real SoundEffectInstance without invoking its constructor
-        /// (which requires a native audio device). The Pan/Volume backing fields
-        /// are usable on the uninitialized instance, letting us exercise the
-        /// non-null _soundInstance paths in SongTimer without a graphics device.
-        /// </summary>
         private static SoundEffectInstance CreateSoundEffectInstance()
         {
 #pragma warning disable SYSLIB0050
-            return (SoundEffectInstance)FormatterServices.GetUninitializedObject(typeof(SoundEffectInstance));
+            return (SoundEffectInstance)FormatterServices.GetUninitializedObject(
+                typeof(SoundEffectInstance));
 #pragma warning restore SYSLIB0050
         }
     }

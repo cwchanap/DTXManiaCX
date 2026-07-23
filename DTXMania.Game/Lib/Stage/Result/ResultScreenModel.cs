@@ -3,6 +3,7 @@
 using System;
 using System.Globalization;
 using System.IO;
+using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
@@ -28,6 +29,21 @@ namespace DTXMania.Game.Lib.Stage.Result
         StageCleared,
         Failed
     }
+
+    public enum ResultSaveState
+    {
+        NotStarted,
+        Saving,
+        Saved,
+        Failed
+    }
+
+    /// <summary>
+    /// Presentation-only score-save state published by ResultStage.
+    /// </summary>
+    public readonly record struct ResultSavePresentation(
+        ResultSaveState State,
+        string? ErrorText = null);
 
     public sealed class ResultScreenModel
     {
@@ -68,17 +84,29 @@ namespace DTXMania.Game.Lib.Stage.Result
         public string Artist { get; private init; } = UnknownArtistName;
         public string PreviewImagePath { get; private init; } = TexturePath.ResultDefaultPreview;
         public bool NewRecord { get; private init; }
+        public string PlaybackProfileText { get; private init; } =
+            FormatPlaybackProfile(PlaySpeedRange.Default, PitchRange.Default);
+        public string ScoreBucketText { get; private init; } =
+            FormatScoreBucket(PlaySpeedRange.Default);
+        public ResultSavePresentation SavePresentation { get; private set; } =
+            new(ResultSaveState.NotStarted);
+        public string SaveStatusText { get; private set; } =
+            FormatSaveStatus(ResultSaveState.NotStarted);
+        public string SaveGuidanceText { get; private set; } = string.Empty;
 
         public static ResultScreenModel Create(
             PerformanceSummary? summary,
             SongListNode? selectedSong,
             int selectedDifficulty,
             SongChart? chart,
-            SongScore? previousScore)
+            SongScore? previousScore,
+            ResultSavePresentation? savePresentation = null)
         {
             var safeSummary = summary ?? new PerformanceSummary();
             var resolvedChart = ResolveChart(selectedSong, selectedDifficulty, chart);
             var rank = ComputeRank(safeSummary.PlayingSkill);
+            var resolvedSavePresentation =
+                savePresentation ?? new ResultSavePresentation(ResultSaveState.NotStarted);
 
             return new ResultScreenModel
             {
@@ -110,8 +138,60 @@ namespace DTXMania.Game.Lib.Stage.Result
                 Title = ResolveTitle(selectedSong),
                 Artist = ResolveArtist(selectedSong),
                 PreviewImagePath = ResolvePreviewImagePath(resolvedChart),
-                NewRecord = IsNewRecord(safeSummary, previousScore)
+                NewRecord = IsNewRecord(safeSummary, previousScore),
+                PlaybackProfileText = FormatPlaybackProfile(
+                    safeSummary.PlaySpeedPercent,
+                    safeSummary.PitchSemitones),
+                ScoreBucketText = FormatScoreBucket(safeSummary.PlaySpeedPercent),
+                SavePresentation = resolvedSavePresentation,
+                SaveStatusText = FormatSaveStatus(resolvedSavePresentation.State),
+                SaveGuidanceText = FormatSaveGuidance(resolvedSavePresentation)
             };
+        }
+
+        /// <summary>
+        /// Publishes the latest persistence state for the renderer.
+        /// ResultStage should call this on its stage thread after an async save changes state.
+        /// </summary>
+        public void SetSavePresentation(ResultSavePresentation presentation)
+        {
+            SavePresentation = presentation;
+            SaveStatusText = FormatSaveStatus(presentation.State);
+            SaveGuidanceText = FormatSaveGuidance(presentation);
+        }
+
+        public static string FormatPlaybackProfile(int playSpeedPercent, int pitchSemitones)
+        {
+            return $"PLAY {PlaySpeedRange.Format(playSpeedPercent)} · PITCH {PitchRange.Format(pitchSemitones)}";
+        }
+
+        public static string FormatScoreBucket(int playSpeedPercent)
+        {
+            return $"SCORE BUCKET: SPEED {PlaySpeedRange.Format(playSpeedPercent)} · PITCH NOT SPLIT";
+        }
+
+        public static string FormatSaveStatus(ResultSaveState state)
+        {
+            return state switch
+            {
+                ResultSaveState.NotStarted => "SCORE SAVE: NOT STARTED",
+                ResultSaveState.Saving => "SCORE SAVE: SAVING…",
+                ResultSaveState.Saved => "SCORE SAVE: SAVED",
+                ResultSaveState.Failed => "SCORE SAVE: FAILED",
+                _ => "SCORE SAVE: NOT STARTED"
+            };
+        }
+
+        public static string FormatSaveGuidance(ResultSavePresentation presentation)
+        {
+            if (presentation.State != ResultSaveState.Failed)
+                return string.Empty;
+
+            const string retryText =
+                "PRESS ENTER TO RETRY · BACK TO LEAVE WITHOUT SAVING";
+            return string.IsNullOrWhiteSpace(presentation.ErrorText)
+                ? retryText
+                : $"{retryText} · {presentation.ErrorText.Trim()}";
         }
 
         public static ResultRank ComputeRank(double playingSkill)

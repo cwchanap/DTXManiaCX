@@ -233,15 +233,36 @@ namespace DTXMania.Test.Stage
         {
             var stage = CreateStage();
             var song = CreateScoreNode("TestSong");
+            var filterService = new PassthroughFilterService();
+            var configManager = new Mock<IConfigManager>();
+            configManager.SetupGet(manager => manager.Config).Returns(
+                new ConfigData { PlaySpeedPercent = 75 });
             SetPrivateField(stage, "_filterCriteria",
                 new SongFilterCriteria("TestSong", null, null, PlayedStatus.All, SongSortCriteria.Title, false));
             SetPrivateField(stage, "_filteredView", null);
             SetPrivateField(stage, "_currentSongList", new List<SongListNode> { song });
-            SetPrivateField(stage, "_filterService", new PassthroughFilterService());
+            SetPrivateField(stage, "_filterService", filterService);
+            SetPrivateField(stage, "_configManager", configManager.Object);
 
             InvokePrivateMethod(stage, "RebuildFilteredView");
 
             Assert.NotNull(GetPrivateField<IReadOnlyList<FilteredSongResult>?>(stage, "_filteredView"));
+            Assert.Equal(75, filterService.PlaySpeedPercent);
+        }
+
+        [Fact]
+        public void PopulateRecentPlaysList_WithLatestVariantSpeed_ShouldLabelVisibleRow()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            var node = CreateScoreNode("Recent Song");
+            node.RecentPlaySpeedPercent = 75;
+            AttachCoreUi(stage, display: display);
+            SetPrivateField(stage, "_recentPlayNodes", new List<SongListNode> { node });
+
+            InvokePrivateMethod(stage, "PopulateRecentPlaysList");
+
+            Assert.Equal("Recent Song [0.75x]", Assert.Single(display.CurrentList).Title);
         }
 
         private static void AttachCoreUi(
@@ -334,11 +355,22 @@ namespace DTXMania.Test.Stage
 
         private sealed class PassthroughFilterService : ISongListFilterService
         {
+            public int? PlaySpeedPercent { get; private set; }
+
             public IReadOnlyList<FilteredSongResult> Apply(
                 IEnumerable<SongListNode> roots,
                 SongFilterCriteria criteria)
             {
                 return roots.Select(n => new FilteredSongResult(n, "")).ToList();
+            }
+
+            public IReadOnlyList<FilteredSongResult> Apply(
+                IEnumerable<SongListNode> roots,
+                SongFilterCriteria criteria,
+                int playSpeedPercent)
+            {
+                PlaySpeedPercent = playSpeedPercent;
+                return Apply(roots, criteria);
             }
         }
     }

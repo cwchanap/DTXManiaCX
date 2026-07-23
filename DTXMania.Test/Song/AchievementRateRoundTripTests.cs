@@ -84,7 +84,9 @@ public class AchievementRateRoundTripTests : IDisposable
         };
 
         var updated = await _manager.UpdateScoreAsync(advancedChart.Id, EInstrumentPart.DRUMS, summary);
-        Assert.True(updated, "UpdateScoreAsync (PerformanceSummary) should succeed");
+        Assert.True(
+            updated.IsSuccess,
+            "UpdateScoreAsync (PerformanceSummary) should succeed");
 
         // Clear the in-memory song list and rebuild from the database
         ClearRootSongs();

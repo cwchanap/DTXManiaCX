@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
+using System.Linq;
 using DTXMania.Game.Lib.Song;
 
 namespace DTXMania.Game.Lib.Song.Entities
@@ -20,6 +21,8 @@ namespace DTXMania.Game.Lib.Song.Entities
         public virtual SongChart Chart { get; set; } = null!;
         
         public EInstrumentPart Instrument { get; set; }
+
+        public int PlaySpeedPercent { get; set; } = 100;
 
         public virtual ICollection<PerformanceHistory> PerformanceHistory { get; set; } = new List<PerformanceHistory>();
         
@@ -411,7 +414,7 @@ namespace DTXMania.Game.Lib.Song.Entities
             };
         }
 
-        private static int NormalizeRankPercentage(int rankValue)
+        public static int NormalizeRankPercentage(int rankValue)
         {
             int clampedRank = Math.Clamp(rankValue, 0, 100);
             return clampedRank switch
@@ -431,19 +434,20 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// Creates a copy of this score (legacy compatibility)
         /// </summary>
         /// <remarks>
-        /// PlayHistoryLines (the NotMapped display list) is copied because it is a
-        /// plain value collection. The PerformanceHistory EF Core navigation is
-        /// intentionally NOT cloned — duplicating tracked entities would risk
-        /// duplicate-key attachment when the clone is re-attached to a DbContext.
+        /// The clone is a publication snapshot: database identities and history
+        /// scalar values are retained, while history navigation references are not
+        /// copied. The chart reference remains for legacy computed metadata. This
+        /// keeps speed-scoped cache entries from sharing tracked history objects.
         /// </remarks>
         public SongScore Clone()
         {
             return new SongScore
             {
-                // Legacy metadata no longer cloned - using EF Core relationships,
+                Id = Id,
                 ChartId = ChartId,
                 Chart = Chart,
                 Instrument = Instrument,
+                PlaySpeedPercent = PlaySpeedPercent,
                 DifficultyLevel = DifficultyLevel,
                 DifficultyLabel = DifficultyLabel,
                 BestScore = BestScore,
@@ -475,7 +479,21 @@ namespace DTXMania.Game.Lib.Song.Entities
                 UsedMouse = UsedMouse,
                 NxImportedPlayCount = NxImportedPlayCount,
                 NxImportedClearCount = NxImportedClearCount,
-                PlayHistoryLines = new List<string>(PlayHistoryLines)
+                PlayHistoryLines = new List<string>(
+                    PlayHistoryLines ?? Enumerable.Empty<string>()),
+                PerformanceHistory = (PerformanceHistory ??
+                    Enumerable.Empty<PerformanceHistory>())
+                    .Select(history => new PerformanceHistory
+                    {
+                        Id = history.Id,
+                        SongId = history.SongId,
+                        SongScoreId = history.SongScoreId,
+                        PerformedAt = history.PerformedAt,
+                        PitchSemitones = history.PitchSemitones,
+                        HistoryLine = history.HistoryLine,
+                        DisplayOrder = history.DisplayOrder,
+                    })
+                    .ToList(),
             };
         }
         

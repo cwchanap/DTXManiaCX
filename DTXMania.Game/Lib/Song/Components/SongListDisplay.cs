@@ -3,6 +3,7 @@ using Microsoft.Xna.Framework.Graphics;
 using DTXMania.Game.Lib.UI;
 using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Game.Lib.Song;
+using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Utilities;
@@ -93,6 +94,7 @@ namespace DTXMania.Game.Lib.Song.Components
         private Dictionary<int, Texture2D> _titleBarCache;
         private Dictionary<int, Texture2D> _previewImageCache;
         private int _currentDifficulty;
+        private int _playSpeedPercent = PlaySpeedRange.Default;
         private SpriteFont _font;
         private IFont _managedFont;
         private Texture2D _whitePixel;
@@ -153,7 +155,30 @@ namespace DTXMania.Game.Lib.Song.Components
         {
             get => _currentDifficulty;
             set => _currentDifficulty = Math.Clamp(value, 0, 4);
-        }        /// <summary>
+        }
+
+        /// <summary>
+        /// Exact speed profile used by score-derived song-bar visuals.
+        /// Difficulty availability still comes from the fixed metadata slots.
+        /// </summary>
+        public int PlaySpeedPercent
+        {
+            get => _playSpeedPercent;
+            set
+            {
+                if (_playSpeedPercent == value)
+                    return;
+
+                _playSpeedPercent = value;
+                _textureGenerationQueue.Clear();
+                if (_barRenderer != null)
+                    _barRenderer.PlaySpeedPercent = value;
+                RefreshDisplay();
+                InvalidateVisuals();
+            }
+        }
+
+        /// <summary>
                  /// Whether the list is currently scrolling
                  /// </summary>
         public bool IsScrolling => _targetScrollCounter != 0 || _currentScrollCounter != 0;
@@ -395,20 +420,35 @@ namespace DTXMania.Game.Lib.Song.Components
                 return null;
 
             // Optimize cache key: exclude selection state to improve cache hit rate
-            var cacheKey = $"{node.GetHashCode()}_{difficulty}";
+            var cacheKey = GetBarInfoCacheKey(
+                node,
+                difficulty,
+                PlaySpeedPercent);
 
             if (_barInfoCache.TryGetValue(cacheKey, out var cachedInfo))
             {
                 // Update state if needed (this is fast since textures are cached)
-                _barRenderer.UpdateBarInfo(cachedInfo, difficulty, isSelected);
+                _barRenderer.UpdateBarInfo(
+                    cachedInfo,
+                    difficulty,
+                    PlaySpeedPercent,
+                    isSelected);
                 return cachedInfo;
             }
 
             // Generate new bar information
-            var barInfo = _barRenderer.GenerateBarInfo(node, difficulty, isSelected);
+            var barInfo = _barRenderer.GenerateBarInfo(
+                node,
+                difficulty,
+                PlaySpeedPercent,
+                isSelected);
             if (barInfo != null)
             {
-                _barRenderer.UpdateBarInfo(barInfo, difficulty, isSelected);
+                _barRenderer.UpdateBarInfo(
+                    barInfo,
+                    difficulty,
+                    PlaySpeedPercent,
+                    isSelected);
                 SetBarInfoCacheEntry(cacheKey, barInfo);
             }
 
@@ -425,6 +465,7 @@ namespace DTXMania.Game.Lib.Song.Components
             if (sharedRenderTarget != null)
             {
                 _barRenderer = new SongBarRenderer(graphicsDevice, resourceManager, sharedRenderTarget);
+                _barRenderer.PlaySpeedPercent = PlaySpeedPercent;
             }
             else
             {
@@ -1379,12 +1420,19 @@ namespace DTXMania.Game.Lib.Song.Components
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
             // Generate bar info immediately for the selected song
-            var barInfo = _barRenderer.GenerateBarInfoWithPriority(SelectedSong, _currentDifficulty, true);
+            var barInfo = _barRenderer.GenerateBarInfoWithPriority(
+                SelectedSong,
+                _currentDifficulty,
+                PlaySpeedPercent,
+                true);
 
             // Cache the bar info if generation succeeded
             if (barInfo != null)
             {
-                var cacheKey = $"{SelectedSong.GetHashCode()}_{_currentDifficulty}";
+                var cacheKey = GetBarInfoCacheKey(
+                    SelectedSong,
+                    _currentDifficulty,
+                    PlaySpeedPercent);
                 SetBarInfoCacheEntry(cacheKey, barInfo);
             }
 
@@ -1416,7 +1464,10 @@ namespace DTXMania.Game.Lib.Song.Components
                 var adjacentSong = _currentList[adjacentIndex];
 
                 // Check if we already have this texture cached
-                var cacheKey = $"{adjacentSong.GetHashCode()}_{_currentDifficulty}";
+                var cacheKey = GetBarInfoCacheKey(
+                    adjacentSong,
+                    _currentDifficulty,
+                    PlaySpeedPercent);
                 if (_barInfoCache.ContainsKey(cacheKey))
                     continue; // Already cached, skip                // Add to texture generation queue with appropriate priority using sorted insertion
                 var request = new TextureGenerationRequest
@@ -1425,6 +1476,7 @@ namespace DTXMania.Game.Lib.Song.Components
                     SongIndex = adjacentIndex,
                     BarIndex = -1, // Not tied to a specific bar position
                     Difficulty = _currentDifficulty,
+                    PlaySpeedPercent = PlaySpeedPercent,
                     IsSelected = false,
                     Priority = 75 - Math.Abs(offset) * 5 // Closer songs get higher priority
                 };
@@ -1457,7 +1509,10 @@ namespace DTXMania.Game.Lib.Song.Components
                 songIndex = ((songIndex % _currentList.Count) + _currentList.Count) % _currentList.Count;
 
                 newVisibleIndices.Add(songIndex);
-                var cacheKey = $"{_currentList[songIndex].GetHashCode()}_{_currentDifficulty}";
+                var cacheKey = GetBarInfoCacheKey(
+                    _currentList[songIndex],
+                    _currentDifficulty,
+                    PlaySpeedPercent);
                 if (_barInfoCache.ContainsKey(cacheKey))
                 {
                     continue;
@@ -1469,6 +1524,7 @@ namespace DTXMania.Game.Lib.Song.Components
                     SongIndex = songIndex,
                     BarIndex = barIndex,
                     Difficulty = _currentDifficulty,
+                    PlaySpeedPercent = PlaySpeedPercent,
                     IsSelected = (barIndex == CENTER_INDEX),
                     Priority = 100 - Math.Abs(barIndex - CENTER_INDEX)
                 };
@@ -1512,12 +1568,19 @@ namespace DTXMania.Game.Lib.Song.Components
                 _textureGenerationQueue.RemoveAt(0);
 
                 // Generate textures for this bar
-                var barInfo = _barRenderer.GenerateBarInfo(request.SongNode, request.Difficulty, request.IsSelected);
+                var barInfo = _barRenderer.GenerateBarInfo(
+                    request.SongNode,
+                    request.Difficulty,
+                    request.PlaySpeedPercent,
+                    request.IsSelected);
 
                 // Cache the bar info if generation succeeded
                 if (barInfo != null)
                 {
-                    var cacheKey = $"{request.SongNode.GetHashCode()}_{request.Difficulty}";
+                    var cacheKey = GetBarInfoCacheKey(
+                        request.SongNode,
+                        request.Difficulty,
+                        request.PlaySpeedPercent);
                     SetBarInfoCacheEntry(cacheKey, barInfo);
                 }
 
@@ -1567,6 +1630,17 @@ namespace DTXMania.Game.Lib.Song.Components
         {
             texture?.RemoveReference();
             texture = null;
+        }
+
+        private static string GetBarInfoCacheKey(
+            SongListNode node,
+            int difficulty,
+            int playSpeedPercent)
+        {
+            var legacyKey = $"{node.GetHashCode()}_{difficulty}";
+            return playSpeedPercent == PlaySpeedRange.Default
+                ? legacyKey
+                : $"{legacyKey}_{playSpeedPercent}";
         }
 
         private void SetBarInfoCacheEntry(string cacheKey, SongBarInfo barInfo)
@@ -1676,6 +1750,7 @@ namespace DTXMania.Game.Lib.Song.Components
         public int SongIndex { get; set; }
         public int BarIndex { get; set; }
         public int Difficulty { get; set; }
+        public int PlaySpeedPercent { get; set; } = PlaySpeedRange.Default;
         public bool IsSelected { get; set; }
         public int Priority { get; set; } // Higher values = higher priority
     }

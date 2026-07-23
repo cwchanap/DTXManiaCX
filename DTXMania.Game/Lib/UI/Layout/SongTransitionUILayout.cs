@@ -55,6 +55,18 @@ namespace DTXMania.Game.Lib.UI.Layout
             public static Vector2 Size => new Vector2(Width, Height);
             public static Color TextColor => Color.LightGray;
         }
+
+        /// <summary>
+        /// Playback profile that will be handed off to the performance stage.
+        /// </summary>
+        public static class PlaybackProfile
+        {
+            public const int X = 190;
+            public const int Y = 510;
+
+            public static Vector2 Position => new Vector2(X, Y);
+            public static Color TextColor => Color.LightSteelBlue;
+        }
         
         /// <summary>
         /// Difficulty label configuration
