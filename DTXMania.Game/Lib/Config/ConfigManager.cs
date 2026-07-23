@@ -29,6 +29,15 @@ namespace DTXMania.Game.Lib.Config
 
         private const string MidiVelocityPrefix = "MidiVelocity.";
 
+        /// <summary>
+        /// Logical token persisted in Config.ini to represent the bundled default
+        /// skin. Resolved at runtime to the current validating bundled System
+        /// root (see <see cref="ResolveSkinPath"/>) so the config survives
+        /// application relocations — moving the .app bundle or portable folder
+        /// to a different directory does not stale the persisted path.
+        /// </summary>
+        public const string DefaultSkinPathToken = "Default";
+
         private static bool IsRequiredSystemCommand(InputCommandType command)
         {
             return KeyConflictChecker.IsRequiredCommand(command);
@@ -959,6 +968,38 @@ namespace DTXMania.Game.Lib.Config
             return null;
         }
 
+        /// <summary>
+        /// Resolves a configured SkinPath value to an absolute path suitable
+        /// for <see cref="IResourceManager.SetSkinPath"/>. The
+        /// <see cref="DefaultSkinPathToken"/> token maps to the current
+        /// validating bundled System skin root (or the app-data default when no
+        /// bundled root validates), so a persisted "Default" survives app
+        /// relocations. Any other value is returned as-is — custom skin paths
+        /// are already absolute.
+        /// </summary>
+        public static string ResolveSkinPath(string configuredPath)
+        {
+            if (string.IsNullOrWhiteSpace(configuredPath) ||
+                string.Equals(configuredPath.Trim(), DefaultSkinPathToken, StringComparison.OrdinalIgnoreCase))
+            {
+                return ResolveDefaultSkinPath();
+            }
+            return configuredPath;
+        }
+
+        /// <summary>
+        /// Returns the absolute path for the default skin: the first validating
+        /// bundled System skin root, or the app-data System root when no bundled
+        /// root validates (e.g. dev builds without a bundled skin).
+        /// </summary>
+        private static string ResolveDefaultSkinPath()
+        {
+            var bundled = ResolveValidatingBundledSystemSkinRoot();
+            if (bundled != null)
+                return bundled;
+            return AppPaths.GetDefaultSystemSkinRoot();
+        }
+
         private static bool IsLegacyDefaultSongsPath(string? path, string defaultSongsPath)
         {
             if (string.IsNullOrWhiteSpace(path))
@@ -993,26 +1034,28 @@ namespace DTXMania.Game.Lib.Config
             Config.DTXPath = shouldMigrateLegacySongsPath
                 ? defaultSongsPath
                 : AppPaths.ResolvePathOrDefault(Config.DTXPath, defaultSongsPath);
-            Config.SkinPath = AppPaths.ResolvePathOrDefault(Config.SkinPath, Config.SystemSkinRoot);
 
-            // Migrate SkinPath from the old app-data default to the bundled root.
-            // The default skin is now application-managed content shipped under
-            // {app}\System (Windows) or Contents/Resources/System (macOS), not
-            // per-user app-data. A user whose Config.ini still points to the old
-            // app-data System root (from a previous installer version) would
-            // otherwise load stale NX assets instead of the bundled CX Neon skin.
-            // Only migrate when the SkinPath equals the old default — explicitly
-            // selected custom skins are left alone.
-            var bundledRoot = ResolveValidatingBundledSystemSkinRoot();
-            if (bundledRoot != null &&
-                string.Equals(NormalizePathForComparison(Config.SkinPath),
-                              NormalizePathForComparison(Config.SystemSkinRoot),
-                              AppPaths.SkinPathComparison))
+            // SkinPath: persist the "Default" token when the configured path is
+            // empty, the app-data default, or a validating bundled root candidate.
+            // The token resolves to the current bundled root at runtime (see
+            // ResolveSkinPath), so the persisted config survives app relocations
+            // — moving the .app bundle or portable folder does not stale the
+            // path. Explicitly selected custom skins are left alone.
+            //
+            // This also migrates configs from the previous format (commit
+            // 4134a68) where the absolute bundled root was persisted directly:
+            // such a path is recognized as a bundled candidate and remapped to
+            // the token.
+            if (IsDefaultSkinPathToken(Config.SkinPath))
             {
-                _logger.LogInformation(
-                    "Migrating SkinPath from app-data default '{OldPath}' to bundled root '{NewPath}'",
-                    Config.SkinPath, bundledRoot);
-                Config.SkinPath = bundledRoot;
+                Config.SkinPath = DefaultSkinPathToken;
+            }
+            else
+            {
+                var resolvedSkinPath = AppPaths.ResolvePathOrDefault(Config.SkinPath, Config.SystemSkinRoot);
+                Config.SkinPath = IsDefaultSkinPath(resolvedSkinPath)
+                    ? DefaultSkinPathToken
+                    : resolvedSkinPath;
             }
 
             void EnsureDirectorySafe(string path)
@@ -1029,6 +1072,55 @@ namespace DTXMania.Game.Lib.Config
 
             EnsureDirectorySafe(Config.SystemSkinRoot);
             EnsureDirectorySafe(Config.DTXPath);
+        }
+
+        /// <summary>
+        /// Returns true when the value equals the <see cref="DefaultSkinPathToken"/>
+        /// token (case-insensitive), i.e. the config already stores the logical
+        /// default rather than an absolute path.
+        /// </summary>
+        private static bool IsDefaultSkinPathToken(string? path)
+        {
+            return !string.IsNullOrWhiteSpace(path)
+                && string.Equals(path.Trim(), DefaultSkinPathToken, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Returns true when the resolved absolute path is the app-data default
+        /// System root or any validating bundled System skin root candidate —
+        /// all representations that should be persisted as the
+        /// <see cref="DefaultSkinPathToken"/> token.
+        /// </summary>
+        private static bool IsDefaultSkinPath(string resolvedPath)
+        {
+            if (string.IsNullOrEmpty(resolvedPath))
+                return false;
+
+            // App-data default System root.
+            if (string.Equals(NormalizePathForComparison(resolvedPath),
+                              NormalizePathForComparison(AppPaths.GetDefaultSystemSkinRoot()),
+                              AppPaths.SkinPathComparison))
+                return true;
+
+            // Any validating bundled root candidate (includes the previous
+            // format's absolute bundled path and the current location's
+            // bundled root).
+            foreach (var candidate in AppPaths.GetBundledSystemSkinRootCandidates())
+            {
+                try
+                {
+                    if (PathValidator.IsValidSkinPath(candidate) &&
+                        string.Equals(NormalizePathForComparison(resolvedPath),
+                                      NormalizePathForComparison(candidate),
+                                      AppPaths.SkinPathComparison))
+                        return true;
+                }
+                catch
+                {
+                    // Candidate doesn't exist — skip.
+                }
+            }
+            return false;
         }
     }
 }

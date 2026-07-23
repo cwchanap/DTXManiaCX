@@ -151,8 +151,15 @@ namespace DTXMania.Game.Lib.Utilities
             if (string.IsNullOrWhiteSpace(baseDir))
                 yield break;
 
-            // macOS .app bundle: Contents/Resources/System (relative to Contents/MacOS/)
-            yield return Path.GetFullPath(Path.Combine(baseDir, "..", "Resources", "System"));
+            // macOS .app bundle: Contents/Resources/System (relative to
+            // Contents/MacOS/). Only yield this candidate on macOS — on Windows
+            // and Linux a sibling ../Resources/System directory is unrelated to
+            // the app and could silently replace the packaged <app>/System skin
+            // if it happens to validate.
+            if (OperatingSystem.IsMacOS())
+            {
+                yield return Path.GetFullPath(Path.Combine(baseDir, "..", "Resources", "System"));
+            }
 
             // Portable build: System/ sibling to the executable
             yield return Path.GetFullPath(Path.Combine(baseDir, "System"));

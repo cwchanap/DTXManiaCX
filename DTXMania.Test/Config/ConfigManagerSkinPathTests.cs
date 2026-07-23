@@ -1,6 +1,8 @@
 using System;
 using System.IO;
+using System.Linq;
 using DTXMania.Game.Lib.Config;
+using DTXMania.Game.Lib.Utilities;
 using Xunit;
 
 namespace DTXMania.Test.Config
@@ -151,6 +153,167 @@ namespace DTXMania.Test.Config
             var manager2 = new ConfigManager();
             manager2.LoadConfig(ConfigPath);
             Assert.Equal(skinWithEquals, manager2.Config.SkinPath);
+        }
+
+        [Fact]
+        public void LoadConfig_OnFreshConfig_ShouldPersistDefaultTokenNotAbsolutePath()
+        {
+            // A new config must persist the "Default" token, not an absolute
+            // bundled path. The token resolves to the current install location
+            // at runtime, surviving app relocations (moving the .app bundle or
+            // portable folder).
+            var manager = new ConfigManager();
+            manager.LoadConfig(ConfigPath);
+
+            Assert.Equal(ConfigManager.DefaultSkinPathToken, manager.Config.SkinPath);
+            Assert.Contains($"SkinPath={ConfigManager.DefaultSkinPathToken}",
+                File.ReadAllText(ConfigPath));
+        }
+
+        [Fact]
+        public void ResolveSkinPath_WithDefaultToken_ShouldReturnValidatingBundledRoot()
+        {
+            // The "Default" token resolves to the current validating bundled
+            // System skin root (or the app-data default when no bundled root
+            // validates). This is the runtime resolution that makes the token
+            // survive app relocations.
+            var resolved = ConfigManager.ResolveSkinPath(ConfigManager.DefaultSkinPathToken);
+
+            Assert.True(Path.IsPathRooted(resolved));
+            // The resolved path should be one of the bundled candidates or the
+            // app-data default — i.e. it should validate or at least be a real
+            // candidate path.
+            var candidates = AppPaths.GetBundledSystemSkinRootCandidates();
+            var isBundledCandidate = false;
+            foreach (var candidate in candidates)
+            {
+                if (string.Equals(resolved, candidate, AppPaths.SkinPathComparison))
+                {
+                    isBundledCandidate = true;
+                    break;
+                }
+            }
+            // If no bundled candidate validates, ResolveSkinPath falls back to
+            // the app-data default — still a valid absolute path.
+            Assert.True(isBundledCandidate ||
+                string.Equals(resolved, AppPaths.GetDefaultSystemSkinRoot(),
+                    AppPaths.SkinPathComparison));
+        }
+
+        [Fact]
+        public void ResolveSkinPath_WithCustomPath_ShouldReturnAsIs()
+        {
+            // Custom skin paths are already absolute and must pass through
+            // unchanged.
+            var customPath = Path.Combine(_tempDir, "MyCustomSkin");
+            Directory.CreateDirectory(customPath);
+
+            var resolved = ConfigManager.ResolveSkinPath(customPath);
+
+            Assert.Equal(customPath, resolved);
+        }
+
+        [Fact]
+        public void LoadConfig_WithOldAbsoluteBundledPath_ShouldMigrateToDefaultToken()
+        {
+            // Migration from the previous format (commit 4134a68) where the
+            // absolute bundled root was persisted directly. On load, such a
+            // path should be recognized as a bundled candidate and remapped to
+            // the "Default" token so future relocations don't stale it.
+            var bundledCandidates = AppPaths.GetBundledSystemSkinRootCandidates()
+                .Where(c => PathValidator.IsValidSkinPath(c))
+                .ToList();
+            if (bundledCandidates.Count == 0)
+            {
+                // No bundled root validates in this test environment — skip
+                // rather than fabricate a path that wouldn't exercise the
+                // migration branch.
+                return;
+            }
+
+            var oldBundledPath = bundledCandidates[0];
+            File.WriteAllText(ConfigPath,
+                $"[System]\nSkinPath={oldBundledPath}\n");
+
+            var manager = new ConfigManager();
+            manager.LoadConfig(ConfigPath);
+
+            Assert.Equal(ConfigManager.DefaultSkinPathToken, manager.Config.SkinPath);
+        }
+
+        [Fact]
+        public void LoadConfig_WithDefaultToken_ShouldPreserveTokenAcrossRestart()
+        {
+            // A config that already stores the "Default" token should keep it
+            // after a load → save → reload cycle.
+            File.WriteAllText(ConfigPath,
+                $"[System]\nSkinPath={ConfigManager.DefaultSkinPathToken}\n");
+
+            var manager1 = new ConfigManager();
+            manager1.LoadConfig(ConfigPath);
+            Assert.Equal(ConfigManager.DefaultSkinPathToken, manager1.Config.SkinPath);
+
+            // Trigger a save (LoadConfig on existing file doesn't auto-save
+            // unless a setter marks dirty, so force one).
+            manager1.SetAutoPlay(true);
+            manager1.FlushPendingSave();
+
+            var manager2 = new ConfigManager();
+            manager2.LoadConfig(ConfigPath);
+            Assert.Equal(ConfigManager.DefaultSkinPathToken, manager2.Config.SkinPath);
+        }
+
+        [Fact]
+        public void DefaultToken_SurvivesRelocationSimulation()
+        {
+            // Simulate a relocation: create config at "location A", then
+            // simulate a restart at "location B". With the token approach,
+            // the config persists "Default" and ResolveSkinPath picks up the
+            // current bundled root on every launch — so the effective default
+            // tracks the current install location, not the one that was
+            // active when the config was first written.
+            var appDataA = Path.Combine(_tempDir, "appdataA");
+            Directory.CreateDirectory(appDataA);
+
+            // "Session at location A": create config with Default token.
+            var configPathA = Path.Combine(appDataA, "Config.ini");
+            var managerA = new ConfigManager();
+            managerA.LoadConfig(configPathA);
+            Assert.Equal(ConfigManager.DefaultSkinPathToken, managerA.Config.SkinPath);
+
+            // The persisted file stores the token, not an absolute path.
+            var persistedLine = File.ReadAllText(configPathA);
+            Assert.Contains($"SkinPath={ConfigManager.DefaultSkinPathToken}", persistedLine);
+            // No absolute bundled path should be persisted.
+            foreach (var candidate in AppPaths.GetBundledSystemSkinRootCandidates())
+            {
+                Assert.DoesNotContain($"SkinPath={candidate}", persistedLine);
+            }
+
+            // "Relocation to location B": the same Config.ini (copied to a new
+            // app-data root) still resolves to the current bundled root.
+            var appDataB = Path.Combine(_tempDir, "appdataB");
+            Directory.CreateDirectory(appDataB);
+            var configPathB = Path.Combine(appDataB, "Config.ini");
+            File.Copy(configPathA, configPathB);
+
+            var prevRoot = Environment.GetEnvironmentVariable("DTXMANIA_APPDATA_ROOT");
+            Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", appDataB);
+            try
+            {
+                var managerB = new ConfigManager();
+                managerB.LoadConfig(configPathB);
+                // Token survives the relocation.
+                Assert.Equal(ConfigManager.DefaultSkinPathToken, managerB.Config.SkinPath);
+                // And resolving it gives a valid absolute path (the current
+                // bundled root, whatever it is at this install location).
+                var resolved = ConfigManager.ResolveSkinPath(managerB.Config.SkinPath);
+                Assert.True(Path.IsPathRooted(resolved));
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", prevRoot);
+            }
         }
     }
 }
