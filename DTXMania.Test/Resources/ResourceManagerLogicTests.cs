@@ -11,6 +11,7 @@ using static DTXMania.Test.TestData.ReflectionHelpers;
 
 namespace DTXMania.Test.Resources
 {
+    [Collection("AppPaths")]
     [Trait("Category", "Unit")]
     public class ResourceManagerLogicTests : IDisposable
     {

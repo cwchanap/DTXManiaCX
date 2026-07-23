@@ -12,6 +12,7 @@ namespace DTXMania.Test.Resources
     /// Basic unit tests for ResourceManager interfaces and data structures
     /// Tests core functionality without MonoGame dependencies
     /// </summary>
+    [Collection("AppPaths")]
     public class ResourceManagerTests : IDisposable
     {
         private readonly string _testDataPath;

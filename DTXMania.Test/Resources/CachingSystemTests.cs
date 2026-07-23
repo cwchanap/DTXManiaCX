@@ -10,6 +10,7 @@ namespace DTXMania.Test.Resources
     /// Unit tests for the caching system functionality
     /// Tests path-based cache, case-insensitive comparison, reference counting, and memory management
     /// </summary>
+    [Collection("AppPaths")]
     public class CachingSystemTests : IDisposable
     {
         private readonly string _testDataPath;
