@@ -24,6 +24,7 @@ TestResults*/
 CoverageReport*/
 
 .claude/settings.local.json
+.claude/worktrees/
 .codex/
 .mcp.json
 screenshots/
