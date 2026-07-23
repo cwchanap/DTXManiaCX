@@ -1045,6 +1045,10 @@ namespace DTXMania.Test.Stage.DrumConfig
 
             public void AdjustScrollSpeed(string configFilePath, int stepDelta) { }
 
+            public void SetPlaySpeedPercent(int percent) { }
+
+            public void SetPitchSemitones(int semitones) { }
+
             public void SetKeyBindings(KeyBindings keyBindings) { }
 
             public void SetSystemKeyBindings(IReadOnlyDictionary<Keys, InputCommandType> workingBindings) { }

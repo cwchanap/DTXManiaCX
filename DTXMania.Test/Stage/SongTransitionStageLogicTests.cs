@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Reflection;
 using DTXMania.Game;
@@ -1021,6 +1022,79 @@ namespace DTXMania.Test.Stage
             Assert.Null(exception);
         }
 
+        [Theory]
+        [InlineData(75, 3, "PLAY 0.75x · PITCH +3 st")]
+        [InlineData(100, 0, "PLAY 1.00x · PITCH 0 st")]
+        [InlineData(150, -12, "PLAY 1.50x · PITCH -12 st")]
+        public void CreatePlaybackProfileText_WhenConfigured_ShouldUseCanonicalFormatting(
+            int playSpeedPercent,
+            int pitchSemitones,
+            string expected)
+        {
+            var game = ReflectionHelpers.CreateGame();
+            var configManager = new Mock<IConfigManager>();
+            configManager.SetupGet(x => x.Config).Returns(new ConfigData
+            {
+                PlaySpeedPercent = playSpeedPercent,
+                PitchSemitones = pitchSemitones,
+            });
+            ReflectionHelpers.SetPrivateField(game, "<ConfigManager>k__BackingField", configManager.Object);
+            var stage = CreateStage(game);
+
+            var result = InvokePrivateMethod<string>(stage, "CreatePlaybackProfileText");
+
+            Assert.Equal(expected, result);
+        }
+
+        [Fact]
+        public void CreatePlaybackProfileText_WhenCultureUsesDecimalComma_ShouldRemainInvariant()
+        {
+            var originalCulture = CultureInfo.CurrentCulture;
+            try
+            {
+                CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR");
+                var game = ReflectionHelpers.CreateGame();
+                var configManager = new Mock<IConfigManager>();
+                configManager.SetupGet(x => x.Config).Returns(new ConfigData
+                {
+                    PlaySpeedPercent = 75,
+                    PitchSemitones = 3,
+                });
+                ReflectionHelpers.SetPrivateField(game, "<ConfigManager>k__BackingField", configManager.Object);
+                var stage = CreateStage(game);
+
+                var result = InvokePrivateMethod<string>(stage, "CreatePlaybackProfileText");
+
+                Assert.Equal("PLAY 0.75x · PITCH +3 st", result);
+            }
+            finally
+            {
+                CultureInfo.CurrentCulture = originalCulture;
+            }
+        }
+
+        [Fact]
+        public void DrawText_WhenPlaybackProfileExists_ShouldDrawAtPlaybackProfilePosition()
+        {
+            var stage = CreateStage();
+            var artistFont = new Mock<IFont>();
+            ReflectionHelpers.SetPrivateField(stage, "_titleFont", null);
+            ReflectionHelpers.SetPrivateField(stage, "_artistFont", artistFont.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_artistName", null);
+            ReflectionHelpers.SetPrivateField(stage, "_playbackProfileText", "PLAY 0.75x · PITCH +3 st");
+
+            InvokePrivateMethod(stage, "DrawText");
+
+            artistFont.Verify(x => x.DrawStringWithShadow(
+                It.IsAny<SpriteBatch>(),
+                "PLAY 0.75x · PITCH +3 st",
+                SongTransitionUILayout.PlaybackProfile.Position,
+                SongTransitionUILayout.PlaybackProfile.TextColor,
+                Color.Black * 0.8f,
+                new Vector2(1, 1)),
+                Times.Once);
+        }
+
         [Fact]
         public void DrawDifficultyBackground_WhenWhitePixelMissing_ShouldReturnWithoutThrowing()
         {
@@ -1137,7 +1211,12 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void PopulateTelemetry_WhenSongSelected_ShouldExposeSongTitleAndDifficulty()
         {
-            var stage = CreateStage();
+            var game = ReflectionHelpers.CreateGame();
+            var configManager = new ConfigManager();
+            configManager.Config.PlaySpeedPercent = 125;
+            configManager.Config.PitchSemitones = -4;
+            ReflectionHelpers.SetProperty(game, "ConfigManager", configManager);
+            var stage = CreateStage(game);
             var chart = new SongChart { DrumLevel = 50, HasDrumChart = true };
             ReflectionHelpers.SetPrivateField(stage, "_selectedSong", CreateSongNode(chart));
             ReflectionHelpers.SetPrivateField(stage, "_selectedDifficulty", 2);
@@ -1147,6 +1226,9 @@ namespace DTXMania.Test.Stage
 
             Assert.Equal("Test Song", telemetry.SelectedSongTitle);
             Assert.Equal(2, telemetry.SelectedDifficulty);
+            Assert.Equal(125, telemetry.PlaySpeedPercent);
+            Assert.Equal(-4, telemetry.PitchSemitones);
+            Assert.False(telemetry.PlaybackProfileFrozen);
         }
 
         [Fact]

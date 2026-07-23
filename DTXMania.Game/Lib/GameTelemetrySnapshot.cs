@@ -18,6 +18,13 @@ public sealed class GameTelemetrySnapshot
     public bool? ChartLoaded { get; set; }
 
     public bool? PerformanceReady { get; set; }
+    public int? PlaySpeedPercent { get; set; }
+    public int? PitchSemitones { get; set; }
+    public bool? PlaybackProfileFrozen { get; set; }
+    public int? AudioPreparationCompleted { get; set; }
+    public int? AudioPreparationTotal { get; set; }
+    public int? AudioPreparationCacheHits { get; set; }
+    public long? PreparedAudioBytes { get; set; }
     public bool? AutoPlayEnabled { get; set; }
     public bool? StageCompleted { get; set; }
     public double? CurrentSongTimeMs { get; set; }
@@ -39,6 +46,8 @@ public sealed class GameTelemetrySnapshot
     public double? LastLaneHitSongTimeMs { get; set; }
     public bool? ClearFlag { get; set; }
     public string? CompletionReason { get; set; }
+    public string? ScoreSaveStatus { get; set; }
+    public string? ScoreSaveError { get; set; }
 
     public int TotalJudgements =>
         (PerfectCount ?? 0) +
@@ -53,6 +62,9 @@ public sealed class GameTelemetrySnapshot
 
         Score = summary.Score;
         MaxCombo = summary.MaxCombo;
+        PlaySpeedPercent = summary.PlaySpeedPercent;
+        PitchSemitones = summary.PitchSemitones;
+        PlaybackProfileFrozen = true;
         ClearFlag = summary.ClearFlag;
         PerfectCount = summary.PerfectCount;
         GreatCount = summary.GreatCount;

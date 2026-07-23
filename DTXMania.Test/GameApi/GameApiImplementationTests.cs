@@ -112,6 +112,13 @@ namespace DTXMania.Test.GameApi
                     telemetry.SelectedDifficulty = 0;
                     telemetry.AutoPlayEnabled = true;
                     telemetry.PerformanceReady = true;
+                    telemetry.PlaySpeedPercent = 75;
+                    telemetry.PitchSemitones = -3;
+                    telemetry.PlaybackProfileFrozen = true;
+                    telemetry.AudioPreparationCompleted = 5;
+                    telemetry.AudioPreparationTotal = 5;
+                    telemetry.AudioPreparationCacheHits = 2;
+                    telemetry.PreparedAudioBytes = 4096;
                     telemetry.Score = 12345;
                     telemetry.TotalNotes = 4;
                     telemetry.PerfectCount = 4;
@@ -133,6 +140,13 @@ namespace DTXMania.Test.GameApi
             Assert.Equal(0, telemetry.SelectedDifficulty);
             Assert.True(telemetry.AutoPlayEnabled);
             Assert.True(telemetry.PerformanceReady);
+            Assert.Equal(75, telemetry.PlaySpeedPercent);
+            Assert.Equal(-3, telemetry.PitchSemitones);
+            Assert.True(telemetry.PlaybackProfileFrozen);
+            Assert.Equal(5, telemetry.AudioPreparationCompleted);
+            Assert.Equal(5, telemetry.AudioPreparationTotal);
+            Assert.Equal(2, telemetry.AudioPreparationCacheHits);
+            Assert.Equal(4096L, telemetry.PreparedAudioBytes);
             Assert.Equal(12345, telemetry.Score);
             Assert.Equal(4, telemetry.TotalNotes);
             Assert.Equal(4, telemetry.PerfectCount);

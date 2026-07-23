@@ -13,6 +13,7 @@ namespace DTXMania.Game.Lib.Song.Entities
         public DbSet<SongScore> SongScores => Set<SongScore>();
         public DbSet<SongHierarchy> SongHierarchy => Set<SongHierarchy>();
         public DbSet<PerformanceHistory> PerformanceHistory => Set<PerformanceHistory>();
+        public DbSet<ScoreSaveReceipt> ScoreSaveReceipts => Set<ScoreSaveReceipt>();
 
         public SongDbContext(DbContextOptions<SongDbContext> options) : base(options)
         {
@@ -91,8 +92,12 @@ namespace DTXMania.Game.Lib.Song.Entities
 
             // SongScore composite unique index
             modelBuilder.Entity<SongScore>()
-                .HasIndex(s => new { s.ChartId, s.Instrument })
+                .HasIndex(s => new { s.ChartId, s.Instrument, s.PlaySpeedPercent })
                 .IsUnique();
+
+            modelBuilder.Entity<SongScore>()
+                .Property(s => s.PlaySpeedPercent)
+                .HasDefaultValue(100);
 
             // SongHierarchy self-referencing relationship
             modelBuilder.Entity<SongHierarchy>()
@@ -136,6 +141,46 @@ namespace DTXMania.Game.Lib.Song.Entities
                 // lives in SongListNode.HydrateFromPersisted — it is the only place that
                 // excludes null-SongScoreId rows from the badge.
                 .OnDelete(DeleteBehavior.SetNull);
+
+            modelBuilder.Entity<PerformanceHistory>()
+                .Property(p => p.PitchSemitones)
+                .HasDefaultValue(0);
+
+            // Score-save receipts retain their chart/instrument/speed identity even
+            // after stale chart or score cleanup. ChartId intentionally has no FK.
+            modelBuilder.Entity<ScoreSaveReceipt>()
+                .HasKey(r => r.RunId);
+
+            modelBuilder.Entity<ScoreSaveReceipt>()
+                .Property(r => r.RunId)
+                .ValueGeneratedNever();
+
+            modelBuilder.Entity<ScoreSaveReceipt>()
+                .Property(r => r.ChartId)
+                .IsRequired();
+
+            modelBuilder.Entity<ScoreSaveReceipt>()
+                .Property(r => r.Instrument)
+                .HasConversion<int>()
+                .IsRequired();
+
+            modelBuilder.Entity<ScoreSaveReceipt>()
+                .Property(r => r.PlaySpeedPercent)
+                .HasDefaultValue(100)
+                .IsRequired();
+
+            modelBuilder.Entity<ScoreSaveReceipt>()
+                .Property(r => r.SavedAtUtc)
+                .IsRequired();
+
+            modelBuilder.Entity<ScoreSaveReceipt>()
+                .HasOne(r => r.SongScore)
+                .WithMany()
+                .HasForeignKey(r => r.SongScoreId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            modelBuilder.Entity<ScoreSaveReceipt>()
+                .HasIndex(r => r.SongScoreId);
 
             // Enum configurations
             modelBuilder.Entity<SongScore>()

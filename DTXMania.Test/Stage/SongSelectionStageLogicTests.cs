@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Threading;
@@ -1356,7 +1357,12 @@ namespace DTXMania.Test.Stage
             var configManager = new Mock<IConfigManager>();
             var uiFont = new Mock<IFont>();
 
-            configManager.SetupGet(x => x.Config).Returns(new ConfigData { DTXPath = "SongsRoot" });
+            configManager.SetupGet(x => x.Config).Returns(new ConfigData
+            {
+                DTXPath = "SongsRoot",
+                PlaySpeedPercent = 75,
+                PitchSemitones = 3
+            });
             resourceManager.Setup(x => x.ResourceExists(It.IsAny<string>())).Returns(false);
 
             SetPrivateField(stage, "_resourceManager", resourceManager.Object);
@@ -1369,6 +1375,7 @@ namespace DTXMania.Test.Stage
             var mainPanel = GetPrivateField<UIPanel>(stage, "_mainPanel");
             var titleLabel = GetPrivateField<UILabel>(stage, "_titleLabel");
             var breadcrumbLabel = GetPrivateField<UILabel>(stage, "_breadcrumbLabel");
+            var playbackProfileLabel = GetPrivateField<UILabel>(stage, "_playbackProfileLabel");
             var songListDisplay = GetPrivateField<SongListDisplay>(stage, "_songListDisplay");
             var statusPanel = GetPrivateField<SongStatusPanel>(stage, "_statusPanel");
             var playHistoryPanel = GetPrivateField<PlayHistoryPanel>(stage, "_playHistoryPanel");
@@ -1378,6 +1385,7 @@ namespace DTXMania.Test.Stage
             Assert.NotNull(mainPanel);
             Assert.NotNull(titleLabel);
             Assert.NotNull(breadcrumbLabel);
+            Assert.NotNull(playbackProfileLabel);
             Assert.NotNull(songListDisplay);
             Assert.NotNull(statusPanel);
             Assert.NotNull(playHistoryPanel);
@@ -1398,21 +1406,37 @@ namespace DTXMania.Test.Stage
             Assert.Equal(Color.Yellow, breadcrumbLabel.TextColor);
             Assert.True(breadcrumbLabel.HasShadow);
             Assert.Equal(DTXMania.Game.Lib.UI.Components.TextAlignment.Left, breadcrumbLabel.HorizontalAlignment);
+            Assert.Equal("PLAY 0.75x · PITCH +3 st", playbackProfileLabel!.Text);
+            Assert.Equal(
+                SongSelectionUILayout.UILabels.PlaybackProfile.Position,
+                playbackProfileLabel.Position);
+            Assert.Equal(
+                SongSelectionUILayout.UILabels.PlaybackProfile.Size,
+                playbackProfileLabel.Size);
+            Assert.Equal(Color.LightGreen, playbackProfileLabel.TextColor);
+            Assert.True(playbackProfileLabel.HasShadow);
+            Assert.Equal(
+                DTXMania.Game.Lib.UI.Components.TextAlignment.Left,
+                playbackProfileLabel.HorizontalAlignment);
             Assert.Same(uiFont.Object, songListDisplay!.ManagedFont);
             Assert.Equal(SongSelectionUILayout.SongListDisplay.Position, songListDisplay.Position);
             Assert.Equal(SongSelectionUILayout.SongListDisplay.Size, songListDisplay.Size);
+            Assert.Equal(75, songListDisplay.PlaySpeedPercent);
             Assert.False(statusPanel!.Visible);
+            Assert.Equal(75, statusPanel.PlaySpeedPercent);
             Assert.False(playHistoryPanel!.Visible);
             Assert.Same(uiFont.Object, playHistoryPanel.ManagedFont);
+            Assert.Equal(75, playHistoryPanel.PlaySpeedPercent);
             Assert.True(previewImagePanel!.Visible);
             Assert.Equal("SongsRoot", GetPrivateField<string>(previewImagePanel, "_songsRootPath"));
-            Assert.Equal(6, mainPanel.Children.Count);
+            Assert.Equal(7, mainPanel.Children.Count);
             Assert.Same(titleLabel, mainPanel.Children[0]);
             Assert.Same(breadcrumbLabel, mainPanel.Children[1]);
-            Assert.Same(songListDisplay, mainPanel.Children[2]);
-            Assert.Same(statusPanel, mainPanel.Children[3]);
-            Assert.Same(playHistoryPanel, mainPanel.Children[4]);
-            Assert.Same(previewImagePanel, mainPanel.Children[5]);
+            Assert.Same(playbackProfileLabel, mainPanel.Children[2]);
+            Assert.Same(songListDisplay, mainPanel.Children[3]);
+            Assert.Same(statusPanel, mainPanel.Children[4]);
+            Assert.Same(playHistoryPanel, mainPanel.Children[5]);
+            Assert.Same(previewImagePanel, mainPanel.Children[6]);
             Assert.True(mainPanel.IsActive);
             Assert.Single(uiManager.RootContainers);
             Assert.Same(mainPanel, uiManager.RootContainers[0]);
@@ -1450,9 +1474,76 @@ namespace DTXMania.Test.Stage
 
             Assert.NotNull(searchFilterModal);
             Assert.Same(textInputSource.Object, storedTextInputSource);
-            // The modal should be the 7th child (after title, breadcrumb, song list, status, history, preview)
-            Assert.Equal(7, mainPanel!.Children.Count);
-            Assert.Same(searchFilterModal, mainPanel.Children[6]);
+            // The modal should be the 8th child (after the labels, song list, status,
+            // history, and preview).
+            Assert.Equal(8, mainPanel!.Children.Count);
+            Assert.Same(searchFilterModal, mainPanel.Children[7]);
+        }
+
+        [Theory]
+        [InlineData(50, -12, "PLAY 0.50x · PITCH -12 st")]
+        [InlineData(75, 3, "PLAY 0.75x · PITCH +3 st")]
+        [InlineData(100, 0, "PLAY 1.00x · PITCH 0 st")]
+        [InlineData(150, 12, "PLAY 1.50x · PITCH +12 st")]
+        public void CreatePlaybackProfileText_ShouldUseExactInvariantFormat(
+            int playSpeedPercent,
+            int pitchSemitones,
+            string expected)
+        {
+            Assert.Equal(
+                expected,
+                SongSelectionStage.CreatePlaybackProfileText(
+                    playSpeedPercent,
+                    pitchSemitones));
+        }
+
+        [Fact]
+        public void CreatePlaybackProfileText_WhenCultureUsesDecimalComma_ShouldRemainInvariant()
+        {
+            var originalCulture = CultureInfo.CurrentCulture;
+            try
+            {
+                CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR");
+
+                Assert.Equal(
+                    "PLAY 0.75x · PITCH +3 st",
+                    SongSelectionStage.CreatePlaybackProfileText(75, 3));
+            }
+            finally
+            {
+                CultureInfo.CurrentCulture = originalCulture;
+            }
+        }
+
+        [Fact]
+        public void SynchronizeActivePlaySpeed_WhenConfigChanges_ShouldRefreshProfileLabel()
+        {
+            var stage = CreateStage();
+            var config = new ConfigData
+            {
+                PlaySpeedPercent = 75,
+                PitchSemitones = 3
+            };
+            var configManager = new Mock<IConfigManager>();
+            var profileLabel = new UILabel();
+            configManager.SetupGet(x => x.Config).Returns(config);
+            SetPrivateField(stage, "_configManager", configManager.Object);
+            SetPrivateField(stage, "_playbackProfileLabel", profileLabel);
+
+            InvokePrivateMethod(stage, "SynchronizeActivePlaySpeed");
+            Assert.Equal("PLAY 0.75x · PITCH +3 st", profileLabel.Text);
+            Assert.Equal(
+                SongSelectionUILayout.UILabels.PlaybackProfile.Size,
+                profileLabel.Size);
+
+            config.PlaySpeedPercent = 150;
+            config.PitchSemitones = -12;
+            InvokePrivateMethod(stage, "SynchronizeActivePlaySpeed");
+
+            Assert.Equal("PLAY 1.50x · PITCH -12 st", profileLabel.Text);
+            Assert.Equal(
+                SongSelectionUILayout.UILabels.PlaybackProfile.Size,
+                profileLabel.Size);
         }
 
         [Fact]

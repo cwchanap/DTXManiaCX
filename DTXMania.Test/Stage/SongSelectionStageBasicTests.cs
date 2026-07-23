@@ -1,4 +1,5 @@
 using DTXMania.Game.Lib;
+using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game;
 using DTXMania.Game.Lib.Input;
@@ -259,6 +260,10 @@ namespace DTXMania.Test.Stage
             SetPrivateField(stage, "_selectedSong", song);
             SetPrivateField(stage, "_currentDifficulty", 3);
             SetPrivateField(stage, "_isInStatusPanel", true);
+            var configManager = new ConfigManager();
+            configManager.Config.PlaySpeedPercent = 75;
+            configManager.Config.PitchSemitones = 3;
+            SetPrivateField(stage, "_configManager", configManager);
 
             var telemetry = new GameTelemetrySnapshot();
             stage.PopulateTelemetry(telemetry);
@@ -266,6 +271,9 @@ namespace DTXMania.Test.Stage
             Assert.Equal("My Song", telemetry.SelectedSongTitle);
             Assert.Equal(3, telemetry.SelectedDifficulty);
             Assert.True(telemetry.InStatusPanel);
+            Assert.Equal(75, telemetry.PlaySpeedPercent);
+            Assert.Equal(3, telemetry.PitchSemitones);
+            Assert.False(telemetry.PlaybackProfileFrozen);
         }
 
         [Fact]
@@ -278,6 +286,9 @@ namespace DTXMania.Test.Stage
             stage.PopulateTelemetry(telemetry);
 
             Assert.Null(telemetry.SelectedSongTitle);
+            Assert.Equal(PlaySpeedRange.Default, telemetry.PlaySpeedPercent);
+            Assert.Equal(PitchRange.Default, telemetry.PitchSemitones);
+            Assert.False(telemetry.PlaybackProfileFrozen);
         }
 
         [Fact]

@@ -7,7 +7,7 @@ using Xunit;
 namespace DTXMania.Test.Resources
 {
     /// <summary>
-    /// Unit tests for <see cref="ManagedSound.GetFFmpegBinaryFolder"/> — the
+    /// Unit tests for <see cref="FfmpegRuntime.GetFFmpegBinaryFolder"/> — the
     /// bundled ffmpeg directory resolver. These guard the macOS release path:
     /// the workflow ships a native arm64 ffmpeg to runtimes/osx-arm64/MMTools,
     /// so the resolver MUST look there and MUST prefer it over the x64 Rosetta
@@ -17,14 +17,14 @@ namespace DTXMania.Test.Resources
     [Trait("Category", "Unit")]
     public class ManagedSoundFFmpegPathTests
     {
-        /// <summary>
-        /// The binary name the resolver probes for on the test host OS. The
-        /// resolver computes this internally via OperatingSystem.IsWindows(),
-        /// so tests replicate the same one-liner to build expected paths.
-        /// </summary>
-        private static string BinName => OperatingSystem.IsWindows() ? "ffmpeg.exe" : "ffmpeg";
+        private static string BinaryPath(string folder, string command) =>
+            Path.Combine(folder, OperatingSystem.IsWindows() ? $"{command}.exe" : command);
 
-        private static string FFmpegPath(string folder) => Path.Combine(folder, BinName);
+        private static void AddRuntimePair(HashSet<string> existing, string folder)
+        {
+            existing.Add(BinaryPath(folder, "ffmpeg"));
+            existing.Add(BinaryPath(folder, "ffprobe"));
+        }
 
         [Fact]
         public void WithArm64Present_ShouldPreferArm64OverX64()
@@ -32,13 +32,11 @@ namespace DTXMania.Test.Resources
             var dir = "/app";
             var arm64 = Path.Combine(dir, "runtimes", "osx-arm64", "MMTools");
             var x64 = Path.Combine(dir, "runtimes", "osx-x64", "MMTools");
-            var existing = new HashSet<string>(StringComparer.Ordinal)
-            {
-                FFmpegPath(arm64),
-                FFmpegPath(x64),
-            };
+            var existing = new HashSet<string>(StringComparer.Ordinal);
+            AddRuntimePair(existing, arm64);
+            AddRuntimePair(existing, x64);
 
-            var result = ManagedSound.GetFFmpegBinaryFolder(dir, p => existing.Contains(p));
+            var result = FfmpegRuntime.GetFFmpegBinaryFolder(dir, p => existing.Contains(p));
 
             Assert.Equal(arm64, result);
         }
@@ -48,9 +46,10 @@ namespace DTXMania.Test.Resources
         {
             var dir = "/app";
             var x64 = Path.Combine(dir, "runtimes", "osx-x64", "MMTools");
-            var existing = new HashSet<string>(StringComparer.Ordinal) { FFmpegPath(x64) };
+            var existing = new HashSet<string>(StringComparer.Ordinal);
+            AddRuntimePair(existing, x64);
 
-            var result = ManagedSound.GetFFmpegBinaryFolder(dir, p => existing.Contains(p));
+            var result = FfmpegRuntime.GetFFmpegBinaryFolder(dir, p => existing.Contains(p));
 
             Assert.Equal(x64, result);
         }
@@ -60,7 +59,7 @@ namespace DTXMania.Test.Resources
         {
             var dir = "/app";
 
-            var result = ManagedSound.GetFFmpegBinaryFolder(dir, _ => false);
+            var result = FfmpegRuntime.GetFFmpegBinaryFolder(dir, _ => false);
 
             Assert.Null(result);
         }
@@ -68,16 +67,33 @@ namespace DTXMania.Test.Resources
         [Fact]
         public void WithNullOrEmptyAssemblyDir_ShouldReturnNull()
         {
-            Assert.Null(ManagedSound.GetFFmpegBinaryFolder(null, _ => true));
-            Assert.Null(ManagedSound.GetFFmpegBinaryFolder(string.Empty, _ => true));
+            Assert.Null(FfmpegRuntime.GetFFmpegBinaryFolder(null, _ => true));
+            Assert.Null(FfmpegRuntime.GetFFmpegBinaryFolder(string.Empty, _ => true));
         }
 
         [Fact]
         public void WithNullPredicate_ShouldReturnNull()
         {
-            var result = ManagedSound.GetFFmpegBinaryFolder("/app", null);
+            var result = FfmpegRuntime.GetFFmpegBinaryFolder("/app", null);
 
             Assert.Null(result);
+        }
+
+        [Fact]
+        public void WithOnlyFFmpegPresent_ShouldSkipIncompleteCandidate()
+        {
+            var dir = "/app";
+            var arm64 = Path.Combine(dir, "runtimes", "osx-arm64", "MMTools");
+            var x64 = Path.Combine(dir, "runtimes", "osx-x64", "MMTools");
+            var existing = new HashSet<string>(StringComparer.Ordinal)
+            {
+                BinaryPath(arm64, "ffmpeg"),
+            };
+            AddRuntimePair(existing, x64);
+
+            var result = FfmpegRuntime.GetFFmpegBinaryFolder(dir, existing.Contains);
+
+            Assert.Equal(x64, result);
         }
 
         /// <summary>
@@ -92,10 +108,10 @@ namespace DTXMania.Test.Resources
         {
             var dir = "/app";
             var probed = new List<string>();
-            var arm64 = FFmpegPath(Path.Combine(dir, "runtimes", "osx-arm64", "MMTools"));
-            var x64 = FFmpegPath(Path.Combine(dir, "runtimes", "osx-x64", "MMTools"));
+            var arm64 = BinaryPath(Path.Combine(dir, "runtimes", "osx-arm64", "MMTools"), "ffmpeg");
+            var x64 = BinaryPath(Path.Combine(dir, "runtimes", "osx-x64", "MMTools"), "ffmpeg");
 
-            ManagedSound.GetFFmpegBinaryFolder(dir, p =>
+            FfmpegRuntime.GetFFmpegBinaryFolder(dir, p =>
             {
                 probed.Add(p);
                 return false; // force the resolver to walk the whole candidate list

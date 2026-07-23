@@ -89,6 +89,120 @@ public class ConfigStageLogicTests
     }
 
     [Fact]
+    public void MoveRightPressedOnPlaySpeed_ShouldMutateOnlyGameplaySpeed()
+    {
+        var (stage, configManager, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            configManager.Config.PlaySpeedPercent = PlaySpeedRange.Default;
+            configManager.Config.ScrollSpeed = ScrollSpeedRange.Default;
+            InitializeStageMenu(stage, includePanels: false);
+            SelectItemForEditing(stage, "Play Speed");
+            SetKeyboardStates(stage, new KeyboardState(Keys.Right), new KeyboardState());
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            Assert.Equal(105, configManager.Config.PlaySpeedPercent);
+            Assert.Equal(ScrollSpeedRange.Default, configManager.Config.ScrollSpeed);
+        }
+    }
+
+    [Fact]
+    public void MoveRightPressedOnPitch_ShouldMutateOnlyPitch()
+    {
+        var (stage, configManager, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            configManager.Config.PitchSemitones = PitchRange.Default;
+            configManager.Config.PlaySpeedPercent = PlaySpeedRange.Default;
+            InitializeStageMenu(stage, includePanels: false);
+            SelectItemForEditing(stage, "Pitch");
+            SetKeyboardStates(stage, new KeyboardState(Keys.Right), new KeyboardState());
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            Assert.Equal(1, configManager.Config.PitchSemitones);
+            Assert.Equal(PlaySpeedRange.Default, configManager.Config.PlaySpeedPercent);
+        }
+    }
+
+    [Fact]
+    public void MoveRightPressedOnPlaySpeed_WhenFfmpegUnavailable_ShouldKeepDefault()
+    {
+        var (stage, configManager, inputManager) = CreateStage(ffmpegAvailable: false);
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            SelectItemForEditing(stage, "Play Speed");
+            SetKeyboardStates(stage, new KeyboardState(Keys.Right), new KeyboardState());
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            Assert.Equal(PlaySpeedRange.Default, configManager.Config.PlaySpeedPercent);
+        }
+    }
+
+    [Fact]
+    public void MoveRightPressedOnPitch_WhenFfmpegUnavailable_ShouldKeepDefault()
+    {
+        var (stage, configManager, inputManager) = CreateStage(ffmpegAvailable: false);
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            SelectItemForEditing(stage, "Pitch");
+            SetKeyboardStates(stage, new KeyboardState(Keys.Right), new KeyboardState());
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            Assert.Equal(PitchRange.Default, configManager.Config.PitchSemitones);
+        }
+    }
+
+    [Fact]
+    public void PlaybackModifiers_WhenFfmpegUnavailable_ShouldAllowResetToDefaults()
+    {
+        var (stage, configManager, inputManager) = CreateStage(ffmpegAvailable: false);
+        using (inputManager)
+        {
+            configManager.Config.PlaySpeedPercent = PlaySpeedRange.Max;
+            configManager.Config.PitchSemitones = PitchRange.Min;
+            InitializeStageMenu(stage, includePanels: false);
+
+            SelectItemForEditing(stage, "Play Speed");
+            SetKeyboardStates(stage, new KeyboardState(Keys.Left), new KeyboardState());
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            SelectItemForEditing(stage, "Pitch");
+            SetKeyboardStates(stage, new KeyboardState(Keys.Right), new KeyboardState());
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            Assert.Equal(PlaySpeedRange.Default, configManager.Config.PlaySpeedPercent);
+            Assert.Equal(PitchRange.Default, configManager.Config.PitchSemitones);
+        }
+    }
+
+    [Fact]
+    public void PlaybackModifierDescriptions_WhenUnavailableProfileIsNonDefault_ShouldWarnToReset()
+    {
+        var (stage, configManager, inputManager) = CreateStage(ffmpegAvailable: false);
+        using (inputManager)
+        {
+            configManager.Config.PlaySpeedPercent = 105;
+            InitializeStageMenu(stage, includePanels: false);
+            var categories =
+                ReflectionHelpers.GetPrivateField<List<ConfigCategory>>(stage, "_categories")!;
+            var drums = categories.Single(category => category.Name == "Drums");
+
+            var playSpeed = drums.Items.Single(item => item.Name == "Play Speed");
+            var pitch = drums.Items.Single(item => item.Name == "Pitch");
+
+            Assert.Contains("FFmpeg unavailable", playSpeed.Description);
+            Assert.Contains("reset Play Speed to 1.00x and Pitch to 0 st", playSpeed.Description);
+            Assert.Contains("FFmpeg unavailable", pitch.Description);
+        }
+    }
+
+    [Fact]
     public void MoveLeftPressedOnResolution_ShouldMutateConfigViaSetter()
     {
         var (stage, configManager, inputManager) = CreateStage();
@@ -935,6 +1049,8 @@ public class ConfigStageLogicTests
 
             Assert.Collection(categories[1].Items,
                 i => Assert.Equal("Scroll Speed", i.Name),
+                i => Assert.Equal("Play Speed", i.Name),
+                i => Assert.Equal("Pitch", i.Name),
                 i => Assert.Equal("Auto Play", i.Name),
                 i => Assert.Equal("No Fail", i.Name),
                 i => Assert.Equal("Drum Key Mapping", i.Name));
@@ -2005,14 +2121,20 @@ public class ConfigStageLogicTests
         return tex;
     }
 
-    private static (ConfigStage Stage, ConfigManager ConfigManager, InputManagerCompat InputManager) CreateStage(ConfigManager? configManager = null)
+    private static (ConfigStage Stage, ConfigManager ConfigManager, InputManagerCompat InputManager) CreateStage(
+        ConfigManager? configManager = null,
+        bool ffmpegAvailable = true)
     {
         configManager ??= new ConfigManager();
         var inputManager = new InputManagerCompat(configManager, new TestMidiDeviceBackend());
         var game = ReflectionHelpers.CreateGame();
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager);
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.InputManager), inputManager);
-        return (new ConfigStage(game), configManager, inputManager);
+        var availability = new FfmpegRuntimeAvailability(
+            ffmpegAvailable,
+            ffmpegAvailable ? null : "test runtime unavailable",
+            BinaryFolder: null);
+        return (new ConfigStage(game, () => availability), configManager, inputManager);
     }
 
     private static (RenderSpyConfigStage Stage, InputManagerCompat InputManager) CreateRenderSpyStageWithGraphicsDevice(ConfigManager? configManager = null)

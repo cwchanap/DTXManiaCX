@@ -11,7 +11,10 @@ using Microsoft.EntityFrameworkCore;
 
 namespace DTXMania.Game.Lib.Song
 {
-    internal readonly record struct PerformanceHistoryCandidate(string Text, DateTime Date);
+    internal readonly record struct PerformanceHistoryCandidate(
+        string Text,
+        DateTime Date,
+        int PitchSemitones = 0);
 
     internal static class PerformanceHistoryMerger
     {
@@ -45,7 +48,10 @@ namespace DTXMania.Game.Lib.Song
             {
                 if (!string.IsNullOrWhiteSpace(row.HistoryLine) && seen.Add(row.HistoryLine))
                 {
-                    candidates.Add(new PerformanceHistoryCandidate(row.HistoryLine, row.PerformedAt));
+                    candidates.Add(new PerformanceHistoryCandidate(
+                        row.HistoryLine,
+                        row.PerformedAt,
+                        row.PitchSemitones));
                 }
             }
 
@@ -72,6 +78,7 @@ namespace DTXMania.Game.Lib.Song
                     SongId = songId,
                     SongScoreId = songScoreId,
                     PerformedAt = row.Date,
+                    PitchSemitones = row.PitchSemitones,
                     HistoryLine = row.Text,
                     DisplayOrder = displayOrder++,
                 });

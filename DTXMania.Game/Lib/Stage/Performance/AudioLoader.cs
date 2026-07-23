@@ -18,6 +18,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         private readonly IResourceManager _resourceManager;
         private ISound? _loadedSound;
+        private bool _ownsLoadedSound;
         private bool _disposed = false;
 
         #endregion
@@ -80,6 +81,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 System.Diagnostics.Debug.WriteLine($"AudioLoader: Loading audio directly from: {audioPath}");
                 _loadedSound = await Task.Run(() => new ManagedSound(audioPath));
                 _loadedSound.AddReference(); // Ensure proper reference counting
+                _ownsLoadedSound = true;
                 LoadedAudioPath = audioPath;
 
                 System.Diagnostics.Debug.WriteLine($"AudioLoader: Successfully loaded audio: {Path.GetFileName(audioPath)}");
@@ -98,6 +100,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <param name="logger">Optional logger action for logging errors and warnings</param>
         /// <returns>SongTimer instance, or null if no audio is loaded</returns>
         public SongTimer? CreateSongTimer(Action<string>? logger = null)
+            => CreateSongTimer(100, 0.0f, logger);
+
+        public SongTimer? CreateSongTimer(
+            int playSpeedPercent,
+            float runtimePitch,
+            Action<string>? logger = null)
         {
             if (!IsLoaded)
             {
@@ -116,7 +124,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     return null;
                 }
 
-                var songTimer = new SongTimer(soundInstance, logger);
+                var songTimer = new SongTimer(soundInstance, playSpeedPercent, logger)
+                {
+                    Pitch = runtimePitch
+                };
                 System.Diagnostics.Debug.WriteLine($"AudioLoader: Created SongTimer for {Path.GetFileName(LoadedAudioPath)}");
                 return songTimer;
             }
@@ -157,11 +168,28 @@ namespace DTXMania.Game.Lib.Stage.Performance
         {
             if (_loadedSound != null)
             {
-                _loadedSound.RemoveReference();
+                if (_ownsLoadedSound)
+                    _loadedSound.RemoveReference();
                 _loadedSound = null;
+                _ownsLoadedSound = false;
                 LoadedAudioPath = "";
                 System.Diagnostics.Debug.WriteLine("AudioLoader: Unloaded current sound");
             }
+        }
+
+        /// <summary>
+        /// Binds a sound owned by PreparedGameplayAudioSet. AudioLoader creates
+        /// and disposes playback instances but never releases the borrowed sound.
+        /// </summary>
+        public void BindBorrowedBackground(ISound? borrowedSound, string? sourcePath)
+        {
+            if (_disposed)
+                throw new ObjectDisposedException(nameof(AudioLoader));
+
+            UnloadCurrentSound();
+            _loadedSound = borrowedSound;
+            _ownsLoadedSound = false;
+            LoadedAudioPath = borrowedSound != null ? sourcePath ?? string.Empty : string.Empty;
         }
 
         /// <summary>

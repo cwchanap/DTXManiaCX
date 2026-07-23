@@ -45,6 +45,7 @@ namespace DTXMania.Game.Lib.Stage
         private ILogger<ConfigStage> _logger = NullLogger<ConfigStage>.Instance;
 
         private IConfigManager _configManager;
+        private readonly Func<FfmpegRuntimeAvailability> _ffmpegAvailabilityProvider;
         private SkinManager? _skinManager;
         // Disambiguated skin options (path + label) captured during
         // SetupConfigItems. Used to build the dropdown and to resolve the
@@ -168,9 +169,19 @@ namespace DTXMania.Game.Lib.Stage
 
         public override StageType Type => StageType.Config;
 
-        public ConfigStage(IStageGame game) : base(game)
+        public ConfigStage(IStageGame game)
+            : this(game, FfmpegRuntime.EnsureConfigured)
+        {
+        }
+
+        internal ConfigStage(
+            IStageGame game,
+            Func<FfmpegRuntimeAvailability> ffmpegAvailabilityProvider)
+            : base(game)
         {
             _configManager = game.ConfigManager ?? throw new InvalidOperationException("ConfigManager not found");
+            _ffmpegAvailabilityProvider = ffmpegAvailabilityProvider
+                ?? throw new ArgumentNullException(nameof(ffmpegAvailabilityProvider));
         }
 
         #endregion
@@ -580,7 +591,9 @@ namespace DTXMania.Game.Lib.Stage
 
             var importItem = new NavigationConfigItem("Import NX Scores",
                 () => StartNxScoreImport())
-            { Description = "Import play counts and scores from a DTXManiaNX database." };
+            {
+                Description = "Import DTXManiaNX scores into the legacy 1.00x score bucket."
+            };
 
             var scrollSpeedItem = new IntegerConfigItem(
                 "Scroll Speed",
@@ -591,6 +604,35 @@ namespace DTXMania.Game.Lib.Stage
                 step: ScrollSpeedRange.Step,
                 valueFormatter: ScrollSpeedRange.Format)
             { Description = "Sets how fast notes scroll down the lanes." };
+
+            var ffmpegAvailability = _ffmpegAvailabilityProvider();
+            var playbackModifierWarning = GetPlaybackModifierWarning(ffmpegAvailability);
+
+            var playSpeedItem = new IntegerConfigItem(
+                "Play Speed",
+                () => _configManager.Config.PlaySpeedPercent,
+                SetPlaySpeedFromUi,
+                minValue: PlaySpeedRange.Min,
+                maxValue: PlaySpeedRange.Max,
+                step: PlaySpeedRange.Step,
+                valueFormatter: PlaySpeedRange.Format)
+            {
+                Description = "Sets gameplay tempo independently from visual scroll speed."
+                    + playbackModifierWarning
+            };
+
+            var pitchItem = new IntegerConfigItem(
+                "Pitch",
+                () => _configManager.Config.PitchSemitones,
+                SetPitchFromUi,
+                minValue: PitchRange.Min,
+                maxValue: PitchRange.Max,
+                step: PitchRange.Step,
+                valueFormatter: PitchRange.Format)
+            {
+                Description = "Shifts audio pitch without changing the selected gameplay speed."
+                    + playbackModifierWarning
+            };
 
             var autoPlayItem = new ToggleConfigItem(
                 "Auto Play",
@@ -622,7 +664,7 @@ namespace DTXMania.Game.Lib.Stage
 
             var drumItems = new List<IConfigItem>
             {
-                scrollSpeedItem, autoPlayItem, noFailItem, drumKeyItem
+                scrollSpeedItem, playSpeedItem, pitchItem, autoPlayItem, noFailItem, drumKeyItem
             };
 
             _categories = new List<ConfigCategory>
@@ -640,6 +682,49 @@ namespace DTXMania.Game.Lib.Stage
 
             _currentCategoryIndex = 0;
             _focusOnMenu = true;
+        }
+
+        private string GetPlaybackModifierWarning(FfmpegRuntimeAvailability availability)
+        {
+            if (availability.IsAvailable)
+            {
+                return string.Empty;
+            }
+
+            var hasNonDefaultProfile =
+                _configManager.Config.PlaySpeedPercent != PlaySpeedRange.Default ||
+                _configManager.Config.PitchSemitones != PitchRange.Default;
+            return hasNonDefaultProfile
+                ? " FFmpeg unavailable; reset Play Speed to 1.00x and Pitch to 0 st before playing."
+                : " FFmpeg unavailable; non-default playback values are disabled.";
+        }
+
+        private void SetPlaySpeedFromUi(int value)
+        {
+            if (!_ffmpegAvailabilityProvider().IsAvailable)
+            {
+                if (_configManager.Config.PlaySpeedPercent != PlaySpeedRange.Default)
+                {
+                    _configManager.SetPlaySpeedPercent(PlaySpeedRange.Default);
+                }
+                return;
+            }
+
+            _configManager.SetPlaySpeedPercent(value);
+        }
+
+        private void SetPitchFromUi(int value)
+        {
+            if (!_ffmpegAvailabilityProvider().IsAvailable)
+            {
+                if (_configManager.Config.PitchSemitones != PitchRange.Default)
+                {
+                    _configManager.SetPitchSemitones(PitchRange.Default);
+                }
+                return;
+            }
+
+            _configManager.SetPitchSemitones(value);
         }
 
         private string GetCurrentSkinName()

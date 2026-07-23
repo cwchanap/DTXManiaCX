@@ -112,6 +112,22 @@ namespace DTXMania.Game.Lib.UI.Layout
             public static readonly Vector2 BadgePosition = new(298, 582);
         }
 
+        public static class PlaybackPresentation
+        {
+            public static readonly Vector2 ProfilePosition = new(830, 310);
+            public static readonly Vector2 ScoreBucketPosition = new(830, 336);
+            public static readonly Vector2 SaveStatusPosition = new(830, 370);
+            public static readonly Rectangle SaveGuidanceBounds = new(830, 394, 420, 60);
+
+            public static readonly Color ProfileColor = Color.LightSteelBlue;
+            public static readonly Color ScoreBucketColor = Color.LightGray;
+            public static readonly Color NotStartedColor = Color.Gray;
+            public static readonly Color SavingColor = Color.Yellow;
+            public static readonly Color SavedColor = Color.LightGreen;
+            public static readonly Color FailedColor = Color.OrangeRed;
+            public static readonly Color GuidanceColor = Color.Orange;
+        }
+
         #endregion
         
         #region Fallback Text Rendering

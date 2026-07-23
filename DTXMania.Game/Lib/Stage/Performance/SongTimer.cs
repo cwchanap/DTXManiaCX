@@ -7,66 +7,45 @@ using Microsoft.Xna.Framework.Audio;
 namespace DTXMania.Game.Lib.Stage.Performance
 {
     /// <summary>
-    /// High-precision song timer for synchronizing gameplay with audio
-    /// Wraps SoundEffectInstance with precise timing tracking
+    /// Controls background-audio transport while exposing a rate-aware logical
+    /// gameplay clock that is independent of the audio instance state.
     /// </summary>
     public class SongTimer : IDisposable
     {
-        #region Private Fields
-
         private readonly SoundEffectInstance? _soundInstance;
-        private TimeSpan _startTime;
-        private DateTime _systemStartTime;
-        private bool _isPlaying = false;
-        private bool _disposed = false;
+        private readonly PlaybackClock _playbackClock;
         private readonly Action<string>? _logger;
-        private double _cachedElapsedMs = 0.0;
-
-        #endregion
-
-        #region Properties
+        private DateTime _systemStartTime;
+        private double _systemLogicalPositionMs;
+        private bool _disposed;
 
         /// <summary>
-        /// Whether the song is currently playing
-        /// Note: When volume is 0 (muted for BGM events), we only check our internal flag
+        /// Whether the logical gameplay clock is running.
         /// </summary>
-        public bool IsPlaying
-        {
-            get
-            {
-                var internalPlaying = _isPlaying;
-                var soundState = _soundInstance?.State;
-                var volume = _soundInstance?.Volume ?? 0f;
-                return internalPlaying && (Math.Abs(volume) < 0.001f || soundState == SoundState.Playing);
-            }
-        }
+        public bool IsPlaying => !_disposed && _playbackClock.IsRunning;
 
         /// <summary>
-        /// Whether the song has finished playing
+        /// Whether the logical gameplay clock has a resumable paused position.
         /// </summary>
-        public bool IsFinished => _soundInstance?.State == SoundState.Stopped && _isPlaying;
+        public bool IsPaused => !_disposed && _playbackClock.IsPaused;
 
         /// <summary>
-        /// Volume of the audio (0.0 to 1.0)
+        /// Volume of the audio (0.0 to 1.0).
         /// </summary>
         public float Volume
         {
             get => _soundInstance?.Volume ?? 0f;
             set
             {
-            if (_soundInstance != null)
-            {
-                _soundInstance.Volume = MathHelper.Clamp(value, 0f, 1f);
-            }
+                if (_soundInstance != null)
+                    _soundInstance.Volume = MathHelper.Clamp(value, 0f, 1f);
             }
         }
 
         /// <summary>
         /// Stereo pan of the audio (-1.0 = full left … +1.0 = full right).
-        /// Note: SoundEffectInstance.Pan is well-defined for mono sources but limited/
-        /// undefined for stereo sources (e.g. the typical stereo bgm.ogg master track).
-        /// This faithfully honors the chart's #PAN, but a panned stereo background may not
-        /// produce the expected effect — a MonoGame/XNA platform limitation, not a code defect.
+        /// SoundEffectInstance.Pan is well-defined for mono sources but may
+        /// have limited effect on stereo background tracks.
         /// </summary>
         public float Pan
         {
@@ -74,14 +53,25 @@ namespace DTXMania.Game.Lib.Stage.Performance
             set
             {
                 if (_soundInstance != null)
-                {
                     _soundInstance.Pan = MathHelper.Clamp(value, -1f, 1f);
-                }
             }
         }
 
         /// <summary>
-        /// Whether the audio is looped
+        /// MonoGame pitch adjustment (-1.0 = one octave down, +1.0 = one octave up).
+        /// </summary>
+        public float Pitch
+        {
+            get => _soundInstance?.Pitch ?? 0f;
+            set
+            {
+                if (_soundInstance != null)
+                    _soundInstance.Pitch = MathHelper.Clamp(value, -1f, 1f);
+            }
+        }
+
+        /// <summary>
+        /// Whether the audio is looped.
         /// </summary>
         public bool IsLooped
         {
@@ -93,105 +83,93 @@ namespace DTXMania.Game.Lib.Stage.Performance
             }
         }
 
-        #endregion
-
-        #region Constructors
-
-        /// <summary>
-        /// Creates a new SongTimer with the specified sound instance
-        /// </summary>
-        /// <param name="soundInstance">The sound instance to wrap</param>
-        /// <param name="logger">Optional logger action for logging errors and warnings</param>
-        public SongTimer(SoundEffectInstance soundInstance, Action<string>? logger = null)
+        public SongTimer(
+            SoundEffectInstance soundInstance,
+            Action<string>? logger = null)
+            : this(soundInstance, 100, logger)
         {
-            _soundInstance = soundInstance ?? throw new ArgumentNullException(nameof(soundInstance));
+        }
+
+        public SongTimer(
+            SoundEffectInstance soundInstance,
+            int playSpeedPercent,
+            Action<string>? logger = null)
+        {
+            _soundInstance =
+                soundInstance ?? throw new ArgumentNullException(nameof(soundInstance));
+            _playbackClock = new PlaybackClock(playSpeedPercent);
             _logger = logger;
         }
 
-        /// <summary>
-        /// Creates a silent timer that uses GameTime as the master clock when no audio is available.
-        /// </summary>
-        /// <param name="logger">Optional logger action for logging errors and warnings</param>
         public SongTimer(Action<string>? logger = null)
+            : this(100, logger)
         {
+        }
+
+        public SongTimer(
+            int playSpeedPercent,
+            Action<string>? logger = null)
+        {
+            _playbackClock = new PlaybackClock(playSpeedPercent);
             _logger = logger;
         }
 
-        #endregion
-
-        #region Public Methods
-
         /// <summary>
-        /// Starts playing the song and begins timing
+        /// Starts audio transport and the logical gameplay clock.
         /// </summary>
-        /// <param name="gameTime">Current game time for precise timing</param>
-        /// <returns>True if playback started successfully, false if an error occurred</returns>
         public bool Play(GameTime gameTime)
         {
             if (_disposed)
                 return false;
 
-            _startTime = gameTime.TotalGameTime;
+            if (_soundInstance != null)
+            {
+                try
+                {
+                    _soundInstance.Play();
+                }
+                catch (Exception ex)
+                {
+                    _logger?.Invoke(
+                        $"SongTimer.Play() failed: {ex.GetType().Name} - {ex.Message}");
+                    return false;
+                }
+            }
+
+            _playbackClock.Start(gameTime);
+            _systemLogicalPositionMs = 0.0;
             _systemStartTime = DateTime.UtcNow;
-
-            if (_soundInstance == null)
-            {
-                _isPlaying = true;
-                return true;
-            }
-
-            try
-            {
-                _soundInstance.Play();
-                _isPlaying = true;
-                return true;
-            }
-            catch (Exception ex)
-            {
-                _isPlaying = false;
-                _logger?.Invoke($"SongTimer.Play() failed: {ex.GetType().Name} - {ex.Message}");
-                return false;
-            }
+            return true;
         }
 
         /// <summary>
-        /// Pauses the song, caching elapsed position using the GameTime clock
-        /// so that Resume(GameTime) can restore position without clock-drift errors.
+        /// Pauses audio transport and freezes logical time at the supplied GameTime.
         /// </summary>
-        /// <param name="gameTime">Current game time for precise elapsed caching</param>
         public void Pause(GameTime gameTime)
         {
-            if (_disposed)
+            if (_disposed || !_playbackClock.IsRunning)
                 return;
 
-            // Cache elapsed position using the same clock as GetCurrentMs(GameTime)
-            // to avoid mixing system-clock and GameTime clock values.
-            _cachedElapsedMs = GetCurrentMs(gameTime);
+            _playbackClock.Pause(gameTime);
+            _systemLogicalPositionMs = _playbackClock.GetLogicalTimeMs(gameTime);
             _soundInstance?.Pause();
-            _isPlaying = false;
         }
 
         /// <summary>
-        /// Resumes the song
+        /// Resumes audio transport and logical time from the paused position.
         /// </summary>
-        /// <param name="gameTime">Current game time for timing adjustment</param>
         public void Resume(GameTime gameTime)
         {
-            if (_disposed)
+            if (_disposed || !_playbackClock.IsPaused)
                 return;
 
-            // Restore start time so elapsed position matches where we paused.
-            // _cachedElapsedMs was captured via GetCurrentMs(gameTime) in Pause(GameTime),
-            // so both clocks are now consistent.
-            _startTime = gameTime.TotalGameTime - TimeSpan.FromMilliseconds(_cachedElapsedMs);
-
             _soundInstance?.Resume();
-            _isPlaying = true;
+            _playbackClock.Resume(gameTime);
             _systemStartTime = DateTime.UtcNow;
         }
 
         /// <summary>
-        /// Stops the song
+        /// Stops audio transport and resets logical time.
         /// </summary>
         public void Stop()
         {
@@ -199,98 +177,83 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 return;
 
             _soundInstance?.Stop();
-            _isPlaying = false;
+            _playbackClock.Stop();
+            _systemLogicalPositionMs = 0.0;
         }
 
         /// <summary>
-        /// Gets the current playback time in milliseconds
+        /// Gets the rate-adjusted logical chart time in milliseconds.
         /// </summary>
-        /// <param name="gameTime">Current game time</param>
-        /// <returns>Current song time in milliseconds</returns>
         public double GetCurrentMs(GameTime gameTime)
         {
-            if (_disposed || !_isPlaying)
+            if (_disposed)
                 return 0.0;
 
-            var elapsed = gameTime.TotalGameTime - _startTime;
-            return elapsed.TotalMilliseconds;
+            return _playbackClock.GetLogicalTimeMs(gameTime);
         }
 
         /// <summary>
-        /// Gets the current playback time in milliseconds (without GameTime parameter)
-        /// Note: This is less precise than the GameTime version and should only be used
-        /// when GameTime is not available
+        /// Compatibility wall-clock estimate for callers without GameTime.
+        /// Gameplay code must use GetCurrentMs(GameTime).
         /// </summary>
-        /// <returns>Current song time in milliseconds</returns>
         public double GetCurrentMs()
         {
-            if (_disposed || !_isPlaying)
+            if (_disposed)
                 return 0.0;
 
-            // This is less precise but can be used when GameTime is not available
-            // In practice, the GameTime version should be preferred
-            return (DateTime.UtcNow - _systemStartTime).TotalMilliseconds;
+            if (_playbackClock.IsPaused)
+                return _systemLogicalPositionMs;
+
+            if (!_playbackClock.IsRunning)
+                return 0.0;
+
+            var systemElapsedMs =
+                (DateTime.UtcNow - _systemStartTime).TotalMilliseconds;
+            return _systemLogicalPositionMs +
+                systemElapsedMs * _playbackClock.PlaySpeedPercent / 100.0;
         }
 
         /// <summary>
-        /// Sets the playback position (if supported by the audio format)
+        /// Sets the logical chart position. Audio seeking is not supported by
+        /// SoundEffectInstance, so this changes chart time only.
         /// </summary>
-        /// <param name="positionMs">Position in milliseconds</param>
-        /// <param name="gameTime">Current game time for timing adjustment</param>
         public void SetPosition(double positionMs, GameTime gameTime)
         {
             if (_disposed)
                 return;
 
-            // Note: XNA/MonoGame SoundEffectInstance doesn't support seeking
-            // This method is provided for future compatibility
-            // For now, we adjust the start time to simulate the position
-            _startTime = gameTime.TotalGameTime - TimeSpan.FromMilliseconds(positionMs);
+            _playbackClock.SetLogicalPosition(positionMs, gameTime);
+            _systemLogicalPositionMs =
+                _playbackClock.GetLogicalTimeMs(gameTime);
+            _systemStartTime = DateTime.UtcNow;
         }
 
         /// <summary>
-        /// Updates the timer (call this every frame)
+        /// Retained for the stage update lifecycle. Audio completion deliberately
+        /// does not change logical clock state.
         /// </summary>
-        /// <param name="gameTime">Current game time</param>
         public void Update(GameTime gameTime)
         {
             if (_disposed)
                 return;
 
-            // Check if the sound has finished playing
-            if (_isPlaying && _soundInstance?.State == SoundState.Stopped)
-            {
-                _isPlaying = false;
-            }
+            _playbackClock.GetLogicalTimeMs(gameTime);
         }
 
-        #endregion
-
-        #region IDisposable Implementation
-
-        /// <summary>
-        /// Disposes the timer and releases resources
-        /// </summary>
         public void Dispose()
         {
             Dispose(true);
             GC.SuppressFinalize(this);
         }
 
-        /// <summary>
-        /// Protected dispose method
-        /// </summary>
-        /// <param name="disposing">Whether disposing from Dispose() call</param>
         protected virtual void Dispose(bool disposing)
         {
-            if (!_disposed && disposing)
-            {
-                Stop();
-                _soundInstance?.Dispose();
-                _disposed = true;
-            }
-        }
+            if (_disposed || !disposing)
+                return;
 
-        #endregion
+            Stop();
+            _soundInstance?.Dispose();
+            _disposed = true;
+        }
     }
 }

@@ -51,6 +51,7 @@ namespace DTXMania.Game.Lib.Stage
         private string _songTitle;
         private string _artistName;
         private string _difficultyName;
+        private string _playbackProfileText;
         
         // Preview image with rotation support
         private ITexture _previewTexture;
@@ -317,6 +318,7 @@ namespace DTXMania.Game.Lib.Stage
             _songTitle = _selectedSong?.DisplayTitle ?? "Unknown Song";
             _artistName = _selectedSong?.DatabaseSong?.Artist ?? "Unknown Artist";
             _difficultyName = GetDifficultyName(_selectedDifficulty);
+            _playbackProfileText = CreatePlaybackProfileText();
             
             // Load fonts for text rendering
             LoadFonts();
@@ -738,12 +740,32 @@ namespace DTXMania.Game.Lib.Stage
                         artistColor, Color.Black * 0.8f, new Vector2(1, 1));
                 }
 
+                if (artistFont != null && !string.IsNullOrEmpty(_playbackProfileText))
+                {
+                    artistFont.DrawStringWithShadow(
+                        _spriteBatch,
+                        _playbackProfileText,
+                        SongTransitionUILayout.PlaybackProfile.Position,
+                        SongTransitionUILayout.PlaybackProfile.TextColor,
+                        Color.Black * 0.8f,
+                        new Vector2(1, 1));
+                }
+
                 // Note: Difficulty is now drawn as sprite in DrawDifficultySprite method
             }
             catch (Exception)
             {
                 // Text drawing failed, continue without text
             }
+        }
+
+        private string CreatePlaybackProfileText()
+        {
+            var config = _game.ConfigManager?.Config;
+            var playSpeedPercent = config?.PlaySpeedPercent ?? PlaySpeedRange.Default;
+            var pitchSemitones = config?.PitchSemitones ?? PitchRange.Default;
+
+            return $"PLAY {PlaySpeedRange.Format(playSpeedPercent)} · PITCH {PitchRange.Format(pitchSemitones)}";
         }
 
         [ExcludeFromCodeCoverage]
@@ -1123,6 +1145,12 @@ namespace DTXMania.Game.Lib.Stage
             telemetry.SelectedSongTitle = _selectedSong?.DisplayTitle ?? _selectedSong?.Title;
             telemetry.SelectedDifficulty = _selectedDifficulty;
             telemetry.ChartLoaded = _selectedSong?.GetCurrentDifficultyChart(_selectedDifficulty) != null;
+            var config = _game.ConfigManager?.Config;
+            telemetry.PlaySpeedPercent = PlaySpeedRange.SnapAndClamp(
+                config?.PlaySpeedPercent ?? PlaySpeedRange.Default);
+            telemetry.PitchSemitones = PitchRange.SnapAndClamp(
+                config?.PitchSemitones ?? PitchRange.Default);
+            telemetry.PlaybackProfileFrozen = false;
         }
 
         #endregion

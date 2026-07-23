@@ -1,8 +1,5 @@
-using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Runtime.Serialization;
-using System.Threading.Tasks;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage.Performance;
 using Microsoft.Xna.Framework.Audio;
@@ -12,225 +9,96 @@ using Xunit;
 namespace DTXMania.Test.Stage.Performance
 {
     [Trait("Category", "Unit")]
-    public class ChipSoundCacheAdditionalTests
+    public sealed class ChipSoundCacheAdditionalTests
     {
         [Fact]
-        public async Task Play_SoundReturnsInstance_TracksActiveInstance()
+        public void Play_ReturnedInstance_IsTracked()
         {
-            var (dir, file1, _) = CreateTempWavFiles("a.wav", null);
-            try
-            {
-                var instance = CreateSoundEffectInstance();
-                var soundMock = new Mock<ISound>();
-                soundMock.Setup(s => s.Play()).Returns(instance);
+            var sound = new Mock<ISound>();
+            sound.Setup(value => value.Play()).Returns(CreateSoundEffectInstance());
+            using var cache = CreateCache(sound.Object);
 
-                using var cache = new ChipSoundCache(_ => soundMock.Object);
-                await cache.PreloadAsync(new Dictionary<string, string> { ["01"] = file1 });
+            cache.Play("01");
 
-                Assert.Equal(0, cache.ActiveInstanceCount);
-                cache.Play("01");
-                Assert.Equal(1, cache.ActiveInstanceCount);
-            }
-            finally
-            {
-                Directory.Delete(dir, recursive: true);
-            }
+            Assert.Equal(1, cache.ActiveInstanceCount);
         }
 
         [Fact]
-        public async Task Play_MultipleTimes_IncrementsActiveInstanceCount()
+        public void Play_MultipleReturnedInstances_AreTracked()
         {
-            var (dir, file1, _) = CreateTempWavFiles("a.wav", null);
-            try
-            {
-                var callCount = 0;
-                var soundMock = new Mock<ISound>();
-                soundMock.Setup(s => s.Play()).Returns(() =>
-                {
-                    callCount++;
-                    return CreateSoundEffectInstance();
-                });
+            var sound = new Mock<ISound>();
+            sound.Setup(value => value.Play()).Returns(CreateSoundEffectInstance);
+            using var cache = CreateCache(sound.Object);
 
-                using var cache = new ChipSoundCache(_ => soundMock.Object);
-                await cache.PreloadAsync(new Dictionary<string, string> { ["01"] = file1 });
+            cache.Play("01");
+            cache.Play("01");
 
-                cache.Play("01");
-                cache.Play("01");
-                Assert.Equal(2, cache.ActiveInstanceCount);
-            }
-            finally
-            {
-                Directory.Delete(dir, recursive: true);
-            }
+            Assert.Equal(2, cache.ActiveInstanceCount);
         }
 
         [Fact]
-        public async Task CleanupStoppedInstances_RemovesAllStoppedInstances()
+        public void Play_NullInstance_DoesNotAddTrackingEntry()
         {
-            var (dir, file1, _) = CreateTempWavFiles("a.wav", null);
-            try
-            {
-                var soundMock = new Mock<ISound>();
-                soundMock.Setup(s => s.Play()).Returns(CreateSoundEffectInstance);
+            var sound = new Mock<ISound>();
+            using var cache = CreateCache(sound.Object);
 
-                using var cache = new ChipSoundCache(_ => soundMock.Object);
-                await cache.PreloadAsync(new Dictionary<string, string> { ["01"] = file1 });
+            cache.Play("01");
 
-                cache.Play("01");
-                cache.Play("01");
-                cache.Play("01");
-                Assert.Equal(3, cache.ActiveInstanceCount);
-
-                cache.CleanupStoppedInstances();
-
-                Assert.Equal(0, cache.ActiveInstanceCount);
-            }
-            finally
-            {
-                Directory.Delete(dir, recursive: true);
-            }
+            Assert.Equal(0, cache.ActiveInstanceCount);
         }
 
         [Fact]
-        public async Task StopAll_WithActiveInstances_DoesNotThrow()
+        public void CleanupStoppedInstances_RemovesStoppedInstances()
         {
-            var (dir, file1, _) = CreateTempWavFiles("a.wav", null);
-            try
-            {
-                var soundMock = new Mock<ISound>();
-                soundMock.Setup(s => s.Play()).Returns(CreateSoundEffectInstance);
+            var sound = new Mock<ISound>();
+            sound.Setup(value => value.Play()).Returns(CreateSoundEffectInstance);
+            using var cache = CreateCache(sound.Object);
+            cache.Play("01");
+            cache.Play("01");
 
-                using var cache = new ChipSoundCache(_ => soundMock.Object);
-                await cache.PreloadAsync(new Dictionary<string, string> { ["01"] = file1 });
+            cache.CleanupStoppedInstances();
 
-                cache.Play("01");
-                cache.Play("01");
-
-                var ex = Record.Exception(() => cache.StopAll());
-                Assert.Null(ex);
-            }
-            finally
-            {
-                Directory.Delete(dir, recursive: true);
-            }
+            Assert.Equal(0, cache.ActiveInstanceCount);
         }
 
         [Fact]
-        public async Task Dispose_WithActiveInstances_StopsAndDisposesAll()
+        public void Play_AboveInstanceLimit_PerformsAutomaticCleanup()
         {
-            var (dir, file1, _) = CreateTempWavFiles("a.wav", null);
-            try
-            {
-                var soundMock = new Mock<ISound>();
-                soundMock.Setup(s => s.Play()).Returns(CreateSoundEffectInstance);
+            var sound = new Mock<ISound>();
+            sound.Setup(value => value.Play()).Returns(CreateSoundEffectInstance);
+            using var cache = CreateCache(sound.Object);
 
-                var cache = new ChipSoundCache(_ => soundMock.Object);
-                await cache.PreloadAsync(new Dictionary<string, string> { ["01"] = file1 });
-                cache.Play("01");
-                cache.Play("01");
-                Assert.Equal(2, cache.ActiveInstanceCount);
-
-                cache.Dispose();
-
-                Assert.Equal(0, cache.ActiveInstanceCount);
-                Assert.Equal(0, cache.Count);
-            }
-            finally
-            {
-                Directory.Delete(dir, recursive: true);
-            }
-        }
-
-        [Fact]
-        public async Task Play_ExceedsMaxActiveInstances_TriggersAutoCleanup()
-        {
-            var (dir, file1, _) = CreateTempWavFiles("a.wav", null);
-            try
-            {
-                var soundMock = new Mock<ISound>();
-                soundMock.Setup(s => s.Play()).Returns(CreateSoundEffectInstance);
-
-                using var cache = new ChipSoundCache(_ => soundMock.Object);
-                await cache.PreloadAsync(new Dictionary<string, string> { ["01"] = file1 });
-
-                for (int i = 0; i < ChipSoundCache.MaxActiveInstances; i++)
-                {
-                    cache.Play("01");
-                }
-
-                Assert.Equal(ChipSoundCache.MaxActiveInstances, cache.ActiveInstanceCount);
-
+            for (var index = 0; index <= ChipSoundCache.MaxActiveInstances; index++)
                 cache.Play("01");
 
-                Assert.True(cache.ActiveInstanceCount <= ChipSoundCache.MaxActiveInstances);
-            }
-            finally
-            {
-                Directory.Delete(dir, recursive: true);
-            }
+            Assert.True(cache.ActiveInstanceCount <= ChipSoundCache.MaxActiveInstances);
         }
 
         [Fact]
-        public void StopAll_WithNoActiveInstances_DoesNotThrow()
+        public void Dispose_WithActiveInstances_ClearsTrackingAndBorrowedMap()
         {
-            using var cache = new ChipSoundCache(_ => Mock.Of<ISound>());
-            var ex = Record.Exception(() => cache.StopAll());
-            Assert.Null(ex);
+            var sound = new Mock<ISound>();
+            sound.Setup(value => value.Play()).Returns(CreateSoundEffectInstance);
+            var cache = CreateCache(sound.Object);
+            cache.Play("01");
+            cache.Play("01");
+
+            cache.Dispose();
+
+            Assert.Equal(0, cache.ActiveInstanceCount);
+            Assert.Equal(0, cache.Count);
+            sound.Verify(value => value.Dispose(), Times.Never);
         }
 
-        [Fact]
-        public void CleanupStoppedInstances_WithNoActiveInstances_DoesNotThrow()
-        {
-            using var cache = new ChipSoundCache(_ => Mock.Of<ISound>());
-            var ex = Record.Exception(() => cache.CleanupStoppedInstances());
-            Assert.Null(ex);
-        }
-
-        [Fact]
-        public async Task Play_CalledManyTimes_GrowsActiveInstanceList()
-        {
-            var (dir, file1, _) = CreateTempWavFiles("a.wav", null);
-            try
-            {
-                var soundMock = new Mock<ISound>();
-                soundMock.Setup(s => s.Play()).Returns(CreateSoundEffectInstance);
-
-                using var cache = new ChipSoundCache(_ => soundMock.Object);
-                await cache.PreloadAsync(new Dictionary<string, string> { ["01"] = file1 });
-
-                for (int i = 0; i < 10; i++)
-                {
-                    cache.Play("01");
-                }
-
-                Assert.Equal(10, cache.ActiveInstanceCount);
-            }
-            finally
-            {
-                Directory.Delete(dir, recursive: true);
-            }
-        }
+        private static ChipSoundCache CreateCache(ISound sound) =>
+            new(new Dictionary<string, ISound> { ["01"] = sound });
 
         private static SoundEffectInstance CreateSoundEffectInstance()
         {
 #pragma warning disable SYSLIB0050
-            return (SoundEffectInstance)FormatterServices.GetUninitializedObject(typeof(SoundEffectInstance));
+            return (SoundEffectInstance)FormatterServices.GetUninitializedObject(
+                typeof(SoundEffectInstance));
 #pragma warning restore SYSLIB0050
-        }
-
-        private static (string dir, string file1, string file2) CreateTempWavFiles(string name1, string? name2)
-        {
-            var dir = Path.Combine(Path.GetTempPath(), $"chipcache-add-{Guid.NewGuid()}");
-            Directory.CreateDirectory(dir);
-            var f1 = Path.Combine(dir, name1);
-            File.WriteAllBytes(f1, new byte[] { 0 });
-            string f2 = "";
-            if (name2 != null)
-            {
-                f2 = Path.Combine(dir, name2);
-                File.WriteAllBytes(f2, new byte[] { 0 });
-            }
-            return (dir, f1, f2);
         }
     }
 }

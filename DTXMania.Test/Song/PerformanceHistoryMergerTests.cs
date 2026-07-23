@@ -194,5 +194,37 @@ namespace DTXMania.Test.Song
             var rows = ctx.PerformanceHistory.Where(h => h.SongScoreId == scoreId).ToList();
             Assert.Equal(2, rows.Count); // dedup collapsed the duplicate
         }
+
+        [Fact]
+        public async Task MergeAsync_ShouldPreservePitchForExistingAndIncomingRows()
+        {
+            using var ctx = CreateContext();
+            var (songId, scoreId) = await SeedAsync(ctx);
+            await PerformanceHistoryMerger.MergeAsync(ctx, songId, scoreId, new[]
+            {
+                new PerformanceHistoryCandidate(
+                    "1.26/6/13 Cleared (S: 90) [0.75x, -3 st]",
+                    new DateTime(2026, 6, 13),
+                    -3),
+            });
+            await ctx.SaveChangesAsync();
+
+            await PerformanceHistoryMerger.MergeAsync(ctx, songId, scoreId, new[]
+            {
+                new PerformanceHistoryCandidate(
+                    "2.26/6/14 Cleared (SS: 98) [0.75x, +5 st]",
+                    new DateTime(2026, 6, 14),
+                    5),
+            });
+            await ctx.SaveChangesAsync();
+
+            var rows = await ctx.PerformanceHistory
+                .Where(history => history.SongScoreId == scoreId)
+                .OrderBy(history => history.PerformedAt)
+                .ToListAsync();
+            Assert.Equal(new[] { -3, 5 }, rows
+                .Select(history => history.PitchSemitones)
+                .ToArray());
+        }
     }
 }

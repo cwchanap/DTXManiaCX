@@ -30,6 +30,45 @@ public class PlayHistoryPanelLogicTests
     }
 
     [Fact]
+    public void UpdateSongInfo_WithExplicitSpeed_ShouldShowOnlyThatVariant()
+    {
+        var panel = new PlayHistoryPanel();
+        var node = new SongListNode { Type = NodeType.Score };
+        node.SetScore(0, new SongScore
+        {
+            PlaySpeedPercent = 100,
+            PlayHistoryLines = ["1.00x history"],
+        });
+        node.SetScoreVariant(0, 75, new SongScore
+        {
+            PlaySpeedPercent = 75,
+            PlayHistoryLines = ["0.75x history"],
+        });
+
+        panel.UpdateSongInfo(node, 0, 75);
+
+        Assert.Equal(75, panel.PlaySpeedPercent);
+        Assert.Equal(new[] { "0.75x history" }, GetRows(panel));
+    }
+
+    [Fact]
+    public void UpdateSongInfo_WithMissingExplicitSpeed_ShouldNotBorrowDefault()
+    {
+        var panel = new PlayHistoryPanel();
+        var node = new SongListNode { Type = NodeType.Score };
+        node.SetScore(0, new SongScore
+        {
+            PlaySpeedPercent = 100,
+            PlayHistoryLines = ["1.00x history"],
+        });
+
+        panel.UpdateSongInfo(node, 0, 95);
+
+        Assert.False(panel.Visible);
+        Assert.Empty(GetRows(panel));
+    }
+
+    [Fact]
     public void UpdateSongInfo_WithFailedHistoryThatHasScore_ShouldPreserveFailedText()
     {
         var panel = new PlayHistoryPanel();

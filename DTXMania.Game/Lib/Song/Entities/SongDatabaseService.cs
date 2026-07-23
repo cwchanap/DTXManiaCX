@@ -1,3 +1,4 @@
+using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Stage.Performance;
 using Microsoft.Data.Sqlite;
@@ -465,7 +466,10 @@ namespace DTXMania.Game.Lib.Song.Entities
             using var context = CreateContext();
 
             var score = await context.SongScores
-                .FirstOrDefaultAsync(s => s.ChartId == chartId && s.Instrument == instrument);
+                .FirstOrDefaultAsync(
+                    s => s.ChartId == chartId
+                        && s.Instrument == instrument
+                        && s.PlaySpeedPercent == PlaySpeedRange.Default);
 
             if (score != null)
             {
@@ -496,24 +500,109 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// "last play" fields and increments PlayCount. The pre-computed summary.GameSkill is assigned
         /// directly (not re-derived via score.CalculateSkill()), preserving level-decimal precision.
         /// </summary>
-        public async Task UpdateScoreAsync(int chartId, EInstrumentPart instrument, PerformanceSummary summary)
+        public async Task<ScoreSaveResult> UpdateScoreAsync(
+            int chartId,
+            EInstrumentPart instrument,
+            PerformanceSummary summary,
+            CancellationToken cancellationToken = default)
         {
             if (summary == null) throw new ArgumentNullException(nameof(summary));
+            if (summary.PlaySpeedPercent < PlaySpeedRange.Min
+                || summary.PlaySpeedPercent > PlaySpeedRange.Max
+                || summary.PlaySpeedPercent % PlaySpeedRange.Step != 0)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(summary),
+                    summary.PlaySpeedPercent,
+                    "PerformanceSummary.PlaySpeedPercent must be a canonical gameplay speed.");
+            }
 
+            // Pre-feature callers did not carry a run id. Preserve those direct service
+            // calls as non-idempotent legacy writes while all modern gameplay summaries
+            // use their frozen, non-empty RunId.
+            var runId = summary.RunId == Guid.Empty
+                ? Guid.NewGuid()
+                : summary.RunId;
+
+            try
+            {
+                return await SaveScoreTransactionAsync(
+                    chartId,
+                    instrument,
+                    summary,
+                    runId,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (IsSqliteWriteRace(ex))
+            {
+                var resolved = await ResolveReceiptAfterRaceAsync(
+                    runId,
+                    chartId,
+                    instrument,
+                    summary.PlaySpeedPercent,
+                    cancellationToken).ConfigureAwait(false);
+                if (resolved != null)
+                    return resolved;
+                throw;
+            }
+        }
+
+        private async Task<ScoreSaveResult> SaveScoreTransactionAsync(
+            int chartId,
+            EInstrumentPart instrument,
+            PerformanceSummary summary,
+            Guid runId,
+            CancellationToken cancellationToken)
+        {
             using var context = CreateContext();
-            await using var transaction = await context.Database.BeginTransactionAsync();
+            await using var transaction = await context.Database.BeginTransactionAsync(
+                cancellationToken);
+
+            // Receipt identity is deliberately checked before chart or score lookup.
+            // This keeps retries valid after stale cleanup removes the related score
+            // and nulls the optional SongScoreId foreign key.
+            var existingReceipt = await context.ScoreSaveReceipts
+                .AsNoTracking()
+                .FirstOrDefaultAsync(
+                    receipt => receipt.RunId == runId,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (existingReceipt != null)
+            {
+                return ResolveExistingReceipt(
+                    existingReceipt,
+                    chartId,
+                    instrument,
+                    summary.PlaySpeedPercent);
+            }
+
             var score = await context.SongScores
                 .Include(s => s.Chart)
-                .FirstOrDefaultAsync(s => s.ChartId == chartId && s.Instrument == instrument);
+                .FirstOrDefaultAsync(
+                    s => s.ChartId == chartId
+                        && s.Instrument == instrument
+                        && s.PlaySpeedPercent == summary.PlaySpeedPercent,
+                    cancellationToken)
+                .ConfigureAwait(false);
             if (score == null)
             {
-                var chart = await context.SongCharts.FirstOrDefaultAsync(c => c.Id == chartId)
+                var chart = await context.SongCharts.FirstOrDefaultAsync(
+                    chart => chart.Id == chartId,
+                    cancellationToken)
+                    .ConfigureAwait(false)
                     ?? throw new KeyNotFoundException($"Chart with Id {chartId} was not found.");
-                score = new SongScoreEntity { ChartId = chartId, Chart = chart, Instrument = instrument };
+                score = new SongScoreEntity
+                {
+                    ChartId = chartId,
+                    Chart = chart,
+                    Instrument = instrument,
+                    PlaySpeedPercent = summary.PlaySpeedPercent
+                };
                 context.SongScores.Add(score);
             }
 
-            if (summary.Score > score.BestScore)
+            var isFirstPlay = score.PlayCount == 0;
+            if (isFirstPlay || summary.Score > score.BestScore)
             {
                 score.BestScore = summary.Score;
                 score.BestPerfect = summary.PerfectCount;
@@ -521,10 +610,24 @@ namespace DTXMania.Game.Lib.Song.Entities
                 score.BestGood = summary.GoodCount;
                 score.BestPoor = summary.PoorCount;
                 score.BestMiss = summary.MissCount;
-                score.MaxCombo = summary.MaxCombo;
-                score.FullCombo = score.FullCombo || (summary.ClearFlag && summary.MissCount == 0 && summary.PoorCount == 0);
                 score.TotalNotes = summary.TotalNotes;
             }
+
+            var normalizedRunRank = SongScoreEntity.NormalizeRankPercentage(
+                (int)Math.Floor(summary.PlayingSkill));
+            var normalizedBestRank = isFirstPlay
+                ? 0
+                : SongScoreEntity.NormalizeStoredBestRank(score.BestRank);
+            if (isFirstPlay || normalizedRunRank > normalizedBestRank)
+                score.BestRank = normalizedRunRank;
+            else
+                score.BestRank = normalizedBestRank;
+
+            score.MaxCombo = Math.Max(score.MaxCombo, summary.MaxCombo);
+            score.FullCombo = score.FullCombo ||
+                (summary.ClearFlag &&
+                 summary.MissCount == 0 &&
+                 summary.PoorCount == 0);
 
             if (summary.GameSkill > score.HighSkill)
             {
@@ -543,37 +646,157 @@ namespace DTXMania.Game.Lib.Song.Entities
             score.PlayCount++;
             if (summary.ClearFlag) score.ClearCount++;
 
-            await context.SaveChangesAsync();
+            await context.SaveChangesAsync(cancellationToken)
+                .ConfigureAwait(false);
 
             var localDate = nowUtc.ToLocalTime();
             var rank = SongScoreEntity.RankString((int)Math.Floor(summary.PlayingSkill));
             var status = summary.ClearFlag ? "Cleared" : "Failed";
             var line = string.Format(
                 CultureInfo.InvariantCulture,
-                "{0}.{1:yy/M/d} {2} ({3}: {4:F2})",
+                "{0}.{1:yy/M/d} {2} ({3}: {4:F2}) [{5}, {6}]",
                 score.PlayCount,
                 localDate,
                 status,
                 rank,
-                summary.PlayingSkill);
+                summary.PlayingSkill,
+                PlaySpeedRange.Format(summary.PlaySpeedPercent),
+                PitchRange.Format(summary.PitchSemitones));
 
             await PerformanceHistoryMerger.MergeAsync(
                 context,
                 score.Chart.SongId,
                 score.Id,
-                new[] { new PerformanceHistoryCandidate(line, nowUtc) });
+                new[]
+                {
+                    new PerformanceHistoryCandidate(
+                        line,
+                        nowUtc,
+                        summary.PitchSemitones)
+                },
+                cancellationToken).ConfigureAwait(false);
 
-            await context.SaveChangesAsync();
-            await transaction.CommitAsync();
+            context.ScoreSaveReceipts.Add(new ScoreSaveReceipt
+            {
+                RunId = runId,
+                ChartId = chartId,
+                Instrument = instrument,
+                PlaySpeedPercent = summary.PlaySpeedPercent,
+                SongScoreId = score.Id,
+                SavedAtUtc = nowUtc
+            });
+
+            await context.SaveChangesAsync(cancellationToken)
+                .ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken)
+                .ConfigureAwait(false);
+            return ScoreSaveResult.Saved(score.Id);
+        }
+
+        private static ScoreSaveResult ResolveExistingReceipt(
+            ScoreSaveReceipt receipt,
+            int chartId,
+            EInstrumentPart instrument,
+            int playSpeedPercent)
+        {
+            if (receipt.ChartId == chartId
+                && receipt.Instrument == instrument
+                && receipt.PlaySpeedPercent == playSpeedPercent)
+            {
+                return ScoreSaveResult.AlreadySaved(receipt.SongScoreId);
+            }
+
+            return ScoreSaveResult.Failed(
+                $"RunId collision: {receipt.RunId} is already stored for " +
+                $"chart {receipt.ChartId}, instrument {receipt.Instrument}, " +
+                $"speed {receipt.PlaySpeedPercent}, not chart {chartId}, " +
+                $"instrument {instrument}, speed {playSpeedPercent}.");
+        }
+
+        private async Task<ScoreSaveResult> ResolveReceiptAfterRaceAsync(
+            Guid runId,
+            int chartId,
+            EInstrumentPart instrument,
+            int playSpeedPercent,
+            CancellationToken cancellationToken)
+        {
+            const int maxAttempts = 20;
+            for (var attempt = 0; attempt < maxAttempts; attempt++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    using var context = CreateContext();
+                    var receipt = await context.ScoreSaveReceipts
+                        .AsNoTracking()
+                        .FirstOrDefaultAsync(
+                            candidate => candidate.RunId == runId,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                    if (receipt != null)
+                    {
+                        return ResolveExistingReceipt(
+                            receipt,
+                            chartId,
+                            instrument,
+                            playSpeedPercent);
+                    }
+                }
+                catch (SqliteException ex) when (
+                    ex.SqliteErrorCode == 5
+                    || ex.SqliteErrorCode == 6)
+                {
+                    // The winning transaction still owns the database lock.
+                }
+
+                await Task.Delay(
+                    TimeSpan.FromMilliseconds(10 + (attempt * 5)),
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            return null;
+        }
+
+        private static bool IsSqliteWriteRace(Exception exception)
+        {
+            for (var current = exception; current != null; current = current.InnerException)
+            {
+                if (current is SqliteException sqlite
+                    && (sqlite.SqliteErrorCode == 5
+                        || sqlite.SqliteErrorCode == 6
+                        || sqlite.SqliteExtendedErrorCode == 1555
+                        || sqlite.SqliteExtendedErrorCode == 2067))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         /// Get top scores for a specific instrument
         public async Task<List<SongScoreEntity>> GetTopScoresAsync(EInstrumentPart instrument, int limit = 10)
         {
+            return await GetTopScoresForSpeedAsync(
+                instrument,
+                PlaySpeedRange.Default,
+                limit).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Gets top scores for one explicit gameplay-speed bucket.
+        /// </summary>
+        public async Task<List<SongScoreEntity>> GetTopScoresForSpeedAsync(
+            EInstrumentPart instrument,
+            int playSpeedPercent,
+            int limit = 10)
+        {
             using var context = CreateContext();
 
             return await context.SongScores
-                .Where(s => s.Instrument == instrument && s.BestScore > 0)
+                .Where(s => s.Instrument == instrument
+                    && s.PlaySpeedPercent == playSpeedPercent
+                    && s.BestScore > 0)
                 .Include(s => s.Chart)
                 .ThenInclude(c => c.Song)
                 .OrderByDescending(s => s.BestScore)
@@ -585,9 +808,28 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// Loads a single <see cref="SongScore"/> with its <see cref="SongScore.PerformanceHistory"/>
         /// collection eagerly loaded. Used by <see cref="SongManager"/> to refresh the
         /// in-memory score cache after a score update without rebuilding the entire
-        /// song-list tree. Returns null when no score row exists for the given chart+instrument.
+        /// song-list tree. This overload is retained only for legacy callers and reads
+        /// the default 100% speed variant.
         /// </summary>
         public async Task<SongScoreEntity> GetScoreWithHistoryAsync(int chartId, EInstrumentPart instrument)
+        {
+            return await GetScoreWithHistoryAsync(
+                chartId,
+                instrument,
+                playSpeedPercent: 100,
+                CancellationToken.None).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Loads one exact chart/instrument/speed score variant with its own history.
+        /// Returns null when that specific speed has not been played; another speed's
+        /// score is never substituted.
+        /// </summary>
+        public async Task<SongScoreEntity> GetScoreWithHistoryAsync(
+            int chartId,
+            EInstrumentPart instrument,
+            int playSpeedPercent,
+            CancellationToken cancellationToken = default)
         {
             using var context = CreateContext();
 
@@ -595,7 +837,11 @@ namespace DTXMania.Game.Lib.Song.Entities
                 .Include(s => s.Chart)
                 .Include(s => s.PerformanceHistory)
                 .AsNoTracking()
-                .FirstOrDefaultAsync(s => s.ChartId == chartId && s.Instrument == instrument)
+                .FirstOrDefaultAsync(
+                    s => s.ChartId == chartId
+                        && s.Instrument == instrument
+                        && s.PlaySpeedPercent == playSpeedPercent,
+                    cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -604,8 +850,9 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// difficulty charts is collapsed to a single entry using the maximum LastPlayedAt
         /// across its charts. Songs that have never been played (no score with a LastPlayedAt)
         /// are excluded. Results are ordered newest-first and limited to <paramref name="limit"/>.
-        /// Each returned Song has its Charts and the charts' Scores eagerly loaded so callers
-        /// can build fully-populated SongListNodes.
+        /// Recency intentionally aggregates across speeds at the song level. Each returned
+        /// Song retains every eagerly loaded score variant and each variant's pitch-bearing
+        /// history, so materialization does not collapse chart/instrument/speed identity.
         /// </summary>
         public async Task<List<SongEntity>> GetRecentlyPlayedSongsAsync(int limit = 20)
         {
@@ -840,6 +1087,10 @@ namespace DTXMania.Game.Lib.Song.Entities
 
             // Additive schema upgrade: score-scoped play history.
             await EnsurePerformanceHistoryScoreScopeAsync(context);
+
+            // Additive schema upgrade: playback-speed-scoped scores, pitch history,
+            // and durable save receipts.
+            await EnsurePlaybackSpeedScoreScopeAsync(context);
         }
 
         /// <summary>
@@ -1008,6 +1259,13 @@ namespace DTXMania.Game.Lib.Song.Entities
 
         private static async Task RebuildPerformanceHistoryTableWithScoreScopeAsync(SongDbContext context)
         {
+            var pitchColumnCount = await context.Database.SqlQueryRaw<int>(
+                "SELECT COUNT(*) FROM pragma_table_info('PerformanceHistory') WHERE name='PitchSemitones'"
+            ).ToListAsync();
+            var pitchSelectExpression = pitchColumnCount.FirstOrDefault() == 0
+                ? "0"
+                : "PitchSemitones";
+
             await context.Database.ExecuteSqlRawAsync("PRAGMA foreign_keys = OFF");
             try
             {
@@ -1020,13 +1278,21 @@ namespace DTXMania.Game.Lib.Song.Entities
                         PerformedAt TEXT NOT NULL,
                         HistoryLine TEXT NOT NULL,
                         DisplayOrder INTEGER NOT NULL,
+                        PitchSemitones INTEGER NOT NULL DEFAULT 0,
                         CONSTRAINT FK_PerformanceHistory_Songs_SongId
                             FOREIGN KEY (SongId) REFERENCES Songs (Id) ON DELETE CASCADE,
                         CONSTRAINT FK_PerformanceHistory_SongScores_SongScoreId
                             FOREIGN KEY (SongScoreId) REFERENCES SongScores (Id) ON DELETE SET NULL
                     )");
-                await context.Database.ExecuteSqlRawAsync(@"
-                    INSERT INTO PerformanceHistory_new (Id, SongId, SongScoreId, PerformedAt, HistoryLine, DisplayOrder)
+                await context.Database.ExecuteSqlRawAsync($@"
+                    INSERT INTO PerformanceHistory_new (
+                        Id,
+                        SongId,
+                        SongScoreId,
+                        PerformedAt,
+                        HistoryLine,
+                        DisplayOrder,
+                        PitchSemitones)
                     SELECT
                         Id,
                         SongId,
@@ -1038,7 +1304,8 @@ namespace DTXMania.Game.Lib.Song.Entities
                         END,
                         PerformedAt,
                         HistoryLine,
-                        DisplayOrder
+                        DisplayOrder,
+                        {pitchSelectExpression}
                     FROM PerformanceHistory");
                 await context.Database.ExecuteSqlRawAsync("DROP TABLE PerformanceHistory");
                 await context.Database.ExecuteSqlRawAsync("ALTER TABLE PerformanceHistory_new RENAME TO PerformanceHistory");
@@ -1046,6 +1313,257 @@ namespace DTXMania.Game.Lib.Song.Entities
             finally
             {
                 await context.Database.ExecuteSqlRawAsync("PRAGMA foreign_keys = ON");
+            }
+        }
+
+        private static async Task EnsurePlaybackSpeedScoreScopeAsync(SongDbContext context)
+        {
+            await using var transaction = await context.Database.BeginTransactionAsync();
+            try
+            {
+                await EnsureMigrationColumnAsync(
+                    context,
+                    table: "SongScores",
+                    column: "PlaySpeedPercent",
+                    definition: "INTEGER NOT NULL DEFAULT 100");
+                await EnsureMigrationColumnAsync(
+                    context,
+                    table: "PerformanceHistory",
+                    column: "PitchSemitones",
+                    definition: "INTEGER NOT NULL DEFAULT 0");
+
+                // The legacy index prevents a second speed variant for the same
+                // chart/instrument. Replace it without rebuilding SongScores so every
+                // score id, and therefore every PerformanceHistory foreign key, remains
+                // stable.
+                await context.Database.ExecuteSqlRawAsync(
+                    "DROP INDEX IF EXISTS IX_SongScores_ChartId_Instrument");
+
+                var correctScoreIndexCount = await context.Database.SqlQueryRaw<int>(@"
+                    SELECT COUNT(*)
+                    FROM pragma_index_list('SongScores') AS index_list
+                    WHERE index_list.name='IX_SongScores_ChartId_Instrument_PlaySpeedPercent'
+                      AND index_list.[unique]=1
+                      AND (SELECT COUNT(*) FROM pragma_index_info(index_list.name))=3
+                      AND (SELECT name FROM pragma_index_info(index_list.name) WHERE seqno=0)='ChartId'
+                      AND (SELECT name FROM pragma_index_info(index_list.name) WHERE seqno=1)='Instrument'
+                      AND (SELECT name FROM pragma_index_info(index_list.name) WHERE seqno=2)='PlaySpeedPercent'"
+                ).ToListAsync();
+
+                if (correctScoreIndexCount.FirstOrDefault() == 0)
+                {
+                    await context.Database.ExecuteSqlRawAsync(
+                        "DROP INDEX IF EXISTS IX_SongScores_ChartId_Instrument_PlaySpeedPercent");
+                    try
+                    {
+                        await context.Database.ExecuteSqlRawAsync(
+                            "CREATE UNIQUE INDEX IX_SongScores_ChartId_Instrument_PlaySpeedPercent " +
+                            "ON SongScores(ChartId, Instrument, PlaySpeedPercent)");
+                    }
+                    catch (SqliteException ex)
+                    {
+                        throw new InvalidOperationException(
+                            "SongDatabaseService: Cannot create the speed-scoped SongScores index. " +
+                            "Existing duplicate rows share ChartId, Instrument, and PlaySpeedPercent; " +
+                            "no score data was deleted.",
+                            ex);
+                    }
+                }
+
+                await EnsureScoreSaveReceiptsAsync(context);
+                await transaction.CommitAsync();
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        }
+
+        /// <remarks>
+        /// All identifiers passed here are hardcoded migration constants. SQLite does
+        /// not support parameterized identifiers, so this helper must never receive
+        /// user-controlled table, column, or definition text.
+        /// </remarks>
+        private static async Task EnsureMigrationColumnAsync(
+            SongDbContext context,
+            string table,
+            string column,
+            string definition)
+        {
+            var columnCount = await context.Database.SqlQueryRaw<int>(
+                $"SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name='{column}'"
+            ).ToListAsync();
+            if (columnCount.FirstOrDefault() != 0)
+                return;
+
+            try
+            {
+                await context.Database.ExecuteSqlRawAsync(
+                    $"ALTER TABLE {table} ADD COLUMN {column} {definition}");
+            }
+            catch (SqliteException ex) when (ex.Message.Contains("duplicate column"))
+            {
+                // Concurrent initialization completed the same additive step.
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException(
+                    $"SongDatabaseService: Failed to add {table}.{column} during schema migration.",
+                    ex);
+            }
+        }
+
+        private static async Task EnsureScoreSaveReceiptsAsync(SongDbContext context)
+        {
+            var tableCount = await context.Database.SqlQueryRaw<int>(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='ScoreSaveReceipts'"
+            ).ToListAsync();
+            if (tableCount.FirstOrDefault() == 0)
+            {
+                await CreateScoreSaveReceiptsTableAsync(
+                    context,
+                    "ScoreSaveReceipts");
+            }
+            else
+            {
+                var runIdColumnCount = await context.Database.SqlQueryRaw<int>(
+                    "SELECT COUNT(*) FROM pragma_table_info('ScoreSaveReceipts') WHERE name='RunId'"
+                ).ToListAsync();
+                if (runIdColumnCount.FirstOrDefault() == 0)
+                {
+                    throw new InvalidOperationException(
+                        "SongDatabaseService: Existing ScoreSaveReceipts table has no RunId identity column; " +
+                        "migration stopped without deleting receipt data.");
+                }
+
+                await EnsureMigrationColumnAsync(
+                    context,
+                    table: "ScoreSaveReceipts",
+                    column: "ChartId",
+                    definition: "INTEGER NOT NULL DEFAULT 0");
+                await EnsureMigrationColumnAsync(
+                    context,
+                    table: "ScoreSaveReceipts",
+                    column: "Instrument",
+                    definition: "INTEGER NOT NULL DEFAULT 0");
+                await EnsureMigrationColumnAsync(
+                    context,
+                    table: "ScoreSaveReceipts",
+                    column: "PlaySpeedPercent",
+                    definition: "INTEGER NOT NULL DEFAULT 100");
+                await EnsureMigrationColumnAsync(
+                    context,
+                    table: "ScoreSaveReceipts",
+                    column: "SongScoreId",
+                    definition: "INTEGER NULL");
+                await EnsureMigrationColumnAsync(
+                    context,
+                    table: "ScoreSaveReceipts",
+                    column: "SavedAtUtc",
+                    definition: "TEXT NOT NULL DEFAULT ''");
+
+                var correctSetNullFkCount = await context.Database.SqlQueryRaw<int>(
+                    "SELECT COUNT(*) FROM pragma_foreign_key_list('ScoreSaveReceipts') " +
+                    "WHERE [table]='SongScores' AND [from]='SongScoreId' AND [on_delete]='SET NULL'"
+                ).ToListAsync();
+                var correctColumnShapeCount = await context.Database.SqlQueryRaw<int>(@"
+                    SELECT COUNT(*)
+                    FROM pragma_table_info('ScoreSaveReceipts')
+                    WHERE (name='RunId' AND type='TEXT' AND [notnull]=1 AND pk=1)
+                       OR (name='ChartId' AND type='INTEGER' AND [notnull]=1)
+                       OR (name='Instrument' AND type='INTEGER' AND [notnull]=1)
+                       OR (name='PlaySpeedPercent' AND type='INTEGER' AND [notnull]=1
+                           AND CAST(dflt_value AS INTEGER)=100)
+                       OR (name='SongScoreId' AND type='INTEGER' AND [notnull]=0)
+                       OR (name='SavedAtUtc' AND type='TEXT' AND [notnull]=1)"
+                ).ToListAsync();
+
+                if (correctColumnShapeCount.FirstOrDefault() != 6
+                    || correctSetNullFkCount.FirstOrDefault() == 0)
+                {
+                    await RebuildScoreSaveReceiptsTableAsync(context);
+                }
+            }
+
+            var correctReceiptIndexCount = await context.Database.SqlQueryRaw<int>(@"
+                SELECT COUNT(*)
+                FROM pragma_index_list('ScoreSaveReceipts') AS index_list
+                WHERE index_list.name='IX_ScoreSaveReceipts_SongScoreId'
+                  AND index_list.[unique]=0
+                  AND (SELECT COUNT(*) FROM pragma_index_info(index_list.name))=1
+                  AND (SELECT name FROM pragma_index_info(index_list.name) WHERE seqno=0)='SongScoreId'"
+            ).ToListAsync();
+            if (correctReceiptIndexCount.FirstOrDefault() == 0)
+            {
+                await context.Database.ExecuteSqlRawAsync(
+                    "DROP INDEX IF EXISTS IX_ScoreSaveReceipts_SongScoreId");
+                await context.Database.ExecuteSqlRawAsync(
+                    "CREATE INDEX IX_ScoreSaveReceipts_SongScoreId ON ScoreSaveReceipts(SongScoreId)");
+            }
+        }
+
+        private static Task CreateScoreSaveReceiptsTableAsync(
+            SongDbContext context,
+            string tableName)
+        {
+            return context.Database.ExecuteSqlRawAsync($@"
+                CREATE TABLE {tableName} (
+                    RunId TEXT NOT NULL CONSTRAINT PK_ScoreSaveReceipts PRIMARY KEY,
+                    ChartId INTEGER NOT NULL,
+                    Instrument INTEGER NOT NULL,
+                    PlaySpeedPercent INTEGER NOT NULL DEFAULT 100,
+                    SongScoreId INTEGER NULL,
+                    SavedAtUtc TEXT NOT NULL,
+                    CONSTRAINT FK_ScoreSaveReceipts_SongScores_SongScoreId
+                        FOREIGN KEY (SongScoreId) REFERENCES SongScores (Id) ON DELETE SET NULL
+                )");
+        }
+
+        private static async Task RebuildScoreSaveReceiptsTableAsync(SongDbContext context)
+        {
+            try
+            {
+                await context.Database.ExecuteSqlRawAsync(
+                    "DROP TABLE IF EXISTS ScoreSaveReceipts_new");
+                await CreateScoreSaveReceiptsTableAsync(
+                    context,
+                    "ScoreSaveReceipts_new");
+                await context.Database.ExecuteSqlRawAsync(@"
+                    INSERT INTO ScoreSaveReceipts_new (
+                        RunId,
+                        ChartId,
+                        Instrument,
+                        PlaySpeedPercent,
+                        SongScoreId,
+                        SavedAtUtc)
+                    SELECT
+                        RunId,
+                        ChartId,
+                        Instrument,
+                        PlaySpeedPercent,
+                        CASE
+                            WHEN SongScoreId IS NOT NULL
+                                AND EXISTS (
+                                    SELECT 1
+                                    FROM SongScores
+                                    WHERE SongScores.Id=ScoreSaveReceipts.SongScoreId)
+                            THEN SongScoreId
+                            ELSE NULL
+                        END,
+                        SavedAtUtc
+                    FROM ScoreSaveReceipts");
+                await context.Database.ExecuteSqlRawAsync(
+                    "DROP TABLE ScoreSaveReceipts");
+                await context.Database.ExecuteSqlRawAsync(
+                    "ALTER TABLE ScoreSaveReceipts_new RENAME TO ScoreSaveReceipts");
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException(
+                    "SongDatabaseService: Failed to converge the ScoreSaveReceipts schema; " +
+                    "the migration was rolled back without deleting receipt data.",
+                    ex);
             }
         }
 

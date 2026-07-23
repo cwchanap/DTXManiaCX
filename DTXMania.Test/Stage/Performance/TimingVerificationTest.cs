@@ -98,6 +98,31 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Equal(JudgementType.Miss, events[0].Type);
         }
 
+        [Fact]
+        public void VerifyMissDetectionUsesRawLogicalClockWhenHitClockIsCompensated()
+        {
+            var chartManager = CreateExactTestChart();
+            var judgementManager = new JudgementManager(
+                new MockInputManagerCompat(),
+                chartManager);
+            JudgementEvent? missEvent = null;
+            judgementManager.JudgementMade += (_, e) =>
+            {
+                if (e.Type == JudgementType.Miss)
+                {
+                    missEvent = e;
+                }
+            };
+
+            judgementManager.Update(
+                pendingHitTimeMs: 1000.0,
+                missScanTimeMs: 1250.0);
+
+            Assert.NotNull(missEvent);
+            Assert.Equal(JudgementType.Miss, missEvent!.Type);
+            Assert.InRange(missEvent.DeltaMs, 249.0, 251.0);
+        }
+
         private static ChartManager CreateExactTestChart()
         {
             // Replicate the exact chart from JudgementManagerTests.CreateTestChartManager()

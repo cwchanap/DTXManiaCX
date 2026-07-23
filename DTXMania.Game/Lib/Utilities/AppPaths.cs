@@ -170,6 +170,14 @@ namespace DTXMania.Game.Lib.Utilities
             return Path.GetFullPath(Path.Combine(GetAppDataRoot(), "songs.db"));
         }
 
+        public static string GetPlaybackAudioCacheRoot()
+        {
+            return Path.GetFullPath(Path.Combine(
+                GetAppDataRoot(),
+                "Cache",
+                "PlaybackAudioVariants"));
+        }
+
         public static string ResolvePathOrDefault(string? configuredPath, string defaultPath)
         {
             if (string.IsNullOrWhiteSpace(configuredPath))

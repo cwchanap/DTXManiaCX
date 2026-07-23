@@ -360,6 +360,23 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
+        public void PlaybackPresentation_RowsAndGuidance_ShouldNotOverlap()
+        {
+            Assert.True(ResultUILayout.PlaybackPresentation.ProfilePosition.Y
+                < ResultUILayout.PlaybackPresentation.ScoreBucketPosition.Y);
+            Assert.True(ResultUILayout.PlaybackPresentation.ScoreBucketPosition.Y
+                < ResultUILayout.PlaybackPresentation.SaveStatusPosition.Y);
+            Assert.True(ResultUILayout.PlaybackPresentation.SaveStatusPosition.Y
+                < ResultUILayout.PlaybackPresentation.SaveGuidanceBounds.Top);
+            Assert.True(ResultUILayout.PlaybackPresentation.SaveGuidanceBounds.Left
+                >= ResultUILayout.Jacket.PreviewDestination.Right);
+            Assert.True(ResultUILayout.PlaybackPresentation.SaveGuidanceBounds.Right
+                <= ResultUILayout.NXViewport.Width);
+            Assert.True(ResultUILayout.PlaybackPresentation.SaveGuidanceBounds.Bottom
+                <= ResultUILayout.NXViewport.Height);
+        }
+
+        [Fact]
         public void NXLayout_FontSizes_ShouldMatchDrumsResultLayout()
         {
             Assert.Equal(16, ResultUILayout.Fonts.Small);

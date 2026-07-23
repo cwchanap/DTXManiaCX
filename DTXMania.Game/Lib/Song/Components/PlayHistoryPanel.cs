@@ -2,6 +2,7 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
+using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.UI;
 using DTXMania.Game.Lib.UI.Layout;
@@ -20,6 +21,11 @@ namespace DTXMania.Game.Lib.Song.Components
         private IFont? _managedFont;
         private IResourceManager? _resourceManager;
         private string[] _historyLines = Array.Empty<string>();
+
+        /// <summary>
+        /// Exact play-speed profile used by the compatibility update overload.
+        /// </summary>
+        public int PlaySpeedPercent { get; set; } = PlaySpeedRange.Default;
 
         /// <summary>
         /// Row text color: "SongSelect.HistoryText" → "UI.TextPrimary" → the NX
@@ -93,13 +99,27 @@ namespace DTXMania.Game.Lib.Song.Components
         /// </summary>
         public void UpdateSongInfo(SongListNode? song, int difficulty)
         {
+            UpdateSongInfo(song, difficulty, PlaySpeedPercent);
+        }
+
+        /// <summary>
+        /// Refreshes history from one exact speed variant. Missing variants are
+        /// displayed as unplayed and never borrow the default-speed history.
+        /// </summary>
+        public void UpdateSongInfo(
+            SongListNode? song,
+            int difficulty,
+            int playSpeedPercent)
+        {
+            PlaySpeedPercent = playSpeedPercent;
+
             if (song == null || song.Type != NodeType.Score)
             {
                 ClearHistory();
                 return;
             }
 
-            var score = song.GetScore(difficulty);
+            var score = ResolveScore(song, difficulty, playSpeedPercent);
             if (score == null)
             {
                 ClearHistory();
@@ -114,6 +134,19 @@ namespace DTXMania.Game.Lib.Song.Components
 
             Visible = ShouldShowPanel(_historyLines.Length,
                 ResolveHideWhenEmpty(_resourceManager?.CurrentTheme ?? SkinTheme.Empty));
+        }
+
+        internal static Entities.SongScore? ResolveScore(
+            SongListNode? song,
+            int difficulty,
+            int playSpeedPercent)
+        {
+            if (song == null)
+                return null;
+
+            return playSpeedPercent == PlaySpeedRange.Default
+                ? song.GetScore(difficulty)
+                : song.GetScore(difficulty, playSpeedPercent);
         }
 
         protected override void Dispose(bool disposing)

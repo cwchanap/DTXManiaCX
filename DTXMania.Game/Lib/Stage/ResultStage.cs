@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -10,6 +11,7 @@ using DTXMania.Game.Lib;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.UI;
 using DTXMania.Game.Lib.Input;
+using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
@@ -50,10 +52,14 @@ namespace DTXMania.Game.Lib.Stage
         private Texture2D _whitePixel;
         private bool _newRecordSoundPlayed;
 
-
         // State
         private double _elapsedTime = 0.0;
-        
+        private SongChart? _scoreSaveChart;
+        private EInstrumentPart _scoreSaveInstrument = EInstrumentPart.DRUMS;
+        private Task<ScoreSaveResult>? _scoreSaveTask;
+        private ResultSaveState _scoreSaveState = ResultSaveState.NotStarted;
+        private string? _scoreSaveError;
+
         // Note: Using global stage transition debouncing from BaseGame
 
         private const string StageClearSoundPath = SoundPath.StageClear;
@@ -66,6 +72,10 @@ namespace DTXMania.Game.Lib.Stage
         #region Properties
 
         public override StageType Type => StageType.Result;
+
+        internal ResultSaveState ScoreSaveState => _scoreSaveState;
+
+        internal string? ScoreSaveError => _scoreSaveError;
 
         #endregion
 
@@ -97,6 +107,10 @@ namespace DTXMania.Game.Lib.Stage
         protected override void OnActivate()
         {
             ExtractSharedData();
+            _scoreSaveChart = null;
+            _scoreSaveInstrument = EInstrumentPart.DRUMS;
+            _scoreSaveTask = null;
+            SetScoreSavePresentation(ResultSaveState.NotStarted);
 
             var selectedChart = ResolveSelectedChart();
             var previousScore = ResolvePreviousScore(selectedChart);
@@ -107,7 +121,7 @@ namespace DTXMania.Game.Lib.Stage
                 selectedChart,
                 previousScore);
 
-            PersistPerformanceSummary(selectedChart);
+            StartPerformanceSummarySave(selectedChart);
 
             InitializeComponents();
             _revealState = new ResultRevealState();
@@ -126,6 +140,8 @@ namespace DTXMania.Game.Lib.Stage
 
         protected override void OnDeactivate()
         {
+            ObserveOutstandingSaveTask();
+
             // Clean up components
             CleanupComponents();
         }
@@ -135,6 +151,7 @@ namespace DTXMania.Game.Lib.Stage
             _elapsedTime += deltaTime;
             _revealState?.Update(deltaTime);
             PlayNewRecordSoundIfReady();
+            ObservePerformanceSummarySave();
 
             // Update input manager
             _inputManager?.Update(deltaTime);
@@ -350,16 +367,24 @@ namespace DTXMania.Game.Lib.Stage
 
         internal virtual SongScore ResolvePreviousScore(SongChart selectedChart)
         {
-            if (_selectedSong?.Scores != null && selectedChart != null)
-            {
-                foreach (var score in _selectedSong.Scores)
-                {
-                    if (score?.ChartId == selectedChart.Id && selectedChart.Id != 0)
-                        return score;
-                }
-            }
+            if (_selectedSong == null || _performanceSummary == null)
+                return null;
 
-            return _selectedSong?.GetScore(_selectedDifficulty);
+            return _selectedSong.GetScore(
+                _selectedDifficulty,
+                _performanceSummary.PlaySpeedPercent);
+        }
+
+        internal virtual EInstrumentPart ResolveSelectedInstrument()
+        {
+            if (_selectedSong == null)
+                return EInstrumentPart.DRUMS;
+
+            var speed = _performanceSummary?.PlaySpeedPercent
+                ?? PlaySpeedRange.Default;
+            return _selectedSong.GetScore(_selectedDifficulty, speed)?.Instrument
+                ?? _selectedSong.GetDefaultSpeedScore(_selectedDifficulty)?.Instrument
+                ?? EInstrumentPart.DRUMS;
         }
 
         internal virtual ResultScreenModel CreateResultScreenModel(
@@ -372,18 +397,114 @@ namespace DTXMania.Game.Lib.Stage
             return ResultScreenModel.Create(summary, selectedSong, selectedDifficulty, selectedChart, previousScore);
         }
 
-        private void PersistPerformanceSummary(SongChart selectedChart)
+        internal virtual Task<ScoreSaveResult> SavePerformanceSummaryAsync(
+            int chartId,
+            EInstrumentPart instrument,
+            PerformanceSummary summary)
         {
-            if (selectedChart == null || selectedChart.Id <= 0 || _performanceSummary == null)
+            return SongManager.Instance.UpdateScoreAsync(
+                chartId,
+                instrument,
+                summary);
+        }
+
+        private void StartPerformanceSummarySave(SongChart selectedChart)
+        {
+            if (_scoreSaveState == ResultSaveState.Saving)
                 return;
 
-            _ = SongManager.Instance.UpdateScoreAsync(
+            if (selectedChart == null ||
+                selectedChart.Id <= 0 ||
+                _performanceSummary == null ||
+                !_performanceSummary.IsSavable)
+            {
+                return;
+            }
+
+            _scoreSaveChart = selectedChart;
+            _scoreSaveInstrument = ResolveSelectedInstrument();
+            SetScoreSavePresentation(ResultSaveState.Saving);
+
+            try
+            {
+                _scoreSaveTask = SavePerformanceSummaryAsync(
                     selectedChart.Id,
-                    EInstrumentPart.DRUMS,
-                    _performanceSummary)
-                .ContinueWith(
-                    task => System.Diagnostics.Trace.WriteLine($"ResultStage: Failed to persist score: {task.Exception?.GetBaseException().Message}"),
-                    TaskContinuationOptions.OnlyOnFaulted);
+                    _scoreSaveInstrument,
+                    _performanceSummary);
+            }
+            catch (Exception ex)
+            {
+                _scoreSaveTask = null;
+                SetScoreSavePresentation(ResultSaveState.Failed, ex.Message);
+            }
+        }
+
+        private void ObservePerformanceSummarySave()
+        {
+            var task = _scoreSaveTask;
+            if (task == null || !task.IsCompleted)
+                return;
+
+            _scoreSaveTask = null;
+
+            try
+            {
+                var result = task.GetAwaiter().GetResult();
+                if (result.IsSuccess)
+                {
+                    SetScoreSavePresentation(ResultSaveState.Saved);
+                }
+                else
+                {
+                    SetScoreSavePresentation(
+                        ResultSaveState.Failed,
+                        result.ErrorMessage ?? "The score could not be saved.");
+                }
+            }
+            catch (Exception ex)
+            {
+                SetScoreSavePresentation(
+                    ResultSaveState.Failed,
+                    ex.GetBaseException().Message);
+            }
+        }
+
+        private void SetScoreSavePresentation(
+            ResultSaveState state,
+            string? error = null)
+        {
+            _scoreSaveState = state;
+            _scoreSaveError = state == ResultSaveState.Failed
+                ? string.IsNullOrWhiteSpace(error)
+                    ? "The score could not be saved."
+                    : error.Trim()
+                : null;
+            _resultModel?.SetSavePresentation(
+                new ResultSavePresentation(_scoreSaveState, _scoreSaveError));
+        }
+
+        private void ObserveOutstandingSaveTask()
+        {
+            var task = _scoreSaveTask;
+            if (task == null)
+                return;
+
+            if (task.IsCompleted)
+            {
+                if (task.IsFaulted)
+                    _ = task.Exception;
+                return;
+            }
+
+            _ = task.ContinueWith(
+                completed =>
+                {
+                    if (completed.IsFaulted)
+                        _ = completed.Exception;
+                },
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
         }
 
         #endregion
@@ -417,6 +538,16 @@ namespace DTXMania.Game.Lib.Stage
                     {
                         _revealState.Complete();
                         PlayNewRecordSoundIfReady();
+                        return true;
+                    }
+
+                    if (_scoreSaveState == ResultSaveState.Saving)
+                        return true;
+
+                    if (_scoreSaveState == ResultSaveState.Failed &&
+                        command.Type == InputCommandType.Activate)
+                    {
+                        StartPerformanceSummarySave(_scoreSaveChart);
                         return true;
                     }
 
@@ -545,6 +676,9 @@ namespace DTXMania.Game.Lib.Stage
                 telemetry.ApplyPerformanceSummary(_performanceSummary);
                 telemetry.StageCompleted = true;
             }
+
+            telemetry.ScoreSaveStatus = _scoreSaveState.ToString();
+            telemetry.ScoreSaveError = _scoreSaveError;
         }
 
         #endregion

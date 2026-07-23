@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using DTXMania.Game.Lib.Config;
+using DTXMania.Game.Lib.Song.Entities;
 
 namespace DTXMania.Game.Lib.Song.Filtering
 {
@@ -16,6 +18,18 @@ namespace DTXMania.Game.Lib.Song.Filtering
             IEnumerable<SongListNode> roots,
             SongFilterCriteria criteria)
         {
+            return Apply(roots, criteria, PlaySpeedRange.Default);
+        }
+
+        /// <summary>
+        /// Applies score-derived filters against one exact play-speed profile.
+        /// Metadata filters such as title and difficulty remain speed-independent.
+        /// </summary>
+        public IReadOnlyList<FilteredSongResult> Apply(
+            IEnumerable<SongListNode> roots,
+            SongFilterCriteria criteria,
+            int playSpeedPercent)
+        {
             if (roots == null) throw new ArgumentNullException(nameof(roots));
             if (criteria == null) throw new ArgumentNullException(nameof(criteria));
 
@@ -25,7 +39,10 @@ namespace DTXMania.Game.Lib.Song.Filtering
 
             var afterSearch = ApplySearch(flat, criteria.SearchQuery);
             var afterLevel  = ApplyLevel(afterSearch, criteria.MinLevel, criteria.MaxLevel);
-            var afterPlayed = ApplyPlayedStatus(afterLevel, criteria.PlayedStatus);
+            var afterPlayed = ApplyPlayedStatus(
+                afterLevel,
+                criteria.PlayedStatus,
+                playSpeedPercent);
             return SortResults(afterPlayed, criteria);
         }
 
@@ -78,22 +95,31 @@ namespace DTXMania.Game.Lib.Song.Filtering
         }
 
         private static List<FilteredSongResult> ApplyPlayedStatus(
-            List<FilteredSongResult> flat, PlayedStatus status)
+            List<FilteredSongResult> flat,
+            PlayedStatus status,
+            int playSpeedPercent)
         {
             if (status == PlayedStatus.All) return flat;
 
-            return flat.Where(r => Match(r.Node, status)).ToList();
+            return flat.Where(r => Match(r.Node, status, playSpeedPercent)).ToList();
         }
 
-        private static bool Match(SongListNode node, PlayedStatus status)
+        private static bool Match(
+            SongListNode node,
+            PlayedStatus status,
+            int playSpeedPercent)
         {
-            bool anyPlayed   = node.Scores.Any(s => s != null && s.PlayCount > 0);
-            bool anyCleared  = node.Scores.Any(s => s != null && s.PlayCount > 0
-                                && (s.ClearCount > 0
-                                    || DTXMania.Game.Lib.Song.Entities.SongScore
-                                           .ComputeRankIndex(
-                                               DTXMania.Game.Lib.Song.Entities.SongScore
-                                                   .NormalizeStoredBestRank(s.BestRank)) < ClearedRankThreshold));
+            var scores = Enumerable.Range(0, node.Scores?.Length ?? 0)
+                .Select(index => ResolveScore(node, index, playSpeedPercent))
+                .Where(score => score != null)
+                .Cast<SongScore>();
+
+            bool anyPlayed = scores.Any(score => score.PlayCount > 0);
+            bool anyCleared = scores.Any(score => score.PlayCount > 0
+                && (score.ClearCount > 0
+                    || SongScore.ComputeRankIndex(
+                        SongScore.NormalizeStoredBestRank(score.BestRank))
+                        < ClearedRankThreshold));
 
             return status switch
             {
@@ -102,6 +128,19 @@ namespace DTXMania.Game.Lib.Song.Filtering
                 PlayedStatus.Cleared  => anyCleared,
                 _ => true
             };
+        }
+
+        internal static SongScore? ResolveScore(
+            SongListNode node,
+            int difficulty,
+            int playSpeedPercent)
+        {
+            if (node == null)
+                return null;
+
+            return playSpeedPercent == PlaySpeedRange.Default
+                ? node.GetScore(difficulty)
+                : node.GetScore(difficulty, playSpeedPercent);
         }
 
         private static bool Contains(string? haystack, string needle)

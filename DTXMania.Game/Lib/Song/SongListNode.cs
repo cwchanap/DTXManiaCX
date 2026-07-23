@@ -3,7 +3,9 @@
 using Microsoft.Xna.Framework;
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Song.Entities;
 
@@ -47,6 +49,10 @@ namespace DTXMania.Game.Lib.Song
     /// </summary>
     public class SongListNode
     {
+        private readonly object _scoreVariantLock = new();
+        private IReadOnlyDictionary<ScoreVariantKey, SongScore> _scoreVariants =
+            CreateReadOnlyVariantMap(new Dictionary<ScoreVariantKey, SongScore>());
+
         #region Core Properties
 
         /// <summary>
@@ -59,6 +65,14 @@ namespace DTXMania.Game.Lib.Song
         /// Index corresponds to difficulty: 0=BASIC, 1=ADVANCED, 2=EXTREME, etc.
         /// </summary>
         public SongScore[] Scores { get; set; } = new SongScore[5];
+
+        /// <summary>
+        /// Atomically published score variants keyed by difficulty and exact play speed.
+        /// The dictionary and its score values are detached snapshots and must be treated
+        /// as immutable by readers.
+        /// </summary>
+        public IReadOnlyDictionary<ScoreVariantKey, SongScore> ScoreVariants =>
+            Volatile.Read(ref _scoreVariants);
 
         /// <summary>
         /// Difficulty labels for each level
@@ -140,6 +154,12 @@ namespace DTXMania.Game.Lib.Song
         /// </summary>
         public int? DatabaseSongId { get; set; }
 
+        /// <summary>
+        /// Actual speed of the latest persisted play when this node was materialized
+        /// for the Recent Plays list. Null for normal browse-list nodes.
+        /// </summary>
+        public int? RecentPlaySpeedPercent { get; internal set; }
+
         #endregion
 
         #region EF Core Integration Methods
@@ -164,7 +184,7 @@ namespace DTXMania.Game.Lib.Song
 
                     if (difficultyLevel.HasValue)
                     {
-                        Scores[i] = new SongScore
+                        SetScore(i, new SongScore
                         {
                             Instrument = instrument switch
                             {
@@ -175,7 +195,7 @@ namespace DTXMania.Game.Lib.Song
                             },
                             DifficultyLevel = difficultyLevel.Value,
                             DifficultyLabel = DifficultyLabels[i]
-                        };
+                        });
                     }
                 }
             }
@@ -197,8 +217,9 @@ namespace DTXMania.Game.Lib.Song
         {
             if (charts == null) return;
 
-            foreach (var score in Scores)
+            for (int difficultyIndex = 0; difficultyIndex < Scores.Length; difficultyIndex++)
             {
+                var score = Scores[difficultyIndex];
                 if (score == null) continue;
 
                 SongScore? persisted;
@@ -211,14 +232,16 @@ namespace DTXMania.Game.Lib.Song
                     persisted = charts
                         .SelectMany(c => c.Scores ?? Enumerable.Empty<SongScore>())
                         .FirstOrDefault(ps => ps.ChartId == score.ChartId
-                                              && ps.Instrument == score.Instrument);
+                                              && ps.Instrument == score.Instrument
+                                              && ps.PlaySpeedPercent == 100);
                 }
                 else
                 {
                     persisted = charts
                         .SelectMany(c => c.Scores ?? Enumerable.Empty<SongScore>())
                         .FirstOrDefault(ps => ps.Instrument == score.Instrument
-                                              && ps.DifficultyLevel == score.DifficultyLevel);
+                                              && ps.DifficultyLevel == score.DifficultyLevel
+                                              && ps.PlaySpeedPercent == 100);
                 }
 
                 if (persisted == null) continue;
@@ -249,6 +272,11 @@ namespace DTXMania.Game.Lib.Song
                     .Where(line => !string.IsNullOrWhiteSpace(line))
                     .Take(GameConstants.PlayHistory.MaxRecentPlays)
                     .ToList();
+
+                SetScoreVariant(difficultyIndex, 100, score);
+                // Preserve the direct factory/helper caller's legacy score object.
+                // The published map retains its detached clone.
+                Scores[difficultyIndex] = score;
             }
         }
 
@@ -347,7 +375,10 @@ namespace DTXMania.Game.Lib.Song
         /// <summary>
         /// Creates a song node from EF Core entities
         /// </summary>
-        public static SongListNode CreateSongNode(SongEntity song, SongChart chart)
+        public static SongListNode CreateSongNode(
+            SongEntity song,
+            SongChart chart,
+            bool hydratePersistedScores = true)
         {
             if (song == null)
                 throw new ArgumentNullException(nameof(song));
@@ -369,43 +400,46 @@ namespace DTXMania.Game.Lib.Song
             if (chart.HasDrumChart && chart.DrumLevel > 0)
             {
                 node.DifficultyLabels[scoreIndex] = $"DRUMS Lv.{chart.DrumLevel}";
-                node.Scores[scoreIndex] = new SongScore
+                node.SetScore(scoreIndex, new SongScore
                 {
                     ChartId = chart.Id,
                     Instrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.DRUMS,
                     DifficultyLevel = chart.DrumLevel,
                     DifficultyLabel = "DRUMS"
-                };
+                });
                 scoreIndex++;
             }
 
             if (chart.HasGuitarChart && chart.GuitarLevel > 0)
             {
                 node.DifficultyLabels[scoreIndex] = $"GUITAR Lv.{chart.GuitarLevel}";
-                node.Scores[scoreIndex] = new SongScore
+                node.SetScore(scoreIndex, new SongScore
                 {
                     ChartId = chart.Id,
                     Instrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.GUITAR,
                     DifficultyLevel = chart.GuitarLevel,
                     DifficultyLabel = "GUITAR"
-                };
+                });
                 scoreIndex++;
             }
 
             if (chart.HasBassChart && chart.BassLevel > 0)
             {
                 node.DifficultyLabels[scoreIndex] = $"BASS Lv.{chart.BassLevel}";
-                node.Scores[scoreIndex] = new SongScore
+                node.SetScore(scoreIndex, new SongScore
                 {
                     ChartId = chart.Id,
                     Instrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.BASS,
                     DifficultyLevel = chart.BassLevel,
                     DifficultyLabel = "BASS"
-                };
+                });
             }
 
-            // Populate play history from persisted score records (if eagerly loaded).
-            node.PopulatePlayHistoryFromCharts(new[] { chart });
+            if (hydratePersistedScores)
+            {
+                // Populate default-speed play history for direct factory callers.
+                node.PopulatePlayHistoryFromCharts(new[] { chart });
+            }
 
             return node;
         }
@@ -490,25 +524,163 @@ namespace DTXMania.Game.Lib.Song
         }
 
         /// <summary>
-        /// Gets score for specified difficulty index
+        /// Gets the 1.00x compatibility score for the specified difficulty index.
         /// </summary>
         public SongScore? GetScore(int difficultyIndex)
         {
-            if (difficultyIndex >= 0 && difficultyIndex < Scores.Length)
+            return GetDefaultSpeedScore(difficultyIndex);
+        }
+
+        /// <summary>
+        /// Gets the explicitly named 1.00x compatibility score.
+        /// The fixed <see cref="Scores"/> array remains a fallback for legacy callers
+        /// that still populate it directly.
+        /// </summary>
+        public SongScore? GetDefaultSpeedScore(int difficultyIndex)
+        {
+            var published = GetScore(difficultyIndex, 100);
+            if (published != null)
+                return published;
+
+            if (IsValidDifficultyIndex(difficultyIndex))
                 return Scores[difficultyIndex];
+
             return null;
         }
 
         /// <summary>
-        /// Sets score for specified difficulty index
+        /// Gets the score for an exact difficulty and play-speed variant.
+        /// Non-default speeds never fall back to another variant.
+        /// </summary>
+        public SongScore? GetScore(int difficultyIndex, int playSpeedPercent)
+        {
+            if (!IsValidDifficultyIndex(difficultyIndex))
+                return null;
+
+            var snapshot = ScoreVariants;
+            return snapshot.TryGetValue(
+                new ScoreVariantKey(difficultyIndex, playSpeedPercent),
+                out var score)
+                ? score
+                : null;
+        }
+
+        /// <summary>
+        /// Sets the legacy 1.00x score for the specified difficulty index.
         /// </summary>
         public void SetScore(int difficultyIndex, SongScore score)
         {
-            if (difficultyIndex >= 0 && difficultyIndex < Scores.Length)
+            if (!IsValidDifficultyIndex(difficultyIndex))
+                return;
+
+            SetScoreVariant(difficultyIndex, 100, score);
+            Scores[difficultyIndex] = score;
+        }
+
+        /// <summary>
+        /// Publishes one exact speed variant using copy-on-write replacement.
+        /// Passing null removes only the requested variant.
+        /// </summary>
+        public void SetScoreVariant(
+            int difficultyIndex,
+            int playSpeedPercent,
+            SongScore? score)
+        {
+            if (!IsValidDifficultyIndex(difficultyIndex))
+                return;
+            ValidatePlaySpeedPercent(playSpeedPercent);
+
+            var key = new ScoreVariantKey(difficultyIndex, playSpeedPercent);
+
+            lock (_scoreVariantLock)
             {
-                Scores[difficultyIndex] = score;
-                // Score metadata no longer needed - using EF Core entities
+                var next = CloneVariantMap(_scoreVariants);
+
+                if (score == null)
+                {
+                    next.Remove(key);
+                    if (playSpeedPercent == PlaySpeedRange.Default)
+                        Scores[difficultyIndex] = null!;
+                }
+                else
+                {
+                    var publishedScore = score.Clone();
+                    publishedScore.PlaySpeedPercent = playSpeedPercent;
+                    next[key] = publishedScore;
+                    if (playSpeedPercent == PlaySpeedRange.Default)
+                        Scores[difficultyIndex] = publishedScore.Clone();
+                }
+
+                Volatile.Write(ref _scoreVariants, CreateReadOnlyVariantMap(next));
             }
+        }
+
+        /// <summary>
+        /// Atomically replaces all published variants with detached score snapshots.
+        /// Invalid difficulty keys are ignored; non-canonical speeds are rejected.
+        /// </summary>
+        public void PublishScoreVariants(
+            IEnumerable<KeyValuePair<ScoreVariantKey, SongScore>> scoreVariants)
+        {
+            if (scoreVariants == null)
+                throw new ArgumentNullException(nameof(scoreVariants));
+
+            var next = new Dictionary<ScoreVariantKey, SongScore>();
+            foreach (var pair in scoreVariants)
+            {
+                if (!IsValidDifficultyIndex(pair.Key.DifficultyIndex) ||
+                    pair.Value == null)
+                {
+                    continue;
+                }
+                ValidatePlaySpeedPercent(pair.Key.PlaySpeedPercent);
+
+                var publishedScore = pair.Value.Clone();
+                publishedScore.PlaySpeedPercent = pair.Key.PlaySpeedPercent;
+                next[pair.Key] = publishedScore;
+            }
+
+            lock (_scoreVariantLock)
+            {
+                foreach (var pair in next)
+                {
+                    if (pair.Key.PlaySpeedPercent == PlaySpeedRange.Default)
+                        Scores[pair.Key.DifficultyIndex] = pair.Value.Clone();
+                }
+
+                Volatile.Write(ref _scoreVariants, CreateReadOnlyVariantMap(next));
+            }
+        }
+
+        private bool IsValidDifficultyIndex(int difficultyIndex) =>
+            difficultyIndex >= 0 && difficultyIndex < Scores.Length;
+
+        private static void ValidatePlaySpeedPercent(int playSpeedPercent)
+        {
+            if (playSpeedPercent < PlaySpeedRange.Min ||
+                playSpeedPercent > PlaySpeedRange.Max ||
+                playSpeedPercent % PlaySpeedRange.Step != 0)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(playSpeedPercent),
+                    playSpeedPercent,
+                    "Play speed must be between 50 and 150 in steps of 5.");
+            }
+        }
+
+        private static Dictionary<ScoreVariantKey, SongScore> CloneVariantMap(
+            IReadOnlyDictionary<ScoreVariantKey, SongScore> source)
+        {
+            return source.ToDictionary(
+                pair => pair.Key,
+                pair => pair.Value.Clone());
+        }
+
+        private static IReadOnlyDictionary<ScoreVariantKey, SongScore>
+            CreateReadOnlyVariantMap(
+                Dictionary<ScoreVariantKey, SongScore> variants)
+        {
+            return new ReadOnlyDictionary<ScoreVariantKey, SongScore>(variants);
         }
 
         /// <summary>

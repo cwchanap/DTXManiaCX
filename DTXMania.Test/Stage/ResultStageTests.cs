@@ -80,12 +80,16 @@ namespace DTXMania.Test.Stage
                 PerfectCount = 4,
                 TotalNotes = 4,
                 FinalLife = 100f,
-                CompletionReason = CompletionReason.SongComplete
+                CompletionReason = CompletionReason.SongComplete,
+                PlaySpeedPercent = 75,
+                PitchSemitones = -4
             };
 
             SetPrivateField(stage, "_selectedSong", selectedSong);
             SetPrivateField(stage, "_selectedDifficulty", 0);
             SetPrivateField(stage, "_performanceSummary", summary);
+            SetPrivateField(stage, "_scoreSaveState", ResultSaveState.Failed);
+            SetPrivateField(stage, "_scoreSaveError", "database busy");
 
             var telemetry = new GameTelemetrySnapshot();
 
@@ -100,6 +104,11 @@ namespace DTXMania.Test.Stage
             Assert.True(telemetry.ClearFlag);
             Assert.True(telemetry.StageCompleted);
             Assert.Equal("SongComplete", telemetry.CompletionReason);
+            Assert.Equal(75, telemetry.PlaySpeedPercent);
+            Assert.Equal(-4, telemetry.PitchSemitones);
+            Assert.True(telemetry.PlaybackProfileFrozen);
+            Assert.Equal("Failed", telemetry.ScoreSaveStatus);
+            Assert.Equal("database busy", telemetry.ScoreSaveError);
         }
 
         #endregion

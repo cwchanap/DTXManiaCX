@@ -137,6 +137,68 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
+        public async Task UpdateScoreAsync_LowerScoreWithBetterRunAggregates_UpdatesThemIndependently()
+        {
+            var chart = await SeedChartAsync();
+            await SeedScoreAsync(chart.Id, new SongScore
+            {
+                BestScore = 900000,
+                BestRank = 50,
+                MaxCombo = 50,
+                FullCombo = false,
+                PlayCount = 1
+            });
+
+            var summary = new PerformanceSummary
+            {
+                Score = 500000,
+                MaxCombo = 100,
+                ClearFlag = true,
+                TotalNotes = 100,
+                PerfectCount = 90,
+                GreatCount = 10,
+                PlayingSkill = 90.0,
+                GameSkill = 78.0
+            };
+
+            await _svc.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
+
+            var saved = await LoadSavedScoreAsync(chart.Id);
+            Assert.Equal(900000, saved.BestScore);
+            Assert.Equal(90, saved.BestRank);
+            Assert.Equal(100, saved.MaxCombo);
+            Assert.True(saved.FullCombo);
+        }
+
+        [Fact]
+        public async Task UpdateScoreAsync_FirstZeroScoreRun_InitializesBestRunFields()
+        {
+            var chart = await SeedChartAsync();
+            var summary = new PerformanceSummary
+            {
+                Score = 0,
+                MaxCombo = 30,
+                ClearFlag = false,
+                TotalNotes = 100,
+                PerfectCount = 70,
+                MissCount = 30,
+                PlayingSkill = 70.0,
+                GameSkill = 0.0
+            };
+
+            await _svc.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
+
+            var saved = await LoadSavedScoreAsync(chart.Id);
+            Assert.Equal(0, saved.BestScore);
+            Assert.Equal(70, saved.BestRank);
+            Assert.Equal(100, saved.TotalNotes);
+            Assert.Equal(70, saved.BestPerfect);
+            Assert.Equal(30, saved.BestMiss);
+            Assert.Equal(30, saved.MaxCombo);
+            Assert.Equal(1, saved.PlayCount);
+        }
+
+        [Fact]
         public async Task UpdateScoreAsync_FirstPlay_CreatesScoreRow()
         {
             var chart = await SeedChartAsync();

@@ -47,6 +47,18 @@ namespace DTXMania.Game.Lib.Config
         void AdjustScrollSpeed(string configFilePath, int stepDelta);
 
         /// <summary>
+        /// Sets gameplay speed, snapping to <see cref="PlaySpeedRange"/> and marking a
+        /// deferred save only when the canonical value changes.
+        /// </summary>
+        void SetPlaySpeedPercent(int percent);
+
+        /// <summary>
+        /// Sets independent pitch, snapping to <see cref="PitchRange"/> and marking a
+        /// deferred save only when the canonical value changes.
+        /// </summary>
+        void SetPitchSemitones(int semitones);
+
+        /// <summary>
         /// Writes <paramref name="keyBindings"/> into <see cref="Config"/>, marks the edit
         /// dirty for a deferred save, and raises <see cref="KeyBindingsChanged"/>.
         /// </summary>

@@ -600,6 +600,33 @@ namespace DTXMania.Game.Lib.Stage.Result
                     artistPosition.X, ResolveArtistCenterX(theme), _smallFont.MeasureString(model.Artist).X);
             DrawText(spriteBatch, _smallFont, model.Artist, artistPosition, ResolveArtistColor(theme));
 
+            DrawText(
+                spriteBatch,
+                _smallFont,
+                model.PlaybackProfileText,
+                ResultUILayout.PlaybackPresentation.ProfilePosition,
+                ResultUILayout.PlaybackPresentation.ProfileColor);
+            DrawText(
+                spriteBatch,
+                _smallFont,
+                model.ScoreBucketText,
+                ResultUILayout.PlaybackPresentation.ScoreBucketPosition,
+                ResultUILayout.PlaybackPresentation.ScoreBucketColor);
+            DrawText(
+                spriteBatch,
+                _smallFont,
+                model.SaveStatusText,
+                ResultUILayout.PlaybackPresentation.SaveStatusPosition,
+                ResolveSaveStatusColor(model.SavePresentation.State));
+            if (_smallFont != null && !string.IsNullOrEmpty(model.SaveGuidanceText))
+            {
+                _smallFont.DrawStringWrapped(
+                    spriteBatch,
+                    model.SaveGuidanceText,
+                    ResultUILayout.PlaybackPresentation.SaveGuidanceBounds,
+                    ResultUILayout.PlaybackPresentation.GuidanceColor);
+            }
+
             DrawValue(spriteBatch, valueFont, model.ChartLevelText, ResolveLevelPosition(theme),
                 valueRightX, ResolveValueColor(theme), valueScale);
 
@@ -649,6 +676,17 @@ namespace DTXMania.Game.Lib.Stage.Result
                     new Vector2(row.percentPos.X, row.percentPos.Y + countYOffset),
                     percentRightX, percentColor, 1.0f);
             }
+        }
+
+        internal static Color ResolveSaveStatusColor(ResultSaveState state)
+        {
+            return state switch
+            {
+                ResultSaveState.Saving => ResultUILayout.PlaybackPresentation.SavingColor,
+                ResultSaveState.Saved => ResultUILayout.PlaybackPresentation.SavedColor,
+                ResultSaveState.Failed => ResultUILayout.PlaybackPresentation.FailedColor,
+                _ => ResultUILayout.PlaybackPresentation.NotStartedColor
+            };
         }
 
         /// <summary>

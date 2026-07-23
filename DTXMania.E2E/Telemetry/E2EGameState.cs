@@ -30,6 +30,10 @@ public sealed class E2EGameState
 
     public string? CompletionReason => GetTelemetryString("completionReason");
 
+    public string? ScoreSaveStatus => GetTelemetryString("scoreSaveStatus");
+
+    public string? ScoreSaveError => GetTelemetryString("scoreSaveError");
+
     public int TotalNotes => GetTelemetryInt("totalNotes") ?? 0;
 
     public int TotalJudgements => GetTelemetryInt("totalJudgements") ?? 0;
@@ -41,6 +45,20 @@ public sealed class E2EGameState
     public int MissCount => GetTelemetryInt("missCount") ?? 0;
 
     public bool PerformanceReady => GetTelemetryBool("performanceReady") ?? false;
+
+    public int PlaySpeedPercent => GetTelemetryInt("playSpeedPercent") ?? 100;
+
+    public int PitchSemitones => GetTelemetryInt("pitchSemitones") ?? 0;
+
+    public bool PlaybackProfileFrozen => GetTelemetryBool("playbackProfileFrozen") ?? false;
+
+    public int AudioPreparationCompleted => GetTelemetryInt("audioPreparationCompleted") ?? 0;
+
+    public int AudioPreparationTotal => GetTelemetryInt("audioPreparationTotal") ?? 0;
+
+    public int AudioPreparationCacheHits => GetTelemetryInt("audioPreparationCacheHits") ?? 0;
+
+    public long PreparedAudioBytes => GetTelemetryLong("preparedAudioBytes") ?? 0L;
 
     public bool AutoPlayEnabled => GetTelemetryBool("autoPlayEnabled") ?? false;
 
@@ -68,6 +86,11 @@ public sealed class E2EGameState
 
     private double? GetTelemetryDouble(string propertyName) =>
         Telemetry.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetDouble(out var number)
+            ? number
+            : null;
+
+    private long? GetTelemetryLong(string propertyName) =>
+        Telemetry.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var number)
             ? number
             : null;
 

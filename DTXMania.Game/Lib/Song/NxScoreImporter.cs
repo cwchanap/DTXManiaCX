@@ -3,6 +3,7 @@ using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Song.Entities;
 using Microsoft.EntityFrameworkCore;
 
@@ -50,10 +51,19 @@ namespace DTXMania.Game.Lib.Song
             try
             {
                 var score = await ctx.SongScores
-                    .FirstOrDefaultAsync(s => s.ChartId == chart.Id && s.Instrument == EInstrumentPart.DRUMS, cancellationToken);
+                    .FirstOrDefaultAsync(
+                        s => s.ChartId == chart.Id
+                            && s.Instrument == EInstrumentPart.DRUMS
+                            && s.PlaySpeedPercent == PlaySpeedRange.Default,
+                        cancellationToken);
                 if (score == null)
                 {
-                    score = new SongScore { ChartId = chart.Id, Instrument = EInstrumentPart.DRUMS };
+                    score = new SongScore
+                    {
+                        ChartId = chart.Id,
+                        Instrument = EInstrumentPart.DRUMS,
+                        PlaySpeedPercent = PlaySpeedRange.Default,
+                    };
                     ctx.SongScores.Add(score);
                 }
 
@@ -129,7 +139,10 @@ namespace DTXMania.Game.Lib.Song
                     ctx,
                     chart.SongId,
                     score.Id,
-                    data.History.Select(h => new PerformanceHistoryCandidate(h.Text, h.Date)),
+                    data.History.Select(h => new PerformanceHistoryCandidate(
+                        h.Text,
+                        h.Date,
+                        PitchSemitones: 0)),
                     cancellationToken).ConfigureAwait(false);
 
                 await ctx.SaveChangesAsync(cancellationToken).ConfigureAwait(false);

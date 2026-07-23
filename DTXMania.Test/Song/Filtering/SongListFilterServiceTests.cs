@@ -296,6 +296,61 @@ namespace DTXMania.Test.Song.Filtering
         }
 
         [Fact]
+        public void PlayedStatusPlayed_WithExplicitSpeed_ShouldUseOnlyThatVariant()
+        {
+            var playedAtDefault = ScoreWith(
+                "DefaultOnly",
+                playCount: 2,
+                bestRank: 80);
+            var playedAtSlower = ScoreWith(
+                "SlowerOnly",
+                playCount: 0,
+                bestRank: 0);
+            playedAtSlower.SetScoreVariant(0, 75, new DTXMania.Game.Lib.Song.Entities.SongScore
+            {
+                DifficultyLevel = 50,
+                PlaySpeedPercent = 75,
+                PlayCount = 1,
+                BestRank = 80,
+            });
+            var criteria = SongFilterCriteria.Default with
+            {
+                PlayedStatus = PlayedStatus.Played,
+            };
+
+            var result = _svc.Apply(
+                new[] { playedAtDefault, playedAtSlower },
+                criteria,
+                playSpeedPercent: 75);
+
+            Assert.Equal(
+                new[] { "SlowerOnly" },
+                result.Select(item => item.Node.DisplayTitle));
+        }
+
+        [Fact]
+        public void PlayedStatusUnplayed_WithMissingExplicitSpeed_ShouldNotBorrowDefault()
+        {
+            var defaultOnly = ScoreWith(
+                "DefaultOnly",
+                playCount: 2,
+                bestRank: 80);
+            var criteria = SongFilterCriteria.Default with
+            {
+                PlayedStatus = PlayedStatus.Unplayed,
+            };
+
+            var result = _svc.Apply(
+                new[] { defaultOnly },
+                criteria,
+                playSpeedPercent: 75);
+
+            Assert.Equal(
+                new[] { "DefaultOnly" },
+                result.Select(item => item.Node.DisplayTitle));
+        }
+
+        [Fact]
         public void PlayedStatusCleared_WhenFiltering_ShouldRequirePlayCountAndNonFRank()
         {
             var roots = new List<SongListNode>

@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
+using DTXMania.Game.Lib.Stage.Performance;
 using Xunit;
 
 namespace DTXMania.Test.Song
@@ -99,6 +100,75 @@ namespace DTXMania.Test.Song
             await db.PurgeDatabaseAsync();
 
             await Assert.ThrowsAsync<InvalidOperationException>(() => manager.GetRecentlyPlayedNodesAsync(20));
+        }
+
+        [Fact]
+        public async Task GetRecentlyPlayedNodesAsync_HydratesAllSpeedsAndIdentifiesLatestVariant()
+        {
+            await _manager.InitializeDatabaseServiceAsync(
+                _dbPath,
+                purgeDatabaseFirst: true);
+            var db = _manager.DatabaseService!;
+            var song = new DTXMania.Game.Lib.Song.Entities.Song
+            {
+                Title = "Speed History",
+                Artist = "A",
+            };
+            var chart = new SongChart
+            {
+                FilePath = $"/c/{Guid.NewGuid():N}.dtx",
+                HasDrumChart = true,
+                DrumLevel = 60,
+            };
+            await db.AddSongAsync(song, chart);
+            var storedChart = Assert.Single(
+                Assert.Single(await db.GetSongsAsync()).Charts);
+
+            await db.UpdateScoreAsync(
+                storedChart.Id,
+                EInstrumentPart.DRUMS,
+                CreateSummary(100, pitchSemitones: 2, score: 800000));
+            await Task.Delay(20);
+            await db.UpdateScoreAsync(
+                storedChart.Id,
+                EInstrumentPart.DRUMS,
+                CreateSummary(75, pitchSemitones: -4, score: 900000));
+
+            var node = Assert.Single(
+                await _manager.GetRecentlyPlayedNodesAsync(20));
+            var normal = node.GetScore(0, 100);
+            var slow = node.GetScore(0, 75);
+
+            Assert.Equal(75, node.RecentPlaySpeedPercent);
+            Assert.NotNull(normal);
+            Assert.NotNull(slow);
+            Assert.Equal(800000, normal!.BestScore);
+            Assert.Equal(900000, slow!.BestScore);
+            Assert.Equal(2, Assert.Single(normal.PerformanceHistory).PitchSemitones);
+            Assert.Equal(-4, Assert.Single(slow.PerformanceHistory).PitchSemitones);
+            Assert.Equal(100, node.Scores[0].PlaySpeedPercent);
+        }
+
+        private static PerformanceSummary CreateSummary(
+            int playSpeedPercent,
+            int pitchSemitones,
+            int score)
+        {
+            return new PerformanceSummary
+            {
+                RunId = Guid.NewGuid(),
+                PlaySpeedPercent = playSpeedPercent,
+                PitchSemitones = pitchSemitones,
+                Score = score,
+                MaxCombo = 100,
+                ClearFlag = true,
+                PerfectCount = 100,
+                TotalNotes = 100,
+                PlayingSkill = 100,
+                GameSkill = 150,
+                ChartLevel = 60,
+                CompletionReason = CompletionReason.SongComplete,
+            };
         }
     }
 }

@@ -546,6 +546,19 @@ namespace DTXMania.Game.Lib.UI.Layout
                 public static Vector2 Position => new Vector2(X, Y);
                 public static Vector2 Size => new Vector2(Width, Height);
             }
+
+            // Active playback profile. Occupies the band between the preview image
+            // (bottom Y=326) and the status panel (top Y=350).
+            public static class PlaybackProfile
+            {
+                public const int X = 50;
+                public const int Y = 326;
+                public const int Width = 640;
+                public const int Height = 24;
+
+                public static Vector2 Position => new Vector2(X, Y);
+                public static Vector2 Size => new Vector2(Width, Height);
+            }
         }
         
         #endregion
