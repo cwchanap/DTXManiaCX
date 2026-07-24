@@ -535,6 +535,9 @@ namespace DTXMania.Game.Lib.Song.Entities
             }
             catch (Exception ex) when (IsSqliteWriteRace(ex))
             {
+                // First, check whether this run was already saved (same-run
+                // retry/idempotency). The winner may share this RunId if the
+                // caller retried the same performance.
                 var resolved = await ResolveReceiptAfterRaceAsync(
                     runId,
                     chartId,
@@ -543,7 +546,34 @@ namespace DTXMania.Game.Lib.Song.Entities
                     cancellationToken).ConfigureAwait(false);
                 if (resolved != null)
                     return resolved;
-                throw;
+
+                // The race was against a different run (the winner has a different
+                // RunId, so the receipt lookup above found nothing). Retry the
+                // transaction: the winner's score now exists in the database, so
+                // the retry will find and update it instead of inserting a
+                // duplicate. The receipt check at the top of
+                // SaveScoreTransactionAsync preserves same-run idempotency.
+                // Limit retries to avoid unbounded loops under sustained
+                // contention.
+                const int maxRetries = 3;
+                for (int attempt = 0; ; attempt++)
+                {
+                    try
+                    {
+                        return await SaveScoreTransactionAsync(
+                            chartId,
+                            instrument,
+                            summary,
+                            runId,
+                            cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (Exception retryEx) when (IsSqliteWriteRace(retryEx) && attempt < maxRetries)
+                    {
+                        await Task.Delay(
+                            10 * (attempt + 1),
+                            cancellationToken).ConfigureAwait(false);
+                    }
+                }
             }
         }
 

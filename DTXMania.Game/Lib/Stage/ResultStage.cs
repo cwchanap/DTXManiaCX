@@ -374,9 +374,16 @@ namespace DTXMania.Game.Lib.Stage
             if (_selectedSong == null || _performanceSummary == null)
                 return null;
 
-            return _selectedSong.GetScore(
-                _selectedDifficulty,
-                _performanceSummary.PlaySpeedPercent);
+            // Non-default speeds never fall back to another variant. For the default
+            // (1.00x) bucket, use GetDefaultSpeedScore so legacy SET.def nodes — which
+            // populate the Scores[] array directly without publishing a ScoreVariants
+            // entry — still resolve their previously-played score instead of appearing
+            // as a first play.
+            var speed = _performanceSummary.PlaySpeedPercent;
+            if (speed == PlaySpeedRange.Default)
+                return _selectedSong.GetDefaultSpeedScore(_selectedDifficulty);
+
+            return _selectedSong.GetScore(_selectedDifficulty, speed);
         }
 
         internal virtual EInstrumentPart ResolveSelectedInstrument()

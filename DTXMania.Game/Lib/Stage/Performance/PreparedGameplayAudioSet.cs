@@ -69,7 +69,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 cache,
                 progress,
                 cancellationToken,
-                OriginalAudioPcmDecoder.DecodeAsync,
+                LoadDefaultSound,
                 CreatePreparedSound,
                 decodedPcmBudgetBytes);
         }
@@ -83,13 +83,13 @@ namespace DTXMania.Game.Lib.Stage.Performance
             PlaybackAudioVariantCache? cache,
             IProgress<AudioPreparationProgress>? progress,
             CancellationToken cancellationToken,
-            Func<string, CancellationToken, Task<PreparedAudioArtifact>> directDecoder,
+            Func<string, ISound> defaultSoundLoader,
             Func<PreparedAudioArtifact, string, ISound> preparedSoundFactory,
             long decodedPcmBudgetBytes = DefaultDecodedPcmBudgetBytes)
         {
             ArgumentNullException.ThrowIfNull(scheduledBgmSourcePaths);
             ArgumentNullException.ThrowIfNull(chipSourcePathsByWavId);
-            ArgumentNullException.ThrowIfNull(directDecoder);
+            ArgumentNullException.ThrowIfNull(defaultSoundLoader);
             ArgumentNullException.ThrowIfNull(preparedSoundFactory);
             if (decodedPcmBudgetBytes <= 0)
                 throw new ArgumentOutOfRangeException(nameof(decodedPcmBudgetBytes));
@@ -125,101 +125,147 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 allPaths.Add(pair.Path);
 
             var stopwatch = Stopwatch.StartNew();
-            var artifacts = new Dictionary<string, PreparedAudioArtifact>(pathComparer);
             var cacheHits = 0;
             var completed = 0;
             long decodedBytes = 0;
+            var soundsByPath = new Dictionary<string, ISound>(pathComparer);
 
-            foreach (var sourcePath in allPaths)
+            try
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                var currentRole = ResolveRole(
-                    sourcePath,
-                    mainPath,
-                    scheduledPaths,
-                    pathComparer);
-                progress?.Report(new AudioPreparationProgress(
-                    completed,
-                    allPaths.Count,
-                    currentRole,
-                    cacheHits,
-                    stopwatch.Elapsed,
-                    decodedBytes));
-
-                PreparedAudioArtifact artifact;
                 if (modifiers.IsDefault)
                 {
-                    artifact = await directDecoder(
-                        sourcePath,
-                        cancellationToken).ConfigureAwait(false);
+                    // The default profile bypasses variant preparation and loads each
+                    // source through the original loaders (SoundEffect.FromStream for
+                    // WAV — which handles MS-ADPCM/IMA-ADPCM natively — and FFMpeg-
+                    // normalized MP3). The PCM decode path used for variant profiles
+                    // cannot handle ADPCM WAVs or MP3s whose source rate exceeds
+                    // MonoGame's 48 kHz SoundEffect ceiling, so routing the default
+                    // profile through it regresses existing song compatibility.
+                    // Individual non-main failures are skipped to mirror the legacy
+                    // per-sound loaders, which left a missing BGM/chip unplayed rather
+                    // than failing the whole performance.
+                    foreach (var sourcePath in allPaths)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        var currentRole = ResolveRole(
+                            sourcePath,
+                            mainPath,
+                            scheduledPaths,
+                            pathComparer);
+                        progress?.Report(new AudioPreparationProgress(
+                            completed,
+                            allPaths.Count,
+                            currentRole,
+                            cacheHits,
+                            stopwatch.Elapsed,
+                            decodedBytes));
+
+                        try
+                        {
+                            soundsByPath[sourcePath] = defaultSoundLoader(sourcePath);
+                        }
+                        catch (Exception ex) when (sourcePath != mainPath)
+                        {
+                            Debug.WriteLine(
+                                $"[PreparedGameplayAudioSet] Skipping failed default-profile sound '{sourcePath}': {ex.Message}");
+                        }
+
+                        completed++;
+                        progress?.Report(new AudioPreparationProgress(
+                            completed,
+                            allPaths.Count,
+                            currentRole,
+                            cacheHits,
+                            stopwatch.Elapsed,
+                            decodedBytes));
+                    }
                 }
                 else
                 {
-                    var key = await AudioVariantKey.CreateAsync(
-                        sourcePath,
-                        modifiers,
-                        cancellationToken).ConfigureAwait(false);
-                    artifact = await cache!.TryGetAsync(
-                        key,
-                        cancellationToken).ConfigureAwait(false);
-                    if (artifact != null)
+                    var artifacts = new Dictionary<string, PreparedAudioArtifact>(pathComparer);
+                    foreach (var sourcePath in allPaths)
                     {
-                        cacheHits++;
-                    }
-                    else
-                    {
-                        artifact = await cache.GetOrCreateAsync(
-                            key,
-                            (_, token) => processor!.PrepareAsync(
-                                sourcePath,
-                                modifiers,
-                                token),
+                        cancellationToken.ThrowIfCancellationRequested();
+                        var currentRole = ResolveRole(
+                            sourcePath,
+                            mainPath,
+                            scheduledPaths,
+                            pathComparer);
+                        progress?.Report(new AudioPreparationProgress(
+                            completed,
+                            allPaths.Count,
+                            currentRole,
+                            cacheHits,
+                            stopwatch.Elapsed,
+                            decodedBytes));
+
+                        var key = await AudioVariantKey.CreateAsync(
+                            sourcePath,
+                            modifiers,
                             cancellationToken).ConfigureAwait(false);
+                        var artifact = await cache!.TryGetAsync(
+                            key,
+                            cancellationToken).ConfigureAwait(false);
+                        if (artifact != null)
+                        {
+                            cacheHits++;
+                        }
+                        else
+                        {
+                            artifact = await cache.GetOrCreateAsync(
+                                key,
+                                (_, token) => processor!.PrepareAsync(
+                                    sourcePath,
+                                    modifiers,
+                                    token),
+                                cancellationToken).ConfigureAwait(false);
+                        }
+
+                        artifacts[sourcePath] = artifact;
+                        decodedBytes = checked(decodedBytes + artifact.PcmByteLength);
+                        completed++;
+                        progress?.Report(new AudioPreparationProgress(
+                            completed,
+                            allPaths.Count,
+                            currentRole,
+                            cacheHits,
+                            stopwatch.Elapsed,
+                            decodedBytes));
+
+                        if (decodedBytes > decodedPcmBudgetBytes)
+                        {
+                            throw new AudioPreparationBudgetExceededException(
+                                decodedBytes,
+                                decodedPcmBudgetBytes);
+                        }
                     }
 
+                    // The budget is checked before this point so no SoundEffect is
+                    // allocated for an over-budget profile.
+                    foreach (var sourcePath in allPaths)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        soundsByPath[sourcePath] =
+                            preparedSoundFactory(artifacts[sourcePath], sourcePath);
+                    }
                 }
 
-                artifacts[sourcePath] = artifact;
-                decodedBytes = checked(decodedBytes + artifact.PcmByteLength);
-                completed++;
-                progress?.Report(new AudioPreparationProgress(
-                    completed,
-                    allPaths.Count,
-                    currentRole,
-                    cacheHits,
-                    stopwatch.Elapsed,
-                    decodedBytes));
-
-                if (decodedBytes > decodedPcmBudgetBytes)
-                {
-                    throw new AudioPreparationBudgetExceededException(
-                        decodedBytes,
-                        decodedPcmBudgetBytes);
-                }
-            }
-
-            // The budget is checked before this point so no SoundEffect is allocated
-            // for an over-budget profile.
-            var soundsByPath = new Dictionary<string, ISound>(pathComparer);
-            try
-            {
-                foreach (var sourcePath in allPaths)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    soundsByPath[sourcePath] =
-                        preparedSoundFactory(artifacts[sourcePath], sourcePath);
-                }
-
-                var scheduled = scheduledPaths.ToDictionary(
-                    path => path,
-                    path => soundsByPath[path],
-                    pathComparer);
-                var chips = chipPaths.ToDictionary(
-                    pair => pair.Key,
-                    pair => soundsByPath[pair.Path],
-                    StringComparer.OrdinalIgnoreCase);
+                var scheduled = scheduledPaths
+                    .Where(path => soundsByPath.ContainsKey(path))
+                    .ToDictionary(
+                        path => path,
+                        path => soundsByPath[path],
+                        pathComparer);
+                var chips = chipPaths
+                    .Where(pair => soundsByPath.ContainsKey(pair.Path))
+                    .ToDictionary(
+                        pair => pair.Key,
+                        pair => soundsByPath[pair.Path],
+                        StringComparer.OrdinalIgnoreCase);
                 return new PreparedGameplayAudioSet(
-                    mainPath != null ? soundsByPath[mainPath] : null,
+                    mainPath != null && soundsByPath.TryGetValue(mainPath, out var mainSound)
+                        ? mainSound
+                        : null,
                     scheduled,
                     chips,
                     soundsByPath.Values
@@ -251,6 +297,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 try { sound.Dispose(); }
                 catch { }
             }
+        }
+
+        private static ISound LoadDefaultSound(string sourcePath)
+        {
+            return new ManagedSound(sourcePath, sourcePath);
         }
 
         private static ISound CreatePreparedSound(

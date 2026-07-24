@@ -1378,6 +1378,32 @@ namespace DTXMania.Game.Lib.Stage
                 TriggerBGMEvent(bgmEvent);
                 _scheduledBGMEvents.Remove(bgmEvent);
             }
+
+            // Reap finished instances so their native audio resources are released
+            // during gameplay rather than lingering until stage teardown. Mirrors
+            // ChipSoundCache.CleanupStoppedInstances.
+            CleanupStoppedBgmInstances();
+        }
+
+        /// <summary>
+        /// Removes and disposes BGM instances that have finished playing, retaining
+        /// active instances for the teardown stop-and-dispose pass.
+        /// </summary>
+        private void CleanupStoppedBgmInstances()
+        {
+            if (_activeBgmInstances == null || _activeBgmInstances.Count == 0)
+                return;
+
+            for (int i = _activeBgmInstances.Count - 1; i >= 0; i--)
+            {
+                var instance = _activeBgmInstances[i];
+                if (instance.State == SoundState.Stopped)
+                {
+                    try { instance.Dispose(); }
+                    catch { }
+                    _activeBgmInstances.RemoveAt(i);
+                }
+            }
         }
 
         /// <summary>

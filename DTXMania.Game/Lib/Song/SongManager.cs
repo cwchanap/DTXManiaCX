@@ -1891,6 +1891,26 @@ namespace DTXMania.Game.Lib.Song
                         var variants = node.ScoreVariants.ToDictionary(
                             pair => pair.Key,
                             pair => pair.Value);
+
+                        // Seed legacy Scores[] slots as default variants so
+                        // PublishScoreVariants preserves them. Legacy SET.def nodes
+                        // populate Scores[] directly without publishing ScoreVariants
+                        // entries; without this seed, publication clears every non-null
+                        // Scores slot lacking a 1.00x key, losing the other difficulties
+                        // and their metadata when returning to song select.
+                        for (int legacyIndex = 0;
+                            legacyIndex < node.Scores.Length;
+                            legacyIndex++)
+                        {
+                            if (node.Scores[legacyIndex] == null)
+                                continue;
+                            var legacyKey = new ScoreVariantKey(
+                                legacyIndex,
+                                PlaySpeedRange.Default);
+                            if (!variants.ContainsKey(legacyKey))
+                                variants[legacyKey] = node.Scores[legacyIndex];
+                        }
+
                         variants[new ScoreVariantKey(
                             difficultyIndex,
                             playSpeedPercent)] = published;
