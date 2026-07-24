@@ -15,8 +15,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private readonly SoundEffectInstance? _soundInstance;
         private readonly PlaybackClock _playbackClock;
         private readonly Action<string>? _logger;
-        private DateTime _systemStartTime;
-        private double _systemLogicalPositionMs;
         private bool _disposed;
 
         /// <summary>
@@ -137,8 +135,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
             }
 
             _playbackClock.Start(gameTime);
-            _systemLogicalPositionMs = 0.0;
-            _systemStartTime = DateTime.UtcNow;
             return true;
         }
 
@@ -151,7 +147,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 return;
 
             _playbackClock.Pause(gameTime);
-            _systemLogicalPositionMs = _playbackClock.GetLogicalTimeMs(gameTime);
             _soundInstance?.Pause();
         }
 
@@ -165,7 +160,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
             _soundInstance?.Resume();
             _playbackClock.Resume(gameTime);
-            _systemStartTime = DateTime.UtcNow;
         }
 
         /// <summary>
@@ -178,7 +172,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
             _soundInstance?.Stop();
             _playbackClock.Stop();
-            _systemLogicalPositionMs = 0.0;
         }
 
         /// <summary>
@@ -193,27 +186,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
         }
 
         /// <summary>
-        /// Compatibility wall-clock estimate for callers without GameTime.
-        /// Gameplay code must use GetCurrentMs(GameTime).
-        /// </summary>
-        public double GetCurrentMs()
-        {
-            if (_disposed)
-                return 0.0;
-
-            if (_playbackClock.IsPaused)
-                return _systemLogicalPositionMs;
-
-            if (!_playbackClock.IsRunning)
-                return 0.0;
-
-            var systemElapsedMs =
-                (DateTime.UtcNow - _systemStartTime).TotalMilliseconds;
-            return _systemLogicalPositionMs +
-                systemElapsedMs * _playbackClock.PlaySpeedPercent / 100.0;
-        }
-
-        /// <summary>
         /// Sets the logical chart position. Audio seeking is not supported by
         /// SoundEffectInstance, so this changes chart time only.
         /// </summary>
@@ -223,9 +195,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 return;
 
             _playbackClock.SetLogicalPosition(positionMs, gameTime);
-            _systemLogicalPositionMs =
-                _playbackClock.GetLogicalTimeMs(gameTime);
-            _systemStartTime = DateTime.UtcNow;
         }
 
         /// <summary>

@@ -85,7 +85,7 @@ The pitch range was not specified in the original request. `-12..+12` semitones 
 9. The active prepared-audio set cannot exceed the v1 `512 MiB` decoded-PCM budget.
 10. Published in-memory score variants are immutable snapshots; readers never observe a dictionary or `SongScore` being mutated in place.
 11. `PreparedGameplayAudioSet` is the sole owner of session `ISound` objects; `ChipSoundCache` and background/BGM players borrow sounds and own only instances they create.
-12. A score receipt survives deletion of its related `SongScore` and retains enough identity columns to validate a repeated `RunId`.
+12. A score receipt survives deletion of its related `SongScore` and retains enough identity columns to validate a repeated `RunId`. Receipts are retained indefinitely (no time-based pruning) so a `RunId` repeated at any future point is still detected as `AlreadySaved`; the `ScoreSaveReceipt.ChartId` column is stored identity rather than a required foreign key, and the optional `SongScore` relationship uses `ON DELETE SET NULL`.
 
 ---
 

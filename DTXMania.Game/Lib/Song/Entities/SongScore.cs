@@ -434,10 +434,16 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// Creates a copy of this score (legacy compatibility)
         /// </summary>
         /// <remarks>
-        /// The clone is a publication snapshot: database identities and history
-        /// scalar values are retained, while history navigation references are not
-        /// copied. The chart reference remains for legacy computed metadata. This
-        /// keeps speed-scoped cache entries from sharing tracked history objects.
+        /// The clone is a publication snapshot: history scalar values are copied
+        /// into fresh, untracked <see cref="PerformanceHistory"/> instances whose
+        /// primary key (<c>Id</c>) is zeroed so the snapshot can never collide
+        /// with a tracked entity if it is inadvertently attached to a DbContext.
+        /// The <c>SongScoreId</c> foreign key is retained so callers can still
+        /// scope history rows to their owning score (see
+        /// <see cref="SongManager.CreateScoreSnapshot"/>). The chart reference
+        /// remains for legacy computed metadata. History navigation references
+        /// are not copied, which keeps speed-scoped cache entries from sharing
+        /// tracked history objects.
         /// </remarks>
         public SongScore Clone()
         {
@@ -485,7 +491,7 @@ namespace DTXMania.Game.Lib.Song.Entities
                     Enumerable.Empty<PerformanceHistory>())
                     .Select(history => new PerformanceHistory
                     {
-                        Id = history.Id,
+                        Id = 0,
                         SongId = history.SongId,
                         SongScoreId = history.SongScoreId,
                         PerformedAt = history.PerformedAt,

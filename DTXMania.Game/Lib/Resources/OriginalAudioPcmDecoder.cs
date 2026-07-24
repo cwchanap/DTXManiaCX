@@ -165,18 +165,28 @@ namespace DTXMania.Game.Lib.Resources
                 throw new InvalidOperationException(runtime.DiagnosticReason);
 
             cancellationToken.ThrowIfCancellationRequested();
-            var mediaInfo = FFProbe.Analyse(sourcePath);
+            // AnalyseAsync honors the cancellation token; the synchronous overload
+            // does not. We are already on a Task.Run worker, so blocking on the
+            // awaiter is acceptable here.
+            var mediaInfo = FFProbe.AnalyseAsync(sourcePath, cancellationToken: cancellationToken)
+                .GetAwaiter().GetResult();
             var audioStream = mediaInfo.PrimaryAudioStream ??
                 throw new InvalidOperationException(
                     $"No audio stream found in file: {sourcePath}");
             var channelCount = audioStream.Channels == 1 ? 1 : 2;
+            // Preserve the source sample rate rather than forcing 44100, so MP3
+            // decoding is consistent with the WAV/OGG/XA paths (which retain the
+            // source rate). Fall back to 44100 only when FFProbe reports no rate.
+            var sampleRate = audioStream.SampleRateHz > 0
+                ? audioStream.SampleRateHz
+                : 44100;
 
             using var outputStream = new MemoryStream();
             FFMpegArguments
                 .FromFileInput(sourcePath)
                 .OutputToPipe(new StreamPipeSink(outputStream), options => options
                     .WithAudioCodec("pcm_s16le")
-                    .WithAudioSamplingRate(44100)
+                    .WithAudioSamplingRate(sampleRate)
                     .WithCustomArgument($"-ac {channelCount}")
                     .ForceFormat("s16le"))
                 .CancellableThrough(cancellationToken)
@@ -187,7 +197,7 @@ namespace DTXMania.Game.Lib.Resources
                 throw new InvalidOperationException("FFMpeg produced empty output stream.");
 
             return new PreparedAudioArtifact(
-                sampleRate: 44100,
+                sampleRate,
                 channelCount,
                 outputStream.ToArray());
         }

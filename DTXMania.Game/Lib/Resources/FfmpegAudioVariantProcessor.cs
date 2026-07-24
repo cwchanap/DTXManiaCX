@@ -411,10 +411,29 @@ namespace DTXMania.Game.Lib.Resources
             PlaybackModifiers Modifiers);
     }
 
-    internal readonly record struct AudioTransformMetadata(
-        int SampleRate,
-        int ChannelCount,
-        long SourceFrameCount = 44100);
+    internal readonly record struct AudioTransformMetadata
+    {
+        /// <summary>
+        /// Fallback frame count (one second at the canonical 44.1 kHz rate) used
+        /// when a caller does not supply a measured source frame count. This is
+        /// only a sizing hint for the padded-atempo filter, not a playback value.
+        /// </summary>
+        public const long DefaultSourceFrameCount = 44100;
+
+        public int SampleRate { get; init; }
+        public int ChannelCount { get; init; }
+        public long SourceFrameCount { get; init; } = DefaultSourceFrameCount;
+
+        public AudioTransformMetadata(
+            int sampleRate,
+            int channelCount,
+            long sourceFrameCount = DefaultSourceFrameCount)
+        {
+            SampleRate = sampleRate;
+            ChannelCount = channelCount;
+            SourceFrameCount = sourceFrameCount;
+        }
+    }
 
     internal interface IAudioVariantBackend
     {
