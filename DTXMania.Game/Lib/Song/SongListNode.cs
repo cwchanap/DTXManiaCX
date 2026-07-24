@@ -233,7 +233,7 @@ namespace DTXMania.Game.Lib.Song
                         .SelectMany(c => c.Scores ?? Enumerable.Empty<SongScore>())
                         .FirstOrDefault(ps => ps.ChartId == score.ChartId
                                               && ps.Instrument == score.Instrument
-                                              && ps.PlaySpeedPercent == 100);
+                                              && ps.PlaySpeedPercent == PlaySpeedRange.Default);
                 }
                 else
                 {
@@ -241,7 +241,7 @@ namespace DTXMania.Game.Lib.Song
                         .SelectMany(c => c.Scores ?? Enumerable.Empty<SongScore>())
                         .FirstOrDefault(ps => ps.Instrument == score.Instrument
                                               && ps.DifficultyLevel == score.DifficultyLevel
-                                              && ps.PlaySpeedPercent == 100);
+                                              && ps.PlaySpeedPercent == PlaySpeedRange.Default);
                 }
 
                 if (persisted == null) continue;
@@ -273,7 +273,7 @@ namespace DTXMania.Game.Lib.Song
                     .Take(GameConstants.PlayHistory.MaxRecentPlays)
                     .ToList();
 
-                SetScoreVariant(difficultyIndex, 100, score);
+                SetScoreVariant(difficultyIndex, PlaySpeedRange.Default, score);
                 // Preserve the direct factory/helper caller's legacy score object.
                 // The published map retains its detached clone.
                 Scores[difficultyIndex] = score;
@@ -538,7 +538,7 @@ namespace DTXMania.Game.Lib.Song
         /// </summary>
         public SongScore? GetDefaultSpeedScore(int difficultyIndex)
         {
-            var published = GetScore(difficultyIndex, 100);
+            var published = GetScore(difficultyIndex, PlaySpeedRange.Default);
             if (published != null)
                 return published;
 
@@ -573,7 +573,7 @@ namespace DTXMania.Game.Lib.Song
             if (!IsValidDifficultyIndex(difficultyIndex))
                 return;
 
-            SetScoreVariant(difficultyIndex, 100, score);
+            SetScoreVariant(difficultyIndex, PlaySpeedRange.Default, score);
             Scores[difficultyIndex] = score;
         }
 
@@ -646,6 +646,15 @@ namespace DTXMania.Game.Lib.Song
                 {
                     if (pair.Key.PlaySpeedPercent == PlaySpeedRange.Default)
                         Scores[pair.Key.DifficultyIndex] = pair.Value.Clone();
+                }
+
+                for (int difficultyIndex = 0; difficultyIndex < Scores.Length; difficultyIndex++)
+                {
+                    if (Scores[difficultyIndex] == null)
+                        continue;
+                    var defaultKey = new ScoreVariantKey(difficultyIndex, PlaySpeedRange.Default);
+                    if (!next.ContainsKey(defaultKey))
+                        Scores[difficultyIndex] = null!;
                 }
 
                 Volatile.Write(ref _scoreVariants, CreateReadOnlyVariantMap(next));

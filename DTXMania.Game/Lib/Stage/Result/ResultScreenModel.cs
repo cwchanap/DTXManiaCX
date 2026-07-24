@@ -161,9 +161,7 @@ namespace DTXMania.Game.Lib.Stage.Result
         }
 
         public static string FormatPlaybackProfile(int playSpeedPercent, int pitchSemitones)
-        {
-            return $"PLAY {PlaySpeedRange.Format(playSpeedPercent)} · PITCH {PitchRange.Format(pitchSemitones)}";
-        }
+            => PlaybackProfileFormatter.Format(playSpeedPercent, pitchSemitones);
 
         public static string FormatScoreBucket(int playSpeedPercent)
         {

@@ -4,6 +4,7 @@ using Xunit;
 
 namespace DTXMania.Test.Stage.Performance
 {
+    [Trait("Category", "Unit")]
     public sealed class PlaybackModifiersTests
     {
         [Fact]

@@ -13,7 +13,7 @@ namespace DTXMania.Test.Song
     public sealed class PlaybackSpeedScoreModelTests
     {
         [Fact]
-        public void ScoreVariantKey_UsesDifficultyAndExactSpeedIdentity()
+        public void ScoreVariantKey_ShouldUseDifficultyAndExactSpeedIdentity()
         {
             var first = new ScoreVariantKey(2, 75);
             var same = new ScoreVariantKey(2, 75);
@@ -26,7 +26,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void SongScore_DefaultAndClone_PreservePlaySpeedPercent()
+        public void SongScore_DefaultAndClone_ShouldPreservePlaySpeedPercent()
         {
             Assert.Equal(100, new SongScore().PlaySpeedPercent);
 
@@ -46,7 +46,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void PerformanceHistory_PitchSemitones_DefaultsToZeroAndRetainsValue()
+        public void PerformanceHistory_PitchSemitones_ShouldDefaultToZeroAndRetainValue()
         {
             Assert.Equal(0, new PerformanceHistory().PitchSemitones);
 
@@ -56,7 +56,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void ScoreSaveReceipt_RetainsStoredIdentity()
+        public void ScoreSaveReceipt_ShouldRetainStoredIdentity()
         {
             var runId = Guid.NewGuid();
             var savedAt = new DateTime(2026, 7, 23, 8, 0, 0, DateTimeKind.Utc);
@@ -79,7 +79,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void EfModel_ConfiguresSpeedScopedScoresAndDurableReceipts()
+        public void EfModel_ShouldConfigureSpeedScopedScoresAndDurableReceipts()
         {
             var options = new DbContextOptionsBuilder<SongDbContext>()
                 .UseSqlite("Data Source=:memory:")
@@ -156,7 +156,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void FreshDatabase_AllowsDifferentSpeedsAndRejectsDuplicateSpeed()
+        public void FreshDatabase_ShouldAllowDifferentSpeedsAndRejectDuplicateSpeed()
         {
             var (connection, options) = CreateDatabase();
             try
@@ -201,7 +201,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void DeletingSongScore_SetsReceiptForeignKeyNullWithoutDeletingReceipt()
+        public void DeletingSongScore_ShouldSetReceiptForeignKeyNullWithoutDeletingReceipt()
         {
             var (connection, options) = CreateDatabase();
             try

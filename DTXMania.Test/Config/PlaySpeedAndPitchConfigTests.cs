@@ -20,7 +20,7 @@ namespace DTXMania.Test.Config
         }
 
         [Fact]
-        public void ConfigData_DefaultsToNormalSpeedAndUnshiftedPitch()
+        public void ConfigData_ShouldDefaultToNormalSpeedAndUnshiftedPitch()
         {
             var config = new ConfigData();
 
@@ -43,7 +43,7 @@ namespace DTXMania.Test.Config
         [InlineData(147, 145)]
         [InlineData(148, 150)]
         [InlineData(151, 150)]
-        public void PlaySpeedRange_SnapAndClampUsesFivePercentSteps(int input, int expected)
+        public void PlaySpeedRange_SnapAndClamp_ShouldUseFivePercentSteps(int input, int expected)
         {
             Assert.Equal(expected, PlaySpeedRange.SnapAndClamp(input));
         }
@@ -54,13 +54,13 @@ namespace DTXMania.Test.Config
         [InlineData(0, 0)]
         [InlineData(12, 12)]
         [InlineData(13, 12)]
-        public void PitchRange_SnapAndClampUsesSemitoneSteps(int input, int expected)
+        public void PitchRange_SnapAndClamp_ShouldUseSemitoneSteps(int input, int expected)
         {
             Assert.Equal(expected, PitchRange.SnapAndClamp(input));
         }
 
         [Fact]
-        public void RangeFormat_IsInvariantAndCanonical()
+        public void RangeFormat_ShouldBeInvariantAndCanonical()
         {
             var previousCulture = CultureInfo.CurrentCulture;
             try
@@ -81,7 +81,7 @@ namespace DTXMania.Test.Config
         }
 
         [Fact]
-        public void SaveAndLoad_RoundTripsCanonicalValues()
+        public void SaveAndLoad_ShouldRoundTripCanonicalValues()
         {
             var manager = new ConfigManager();
             manager.LoadConfig(_tempPath);
@@ -101,7 +101,7 @@ namespace DTXMania.Test.Config
         }
 
         [Fact]
-        public void LoadConfig_MalformedValuesKeepDefaults()
+        public void LoadConfig_WithMalformedValues_ShouldKeepDefaults()
         {
             File.WriteAllText(_tempPath,
                 "PlaySpeedPercent=not-a-number\n" +
@@ -115,7 +115,7 @@ namespace DTXMania.Test.Config
         }
 
         [Fact]
-        public void LoadConfig_SnapsAndClampsHandEditedValues()
+        public void LoadConfig_WithHandEditedValues_ShouldSnapAndClamp()
         {
             File.WriteAllText(_tempPath,
                 "PlaySpeedPercent=127\n" +
@@ -129,7 +129,7 @@ namespace DTXMania.Test.Config
         }
 
         [Fact]
-        public void UnchangedSetters_DoNotScheduleDeferredWrite()
+        public void UnchangedSetters_ShouldNotScheduleDeferredWrite()
         {
             var manager = new ConfigManager();
             manager.LoadConfig(_tempPath);

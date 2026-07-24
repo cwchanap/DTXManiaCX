@@ -11,6 +11,7 @@ using Xunit;
 namespace DTXMania.Test.Resources
 {
     [Collection("AppPaths")]
+    [Trait("Category", "Unit")]
     public sealed class PlaybackAudioVariantCacheTests : IDisposable
     {
         private readonly string _tempDirectory = Path.Combine(

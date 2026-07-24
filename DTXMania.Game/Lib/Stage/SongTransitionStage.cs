@@ -762,10 +762,12 @@ namespace DTXMania.Game.Lib.Stage
         private string CreatePlaybackProfileText()
         {
             var config = _game.ConfigManager?.Config;
-            var playSpeedPercent = config?.PlaySpeedPercent ?? PlaySpeedRange.Default;
-            var pitchSemitones = config?.PitchSemitones ?? PitchRange.Default;
+            var playSpeedPercent = PlaySpeedRange.SnapAndClamp(
+                config?.PlaySpeedPercent ?? PlaySpeedRange.Default);
+            var pitchSemitones = PitchRange.SnapAndClamp(
+                config?.PitchSemitones ?? PitchRange.Default);
 
-            return $"PLAY {PlaySpeedRange.Format(playSpeedPercent)} · PITCH {PitchRange.Format(pitchSemitones)}";
+            return PlaybackProfileFormatter.Format(playSpeedPercent, pitchSemitones);
         }
 
         [ExcludeFromCodeCoverage]

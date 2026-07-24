@@ -179,6 +179,7 @@ namespace DTXMania.Game.Lib.Resources
                     .WithAudioSamplingRate(44100)
                     .WithCustomArgument($"-ac {channelCount}")
                     .ForceFormat("s16le"))
+                .CancellableThrough(cancellationToken)
                 .ProcessSynchronously();
             cancellationToken.ThrowIfCancellationRequested();
 

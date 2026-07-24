@@ -1734,10 +1734,7 @@ namespace DTXMania.Game.Lib.Stage
         internal static string CreatePlaybackProfileText(
             int playSpeedPercent,
             int pitchSemitones)
-        {
-            return $"PLAY {PlaySpeedRange.Format(playSpeedPercent)} · " +
-                $"PITCH {PitchRange.Format(pitchSemitones)}";
-        }
+            => PlaybackProfileFormatter.Format(playSpeedPercent, pitchSemitones);
 
         /// <summary>
         /// Copies the current config profile to every score-aware song-selection component

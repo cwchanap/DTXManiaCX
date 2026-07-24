@@ -267,9 +267,25 @@ namespace DTXMania.Game.Lib.Stage
             {
                 CleanupComponents();
             }
-            _initializationCts?.Dispose();
-            _initializationCts = null;
+
+            // Defer CTS disposal until the in-flight initialization task completes
+            // to avoid racing the task's token read.
+            var pendingTask = _initializationTask;
+            var pendingCts = _initializationCts;
             _initializationTask = null;
+            _initializationCts = null;
+
+            if (pendingTask == null || pendingTask.IsCompleted)
+            {
+                pendingCts?.Dispose();
+                return;
+            }
+
+            pendingTask.ContinueWith(
+                _ => pendingCts?.Dispose(),
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
         }
 
         protected override void OnUpdate(double deltaTime)

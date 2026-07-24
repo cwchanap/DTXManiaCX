@@ -16,7 +16,7 @@ public sealed class GameplayAutoPlaySmokeTests
     [Fact(Timeout = 420_000)]
     public async Task AutoPlaySmoke_ShouldPersistIndependentSpeedBucketsAndReuseBucketAcrossPitches()
     {
-        using var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(7));
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(390));
         var repoRoot = FindRepoRoot();
         var runRoot = Path.Combine(Path.GetTempPath(), "dtxmaniacx-e2e-" + Guid.NewGuid().ToString("N"));
         var projectPath = Environment.GetEnvironmentVariable("DTXMANIA_E2E_GAME_PROJECT")
