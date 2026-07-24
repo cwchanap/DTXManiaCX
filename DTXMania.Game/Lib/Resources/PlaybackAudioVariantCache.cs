@@ -22,7 +22,18 @@ namespace DTXMania.Game.Lib.Resources
         private readonly long _maxCacheBytes;
         private readonly ConcurrentDictionary<
             AudioVariantKey,
-            WaiterSharedOperation<PreparedAudioArtifact>> _inFlight = new();
+            WaiterSharedOperation<(PreparedAudioArtifact Artifact, bool CacheHit)>> _inFlight = new();
+
+        /// <summary>
+        /// Result of a get-or-create lookup, distinguishing a disk-cache hit
+        /// from a freshly prepared artifact. Used by callers that track
+        /// cache-hit statistics so race-resolved hits (a miss that another
+        /// waiter published before this caller's factory ran) are counted as
+        /// hits rather than misses.
+        /// </summary>
+        public readonly record struct CacheLookupResult(
+            PreparedAudioArtifact Artifact,
+            bool CacheHit);
 
         public PlaybackAudioVariantCache(
             string? cacheRoot = null,
@@ -66,19 +77,38 @@ namespace DTXMania.Game.Lib.Resources
                 Task<PreparedAudioArtifact>> factory,
             CancellationToken cancellationToken)
         {
+            return (await GetOrCreateWithStatusAsync(
+                key, factory, cancellationToken).ConfigureAwait(false)).Artifact;
+        }
+
+        /// <summary>
+        /// Gets a cached artifact or creates and stores a new one, reporting
+        /// whether the result came from the disk cache (CacheHit=true) or was
+        /// freshly prepared by the factory (CacheHit=false). A miss that
+        /// another concurrent waiter published before this caller's factory
+        /// ran is reported as a hit, since no factory work was performed.
+        /// </summary>
+        public async Task<CacheLookupResult> GetOrCreateWithStatusAsync(
+            AudioVariantKey key,
+            Func<
+                AudioVariantKey,
+                CancellationToken,
+                Task<PreparedAudioArtifact>> factory,
+            CancellationToken cancellationToken)
+        {
             ArgumentNullException.ThrowIfNull(key);
             ArgumentNullException.ThrowIfNull(factory);
 
             var cached = await TryReadAsync(key, cancellationToken);
             if (cached != null)
-                return cached;
+                return new CacheLookupResult(cached, CacheHit: true);
 
-            WaiterSharedOperation<PreparedAudioArtifact> operation;
+            WaiterSharedOperation<(PreparedAudioArtifact Artifact, bool CacheHit)> operation;
             while (true)
             {
                 operation = _inFlight.GetOrAdd(
                     key,
-                    currentKey => new WaiterSharedOperation<PreparedAudioArtifact>(
+                    currentKey => new WaiterSharedOperation<(PreparedAudioArtifact, bool)>(
                         operationToken => CreateAndStoreAsync(
                             currentKey,
                             factory,
@@ -91,10 +121,11 @@ namespace DTXMania.Game.Lib.Resources
 
             try
             {
-                return await operation
+                var result = await operation
                     .GetTask()
                     .WaitAsync(cancellationToken)
                     .ConfigureAwait(false);
+                return new CacheLookupResult(result.Artifact, result.CacheHit);
             }
             finally
             {
@@ -149,7 +180,7 @@ namespace DTXMania.Game.Lib.Resources
             }
         }
 
-        private async Task<PreparedAudioArtifact> CreateAndStoreAsync(
+        private async Task<(PreparedAudioArtifact Artifact, bool CacheHit)> CreateAndStoreAsync(
             AudioVariantKey key,
             Func<
                 AudioVariantKey,
@@ -159,10 +190,11 @@ namespace DTXMania.Game.Lib.Resources
         {
             // Close the miss-to-in-flight race: another request may have published
             // the artifact after this caller's first cache lookup but before its
-            // lazy factory won the dictionary slot.
+            // lazy factory won the dictionary slot. Report that as a cache hit so
+            // callers tracking hit/miss statistics count race-resolved reads.
             var cached = await TryReadAsync(key, cancellationToken);
             if (cached != null)
-                return cached;
+                return (cached, CacheHit: true);
 
             var artifact = await factory(key, cancellationToken)
                 ?? throw new InvalidDataException(
@@ -171,7 +203,7 @@ namespace DTXMania.Game.Lib.Resources
             await artifact.WriteAsync(path, cancellationToken);
             TouchBestEffort(path);
             PruneBestEffort();
-            return artifact;
+            return (artifact, CacheHit: false);
         }
 
         private void PruneBestEffort()
@@ -258,14 +290,14 @@ namespace DTXMania.Game.Lib.Resources
 
         private void RemoveInFlightIfCurrent(
             AudioVariantKey key,
-            WaiterSharedOperation<PreparedAudioArtifact> operation)
+            WaiterSharedOperation<(PreparedAudioArtifact Artifact, bool CacheHit)> operation)
         {
             ((ICollection<KeyValuePair<
                 AudioVariantKey,
-                WaiterSharedOperation<PreparedAudioArtifact>>>)_inFlight)
+                WaiterSharedOperation<(PreparedAudioArtifact, bool)>>>)(_inFlight))
                 .Remove(new KeyValuePair<
                     AudioVariantKey,
-                    WaiterSharedOperation<PreparedAudioArtifact>>(key, operation));
+                    WaiterSharedOperation<(PreparedAudioArtifact, bool)>>(key, operation));
         }
     }
 }
