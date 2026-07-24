@@ -25,7 +25,6 @@ namespace DTXMania.Game.Lib.Song.Entities
         private readonly object _initializationLock = new object();
         private readonly SemaphoreSlim _initializationSemaphore = new SemaphoreSlim(1, 1);
         private bool _isInitialized = false;
-        private const int ScoreSaveReceiptRetentionDays = 90;
 
         /// <summary>
         /// Gets the path to the database file
@@ -1093,10 +1092,11 @@ namespace DTXMania.Game.Lib.Song.Entities
             // and durable save receipts.
             await EnsurePlaybackSpeedScoreScopeAsync(context);
 
-            // Bounded retention: prune score-save receipts older than the retention
-            // window so the idempotency log cannot grow without bound. Recent
-            // receipts are preserved for duplicate-run detection.
-            await PruneStaleScoreSaveReceiptsAsync(context);
+            // Score-save receipts are retained indefinitely to preserve durable
+            // idempotency for repeated RunId validation (plan Critical Invariant #12).
+            // The ScoreSaveReceipt.ChartId column is stored identity (not a required
+            // foreign key) and its SongScore relationship uses ON DELETE SET NULL, so
+            // receipts survive deletion of their related SongScore.
         }
 
         /// <summary>
@@ -1570,26 +1570,6 @@ namespace DTXMania.Game.Lib.Song.Entities
                     "SongDatabaseService: Failed to converge the ScoreSaveReceipts schema; " +
                     "the migration was rolled back without deleting receipt data.",
                     ex);
-            }
-        }
-
-        /// <summary>
-        /// Removes score-save receipts older than the retention window. Runs once
-        /// during initialization so the idempotency log stays bounded. Best-effort:
-        /// a failure logs and continues rather than aborting initialization.
-        /// </summary>
-        private static async Task PruneStaleScoreSaveReceiptsAsync(SongDbContext context)
-        {
-            try
-            {
-                var cutoff = DateTime.UtcNow.AddDays(-ScoreSaveReceiptRetentionDays);
-                await context.Database.ExecuteSqlInterpolatedAsync(
-                    $"DELETE FROM ScoreSaveReceipts WHERE SavedAtUtc < {cutoff}");
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine(
-                    $"SongDatabaseService: Warning - Could not prune stale score-save receipts: {ex.Message}");
             }
         }
 

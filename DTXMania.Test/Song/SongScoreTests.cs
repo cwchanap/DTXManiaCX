@@ -555,6 +555,42 @@ namespace DTXMania.Test.Song
             Assert.Equal(score.NxImportedClearCount, clone.NxImportedClearCount);
         }
 
+        [Fact]
+        public void Clone_ShouldZeroPerformanceHistoryIdsSoSnapshotsAreNeverEfAttachable()
+        {
+            // A cloned snapshot is a publication view only. If a caller ever
+            // attaches it to a DbContext, retained primary keys would collide
+            // with tracked entities and throw. The clone must therefore hand
+            // out fresh, untracked PerformanceHistory rows with Id = 0 while
+            // preserving the scalar display values and the SongScoreId scope
+            // filter used by SongManager.CreateScoreSnapshot.
+            var history = new PerformanceHistory
+            {
+                Id = 42,
+                SongScoreId = 7,
+                SongId = 3,
+                PerformedAt = new DateTime(2025, 6, 1, 0, 0, 0, DateTimeKind.Utc),
+                PitchSemitones = -2,
+                HistoryLine = "2025/06/01 12:00:00  SS  950000",
+                DisplayOrder = 0,
+            };
+            var score = new SongScore
+            {
+                Id = 7,
+                ChartId = 3,
+                PerformanceHistory = new[] { history },
+            };
+
+            var clone = score.Clone();
+
+            var clonedHistory = Assert.Single(clone.PerformanceHistory);
+            Assert.NotSame(history, clonedHistory);
+            Assert.Equal(0, clonedHistory.Id);
+            Assert.Equal(7, clonedHistory.SongScoreId);
+            Assert.Equal(-2, clonedHistory.PitchSemitones);
+            Assert.Equal("2025/06/01 12:00:00  SS  950000", clonedHistory.HistoryLine);
+        }
+
 
         #endregion
     }
