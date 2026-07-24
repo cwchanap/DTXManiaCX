@@ -621,7 +621,7 @@ namespace DTXMania.Game.Lib.Resources
                         .WithAudioCodec("pcm_s16le")
                         .WithAudioSamplingRate(metadata.SampleRate)
                         .WithCustomArgument($"-ac {metadata.ChannelCount}")
-                        .WithCustomArgument($"-af \"{filter}\"")
+                        .WithCustomArgument($"-af {filter}")
                         .ForceFormat("s16le"))
                 .CancellableThrough(cancellationToken)
                 .ProcessAsynchronously()

@@ -143,7 +143,13 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     // profile through it regresses existing song compatibility.
                     // Individual non-main failures are skipped to mirror the legacy
                     // per-sound loaders, which left a missing BGM/chip unplayed rather
-                    // than failing the whole performance.
+                    // than failing the whole performance. The main background track is
+                    // the exception: a main BGM that exists on disk but fails to decode
+                    // is fatal and aborts the run via FailLoading. This intentionally
+                    // diverges from the legacy silent-clock fallback (Invariant #2),
+                    // because a silently-broken backing track masks a real asset
+                    // corruption problem that the player should be told about rather
+                    // than have the song play with no accompaniment.
                     foreach (var sourcePath in allPaths)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
@@ -203,22 +209,25 @@ namespace DTXMania.Game.Lib.Stage.Performance
                             sourcePath,
                             modifiers,
                             cancellationToken).ConfigureAwait(false);
-                        var artifact = await cache!.TryGetAsync(
+                        // A single get-or-create call replaces the prior
+                        // TryGetAsync + GetOrCreateAsync pair, which performed
+                        // a redundant disk read on every cache miss and failed
+                        // to count race-resolved reads (a miss that another
+                        // waiter published before this caller's factory ran)
+                        // as cache hits. GetOrCreateWithStatusAsync reports
+                        // hit/miss for both the direct disk hit and the
+                        // in-flight race-resolved hit.
+                        var lookup = await cache!.GetOrCreateWithStatusAsync(
                             key,
+                            (_, token) => processor!.PrepareAsync(
+                                sourcePath,
+                                modifiers,
+                                token),
                             cancellationToken).ConfigureAwait(false);
-                        if (artifact != null)
+                        var artifact = lookup.Artifact;
+                        if (lookup.CacheHit)
                         {
                             cacheHits++;
-                        }
-                        else
-                        {
-                            artifact = await cache.GetOrCreateAsync(
-                                key,
-                                (_, token) => processor!.PrepareAsync(
-                                    sourcePath,
-                                    modifiers,
-                                    token),
-                                cancellationToken).ConfigureAwait(false);
                         }
 
                         artifacts[sourcePath] = artifact;
