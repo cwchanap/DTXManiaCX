@@ -45,7 +45,11 @@ public class ConfigStageNxImportTests : IDisposable
         var game = ReflectionHelpers.CreateGame();
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager);
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.InputManager), inputManager);
-        return (new ConfigStage(game), configManager, inputManager);
+        var availability = new FfmpegRuntimeAvailability(
+            IsAvailable: true,
+            DiagnosticReason: null,
+            BinaryFolder: null);
+        return (new ConfigStage(game, () => availability), configManager, inputManager);
     }
 
     private static void InitializeStageMenu(ConfigStage stage, bool includePanels = false)

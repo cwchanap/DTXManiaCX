@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
@@ -35,7 +36,7 @@ namespace DTXMania.Game.Lib.Stage
 
         // Result data
         private PerformanceSummary _performanceSummary;
-        private DTXMania.Game.Lib.Song.SongListNode? _selectedSong;
+        private DTXMania.Game.Lib.Song.SongListNode _selectedSong;
         private int _selectedDifficulty;
 
         // UI components
@@ -54,11 +55,13 @@ namespace DTXMania.Game.Lib.Stage
 
         // State
         private double _elapsedTime = 0.0;
-        private SongChart? _scoreSaveChart;
+        private SongChart _scoreSaveChart;
         private EInstrumentPart _scoreSaveInstrument = EInstrumentPart.DRUMS;
-        private Task<ScoreSaveResult>? _scoreSaveTask;
+        private Task<ScoreSaveResult> _scoreSaveTask;
         private ResultSaveState _scoreSaveState = ResultSaveState.NotStarted;
-        private string? _scoreSaveError;
+        private string _scoreSaveError;
+        private Stopwatch _scoreSaveStopwatch;
+        private static readonly TimeSpan ScoreSaveTimeout = TimeSpan.FromSeconds(15);
 
         // Note: Using global stage transition debouncing from BaseGame
 
@@ -75,7 +78,7 @@ namespace DTXMania.Game.Lib.Stage
 
         internal ResultSaveState ScoreSaveState => _scoreSaveState;
 
-        internal string? ScoreSaveError => _scoreSaveError;
+        internal string ScoreSaveError => _scoreSaveError;
 
         #endregion
 
@@ -110,6 +113,7 @@ namespace DTXMania.Game.Lib.Stage
             _scoreSaveChart = null;
             _scoreSaveInstrument = EInstrumentPart.DRUMS;
             _scoreSaveTask = null;
+            _scoreSaveStopwatch = null;
             SetScoreSavePresentation(ResultSaveState.NotStarted);
 
             var selectedChart = ResolveSelectedChart();
@@ -424,6 +428,7 @@ namespace DTXMania.Game.Lib.Stage
             _scoreSaveChart = selectedChart;
             _scoreSaveInstrument = ResolveSelectedInstrument();
             SetScoreSavePresentation(ResultSaveState.Saving);
+            _scoreSaveStopwatch = Stopwatch.StartNew();
 
             try
             {
@@ -435,6 +440,7 @@ namespace DTXMania.Game.Lib.Stage
             catch (Exception ex)
             {
                 _scoreSaveTask = null;
+                _scoreSaveStopwatch = null;
                 SetScoreSavePresentation(ResultSaveState.Failed, ex.Message);
             }
         }
@@ -442,10 +448,25 @@ namespace DTXMania.Game.Lib.Stage
         private void ObservePerformanceSummarySave()
         {
             var task = _scoreSaveTask;
-            if (task == null || !task.IsCompleted)
+            if (task == null)
                 return;
 
+            if (!task.IsCompleted)
+            {
+                if (_scoreSaveStopwatch != null &&
+                    _scoreSaveStopwatch.Elapsed >= ScoreSaveTimeout)
+                {
+                    _scoreSaveTask = null;
+                    _scoreSaveStopwatch = null;
+                    SetScoreSavePresentation(
+                        ResultSaveState.Failed,
+                        "The score save timed out and could not be completed.");
+                }
+                return;
+            }
+
             _scoreSaveTask = null;
+            _scoreSaveStopwatch = null;
 
             try
             {
@@ -471,7 +492,7 @@ namespace DTXMania.Game.Lib.Stage
 
         private void SetScoreSavePresentation(
             ResultSaveState state,
-            string? error = null)
+            string error = null)
         {
             _scoreSaveState = state;
             _scoreSaveError = state == ResultSaveState.Failed

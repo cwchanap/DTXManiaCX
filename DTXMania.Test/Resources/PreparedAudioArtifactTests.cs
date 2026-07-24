@@ -7,6 +7,7 @@ using Xunit;
 
 namespace DTXMania.Test.Resources
 {
+    [Trait("Category", "Unit")]
     public sealed class PreparedAudioArtifactTests : IDisposable
     {
         private readonly string _tempDirectory = Path.Combine(
