@@ -65,9 +65,10 @@ namespace DTXMania.Test.Stage.Performance
             if (Environment.GetEnvironmentVariable("DTXMANIA_RUN_BENCHMARKS") != "1")
                 return; // Opt-in benchmark: no-op unless DTXMANIA_RUN_BENCHMARKS=1.
 
-            // Default profile (1.00x / 0 st) exercises the serial OriginalAudioPcmDecoder
-            // path: one ffmpeg spawn per MP3 source, awaited one at a time. This is the
-            // path the review flagged as sitting right at the 30 s dense-chart gate.
+            // Default profile (1.00x / 0 st) exercises the serial ManagedSound loader
+            // path: one ffmpeg spawn per MP3 source (via ManagedSound.LoadMp3File),
+            // awaited one at a time. This is the path the review flagged as sitting
+            // right at the 30 s dense-chart gate.
             var modifiers = new PlaybackModifiers(100, 0);
             var chipPaths = _mp3Sources
                 .Select((path, index) => (WavId: (index + 1).ToString("D2"), Path: path))
@@ -99,7 +100,7 @@ namespace DTXMania.Test.Stage.Performance
                 var decodedBytes = prepared.DecodedPcmBytes;
 
                 WriteArtifact(
-                    "cold-cache default profile (1.00x / 0 st) — serial OriginalAudioPcmDecoder",
+                    "cold-cache default profile (1.00x / 0 st) — serial ManagedSound loader",
                     DenseChipCount,
                     modifiers,
                     coldMs,

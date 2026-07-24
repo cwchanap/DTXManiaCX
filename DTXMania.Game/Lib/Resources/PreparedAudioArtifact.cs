@@ -24,6 +24,12 @@ namespace DTXMania.Game.Lib.Resources
         public const int HeaderLength = PcmLengthOffset + sizeof(long);
         public const int MinimumSampleRate = 8000;
         public const int MaximumSampleRate = 48000;
+        /// <summary>
+        /// Maximum PCM payload size accepted by <see cref="ReadAsync"/>. Defends
+        /// against unreasonably large allocations from a corrupted or tampered
+        /// cache file. Matches the default per-set decoded-PCM budget.
+        /// </summary>
+        public const long MaxPcmByteLength = 512L * 1024L * 1024L;
 
         public PreparedAudioArtifact(
             int sampleRate,
@@ -133,6 +139,10 @@ namespace DTXMania.Game.Lib.Resources
                 header.AsSpan(PcmLengthOffset, sizeof(long)));
 
             Validate(sampleRate, channelCount, declaredLength);
+            if (declaredLength > MaxPcmByteLength)
+                throw new InvalidDataException(
+                    $"Prepared PCM payload ({declaredLength} bytes) exceeds the " +
+                    $"{MaxPcmByteLength} byte budget ceiling.");
             if (declaredLength > int.MaxValue)
                 throw new InvalidDataException("Prepared PCM payload is too large.");
 

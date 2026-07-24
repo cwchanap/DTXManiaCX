@@ -13,6 +13,16 @@ namespace DTXMania.Game.Lib.Resources
     /// Decodes an original gameplay-audio source to the exact signed 16-bit PCM
     /// representation that will be supplied to MonoGame.
     /// </summary>
+    /// <remarks>
+    /// RESERVED — not currently wired into the production audio pipeline. The
+    /// default playback profile bypasses this decoder and loads sources through
+    /// the original loaders (SoundEffect.FromStream for WAV, FFMpeg-normalized
+    /// MP3) because this path cannot handle MS-ADPCM/IMA-ADPCM WAVs or sources
+    /// whose sample rate exceeds MonoGame's 48 kHz SoundEffect ceiling. See
+    /// PreparedGameplayAudioSet.PrepareAsync for the bypass rationale. This class
+    /// is exercised by PreparedGameplayAudioSetTests and serves as the reference
+    /// implementation for the PCM decode contract used by the variant pipeline.
+    /// </remarks>
     internal static class OriginalAudioPcmDecoder
     {
         public static Task<PreparedAudioArtifact> DecodeAsync(

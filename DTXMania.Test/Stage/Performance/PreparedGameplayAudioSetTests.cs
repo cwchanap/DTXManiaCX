@@ -21,9 +21,8 @@ namespace DTXMania.Test.Stage.Performance
             try
             {
                 var sourcePath = CreatePlaceholderSource(directory, "shared.wav");
-                var artifact = CreateArtifact(16);
                 var sound = new Mock<ISound>();
-                var decodeCount = 0;
+                var loadCount = 0;
                 var factoryCount = 0;
 
                 var prepared = await PreparedGameplayAudioSet.PrepareAsync(
@@ -35,10 +34,10 @@ namespace DTXMania.Test.Stage.Performance
                     cache: null,
                     progress: null,
                     CancellationToken.None,
-                    (path, token) =>
+                    path =>
                     {
-                        decodeCount++;
-                        return Task.FromResult(artifact);
+                        loadCount++;
+                        return sound.Object;
                     },
                     (value, path) =>
                     {
@@ -46,9 +45,9 @@ namespace DTXMania.Test.Stage.Performance
                         return sound.Object;
                     });
 
-                Assert.Equal(1, decodeCount);
-                Assert.Equal(1, factoryCount);
-                Assert.Equal(artifact.PcmByteLength, prepared.DecodedPcmBytes);
+                Assert.Equal(1, loadCount);
+                Assert.Equal(0, factoryCount);
+                Assert.Equal(0, prepared.DecodedPcmBytes);
                 Assert.Same(prepared.MainBackground, prepared.ScheduledBgmBySourcePath[sourcePath]);
                 Assert.Same(prepared.MainBackground, prepared.ChipSoundsByWavId["01"]);
 
@@ -70,6 +69,16 @@ namespace DTXMania.Test.Stage.Performance
             {
                 var firstPath = CreatePlaceholderSource(directory, "first.wav");
                 var secondPath = CreatePlaceholderSource(directory, "second.wav");
+                var cache = new PlaybackAudioVariantCache(
+                    Path.Combine(directory, "cache"),
+                    maxCacheBytes: 1024 * 1024);
+                var processor = new Mock<IAudioVariantProcessor>();
+                processor
+                    .Setup(value => value.PrepareAsync(
+                        It.IsAny<string>(),
+                        It.IsAny<PlaybackModifiers>(),
+                        It.IsAny<CancellationToken>()))
+                    .ReturnsAsync(CreateArtifact(8));
                 var factoryCount = 0;
 
                 var exception = await Assert.ThrowsAsync<AudioPreparationBudgetExceededException>(
@@ -77,12 +86,12 @@ namespace DTXMania.Test.Stage.Performance
                         firstPath,
                         new[] { secondPath },
                         new Dictionary<string, string>(),
-                        new PlaybackModifiers(100, 0),
-                        processor: null,
-                        cache: null,
+                        new PlaybackModifiers(50, 12),
+                        processor.Object,
+                        cache,
                         progress: null,
                         CancellationToken.None,
-                        (path, token) => Task.FromResult(CreateArtifact(8)),
+                        path => throw new InvalidOperationException("Default loader should not run for non-default profile."),
                         (artifact, path) =>
                         {
                             factoryCount++;
@@ -149,7 +158,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public async Task PrepareAsync_CancelledAfterDecode_DoesNotPublishSound()
+        public async Task PrepareAsync_CancelledDuringVariantProcessing_DoesNotPublishSound()
         {
             var directory = CreateTempDirectory();
             try
@@ -162,21 +171,32 @@ namespace DTXMania.Test.Stage.Performance
                 var factoryCount = 0;
                 using var cancellation = new CancellationTokenSource();
 
-                var preparation = PreparedGameplayAudioSet.PrepareAsync(
-                    sourcePath,
-                    Array.Empty<string>(),
-                    new Dictionary<string, string>(),
-                    new PlaybackModifiers(100, 0),
-                    processor: null,
-                    cache: null,
-                    progress: null,
-                    cancellation.Token,
-                    async (path, token) =>
+                var cache = new PlaybackAudioVariantCache(
+                    Path.Combine(directory, "cache"),
+                    maxCacheBytes: 1024 * 1024);
+                var processor = new Mock<IAudioVariantProcessor>();
+                processor
+                    .Setup(value => value.PrepareAsync(
+                        It.IsAny<string>(),
+                        It.IsAny<PlaybackModifiers>(),
+                        It.IsAny<CancellationToken>()))
+                    .Returns(async (string path, PlaybackModifiers mods, CancellationToken token) =>
                     {
                         decodeStarted.SetResult();
                         await releaseDecode.Task;
                         return CreateArtifact(8);
-                    },
+                    });
+
+                var preparation = PreparedGameplayAudioSet.PrepareAsync(
+                    sourcePath,
+                    Array.Empty<string>(),
+                    new Dictionary<string, string>(),
+                    new PlaybackModifiers(50, 12),
+                    processor.Object,
+                    cache,
+                    progress: null,
+                    cancellation.Token,
+                    path => throw new InvalidOperationException("Default loader should not run for non-default profile."),
                     (artifact, path) =>
                     {
                         factoryCount++;
@@ -198,36 +218,47 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public async Task PrepareAsync_BlockingDecoder_ReportsInProgressBeforeCompletion()
+        public async Task PrepareAsync_BlockingProcessor_ReportsInProgressBeforeCompletion()
         {
             var directory = CreateTempDirectory();
             try
             {
                 var sourcePath = CreatePlaceholderSource(directory, "blocking.wav");
-                var decoderStarted = new TaskCompletionSource(
+                var processorStarted = new TaskCompletionSource(
                     TaskCreationOptions.RunContinuationsAsynchronously);
-                var releaseDecoder = new TaskCompletionSource(
+                var releaseProcessor = new TaskCompletionSource(
                     TaskCreationOptions.RunContinuationsAsynchronously);
                 var reports = new List<AudioPreparationProgress>();
+
+                var cache = new PlaybackAudioVariantCache(
+                    Path.Combine(directory, "cache"),
+                    maxCacheBytes: 1024 * 1024);
+                var processor = new Mock<IAudioVariantProcessor>();
+                processor
+                    .Setup(value => value.PrepareAsync(
+                        It.IsAny<string>(),
+                        It.IsAny<PlaybackModifiers>(),
+                        It.IsAny<CancellationToken>()))
+                    .Returns(async (string path, PlaybackModifiers mods, CancellationToken token) =>
+                    {
+                        processorStarted.SetResult();
+                        await releaseProcessor.Task;
+                        return CreateArtifact(8);
+                    });
 
                 var preparation = PreparedGameplayAudioSet.PrepareAsync(
                     sourcePath,
                     Array.Empty<string>(),
                     new Dictionary<string, string>(),
-                    new PlaybackModifiers(100, 0),
-                    processor: null,
-                    cache: null,
+                    new PlaybackModifiers(50, 12),
+                    processor.Object,
+                    cache,
                     new InlineProgress<AudioPreparationProgress>(reports.Add),
                     CancellationToken.None,
-                    async (path, token) =>
-                    {
-                        decoderStarted.SetResult();
-                        await releaseDecoder.Task;
-                        return CreateArtifact(8);
-                    },
+                    path => throw new InvalidOperationException("Default loader should not run for non-default profile."),
                     (artifact, path) => Mock.Of<ISound>());
 
-                await decoderStarted.Task;
+                await processorStarted.Task;
 
                 var inProgress = Assert.Single(reports);
                 Assert.Equal(0, inProgress.CompletedCount);
@@ -235,7 +266,7 @@ namespace DTXMania.Test.Stage.Performance
                 Assert.Equal("background", inProgress.CurrentRole);
                 Assert.False(preparation.IsCompleted);
 
-                releaseDecoder.SetResult();
+                releaseProcessor.SetResult();
                 using var prepared = await preparation;
 
                 Assert.Equal(2, reports.Count);
@@ -283,7 +314,7 @@ namespace DTXMania.Test.Stage.Performance
                 cache,
                 progress,
                 CancellationToken.None,
-                (path, token) => throw new InvalidOperationException("Default decoder should not run."),
+                path => throw new InvalidOperationException("Default loader should not run for non-default profile."),
                 (artifact, path) => Mock.Of<ISound>());
         }
 

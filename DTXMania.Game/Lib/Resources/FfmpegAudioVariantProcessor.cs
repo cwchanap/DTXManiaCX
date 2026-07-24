@@ -633,8 +633,7 @@ namespace DTXMania.Game.Lib.Resources
             int channelCount,
             long sourceFrameCount)
         {
-            var normalizedSampleRate =
-                sampleRate is >= 8000 and <= 48000 ? sampleRate : 44100;
+            var normalizedSampleRate = NormalizeSampleRate(sampleRate);
             var normalizedChannelCount = channelCount == 1 ? 1 : 2;
             return new AudioTransformMetadata(
                 normalizedSampleRate,
@@ -647,8 +646,7 @@ namespace DTXMania.Game.Lib.Resources
             int channelCount,
             TimeSpan duration)
         {
-            var normalizedSampleRate =
-                sampleRate is >= 8000 and <= 48000 ? sampleRate : 44100;
+            var normalizedSampleRate = NormalizeSampleRate(sampleRate);
             var sourceFrameCount = checked((long)Math.Ceiling(
                 Math.Max(0.0, duration.TotalSeconds) *
                 normalizedSampleRate));
@@ -656,6 +654,24 @@ namespace DTXMania.Game.Lib.Resources
                 sampleRate,
                 channelCount,
                 sourceFrameCount);
+        }
+
+        /// <summary>
+        /// Clamps a source sample rate into MonoGame's supported 8000–48000 Hz
+        /// range, preserving the source rate when it is already valid. Rates
+        /// above 48000 are clamped down to 48000 (not 44100) to retain maximum
+        /// bandwidth; rates below 8000 are clamped up to 8000. An invalid/
+        /// unknown rate (≤ 0, e.g. FFProbe reported nothing) falls back to
+        /// 44100. This matches the ceiling enforced by
+        /// <see cref="PreparedAudioArtifact.Validate"/> and MonoGame's
+        /// SoundEffect, so a source plays at the same rate at default and
+        /// non-default playback speeds.
+        /// </summary>
+        private static int NormalizeSampleRate(int sampleRate)
+        {
+            if (sampleRate <= 0)
+                return 44100;
+            return Math.Clamp(sampleRate, 8000, 48000);
         }
     }
 }

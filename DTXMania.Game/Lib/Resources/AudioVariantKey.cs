@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.IO;
 using System.Security.Cryptography;
@@ -22,6 +23,24 @@ namespace DTXMania.Game.Lib.Resources
     {
         public const int CurrentPipelineVersion = 1;
 
+        /// <summary>
+        /// Memoized content fingerprints keyed by canonical path. Each entry
+        /// records the file length and last-write time so a stale entry is
+        /// invalidated when the source changes. This avoids re-hashing the
+        /// entire file on every warm-cache lookup, which for large BGMs
+        /// (50–100 MB+) would blow the &lt;2 s warm-prep budget on every song
+        /// entry at non-default speed.
+        /// </summary>
+        /// <remarks>
+        /// Trade-off: a file replaced with same-size, same-mtime content would
+        /// return a stale fingerprint. This is low-probability for game audio
+        /// assets and recoverable by clearing the variant cache directory.
+        /// </remarks>
+        private static readonly ConcurrentDictionary<string, FingerprintEntry> _fingerprintCache =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        private sealed record FingerprintEntry(long Length, DateTime LastWriteTimeUtc, string Sha256Hex);
+
         public static async Task<AudioVariantKey> CreateAsync(
             string sourcePath,
             PlaybackModifiers modifiers,
@@ -33,21 +52,52 @@ namespace DTXMania.Game.Lib.Resources
             if (pipelineVersion <= 0)
                 throw new ArgumentOutOfRangeException(nameof(pipelineVersion));
 
+            var fullPath = Path.GetFullPath(sourcePath);
+            var info = new FileInfo(fullPath);
+            var length = info.Length;
+            var lastWrite = info.LastWriteTimeUtc;
+
+            var sha256Hex = await GetOrComputeFingerprintAsync(
+                fullPath, length, lastWrite, cancellationToken).ConfigureAwait(false);
+
+            return new AudioVariantKey(
+                sha256Hex,
+                GetDecoderIdentity(sourcePath),
+                PlaySpeedRange.SnapAndClamp(modifiers.PlaySpeedPercent),
+                PitchRange.SnapAndClamp(modifiers.PitchSemitones),
+                pipelineVersion);
+        }
+
+        /// <summary>
+        /// Returns a memoized SHA-256 fingerprint for <paramref name="fullPath"/>
+        /// when the cached entry still matches the file's length and mtime;
+        /// otherwise reads and hashes the file and updates the cache.
+        /// </summary>
+        private static async Task<string> GetOrComputeFingerprintAsync(
+            string fullPath,
+            long length,
+            DateTime lastWriteUtc,
+            CancellationToken cancellationToken)
+        {
+            if (_fingerprintCache.TryGetValue(fullPath, out var existing) &&
+                existing.Length == length &&
+                existing.LastWriteTimeUtc == lastWriteUtc)
+            {
+                return existing.Sha256Hex;
+            }
+
             await using var stream = new FileStream(
-                sourcePath,
+                fullPath,
                 FileMode.Open,
                 FileAccess.Read,
                 FileShare.Read,
                 bufferSize: 81920,
                 FileOptions.Asynchronous | FileOptions.SequentialScan);
-            var fingerprint = await SHA256.HashDataAsync(stream, cancellationToken);
+            var fingerprint = await SHA256.HashDataAsync(stream, cancellationToken).ConfigureAwait(false);
+            var hex = Convert.ToHexString(fingerprint).ToLowerInvariant();
 
-            return new AudioVariantKey(
-                Convert.ToHexString(fingerprint).ToLowerInvariant(),
-                GetDecoderIdentity(sourcePath),
-                PlaySpeedRange.SnapAndClamp(modifiers.PlaySpeedPercent),
-                PitchRange.SnapAndClamp(modifiers.PitchSemitones),
-                pipelineVersion);
+            _fingerprintCache[fullPath] = new FingerprintEntry(length, lastWriteUtc, hex);
+            return hex;
         }
 
         public string ToCacheFileName()
