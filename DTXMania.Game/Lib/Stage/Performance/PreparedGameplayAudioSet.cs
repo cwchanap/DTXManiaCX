@@ -141,15 +141,13 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     // cannot handle ADPCM WAVs or MP3s whose source rate exceeds
                     // MonoGame's 48 kHz SoundEffect ceiling, so routing the default
                     // profile through it regresses existing song compatibility.
-                    // Individual non-main failures are skipped to mirror the legacy
-                    // per-sound loaders, which left a missing BGM/chip unplayed rather
-                    // than failing the whole performance. The main background track is
-                    // the exception: a main BGM that exists on disk but fails to decode
-                    // is fatal and aborts the run via FailLoading. This intentionally
-                    // diverges from the legacy silent-clock fallback (Invariant #2),
-                    // because a silently-broken backing track masks a real asset
-                    // corruption problem that the player should be told about rather
-                    // than have the song play with no accompaniment.
+                    // Per-sound failures — including the main background track — are
+                    // skipped to mirror the legacy per-sound loaders, which left a
+                    // missing BGM/chip unplayed rather than failing the whole
+                    // performance (Invariant #2: silent-clock fallback). A corrupt
+                    // main BGM therefore yields a null MainBackground and the
+                    // performance stage falls back to the silent GameTime clock,
+                    // matching DTXMania's original behavior.
                     foreach (var sourcePath in allPaths)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
@@ -170,7 +168,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                         {
                             soundsByPath[sourcePath] = defaultSoundLoader(sourcePath);
                         }
-                        catch (Exception ex) when (sourcePath != mainPath)
+                        catch (Exception ex)
                         {
                             Debug.WriteLine(
                                 $"[PreparedGameplayAudioSet] Skipping failed default-profile sound '{sourcePath}': {ex.Message}");

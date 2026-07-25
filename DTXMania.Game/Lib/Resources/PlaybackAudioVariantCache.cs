@@ -23,6 +23,7 @@ namespace DTXMania.Game.Lib.Resources
         private readonly ConcurrentDictionary<
             AudioVariantKey,
             WaiterSharedOperation<(PreparedAudioArtifact Artifact, bool CacheHit)>> _inFlight = new();
+        private long _bytesWrittenSincePrune;
 
         /// <summary>
         /// Result of a get-or-create lookup, distinguishing a disk-cache hit
@@ -202,7 +203,18 @@ namespace DTXMania.Game.Lib.Resources
             var path = GetArtifactPath(key);
             await artifact.WriteAsync(path, cancellationToken);
             TouchBestEffort(path);
-            PruneBestEffort();
+            // Gate pruning on a byte threshold instead of running on every
+            // write. PruneBestEffort enumerates all cache files, which is
+            // wasteful when the cache is well under budget. Only prune when
+            // the bytes written since the last prune exceed 10% of the budget.
+            var bytesSince = Interlocked.Add(
+                ref _bytesWrittenSincePrune,
+                artifact.PcmByteLength);
+            if (bytesSince >= _maxCacheBytes / 10)
+            {
+                Interlocked.Exchange(ref _bytesWrittenSincePrune, 0);
+                PruneBestEffort();
+            }
             return (artifact, CacheHit: false);
         }
 

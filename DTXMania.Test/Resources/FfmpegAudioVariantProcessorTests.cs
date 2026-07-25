@@ -298,6 +298,42 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
+        public void ComputeExpectedOutputBytes_ShouldMatchTargetFrameCountTimesFrameSize()
+        {
+            // 44100 source frames at 50% speed → 88200 target frames × 2 bytes = 176400
+            Assert.Equal(
+                176400,
+                FfmpegAudioVariantProcessor.ComputeExpectedOutputBytes(
+                    channelCount: 1,
+                    tempoFactor: 0.5,
+                    sourceFrameCount: 44100));
+            // Stereo doubles the frame size
+            Assert.Equal(
+                352800,
+                FfmpegAudioVariantProcessor.ComputeExpectedOutputBytes(
+                    channelCount: 2,
+                    tempoFactor: 0.5,
+                    sourceFrameCount: 44100));
+        }
+
+        [Fact]
+        public void Constructor_OrphanedTempFiles_ShouldBeSweptAtStartup()
+        {
+            // Simulate crash orphans from a previous process run
+            var orphan1 = Path.Combine(_tempDirectory, "variant-deadbeef.s16le.tmp");
+            var orphan2 = Path.Combine(_tempDirectory, "variant-cafebabe.s16le.tmp");
+            File.WriteAllBytes(orphan1, new byte[] { 0, 0 });
+            File.WriteAllBytes(orphan2, new byte[] { 0, 0 });
+            Assert.True(File.Exists(orphan1));
+            Assert.True(File.Exists(orphan2));
+
+            CreateProcessor(new FakeBackend());
+
+            Assert.False(File.Exists(orphan1));
+            Assert.False(File.Exists(orphan2));
+        }
+
+        [Fact]
         public async Task PrepareAsync_EmptyOutput_ShouldReturnTypedFailure()
         {
             var source = WriteSource("source.wav");
@@ -538,9 +574,17 @@ namespace DTXMania.Test.Resources
                     await _beforeWrite(cancellationToken);
                     if (_writeOutput)
                     {
+                        // Write a full-length output so the truncation-retry check
+                        // in the processor does not fire for normal test scenarios.
+                        var metadata = new AudioTransformMetadata(44100, 1);
+                        var expectedBytes =
+                            FfmpegAudioVariantProcessor.ComputeExpectedOutputBytes(
+                                metadata.ChannelCount,
+                                modifiers.FfmpegTempoFactor,
+                                metadata.SourceFrameCount);
                         await File.WriteAllBytesAsync(
                             outputPath,
-                            new byte[] { 0, 0 },
+                            new byte[expectedBytes],
                             cancellationToken);
                     }
 
@@ -569,5 +613,6 @@ namespace DTXMania.Test.Resources
                 }
             }
         }
+
     }
 }

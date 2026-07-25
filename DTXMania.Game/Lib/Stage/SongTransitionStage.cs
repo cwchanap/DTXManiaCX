@@ -51,7 +51,7 @@ namespace DTXMania.Game.Lib.Stage
         private string _songTitle;
         private string _artistName;
         private string _difficultyName;
-        private string _playbackProfileText;
+        private string _playbackProfileText = string.Empty;
         
         // Preview image with rotation support
         private ITexture _previewTexture;

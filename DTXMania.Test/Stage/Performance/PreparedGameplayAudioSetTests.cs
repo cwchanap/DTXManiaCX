@@ -62,6 +62,49 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
+        public async Task PrepareAsync_DefaultProfile_FailingMainBgm_FallsBackSilentlyInsteadOfAborting()
+        {
+            var directory = CreateTempDirectory();
+            try
+            {
+                var mainPath = CreatePlaceholderSource(directory, "main.wav");
+                var chipPath = CreatePlaceholderSource(directory, "chip.wav");
+                var chipSound = new Mock<ISound>();
+
+                var prepared = await PreparedGameplayAudioSet.PrepareAsync(
+                    mainPath,
+                    Array.Empty<string>(),
+                    new Dictionary<string, string> { ["01"] = chipPath },
+                    new PlaybackModifiers(100, 0),
+                    processor: null,
+                    cache: null,
+                    progress: null,
+                    CancellationToken.None,
+                    path =>
+                    {
+                        if (path == mainPath)
+                            throw new InvalidOperationException("Simulated corrupt main BGM");
+                        return chipSound.Object;
+                    },
+                    (artifact, path) => throw new InvalidOperationException(
+                        "Prepared factory should not run for default profile."));
+
+                // Invariant #2: a corrupt main BGM yields null (silent-clock fallback)
+                // rather than aborting the run. The chip sound still loads.
+                Assert.Null(prepared.MainBackground);
+                Assert.Single(prepared.ChipSoundsByWavId);
+                Assert.Same(chipSound.Object, prepared.ChipSoundsByWavId["01"]);
+
+                prepared.Dispose();
+                chipSound.Verify(value => value.Dispose(), Times.Once);
+            }
+            finally
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+
+        [Fact]
         public async Task PrepareAsync_OverBudget_RejectsBeforeConstructingAnySounds()
         {
             var directory = CreateTempDirectory();

@@ -75,6 +75,38 @@ namespace DTXMania.Game.Lib.Resources
 
             _operationTimeout = operationTimeout;
             _temporaryDirectory = temporaryDirectory;
+            CleanupOrphanedTempFilesBestEffort();
+        }
+
+        /// <summary>
+        /// Sweeps orphaned <c>.s16le.tmp</c> files left by a previous process
+        /// that crashed or was killed mid-transform. The per-call <c>finally</c>
+        /// block in <see cref="PrepareCoreAsync"/> deletes its own temp file on
+        /// normal exit, so only crash orphans remain. Each temp file carries a
+        /// unique GUID, so this sweep cannot collide with in-flight files from
+        /// the current process.
+        /// </summary>
+        private void CleanupOrphanedTempFilesBestEffort()
+        {
+            try
+            {
+                if (!Directory.Exists(_temporaryDirectory))
+                    return;
+
+                foreach (var path in Directory.EnumerateFiles(
+                    _temporaryDirectory,
+                    "*.s16le.tmp",
+                    SearchOption.TopDirectoryOnly))
+                {
+                    try { File.Delete(path); }
+                    catch (IOException) { }
+                    catch (UnauthorizedAccessException) { }
+                }
+            }
+            catch
+            {
+                // Cleanup is best effort; processor correctness does not rely on it.
+            }
         }
 
         public async Task<PreparedAudioArtifact> PrepareAsync(
@@ -188,11 +220,37 @@ namespace DTXMania.Game.Lib.Resources
             if (sourceFrameCount <= 0)
                 throw new ArgumentOutOfRangeException(nameof(sourceFrameCount));
 
-            var targetFrameCount = Math.Max(
-                1L,
-                checked((long)Math.Ceiling(sourceFrameCount / tempoFactor)));
+            var targetFrameCount = ComputeTargetFrameCount(tempoFactor, sourceFrameCount);
             return FormattableString.Invariant(
                 $"apad=pad_len={sampleRate},{atempoFilter},atrim=end_sample={targetFrameCount}");
+        }
+
+        /// <summary>
+        /// Computes the expected output byte count for one atempo transform:
+        /// targetFrameCount × frameSize, where targetFrameCount is the ceiling
+        /// of sourceFrameCount / tempoFactor and frameSize is channelCount × 2
+        /// (pcm_s16le). Used to detect truncated FFmpeg output that is non-empty
+        /// but shorter than the expected duration.
+        /// </summary>
+        internal static long ComputeExpectedOutputBytes(
+            int channelCount,
+            double tempoFactor,
+            long sourceFrameCount)
+        {
+            if (channelCount is < 1 or > 2)
+                throw new ArgumentOutOfRangeException(nameof(channelCount));
+            if (!double.IsFinite(tempoFactor) || tempoFactor <= 0.0)
+                throw new ArgumentOutOfRangeException(nameof(tempoFactor));
+            if (sourceFrameCount <= 0)
+                throw new ArgumentOutOfRangeException(nameof(sourceFrameCount));
+
+            var targetFrameCount = ComputeTargetFrameCount(tempoFactor, sourceFrameCount);
+            return checked(targetFrameCount * channelCount * sizeof(short));
+        }
+
+        private static long ComputeTargetFrameCount(double tempoFactor, long sourceFrameCount)
+        {
+            return Math.Max(1L, checked((long)Math.Ceiling(sourceFrameCount / tempoFactor)));
         }
 
         private async Task<PreparedAudioArtifact> PrepareCoreAsync(
@@ -565,8 +623,23 @@ namespace DTXMania.Game.Lib.Resources
                         filter,
                         cancellationToken).ConfigureAwait(false);
 
-                    if (!File.Exists(outputPath) ||
-                        new FileInfo(outputPath).Length == 0)
+                    // Retry when the first pass produced no output or a severely
+                    // truncated (less than 80% of expected) one. atempo at slow
+                    // speeds can drop trailing samples on short chips, yielding a
+                    // non-empty but incomplete PCM buffer. The 80% tolerance
+                    // avoids false retries from FFProbe duration overestimation,
+                    // which is common for short MP3s with LAME encoder
+                    // delay/padding. The padded-atempo retry (apad + atrim)
+                    // produces exactly targetFrameCount frames.
+                    var expectedBytes = FfmpegAudioVariantProcessor
+                        .ComputeExpectedOutputBytes(
+                            metadata.ChannelCount,
+                            modifiers.FfmpegTempoFactor,
+                            metadata.SourceFrameCount);
+                    var outputBytes = File.Exists(outputPath)
+                        ? new FileInfo(outputPath).Length
+                        : 0;
+                    if (outputBytes < expectedBytes * 4 / 5)
                     {
                         File.Delete(outputPath);
                         var paddedFilter =
