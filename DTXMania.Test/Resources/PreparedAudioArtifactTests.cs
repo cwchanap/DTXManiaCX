@@ -166,26 +166,24 @@ namespace DTXMania.Test.Resources
         /// callers (the SoundEffect construction path in
         /// PreparedGameplayAudioSet) can pass the backing byte[] directly
         /// instead of cloning via PcmData.ToArray(). Verify it returns the
-        /// artifact's own backing storage (reference-equal), not a copy.
+        /// exact caller-owned array supplied through FromOwnedBytes — no
+        /// clone is created — by checking identity against the original input.
         /// </summary>
         [Fact]
         public void PcmDataBuffer_ReturnsBackingStorageWithoutCloning()
         {
-            // The public constructor clones the input; the artifact owns its
-            // own buffer. PcmDataBuffer must expose that owned buffer directly.
-            var artifact = new PreparedAudioArtifact(
-                44100,
-                2,
-                new byte[] { 0x01, 0x02, 0x03, 0x04 });
+            var pcm = new byte[] { 0x01, 0x02, 0x03, 0x04 };
+            var artifact = PreparedAudioArtifact.FromOwnedBytes(44100, 2, pcm);
 
-            var buffer = artifact.PcmDataBuffer;
-            Assert.Equal(4, buffer.Length);
-            // PcmDataBuffer must be the same reference as the internal backing
-            // storage (not a copy), so callers can pass it to SoundEffect
-            // without an intermediate ToArray() clone.
+            Assert.Equal(4, artifact.PcmByteLength);
+            // PcmDataBuffer must be the exact same array instance the caller
+            // supplied via FromOwnedBytes — no defensive clone. This is the
+            // whole point of the ownership-taking factory.
             Assert.True(
-                ReferenceEquals(buffer, artifact.PcmDataBuffer),
-                "PcmDataBuffer must return the same reference on each call.");
+                ReferenceEquals(pcm, artifact.PcmDataBuffer),
+                "PcmDataBuffer must return the caller-owned array without cloning.");
+            // The public PcmData view must still reflect the same contents.
+            Assert.Equal(pcm, artifact.PcmData.ToArray());
         }
 
         [Fact]
@@ -193,6 +191,118 @@ namespace DTXMania.Test.Resources
         {
             Assert.Throws<ArgumentNullException>(
                 () => PreparedAudioArtifact.FromOwnedBytes(44100, 1, null!));
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("   ")]
+        public async Task WriteAsync_WithBlankPath_ThrowsArgumentException(string? path)
+        {
+            var artifact = new PreparedAudioArtifact(44100, 2, new byte[] { 0x01, 0x02, 0x03, 0x04 });
+
+            await Assert.ThrowsAsync<ArgumentException>(
+                () => artifact.WriteAsync(path!));
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("   ")]
+        public async Task ReadAsync_WithBlankPath_ThrowsArgumentException(string? path)
+        {
+            await Assert.ThrowsAsync<ArgumentException>(
+                () => PreparedAudioArtifact.ReadAsync(path!));
+        }
+
+        [Fact]
+        public async Task ReadAsync_WithTruncatedHeader_ThrowsInvalidDataException()
+        {
+            var path = Path.Combine(_tempDirectory, "truncated.dtxpcm");
+            await File.WriteAllBytesAsync(
+                path,
+                new byte[PreparedAudioArtifact.HeaderLength - 1]);
+
+            var exception = await Assert.ThrowsAsync<InvalidDataException>(
+                () => PreparedAudioArtifact.ReadAsync(path));
+
+            Assert.Contains("header is truncated", exception.Message);
+        }
+
+        [Fact]
+        public async Task WriteAsync_CreatesParentDirectoryAndOverwritesExistingArtifact()
+        {
+            var path = Path.Combine(_tempDirectory, "nested", "tone.dtxpcm");
+            var first = new PreparedAudioArtifact(
+                44100,
+                2,
+                new byte[] { 0x01, 0x02, 0x03, 0x04 });
+            var second = new PreparedAudioArtifact(
+                48000,
+                1,
+                new byte[] { 0x10, 0x20 });
+
+            await first.WriteAsync(path);
+            await second.WriteAsync(path);
+            var roundTrip = await PreparedAudioArtifact.ReadAsync(path);
+
+            Assert.Equal(48000, roundTrip.SampleRate);
+            Assert.Equal(1, roundTrip.ChannelCount);
+            Assert.Equal(new byte[] { 0x10, 0x20 }, roundTrip.PcmData.ToArray());
+            Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(path)!, "*.tmp-*"));
+        }
+
+        [Fact]
+        public void Constructor_DefensivelyCopiesPcmData()
+        {
+            var source = new byte[] { 0x01, 0x02, 0x03, 0x04 };
+            var artifact = new PreparedAudioArtifact(44100, 2, source);
+
+            source[0] = 0x7F;
+
+            Assert.Equal(
+                new byte[] { 0x01, 0x02, 0x03, 0x04 },
+                artifact.PcmData.ToArray());
+        }
+
+        [Theory]
+        [InlineData(PreparedAudioArtifact.SampleRateOffset, PreparedAudioArtifact.MinimumSampleRate - 1)]
+        [InlineData(PreparedAudioArtifact.SampleRateOffset, PreparedAudioArtifact.MaximumSampleRate + 1)]
+        [InlineData(PreparedAudioArtifact.ChannelCountOffset, 0)]
+        [InlineData(PreparedAudioArtifact.ChannelCountOffset, 3)]
+        public async Task ReadAsync_WithInvalidIntegerMetadata_ThrowsInvalidDataException(
+            int offset,
+            int value)
+        {
+            var path = await WriteValidArtifactAsync();
+            var bytes = await File.ReadAllBytesAsync(path);
+            BinaryPrimitives.WriteInt32LittleEndian(
+                bytes.AsSpan(offset, sizeof(int)),
+                value);
+            await File.WriteAllBytesAsync(path, bytes);
+
+            await Assert.ThrowsAsync<InvalidDataException>(
+                () => PreparedAudioArtifact.ReadAsync(path));
+        }
+
+        [Theory]
+        [InlineData(-2L)]
+        [InlineData(0L)]
+        [InlineData(1L)]
+        [InlineData(2L)]
+        [InlineData(PreparedAudioArtifact.MaxPcmByteLength + 2L)]
+        public async Task ReadAsync_WithInvalidDeclaredPcmLength_ThrowsInvalidDataException(
+            long declaredLength)
+        {
+            var path = await WriteValidArtifactAsync();
+            var bytes = await File.ReadAllBytesAsync(path);
+            BinaryPrimitives.WriteInt64LittleEndian(
+                bytes.AsSpan(PreparedAudioArtifact.PcmLengthOffset, sizeof(long)),
+                declaredLength);
+            await File.WriteAllBytesAsync(path, bytes);
+
+            await Assert.ThrowsAsync<InvalidDataException>(
+                () => PreparedAudioArtifact.ReadAsync(path));
         }
 
         private async Task<string> WriteValidArtifactAsync()

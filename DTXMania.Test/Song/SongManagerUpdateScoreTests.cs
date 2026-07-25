@@ -687,13 +687,12 @@ public class SongManagerUpdateScoreTests : IDisposable
         // Invoke the private static guard directly with the stale snapshot. This
         // exercises the exact code path the losing caller would hit when it
         // acquires the lock after the winner has already published.
-        var method = typeof(SongManager).GetMethod(
-            "PublishNodeScoreVariant",
-            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
-        Assert.NotNull(method);
-        var outcome = (ScoreRefreshOutcome)method!.Invoke(
-            null,
-            new object[] { scoreNode, chart.Id, EInstrumentPart.DRUMS, 100, staleSnapshot })!;
+        var outcome = SongManager.PublishNodeScoreVariant(
+            scoreNode,
+            chart.Id,
+            EInstrumentPart.DRUMS,
+            100,
+            staleSnapshot);
 
         Assert.Equal(ScoreRefreshOutcome.AlreadyCurrent, outcome);
 
