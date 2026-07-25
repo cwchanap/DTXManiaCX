@@ -598,11 +598,11 @@ namespace DTXMania.Test.Resources
                 try
                 {
                     await _beforeWrite(cancellationToken);
+                    var metadata = new AudioTransformMetadata(44100, 1);
                     if (_writeOutput)
                     {
                         // Write a full-length output so the truncation-retry check
                         // in the processor does not fire for normal test scenarios.
-                        var metadata = new AudioTransformMetadata(44100, 1);
                         var expectedBytes =
                             FfmpegAudioVariantProcessor.ComputeExpectedOutputBytes(
                                 metadata.ChannelCount,
@@ -614,7 +614,7 @@ namespace DTXMania.Test.Resources
                             cancellationToken);
                     }
 
-                    return new AudioTransformMetadata(44100, 1);
+                    return metadata;
                 }
                 finally
                 {
