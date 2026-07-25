@@ -1788,10 +1788,22 @@ namespace DTXMania.Game.Lib.Song
 
             if (result.IsSuccess)
             {
-                await RefreshInMemoryScoreForChartAsync(
-                    chartId,
-                    instrument,
-                    summary.PlaySpeedPercent).ConfigureAwait(false);
+                // The save already committed. A refresh failure (e.g. transient
+                // DB read error) must not mask the successful save by propagating
+                // an exception that the caller would interpret as a failure.
+                // The in-memory cache self-heals on the next query or reload.
+                try
+                {
+                    await RefreshInMemoryScoreForChartAsync(
+                        chartId,
+                        instrument,
+                        summary.PlaySpeedPercent).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine(
+                        $"SongManager: In-memory score refresh failed after successful save for chart {chartId}: {ex.Message}");
+                }
             }
 
             return result;

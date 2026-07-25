@@ -35,9 +35,20 @@ namespace DTXMania.Game.Lib.Resources
         /// Trade-off: a file replaced with same-size, same-mtime content would
         /// return a stale fingerprint. This is low-probability for game audio
         /// assets and recoverable by clearing the variant cache directory.
+        /// The cache is bounded by <see cref="MaxFingerprintCacheEntries"/>;
+        /// when exceeded it is cleared wholesale so fingerprints are recomputed
+        /// on next access, preventing unbounded growth across a long session.
         /// </remarks>
         private static readonly ConcurrentDictionary<string, FingerprintEntry> _fingerprintCache =
             new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Maximum number of source paths whose SHA-256 fingerprints are
+        /// memoized before the cache is cleared. 512 is generous for typical
+        /// play sessions; clearing is crude but rare and prevents unbounded
+        /// memory growth.
+        /// </summary>
+        private const int MaxFingerprintCacheEntries = 512;
 
         private sealed record FingerprintEntry(long Length, DateTime LastWriteTimeUtc, string Sha256Hex);
 
@@ -95,6 +106,16 @@ namespace DTXMania.Game.Lib.Resources
                 FileOptions.Asynchronous | FileOptions.SequentialScan);
             var fingerprint = await SHA256.HashDataAsync(stream, cancellationToken).ConfigureAwait(false);
             var hex = Convert.ToHexString(fingerprint).ToLowerInvariant();
+
+            // Bound the static cache: clear wholesale when the entry count
+            // exceeds the threshold so the cache cannot grow unbounded across
+            // a long session with many unique source paths. Fingerprints are
+            // recomputed on next access. The race between Count and Clear is
+            // benign — at worst two concurrent callers both clear.
+            if (_fingerprintCache.Count >= MaxFingerprintCacheEntries)
+            {
+                _fingerprintCache.Clear();
+            }
 
             _fingerprintCache[fullPath] = new FingerprintEntry(length, lastWriteUtc, hex);
             return hex;
