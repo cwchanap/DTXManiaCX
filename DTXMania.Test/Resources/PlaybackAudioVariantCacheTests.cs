@@ -51,7 +51,9 @@ namespace DTXMania.Test.Resources
             var modifiers = new PlaybackModifiers(100, 2);
             var first = await AudioVariantKey.CreateAsync(sourcePath, modifiers);
 
-            await File.WriteAllBytesAsync(sourcePath, new byte[] { 1, 2, 4 });
+            // Change the length as well as the bytes so invalidation does not
+            // depend on the filesystem's last-write timestamp resolution.
+            await File.WriteAllBytesAsync(sourcePath, new byte[] { 1, 2, 4, 5 });
             var second = await AudioVariantKey.CreateAsync(sourcePath, modifiers);
 
             Assert.NotEqual(first, second);
