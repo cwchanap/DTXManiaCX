@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
@@ -610,5 +611,162 @@ public class SongManagerUpdateScoreTests : IDisposable
         var result = await _manager.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
 
         Assert.Equal(ScoreSaveStatus.Saved, result.Status);
+    }
+
+    /// <summary>
+    /// Regression: a stale score snapshot that lost the publication race must
+    /// not overwrite a newer snapshot already published by a concurrent refresh.
+    /// The detached DB read in RefreshInMemoryScoreForChartAsync runs outside
+    /// _lockObject, so a caller that read an older snapshot (e.g. PlayCount=1)
+    /// can arrive at the publication lock after a concurrent caller has already
+    /// published a newer snapshot (PlayCount=2). This test simulates that exact
+    /// post-race state — a node already holding PlayCount=2, and a stale
+    /// PlayCount=1 snapshot presented for publication — and asserts the guard
+    /// skips the stale publication (returns AlreadyCurrent) instead of
+    /// regressing the live variant.
+    /// </summary>
+    [Fact]
+    public async Task PublishNodeScoreVariant_WhenStaleSnapshotArrivesAfterNewerPublication_ShouldSkipAndReportAlreadyCurrent()
+    {
+        var songsRoot = Path.Combine(_testRoot, "RaceGuardSongs");
+        var songFolder = Path.Combine(songsRoot, "Race Song");
+        Directory.CreateDirectory(songFolder);
+
+        await CreateDtxFileAsync(Path.Combine(songFolder, "race.dtx"), "Race Song", "Test Artist", "Rock", 50);
+        await InitializeAndEnumerateAsync(songsRoot);
+
+        var db = _manager.DatabaseService!;
+        var chart = Assert.Single(await db.GetSongsAsync()).Charts.First();
+
+        // Two real saves so the DB and the in-memory node both reach PlayCount=2.
+        // This is the state the winning concurrent caller would have published.
+        var summary1 = new PerformanceSummary
+        {
+            RunId = Guid.NewGuid(), PlaySpeedPercent = 100,
+            Score = 800_000, MaxCombo = 80, ClearFlag = true,
+            PerfectCount = 80, GreatCount = 20, GoodCount = 0, PoorCount = 0, MissCount = 0,
+            TotalNotes = 100, PlayingSkill = 80.0, GameSkill = 120.0,
+            ChartLevel = 50, ChartLevelDec = 0, CompletionReason = CompletionReason.SongComplete,
+        };
+        var summary2 = new PerformanceSummary
+        {
+            RunId = Guid.NewGuid(), PlaySpeedPercent = 100,
+            Score = 900_000, MaxCombo = 90, ClearFlag = true,
+            PerfectCount = 90, GreatCount = 10, GoodCount = 0, PoorCount = 0, MissCount = 0,
+            TotalNotes = 100, PlayingSkill = 90.0, GameSkill = 135.0,
+            ChartLevel = 50, ChartLevelDec = 0, CompletionReason = CompletionReason.SongComplete,
+        };
+        await _manager.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary1);
+        await _manager.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary2);
+
+        var (scoreNode, drumScore) = FindScoreByChartId(_manager.RootSongs, chart.Id);
+        Assert.NotNull(scoreNode);
+        Assert.NotNull(drumScore);
+        var difficultyIndex = Array.IndexOf(scoreNode!.Scores, drumScore);
+        var liveVariant = scoreNode.GetScore(difficultyIndex, 100);
+        Assert.NotNull(liveVariant);
+        Assert.Equal(2, liveVariant!.PlayCount);
+        Assert.Equal(900_000, liveVariant.BestScore);
+
+        // Build the stale snapshot the losing caller would have read: PlayCount=1,
+        // BestScore=800_000, older LastPlayedAt. This is exactly what
+        // GetScoreWithHistoryAsync would have returned if the read happened before
+        // the second save committed.
+        var staleSnapshot = new SongScore
+        {
+            ChartId = chart.Id,
+            Instrument = EInstrumentPart.DRUMS,
+            PlaySpeedPercent = 100,
+            PlayCount = 1,
+            BestScore = 800_000,
+            LastPlayedAt = liveVariant.LastPlayedAt!.Value.AddSeconds(-30),
+            Chart = liveVariant.Chart,
+            DifficultyLevel = liveVariant.DifficultyLevel,
+        };
+
+        // Invoke the private static guard directly with the stale snapshot. This
+        // exercises the exact code path the losing caller would hit when it
+        // acquires the lock after the winner has already published.
+        var method = typeof(SongManager).GetMethod(
+            "PublishNodeScoreVariant",
+            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        var outcome = (ScoreRefreshOutcome)method!.Invoke(
+            null,
+            new object[] { scoreNode, chart.Id, EInstrumentPart.DRUMS, 100, staleSnapshot })!;
+
+        Assert.Equal(ScoreRefreshOutcome.AlreadyCurrent, outcome);
+
+        // The live variant must be unchanged — the stale snapshot did not overwrite it.
+        var afterGuard = scoreNode.GetScore(difficultyIndex, 100);
+        Assert.NotNull(afterGuard);
+        Assert.Same(liveVariant, afterGuard);
+        Assert.Equal(2, afterGuard!.PlayCount);
+        Assert.Equal(900_000, afterGuard.BestScore);
+    }
+
+    /// <summary>
+    /// Barrier-controlled concurrent regression: two UpdateScoreAsync calls for the
+    /// same chart/instrument/speed released simultaneously must leave the in-memory
+    /// PlayCount equal to the database PlayCount. Without the stale-snapshot guard,
+    /// the caller whose detached DB read resolved first (older PlayCount) but whose
+    /// lock acquisition landed last would overwrite the newer publication, leaving
+    /// the in-memory PlayCount behind the database. With the guard, the older
+    /// snapshot is skipped and the in-memory state stays consistent.
+    /// </summary>
+    [Fact]
+    public async Task UpdateScoreAsync_ConcurrentSavesForSameScoreKey_ShouldNotRegressInMemoryPlayCount()
+    {
+        var songsRoot = Path.Combine(_testRoot, "ConcurrentRaceSongs");
+        var songFolder = Path.Combine(songsRoot, "Concurrent Song");
+        Directory.CreateDirectory(songFolder);
+
+        await CreateDtxFileAsync(Path.Combine(songFolder, "concurrent.dtx"), "Concurrent Song", "Test Artist", "Rock", 50);
+        await InitializeAndEnumerateAsync(songsRoot);
+
+        var db = _manager.DatabaseService!;
+        var chart = Assert.Single(await db.GetSongsAsync()).Charts.First();
+
+        var barrier = new Barrier(participantCount: 2);
+
+        PerformanceSummary MakeSummary(int score, int skill) => new()
+        {
+            RunId = Guid.NewGuid(), PlaySpeedPercent = 100,
+            Score = score, MaxCombo = 90, ClearFlag = true,
+            PerfectCount = 90, GreatCount = 10, GoodCount = 0, PoorCount = 0, MissCount = 0,
+            TotalNotes = 100, PlayingSkill = skill, GameSkill = skill * 1.5,
+            ChartLevel = 50, ChartLevelDec = 0, CompletionReason = CompletionReason.SongComplete,
+        };
+
+        var callerA = Task.Run(async () =>
+        {
+            barrier.SignalAndWait();
+            return await _manager.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, MakeSummary(810_000, 81));
+        });
+        var callerB = Task.Run(async () =>
+        {
+            barrier.SignalAndWait();
+            return await _manager.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, MakeSummary(920_000, 92));
+        });
+
+        var results = await Task.WhenAll(callerA, callerB);
+        Assert.All(results, r => Assert.True(r.IsSuccess,
+            $"Both concurrent saves should succeed; saw status={r.Status} message={r.ErrorMessage}"));
+
+        // The database must reflect both plays.
+        var dbScore = await db.GetScoreWithHistoryAsync(chart.Id, EInstrumentPart.DRUMS, 100);
+        Assert.NotNull(dbScore);
+        Assert.Equal(2, dbScore!.PlayCount);
+
+        // The in-memory variant must agree with the database. Without the guard,
+        // the losing caller's older snapshot (PlayCount=1) could overwrite the
+        // winner's PlayCount=2, leaving the live variant behind the database.
+        var (scoreNode, drumScore) = FindScoreByChartId(_manager.RootSongs, chart.Id);
+        Assert.NotNull(scoreNode);
+        Assert.NotNull(drumScore);
+        var difficultyIndex = Array.IndexOf(scoreNode!.Scores, drumScore);
+        var liveVariant = scoreNode.GetScore(difficultyIndex, 100);
+        Assert.NotNull(liveVariant);
+        Assert.Equal(dbScore.PlayCount, liveVariant!.PlayCount);
     }
 }

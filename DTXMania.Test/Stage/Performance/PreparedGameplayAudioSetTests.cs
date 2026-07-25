@@ -330,6 +330,132 @@ namespace DTXMania.Test.Stage.Performance
             }
         }
 
+        /// <summary>
+        /// Regression: the variant-profile sound-construction loop must release
+        /// each artifact's backing PCM buffer as soon as the SoundEffect has
+        /// copied it. SoundEffect copies the supplied buffer internally, so
+        /// retaining the artifacts dictionary entries past each conversion keeps
+        /// every decoded PCM array alive simultaneously alongside the SoundEffect-
+        /// owned copies. Near the 512 MiB session budget that roughly doubles
+        /// peak memory and can OOM an otherwise valid profile. This test forces
+        /// GC between sound constructions and asserts that prior artifact buffers
+        /// are collectable — they would remain rooted if the dictionary still
+        /// held them.
+        /// </summary>
+        /// <remarks>
+        /// The cache is pre-warmed so the tracked run services every lookup as a
+        /// disk cache hit. Cache misses route through WaiterSharedOperation, whose
+        /// completion continuation task transiently roots the artifact for one GC
+        /// cycle; cache hits return the artifact directly from TryReadAsync with
+        /// no in-flight operation, so the only strong reference to each artifact
+        /// during the sound-construction loop is the local artifacts dictionary.
+        /// This isolates the dictionary-retention contract the fix addresses.
+        /// </remarks>
+        [Fact]
+        public async Task PrepareAsync_VariantProfile_ReleasesArtifactBuffersAsSoundsAreCreated()
+        {
+            var directory = CreateTempDirectory();
+            try
+            {
+                var paths = new[]
+                {
+                    CreatePlaceholderSource(directory, "bg.wav"),
+                    CreatePlaceholderSource(directory, "sched.wav"),
+                    CreatePlaceholderSource(directory, "chip.wav"),
+                };
+                var cache = new PlaybackAudioVariantCache(
+                    Path.Combine(directory, "cache"),
+                    maxCacheBytes: 1024 * 1024);
+                var processor = new Mock<IAudioVariantProcessor>();
+                processor
+                    .Setup(value => value.PrepareAsync(
+                        It.IsAny<string>(),
+                        It.IsAny<PlaybackModifiers>(),
+                        It.IsAny<CancellationToken>()))
+                    .Returns((string path, PlaybackModifiers mods, CancellationToken token) =>
+                    {
+                        var buffer = new byte[4096];
+                        return Task.FromResult<PreparedAudioArtifact>(
+                            PreparedAudioArtifact.FromOwnedBytes(44100, 1, buffer));
+                    });
+
+                // Pre-warm: populate the disk cache so the tracked run services
+                // every lookup as a cache hit, bypassing the WaiterSharedOperation
+                // machinery whose continuation task transiently roots artifacts.
+                using (await PreparedGameplayAudioSet.PrepareAsync(
+                    mainBackgroundPath: paths[0],
+                    scheduledBgmSourcePaths: new[] { paths[1] },
+                    chipSourcePathsByWavId: new Dictionary<string, string> { ["01"] = paths[2] },
+                    modifiers: new PlaybackModifiers(50, 12),
+                    processor: processor.Object,
+                    cache: cache,
+                    progress: null,
+                    CancellationToken.None,
+                    path => throw new InvalidOperationException(
+                        "Default loader should not run for non-default profile."),
+                    (artifact, path) => Mock.Of<ISound>()))
+                {
+                }
+
+                var priorBuffers = new List<WeakReference>();
+                var maxLivePriorBuffers = 0;
+
+                // Tracked run: every lookup is a cache hit. The only strong
+                // reference to each artifact is the local artifacts dictionary
+                // (and the async state machine's hoisted lookup field for the
+                // last artifact, which is processed last and is therefore never
+                // a "prior" buffer).
+                using var prepared = await PreparedGameplayAudioSet.PrepareAsync(
+                    mainBackgroundPath: paths[0],
+                    scheduledBgmSourcePaths: new[] { paths[1] },
+                    chipSourcePathsByWavId: new Dictionary<string, string> { ["01"] = paths[2] },
+                    modifiers: new PlaybackModifiers(50, 12),
+                    processor: processor.Object,
+                    cache: cache,
+                    progress: null,
+                    CancellationToken.None,
+                    path => throw new InvalidOperationException(
+                        "Default loader should not run for non-default profile."),
+                    (artifact, path) =>
+                    {
+                        // Force collection before tracking the current buffer so
+                        // the liveness check reflects only references held across
+                        // iterations (i.e. the artifacts dictionary). Prior
+                        // artifacts must have been released by the per-iteration
+                        // dictionary removal.
+                        ForceGarbageCollection();
+                        var livePrior = priorBuffers.Count(wr => wr.IsAlive);
+                        if (livePrior > maxLivePriorBuffers)
+                            maxLivePriorBuffers = livePrior;
+                        priorBuffers.Add(new WeakReference(artifact.PcmDataBuffer));
+                        return Mock.Of<ISound>();
+                    });
+
+                // During the loop, prior artifact buffers must be collectable.
+                // maxLivePriorBuffers counts buffers from *previous* iterations,
+                // so it must be zero with the fix in place. Without the fix, the
+                // dictionary would root every prior artifact and this would equal
+                // priorBuffers.Count - 1. This is the direct verification of the
+                // peak-memory contract: near the session budget, only one artifact
+                // buffer is retained at a time instead of the full set alongside
+                // the SoundEffect copies.
+                Assert.Equal(0, maxLivePriorBuffers);
+            }
+            finally
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+
+        private static void ForceGarbageCollection()
+        {
+            for (int i = 0; i < 3; i++)
+            {
+                GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true);
+                GC.WaitForPendingFinalizers();
+            }
+        }
+
         private static Task<PreparedGameplayAudioSet> PrepareNonDefaultAsync(
             string sourcePath,
             IAudioVariantProcessor processor,
