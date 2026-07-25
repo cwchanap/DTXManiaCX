@@ -168,7 +168,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                         {
                             soundsByPath[sourcePath] = defaultSoundLoader(sourcePath);
                         }
-                        catch (Exception ex)
+                        catch (Exception ex) when (ex is not OperationCanceledException)
                         {
                             Debug.WriteLine(
                                 $"[PreparedGameplayAudioSet] Skipping failed default-profile sound '{sourcePath}': {ex.Message}");
