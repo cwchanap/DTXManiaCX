@@ -614,6 +614,7 @@ namespace DTXMania.Game.Lib.Song.Entities
                         && s.PlaySpeedPercent == summary.PlaySpeedPercent,
                     cancellationToken)
                 .ConfigureAwait(false);
+            bool wasNewlyCreated = false;
             if (score == null)
             {
                 var chart = await context.SongCharts.FirstOrDefaultAsync(
@@ -629,9 +630,21 @@ namespace DTXMania.Game.Lib.Song.Entities
                     PlaySpeedPercent = summary.PlaySpeedPercent
                 };
                 context.SongScores.Add(score);
+                wasNewlyCreated = true;
             }
 
-            var isFirstPlay = score.PlayCount == 0;
+            // Only force-overwrite the best fields when the score row is
+            // genuinely empty — either created in this transaction, or a
+            // placeholder row from AddScoreRecordAsync (PlayCount == 0 AND
+            // BestScore == 0). NX import can persist a BestScore > 0 with
+            // PlayCount == 0 (NxScoreData.HasDrumData allows that combination,
+            // and NxScoreImporter writes best fields without requiring
+            // PlayCount > 0). Using PlayCount == 0 alone as the "first play"
+            // signal would treat that imported row as empty and overwrite the
+            // imported best even when the new CX result is worse. Compare each
+            // best field normally when the row already carries imported data.
+            var isFirstPlay = wasNewlyCreated
+                || (score.PlayCount == 0 && score.BestScore == 0);
             if (isFirstPlay || summary.Score > score.BestScore)
             {
                 score.BestScore = summary.Score;

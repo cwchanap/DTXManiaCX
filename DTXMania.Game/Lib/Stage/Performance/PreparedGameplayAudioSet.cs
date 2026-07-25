@@ -318,8 +318,14 @@ namespace DTXMania.Game.Lib.Stage.Performance
             var channels = artifact.ChannelCount == 1
                 ? AudioChannels.Mono
                 : AudioChannels.Stereo;
+            // Pass the artifact's backing buffer directly to SoundEffect
+            // instead of cloning via PcmData.ToArray(). SoundEffect copies
+            // the buffer internally, so the intermediate clone was a wasted
+            // hundreds-of-megabytes allocation for payloads near the 512 MiB
+            // per-artifact ceiling. PcmDataBuffer is the artifact's own
+            // immutable storage; SoundEffect does not mutate it.
             var effect = new SoundEffect(
-                artifact.PcmData.ToArray(),
+                artifact.PcmDataBuffer,
                 artifact.SampleRate,
                 channels);
             return new ManagedSound(effect, sourcePath);

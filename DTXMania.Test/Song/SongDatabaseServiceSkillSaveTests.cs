@@ -318,5 +318,124 @@ namespace DTXMania.Test.Song
             var score = await LoadSavedScoreAsync(chart.Id);
             Assert.Equal(3, score.PlayCount);
         }
+
+        /// <summary>
+        /// Regression guard for the NX-imported best-score data-loss bug.
+        /// NxScoreData.HasDrumData allows BestScore > 0 with PlayCount == 0,
+        /// and NxScoreImporter writes best fields without requiring PlayCount > 0.
+        /// The save path previously used PlayCount == 0 alone as the "first play"
+        /// signal, which treated the imported row as empty and overwrote the
+        /// imported best (and rank) even when the new CX result was worse.
+        /// The fix treats a row as a first play only when it is newly created
+        /// or a genuinely empty placeholder (PlayCount == 0 AND BestScore == 0).
+        /// </summary>
+        [Fact]
+        public async Task UpdateScoreAsync_ImportedBestWithZeroPlayCount_LowerScoreKeepsImportedBest()
+        {
+            var chart = await SeedChartAsync();
+            // Simulate an NX-imported row: BestScore > 0, PlayCount == 0.
+            // This is the exact state NxScoreImporter produces when the source
+            // .score.ini has a high score but zero play count.
+            await SeedScoreAsync(chart.Id, new SongScore
+            {
+                BestScore = 950000,
+                BestPerfect = 95,
+                BestGreat = 5,
+                BestGood = 0,
+                BestPoor = 0,
+                BestMiss = 0,
+                BestRank = 90,
+                TotalNotes = 100,
+                MaxCombo = 95,
+                HighSkill = 180.0,
+                PlayCount = 0,
+            });
+
+            // First CX play with a score lower than the imported best.
+            var worseSummary = new PerformanceSummary
+            {
+                Score = 600000,
+                MaxCombo = 60,
+                ClearFlag = true,
+                TotalNotes = 100,
+                PerfectCount = 60,
+                GreatCount = 30,
+                GoodCount = 10,
+                PlayingSkill = 60.0,
+                GameSkill = 95.0,
+                ChartLevel = 78,
+                ChartLevelDec = 33,
+            };
+
+            await _svc.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, worseSummary);
+
+            var saved = await LoadSavedScoreAsync(chart.Id);
+            // The imported best must survive the worse first CX play.
+            Assert.Equal(950000, saved.BestScore);
+            Assert.Equal(95, saved.BestPerfect);
+            Assert.Equal(5, saved.BestGreat);
+            Assert.Equal(0, saved.BestGood);
+            Assert.Equal(0, saved.BestPoor);
+            Assert.Equal(0, saved.BestMiss);
+            Assert.Equal(100, saved.TotalNotes);
+            Assert.Equal(95, saved.MaxCombo);
+            Assert.Equal(180.0, saved.HighSkill, 4);
+            // BestRank must keep the imported 90, not be overwritten by the
+            // worse run's 60.
+            Assert.Equal(90, saved.BestRank);
+            // Last-play fields reflect the new CX play.
+            Assert.Equal(600000, saved.LastScore);
+            Assert.Equal(95.0, saved.LastSkillPoint, 4);
+            Assert.Equal(1, saved.PlayCount);
+            Assert.Equal(1, saved.ClearCount);
+        }
+
+        /// <summary>
+        /// Companion to the regression above: when the first CX play on an
+        /// imported row beats the imported best, the new best is recorded.
+        /// Ensures the fix does not over-correct and block legitimate best
+        /// updates on imported rows.
+        /// </summary>
+        [Fact]
+        public async Task UpdateScoreAsync_ImportedBestWithZeroPlayCount_HigherScoreUpdatesBest()
+        {
+            var chart = await SeedChartAsync();
+            await SeedScoreAsync(chart.Id, new SongScore
+            {
+                BestScore = 500000,
+                BestPerfect = 50,
+                BestGreat = 50,
+                BestRank = 50,
+                TotalNotes = 100,
+                MaxCombo = 50,
+                HighSkill = 80.0,
+                PlayCount = 0,
+            });
+
+            var betterSummary = new PerformanceSummary
+            {
+                Score = 900000,
+                MaxCombo = 90,
+                ClearFlag = true,
+                TotalNotes = 100,
+                PerfectCount = 90,
+                GreatCount = 10,
+                PlayingSkill = 90.0,
+                GameSkill = 150.0,
+                ChartLevel = 78,
+                ChartLevelDec = 33,
+            };
+
+            await _svc.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, betterSummary);
+
+            var saved = await LoadSavedScoreAsync(chart.Id);
+            Assert.Equal(900000, saved.BestScore);
+            Assert.Equal(90, saved.BestPerfect);
+            Assert.Equal(10, saved.BestGreat);
+            Assert.Equal(90, saved.BestRank);
+            Assert.Equal(90, saved.MaxCombo);
+            Assert.Equal(150.0, saved.HighSkill, 4);
+            Assert.Equal(1, saved.PlayCount);
+        }
     }
 }
