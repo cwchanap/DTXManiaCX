@@ -1803,11 +1803,15 @@ namespace DTXMania.Game.Lib.Song
             // refresh to complete before the UI may report success. A refresh failure
             // (transient DB read error) or a no-op refresh (no matching node found,
             // e.g. the song list was rebuilt/cleared between save and refresh) must
-            // not be masked by returning the original successful result.
-            bool refreshed;
+            // not be masked by returning the original successful result. A refresh
+            // that finds a newer snapshot already published for the same score key
+            // (chart+instrument+speed) by a concurrent save is treated as success:
+            // the in-memory state is already consistent with (or ahead of) this
+            // caller's snapshot, so the publication is intentionally skipped.
+            ScoreRefreshOutcome outcome;
             try
             {
-                refreshed = await RefreshInMemoryScoreForChartAsync(
+                outcome = await RefreshInMemoryScoreForChartAsync(
                     chartId,
                     instrument,
                     summary.PlaySpeedPercent).ConfigureAwait(false);
@@ -1816,10 +1820,10 @@ namespace DTXMania.Game.Lib.Song
             {
                 Debug.WriteLine(
                     $"SongManager: In-memory score refresh failed after successful save for chart {chartId}: {ex.Message}");
-                refreshed = false;
+                outcome = ScoreRefreshOutcome.NoMatch;
             }
 
-            if (!refreshed)
+            if (outcome == ScoreRefreshOutcome.NoMatch)
             {
                 return ScoreSaveResult.Failed(
                     "The score was saved to the database, but the song list could not be "
@@ -1839,35 +1843,49 @@ namespace DTXMania.Game.Lib.Song
         /// be loaded.
         /// </summary>
         /// <returns>
-        /// <c>true</c> if at least one song-list node published the fresh score variant;
-        /// <c>false</c> if the DB service is unavailable, the fresh score is missing, or
-        /// no matching node was found in the tree.
+        /// <see cref="ScoreRefreshOutcome.Published"/> if at least one song-list node
+        /// published the fresh score variant; <see cref="ScoreRefreshOutcome.AlreadyCurrent"/>
+        /// if every matching node already held a snapshot at least as new as the
+        /// fresh one (a concurrent refresh won the publication race); <see
+        /// cref="ScoreRefreshOutcome.NoMatch"/> if the DB service is unavailable, the
+        /// fresh score is missing, or no matching node was found in the tree.
         /// </returns>
-        private async Task<bool> RefreshInMemoryScoreForChartAsync(
+        private async Task<ScoreRefreshOutcome> RefreshInMemoryScoreForChartAsync(
             int chartId,
             EInstrumentPart instrument,
             int playSpeedPercent)
         {
             var db = GetDatabaseServiceSnapshot();
-            if (db == null) return false;
+            if (db == null) return ScoreRefreshOutcome.NoMatch;
 
             var fresh = await db.GetScoreWithHistoryAsync(
                 chartId,
                 instrument,
                 playSpeedPercent).ConfigureAwait(false);
 
-            if (fresh == null) return false;
+            if (fresh == null) return ScoreRefreshOutcome.NoMatch;
 
             bool published = false;
+            bool alreadyCurrent = false;
             lock (_lockObject)
             {
                 foreach (var root in _rootSongs)
                 {
-                    if (PublishNodeScoreVariant(root, chartId, instrument, playSpeedPercent, fresh))
-                        published = true;
+                    switch (PublishNodeScoreVariant(
+                        root, chartId, instrument, playSpeedPercent, fresh))
+                    {
+                        case ScoreRefreshOutcome.Published:
+                            published = true;
+                            break;
+                        case ScoreRefreshOutcome.AlreadyCurrent:
+                            alreadyCurrent = true;
+                            break;
+                    }
                 }
             }
-            return published;
+            if (published) return ScoreRefreshOutcome.Published;
+            if (alreadyCurrent) return ScoreRefreshOutcome.AlreadyCurrent;
+            return ScoreRefreshOutcome.NoMatch;
         }
 
         /// <summary>
@@ -1882,7 +1900,14 @@ namespace DTXMania.Game.Lib.Song
         /// with a different legacy node from hijacking the refresh and stamping the
         /// wrong song's cached score/history with this chart id.
         /// </summary>
-        private static bool PublishNodeScoreVariant(
+        /// <returns>
+        /// <see cref="ScoreRefreshOutcome.Published"/> if this subtree published the
+        /// fresh snapshot; <see cref="ScoreRefreshOutcome.AlreadyCurrent"/> if the
+        /// matching slot already held a snapshot at least as new (a concurrent refresh
+        /// won the publication race, so the older snapshot is intentionally dropped);
+        /// <see cref="ScoreRefreshOutcome.NoMatch"/> if no matching slot was found.
+        /// </returns>
+        private static ScoreRefreshOutcome PublishNodeScoreVariant(
             SongListNode node,
             int chartId,
             EInstrumentPart instrument,
@@ -1890,6 +1915,7 @@ namespace DTXMania.Game.Lib.Song
             SongScore fresh)
         {
             bool updated = false;
+            bool sawAlreadyCurrent = false;
 
             if (node.Type == NodeType.Score)
             {
@@ -1927,6 +1953,30 @@ namespace DTXMania.Game.Lib.Song
 
                     if (match)
                     {
+                        var variantKey = new ScoreVariantKey(
+                            difficultyIndex,
+                            playSpeedPercent);
+
+                        // Stale-publication guard. The detached DB read in
+                        // RefreshInMemoryScoreForChartAsync runs outside _lockObject,
+                        // so a caller that read an older snapshot can arrive at the
+                        // publication lock after a concurrent caller has already
+                        // published a newer snapshot for the same score key. Without
+                        // this guard the older snapshot would overwrite the newer
+                        // one. PlayCount is monotonic per (chart, instrument, speed),
+                        // so a smaller PlayCount means a stale snapshot. When
+                        // PlayCount is equal, LastPlayedAt breaks the tie (an equal
+                        // or older timestamp means the snapshot carries no new
+                        // information). Skipping a stale/equal publication is safe:
+                        // the in-memory state is already consistent with the
+                        // database, so the caller still reports success.
+                        if (node.ScoreVariants.TryGetValue(variantKey, out var existing) &&
+                            IsStaleOrEqualSnapshot(fresh, existing))
+                        {
+                            sawAlreadyCurrent = true;
+                            continue;
+                        }
+
                         var published = CreateScoreSnapshot(fresh);
                         published.ChartId = chartId;
                         published.PlaySpeedPercent = playSpeedPercent;
@@ -1964,9 +2014,7 @@ namespace DTXMania.Game.Lib.Song
                                 variants[legacyKey] = node.Scores[legacyIndex];
                         }
 
-                        variants[new ScoreVariantKey(
-                            difficultyIndex,
-                            playSpeedPercent)] = published;
+                        variants[variantKey] = published;
                         node.PublishScoreVariants(variants);
                         updated = true;
                     }
@@ -1977,19 +2025,50 @@ namespace DTXMania.Game.Lib.Song
             {
                 foreach (var child in node.Children)
                 {
-                    if (PublishNodeScoreVariant(
+                    switch (PublishNodeScoreVariant(
                         child,
                         chartId,
                         instrument,
                         playSpeedPercent,
                         fresh))
                     {
-                        updated = true;
+                        case ScoreRefreshOutcome.Published:
+                            updated = true;
+                            break;
+                        case ScoreRefreshOutcome.AlreadyCurrent:
+                            sawAlreadyCurrent = true;
+                            break;
                     }
                 }
             }
 
-            return updated;
+            if (updated) return ScoreRefreshOutcome.Published;
+            if (sawAlreadyCurrent) return ScoreRefreshOutcome.AlreadyCurrent;
+            return ScoreRefreshOutcome.NoMatch;
+        }
+
+        /// <summary>
+        /// Returns true when <paramref name="fresh"/> is stale relative to (or
+        /// carries no new information beyond) <paramref name="current"/>, so the
+        /// publication should be skipped. Compares <see cref="SongScore.PlayCount"/>
+        /// (monotonic per chart+instrument+speed) first, then <see
+        /// cref="SongScore.LastPlayedAt"/> as a tiebreaker when PlayCount is equal.
+        /// </summary>
+        private static bool IsStaleOrEqualSnapshot(SongScore fresh, SongScore current)
+        {
+            if (fresh.PlayCount < current.PlayCount)
+                return true;
+            if (fresh.PlayCount > current.PlayCount)
+                return false;
+            // Equal PlayCount — compare LastPlayedAt. A missing timestamp on either
+            // side means we cannot prove freshness; treat as equal (skip) to avoid
+            // a redundant overwrite that could regress a concurrently published
+            // snapshot whose timestamp is identical.
+            if (fresh.LastPlayedAt.HasValue && current.LastPlayedAt.HasValue)
+            {
+                return fresh.LastPlayedAt.Value <= current.LastPlayedAt.Value;
+            }
+            return true;
         }
 
         /// <summary>
@@ -3166,4 +3245,31 @@ namespace DTXMania.Game.Lib.Song
     }
 
     #endregion
+
+    /// <summary>
+    /// Outcome of an in-memory score refresh after a database save. Distinguishes
+    /// a successful publication from a race-resolved no-op (a concurrent refresh
+    /// already published a newer snapshot) and a true failure (no matching node).
+    /// </summary>
+    internal enum ScoreRefreshOutcome
+    {
+        /// <summary>
+        /// No matching song-list node was found, or the database service/fresh score
+        /// was unavailable. The caller should report a refresh failure so the UI can
+        /// prompt a retry.
+        /// </summary>
+        NoMatch,
+
+        /// <summary>
+        /// At least one matching node published the fresh score snapshot.
+        /// </summary>
+        Published,
+
+        /// <summary>
+        /// Every matching node already held a snapshot at least as new as the fresh
+        /// one (a concurrent refresh won the publication race). The in-memory state
+        /// is already consistent with the database, so the caller reports success.
+        /// </summary>
+        AlreadyCurrent,
+    }
 }

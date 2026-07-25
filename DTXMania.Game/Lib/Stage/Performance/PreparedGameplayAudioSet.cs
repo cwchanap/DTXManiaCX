@@ -261,11 +261,26 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
                     // The budget is checked before this point so no SoundEffect is
                     // allocated for an over-budget profile.
+                    //
+                    // Each artifact is removed from the dictionary immediately after
+                    // its SoundEffect is constructed. SoundEffect copies the supplied
+                    // buffer internally (see CreatePreparedSound), so retaining the
+                    // artifact entries past this point keeps every decoded PCM array
+                    // alive simultaneously alongside the SoundEffect copies. Near the
+                    // 512 MiB session budget that roughly doubles peak memory
+                    // (artifact arrays + SoundEffect-owned copies) and can OOM an
+                    // otherwise valid profile despite passing the budget check.
+                    // Removing the entry drops the only in-memory reference (the
+                    // cache is disk-based and does not retain artifacts in memory),
+                    // so the GC can reclaim each buffer before the next artifact is
+                    // converted.
                     foreach (var sourcePath in allPaths)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
+                        var artifact = artifacts[sourcePath];
                         soundsByPath[sourcePath] =
-                            preparedSoundFactory(artifacts[sourcePath], sourcePath);
+                            preparedSoundFactory(artifact, sourcePath);
+                        artifacts.Remove(sourcePath);
                     }
                 }
 
