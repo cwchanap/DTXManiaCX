@@ -148,6 +148,16 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     // main BGM therefore yields a null MainBackground and the
                     // performance stage falls back to the silent GameTime clock,
                     // matching DTXMania's original behavior.
+                    //
+                    // Each load is dispatched to the thread pool via Task.Run so the
+                    // synchronous ManagedSound decode (OGG/MP3/ADPCM-WAV) does not
+                    // run on the MonoGame update thread. PrepareAsync is awaited from
+                    // PerformanceStage.InitializeGameplayCoreAsync, which is launched
+                    // from OnActivate on the game thread; when a parsed chart is
+                    // supplied via shared data there is no prior await, so without
+                    // this dispatch the entire default-profile audio set would load
+                    // synchronously on the update thread and freeze render/input
+                    // until preparation completes.
                     foreach (var sourcePath in allPaths)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
@@ -166,7 +176,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
                         try
                         {
-                            soundsByPath[sourcePath] = defaultSoundLoader(sourcePath);
+                            soundsByPath[sourcePath] = await Task.Run(
+                                () => defaultSoundLoader(sourcePath),
+                                cancellationToken).ConfigureAwait(false);
                         }
                         catch (Exception ex) when (ex is not OperationCanceledException)
                         {

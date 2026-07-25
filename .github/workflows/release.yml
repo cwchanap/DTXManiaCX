@@ -276,8 +276,14 @@ jobs:
           # (FfmpegAudioVariantProcessor) additionally needs the atempo/apad/
           # atrim filters for tempo change, plus WAV/OGG/s16le demuxers and
           # their decoders so .wav/.ogg/.xa sources can be prepared at non-1.00x
-          # speed. Without atempo every non-default profile fails at the -af
-          # step even though runtime availability reports true.
+          # speed. The WAV decoder set must include adpcm_ima_wav and adpcm_ms
+          # because the default profile handles MS/IMA-ADPCM WAVs natively via
+          # SoundEffect.FromStream, but the variant profile routes .wav sources
+          # through FFmpeg (FFMpegArguments.FromFileInput); without the ADPCM
+          # decoders, any non-default-profile chart whose .wav sources use
+          # ADPCM encoding fails preparation. Without atempo every non-default
+          # profile fails at the -af step even though runtime availability
+          # reports true.
           FFMPEG_VERSION=7.0.2
           # SHA256 of https://ffmpeg.org/releases/ffmpeg-7.0.2.tar.xz,
           # verified against the official tarball on 2026-07-09.
@@ -299,6 +305,7 @@ jobs:
             --enable-decoder=mp3float \
             --enable-decoder=vorbis \
             --enable-decoder=pcm_s16le,pcm_s24le,pcm_f32le,pcm_u8,pcm_alaw,pcm_mulaw \
+            --enable-decoder=adpcm_ima_wav,adpcm_ms \
             --enable-demuxer=mp3 \
             --enable-demuxer=wav,ogg,s16le \
             --enable-parser=mpegaudio,vorbis \
