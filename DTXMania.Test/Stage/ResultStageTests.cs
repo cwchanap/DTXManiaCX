@@ -286,6 +286,78 @@ namespace DTXMania.Test.Stage
 
         #endregion
 
+        #region StartPerformanceSummarySave Tests
+
+        [Fact]
+        public void StartPerformanceSummarySave_WithOutstandingTaskFromTimeout_ShouldNotStartSecondSave()
+        {
+            // After a timeout, ObservePerformanceSummarySave retains the still-running
+            // _scoreSaveTask and sets state to Failed so a late completion can reconcile
+            // the UI. Pressing Activate must not replace that task with a second save,
+            // which would orphan the previous write and allow two concurrent database
+            // operations for the same RunId.
+#pragma warning disable SYSLIB0050
+            var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
+#pragma warning restore SYSLIB0050
+
+            var tcs = new TaskCompletionSource<ScoreSaveResult>();
+            var outstandingTask = tcs.Task;
+            SetPrivateField(stage, "_scoreSaveTask", outstandingTask);
+            SetPrivateField(stage, "_scoreSaveState", ResultSaveState.Failed);
+            SetPrivateField(stage, "_scoreSaveTimedOut", true);
+            SetPrivateField(stage, "_scoreSaveStopwatch", null);
+
+            var chart = new SongChart { Id = 42 };
+            SetPrivateField(stage, "_scoreSaveChart", chart);
+            SetPrivateField(stage, "_performanceSummary", new PerformanceSummary
+            {
+                RunId = Guid.NewGuid(),
+                CompletionReason = CompletionReason.SongComplete
+            });
+
+            InvokePrivateMethod(stage, "StartPerformanceSummarySave", chart);
+
+            // The outstanding task must be retained (not replaced by a new save).
+            Assert.Same(outstandingTask, GetPrivateField<Task<ScoreSaveResult>>(stage, "_scoreSaveTask"));
+        }
+
+        [Fact]
+        public void StartPerformanceSummarySave_WithCompletedPriorTask_ShouldStartNewSave()
+        {
+            // Once the previous task has completed (late reconciliation resolved),
+            // a retry must be allowed to proceed.
+#pragma warning disable SYSLIB0050
+            var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
+#pragma warning restore SYSLIB0050
+
+            var completedTask = Task.FromResult(ScoreSaveResult.Failed("previous"));
+            SetPrivateField(stage, "_scoreSaveTask", completedTask);
+            SetPrivateField(stage, "_scoreSaveState", ResultSaveState.Failed);
+            SetPrivateField(stage, "_scoreSaveTimedOut", false);
+            SetPrivateField(stage, "_scoreSaveStopwatch", null);
+
+            var chart = new SongChart { Id = 42 };
+            SetPrivateField(stage, "_scoreSaveChart", chart);
+            SetPrivateField(stage, "_performanceSummary", new PerformanceSummary
+            {
+                RunId = Guid.NewGuid(),
+                CompletionReason = CompletionReason.SongComplete
+            });
+
+            // No SavePerformanceSummaryAsync override is wired (uninitialized object),
+            // so the method falls through to SongManager.Instance.UpdateScoreAsync,
+            // which returns a Failed result (no database service). The important
+            // assertion is that the guard did NOT short-circuit: the prior completed
+            // task was replaced with a new one.
+            InvokePrivateMethod(stage, "StartPerformanceSummarySave", chart);
+
+            // The prior completed task was replaced (the method proceeded past the
+            // guard and started a new save).
+            Assert.NotSame(completedTask, GetPrivateField<Task<ScoreSaveResult>>(stage, "_scoreSaveTask"));
+        }
+
+        #endregion
+
         #region Inheritance and Interface Tests
 
         [Fact]
