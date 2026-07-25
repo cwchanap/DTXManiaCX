@@ -274,8 +274,11 @@ namespace DTXMania.Test.Stage.Performance
                 FileName = "ffmpeg",
                 Arguments = arguments,
                 UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
+                // RunFfmpeg never reads StandardOutput/Error; redirecting them
+                // without consuming the pipes can fill the OS buffer and stall
+                // ffmpeg. Let both streams inherit the parent's console instead.
+                RedirectStandardOutput = false,
+                RedirectStandardError = false,
                 CreateNoWindow = true,
             };
             try

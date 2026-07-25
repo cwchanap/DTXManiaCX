@@ -1989,8 +1989,16 @@ namespace DTXMania.Game.Lib.Song
             }
             if (targetChart == null) return;
 
+            // Copy-on-write: build a replacement list so concurrent readers
+            // enumerating targetChart.Scores (e.g. SongStatusPanel's
+            // ResolveChartScore FirstOrDefault) never observe an in-place
+            // mutation that would throw "Collection was modified". The previous
+            // collection is left untouched and the new one is published via an
+            // atomic reference assignment, preserving the existing
+            // replace-by-instrument-and-play-speed semantics.
+            var updated = new List<SongScore>(targetChart.Scores);
             SongScore? existing = null;
-            foreach (var score in targetChart.Scores)
+            foreach (var score in updated)
             {
                 if (score.Instrument == published.Instrument
                     && score.PlaySpeedPercent == published.PlaySpeedPercent)
@@ -2002,9 +2010,10 @@ namespace DTXMania.Game.Lib.Song
 
             if (existing != null)
             {
-                targetChart.Scores.Remove(existing);
+                updated.Remove(existing);
             }
-            targetChart.Scores.Add(published.Clone());
+            updated.Add(published.Clone());
+            targetChart.Scores = updated;
         }
 
         /// <summary>

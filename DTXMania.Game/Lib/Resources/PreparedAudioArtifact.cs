@@ -35,8 +35,14 @@ namespace DTXMania.Game.Lib.Resources
             int sampleRate,
             int channelCount,
             ReadOnlyMemory<byte> pcmData)
-            : this(sampleRate, channelCount, pcmData.ToArray(), takeOwnership: true)
         {
+            // Validate before ToArray() so an oversized payload is rejected
+            // before the defensive copy allocates it. MaxPcmByteLength is
+            // enforced here alongside the other shared checks in Validate.
+            Validate(sampleRate, channelCount, pcmData.Length);
+            _pcmData = pcmData.ToArray();
+            SampleRate = sampleRate;
+            ChannelCount = channelCount;
         }
 
         private PreparedAudioArtifact(
@@ -139,10 +145,6 @@ namespace DTXMania.Game.Lib.Resources
                 header.AsSpan(PcmLengthOffset, sizeof(long)));
 
             Validate(sampleRate, channelCount, declaredLength);
-            if (declaredLength > MaxPcmByteLength)
-                throw new InvalidDataException(
-                    $"Prepared PCM payload ({declaredLength} bytes) exceeds the " +
-                    $"{MaxPcmByteLength} byte budget ceiling.");
             if (declaredLength > int.MaxValue)
                 throw new InvalidDataException("Prepared PCM payload is too large.");
 
@@ -198,6 +200,10 @@ namespace DTXMania.Game.Lib.Resources
                 throw new InvalidDataException("Only mono and stereo PCM are supported.");
             if (pcmByteLength <= 0)
                 throw new InvalidDataException("Prepared PCM payload cannot be empty.");
+            if (pcmByteLength > MaxPcmByteLength)
+                throw new InvalidDataException(
+                    $"Prepared PCM payload ({pcmByteLength} bytes) exceeds the " +
+                    $"{MaxPcmByteLength} byte budget ceiling.");
             if ((pcmByteLength & 1) != 0)
                 throw new InvalidDataException("Prepared PCM payload must contain 16-bit samples.");
 
