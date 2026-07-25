@@ -24,6 +24,7 @@ namespace DTXMania.Game.Lib.Resources
             AudioVariantKey,
             WaiterSharedOperation<(PreparedAudioArtifact Artifact, bool CacheHit)>> _inFlight = new();
         private long _bytesWrittenSincePrune;
+        private long _estimatedTotalBytes;
 
         /// <summary>
         /// Result of a get-or-create lookup, distinguishing a disk-cache hit
@@ -207,10 +208,18 @@ namespace DTXMania.Game.Lib.Resources
             // write. PruneBestEffort enumerates all cache files, which is
             // wasteful when the cache is well under budget. Only prune when
             // the bytes written since the last prune exceed 10% of the budget.
+            // Also prune immediately when the projected total crosses the cap:
+            // the threshold alone lets a near-cap cache absorb a small write
+            // without pruning, violating the documented cap until the next
+            // write or restart.
             var bytesSince = Interlocked.Add(
                 ref _bytesWrittenSincePrune,
                 artifact.PcmByteLength);
-            if (bytesSince >= _maxCacheBytes / 10)
+            var projectedTotal = Interlocked.Add(
+                ref _estimatedTotalBytes,
+                PreparedAudioArtifact.HeaderLength + artifact.PcmByteLength);
+            if (bytesSince >= _maxCacheBytes / 10 ||
+                projectedTotal > _maxCacheBytes)
             {
                 Interlocked.Exchange(ref _bytesWrittenSincePrune, 0);
                 PruneBestEffort();
@@ -250,6 +259,11 @@ namespace DTXMania.Game.Lib.Resources
                         // Cleanup is best effort; cache correctness does not rely on it.
                     }
                 }
+
+                // Snapshot the post-prune total so the write path can detect
+                // cap crossings between prune operations without enumerating
+                // the directory on every write.
+                Interlocked.Exchange(ref _estimatedTotalBytes, totalBytes);
             }
             catch
             {

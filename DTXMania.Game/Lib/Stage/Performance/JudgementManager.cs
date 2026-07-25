@@ -98,15 +98,21 @@ namespace DTXMania.Game.Lib.Stage.Performance
         }
 
         /// <summary>
-        /// Updates hit processing and miss scanning from their respective clocks.
-        /// Pending player hits use the latency-compensated logical time, while
-        /// misses use raw logical chart time so output latency cannot delay them.
+        /// Updates hit processing and miss scanning, optionally from separate
+        /// clocks. Pending player hits use the latency-compensated logical time.
+        /// Miss scanning must also use the compensated clock so the player
+        /// retains the full hit window after a note becomes audible; passing a
+        /// raw clock for misses would mark notes missed before the player hears
+        /// them under output latency. The two-argument form is retained for
+        /// tests and callers that need to drive the clocks independently.
         /// </summary>
         /// <param name="pendingHitTimeMs">
         /// Latency-compensated logical time used for queued player hits.
         /// </param>
         /// <param name="missScanTimeMs">
-        /// Raw logical chart time used for timeout-based miss detection.
+        /// Logical chart time used for timeout-based miss detection. In
+        /// production this is the same compensated clock as
+        /// <paramref name="pendingHitTimeMs"/>.
         /// </param>
         public void Update(double pendingHitTimeMs, double missScanTimeMs)
         {

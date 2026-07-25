@@ -899,7 +899,9 @@ namespace DTXMania.Game.Lib.Stage
         /// when judging player input. A real latency interval advances a different
         /// amount of chart time at each play speed, so the configured real
         /// milliseconds are scaled by the frozen speed before subtraction.
-        /// Autoplay, visuals, misses, and BGM events use raw logical time.
+        /// Autoplay, visuals, and BGM events use raw logical time. Miss
+        /// scanning uses the compensated clock so the player keeps the full
+        /// hit window after a note becomes audible.
         /// </summary>
         private double GetPlayerJudgementTimeMs(double currentAudioClockMs)
         {
@@ -1660,9 +1662,12 @@ namespace DTXMania.Game.Lib.Stage
                 ProcessAutoPlay(logicalSongTimeMs);
             }
 
-            // Pending hits use latency-compensated logical time. Timeout misses
-            // deliberately use raw logical time and must not inherit that delay.
-            _judgementManager?.Update(pendingHitTimeMs, logicalSongTimeMs);
+            // Pending hits and timeout misses both use the latency-compensated
+            // logical time. Miss scanning must share the compensated clock so a
+            // note is not marked missed before the player hears it: using raw
+            // time would shrink the reaction window by AudioLatencyOffsetMs
+            // (default 200 ms equals the hit window, leaving zero reaction time).
+            _judgementManager?.Update(pendingHitTimeMs, pendingHitTimeMs);
         }
         
         /// <summary>

@@ -99,8 +99,11 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void VerifyMissDetectionUsesRawLogicalClockWhenHitClockIsCompensated()
+        public void VerifyMissDetectionUsesMissScanClockIndependentlyOfHitClock()
         {
+            // The two-argument Update drives miss scanning from the second
+            // argument, independent of the hit clock. This verifies the API
+            // mechanic; production passes the same compensated clock for both.
             var chartManager = CreateExactTestChart();
             var judgementManager = new JudgementManager(
                 new MockInputManagerCompat(),

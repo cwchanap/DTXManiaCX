@@ -322,6 +322,24 @@ namespace DTXMania.Game.Lib.Resources
                 byte[] pcm;
                 try
                 {
+                    // Bound the read before pulling the file into memory. A
+                    // non-default profile on a long or slow source can produce
+                    // PCM larger than the per-artifact budget; reading it all
+                    // into a byte[] (and again inside PreparedAudioArtifact)
+                    // risks OOM, and the only session-budget check runs after
+                    // the cache has already published the artifact. Reject
+                    // based on the on-disk length first.
+                    var tempFileLength = new FileInfo(temporaryRawPath).Length;
+                    if (tempFileLength > PreparedAudioArtifact.MaxPcmByteLength)
+                    {
+                        throw CreateFailure(
+                            AudioVariantPreparationFailure.InvalidOutput,
+                            sourcePath,
+                            modifiers,
+                            $"FFmpeg produced {tempFileLength} bytes of PCM, " +
+                            $"exceeding the {PreparedAudioArtifact.MaxPcmByteLength} " +
+                            $"byte per-artifact budget ceiling.");
+                    }
                     pcm = await File.ReadAllBytesAsync(
                         temporaryRawPath,
                         linked.Token).ConfigureAwait(false);

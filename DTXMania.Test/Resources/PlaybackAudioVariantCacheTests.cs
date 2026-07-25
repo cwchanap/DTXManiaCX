@@ -364,6 +364,47 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
+        public async Task WriteCrossingCap_PrunesImmediatelyEvenUnderByteThreshold()
+        {
+            // Reproduces the cap-violation gap: after a prune leaves the cache
+            // just under the cap, a small write whose bytes-since-prune fall
+            // below the 10% threshold must still enforce the cap immediately.
+            // Artifact file size = HeaderLength (28) + PcmByteLength.
+            const long cap = 100;
+            var cache = new PlaybackAudioVariantCache(
+                Path.Combine(_tempDirectory, "cross-cap-cache"),
+                maxCacheBytes: cap);
+
+            // Artifact A: 60-byte PCM -> 88-byte file. bytesSince 60 >=
+            // threshold 10 triggers a prune; total 88 <= cap 100, so A is
+            // kept and bytesSince is reset to 0.
+            var sourceA = WriteSource("cross-a.wav", new byte[] { 1 });
+            await cache.GetOrCreateAsync(
+                sourceA,
+                new PlaybackModifiers(100, 0),
+                (_, _) => Task.FromResult(CreateArtifactWithPcmLength(60)),
+                CancellationToken.None);
+
+            // Artifact B: 4-byte PCM -> 32-byte file. bytesSince 4 < threshold
+            // 10, but 88 + 32 = 120 > cap 100, so the cap must be enforced
+            // immediately rather than waiting for the next threshold crossing.
+            var sourceB = WriteSource("cross-b.wav", new byte[] { 2 });
+            await cache.GetOrCreateAsync(
+                sourceB,
+                new PlaybackModifiers(105, 0),
+                (_, _) => Task.FromResult(CreateArtifactWithPcmLength(4)),
+                CancellationToken.None);
+
+            var files = Directory.GetFiles(
+                cache.CacheRoot,
+                "*" + PreparedAudioArtifact.FileExtension);
+            var totalBytes = files.Sum(path => new FileInfo(path).Length);
+            Assert.True(
+                totalBytes <= cap,
+                $"Cache exceeded cap: {totalBytes} > {cap} across {files.Length} files.");
+        }
+
+        [Fact]
         public void AppPaths_PlaybackAudioCacheRootLivesBelowAppDataCacheDirectory()
         {
             const string variable = "DTXMANIA_APPDATA_ROOT";
@@ -407,6 +448,12 @@ namespace DTXMania.Test.Resources
                 44100,
                 1,
                 new[] { marker, (byte)0 });
+        }
+
+        private static PreparedAudioArtifact CreateArtifactWithPcmLength(int pcmLength)
+        {
+            // PCM must be frame-aligned for mono (frame size = 2 bytes).
+            return new PreparedAudioArtifact(44100, 1, new byte[pcmLength]);
         }
     }
 }

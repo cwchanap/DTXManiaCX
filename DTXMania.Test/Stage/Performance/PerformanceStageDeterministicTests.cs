@@ -773,8 +773,13 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void UpdateGameplayManagers_LatencyCompensatedHitClock_ShouldNotDelayRawLogicalMisses()
+    public void UpdateGameplayManagers_MissScanningUsesCompensatedClock_NotRawLogicalTime()
     {
+        // Note at 1000ms, hit window ±200ms. Raw logical time 1301ms is past
+        // the raw miss deadline (1200ms), but the compensated clock (1000ms)
+        // is still within the hit window. Miss scanning must use the
+        // compensated clock so the player keeps the full reaction window
+        // after the note becomes audible under output latency.
         var stage = CreateStage();
         var judgementManager = new JudgementManager(
             new MockInputManagerCompat(),
@@ -792,7 +797,7 @@ public class PerformanceStageDeterministicTests
             1000.0);
 
         Assert.Equal(
-            1,
+            0,
             judgementManager.GetJudgementCount(JudgementType.Miss));
     }
 

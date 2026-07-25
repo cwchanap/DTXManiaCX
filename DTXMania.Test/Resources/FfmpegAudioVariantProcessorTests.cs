@@ -349,6 +349,32 @@ namespace DTXMania.Test.Resources
             Assert.Equal(AudioVariantPreparationFailure.InvalidOutput, error.Failure);
         }
 
+        [Fact]
+        public async Task PrepareAsync_OutputExceedsPerArtifactBudget_ShouldFailBeforeReadingFile()
+        {
+            // A non-default profile on a long/slow source can produce PCM larger
+            // than the per-artifact budget. The processor must reject based on
+            // the on-disk file length before reading it into memory (OOM risk)
+            // and before the cache publishes the artifact. The backend writes a
+            // sparse file whose logical length exceeds MaxPcmByteLength without
+            // allocating hundreds of MiB on disk.
+            var source = WriteSource("oversized.wav");
+            var backend = new OversizedSparseBackend(
+                PreparedAudioArtifact.MaxPcmByteLength + 1024);
+            var processor = CreateProcessor(backend);
+
+            var error = await Assert.ThrowsAsync<AudioVariantPreparationException>(
+                () => processor.PrepareAsync(
+                    source,
+                    new PlaybackModifiers(50, 0),
+                    CancellationToken.None));
+
+            Assert.Equal(AudioVariantPreparationFailure.InvalidOutput, error.Failure);
+            Assert.Contains("budget ceiling", error.Message);
+            // The temp file must be cleaned up by the finally block.
+            Assert.Empty(Directory.GetFiles(_tempDirectory, "*.tmp"));
+        }
+
         [Theory]
         [InlineData("source.flac")]
         [InlineData("source.txt")]
@@ -611,6 +637,45 @@ namespace DTXMania.Test.Resources
                         return;
                     }
                 }
+            }
+        }
+
+        /// <summary>
+        /// Backend that writes a sparse output file whose logical length
+        /// exceeds the per-artifact PCM budget, without allocating the full
+        /// size on disk. Used to verify the processor bounds the read before
+        /// pulling the file into memory.
+        /// </summary>
+        private sealed class OversizedSparseBackend : IAudioVariantBackend
+        {
+            private readonly long _outputLength;
+
+            public OversizedSparseBackend(long outputLength)
+            {
+                _outputLength = outputLength;
+            }
+
+            public async Task<AudioTransformMetadata> TransformAsync(
+                string sourcePath,
+                string outputPath,
+                PlaybackModifiers modifiers,
+                CancellationToken cancellationToken)
+            {
+                await using var stream = new FileStream(
+                    outputPath,
+                    FileMode.Create,
+                    FileAccess.Write,
+                    FileShare.None,
+                    bufferSize: 81920,
+                    FileOptions.Asynchronous);
+                // Seek past the budget and write a single byte so the file's
+                // logical length is _outputLength while staying sparse on disk.
+                stream.Seek(_outputLength - 1, SeekOrigin.Begin);
+                await stream.WriteAsync(
+                    new byte[] { 0 },
+                    cancellationToken).ConfigureAwait(false);
+                await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+                return new AudioTransformMetadata(44100, 1);
             }
         }
 
