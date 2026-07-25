@@ -256,12 +256,13 @@ namespace DTXMania.Test.Stage.Performance
                 Assert.Equal(0, factoryCount);
 
                 // The cancelled waiter returns promptly, while the shared cache
-                // operation completes its asynchronous temp-file cleanup. Wait
-                // for that bounded cleanup before tearing down the directory.
-                await WaitForDirectoryToBecomeEmptyAsync(
+                // operation completes its asynchronous temp-file cleanup. A valid
+                // final artifact may still win the cancellation race, so only
+                // temporary files indicate leaked state.
+                await WaitForTemporaryFilesToBeDeletedAsync(
                     cacheRoot,
                     TimeSpan.FromSeconds(2));
-                Assert.Empty(Directory.GetFiles(cacheRoot));
+                Assert.Empty(Directory.GetFiles(cacheRoot, "*.tmp-*"));
             }
             finally
             {
@@ -478,7 +479,7 @@ namespace DTXMania.Test.Stage.Performance
         private static PreparedAudioArtifact CreateArtifact(int byteCount) =>
             new(44100, 1, new byte[byteCount]);
 
-        private static async Task WaitForDirectoryToBecomeEmptyAsync(
+        private static async Task WaitForTemporaryFilesToBeDeletedAsync(
             string directory,
             TimeSpan timeout)
         {
@@ -486,7 +487,7 @@ namespace DTXMania.Test.Stage.Performance
             while (DateTime.UtcNow < deadline)
             {
                 if (!Directory.Exists(directory) ||
-                    Directory.GetFileSystemEntries(directory).Length == 0)
+                    Directory.GetFiles(directory, "*.tmp-*").Length == 0)
                 {
                     return;
                 }
