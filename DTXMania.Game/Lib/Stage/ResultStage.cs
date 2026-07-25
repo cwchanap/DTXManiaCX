@@ -61,6 +61,7 @@ namespace DTXMania.Game.Lib.Stage
         private ResultSaveState _scoreSaveState = ResultSaveState.NotStarted;
         private string _scoreSaveError;
         private Stopwatch _scoreSaveStopwatch;
+        private bool _scoreSaveTimedOut;
         private static readonly TimeSpan ScoreSaveTimeout = TimeSpan.FromSeconds(15);
 
         // Note: Using global stage transition debouncing from BaseGame
@@ -114,6 +115,7 @@ namespace DTXMania.Game.Lib.Stage
             _scoreSaveInstrument = EInstrumentPart.DRUMS;
             _scoreSaveTask = null;
             _scoreSaveStopwatch = null;
+            _scoreSaveTimedOut = false;
             SetScoreSavePresentation(ResultSaveState.NotStarted);
 
             var selectedChart = ResolveSelectedChart();
@@ -436,6 +438,7 @@ namespace DTXMania.Game.Lib.Stage
             _scoreSaveInstrument = ResolveSelectedInstrument();
             SetScoreSavePresentation(ResultSaveState.Saving);
             _scoreSaveStopwatch = Stopwatch.StartNew();
+            _scoreSaveTimedOut = false;
 
             try
             {
@@ -448,6 +451,7 @@ namespace DTXMania.Game.Lib.Stage
             {
                 _scoreSaveTask = null;
                 _scoreSaveStopwatch = null;
+                _scoreSaveTimedOut = false;
                 SetScoreSavePresentation(ResultSaveState.Failed, ex.Message);
             }
         }
@@ -460,10 +464,18 @@ namespace DTXMania.Game.Lib.Stage
 
             if (!task.IsCompleted)
             {
-                if (_scoreSaveStopwatch != null &&
-                    _scoreSaveStopwatch.Elapsed >= ScoreSaveTimeout)
+                if (!_scoreSaveTimedOut
+                    && _scoreSaveStopwatch != null
+                    && _scoreSaveStopwatch.Elapsed >= ScoreSaveTimeout)
                 {
-                    _scoreSaveTask = null;
+                    // Report the timeout as FAILED but retain the task so a
+                    // late completion can still reconcile the UI to SAVED.
+                    // The save is not cancelled (SongManager.UpdateScoreAsync
+                    // does not accept a CancellationToken), so the database
+                    // write may still commit after the deadline; clearing the
+                    // task here would orphan that write and leave the player
+                    // looking at a permanent FAILED for a save that succeeded.
+                    _scoreSaveTimedOut = true;
                     _scoreSaveStopwatch = null;
                     SetScoreSavePresentation(
                         ResultSaveState.Failed,
@@ -474,6 +486,7 @@ namespace DTXMania.Game.Lib.Stage
 
             _scoreSaveTask = null;
             _scoreSaveStopwatch = null;
+            _scoreSaveTimedOut = false;
 
             try
             {

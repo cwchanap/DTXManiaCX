@@ -1900,6 +1900,16 @@ namespace DTXMania.Game.Lib.Song
                         published.ChartId = chartId;
                         published.PlaySpeedPercent = playSpeedPercent;
 
+                        // Mirror the fresh snapshot into the chart entity's Scores
+                        // collection so consumers that read directly from
+                        // DatabaseSong.Charts[].Scores (e.g. SongStatusPanel's
+                        // difficulty-grid ResolveChartScore) see the just-saved
+                        // speed variant without waiting for a full song-database
+                        // reload. PublishScoreVariants above only updates the
+                        // node's ScoreVariants/Scores[]; the chart entity is a
+                        // separate object graph that also needs the fresh entry.
+                        UpdateChartEntityScore(node, chartId, published);
+
                         var variants = node.ScoreVariants.ToDictionary(
                             pair => pair.Key,
                             pair => pair.Value);
@@ -1949,6 +1959,52 @@ namespace DTXMania.Game.Lib.Song
             }
 
             return updated;
+        }
+
+        /// <summary>
+        /// Mirrors a freshly published score snapshot into the matching
+        /// <see cref="SongChart"/>'s <see cref="SongChart.Scores"/> collection
+        /// on the node's <see cref="SongListNode.DatabaseSong"/>. Replaces an
+        /// existing entry with the same instrument and play speed, or appends
+        /// if none exists yet. Silently no-ops when the node has no database
+        /// song or the chart is not found on this node (e.g. a legacy set.def
+        /// node whose scores are matched by difficulty rather than chart id).
+        /// </summary>
+        private static void UpdateChartEntityScore(
+            SongListNode node,
+            int chartId,
+            SongScore published)
+        {
+            var charts = node.DatabaseSong?.Charts;
+            if (charts == null) return;
+
+            SongChart? targetChart = null;
+            foreach (var chart in charts)
+            {
+                if (chart.Id == chartId)
+                {
+                    targetChart = chart;
+                    break;
+                }
+            }
+            if (targetChart == null) return;
+
+            SongScore? existing = null;
+            foreach (var score in targetChart.Scores)
+            {
+                if (score.Instrument == published.Instrument
+                    && score.PlaySpeedPercent == published.PlaySpeedPercent)
+                {
+                    existing = score;
+                    break;
+                }
+            }
+
+            if (existing != null)
+            {
+                targetChart.Scores.Remove(existing);
+            }
+            targetChart.Scores.Add(published.Clone());
         }
 
         /// <summary>
