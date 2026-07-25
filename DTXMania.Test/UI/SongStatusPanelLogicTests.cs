@@ -887,7 +887,15 @@ public class SongStatusPanelLogicTests
             }
         };
 
-        InvokePrivate<object?>(panel, "DrawRankSymbol", null!, 10, 20, chartInfo, 0);
+        InvokePrivate<object?>(
+            panel,
+            "DrawRankSymbol",
+            null!,
+            10,
+            20,
+            chartInfo,
+            0,
+            DTXMania.Game.Lib.Config.PlaySpeedRange.Default);
 
         var expectedRankIndex = SongScore.ComputeRankIndex(SongScore.NormalizeStoredBestRank(score.BestRank));
         Assert.Equal(2, sourceRects.Count);
