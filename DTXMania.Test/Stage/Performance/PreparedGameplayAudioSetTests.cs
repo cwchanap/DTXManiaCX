@@ -214,8 +214,9 @@ namespace DTXMania.Test.Stage.Performance
                 var factoryCount = 0;
                 using var cancellation = new CancellationTokenSource();
 
+                var cacheRoot = Path.Combine(directory, "cache");
                 var cache = new PlaybackAudioVariantCache(
-                    Path.Combine(directory, "cache"),
+                    cacheRoot,
                     maxCacheBytes: 1024 * 1024);
                 var processor = new Mock<IAudioVariantProcessor>();
                 processor
@@ -253,6 +254,14 @@ namespace DTXMania.Test.Stage.Performance
                 await Assert.ThrowsAnyAsync<OperationCanceledException>(
                     async () => await preparation);
                 Assert.Equal(0, factoryCount);
+
+                // The cancelled waiter returns promptly, while the shared cache
+                // operation completes its asynchronous temp-file cleanup. Wait
+                // for that bounded cleanup before tearing down the directory.
+                await WaitForDirectoryToBecomeEmptyAsync(
+                    cacheRoot,
+                    TimeSpan.FromSeconds(2));
+                Assert.Empty(Directory.GetFiles(cacheRoot));
             }
             finally
             {
@@ -342,6 +351,23 @@ namespace DTXMania.Test.Stage.Performance
 
         private static PreparedAudioArtifact CreateArtifact(int byteCount) =>
             new(44100, 1, new byte[byteCount]);
+
+        private static async Task WaitForDirectoryToBecomeEmptyAsync(
+            string directory,
+            TimeSpan timeout)
+        {
+            var deadline = DateTime.UtcNow + timeout;
+            while (DateTime.UtcNow < deadline)
+            {
+                if (!Directory.Exists(directory) ||
+                    Directory.GetFileSystemEntries(directory).Length == 0)
+                {
+                    return;
+                }
+
+                await Task.Delay(10);
+            }
+        }
 
         private static string CreateTempDirectory()
         {
