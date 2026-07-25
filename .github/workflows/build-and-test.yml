@@ -43,7 +43,7 @@ jobs:
       run: dotnet test DTXMania.Test/DTXMania.Test.csproj --configuration Debug --verbosity normal --logger trx --results-directory ./TestResults /p:CollectCoverage=true /p:CoverletOutput=./TestResults/Coverage/ /p:CoverletOutputFormat=cobertura /p:IncludeTestAssembly=false /p:Exclude="[DTXMania.Test*]*"
 
     - name: Upload test results
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@v7.0.1
       if: always()
       with:
         name: test-results-windows
@@ -166,7 +166,7 @@ jobs:
         fi
 
     - name: Upload test results
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@v7.0.1
       if: always()
       with:
         name: test-results-macos
@@ -248,7 +248,7 @@ jobs:
       run: dotnet test DTXMania.E2E/DTXMania.E2E.csproj --configuration Debug --verbosity normal --logger trx --results-directory ./TestResults/e2e-support --filter "Category=E2E-Support"
 
     - name: Upload gameplay E2E artifacts
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@v7.0.1
       if: always()
       with:
         name: gameplay-e2e-windows
@@ -360,7 +360,7 @@ jobs:
         fi
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@v7.0.1
       with:
         name: ${{ matrix.artifact }}-${{ github.sha }}
         path: ./publish/${{ matrix.output }}
