@@ -48,7 +48,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void JudgementManager_LatencyCompensatedHitClock_ShouldNotDelayRawLogicalMiss()
+        public void JudgementManager_MissScanClockIndependentOfHitClock_UsesSecondArgument()
         {
             var mockInputManager = new MockInputManagerCompat();
             var chartManager = CreateSimpleTestChart();
@@ -63,8 +63,10 @@ namespace DTXMania.Test.Stage.Performance
                     missEvent = e;
             };
 
-            // The compensated hit clock remains at the note time, but the raw
-            // logical chart clock is 300ms late and must drive the timeout scan.
+            // The two-argument Update drives miss scanning from the second
+            // argument regardless of the hit clock value. This verifies the
+            // API mechanic; production passes the same compensated clock for
+            // both arguments.
             judgementManager.Update(
                 pendingHitTimeMs: 1000.0,
                 missScanTimeMs: 1300.0);
