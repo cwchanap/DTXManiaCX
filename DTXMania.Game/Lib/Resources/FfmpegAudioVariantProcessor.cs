@@ -39,6 +39,7 @@ namespace DTXMania.Game.Lib.Resources
         private readonly Func<FfmpegRuntimeAvailability> _runtimeAvailability;
         private readonly SemaphoreSlim _transformGate;
         private readonly TimeSpan _operationTimeout;
+        private readonly TimeSpan _orphanStalenessThreshold;
         private readonly string _temporaryDirectory;
 
         public FfmpegAudioVariantProcessor()
@@ -75,6 +76,18 @@ namespace DTXMania.Game.Lib.Resources
 
             _operationTimeout = operationTimeout;
             _temporaryDirectory = temporaryDirectory;
+            // Only sweep temp files proven stale by age. A file being actively
+            // written by another processor instance (e.g. during rapid stage
+            // reactivation where the cancelled processor's FFmpeg child is still
+            // draining) will have a recent LastWriteTime; blindly deleting every
+            // matching file from each constructor unlinks that open output on
+            // macOS/Linux and the old operation later fails when it inspects or
+            // reads the path. 2× the operation timeout is a safe staleness
+            // threshold: any operation still running past its timeout has been
+            // cancelled by the linked CTS in PrepareCoreAsync, and its finally
+            // block has already attempted to delete its own temp file. A file
+            // older than that can only be an orphan from a crashed/killed process.
+            _orphanStalenessThreshold = operationTimeout + operationTimeout;
             CleanupOrphanedTempFilesBestEffort();
         }
 
@@ -83,8 +96,15 @@ namespace DTXMania.Game.Lib.Resources
         /// that crashed or was killed mid-transform. The per-call <c>finally</c>
         /// block in <see cref="PrepareCoreAsync"/> deletes its own temp file on
         /// normal exit, so only crash orphans remain. Each temp file carries a
-        /// unique GUID, so this sweep cannot collide with in-flight files from
-        /// the current process.
+        /// unique GUID, so name collisions never occur — but multiple processor
+        /// instances can coexist (one per stage activation), and a cancelled
+        /// processor's FFmpeg child may still be draining into its open output
+        /// when the next processor is constructed. To avoid unlinking that live
+        /// output, only files whose <see cref="FileInfo.LastWriteTime"/> is older
+        /// than <see cref="_orphanStalenessThreshold"/> are deleted. A live
+        /// operation cannot run longer than its timeout (the linked CTS cancels
+        /// it), and the finally block deletes the file on cancellation/timeout,
+        /// so any file older than 2× the timeout is provably an orphan.
         /// </summary>
         private void CleanupOrphanedTempFilesBestEffort()
         {
@@ -93,12 +113,21 @@ namespace DTXMania.Game.Lib.Resources
                 if (!Directory.Exists(_temporaryDirectory))
                     return;
 
+                var stalenessCutoff = DateTime.UtcNow - _orphanStalenessThreshold;
                 foreach (var path in Directory.EnumerateFiles(
                     _temporaryDirectory,
                     "*.s16le.tmp",
                     SearchOption.TopDirectoryOnly))
                 {
-                    try { File.Delete(path); }
+                    try
+                    {
+                        // Skip files that might still belong to an active
+                        // operation (recent LastWriteTime). Only delete files
+                        // proven stale by age.
+                        if (File.GetLastWriteTimeUtc(path) > stalenessCutoff)
+                            continue;
+                        File.Delete(path);
+                    }
                     catch (IOException) { }
                     catch (UnauthorizedAccessException) { }
                 }
@@ -373,7 +402,14 @@ namespace DTXMania.Game.Lib.Resources
 
                 try
                 {
-                    return new PreparedAudioArtifact(
+                    // Take ownership of the freshly-read buffer instead of
+                    // routing through the public constructor, which clones
+                    // the payload. A payload near the 512 MiB per-artifact
+                    // ceiling would otherwise require two simultaneous
+                    // hundreds-of-megabytes allocations (the ReadAllBytesAsync
+                    // buffer plus the defensive copy). FromOwnedBytes adopts
+                    // the buffer directly; no second allocation is needed.
+                    return PreparedAudioArtifact.FromOwnedBytes(
                         metadata.SampleRate,
                         metadata.ChannelCount,
                         pcm);

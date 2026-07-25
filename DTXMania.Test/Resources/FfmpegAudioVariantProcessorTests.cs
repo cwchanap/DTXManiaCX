@@ -319,11 +319,16 @@ namespace DTXMania.Test.Resources
         [Fact]
         public void Constructor_OrphanedTempFiles_ShouldBeSweptAtStartup()
         {
-            // Simulate crash orphans from a previous process run
+            // Simulate crash orphans from a previous process run. The sweep is
+            // age-based (only files older than 2× the operation timeout are
+            // deleted) so the orphans must be stamped past that threshold.
+            var staleTimestamp = DateTime.UtcNow - TimeSpan.FromHours(1);
             var orphan1 = Path.Combine(_tempDirectory, "variant-deadbeef.s16le.tmp");
             var orphan2 = Path.Combine(_tempDirectory, "variant-cafebabe.s16le.tmp");
             File.WriteAllBytes(orphan1, new byte[] { 0, 0 });
             File.WriteAllBytes(orphan2, new byte[] { 0, 0 });
+            File.SetLastWriteTimeUtc(orphan1, staleTimestamp);
+            File.SetLastWriteTimeUtc(orphan2, staleTimestamp);
             Assert.True(File.Exists(orphan1));
             Assert.True(File.Exists(orphan2));
 
@@ -331,6 +336,32 @@ namespace DTXMania.Test.Resources
 
             Assert.False(File.Exists(orphan1));
             Assert.False(File.Exists(orphan2));
+        }
+
+        [Fact]
+        public void Constructor_RecentTempFiles_ShouldNotBeSwept()
+        {
+            // Regression guard: during rapid stage reactivation a cancelled
+            // processor's FFmpeg child may still be draining into its open
+            // output when the next processor is constructed. The sweep must
+            // not unlink that live file. A freshly-written temp file (recent
+            // LastWriteTime) must survive the constructor sweep.
+            var liveFile = Path.Combine(_tempDirectory, "variant-active.s16le.tmp");
+            File.WriteAllBytes(liveFile, new byte[] { 0, 0 });
+            // Leave LastWriteTime at its default (now); the default 5s timeout
+            // yields a 10s staleness threshold, so a just-written file is well
+            // within the live window.
+            Assert.True(File.Exists(liveFile));
+
+            CreateProcessor(new FakeBackend());
+
+            Assert.True(
+                File.Exists(liveFile),
+                "Recent temp file belonging to a potentially active operation "
+                    + "must not be swept by the constructor.");
+
+            // Cleanup is the test's responsibility.
+            File.Delete(liveFile);
         }
 
         [Fact]

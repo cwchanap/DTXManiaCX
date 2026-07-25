@@ -58,6 +58,43 @@ namespace DTXMania.Game.Lib.Resources
             _pcmData = takeOwnership ? pcmData : (byte[])pcmData.Clone();
         }
 
+        /// <summary>
+        /// Ownership-taking factory for freshly-read PCM buffers. Avoids the
+        /// defensive <see cref="Array.Clone"/> performed by the public
+        /// constructor, which is wasteful when the caller has just allocated
+        /// the buffer (e.g. <see cref="File.ReadAllBytesAsync(string)"/>) and
+        /// holds no other reference to it. Used by the FFmpeg variant
+        /// processor path where a payload near the 512 MiB per-artifact
+        /// ceiling would otherwise require two simultaneous
+        /// hundreds-of-megabytes allocations. The caller must not retain or
+        /// mutate the passed array after this call.
+        /// </summary>
+        internal static PreparedAudioArtifact FromOwnedBytes(
+            int sampleRate,
+            int channelCount,
+            byte[] pcmData)
+        {
+            if (pcmData == null)
+                throw new ArgumentNullException(nameof(pcmData));
+            return new PreparedAudioArtifact(
+                sampleRate,
+                channelCount,
+                pcmData,
+                takeOwnership: true);
+        }
+
+        /// <summary>
+        /// Direct accessor to the immutable backing buffer for trusted
+        /// internal callers that need the raw <see cref="byte"/>[] (e.g. the
+        /// <see cref="SoundEffect"/> constructor, which requires a
+        /// <see cref="byte"/>[] and would otherwise force a
+        /// <see cref="ReadOnlyMemory{T}.ToArray"/> clone of the buffer). The
+        /// returned array is the artifact's own backing storage; callers must
+        /// not mutate it. Exposed <see langword="internal"/> so only same-
+        /// assembly code can reach it.
+        /// </summary>
+        internal byte[] PcmDataBuffer => _pcmData;
+
         public int SampleRate { get; }
 
         public int ChannelCount { get; }

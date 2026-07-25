@@ -131,6 +131,70 @@ namespace DTXMania.Test.Resources
             Assert.Empty(Directory.GetFiles(_tempDirectory, "*.tmp-*"));
         }
 
+        /// <summary>
+        /// Regression guard for the duplicate-allocation optimization. The
+        /// FFmpeg variant processor reads a PCM payload via
+        /// File.ReadAllBytesAsync and then adopts it via
+        /// PreparedAudioArtifact.FromOwnedBytes. The public constructor would
+        /// clone the buffer (ToArray), requiring two simultaneous
+        /// hundreds-of-megabytes allocations for a payload near the 512 MiB
+        /// per-artifact ceiling. FromOwnedBytes must take ownership without
+        /// cloning — the artifact's backing buffer must be the same array
+        /// reference the caller passed.
+        /// </summary>
+        [Fact]
+        public void FromOwnedBytes_TakesOwnershipWithoutCloning()
+        {
+            var pcm = new byte[] { 0x01, 0x02, 0x03, 0x04 };
+            var artifact = PreparedAudioArtifact.FromOwnedBytes(44100, 2, pcm);
+
+            Assert.Equal(44100, artifact.SampleRate);
+            Assert.Equal(2, artifact.ChannelCount);
+            Assert.Equal(4, artifact.PcmByteLength);
+            // The backing buffer must be the exact same array reference —
+            // no defensive clone. This is the whole point of the internal
+            // ownership-taking factory.
+            Assert.True(
+                ReferenceEquals(pcm, artifact.PcmDataBuffer),
+                "FromOwnedBytes must adopt the caller's array without cloning.");
+            // The public PcmData view must still reflect the same contents.
+            Assert.Equal(pcm, artifact.PcmData.ToArray());
+        }
+
+        /// <summary>
+        /// The internal PcmDataBuffer accessor exists so trusted same-assembly
+        /// callers (the SoundEffect construction path in
+        /// PreparedGameplayAudioSet) can pass the backing byte[] directly
+        /// instead of cloning via PcmData.ToArray(). Verify it returns the
+        /// artifact's own backing storage (reference-equal), not a copy.
+        /// </summary>
+        [Fact]
+        public void PcmDataBuffer_ReturnsBackingStorageWithoutCloning()
+        {
+            // The public constructor clones the input; the artifact owns its
+            // own buffer. PcmDataBuffer must expose that owned buffer directly.
+            var artifact = new PreparedAudioArtifact(
+                44100,
+                2,
+                new byte[] { 0x01, 0x02, 0x03, 0x04 });
+
+            var buffer = artifact.PcmDataBuffer;
+            Assert.Equal(4, buffer.Length);
+            // PcmDataBuffer must be the same reference as the internal backing
+            // storage (not a copy), so callers can pass it to SoundEffect
+            // without an intermediate ToArray() clone.
+            Assert.True(
+                ReferenceEquals(buffer, artifact.PcmDataBuffer),
+                "PcmDataBuffer must return the same reference on each call.");
+        }
+
+        [Fact]
+        public void FromOwnedBytes_NullBuffer_ShouldThrow()
+        {
+            Assert.Throws<ArgumentNullException>(
+                () => PreparedAudioArtifact.FromOwnedBytes(44100, 1, null!));
+        }
+
         private async Task<string> WriteValidArtifactAsync()
         {
             var path = Path.Combine(_tempDirectory, "valid.dtxpcm");
