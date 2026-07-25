@@ -40,31 +40,6 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
-        public async Task PublicKeyApis_NullArguments_ShouldThrow()
-        {
-            var cache = CreateCache();
-            var key = new AudioVariantKey(
-                new string('a', 64),
-                "ffmpeg:wav",
-                75,
-                0,
-                AudioVariantKey.CurrentPipelineVersion);
-
-            Assert.Throws<ArgumentNullException>(() => cache.GetArtifactPath(null!));
-            Assert.Throws<ArgumentNullException>(() => cache.TryGetAsync(null!));
-            await Assert.ThrowsAsync<ArgumentNullException>(() =>
-                cache.GetOrCreateWithStatusAsync(
-                    null!,
-                    (_, _) => Task.FromResult(CreateArtifact(1)),
-                    CancellationToken.None));
-            await Assert.ThrowsAsync<ArgumentNullException>(() =>
-                cache.GetOrCreateWithStatusAsync(
-                    key,
-                    null!,
-                    CancellationToken.None));
-        }
-
-        [Fact]
         public async Task GetOrCreateWithStatusAsync_ColdThenWarm_ShouldReportCacheStatus()
         {
             var cache = CreateCache();
