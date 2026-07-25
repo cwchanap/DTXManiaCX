@@ -518,4 +518,97 @@ public class SongManagerUpdateScoreTests : IDisposable
 #00011:01010101
 """);
     }
+
+    [Fact]
+    public async Task UpdateScoreAsync_WithSummary_WhenInMemoryRefreshPublishesNoNode_ShouldReturnFailed()
+    {
+        // Contract (plan invariant 8): "The Result stage cannot report a save as
+        // successful until the database write and matching in-memory refresh have
+        // completed." When the in-memory song list has no matching node for the
+        // just-saved chart (e.g. it was cleared/rebuilt between the save and the
+        // refresh), the refresh publishes nothing and UpdateScoreAsync must report
+        // Failed even though the database write committed. The player can retry;
+        // the retry is idempotent (RunId receipt) and will surface AlreadySaved
+        // once the refresh finds a matching node.
+        var songsRoot = Path.Combine(_testRoot, "NoNodeSongs");
+        var songFolder = Path.Combine(songsRoot, "NoNode Song");
+        Directory.CreateDirectory(songFolder);
+
+        await CreateDtxFileAsync(Path.Combine(songFolder, "none.dtx"), "NoNode Song", "Test Artist", "Rock", 50);
+        await InitializeAndEnumerateAsync(songsRoot);
+
+        var db = _manager.DatabaseService!;
+        var chart = Assert.Single(await db.GetSongsAsync()).Charts.First();
+
+        // Simulate the in-memory list being empty (cleared/rebuilt between save
+        // and refresh) so PublishNodeScoreVariant finds no matching node.
+        var roots = GetPrivateField<List<SongListNode>>(_manager, "_rootSongs");
+        Assert.NotNull(roots);
+        var originalRoots = roots!.ToList();
+        roots.Clear();
+
+        try
+        {
+            var summary = new PerformanceSummary
+            {
+                RunId = Guid.NewGuid(),
+                PlaySpeedPercent = 100,
+                Score = 900_000,
+                MaxCombo = 100,
+                ClearFlag = true,
+                PerfectCount = 100,
+                TotalNotes = 100,
+                PlayingSkill = 90.0,
+                GameSkill = 140.0,
+                ChartLevel = 50,
+                CompletionReason = CompletionReason.SongComplete,
+            };
+
+            var result = await _manager.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
+
+            // The DB write committed, but no in-memory node was refreshed.
+            Assert.Equal(ScoreSaveStatus.Failed, result.Status);
+            Assert.Contains("could not be refreshed", result.ErrorMessage ?? string.Empty);
+        }
+        finally
+        {
+            // Restore the roots so Dispose can clean up cleanly.
+            roots.AddRange(originalRoots);
+        }
+    }
+
+    [Fact]
+    public async Task UpdateScoreAsync_WithSummary_WhenInMemoryRefreshSucceeds_ShouldReturnSaved()
+    {
+        // Positive control for the refresh contract: when the in-memory list
+        // contains the matching node, the save returns Saved (not Failed).
+        var songsRoot = Path.Combine(_testRoot, "RefreshOkSongs");
+        var songFolder = Path.Combine(songsRoot, "RefreshOk Song");
+        Directory.CreateDirectory(songFolder);
+
+        await CreateDtxFileAsync(Path.Combine(songFolder, "ok.dtx"), "RefreshOk Song", "Test Artist", "Rock", 50);
+        await InitializeAndEnumerateAsync(songsRoot);
+
+        var db = _manager.DatabaseService!;
+        var chart = Assert.Single(await db.GetSongsAsync()).Charts.First();
+
+        var summary = new PerformanceSummary
+        {
+            RunId = Guid.NewGuid(),
+            PlaySpeedPercent = 100,
+            Score = 900_000,
+            MaxCombo = 100,
+            ClearFlag = true,
+            PerfectCount = 100,
+            TotalNotes = 100,
+            PlayingSkill = 90.0,
+            GameSkill = 140.0,
+            ChartLevel = 50,
+            CompletionReason = CompletionReason.SongComplete,
+        };
+
+        var result = await _manager.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
+
+        Assert.Equal(ScoreSaveStatus.Saved, result.Status);
+    }
 }

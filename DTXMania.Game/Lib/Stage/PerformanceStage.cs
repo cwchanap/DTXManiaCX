@@ -619,6 +619,8 @@ namespace DTXMania.Game.Lib.Stage
         /// 
         /// ESC/Back button behavior:
         /// - Immediately stops song playback and timing
+        /// - Stops scheduled BGM and chip sound instances so audio does not bleed
+        ///   into the transition or the next stage during the fade
         /// - Deactivates judgement manager to prevent further input processing
         /// - Pauses input processing to prevent further judgement handling
         /// - Returns to song selection stage with smooth fade transition
@@ -633,21 +635,60 @@ namespace DTXMania.Game.Lib.Stage
             // 1. Stop the song timer
             _songTimer?.Stop();
 
-            // 2. Deactivate judgement manager to stop processing input
+            // 2. Stop audible gameplay audio instances (scheduled BGM tracks and
+            //    chip sounds) immediately. The transition uses a 0.5s fade, so
+            //    without this the backing tracks and chip instances owned by
+            //    ChipSoundCache would keep playing after gameplay has logically
+            //    stopped and bleed into the song-selection stage. Full disposal
+            //    remains in CleanupComponents via OnDeactivate.
+            StopGameplayAudioInstances();
+
+            // 3. Deactivate judgement manager to stop processing input
             if (_judgementManager != null)
             {
                 _judgementManager.IsActive = false;
             }
 
-            // 3. Pause input to block further judgement processing
+            // 4. Pause input to block further judgement processing
             _inputPaused = true;
 
-            // 4. Component cleanup will be handled automatically by OnDeactivate() during stage transition
+            // 5. Component cleanup will be handled automatically by OnDeactivate() during stage transition
             // This prevents premature texture disposal that causes gauge flickering
 
             // Return to song selection stage
             StageManager?.ChangeStage(StageType.SongSelect,
                 new DTXManiaFadeTransition(0.5), null);
+        }
+
+        /// <summary>
+        /// Stops all active scheduled-BGM and chip-sound instances immediately.
+        /// Used by both gameplay exit paths (ReturnToSongSelect and FinalizePerformance)
+        /// to silence audio before the stage transition begins. The instances are
+        /// tracked independently from the song timer (scheduled BGM) and by
+        /// ChipSoundCache (chip sounds); stopping only the song timer leaves them
+        /// audible through the transition fade. Full stop-and-dispose of these
+        /// instances remains in CleanupComponents.
+        /// </summary>
+        private void StopGameplayAudioInstances()
+        {
+            // Stop scheduled BGM instances. These are SoundEffectInstances owned
+            // by this stage (added in TriggerBGMEvent); CleanupComponents later
+            // stops and disposes them, but we must stop them now so they do not
+            // remain audible through the transition fade.
+            if (_activeBgmInstances != null)
+            {
+                foreach (var instance in _activeBgmInstances)
+                {
+                    try { instance.Stop(); }
+                    catch { /* Best effort — teardown will dispose. */ }
+                }
+            }
+
+            // Stop chip sound instances owned by ChipSoundCache. StopAll leaves
+            // the borrowed ISound objects and the instances themselves owned by
+            // the cache; Dispose (called from CleanupGameplayManagers via
+            // CleanupComponents) handles final stop-and-dispose.
+            _chipSoundCache?.StopAll();
         }
 
         private void ObserveInitializationTask()
@@ -2197,6 +2238,14 @@ namespace DTXMania.Game.Lib.Stage
 
             // Stop the song timer
             _songTimer?.Stop();
+
+            // Stop audible gameplay audio instances (scheduled BGM tracks and
+            // chip sounds) immediately. The transition to ResultStage is
+            // instant, but scheduled BGM tracks are SoundEffectInstances tracked
+            // independently from the song timer; without this they would keep
+            // playing after gameplay has logically ended and bleed into the
+            // result stage. Full disposal remains in CleanupComponents.
+            StopGameplayAudioInstances();
 
             // Build the performance summary
             var summaryChart = _selectedSong?.GetCurrentDifficultyChart(_selectedDifficulty);

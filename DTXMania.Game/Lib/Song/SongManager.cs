@@ -1771,6 +1771,16 @@ namespace DTXMania.Game.Lib.Song
         /// fields on the song-list node reflect the just-saved play without a full
         /// song-database reload.
         /// </summary>
+        /// <remarks>
+        /// Per the accepted implementation plan (invariant 8): "The Result stage cannot
+        /// report a save as successful until the database write and matching in-memory
+        /// refresh have completed." A save that commits to the database but cannot
+        /// refresh at least one matching in-memory node is therefore reported as
+        /// <see cref="ScoreSaveStatus.Failed"/> so the UI does not display SAVED over a
+        /// stale song-selection cache. The player can retry; the database write is
+        /// idempotent (RunId receipt), so a retry that succeeds at refresh will surface
+        /// <see cref="ScoreSaveStatus.AlreadySaved"/> as a successful save.
+        /// </remarks>
         public async Task<ScoreSaveResult> UpdateScoreAsync(
             int chartId,
             EInstrumentPart instrument,
@@ -1786,24 +1796,34 @@ namespace DTXMania.Game.Lib.Song
                 .UpdateScoreAsync(chartId, instrument, summary)
                 .ConfigureAwait(false);
 
-            if (result.IsSuccess)
+            if (!result.IsSuccess)
+                return result;
+
+            // The save committed. The plan's contract requires the matching in-memory
+            // refresh to complete before the UI may report success. A refresh failure
+            // (transient DB read error) or a no-op refresh (no matching node found,
+            // e.g. the song list was rebuilt/cleared between save and refresh) must
+            // not be masked by returning the original successful result.
+            bool refreshed;
+            try
             {
-                // The save already committed. A refresh failure (e.g. transient
-                // DB read error) must not mask the successful save by propagating
-                // an exception that the caller would interpret as a failure.
-                // The in-memory cache self-heals on the next query or reload.
-                try
-                {
-                    await RefreshInMemoryScoreForChartAsync(
-                        chartId,
-                        instrument,
-                        summary.PlaySpeedPercent).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine(
-                        $"SongManager: In-memory score refresh failed after successful save for chart {chartId}: {ex.Message}");
-                }
+                refreshed = await RefreshInMemoryScoreForChartAsync(
+                    chartId,
+                    instrument,
+                    summary.PlaySpeedPercent).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine(
+                    $"SongManager: In-memory score refresh failed after successful save for chart {chartId}: {ex.Message}");
+                refreshed = false;
+            }
+
+            if (!refreshed)
+            {
+                return ScoreSaveResult.Failed(
+                    "The score was saved to the database, but the song list could not be "
+                    + "refreshed. Please retry to update the displayed score.");
             }
 
             return result;
@@ -1815,28 +1835,39 @@ namespace DTXMania.Game.Lib.Song
         /// <see cref="SongScore.PerformanceHistory"/> eagerly loaded), clones the current
         /// variant map, replaces only the matching speed, and atomically publishes the
         /// complete new snapshot. The fixed score slot is replaced only for 1.00x.
-        /// Silently no-ops when the DB service is unavailable or the node cannot be found.
+        /// Silently no-ops when the DB service is unavailable or the fresh score cannot
+        /// be loaded.
         /// </summary>
-        private async Task RefreshInMemoryScoreForChartAsync(
+        /// <returns>
+        /// <c>true</c> if at least one song-list node published the fresh score variant;
+        /// <c>false</c> if the DB service is unavailable, the fresh score is missing, or
+        /// no matching node was found in the tree.
+        /// </returns>
+        private async Task<bool> RefreshInMemoryScoreForChartAsync(
             int chartId,
             EInstrumentPart instrument,
             int playSpeedPercent)
         {
             var db = GetDatabaseServiceSnapshot();
-            if (db == null) return;
+            if (db == null) return false;
 
             var fresh = await db.GetScoreWithHistoryAsync(
                 chartId,
                 instrument,
                 playSpeedPercent).ConfigureAwait(false);
 
-            if (fresh == null) return;
+            if (fresh == null) return false;
 
+            bool published = false;
             lock (_lockObject)
             {
                 foreach (var root in _rootSongs)
-                    PublishNodeScoreVariant(root, chartId, instrument, playSpeedPercent, fresh);
+                {
+                    if (PublishNodeScoreVariant(root, chartId, instrument, playSpeedPercent, fresh))
+                        published = true;
+                }
             }
+            return published;
         }
 
         /// <summary>

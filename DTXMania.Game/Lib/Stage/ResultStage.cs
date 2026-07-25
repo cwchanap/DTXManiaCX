@@ -426,6 +426,18 @@ namespace DTXMania.Game.Lib.Stage
             if (_scoreSaveState == ResultSaveState.Saving)
                 return;
 
+            // A previous save may still be running even though the state is
+            // Failed: ObservePerformanceSummarySave deliberately retains the
+            // task after a timeout so a late completion can reconcile the UI
+            // to SAVED. Starting a second save here would orphan that write
+            // and allow two concurrent database operations for the same RunId
+            // (database contention + unobserved task failures). Refuse to
+            // retry until the previous task has completed; the player can
+            // press Activate again after the late reconciliation resolves.
+            var outstandingTask = _scoreSaveTask;
+            if (outstandingTask != null && !outstandingTask.IsCompleted)
+                return;
+
             if (selectedChart == null ||
                 selectedChart.Id <= 0 ||
                 _performanceSummary == null ||
