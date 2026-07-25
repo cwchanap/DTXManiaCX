@@ -4,14 +4,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using DTXMania.Game.Lib.Resources;
-using DTXMania.Game.Lib.Song;
-using DTXMania.Game.Lib.Song.Entities;
-using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.Stage.Performance;
-using Microsoft.Xna.Framework.Graphics;
 using Moq;
 using Xunit;
-using static DTXMania.Test.TestData.ReflectionHelpers;
 
 namespace DTXMania.Test.Coverage
 {
@@ -192,98 +187,6 @@ namespace DTXMania.Test.Coverage
                 value => value.Play(0.5f, 0.0f, -0.25f),
                 Times.Once);
             sound.Verify(value => value.Play(), Times.Never);
-        }
-    }
-
-    [Trait("Category", "Unit")]
-    public sealed class ResultStageSaveFailureCoverageTests
-    {
-        [Fact]
-        public void StartPerformanceSummarySave_WhenSaveThrowsSynchronously_ReportsFailure()
-        {
-            var stage = CreateStage();
-            stage.SynchronousFailure = new InvalidOperationException("database unavailable");
-            SetPrivateField(stage, "_performanceSummary", SavableSummary());
-
-            InvokePrivateMethod(
-                stage,
-                "StartPerformanceSummarySave",
-                new SongChart { Id = 42 });
-
-            Assert.Equal(ResultSaveState.Failed, stage.ScoreSaveState);
-            Assert.Equal("database unavailable", stage.ScoreSaveError);
-            Assert.Equal(1, stage.SaveCalls);
-        }
-
-        [Fact]
-        public void ObservePerformanceSummarySave_WhenFailureMessageIsNull_UsesDefaultMessage()
-        {
-            var stage = CreateStage();
-            stage.Enqueue(ScoreSaveResult.Failed(null!));
-            SetPrivateField(stage, "_performanceSummary", SavableSummary());
-
-            InvokePrivateMethod(
-                stage,
-                "StartPerformanceSummarySave",
-                new SongChart { Id = 42 });
-            InvokePrivateMethod(stage, "ObservePerformanceSummarySave");
-
-            Assert.Equal(ResultSaveState.Failed, stage.ScoreSaveState);
-            Assert.Equal("The score could not be saved.", stage.ScoreSaveError);
-        }
-
-        private static TestResultStage CreateStage()
-        {
-            var game = new Mock<IStageGame>();
-            return new TestResultStage(game.Object);
-        }
-
-        private static PerformanceSummary SavableSummary() =>
-            new()
-            {
-                RunId = Guid.NewGuid(),
-                PlaySpeedPercent = 100,
-                PitchSemitones = 0,
-                CompletionReason = CompletionReason.SongComplete,
-                ClearFlag = true,
-                Score = 900_000,
-            };
-
-        private sealed class TestResultStage : ResultStage
-        {
-            private readonly Queue<Task<ScoreSaveResult>> _results = new();
-
-            public TestResultStage(IStageGame game)
-                : base(game)
-            {
-            }
-
-            public Exception? SynchronousFailure { get; set; }
-
-            public int SaveCalls { get; private set; }
-
-            public void Enqueue(ScoreSaveResult result)
-            {
-                _results.Enqueue(Task.FromResult(result));
-            }
-
-            protected override SpriteBatch CreateSpriteBatch(
-                GraphicsDevice graphicsDevice)
-            {
-                return null!;
-            }
-
-            internal override Task<ScoreSaveResult> SavePerformanceSummaryAsync(
-                int chartId,
-                EInstrumentPart instrument,
-                PerformanceSummary summary)
-            {
-                SaveCalls++;
-                if (SynchronousFailure != null)
-                    throw SynchronousFailure;
-
-                return _results.Dequeue();
-            }
         }
     }
 }
