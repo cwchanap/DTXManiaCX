@@ -75,7 +75,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 // The fast path is valid only for the exact default profile.
                 SoundEffectInstance? instance =
-                    (volume >= 0.999f &&
+                    (Math.Abs(volume - 1.0f) < 0.001f &&
                      Math.Abs(pitch) < 0.001f &&
                      Math.Abs(pan) < 0.001f)
                         ? sound.Play()
