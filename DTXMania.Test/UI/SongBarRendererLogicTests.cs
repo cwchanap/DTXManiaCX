@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Runtime.CompilerServices;
+using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
@@ -306,11 +307,19 @@ public class SongBarRendererLogicTests
         var songNode = CreateScoreNode();
         var oldLamp = CreateTextureMock();
         var newLamp = CreateTextureMock();
-        GetClearLampCache(renderer).Add(InvokePrivate<string>(renderer, "GetClearLampCacheKey", songNode, 1), newLamp.Object);
+        GetClearLampCache(renderer).Add(
+            InvokePrivate<string>(
+                renderer,
+                "GetClearLampCacheKey",
+                songNode,
+                1,
+                PlaySpeedRange.Default),
+            newLamp.Object);
         var barInfo = new SongBarInfo
         {
             SongNode = songNode,
             DifficultyLevel = 0,
+            PlaySpeedPercent = PlaySpeedRange.Default,
             IsSelected = false,
             ClearLamp = oldLamp.Object
         };
@@ -332,6 +341,7 @@ public class SongBarRendererLogicTests
         {
             SongNode = CreateScoreNode(),
             DifficultyLevel = 2,
+            PlaySpeedPercent = PlaySpeedRange.Default,
             IsSelected = true,
             ClearLamp = clearLamp.Object
         };
@@ -360,7 +370,14 @@ public class SongBarRendererLogicTests
         var renderer = CreateRenderer();
         var songNode = CreateScoreNode();
         var cachedTexture = CreateTextureMock();
-        GetClearLampCache(renderer).Add(InvokePrivate<string>(renderer, "GetClearLampCacheKey", songNode, 0), cachedTexture.Object);
+        GetClearLampCache(renderer).Add(
+            InvokePrivate<string>(
+                renderer,
+                "GetClearLampCacheKey",
+                songNode,
+                0,
+                PlaySpeedRange.Default),
+            cachedTexture.Object);
 
         var texture = renderer.GenerateClearLampTexture(songNode, 0);
 
@@ -419,7 +436,14 @@ public class SongBarRendererLogicTests
         var titleTexture = CreateTextureMock();
         var clearLampTexture = CreateTextureMock();
         GetTitleCache(renderer).Add(InvokePrivate<string>(renderer, "GetTitleCacheKey", songNode), titleTexture.Object);
-        GetClearLampCache(renderer).Add(InvokePrivate<string>(renderer, "GetClearLampCacheKey", songNode, 0), clearLampTexture.Object);
+        GetClearLampCache(renderer).Add(
+            InvokePrivate<string>(
+                renderer,
+                "GetClearLampCacheKey",
+                songNode,
+                0,
+                PlaySpeedRange.Default),
+            clearLampTexture.Object);
 
         var barInfo = renderer.GenerateBarInfoWithPriority(songNode, 0, isSelected: false);
 
@@ -529,10 +553,34 @@ public class SongBarRendererLogicTests
             new SongScore { PlayCount = 1, BestRank = 50, FullCombo = false }
         ]);
 
-        Assert.Equal(ClearStatus.NotPlayed, InvokePrivate<ClearStatus>(renderer, "GetClearStatus", songNode, 0));
-        Assert.Equal(ClearStatus.FullCombo, InvokePrivate<ClearStatus>(renderer, "GetClearStatus", songNode, 1));
-        Assert.Equal(ClearStatus.Clear, InvokePrivate<ClearStatus>(renderer, "GetClearStatus", songNode, 2));
-        Assert.Equal(ClearStatus.Failed, InvokePrivate<ClearStatus>(renderer, "GetClearStatus", songNode, 3));
+        Assert.Equal(
+            ClearStatus.NotPlayed,
+            InvokeStaticPrivate<ClearStatus>(
+                "ResolveClearStatus",
+                songNode,
+                0,
+                PlaySpeedRange.Default));
+        Assert.Equal(
+            ClearStatus.FullCombo,
+            InvokeStaticPrivate<ClearStatus>(
+                "ResolveClearStatus",
+                songNode,
+                1,
+                PlaySpeedRange.Default));
+        Assert.Equal(
+            ClearStatus.Clear,
+            InvokeStaticPrivate<ClearStatus>(
+                "ResolveClearStatus",
+                songNode,
+                2,
+                PlaySpeedRange.Default));
+        Assert.Equal(
+            ClearStatus.Failed,
+            InvokeStaticPrivate<ClearStatus>(
+                "ResolveClearStatus",
+                songNode,
+                3,
+                PlaySpeedRange.Default));
     }
 
     [Fact]
@@ -541,7 +589,12 @@ public class SongBarRendererLogicTests
         var renderer = CreateRenderer();
         var songNode = CreateScoreNode(scores: [new SongScore { PlayCount = 1, FullCombo = true }]);
 
-        var cacheKey = InvokePrivate<string>(renderer, "GetClearLampCacheKey", songNode, 0);
+        var cacheKey = InvokePrivate<string>(
+            renderer,
+            "GetClearLampCacheKey",
+            songNode,
+            0,
+            PlaySpeedRange.Default);
 
         Assert.Contains("_0_", cacheKey);
         Assert.Contains(nameof(ClearStatus.FullCombo), cacheKey);
@@ -633,6 +686,7 @@ public class SongBarRendererLogicTests
         ReflectionHelpers.SetPrivateField(renderer, "_spriteBatch", null);
         ReflectionHelpers.SetPrivateField(renderer, "_graphicsGenerator", null);
         ReflectionHelpers.SetPrivateField(renderer, "_isFastScrollMode", false);
+        ReflectionHelpers.SetPrivateField(renderer, "_playSpeedPercent", PlaySpeedRange.Default);
         ReflectionHelpers.SetPrivateField(renderer, "_disposed", false);
         return renderer;
     }
