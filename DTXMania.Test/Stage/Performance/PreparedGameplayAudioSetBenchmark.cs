@@ -18,7 +18,7 @@ namespace DTXMania.Test.Stage.Performance
     /// This is the Phase B benchmark artifact required by the play-speed/pitch plan
     /// (docs/superpowers/plans/2026-07-22-play-speed-pitch-adjustment.md, "Preparation
     /// performance gate"). It measures the real serial decode path that the default
-    /// profile exercises (OriginalAudioPcmDecoder + new SoundEffect, one ffmpeg spawn
+    /// profile exercises (LoadDefaultSound + new SoundEffect, one ffmpeg spawn
     /// per MP3 source) against a dense 128-chip fixture, plus a non-default profile
     /// cold/warm pair through FfmpegAudioVariantProcessor + PlaybackAudioVariantCache.
     ///

@@ -321,27 +321,6 @@ namespace DTXMania.Test.Stage.Performance
             }
         }
 
-        [Fact]
-        public async Task OriginalAudioPcmDecoder_Wav_ReturnsExactPayloadMetadata()
-        {
-            var directory = CreateTempDirectory();
-            try
-            {
-                var sourcePath = Path.Combine(directory, "exact.wav");
-                WritePcmWav(sourcePath, sampleRate: 22050, channels: 1, pcm: new byte[] { 1, 0, 2, 0 });
-
-                var artifact = await OriginalAudioPcmDecoder.DecodeAsync(sourcePath);
-
-                Assert.Equal(22050, artifact.SampleRate);
-                Assert.Equal(1, artifact.ChannelCount);
-                Assert.Equal(new byte[] { 1, 0, 2, 0 }, artifact.PcmData.ToArray());
-            }
-            finally
-            {
-                Directory.Delete(directory, recursive: true);
-            }
-        }
-
         private static Task<PreparedGameplayAudioSet> PrepareNonDefaultAsync(
             string sourcePath,
             IAudioVariantProcessor processor,
@@ -376,30 +355,6 @@ namespace DTXMania.Test.Stage.Performance
             var path = Path.Combine(directory, name);
             File.WriteAllBytes(path, new byte[] { 1 });
             return Path.GetFullPath(path);
-        }
-
-        private static void WritePcmWav(
-            string path,
-            int sampleRate,
-            short channels,
-            byte[] pcm)
-        {
-            using var stream = File.Create(path);
-            using var writer = new BinaryWriter(stream);
-            writer.Write("RIFF"u8.ToArray());
-            writer.Write(36 + pcm.Length);
-            writer.Write("WAVE"u8.ToArray());
-            writer.Write("fmt "u8.ToArray());
-            writer.Write(16);
-            writer.Write((short)1);
-            writer.Write(channels);
-            writer.Write(sampleRate);
-            writer.Write(sampleRate * channels * sizeof(short));
-            writer.Write((short)(channels * sizeof(short)));
-            writer.Write((short)16);
-            writer.Write("data"u8.ToArray());
-            writer.Write(pcm.Length);
-            writer.Write(pcm);
         }
 
         private sealed class InlineProgress<T> : IProgress<T>
