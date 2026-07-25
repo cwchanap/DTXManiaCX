@@ -322,38 +322,57 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void StartPerformanceSummarySave_WithCompletedPriorTask_ShouldStartNewSave()
+        public async Task StartPerformanceSummarySave_WithCompletedPriorTask_ShouldStartNewSave()
         {
             // Once the previous task has completed (late reconciliation resolved),
             // a retry must be allowed to proceed.
+            //
+            // Isolate from the shared SongManager singleton: StartPerformanceSummarySave
+            // falls through to SongManager.Instance.UpdateScoreAsync when no
+            // SavePerformanceSummaryAsync override is wired (uninitialized object).
+            // Without a reset, the new save task would hit the real singleton and
+            // any unobserved exception would leak across tests. A fresh instance has
+            // no _databaseService, so UpdateScoreAsync returns a Failed result
+            // synchronously — but we still await the replacement task so a late
+            // fault cannot remain unobserved.
+            SongManager.ResetInstanceForTesting();
+            try
+            {
 #pragma warning disable SYSLIB0050
-            var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
+                var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
 #pragma warning restore SYSLIB0050
 
-            var completedTask = Task.FromResult(ScoreSaveResult.Failed("previous"));
-            SetPrivateField(stage, "_scoreSaveTask", completedTask);
-            SetPrivateField(stage, "_scoreSaveState", ResultSaveState.Failed);
-            SetPrivateField(stage, "_scoreSaveTimedOut", false);
-            SetPrivateField(stage, "_scoreSaveStopwatch", null);
+                var completedTask = Task.FromResult(ScoreSaveResult.Failed("previous"));
+                SetPrivateField(stage, "_scoreSaveTask", completedTask);
+                SetPrivateField(stage, "_scoreSaveState", ResultSaveState.Failed);
+                SetPrivateField(stage, "_scoreSaveTimedOut", false);
+                SetPrivateField(stage, "_scoreSaveStopwatch", null);
 
-            var chart = new SongChart { Id = 42 };
-            SetPrivateField(stage, "_scoreSaveChart", chart);
-            SetPrivateField(stage, "_performanceSummary", new PerformanceSummary
+                var chart = new SongChart { Id = 42 };
+                SetPrivateField(stage, "_scoreSaveChart", chart);
+                SetPrivateField(stage, "_performanceSummary", new PerformanceSummary
+                {
+                    RunId = Guid.NewGuid(),
+                    CompletionReason = CompletionReason.SongComplete
+                });
+
+                InvokePrivateMethod(stage, "StartPerformanceSummarySave", chart);
+
+                // The prior completed task was replaced (the method proceeded past the
+                // guard and started a new save).
+                var replacementTask = GetPrivateField<Task<ScoreSaveResult>>(stage, "_scoreSaveTask");
+                Assert.NotNull(replacementTask);
+                Assert.NotSame(completedTask, replacementTask);
+
+                // Observe the replacement task so a late fault cannot leak. With the
+                // isolated singleton (no database service), this resolves to Failed.
+                var replacementResult = await replacementTask!;
+                Assert.NotNull(replacementResult);
+            }
+            finally
             {
-                RunId = Guid.NewGuid(),
-                CompletionReason = CompletionReason.SongComplete
-            });
-
-            // No SavePerformanceSummaryAsync override is wired (uninitialized object),
-            // so the method falls through to SongManager.Instance.UpdateScoreAsync,
-            // which returns a Failed result (no database service). The important
-            // assertion is that the guard did NOT short-circuit: the prior completed
-            // task was replaced with a new one.
-            InvokePrivateMethod(stage, "StartPerformanceSummarySave", chart);
-
-            // The prior completed task was replaced (the method proceeded past the
-            // guard and started a new save).
-            Assert.NotSame(completedTask, GetPrivateField<Task<ScoreSaveResult>>(stage, "_scoreSaveTask"));
+                SongManager.ResetInstanceForTesting();
+            }
         }
 
         #endregion

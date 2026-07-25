@@ -370,6 +370,25 @@ jobs:
               exit 1
             fi
           done
+          # Verify the encoder and muxer required by the default MP3 decode
+          # path (ManagedSound.LoadMp3File). It transcodes MP3 input to raw
+          # 16-bit little-endian PCM via -c:a pcm_s16le -f s16le before handing
+          # the buffer to SoundEffect. Without the pcm_s16le encoder or the
+          # s16le muxer, the default MP3 playback path fails even though the
+          # decoder/demuxer checks above pass (those cover the read side; this
+          # covers the write side of the same transcode).
+          for encoder in pcm_s16le; do
+            if ! "$DEST/ffmpeg" -hide_banner -encoders 2>/dev/null | grep -qw "$encoder"; then
+              echo "::error::ffmpeg is missing required encoder '$encoder'; the default MP3 decode path (ManagedSound.LoadMp3File) cannot transcode to raw PCM." >&2
+              exit 1
+            fi
+          done
+          for muxer in s16le; do
+            if ! "$DEST/ffmpeg" -hide_banner -muxers 2>/dev/null | grep -qw "$muxer"; then
+              echo "::error::ffmpeg is missing required muxer '$muxer'; the default MP3 decode path (ManagedSound.LoadMp3File) cannot emit raw s16le PCM." >&2
+              exit 1
+            fi
+          done
 
       - name: Setup Python for pack validation
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5

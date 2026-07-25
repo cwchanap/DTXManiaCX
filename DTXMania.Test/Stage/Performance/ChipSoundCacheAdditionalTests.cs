@@ -90,6 +90,39 @@ namespace DTXMania.Test.Stage.Performance
             sound.Verify(value => value.Dispose(), Times.Never);
         }
 
+        [Fact]
+        public void Constructor_IgnoresEmptyIdsAndNullSounds()
+        {
+            var validSound = Mock.Of<ISound>();
+            using var cache = new ChipSoundCache(
+                new Dictionary<string, ISound>
+                {
+                    [""] = validSound,
+                    ["01"] = null!,
+                    ["02"] = validSound,
+                });
+
+            Assert.Equal(1, cache.Count);
+            Assert.False(cache.Contains(""));
+            Assert.False(cache.Contains("01"));
+            Assert.True(cache.Contains("02"));
+        }
+
+        [Fact]
+        public void Play_WithVolumeAndPan_ForwardsZeroPitch()
+        {
+            var sound = new Mock<ISound>();
+            using var cache = new ChipSoundCache(
+                new Dictionary<string, ISound> { ["01"] = sound.Object });
+
+            cache.Play("01", volume: 0.5f, pan: -0.25f);
+
+            sound.Verify(
+                value => value.Play(0.5f, 0.0f, -0.25f),
+                Times.Once);
+            sound.Verify(value => value.Play(), Times.Never);
+        }
+
         private static ChipSoundCache CreateCache(ISound sound) =>
             new(new Dictionary<string, ISound> { ["01"] = sound });
 

@@ -1729,11 +1729,12 @@ namespace DTXMania.Game.Lib.Song
             int playSpeedPercent,
             int limit = 10)
         {
-            if (_databaseService == null) return new List<SongScoreEntity>();
+            var db = GetDatabaseServiceSnapshot();
+            if (db == null) return new List<SongScoreEntity>();
 
             try
             {
-                return await _databaseService.GetTopScoresForSpeedAsync(
+                return await db.GetTopScoresForSpeedAsync(
                     instrument,
                     playSpeedPercent,
                     limit).ConfigureAwait(false);
@@ -1907,7 +1908,7 @@ namespace DTXMania.Game.Lib.Song
         /// won the publication race, so the older snapshot is intentionally dropped);
         /// <see cref="ScoreRefreshOutcome.NoMatch"/> if no matching slot was found.
         /// </returns>
-        private static ScoreRefreshOutcome PublishNodeScoreVariant(
+        internal static ScoreRefreshOutcome PublishNodeScoreVariant(
             SongListNode node,
             int chartId,
             EInstrumentPart instrument,
