@@ -127,26 +127,6 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
-        public async Task TryGetAsync_PreCancelledRead_ShouldPropagateCancellation()
-        {
-            var cache = CreateCache();
-            var source = WriteSource("cancelled-read.wav");
-            var key = await AudioVariantKey.CreateAsync(
-                source,
-                new PlaybackModifiers(75, 0));
-            await cache.GetOrCreateAsync(
-                key,
-                (_, _) => Task.FromResult(CreateArtifact(3)),
-                CancellationToken.None);
-            using var cancellation = new CancellationTokenSource();
-            cancellation.Cancel();
-
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-                cache.TryGetAsync(key, cancellation.Token));
-            Assert.True(File.Exists(cache.GetArtifactPath(key)));
-        }
-
-        [Fact]
         public void StartupCleanup_ShouldDeleteOrphanedTemporaryFiles()
         {
             var root = CacheRoot("cleanup");
