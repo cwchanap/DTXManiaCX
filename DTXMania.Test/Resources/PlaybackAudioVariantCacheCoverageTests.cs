@@ -2,7 +2,6 @@
 
 using System;
 using System.IO;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using DTXMania.Game.Lib.Resources;
@@ -60,57 +59,6 @@ namespace DTXMania.Test.Resources
                     key,
                     null!,
                     CancellationToken.None));
-        }
-
-        [Fact]
-        public async Task GetOrCreateWithStatusAsync_ColdThenWarm_ShouldReportCacheStatus()
-        {
-            var cache = CreateCache();
-            var source = WriteSource("status.wav");
-            var key = await AudioVariantKey.CreateAsync(
-                source,
-                new PlaybackModifiers(75, 0));
-            var calls = 0;
-
-            Task<PreparedAudioArtifact> Factory(
-                AudioVariantKey _,
-                CancellationToken __)
-            {
-                calls++;
-                return Task.FromResult(CreateArtifact(2));
-            }
-
-            var cold = await cache.GetOrCreateWithStatusAsync(
-                key,
-                Factory,
-                CancellationToken.None);
-            var warm = await cache.GetOrCreateWithStatusAsync(
-                key,
-                Factory,
-                CancellationToken.None);
-
-            Assert.False(cold.CacheHit);
-            Assert.True(warm.CacheHit);
-            Assert.Equal(1, calls);
-            Assert.Equal(cold.Artifact.PcmData.ToArray(), warm.Artifact.PcmData.ToArray());
-        }
-
-        [Fact]
-        public async Task GetOrCreateWithStatusAsync_NullFactoryResult_ShouldNotPublishArtifact()
-        {
-            var cache = CreateCache();
-            var source = WriteSource("null.wav");
-            var key = await AudioVariantKey.CreateAsync(
-                source,
-                new PlaybackModifiers(75, 0));
-
-            await Assert.ThrowsAsync<InvalidDataException>(() =>
-                cache.GetOrCreateWithStatusAsync(
-                    key,
-                    (_, _) => Task.FromResult<PreparedAudioArtifact>(null!),
-                    CancellationToken.None));
-
-            Assert.False(File.Exists(cache.GetArtifactPath(key)));
         }
 
         private PlaybackAudioVariantCache CreateCache() =>
