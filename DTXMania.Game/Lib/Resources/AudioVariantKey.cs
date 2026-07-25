@@ -40,7 +40,9 @@ namespace DTXMania.Game.Lib.Resources
         /// on next access, preventing unbounded growth across a long session.
         /// </remarks>
         private static readonly ConcurrentDictionary<string, FingerprintEntry> _fingerprintCache =
-            new(StringComparer.OrdinalIgnoreCase);
+            new(OperatingSystem.IsWindows()
+                ? StringComparer.OrdinalIgnoreCase
+                : StringComparer.Ordinal);
 
         /// <summary>
         /// Maximum number of source paths whose SHA-256 fingerprints are

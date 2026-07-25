@@ -269,9 +269,15 @@ jobs:
           # without Rosetta. ManagedSound checks runtimes/osx-arm64/MMTools
           # before falling back to the x64 Rosetta path.
           #
-          # Minimal configure: only the mp3 decoder, pcm_s16le encoder,
-          # s16le muxer, and the protocols/filters needed by FFMpegCore's
-          # MP3-to-PCM pipeline (see ManagedSound.LoadMp3File).
+          # Minimal configure: only the decoders/demuxers/filters needed by
+          # FFMpegCore's audio pipelines. The default-profile MP3-to-PCM loader
+          # (ManagedSound.LoadMp3File) needs mp3float + mp3 demuxer + pcm_s16le
+          # encoder + s16le muxer. The non-default-speed variant pipeline
+          # (FfmpegAudioVariantProcessor) additionally needs the atempo/apad/
+          # atrim filters for tempo change, plus WAV/OGG/s16le demuxers and
+          # their decoders so .wav/.ogg/.xa sources can be prepared at non-1.00x
+          # speed. Without atempo every non-default profile fails at the -af
+          # step even though runtime availability reports true.
           FFMPEG_VERSION=7.0.2
           # SHA256 of https://ffmpeg.org/releases/ffmpeg-7.0.2.tar.xz,
           # verified against the official tarball on 2026-07-09.
@@ -291,12 +297,15 @@ jobs:
             --disable-ffplay \
             --disable-everything \
             --enable-decoder=mp3float \
+            --enable-decoder=vorbis \
+            --enable-decoder=pcm_s16le,pcm_s24le,pcm_f32le,pcm_u8,pcm_alaw,pcm_mulaw \
             --enable-demuxer=mp3 \
-            --enable-parser=mpegaudio \
+            --enable-demuxer=wav,ogg,s16le \
+            --enable-parser=mpegaudio,vorbis \
             --enable-protocol=file,pipe \
             --enable-muxer=s16le \
             --enable-encoder=pcm_s16le \
-            --enable-filter=aformat,anull,aresample
+            --enable-filter=aformat,anull,aresample,atempo,apad,atrim
           make -j"$(sysctl -n hw.ncpu)"
           make install
           DEST="${GITHUB_WORKSPACE}/publish/mac/runtimes/osx-arm64/MMTools"
@@ -326,6 +335,31 @@ jobs:
             if ! file -b "$bin" | grep -qi 'arm64'; then
               echo "::error::$(basename "$bin") is not an arm64 Mach-O binary; refusing to ship a non-native build." >&2
               file "$bin" >&2
+              exit 1
+            fi
+          done
+
+          # Verify the minimal filter/decoder set needed by the non-default-
+          # speed variant pipeline (FfmpegAudioVariantProcessor) is present.
+          # Every non-default profile reaches -af atempo=...; without atempo
+          # (or the apad/atrim retry filters, or WAV/OGG/s16le decoders) variant
+          # preparation fails even though FfmpegRuntime reports availability.
+          echo "Verifying required ffmpeg filters and decoders..."
+          for filter in atempo apad atrim aformat aresample; do
+            if ! "$DEST/ffmpeg" -hide_banner -filters 2>/dev/null | grep -qw "$filter"; then
+              echo "::error::ffmpeg is missing required filter '$filter'; non-default-speed audio variant preparation will fail." >&2
+              exit 1
+            fi
+          done
+          for decoder in mp3float vorbis pcm_s16le; do
+            if ! "$DEST/ffmpeg" -hide_banner -decoders 2>/dev/null | grep -qw "$decoder"; then
+              echo "::error::ffmpeg is missing required decoder '$decoder'; audio variant preparation for .mp3/.ogg/.xa sources will fail." >&2
+              exit 1
+            fi
+          done
+          for demuxer in mp3 wav ogg s16le; do
+            if ! "$DEST/ffmpeg" -hide_banner -demuxers 2>/dev/null | grep -qw "$demuxer"; then
+              echo "::error::ffmpeg is missing required demuxer '$demuxer'; audio variant preparation for the corresponding container will fail." >&2
               exit 1
             fi
           done
