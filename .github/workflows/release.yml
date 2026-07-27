@@ -185,7 +185,7 @@ jobs:
 
       - name: Attach installer to release
         if: github.event_name == 'release'
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228
         with:
           files: installer/windows/Output/DTXMania-Setup-${{ env.APP_VERSION }}.exe
 
@@ -475,6 +475,6 @@ jobs:
 
       - name: Attach DMG to release
         if: github.event_name == 'release'
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228
         with:
           files: output/DTXMania-${{ env.APP_VERSION }}-arm64.dmg
