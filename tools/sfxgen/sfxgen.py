@@ -6,11 +6,10 @@ Commands:
               save MP3 to raw/, then loudness-normalize + encode OGG/Vorbis
               into System/CXNeon/Sounds/. Requires ELEVENLABS_API_KEY and ffmpeg.
   validate    Check that every manifest sound exists in the output directory
-              and is a fully decodable OGG/Vorbis file (rejects missing,
-              empty, directory, and corrupt/truncated payloads that would
-              fall back to silent audio at runtime). Also rejects Ogg
-              containers whose audio codec is not Vorbis (e.g. Opus), which
-              NVorbis cannot play at runtime. Requires ffmpeg and ffprobe.
+              and is a runtime-compatible OGG/Vorbis file (rejects missing,
+              empty, directory, corrupt/truncated, non-Vorbis, and unsupported
+              sample-rate payloads that would fall back to silent audio).
+              Requires ffmpeg and ffprobe.
 
 Python 3.9+, stdlib only except ffmpeg/ffprobe (external binaries) for encode/decode/probe.
 """
@@ -36,6 +35,8 @@ API_URL = "https://api.elevenlabs.io/v1/sound-generation"
 # instead of buffering it all into memory. Without this cap, response.read()
 # would allocate the entire body before any code could abort.
 MAX_RESPONSE_BYTES = 50 * 1024 * 1024
+MIN_RUNTIME_SAMPLE_RATE = 8000
+MAX_RUNTIME_SAMPLE_RATE = 48000
 
 
 def load_sounds(manifest_path):
@@ -67,6 +68,7 @@ def postprocess_command(raw_path, ogg_path):
     return [
         "ffmpeg", "-y", "-i", raw_path,
         "-af", "loudnorm=I=-16:TP=-1.5:LRA=11",
+        "-ar", str(MAX_RUNTIME_SAMPLE_RATE),
         "-c:a", "libvorbis", "-qscale:a", "5",
         ogg_path,
     ]
@@ -141,6 +143,22 @@ def _codec_name(path):
     return result.stdout.decode("utf-8", errors="replace").strip().lower() or None
 
 
+def _sample_rate(path):
+    """Return the first audio stream's sample rate, or None when unavailable."""
+    if not shutil.which("ffprobe"):
+        return None
+    result = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "a:0",
+         "-show_entries", "stream=sample_rate", "-of", "csv=p=0", path],
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=30)
+    if result.returncode != 0:
+        return None
+    try:
+        return int(result.stdout.decode("utf-8", errors="replace").strip())
+    except ValueError:
+        return None
+
+
 def _decode_ok(path):
     """Return True if path is a real, fully decodable Ogg/Vorbis audio file.
 
@@ -175,7 +193,7 @@ def _decode_ok(path):
 
 def validate_pack(manifest_path, out_dir):
     """Return a list of error strings for manifest sounds that are missing or
-    not fully decodable. An empty list means the pack is sound."""
+    not runtime-compatible. An empty list means the pack is sound."""
     errors = []
     for sound in load_sounds(manifest_path):
         path = os.path.join(out_dir, sound["file"])
@@ -183,6 +201,16 @@ def validate_pack(manifest_path, out_dir):
             errors.append("MISSING  %s" % sound["file"])
         elif not _decode_ok(path):
             errors.append("UNREADABLE %s: exists but could not be decoded as audio" % sound["file"])
+        else:
+            sample_rate = _sample_rate(path)
+            if sample_rate is None:
+                errors.append("UNREADABLE %s: sample rate could not be determined" % sound["file"])
+            elif not MIN_RUNTIME_SAMPLE_RATE <= sample_rate <= MAX_RUNTIME_SAMPLE_RATE:
+                errors.append(
+                    "INCOMPATIBLE %s: sample rate %d Hz is outside MonoGame's "
+                    "supported %d-%d Hz range"
+                    % (sound["file"], sample_rate,
+                       MIN_RUNTIME_SAMPLE_RATE, MAX_RUNTIME_SAMPLE_RATE))
     return errors
 
 

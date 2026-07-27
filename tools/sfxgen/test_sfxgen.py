@@ -6,22 +6,32 @@ import unittest
 import sfxgen
 
 
-def _make_silent_ogg(path, seconds=0.1):
+def _make_silent_ogg(path, seconds=0.1, sample_rate=8000):
     """Generate a tiny valid Ogg/Vorbis file via ffmpeg for test fixtures.
 
-    The production pipeline always encodes with libvorbis (see
+    The production pipeline encodes with libvorbis (see
     sfxgen.postprocess_command), and the game plays .ogg through NVorbis, which
-    only understands Vorbis — so test fixtures must be Vorbis too. Raises
-    unittest.SkipTest when ffmpeg or libvorbis is unavailable.
+    only understands Vorbis. Prefer libvorbis for parity, then fall back to
+    FFmpeg's native Vorbis encoder so compatible local builds still exercise
+    validation. Raises unittest.SkipTest when neither encoder is available.
     """
-    cmd = ["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=8000:cl=mono",
-           "-t", str(seconds), "-c:a", "libvorbis", "-qscale:a", "0", path]
-    try:
-        subprocess.run(cmd, check=True,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
-        raise unittest.SkipTest(
-            "ffmpeg with libvorbis is required to build OGG/Vorbis fixtures: %s" % exc)
+    base_cmd = ["ffmpeg", "-y", "-f", "lavfi", "-i",
+                "anullsrc=r=%d:cl=stereo" % sample_rate,
+                "-t", str(seconds)]
+    encoders = [
+        ["-c:a", "libvorbis", "-qscale:a", "0"],
+        ["-c:a", "vorbis", "-strict", "experimental", "-qscale:a", "0"],
+    ]
+    last_error = None
+    for encoder in encoders:
+        try:
+            subprocess.run(base_cmd + encoder + [path], check=True,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return
+        except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+            last_error = exc
+    raise unittest.SkipTest(
+        "ffmpeg with a Vorbis encoder is required to build fixtures: %s" % last_error)
 
 
 def _make_silent_ogg_opus(path, seconds=0.1):
@@ -116,6 +126,21 @@ class ValidateTests(unittest.TestCase):
         self.assertEqual(len(unreadable), 1)
         self.assertFalse(any("Move.ogg" in e for e in errors))
 
+    def test_validate_rejects_sample_rate_above_monogame_limit(self):
+        # MonoGame SoundEffect accepts at most 48 kHz. A decodable 192 kHz
+        # Vorbis file otherwise reaches ManagedSound and becomes silent when
+        # ResourceManager catches the sampleRate exception.
+        with tempfile.TemporaryDirectory() as tmp:
+            _make_silent_ogg(
+                os.path.join(tmp, "Move.ogg"), sample_rate=192000)
+            errors = sfxgen.validate_pack(sfxgen.MANIFEST_PATH, tmp)
+        incompatible = [
+            e for e in errors
+            if e.startswith("INCOMPATIBLE") and "Move.ogg" in e
+        ]
+        self.assertEqual(len(incompatible), 1)
+        self.assertIn("192000", incompatible[0])
+
     def test_validate_passes_for_complete_decodable_pack(self):
         with tempfile.TemporaryDirectory() as tmp:
             for sound in sfxgen.load_sounds(sfxgen.MANIFEST_PATH):
@@ -131,6 +156,12 @@ class FfmpegCommandTests(unittest.TestCase):
         self.assertIn("loudnorm=I=-16:TP=-1.5:LRA=11", " ".join(cmd))
         self.assertIn("libvorbis", cmd)
         self.assertEqual(cmd[-1], "out.ogg")
+
+    def test_postprocess_command_resamples_to_monogame_compatible_rate(self):
+        cmd = sfxgen.postprocess_command("in.mp3", "out.ogg")
+        self.assertIn("-ar", cmd)
+        sample_rate_index = cmd.index("-ar")
+        self.assertEqual(cmd[sample_rate_index + 1], "48000")
 
 
 class _FakeResponse:
