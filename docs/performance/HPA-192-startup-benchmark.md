@@ -123,7 +123,7 @@ trap cleanup EXIT
 
 cd "$repo"
 test "$(rtk git rev-parse --show-toplevel)" = "$repo"
-test -z "$(rtk git status --porcelain)"
+test -z "$(rtk proxy git status --porcelain)"
 test "$(rtk git rev-parse "$evidence_runner_commit^{commit}")" = \
   "$evidence_runner_commit"
 test ! -e "$baseline_worktree"
