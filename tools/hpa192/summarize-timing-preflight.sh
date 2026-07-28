@@ -6,11 +6,23 @@ if [[ "$#" -ne 3 ]]; then
     exit 2
 fi
 
+canonical_results=()
 for result in "$@"; do
     test -f "$result" || {
         printf 'missing result artifact: %s\n' "$result" >&2
         exit 1
     }
+
+    canonical_result="$(cd "$(dirname "$result")" && pwd -P)/$(basename "$result")"
+    if (( ${#canonical_results[@]} > 0 )); then
+        for previous_result in "${canonical_results[@]}"; do
+            [[ "$canonical_result" != "$previous_result" ]] || {
+                printf 'duplicate canonical result artifact: %s\n' "$canonical_result" >&2
+                exit 1
+            }
+        done
+    fi
+    canonical_results+=("$canonical_result")
 done
 
 field_value() {
@@ -41,6 +53,34 @@ field_value() {
     printf '%s\n' "$value"
 }
 
+text_field_value() {
+    local file="$1"
+    local key="$2"
+    local value
+    value="$(awk -v key="$key" '
+        {
+            for (i = 1; i <= NF; i++) {
+                split($i, pair, "=")
+                if (pair[1] == key) {
+                    count++
+                    value = pair[2]
+                }
+            }
+        }
+        END {
+            if (count != 1) exit 1
+            print value
+        }' "$file")" || {
+        printf 'expected exactly one %s in %s\n' "$key" "$file" >&2
+        exit 1
+    }
+    [[ "$value" =~ ^[A-Za-z0-9._-]+$ ]] || {
+        printf 'expected safe text %s in %s\n' "$key" "$file" >&2
+        exit 1
+    }
+    printf '%s\n' "$value"
+}
+
 timing_line() {
     local file="$1"
     local count
@@ -56,12 +96,41 @@ median_of_three() {
 }
 
 readonly max_cross_process_delta_ms=300000
+readonly max_process_clock_alignment_difference_ms=50
 fixed_floors=()
 config_to_startups=()
+artifact_identities=()
+expected_label=""
 
 for index in 1 2 3; do
     result="${!index}"
     timing_line "$result"
+
+    label="$(text_field_value "$result" label)"
+    run="$(field_value "$result" run)"
+    case "$run" in
+        1|2|3) ;;
+        *)
+            printf 'unexpected artifact run: %s in %s\n' "$run" "$result" >&2
+            exit 1
+            ;;
+    esac
+    artifact_identity="$label/$run"
+    if (( ${#artifact_identities[@]} > 0 )); then
+        for previous_identity in "${artifact_identities[@]}"; do
+            [[ "$artifact_identity" != "$previous_identity" ]] || {
+                printf 'duplicate artifact identity: %s\n' "$artifact_identity" >&2
+                exit 1
+            }
+        done
+    fi
+    artifact_identities+=("$artifact_identity")
+    if [[ -z "$expected_label" ]]; then
+        expected_label="$label"
+    elif [[ "$label" != "$expected_label" ]]; then
+        printf 'mixed artifact labels: %s and %s\n' "$expected_label" "$label" >&2
+        exit 1
+    fi
 
     entry_to_config="$(field_value "$result" entry_to_config_ms)"
     config_to_load_content="$(field_value "$result" config_to_load_content_ms)"
@@ -93,11 +162,22 @@ for index in 1 2 3; do
         printf 'process UTC anchors regress in %s\n' "$result" >&2
         exit 1
     }
+    [[ "$entry_unix_us" -ge "$launch_start_unix_us" &&
+       "$launch_end_unix_us" -ge "$title_unix_us" &&
+       "$launch_end_unix_us" -ge "$launch_start_unix_us" ]] || {
+        printf 'cross-process UTC anchors regress in %s\n' "$result" >&2
+        exit 1
+    }
 
     external_launch_to_entry_ms=$(((entry_unix_us - launch_start_unix_us) / 1000))
     external_launch_to_startup_ms=$((external_launch_to_entry_ms + entry_to_startup))
     title_poll_lag_ms=$(((launch_end_unix_us - title_unix_us) / 1000))
     external_wall_ms=$(((launch_end_unix_us - launch_start_unix_us) / 1000))
+    process_wall_elapsed_ms=$(((title_unix_us - entry_unix_us) / 1000))
+    process_clock_difference_ms=$((process_wall_elapsed_ms - entry_to_title))
+    if [[ "$process_clock_difference_ms" -lt 0 ]]; then
+        process_clock_difference_ms=$((-process_clock_difference_ms))
+    fi
     fixed_floor_ms=$((external_launch_to_startup_ms + startup_to_first_draw + summary_to_title))
     wall_difference_ms=$((external_wall_ms - wall_ms))
     if [[ "$wall_difference_ms" -lt 0 ]]; then
@@ -116,13 +196,17 @@ for index in 1 2 3; do
         printf 'wall clock changed during %s\n' "$result" >&2
         exit 1
     }
+    [[ "$process_clock_difference_ms" -le "$max_process_clock_alignment_difference_ms" ]] || {
+        printf 'process clock changed during %s\n' "$result" >&2
+        exit 1
+    }
 
-    printf 'run=%s entry_to_config_ms=%s config_to_load_content_ms=%s load_content_to_startup_ms=%s startup_to_first_draw_ms=%s startup_to_summary_ms=%s summary_to_title_ms=%s entry_to_title_ms=%s\n' \
-        "$index" "$entry_to_config" "$config_to_load_content" "$load_content_to_startup" "$startup_to_first_draw" "$startup_to_summary" "$summary_to_title" "$entry_to_title"
-    printf 'run=%s entry_to_startup_ms=%s config_to_startup_ms=%s external_launch_to_entry_ms=%s external_launch_to_startup_ms=%s\n' \
-        "$index" "$entry_to_startup" "$config_to_startup" "$external_launch_to_entry_ms" "$external_launch_to_startup_ms"
-    printf 'run=%s fixed_floor_ms=%s title_poll_lag_ms=%s wall_ms=%s\n' \
-        "$index" "$fixed_floor_ms" "$title_poll_lag_ms" "$wall_ms"
+    printf 'sample=%s entry_to_config_ms=%s config_to_load_content_ms=%s load_content_to_startup_ms=%s startup_to_first_draw_ms=%s startup_to_summary_ms=%s summary_to_title_ms=%s entry_to_title_ms=%s\n' \
+        "$artifact_identity" "$entry_to_config" "$config_to_load_content" "$load_content_to_startup" "$startup_to_first_draw" "$startup_to_summary" "$summary_to_title" "$entry_to_title"
+    printf 'sample=%s entry_to_startup_ms=%s config_to_startup_ms=%s external_launch_to_entry_ms=%s external_launch_to_startup_ms=%s\n' \
+        "$artifact_identity" "$entry_to_startup" "$config_to_startup" "$external_launch_to_entry_ms" "$external_launch_to_startup_ms"
+    printf 'sample=%s fixed_floor_ms=%s title_poll_lag_ms=%s wall_ms=%s\n' \
+        "$artifact_identity" "$fixed_floor_ms" "$title_poll_lag_ms" "$wall_ms"
 
     fixed_floors+=("$fixed_floor_ms")
     config_to_startups+=("$config_to_startup")
