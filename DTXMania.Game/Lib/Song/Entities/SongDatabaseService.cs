@@ -24,6 +24,7 @@ namespace DTXMania.Game.Lib.Song.Entities
         private readonly string _databasePath;
         private readonly DbContextOptions<SongDbContext> _options;
         private readonly Func<SongDbContext>? _contextFactory;
+        private readonly Func<int, bool> _activeChartIdentityFilter;
         private readonly object _initializationLock = new object();
         private readonly SemaphoreSlim _initializationSemaphore = new SemaphoreSlim(1, 1);
         private bool _isInitialized = false;
@@ -78,6 +79,17 @@ namespace DTXMania.Game.Lib.Song.Entities
                 ?? throw new ArgumentNullException(nameof(contextFactory));
             _databasePath = string.Empty;
             _isInitialized = true;
+        }
+
+        internal SongDatabaseService(
+            DbContextOptions<SongDbContext> options,
+            Func<SongDbContext> contextFactory,
+            Func<int, bool> activeChartIdentityFilter)
+            : this(options, contextFactory)
+        {
+            _activeChartIdentityFilter = activeChartIdentityFilter
+                ?? throw new ArgumentNullException(
+                    nameof(activeChartIdentityFilter));
         }
 
 
@@ -351,7 +363,9 @@ namespace DTXMania.Game.Lib.Song.Entities
                             chart.FilePath,
                             out var normalized) &&
                         request.ActiveRoots.Any(root =>
-                            SongPathIdentity.IsUnderRoot(normalized, root)))
+                            SongPathIdentity.IsUnderRoot(normalized, root)) &&
+                        (_activeChartIdentityFilter == null ||
+                            _activeChartIdentityFilter(chart.Id)))
                     .Select(chart => chart.Id)
                     .OrderBy(id => id)
                     .ToArray();
@@ -470,7 +484,30 @@ namespace DTXMania.Game.Lib.Song.Entities
                     discoveredPersistedChartIds.Add(chart.Id);
                 }
 
-                foreach (var aliasPathGroup in discoveredPaths.GroupBy(
+                var unmatchedDiscoveredPaths = new List<string>();
+                foreach (var discoveredPath in discoveredPaths)
+                {
+                    if (!persistedByCanonicalPath.TryGetValue(
+                        discoveredPath,
+                        out var exactCharts))
+                    {
+                        unmatchedDiscoveredPaths.Add(discoveredPath);
+                        continue;
+                    }
+
+                    if (exactCharts.Count == 1)
+                    {
+                        ResolveUniquePath(discoveredPath, exactCharts[0]);
+                    }
+                    else
+                    {
+                        MarkPathConflict(
+                            new[] { discoveredPath },
+                            exactCharts.Select(chart => chart.Id));
+                    }
+                }
+
+                foreach (var aliasPathGroup in unmatchedDiscoveredPaths.GroupBy(
                     path => path,
                     SongPathIdentity.LegacyAliasComparer))
                 {
@@ -486,8 +523,18 @@ namespace DTXMania.Game.Lib.Song.Entities
                                 aliasPaths.Any(path =>
                                     SongPathIdentity.LegacyAliasComparer.Equals(
                                         pair.Key,
-                                        path)))
+                                        path)) &&
+                                pair.Value.Any(chart =>
+                                    !discoveredPersistedChartIds.Contains(
+                                        chart.Id) &&
+                                    !pathConflictProtectedChartIds.Contains(
+                                        chart.Id)))
                             .SelectMany(pair => pair.Value)
+                            .Where(chart =>
+                                !discoveredPersistedChartIds.Contains(
+                                    chart.Id) &&
+                                !pathConflictProtectedChartIds.Contains(
+                                    chart.Id))
                             .Select(chart => chart.Id)
                             .Distinct()
                             .ToArray();
@@ -496,26 +543,6 @@ namespace DTXMania.Game.Lib.Song.Entities
                     }
 
                     var discoveredPath = aliasPaths[0];
-                    if (persistedByCanonicalPath.TryGetValue(
-                        discoveredPath,
-                        out var exactCharts))
-                    {
-                        if (exactCharts.Count == 1)
-                        {
-                            ResolveUniquePath(
-                                discoveredPath,
-                                exactCharts[0]);
-                        }
-                        else
-                        {
-                            MarkPathConflict(
-                                aliasPaths,
-                                exactCharts.Select(chart => chart.Id));
-                        }
-
-                        continue;
-                    }
-
                     var aliasCharts = persistedByCanonicalPath
                         .Where(pair =>
                             SongPathIdentity.LegacyAliasComparer.Equals(
@@ -523,7 +550,8 @@ namespace DTXMania.Game.Lib.Song.Entities
                                 discoveredPath))
                         .SelectMany(pair => pair.Value)
                         .Where(chart =>
-                            !discoveredPersistedChartIds.Contains(chart.Id))
+                            !discoveredPersistedChartIds.Contains(chart.Id) &&
+                            !pathConflictProtectedChartIds.Contains(chart.Id))
                         .OrderBy(chart => chart.Id)
                         .ToArray();
                     if (aliasCharts.Length == 1)
