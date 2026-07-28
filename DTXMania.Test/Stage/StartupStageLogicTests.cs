@@ -609,6 +609,29 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void OnUpdate_WhenCompletePhaseTransitionIsEvaluatedAgain_ShouldWriteOneSuccessStartupSummary()
+        {
+            var stageManager = new Mock<IStageManager>();
+            var game = ReflectionHelpers.CreateGame();
+            ReflectionHelpers.SetPrivateField(game, "<StageManager>k__BackingField", stageManager.Object);
+            var stage = new SummaryCapturingStartupStage(game);
+            ReflectionHelpers.SetPrivateField(stage, "_startupPhase", StartupPhase.Complete);
+            ReflectionHelpers.SetPrivateField(stage, "_elapsedTime", 0.0);
+            ReflectionHelpers.SetPrivateField(stage, "_phaseStartTime", 0.0);
+
+            stage.UpdateForTest(0.2);
+            stage.UpdateForTest(0.2);
+
+            var summary = Assert.Single(stage.StartupSummaries);
+            Assert.StartsWith("HPA192_STARTUP ", summary);
+            Assert.Contains("outcome=success", summary);
+            stageManager.Verify(manager => manager.ChangeStage(
+                StageType.Title,
+                It.Is<IStageTransition>(transition => transition is StartupToTitleTransition)),
+                Times.Exactly(2));
+        }
+
+        [Fact]
         public void OnUpdate_WhenCompletePhaseDurationNotElapsed_ShouldNotRequestStageTransition()
         {
             var stageManager = new Mock<IStageManager>();
@@ -1044,6 +1067,25 @@ namespace DTXMania.Test.Stage
             protected override void MarkSongManagerInitialized()
             {
                 MarkSongManagerInitializedCalled = true;
+            }
+        }
+
+        private sealed class SummaryCapturingStartupStage : StartupStage
+        {
+            public SummaryCapturingStartupStage(BaseGame game) : base(game)
+            {
+            }
+
+            public List<string> StartupSummaries { get; } = new();
+
+            public void UpdateForTest(double deltaTime)
+            {
+                OnUpdate(deltaTime);
+            }
+
+            protected override void WriteStartupSummary(string line)
+            {
+                StartupSummaries.Add(line);
             }
         }
 
