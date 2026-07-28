@@ -327,6 +327,56 @@ required. For reference, the optimized median instrumented durations are
 1,082 ms database initialization, 143 ms discovery/parsing, 449 ms
 persistence, 1 ms cleanup, and 4 ms hierarchy construction.
 
+### Second-wave sizing derivations
+
+The second-wave design uses the following explicit derivations from the raw
+first-wave evidence:
+
+```text
+required_external_reduction_ms = 3888 - 2221 = 1667
+
+median_song_phase_sum_ms =
+    1082 + 143 + 449 + 1 + 4
+  = 1679
+
+median_startup_residual_ms = 2144 - 1679 = 465
+
+idealized_external_without_measured_song_phases_ms =
+    3888 - 1679
+  = 2209
+```
+
+The 2,209 ms value is an impossible best case that removes every measured
+song-phase median. It is not an overlap measurement or a projected result; it
+leaves only 12 ms below the 2,221 ms gate before scheduling, API polling, or
+contention noise.
+
+The paired optimized external-minus-summary intervals are:
+
+```text
+3663 - 2012 = 1651 ms
+3888 - 2144 = 1744 ms
+3907 - 2154 = 1753 ms
+median = 1744 ms
+```
+
+That 1,744 ms median combines work before Startup activation with the explicit
+one-second Startup-to-Title transition after the summary. Only the
+configuration-loaded-to-Startup-activation portion is available for
+coordinator overlap, and the first-wave benchmark did not record that split.
+
+The current ten display phases advance through nine phase transitions. A
+bounded loop still performs one update, so when song work is already terminal
+it can remove at most eight extra update intervals. At 60 Hz the ceiling is
+approximately `8 * 1000 / 60 = 133.33 ms`, not the full 465 ms residual.
+
+The second-wave Task 0 timing diagnostic will use a telemetry-only commit
+based on first-wave product `c8a3140dcbc2a29f99b829559f5618bdbc7d2f0b`.
+It will record process entry, configuration loaded, `LoadContent` complete,
+Startup activation, first Startup draw, summary/Title request, and Title
+completion across three fresh Release runs before higher-risk implementation
+begins.
+
 ## Artifact hashes
 
 All benchmark artifacts are machine-local under `TestResults/hpa-192`.

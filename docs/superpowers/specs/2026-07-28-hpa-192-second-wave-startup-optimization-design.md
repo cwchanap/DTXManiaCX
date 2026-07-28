@@ -2,7 +2,7 @@
 
 **Issue:** [HPA-192](https://linear.app/cwchanap/issue/HPA-192/optimize-fresh-startup-song-loading-with-batched-sqlite-import)  
 **Date:** 2026-07-28  
-**Status:** Design amended after two review passes; implementation planning
+**Status:** Design amended after three review passes; implementation planning
 pending final committed-spec approval
 
 ## Context
@@ -31,25 +31,27 @@ costs are:
 - Cleanup: 1 ms.
 - Hierarchy construction: 4 ms.
 
-Approximately 465 ms inside the startup-stage summary is not attributed to
-those database and song phases. It includes startup graphics/font work and
-frame-by-frame phase progression.
+The component medians total 1,679 ms. Subtracting them from the 2,144 ms
+median Startup summary leaves a 465 ms diagnostic residual that includes
+startup graphics/font work and frame-by-frame phase progression.
 
 The median difference between external launch-to-Title time and the
 Startup-activation-to-summary duration is approximately 1,744 ms. The paired
 first-wave differences were 1,651 ms, 1,744 ms, and 1,753 ms. This interval
-also contains process/runtime startup and configuration loading before the
-coordinator's earliest safe post-configuration start, so it is an upper bound
-on potentially hidden work, not a measured overlap window.
+contains both work before Startup activation and the explicit one-second
+Startup-to-Title transition after the summary. It is not an overlap window.
+Only the portion after configuration loading and before Startup activation
+can hide coordinator work; that portion has not yet been measured.
 
 This timing shape makes either isolated optimization insufficient:
 
-- Database-only work cannot reliably remove the full 1,667 ms external gap.
-- Conservative median arithmetic for moving the existing song operation
-  earlier produces a theoretical estimate near 2,209 ms, leaving only 12 ms
-  below the gate. That estimate is not a measured second-wave result and does
-  not account for the unavailable pre-configuration portion, scheduling, or
-  CPU contention.
+- The required external reduction is 1,667 ms: 3,888 minus 2,221.
+- An impossible best case that removes all 1,679 ms of measured song-phase
+  medians gives 2,209 ms: 3,888 minus 1,679. This leaves only 12 ms below the
+  gate before any scheduling, polling, or contention noise.
+- Bounded phase draining can eliminate at most eight extra update intervals
+  when the coordinator is terminal before Startup's first update. At 60 Hz
+  that ceiling is approximately 133 ms, so draining is the smallest lever.
 
 The second wave therefore combines launch-time overlap, removal of serialized
 display-only frames, and a guarded direct-SQLite path for a database created
@@ -125,6 +127,54 @@ Packaging/runtime startup changes were also rejected for this wave because
 they broaden deployment risk and are unnecessary until the in-process overlap
 and startup-stage serialization costs are addressed.
 
+## Pre-Implementation Timing Gate
+
+Before implementing the coordinator, fresh-initialization split, or direct
+writer, an instrumentation-only Task 0 based on first-wave product commit
+`c8a3140dcbc2a29f99b829559f5618bdbc7d2f0b` measures the Release build on the
+frozen corpus. It changes telemetry only and records process-monotonic
+milestones for:
+
+1. Process entry.
+2. Configuration loaded and the earliest legal coordinator start.
+3. `LoadContent` completed.
+4. Startup activated.
+5. The first Startup frame rendered.
+6. The startup summary emitted and the Title transition requested.
+7. The Startup-to-Title transition completed.
+
+At Title completion it emits exactly one Release-visible `HPA192_TIMING` line
+with `entry_to_config_ms`, `config_to_load_content_ms`,
+`load_content_to_startup_ms`, `startup_to_first_draw_ms`,
+`startup_to_summary_ms`, `summary_to_title_ms`, and `entry_to_title_ms`.
+These durations share one process-monotonic origin. This line is separate
+from and does not alter the single `HPA192_STARTUP` summary contract.
+
+The benchmark runner retains its external launch and Title-observation
+timestamps. Three fresh diagnostic runs use the same machine, corpus, Release
+configuration, app-data isolation, and runner rules as the accepted
+benchmark. The report preserves every raw interval and the medians. These
+runs are diagnostic and never count toward the predetermined acceptance
+sequence.
+
+The diagnostic computes:
+
+- External launch to Startup activation, which remains on the wall-clock path
+  even when coordinator work overlaps it.
+- Configuration loaded to Startup activation, the only pre-Startup interval
+  available for coordinator overlap.
+- Startup activation to first draw.
+- Summary/transition request to Title completion, which is not overlapable
+  because the coordinator must already be terminal.
+- A fixed-cost lower bound consisting of external launch to Startup
+  activation, one required Startup frame, and summary-to-Title completion.
+
+If that fixed-cost lower bound is at least 2,221 ms, implementation stops
+before the higher-risk database tasks because no song-side optimization in
+this design can meet the gate. Otherwise the measured remaining budget and
+overlap window size the coordinator and direct-writer tasks. Passing this
+preflight is permission to implement the wave, not performance acceptance.
+
 ## Launch-Scoped Ownership
 
 ### Coordinator responsibility
@@ -174,6 +224,16 @@ activation. The song pipeline has no graphics or content dependency.
 The request captures immutable path values. A later configuration mutation
 cannot change an in-flight operation.
 
+The current `StartupStage.ForceEnumeration` protected-virtual test seam cannot
+survive this ownership move because the request is created before
+`StartupStage` exists. `BaseGame` therefore exposes one protected-virtual
+`CreateStartupSongLoadRequest` factory. Production creates a request with the
+existing hard-coded `forceEnumeration = true`; launch/coordinator tests
+override the factory or pass a request with false. Cache-versus-enumeration
+decision tests move from `StartupStageLogicTests` to coordinator tests.
+Startup-stage tests consume fake coordinator milestones and no longer
+override `ForceEnumeration`.
+
 Capturing `SongManager.Instance` before `Task.Run` prevents the existing
 double-checked singleton initialization from racing between the game and
 worker threads. The worker uses only the captured instance; it does not
@@ -198,11 +258,13 @@ thread only after all of these events have occurred:
 Application shutdown uses a separate shutting-down flag and rejects new API
 work; it does not reverse this launch-monotonic readiness value.
 
-`IGameApi.ChangeStageAsync` parses the requested stage and evaluates external
-readiness on the API request thread before calling
-`QueueMainThreadAction`. While `ExternalStageChangesReady` is false, every
-valid external target, including `Startup`, `Title`, and `SongSelect`, returns
-not-ready and queues nothing. The internal
+`IGameApi.ChangeStageAsync` changes from `Task<bool>` to the exact signature
+`Task<StageChangeRequestResult> ChangeStageAsync(string stageName)`. It parses
+the requested stage and evaluates external readiness on the API request thread
+before calling `QueueMainThreadAction`. While
+`ExternalStageChangesReady` is false, every valid external target, including
+`Startup`, `Title`, and `SongSelect`, returns not-ready and queues nothing. The
+internal
 `StageManager.ChangeStage` contract is unchanged, so Startup can still request
 the normal Title transition after its terminal and rendered-frame gates.
 
@@ -215,11 +277,41 @@ The API returns a discriminated `StageChangeRequestResult`:
   queuing.
 
 JSON-RPC preserves the existing `InvalidParams` (`-32602`) response for
-`UnknownStage`. `StartupNotReady` maps to application error code `-32004` with
+`UnknownStage`. `StartupNotReady` maps through a new named
+`JsonRpcErrorCodes.StartupNotReady = -32004` constant with
 `data.reason = "startup_not_ready"` and the requested target in sanitized
-data. The MCP service preserves the code and reason instead of collapsing the
-response into an undifferentiated text failure. There is no REST stage-change
+data. The MCP service extracts `JsonRpcException.ErrorCode` and
+`ErrorData.reason` into a provisional
+`StageChangeServiceResult(Success, Message, ErrorCode, Reason)` return value;
+`ErrorCode` and `Reason` are nullable for non-JSON-RPC failures. The MCP
+handler includes both fields in its structured result instead of collapsing
+them into an undifferentiated text failure. There is no REST stage-change
 endpoint in the current product, so this design adds no REST contract.
+
+The signature and wire change explicitly covers:
+
+- `DTXMania.Game/Lib/GameApi.cs`.
+- `DTXMania.Game/Lib/GameApiImplementation.cs`.
+- `DTXMania.Game/Lib/GameTelemetrySnapshot.cs`.
+- `DTXMania.Game/Lib/JsonRpc/JsonRpcServer.cs`.
+- `DTXMania.Game/Lib/JsonRpc/JsonRpcMessage.cs`.
+- `MCP/Server/JsonRpcClient.cs` error-data preservation.
+- `MCP/Server/GameInteractionService.cs`.
+- `MCP/Server/GameInteractionMcpToolHandlers.cs`.
+- `DTXMania.E2E/JsonRpc/JsonRpcGameClient.cs`.
+- `DTXMania.E2E/Telemetry/E2EGameState.cs`.
+- `DTXMania.E2E/DrumMappingStageSmokeTests.cs`.
+
+`GameTelemetrySnapshot` exposes the same
+`ExternalStageChangesReady` value, and `E2EGameState` exposes a typed Boolean
+accessor. The readiness field is authoritative; external clients must not
+infer readiness from `StageType == Title` alone. The two drum-mapping E2E
+flows wait until both Title and external readiness are observed before calling
+`ChangeStageAsync`. This avoids a request-thread race between Title becoming
+visible and the launch-monotonic flag being published. Their stale comment
+claiming that stage type changes when a transition is merely queued is
+corrected; `StageManager` publishes the target stage only when the transition
+completes.
 
 This prevents an early external request from forcing `SongSelect`, whose
 activation reads the live `RootSongs` view and opens recent-play or bookmark
@@ -262,9 +354,26 @@ Graceful application shutdown occurs in this order:
 
 1. Mark the application as shutting down so new API actions are rejected.
 2. Stop accepting API work and cancel the coordinator token.
-3. Observe the coordinator task, including cancellation or fault.
-4. Only then dispose `StageManager`, resources, graphics, API/server objects,
-   and logging.
+3. Observe the coordinator task, including cancellation or fault, for the
+   fixed five-second `StartupSongLoadShutdownTimeout`.
+4. When the task becomes terminal within the bound, dispose its database
+   dependencies, then `StageManager`, resources, graphics, and API/server
+   objects, with logging last.
+
+Enumeration checks cancellation before and after each root, directory
+enumeration, file enumeration, and chart parse. The current chart-parser
+delegate does not accept a token, so one in-flight chart parse is the maximum
+ordinary cancellation-latency unit. EF and direct persistence retain their
+transaction rollback and between-command cancellation checks.
+
+If the five-second bound expires, shutdown emits a Release-visible
+`HPA192_SHUTDOWN` warning containing the timeout and latest sanitized
+coordinator step, attaches a continuation that observes any eventual fault,
+and proceeds with `StageManager`, resource, graphics, and API/server teardown.
+It must not dispose the coordinator-owned database service or logger factory
+underneath the still-running worker; those objects remain retained for process
+termination. The timeout is injectable in lifecycle tests so they do not wait
+five real seconds.
 
 This coordinator fence must precede the current StageManager-first teardown.
 Faults are always observed, including failures that happen before Startup
@@ -357,6 +466,13 @@ worker state from elapsed time or display-phase names.
 
 This removes the previous one-completed-phase-per-frame serialization.
 There are no fixed sleeps or minimum phase durations.
+
+The current `_phaseInfo` duration values are not dead gating state:
+`DrawCurrentProgress` still uses them to interpolate the visual progress bar.
+If retained, they remain presentation-only and never control phase
+advancement. They may be removed only if coordinator snapshot progress fully
+replaces that interpolation with equivalent rendering coverage; task 3 does
+not delete the tuple element as an unrelated cleanup.
 
 The rendered-frame gate remains:
 
@@ -671,10 +787,26 @@ the sole primary performance measurement.
 
 Implementation follows test-driven development.
 
+### Pre-implementation timing tests
+
+- Process milestones are monotonic and appear exactly once in lifecycle order.
+- The diagnostic runner preserves all three fresh raw runs and calculates
+  medians without admitting them into the acceptance sequence.
+- Interval arithmetic separates launch-to-Startup, config-to-Startup,
+  activation-to-first-draw, and summary-to-Title.
+- A fixed-cost lower bound at or above 2,221 ms stops the wave before
+  coordinator or database implementation; a lower value permits planning but
+  does not count as acceptance.
+
 ### Coordinator tests
 
 - Starts exactly once under repeated and concurrent access.
 - Captures immutable configured paths.
+- Production request creation captures `forceEnumeration = true`; an
+  overridden `CreateStartupSongLoadRequest` can supply false without creating
+  a `StartupStage`.
+- Former Startup-stage cache-versus-enumeration tests execute against the
+  coordinator request seam.
 - Starts after config loading and before content/stage construction.
 - Receives the `SongManager` instance captured on the game thread and never
   resolves the singleton on its worker.
@@ -686,6 +818,12 @@ Implementation follows test-driven development.
   was observed earlier.
 - Observes an early fault.
 - Cancels and observes on application disposal.
+- Cancellation is checked around roots, directory/file enumeration, and every
+  chart parse.
+- A responsive worker terminates and is observed within the shutdown bound.
+- An injected hung parse triggers the timeout warning, retains worker-owned
+  dependencies, and attaches an eventual fault observer while unrelated
+  teardown continues.
 - Rejects new API actions, cancels and observes the coordinator, then disposes
   dependent managers in the specified order.
 - Never leaves work running after a terminal result.
@@ -698,6 +836,8 @@ Implementation follows test-driven development.
 - Verifies `UnknownStage` remains distinct from `StartupNotReady`.
 - Verifies JSON-RPC uses `-32004` with
   `data.reason = "startup_not_ready"` and MCP preserves the code and reason.
+- Verifies every stage-change caller compiles against
+  `Task<StageChangeRequestResult>` and the named JSON-RPC constant.
 - Verifies the rejected request never enters the main-thread queue and cannot
   trigger a later transition.
 - Verifies no second song database context opens and no `RootSongs` read or
@@ -710,6 +850,11 @@ Implementation follows test-driven development.
   defines `Accepted` as queued rather than transition-completed.
 - Verifies the internal Startup-to-Title request bypasses only the external API
   fence and retains its lifecycle gates.
+- Round-trips `ExternalStageChangesReady` through `GameTelemetrySnapshot` and
+  `E2EGameState`.
+- Both drum-mapping E2E flows wait for Title plus readiness before requesting
+  `DrumConfig`, and the client still throws immediately for an unexpected
+  JSON-RPC error.
 
 ### Startup-stage tests
 
@@ -726,6 +871,8 @@ Implementation follows test-driven development.
   at `EnumerateSongs`.
 - Terminal success and failure drain through `Complete` in one bounded update.
 - Terminal-before-database-ready dominates both waits and cannot stick.
+- Phase duration metadata never gates advancement; if retained, it continues
+  to drive only progress-bar interpolation.
 - At least one Startup frame renders before Title.
 - Exactly one summary and Title request occur.
 - Retired activations cannot mutate current UI or terminal state.
@@ -748,8 +895,17 @@ Implementation follows test-driven development.
   and pre-existing empty database are not considered fresh.
 - `EnsureCreatedAsync` must report schema creation before the fresh flag can
   become true, and the flag remains sticky for that service instance.
-- A fresh schema skips legacy probes but contains every current column, index,
-  foreign key, and version marker.
+- A structural differential test compares a fresh database with a legacy
+  fixture after the complete existing-database migration path. It compares
+  user table/index names and types plus normalized `PRAGMA table_info`,
+  `index_list`/`index_info`, and `foreign_key_list` metadata, including the
+  `__DatabaseVersion` marker and row.
+- The differential does not compare raw normalized `sqlite_master` SQL text or
+  provider-generated internal object names; semantically equivalent DDL can
+  differ in formatting or ordering. The direct-writer AUTOINCREMENT guard
+  remains a separate exact DDL assertion.
+- A fresh schema skips legacy probes while matching the fully migrated
+  structural contract.
 - Fresh bootstrap attempts the named pragmas with their current best-effort
   semantics, treats version-marker failure as fatal, and never executes a
   legacy probe.
@@ -857,19 +1013,22 @@ are never substituted for the predetermined acceptance samples.
 The later implementation plan will split work into independently reviewed
 tasks:
 
+0. Instrumented first-wave Release timing, three-run diagnostic report, and
+   the fixed-cost go/no-go gate.
 1. Named coordinator request/progress/result contracts and one-shot lifecycle
    tests.
-2. `BaseGame` early-start ownership, captured `SongManager`, typed external
-   stage-readiness/JSON-RPC contract, and coordinator-first disposal.
+2. `BaseGame` early-start ownership, captured `SongManager`, launch-level
+   request factory, exact typed stage-change call-site migration, readiness
+   telemetry/E2E waiting, and bounded coordinator-first disposal.
 3. `StartupStage` table-driven milestone consumption, legacy-launcher and
-   load-owning-CTS removal, early-fault lifecycle, bounded phase draining, and
-   telemetry.
+   load-owning-CTS/`ForceEnumeration` seam removal, early-fault lifecycle,
+   bounded phase draining, presentation-only progress metadata, and telemetry.
 4. Service-owned fresh-database evidence, strict fresh bootstrap, and
    existing-probe split.
 5. Shared fresh-import planning, guarded direct writer, explicit schema
    mapping, connection, foreign-key, and ID contracts.
-6. Parity, rollback, DDL/sequence, migration, lifecycle, and full-suite
-   verification.
+6. Structural fresh-versus-migrated schema differential, parity, rollback,
+   DDL/sequence, migration, lifecycle, and full-suite verification.
 7. Balanced benchmark and report update.
 
 The implementation plan will use subagent-driven development with
@@ -881,13 +1040,15 @@ whole-branch review.
 ### Background work delays MonoGame initialization
 
 The coordinator may contend for CPU with graphics/content initialization. The
-observed 1,744 ms external-minus-summary median includes work before the
-coordinator can start and therefore cannot be treated as free overlap. The
-direct fresh writer aims to shorten the coordinator below the actual
-post-configuration graphics/content window, changing which concurrent path
-binds launch time; bounded phase draining then removes completed stage work
-from the residual critical path. Only the balanced external benchmark proves
-whether the combined result has sufficient headroom.
+observed 1,744 ms external-minus-summary median includes both work before the
+coordinator can start and the explicit one-second post-summary Title
+transition; neither may be treated as free overlap. Task 0 measures the actual
+configuration-to-Startup window before higher-risk work begins. The direct
+fresh writer aims to shorten the coordinator below that measured window,
+changing which concurrent path binds launch time. Bounded phase draining then
+removes at most eight extra update intervals from the residual critical path.
+Only the balanced external benchmark proves whether the combined result has
+sufficient headroom.
 
 ### Raw SQL drifts from the EF model
 
