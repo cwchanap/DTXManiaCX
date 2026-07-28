@@ -1238,4 +1238,59 @@ namespace DTXMania.Test.Stage
             }
         }
     }
+
+    [Collection("ConsoleOut")]
+    public class StartupStageConsoleOutputTests
+    {
+        [Fact]
+        public void OnUpdate_WhenCompletePhaseTransitionIsEvaluatedAgain_ShouldWriteOneRawSuccessStartupSummary()
+        {
+            var stageManager = new Mock<IStageManager>();
+            var game = ReflectionHelpers.CreateGame();
+            ReflectionHelpers.SetPrivateField(game, "<StageManager>k__BackingField", stageManager.Object);
+            var stage = new DefaultOutputStartupStage(game);
+            ReflectionHelpers.SetPrivateField(stage, "_startupPhase", StartupPhase.Complete);
+            ReflectionHelpers.SetPrivateField(stage, "_elapsedTime", 0.0);
+            ReflectionHelpers.SetPrivateField(stage, "_phaseStartTime", 0.0);
+
+            using var writer = new StringWriter();
+            var originalOut = Console.Out;
+            Console.SetOut(writer);
+            try
+            {
+                stage.UpdateForTest(0.2);
+                stage.UpdateForTest(0.2);
+            }
+            finally
+            {
+                Console.SetOut(originalOut);
+            }
+
+            var lines = writer.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
+            var summary = Assert.Single(lines);
+            Assert.StartsWith("HPA192_STARTUP ", summary);
+            Assert.Contains("outcome=success", summary);
+            stageManager.Verify(manager => manager.ChangeStage(
+                StageType.Title,
+                It.Is<IStageTransition>(transition => transition is StartupToTitleTransition)),
+                Times.Exactly(2));
+        }
+
+        private sealed class DefaultOutputStartupStage : StartupStage
+        {
+            public DefaultOutputStartupStage(BaseGame game) : base(game)
+            {
+            }
+
+            public void UpdateForTest(double deltaTime)
+            {
+                OnUpdate(deltaTime);
+            }
+        }
+    }
+
+    [CollectionDefinition("ConsoleOut", DisableParallelization = true)]
+    public sealed class ConsoleOutCollectionDefinition
+    {
+    }
 }
