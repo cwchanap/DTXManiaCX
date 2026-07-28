@@ -98,11 +98,11 @@ namespace DTXMania.Test.Stage
         [InlineData(StartupPhase.ConfigValidation, false)]
         [InlineData(StartupPhase.SongListDB, true)]
         [InlineData(StartupPhase.SongsDB, false)]
-        [InlineData(StartupPhase.LoadScoreCache, true)]
-        [InlineData(StartupPhase.LoadScoreFiles, true)]
+        [InlineData(StartupPhase.LoadScoreCache, false)]
+        [InlineData(StartupPhase.LoadScoreFiles, false)]
         [InlineData(StartupPhase.EnumerateSongs, true)]
-        [InlineData(StartupPhase.BuildSongLists, true)]
-        [InlineData(StartupPhase.SaveSongsDB, true)]
+        [InlineData(StartupPhase.BuildSongLists, false)]
+        [InlineData(StartupPhase.SaveSongsDB, false)]
         [InlineData(StartupPhase.Complete, false)]
         public void HasAsyncOperation_ForAsyncPhases_ShouldReturnCorrectValue(StartupPhase phase, bool expected)
         {
@@ -114,7 +114,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void OnUpdate_WhenCompletePhaseElapsed_ShouldTransitionToTitle()
+        public void OnUpdate_WhenCompleteAfterRenderedFrame_ShouldTransitionToTitle()
         {
             var stageManager = new Mock<IStageManager>();
             var game = ReflectionHelpers.CreateGame();
@@ -124,6 +124,7 @@ namespace DTXMania.Test.Stage
                 elapsedTime: 0.0,
                 phaseStartTime: 0.0,
                 game: game);
+            ReflectionHelpers.SetPrivateField(stage, "_hasRenderedStartupFrame", true);
 
             ReflectionHelpers.InvokePrivateMethod(stage, "OnUpdate", 0.2);
 
@@ -134,7 +135,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void OnUpdate_WhenCompletePhaseNotElapsed_ShouldNotTransition()
+        public void OnUpdate_WhenCompleteBeforeRenderedFrame_ShouldNotTransition()
         {
             var stageManager = new Mock<IStageManager>();
             var game = ReflectionHelpers.CreateGame();
