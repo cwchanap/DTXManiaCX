@@ -11,10 +11,39 @@ game_dll="$game_dir/DTXMania.Game.Mac.dll"
 result_root="$repo_root/TestResults/hpa-192/$label"
 api_key="hpa-192-benchmark-key"
 api_port=48912
-lock_dir="${TMPDIR:-/tmp}/hpa-192-benchmark-startup.lock"
+lock_path="${TMPDIR:-/tmp}/hpa-192-benchmark-startup.lock"
 lock_acquired=false
 run_root=""
 game_pid=""
+
+release_lock() {
+    if [[ "$lock_acquired" == true && "$(readlink "$lock_path" 2>/dev/null || true)" == "$$" ]]; then
+        rm -f "$lock_path"
+    fi
+    lock_acquired=false
+}
+
+acquire_lock() {
+    local owner_pid
+
+    while true; do
+        if ln -s "$$" "$lock_path" 2>/dev/null; then
+            lock_acquired=true
+            return 0
+        fi
+
+        owner_pid="$(readlink "$lock_path" 2>/dev/null || true)"
+        if [[ "$owner_pid" =~ ^[0-9]+$ ]] && kill -0 "$owner_pid" 2>/dev/null; then
+            printf 'another HPA-192 benchmark invocation holds %s (PID %s)\n' "$lock_path" "$owner_pid" >&2
+            return 1
+        fi
+
+        if [[ "$(readlink "$lock_path" 2>/dev/null || true)" == "$owner_pid" ]]; then
+            printf 'reclaiming stale HPA-192 benchmark lock %s (PID %s)\n' "$lock_path" "${owner_pid:-unknown}" >&2
+            rm -f "$lock_path"
+        fi
+    done
+}
 
 cleanup() {
     local exit_status=$?
@@ -29,12 +58,9 @@ cleanup() {
         rm -rf -- "$run_root"
     fi
 
-    if [[ "$lock_acquired" == true ]]; then
-        rmdir "$lock_dir" 2>/dev/null || true
-        lock_acquired=false
-    fi
+    release_lock
 
-    trap - EXIT INT TERM
+    trap - EXIT HUP INT TERM
     exit "$exit_status"
 }
 
@@ -46,13 +72,11 @@ stop_game() {
     fi
 }
 
-trap cleanup EXIT INT TERM
+trap cleanup EXIT HUP INT TERM
 
-if ! mkdir "$lock_dir" 2>/dev/null; then
-    printf 'another HPA-192 benchmark invocation holds %s\n' "$lock_dir" >&2
+if ! acquire_lock; then
     exit 1
 fi
-lock_acquired=true
 
 test -f "$game_dll"
 test -d "$corpus"
