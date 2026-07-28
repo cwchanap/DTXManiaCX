@@ -72,6 +72,8 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame
     // Logger for debugging and diagnostics
     private readonly ILogger<BaseGame> _logger = null!;
 
+    private StartupTimingTrace? _startupTimingTrace = StartupTimingTrace.Disabled;
+
     // JSON-RPC server for MCP communication
     private JsonRpcServer? _jsonRpcServer;
     private GameApiImplementation? _gameApiImplementation;
@@ -107,6 +109,21 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame
     public void RequestExit()
     {
         Exit();
+    }
+
+    public void ReportStartupActivated()
+    {
+        _startupTimingTrace?.MarkStartupActivated();
+    }
+
+    public void ReportStartupFrameRendered()
+    {
+        _startupTimingTrace?.MarkStartupFirstDraw();
+    }
+
+    public void ReportStartupSummaryAndTitleRequested()
+    {
+        _startupTimingTrace?.MarkSummaryAndTitleRequested();
     }
 
     /// <summary>
@@ -173,6 +190,12 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame
         _logger = _loggerFactory.CreateLogger<BaseGame>();
     }
 
+    internal BaseGame(StartupTimingTrace startupTimingTrace)
+        : this()
+    {
+        _startupTimingTrace = startupTimingTrace ?? throw new ArgumentNullException(nameof(startupTimingTrace));
+    }
+
     [ExcludeFromCodeCoverage]
     protected override void Initialize()
     {
@@ -186,6 +209,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame
         // Initialize managers
         ConfigManager = new ConfigManager();
         ConfigManager.LoadConfig(AppPaths.GetConfigFilePath());
+        _startupTimingTrace?.MarkConfigLoaded();
 
         // Ensure deferred config writes (e.g. scroll-speed changes) are flushed
         // even if the normal deactivate path is skipped during abrupt exit.
@@ -249,6 +273,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame
         ResourceManager.SetSkinPath(
             Lib.Config.ConfigManager.ResolveSkinPath(config.SkinPath));
 
+        _startupTimingTrace?.MarkLoadContentComplete();
         StageManager?.ChangeStage(StageType.Startup);
 
         // Initialize Game API server for MCP communication if enabled
@@ -352,6 +377,15 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame
 
         // Update stage manager after config is loaded
         StageManager?.Update(gameTime.ElapsedGameTime.TotalSeconds);
+
+        if (StageManager is { IsTransitioning: false } stageManager &&
+            stageManager.CurrentStage?.Type == StageType.Title)
+        {
+            _startupTimingTrace?.MarkTitleCompleted();
+            var timingLine = _startupTimingTrace?.TryFormatCompletedLine();
+            if (timingLine != null)
+                Console.Out.WriteLine(timingLine);
+        }
 
         DrainMainThreadActions();
         CompleteBaseUpdate(gameTime);
@@ -752,4 +786,12 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame
 
 public class Game1 : BaseGame
 {
+    public Game1()
+    {
+    }
+
+    internal Game1(StartupTimingTrace startupTimingTrace)
+        : base(startupTimingTrace)
+    {
+    }
 }

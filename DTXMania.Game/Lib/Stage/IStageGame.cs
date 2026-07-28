@@ -39,5 +39,9 @@ namespace DTXMania.Game.Lib.Stage
         /// Requests game process termination.
         /// </summary>
         void RequestExit();
+
+        void ReportStartupActivated() { }
+        void ReportStartupFrameRendered() { }
+        void ReportStartupSummaryAndTitleRequested() { }
     }
 }
