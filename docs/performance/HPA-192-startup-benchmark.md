@@ -60,6 +60,154 @@ The Task 2 runner was extended only to strengthen benchmark evidence:
   chart-path list before a result is accepted;
 - exactly one raw `HPA192_STARTUP` line is required.
 
+The following is the complete corrected, copy-paste reproduction of the fixed
+builds, manifest verification, and final acceptance sequence. It uses the
+exact product commits, evidence-runner hash, output locations, binary hashes,
+result namespaces, and balanced order used for the selected measurements. The
+script itself verifies the evidence checkout, runner, optimized product tree,
+and clean build/result namespace before doing any work:
+
+```bash
+rtk bash -lc '
+set -euo pipefail
+
+repo="/Users/chanwaichan/workspace/DTXmaniaCX/.worktrees/hpa-192-batched-import"
+baseline_commit="5ea3f95d208ba7b15019429f63d7edd0bbf7009d"
+optimized_commit="c8a3140dcbc2a29f99b829559f5618bdbc7d2f0b"
+evidence_commit="105c3baf91312961398c8c6cc7d57e36d5a8f742"
+runner_sha256="ea5be8fe5b14f383c093de0db971e48d30fc11cd3d22052b7daed5fc981a1c03"
+baseline_dll_sha256="2c8dda2ab030f62c3ac70f325e6b21a160e7e827ca1f3b7ccf705da4541cc372"
+optimized_dll_sha256="583f02e2bdff084952eefb1fd9cb1a4c4eb294401f372367caaddf7ee661133d"
+manifest_sha256="0c335aa79fd4045e77aff20494637313626729ba926f131822c40fa89778a78b"
+chart_paths_sha256="66d92542e9557c31e228ebcd868dc1f1e7e5ca3dad060ee6961723f2bfc88067"
+baseline_worktree="/private/tmp/dtxmania-hpa192-baseline"
+corpus="/Users/chanwaichan/Library/Application Support/DTXManiaCX/DTXFiles"
+manifest_tmp="/private/tmp/HPA-192-corpus-manifest.tsv"
+evidence_root="$repo/TestResults/hpa-192"
+baseline_dir="$evidence_root/builds/baseline-final"
+optimized_dir="$evidence_root/builds/optimized-final"
+baseline_results="$evidence_root/baseline-final"
+optimized_results="$evidence_root/optimized-final"
+order_path="$evidence_root/comparative-order.txt"
+runner="$repo/tools/hpa192/benchmark-startup.sh"
+baseline_worktree_created=false
+
+cleanup_baseline_worktree() {
+  if [[ "$baseline_worktree_created" == true ]]; then
+    rtk git -C "$repo" worktree remove "$baseline_worktree"
+  fi
+}
+trap cleanup_baseline_worktree EXIT
+
+cd "$repo"
+test "$(rtk git rev-parse HEAD)" = "$evidence_commit"
+test "$(rtk git rev-parse "$evidence_commit^{commit}")" = "$evidence_commit"
+rtk diff -u \
+  <(rtk printf "%s\n" \
+    "docs/performance/HPA-192-startup-benchmark.md" \
+    "tools/hpa192/benchmark-startup.sh") \
+  <(rtk proxy git diff --name-only "$optimized_commit" "$evidence_commit")
+test "$(rtk shasum -a 256 "$runner" | rtk awk "{print \$1}")" = "$runner_sha256"
+test "$(rtk git show "$evidence_commit:tools/hpa192/benchmark-startup.sh" |
+  rtk shasum -a 256 | rtk awk "{print \$1}")" = "$runner_sha256"
+test ! -e "$baseline_worktree"
+test ! -e "$baseline_dir"
+test ! -e "$optimized_dir"
+test ! -e "$baseline_results"
+test ! -e "$optimized_results"
+test ! -e "$order_path"
+
+rtk git worktree add --detach "$baseline_worktree" "$baseline_commit"
+baseline_worktree_created=true
+test "$(rtk git -C "$baseline_worktree" rev-parse HEAD)" = "$baseline_commit"
+
+rtk dotnet build \
+  "$baseline_worktree/DTXMania.Game/DTXMania.Game.Mac.csproj" \
+  -c Release -o "$baseline_dir"
+rtk dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj \
+  -c Release -o "$optimized_dir"
+test "$(rtk shasum -a 256 "$baseline_dir/DTXMania.Game.Mac.dll" |
+  rtk awk "{print \$1}")" = "$baseline_dll_sha256"
+test "$(rtk shasum -a 256 "$optimized_dir/DTXMania.Game.Mac.dll" |
+  rtk awk "{print \$1}")" = "$optimized_dll_sha256"
+
+rtk rg --files "$corpus" | rtk env LC_ALL=C sort |
+  while IFS= read -r file; do
+    relative="${file#"$corpus"/}"
+    size="$(rtk stat -f "%z" "$file")"
+    hash="$(rtk shasum -a 256 "$file" | rtk awk "{print \$1}")"
+    rtk printf "%s\t%s\t%s\n" "$relative" "$size" "$hash"
+  done >"$manifest_tmp"
+rtk diff -u docs/performance/HPA-192-corpus-manifest.tsv "$manifest_tmp"
+test "$(rtk shasum -a 256 "$manifest_tmp" |
+  rtk awk "{print \$1}")" = "$manifest_sha256"
+test "$(rtk rg --files "$corpus" |
+  rtk rg -i "\\.(dtx|gda|g2d|bms|bme|bml)$" |
+  rtk proxy wc -l | rtk tr -d " ")" = 100
+test "$(rtk rg --files "$corpus" |
+  rtk rg -i "(^|/)set\\.def$" |
+  rtk proxy wc -l | rtk tr -d " ")" = 27
+
+baseline_run=0
+optimized_run=0
+order=0
+for label in baseline optimized optimized baseline baseline optimized; do
+  order=$((order + 1))
+  if [[ "$label" == baseline ]]; then
+    baseline_run=$((baseline_run + 1))
+    run="$baseline_run"
+    game_dir="$baseline_dir"
+  else
+    optimized_run=$((optimized_run + 1))
+    run="$optimized_run"
+    game_dir="$optimized_dir"
+  fi
+
+  rtk bash "$runner" \
+    "$game_dir" "$corpus" "$label-final" "$run"
+  rtk printf "order=%s label=%s run=%s\n" "$order" "$label" "$run" |
+    rtk tee -a "$order_path"
+done
+
+rtk diff -u \
+  <(rtk printf "%s\n" \
+    "order=1 label=baseline run=1" \
+    "order=2 label=optimized run=1" \
+    "order=3 label=optimized run=2" \
+    "order=4 label=baseline run=2" \
+    "order=5 label=baseline run=3" \
+    "order=6 label=optimized run=3") \
+  "$order_path"
+
+for arm in baseline optimized; do
+  for run in 1 2 3; do
+    result_root="$evidence_root/$arm-final"
+    test -f "$result_root/run-$run.result.txt"
+    test -f "$result_root/run-$run.database.txt"
+    test "$(rtk shasum -a 256 "$result_root/run-$run.chart-paths.txt" |
+      rtk awk "{print \$1}")" = "$chart_paths_sha256"
+    test "$(rtk awk \
+      "/^HPA192_STARTUP / { count++ } END { print count + 0 }" \
+      "$result_root/run-$run.stdout.log")" = 1
+  done
+done
+'
+```
+
+The outer `set -euo pipefail` is part of the acceptance protocol. The runner
+is fail-fast for one invocation, but that does not make its caller's loop
+fail-fast. The outer shell stops on the first non-zero runner result, and the
+order line is appended only after that runner has reached Title and completed
+its summary, database, and chart-path validations. Consequently a failed
+sample cannot add an accepted order entry and no later sample can run. The
+final result directories and order artifact must be absent at the start; a
+failed attempt is retained as diagnostic evidence and the acceptance sequence
+must restart in a new clean namespace rather than resume or overwrite it.
+
+Fresh database/app-data creation, the owner-aware serialization lock, a fresh
+ephemeral loopback port, and launch-token ownership validation are performed
+inside each committed runner invocation.
+
 The final order, recorded in
 `TestResults/hpa-192/comparative-order.txt`, was:
 
@@ -168,9 +316,9 @@ All benchmark artifacts are machine-local under `TestResults/hpa-192`.
   production enumeration path does not call them.
 - No title/artist grouping remains in the optimized database hierarchy path.
 
-## Excluded diagnostic attempts
+## Excluded preliminary and diagnostic attempts
 
-Two preliminary artifact namespaces are retained locally but excluded from
+Three preliminary artifact namespaces are retained locally but excluded from
 the six-run calculation:
 
 - `TestResults/hpa-192/invalid-preflight` exposed that the plan's shell loop
@@ -178,7 +326,27 @@ the six-run calculation:
 - `TestResults/hpa-192/invalid-fixed-port-attempt` captured an optimized launch
   that completed its internal summary but could not bind the Task 2 fixed API
   port immediately after the preceding baseline process.
+- `TestResults/hpa-192/optimized-investigation/run-1.result.txt` is a successful
+  diagnostic from the same fixed optimized output
+  (`583f02e2bdff084952eefb1fd9cb1a4c4eb294401f372367caaddf7ee661133d`):
 
-The final runner uses fail-fast orchestration, a fresh port, and launch-token
-ownership validation. Only the six results in the recorded balanced order are
-acceptance samples.
+  ```text
+  label=optimized-investigation run=1 wall_ms=4504 HPA192_STARTUP path=enumeration outcome=success total_ms=2756 db_init_ms=1120 discovery_parse_ms=230 persistence_ms=433 cleanup_ms=2 hierarchy_ms=3 discovered=100 parsed=100 groups=27 added=100 updated=0 preserved=0 skipped=0 conflicts=0 stale=0 error=none
+  ```
+
+  It is excluded solely because it preceded the predetermined clean final
+  six-run namespace and balanced order. Its 4,504 ms timing was not a reason
+  for exclusion and it was never eligible to replace a selected sample.
+
+The corrected outer orchestration is fail-fast. Each runner invocation uses a
+fresh port and launch-token ownership validation, but its per-invocation
+failure handling does not substitute for the outer shell contract. Only the
+six results in the recorded balanced order are acceptance samples.
+
+## Deferred runner minor
+
+**Deferred Minor:** `label` and `run` are still accepted as unchecked path
+components by `benchmark-startup.sh`. This was already deferred in Task 2 and
+remains outside Task 8's evidence-only scope. The reproduction command above
+uses only the trusted literal labels `baseline-final` and `optimized-final`
+and integer run IDs 1 through 3; it does not broaden the runner interface.
