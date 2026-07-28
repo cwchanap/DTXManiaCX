@@ -24,12 +24,36 @@ The relevant implementation is concentrated in:
 - `DTXMania.Game/Lib/Song/Entities/SongDatabaseService.cs`
 - `DTXMania.Game/Lib/Song/DTXChartParser.cs`
 
-The local benchmark corpus contains 100 supported chart files: the original 52
-plus 48 charts added under the isolated
-`DTXFiles.HPA-192-benchmark` folder. The files represent 27 logical songs
-because every song folder uses `set.def` to group three or four difficulty
-charts. Benchmark reports must record both chart and logical-song counts so the
-result is not misrepresented as 100 flat songs.
+The benchmark corpus is a machine-local prerequisite, not a repository asset.
+It currently contains 100 supported chart files: the original 52 plus 48 charts
+added under the isolated `DTXFiles.HPA-192-benchmark` folder. The files
+represent 27 logical songs because every song folder uses `set.def` to group
+three or four difficulty charts. Benchmark reports must record both chart and
+logical-song counts so the result is not misrepresented as 100 flat songs.
+
+The 48 added charts came from the shared
+[Google Drive folder](https://drive.google.com/drive/folders/1GN8RQF1KUG8_UosPJMdvh7Hm9X4trD7o)
+in these packages:
+
+- `Kaisei Joushou Hareruya.zip`
+- `butterfly (animetal).zip`
+- `bokura no memories.zip`
+- `shirahae.zip`
+- `fantaisie Impromptu.zip`
+- `Kokuu, mugi no kaze.zip`
+- `yawaraka shensha.zip`
+- `dark knight.zip`
+- `link link fever!!!.zip`
+- `ash to ash.zip`
+- `orgasm.zip`
+- `Ryu's Theme.zip` (stored locally as `Ryu_s Theme`)
+- `linda linda.zip`
+- `Gust of Wind.zip`
+
+The third-party song assets must not be committed. Before the baseline is
+recorded, the benchmark report will capture a sorted relative-path, file-size,
+and SHA-256 manifest so all before/after runs use the exact same local bytes.
+The performance gate is evaluated on this machine-local corpus, not in CI.
 
 ## Goals
 
@@ -55,8 +79,10 @@ result is not misrepresented as 100 flat songs.
 - Parallel chart parsing.
 - Concurrent SQLite writers.
 - A filesystem manifest or fingerprint system.
-- Changes to forced-enumeration or cache-validation correctness beyond removing
-  duplicate decisions naturally replaced by the selected load path.
+- Retiring, enabling, or making configurable the hard-coded
+  `_forceEnumeration = true` production behavior.
+- Changes to cache-validation correctness beyond removing duplicate decisions
+  naturally replaced by the selected load path.
 - Broader cached-startup optimization.
 - Song-selection preview or first-song asset loading.
 - DTXCreator changes.
@@ -94,6 +120,11 @@ Two alternatives were rejected:
 
 It no longer persists or reloads one chart at a time.
 
+The public `DiscoveredScoreCount` and `EnumeratedFileCount` properties remain
+as compatibility mirrors of the completed enumeration batch. Existing tests
+consume them. Startup UI progress continues to come from
+`EnumerationProgress`, not by polling these properties.
+
 ### `SongDatabaseService`
 
 `SongDatabaseService` gains a bulk import API used by fresh and re-enumeration
@@ -109,6 +140,11 @@ startup. The API owns:
 - One `SaveChangesAsync`.
 - Commit or rollback.
 - Import counts and database subphase timings.
+
+The existing `AddSongAsync` API remains as a legacy/test helper so unrelated
+fixtures do not require broad rewrites. Both production enumeration callers
+are removed, and startup must use only the bulk import API. Its legacy
+title/artist matching is therefore outside the production HPA-192 path.
 
 ### Import data contracts
 
@@ -178,9 +214,17 @@ candidate with the lexically first normalized chart path.
 8. If cancellation or a root-level traversal error occurs, do not start the
    database import.
 
-Per-directory, per-chart, and per-asset success logging is removed from the
-normal path. Progress callbacks continue to report the current file and
-aggregate counts.
+The existing blanket catches in `StartupStage.EnumerateSongsAsync` and
+`SongManager.EnumerateSongsAsync` must no longer convert cancellation or
+failure into a successful count. Recursive traversal reports root-level I/O and
+access failures as an incomplete batch. Per-chart and per-`set.def` parse
+failures remain recoverable batch entries with their discovered paths retained.
+Cancellation is always rethrown.
+
+Per-directory, per-chart, and per-asset success `Debug.WriteLine` calls are
+removed from the normal enumeration path. Progress callbacks continue to
+report the current file and aggregate counts. Warning, conflict, parse-failure,
+and unexpected-error diagnostics remain available in Debug builds.
 
 ## Bulk Import Algorithm
 
@@ -219,6 +263,22 @@ The import explicitly preserves:
 Parsed metadata may update song and chart presentation/gameplay fields, but it
 must not replace persisted user-owned state.
 
+`SongChart.FileHash` is not consumed by current production cache validation or
+identity logic. The bulk path preserves an existing hash during rescans but
+does not compute MD5 for new charts, avoiding the current second full-file
+read. New bulk-imported charts leave the field empty. Hash-backed cache
+validation, if needed later, requires a separate design.
+
+The discovery-set cleanup in step 6 replaces both startup calls to
+`CleanupStaleChartsAsync`: the post-enumeration call and the call inside
+database hierarchy construction. The old per-chart `File.Exists` cleanup is
+not invoked by either startup path after this change.
+
+Legacy ambiguous groups contribute to the Release aggregate conflict count.
+Debug builds additionally log one diagnostic per conflicting group containing
+the normalized group key and involved song IDs. Conflicts are not shown in the
+startup UI.
+
 ## Hierarchy Publication
 
 Enumeration builds hierarchy containers and pending song groups in temporary
@@ -246,6 +306,11 @@ rules:
 - Transition to Title requires at least one rendered startup frame, not a
   completion delay.
 
+`OnDraw` sets a `_hasRenderedStartupFrame` guard. `OnUpdate` may request the
+Title transition only when that guard was already set by a prior draw, which
+also protects against MonoGame catch-up cycles that run multiple updates before
+one draw.
+
 The startup song-load path is selected once:
 
 1. Initialize SQLite and start the aggregate timer.
@@ -258,6 +323,12 @@ The startup song-load path is selected once:
 The verification-only `SaveSongsDB` statistics query is removed or collapsed
 into the finalization step. The `BuildSongLists` phase does not rebuild an
 enumerated hierarchy.
+
+Production currently hard-codes `_forceEnumeration = true`, so HPA-192's live
+benchmark intentionally exercises only the fresh enumeration path. This task
+does not enable or repair cached startup. The `needsEnumeration == false`
+branch remains structurally correct and is exercised through a test seam, but
+live cached-startup performance is not an HPA-192 acceptance gate.
 
 ## Instrumentation
 
@@ -310,6 +381,12 @@ successful phase completion:
 Expected malformed individual charts remain counted skips. Incomplete root
 traversal is a batch-level failure and cannot trigger stale cleanup.
 
+Concretely, the existing catches in the startup enumeration wrapper and outer
+`SongManager` enumeration rethrow cancellation and unexpected failures.
+Recursive directory traversal marks the active root incomplete instead of
+returning partial success. Narrow chart/definition parse catches add a
+recoverable error to the batch rather than faulting the complete root.
+
 ## Testing
 
 ### Database import tests
@@ -343,7 +420,8 @@ traversal is a batch-level failure and cannot trigger stale cleanup.
   durations.
 - Faulted and cancelled tasks produce their corresponding outcomes.
 - Title transition waits for one rendered frame only.
-- Cached startup builds from SQLite once.
+- The injected `needsEnumeration == false` branch builds from SQLite once
+  without changing the production forced-enumeration setting.
 - Enumeration startup does not rebuild from SQLite.
 - Finalization does not run the old database-statistics verification query.
 
@@ -380,6 +458,10 @@ The durable result is written to
 - Per-run aggregate phase timings.
 - Baseline and optimized medians.
 - Percentage improvement.
+
+Implementation creates `docs/performance/` when the benchmark report is first
+written. Before the baseline runs, the report also records the sorted
+relative-path, file-size, and SHA-256 corpus manifest described above.
 
 Acceptance requires at least a 70 percent median reduction. Eight seconds or
 less remains the target, but the report must identify the measured remaining
