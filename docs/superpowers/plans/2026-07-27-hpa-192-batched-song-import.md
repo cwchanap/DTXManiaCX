@@ -13,18 +13,32 @@
 - Keep production `_forceEnumeration = true`; enabling or repairing cached-startup selection is outside HPA-192.
 - Do not redesign parser I/O or parse charts in parallel.
 - Do not introduce concurrent SQLite writers or multiple persistence batches.
-- Store normalized absolute chart paths and use Windows case-insensitive comparison only on Windows; use ordinal comparison on macOS and Linux.
+- Store normalized absolute chart paths. Match exact ordinal normalized values
+  first, then permit a unique case-insensitive legacy alias on Windows or
+  macOS; never merge or delete an ambiguous alias set.
 - Preserve existing `Song.Id`, `SongChart.Id`, chart-to-song associations, bookmarks, every score speed variant, recent-play fields, and performance history.
-- Preserve an existing `SongChart.FileHash`; do not calculate MD5 for a new bulk-imported chart.
+- Preserve an existing `SongChart.FileHash`; do not calculate MD5 for a new bulk-imported chart, and treat an empty hash as unknown rather than matched.
 - Add a chart path to the discovery set before parsing it.
 - Do not import or delete stale records after cancellation, root traversal failure, or an otherwise incomplete enumeration.
 - Do not invoke the old `CleanupStaleChartsAsync` from either startup path.
 - Use exactly one `SongDbContext`, one explicit transaction, and one `SaveChangesAsync` inside each bulk import.
+- Set a 120-second command timeout only on the bulk-import context; retain the
+  service-wide 30-second default.
 - Publish `_rootSongs` only after the import commits.
+- Hydrate temporary hierarchy placeholders in place; the enumerated `set.def`,
+  `box.def`, ordering, and parentage remain the UI source of truth.
 - Keep `DiscoveredScoreCount` and `EnumeratedFileCount` as compatibility mirrors; UI progress continues through `EnumerationProgress`.
-- Keep `AddSongAsync` as a legacy/test helper, but remove both production enumeration callers.
+- Keep `AddSongAsync` as a documented legacy/test-only helper, but remove both production enumeration callers.
+- Require an initialized database for `EnumerateAndImportSongsAsync`; preserve
+  the legacy wrapper's database-less `0` result without publishing nodes.
 - Remove normal per-directory, per-file, and per-asset success diagnostics; keep warnings, conflicts, parse failures, and unexpected errors in Debug output.
-- Write exactly one concise `HPA192_STARTUP` summary line to standard output for success, cancellation, and failure.
+- Remove debug-only database-statistics queries from the production song-load
+  path; removing `Debug.WriteLine` alone is not a Release optimization.
+- Write exactly one concise `HPA192_STARTUP` summary line to raw standard output
+  for success, cancellation, and failure; do not route this machine-readable
+  record through provider-formatted `ILogger` output.
+- Retain inactive-root rows but exclude them from active recent, bookmark,
+  search, and statistics views.
 - Keep the third-party benchmark assets machine-local; commit only their manifest and measured report.
 - Run macOS-safe tests locally; the full Windows suite remains a CI gate.
 
@@ -240,6 +254,10 @@ protected virtual void WriteStartupSummary(string line)
 }
 ```
 
+Keep this direct `Console.Out` contract. The default console logger may prefix
+or reflow messages, while the benchmark requires exactly one line beginning
+with `HPA192_STARTUP `.
+
 `OnActivate` clears `_measuredPhaseDurations`, resets and starts both
 stopwatches, and clears `_startupSummaryWritten`. Each phase advance stores
 `_phaseStopwatch.Elapsed` under the phase being left, then restarts the phase
@@ -290,97 +308,112 @@ rtk git commit -m "feat: add startup timing summary"
 
 **Interfaces:**
 - Consumes: the `HPA192_STARTUP` line from Task 1.
-- Produces: three isolated fresh-startup runs for any supplied commit.
+- Produces: isolated fresh-startup runs for any supplied fixed Release output.
 - Produces: a committed manifest for the machine-local 100-chart corpus.
-- Produces: baseline external wall times and summary timings before import optimization.
+- Produces: diagnostic baseline external wall times and summary timings before
+  import optimization; Task 8 reruns the baseline in the balanced comparative
+  sequence used for final acceptance.
 
 - [ ] **Step 1: Create the isolated benchmark runner**
 
-The script accepts a corpus path, a label, and a run count. It builds once,
-creates a fresh app-data root and `Config.ini` per run, waits for Title through
-`getGameState`, captures stdout, and kills the game after the measurement.
+The script accepts a fixed Release output directory, corpus path, label, and
+run ID. Building is deliberately outside the runner so baseline and optimized
+binaries can be staged once and invoked in a balanced interleaved order. Each
+invocation creates a fresh app-data root and `Config.ini`, waits for Title
+through `getGameState`, captures stdout, and kills the game after measurement.
 
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-corpus="${1:?usage: benchmark-startup.sh CORPUS LABEL [RUNS]}"
-label="${2:?usage: benchmark-startup.sh CORPUS LABEL [RUNS]}"
-runs="${3:-3}"
-project="$repo_root/DTXMania.Game/DTXMania.Game.Mac.csproj"
+game_dir_input="${1:?usage: benchmark-startup.sh GAME_DIR CORPUS LABEL RUN_ID}"
+game_dir="$(cd "$game_dir_input" && pwd)"
+corpus="${2:?usage: benchmark-startup.sh GAME_DIR CORPUS LABEL RUN_ID}"
+label="${3:?usage: benchmark-startup.sh GAME_DIR CORPUS LABEL RUN_ID}"
+run="${4:?usage: benchmark-startup.sh GAME_DIR CORPUS LABEL RUN_ID}"
+game_dll="$game_dir/DTXMania.Game.Mac.dll"
 result_root="$repo_root/TestResults/hpa-192/$label"
 api_key="hpa-192-benchmark-key"
 api_port=48912
 
+test -f "$game_dll"
 mkdir -p "$result_root"
-dotnet build "$project" -c Release
 
-for run in $(seq 1 "$runs"); do
-    run_root="$(mktemp -d "${TMPDIR:-/tmp}/hpa-192-run.XXXXXX")"
-    appdata="$run_root/appdata"
-    mkdir -p "$appdata"
-    cp -R "$repo_root/System" "$run_root/System"
+run_root="$(mktemp -d "${TMPDIR:-/tmp}/hpa-192-run.XXXXXX")"
+appdata="$run_root/appdata"
+mkdir -p "$appdata"
+cp -R "$repo_root/System" "$run_root/System"
 
-    {
-        printf '%s\n' '[System]'
-        printf 'SkinPath=%s\n' "$run_root/System"
-        printf 'DTXPath=%s\n' "$corpus"
-        printf '%s\n' '[Skin]'
-        printf 'SystemSkinRoot=%s\n' "$run_root/System"
-        printf '%s\n' '[Display]' 'ScreenWidth=1280' 'ScreenHeight=720'
-        printf '%s\n' 'FullScreen=False' 'VSyncWait=False'
-        printf '%s\n' '[Api]' 'EnableGameApi=True'
-        printf 'GameApiPort=%s\n' "$api_port"
-        printf 'GameApiKey=%s\n' "$api_key"
-    } > "$appdata/Config.ini"
+{
+    printf '%s\n' '[System]'
+    printf 'SkinPath=%s\n' "$run_root/System"
+    printf 'DTXPath=%s\n' "$corpus"
+    printf '%s\n' '[Skin]'
+    printf 'SystemSkinRoot=%s\n' "$run_root/System"
+    printf '%s\n' '[Display]' 'ScreenWidth=1280' 'ScreenHeight=720'
+    printf '%s\n' 'FullScreen=False' 'VSyncWait=False'
+    printf '%s\n' '[Api]' 'EnableGameApi=True'
+    printf 'GameApiPort=%s\n' "$api_port"
+    printf 'GameApiKey=%s\n' "$api_key"
+} > "$appdata/Config.ini"
 
-    stdout="$result_root/run-$run.stdout.log"
-    stderr="$result_root/run-$run.stderr.log"
-    start="$(perl -MTime::HiRes=time -e 'printf "%.6f", time')"
+stdout="$result_root/run-$run.stdout.log"
+stderr="$result_root/run-$run.stderr.log"
+start="$(perl -MTime::HiRes=time -e 'printf "%.6f", time')"
+(
+    cd "$game_dir"
     DTXMANIA_APPDATA_ROOT="$appdata" \
       DTXMANIA_LAUNCH_TOKEN="hpa192-$label-$run" \
-      dotnet run --no-build -c Release --project "$project" \
-      >"$stdout" 2>"$stderr" &
-    game_pid=$!
+      dotnet "$game_dll"
+) >"$stdout" 2>"$stderr" &
+game_pid=$!
 
-    reached_title=false
-    for attempt in $(seq 1 1200); do
-        state="$(curl -fsS \
-          -H "X-Api-Key: $api_key" \
-          -H 'Content-Type: application/json' \
-          -d '{"jsonrpc":"2.0","id":1,"method":"getGameState","params":null}' \
-          "http://127.0.0.1:$api_port/jsonrpc" 2>/dev/null || true)"
-        if [[ "$state" == *"TitleStage"* ]]; then
-            reached_title=true
-            break
-        fi
-        sleep 0.05
-    done
-
-    end="$(perl -MTime::HiRes=time -e 'printf "%.6f", time')"
-    kill "$game_pid" 2>/dev/null || true
-    wait "$game_pid" 2>/dev/null || true
-
-    if [[ "$reached_title" != true ]]; then
-        printf 'run %s did not reach Title\n' "$run" >&2
-        exit 1
+reached_title=false
+for attempt in $(seq 1 1200); do
+    state="$(curl -fsS \
+      -H "X-Api-Key: $api_key" \
+      -H 'Content-Type: application/json' \
+      -d '{"jsonrpc":"2.0","id":1,"method":"getGameState","params":null}' \
+      "http://127.0.0.1:$api_port/jsonrpc" 2>/dev/null || true)"
+    if [[ "$state" == *"TitleStage"* ]]; then
+        reached_title=true
+        break
     fi
-
-    wall_ms="$(perl -e 'printf "%.0f", 1000 * ($ARGV[1] - $ARGV[0])' "$start" "$end")"
-    summary="$(grep '^HPA192_STARTUP ' "$stdout" | tail -1)"
-    printf 'run=%s wall_ms=%s %s\n' "$run" "$wall_ms" "$summary" |
-      tee "$result_root/run-$run.result.txt"
-    rm -rf "$run_root"
+    sleep 0.05
 done
+
+end="$(perl -MTime::HiRes=time -e 'printf "%.6f", time')"
+kill "$game_pid" 2>/dev/null || true
+wait "$game_pid" 2>/dev/null || true
+
+if [[ "$reached_title" != true ]]; then
+    printf 'run %s did not reach Title\n' "$run" >&2
+    exit 1
+fi
+
+wall_ms="$(perl -e 'printf "%.0f", 1000 * ($ARGV[1] - $ARGV[0])' "$start" "$end")"
+summary="$(rtk awk '/^HPA192_STARTUP / { line = $0 } END { print line }' "$stdout")"
+if [[ -z "$summary" ]]; then
+    printf 'run %s did not emit HPA192_STARTUP\n' "$run" >&2
+    exit 1
+fi
+printf 'label=%s run=%s wall_ms=%s %s\n' "$label" "$run" "$wall_ms" "$summary" |
+  tee "$result_root/run-$run.result.txt"
+rm -rf "$run_root"
 ```
 
-The execution command is:
+Build the fixed baseline output once, then record the three diagnostic runs:
 
 ```bash
-rtk bash tools/hpa192/benchmark-startup.sh \
-  "/Users/chanwaichan/Library/Application Support/DTXManiaCX/DTXFiles" \
-  baseline 3
+rtk dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj -c Release \
+  -o TestResults/hpa-192/builds/baseline
+for run in 1 2 3; do
+  rtk bash tools/hpa192/benchmark-startup.sh \
+    TestResults/hpa-192/builds/baseline \
+    "/Users/chanwaichan/Library/Application Support/DTXManiaCX/DTXFiles" \
+    baseline-diagnostic "$run"
+done
 ```
 
 - [ ] **Step 2: Generate and verify the corpus manifest**
@@ -416,13 +449,17 @@ Expected: `100`.
 Populate `docs/performance/HPA-192-startup-benchmark.md` with:
 
 - Apple hardware model, macOS version, and `dotnet --version`.
-- The current instrumentation commit.
+- The current instrumentation commit as a machine-readable
+  `baseline_commit=<full SHA>` line.
 - Corpus path, 100 chart files, and 27 logical `set.def` groups.
 - The SHA-256 of `HPA-192-corpus-manifest.tsv`.
 - Every `run-N.result.txt` line.
 - The median external wall time.
 - A note that baseline `discovery_parse_ms` includes interleaved parsing,
   per-chart SQLite writes, cleanup, and reloads.
+- A note that these are pre-implementation diagnostic runs; the acceptance
+  baseline is rebuilt from this exact commit and rerun in Task 8's balanced
+  sequence.
 
 Use the actual generated values; do not round individual runs before computing
 the median.
@@ -446,7 +483,8 @@ rtk git commit -m "docs: record HPA-192 startup baseline"
 - Create: `DTXMania.Test/Song/SongPathIdentityTests.cs`
 
 **Interfaces:**
-- Produces: `SongPathIdentity.Normalize`, `IsUnderRoot`, `ForSetDefinition`, and `ForOrdinaryChart`.
+- Produces: `SongPathIdentity.Normalize`, `TryNormalize`, `IsUnderRoot`,
+  `ForSetDefinition`, and `ForOrdinaryChart`.
 - Produces: `SongImportCandidate`, `SongBulkImportRequest`, `SongBulkImportResult`, `SongEnumerationBatch`, `PendingSongNode`, and `SongEnumerationError`.
 - Consumes: parsed `Song`, parsed `SongChart`, and existing `SongListNode`.
 
@@ -462,6 +500,34 @@ public void Normalize_ShouldReturnAbsoluteTrimmedPlatformPath()
     var normalized = SongPathIdentity.Normalize(input);
 
     Assert.Equal(Path.GetFullPath(Path.Combine(root, "Songs", "chart.dtx")), normalized);
+}
+
+[Fact]
+public void Normalize_ShouldCollapseRelativeAndRedundantNativeSegments()
+{
+    var root = Path.Combine(Path.GetTempPath(), "HPA-192", Guid.NewGuid().ToString("N"));
+    var input = Path.Combine(root, "Songs", "nested", "..", ".", "chart.dtx");
+
+    Assert.Equal(
+        Path.GetFullPath(Path.Combine(root, "Songs", "chart.dtx")),
+        SongPathIdentity.Normalize(input));
+}
+
+[Fact]
+public void LegacyAliasComparer_ShouldFollowDocumentedPlatformPolicy()
+{
+    var first = SongPathIdentity.Normalize("/songs/Case/chart.dtx");
+    var second = SongPathIdentity.Normalize("/songs/case/chart.dtx");
+
+    Assert.Equal(
+        OperatingSystem.IsWindows() || OperatingSystem.IsMacOS(),
+        SongPathIdentity.LegacyAliasComparer.Equals(first, second));
+}
+
+[Fact]
+public void TryNormalize_MalformedPersistedPath_ShouldReturnFalse()
+{
+    Assert.False(SongPathIdentity.TryNormalize("\0legacy", out _));
 }
 
 [Fact]
@@ -507,8 +573,11 @@ Expected: compilation fails because `SongPathIdentity` does not exist.
 ```csharp
 internal static class SongPathIdentity
 {
-    public static StringComparer Comparer { get; } =
-        OperatingSystem.IsWindows()
+    public static StringComparer CanonicalComparer { get; } =
+        StringComparer.Ordinal;
+
+    public static StringComparer LegacyAliasComparer { get; } =
+        OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
             ? StringComparer.OrdinalIgnoreCase
             : StringComparer.Ordinal;
 
@@ -518,6 +587,22 @@ internal static class SongPathIdentity
         var fullPath = Path.GetFullPath(path)
             .Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
         return Path.TrimEndingDirectorySeparator(fullPath);
+    }
+
+    public static bool TryNormalize(string? path, out string normalized)
+    {
+        try
+        {
+            normalized = Normalize(path!);
+            return true;
+        }
+        catch (Exception exception) when (
+            exception is ArgumentException or NotSupportedException
+                or PathTooLongException)
+        {
+            normalized = string.Empty;
+            return false;
+        }
     }
 
     public static bool IsUnderRoot(string path, string root)
@@ -539,6 +624,12 @@ internal static class SongPathIdentity
     }
 }
 ```
+
+`CanonicalComparer` aligns the in-memory canonical key with SQLite's binary
+`SongChart.FilePath` index. `LegacyAliasComparer` is used only after exact
+canonical matching. If both case variants are real files, discovery contains
+both and exact matching keeps them distinct; the alias fallback may never
+silently choose from multiple rows or candidates.
 
 - [ ] **Step 4: Add the import and enumeration contracts**
 
@@ -566,6 +657,21 @@ internal sealed record SongEnumerationError(
     string Path,
     string Message,
     bool IsRootFailure);
+
+internal enum SongBulkImportMilestone
+{
+    PreloadStarted,
+    MatchingCompleted,
+    MutationsStaged,
+    CleanupCompleted,
+    SaveStarted,
+    Committed
+}
+
+internal sealed record SongBulkImportProgress(
+    SongBulkImportMilestone Milestone,
+    int Processed,
+    int Total);
 
 internal sealed class SongEnumerationBatch
 {
@@ -598,7 +704,9 @@ internal sealed record SongEnumerationResult(
 ```
 
 All path sets and dictionaries must be constructed with
-`SongPathIdentity.Comparer`.
+`SongPathIdentity.CanonicalComparer`. Legacy aliases are resolved through a
+separate collision-aware grouping step; do not build a dictionary with
+`LegacyAliasComparer`.
 
 - [ ] **Step 5: Run tests and commit**
 
@@ -621,9 +729,9 @@ rtk git commit -m "feat: add song import contracts"
 
 **Interfaces:**
 - Consumes: `SongBulkImportRequest`.
-- Produces: `Task<SongBulkImportResult> ImportSongsAsync(SongBulkImportRequest request, CancellationToken cancellationToken)`.
+- Produces: `Task<SongBulkImportResult> ImportSongsAsync(SongBulkImportRequest request, IProgress<SongBulkImportProgress>? progress, CancellationToken cancellationToken)`.
 - Produces: generated IDs and eager score graphs through `SongBulkImportResult.ChartsByPath`.
-- Preserves: `AddSongAsync` unchanged as a legacy/test helper.
+- Preserves: `AddSongAsync` behavior as a legacy/test-only helper.
 
 - [ ] **Step 1: Write the fresh-import and single-save tests**
 
@@ -659,6 +767,11 @@ private readonly SongDatabaseService _service;
 private CountingSongDbContext _countingContext = null!;
 private Func<CancellationToken, Task>? _beforeSaveAsync;
 private int _createdContexts;
+
+private sealed class InlineProgress<T>(Action<T> report) : IProgress<T>
+{
+    public void Report(T value) => report(value);
+}
 
 public SongDatabaseServiceBulkImportTests()
 {
@@ -708,7 +821,7 @@ private static SongBulkImportRequest CreateRequest(
     return new SongBulkImportRequest(
         roots,
         candidates.Select(candidate => candidate.NormalizedChartPath)
-            .ToHashSet(SongPathIdentity.Comparer),
+            .ToHashSet(SongPathIdentity.CanonicalComparer),
         candidates);
 }
 
@@ -735,18 +848,42 @@ public async Task ImportSongsAsync_FreshGroup_ShouldUseOneContextTransactionAndS
     var request = CreateRequest(
         Candidate("Basic", "set|group", 1, "/songs/group/basic.dtx", drumLevel: 20),
         Candidate("Extreme", "set|group", 2, "/songs/group/extreme.dtx", drumLevel: 80));
+    var milestones = new List<SongBulkImportMilestone>();
+    var progress = new InlineProgress<SongBulkImportProgress>(
+        update => milestones.Add(update.Milestone));
 
-    var result = await _service.ImportSongsAsync(request, CancellationToken.None);
+    var result = await _service.ImportSongsAsync(
+        request, progress, CancellationToken.None);
 
     Assert.Equal(1, _createdContexts);
     Assert.Equal(1, _countingContext.SaveChangesAsyncCalls);
     Assert.True(_countingContext.HadTransactionAtSave);
+    Assert.Equal(120, _countingContext.Database.GetCommandTimeout());
     Assert.Equal(2, result.Added);
     Assert.All(result.ChartsByPath.Values, chart => Assert.True(chart.Id > 0));
     Assert.Single(result.ChartsByPath.Values.Select(chart => chart.SongId).Distinct());
     Assert.All(result.ChartsByPath.Values, chart => Assert.Single(chart.Scores));
+    Assert.All(result.ChartsByPath.Values.SelectMany(chart => chart.Scores),
+        score => Assert.Equal(100, score.PlaySpeedPercent));
     Assert.All(result.ChartsByPath.Values, chart => Assert.Equal("", chart.FileHash));
 }
+```
+
+Capture the optional progress callback in this test and assert the ordered
+aggregate milestones:
+
+```csharp
+Assert.Equal(
+    new[]
+    {
+        SongBulkImportMilestone.PreloadStarted,
+        SongBulkImportMilestone.MatchingCompleted,
+        SongBulkImportMilestone.MutationsStaged,
+        SongBulkImportMilestone.CleanupCompleted,
+        SongBulkImportMilestone.SaveStarted,
+        SongBulkImportMilestone.Committed
+    },
+    milestones);
 ```
 
 - [ ] **Step 2: Write cancellation and SQLite failure rollback tests**
@@ -760,7 +897,8 @@ public async Task ImportSongsAsync_WhenCancelledAtSave_ShouldRollBackEverything(
         Task.FromException(new OperationCanceledException(token));
 
     await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-        _service.ImportSongsAsync(CreateRequest(OneCandidate()), cancellation.Token));
+        _service.ImportSongsAsync(
+            CreateRequest(OneCandidate()), progress: null, cancellation.Token));
 
     await AssertDatabaseCountsAsync(songs: 0, charts: 0, scores: 0);
 }
@@ -773,7 +911,8 @@ public async Task ImportSongsAsync_WhenSqliteTriggerRejectsChart_ShouldRollBackS
         "BEGIN SELECT RAISE(ABORT, 'forced import failure'); END;");
 
     await Assert.ThrowsAsync<DbUpdateException>(() =>
-        _service.ImportSongsAsync(CreateRequest(OneCandidate()), CancellationToken.None));
+        _service.ImportSongsAsync(
+            CreateRequest(OneCandidate()), progress: null, CancellationToken.None));
 
     await AssertDatabaseCountsAsync(songs: 0, charts: 0, scores: 0);
 }
@@ -826,12 +965,14 @@ public SongDbContext CreateContext()
 ```csharp
 internal async Task<SongBulkImportResult> ImportSongsAsync(
     SongBulkImportRequest request,
+    IProgress<SongBulkImportProgress>? progress,
     CancellationToken cancellationToken)
 {
     ArgumentNullException.ThrowIfNull(request);
     cancellationToken.ThrowIfCancellationRequested();
 
     await using var context = CreateContext();
+    context.Database.SetCommandTimeout(TimeSpan.FromSeconds(120));
     await using var transaction =
         await context.Database.BeginTransactionAsync(cancellationToken)
             .ConfigureAwait(false);
@@ -839,8 +980,11 @@ internal async Task<SongBulkImportResult> ImportSongsAsync(
     try
     {
         var persistence = Stopwatch.StartNew();
-        var chartsByPath = new Dictionary<string, SongChart>(SongPathIdentity.Comparer);
+        var chartsByPath = new Dictionary<string, SongChart>(
+            SongPathIdentity.CanonicalComparer);
         var added = 0;
+        progress?.Report(new(
+            SongBulkImportMilestone.PreloadStarted, 0, request.Candidates.Count));
 
         foreach (var group in request.Candidates
             .OrderBy(candidate => candidate.GroupKey, StringComparer.Ordinal)
@@ -849,7 +993,9 @@ internal async Task<SongBulkImportResult> ImportSongsAsync(
         {
             cancellationToken.ThrowIfCancellationRequested();
             var primary = group.OrderBy(candidate => candidate.GroupOrder)
-                .ThenBy(candidate => candidate.NormalizedChartPath, SongPathIdentity.Comparer)
+                .ThenBy(
+                    candidate => candidate.NormalizedChartPath,
+                    SongPathIdentity.CanonicalComparer)
                 .First();
             var song = CreateSongFromParsed(primary.ParsedSong);
             context.Songs.Add(song);
@@ -865,10 +1011,30 @@ internal async Task<SongBulkImportResult> ImportSongsAsync(
             }
         }
 
+        progress?.Report(new(
+            SongBulkImportMilestone.MatchingCompleted,
+            request.Candidates.Count,
+            request.Candidates.Count));
+        progress?.Report(new(
+            SongBulkImportMilestone.MutationsStaged,
+            request.Candidates.Count,
+            request.Candidates.Count));
+        progress?.Report(new(
+            SongBulkImportMilestone.CleanupCompleted,
+            request.Candidates.Count,
+            request.Candidates.Count));
         cancellationToken.ThrowIfCancellationRequested();
+        progress?.Report(new(
+            SongBulkImportMilestone.SaveStarted,
+            request.Candidates.Count,
+            request.Candidates.Count));
         await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        progress?.Report(new(
+            SongBulkImportMilestone.Committed,
+            request.Candidates.Count,
+            request.Candidates.Count));
         persistence.Stop();
 
         return new SongBulkImportResult(
@@ -893,12 +1059,24 @@ internal async Task<SongBulkImportResult> ImportSongsAsync(
 }
 ```
 
-`CreateSongFromParsed` copies `Title`, `Artist`, `Genre`, and `Comment`.
-`CreateChartFromParsed` copies every persisted chart metadata field from
-`SongChart.cs` except `Id`, `SongId`, `Song`, `Scores`, and `FileHash`.
+`CreateSongFromParsed` copies only `Title`, `Artist`, `Genre`, and `Comment`.
+For an existing song, preserve `Id`, `CreatedAt`, `IsBookmarked`, and `Charts`;
+advance `UpdatedAt` only when one of the four parsed fields changes.
+
+`CreateChartFromParsed` and the existing-chart updater copy exactly
+`FilePath`, `FileSize`, `LastModified`, `FileFormat`, `DifficultyLevel`,
+`DifficultyLabel`, `Bpm`, `Duration`, `BGMAdjust`, `DrumLevel`,
+`DrumLevelDec`, `GuitarLevel`, `GuitarLevelDec`, `BassLevel`, `BassLevelDec`,
+`HasDrumChart`, `HasGuitarChart`, `HasBassChart`, `IsClassicDrums`,
+`IsClassicGuitar`, `IsClassicBass`, `DrumNoteCount`, `GuitarNoteCount`,
+`BassNoteCount`, `PreviewFile`, `PreviewImage`, `BackgroundFile`, and
+`StageFile`. Preserve `Id`, `SongId`, `Song`, `Scores`, and an existing
+`FileHash`.
+
 `AddMissingInitialScores` creates one default-speed row for each available
-positive-level instrument and sets both `SongScore.Chart` and
-`SongScore.Instrument`; it does not call `SaveChangesAsync`.
+positive-level instrument and sets `SongScore.Chart`, `SongScore.Instrument`,
+and `SongScore.PlaySpeedPercent = 100`; it does not call `SaveChangesAsync`.
+It never edits an existing score row.
 
 - [ ] **Step 6: Verify atomicity and commit**
 
@@ -1016,6 +1194,7 @@ public async Task ImportSongsAsync_Rescan_ShouldUpdateMetadataAndPreserveUserSta
 
     var result = await _service.ImportSongsAsync(
         CreateRequest(candidate),
+        progress: null,
         CancellationToken.None);
 
     var chart = result.ChartsByPath[SongPathIdentity.Normalize(seeded.Chart.FilePath)];
@@ -1028,11 +1207,24 @@ public async Task ImportSongsAsync_Rescan_ShouldUpdateMetadataAndPreserveUserSta
     Assert.Equal(new[] { 100, 150 }, chart.Scores
         .Select(score => score.PlaySpeedPercent)
         .OrderBy(speed => speed));
+    var defaultScore = chart.Scores.Single(score => score.PlaySpeedPercent == 100);
+    Assert.Equal(900_000, defaultScore.BestScore);
+    Assert.Equal(800_000, defaultScore.LastScore);
+    Assert.Equal(4, defaultScore.PlayCount);
+    Assert.Equal(3, defaultScore.ClearCount);
+    Assert.Equal(2, defaultScore.NxImportedPlayCount);
+    Assert.Equal(1, defaultScore.NxImportedClearCount);
     Assert.All(chart.Scores, score => Assert.NotEmpty(score.PerformanceHistory));
     Assert.Equal(1, result.Updated);
     Assert.Equal(0, result.Added);
 }
 ```
+
+Add a second rescan test that sets `HasGuitarChart = true` and a positive
+`GuitarLevel` on the parsed candidate while the seeded chart has only drums.
+Assert that the original drum rows remain byte-for-byte equivalent and exactly
+one new guitar row exists with `PlaySpeedPercent == 100`. Repeating the import
+must not create another guitar row.
 
 - [ ] **Step 2: Write identity, cleanup, and ambiguity tests**
 
@@ -1045,7 +1237,7 @@ private static SongBulkImportRequest CreateEmptyRequest(
     new(
         activeRoots.Select(SongPathIdentity.Normalize).ToArray(),
         discoveredPaths.Select(SongPathIdentity.Normalize)
-            .ToHashSet(SongPathIdentity.Comparer),
+            .ToHashSet(SongPathIdentity.CanonicalComparer),
         Array.Empty<SongImportCandidate>());
 
 private async Task<SongChart> SeedChartAsync(
@@ -1080,7 +1272,8 @@ public async Task ImportSongsAsync_SameMetadataInDifferentDirectories_ShouldCrea
         Candidate("Same", "dir|a", 0, "/songs/a/chart.dtx", 40),
         Candidate("Same", "dir|b", 0, "/songs/b/chart.dtx", 40));
 
-    var result = await _service.ImportSongsAsync(request, CancellationToken.None);
+    var result = await _service.ImportSongsAsync(
+        request, progress: null, CancellationToken.None);
 
     Assert.Equal(2, result.ChartsByPath.Values.Select(chart => chart.SongId).Distinct().Count());
 }
@@ -1094,7 +1287,8 @@ public async Task ImportSongsAsync_DiscoveryDiff_ShouldDeleteOnlyInsideActiveRoo
         activeRoots: new[] { "/songs/active" },
         discoveredPaths: Array.Empty<string>());
 
-    var result = await _service.ImportSongsAsync(request, CancellationToken.None);
+    var result = await _service.ImportSongsAsync(
+        request, progress: null, CancellationToken.None);
 
     Assert.Equal(1, result.StaleCharts);
     Assert.False(await ChartExistsAsync(staleInside.Id));
@@ -1111,7 +1305,8 @@ public async Task ImportSongsAsync_AmbiguousLegacyGroup_ShouldKeepAssociationsAn
         Candidate("Unified", "set|group", 2, second.FilePath, 80),
         Candidate("Unified", "set|group", 3, "/songs/group/master.dtx", 95));
 
-    var result = await _service.ImportSongsAsync(request, CancellationToken.None);
+    var result = await _service.ImportSongsAsync(
+        request, progress: null, CancellationToken.None);
 
     Assert.Equal(first.SongId, result.ChartsByPath[SongPathIdentity.Normalize(first.FilePath)].SongId);
     Assert.Equal(second.SongId, result.ChartsByPath[SongPathIdentity.Normalize(second.FilePath)].SongId);
@@ -1122,10 +1317,72 @@ public async Task ImportSongsAsync_AmbiguousLegacyGroup_ShouldKeepAssociationsAn
 }
 ```
 
+Name this test
+`ImportSongsAsync_RemovedConfiguredRoot_ShouldRetainRowsOutsideActiveRoots` so
+the intentional removed-root policy is explicit.
+
+Add legacy-path migration and collision tests:
+
+```csharp
+[Fact]
+public async Task ImportSongsAsync_LegacyNonCanonicalPath_ShouldMatchAndMigrateInPlace()
+{
+    var chart = await SeedChartWithStoredPathAsync(
+        "/songs/active/nested/../chart.dtx");
+    var originalChartId = chart.Id;
+    var candidate = Candidate(
+        "Migrated", "dir|active", 0, "/songs/active/chart.dtx", 60);
+
+    var result = await _service.ImportSongsAsync(
+        CreateRequest(candidate), progress: null, CancellationToken.None);
+
+    var migrated = result.ChartsByPath[candidate.NormalizedChartPath];
+    Assert.Equal(originalChartId, migrated.Id);
+    Assert.Equal(candidate.NormalizedChartPath, migrated.FilePath);
+    Assert.Equal(0, result.Added);
+    Assert.Equal(0, result.StaleCharts);
+}
+
+[Fact]
+public async Task ImportSongsAsync_AmbiguousLegacyAliases_ShouldRetainEveryRow()
+{
+    if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS())
+        return;
+
+    var first = await SeedChartWithStoredPathAsync(
+        "/songs/active/Case/chart.dtx", "First");
+    var second = await SeedChartWithStoredPathAsync(
+        "/songs/active/case/chart.dtx", "Second");
+    var candidate = Candidate(
+        "Discovered", "dir|active", 0,
+        "/songs/active/CASE/chart.dtx", 60);
+
+    var result = await _service.ImportSongsAsync(
+        CreateRequest(candidate), progress: null, CancellationToken.None);
+
+    Assert.True(await ChartExistsAsync(first.Id));
+    Assert.True(await ChartExistsAsync(second.Id));
+    Assert.Equal(1, result.Conflicts);
+    Assert.Equal(1, result.Skipped);
+    Assert.False(result.ChartsByPath.ContainsKey(candidate.NormalizedChartPath));
+}
+```
+
+`SeedChartWithStoredPathAsync` must assign the supplied string directly rather
+than normalizing it, and may optionally seed a default-speed score/history row
+to prove the migration retains user state. Also cover a binary-index rewrite
+collision outside the active match set: the importer must report and preserve,
+not rely on `SaveChangesAsync` to discover the conflict.
+
+Seed one malformed persisted path such as an empty string and assert the
+importer retains it without attempting normalization-based cleanup.
+
 Also assert that:
 
 - Two `set.def` candidates with one group key share one song.
 - Reimport does not add a duplicate `(ChartId, Instrument, PlaySpeedPercent)`.
+- A newly gained positive-level instrument creates one and only one
+  `(ChartId, Instrument, 100)` row.
 - A discovered but skipped candidate path protects its old chart from cleanup.
 - Removing the final chart removes its empty song in the same save.
 
@@ -1141,42 +1398,101 @@ implementation.
 
 - [ ] **Step 4: Preload and index the existing graph once**
 
-At the beginning of `ImportSongsAsync`, load one graph:
+At the beginning of `ImportSongsAsync`, first load a lightweight global identity
+projection. It is needed both to select active rows and to detect a binary
+unique-index target before rewriting a legacy path:
 
 ```csharp
-var persistedSongs = await context.Songs
-    .Include(song => song.Charts)
-        .ThenInclude(chart => chart.Scores)
-            .ThenInclude(score => score.PerformanceHistory)
+var chartIdentities = await context.SongCharts
+    .AsNoTracking()
+    .Select(chart => new
+    {
+        chart.Id,
+        chart.SongId,
+        chart.FilePath
+    })
     .ToListAsync(cancellationToken)
     .ConfigureAwait(false);
 
-var persistedCharts = persistedSongs
-    .SelectMany(song => song.Charts)
-    .Where(chart => request.ActiveRoots.Any(root =>
-        SongPathIdentity.IsUnderRoot(chart.FilePath, root)))
-    .ToDictionary(
+var activeChartIds = chartIdentities
+    .Where(chart =>
+        SongPathIdentity.TryNormalize(chart.FilePath, out var normalized) &&
+        request.ActiveRoots.Any(root =>
+            SongPathIdentity.IsUnderRoot(normalized, root)))
+    .Select(chart => chart.Id)
+    .ToArray();
+
+var persistedCharts = await context.SongCharts
+    .Where(chart => activeChartIds.Contains(chart.Id))
+    .Include(chart => chart.Song)
+    .Include(chart => chart.Scores)
+        .ThenInclude(score => score.PerformanceHistory)
+    .ToListAsync(cancellationToken)
+    .ConfigureAwait(false);
+
+var persistedSongs = persistedCharts
+    .Select(chart => chart.Song)
+    .DistinctBy(song => song.Id)
+    .ToList();
+
+var persistedByCanonicalPath = persistedCharts
+    .GroupBy(
         chart => SongPathIdentity.Normalize(chart.FilePath),
-        SongPathIdentity.Comparer);
+        SongPathIdentity.CanonicalComparer)
+    .ToDictionary(
+        group => group.Key,
+        group => group.OrderBy(chart => chart.Id).ToList(),
+        SongPathIdentity.CanonicalComparer);
 ```
 
-Deduplicate candidate paths before grouping. Count later duplicates as skipped
-and retain the first candidate in deterministic group/order/path order.
+This keeps the heavy tracked score/history graph scoped to active roots while
+the lightweight identity projection still protects inactive rows and catches
+global binary-path conflicts. If a personal library exceeds SQLite's practical
+`IN` parameter limit, split only this read query into deterministic ID chunks;
+the write transaction and single `SaveChangesAsync` contract remain unchanged.
+Rows for which `TryNormalize` returns false are retained, excluded from cleanup,
+and diagnosed in Debug output.
+
+Do not call `ToDictionary` directly on normalized rows: legacy raw values can
+collapse to the same canonical path even though SQLite's binary index accepted
+them. Resolve every `DiscoveredChartPaths` entry before candidate grouping:
+
+1. Prefer a single exact canonical group.
+2. If no exact group exists, consider unmatched canonical groups with
+   `LegacyAliasComparer`.
+3. Accept the alias only when exactly one unmatched discovered path and one
+   persisted row participate.
+4. Rewrite that unique row's `FilePath` to the discovered normalized value in
+   this transaction after confirming no tracked or persisted row already owns
+   the binary target value.
+5. For every multi-row or multi-path collision, increment `Conflicts`, protect
+   all involved persisted IDs from stale cleanup, leave their paths unchanged,
+   and classify the unresolved discovered path as skipped.
+
+Maintain a canonical `persistedChartByDiscoveredPath` map only for unique
+resolutions, a `discoveredPersistedChartIds` set, and a
+`pathConflictProtectedChartIds` set. Deduplicate candidate paths before group
+reconciliation. Count later duplicates as skipped and retain the first
+candidate in deterministic group/order/path order.
 
 - [ ] **Step 5: Reconcile groups without reparenting ambiguous charts**
 
 For each group:
 
-1. Collect matched existing charts by normalized path.
+1. Collect matched existing charts through
+   `persistedChartByDiscoveredPath`; skip unresolved path conflicts without
+   inserting a replacement row.
 2. Collect distinct matched `SongId` values.
 3. Zero IDs: create one new song from the deterministic primary.
 4. One ID: update that song's parsed metadata and attach new siblings to it.
 5. Multiple IDs: increment `Conflicts`; update each matched chart in place,
    retain each existing association, and create one separate song for any new
    siblings.
-6. Copy parsed chart metadata into existing charts while preserving `Id`,
-   `SongId`, `Song`, `Scores`, and `FileHash`.
-7. Create only missing default-speed instrument keys.
+6. Update only the exact parse-owned song/chart fields listed in Task 4 while
+   preserving `Id`, `CreatedAt`, `IsBookmarked`, `SongId`, `Song`, `Scores`,
+   and `FileHash`.
+7. Create only missing positive-level instrument keys at
+   `PlaySpeedPercent = 100`; never modify an existing score row.
 8. Classify a matched chart as updated when a persisted metadata value changes;
    otherwise classify it as preserved.
 
@@ -1193,23 +1509,35 @@ Debug.WriteLine(
 ```csharp
 var cleanup = Stopwatch.StartNew();
 var staleCharts = persistedCharts
-    .Where(pair => !request.DiscoveredChartPaths.Contains(pair.Key))
-    .Select(pair => pair.Value)
+    .Where(chart =>
+        !discoveredPersistedChartIds.Contains(chart.Id) &&
+        !pathConflictProtectedChartIds.Contains(chart.Id))
     .ToList();
 
 context.SongCharts.RemoveRange(staleCharts);
 
-var staleChartSet = staleCharts.ToHashSet();
+var staleChartIds = staleCharts.Select(chart => chart.Id).ToHashSet();
+var candidateEmptySongIds = staleCharts
+    .Select(chart => chart.SongId)
+    .Distinct()
+    .Where(songId => !chartIdentities.Any(identity =>
+        identity.SongId == songId && !staleChartIds.Contains(identity.Id)))
+    .ToHashSet();
 var emptySongs = persistedSongs
-    .Where(song => song.Charts.Count > 0
-        && song.Charts.All(staleChartSet.Contains))
+    .Where(song => candidateEmptySongIds.Contains(song.Id))
     .ToList();
 context.Songs.RemoveRange(emptySongs);
 cleanup.Stop();
 ```
 
 Do not call `CleanupStaleChartsAsync` and do not call `File.Exists` during this
-cleanup. Pass the caller token to the one `SaveChangesAsync` and `CommitAsync`.
+cleanup. Report `CleanupCompleted`, then `SaveStarted`, around the corresponding
+stages. Pass the caller token to the one `SaveChangesAsync` and `CommitAsync`.
+Report `Committed` only after commit succeeds.
+
+Add a cleanup regression in which one legacy `SongId` owns an active stale
+chart and an inactive-root chart. Removing the active chart must not delete the
+song or its inactive chart.
 
 - [ ] **Step 7: Verify the full importer suite and commit**
 
@@ -1233,7 +1561,7 @@ rtk git commit -m "feat: preserve song state during bulk import"
 - Verify: `DTXMania.Test/Song/SetDefParserTests.cs`
 
 **Interfaces:**
-- Consumes: `Task<SongBulkImportResult> SongDatabaseService.ImportSongsAsync(SongBulkImportRequest request, CancellationToken cancellationToken)`.
+- Consumes: `Task<SongBulkImportResult> SongDatabaseService.ImportSongsAsync(SongBulkImportRequest request, IProgress<SongBulkImportProgress>? progress, CancellationToken cancellationToken)`.
 - Produces: `Task<SongEnumerationResult> EnumerateAndImportSongsAsync(string[] searchPaths, IProgress<EnumerationProgress>? progress = null, CancellationToken cancellationToken = default)`.
 - Preserves: `Task<int> EnumerateSongsAsync(string[] searchPaths, IProgress<EnumerationProgress>? progress = null, CancellationToken cancellationToken = default)` and `Task<int> EnumerateSongsOnlyAsync(string[] searchPaths, IProgress<EnumerationProgress>? progress = null, CancellationToken cancellationToken = default)` as count-returning compatibility wrappers.
 - Produces: completed temporary hierarchy only after commit.
@@ -1327,6 +1655,25 @@ public async Task EnumerateAndImportSongsAsync_ShouldPublishCommittedHierarchyWi
 }
 
 [Fact]
+public async Task EnumerateAndImportSongsAsync_WithoutDatabase_ShouldFailBeforeTraversal()
+{
+    var traversalCalls = 0;
+    _manager.EnumerateFilesCore = _ =>
+    {
+        traversalCalls++;
+        return Array.Empty<string>();
+    };
+
+    await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        _manager.EnumerateAndImportSongsAsync(
+            new[] { _songsRoot }, null, CancellationToken.None));
+
+    Assert.Equal(0, traversalCalls);
+    Assert.Empty(_manager.RootSongs);
+    Assert.Equal(0, _manager.DiscoveredScoreCount);
+}
+
+[Fact]
 public async Task EnumerateAndImportSongsAsync_WhenCancelled_ShouldLeaveDatabaseAndRootSongsUnchanged()
 {
     await SeedPublishedLibraryAsync();
@@ -1341,7 +1688,31 @@ public async Task EnumerateAndImportSongsAsync_WhenCancelled_ShouldLeaveDatabase
     Assert.Equal(originalRoots, _manager.RootSongs);
     Assert.Equal(_seededChartCount, await CountChartsAsync());
 }
+
+[Fact]
+public async Task EnumerateAndImportSongsAsync_WhenSqliteWriteFails_ShouldLeaveDatabaseAndRootsUnchanged()
+{
+    await SeedPublishedLibraryAsync();
+    var originalRoots = _manager.RootSongs.ToArray();
+    await ExecuteDatabaseSqlAsync(
+        "CREATE TRIGGER fail_chart BEFORE INSERT ON SongCharts " +
+        "BEGIN SELECT RAISE(ABORT, 'forced manager import failure'); END;");
+    WriteChart("Songs/New/new.dtx", "New", 70);
+
+    await Assert.ThrowsAsync<DbUpdateException>(() =>
+        _manager.EnumerateAndImportSongsAsync(
+            new[] { _songsRoot }, null, CancellationToken.None));
+
+    Assert.Equal(originalRoots, _manager.RootSongs);
+    Assert.Equal(_seededChartCount, await CountChartsAsync());
+}
 ```
+
+Add a fixture with `box.def` presentation plus a multi-difficulty `set.def`.
+Capture the temporary placeholder before import finalization, then assert after
+commit that the same object remains at the same parent/index with identical box
+title/color/genre/skin, breadcrumb, difficulty-slot order, and authored labels,
+while every resolved score has its committed chart ID and persisted variants.
 
 - [ ] **Step 2: Write parse-failure and root-failure tests**
 
@@ -1357,10 +1728,11 @@ internal Func<string, IEnumerable<string>> EnumerateDirectoriesCore
 internal Func<
     SongDatabaseService,
     SongBulkImportRequest,
+    IProgress<SongBulkImportProgress>?,
     CancellationToken,
     Task<SongBulkImportResult>> ImportSongsCoreAsync
-    { get; set; } = static (database, request, token) =>
-        database.ImportSongsAsync(request, token);
+    { get; set; } = static (database, request, progress, token) =>
+        database.ImportSongsAsync(request, progress, token);
 ```
 
 Tests then assert:
@@ -1388,10 +1760,10 @@ public async Task BuildEnumerationBatchAsync_WhenChartParseFails_ShouldRetainDis
 public async Task EnumerateAndImportSongsAsync_WhenRootTraversalFails_ShouldNotCallImporter()
 {
     var realImporter = _manager.ImportSongsCoreAsync;
-    _manager.ImportSongsCoreAsync = async (database, request, token) =>
+    _manager.ImportSongsCoreAsync = async (database, request, progress, token) =>
     {
         _bulkImportCalls++;
-        return await realImporter(database, request, token);
+        return await realImporter(database, request, progress, token);
     };
     _manager.EnumerateDirectoriesCore = _ =>
         throw new IOException("root unavailable");
@@ -1455,7 +1827,7 @@ private sealed class SongEnumerationBatchBuilder
 
     public IReadOnlyList<string> ActiveRoots { get; }
     public HashSet<string> DiscoveredChartPaths { get; } =
-        new(SongPathIdentity.Comparer);
+        new(SongPathIdentity.CanonicalComparer);
     public List<SongImportCandidate> Candidates { get; } = new();
     public List<SongListNode> RootNodes { get; } = new();
     public List<PendingSongNode> PendingSongs { get; } = new();
@@ -1492,7 +1864,7 @@ private static SongEnumerationBatchBuilder CreateBatchBuilder(
                 $"Configured song root does not exist: {normalized}");
         return normalized;
     })
-    .Distinct(SongPathIdentity.Comparer)
+    .Distinct(SongPathIdentity.CanonicalComparer)
     .ToArray();
     return new SongEnumerationBatchBuilder(roots);
 }
@@ -1527,6 +1899,9 @@ public async Task<SongEnumerationResult> EnumerateAndImportSongsAsync(
     IProgress<EnumerationProgress>? progress = null,
     CancellationToken cancellationToken = default)
 {
+    cancellationToken.ThrowIfCancellationRequested();
+    var database = GetDatabaseServiceSnapshot()
+        ?? throw new InvalidOperationException("Song database is not initialized.");
     var linked = BeginEnumeration(cancellationToken);
     try
     {
@@ -1537,14 +1912,13 @@ public async Task<SongEnumerationResult> EnumerateAndImportSongsAsync(
             throw new InvalidOperationException(
                 "An incomplete enumeration cannot be imported.");
 
-        var database = GetDatabaseServiceSnapshot()
-            ?? throw new InvalidOperationException("Song database is not initialized.");
         var import = await ImportSongsCoreAsync(
             database,
             new SongBulkImportRequest(
                 batch.ActiveRoots,
                 batch.DiscoveredChartPaths,
                 batch.Candidates),
+            CreatePersistenceProgressAdapter(progress),
             linked.Token).ConfigureAwait(false);
 
         var hierarchy = Stopwatch.StartNew();
@@ -1560,6 +1934,13 @@ public async Task<SongEnumerationResult> EnumerateAndImportSongsAsync(
     }
 }
 ```
+
+Add `CurrentOperation` to `EnumerationProgress`. Implement
+`CreatePersistenceProgressAdapter` so each `SongBulkImportMilestone` reports a
+short user-facing operation such as `Loading existing songs`, `Matching
+charts`, `Preparing changes`, `Removing stale records`, `Saving songs`, and
+`Song database committed`. The startup progress handler displays
+`CurrentOperation` before its existing file/directory fallbacks.
 
 Implement enumeration lifetime under `_lockObject`:
 
@@ -1594,11 +1975,19 @@ concurrent call as invalid.
 `FinalizePendingNodes` must:
 
 1. Resolve every ordered path through `ChartsByPath`.
-2. Use the resolved chart's eager `Song` and all same-`SongId` charts to call
+2. Leave an unresolved path-conflict slot empty; if a pending group has no
+   resolved charts, remove its placeholder without publishing a parse-only
+   score node.
+3. Keep the original placeholder object, parent, root/child index, breadcrumb,
+   `set.def` labels/order, and `box.def`-authored hierarchy unchanged.
+4. Set `DatabaseSong`, `DatabaseChart`, and `DatabaseSongId` from the eager
+   tracked entities.
+5. Populate each resolved score slot in `OrderedChartPaths` order, preserving
+   the placeholder's authored difficulty label unless it is empty.
+6. Call `HydrateScoreVariants` with those ordered eager charts so IDs, every
+   speed variant, and history are attached without rebuilding UI metadata.
+7. Never call `GetSongWithChartsAsync` or replace the placeholder through
    `CreateSongNodeFromDatabaseEntities`.
-3. Replace the placeholder at the same parent-child or root-list index.
-4. Set `Parent` and `DatabaseSongId`.
-5. Never call `GetSongWithChartsAsync`.
 
 `PublishEnumeration` replaces `_rootSongs`, then updates
 `DiscoveredScoreCount`, `EnumeratedFileCount`, and events. It runs only after
@@ -1614,8 +2003,34 @@ Remove production enumeration calls to:
 - `GroupSongNodesBySong`.
 
 Remove the `BuildSongListFromDatabaseAsync` startup cleanup call. Keep the
-method as the single cache/fallback hierarchy builder, but load `GetSongsAsync`
-once before iterating active roots.
+method as one explicitly named cleanup-free
+`BuildHierarchyFromDatabaseOnceAsync` cache/fallback builder. Load
+`GetSongsAsync` once before iterating active roots. Change
+`BuildHierarchyFromCharts` to group charts by `item.song.Id`, never by global
+title/artist. Use this same builder after cache selection, failed-import
+fallback, NX import refresh, and score-update refresh.
+
+Add cache-builder regression tests:
+
+- Two different `SongId` values with identical title/artist in different
+  directories remain two nodes after cache load and refresh.
+- Multiple charts with one `SongId` rebuild as one node.
+- The builder invokes no cleanup or `GetDatabaseScoreCountAsync` query.
+- Legacy charts that already share one incorrect `SongId` are not silently
+  reparented or split.
+
+Filter flat active-session consumers through `_currentSearchPaths`: recent
+plays, bookmarks, and search exclude charts outside active roots, and omit a
+song when no active chart remains. Keep raw database statistics available only
+as an explicit maintenance/diagnostic API; startup and user-facing active
+statistics must not use them.
+
+Add one seeded active-root song and one seeded removed-root song, both
+bookmarked and recently played. Assert the active song is returned and the
+removed-root song is absent from `GetBookmarkedNodesAsync`,
+`GetRecentlyPlayedNodesAsync`, and `FindSongsBySearchAsync`. Add the equivalent
+assertion wherever active-session statistics are presented; do not change the
+raw maintenance count contract.
 
 Change compatibility wrappers to rethrow cancellation and failure:
 
@@ -1625,6 +2040,8 @@ public async Task<int> EnumerateSongsAsync(
     IProgress<EnumerationProgress>? progress = null,
     CancellationToken cancellationToken = default)
 {
+    if (GetDatabaseServiceSnapshot() == null)
+        return 0;
     lock (_lockObject)
     {
         if (_enumCancellation is { IsCancellationRequested: false })
@@ -1636,7 +2053,17 @@ public async Task<int> EnumerateSongsAsync(
 }
 ```
 
-Delete normal success diagnostics inside the traversal and grouping path.
+Apply the same database-less guard to `EnumerateSongsOnlyAsync`. Delete normal
+success diagnostics inside the traversal and grouping path. Remove the
+debug-only `GetDatabaseScoreCountAsync` calls currently made after enumeration
+and before database hierarchy construction; the associated
+`Debug.WriteLine` calls are already compiled out in Release, but the awaited
+statistics queries are not.
+
+Add an XML `<remarks>` block to `AddSongAsync` identifying it as a
+legacy/test-only helper with per-call persistence semantics. Rename its tests
+to include `LegacyAddSongAsync` or an equivalent marker; do not add
+`[Obsolete]` warnings to the existing fixture surface.
 
 - [ ] **Step 7: Update conflicting legacy test expectations**
 
@@ -1647,6 +2074,8 @@ Make these intentional contract changes explicit:
 - Rename the existing same-title/artist cross-directory test to
   `EnumerateSongsAsync_WithSameMetadataInDifferentDirectories_ShouldKeepSeparateSongs`
   and expect two score nodes.
+- Add `EnumerateSongsAsync_WithoutDatabaseService_ShouldReturnZeroAndNotPublish`
+  for the compatibility contract.
 - Keep all `set.def`, `box.def`, bookmark, and same-directory grouping tests.
 
 - [ ] **Step 8: Run song-manager regressions and commit**
@@ -1760,7 +2189,7 @@ public async Task RunSongLoadAsync_WhenEnumerationNeeded_ShouldNotBuildDatabaseH
 
     Assert.Equal(1, stage.NeedsEnumerationCalls);
     Assert.Equal(1, stage.EnumerateSongsCalls);
-    Assert.Equal(0, stage.BuildSongListCalls);
+    Assert.Equal(0, stage.BuildHierarchyCalls);
     Assert.Equal(0, stage.SaveSongsDatabaseCalls);
 }
 
@@ -1777,7 +2206,7 @@ public async Task RunSongLoadAsync_WhenCacheValid_ShouldBuildDatabaseHierarchyOn
 
     Assert.Equal(1, stage.NeedsEnumerationCalls);
     Assert.Equal(0, stage.EnumerateSongsCalls);
-    Assert.Equal(1, stage.BuildSongListCalls);
+    Assert.Equal(1, stage.BuildHierarchyCalls);
     Assert.Equal(0, stage.SaveSongsDatabaseCalls);
 }
 ```
@@ -1811,7 +2240,8 @@ private static SongEnumerationResult CreateEmptyEnumerationResult()
     var batch = new SongEnumerationBatch
     {
         ActiveRoots = Array.Empty<string>(),
-        DiscoveredChartPaths = new HashSet<string>(SongPathIdentity.Comparer),
+        DiscoveredChartPaths = new HashSet<string>(
+            SongPathIdentity.CanonicalComparer),
         Candidates = new List<SongImportCandidate>(),
         RootNodes = new List<SongListNode>(),
         PendingSongs = new List<PendingSongNode>(),
@@ -1820,7 +2250,8 @@ private static SongEnumerationResult CreateEmptyEnumerationResult()
         IsComplete = true
     };
     var import = new SongBulkImportResult(
-        new Dictionary<string, SongChart>(SongPathIdentity.Comparer),
+        new Dictionary<string, SongChart>(
+            SongPathIdentity.CanonicalComparer),
         0, 0, 0, 0, 0, 0, 0, TimeSpan.Zero, TimeSpan.Zero);
     return new SongEnumerationResult(batch, import, TimeSpan.Zero);
 }
@@ -1833,10 +2264,11 @@ Assert:
 - Cancellation sets summary outcome `Cancellation`, preserves roots, does not
   run cache fallback, and leaves the phase terminal rather than hanging.
 - Enumeration failure sets summary outcome `Failure`, calls
-  `BuildSongListFromDatabaseCoreAsync` once without cleanup, preserves the
+  `BuildHierarchyFromDatabaseOnceCoreAsync` once without cleanup, preserves the
   original exception on the task, and leaves a visible `Error` progress string.
-- A failed cache fallback leaves an empty or previously published hierarchy and
-  still reaches the terminal phase.
+- A failed cache fallback against an empty database leaves an empty hierarchy,
+  displays the original error, invokes no cleanup, and still reaches the
+  terminal phase.
 
 - [ ] **Step 4: Run the startup tests and verify failure**
 
@@ -1928,7 +2360,8 @@ private async Task RunSongLoadAsync()
     }
 
     var hierarchy = Stopwatch.StartNew();
-    await BuildSongListFromDatabaseCoreAsync(_songPaths).ConfigureAwait(false);
+    await BuildHierarchyFromDatabaseOnceCoreAsync(_songPaths)
+        .ConfigureAwait(false);
     hierarchy.Stop();
     _cacheHierarchyDuration = hierarchy.Elapsed;
 }
@@ -1937,7 +2370,12 @@ private IProgress<EnumerationProgress> CreateEnumerationProgressReporter() =>
     new Progress<EnumerationProgress>(progress =>
     {
         var phaseInfo = _phaseInfo[StartupPhase.EnumerateSongs];
-        if (!string.IsNullOrEmpty(progress.CurrentFile))
+        if (!string.IsNullOrEmpty(progress.CurrentOperation))
+        {
+            _currentProgressMessage =
+                $"{phaseInfo.message} {progress.CurrentOperation}";
+        }
+        else if (!string.IsNullOrEmpty(progress.CurrentFile))
         {
             _currentProgressMessage =
                 $"{phaseInfo.message} [{progress.ProcessedCount} processed, " +
@@ -1986,6 +2424,10 @@ protected virtual Task<SongEnumerationResult> EnumerateSongsCoreAsync(
     CancellationToken cancellationToken) =>
     _songManager.EnumerateAndImportSongsAsync(
         songPaths, progressReporter, cancellationToken);
+
+protected virtual Task BuildHierarchyFromDatabaseOnceCoreAsync(
+    string[] songPaths) =>
+    _songManager.BuildHierarchyFromDatabaseOnceAsync(songPaths);
 ```
 
 - [ ] **Step 7: Propagate outcomes and write the final aggregate summary**
@@ -1993,7 +2435,7 @@ protected virtual Task<SongEnumerationResult> EnumerateSongsCoreAsync(
 Do not swallow `OperationCanceledException`. On another exception:
 
 1. Set failure outcome and error text.
-2. Attempt `BuildSongListFromDatabaseCoreAsync` once.
+2. Attempt `BuildHierarchyFromDatabaseOnceCoreAsync` once.
 3. Keep the original exception as the phase task outcome.
 4. Do not run stale cleanup.
 
@@ -2020,7 +2462,8 @@ catch (Exception ex)
     try
     {
         var fallback = Stopwatch.StartNew();
-        await BuildSongListFromDatabaseCoreAsync(_songPaths).ConfigureAwait(false);
+        await BuildHierarchyFromDatabaseOnceCoreAsync(_songPaths)
+            .ConfigureAwait(false);
         fallback.Stop();
         _cacheHierarchyDuration = fallback.Elapsed;
     }
@@ -2103,7 +2546,9 @@ rtk git commit -m "refactor: make startup completion driven"
 
 **Interfaces:**
 - Consumes: all implementation commits and the Task 2 runner.
-- Produces: three optimized fresh runs, medians, percentage improvement, and acceptance result.
+- Produces: three final baseline and three optimized fresh runs from fixed
+  binaries in a balanced order, medians, percentage improvement, and
+  acceptance result.
 
 - [ ] **Step 1: Run focused persistence and startup suites**
 
@@ -2122,13 +2567,24 @@ rtk dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj
 
 Expected: PASS with zero failed tests.
 
-- [ ] **Step 3: Build the macOS game in Release**
+- [ ] **Step 3: Stage fixed baseline and optimized Release outputs**
 
 ```bash
-rtk dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj -c Release
+baseline_commit="$(rtk awk -F= \
+  '$1 == "baseline_commit" { print $2; exit }' \
+  docs/performance/HPA-192-startup-benchmark.md)"
+test -n "$baseline_commit"
+baseline_worktree="/private/tmp/dtxmania-hpa192-baseline"
+rtk git worktree add --detach "$baseline_worktree" "$baseline_commit"
+rtk dotnet build \
+  "$baseline_worktree/DTXMania.Game/DTXMania.Game.Mac.csproj" \
+  -c Release -o TestResults/hpa-192/builds/baseline-final
+rtk dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj \
+  -c Release -o TestResults/hpa-192/builds/optimized-final
 ```
 
-Expected: build succeeds with zero errors.
+Expected: both fixed outputs build with zero errors. Do not rebuild either
+output between comparative runs.
 
 - [ ] **Step 4: Verify the corpus did not change**
 
@@ -2152,12 +2608,33 @@ rtk diff -u \
 Expected: no output and exit status 0. Reconfirm the supported-chart count is
 `100`.
 
-- [ ] **Step 5: Run three optimized fresh imports**
+- [ ] **Step 5: Run the balanced comparative sequence**
 
 ```bash
-rtk bash tools/hpa192/benchmark-startup.sh \
-  "/Users/chanwaichan/Library/Application Support/DTXManiaCX/DTXFiles" \
-  optimized 3
+corpus="/Users/chanwaichan/Library/Application Support/DTXManiaCX/DTXFiles"
+baseline_dir="TestResults/hpa-192/builds/baseline-final"
+optimized_dir="TestResults/hpa-192/builds/optimized-final"
+baseline_run=0
+optimized_run=0
+order=0
+
+for label in baseline optimized optimized baseline baseline optimized; do
+  order=$((order + 1))
+  if [[ "$label" == baseline ]]; then
+    baseline_run=$((baseline_run + 1))
+    run="$baseline_run"
+    game_dir="$baseline_dir"
+  else
+    optimized_run=$((optimized_run + 1))
+    run="$optimized_run"
+    game_dir="$optimized_dir"
+  fi
+
+  printf 'order=%s label=%s run=%s\n' "$order" "$label" "$run" |
+    tee -a TestResults/hpa-192/comparative-order.txt
+  rtk bash tools/hpa192/benchmark-startup.sh \
+    "$game_dir" "$corpus" "$label-final" "$run"
+done
 ```
 
 Expected for every run:
@@ -2167,10 +2644,13 @@ Expected for every run:
 - `path=enumeration` and `outcome=success`.
 - `discovered=100`, `parsed=100`, and `groups=27`.
 - Fresh database inspection reports 100 charts and 27 songs.
+- `comparative-order.txt` records the balanced
+  `baseline, optimized, optimized, baseline, baseline, optimized` order.
 
 - [ ] **Step 6: Complete the benchmark report**
 
-Append every optimized run and compute:
+Replace the diagnostic baseline comparison with every final baseline and
+optimized run, record the comparative order, and compute:
 
 ```text
 improvement_percent =
@@ -2179,13 +2659,22 @@ improvement_percent =
 
 Record:
 
-- Optimized commit.
-- Three external wall times and three aggregate summary lines.
+- Baseline instrumentation commit and optimized commit.
+- The two fixed build-output locations.
+- The six-run comparative order.
+- Three external wall times and aggregate summary lines for each side.
 - Baseline and optimized medians.
 - Percentage improvement.
 - Whether improvement is at least 70 percent.
 - Whether optimized median is at most 8 seconds.
 - The largest remaining measured subphase if the 8-second target is missed.
+
+After the report has captured the baseline commit and all logs, remove the
+detached baseline worktree through Git:
+
+```bash
+rtk git worktree remove /private/tmp/dtxmania-hpa192-baseline
+```
 
 - [ ] **Step 7: Review the production hot path**
 
@@ -2195,6 +2684,8 @@ Verify with source search:
 rtk rg -n "AddSongAsync|GetSongWithChartsAsync|CleanupStaleChartsAsync|SaveChangesAsync" \
   DTXMania.Game/Lib/Song/SongManager.cs \
   DTXMania.Game/Lib/Song/Entities/SongDatabaseService.cs
+rtk rg -n "GroupBy.*Title|GetDatabaseScoreCountAsync" \
+  DTXMania.Game/Lib/Song/SongManager.cs
 ```
 
 Expected:
@@ -2204,6 +2695,9 @@ Expected:
 - One `SaveChangesAsync` call inside `ImportSongsAsync`.
 - Legacy helper calls remain only inside `AddSongAsync` and unrelated score
   persistence methods.
+- No title/artist grouping remains in database hierarchy construction.
+- No `GetDatabaseScoreCountAsync` call remains after enumeration, before
+  hierarchy construction, or in startup finalization.
 
 - [ ] **Step 8: Commit the final evidence**
 
@@ -2219,14 +2713,29 @@ rtk git commit -m "docs: record HPA-192 optimized benchmark"
 - [ ] Fresh import uses one context, one explicit transaction, and one save.
 - [ ] No per-chart database reload remains.
 - [ ] Existing IDs, bookmarks, speed variants, score state, recent play, and history survive rescans.
+- [ ] Unique legacy paths migrate in place; ambiguous path aliases retain all
+  rows and never trigger stale deletion.
 - [ ] Same metadata in different directories remains separate.
 - [ ] `set.def` charts share one logical song.
 - [ ] Stale cleanup is discovery-set scoped and runs only for a complete batch.
 - [ ] Records outside active roots remain untouched.
+- [ ] Inactive-root rows do not surface in active recent, bookmark, search, or
+  user-facing statistics views.
 - [ ] Cancellation and failure roll back and do not publish temporary hierarchy.
-- [ ] Enumeration publishes its own hierarchy; cache/fallback builds from SQLite once.
+- [ ] Enumeration hydrates its authored hierarchy in place; cache/fallback
+  builds from SQLite once and groups by `SongId`.
 - [ ] Startup phases advance on operation completion and Title waits for one rendered frame.
+- [ ] Persistence progress covers preload, matching, staged mutations, cleanup,
+  save, and commit.
 - [ ] One aggregate stdout line exists for success, cancellation, and failure.
 - [ ] The macOS-safe suite and Release build pass.
-- [ ] The unchanged 100-chart corpus has three baseline and three optimized measurements.
+- [ ] The unchanged 100-chart corpus has three baseline and three optimized
+  measurements from fixed outputs in the recorded balanced order.
 - [ ] Median fresh-startup improvement is at least 70 percent; the report states whether the 8-second target is met.
+
+If the final trace shows that the single tracked graph or `SaveChangesAsync` is
+the dominant remaining cost, or later profiling identifies peak memory as the
+constraint, record that evidence and open a separate multi-batch follow-up; do
+not weaken HPA-192's atomic publication contract speculatively. Explicit
+deletion of permanently removed roots and repair of legacy cross-directory
+charts that already share one `SongId` are also deferred maintenance work.
