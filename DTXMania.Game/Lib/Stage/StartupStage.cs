@@ -61,6 +61,8 @@ namespace DTXMania.Game.Lib.Stage
         private readonly IConfigManager _configManager;
 
         // Task tracking for async operations
+        private readonly object _activationGate = new();
+        private long _activationGeneration;
         private Task _currentAsyncTask;
         private CancellationTokenSource _cancellationTokenSource;
         private string[] _songPaths = Constants.SongPaths.Default;
@@ -370,6 +372,7 @@ namespace DTXMania.Game.Lib.Stage
         {
             System.Diagnostics.Debug.WriteLine("Activating Startup Stage");
 
+            BeginActivationScope();
             _startupStopwatch.Restart();
             _startupSummaryWritten = false;
             _hasRenderedStartupFrame = false;
@@ -510,6 +513,8 @@ namespace DTXMania.Game.Lib.Stage
         {
             System.Diagnostics.Debug.WriteLine("Deactivating Startup Stage");
 
+            RetireActivationScope();
+
             // Release font references (re-acquired on re-activation)
             _font?.RemoveReference();
             _font = null;
@@ -517,6 +522,91 @@ namespace DTXMania.Game.Lib.Stage
             _boldFont = null;
             _statusFallbackFont?.RemoveReference();
             _statusFallbackFont = null;
+        }
+
+        private void BeginActivationScope()
+        {
+            Task pendingTask;
+            CancellationTokenSource pendingCancellation;
+            lock (_activationGate)
+            {
+                _activationGeneration++;
+                pendingTask = _currentAsyncTask;
+                pendingCancellation = _cancellationTokenSource;
+                _currentAsyncTask = null;
+                _cancellationTokenSource =
+                    new CancellationTokenSource();
+            }
+
+            CancelAndObserveRetiredOperation(
+                pendingTask,
+                pendingCancellation);
+        }
+
+        private void RetireActivationScope()
+        {
+            Task pendingTask;
+            CancellationTokenSource pendingCancellation;
+            lock (_activationGate)
+            {
+                _activationGeneration++;
+                pendingTask = _currentAsyncTask;
+                pendingCancellation = _cancellationTokenSource;
+                _currentAsyncTask = null;
+                _cancellationTokenSource = null;
+            }
+
+            CancelAndObserveRetiredOperation(
+                pendingTask,
+                pendingCancellation);
+        }
+
+        private static void CancelAndObserveRetiredOperation(
+            Task pendingTask,
+            CancellationTokenSource pendingCancellation)
+        {
+            if (pendingCancellation != null)
+            {
+                try
+                {
+                    pendingCancellation.Cancel();
+                }
+                catch (ObjectDisposedException)
+                {
+                    // A terminal operation may already have released it.
+                }
+            }
+
+            if (pendingTask == null)
+            {
+                pendingCancellation?.Dispose();
+                return;
+            }
+
+            _ = pendingTask.ContinueWith(
+                completed =>
+                {
+                    if (completed.IsFaulted)
+                    {
+                        _ = completed.Exception;
+                    }
+                    pendingCancellation?.Dispose();
+                },
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+        }
+
+        private void EnsureCurrentActivation(
+            long activationGeneration,
+            CancellationToken cancellationToken)
+        {
+            if (activationGeneration != _activationGeneration)
+            {
+                throw new OperationCanceledException(
+                    cancellationToken);
+            }
+            cancellationToken.ThrowIfCancellationRequested();
         }
 
         #endregion
@@ -527,52 +617,7 @@ namespace DTXMania.Game.Lib.Stage
             {
                 System.Diagnostics.Debug.WriteLine("Disposing Startup Stage resources");
 
-                // Cancel and await completion of the current async task if it exists
-                if (_currentAsyncTask != null)
-                {
-                    try
-                    {
-                        // Request cancellation
-                        _cancellationTokenSource?.Cancel();
-
-                        // Wait for the task to complete, with a timeout.
-                        System.Diagnostics.Debug.WriteLine("Waiting for current async task with a 5-second timeout...");
-                        var timeoutTask = Task.Delay(TimeSpan.FromSeconds(5));
-                        var completedTask = Task.WhenAny(_currentAsyncTask, timeoutTask).Result;
-
-                        if (completedTask == _currentAsyncTask)
-                        {
-                            // Task completed within the timeout.
-                            // Calling Wait() on the completed task will not block but will propagate any exceptions.
-                            _currentAsyncTask.Wait();
-                            System.Diagnostics.Debug.WriteLine("Current async task completed gracefully.");
-                        }
-                        else
-                        {
-                            // Timeout occurred.
-                            System.Diagnostics.Debug.WriteLine("Warning: Current async task timed out and will be abandoned.");
-                        }
-
-                        System.Diagnostics.Debug.WriteLine("Current async task disposed");
-                    }
-                    catch (AggregateException ex)
-                    {
-                        // Handle task cancellation or other exceptions during disposal
-                        System.Diagnostics.Debug.WriteLine($"Exception during task disposal: {ex.InnerException?.Message}");
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"Exception during task disposal: {ex.Message}");
-                    }
-                    finally
-                    {
-                        _currentAsyncTask = null;
-                    }
-                }
-
-                // Dispose cancellation token source
-                _cancellationTokenSource?.Dispose();
-                _cancellationTokenSource = null;
+                RetireActivationScope();
 
                 // Cleanup MonoGame resources - using reference counting for managed textures
                 // Font refs are released in OnDeactivate (called by BaseStage.Dispose → Deactivate)
@@ -864,7 +909,26 @@ namespace DTXMania.Game.Lib.Stage
             _songManager.SetInitialized();
         }
 
-        private async Task InitializeDatabaseServiceAsync()
+        private Task InitializeDatabaseServiceAsync()
+        {
+            long activationGeneration;
+            CancellationToken cancellationToken;
+            lock (_activationGate)
+            {
+                activationGeneration = _activationGeneration;
+                cancellationToken =
+                    _cancellationTokenSource?.Token ??
+                    CancellationToken.None;
+            }
+
+            return InitializeDatabaseServiceForActivationAsync(
+                activationGeneration,
+                cancellationToken);
+        }
+
+        private async Task InitializeDatabaseServiceForActivationAsync(
+            long activationGeneration,
+            CancellationToken cancellationToken)
         {
             var initialization = Stopwatch.StartNew();
             try
@@ -881,76 +945,199 @@ namespace DTXMania.Game.Lib.Stage
             finally
             {
                 initialization.Stop();
-                _databaseInitializationDuration = initialization.Elapsed;
+                lock (_activationGate)
+                {
+                    if (activationGeneration == _activationGeneration &&
+                        !cancellationToken.IsCancellationRequested)
+                    {
+                        _databaseInitializationDuration =
+                            initialization.Elapsed;
+                    }
+                }
             }
         }
 
-        private async Task RunSongLoadAsync()
+        private Task RunSongLoadAsync()
+        {
+            long activationGeneration;
+            CancellationToken cancellationToken;
+            lock (_activationGate)
+            {
+                activationGeneration = _activationGeneration;
+                cancellationToken =
+                    _cancellationTokenSource?.Token ??
+                    CancellationToken.None;
+            }
+
+            return RunSongLoadForActivationAsync(
+                activationGeneration,
+                cancellationToken);
+        }
+
+        private async Task RunSongLoadForActivationAsync(
+            long activationGeneration,
+            CancellationToken cancellationToken)
         {
             try
             {
-                _needsEnumeration = await NeedsEnumerationCoreAsync(
-                    _songPaths,
-                    ForceEnumeration).ConfigureAwait(false);
-                _selectedLoadPath = _needsEnumeration.Value
-                    ? StartupSongLoadPath.Enumeration
-                    : StartupSongLoadPath.Cache;
-
-                if (!_needsEnumeration.Value)
+                Task<bool> needsEnumerationTask;
+                lock (_activationGate)
                 {
-                    await BuildCacheHierarchyAsync().ConfigureAwait(false);
+                    EnsureCurrentActivation(
+                        activationGeneration,
+                        cancellationToken);
+                    needsEnumerationTask =
+                        NeedsEnumerationCoreAsync(
+                            _songPaths,
+                            ForceEnumeration);
+                }
+
+                var needsEnumeration =
+                    await needsEnumerationTask.ConfigureAwait(false);
+                lock (_activationGate)
+                {
+                    EnsureCurrentActivation(
+                        activationGeneration,
+                        cancellationToken);
+                    _needsEnumeration = needsEnumeration;
+                    _selectedLoadPath = needsEnumeration
+                        ? StartupSongLoadPath.Enumeration
+                        : StartupSongLoadPath.Cache;
+                }
+
+                if (!needsEnumeration)
+                {
+                    await BuildCacheHierarchyForActivationAsync(
+                            activationGeneration,
+                            cancellationToken)
+                        .ConfigureAwait(false);
                     return;
                 }
 
-                _enumerationResult =
-                    await EnumerateSongsCoreAsync(
-                        _songPaths,
-                        CreateEnumerationProgressReporter(),
-                        _cancellationTokenSource.Token)
-                    .ConfigureAwait(false);
-                if (_enumerationResult == null)
+                Task<SongEnumerationResult> enumerationTask;
+                lock (_activationGate)
                 {
-                    throw new InvalidOperationException(
-                        "Song enumeration completed without publishing a hierarchy.");
+                    EnsureCurrentActivation(
+                        activationGeneration,
+                        cancellationToken);
+                    enumerationTask = EnumerateSongsCoreAsync(
+                        _songPaths,
+                        CreateEnumerationProgressReporterForActivation(
+                            activationGeneration,
+                            cancellationToken),
+                        cancellationToken);
+                }
+
+                var enumerationResult =
+                    await enumerationTask.ConfigureAwait(false);
+                lock (_activationGate)
+                {
+                    EnsureCurrentActivation(
+                        activationGeneration,
+                        cancellationToken);
+                    if (enumerationResult == null)
+                    {
+                        throw new InvalidOperationException(
+                            "Song enumeration completed without " +
+                            "publishing a hierarchy.");
+                    }
+                    _enumerationResult = enumerationResult;
                 }
             }
             catch (OperationCanceledException)
             {
-                _songLoadOutcome = StartupSongLoadOutcome.Cancellation;
-                _songLoadError = "cancelled";
+                lock (_activationGate)
+                {
+                    if (activationGeneration == _activationGeneration)
+                    {
+                        _songLoadOutcome =
+                            StartupSongLoadOutcome.Cancellation;
+                        _songLoadError = "cancelled";
+                    }
+                }
                 throw;
             }
             catch (Exception ex)
             {
-                _songLoadOutcome = StartupSongLoadOutcome.Failure;
-                _songLoadError = ex.Message;
-                if (_selectedLoadPath != StartupSongLoadPath.Cache)
+                bool isCurrentActivation;
+                bool shouldFallback;
+                lock (_activationGate)
                 {
-                    await TryBuildCacheFallbackOnceAsync()
+                    isCurrentActivation =
+                        activationGeneration == _activationGeneration;
+                    shouldFallback =
+                        isCurrentActivation &&
+                        _selectedLoadPath != StartupSongLoadPath.Cache;
+                    if (isCurrentActivation)
+                    {
+                        _songLoadOutcome =
+                            StartupSongLoadOutcome.Failure;
+                        _songLoadError = ex.Message;
+                    }
+                }
+
+                if (!isCurrentActivation)
+                {
+                    throw;
+                }
+                if (shouldFallback)
+                {
+                    await TryBuildCacheFallbackOnceForActivationAsync(
+                            activationGeneration,
+                            cancellationToken)
                         .ConfigureAwait(false);
                 }
                 throw;
             }
         }
 
-        private async Task BuildCacheHierarchyAsync()
+        private async Task BuildCacheHierarchyForActivationAsync(
+            long activationGeneration,
+            CancellationToken cancellationToken)
         {
             var hierarchy = Stopwatch.StartNew();
-            await BuildHierarchyFromDatabaseOnceCoreAsync(_songPaths)
-                .ConfigureAwait(false);
+            Task hierarchyTask;
+            lock (_activationGate)
+            {
+                EnsureCurrentActivation(
+                    activationGeneration,
+                    cancellationToken);
+                hierarchyTask =
+                    BuildHierarchyFromDatabaseOnceCoreAsync(_songPaths);
+            }
+
+            await hierarchyTask.ConfigureAwait(false);
             hierarchy.Stop();
-            _cacheHierarchyDuration = hierarchy.Elapsed;
+            lock (_activationGate)
+            {
+                EnsureCurrentActivation(
+                    activationGeneration,
+                    cancellationToken);
+                _cacheHierarchyDuration = hierarchy.Elapsed;
+            }
         }
 
-        private async Task TryBuildCacheFallbackOnceAsync()
+        private async Task TryBuildCacheFallbackOnceForActivationAsync(
+            long activationGeneration,
+            CancellationToken cancellationToken)
         {
-            if (_cacheFallbackAttempted)
-                return;
-            _cacheFallbackAttempted = true;
+            lock (_activationGate)
+            {
+                if (activationGeneration != _activationGeneration ||
+                    cancellationToken.IsCancellationRequested ||
+                    _cacheFallbackAttempted)
+                {
+                    return;
+                }
+                _cacheFallbackAttempted = true;
+            }
 
             try
             {
-                await BuildCacheHierarchyAsync().ConfigureAwait(false);
+                await BuildCacheHierarchyForActivationAsync(
+                        activationGeneration,
+                        cancellationToken)
+                    .ConfigureAwait(false);
             }
             catch (Exception fallbackException)
             {
@@ -961,35 +1148,62 @@ namespace DTXMania.Game.Lib.Stage
         }
 
         private IProgress<EnumerationProgress>
-            CreateEnumerationProgressReporter() =>
+            CreateEnumerationProgressReporter()
+        {
+            lock (_activationGate)
+            {
+                return CreateEnumerationProgressReporterForActivation(
+                    _activationGeneration,
+                    _cancellationTokenSource?.Token ??
+                    CancellationToken.None);
+            }
+        }
+
+        private IProgress<EnumerationProgress>
+            CreateEnumerationProgressReporterForActivation(
+                long activationGeneration,
+                CancellationToken cancellationToken) =>
             new Progress<EnumerationProgress>(progress =>
             {
-                var phaseInfo = _phaseInfo[StartupPhase.EnumerateSongs];
-                if (!string.IsNullOrEmpty(progress.CurrentOperation))
+                lock (_activationGate)
                 {
-                    _currentProgressMessage =
-                        $"{phaseInfo.message} {progress.CurrentOperation}";
-                }
-                else if (!string.IsNullOrEmpty(progress.CurrentFile))
-                {
-                    _currentProgressMessage =
-                        $"{phaseInfo.message} " +
-                        $"[{progress.ProcessedCount} processed, " +
-                        $"{progress.DiscoveredSongs} songs] " +
-                        Path.GetFileName(progress.CurrentFile);
-                }
-                else if (!string.IsNullOrEmpty(progress.CurrentDirectory))
-                {
-                    _currentProgressMessage =
-                        $"{phaseInfo.message} Scanning directory: " +
-                        Path.GetFileName(progress.CurrentDirectory);
-                }
-                else
-                {
-                    _currentProgressMessage =
-                        $"{phaseInfo.message} " +
-                        $"[{progress.ProcessedCount} processed, " +
-                        $"{progress.DiscoveredSongs} songs found]";
+                    if (activationGeneration != _activationGeneration ||
+                        cancellationToken.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
+                    var phaseInfo =
+                        _phaseInfo[StartupPhase.EnumerateSongs];
+                    if (!string.IsNullOrEmpty(
+                        progress.CurrentOperation))
+                    {
+                        _currentProgressMessage =
+                            $"{phaseInfo.message} " +
+                            $"{progress.CurrentOperation}";
+                    }
+                    else if (!string.IsNullOrEmpty(progress.CurrentFile))
+                    {
+                        _currentProgressMessage =
+                            $"{phaseInfo.message} " +
+                            $"[{progress.ProcessedCount} processed, " +
+                            $"{progress.DiscoveredSongs} songs] " +
+                            Path.GetFileName(progress.CurrentFile);
+                    }
+                    else if (!string.IsNullOrEmpty(
+                        progress.CurrentDirectory))
+                    {
+                        _currentProgressMessage =
+                            $"{phaseInfo.message} Scanning directory: " +
+                            Path.GetFileName(progress.CurrentDirectory);
+                    }
+                    else
+                    {
+                        _currentProgressMessage =
+                            $"{phaseInfo.message} " +
+                            $"[{progress.ProcessedCount} processed, " +
+                            $"{progress.DiscoveredSongs} songs found]";
+                    }
                 }
             });
 
