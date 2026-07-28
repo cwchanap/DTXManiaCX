@@ -526,14 +526,10 @@ namespace DTXMania.Game.Lib.Song.Entities
                                         path)) &&
                                 pair.Value.Any(chart =>
                                     !discoveredPersistedChartIds.Contains(
-                                        chart.Id) &&
-                                    !pathConflictProtectedChartIds.Contains(
                                         chart.Id)))
                             .SelectMany(pair => pair.Value)
                             .Where(chart =>
                                 !discoveredPersistedChartIds.Contains(
-                                    chart.Id) &&
-                                !pathConflictProtectedChartIds.Contains(
                                     chart.Id))
                             .Select(chart => chart.Id)
                             .Distinct()
@@ -550,17 +546,19 @@ namespace DTXMania.Game.Lib.Song.Entities
                                 discoveredPath))
                         .SelectMany(pair => pair.Value)
                         .Where(chart =>
-                            !discoveredPersistedChartIds.Contains(chart.Id) &&
-                            !pathConflictProtectedChartIds.Contains(chart.Id))
+                            !discoveredPersistedChartIds.Contains(chart.Id))
                         .OrderBy(chart => chart.Id)
                         .ToArray();
-                    if (aliasCharts.Length == 1)
+                    var hasConflictProtectedAlias = aliasCharts.Any(chart =>
+                        pathConflictProtectedChartIds.Contains(chart.Id));
+                    if (aliasCharts.Length == 1 &&
+                        !hasConflictProtectedAlias)
                     {
                         ResolveUniquePath(
                             discoveredPath,
                             aliasCharts[0]);
                     }
-                    else if (aliasCharts.Length > 1)
+                    else if (aliasCharts.Length > 0)
                     {
                         MarkPathConflict(
                             aliasPaths,

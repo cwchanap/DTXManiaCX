@@ -915,6 +915,64 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
+        public async Task ImportSongsAsync_ConflictProtectedExactGroup_ShouldBlockUnmatchedAlias()
+        {
+            if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS())
+                return;
+
+            var legacy = await SeedChartWithStoredPathAsync(
+                "/songs/active/nested/../chart.dtx", "Legacy");
+            var exact = await SeedChartWithStoredPathAsync(
+                "/songs/active/chart.dtx", "Exact");
+            var exactCandidate = Candidate(
+                "Exact Candidate",
+                "dir|exact",
+                0,
+                "/songs/active/chart.dtx",
+                60);
+            var aliasCandidate = Candidate(
+                "Alias Candidate",
+                "dir|alias",
+                0,
+                "/songs/active/CHART.dtx",
+                60);
+
+            var result = await _service.ImportSongsAsync(
+                CreateRequest(exactCandidate, aliasCandidate),
+                progress: null,
+                CancellationToken.None);
+
+            await using var context = new SongDbContext(_options);
+            var storedCharts = await context.SongCharts
+                .AsNoTracking()
+                .OrderBy(chart => chart.Id)
+                .Select(chart => new { chart.Id, chart.FilePath })
+                .ToArrayAsync();
+            Assert.Equal(2, storedCharts.Length);
+            Assert.Contains(
+                storedCharts,
+                chart => chart.Id == legacy.Id &&
+                    chart.FilePath ==
+                        "/songs/active/nested/../chart.dtx");
+            Assert.Contains(
+                storedCharts,
+                chart => chart.Id == exact.Id &&
+                    chart.FilePath == "/songs/active/chart.dtx");
+            Assert.Equal(2, await context.Songs.CountAsync());
+            Assert.Equal(2, result.Conflicts);
+            Assert.Equal(2, result.Skipped);
+            Assert.Equal(0, result.Added);
+            Assert.Equal(0, result.StaleCharts);
+            Assert.Equal(0, result.StaleSongs);
+            Assert.False(
+                result.ChartsByPath.ContainsKey(
+                    exactCandidate.NormalizedChartPath));
+            Assert.False(
+                result.ChartsByPath.ContainsKey(
+                    aliasCandidate.NormalizedChartPath));
+        }
+
+        [Fact]
         public async Task ImportSongsAsync_GlobalBinaryTargetOutsideTrackedGraph_ShouldBlockLegacyRewrite()
         {
             if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS())
