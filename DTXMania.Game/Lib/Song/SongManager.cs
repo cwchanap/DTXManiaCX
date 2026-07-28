@@ -77,6 +77,11 @@ namespace DTXMania.Game.Lib.Song
         internal Func<string, IEnumerable<string>> EnumerateDirectoriesCore
             { get; set; } = Directory.EnumerateDirectories;
 
+        internal Func<string, Encoding, CancellationToken, Task<string[]>>
+            ReadAllLinesCoreAsync { get; set; } =
+                static (path, encoding, token) =>
+                    File.ReadAllLinesAsync(path, encoding, token);
+
         internal Func<
             SongDatabaseService,
             SongBulkImportRequest,
@@ -336,13 +341,26 @@ namespace DTXMania.Game.Lib.Song
         /// </summary>
         public async Task<int> EnumerateSongsOnlyAsync(string[] searchPaths, IProgress<EnumerationProgress>? progress = null, CancellationToken cancellationToken = default)
         {
+            var result = await EnumerateSongsOnlyWithPublicationAsync(
+                searchPaths,
+                progress,
+                cancellationToken).ConfigureAwait(false);
+            return result.SongCount;
+        }
+
+        internal async Task<(int SongCount, bool Published)>
+            EnumerateSongsOnlyWithPublicationAsync(
+                string[] searchPaths,
+                IProgress<EnumerationProgress>? progress = null,
+                CancellationToken cancellationToken = default)
+        {
             if (GetDatabaseServiceSnapshot() == null)
-                return 0;
+                return (0, false);
 
             lock (_lockObject)
             {
                 if (_enumCancellation is { IsCancellationRequested: false })
-                    return 0;
+                    return (0, false);
             }
 
             var result = await EnumerateAndImportSongsAsync(
@@ -351,7 +369,7 @@ namespace DTXMania.Game.Lib.Song
                 cancellationToken).ConfigureAwait(false);
             await UpdateEnumerationTimestampAsync().ConfigureAwait(false);
 
-            return result.Batch.Candidates.Count;
+            return (result.Batch.Candidates.Count, true);
         }
 
         /// <summary>
@@ -906,7 +924,7 @@ namespace DTXMania.Game.Lib.Song
             string[] lines;
             try
             {
-                lines = await File.ReadAllLinesAsync(
+                lines = await ReadAllLinesCoreAsync(
                     setDefPath,
                     Encoding.UTF8,
                     cancellationToken).ConfigureAwait(false);
@@ -918,6 +936,10 @@ namespace DTXMania.Game.Lib.Song
             catch (Exception exception) when (
                 exception is IOException or UnauthorizedAccessException)
             {
+                ProtectSupportedChartPathsInSubtree(
+                    Path.GetDirectoryName(setDefPath) ?? "",
+                    builder,
+                    cancellationToken);
                 builder.Errors.Add(new SongEnumerationError(
                     SongPathIdentity.Normalize(setDefPath),
                     exception.Message,
@@ -939,6 +961,10 @@ namespace DTXMania.Game.Lib.Song
             }
             catch (Exception exception)
             {
+                ProtectSupportedChartPathsInSubtree(
+                    Path.GetDirectoryName(setDefPath) ?? "",
+                    builder,
+                    cancellationToken);
                 builder.Errors.Add(new SongEnumerationError(
                     SongPathIdentity.Normalize(setDefPath),
                     exception.Message,
@@ -1038,6 +1064,32 @@ namespace DTXMania.Game.Lib.Song
                 groupKey,
                 placeholder,
                 orderedPaths));
+        }
+
+        private void ProtectSupportedChartPathsInSubtree(
+            string directoryPath,
+            SongEnumerationBatchBuilder builder,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            foreach (var path in EnumerateFilesCore(directoryPath)
+                .Where(DTXChartParser.IsSupportedFile)
+                .Select(SongPathIdentity.Normalize)
+                .OrderBy(path => path, SongPathIdentity.CanonicalComparer))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                builder.DiscoveredChartPaths.Add(path);
+            }
+
+            foreach (var subdirectory in EnumerateDirectoriesCore(directoryPath)
+                .Select(SongPathIdentity.Normalize)
+                .OrderBy(path => path, SongPathIdentity.CanonicalComparer))
+            {
+                ProtectSupportedChartPathsInSubtree(
+                    subdirectory,
+                    builder,
+                    cancellationToken);
+            }
         }
 
         private static SongListNode CreateTemporarySongNode(
@@ -3717,6 +3769,9 @@ namespace DTXMania.Game.Lib.Song
                     DTXChartParser.ParseSongEntitiesAsync;
                 EnumerateFilesCore = Directory.EnumerateFiles;
                 EnumerateDirectoriesCore = Directory.EnumerateDirectories;
+                ReadAllLinesCoreAsync =
+                    static (path, encoding, token) =>
+                        File.ReadAllLinesAsync(path, encoding, token);
                 ImportSongsCoreAsync = DefaultImportSongsAsync;
                 GetDatabaseStatsCoreAsync =
                     static database => database.GetDatabaseStatsAsync();

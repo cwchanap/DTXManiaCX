@@ -876,9 +876,16 @@ namespace DTXMania.Game.Lib.Stage
             return _songManager.NeedsEnumerationAsync(songPaths, forceEnumeration);
         }
 
-        protected virtual Task<int> EnumerateSongsOnlyCoreAsync(string[] songPaths, IProgress<EnumerationProgress> progressReporter, CancellationToken cancellationToken)
+        protected virtual Task<(int SongCount, bool Published)>
+            EnumerateSongsOnlyCoreAsync(
+                string[] songPaths,
+                IProgress<EnumerationProgress> progressReporter,
+                CancellationToken cancellationToken)
         {
-            return _songManager.EnumerateSongsOnlyAsync(songPaths, progressReporter, cancellationToken);
+            return _songManager.EnumerateSongsOnlyWithPublicationAsync(
+                songPaths,
+                progressReporter,
+                cancellationToken);
         }
 
         protected virtual Task BuildSongListFromDatabaseCoreAsync(string[] songPaths)
@@ -1008,8 +1015,13 @@ namespace DTXMania.Game.Lib.Stage
                     }
                 });
 
-                int songCount = await EnumerateSongsOnlyCoreAsync(_songPaths, progressReporter, _cancellationTokenSource.Token).ConfigureAwait(false);
-                _enumerationPublishedHierarchy = true;
+                var (songCount, published) =
+                    await EnumerateSongsOnlyCoreAsync(
+                        _songPaths,
+                        progressReporter,
+                        _cancellationTokenSource.Token)
+                    .ConfigureAwait(false);
+                _enumerationPublishedHierarchy = published;
                 System.Diagnostics.Debug.WriteLine($"Song enumeration complete: {songCount} songs found");
             }
             catch (OperationCanceledException)
