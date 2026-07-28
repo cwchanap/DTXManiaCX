@@ -373,12 +373,24 @@ namespace DTXMania.Test.Song
             // Arrange
             var eventFired = false;
             _manager.EnumerationCompleted += (sender, args) => eventFired = true;
+            var directory = Path.Combine(
+                Path.GetTempPath(),
+                $"SongManagerEvent_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(directory);
+            await _manager.InitializeDatabaseServiceAsync(_testDbPath);
 
-            // Act
-            await _manager.EnumerateSongsAsync(new[] { "NonExistentPath" });
+            try
+            {
+                // Act
+                await _manager.EnumerateSongsAsync(new[] { directory });
 
-            // Assert
-            Assert.True(eventFired);
+                // Assert
+                Assert.True(eventFired);
+            }
+            finally
+            {
+                Directory.Delete(directory, recursive: true);
+            }
         }
 
         [Fact]
@@ -493,8 +505,10 @@ namespace DTXMania.Test.Song
                     Assert.Equal("Test Artist", node.DatabaseSong?.Artist);
                 });
                 
-                // Verify that we have the expected number of DTX files processed
-                Assert.Equal(3, _manager.DiscoveredScoreCount);
+                // Parsed candidates remain chart-oriented while publication counters
+                // describe the logical hierarchy and discovered chart paths.
+                Assert.Equal(1, _manager.DiscoveredScoreCount);
+                Assert.Equal(3, _manager.EnumeratedFileCount);
             }
             finally
             {
@@ -562,7 +576,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task EnumerateSongsAsync_WithSameSongDifferentDirectories_ShouldGroupIntoSingleSong()
+        public async Task EnumerateSongsAsync_WithSameMetadataInDifferentDirectories_ShouldKeepSeparateSongs()
         {
             // Arrange - Same song scattered across different directories
             var tempDir = Path.Combine(Path.GetTempPath(), "SongScatterTest");
@@ -597,8 +611,7 @@ namespace DTXMania.Test.Song
                 var rootSongs = _manager.RootSongs;
                 var scatteredSongs = rootSongs.Where(n => n.Title == "Scattered Song").ToList();
                 
-                // SongManager may create separate UI nodes for files in different directories
-                Assert.True(scatteredSongs.Count >= 1, "Should have at least one scattered song");
+                Assert.Equal(2, scatteredSongs.Count);
                 
                 // Verify all nodes have the same title/artist (database grouping)
                 Assert.All(scatteredSongs, node => 

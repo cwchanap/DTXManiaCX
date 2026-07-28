@@ -45,7 +45,7 @@ namespace DTXMania.Test.Song
         #region Song Grouping Tests
 
         [Fact]
-        public async Task AddSongAsync_WithSameTitleAndArtist_ShouldGroupChartsIntoSingleSong()
+        public async Task LegacyAddSongAsync_WithSameTitleAndArtist_ShouldGroupChartsIntoSingleSong()
         {
             // Arrange
             await _databaseService.InitializeDatabaseAsync();
@@ -112,7 +112,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task AddSongAsync_WithDifferentTitles_ShouldCreateSeparateSongs()
+        public async Task LegacyAddSongAsync_WithDifferentTitles_ShouldCreateSeparateSongs()
         {
             // Arrange
             await _databaseService.InitializeDatabaseAsync();
@@ -166,7 +166,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task AddSongAsync_WithDifferentArtists_ShouldCreateSeparateSongs()
+        public async Task LegacyAddSongAsync_WithDifferentArtists_ShouldCreateSeparateSongs()
         {
             // Arrange
             await _databaseService.InitializeDatabaseAsync();
@@ -220,7 +220,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task AddSongAsync_WithSameFilePath_ShouldReturnExistingSongId()
+        public async Task LegacyAddSongAsync_WithSameFilePath_ShouldReturnExistingSongId()
         {
             // Arrange
             await _databaseService.InitializeDatabaseAsync();
@@ -260,7 +260,7 @@ namespace DTXMania.Test.Song
         // caller's entity, otherwise the in-memory node built from it loses the star marker
         // and the B-key toggle inverts (sets instead of clears).
         [Fact]
-        public async Task AddSongAsync_WithDuplicateBookmarkedSong_HydratesIdAndBookmarkOntoParsedEntity()
+        public async Task LegacyAddSongAsync_WithDuplicateBookmarkedSong_HydratesIdAndBookmarkOntoParsedEntity()
         {
             await _databaseService.InitializeDatabaseAsync();
 
@@ -295,7 +295,7 @@ namespace DTXMania.Test.Song
         // Same bug class for the title+artist duplicate branch: a new chart file for an
         // existing (bookmarked) song must hydrate the bookmark onto the parsed entity.
         [Fact]
-        public async Task AddSongAsync_WithNewChartForBookmarkedSong_HydratesIdAndBookmarkOntoParsedEntity()
+        public async Task LegacyAddSongAsync_WithNewChartForBookmarkedSong_HydratesIdAndBookmarkOntoParsedEntity()
         {
             await _databaseService.InitializeDatabaseAsync();
 
@@ -327,7 +327,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task AddSongAsync_WithMultipleChartsForSameSong_ShouldMaintainCorrectDurations()
+        public async Task LegacyAddSongAsync_WithMultipleChartsForSameSong_ShouldMaintainCorrectDurations()
         {
             // Arrange - Simulate "My Hope Is Gone" scenario
             await _databaseService.InitializeDatabaseAsync();

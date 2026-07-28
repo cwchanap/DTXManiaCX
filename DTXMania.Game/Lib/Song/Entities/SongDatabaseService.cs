@@ -1057,6 +1057,11 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// Add a new song with charts and scores using EF Core entities
         /// Handles duplicate detection based on file path
         /// </summary>
+        /// <remarks>
+        /// Legacy/test-only helper with per-call persistence semantics. Startup song
+        /// discovery must use <see cref="ImportSongsAsync"/> so the complete library is
+        /// committed atomically.
+        /// </remarks>
         public async Task<int> AddSongAsync(SongEntity song, SongChart chart)
         {
             // Ensure initialization is complete

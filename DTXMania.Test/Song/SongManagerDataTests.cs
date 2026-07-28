@@ -14,6 +14,7 @@ namespace DTXMania.Test.Song
         public void EnumerationProgress_DefaultValues_ShouldBeCorrect()
         {
             var progress = new EnumerationProgress();
+            Assert.Equal("", progress.CurrentOperation);
             Assert.Equal("", progress.CurrentFile);
             Assert.Equal("", progress.CurrentDirectory);
             Assert.Equal(0, progress.ProcessedCount);
@@ -25,12 +26,14 @@ namespace DTXMania.Test.Song
         {
             var progress = new EnumerationProgress
             {
+                CurrentOperation = "Saving songs",
                 CurrentFile = "/music/song.dtx",
                 CurrentDirectory = "/music",
                 ProcessedCount = 50,
                 DiscoveredSongs = 42
             };
 
+            Assert.Equal("Saving songs", progress.CurrentOperation);
             Assert.Equal("/music/song.dtx", progress.CurrentFile);
             Assert.Equal("/music", progress.CurrentDirectory);
             Assert.Equal(50, progress.ProcessedCount);

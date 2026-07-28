@@ -4,7 +4,7 @@ using DTXMania.Game.Lib.Song.Entities;
 
 namespace DTXMania.Game.Lib.Song
 {
-    internal sealed record SongImportCandidate(
+    public sealed record SongImportCandidate(
         global::DTXMania.Game.Lib.Song.Entities.Song ParsedSong,
         SongChart ParsedChart,
         string NormalizedChartPath,
@@ -16,12 +16,12 @@ namespace DTXMania.Game.Lib.Song
         IReadOnlySet<string> DiscoveredChartPaths,
         IReadOnlyList<SongImportCandidate> Candidates);
 
-    internal sealed record PendingSongNode(
+    public sealed record PendingSongNode(
         string GroupKey,
         SongListNode Placeholder,
         IReadOnlyList<string> OrderedChartPaths);
 
-    internal sealed record SongEnumerationError(
+    public sealed record SongEnumerationError(
         string Path,
         string Message,
         bool IsRootFailure);
@@ -41,7 +41,7 @@ namespace DTXMania.Game.Lib.Song
         int Processed,
         int Total);
 
-    internal sealed class SongEnumerationBatch
+    public sealed class SongEnumerationBatch
     {
         public required IReadOnlyList<string> ActiveRoots { get; init; }
         public required HashSet<string> DiscoveredChartPaths { get; init; }
@@ -53,7 +53,7 @@ namespace DTXMania.Game.Lib.Song
         public bool IsComplete { get; init; }
     }
 
-    internal sealed record SongBulkImportResult(
+    public sealed record SongBulkImportResult(
         IReadOnlyDictionary<string, SongChart> ChartsByPath,
         int Added,
         int Updated,
@@ -65,7 +65,7 @@ namespace DTXMania.Game.Lib.Song
         TimeSpan PersistenceDuration,
         TimeSpan CleanupDuration);
 
-    internal sealed record SongEnumerationResult(
+    public sealed record SongEnumerationResult(
         SongEnumerationBatch Batch,
         SongBulkImportResult Import,
         TimeSpan HierarchyDuration);

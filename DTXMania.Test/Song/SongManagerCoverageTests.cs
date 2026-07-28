@@ -303,7 +303,7 @@ public class SongManagerCoverageTests : IDisposable
     }
 
     [Fact]
-    public async Task EnumerateSongsAsync_WithCancelledToken_ShouldReturnZero()
+    public async Task EnumerateSongsAsync_WithCancelledToken_ShouldThrowOperationCanceledException()
     {
         var songsRoot = Path.Combine(_testRoot, "CancelledSongs");
         Directory.CreateDirectory(songsRoot);
@@ -313,9 +313,11 @@ public class SongManagerCoverageTests : IDisposable
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
 
-        var result = await _manager.EnumerateSongsAsync(new[] { songsRoot }, cancellationToken: cancellation.Token);
-
-        Assert.Equal(0, result);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            _manager.EnumerateSongsAsync(
+                new[] { songsRoot },
+                cancellationToken: cancellation.Token));
+        Assert.Empty(_manager.RootSongs);
     }
 
     [Fact]
@@ -797,6 +799,7 @@ public class SongManagerCoverageTests : IDisposable
     [Fact]
     public async Task EnumerateSongsAsync_WhenEnumerationAlreadyInProgress_ShouldReturnZero()
     {
+        await _manager.InitializeDatabaseServiceAsync(_testDbPath);
         ReflectionHelpers.SetPrivateField(_manager, "_enumCancellation", new CancellationTokenSource());
 
         var result = await _manager.EnumerateSongsAsync(new[] { _testRoot });
@@ -1032,85 +1035,7 @@ public class SongManagerCoverageTests : IDisposable
     }
 
     [Fact]
-    public async Task GroupSongNodesBySong_WithoutDatabaseService_ShouldReturnOriginalNodes()
-    {
-        var nodes = new List<SongListNode> { new() { Title = "Loose Song", Type = NodeType.Score } };
-
-        var result = await ReflectionHelpers.InvokePrivateMethod<Task<List<SongListNode>>>(_manager, "GroupSongNodesBySong", nodes);
-
-        Assert.Same(nodes, result);
-    }
-
-    [Fact]
-    public async Task GroupSongNodesBySong_WhenSongLookupFails_ShouldFallbackToFirstNode()
-    {
-        await _manager.InitializeDatabaseServiceAsync(_testDbPath);
-
-        var firstNode = new SongListNode
-        {
-            Title = "Grouped Song",
-            Type = NodeType.Score,
-            DatabaseSongId = 9999,
-            DatabaseSong = new SongEntity { Title = "Grouped Song", Artist = "Coverage Bot" }
-        };
-        var secondNode = new SongListNode
-        {
-            Title = "Grouped Song",
-            Type = NodeType.Score,
-            DatabaseSongId = 9999,
-            DatabaseSong = new SongEntity { Title = "Grouped Song", Artist = "Coverage Bot" }
-        };
-
-        var result = await ReflectionHelpers.InvokePrivateMethod<Task<List<SongListNode>>>(
-            _manager,
-            "GroupSongNodesBySong",
-            new List<SongListNode> { firstNode, secondNode });
-
-        var groupedNode = Assert.Single(result);
-        Assert.Same(firstNode, groupedNode);
-    }
-
-    [Fact]
-    public async Task GroupSongNodesBySong_WithBrokenDatabaseService_ShouldReturnOriginalNodes()
-    {
-        var originalDatabaseService = _manager.DatabaseService;
-        var nodes = new List<SongListNode>
-        {
-            new()
-            {
-                Title = "Grouped Song",
-                Type = NodeType.Score,
-                DatabaseSongId = 123,
-                DatabaseSong = new SongEntity { Title = "Grouped Song", Artist = "Coverage Bot" }
-            },
-            new()
-            {
-                Title = "Grouped Song",
-                Type = NodeType.Score,
-                DatabaseSongId = 123,
-                DatabaseSong = new SongEntity { Title = "Grouped Song", Artist = "Coverage Bot" }
-            }
-        };
-
-        try
-        {
-            ReflectionHelpers.SetPrivateField(_manager, "_databaseService", CreateBrokenDatabaseService());
-
-            var result = await ReflectionHelpers.InvokePrivateMethod<Task<List<SongListNode>>>(
-                _manager,
-                "GroupSongNodesBySong",
-                nodes);
-
-            Assert.Same(nodes, result);
-        }
-        finally
-        {
-            ReflectionHelpers.SetPrivateField(_manager, "_databaseService", originalDatabaseService);
-        }
-    }
-
-    [Fact]
-    public async Task EnumerateSongsAsync_WhenCancelledAfterFirstProgressReport_ShouldReturnPartialCount()
+    public async Task EnumerateSongsAsync_WhenCancelledAfterFirstProgressReport_ShouldThrowAndNotPublishPartialCount()
     {
         var songsRoot = Path.Combine(_testRoot, "CancelledMidEnumeration");
         Directory.CreateDirectory(songsRoot);
@@ -1123,19 +1048,22 @@ public class SongManagerCoverageTests : IDisposable
         await _manager.InitializeDatabaseServiceAsync(_testDbPath);
         var cancellation = new CancellationTokenSource();
         var cancellationRequested = 0;
-        var progress = new Progress<EnumerationProgress>(report =>
+        var progress = new InlineProgress<EnumerationProgress>(report =>
         {
             if (report.ProcessedCount >= 1 && Interlocked.Exchange(ref cancellationRequested, 1) == 0)
                 cancellation.Cancel();
         });
 
-        var result = await _manager.EnumerateSongsAsync(new[] { songsRoot }, progress, cancellation.Token);
-
-        Assert.InRange(result, 1, 2);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            _manager.EnumerateSongsAsync(
+                new[] { songsRoot },
+                progress,
+                cancellation.Token));
+        Assert.Empty(_manager.RootSongs);
     }
 
     [Fact]
-    public async Task EnumerateSongsAsync_WhenRootSongCacheIsUnavailable_ShouldReturnDiscoveredCount()
+    public async Task EnumerateSongsAsync_WhenRootSongCacheIsUnavailable_ShouldPropagatePublicationFailure()
     {
         var songsRoot = Path.Combine(_testRoot, "BrokenRootSongs");
         Directory.CreateDirectory(songsRoot);
@@ -1148,9 +1076,8 @@ public class SongManagerCoverageTests : IDisposable
         {
             ReflectionHelpers.SetPrivateField(_manager, "_rootSongs", null!);
 
-            var result = await _manager.EnumerateSongsAsync(new[] { songsRoot });
-
-            Assert.Equal(1, result);
+            await Assert.ThrowsAsync<NullReferenceException>(() =>
+                _manager.EnumerateSongsAsync(new[] { songsRoot }));
         }
         finally
         {
@@ -1285,32 +1212,25 @@ public class SongManagerCoverageTests : IDisposable
     }
 
     [Fact]
-    public async Task EnumerateDirectoryAsync_WhenSongNodeCreationFails_ShouldSkipSupportedFile()
+    public async Task EnumerateDirectoryAsync_WhenChartParsingFails_ShouldSkipSupportedFile()
     {
         var songsRoot = Path.Combine(_testRoot, "EnumerateDirectoryFailure");
         Directory.CreateDirectory(songsRoot);
         await CreateDtxFileAsync(Path.Combine(songsRoot, "song.dtx"), "Broken Node Song", "Coverage Bot", "Rock", 40);
 
-        var originalDatabaseService = _manager.DatabaseService;
+        _manager.ParseSongEntitiesCoreAsync = _ =>
+            Task.FromException<(SongEntity, SongChart)>(
+                new InvalidDataException("broken chart"));
 
-        try
-        {
-            ReflectionHelpers.SetPrivateField(_manager, "_databaseService", CreateBrokenDatabaseService());
+        var result = await ReflectionHelpers.InvokePrivateMethod<Task<List<SongListNode>>>(
+            _manager,
+            "EnumerateDirectoryAsync",
+            songsRoot,
+            null!,
+            null!,
+            CancellationToken.None);
 
-            var result = await ReflectionHelpers.InvokePrivateMethod<Task<List<SongListNode>>>(
-                _manager,
-                "EnumerateDirectoryAsync",
-                songsRoot,
-                null!,
-                null!,
-                CancellationToken.None);
-
-            Assert.Empty(result);
-        }
-        finally
-        {
-            ReflectionHelpers.SetPrivateField(_manager, "_databaseService", originalDatabaseService);
-        }
+        Assert.Empty(result);
     }
 
     [Fact]
@@ -1629,5 +1549,10 @@ public class SongManagerCoverageTests : IDisposable
         Assert.NotNull(field);
         field!.SetValue(service, databasePath);
         return service;
+    }
+
+    private sealed class InlineProgress<T>(Action<T> report) : IProgress<T>
+    {
+        public void Report(T value) => report(value);
     }
 }

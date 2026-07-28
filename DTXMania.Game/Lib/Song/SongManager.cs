@@ -67,6 +67,24 @@ namespace DTXMania.Game.Lib.Song
         private SongDatabaseService? _databaseService;
         private string[] _currentSearchPaths = Array.Empty<string>();
 
+        internal Func<string, Task<(SongEntity song, SongChart chart)>>
+            ParseSongEntitiesCoreAsync { get; set; } =
+                DTXChartParser.ParseSongEntitiesAsync;
+
+        internal Func<string, IEnumerable<string>> EnumerateFilesCore
+            { get; set; } = Directory.EnumerateFiles;
+
+        internal Func<string, IEnumerable<string>> EnumerateDirectoriesCore
+            { get; set; } = Directory.EnumerateDirectories;
+
+        internal Func<
+            SongDatabaseService,
+            SongBulkImportRequest,
+            IProgress<SongBulkImportProgress>?,
+            CancellationToken,
+            Task<SongBulkImportResult>> ImportSongsCoreAsync
+            { get; set; } = DefaultImportSongsAsync;
+
         // Initialization state tracking
         private bool _isInitialized = false;
 
@@ -122,8 +140,19 @@ namespace DTXMania.Game.Lib.Song
             if (searchPaths == null || searchPaths.Length == 0)
                 return;
 
-            _currentSearchPaths = searchPaths.ToArray();
+            _currentSearchPaths = searchPaths
+                .Where(path => SongPathIdentity.TryNormalize(path, out _))
+                .Select(SongPathIdentity.Normalize)
+                .Distinct(SongPathIdentity.CanonicalComparer)
+                .ToArray();
         }
+
+        private static Task<SongBulkImportResult> DefaultImportSongsAsync(
+            SongDatabaseService database,
+            SongBulkImportRequest request,
+            IProgress<SongBulkImportProgress>? progress,
+            CancellationToken cancellationToken) =>
+            database.ImportSongsAsync(request, progress, cancellationToken);
 
         /// <summary>
         /// Gets the root song list
@@ -282,7 +311,7 @@ namespace DTXMania.Game.Lib.Song
                 if (!needsEnumeration)
                 {
                     Debug.WriteLine("SongManager: Building song list from database cache");
-                    await BuildSongListFromDatabaseAsync(searchPaths).ConfigureAwait(false);
+                    await BuildHierarchyFromDatabaseOnceAsync(searchPaths).ConfigureAwait(false);
                     return true;
                 }
                 else
@@ -303,42 +332,23 @@ namespace DTXMania.Game.Lib.Song
         /// </summary>
         public async Task<int> EnumerateSongsOnlyAsync(string[] searchPaths, IProgress<EnumerationProgress>? progress = null, CancellationToken cancellationToken = default)
         {
-            Debug.WriteLine("SongManager: Starting EnumerateSongsOnlyAsync...");
-            var result = await EnumerateSongsAsync(searchPaths, progress, cancellationToken).ConfigureAwait(false);
-            
-            Debug.WriteLine($"SongManager: EnumerateSongsAsync returned {result} songs");
-            
-            // Check database count after enumeration
-            var dbCount = await GetDatabaseScoreCountAsync().ConfigureAwait(false);
-            Debug.WriteLine($"SongManager: Database now contains {dbCount} songs");
-            
-            // Check _rootSongs count
+            if (GetDatabaseServiceSnapshot() == null)
+                return 0;
+
             lock (_lockObject)
             {
-                Debug.WriteLine($"SongManager: _rootSongs contains {_rootSongs.Count} nodes");
-                
-                // Log some sample songs for debugging
-                for (int i = 0; i < Math.Min(3, _rootSongs.Count); i++)
-                {
-                    var node = _rootSongs[i];
-                    Debug.WriteLine($"SongManager: Root node {i}: {node.Type} - {node.Title}");
-                    
-                    if (node.Type == NodeType.Score && node.Scores.Length > 0)
-                    {
-                        var score = node.Scores[0];
-                        var previewImage = score.Chart?.PreviewImage ?? "null";
-                        Debug.WriteLine($"SongManager: Song details - DifficultyLevel: {score.DifficultyLevel}, PreviewImage: {previewImage}");
-                    }
-                }
+                if (_enumCancellation is { IsCancellationRequested: false })
+                    return 0;
             }
-            
-            // Update enumeration timestamp after successful enumeration
-            if (result >= 0) // Changed from > 0 to >= 0 to handle empty directories
-            {
-                await UpdateEnumerationTimestampAsync().ConfigureAwait(false);
-            }
-            
-            return result;
+
+            var result = await EnumerateAndImportSongsCoreAsync(
+                searchPaths,
+                progress,
+                cancellationToken,
+                useDurableChartIds: false).ConfigureAwait(false);
+            await UpdateEnumerationTimestampAsync().ConfigureAwait(false);
+
+            return result.Batch.Candidates.Count;
         }
 
         /// <summary>
@@ -413,42 +423,13 @@ namespace DTXMania.Game.Lib.Song
         }
 
         /// <summary>
-        /// Public wrapper for BuildSongListFromDatabaseAsync (needed for StartupStage)
+        /// Public compatibility wrapper for the cleanup-free database hierarchy builder.
         /// </summary>
         public async Task BuildSongListFromDatabasePublicAsync(string[] searchPaths)
         {
-            Debug.WriteLine($"SongManager: BuildSongListFromDatabasePublicAsync called with {searchPaths.Length} search paths");
             SetCurrentSearchPaths(searchPaths);
-            
-            // Check database state before building
-            var dbCount = await GetDatabaseScoreCountAsync();
-            Debug.WriteLine($"SongManager: Database contains {dbCount} songs before building list");
-            
-            // Check current _rootSongs state
-            lock (_lockObject)
-            {
-                Debug.WriteLine($"SongManager: _rootSongs currently has {_rootSongs.Count} nodes");
-            }
-            
-            await BuildSongListFromDatabaseAsync(searchPaths).ConfigureAwait(false);
-            
-            // Check results after building
-            lock (_lockObject)
-            {
-                Debug.WriteLine($"SongManager: _rootSongs now has {_rootSongs.Count} nodes after building");
-                
-                // Log some details about the root nodes
-                for (int i = 0; i < Math.Min(5, _rootSongs.Count); i++)
-                {
-                    var node = _rootSongs[i];
-                    Debug.WriteLine($"SongManager: Root node {i}: {node.Type} - {node.Title} (children: {node.Children.Count})");
-                }
-                
-                if (_rootSongs.Count > 5)
-                {
-                    Debug.WriteLine($"SongManager: ... and {_rootSongs.Count - 5} more root nodes");
-                }
-            }
+
+            await BuildHierarchyFromDatabaseOnceAsync(searchPaths).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -466,7 +447,7 @@ namespace DTXMania.Game.Lib.Song
 
             if (searchPaths.Length > 0)
             {
-                await BuildSongListFromDatabaseAsync(searchPaths).ConfigureAwait(false);
+                await BuildHierarchyFromDatabaseOnceAsync(searchPaths).ConfigureAwait(false);
             }
             else
             {
@@ -563,81 +544,735 @@ namespace DTXMania.Game.Lib.Song
         /// </summary>
         public async Task<int> EnumerateSongsAsync(string[] searchPaths, IProgress<EnumerationProgress>? progress = null, CancellationToken cancellationToken = default)
         {
-            CancellationToken token;
+            if (GetDatabaseServiceSnapshot() == null)
+                return 0;
+
             lock (_lockObject)
             {
-                if (_enumCancellation != null && !_enumCancellation.Token.IsCancellationRequested)
-                {
-                    Debug.WriteLine("SongManager: Enumeration already in progress");
+                if (_enumCancellation is { IsCancellationRequested: false })
                     return 0;
-                }
-
-                _enumCancellation?.Dispose();
-                _enumCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                token = _enumCancellation.Token;
             }
 
-            DiscoveredScoreCount = 0;
-            EnumeratedFileCount = 0;
+            var result = await EnumerateAndImportSongsCoreAsync(
+                searchPaths,
+                progress,
+                cancellationToken,
+                useDurableChartIds: false).ConfigureAwait(false);
+            return result.Batch.Candidates.Count;
+        }
 
+        internal async Task<SongEnumerationBatch> BuildEnumerationBatchAsync(
+            string[] searchPaths,
+            IProgress<EnumerationProgress>? progress,
+            CancellationToken cancellationToken)
+        {
+            var builder = CreateBatchBuilder(searchPaths);
+            foreach (var root in builder.ActiveRoots)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await EnumerateDirectoryIntoBatchAsync(
+                    root,
+                    parent: null,
+                    builder,
+                    progress,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            return builder.Complete();
+        }
+
+        public Task<SongEnumerationResult> EnumerateAndImportSongsAsync(
+            string[] searchPaths,
+            IProgress<EnumerationProgress>? progress = null,
+            CancellationToken cancellationToken = default)
+        {
+            return EnumerateAndImportSongsCoreAsync(
+                searchPaths,
+                progress,
+                cancellationToken,
+                useDurableChartIds: true);
+        }
+
+        private async Task<SongEnumerationResult> EnumerateAndImportSongsCoreAsync(
+            string[] searchPaths,
+            IProgress<EnumerationProgress>? progress,
+            CancellationToken cancellationToken,
+            bool useDurableChartIds)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var database = GetDatabaseServiceSnapshot()
+                ?? throw new InvalidOperationException(
+                    "Song database is not initialized.");
+            var linked = BeginEnumeration(cancellationToken);
             try
             {
-                SetCurrentSearchPaths(searchPaths);
-                Debug.WriteLine($"SongManager: Starting enumeration of {searchPaths.Length} paths");
-
-                var newRootNodes = new List<SongListNode>();
-
-                foreach (var searchPath in searchPaths)
+                var batch = await BuildEnumerationBatchAsync(
+                    searchPaths,
+                    progress,
+                    linked.Token).ConfigureAwait(false);
+                if (!batch.IsComplete)
                 {
-                    if (string.IsNullOrEmpty(searchPath) || !Directory.Exists(searchPath))
-                    {
-                        Debug.WriteLine($"SongManager: Skipping invalid path: {searchPath}");
-                        continue;
-                    }
-
-                    var pathNodes = await EnumerateDirectoryAsync(searchPath, null, progress, token).ConfigureAwait(false);
-                    newRootNodes.AddRange(pathNodes);
+                    throw new InvalidOperationException(
+                        "An incomplete enumeration cannot be imported.");
+                }
+                if (batch.Errors.Count > 0)
+                {
+                    var firstError = batch.Errors[0];
+                    throw new InvalidDataException(
+                        $"Song enumeration failed for '{firstError.Path}': " +
+                        firstError.Message);
                 }
 
-                // Clean up stale database entries before finalizing
-                var db = GetDatabaseServiceSnapshot();
-                if (db != null)
-                {
-                    Debug.WriteLine("SongManager: Cleaning up stale database entries...");
-                    await db.CleanupStaleChartsAsync().ConfigureAwait(false);
-                }
+                var import = await ImportSongsCoreAsync(
+                    database,
+                    new SongBulkImportRequest(
+                        batch.ActiveRoots,
+                        batch.DiscoveredChartPaths,
+                        batch.Candidates),
+                    CreatePersistenceProgressAdapter(progress),
+                    linked.Token).ConfigureAwait(false);
 
-                // Update root songs list
-                lock (_lockObject)
-                {
-                    _rootSongs.Clear();
-                    _rootSongs.AddRange(newRootNodes);
-                }
+                var hierarchy = Stopwatch.StartNew();
+                FinalizePendingNodes(
+                    batch,
+                    import.ChartsByPath,
+                    useDurableChartIds);
+                hierarchy.Stop();
+                PublishEnumeration(batch);
 
-                Debug.WriteLine($"SongManager: Enumeration complete. Found {DiscoveredScoreCount} songs in {newRootNodes.Count} root nodes");
-
-                EnumerationCompleted?.Invoke(this, EventArgs.Empty);
-
-                return DiscoveredScoreCount;
-            }
-            catch (OperationCanceledException)
-            {
-                Debug.WriteLine("SongManager: Enumeration was cancelled");
-                return DiscoveredScoreCount;
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"SongManager: Error during enumeration: {ex.Message}");
-                return DiscoveredScoreCount;
+                return new SongEnumerationResult(
+                    batch,
+                    import,
+                    hierarchy.Elapsed);
             }
             finally
             {
-                lock (_lockObject)
-                {
-                    _enumCancellation?.Dispose();
-                    _enumCancellation = null;
-                }
+                EndEnumeration(linked);
             }
+        }
+
+        private CancellationTokenSource BeginEnumeration(CancellationToken token)
+        {
+            lock (_lockObject)
+            {
+                if (_enumCancellation is { IsCancellationRequested: false })
+                {
+                    throw new InvalidOperationException(
+                        "Song enumeration is already in progress.");
+                }
+
+                _enumCancellation?.Dispose();
+                _enumCancellation =
+                    CancellationTokenSource.CreateLinkedTokenSource(token);
+                return _enumCancellation;
+            }
+        }
+
+        private void EndEnumeration(CancellationTokenSource source)
+        {
+            lock (_lockObject)
+            {
+                if (ReferenceEquals(_enumCancellation, source))
+                    _enumCancellation = null;
+            }
+
+            source.Dispose();
+        }
+
+        private sealed class SongEnumerationBatchBuilder
+        {
+            private readonly Stopwatch _stopwatch = Stopwatch.StartNew();
+
+            public SongEnumerationBatchBuilder(
+                IReadOnlyList<string> activeRoots)
+            {
+                ActiveRoots = activeRoots;
+            }
+
+            public IReadOnlyList<string> ActiveRoots { get; }
+            public HashSet<string> DiscoveredChartPaths { get; } =
+                new(SongPathIdentity.CanonicalComparer);
+            public List<SongImportCandidate> Candidates { get; } = new();
+            public List<SongListNode> RootNodes { get; } = new();
+            public List<PendingSongNode> PendingSongs { get; } = new();
+            public List<SongEnumerationError> Errors { get; } = new();
+
+            public SongEnumerationBatch Complete()
+            {
+                _stopwatch.Stop();
+                return new SongEnumerationBatch
+                {
+                    ActiveRoots = ActiveRoots,
+                    DiscoveredChartPaths = DiscoveredChartPaths,
+                    Candidates = Candidates,
+                    RootNodes = RootNodes,
+                    PendingSongs = PendingSongs,
+                    Errors = Errors,
+                    DiscoveryAndParsingDuration = _stopwatch.Elapsed,
+                    IsComplete = true
+                };
+            }
+        }
+
+        private sealed class TemporaryPendingGroup
+        {
+            public TemporaryPendingGroup(
+                string groupKey,
+                SongListNode placeholder)
+            {
+                GroupKey = groupKey;
+                Placeholder = placeholder;
+            }
+
+            public string GroupKey { get; }
+            public SongListNode Placeholder { get; }
+            public List<string> OrderedChartPaths { get; } = new();
+        }
+
+        private static SongEnumerationBatchBuilder CreateBatchBuilder(
+            IEnumerable<string> searchPaths)
+        {
+            ArgumentNullException.ThrowIfNull(searchPaths);
+            var roots = searchPaths.Select(path =>
+            {
+                if (string.IsNullOrWhiteSpace(path))
+                {
+                    throw new DirectoryNotFoundException(
+                        "A configured song root is blank.");
+                }
+
+                var normalized = SongPathIdentity.Normalize(path);
+                if (!Directory.Exists(normalized))
+                {
+                    throw new DirectoryNotFoundException(
+                        $"Configured song root does not exist: {normalized}");
+                }
+
+                return normalized;
+            })
+            .Distinct(SongPathIdentity.CanonicalComparer)
+            .ToArray();
+            return new SongEnumerationBatchBuilder(roots);
+        }
+
+        private async Task EnumerateDirectoryIntoBatchAsync(
+            string directoryPath,
+            SongListNode? parent,
+            SongEnumerationBatchBuilder builder,
+            IProgress<EnumerationProgress>? progress,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var setDefPath = Path.Combine(directoryPath, "set.def");
+            if (File.Exists(setDefPath))
+            {
+                await ParseSetDefinitionIntoBatchAsync(
+                    setDefPath,
+                    parent,
+                    builder,
+                    progress,
+                    cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            var subdirectories = EnumerateDirectoriesCore(directoryPath)
+                .Select(SongPathIdentity.Normalize)
+                .OrderBy(path => path, SongPathIdentity.CanonicalComparer)
+                .ToArray();
+            foreach (var subdirectoryPath in subdirectories)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var directory = new DirectoryInfo(subdirectoryPath);
+                var boxDefPath = Path.Combine(subdirectoryPath, "box.def");
+                var isBox = directory.Name.StartsWith(
+                    "DTXFiles.",
+                    StringComparison.OrdinalIgnoreCase) ||
+                    File.Exists(boxDefPath);
+                if (!isBox)
+                {
+                    await EnumerateDirectoryIntoBatchAsync(
+                        subdirectoryPath,
+                        parent,
+                        builder,
+                        progress,
+                        cancellationToken).ConfigureAwait(false);
+                    continue;
+                }
+
+                BoxDefinition? boxDefinition = null;
+                if (File.Exists(boxDefPath))
+                {
+                    try
+                    {
+                        boxDefinition = await ParseBoxDefinitionAsync(
+                            boxDefPath,
+                            cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (Exception exception)
+                    {
+                        builder.Errors.Add(new SongEnumerationError(
+                            SongPathIdentity.Normalize(boxDefPath),
+                            exception.Message,
+                            IsRootFailure: false));
+                    }
+                }
+
+                var boxNode = CreateBoxNodeFromDirectory(
+                    directory,
+                    parent,
+                    boxDefinition);
+                await EnumerateDirectoryIntoBatchAsync(
+                    subdirectoryPath,
+                    boxNode,
+                    builder,
+                    progress,
+                    cancellationToken).ConfigureAwait(false);
+                if (boxNode.Children.Count > 0)
+                    AddNodeToBatch(builder, parent, boxNode);
+            }
+
+            var groups = new Dictionary<string, TemporaryPendingGroup>(
+                StringComparer.Ordinal);
+            var files = EnumerateFilesCore(directoryPath)
+                .Where(DTXChartParser.IsSupportedFile)
+                .Select(SongPathIdentity.Normalize)
+                .OrderBy(path => path, SongPathIdentity.CanonicalComparer)
+                .ToArray();
+            foreach (var normalizedPath in files)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                builder.DiscoveredChartPaths.Add(normalizedPath);
+                var fileName = Path.GetFileName(normalizedPath);
+                try
+                {
+                    var (song, chart) = await ParseSongEntitiesCoreAsync(
+                        normalizedPath).ConfigureAwait(false);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    chart.FilePath = normalizedPath;
+                    var groupKey = SongPathIdentity.ForOrdinaryChart(
+                        normalizedPath,
+                        song.Title,
+                        song.Artist);
+                    if (!groups.TryGetValue(groupKey, out var group))
+                    {
+                        var placeholder = CreateTemporarySongNode(
+                            song,
+                            chart,
+                            parent);
+                        group = new TemporaryPendingGroup(
+                            groupKey,
+                            placeholder);
+                        groups.Add(groupKey, group);
+                        AddNodeToBatch(builder, parent, placeholder);
+                    }
+
+                    var groupOrder = group.OrderedChartPaths.Count;
+                    group.OrderedChartPaths.Add(normalizedPath);
+                    AddTemporaryScore(
+                        group.Placeholder,
+                        chart,
+                        groupOrder,
+                        authoredLabel: chart.DifficultyLabel);
+                    builder.Candidates.Add(new SongImportCandidate(
+                        song,
+                        chart,
+                        normalizedPath,
+                        groupKey,
+                        groupOrder));
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception exception)
+                {
+                    builder.Errors.Add(new SongEnumerationError(
+                        normalizedPath,
+                        exception.Message,
+                        IsRootFailure: false));
+                }
+
+                progress?.Report(new EnumerationProgress
+                {
+                    CurrentFile = fileName,
+                    CurrentDirectory = directoryPath,
+                    ProcessedCount = builder.DiscoveredChartPaths.Count,
+                    DiscoveredSongs = builder.Candidates.Count
+                });
+            }
+
+            foreach (var group in groups.Values)
+            {
+                builder.PendingSongs.Add(new PendingSongNode(
+                    group.GroupKey,
+                    group.Placeholder,
+                    group.OrderedChartPaths));
+            }
+        }
+
+        private async Task ParseSetDefinitionIntoBatchAsync(
+            string setDefPath,
+            SongListNode? parent,
+            SongEnumerationBatchBuilder builder,
+            IProgress<EnumerationProgress>? progress,
+            CancellationToken cancellationToken)
+        {
+            string[] lines;
+            try
+            {
+                lines = await File.ReadAllLinesAsync(
+                    setDefPath,
+                    Encoding.UTF8,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception exception) when (
+                exception is IOException or UnauthorizedAccessException)
+            {
+                builder.Errors.Add(new SongEnumerationError(
+                    SongPathIdentity.Normalize(setDefPath),
+                    exception.Message,
+                    IsRootFailure: false));
+                return;
+            }
+
+            string setTitle;
+            Dictionary<int, (string label, string file)> difficulties;
+            try
+            {
+                (setTitle, difficulties) = ParseSetDefContent(
+                    lines,
+                    cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                builder.Errors.Add(new SongEnumerationError(
+                    SongPathIdentity.Normalize(setDefPath),
+                    exception.Message,
+                    IsRootFailure: false));
+                return;
+            }
+
+            var directory = Path.GetDirectoryName(setDefPath) ?? "";
+            var groupKey = SongPathIdentity.ForSetDefinition(setDefPath);
+            SongListNode? placeholder = null;
+            var orderedPaths = new List<string>();
+            var orderedDifficulties = difficulties
+                .OrderBy(difficulty => difficulty.Key)
+                .ToArray();
+            foreach (var difficulty in orderedDifficulties)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var level = difficulty.Key;
+                var (label, fileName) = difficulty.Value;
+                if (string.IsNullOrWhiteSpace(fileName))
+                    continue;
+
+                var path = SongPathIdentity.Normalize(
+                    Path.Combine(directory, fileName));
+                if (!DTXChartParser.IsSupportedFile(path) ||
+                    !File.Exists(path))
+                {
+                    continue;
+                }
+
+                builder.DiscoveredChartPaths.Add(path);
+                var groupOrder = orderedPaths.Count;
+                orderedPaths.Add(path);
+                try
+                {
+                    var (song, chart) = await ParseSongEntitiesCoreAsync(path)
+                        .ConfigureAwait(false);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    chart.FilePath = path;
+                    chart.DifficultyLevel = level;
+                    if (!string.IsNullOrWhiteSpace(label))
+                    {
+                        chart.DifficultyLabel = label.Length > 50
+                            ? label[..50]
+                            : label;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(setTitle))
+                        song.Title = setTitle;
+                    else if (string.IsNullOrWhiteSpace(song.Title))
+                        song.Title = new DirectoryInfo(directory).Name;
+
+                    placeholder ??= CreateTemporarySongNode(
+                        song,
+                        chart,
+                        parent);
+                    AddTemporaryScore(
+                        placeholder,
+                        chart,
+                        groupOrder,
+                        authoredLabel: string.IsNullOrWhiteSpace(label)
+                            ? $"Level {level}"
+                            : label);
+                    builder.Candidates.Add(new SongImportCandidate(
+                        song,
+                        chart,
+                        path,
+                        groupKey,
+                        groupOrder));
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception exception)
+                {
+                    builder.Errors.Add(new SongEnumerationError(
+                        path,
+                        exception.Message,
+                        IsRootFailure: false));
+                }
+
+                progress?.Report(new EnumerationProgress
+                {
+                    CurrentFile = Path.GetFileName(path),
+                    CurrentDirectory = directory,
+                    ProcessedCount = builder.DiscoveredChartPaths.Count,
+                    DiscoveredSongs = builder.Candidates.Count
+                });
+            }
+
+            if (placeholder == null)
+                return;
+
+            AddNodeToBatch(builder, parent, placeholder);
+            builder.PendingSongs.Add(new PendingSongNode(
+                groupKey,
+                placeholder,
+                orderedPaths));
+        }
+
+        private static SongListNode CreateTemporarySongNode(
+            SongEntity song,
+            SongChart chart,
+            SongListNode? parent)
+        {
+            var node = SongListNode.CreateSongNode(
+                song,
+                chart,
+                hydratePersistedScores: false);
+            node.Scores = new SongScoreEntity[5];
+            node.PublishScoreVariants(
+                Array.Empty<KeyValuePair<ScoreVariantKey, SongScoreEntity>>());
+            node.Parent = parent;
+            node.DatabaseSongId = null;
+            return node;
+        }
+
+        private static void AddTemporaryScore(
+            SongListNode node,
+            SongChart chart,
+            int scoreIndex,
+            string? authoredLabel)
+        {
+            if (scoreIndex < 0 || scoreIndex >= node.Scores.Length)
+                return;
+
+            var (instrument, difficultyLevel) =
+                GetPrimaryInstrumentAndDifficulty(chart);
+            var label = string.IsNullOrWhiteSpace(authoredLabel)
+                ? $"Level {scoreIndex + 1}"
+                : authoredLabel;
+            node.DifficultyLabels[scoreIndex] = label;
+            node.SetScore(scoreIndex, new SongScoreEntity
+            {
+                Instrument = instrument,
+                DifficultyLevel = difficultyLevel,
+                DifficultyLabel = label
+            });
+        }
+
+        private static (
+            EInstrumentPart instrument,
+            int difficultyLevel) GetPrimaryInstrumentAndDifficulty(
+                SongChart chart)
+        {
+            if (chart.HasDrumChart && chart.DrumLevel > 0)
+                return (EInstrumentPart.DRUMS, chart.DrumLevel);
+            if (chart.HasGuitarChart && chart.GuitarLevel > 0)
+                return (EInstrumentPart.GUITAR, chart.GuitarLevel);
+            if (chart.HasBassChart && chart.BassLevel > 0)
+                return (EInstrumentPart.BASS, chart.BassLevel);
+            return (EInstrumentPart.DRUMS, 50);
+        }
+
+        private static void AddNodeToBatch(
+            SongEnumerationBatchBuilder builder,
+            SongListNode? parent,
+            SongListNode node)
+        {
+            if (parent != null)
+            {
+                if (!parent.Children.Contains(node))
+                    parent.AddChild(node);
+                return;
+            }
+
+            if (!builder.RootNodes.Contains(node))
+            {
+                node.Parent = null;
+                node.BreadcrumbPath = node.Title;
+                builder.RootNodes.Add(node);
+            }
+        }
+
+        private static IProgress<SongBulkImportProgress>?
+            CreatePersistenceProgressAdapter(
+                IProgress<EnumerationProgress>? progress)
+        {
+            if (progress == null)
+                return null;
+
+            return new DelegateProgress<SongBulkImportProgress>(update =>
+                progress.Report(new EnumerationProgress
+                {
+                    CurrentOperation = update.Milestone switch
+                    {
+                        SongBulkImportMilestone.PreloadStarted =>
+                            "Loading existing songs",
+                        SongBulkImportMilestone.MatchingCompleted =>
+                            "Matching charts",
+                        SongBulkImportMilestone.MutationsStaged =>
+                            "Preparing changes",
+                        SongBulkImportMilestone.CleanupCompleted =>
+                            "Removing stale records",
+                        SongBulkImportMilestone.SaveStarted =>
+                            "Saving songs",
+                        SongBulkImportMilestone.Committed =>
+                            "Song database committed",
+                        _ => "Updating song database"
+                    },
+                    ProcessedCount = update.Processed,
+                    DiscoveredSongs = update.Total
+                }));
+        }
+
+        internal void FinalizePendingNodes(
+            SongEnumerationBatch batch,
+            IReadOnlyDictionary<string, SongChart> chartsByPath,
+            bool useDurableChartIds = true)
+        {
+            foreach (var pending in batch.PendingSongs)
+            {
+                var placeholder = pending.Placeholder;
+                var assignDurableChartIds = useDurableChartIds ||
+                    !SongPathIdentity.IsSetDefinitionGroup(pending.GroupKey);
+                var resolvedCharts = new List<SongChart>();
+                for (var index = 0;
+                    index < pending.OrderedChartPaths.Count &&
+                    index < placeholder.Scores.Length;
+                    index++)
+                {
+                    var path = pending.OrderedChartPaths[index];
+                    if (!chartsByPath.TryGetValue(path, out var chart))
+                    {
+                        placeholder.Scores[index] = null!;
+                        continue;
+                    }
+
+                    var (instrument, difficultyLevel) =
+                        GetPrimaryInstrumentAndDifficulty(chart);
+                    var label = placeholder.DifficultyLabels[index];
+                    if (string.IsNullOrWhiteSpace(label))
+                    {
+                        label = ResolveDifficultyLabel(
+                            chart,
+                            new Dictionary<string, string>(),
+                            index);
+                        placeholder.DifficultyLabels[index] = label;
+                    }
+
+                    placeholder.SetScore(index, new SongScoreEntity
+                    {
+                        ChartId = assignDurableChartIds ? chart.Id : 0,
+                        Instrument = instrument,
+                        DifficultyLevel = difficultyLevel,
+                        DifficultyLabel = label
+                    });
+                    resolvedCharts.Add(chart);
+                    if (placeholder.DatabaseSong == null ||
+                        placeholder.DatabaseSongId == null)
+                    {
+                        placeholder.DatabaseSong = chart.Song;
+                        placeholder.DatabaseChart = chart;
+                        placeholder.DatabaseSongId = chart.SongId;
+                    }
+                }
+
+                if (resolvedCharts.Count == 0)
+                {
+                    RemovePlaceholder(batch, placeholder);
+                    continue;
+                }
+
+                placeholder.DatabaseSong = resolvedCharts[0].Song;
+                placeholder.DatabaseChart = resolvedCharts[0];
+                placeholder.DatabaseSongId = resolvedCharts[0].SongId;
+                HydrateScoreVariants(placeholder, resolvedCharts);
+            }
+        }
+
+        private static void RemovePlaceholder(
+            SongEnumerationBatch batch,
+            SongListNode placeholder)
+        {
+            if (placeholder.Parent != null)
+            {
+                placeholder.Parent.RemoveChild(placeholder);
+                return;
+            }
+
+            batch.RootNodes.Remove(placeholder);
+        }
+
+        internal void PublishEnumeration(SongEnumerationBatch batch)
+        {
+            lock (_lockObject)
+            {
+                _rootSongs.Clear();
+                _rootSongs.AddRange(batch.RootNodes);
+                _currentSearchPaths = batch.ActiveRoots.ToArray();
+                EnumeratedFileCount = batch.DiscoveredChartPaths.Count;
+                DiscoveredScoreCount = batch.PendingSongs.Count;
+            }
+
+            foreach (var song in FlattenScoreNodes(batch.RootNodes))
+                SongDiscovered?.Invoke(this, new SongDiscoveredEventArgs(song));
+            EnumerationCompleted?.Invoke(this, EventArgs.Empty);
+        }
+
+        private static IEnumerable<SongListNode> FlattenScoreNodes(
+            IEnumerable<SongListNode> nodes)
+        {
+            foreach (var node in nodes)
+            {
+                if (node.Type == NodeType.Score)
+                    yield return node;
+                foreach (var child in FlattenScoreNodes(node.Children))
+                    yield return child;
+            }
+        }
+
+        private sealed class DelegateProgress<T>(Action<T> report) :
+            IProgress<T>
+        {
+            public void Report(T value) => report(value);
         }
 
         /// <summary>
@@ -656,7 +1291,7 @@ namespace DTXMania.Game.Lib.Song
         /// Used when the database is already populated but _rootSongs is empty
         /// Preserves the original folder hierarchy structure
         /// </summary>
-        private async Task BuildSongListFromDatabaseAsync(string[] searchPaths)
+        internal async Task BuildHierarchyFromDatabaseOnceAsync(string[] searchPaths)
         {
             var db = GetDatabaseServiceSnapshot();
             if (db == null)
@@ -667,11 +1302,8 @@ namespace DTXMania.Game.Lib.Song
 
             try
             {
-                // Clean up stale database entries first to avoid processing outdated file paths
-                Debug.WriteLine("SongManager: Cleaning up stale database entries before building song list...");
-                await db.CleanupStaleChartsAsync().ConfigureAwait(false);
-
                 var newRootNodes = new List<SongListNode>();
+                var allSongs = await db.GetSongsAsync().ConfigureAwait(false);
 
                 foreach (var searchPath in searchPaths)
                 {
@@ -681,18 +1313,18 @@ namespace DTXMania.Game.Lib.Song
                         continue;
                     }
 
-                    // Get all songs from the database
-                    var allSongs = await db.GetSongsAsync().ConfigureAwait(false);
-
                     // Get all charts that belong to this search path
                     var relevantCharts = allSongs
-                        .SelectMany(song => song.Charts.Where(chart =>
-                            !string.IsNullOrEmpty(chart.FilePath) &&
-                            Path.GetFullPath(chart.FilePath).StartsWith(Path.GetFullPath(searchPath), StringComparison.OrdinalIgnoreCase)))
-                        .Select(chart => (chart.Song, chart))
+                        .SelectMany(song => song.Charts
+                            .Where(chart =>
+                                SongPathIdentity.TryNormalize(
+                                    chart.FilePath,
+                                    out var normalized) &&
+                                SongPathIdentity.IsUnderRoot(
+                                    normalized,
+                                    searchPath))
+                            .Select(chart => (song, chart)))
                         .ToList();
-
-                    Debug.WriteLine($"SongManager: Found {relevantCharts.Count} charts in database for path: {searchPath}");
 
                     // Build the folder hierarchy structure from file paths
                     var pathNodes = await BuildHierarchyFromCharts(searchPath, relevantCharts);
@@ -705,8 +1337,6 @@ namespace DTXMania.Game.Lib.Song
                     _rootSongs.Clear();
                     _rootSongs.AddRange(newRootNodes);
                 }
-
-                Debug.WriteLine($"SongManager: Built song list from database. {newRootNodes.Count} root nodes created");
             }
             catch (Exception ex)
             {
@@ -723,9 +1353,10 @@ namespace DTXMania.Game.Lib.Song
             var rootNodes = new List<SongListNode>();
             var folderNodeCache = new Dictionary<string, SongListNode>(StringComparer.OrdinalIgnoreCase);
 
-            // First group charts by song Title+Artist to deduplicate songs
+            // Persisted Song.Id is the grouping authority. Title/artist are display
+            // metadata and can legitimately collide across different directories.
             var songGroups = charts
-                .GroupBy(item => new { item.song.Title, item.song.Artist })
+                .GroupBy(item => item.song.Id)
                 .ToList();
 
             foreach (var songGroup in songGroups)
@@ -984,8 +1615,9 @@ namespace DTXMania.Game.Lib.Song
                     }
                 }
 
-                // Group song nodes by song (title + artist) to handle multi-chart songs
-                var groupedSongs = await GroupSongNodesBySong(tempSongNodes);
+                // This compatibility helper is no longer used by startup enumeration.
+                // Keep its parse-only behavior for legacy reflection tests.
+                var groupedSongs = tempSongNodes;
                 results.AddRange(groupedSongs);
 
                 // Fire SongDiscovered events for the final grouped songs
@@ -1009,45 +1641,17 @@ namespace DTXMania.Game.Lib.Song
         {
             try
             {
-                if (_databaseService == null) return null;
-
-                var (song, chart) = await DTXChartParser.ParseSongEntitiesAsync(filePath);
-
-                if (song == null || chart == null)
+                var normalizedPath = SongPathIdentity.Normalize(filePath);
+                if (!File.Exists(normalizedPath) ||
+                    !DTXChartParser.IsSupportedFile(normalizedPath))
                 {
-                    Debug.WriteLine($"SongManager: Metadata parsing returned null for {filePath}.");
                     return null;
                 }
 
-                // Add song to EF Core database
-                var songId = await _databaseService.AddSongAsync(song, chart);
-
-                // Reload the complete entity from database to ensure we have all metadata and relationships
-                var completeEntities = await _databaseService.GetSongWithChartsAsync(songId);
-                if (completeEntities == null)
-                {
-                    Debug.WriteLine($"SongManager: Failed to reload song from database after saving: {songId}");
-                    // Fallback to original entities if reload fails
-                    var songNode = SongListNode.CreateSongNode(song, chart);
-                    songNode.Parent = parent;
-                    songNode.DatabaseSongId = songId;
-                    return songNode;
-                }
-
-                // Create song node using complete database entities (like the database load path)
-                var completeNode = CreateSongNodeFromDatabaseEntities(completeEntities.Value.song, completeEntities.Value.charts);
-                if (completeNode != null)
-                {
-                    completeNode.Parent = parent;
-                    completeNode.DatabaseSongId = songId;
-                    return completeNode;
-                }
-
-                // Final fallback if CreateSongNodeFromDatabaseEntities fails
-                var fallbackNode = SongListNode.CreateSongNode(song, chart);
-                fallbackNode.Parent = parent;
-                fallbackNode.DatabaseSongId = songId;
-                return fallbackNode;
+                var (song, chart) = await ParseSongEntitiesCoreAsync(
+                    normalizedPath).ConfigureAwait(false);
+                chart.FilePath = normalizedPath;
+                return CreateTemporarySongNode(song, chart, parent);
             }
             catch (Exception ex)
             {
@@ -1525,69 +2129,30 @@ namespace DTXMania.Game.Lib.Song
                                             : label;
                                     }
 
-                                    // Add each difficulty to EF Core database if we have the database service
-                                    if (_databaseService != null)
+                                    // Compatibility-only parser: build the temporary score metadata
+                                    // without performing any persistence.
+                                    if (scoreIndex < currentSong.Scores.Length)
                                     {
-                                        try
+                                        currentSong.DifficultyLabels[scoreIndex] =
+                                            !string.IsNullOrEmpty(label)
+                                                ? label
+                                                : $"Level {level}";
+                                        var (
+                                            primaryInstrument,
+                                            difficultyLevel) =
+                                            GetPrimaryInstrumentAndDifficulty(
+                                                diffChart);
+                                        currentSong.Scores[scoreIndex] =
+                                            new SongScoreEntity
                                         {
-                                            var songId = await _databaseService.AddSongAsync(diffSong, diffChart);
-                                            currentSong.DatabaseSongId = songId;
-                                            // AddSongAsync hydrates diffSong with the persisted id and
-                                            // bookmark for duplicate charts (a freshly parsed entity
-                                            // defaults to Id=0, IsBookmarked=false). The explicit id
-                                            // stamp below is a defensive guarantee that DatabaseSong.Id
-                                            // matches DatabaseSongId — consumers (bookmark toggle,
-                                            // reconciler, telemetry) key off the id.
-                                            diffSong.Id = songId;
-                                            
-                                            // Update the current song's database entities to reflect the latest data
-                                            if (scoreIndex == 0)
-                                            {
-                                                // For the first chart, update the node's entities to match what's in the database
-                                                currentSong.DatabaseSong = diffSong;
-                                                currentSong.DatabaseChart = diffChart;
-                                            }
-
-                                            // Populate the Score entry for this difficulty in the set.def node
-                                            if (scoreIndex < currentSong.Scores.Length)
-                                            {
-                                                currentSong.DifficultyLabels[scoreIndex] = !string.IsNullOrEmpty(label) ? label : $"Level {level}";
-
-                                                // Create a score entry for the primary instrument found in the chart
-                                                var primaryInstrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.DRUMS; // Default
-                                                int difficultyLevel = 50; // Default
-
-                                                if (diffChart.HasDrumChart && diffChart.DrumLevel > 0)
-                                                {
-                                                    primaryInstrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.DRUMS;
-                                                    difficultyLevel = diffChart.DrumLevel;
-                                                }
-                                                else if (diffChart.HasGuitarChart && diffChart.GuitarLevel > 0)
-                                                {
-                                                    primaryInstrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.GUITAR;
-                                                    difficultyLevel = diffChart.GuitarLevel;
-                                                }
-                                                else if (diffChart.HasBassChart && diffChart.BassLevel > 0)
-                                                {
-                                                    primaryInstrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.BASS;
-                                                    difficultyLevel = diffChart.BassLevel;
-                                                }
-
-                                                currentSong.Scores[scoreIndex] = new DTXMania.Game.Lib.Song.Entities.SongScore
-                                                {
-                                                    Instrument = primaryInstrument,
-                                                    DifficultyLevel = difficultyLevel,
-                                                    DifficultyLabel = !string.IsNullOrEmpty(label) ? label : $"Level {level}"
-                                                };
-                                                scoreIndex++;
-                                            }
-
-                                            DiscoveredScoreCount++;
-                                        }
-                                        catch (Exception ex)
-                                        {
-                                            Debug.WriteLine($"SongManager: Error adding song to database: {ex.Message}");
-                                        }
+                                            Instrument = primaryInstrument,
+                                            DifficultyLevel = difficultyLevel,
+                                            DifficultyLabel =
+                                                !string.IsNullOrEmpty(label)
+                                                    ? label
+                                                    : $"Level {level}"
+                                        };
+                                        scoreIndex++;
                                     }
                                 }
                             }
@@ -1651,6 +2216,10 @@ namespace DTXMania.Game.Lib.Song
 
                 return boxDef;
             }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 Debug.WriteLine($"SongManager: Error parsing box.def {boxDefPath}: {ex.Message}");
@@ -1667,6 +2236,11 @@ namespace DTXMania.Game.Lib.Song
             {
                 boxNode.Genre = boxDef.Genre ?? "";
                 boxNode.SkinPath = boxDef.SkinPath ?? "";
+                boxNode.TextColor = new Microsoft.Xna.Framework.Color(
+                    boxDef.TextColor.R,
+                    boxDef.TextColor.G,
+                    boxDef.TextColor.B,
+                    boxDef.TextColor.A);
             }
 
             return boxNode;
@@ -2243,11 +2817,16 @@ namespace DTXMania.Game.Lib.Song
             var db = GetDatabaseServiceSnapshot();
             if (db == null) return new List<SongListNode>();
 
-            var songs = await db.GetRecentlyPlayedSongsAsync(limit).ConfigureAwait(false);
-            var nodes = new List<SongListNode>(songs.Count);
+            var hasActiveRoots = GetCurrentSearchPathsSnapshot().Length > 0;
+            var songs = await db.GetRecentlyPlayedSongsAsync(
+                hasActiveRoots ? int.MaxValue : limit).ConfigureAwait(false);
+            var nodes = new List<SongListNode>(Math.Min(songs.Count, limit));
             foreach (var song in songs)
             {
-                var charts = song.Charts?.ToArray() ?? Array.Empty<SongChart>();
+                var charts = GetActiveCharts(song);
+                if (charts.Length == 0)
+                    continue;
+                song.Charts = charts;
                 var node = CreateSongNodeFromDatabaseEntities(song, charts);
                 if (node != null)
                 {
@@ -2260,6 +2839,8 @@ namespace DTXMania.Game.Lib.Song
                         .Select(score => (int?)score.PlaySpeedPercent)
                         .FirstOrDefault();
                     nodes.Add(node);
+                    if (nodes.Count >= limit)
+                        break;
                 }
             }
             return nodes;
@@ -2281,7 +2862,10 @@ namespace DTXMania.Game.Lib.Song
             var nodes = new List<SongListNode>(songs.Count);
             foreach (var song in songs)
             {
-                var charts = song.Charts?.ToArray() ?? Array.Empty<SongChart>();
+                var charts = GetActiveCharts(song);
+                if (charts.Length == 0)
+                    continue;
+                song.Charts = charts;
                 var node = CreateSongNodeFromDatabaseEntities(song, charts);
                 if (node != null)
                     nodes.Add(node);
@@ -2309,17 +2893,52 @@ namespace DTXMania.Game.Lib.Song
         /// </summary>
         public async Task<List<SongEntity>> FindSongsBySearchAsync(string searchTerm)
         {
-            if (_databaseService == null) return new List<SongEntity>();
+            var database = GetDatabaseServiceSnapshot();
+            if (database == null) return new List<SongEntity>();
 
             try
             {
-                return await _databaseService.SearchSongsAsync(searchTerm);
+                var songs = await database.SearchSongsAsync(searchTerm)
+                    .ConfigureAwait(false);
+                var result = new List<SongEntity>(songs.Count);
+                foreach (var song in songs)
+                {
+                    var charts = GetActiveCharts(song);
+                    if (charts.Length == 0)
+                        continue;
+                    song.Charts = charts;
+                    result.Add(song);
+                }
+
+                return result;
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"SongManager: Error searching songs: {ex.Message}");
                 return new List<SongEntity>();
             }
+        }
+
+        private string[] GetCurrentSearchPathsSnapshot()
+        {
+            lock (_lockObject)
+                return _currentSearchPaths.ToArray();
+        }
+
+        private SongChart[] GetActiveCharts(SongEntity song)
+        {
+            var roots = GetCurrentSearchPathsSnapshot();
+            var charts = song.Charts?.ToArray() ?? Array.Empty<SongChart>();
+            if (roots.Length == 0)
+                return charts;
+
+            return charts.Where(chart =>
+                SongPathIdentity.TryNormalize(
+                    chart.FilePath,
+                    out var normalized) &&
+                roots.Any(root =>
+                    SongPathIdentity.IsUnderRoot(normalized, root)))
+                .ToArray();
         }
 
         /// <summary>
@@ -3044,6 +3663,10 @@ namespace DTXMania.Game.Lib.Song
                 foreach (var persisted in persistedScores)
                 {
                     var snapshot = CreateScoreSnapshot(persisted);
+                    snapshot.ChartId = metadata.ChartId;
+                    snapshot.Instrument = metadata.Instrument;
+                    snapshot.DifficultyLevel = metadata.DifficultyLevel;
+                    snapshot.DifficultyLabel = metadata.DifficultyLabel;
                     variants[new ScoreVariantKey(
                         difficultyIndex,
                         persisted.PlaySpeedPercent)] = snapshot;
@@ -3090,6 +3713,12 @@ namespace DTXMania.Game.Lib.Song
                 _isInitialized = false;
                 _databaseService?.Dispose();
                 _databaseService = null;
+                _currentSearchPaths = Array.Empty<string>();
+                ParseSongEntitiesCoreAsync =
+                    DTXChartParser.ParseSongEntitiesAsync;
+                EnumerateFilesCore = Directory.EnumerateFiles;
+                EnumerateDirectoriesCore = Directory.EnumerateDirectories;
+                ImportSongsCoreAsync = DefaultImportSongsAsync;
             }
             DiscoveredScoreCount = 0;
             EnumeratedFileCount = 0;
@@ -3106,90 +3735,6 @@ namespace DTXMania.Game.Lib.Song
                 _instance = null;
             }
         }
-
-        /// <summary>
-        /// Groups song nodes by song (title + artist) and creates unified nodes with all charts
-        /// This ensures the fresh scan behaves like the database load path
-        /// </summary>
-        private async Task<List<SongListNode>> GroupSongNodesBySong(List<SongListNode> songNodes)
-        {
-            Debug.WriteLine($"=== GroupSongNodesBySong DEBUG ===");
-            Debug.WriteLine($"Input songNodes.Count: {songNodes.Count}");
-            
-            if (_databaseService == null)
-            {
-                Debug.WriteLine($"Database service is null, returning original nodes");
-                return songNodes;
-            }
-
-            var groupedResults = new List<SongListNode>();
-
-            try
-            {
-                // Group by song (Title + Artist)
-                var songGroups = songNodes
-                    .Where(node => node.DatabaseSong != null)
-                    .GroupBy(node => new { node.DatabaseSong.Title, node.DatabaseSong.Artist })
-                    .ToList();
-
-                Debug.WriteLine($"Created {songGroups.Count} song groups");
-
-                foreach (var songGroup in songGroups)
-                {
-                    var songNodes_InGroup = songGroup.ToList();
-                    Debug.WriteLine($"Processing group: '{songGroup.Key.Title}' by '{songGroup.Key.Artist}' with {songNodes_InGroup.Count} charts");
-                    
-                    if (songNodes_InGroup.Count == 1)
-                    {
-                        // Single chart song, use as-is
-                        groupedResults.Add(songNodes_InGroup[0]);
-                    }
-                    else
-                    {
-                        // Multi-chart song, create unified node using database entities
-                        var firstNode = songNodes_InGroup[0];
-                        var songId = firstNode.DatabaseSongId;
-
-                        if (songId.HasValue)
-                        {
-                            // Get complete song with all charts from database
-                            var completeEntities = await _databaseService.GetSongWithChartsAsync(songId.Value);
-                            if (completeEntities.HasValue)
-                            {
-                                // Create unified song node (like database load path)
-                                var unifiedNode = CreateSongNodeFromDatabaseEntities(
-                                    completeEntities.Value.song, 
-                                    completeEntities.Value.charts);
-                                
-                                if (unifiedNode != null)
-                                {
-                                    unifiedNode.Parent = firstNode.Parent;
-                                    unifiedNode.DatabaseSongId = songId;
-                                    groupedResults.Add(unifiedNode);
-                                    
-                                    Debug.WriteLine($"SongManager: Grouped {songNodes_InGroup.Count} charts into unified song: {firstNode.DatabaseSong.Title}");
-                                    continue;
-                                }
-                            }
-                        }
-
-                        // Fallback: if grouping fails, add the first node
-                        Debug.WriteLine($"SongManager: Failed to group charts for song: {firstNode.DatabaseSong?.Title}, using first chart as fallback");
-                        groupedResults.Add(firstNode);
-                    }
-                }
-
-                Debug.WriteLine($"SongManager: Grouped {songNodes.Count} individual nodes into {groupedResults.Count} unified songs");
-                return groupedResults;
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"SongManager: Error grouping song nodes: {ex.Message}");
-                // Fallback to original nodes if grouping fails
-                return songNodes;
-            }
-        }
-
 
         #endregion
     }
@@ -3227,6 +3772,7 @@ namespace DTXMania.Game.Lib.Song
     /// </summary>
     public class EnumerationProgress
     {
+        public string CurrentOperation { get; set; } = "";
         public string CurrentFile { get; set; } = "";
         public int ProcessedCount { get; set; }
         public int DiscoveredSongs { get; set; }

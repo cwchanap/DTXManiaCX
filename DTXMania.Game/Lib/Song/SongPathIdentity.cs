@@ -49,6 +49,9 @@ namespace DTXMania.Game.Lib.Song
         public static string ForSetDefinition(string setDefPath) =>
             $"set|{Normalize(setDefPath)}";
 
+        public static bool IsSetDefinitionGroup(string groupKey) =>
+            groupKey.StartsWith("set|", StringComparison.Ordinal);
+
         public static string ForOrdinaryChart(string chartPath, string title, string artist)
         {
             var directory = Path.GetDirectoryName(Normalize(chartPath))
