@@ -10,6 +10,10 @@ run="${4:?usage: benchmark-startup.sh GAME_DIR CORPUS LABEL RUN_ID}"
 game_dll="$game_dir/DTXMania.Game.Mac.dll"
 result_root="$repo_root/TestResults/hpa-192/$label"
 api_key="hpa-192-benchmark-key"
+require_timing="${HPA192_REQUIRE_TIMING:-0}"
+require_external_ready="${HPA192_REQUIRE_EXTERNAL_READY:-0}"
+expected_persistence_path="${HPA192_EXPECT_PERSISTENCE_PATH:-}"
+expected_song_count="${HPA192_EXPECT_SONG_COUNT:-}"
 api_port="$(rtk python3 -c \
     'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')"
 launch_token="hpa192-$label-$run"
@@ -80,6 +84,14 @@ if ! acquire_lock; then
     exit 1
 fi
 
+[[ "$require_timing" == 0 || "$require_timing" == 1 ]] || {
+    printf 'HPA192_REQUIRE_TIMING must be 0 or 1\n' >&2
+    exit 2
+}
+[[ "$require_external_ready" == 0 || "$require_external_ready" == 1 ]] || {
+    printf 'HPA192_REQUIRE_EXTERNAL_READY must be 0 or 1\n' >&2
+    exit 2
+}
 test -f "$game_dll"
 test -d "$corpus"
 mkdir -p "$result_root"
@@ -104,7 +116,7 @@ cp -R "$repo_root/System" "$run_root/System"
 
 stdout="$result_root/run-$run.stdout.log"
 stderr="$result_root/run-$run.stderr.log"
-start="$(perl -MTime::HiRes=time -e 'printf "%.6f", time')"
+launch_start_unix_us="$(perl -MTime::HiRes=time -e 'printf "%.0f", time * 1000000')"
 (
     cd "$game_dir"
     DTXMANIA_APPDATA_ROOT="$appdata" \
@@ -127,13 +139,20 @@ for attempt in $(seq 1 1200); do
         -d '{"jsonrpc":"2.0","id":1,"method":"getGameState","params":null}' \
         "http://127.0.0.1:$api_port/jsonrpc" 2>/dev/null || true)"
     if [[ "$state" == *"TitleStage"* ]]; then
+        if [[ "$require_timing" == 1 ]]; then
+            timing_count_so_far="$(rtk awk '/^HPA192_TIMING / { count++ } END { print count + 0 }' "$stdout")"
+            if [[ "$timing_count_so_far" != 1 ]]; then
+                sleep 0.05
+                continue
+            fi
+        fi
         reached_title=true
         break
     fi
     sleep 0.05
 done
 
-end="$(perl -MTime::HiRes=time -e 'printf "%.6f", time')"
+launch_end_unix_us="$(perl -MTime::HiRes=time -e 'printf "%.0f", time * 1000000')"
 stop_game
 
 if [[ "$reached_title" != true ]]; then
@@ -164,12 +183,27 @@ printf 'label=%s run=%s charts=%s songs=%s database_sha256=%s\n' \
     "$label" "$run" "$chart_count" "$song_count" "$database_hash" |
     tee "$result_root/run-$run.database.txt"
 
-wall_ms="$(perl -e 'printf "%.0f", 1000 * ($ARGV[1] - $ARGV[0])' "$start" "$end")"
+wall_ms="$(((launch_end_unix_us - launch_start_unix_us) / 1000))"
 summary_count="$(rtk awk '/^HPA192_STARTUP / { count++ } END { print count + 0 }' "$stdout")"
 if [[ "$summary_count" != 1 ]]; then
     printf 'run %s emitted %s HPA192_STARTUP lines; expected exactly one\n' "$run" "$summary_count" >&2
     exit 1
 fi
 summary="$(rtk awk '/^HPA192_STARTUP / { print }' "$stdout")"
-printf 'label=%s run=%s wall_ms=%s %s\n' "$label" "$run" "$wall_ms" "$summary" |
+timing_count="$(rtk awk '/^HPA192_TIMING / { count++ } END { print count + 0 }' "$stdout")"
+if [[ "$require_timing" == 1 && "$timing_count" != 1 ]]; then
+    printf 'run %s emitted %s HPA192_TIMING lines; expected exactly one\n' "$run" "$timing_count" >&2
+    exit 1
+fi
+timing="$(rtk awk '/^HPA192_TIMING / { print }' "$stdout")"
+if [[ "$require_external_ready" == 1 ]]; then
+    printf 'run %s requested external readiness, but Task 0 has no readiness field\n' "$run" >&2
+    exit 1
+fi
+if [[ -n "$expected_persistence_path" || -n "$expected_song_count" ]]; then
+    printf 'run %s persistence expectations are unavailable before Task 1\n' "$run" >&2
+    exit 1
+fi
+printf 'label=%s run=%s wall_ms=%s launch_start_unix_us=%s launch_end_unix_us=%s %s %s\n' \
+    "$label" "$run" "$wall_ms" "$launch_start_unix_us" "$launch_end_unix_us" "$summary" "$timing" |
     tee "$result_root/run-$run.result.txt"

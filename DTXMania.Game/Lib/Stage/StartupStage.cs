@@ -454,6 +454,7 @@ namespace DTXMania.Game.Lib.Stage
             _progressMessages.Add("DTXMania powered by YAMAHA Silent Session Drums");
 
             System.Diagnostics.Debug.WriteLine("Startup Stage activated successfully");
+            _game.ReportStartupActivated();
         }
 
         protected override void OnUpdate(double deltaTime)
@@ -467,6 +468,7 @@ namespace DTXMania.Game.Lib.Stage
             {
                 _titleTransitionRequested = true;
                 WriteSummaryOnce();
+                _game.ReportStartupSummaryAndTitleRequested();
                 _game.StageManager?.ChangeStage(
                     StageType.Title,
                     new StartupToTitleTransition(1.0));
@@ -482,6 +484,7 @@ namespace DTXMania.Game.Lib.Stage
             DrawStartupContent();
             EndSpriteBatchCore(_spriteBatch);
             _hasRenderedStartupFrame = true;
+            _game.ReportStartupFrameRendered();
         }
 
         private void DrawStartupContent()
