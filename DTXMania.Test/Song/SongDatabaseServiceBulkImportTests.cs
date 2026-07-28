@@ -846,7 +846,45 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task ImportSongsAsync_LegacyRewriteBinaryTargetCollision_ShouldPreserveEveryRow()
+        public async Task ImportSongsAsync_CaseDistinctExactMatches_ShouldResolveBeforeLegacyAliases()
+        {
+            if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS())
+                return;
+
+            var first = await SeedChartWithStoredPathAsync(
+                "/songs/active/Case/chart.dtx", "First");
+            var second = await SeedChartWithStoredPathAsync(
+                "/songs/active/case/chart.dtx", "Second");
+            var firstCandidate = Candidate(
+                "First",
+                "dir|first",
+                0,
+                first.FilePath,
+                50);
+            var secondCandidate = Candidate(
+                "Second",
+                "dir|second",
+                0,
+                second.FilePath,
+                50);
+
+            var result = await _service.ImportSongsAsync(
+                CreateRequest(firstCandidate, secondCandidate),
+                progress: null,
+                CancellationToken.None);
+
+            Assert.Equal(
+                first.Id,
+                result.ChartsByPath[firstCandidate.NormalizedChartPath].Id);
+            Assert.Equal(
+                second.Id,
+                result.ChartsByPath[secondCandidate.NormalizedChartPath].Id);
+            Assert.Equal(0, result.Conflicts);
+            Assert.Equal(0, result.Skipped);
+        }
+
+        [Fact]
+        public async Task ImportSongsAsync_CanonicalPathCollision_ShouldPreserveEveryRow()
         {
             var legacy = await SeedChartWithStoredPathAsync(
                 "/songs/active/nested/../chart.dtx", "Legacy");
@@ -872,6 +910,56 @@ namespace DTXMania.Test.Song
             Assert.True(await ChartExistsAsync(target.Id));
             Assert.Equal(1, result.Conflicts);
             Assert.Equal(1, result.Skipped);
+            Assert.False(
+                result.ChartsByPath.ContainsKey(candidate.NormalizedChartPath));
+        }
+
+        [Fact]
+        public async Task ImportSongsAsync_GlobalBinaryTargetOutsideTrackedGraph_ShouldBlockLegacyRewrite()
+        {
+            if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS())
+                return;
+
+            var legacy = await SeedChartWithStoredPathAsync(
+                "/songs/active/Chart.dtx", "Legacy");
+            var target = await SeedChartWithStoredPathAsync(
+                "/songs/active/chart.dtx", "Target");
+            var candidate = Candidate(
+                "Discovered",
+                "dir|active",
+                0,
+                "/songs/active/chart.dtx",
+                60);
+            var service = new SongDatabaseService(
+                _options,
+                () => new SongDbContext(_options),
+                activeChartIdentityFilter:
+                    chartId => chartId != target.Id);
+
+            var result = await service.ImportSongsAsync(
+                CreateRequest(candidate),
+                progress: null,
+                CancellationToken.None);
+
+            await using var context = new SongDbContext(_options);
+            var storedCharts = await context.SongCharts
+                .AsNoTracking()
+                .OrderBy(chart => chart.Id)
+                .Select(chart => new { chart.Id, chart.FilePath })
+                .ToArrayAsync();
+            Assert.Equal(2, storedCharts.Length);
+            Assert.Contains(
+                storedCharts,
+                chart => chart.Id == legacy.Id &&
+                    chart.FilePath == "/songs/active/Chart.dtx");
+            Assert.Contains(
+                storedCharts,
+                chart => chart.Id == target.Id &&
+                    chart.FilePath == "/songs/active/chart.dtx");
+            Assert.Equal(1, result.Conflicts);
+            Assert.Equal(1, result.Skipped);
+            Assert.Equal(0, result.Added);
+            Assert.Equal(0, result.StaleCharts);
             Assert.False(
                 result.ChartsByPath.ContainsKey(candidate.NormalizedChartPath));
         }
