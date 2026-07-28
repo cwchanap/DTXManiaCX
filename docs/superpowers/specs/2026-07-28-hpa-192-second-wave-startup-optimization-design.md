@@ -2,8 +2,7 @@
 
 **Issue:** [HPA-192](https://linear.app/cwchanap/issue/HPA-192/optimize-fresh-startup-song-loading-with-batched-sqlite-import)  
 **Date:** 2026-07-28  
-**Status:** Design amended after three review passes; implementation planning
-pending final committed-spec approval
+**Status:** Approved for implementation planning
 
 ## Context
 
@@ -146,16 +145,20 @@ milestones for:
 At Title completion it emits exactly one Release-visible `HPA192_TIMING` line
 with `entry_to_config_ms`, `config_to_load_content_ms`,
 `load_content_to_startup_ms`, `startup_to_first_draw_ms`,
-`startup_to_summary_ms`, `summary_to_title_ms`, and `entry_to_title_ms`.
-These durations share one process-monotonic origin. This line is separate
-from and does not alter the single `HPA192_STARTUP` summary contract.
+`startup_to_summary_ms`, `summary_to_title_ms`, `entry_to_title_ms`,
+`entry_unix_us`, and `title_unix_us`. The durations share one
+process-monotonic origin. The UTC microsecond anchors are captured immediately
+adjacent to the process-entry and completed-Title monotonic markers; they
+bridge the process timeline to the runner timeline without replacing
+monotonic interval arithmetic. This line is separate from and does not alter
+the single `HPA192_STARTUP` summary contract.
 
 The benchmark runner retains its external launch and Title-observation
-timestamps. Three fresh diagnostic runs use the same machine, corpus, Release
-configuration, app-data isolation, and runner rules as the accepted
-benchmark. The report preserves every raw interval and the medians. These
-runs are diagnostic and never count toward the predetermined acceptance
-sequence.
+timestamps as `launch_start_unix_us` and `launch_end_unix_us`. Three fresh
+diagnostic runs use the same machine, corpus, Release configuration, app-data
+isolation, and runner rules as the accepted benchmark. The report preserves
+every raw interval and the medians. These runs are diagnostic and never count
+toward the predetermined acceptance sequence.
 
 The diagnostic computes:
 
@@ -168,6 +171,36 @@ The diagnostic computes:
   because the coordinator must already be terminal.
 - A fixed-cost lower bound consisting of external launch to Startup
   activation, one required Startup frame, and summary-to-Title completion.
+
+The exact bridge and lower bound are:
+
+```text
+entry_to_startup_ms =
+    entry_to_config_ms +
+    config_to_load_content_ms +
+    load_content_to_startup_ms
+
+external_launch_to_entry_ms =
+    (entry_unix_us - launch_start_unix_us) / 1000
+
+external_launch_to_startup_ms =
+    external_launch_to_entry_ms + entry_to_startup_ms
+
+title_poll_lag_ms =
+    (launch_end_unix_us - title_unix_us) / 1000
+
+fixed_cost_lower_bound_ms =
+    external_launch_to_startup_ms +
+    startup_to_first_draw_ms +
+    summary_to_title_ms
+```
+
+The runner's external `wall_ms` ends only when HTTP polling observes Title.
+It is retained as a diagnostic/acceptance value but never used to derive the
+fixed-cost lower bound, because doing so would incorrectly include
+`title_poll_lag_ms`. Negative, inconsistent, or implausibly skewed anchor
+values invalidate that diagnostic run rather than silently changing the
+formula.
 
 If that fixed-cost lower bound is at least 2,221 ms, implementation stops
 before the higher-risk database tasks because no song-side optimization in
@@ -255,8 +288,25 @@ thread only after all of these events have occurred:
 3. Startup has emitted its one summary.
 4. The normal internal Startup-to-Title transition has completed.
 
+The qualifying game-thread update publishes readiness after
+`StageManager.Update` has returned with Title current and
+`IsTransitioning == false`, and before that frame drains accepted main-thread
+actions.
+
 Application shutdown uses a separate shutting-down flag and rejects new API
 work; it does not reverse this launch-monotonic readiness value.
+
+`IGameContext` exposes the exact lifecycle bridge used by the API:
+
+```csharp
+bool ExternalStageChangesReady { get; }
+bool IsShuttingDown { get; }
+bool QueueMainThreadAction(Action action);
+```
+
+Queue admission and shutdown publication share one lifecycle gate, so the
+Boolean result is the atomic admission decision rather than a later
+best-effort observation.
 
 `IGameApi.ChangeStageAsync` changes from `Task<bool>` to the exact signature
 `Task<StageChangeRequestResult> ChangeStageAsync(string stageName)`. It parses
@@ -275,13 +325,22 @@ The API returns a discriminated `StageChangeRequestResult`:
 - `UnknownStage`: parsing or enum validation failed.
 - `StartupNotReady`: startup lifecycle fencing rejected the request before
   queuing.
+- `ShuttingDown`: application teardown rejected the request before or during
+  atomic queue admission.
 
 JSON-RPC preserves the existing `InvalidParams` (`-32602`) response for
 `UnknownStage`. `StartupNotReady` maps through a new named
 `JsonRpcErrorCodes.StartupNotReady = -32004` constant with
 `data.reason = "startup_not_ready"` and the requested target in sanitized
-data. The MCP service extracts `JsonRpcException.ErrorCode` and
-`ErrorData.reason` into a provisional
+data. `ShuttingDown` maps through the existing
+`JsonRpcErrorCodes.GameNotRunning = -32001` constant with
+`data.reason = "shutting_down"` and the sanitized parsed target. Invalid input
+is parsed first and therefore remains `UnknownStage`; a valid request
+linearized after shutdown publication is `ShuttingDown`, not
+`StartupNotReady`.
+
+The MCP service extracts `JsonRpcException.ErrorCode` and `ErrorData.reason`
+into a provisional
 `StageChangeServiceResult(Success, Message, ErrorCode, Reason)` return value;
 `ErrorCode` and `Reason` are nullable for non-JSON-RPC failures. The MCP
 handler includes both fields in its structured result instead of collapsing
@@ -353,12 +412,23 @@ observe the coordinator task.
 Graceful application shutdown occurs in this order:
 
 1. Mark the application as shutting down so new API actions are rejected.
-2. Stop accepting API work and cancel the coordinator token.
-3. Observe the coordinator task, including cancellation or fault, for the
+2. Under the same lifecycle gate, reject queue and screenshot admission,
+   then exchange any pending screenshot completion source. After releasing the
+   gate, complete that source as canceled before listener shutdown. A later
+   screenshot request returns an already-canceled task and cannot install new
+   pending work.
+3. Cancel/observe any in-progress API startup and call
+   `JsonRpcServer.StopAsync` so an already-running Kestrel listener stops
+   accepting requests. The API startup cancellation token alone does not stop
+   a running listener. Pending screenshot work must be canceled first because
+   an HTTP screenshot handler can otherwise wait for a future Draw while the
+   game thread synchronously waits for Kestrel shutdown.
+4. Cancel the coordinator token.
+5. Observe the coordinator task, including cancellation or fault, for the
    fixed five-second `StartupSongLoadShutdownTimeout`.
-4. When the task becomes terminal within the bound, dispose its database
-   dependencies, then `StageManager`, resources, graphics, and API/server
-   objects, with logging last.
+6. When the task becomes terminal within the bound, dispose its database
+   dependencies, then `StageManager`, resources, graphics, and the
+   already-stopped API/server objects, with logging last.
 
 Enumeration checks cancellation before and after each root, directory
 enumeration, file enumeration, and chart parse. The current chart-parser
@@ -471,7 +541,7 @@ The current `_phaseInfo` duration values are not dead gating state:
 `DrawCurrentProgress` still uses them to interpolate the visual progress bar.
 If retained, they remain presentation-only and never control phase
 advancement. They may be removed only if coordinator snapshot progress fully
-replaces that interpolation with equivalent rendering coverage; task 3 does
+replaces that interpolation with equivalent rendering coverage; Task 2 does
 not delete the tuple element as an unrelated cleanup.
 
 The rendered-frame gate remains:
@@ -524,11 +594,16 @@ The following paths are explicitly nonfresh:
 - The `table already exists` recovery catch.
 - A test/service constructor supplied with an already-created schema.
 
-The flag is sticky for the service instance until disposal. A successful
-direct import additionally consumes that instance's one-import eligibility.
-A later application launch creates a new service, observes the now-existing
-file, and therefore cannot select the direct writer unless that launch
-deliberately deletes and recreates the database again.
+The flag is sticky within the current service initialization epoch. Any
+successful EF or direct import commit consumes that epoch's one-import
+eligibility, including a successful zero-row plan. A successful explicit
+purge ends the old epoch and lets the next initialization prove new freshness;
+a failed purge does not. Restore clears initialization/fresh evidence and
+direct eligibility, and the restored bytes traverse the complete existing
+database path as nonfresh state. Disposal ends the final epoch. A later
+application launch creates a new service, observes the now-existing file, and
+therefore cannot select the direct writer unless that launch deliberately
+deletes and recreates the database again.
 
 EF Core `EnsureCreatedAsync` remains the schema authority. The direct writer
 does not own table or index creation.
@@ -571,7 +646,7 @@ inferred later from a zero row count alone.
 The direct writer is eligible only when all of these conditions hold:
 
 - The current service instance created or recovered the database.
-- No successful import has committed through this service instance.
+- No successful import has committed in the current initialization epoch.
 - Songs, charts, and scores are verified empty before writing.
 - The import request represents a complete enumeration batch.
 - The one-shot coordinator is executing inside `SongManager`'s existing
@@ -650,8 +725,10 @@ multi-row `RETURNING` clause; SQLite does not guarantee that order.
 The writer uses:
 
 - One open `SqliteConnection` created by `SongDatabaseService` from the same
-  data source, `Cache=Shared` setting, and 30-second command timeout as the EF
-  path; the writer does not independently format a second connection string.
+  data source and `Cache=Shared` setting as the EF path, using the service
+  default 30-second command timeout; the existing EF bulk importer retains
+  its deliberate 120-second override. The writer does not independently
+  format a second connection string.
 - One explicit transaction.
 - One reusable parameterized insert command for songs.
 - One reusable parameterized insert command for charts.
@@ -826,6 +903,9 @@ Implementation follows test-driven development.
   teardown continues.
 - Rejects new API actions, cancels and observes the coordinator, then disposes
   dependent managers in the specified order.
+- Cancels an in-flight screenshot before waiting for listener shutdown,
+  completes disposal without another Draw, and rejects a screenshot racing
+  after shutdown without installing new pending work.
 - Never leaves work running after a terminal result.
 
 ### Readiness-barrier and API tests
@@ -833,9 +913,11 @@ Implementation follows test-driven development.
 - Holds startup before external readiness and verifies every valid external
   target, including Startup, Title, Config, and SongSelect, returns
   `StartupNotReady` before queuing.
-- Verifies `UnknownStage` remains distinct from `StartupNotReady`.
+- Verifies `UnknownStage`, `StartupNotReady`, and `ShuttingDown` remain
+  distinct, including an atomic queue-admission race with shutdown.
 - Verifies JSON-RPC uses `-32004` with
-  `data.reason = "startup_not_ready"` and MCP preserves the code and reason.
+  `data.reason = "startup_not_ready"`, shutdown uses existing `-32001` with
+  `data.reason = "shutting_down"`, and MCP preserves both code/reason pairs.
 - Verifies every stage-change caller compiles against
   `Task<StageChangeRequestResult>` and the named JSON-RPC constant.
 - Verifies the rejected request never enters the main-thread queue and cannot
@@ -894,12 +976,21 @@ Implementation follows test-driven development.
 - A failed deletion, `table already exists` catch, pre-created test schema,
   and pre-existing empty database are not considered fresh.
 - `EnsureCreatedAsync` must report schema creation before the fresh flag can
-  become true, and the flag remains sticky for that service instance.
+  become true, and the flag remains sticky within that initialization epoch.
+- Any successful EF or direct commit consumes the current epoch's eligibility,
+  including a zero-row plan; a second zero-row request uses existing EF
+  reconciliation.
+- Successful purge begins a new initialization epoch, failed purge does not,
+  and restore invalidates fresh/direct eligibility before taking the existing
+  path.
 - A structural differential test compares a fresh database with a legacy
   fixture after the complete existing-database migration path. It compares
   user table/index names and types plus normalized `PRAGMA table_info`,
-  `index_list`/`index_info`, and `foreign_key_list` metadata, including the
-  `__DatabaseVersion` marker and row.
+  `index_list`/`index_info`/`index_xinfo`, and `foreign_key_list` metadata,
+  including indexed-column collation/key roles and normalized partial-index
+  predicates. It includes the `__DatabaseVersion` marker and compares its
+  semantic `Feature`/`Version`; `AppliedAt` must be parseable but its
+  wall-clock value is excluded.
 - The differential does not compare raw normalized `sqlite_master` SQL text or
   provider-generated internal object names; semantically equivalent DDL can
   differ in formatting or ordering. The direct-writer AUTOINCREMENT guard
@@ -964,7 +1055,9 @@ The second-wave comparison uses:
 - Original baseline commit:
   `5ea3f95d208ba7b15019429f63d7edd0bbf7009d`.
 - A fixed Release output from the final second-wave product commit.
-- A pinned benchmark runner.
+- Pinned `benchmark-startup.sh` single-run validation and
+  `run-balanced-benchmark.sh` acceptance orchestration scripts, with separate
+  SHA-256 values.
 - Fresh app-data and database roots for every accepted run.
 - Distinct loopback API ports and launch tokens.
 - Exact chart-path equality with the frozen manifest.
@@ -977,9 +1070,9 @@ predetermined acceptance sequence. A failed accepted attempt is retained as
 diagnostic evidence and the entire sequence restarts in a clean namespace
 rather than resuming or overwriting it.
 
-The final report records commits, binary hashes, runner hash, environment,
-manifest, run order, every raw wall time, summary line, database counts, path
-hashes, medians, and calculation.
+The final report records commits, binary hashes, both runner-script hashes,
+environment, manifest, run order, every raw wall time, summary line, database
+counts, path hashes, medians, and calculation.
 
 Acceptance requires all of the following:
 
@@ -1010,26 +1103,29 @@ are never substituted for the predetermined acceptance samples.
 
 ## Implementation Sequence
 
-The later implementation plan will split work into independently reviewed
-tasks:
+The implementation plan at
+`docs/superpowers/plans/2026-07-28-hpa-192-second-wave-startup-optimization.md`
+splits work into independently reviewed tasks:
 
 0. Instrumented first-wave Release timing, three-run diagnostic report, and
    the fixed-cost go/no-go gate.
 1. Named coordinator request/progress/result contracts and one-shot lifecycle
    tests.
-2. `BaseGame` early-start ownership, captured `SongManager`, launch-level
-   request factory, exact typed stage-change call-site migration, readiness
-   telemetry/E2E waiting, and bounded coordinator-first disposal.
-3. `StartupStage` table-driven milestone consumption, legacy-launcher and
-   load-owning-CTS/`ForceEnumeration` seam removal, early-fault lifecycle,
-   bounded phase draining, presentation-only progress metadata, and telemetry.
+2. One atomic vertical integration of `BaseGame` early-start ownership,
+   `StartupStage` table-driven milestone consumption, readiness/API/JSON-RPC
+   fencing, telemetry, and bounded coordinator-first disposal. The early
+   coordinator cannot land in a commit where external stage changes remain
+   unfenced.
+3. MCP error preservation, E2E readiness propagation/waiting, and CI coverage.
 4. Service-owned fresh-database evidence, strict fresh bootstrap, and
    existing-probe split.
-5. Shared fresh-import planning, guarded direct writer, explicit schema
-   mapping, connection, foreign-key, and ID contracts.
-6. Structural fresh-versus-migrated schema differential, parity, rollback,
+5. Shared pure fresh-import planning and a verified-empty fresh EF semantic
+   oracle.
+6. Guarded prepared direct writer with explicit schema mapping, connection,
+   foreign-key, cancellation, transaction, and ID contracts.
+7. Structural fresh-versus-migrated schema differential, parity, rollback,
    DDL/sequence, migration, lifecycle, and full-suite verification.
-7. Balanced benchmark and report update.
+8. Balanced benchmark orchestration and report update.
 
 The implementation plan will use subagent-driven development with
 task-by-task specification and quality reviews, followed by a final
