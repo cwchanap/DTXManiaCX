@@ -125,6 +125,13 @@ as compatibility mirrors of the completed enumeration batch. Existing tests
 consume them. Startup UI progress continues to come from
 `EnumerationProgress`, not by polling these properties.
 
+The new startup-owned `EnumerateAndImportSongsAsync` entry point requires an
+initialized database service. If the service is unavailable, it fails before
+filesystem traversal and leaves the published hierarchy and compatibility
+counts unchanged. The legacy count-returning `EnumerateSongsAsync` wrapper
+retains its existing database-less result of `0` without publishing parse-only
+nodes.
+
 ### `SongDatabaseService`
 
 `SongDatabaseService` gains a bulk import API used by fresh and re-enumeration
@@ -140,11 +147,14 @@ startup. The API owns:
 - One `SaveChangesAsync`.
 - Commit or rollback.
 - Import counts and database subphase timings.
+- Aggregate persistence progress milestones.
 
 The existing `AddSongAsync` API remains as a legacy/test helper so unrelated
 fixtures do not require broad rewrites. Both production enumeration callers
 are removed, and startup must use only the bulk import API. Its legacy
-title/artist matching is therefore outside the production HPA-192 path.
+title/artist matching is therefore outside the production HPA-192 path. Its
+documentation and tests must label it as legacy/test-only rather than implying
+that it defines the product import contract.
 
 ### Import data contracts
 
@@ -174,11 +184,33 @@ A single helper normalizes chart paths before lookup or persistence:
 
 - Convert to an absolute full path.
 - Normalize directory separators consistently.
-- Compare with the operating system's filesystem comparison semantics.
+- Use exact ordinal normalized values as the canonical database identity.
+- Use a case-insensitive legacy-alias comparison on Windows and macOS only
+  after exact matching; Linux aliases remain ordinal.
 - Store the normalized value in `SongChart.FilePath`.
 
 The existing unique `SongChart.FilePath` database index remains the final
-constraint.
+constraint. SQLite applies binary collation to that index, so preload must not
+assume that its rows are unique under the legacy-alias comparer.
+
+Reconciliation resolves paths conservatively:
+
+1. Group persisted rows by normalized canonical value instead of constructing
+   them with a collision-throwing `ToDictionary`.
+2. Match exact canonical values first.
+3. Match a remaining legacy alias only when exactly one unmatched persisted
+   row and one unmatched discovered path participate.
+4. Treat every other collision as a path conflict. Preserve every involved
+   persisted row, exclude it from stale deletion, and report the conflict
+   rather than choosing or merging silently.
+5. For a unique legacy match, update the persisted `SongChart.FilePath` to the
+   normalized discovered value in the same transaction.
+
+This exact-first rule preserves two genuinely distinct case-sensitive files
+when both are discovered, while still migrating a unique legacy relative,
+separator-varied, or case-only path. A path rewrite never occurs when it could
+violate the binary unique index. A malformed persisted path that cannot be
+normalized is retained and excluded from active-root cleanup.
 
 Title and artist must not globally identify a chart or song. Import grouping is
 defined as follows:
@@ -232,9 +264,11 @@ The database import runs only for a complete enumeration batch:
 
 1. Create one `SongDbContext`.
 2. Begin one explicit SQLite transaction with the caller's cancellation token.
-3. Preload persisted charts under the active roots, including their songs,
-   scores, and performance history.
-4. Index existing charts by normalized path using the platform-aware comparer.
+3. Load a lightweight global chart ID/song ID/path projection for collision and
+   orphan safety, then preload the tracked songs, scores, and performance
+   history only for charts under the active roots.
+4. Build the collision-aware canonical and legacy-alias path indexes described
+   above.
 5. Process import groups deterministically:
    - Existing charts are updated in place.
    - Existing chart and song IDs are retained.
@@ -246,10 +280,11 @@ The database import runs only for a complete enumeration batch:
    Remove stale charts and then songs left with no charts. Records outside the
    active roots are untouched.
 7. Call `SaveChangesAsync` once.
-8. Use EF Core tracked relationships and generated keys to finalize pending
-   nodes without queries.
+8. Assemble the normalized-path result map from EF Core tracked relationships
+   and generated keys without queries.
 9. Commit the transaction.
-10. Return the finalized import result.
+10. Return the committed import result so `SongManager` can hydrate pending
+    nodes.
 
 The import explicitly preserves:
 
@@ -261,23 +296,60 @@ The import explicitly preserves:
 - All performance-history rows.
 
 Parsed metadata may update song and chart presentation/gameplay fields, but it
-must not replace persisted user-owned state.
+must not replace persisted user-owned state. The field ownership contract is:
+
+- For an existing `Song`, parsing may update only `Title`, `Artist`, `Genre`,
+  and `Comment`. It never replaces `Id`, `CreatedAt`, `IsBookmarked`, or
+  `Charts`; `UpdatedAt` advances only when one of those four parsed fields
+  changes.
+- For an existing `SongChart`, parsing may update `FilePath`, `FileSize`,
+  `LastModified`, `FileFormat`, `DifficultyLevel`, `DifficultyLabel`, `Bpm`,
+  `Duration`, `BGMAdjust`, `DrumLevel`, `DrumLevelDec`, `GuitarLevel`,
+  `GuitarLevelDec`, `BassLevel`, `BassLevelDec`, `HasDrumChart`,
+  `HasGuitarChart`, `HasBassChart`, `IsClassicDrums`, `IsClassicGuitar`,
+  `IsClassicBass`, `DrumNoteCount`, `GuitarNoteCount`, `BassNoteCount`,
+  `PreviewFile`, `PreviewImage`, `BackgroundFile`, and `StageFile`. It never
+  replaces `Id`, `SongId`, `Song`, `Scores`, or an existing `FileHash`.
+- Rescan does not update any existing `SongScore` field. It creates a score
+  only when an available instrument has a positive level and the exact
+  `(ChartId, Instrument, PlaySpeedPercent = 100)` key is missing. A newly
+  gained instrument therefore receives exactly one default-speed row; all
+  other performance and NX fields retain their persisted values.
+
+The current per-chart path returns early when it finds an existing path, so
+updating parsed metadata on rescan is an intentional behavior change.
 
 `SongChart.FileHash` is not consumed by current production cache validation or
 identity logic. The bulk path preserves an existing hash during rescans but
 does not compute MD5 for new charts, avoiding the current second full-file
-read. New bulk-imported charts leave the field empty. Hash-backed cache
-validation, if needed later, requires a separate design.
+read. New bulk-imported charts leave the field empty. An empty hash means
+unknown or uncomputed; a future hash-backed validator must never treat it as a
+successful hash match. Hash-backed cache validation, if needed later, requires
+a separate design.
 
 The discovery-set cleanup in step 6 replaces both startup calls to
 `CleanupStaleChartsAsync`: the post-enumeration call and the call inside
 database hierarchy construction. The old per-chart `File.Exists` cleanup is
 not invoked by either startup path after this change.
 
+Cleanup deliberately reconciles only active roots. Rows belonging exclusively
+to a root removed from configuration are retained indefinitely unless that
+root becomes active again and completes discovery, or a future explicit
+maintenance operation removes them. To avoid surfacing unusable nodes while
+retaining data for an unmounted library, recent-play, bookmark, search, and
+active-session statistics views filter charts to the current active roots.
+Broad orphan reclamation remains outside HPA-192.
+
 Legacy ambiguous groups contribute to the Release aggregate conflict count.
 Debug builds additionally log one diagnostic per conflicting group containing
 the normalized group key and involved song IDs. Conflicts are not shown in the
 startup UI.
+
+Only the bulk-import context raises its SQLite command timeout from the current
+30 seconds to 120 seconds. The service-wide default remains unchanged.
+Preload, matching completion, staged mutations, cleanup completion, save start,
+and commit are reported as aggregate milestones; persistence does not emit
+per-row progress.
 
 ## Hierarchy Publication
 
@@ -287,13 +359,26 @@ and chart IDs and the already-preloaded score/history graph. Existing node
 hydration helpers then finalize the score nodes without calling
 `GetSongWithChartsAsync`.
 
+The temporary hierarchy is the UI source of truth. Finalization hydrates each
+pending placeholder in place; it does not replace the placeholder with a node
+reconstructed from SQLite. This preserves `set.def` slot order and labels,
+`box.def` title, color, genre, and skin presentation, parent-child placement,
+and breadcrumbs. Tracked EF entities contribute only committed IDs, entity
+references, score variants, and performance history.
+
 `SongManager._rootSongs` is replaced only after the transaction commits. An
 import cancellation or failure therefore cannot publish a hierarchy that
 disagrees with the committed database.
 
 The cached path continues to construct hierarchy from SQLite, but does so only
-once. The enumeration path keeps its newly constructed hierarchy and never
-rebuilds it from SQLite.
+once through a cleanup-free `BuildHierarchyFromDatabaseOnceAsync` entry point.
+Database hierarchy construction groups charts by persisted `Song.Id`, not
+database-wide title/artist, so separate same-metadata imports remain separate
+through cache load, failure fallback, NX import refresh, and score-update
+refresh. A legacy database in which different directories already share one
+incorrect `SongId` is not silently split by HPA-192; that migration is a
+deferred maintenance concern. The enumeration path keeps its newly constructed
+hierarchy and never rebuilds it from SQLite.
 
 ## Startup Orchestration
 
@@ -320,9 +405,21 @@ The startup song-load path is selected once:
 4. If the cache is valid, load entities and build the database hierarchy once.
 5. Mark `SongManager` initialized.
 
-The verification-only `SaveSongsDB` statistics query is removed or collapsed
-into the finalization step. The `BuildSongLists` phase does not rebuild an
-enumerated hierarchy.
+The phase-to-operation mapping is explicit:
+
+- `SystemSounds` and `ConfigValidation` retain their synchronous work.
+- `SongListDB` initializes the database asynchronously.
+- `SongsDB`, `LoadScoreCache`, and `LoadScoreFiles` are display-only and do not
+  query, scan, or construct hierarchy.
+- `EnumerateSongs` runs the one selected cache or enumeration path.
+- `BuildSongLists` is display-only because the selected path already produced
+  the hierarchy.
+- `SaveSongsDB` only marks `SongManager` initialized.
+
+The verification-only `SaveSongsDB` statistics query and the debug-only
+`GetDatabaseScoreCountAsync` calls after enumeration and before database
+hierarchy construction are removed. The `BuildSongLists` phase does not rebuild
+an enumerated hierarchy.
 
 Production currently hard-codes `_forceEnumeration = true`, so HPA-192's live
 benchmark intentionally exercises only the fresh enumeration path. This task
@@ -352,7 +449,10 @@ The completion record also contains:
 One concise summary line is written to standard output so the Release
 benchmark can capture it without a debugger. The same summary is emitted for
 success, cancellation, and failure. The startup UI continues to receive
-progress updates independently of diagnostic output.
+progress updates independently of diagnostic output. Raw standard output is
+intentional: this is a stable machine-readable record beginning exactly with
+`HPA192_STARTUP`, whereas the configured `ILogger` console formatter may add
+provider-dependent prefixes.
 
 ## Cancellation and Failure Handling
 
@@ -374,9 +474,10 @@ successful phase completion:
 - **Cancellation:** leave the previously committed database and hierarchy
   unchanged.
 - **Failure:** discard temporary hierarchy and attempt to load the last
-  committed database cache without running stale cleanup. If no usable cache
-  exists, finish with an empty song list and a visible error state instead of
-  hanging.
+  committed database cache exactly once through
+  `BuildHierarchyFromDatabaseOnceAsync`, which cannot run stale cleanup. If no
+  usable cache exists, finish with an empty song list and a visible error state
+  instead of hanging.
 
 Expected malformed individual charts remain counted skips. Incomplete root
 traversal is a batch-level failure and cannot trigger stale cleanup.
@@ -395,13 +496,21 @@ recoverable error to the batch rather than faulting the complete root.
 - Generated IDs propagate to pending nodes.
 - Cancellation after staging entities rolls back the entire import.
 - A SQLite-triggered write failure rolls back the entire import.
+- Legacy relative, separator-varied, and uniquely case-aliased paths match and
+  migrate in place rather than being deleted and reinserted.
+- Colliding normalized or legacy-alias paths are retained and reported without
+  stale deletion.
 - Rescan preserves bookmarks, all score variants, history, and recent-play
   state while updating parsed metadata.
+- A newly gained positive-level instrument creates exactly one 100-percent
+  score row.
 - Duplicate title/artist charts in different directories remain separate.
 - `set.def` difficulties group into one logical song.
 - Existing score keys are not duplicated.
 - Stale charts and empty songs are removed once.
 - Records outside active search roots remain untouched.
+- Inactive-root records are excluded from active recent, bookmark, search, and
+  statistics views.
 - Legacy ambiguous groups are retained and reported.
 
 ### `SongManager` tests
@@ -411,6 +520,12 @@ recoverable error to the batch rather than faulting the complete root.
 - Incomplete traversal never starts import.
 - Imported hierarchy is retained without a database rebuild.
 - Generated chart IDs and persisted scores hydrate the final nodes.
+- `set.def` labels/order, `box.def` presentation, and parentage survive
+  in-place entity hydration.
+- Cache, fallback, NX refresh, and score refresh group charts by committed
+  `SongId`.
+- Database-less structured enumeration fails before traversal while the legacy
+  wrapper retains its `0` compatibility result.
 - Existing `set.def`, `box.def`, bookmark, parsing, and hierarchy behavior
   remains intact.
 
@@ -424,6 +539,10 @@ recoverable error to the batch rather than faulting the complete root.
   without changing the production forced-enumeration setting.
 - Enumeration startup does not rebuild from SQLite.
 - Finalization does not run the old database-statistics verification query.
+- A failed import with an empty cache publishes no roots, displays the error,
+  and does not run cleanup.
+- An injected SQLite write fault leaves both database rows and the previously
+  published roots unchanged.
 
 ### Regression suites
 
@@ -443,9 +562,12 @@ The benchmark uses the same local 100-chart corpus before and after the change.
 5. Use the existing Game API to observe arrival at Title and capture external
    wall time.
 6. Capture the aggregate startup summary from standard output.
-7. Run three baseline imports on the pre-change commit.
-8. Run three optimized imports on the implementation commit.
-9. Record every run and compare medians.
+7. Build and retain fixed Release outputs for the instrumented baseline and
+   optimized commits before comparative measurement.
+8. Run three fresh imports per output in a recorded balanced interleaved order
+   so one side does not systematically receive a warmer page cache or later
+   thermal state.
+9. Record every run, including its execution order, and compare medians.
 
 The durable result is written to
 `docs/performance/HPA-192-startup-benchmark.md` and includes:
@@ -456,6 +578,7 @@ The durable result is written to
 - Corpus location, chart count, and logical-song count.
 - Per-run external wall time.
 - Per-run aggregate phase timings.
+- Comparative execution order.
 - Baseline and optimized medians.
 - Percentage improvement.
 
@@ -479,7 +602,8 @@ bottleneck if the database work alone does not reach it.
 - Atomic cancellation/failure: complete enumeration gate, transaction
   rollback, and post-commit publication.
 - User-data preservation: path-based matching and in-place entity updates.
-- Duplicate title/artist safety: directory or `set.def` group keys.
+- Duplicate title/artist safety: directory or `set.def` import keys plus
+  `SongId`-based database reconstruction.
 - Performance proof: repeatable three-run Release benchmark and durable report.
 
 ## Deferred Follow-up
@@ -487,4 +611,9 @@ bottleneck if the database work alone does not reach it.
 If the post-change timing summary shows parsing as the dominant remaining cost,
 a separate issue may consider buffered parser I/O or parallel parsing. If
 unchanged-library startup remains slow, a separate issue may address filesystem
-manifests and cache-validation correctness. Neither concern expands HPA-192.
+manifests and cache-validation correctness. If the 100-chart trace shows that
+one tracked graph, `SaveChangesAsync`, or peak memory dominates, a separate
+issue may introduce measured multi-batch persistence without weakening atomic
+publication. Explicit cleanup of permanently removed roots and repair of
+legacy cross-directory charts that already share one `SongId` are also deferred.
+None of these concerns expands HPA-192.
