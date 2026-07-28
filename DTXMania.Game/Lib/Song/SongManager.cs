@@ -85,6 +85,10 @@ namespace DTXMania.Game.Lib.Song
             Task<SongBulkImportResult>> ImportSongsCoreAsync
             { get; set; } = DefaultImportSongsAsync;
 
+        internal Func<SongDatabaseService, Task<DatabaseStats?>>
+            GetDatabaseStatsCoreAsync { get; set; } =
+                static database => database.GetDatabaseStatsAsync();
+
         // Initialization state tracking
         private bool _isInitialized = false;
 
@@ -341,11 +345,10 @@ namespace DTXMania.Game.Lib.Song
                     return 0;
             }
 
-            var result = await EnumerateAndImportSongsCoreAsync(
+            var result = await EnumerateAndImportSongsAsync(
                 searchPaths,
                 progress,
-                cancellationToken,
-                useDurableChartIds: false).ConfigureAwait(false);
+                cancellationToken).ConfigureAwait(false);
             await UpdateEnumerationTimestampAsync().ConfigureAwait(false);
 
             return result.Batch.Candidates.Count;
@@ -390,18 +393,10 @@ namespace DTXMania.Game.Lib.Song
                     return false;
                 }
 
-                // Database is automatically saved during enumeration, so this is mostly a confirmation step
-                var stats = await GetDatabaseStatsAsync().ConfigureAwait(false);
-                if (stats != null)
-                {
-                    Debug.WriteLine($"SongManager: Songs DB save complete. Database contains {stats.ScoreCount} songs");
-                    return true;
-                }
-                else
-                {
-                    Debug.WriteLine("SongManager: Unable to verify database save");
-                    return false;
-                }
+                // Enumeration persists transactionally. Keep the legacy save phase as
+                // a lightweight availability confirmation without aggregate statistics.
+                return await _databaseService.DatabaseExistsAsync()
+                    .ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -525,7 +520,7 @@ namespace DTXMania.Game.Lib.Song
 
             try
             {
-                return await db.GetDatabaseStatsAsync().ConfigureAwait(false);
+                return await GetDatabaseStatsCoreAsync(db).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -553,11 +548,10 @@ namespace DTXMania.Game.Lib.Song
                     return 0;
             }
 
-            var result = await EnumerateAndImportSongsCoreAsync(
+            var result = await EnumerateAndImportSongsAsync(
                 searchPaths,
                 progress,
-                cancellationToken,
-                useDurableChartIds: false).ConfigureAwait(false);
+                cancellationToken).ConfigureAwait(false);
             return result.Batch.Candidates.Count;
         }
 
@@ -589,15 +583,13 @@ namespace DTXMania.Game.Lib.Song
             return EnumerateAndImportSongsCoreAsync(
                 searchPaths,
                 progress,
-                cancellationToken,
-                useDurableChartIds: true);
+                cancellationToken);
         }
 
         private async Task<SongEnumerationResult> EnumerateAndImportSongsCoreAsync(
             string[] searchPaths,
             IProgress<EnumerationProgress>? progress,
-            CancellationToken cancellationToken,
-            bool useDurableChartIds)
+            CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var database = GetDatabaseServiceSnapshot()
@@ -615,13 +607,6 @@ namespace DTXMania.Game.Lib.Song
                     throw new InvalidOperationException(
                         "An incomplete enumeration cannot be imported.");
                 }
-                if (batch.Errors.Count > 0)
-                {
-                    var firstError = batch.Errors[0];
-                    throw new InvalidDataException(
-                        $"Song enumeration failed for '{firstError.Path}': " +
-                        firstError.Message);
-                }
 
                 var import = await ImportSongsCoreAsync(
                     database,
@@ -633,10 +618,7 @@ namespace DTXMania.Game.Lib.Song
                     linked.Token).ConfigureAwait(false);
 
                 var hierarchy = Stopwatch.StartNew();
-                FinalizePendingNodes(
-                    batch,
-                    import.ChartsByPath,
-                    useDurableChartIds);
+                FinalizePendingNodes(batch, import.ChartsByPath);
                 hierarchy.Stop();
                 PublishEnumeration(batch);
 
@@ -1165,14 +1147,11 @@ namespace DTXMania.Game.Lib.Song
 
         internal void FinalizePendingNodes(
             SongEnumerationBatch batch,
-            IReadOnlyDictionary<string, SongChart> chartsByPath,
-            bool useDurableChartIds = true)
+            IReadOnlyDictionary<string, SongChart> chartsByPath)
         {
             foreach (var pending in batch.PendingSongs)
             {
                 var placeholder = pending.Placeholder;
-                var assignDurableChartIds = useDurableChartIds ||
-                    !SongPathIdentity.IsSetDefinitionGroup(pending.GroupKey);
                 var resolvedCharts = new List<SongChart>();
                 for (var index = 0;
                     index < pending.OrderedChartPaths.Count &&
@@ -1200,7 +1179,7 @@ namespace DTXMania.Game.Lib.Song
 
                     placeholder.SetScore(index, new SongScoreEntity
                     {
-                        ChartId = assignDurableChartIds ? chart.Id : 0,
+                        ChartId = chart.Id,
                         Instrument = instrument,
                         DifficultyLevel = difficultyLevel,
                         DifficultyLabel = label
@@ -2821,11 +2800,31 @@ namespace DTXMania.Game.Lib.Song
             var songs = await db.GetRecentlyPlayedSongsAsync(
                 hasActiveRoots ? int.MaxValue : limit).ConfigureAwait(false);
             var nodes = new List<SongListNode>(Math.Min(songs.Count, limit));
-            foreach (var song in songs)
+            var activeSongs = songs
+                .Select(song =>
+                {
+                    var charts = GetActiveCharts(song);
+                    var lastPlayedAt = charts
+                        .SelectMany(chart =>
+                            chart.Scores ?? Enumerable.Empty<SongScore>())
+                        .Where(score => score.LastPlayedAt.HasValue)
+                        .Select(score => score.LastPlayedAt)
+                        .Max();
+                    return (Song: song, Charts: charts, LastPlayedAt: lastPlayedAt);
+                })
+                .Where(item =>
+                    item.Charts.Length > 0 && item.LastPlayedAt.HasValue);
+            if (hasActiveRoots)
             {
-                var charts = GetActiveCharts(song);
-                if (charts.Length == 0)
-                    continue;
+                activeSongs = activeSongs
+                    .OrderByDescending(item => item.LastPlayedAt)
+                    .ThenBy(item => item.Song.Id);
+            }
+
+            foreach (var item in activeSongs)
+            {
+                var song = item.Song;
+                var charts = item.Charts;
                 song.Charts = charts;
                 var node = CreateSongNodeFromDatabaseEntities(song, charts);
                 if (node != null)
@@ -3719,6 +3718,8 @@ namespace DTXMania.Game.Lib.Song
                 EnumerateFilesCore = Directory.EnumerateFiles;
                 EnumerateDirectoriesCore = Directory.EnumerateDirectories;
                 ImportSongsCoreAsync = DefaultImportSongsAsync;
+                GetDatabaseStatsCoreAsync =
+                    static database => database.GetDatabaseStatsAsync();
             }
             DiscoveredScoreCount = 0;
             EnumeratedFileCount = 0;

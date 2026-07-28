@@ -72,6 +72,7 @@ namespace DTXMania.Game.Lib.Stage
 
         // Filesystem change detection result (cached to avoid duplicate checks)
         private bool? _needsEnumeration = null;
+        private bool _enumerationPublishedHierarchy;
 
         // Debug/testing flags
         private readonly bool _forceEnumeration = true; // TODO: Remove this or make configurable
@@ -364,6 +365,7 @@ namespace DTXMania.Game.Lib.Stage
             _startupStopwatch.Restart();
             _phaseStopwatch.Restart();
             _startupSummaryWritten = false;
+            _enumerationPublishedHierarchy = false;
 
             // Initialize graphics resources
             var graphicsDevice = GetGraphicsDeviceCore();
@@ -964,6 +966,7 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private async Task EnumerateSongsAsync()
         {
+            _enumerationPublishedHierarchy = false;
             try
             {
                 System.Diagnostics.Debug.WriteLine("Using cached filesystem change detection result...");
@@ -1006,6 +1009,7 @@ namespace DTXMania.Game.Lib.Stage
                 });
 
                 int songCount = await EnumerateSongsOnlyCoreAsync(_songPaths, progressReporter, _cancellationTokenSource.Token).ConfigureAwait(false);
+                _enumerationPublishedHierarchy = true;
                 System.Diagnostics.Debug.WriteLine($"Song enumeration complete: {songCount} songs found");
             }
             catch (OperationCanceledException)
@@ -1025,6 +1029,13 @@ namespace DTXMania.Game.Lib.Stage
         {
             try
             {
+                if (_enumerationPublishedHierarchy)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        "Song hierarchy already published by enumeration; skipping database rebuild.");
+                    return;
+                }
+
                 System.Diagnostics.Debug.WriteLine("Building song lists from database...");
                 await BuildSongListFromDatabaseCoreAsync(_songPaths).ConfigureAwait(false);
                 int songCount = GetRootSongCount();

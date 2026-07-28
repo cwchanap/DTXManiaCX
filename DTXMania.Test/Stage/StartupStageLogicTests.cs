@@ -546,6 +546,27 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public async Task BuildSongListsAsync_AfterSuccessfulEnumeration_ShouldKeepPublishedHierarchyReference()
+        {
+            var publishedHierarchy = new SongListNode { Title = "Published" };
+            var stage = CreateControlledStage(songPaths: new[] { "SongsRoot" });
+            stage.NextPublishedHierarchy = publishedHierarchy;
+            ReflectionHelpers.SetPrivateField(stage, "_needsEnumeration", true);
+
+            var enumerate = (Task)ReflectionHelpers.InvokePrivateMethod(
+                stage,
+                "EnumerateSongsAsync")!;
+            await enumerate;
+            var build = (Task)ReflectionHelpers.InvokePrivateMethod(
+                stage,
+                "BuildSongListsAsync")!;
+            await build;
+
+            Assert.Same(publishedHierarchy, stage.PublishedHierarchy);
+            Assert.Equal(0, stage.BuildSongListCalls);
+        }
+
+        [Fact]
         public async Task SaveSongsDbAsync_WhenSaveSucceeds_ShouldMarkSongManagerInitialized()
         {
             var stage = CreateControlledStage();
@@ -984,6 +1005,10 @@ namespace DTXMania.Test.Stage
 
             public int SaveSongsDatabaseCalls { get; private set; }
 
+            public SongListNode? NextPublishedHierarchy { get; set; }
+
+            public SongListNode? PublishedHierarchy { get; private set; }
+
             public bool NextNeedsEnumerationResult { get; set; } = true;
 
             public int NextEnumerationCount { get; set; }
@@ -1038,6 +1063,10 @@ namespace DTXMania.Test.Stage
                 {
                     progressReporter.Report(ReportedEnumerationProgress);
                 }
+                if (NextPublishedHierarchy != null)
+                {
+                    PublishedHierarchy = NextPublishedHierarchy;
+                }
 
                 return Task.FromResult(NextEnumerationCount);
             }
@@ -1046,6 +1075,7 @@ namespace DTXMania.Test.Stage
             {
                 BuildSongListCalls++;
                 LastSongPaths = songPaths;
+                PublishedHierarchy = new SongListNode { Title = "Rebuilt" };
                 return Task.CompletedTask;
             }
 

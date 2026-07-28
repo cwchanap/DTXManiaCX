@@ -97,6 +97,16 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         await SeedPublishedLibraryAsync();
         WriteChart("Songs/New/new.dtx", "New", 70);
         var originalRoots = _manager.RootSongs.ToArray();
+        var originalRows = await ReadPersistedChartSnapshotsAsync();
+        var originalDiscoveredScoreCount = _manager.DiscoveredScoreCount;
+        var originalEnumeratedFileCount = _manager.EnumeratedFileCount;
+        var originalActiveRoots = ReflectionHelpers.GetPrivateField<string[]>(
+            _manager,
+            "_currentSearchPaths");
+        var discoveredEvents = 0;
+        var completedEvents = 0;
+        _manager.SongDiscovered += (_, _) => discoveredEvents++;
+        _manager.EnumerationCompleted += (_, _) => completedEvents++;
         using var cancellation = new CancellationTokenSource();
         var progress = new InlineProgress<EnumerationProgress>(_ => cancellation.Cancel());
 
@@ -104,8 +114,24 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
             _manager.EnumerateAndImportSongsAsync(
                 new[] { _songsRoot }, progress, cancellation.Token));
 
-        Assert.Equal(originalRoots, _manager.RootSongs);
+        Assert.Equal(originalRoots.Length, _manager.RootSongs.Count);
+        for (var index = 0; index < originalRoots.Length; index++)
+            Assert.Same(originalRoots[index], _manager.RootSongs[index]);
+        Assert.Equal(originalRows, await ReadPersistedChartSnapshotsAsync());
         Assert.Equal(_seededChartCount, await CountChartsAsync());
+        Assert.Equal(
+            originalDiscoveredScoreCount,
+            _manager.DiscoveredScoreCount);
+        Assert.Equal(
+            originalEnumeratedFileCount,
+            _manager.EnumeratedFileCount);
+        Assert.Equal(
+            originalActiveRoots,
+            ReflectionHelpers.GetPrivateField<string[]>(
+                _manager,
+                "_currentSearchPaths"));
+        Assert.Equal(0, discoveredEvents);
+        Assert.Equal(0, completedEvents);
     }
 
     [Fact]
@@ -113,6 +139,16 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
     {
         await SeedPublishedLibraryAsync();
         var originalRoots = _manager.RootSongs.ToArray();
+        var originalRows = await ReadPersistedChartSnapshotsAsync();
+        var originalDiscoveredScoreCount = _manager.DiscoveredScoreCount;
+        var originalEnumeratedFileCount = _manager.EnumeratedFileCount;
+        var originalActiveRoots = ReflectionHelpers.GetPrivateField<string[]>(
+            _manager,
+            "_currentSearchPaths");
+        var discoveredEvents = 0;
+        var completedEvents = 0;
+        _manager.SongDiscovered += (_, _) => discoveredEvents++;
+        _manager.EnumerationCompleted += (_, _) => completedEvents++;
         await ExecuteDatabaseSqlAsync(
             "CREATE TRIGGER fail_chart BEFORE INSERT ON SongCharts " +
             "BEGIN SELECT RAISE(ABORT, 'forced manager import failure'); END;");
@@ -122,8 +158,24 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
             _manager.EnumerateAndImportSongsAsync(
                 new[] { _songsRoot }, null, CancellationToken.None));
 
-        Assert.Equal(originalRoots, _manager.RootSongs);
+        Assert.Equal(originalRoots.Length, _manager.RootSongs.Count);
+        for (var index = 0; index < originalRoots.Length; index++)
+            Assert.Same(originalRoots[index], _manager.RootSongs[index]);
+        Assert.Equal(originalRows, await ReadPersistedChartSnapshotsAsync());
         Assert.Equal(_seededChartCount, await CountChartsAsync());
+        Assert.Equal(
+            originalDiscoveredScoreCount,
+            _manager.DiscoveredScoreCount);
+        Assert.Equal(
+            originalEnumeratedFileCount,
+            _manager.EnumeratedFileCount);
+        Assert.Equal(
+            originalActiveRoots,
+            ReflectionHelpers.GetPrivateField<string[]>(
+                _manager,
+                "_currentSearchPaths"));
+        Assert.Equal(0, discoveredEvents);
+        Assert.Equal(0, completedEvents);
     }
 
     [Fact]
@@ -146,27 +198,110 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
     }
 
     [Fact]
-    public async Task EnumerateAndImportSongsAsync_WhenChartParseFails_ShouldNotImportOrPublish()
+    public async Task EnumerateAndImportSongsAsync_WhenChartParseFails_ShouldImportValidCandidatesAndPreserveFailedChart()
     {
         await _manager.InitializeDatabaseServiceAsync(_databasePath);
-        WriteChart("Songs/Broken/chart.dtx", "Broken", 50);
+        var protectedPath = WriteChart(
+            "Songs/Protected/chart.dtx",
+            "Protected",
+            50);
+        await _manager.EnumerateAndImportSongsAsync(
+            new[] { _songsRoot }, null, CancellationToken.None);
+        var protectedChart = Assert.Single(
+            Assert.Single(await _manager.DatabaseService!.GetSongsAsync()).Charts);
+        var newPath = WriteChart("Songs/Valid/new.dtx", "Valid", 70);
+        var realParser = _manager.ParseSongEntitiesCoreAsync;
+        var realImporter = _manager.ImportSongsCoreAsync;
         _manager.ParseSongEntitiesCoreAsync = path =>
-            Task.FromException<(SongEntity, SongChart)>(
-                new InvalidDataException($"malformed {path}"));
-        _manager.ImportSongsCoreAsync = (_, _, _, _) =>
+            SongPathIdentity.CanonicalComparer.Equals(path, protectedPath)
+                ? Task.FromException<(SongEntity, SongChart)>(
+                    new InvalidDataException($"malformed {path}"))
+                : realParser(path);
+        _manager.ImportSongsCoreAsync = async (database, request, progress, token) =>
         {
             _bulkImportCalls++;
-            return Task.FromException<SongBulkImportResult>(
-                new InvalidOperationException("importer must not run"));
+            return await realImporter(database, request, progress, token);
         };
 
-        await Assert.ThrowsAsync<InvalidDataException>(() =>
-            _manager.EnumerateAndImportSongsAsync(
-                new[] { _songsRoot }, null, CancellationToken.None));
+        var result = await _manager.EnumerateAndImportSongsAsync(
+            new[] { _songsRoot }, null, CancellationToken.None);
 
-        Assert.Equal(0, _bulkImportCalls);
-        Assert.Empty(_manager.RootSongs);
-        Assert.Equal(0, await CountChartsAsync());
+        Assert.Equal(1, _bulkImportCalls);
+        Assert.Contains(result.Batch.Errors, error =>
+            error.Path == SongPathIdentity.Normalize(protectedPath) &&
+            !error.IsRootFailure);
+        Assert.Contains(
+            FlattenScoreNodes(_manager.RootSongs),
+            node => node.Title == "Valid" &&
+                node.Scores.Any(score => score?.ChartId > 0));
+        var persisted = await _manager.DatabaseService.GetSongsAsync();
+        var preserved = Assert.Single(
+            persisted.SelectMany(song => song.Charts),
+            chart => SongPathIdentity.CanonicalComparer.Equals(
+                chart.FilePath,
+                protectedPath));
+        Assert.Equal(protectedChart.Id, preserved.Id);
+        Assert.Equal(50, preserved.DrumLevel);
+        Assert.Contains(
+            persisted.SelectMany(song => song.Charts),
+            chart => SongPathIdentity.CanonicalComparer.Equals(
+                chart.FilePath,
+                newPath));
+    }
+
+    [Fact]
+    public async Task EnumerateAndImportSongsAsync_WhenSetChartParseFails_ShouldImportOtherDefinitionCharts()
+    {
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        var setRoot = Path.Combine(_songsRoot, "Set Song");
+        Directory.CreateDirectory(setRoot);
+        await File.WriteAllTextAsync(
+            Path.Combine(setRoot, "set.def"),
+            """
+            #TITLE Recoverable Set
+            #L1LABEL BASIC
+            #L1FILE basic.dtx
+            #L3LABEL EXTREME
+            #L3FILE extreme.dtx
+            """);
+        var basicPath = WriteChart(
+            "Songs/Set Song/basic.dtx",
+            "Basic",
+            20);
+        var failedPath = WriteChart(
+            "Songs/Set Song/extreme.dtx",
+            "Extreme",
+            80);
+        var realParser = _manager.ParseSongEntitiesCoreAsync;
+        _manager.ParseSongEntitiesCoreAsync = path =>
+            SongPathIdentity.CanonicalComparer.Equals(path, failedPath)
+                ? Task.FromException<(SongEntity, SongChart)>(
+                    new InvalidDataException($"malformed {path}"))
+                : realParser(path);
+        var realImporter = _manager.ImportSongsCoreAsync;
+        _manager.ImportSongsCoreAsync = async (database, request, progress, token) =>
+        {
+            _bulkImportCalls++;
+            return await realImporter(database, request, progress, token);
+        };
+
+        var result = await _manager.EnumerateAndImportSongsAsync(
+            new[] { _songsRoot }, null, CancellationToken.None);
+
+        Assert.Equal(1, _bulkImportCalls);
+        Assert.Contains(result.Batch.Errors, error =>
+            error.Path == SongPathIdentity.Normalize(failedPath) &&
+            !error.IsRootFailure);
+        var node = Assert.Single(FlattenScoreNodes(_manager.RootSongs));
+        var score = Assert.Single(node.Scores, score => score != null)!;
+        Assert.Equal("BASIC", score.DifficultyLabel);
+        Assert.True(score.ChartId > 0);
+        Assert.Contains(
+            (await _manager.DatabaseService!.GetSongsAsync())
+                .SelectMany(song => song.Charts),
+            chart => SongPathIdentity.CanonicalComparer.Equals(
+                chart.FilePath,
+                basicPath));
     }
 
     [Fact]
@@ -404,6 +539,64 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
     }
 
     [Fact]
+    public async Task GetRecentlyPlayedNodesAsync_ShouldOrderSharedSongByActiveChartHistory()
+    {
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        var activeRoot = Path.Combine(_testRoot, "Active");
+        var activeSharedPath = WriteChart(
+            "Active/Shared/active.dtx",
+            "Shared Song",
+            45);
+        var inactiveSharedPath = WriteChart(
+            "Removed/Shared/inactive.dtx",
+            "Shared Song",
+            65);
+        var activeOnlyPath = WriteChart(
+            "Active/Only/active.dtx",
+            "Active Only",
+            55);
+        var now = DateTime.UtcNow;
+        await using (var context = _manager.DatabaseService!.CreateContext())
+        {
+            var shared = new SongEntity
+            {
+                Title = "Shared Song",
+                Artist = "Fixture Artist",
+                Genre = "Fixture"
+            };
+            var activeShared = CreatePersistedChart(activeSharedPath, 45);
+            activeShared.Scores.Add(CreatePlayedScore(now.AddMinutes(-10)));
+            var inactiveShared = CreatePersistedChart(inactiveSharedPath, 65);
+            inactiveShared.Scores.Add(CreatePlayedScore(now));
+            shared.Charts.Add(activeShared);
+            shared.Charts.Add(inactiveShared);
+
+            var activeOnly = CreatePersistedSong(
+                "Active Only",
+                activeOnlyPath,
+                55);
+            activeOnly.Charts.Single().Scores.Add(
+                CreatePlayedScore(now.AddMinutes(-5)));
+            context.Songs.AddRange(shared, activeOnly);
+            await context.SaveChangesAsync();
+        }
+        await _manager.BuildSongListFromDatabasePublicAsync(
+            new[] { activeRoot });
+
+        var recent = await _manager.GetRecentlyPlayedNodesAsync();
+
+        Assert.Equal(
+            new[] { "Active Only", "Shared Song" },
+            recent.Select(node => node.Title));
+        Assert.All(
+            recent,
+            node => Assert.All(
+                node.DatabaseSong!.Charts,
+                chart => Assert.True(
+                    SongPathIdentity.IsUnderRoot(chart.FilePath, activeRoot))));
+    }
+
+    [Fact]
     public async Task CompatibilityWrappers_WithoutDatabase_ShouldReturnZeroAndNotPublish()
     {
         WriteChart("Songs/Unpublished/chart.dtx", "Unpublished", 50);
@@ -412,6 +605,42 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         Assert.Equal(0, await _manager.EnumerateSongsOnlyAsync(new[] { _songsRoot }));
         Assert.Empty(_manager.RootSongs);
         Assert.Equal(0, _manager.DiscoveredScoreCount);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CompatibilityWrapper_WithSetDefinition_ShouldPublishSameNodeWithDurableIds(
+        bool enumerateOnly)
+    {
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        var setRoot = Path.Combine(_songsRoot, "Durable Set");
+        Directory.CreateDirectory(setRoot);
+        await File.WriteAllTextAsync(
+            Path.Combine(setRoot, "set.def"),
+            """
+            #TITLE Durable Set
+            #L1LABEL BASIC
+            #L1FILE basic.dtx
+            #L3LABEL EXTREME
+            #L3FILE extreme.dtx
+            """);
+        WriteChart("Songs/Durable Set/basic.dtx", "Basic", 20);
+        WriteChart("Songs/Durable Set/extreme.dtx", "Extreme", 80);
+        SongListNode? discovered = null;
+        _manager.SongDiscovered += (_, args) => discovered = args.Song;
+
+        var count = enumerateOnly
+            ? await _manager.EnumerateSongsOnlyAsync(new[] { _songsRoot })
+            : await _manager.EnumerateSongsAsync(new[] { _songsRoot });
+
+        Assert.Equal(2, count);
+        var published = Assert.Single(FlattenScoreNodes(_manager.RootSongs));
+        Assert.Same(published, discovered);
+        Assert.True(published.DatabaseSongId > 0);
+        Assert.All(
+            published.Scores.Where(score => score != null),
+            score => Assert.True(score!.ChartId > 0));
     }
 
     [Fact]
@@ -427,6 +656,23 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
             _manager.EnumerateSongsAsync(new[] { _songsRoot }));
 
         Assert.Empty(_manager.RootSongs);
+    }
+
+    [Fact]
+    public async Task SaveSongsDBAsync_ShouldNotQueryDatabaseStatistics()
+    {
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        var statisticsCalls = 0;
+        _manager.GetDatabaseStatsCoreAsync = _ =>
+        {
+            statisticsCalls++;
+            return Task.FromResult<DatabaseStats?>(null);
+        };
+
+        var saved = await _manager.SaveSongsDBAsync();
+
+        Assert.True(saved);
+        Assert.Equal(0, statisticsCalls);
     }
 
     [Fact]
@@ -489,6 +735,24 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         return await context.SongCharts.CountAsync();
     }
 
+    private async Task<PersistedChartSnapshot[]> ReadPersistedChartSnapshotsAsync()
+    {
+        var songs = await _manager.DatabaseService!.GetSongsAsync();
+        return songs
+            .SelectMany(song => song.Charts.Select(chart =>
+                new PersistedChartSnapshot(
+                    song.Id,
+                    chart.Id,
+                    song.Title,
+                    song.Artist,
+                    chart.FilePath,
+                    chart.DrumLevel,
+                    chart.Scores.Count,
+                    chart.Scores.Sum(score => score.PlayCount))))
+            .OrderBy(snapshot => snapshot.ChartId)
+            .ToArray();
+    }
+
     private async Task SeedPublishedLibraryAsync()
     {
         WriteChart("Songs/Seed/seed.dtx", "Seed", 40);
@@ -540,6 +804,16 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
             LastPlayedAt = playedAt,
             PlayCount = 1
         };
+
+    private sealed record PersistedChartSnapshot(
+        int SongId,
+        int ChartId,
+        string Title,
+        string Artist,
+        string FilePath,
+        int DrumLevel,
+        int ScoreCount,
+        int PlayCount);
 
     private sealed class InlineProgress<T>(Action<T> report) : IProgress<T>
     {
