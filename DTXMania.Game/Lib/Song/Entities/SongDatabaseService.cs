@@ -5,6 +5,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -22,6 +23,7 @@ namespace DTXMania.Game.Lib.Song.Entities
     {
         private readonly string _databasePath;
         private readonly DbContextOptions<SongDbContext> _options;
+        private readonly Func<SongDbContext>? _contextFactory;
         private readonly object _initializationLock = new object();
         private readonly SemaphoreSlim _initializationSemaphore = new SemaphoreSlim(1, 1);
         private bool _isInitialized = false;
@@ -64,6 +66,17 @@ namespace DTXMania.Game.Lib.Song.Entities
             _databasePath = string.Empty;
             // Tests provide a pre-created schema; mark the service as initialized so
             // CreateContext() does not throw the "must initialize first" guard.
+            _isInitialized = true;
+        }
+
+        internal SongDatabaseService(
+            DbContextOptions<SongDbContext> options,
+            Func<SongDbContext> contextFactory)
+        {
+            _options = options ?? throw new ArgumentNullException(nameof(options));
+            _contextFactory = contextFactory
+                ?? throw new ArgumentNullException(nameof(contextFactory));
+            _databasePath = string.Empty;
             _isInitialized = true;
         }
 
@@ -167,7 +180,7 @@ namespace DTXMania.Game.Lib.Song.Entities
                     throw new InvalidOperationException("Database must be initialized before creating contexts. Call InitializeDatabaseAsync() first.");
                 }
             }
-            return new SongDbContext(_options);
+            return _contextFactory?.Invoke() ?? new SongDbContext(_options);
         }
 
 
@@ -280,6 +293,196 @@ namespace DTXMania.Game.Lib.Song.Entities
 
         // Song Management Operations        
         // Legacy AddSongAsync(SongMetadata) method removed - use AddSongAsync(Song, SongChart) instead
+
+        internal async Task<SongBulkImportResult> ImportSongsAsync(
+            SongBulkImportRequest request,
+            IProgress<SongBulkImportProgress>? progress,
+            CancellationToken cancellationToken)
+        {
+            ArgumentNullException.ThrowIfNull(request);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            await using var context = CreateContext();
+            context.Database.SetCommandTimeout(TimeSpan.FromSeconds(120));
+            await using var transaction =
+                await context.Database.BeginTransactionAsync(cancellationToken)
+                    .ConfigureAwait(false);
+
+            try
+            {
+                var persistence = Stopwatch.StartNew();
+                var chartsByPath = new Dictionary<string, SongChart>(
+                    SongPathIdentity.CanonicalComparer);
+                var added = 0;
+                progress?.Report(new(
+                    SongBulkImportMilestone.PreloadStarted,
+                    0,
+                    request.Candidates.Count));
+
+                foreach (var group in request.Candidates
+                    .OrderBy(candidate => candidate.GroupKey, StringComparer.Ordinal)
+                    .ThenBy(candidate => candidate.GroupOrder)
+                    .GroupBy(candidate => candidate.GroupKey, StringComparer.Ordinal))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var primary = group
+                        .OrderBy(candidate => candidate.GroupOrder)
+                        .ThenBy(
+                            candidate => candidate.NormalizedChartPath,
+                            SongPathIdentity.CanonicalComparer)
+                        .First();
+                    var song = CreateSongFromParsed(primary.ParsedSong);
+                    context.Songs.Add(song);
+
+                    foreach (var candidate in group)
+                    {
+                        var chart =
+                            CreateChartFromParsed(candidate.ParsedChart, song);
+                        chart.FilePath = candidate.NormalizedChartPath;
+                        AddMissingInitialScores(chart);
+                        context.SongCharts.Add(chart);
+                        chartsByPath.Add(candidate.NormalizedChartPath, chart);
+                        added++;
+                    }
+                }
+
+                progress?.Report(new(
+                    SongBulkImportMilestone.MatchingCompleted,
+                    request.Candidates.Count,
+                    request.Candidates.Count));
+                progress?.Report(new(
+                    SongBulkImportMilestone.MutationsStaged,
+                    request.Candidates.Count,
+                    request.Candidates.Count));
+                progress?.Report(new(
+                    SongBulkImportMilestone.CleanupCompleted,
+                    request.Candidates.Count,
+                    request.Candidates.Count));
+                cancellationToken.ThrowIfCancellationRequested();
+                progress?.Report(new(
+                    SongBulkImportMilestone.SaveStarted,
+                    request.Candidates.Count,
+                    request.Candidates.Count));
+                await context.SaveChangesAsync(cancellationToken)
+                    .ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+                await transaction.CommitAsync(cancellationToken)
+                    .ConfigureAwait(false);
+                progress?.Report(new(
+                    SongBulkImportMilestone.Committed,
+                    request.Candidates.Count,
+                    request.Candidates.Count));
+                persistence.Stop();
+
+                return new SongBulkImportResult(
+                    chartsByPath,
+                    added,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    persistence.Elapsed,
+                    TimeSpan.Zero);
+            }
+            catch
+            {
+                try
+                {
+                    await transaction.RollbackAsync(CancellationToken.None)
+                        .ConfigureAwait(false);
+                }
+                catch (Exception rollbackException)
+                {
+                    Debug.WriteLine(
+                        $"SongDatabaseService: rollback failed: {rollbackException.Message}");
+                }
+
+                throw;
+            }
+        }
+
+        private static SongEntity CreateSongFromParsed(SongEntity parsed) =>
+            new()
+            {
+                Title = parsed.Title,
+                Artist = parsed.Artist,
+                Genre = parsed.Genre,
+                Comment = parsed.Comment
+            };
+
+        private static SongChart CreateChartFromParsed(
+            SongChart parsed,
+            SongEntity song) =>
+            new()
+            {
+                Song = song,
+                FilePath = parsed.FilePath,
+                FileSize = parsed.FileSize,
+                LastModified = parsed.LastModified,
+                FileFormat = parsed.FileFormat,
+                DifficultyLevel = parsed.DifficultyLevel,
+                DifficultyLabel = parsed.DifficultyLabel,
+                Bpm = parsed.Bpm,
+                Duration = parsed.Duration,
+                BGMAdjust = parsed.BGMAdjust,
+                DrumLevel = parsed.DrumLevel,
+                DrumLevelDec = parsed.DrumLevelDec,
+                GuitarLevel = parsed.GuitarLevel,
+                GuitarLevelDec = parsed.GuitarLevelDec,
+                BassLevel = parsed.BassLevel,
+                BassLevelDec = parsed.BassLevelDec,
+                HasDrumChart = parsed.HasDrumChart,
+                HasGuitarChart = parsed.HasGuitarChart,
+                HasBassChart = parsed.HasBassChart,
+                IsClassicDrums = parsed.IsClassicDrums,
+                IsClassicGuitar = parsed.IsClassicGuitar,
+                IsClassicBass = parsed.IsClassicBass,
+                DrumNoteCount = parsed.DrumNoteCount,
+                GuitarNoteCount = parsed.GuitarNoteCount,
+                BassNoteCount = parsed.BassNoteCount,
+                PreviewFile = parsed.PreviewFile,
+                PreviewImage = parsed.PreviewImage,
+                BackgroundFile = parsed.BackgroundFile,
+                StageFile = parsed.StageFile
+            };
+
+        private static void AddMissingInitialScores(SongChart chart)
+        {
+            AddMissingInitialScore(
+                chart,
+                EInstrumentPart.DRUMS,
+                chart.HasDrumChart && chart.DrumLevel > 0);
+            AddMissingInitialScore(
+                chart,
+                EInstrumentPart.GUITAR,
+                chart.HasGuitarChart && chart.GuitarLevel > 0);
+            AddMissingInitialScore(
+                chart,
+                EInstrumentPart.BASS,
+                chart.HasBassChart && chart.BassLevel > 0);
+        }
+
+        private static void AddMissingInitialScore(
+            SongChart chart,
+            EInstrumentPart instrument,
+            bool isAvailable)
+        {
+            if (!isAvailable || chart.Scores.Any(
+                score => score.Instrument == instrument
+                    && score.PlaySpeedPercent == 100))
+            {
+                return;
+            }
+
+            chart.Scores.Add(new SongScoreEntity
+            {
+                Chart = chart,
+                Instrument = instrument,
+                PlaySpeedPercent = 100
+            });
+        }
 
         /// <summary>
         /// Add a new song with charts and scores using EF Core entities
