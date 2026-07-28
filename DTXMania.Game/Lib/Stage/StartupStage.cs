@@ -8,7 +8,9 @@ using DTXMania.Game.Lib.Utilities;
 using DTXMania.Game;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -77,6 +79,11 @@ namespace DTXMania.Game.Lib.Stage
         // Loading simulation (since we don't have actual song loading yet)
         private readonly Dictionary<StartupPhase, (string message, double duration)> _phaseInfo;
         private double _phaseStartTime;
+
+        private readonly Stopwatch _startupStopwatch = new();
+        private readonly Stopwatch _phaseStopwatch = new();
+        private readonly Dictionary<StartupPhase, TimeSpan> _measuredPhaseDurations = new();
+        private bool _startupSummaryWritten;
 
         #endregion
 
@@ -340,6 +347,11 @@ namespace DTXMania.Game.Lib.Stage
             spriteBatch.Draw(texture, destination, color);
         }
 
+        protected virtual void WriteStartupSummary(string line)
+        {
+            Console.Out.WriteLine(line);
+        }
+
         #endregion
 
         #region BaseStage Implementation
@@ -347,6 +359,11 @@ namespace DTXMania.Game.Lib.Stage
         protected override void OnActivate()
         {
             System.Diagnostics.Debug.WriteLine("Activating Startup Stage");
+
+            _measuredPhaseDurations.Clear();
+            _startupStopwatch.Restart();
+            _phaseStopwatch.Restart();
+            _startupSummaryWritten = false;
 
             // Initialize graphics resources
             var graphicsDevice = GetGraphicsDeviceCore();
@@ -431,6 +448,13 @@ namespace DTXMania.Game.Lib.Stage
                 double phaseElapsed = _elapsedTime - _phaseStartTime;
                 if (phaseElapsed >= _phaseInfo[_startupPhase].duration)
                 {
+                    if (!_startupSummaryWritten)
+                    {
+                        _startupSummaryWritten = true;
+                        _startupStopwatch?.Stop();
+                        WriteStartupSummary(CreateBaselineSummary().Format());
+                    }
+
                     // Transition to Title stage with special startup transition
                     _game.StageManager?.ChangeStage(StageType.Title, new StartupToTitleTransition(1.0));
                 }
@@ -644,11 +668,53 @@ namespace DTXMania.Game.Lib.Stage
                 var nextPhase = GetNextPhase(_startupPhase);
                 if (nextPhase != _startupPhase)
                 {
+                    if (_phaseStopwatch != null && _measuredPhaseDurations != null)
+                    {
+                        _measuredPhaseDurations[_startupPhase] = _phaseStopwatch.Elapsed;
+                        _phaseStopwatch.Restart();
+                    }
+
                     _startupPhase = nextPhase;
                     _phaseStartTime = _elapsedTime;
                     System.Diagnostics.Debug.WriteLine($"Startup phase changed to: {_startupPhase}");
                 }
             }
+        }
+
+        private TimeSpan GetBaselineDuration(StartupPhase phase) =>
+            _measuredPhaseDurations != null && _measuredPhaseDurations.TryGetValue(phase, out var duration)
+                ? duration
+                : TimeSpan.Zero;
+
+        private static int CountScoreNodes(IEnumerable<SongListNode> nodes) =>
+            nodes.Sum(node =>
+                (node.Type == NodeType.Score ? 1 : 0) + CountScoreNodes(node.Children));
+
+        private StartupSongLoadSummary CreateBaselineSummary()
+        {
+            var songManager = _songManager;
+
+            return new(
+                _needsEnumeration == false
+                    ? StartupSongLoadPath.Cache
+                    : StartupSongLoadPath.Enumeration,
+                StartupSongLoadOutcome.Success,
+                _startupStopwatch?.Elapsed ?? TimeSpan.Zero,
+                GetBaselineDuration(StartupPhase.SongListDB),
+                GetBaselineDuration(StartupPhase.EnumerateSongs),
+                TimeSpan.Zero,
+                TimeSpan.Zero,
+                GetBaselineDuration(StartupPhase.BuildSongLists),
+                songManager?.EnumeratedFileCount ?? 0,
+                songManager?.DiscoveredScoreCount ?? 0,
+                songManager == null ? 0 : CountScoreNodes(songManager.RootSongs),
+                songManager?.DiscoveredScoreCount ?? 0,
+                0,
+                0,
+                Math.Max(0, (songManager?.EnumeratedFileCount ?? 0) - (songManager?.DiscoveredScoreCount ?? 0)),
+                0,
+                0,
+                null);
         }
 
         private void PerformPhaseOperationSync(StartupPhase phase, double phaseElapsed)
