@@ -439,3 +439,59 @@ components by `benchmark-startup.sh`. This was already deferred in Task 2 and
 remains outside Task 8's evidence-only scope. The reproduction command above
 uses only the trusted literal labels `baseline-final` and `optimized-final`
 and integer run IDs 1 through 3; it does not broaden the runner interface.
+
+## 2026-07-28 Task 0 timing preflight (diagnostic only)
+
+This is an instrumentation-only gate on first-wave product
+`c8a3140dcbc2a29f99b829559f5618bdbc7d2f0b`, with committed timing
+instrumentation `5569ba548b15c5cc515897d5a3ec31b5e88e01f3`. These samples
+are excluded from the prior acceptance benchmark and must not be used as
+acceptance measurements.
+
+The fixed Release DLL SHA-256 was
+`0e664047b6b5e7c560119cf0a38e68414dbb4dd5ea2271e9566198a6d0403242` and
+the fixed runner SHA-256 was
+`d2d92cb0ef58a690c83042d870da34ccdda05ec25713c550e90611465bf00ef5`.
+The machine was MacBookPro18,3 (arm64), macOS 26.5.2 (25F84), using .NET SDK
+10.0.100 and Microsoft.NETCore.App 8.0.17. The frozen 592-row corpus manifest
+remained SHA-256
+`0c335aa79fd4045e77aff20494637313626729ba926f131822c40fa89778a78b`.
+
+| Run | External intervals (ms) | Internal intervals (ms) | Derived intervals (ms) |
+| --- | --- | --- | --- |
+| 1 | launch→entry 37; title-poll lag 113; wall 4050 | entry→config 502; config→LoadContent 27; LoadContent→Startup 139; Startup→first draw 1308; Startup→summary 2085; summary→Title 1144; entry→Title 3899 | entry→Startup 668; config→Startup 166; launch→Startup 705; fixed floor 3157 |
+| 2 | launch→entry 43; title-poll lag 19; wall 3719 | entry→config 463; config→LoadContent 24; LoadContent→Startup 127; Startup→first draw 1202; Startup→summary 1912; summary→Title 1128; entry→Title 3656 | entry→Startup 614; config→Startup 151; launch→Startup 657; fixed floor 2987 |
+| 3 | launch→entry 36; title-poll lag 24; wall 3782 | entry→config 482; config→LoadContent 22; LoadContent→Startup 133; Startup→first draw 1218; Startup→summary 1947; summary→Title 1136; entry→Title 3721 | entry→Startup 637; config→Startup 155; launch→Startup 673; fixed floor 3027 |
+
+The fixed-floor calculation is:
+
+```text
+entry_to_startup = entry_to_config + config_to_load_content + load_content_to_startup
+external_launch_to_entry = (entry_unix_us - launch_start_unix_us) / 1000
+external_launch_to_startup = external_launch_to_entry + entry_to_startup
+title_poll_lag = (launch_end_unix_us - title_unix_us) / 1000
+config_to_startup = config_to_load_content + load_content_to_startup
+fixed_floor = external_launch_to_startup + startup_to_first_draw + summary_to_title
+```
+
+The median fixed floor is **3027 ms**; median config→Startup (the overlapable
+window) is **155 ms**. The other derived medians are launch→entry 37 ms,
+launch→Startup 673 ms, Startup→first draw 1218 ms, summary→Title 1136 ms,
+title-poll lag 24 ms, and wall 3782 ms. The all-in wall time is intentionally
+not part of the fixed-floor formula because it ends only after HTTP polling
+observes Title.
+
+`HPA192_PREFLIGHT median_fixed_floor_ms=3027 target_ms=2221 decision=stop`
+
+**Hard decision: stop.** The floor exceeds the 2,221 ms gate; a new measured
+design is required before any second-wave product optimization. No Task 1
+product work began.
+
+### Excluded pre-fix attempts
+
+All are retained locally and excluded: `timing-preflight-invalid-pre-fix`
+contains three sandboxed graphics failures plus the first elevated run that
+proved the missing BaseGame lifecycle forwarding; `timing-preflight-invalid-pre-rounding`
+contains three runs that emitted timing correctly but preceded the
+whole-millisecond arithmetic-bound repair. The accepted results are only the
+three fresh samples in `TestResults/hpa-192/timing-preflight`.
