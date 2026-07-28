@@ -495,3 +495,31 @@ proved the missing BaseGame lifecycle forwarding; `timing-preflight-invalid-pre-
 contains three runs that emitted timing correctly but preceded the
 whole-millisecond arithmetic-bound repair. The accepted results are only the
 three fresh samples in `TestResults/hpa-192/timing-preflight`.
+
+### 2026-07-28 timing-preflight integrity hardening
+
+Commit `a0e3ea92 fix: harden HPA-192 timing preflight` changes only the
+summarizer and its synthetic shell tests: it rejects duplicate canonical input
+paths, duplicate or substituted `label/run` identities, and mixed labels;
+labels each output sample from the artifact identity; preserves input bytes;
+and compares the process UTC-anchor elapsed time with the monotonic
+`entry_to_title_ms` (50 ms maximum adjacency tolerance). It also proves that
+the conventional acceptance-sequence sentinel is neither read nor written.
+
+The runner and result-artifact schema did not change: existing artifacts
+already contain `label`, `run`, the process UTC anchors, and the external UTC
+anchors. Therefore no product rebuild or relaunch was needed. The exact final
+three artifacts were re-summarized under the hardened gate and still produced:
+
+```text
+HPA192_PREFLIGHT median_fixed_floor_ms=3027 target_ms=2221 decision=stop
+HPA192_PREFLIGHT median_config_to_startup_ms=155
+```
+
+Their unchanged SHA-256 values are:
+
+| Artifact | SHA-256 |
+| --- | --- |
+| `timing-preflight/run-1.result.txt` | `6d60330313a19398ffab61bd9d45dfb5248cb81b90e7b641c3d9dc09211a0194` |
+| `timing-preflight/run-2.result.txt` | `e4f2d9d37237ab2a796c64cb41b9db0a9ceac28b7b858ff68d88cefc595f297c` |
+| `timing-preflight/run-3.result.txt` | `30e369bcb822feac269076b559b3a3ded711f0473bd7ee131bf0ca62ad4dda6c` |
