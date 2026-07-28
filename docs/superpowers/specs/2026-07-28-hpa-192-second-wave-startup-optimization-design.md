@@ -2,7 +2,8 @@
 
 **Issue:** [HPA-192](https://linear.app/cwchanap/issue/HPA-192/optimize-fresh-startup-song-loading-with-batched-sqlite-import)  
 **Date:** 2026-07-28  
-**Status:** Design approved; implementation planning pending committed-spec review
+**Status:** Design amended after review; implementation planning pending
+committed-spec review
 
 ## Context
 
@@ -32,15 +33,23 @@ costs are:
 
 Approximately 465 ms inside the startup-stage summary is not attributed to
 those database and song phases. It includes startup graphics/font work and
-frame-by-frame phase progression. Approximately 1,744 ms of the external wall
-time occurs before the startup summary begins.
+frame-by-frame phase progression.
+
+The median difference between external launch-to-Title time and the
+Startup-activation-to-summary duration is approximately 1,744 ms. The paired
+first-wave differences were 1,651 ms, 1,744 ms, and 1,753 ms. This interval
+also contains process/runtime startup and configuration loading before the
+coordinator's earliest safe post-configuration start, so it is an upper bound
+on potentially hidden work, not a measured overlap window.
 
 This timing shape makes either isolated optimization insufficient:
 
 - Database-only work cannot reliably remove the full 1,667 ms external gap.
-- Moving the existing song operation earlier has a theoretical best near
-  2,209 ms, leaving only 12 ms below the gate before scheduling and CPU
-  contention.
+- Conservative median arithmetic for moving the existing song operation
+  earlier produces a theoretical estimate near 2,209 ms, leaving only 12 ms
+  below the gate. That estimate is not a measured second-wave result and does
+  not account for the unavailable pre-configuration portion, scheduling, or
+  CPU contention.
 
 The second wave therefore combines launch-time overlap, removal of serialized
 display-only frames, and a guarded direct-SQLite path for a database created
@@ -134,6 +143,8 @@ A new coordinator owns the startup song operation for the lifetime of one
   attaching late can replay immediately.
 - **Application cancellation:** a token owned by `BaseGame`, not by one
   `StartupStage` activation.
+- **Captured song owner:** the `SongManager` instance obtained on the game
+  thread before the background worker starts.
 
 The coordinator is one-shot and idempotent. Repeated calls to start or retrieve
 the operation return the same task. It must not run a second database
@@ -150,6 +161,8 @@ commands cannot serialize the main MonoGame initialization thread.
 1. `ConfigManager` is constructed.
 2. `ConfigManager.LoadConfig` completes.
 3. The configured DTX path and `AppPaths` database path can be captured.
+4. `SongManager.Instance` is obtained on the game thread and passed to the
+   coordinator.
 
 It starts before graphics-manager construction, `base.Initialize`,
 `LoadContent`, resource-manager creation, stage-manager creation, and Startup
@@ -157,6 +170,38 @@ activation. The song pipeline has no graphics or content dependency.
 
 The request captures immutable path values. A later configuration mutation
 cannot change an in-flight operation.
+
+Capturing `SongManager.Instance` before `Task.Run` prevents the existing
+double-checked singleton initialization from racing between the game and
+worker threads. The worker uses only the captured instance; it does not
+resolve the singleton again.
+
+### Launch readiness barrier
+
+While the coordinator is nonterminal, it is the sole production owner of
+song hierarchy mutation and song-database access. No other production path
+may enumerate `SongManager.RootSongs` or open a song database context during
+that interval.
+
+The external game API enforces this boundary by rejecting a request to change
+away from Startup while the coordinator is nonterminal. The request is
+rejected immediately with a machine-readable not-ready error; it is not
+queued or deferred. In particular, an early request cannot force
+`SongSelect`, whose activation reads the live `RootSongs` view and opens
+recent-play or bookmark database contexts.
+
+Health/state polling, screenshots, and input remain available where they do
+not read `SongManager`, open the songs database, or leave Startup. The
+ordinary `GetGameState` polling used by the benchmark remains permitted and
+database-free. MCP callers use the same game API and therefore inherit the
+same readiness gate.
+
+This launch-scoped readiness barrier is the concurrency contract for the
+second wave. It prevents a second context using the current `Cache=Shared`
+connection from overlapping the coordinator transaction. The design does not
+add a global service-wide read/write lease or change the public `RootSongs`
+representation; those broader changes are not required once premature stage
+activation is fenced.
 
 ### Lifetime and disposal
 
@@ -213,6 +258,13 @@ hierarchy tasks.
 - It immediately reads the latest progress snapshot.
 - It never creates a second database or enumeration task.
 
+The legacy phase launchers are removed from the stage. In particular,
+`PerformPhaseOperationSync` must not call
+`InitializeDatabaseServiceAsync` from `SongListDB` or `RunSongLoadAsync` from
+`EnumerateSongs`, and phase-only helper paths that could launch either
+operation are removed rather than retained as fallback entry points. The
+coordinator is the only startup-song-operation launcher.
+
 The existing phase names remain available for the Startup UI. On each update,
 the stage advances through already completed display-only phases in a bounded
 loop. It stops when it reaches an unfinished coordinator milestone or
@@ -231,6 +283,15 @@ The rendered-frame gate remains:
 
 Existing failure and cache-fallback product behavior is preserved. The
 coordinator changes ownership and timing, not the user's recovery semantics.
+
+An operation that faults before Startup activation remains a retained
+terminal result. Startup attaches without throwing or restarting the
+operation. Its first update may drain the completed display phases through
+`Complete`, but the rendered-frame gate prevents a transition. After one
+Startup draw, the next update emits exactly one failure summary and requests
+exactly one Title transition. Application-shutdown cancellation is separate:
+disposal cancels and observes the operation without requiring a summary or
+Title transition.
 
 ## Fresh-Database Detection and Initialization
 
@@ -287,9 +348,16 @@ mapping defect. The normal startup failure/cache-fallback policy then applies.
 
 ### Pure fresh-import planning
 
-A pure planner converts the complete request into deterministic rows without
-querying existing song state. It reuses or exactly preserves the current
-fresh-database rules:
+A shared pure `FreshImportPlan` builder converts the complete request into a
+deterministic entity graph and row order without querying existing song
+state. It is the single source of truth for the fresh-database rules consumed
+by:
+
+- The EF importer's verified-empty fresh branch.
+- The guarded direct-SQLite writer.
+- Hierarchy finalization after persistence-specific identity assignment.
+
+The planner owns:
 
 - Canonical normalized chart paths.
 - Complete discovered-path membership.
@@ -301,10 +369,17 @@ fresh-database rules:
 - One chart per accepted candidate.
 - Missing initial score creation for the instruments represented by a chart.
 - Existing added, skipped, and conflict counter meanings.
+- `IsBookmarked = false` for every new song.
+- Exactly one zeroed initial score with `PlaySpeedPercent = 100` for each
+  represented instrument.
+- No non-100-percent score variants.
+- Empty performance history.
+- Zero score-save receipts.
 
-The planner returns the entity graph and row order that both persistence and
-hierarchy finalization consume. Business rules must not be embedded only in
-SQL strings.
+Business rules must not be duplicated in SQL strings or in separate EF and
+direct-writer planners. A thin direct-writer identity-allocation layer may add
+explicit IDs to the shared plan, but it must not regroup, filter, or recreate
+domain defaults.
 
 ### ID allocation
 
@@ -313,10 +388,13 @@ integer IDs for songs, charts, and initial scores. Explicit IDs remove
 generated-key round trips and let the returned in-memory entities receive
 their database identities before hierarchy finalization.
 
-The transaction inserts those explicit integer primary keys normally. SQLite
-then advances subsequent automatically generated integer keys above the
-highest committed value. A parity test must prove that a later ordinary EF
-insert receives a non-conflicting higher ID.
+The current `Songs.Id`, `SongCharts.Id`, and `SongScores.Id` columns are
+`INTEGER PRIMARY KEY AUTOINCREMENT`. The transaction inserts explicit positive
+keys into those columns. On commit, SQLite must advance each affected
+`sqlite_sequence` entry to at least the highest inserted key; a later ordinary
+EF insert must therefore receive a non-conflicting higher ID. On rollback,
+both table rows and `sqlite_sequence` must remain at their pre-transaction
+state.
 
 The implementation must not associate entities by the output order of a
 multi-row `RETURNING` clause; SQLite does not guarantee that order.
@@ -333,10 +411,14 @@ The writer uses:
 - The same database column mappings, null semantics, enum values, Boolean
   representation, timestamps, defaults, and maximum lengths as the EF model.
 
-Commands are prepared once and parameters are updated for each deterministic
-row. Microsoft.Data.Sqlite's ADO async methods execute synchronously because
-SQLite has no asynchronous I/O, so the direct command loop runs synchronously
-on the coordinator's background worker.
+Each reusable command is configured once, explicitly prepared after its
+parameters are defined, and then reuses those parameters by rebinding values
+for each deterministic row. Command reuse and parameter rebinding provide the
+per-row savings. Explicit preparation primarily front-loads the first
+compilation and schema/mapping error; the design does not assume it eliminates
+all per-row SQLite work. Microsoft.Data.Sqlite's ADO async methods execute
+synchronously because SQLite has no asynchronous I/O, so the direct command
+loop runs synchronously on the coordinator's background worker.
 
 Cancellation is checked before planning, before the transaction, and between
 row commands. Cancellation or any exception rolls back the whole transaction.
@@ -416,6 +498,12 @@ persistence, cleanup, hierarchy, count, outcome, and error fields. Appended
 fields let the report distinguish actual song-operation duration from work
 hidden behind MonoGame initialization.
 
+These timing windows are intentionally non-additive. Coordinator phase fields
+can include work completed before Startup activation, so `db_init_ms` or
+another phase field may legitimately exceed `total_ms`; no invariant requires
+their sum to fit within `total_ms`. `operation_ms` is the internal
+coordinator-to-coordinator comparison window.
+
 The external launch-to-Title wall time recorded by the benchmark runner remains
 the sole primary performance measurement.
 
@@ -428,24 +516,45 @@ Implementation follows test-driven development.
 - Starts exactly once under repeated and concurrent access.
 - Captures immutable configured paths.
 - Starts after config loading and before content/stage construction.
+- Receives the `SongManager` instance captured on the game thread and never
+  resolves the singleton on its worker.
 - Publishes database-ready and terminal completion once.
 - Replays the latest progress snapshot to a late consumer.
 - Observes an early fault.
 - Cancels and observes on application disposal.
 - Never leaves work running after a terminal result.
 
+### Readiness-barrier and API tests
+
+- Holds the coordinator inside its writer transaction and verifies that an API
+  request to change from Startup to SongSelect is rejected as not ready.
+- Verifies the rejected request does not queue a later transition.
+- Verifies no second song database context opens and no `RootSongs` read or
+  enumeration occurs while the coordinator is held.
+- Verifies ordinary `GetGameState` polling remains available and database-free
+  during the operation.
+- Allows the same stage-change request after terminal completion.
+
 ### Startup-stage tests
 
 - Attaches to an already running coordinator.
 - Attaches to an already completed coordinator.
 - Reactivation does not start a duplicate operation.
+- The former `SongListDB` and `EnumerateSongs` phase paths cannot launch
+  database initialization or song loading.
 - Completed display-only phases drain in one bounded update.
 - An unfinished milestone stops phase draining.
 - At least one Startup frame renders before Title.
 - Exactly one summary and Title request occur.
 - Retired activations cannot mutate current UI or terminal state.
 - Fault and cancellation summaries remain machine-readable.
+- A fault completed before activation drains only after attachment, renders
+  one Startup frame, then emits one failure summary and one Title request.
+- Application-disposal cancellation does not require a summary or Title
+  request.
 - New telemetry fields retain all existing summary fields.
+- Coordinator phase timings may exceed `total_ms`, and `operation_ms` retains
+  the complete coordinator duration.
 
 ### Fresh initialization tests
 
@@ -464,8 +573,15 @@ Implementation follows test-driven development.
 - The 100-chart shape persists as 100 charts and 27 logical songs.
 - Duplicate candidates and undiscovered candidates preserve current counters.
 - Explicit IDs are deterministic and present in the returned entity graph.
+- Fresh songs are unbookmarked; represented instruments receive exactly one
+  zeroed 100-percent score; no speed variants, performance history, or
+  score-save receipts are created.
+- Committed explicit IDs advance every affected `sqlite_sequence` entry to at
+  least the inserted maximum.
 - A later EF insert generates a higher, non-conflicting ID.
 - Cancellation after one or more row commands rolls back all tables.
+- Rollback restores every affected `sqlite_sequence` entry to its
+  pre-transaction state.
 - Injected song, chart, and score command failures each roll back all tables.
 - A failed guard selects EF before mutation.
 - A command/schema failure does not silently retry through EF.
@@ -531,8 +647,10 @@ The later implementation plan will split work into independently reviewed
 tasks:
 
 1. Coordinator contracts and one-shot lifecycle tests.
-2. `BaseGame` early-start ownership and disposal.
-3. `StartupStage` milestone consumption, bounded phase draining, and telemetry.
+2. `BaseGame` early-start ownership, captured `SongManager`, game-API readiness
+   barrier, and disposal.
+3. `StartupStage` milestone consumption, legacy-launcher removal, early-fault
+   lifecycle, bounded phase draining, and telemetry.
 4. Fresh-database initialization state and migration-probe bypass.
 5. Pure fresh-import planning and direct prepared-command writer.
 6. Parity, rollback, ID, migration, and full-suite verification.
@@ -546,10 +664,14 @@ whole-branch review.
 
 ### Background work delays MonoGame initialization
 
-The coordinator may contend for CPU with graphics/content initialization.
-Bounded phase draining and the direct fresh writer supply headroom, while the
-external balanced benchmark measures the actual outcome rather than assuming
-overlap is free.
+The coordinator may contend for CPU with graphics/content initialization. The
+observed 1,744 ms external-minus-summary median includes work before the
+coordinator can start and therefore cannot be treated as free overlap. The
+direct fresh writer aims to shorten the coordinator below the actual
+post-configuration graphics/content window, changing which concurrent path
+binds launch time; bounded phase draining then removes completed stage work
+from the residual critical path. Only the balanced external benchmark proves
+whether the combined result has sufficient headroom.
 
 ### Raw SQL drifts from the EF model
 
