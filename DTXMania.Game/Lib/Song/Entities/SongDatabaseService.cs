@@ -314,15 +314,274 @@ namespace DTXMania.Game.Lib.Song.Entities
                 var chartsByPath = new Dictionary<string, SongChart>(
                     SongPathIdentity.CanonicalComparer);
                 var added = 0;
+                var updated = 0;
+                var preserved = 0;
+                var skipped = 0;
+                var conflicts = 0;
                 progress?.Report(new(
                     SongBulkImportMilestone.PreloadStarted,
                     0,
                     request.Candidates.Count));
 
-                foreach (var group in request.Candidates
+                var chartIdentities = await context.SongCharts
+                    .AsNoTracking()
+                    .Select(chart => new
+                    {
+                        chart.Id,
+                        chart.SongId,
+                        chart.FilePath
+                    })
+                    .ToListAsync(cancellationToken)
+                    .ConfigureAwait(false);
+
+                foreach (var identity in chartIdentities.Where(identity =>
+                    !SongPathIdentity.TryNormalize(
+                        identity.FilePath,
+                        out _)))
+                {
+                    Debug.WriteLine(
+                        "SongDatabaseService: retaining chart " +
+                        $"{identity.Id} with malformed path " +
+                        $"'{identity.FilePath}'");
+                }
+
+                var activeChartIds = chartIdentities
+                    .Where(chart =>
+                        SongPathIdentity.TryNormalize(
+                            chart.FilePath,
+                            out var normalized) &&
+                        request.ActiveRoots.Any(root =>
+                            SongPathIdentity.IsUnderRoot(normalized, root)))
+                    .Select(chart => chart.Id)
+                    .OrderBy(id => id)
+                    .ToArray();
+
+                var persistedCharts = new List<SongChart>();
+                foreach (var activeChartIdChunk in activeChartIds.Chunk(900))
+                {
+                    var chunk = await context.SongCharts
+                        .Where(chart =>
+                            activeChartIdChunk.Contains(chart.Id))
+                        .Include(chart => chart.Song)
+                        .Include(chart => chart.Scores)
+                            .ThenInclude(score => score.PerformanceHistory)
+                        .ToListAsync(cancellationToken)
+                        .ConfigureAwait(false);
+                    persistedCharts.AddRange(chunk);
+                }
+                persistedCharts = persistedCharts
+                    .OrderBy(chart => chart.Id)
+                    .ToList();
+
+                var persistedSongs = persistedCharts
+                    .Select(chart => chart.Song)
+                    .DistinctBy(song => song.Id)
+                    .ToList();
+                var persistedByCanonicalPath = persistedCharts
+                    .Select(chart => new
+                    {
+                        Chart = chart,
+                        Normalized = SongPathIdentity.Normalize(chart.FilePath)
+                    })
+                    .GroupBy(
+                        item => item.Normalized,
+                        SongPathIdentity.CanonicalComparer)
+                    .ToDictionary(
+                        group => group.Key,
+                        group => group
+                            .Select(item => item.Chart)
+                            .OrderBy(chart => chart.Id)
+                            .ToList(),
+                        SongPathIdentity.CanonicalComparer);
+
+                var persistedChartByDiscoveredPath =
+                    new Dictionary<string, SongChart>(
+                        SongPathIdentity.CanonicalComparer);
+                var discoveredPersistedChartIds = new HashSet<int>();
+                var pathConflictProtectedChartIds = new HashSet<int>();
+                var migratedChartIds = new HashSet<int>();
+                var skippedDiscoveredPaths = new HashSet<string>(
+                    SongPathIdentity.CanonicalComparer);
+                var discoveredPaths = request.DiscoveredChartPaths
+                    .OrderBy(
+                        path => path,
+                        SongPathIdentity.CanonicalComparer)
+                    .ToArray();
+
+                void MarkPathConflict(
+                    IReadOnlyCollection<string> paths,
+                    IEnumerable<int> protectedChartIds)
+                {
+                    conflicts++;
+                    foreach (var chartId in protectedChartIds)
+                        pathConflictProtectedChartIds.Add(chartId);
+                    foreach (var path in paths)
+                    {
+                        if (skippedDiscoveredPaths.Add(path))
+                            skipped++;
+                    }
+                }
+
+                bool HasBinaryTargetCollision(
+                    SongChart chart,
+                    string targetPath,
+                    out int[] collidingIds)
+                {
+                    collidingIds = chartIdentities
+                        .Where(identity =>
+                            identity.Id != chart.Id &&
+                            string.Equals(
+                                identity.FilePath,
+                                targetPath,
+                                StringComparison.Ordinal))
+                        .Select(identity => identity.Id)
+                        .OrderBy(id => id)
+                        .ToArray();
+                    return collidingIds.Length > 0;
+                }
+
+                void ResolveUniquePath(
+                    string discoveredPath,
+                    SongChart chart)
+                {
+                    if (!string.Equals(
+                        chart.FilePath,
+                        discoveredPath,
+                        StringComparison.Ordinal))
+                    {
+                        if (HasBinaryTargetCollision(
+                            chart,
+                            discoveredPath,
+                            out var collidingIds))
+                        {
+                            MarkPathConflict(
+                                new[] { discoveredPath },
+                                collidingIds.Append(chart.Id));
+                            return;
+                        }
+
+                        chart.FilePath = discoveredPath;
+                        migratedChartIds.Add(chart.Id);
+                    }
+
+                    persistedChartByDiscoveredPath.Add(
+                        discoveredPath,
+                        chart);
+                    discoveredPersistedChartIds.Add(chart.Id);
+                }
+
+                foreach (var aliasPathGroup in discoveredPaths.GroupBy(
+                    path => path,
+                    SongPathIdentity.LegacyAliasComparer))
+                {
+                    var aliasPaths = aliasPathGroup
+                        .OrderBy(
+                            path => path,
+                            SongPathIdentity.CanonicalComparer)
+                        .ToArray();
+                    if (aliasPaths.Length > 1)
+                    {
+                        var protectedIds = persistedByCanonicalPath
+                            .Where(pair =>
+                                aliasPaths.Any(path =>
+                                    SongPathIdentity.LegacyAliasComparer.Equals(
+                                        pair.Key,
+                                        path)))
+                            .SelectMany(pair => pair.Value)
+                            .Select(chart => chart.Id)
+                            .Distinct()
+                            .ToArray();
+                        MarkPathConflict(aliasPaths, protectedIds);
+                        continue;
+                    }
+
+                    var discoveredPath = aliasPaths[0];
+                    if (persistedByCanonicalPath.TryGetValue(
+                        discoveredPath,
+                        out var exactCharts))
+                    {
+                        if (exactCharts.Count == 1)
+                        {
+                            ResolveUniquePath(
+                                discoveredPath,
+                                exactCharts[0]);
+                        }
+                        else
+                        {
+                            MarkPathConflict(
+                                aliasPaths,
+                                exactCharts.Select(chart => chart.Id));
+                        }
+
+                        continue;
+                    }
+
+                    var aliasCharts = persistedByCanonicalPath
+                        .Where(pair =>
+                            SongPathIdentity.LegacyAliasComparer.Equals(
+                                pair.Key,
+                                discoveredPath))
+                        .SelectMany(pair => pair.Value)
+                        .Where(chart =>
+                            !discoveredPersistedChartIds.Contains(chart.Id))
+                        .OrderBy(chart => chart.Id)
+                        .ToArray();
+                    if (aliasCharts.Length == 1)
+                    {
+                        ResolveUniquePath(
+                            discoveredPath,
+                            aliasCharts[0]);
+                    }
+                    else if (aliasCharts.Length > 1)
+                    {
+                        MarkPathConflict(
+                            aliasPaths,
+                            aliasCharts.Select(chart => chart.Id));
+                    }
+                }
+
+                var uniqueCandidates = new List<SongImportCandidate>();
+                var candidatePaths = new HashSet<string>(
+                    SongPathIdentity.CanonicalComparer);
+                foreach (var candidate in request.Candidates
                     .OrderBy(candidate => candidate.GroupKey, StringComparer.Ordinal)
                     .ThenBy(candidate => candidate.GroupOrder)
-                    .GroupBy(candidate => candidate.GroupKey, StringComparer.Ordinal))
+                    .ThenBy(
+                        candidate => candidate.NormalizedChartPath,
+                        SongPathIdentity.CanonicalComparer))
+                {
+                    if (!candidatePaths.Add(candidate.NormalizedChartPath))
+                    {
+                        skipped++;
+                        continue;
+                    }
+
+                    uniqueCandidates.Add(candidate);
+                }
+
+                foreach (var discoveredPath in discoveredPaths)
+                {
+                    if (!candidatePaths.Contains(discoveredPath) &&
+                        skippedDiscoveredPaths.Add(discoveredPath))
+                    {
+                        skipped++;
+                    }
+                }
+
+                progress?.Report(new(
+                    SongBulkImportMilestone.MatchingCompleted,
+                    request.Candidates.Count,
+                    request.Candidates.Count));
+
+                foreach (var group in uniqueCandidates
+                    .Where(candidate =>
+                        request.DiscoveredChartPaths.Contains(
+                            candidate.NormalizedChartPath) &&
+                        !skippedDiscoveredPaths.Contains(
+                            candidate.NormalizedChartPath))
+                    .GroupBy(
+                        candidate => candidate.GroupKey,
+                        StringComparer.Ordinal))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     var primary = group
@@ -331,29 +590,192 @@ namespace DTXMania.Game.Lib.Song.Entities
                             candidate => candidate.NormalizedChartPath,
                             SongPathIdentity.CanonicalComparer)
                         .First();
-                    var song = CreateSongFromParsed(primary.ParsedSong);
-                    context.Songs.Add(song);
+                    var groupCandidates = group.ToArray();
+                    var matchedCharts = groupCandidates
+                        .Select(candidate =>
+                            persistedChartByDiscoveredPath.TryGetValue(
+                                candidate.NormalizedChartPath,
+                                out var chart)
+                                ? chart
+                                : null)
+                        .Where(chart => chart != null)
+                        .Select(chart => chart!)
+                        .DistinctBy(chart => chart.Id)
+                        .ToArray();
+                    var matchedSongIds = matchedCharts
+                        .Select(chart => chart.SongId)
+                        .Distinct()
+                        .OrderBy(songId => songId)
+                        .ToArray();
 
-                    foreach (var candidate in group)
+                    if (matchedSongIds.Length == 0)
                     {
-                        var chart =
-                            CreateChartFromParsed(candidate.ParsedChart, song);
-                        chart.FilePath = candidate.NormalizedChartPath;
-                        AddMissingInitialScores(chart);
-                        context.SongCharts.Add(chart);
-                        chartsByPath.Add(candidate.NormalizedChartPath, chart);
-                        added++;
+                        var song = CreateSongFromParsed(primary.ParsedSong);
+                        context.Songs.Add(song);
+                        foreach (var candidate in groupCandidates)
+                        {
+                            var chart = CreateChartFromParsed(
+                                candidate.ParsedChart,
+                                song);
+                            chart.FilePath = candidate.NormalizedChartPath;
+                            AddMissingInitialScores(chart);
+                            context.SongCharts.Add(chart);
+                            chartsByPath.Add(
+                                candidate.NormalizedChartPath,
+                                chart);
+                            added++;
+                        }
+
+                        continue;
+                    }
+
+                    if (matchedSongIds.Length == 1)
+                    {
+                        var song = matchedCharts[0].Song;
+                        var songChanged = UpdateSongFromParsed(
+                            song,
+                            primary.ParsedSong);
+                        foreach (var candidate in groupCandidates)
+                        {
+                            if (persistedChartByDiscoveredPath.TryGetValue(
+                                candidate.NormalizedChartPath,
+                                out var chart))
+                            {
+                                var chartChanged = UpdateChartFromParsed(
+                                    chart,
+                                    candidate.ParsedChart,
+                                    candidate.NormalizedChartPath);
+                                var scoreAdded = AddMissingInitialScores(chart);
+                                if (songChanged ||
+                                    chartChanged ||
+                                    scoreAdded ||
+                                    migratedChartIds.Contains(chart.Id))
+                                {
+                                    updated++;
+                                }
+                                else
+                                {
+                                    preserved++;
+                                }
+                                chartsByPath.Add(
+                                    candidate.NormalizedChartPath,
+                                    chart);
+                            }
+                            else
+                            {
+                                var createdChart = CreateChartFromParsed(
+                                    candidate.ParsedChart,
+                                    song);
+                                createdChart.FilePath =
+                                    candidate.NormalizedChartPath;
+                                AddMissingInitialScores(createdChart);
+                                context.SongCharts.Add(createdChart);
+                                chartsByPath.Add(
+                                    candidate.NormalizedChartPath,
+                                    createdChart);
+                                added++;
+                            }
+                        }
+
+                        continue;
+                    }
+
+                    conflicts++;
+                    Debug.WriteLine(
+                        "SongDatabaseService: ambiguous import group " +
+                        $"'{group.Key}' matched song ids " +
+                        $"[{string.Join(",", matchedSongIds)}]");
+                    var songChangedById = matchedCharts
+                        .Select(chart => chart.Song)
+                        .DistinctBy(song => song.Id)
+                        .ToDictionary(
+                            song => song.Id,
+                            song => UpdateSongFromParsed(
+                                song,
+                                primary.ParsedSong));
+                    SongEntity newSiblingSong = null;
+                    foreach (var candidate in groupCandidates)
+                    {
+                        if (persistedChartByDiscoveredPath.TryGetValue(
+                            candidate.NormalizedChartPath,
+                            out var chart))
+                        {
+                            var chartChanged = UpdateChartFromParsed(
+                                chart,
+                                candidate.ParsedChart,
+                                candidate.NormalizedChartPath);
+                            var scoreAdded = AddMissingInitialScores(chart);
+                            if (songChangedById[chart.SongId] ||
+                                chartChanged ||
+                                scoreAdded ||
+                                migratedChartIds.Contains(chart.Id))
+                            {
+                                updated++;
+                            }
+                            else
+                            {
+                                preserved++;
+                            }
+                            chartsByPath.Add(
+                                candidate.NormalizedChartPath,
+                                chart);
+                        }
+                        else
+                        {
+                            if (newSiblingSong == null)
+                            {
+                                newSiblingSong =
+                                    CreateSongFromParsed(primary.ParsedSong);
+                                context.Songs.Add(newSiblingSong);
+                            }
+                            var createdChart = CreateChartFromParsed(
+                                candidate.ParsedChart,
+                                newSiblingSong);
+                            createdChart.FilePath =
+                                candidate.NormalizedChartPath;
+                            AddMissingInitialScores(createdChart);
+                            context.SongCharts.Add(createdChart);
+                            chartsByPath.Add(
+                                candidate.NormalizedChartPath,
+                                createdChart);
+                            added++;
+                        }
                     }
                 }
 
-                progress?.Report(new(
-                    SongBulkImportMilestone.MatchingCompleted,
-                    request.Candidates.Count,
-                    request.Candidates.Count));
+                skipped += uniqueCandidates.Count(candidate =>
+                    !request.DiscoveredChartPaths.Contains(
+                        candidate.NormalizedChartPath));
                 progress?.Report(new(
                     SongBulkImportMilestone.MutationsStaged,
                     request.Candidates.Count,
                     request.Candidates.Count));
+
+                var cleanup = Stopwatch.StartNew();
+                var staleCharts = persistedCharts
+                    .Where(chart =>
+                        !discoveredPersistedChartIds.Contains(chart.Id) &&
+                        !pathConflictProtectedChartIds.Contains(chart.Id))
+                    .ToList();
+                context.SongCharts.RemoveRange(staleCharts);
+
+                var staleChartIds = staleCharts
+                    .Select(chart => chart.Id)
+                    .ToHashSet();
+                var candidateEmptySongIds = staleCharts
+                    .Select(chart => chart.SongId)
+                    .Distinct()
+                    .Where(songId => !chartIdentities.Any(identity =>
+                        identity.SongId == songId &&
+                        !staleChartIds.Contains(identity.Id)))
+                    .ToHashSet();
+                var emptySongs = persistedSongs
+                    .Where(song =>
+                        candidateEmptySongIds.Contains(song.Id))
+                    .ToList();
+                context.Songs.RemoveRange(emptySongs);
+                cleanup.Stop();
+
                 progress?.Report(new(
                     SongBulkImportMilestone.CleanupCompleted,
                     request.Candidates.Count,
@@ -377,14 +799,14 @@ namespace DTXMania.Game.Lib.Song.Entities
                 return new SongBulkImportResult(
                     chartsByPath,
                     added,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
+                    updated,
+                    preserved,
+                    skipped,
+                    conflicts,
+                    staleCharts.Count,
+                    emptySongs.Count,
                     persistence.Elapsed,
-                    TimeSpan.Zero);
+                    cleanup.Elapsed);
             }
             catch
             {
@@ -411,6 +833,38 @@ namespace DTXMania.Game.Lib.Song.Entities
                 Genre = parsed.Genre,
                 Comment = parsed.Comment
             };
+
+        private static bool UpdateSongFromParsed(
+            SongEntity song,
+            SongEntity parsed)
+        {
+            var changed =
+                !string.Equals(
+                    song.Title,
+                    parsed.Title,
+                    StringComparison.Ordinal) ||
+                !string.Equals(
+                    song.Artist,
+                    parsed.Artist,
+                    StringComparison.Ordinal) ||
+                !string.Equals(
+                    song.Genre,
+                    parsed.Genre,
+                    StringComparison.Ordinal) ||
+                !string.Equals(
+                    song.Comment,
+                    parsed.Comment,
+                    StringComparison.Ordinal);
+            if (!changed)
+                return false;
+
+            song.Title = parsed.Title;
+            song.Artist = parsed.Artist;
+            song.Genre = parsed.Genre;
+            song.Comment = parsed.Comment;
+            song.UpdatedAt = DateTime.UtcNow;
+            return true;
+        }
 
         private static SongChart CreateChartFromParsed(
             SongChart parsed,
@@ -448,23 +902,111 @@ namespace DTXMania.Game.Lib.Song.Entities
                 StageFile = parsed.StageFile
             };
 
-        private static void AddMissingInitialScores(SongChart chart)
+        private static bool UpdateChartFromParsed(
+            SongChart chart,
+            SongChart parsed,
+            string normalizedPath)
         {
-            AddMissingInitialScore(
+            var changed =
+                !string.Equals(
+                    chart.FilePath,
+                    normalizedPath,
+                    StringComparison.Ordinal) ||
+                chart.FileSize != parsed.FileSize ||
+                chart.LastModified != parsed.LastModified ||
+                !string.Equals(
+                    chart.FileFormat,
+                    parsed.FileFormat,
+                    StringComparison.Ordinal) ||
+                chart.DifficultyLevel != parsed.DifficultyLevel ||
+                !string.Equals(
+                    chart.DifficultyLabel,
+                    parsed.DifficultyLabel,
+                    StringComparison.Ordinal) ||
+                chart.Bpm != parsed.Bpm ||
+                chart.Duration != parsed.Duration ||
+                chart.BGMAdjust != parsed.BGMAdjust ||
+                chart.DrumLevel != parsed.DrumLevel ||
+                chart.DrumLevelDec != parsed.DrumLevelDec ||
+                chart.GuitarLevel != parsed.GuitarLevel ||
+                chart.GuitarLevelDec != parsed.GuitarLevelDec ||
+                chart.BassLevel != parsed.BassLevel ||
+                chart.BassLevelDec != parsed.BassLevelDec ||
+                chart.HasDrumChart != parsed.HasDrumChart ||
+                chart.HasGuitarChart != parsed.HasGuitarChart ||
+                chart.HasBassChart != parsed.HasBassChart ||
+                chart.IsClassicDrums != parsed.IsClassicDrums ||
+                chart.IsClassicGuitar != parsed.IsClassicGuitar ||
+                chart.IsClassicBass != parsed.IsClassicBass ||
+                chart.DrumNoteCount != parsed.DrumNoteCount ||
+                chart.GuitarNoteCount != parsed.GuitarNoteCount ||
+                chart.BassNoteCount != parsed.BassNoteCount ||
+                !string.Equals(
+                    chart.PreviewFile,
+                    parsed.PreviewFile,
+                    StringComparison.Ordinal) ||
+                !string.Equals(
+                    chart.PreviewImage,
+                    parsed.PreviewImage,
+                    StringComparison.Ordinal) ||
+                !string.Equals(
+                    chart.BackgroundFile,
+                    parsed.BackgroundFile,
+                    StringComparison.Ordinal) ||
+                !string.Equals(
+                    chart.StageFile,
+                    parsed.StageFile,
+                    StringComparison.Ordinal);
+
+            chart.FilePath = normalizedPath;
+            chart.FileSize = parsed.FileSize;
+            chart.LastModified = parsed.LastModified;
+            chart.FileFormat = parsed.FileFormat;
+            chart.DifficultyLevel = parsed.DifficultyLevel;
+            chart.DifficultyLabel = parsed.DifficultyLabel;
+            chart.Bpm = parsed.Bpm;
+            chart.Duration = parsed.Duration;
+            chart.BGMAdjust = parsed.BGMAdjust;
+            chart.DrumLevel = parsed.DrumLevel;
+            chart.DrumLevelDec = parsed.DrumLevelDec;
+            chart.GuitarLevel = parsed.GuitarLevel;
+            chart.GuitarLevelDec = parsed.GuitarLevelDec;
+            chart.BassLevel = parsed.BassLevel;
+            chart.BassLevelDec = parsed.BassLevelDec;
+            chart.HasDrumChart = parsed.HasDrumChart;
+            chart.HasGuitarChart = parsed.HasGuitarChart;
+            chart.HasBassChart = parsed.HasBassChart;
+            chart.IsClassicDrums = parsed.IsClassicDrums;
+            chart.IsClassicGuitar = parsed.IsClassicGuitar;
+            chart.IsClassicBass = parsed.IsClassicBass;
+            chart.DrumNoteCount = parsed.DrumNoteCount;
+            chart.GuitarNoteCount = parsed.GuitarNoteCount;
+            chart.BassNoteCount = parsed.BassNoteCount;
+            chart.PreviewFile = parsed.PreviewFile;
+            chart.PreviewImage = parsed.PreviewImage;
+            chart.BackgroundFile = parsed.BackgroundFile;
+            chart.StageFile = parsed.StageFile;
+            return changed;
+        }
+
+        private static bool AddMissingInitialScores(SongChart chart)
+        {
+            var added = AddMissingInitialScore(
                 chart,
                 EInstrumentPart.DRUMS,
                 chart.HasDrumChart && chart.DrumLevel > 0);
-            AddMissingInitialScore(
+            added |= AddMissingInitialScore(
                 chart,
                 EInstrumentPart.GUITAR,
                 chart.HasGuitarChart && chart.GuitarLevel > 0);
-            AddMissingInitialScore(
+            added |= AddMissingInitialScore(
                 chart,
                 EInstrumentPart.BASS,
                 chart.HasBassChart && chart.BassLevel > 0);
+            return added;
         }
 
-        private static void AddMissingInitialScore(
+        private static bool AddMissingInitialScore(
             SongChart chart,
             EInstrumentPart instrument,
             bool isAvailable)
@@ -473,7 +1015,7 @@ namespace DTXMania.Game.Lib.Song.Entities
                 score => score.Instrument == instrument
                     && score.PlaySpeedPercent == 100))
             {
-                return;
+                return false;
             }
 
             chart.Scores.Add(new SongScoreEntity
@@ -482,6 +1024,7 @@ namespace DTXMania.Game.Lib.Song.Entities
                 Instrument = instrument,
                 PlaySpeedPercent = 100
             });
+            return true;
         }
 
         /// <summary>
