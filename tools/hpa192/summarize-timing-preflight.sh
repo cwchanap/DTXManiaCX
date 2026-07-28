@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export LC_ALL=C
 
 if [[ "$#" -ne 3 ]]; then
     printf 'usage: summarize-timing-preflight.sh RUN_1 RUN_2 RUN_3\n' >&2
@@ -25,9 +26,24 @@ for result in "$@"; do
     canonical_results+=("$canonical_result")
 done
 
-field_value() {
+decimal_at_most() {
+    local value="$1"
+    local maximum="$2"
+
+    [[ "$value" =~ ^(0|[1-9][0-9]*)$ ]] || return 1
+    if [[ "${#value}" -lt "${#maximum}" ]]; then
+        return 0
+    fi
+    if [[ "${#value}" -gt "${#maximum}" ]]; then
+        return 1
+    fi
+    [[ "$value" < "$maximum" || "$value" == "$maximum" ]]
+}
+
+numeric_field_value() {
     local file="$1"
     local key="$2"
+    local maximum="$3"
     local value
     value="$(awk -v key="$key" '
         {
@@ -46,8 +62,8 @@ field_value() {
         printf 'expected exactly one %s in %s\n' "$key" "$file" >&2
         exit 1
     }
-    [[ "$value" =~ ^[0-9]+$ ]] || {
-        printf 'expected nonnegative integer %s in %s\n' "$key" "$file" >&2
+    decimal_at_most "$value" "$maximum" || {
+        printf 'expected decimal %s at most %s in %s\n' "$key" "$maximum" "$file" >&2
         exit 1
     }
     printf '%s\n' "$value"
@@ -97,6 +113,10 @@ median_of_three() {
 
 readonly max_cross_process_delta_ms=300000
 readonly max_process_clock_alignment_difference_ms=50
+readonly max_external_clock_alignment_difference_ms=50
+readonly max_timing_interval_ms=300000
+readonly max_unix_timestamp_us=4102444800000000
+readonly max_monotonic_timestamp_us=3155760000000000
 fixed_floors=()
 config_to_startups=()
 artifact_identities=()
@@ -107,7 +127,7 @@ for index in 1 2 3; do
     timing_line "$result"
 
     label="$(text_field_value "$result" label)"
-    run="$(field_value "$result" run)"
+    run="$(numeric_field_value "$result" run 3)"
     case "$run" in
         1|2|3) ;;
         *)
@@ -132,18 +152,20 @@ for index in 1 2 3; do
         exit 1
     fi
 
-    entry_to_config="$(field_value "$result" entry_to_config_ms)"
-    config_to_load_content="$(field_value "$result" config_to_load_content_ms)"
-    load_content_to_startup="$(field_value "$result" load_content_to_startup_ms)"
-    startup_to_first_draw="$(field_value "$result" startup_to_first_draw_ms)"
-    startup_to_summary="$(field_value "$result" startup_to_summary_ms)"
-    summary_to_title="$(field_value "$result" summary_to_title_ms)"
-    entry_to_title="$(field_value "$result" entry_to_title_ms)"
-    entry_unix_us="$(field_value "$result" entry_unix_us)"
-    title_unix_us="$(field_value "$result" title_unix_us)"
-    launch_start_unix_us="$(field_value "$result" launch_start_unix_us)"
-    launch_end_unix_us="$(field_value "$result" launch_end_unix_us)"
-    wall_ms="$(field_value "$result" wall_ms)"
+    entry_to_config="$(numeric_field_value "$result" entry_to_config_ms "$max_timing_interval_ms")"
+    config_to_load_content="$(numeric_field_value "$result" config_to_load_content_ms "$max_timing_interval_ms")"
+    load_content_to_startup="$(numeric_field_value "$result" load_content_to_startup_ms "$max_timing_interval_ms")"
+    startup_to_first_draw="$(numeric_field_value "$result" startup_to_first_draw_ms "$max_timing_interval_ms")"
+    startup_to_summary="$(numeric_field_value "$result" startup_to_summary_ms "$max_timing_interval_ms")"
+    summary_to_title="$(numeric_field_value "$result" summary_to_title_ms "$max_timing_interval_ms")"
+    entry_to_title="$(numeric_field_value "$result" entry_to_title_ms "$max_timing_interval_ms")"
+    entry_unix_us="$(numeric_field_value "$result" entry_unix_us "$max_unix_timestamp_us")"
+    title_unix_us="$(numeric_field_value "$result" title_unix_us "$max_unix_timestamp_us")"
+    launch_start_unix_us="$(numeric_field_value "$result" launch_start_unix_us "$max_unix_timestamp_us")"
+    launch_end_unix_us="$(numeric_field_value "$result" launch_end_unix_us "$max_unix_timestamp_us")"
+    launch_start_monotonic_us="$(numeric_field_value "$result" launch_start_monotonic_us "$max_monotonic_timestamp_us")"
+    launch_end_monotonic_us="$(numeric_field_value "$result" launch_end_monotonic_us "$max_monotonic_timestamp_us")"
+    wall_ms="$(numeric_field_value "$result" wall_ms "$max_timing_interval_ms")"
 
     entry_to_startup=$((entry_to_config + config_to_load_content + load_content_to_startup))
     config_to_startup=$((config_to_load_content + load_content_to_startup))
@@ -164,7 +186,8 @@ for index in 1 2 3; do
     }
     [[ "$entry_unix_us" -ge "$launch_start_unix_us" &&
        "$launch_end_unix_us" -ge "$title_unix_us" &&
-       "$launch_end_unix_us" -ge "$launch_start_unix_us" ]] || {
+       "$launch_end_unix_us" -ge "$launch_start_unix_us" &&
+       "$launch_end_monotonic_us" -ge "$launch_start_monotonic_us" ]] || {
         printf 'cross-process UTC anchors regress in %s\n' "$result" >&2
         exit 1
     }
@@ -173,6 +196,11 @@ for index in 1 2 3; do
     external_launch_to_startup_ms=$((external_launch_to_entry_ms + entry_to_startup))
     title_poll_lag_ms=$(((launch_end_unix_us - title_unix_us) / 1000))
     external_wall_ms=$(((launch_end_unix_us - launch_start_unix_us) / 1000))
+    external_monotonic_elapsed_ms=$(((launch_end_monotonic_us - launch_start_monotonic_us) / 1000))
+    external_clock_difference_ms=$((external_wall_ms - external_monotonic_elapsed_ms))
+    if [[ "$external_clock_difference_ms" -lt 0 ]]; then
+        external_clock_difference_ms=$((-external_clock_difference_ms))
+    fi
     process_wall_elapsed_ms=$(((title_unix_us - entry_unix_us) / 1000))
     process_clock_difference_ms=$((process_wall_elapsed_ms - entry_to_title))
     if [[ "$process_clock_difference_ms" -lt 0 ]]; then
@@ -192,6 +220,11 @@ for index in 1 2 3; do
         printf 'title-poll UTC delta is invalid in %s\n' "$result" >&2
         exit 1
     }
+    [[ "$external_wall_ms" -le "$max_cross_process_delta_ms" &&
+       "$external_monotonic_elapsed_ms" -le "$max_cross_process_delta_ms" ]] || {
+        printf 'external elapsed time is invalid in %s\n' "$result" >&2
+        exit 1
+    }
     [[ "$wall_difference_ms" -le 1 ]] || {
         printf 'wall clock changed during %s\n' "$result" >&2
         exit 1
@@ -200,11 +233,15 @@ for index in 1 2 3; do
         printf 'process clock changed during %s\n' "$result" >&2
         exit 1
     }
+    [[ "$external_clock_difference_ms" -le "$max_external_clock_alignment_difference_ms" ]] || {
+        printf 'external clock changed during %s\n' "$result" >&2
+        exit 1
+    }
 
     printf 'sample=%s entry_to_config_ms=%s config_to_load_content_ms=%s load_content_to_startup_ms=%s startup_to_first_draw_ms=%s startup_to_summary_ms=%s summary_to_title_ms=%s entry_to_title_ms=%s\n' \
         "$artifact_identity" "$entry_to_config" "$config_to_load_content" "$load_content_to_startup" "$startup_to_first_draw" "$startup_to_summary" "$summary_to_title" "$entry_to_title"
-    printf 'sample=%s entry_to_startup_ms=%s config_to_startup_ms=%s external_launch_to_entry_ms=%s external_launch_to_startup_ms=%s\n' \
-        "$artifact_identity" "$entry_to_startup" "$config_to_startup" "$external_launch_to_entry_ms" "$external_launch_to_startup_ms"
+    printf 'sample=%s entry_to_startup_ms=%s config_to_startup_ms=%s external_launch_to_entry_ms=%s external_launch_to_startup_ms=%s external_wall_elapsed_ms=%s external_monotonic_elapsed_ms=%s external_clock_difference_ms=%s\n' \
+        "$artifact_identity" "$entry_to_startup" "$config_to_startup" "$external_launch_to_entry_ms" "$external_launch_to_startup_ms" "$external_wall_ms" "$external_monotonic_elapsed_ms" "$external_clock_difference_ms"
     printf 'sample=%s fixed_floor_ms=%s title_poll_lag_ms=%s wall_ms=%s\n' \
         "$artifact_identity" "$fixed_floor_ms" "$title_poll_lag_ms" "$wall_ms"
 

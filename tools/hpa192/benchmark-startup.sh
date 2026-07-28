@@ -117,6 +117,7 @@ cp -R "$repo_root/System" "$run_root/System"
 stdout="$result_root/run-$run.stdout.log"
 stderr="$result_root/run-$run.stderr.log"
 launch_start_unix_us="$(perl -MTime::HiRes=time -e 'printf "%.0f", time * 1000000')"
+launch_start_monotonic_us="$(perl -MTime::HiRes=clock_gettime,CLOCK_MONOTONIC -e 'printf "%.0f", clock_gettime(CLOCK_MONOTONIC) * 1000000')"
 (
     cd "$game_dir"
     DTXMANIA_APPDATA_ROOT="$appdata" \
@@ -152,6 +153,7 @@ for attempt in $(seq 1 1200); do
     sleep 0.05
 done
 
+launch_end_monotonic_us="$(perl -MTime::HiRes=clock_gettime,CLOCK_MONOTONIC -e 'printf "%.0f", clock_gettime(CLOCK_MONOTONIC) * 1000000')"
 launch_end_unix_us="$(perl -MTime::HiRes=time -e 'printf "%.0f", time * 1000000')"
 stop_game
 
@@ -204,6 +206,6 @@ if [[ -n "$expected_persistence_path" || -n "$expected_song_count" ]]; then
     printf 'run %s persistence expectations are unavailable before Task 1\n' "$run" >&2
     exit 1
 fi
-printf 'label=%s run=%s wall_ms=%s launch_start_unix_us=%s launch_end_unix_us=%s %s %s\n' \
-    "$label" "$run" "$wall_ms" "$launch_start_unix_us" "$launch_end_unix_us" "$summary" "$timing" |
+printf 'label=%s run=%s wall_ms=%s launch_start_unix_us=%s launch_start_monotonic_us=%s launch_end_unix_us=%s launch_end_monotonic_us=%s %s %s\n' \
+    "$label" "$run" "$wall_ms" "$launch_start_unix_us" "$launch_start_monotonic_us" "$launch_end_unix_us" "$launch_end_monotonic_us" "$summary" "$timing" |
     tee "$result_root/run-$run.result.txt"
