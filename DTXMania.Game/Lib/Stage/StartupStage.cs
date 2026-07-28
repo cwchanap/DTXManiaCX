@@ -984,7 +984,12 @@ namespace DTXMania.Game.Lib.Stage
                 {
                     // Update progress message with enumeration details
                     var phaseInfo = _phaseInfo[StartupPhase.EnumerateSongs];
-                    if (!string.IsNullOrEmpty(progress.CurrentFile))
+                    if (!string.IsNullOrEmpty(progress.CurrentOperation))
+                    {
+                        _currentProgressMessage =
+                            $"{phaseInfo.message} {progress.CurrentOperation}";
+                    }
+                    else if (!string.IsNullOrEmpty(progress.CurrentFile))
                     {
                         var fileName = Path.GetFileName(progress.CurrentFile);
                         _currentProgressMessage = $"{phaseInfo.message} [{progress.ProcessedCount} processed, {progress.DiscoveredSongs} songs] {fileName}";
