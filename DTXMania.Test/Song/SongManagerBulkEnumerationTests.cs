@@ -92,6 +92,29 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
     }
 
     [Fact]
+    public async Task EnumerateSongsOnlyWithPublicationAsync_WithoutDatabase_ShouldReportNoPublication()
+    {
+        var result = await _manager.EnumerateSongsOnlyWithPublicationAsync(
+            new[] { _songsRoot }, null, CancellationToken.None);
+
+        Assert.Equal(0, result.SongCount);
+        Assert.False(result.Published);
+    }
+
+    [Fact]
+    public async Task EnumerateSongsOnlyWithPublicationAsync_WithEmptyRoot_ShouldReportEmptyPublication()
+    {
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+
+        var result = await _manager.EnumerateSongsOnlyWithPublicationAsync(
+            new[] { _songsRoot }, null, CancellationToken.None);
+
+        Assert.Equal(0, result.SongCount);
+        Assert.True(result.Published);
+        Assert.Empty(_manager.RootSongs);
+    }
+
+    [Fact]
     public async Task EnumerateAndImportSongsAsync_WhenCancelled_ShouldLeaveDatabaseAndRootSongsUnchanged()
     {
         await SeedPublishedLibraryAsync();
@@ -302,6 +325,89 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
             chart => SongPathIdentity.CanonicalComparer.Equals(
                 chart.FilePath,
                 basicPath));
+    }
+
+    [Fact]
+    public async Task EnumerateAndImportSongsAsync_WhenSetDefinitionReadFails_ShouldProtectSubtreeChartsAndImportOtherCandidates()
+    {
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        var setRoot = Path.Combine(_songsRoot, "Protected Set");
+        Directory.CreateDirectory(setRoot);
+        var setDefPath = Path.Combine(setRoot, "set.def");
+        await File.WriteAllTextAsync(
+            setDefPath,
+            """
+            #TITLE Protected Set
+            #L2LABEL ADVANCED
+            #L2FILE Nested/protected.dtx
+            """);
+        var protectedPath = WriteChart(
+            "Songs/Protected Set/Nested/protected.dtx",
+            "Original Parsed Title",
+            45);
+        await _manager.EnumerateAndImportSongsAsync(
+            new[] { _songsRoot }, null, CancellationToken.None);
+
+        await using (var context = _manager.DatabaseService!.CreateContext())
+        {
+            var protectedChart = await context.SongCharts
+                .Include(chart => chart.Song)
+                .Include(chart => chart.Scores)
+                .SingleAsync(chart => chart.FilePath == protectedPath);
+            protectedChart.Song.Title = "Persisted Title";
+            protectedChart.Song.Artist = "Persisted Artist";
+            protectedChart.Song.IsBookmarked = true;
+            protectedChart.DrumLevel = 64;
+            var playedScore = protectedChart.Scores.Single(score =>
+                score.Instrument == EInstrumentPart.DRUMS &&
+                score.PlaySpeedPercent == PlaySpeedRange.Default);
+            playedScore.PlayCount = 3;
+            playedScore.LastPlayedAt = new DateTime(
+                2026, 7, 27, 12, 0, 0, DateTimeKind.Utc);
+            await context.SaveChangesAsync();
+        }
+
+        var original = Assert.Single(
+            await ReadPersistedChartSnapshotsAsync());
+        var validPath = WriteChart(
+            "Songs/Other/valid.dtx",
+            "Valid",
+            70);
+        var realReader = _manager.ReadAllLinesCoreAsync;
+        _manager.ReadAllLinesCoreAsync = (path, encoding, token) =>
+            SongPathIdentity.CanonicalComparer.Equals(path, setDefPath)
+                ? Task.FromException<string[]>(
+                    new IOException("set definition unavailable"))
+                : realReader(path, encoding, token);
+
+        var result = await _manager.EnumerateAndImportSongsAsync(
+            new[] { _songsRoot }, null, CancellationToken.None);
+
+        Assert.Contains(result.Batch.Errors, error =>
+            error.Path == SongPathIdentity.Normalize(setDefPath) &&
+            !error.IsRootFailure);
+        Assert.Contains(
+            SongPathIdentity.Normalize(protectedPath),
+            result.Batch.DiscoveredChartPaths);
+        Assert.DoesNotContain(result.Batch.Candidates, candidate =>
+            SongPathIdentity.CanonicalComparer.Equals(
+                candidate.NormalizedChartPath,
+                protectedPath));
+        Assert.Contains(result.Batch.Candidates, candidate =>
+            SongPathIdentity.CanonicalComparer.Equals(
+                candidate.NormalizedChartPath,
+                validPath));
+        var persisted = await ReadPersistedChartSnapshotsAsync();
+        Assert.Equal(
+            original,
+            Assert.Single(persisted, snapshot =>
+                SongPathIdentity.CanonicalComparer.Equals(
+                    snapshot.FilePath,
+                    protectedPath)));
+        Assert.Contains(persisted, snapshot =>
+            SongPathIdentity.CanonicalComparer.Equals(
+                snapshot.FilePath,
+                validPath));
     }
 
     [Fact]
@@ -745,10 +851,12 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
                     chart.Id,
                     song.Title,
                     song.Artist,
+                    song.IsBookmarked,
                     chart.FilePath,
                     chart.DrumLevel,
                     chart.Scores.Count,
-                    chart.Scores.Sum(score => score.PlayCount))))
+                    chart.Scores.Sum(score => score.PlayCount),
+                    chart.Scores.Max(score => score.LastPlayedAt))))
             .OrderBy(snapshot => snapshot.ChartId)
             .ToArray();
     }
@@ -810,10 +918,12 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         int ChartId,
         string Title,
         string Artist,
+        bool IsBookmarked,
         string FilePath,
         int DrumLevel,
         int ScoreCount,
-        int PlayCount);
+        int PlayCount,
+        DateTime? LastPlayedAt);
 
     private sealed class InlineProgress<T>(Action<T> report) : IProgress<T>
     {

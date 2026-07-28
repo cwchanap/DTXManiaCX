@@ -551,6 +551,7 @@ namespace DTXMania.Test.Stage
             var publishedHierarchy = new SongListNode { Title = "Published" };
             var stage = CreateControlledStage(songPaths: new[] { "SongsRoot" });
             stage.NextPublishedHierarchy = publishedHierarchy;
+            stage.NextEnumerationPublished = true;
             ReflectionHelpers.SetPrivateField(stage, "_needsEnumeration", true);
 
             var enumerate = (Task)ReflectionHelpers.InvokePrivateMethod(
@@ -563,6 +564,55 @@ namespace DTXMania.Test.Stage
             await build;
 
             Assert.Same(publishedHierarchy, stage.PublishedHierarchy);
+            Assert.Equal(0, stage.BuildSongListCalls);
+        }
+
+        [Fact]
+        public async Task BuildSongListsAsync_AfterEnumerationNoOp_ShouldBuildFromDatabase()
+        {
+            var stage = CreateControlledStage(
+                songPaths: new[] { "SongsRoot" });
+            stage.NextEnumerationCount = 0;
+            stage.NextPublishedHierarchy = null;
+            ReflectionHelpers.SetPrivateField(
+                stage,
+                "_needsEnumeration",
+                true);
+
+            var enumerate = (Task)ReflectionHelpers.InvokePrivateMethod(
+                stage,
+                "EnumerateSongsAsync")!;
+            await enumerate;
+            var build = (Task)ReflectionHelpers.InvokePrivateMethod(
+                stage,
+                "BuildSongListsAsync")!;
+            await build;
+
+            Assert.Equal(1, stage.BuildSongListCalls);
+            Assert.Equal("Rebuilt", stage.PublishedHierarchy?.Title);
+        }
+
+        [Fact]
+        public async Task BuildSongListsAsync_AfterEmptyPublishedEnumeration_ShouldSkipDatabaseBuild()
+        {
+            var stage = CreateControlledStage(
+                songPaths: new[] { "SongsRoot" });
+            stage.NextEnumerationCount = 0;
+            stage.NextEnumerationPublished = true;
+            ReflectionHelpers.SetPrivateField(
+                stage,
+                "_needsEnumeration",
+                true);
+
+            var enumerate = (Task)ReflectionHelpers.InvokePrivateMethod(
+                stage,
+                "EnumerateSongsAsync")!;
+            await enumerate;
+            var build = (Task)ReflectionHelpers.InvokePrivateMethod(
+                stage,
+                "BuildSongListsAsync")!;
+            await build;
+
             Assert.Equal(0, stage.BuildSongListCalls);
         }
 
@@ -1013,6 +1063,8 @@ namespace DTXMania.Test.Stage
 
             public int NextEnumerationCount { get; set; }
 
+            public bool NextEnumerationPublished { get; set; }
+
             public int RootSongCount { get; set; }
 
             public bool NextSaveResult { get; set; }
@@ -1054,7 +1106,11 @@ namespace DTXMania.Test.Stage
                 return Task.FromResult(NextNeedsEnumerationResult);
             }
 
-            protected override Task<int> EnumerateSongsOnlyCoreAsync(string[] songPaths, IProgress<EnumerationProgress> progressReporter, CancellationToken cancellationToken)
+            protected override Task<(int SongCount, bool Published)>
+                EnumerateSongsOnlyCoreAsync(
+                    string[] songPaths,
+                    IProgress<EnumerationProgress> progressReporter,
+                    CancellationToken cancellationToken)
             {
                 EnumerateSongsCalls++;
                 LastSongPaths = songPaths;
@@ -1068,7 +1124,9 @@ namespace DTXMania.Test.Stage
                     PublishedHierarchy = NextPublishedHierarchy;
                 }
 
-                return Task.FromResult(NextEnumerationCount);
+                return Task.FromResult((
+                    NextEnumerationCount,
+                    NextEnumerationPublished));
             }
 
             protected override Task BuildSongListFromDatabaseCoreAsync(string[] songPaths)
@@ -1249,10 +1307,11 @@ namespace DTXMania.Test.Stage
 
             private int _callCount;
 
-            protected override Task<int> EnumerateSongsOnlyCoreAsync(
-                string[] songPaths,
-                IProgress<EnumerationProgress> progress,
-                CancellationToken cancellationToken)
+            protected override Task<(int SongCount, bool Published)>
+                EnumerateSongsOnlyCoreAsync(
+                    string[] songPaths,
+                    IProgress<EnumerationProgress> progress,
+                    CancellationToken cancellationToken)
             {
                 _callCount++;
                 if (_callCount == 1)
@@ -1264,7 +1323,7 @@ namespace DTXMania.Test.Stage
                     progress.Report(new EnumerationProgress { CurrentFile = "song2.dtx", ProcessedCount = 2, DiscoveredSongs = 1 });
                 }
 
-                return Task.FromResult(1);
+                return Task.FromResult((1, true));
             }
         }
     }
