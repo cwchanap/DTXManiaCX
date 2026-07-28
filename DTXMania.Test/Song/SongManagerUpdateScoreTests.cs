@@ -263,13 +263,10 @@ public class SongManagerUpdateScoreTests : IDisposable
     }
 
     [Fact]
-    public async Task UpdateScoreAsync_WithSummary_OnLegacySetDefNode_ShouldNotUpdateDifferentSongWithSameDifficulty()
+    public async Task UpdateScoreAsync_WithSummary_OnSetDefNode_ShouldNotUpdateDifferentSongWithSameDifficulty()
     {
-        // Regression: two legacy set.def songs sharing the same drum difficulty level.
-        // The in-memory refresh walks the entire tree and, for ChartId == 0 nodes,
-        // must scope the Instrument + DifficultyLevel fallback to the owning song.
-        // Without that scope, whichever set.def node appears first in tree order gets
-        // its cached score/history overwritten and stamped with the other chart's id.
+        // Regression: two set.def songs share the same drum difficulty level.
+        // Durable chart IDs must keep the in-memory refresh scoped to the played chart.
         var songsRoot = Path.Combine(_testRoot, "SetDefSongs");
 
         // Two set.def folders, each with a single chart at DLEVEL 50 (collision).
@@ -277,7 +274,7 @@ public class SongManagerUpdateScoreTests : IDisposable
         await CreateSetDefSongAsync(songsRoot, "Second SetDef Song", "second.dtx");
         await InitializeAndEnumerateAsync(songsRoot);
 
-        // Both in-memory nodes should be legacy (ChartId == 0) before any play.
+        // Both in-memory nodes should carry their committed chart identities.
         var firstNode = FindScoreNodeByTitle(_manager.RootSongs, "First SetDef Song");
         var secondNode = FindScoreNodeByTitle(_manager.RootSongs, "Second SetDef Song");
         Assert.NotNull(firstNode);
@@ -286,13 +283,18 @@ public class SongManagerUpdateScoreTests : IDisposable
         var secondScore = Assert.Single(secondNode!.Scores.Where(s => s != null && s.Instrument == EInstrumentPart.DRUMS))!;
         var firstDifficultyIndex = Array.IndexOf(firstNode.Scores, firstScore);
         var secondDifficultyIndex = Array.IndexOf(secondNode.Scores, secondScore);
-        Assert.Equal(0, firstScore.ChartId);
-        Assert.Equal(0, secondScore.ChartId);
 
-        // Play the SECOND song's chart. Resolve its chart id + owning song from the DB.
         var db = _manager.DatabaseService!;
-        var secondSong = (await db.GetSongsAsync()).Single(s => s.Title == "Second SetDef Song");
+        var persistedSongs = await db.GetSongsAsync();
+        var firstSong = persistedSongs.Single(
+            song => song.Title == "First SetDef Song");
+        var secondSong = persistedSongs.Single(
+            song => song.Title == "Second SetDef Song");
+        var firstChart = firstSong.Charts.First();
         var secondChart = secondSong.Charts.First();
+        Assert.Equal(firstChart.Id, firstScore.ChartId);
+        Assert.Equal(secondChart.Id, secondScore.ChartId);
+        Assert.NotEqual(firstScore.ChartId, secondScore.ChartId);
 
         var summary = new PerformanceSummary
         {
@@ -317,7 +319,7 @@ public class SongManagerUpdateScoreTests : IDisposable
         Assert.NotNull(refreshedFirst);
         Assert.Equal(0, refreshedFirst!.PlayCount);
         Assert.Equal(0, refreshedFirst.BestScore);
-        Assert.Equal(0, refreshedFirst.ChartId);
+        Assert.Equal(firstChart.Id, refreshedFirst.ChartId);
     }
 
     [Fact]
