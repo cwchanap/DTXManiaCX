@@ -768,6 +768,195 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public async Task OnDeactivate_DuringPendingEnumeration_ShouldCancelAndFenceStaleSuccess()
+        {
+            var stage = CreateLifecycleControlledStage();
+            var oldCompletion = new TaskCompletionSource<SongEnumerationResult>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var staleResult = CreateEnumerationResult(
+                discoveredCharts: 1,
+                parsedCharts: 1,
+                logicalGroups: 1);
+            stage.Activate();
+            stage.NextEnumerationTask = oldCompletion.Task;
+
+            var oldTask = stage.StartSongLoadForTest();
+            var oldToken = stage.LastEnumerationToken;
+            stage.Deactivate();
+
+            Assert.True(oldToken.IsCancellationRequested);
+
+            stage.Activate();
+            oldCompletion.SetResult(staleResult);
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                async () => await oldTask);
+            Assert.Equal(
+                StartupSongLoadPath.Unknown,
+                ReflectionHelpers.GetPrivateField<StartupSongLoadPath>(
+                    stage,
+                    "_selectedLoadPath"));
+            Assert.Null(
+                ReflectionHelpers.GetPrivateField<SongEnumerationResult>(
+                    stage,
+                    "_enumerationResult"));
+            Assert.Equal(
+                StartupSongLoadOutcome.Success,
+                ReflectionHelpers.GetPrivateField<StartupSongLoadOutcome>(
+                    stage,
+                    "_songLoadOutcome"));
+            Assert.Equal(
+                StartupPhase.SystemSounds,
+                ReflectionHelpers.GetPrivateField<StartupPhase>(
+                    stage,
+                    "_startupPhase"));
+            Assert.Empty(stage.StartupSummaries);
+            Assert.Equal(0, stage.BuildHierarchyCalls);
+
+            var freshResult = CreateEnumerationResult(
+                discoveredCharts: 2,
+                parsedCharts: 2,
+                logicalGroups: 1);
+            var freshCompletion =
+                new TaskCompletionSource<SongEnumerationResult>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+            stage.NextEnumerationTask = freshCompletion.Task;
+            stage.NextEnumerationResult = freshResult;
+
+            var freshTask = stage.StartSongLoadForTest();
+            freshCompletion.SetResult(freshResult);
+            await freshTask;
+            stage.UpdateForTest(0.001);
+
+            Assert.Equal(2, stage.EnumerateSongsCalls);
+            Assert.Same(
+                freshResult,
+                ReflectionHelpers.GetPrivateField<SongEnumerationResult>(
+                    stage,
+                    "_enumerationResult"));
+        }
+
+        [Fact]
+        public async Task OnDeactivate_WhenOldEnumerationFaults_ShouldNotFallbackOrMutateReactivation()
+        {
+            var stage = CreateLifecycleControlledStage();
+            var oldCompletion = new TaskCompletionSource<SongEnumerationResult>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var original = new InvalidOperationException("stale failure");
+            stage.Activate();
+            stage.NextEnumerationTask = oldCompletion.Task;
+
+            var oldTask = stage.StartSongLoadForTest();
+            stage.Deactivate();
+            stage.Activate();
+            oldCompletion.SetException(original);
+
+            var actual = await Assert.ThrowsAsync<InvalidOperationException>(
+                async () => await oldTask);
+
+            Assert.Same(original, actual);
+            Assert.Equal(0, stage.BuildHierarchyCalls);
+            Assert.False(
+                ReflectionHelpers.GetPrivateField<bool>(
+                    stage,
+                    "_cacheFallbackAttempted"));
+            Assert.Equal(
+                StartupSongLoadOutcome.Success,
+                ReflectionHelpers.GetPrivateField<StartupSongLoadOutcome>(
+                    stage,
+                    "_songLoadOutcome"));
+            Assert.Null(
+                ReflectionHelpers.GetPrivateField<string>(
+                    stage,
+                    "_songLoadError"));
+            Assert.Equal(
+                StartupPhase.SystemSounds,
+                ReflectionHelpers.GetPrivateField<StartupPhase>(
+                    stage,
+                    "_startupPhase"));
+            Assert.Empty(stage.StartupSummaries);
+        }
+
+        [Fact]
+        public async Task OnDeactivate_WhenOldEnumerationCancels_ShouldNotMutateReactivation()
+        {
+            var stage = CreateLifecycleControlledStage();
+            var oldCompletion = new TaskCompletionSource<SongEnumerationResult>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            stage.Activate();
+            stage.NextEnumerationTask = oldCompletion.Task;
+
+            var oldTask = stage.StartSongLoadForTest();
+            var oldToken = stage.LastEnumerationToken;
+            stage.Deactivate();
+            stage.Activate();
+            oldCompletion.SetCanceled(oldToken);
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                async () => await oldTask);
+            Assert.Equal(
+                StartupSongLoadOutcome.Success,
+                ReflectionHelpers.GetPrivateField<StartupSongLoadOutcome>(
+                    stage,
+                    "_songLoadOutcome"));
+            Assert.Null(
+                ReflectionHelpers.GetPrivateField<string>(
+                    stage,
+                    "_songLoadError"));
+            Assert.Equal(0, stage.BuildHierarchyCalls);
+            Assert.False(
+                ReflectionHelpers.GetPrivateField<bool>(
+                    stage,
+                    "_cacheFallbackAttempted"));
+            Assert.Equal(
+                StartupPhase.SystemSounds,
+                ReflectionHelpers.GetPrivateField<StartupPhase>(
+                    stage,
+                    "_startupPhase"));
+            Assert.Empty(stage.StartupSummaries);
+        }
+
+        [Fact]
+        public async Task OnDeactivate_WhenAbandonedEnumerationFaults_ShouldObserveException()
+        {
+            var unobservedFailures = new List<Exception>();
+            EventHandler<UnobservedTaskExceptionEventArgs> handler =
+                (_, args) =>
+                {
+                    if (args.Exception.Flatten().InnerExceptions.Any(
+                        exception =>
+                            exception.Message == "abandoned failure"))
+                    {
+                        unobservedFailures.Add(args.Exception);
+                    }
+                    args.SetObserved();
+                };
+            TaskScheduler.UnobservedTaskException += handler;
+            try
+            {
+                var abandonedTask =
+                    await CreateAbandonedFaultedLoadAsync();
+
+                for (var attempt = 0;
+                     attempt < 10 && abandonedTask.IsAlive;
+                     attempt++)
+                {
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
+                    GC.Collect();
+                    await Task.Delay(10);
+                }
+
+                Assert.False(abandonedTask.IsAlive);
+                Assert.Empty(unobservedFailures);
+            }
+            finally
+            {
+                TaskScheduler.UnobservedTaskException -= handler;
+            }
+        }
+
+        [Fact]
         public void WriteSummaryOnce_WhenEnumerationCompletes_ShouldUseResultCountsAndDurations()
         {
             var stage = new SummaryCapturingStartupStage(
@@ -1053,6 +1242,7 @@ namespace DTXMania.Test.Stage
             ReflectionHelpers.SetPrivateField(stage, "_startupPhase", phase);
             ReflectionHelpers.SetPrivateField(stage, "_songManager", null);
             ReflectionHelpers.SetPrivateField(stage, "_configManager", CreateConfigManager(configData));
+            ReflectionHelpers.SetPrivateField(stage, "_activationGate", new object());
             ReflectionHelpers.SetPrivateField(stage, "_currentAsyncTask", currentAsyncTask);
             ReflectionHelpers.SetPrivateField(stage, "_cancellationTokenSource", new CancellationTokenSource());
             ReflectionHelpers.SetPrivateField(stage, "_songPaths", new[] { "initial" });
@@ -1081,6 +1271,46 @@ namespace DTXMania.Test.Stage
             }
 
             return stage;
+        }
+
+        private static LifecycleControlledStartupStage
+            CreateLifecycleControlledStage()
+        {
+            var game = ReflectionHelpers.CreateGame();
+            ReflectionHelpers.SetPrivateField(
+                game,
+                "<ConfigManager>k__BackingField",
+                CreateConfigManager(new ConfigData
+                {
+                    DTXPath = "Songs",
+                    ScreenWidth = 1280,
+                    ScreenHeight = 720
+                }));
+            return new LifecycleControlledStartupStage(game);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static async Task<WeakReference>
+            CreateAbandonedFaultedLoadAsync()
+        {
+            var stage = CreateLifecycleControlledStage();
+            var completion =
+                new TaskCompletionSource<SongEnumerationResult>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+            stage.Activate();
+            stage.NextEnumerationTask = completion.Task;
+            var task = stage.StartSongLoadForTest();
+            stage.Deactivate();
+            stage.Activate();
+            completion.SetException(
+                new InvalidOperationException("abandoned failure"));
+
+            while (!task.IsCompleted)
+            {
+                await Task.Yield();
+            }
+
+            return new WeakReference(task);
         }
 
         private static SongEnumerationResult CreateEnumerationResult(
@@ -1305,6 +1535,87 @@ namespace DTXMania.Test.Stage
             protected override void MarkSongManagerInitialized()
             {
                 MarkSongManagerInitializedCalled = true;
+            }
+        }
+
+        private sealed class LifecycleControlledStartupStage :
+            ControlledStartupStage
+        {
+            public LifecycleControlledStartupStage(BaseGame game) : base(game)
+            {
+            }
+
+            public GraphicsDevice GraphicsDeviceStub { get; } =
+                (GraphicsDevice)RuntimeHelpers.GetUninitializedObject(
+                    typeof(GraphicsDevice));
+
+            public SpriteBatch SpriteBatchStub { get; } =
+                (SpriteBatch)RuntimeHelpers.GetUninitializedObject(
+                    typeof(SpriteBatch));
+
+            public Texture2D WhitePixelStub { get; } =
+                (Texture2D)RuntimeHelpers.GetUninitializedObject(
+                    typeof(Texture2D));
+
+            public List<string> StartupSummaries { get; } = new();
+
+            public Task StartSongLoadForTest()
+            {
+                ReflectionHelpers.SetPrivateField(
+                    this,
+                    "_startupPhase",
+                    StartupPhase.EnumerateSongs);
+                ReflectionHelpers.SetPrivateField(
+                    this,
+                    "_operationPerformedForPhase",
+                    null);
+                OnUpdate(0.001);
+                return ReflectionHelpers.GetPrivateField<Task>(
+                    this,
+                    "_currentAsyncTask");
+            }
+
+            public void UpdateForTest(double deltaTime)
+            {
+                OnUpdate(deltaTime);
+            }
+
+            protected override GraphicsDevice GetGraphicsDeviceCore()
+            {
+                return GraphicsDeviceStub;
+            }
+
+            protected override SpriteBatch CreateSpriteBatchCore(
+                GraphicsDevice graphicsDevice)
+            {
+                return SpriteBatchStub;
+            }
+
+            protected override Texture2D CreateWhitePixelCore(
+                GraphicsDevice graphicsDevice)
+            {
+                return WhitePixelStub;
+            }
+
+            protected override IFont CreateFontCore(
+                IResourceManager resourceManager,
+                string fontFamily,
+                int size,
+                FontStyle style)
+            {
+                return null!;
+            }
+
+            protected override IFont CreateStatusFallbackFontCore(
+                IResourceManager resourceManager,
+                int size)
+            {
+                return null!;
+            }
+
+            protected override void WriteStartupSummary(string line)
+            {
+                StartupSummaries.Add(line);
             }
         }
 

@@ -22,7 +22,7 @@ namespace DTXMania.Test.Stage
     public class StartupStageAdditionalCoverageTests
     {
         [Fact]
-        public void Dispose_WithRunningTask_ShouldCancelAndWait()
+        public void Dispose_WithRunningTask_ShouldCancelWithoutWaiting()
         {
             var tcs = new TaskCompletionSource<bool>();
             var stage = CreateStage(currentAsyncTask: tcs.Task);
@@ -198,6 +198,7 @@ namespace DTXMania.Test.Stage
             ReflectionHelpers.SetPrivateField(stage, "_startupPhase", phase);
             ReflectionHelpers.SetPrivateField(stage, "_songManager", null);
             ReflectionHelpers.SetPrivateField(stage, "_configManager", CreateConfigManager(new ConfigData()));
+            ReflectionHelpers.SetPrivateField(stage, "_activationGate", new object());
             ReflectionHelpers.SetPrivateField(stage, "_currentAsyncTask", currentAsyncTask);
             ReflectionHelpers.SetPrivateField(stage, "_cancellationTokenSource", new CancellationTokenSource());
             ReflectionHelpers.SetPrivateField(stage, "_songPaths", new[] { "initial" });
