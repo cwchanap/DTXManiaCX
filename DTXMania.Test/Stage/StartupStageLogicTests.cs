@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.Serialization;
@@ -10,11 +11,13 @@ using DTXMania.Game;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
+using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Moq;
+using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 
 namespace DTXMania.Test.Stage
 {
@@ -46,11 +49,11 @@ namespace DTXMania.Test.Stage
         [InlineData(StartupPhase.ConfigValidation, false)]
         [InlineData(StartupPhase.SongListDB, true)]
         [InlineData(StartupPhase.SongsDB, false)]
-        [InlineData(StartupPhase.LoadScoreCache, true)]
-        [InlineData(StartupPhase.LoadScoreFiles, true)]
+        [InlineData(StartupPhase.LoadScoreCache, false)]
+        [InlineData(StartupPhase.LoadScoreFiles, false)]
         [InlineData(StartupPhase.EnumerateSongs, true)]
-        [InlineData(StartupPhase.BuildSongLists, true)]
-        [InlineData(StartupPhase.SaveSongsDB, true)]
+        [InlineData(StartupPhase.BuildSongLists, false)]
+        [InlineData(StartupPhase.SaveSongsDB, false)]
         [InlineData(StartupPhase.Complete, false)]
         public void HasAsyncOperation_ShouldMatchPhaseRequirements(StartupPhase phase, bool expected)
         {
@@ -112,7 +115,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void UpdateCurrentPhase_WhenAsyncTaskCompletedBeforeMinimumDuration_ShouldStayInCurrentPhase()
+        public void UpdateCurrentPhase_WhenAsyncTaskCompletedImmediately_ShouldAdvance()
         {
             var completedTask = Task.CompletedTask;
             var stage = CreateStage(
@@ -123,46 +126,46 @@ namespace DTXMania.Test.Stage
 
             ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
 
-            Assert.Equal(StartupPhase.SongListDB, ReflectionHelpers.GetPrivateField<StartupPhase>(stage, "_startupPhase"));
+            Assert.Equal(StartupPhase.SongsDB, ReflectionHelpers.GetPrivateField<StartupPhase>(stage, "_startupPhase"));
             Assert.Contains("Complete", ReflectionHelpers.GetPrivateField<string>(stage, "_currentProgressMessage"));
-            Assert.Empty(ReflectionHelpers.GetPrivateField<List<string>>(stage, "_progressMessages")!);
-            Assert.Same(completedTask, ReflectionHelpers.GetPrivateField<Task>(stage, "_currentAsyncTask"));
+            Assert.Single(ReflectionHelpers.GetPrivateField<List<string>>(stage, "_progressMessages")!);
+            Assert.Null(ReflectionHelpers.GetPrivateField<Task>(stage, "_currentAsyncTask"));
         }
 
         [Fact]
-        public void UpdateCurrentPhase_WhenAsyncTaskFaulted_ShouldAdvanceAfterMinimumDuration()
+        public void UpdateCurrentPhase_WhenAsyncTaskFaulted_ShouldAdvanceImmediately()
         {
             var faultedTask = Task.FromException(new InvalidOperationException("boom"));
             var stage = CreateStage(
-                phase: StartupPhase.LoadScoreCache,
+                phase: StartupPhase.EnumerateSongs,
                 elapsedTime: 0.7,
                 phaseStartTime: 0.0,
                 currentAsyncTask: faultedTask);
 
             ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
 
-            Assert.Equal(StartupPhase.LoadScoreFiles, ReflectionHelpers.GetPrivateField<StartupPhase>(stage, "_startupPhase"));
+            Assert.Equal(StartupPhase.BuildSongLists, ReflectionHelpers.GetPrivateField<StartupPhase>(stage, "_startupPhase"));
             Assert.Contains("Error", ReflectionHelpers.GetPrivateField<string>(stage, "_currentProgressMessage"));
             Assert.Single(ReflectionHelpers.GetPrivateField<List<string>>(stage, "_progressMessages")!);
             Assert.Null(ReflectionHelpers.GetPrivateField<Task>(stage, "_currentAsyncTask"));
         }
 
         [Fact]
-        public void UpdateCurrentPhase_WhenAsyncTaskFaultedBeforeMinimumDuration_ShouldStayInCurrentPhase()
+        public void UpdateCurrentPhase_WhenAsyncTaskFaultedImmediately_ShouldAdvance()
         {
             var faultedTask = Task.FromException(new InvalidOperationException("boom"));
             var stage = CreateStage(
-                phase: StartupPhase.LoadScoreCache,
+                phase: StartupPhase.EnumerateSongs,
                 elapsedTime: 0.2,
                 phaseStartTime: 0.0,
                 currentAsyncTask: faultedTask);
 
             ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
 
-            Assert.Equal(StartupPhase.LoadScoreCache, ReflectionHelpers.GetPrivateField<StartupPhase>(stage, "_startupPhase"));
+            Assert.Equal(StartupPhase.BuildSongLists, ReflectionHelpers.GetPrivateField<StartupPhase>(stage, "_startupPhase"));
             Assert.Contains("Error", ReflectionHelpers.GetPrivateField<string>(stage, "_currentProgressMessage"));
-            Assert.Empty(ReflectionHelpers.GetPrivateField<List<string>>(stage, "_progressMessages")!);
-            Assert.Same(faultedTask, ReflectionHelpers.GetPrivateField<Task>(stage, "_currentAsyncTask"));
+            Assert.Single(ReflectionHelpers.GetPrivateField<List<string>>(stage, "_progressMessages")!);
+            Assert.Null(ReflectionHelpers.GetPrivateField<Task>(stage, "_currentAsyncTask"));
         }
 
         [Fact]
@@ -170,17 +173,17 @@ namespace DTXMania.Test.Stage
         {
             var canceledTask = Task.FromCanceled(new CancellationToken(canceled: true));
             var stage = CreateStage(
-                phase: StartupPhase.LoadScoreCache,
-                elapsedTime: 0.7,
+                phase: StartupPhase.EnumerateSongs,
+                elapsedTime: 0.001,
                 phaseStartTime: 0.0,
                 currentAsyncTask: canceledTask);
 
             ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
 
-            Assert.Equal(StartupPhase.LoadScoreFiles, ReflectionHelpers.GetPrivateField<StartupPhase>(stage, "_startupPhase"));
+            Assert.Equal(StartupPhase.BuildSongLists, ReflectionHelpers.GetPrivateField<StartupPhase>(stage, "_startupPhase"));
             Assert.Single(ReflectionHelpers.GetPrivateField<List<string>>(stage, "_progressMessages")!);
             Assert.Null(ReflectionHelpers.GetPrivateField<Task>(stage, "_currentAsyncTask"));
-            Assert.Equal(0.7, ReflectionHelpers.GetPrivateField<double>(stage, "_phaseStartTime"));
+            Assert.Equal(0.001, ReflectionHelpers.GetPrivateField<double>(stage, "_phaseStartTime"));
         }
 
         [Fact]
@@ -239,7 +242,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void UpdateCurrentPhase_WhenNonAsyncPhaseDurationNotElapsed_ShouldStayInCurrentPhase()
+        public void UpdateCurrentPhase_WhenNonAsyncPhaseRuns_ShouldAdvanceImmediately()
         {
             var stage = CreateStage(
                 phase: StartupPhase.SystemSounds,
@@ -248,21 +251,21 @@ namespace DTXMania.Test.Stage
 
             ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
 
-            Assert.Equal(StartupPhase.SystemSounds, ReflectionHelpers.GetPrivateField<StartupPhase>(stage, "_startupPhase"));
+            Assert.Equal(StartupPhase.ConfigValidation, ReflectionHelpers.GetPrivateField<StartupPhase>(stage, "_startupPhase"));
             Assert.Equal("Loading system sounds...", ReflectionHelpers.GetPrivateField<string>(stage, "_currentProgressMessage"));
-            Assert.Empty(ReflectionHelpers.GetPrivateField<List<string>>(stage, "_progressMessages")!);
+            Assert.Single(ReflectionHelpers.GetPrivateField<List<string>>(stage, "_progressMessages")!);
             Assert.Null(ReflectionHelpers.GetPrivateField<Task>(stage, "_currentAsyncTask"));
         }
 
         [Fact]
-        public void PerformPhaseOperationSync_WhenElapsedPastThreshold_ShouldDoNothing()
+        public void PerformPhaseOperationSync_WhenElapsedPastThreshold_ShouldStillRun()
         {
-            var stage = CreateStage(configData: new ConfigData { DTXPath = "before" });
+            var stage = CreateStage(configData: new ConfigData { DTXPath = "after" });
             ReflectionHelpers.SetPrivateField(stage, "_songPaths", new[] { "before" });
 
             ReflectionHelpers.InvokePrivateMethod(stage, "PerformPhaseOperationSync", StartupPhase.ConfigValidation, 0.2);
 
-            Assert.Equal(new[] { "before" }, ReflectionHelpers.GetPrivateField<string[]>(stage, "_songPaths"));
+            Assert.Equal(new[] { "after" }, ReflectionHelpers.GetPrivateField<string[]>(stage, "_songPaths"));
             Assert.Null(ReflectionHelpers.GetPrivateField<Task>(stage, "_currentAsyncTask"));
         }
 
@@ -304,11 +307,7 @@ namespace DTXMania.Test.Stage
 
         [Theory]
         [InlineData(StartupPhase.SongListDB)]
-        [InlineData(StartupPhase.LoadScoreCache)]
-        [InlineData(StartupPhase.LoadScoreFiles)]
         [InlineData(StartupPhase.EnumerateSongs)]
-        [InlineData(StartupPhase.BuildSongLists)]
-        [InlineData(StartupPhase.SaveSongsDB)]
         public void PerformPhaseOperationSync_WhenAsyncPhaseStarts_ShouldCreateTask(StartupPhase phase)
         {
             var stage = CreateStage();
@@ -324,7 +323,7 @@ namespace DTXMania.Test.Stage
             var existingTask = Task.Delay(Timeout.Infinite, new CancellationToken(true));
             var stage = CreateStage(currentAsyncTask: existingTask);
 
-            ReflectionHelpers.InvokePrivateMethod(stage, "PerformPhaseOperationSync", StartupPhase.LoadScoreCache, 0.0);
+            ReflectionHelpers.InvokePrivateMethod(stage, "PerformPhaseOperationSync", StartupPhase.EnumerateSongs, 0.0);
 
             Assert.Same(existingTask, ReflectionHelpers.GetPrivateField<Task>(stage, "_currentAsyncTask"));
         }
@@ -335,65 +334,6 @@ namespace DTXMania.Test.Stage
             var stage = CreateStage();
 
             var task = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "InitializeDatabaseServiceAsync")!;
-            await task;
-
-            Assert.True(task.IsCompletedSuccessfully);
-        }
-
-        [Fact]
-        public async Task LoadScoreCacheAsync_WhenSongManagerMissing_ShouldCompleteWithoutThrowing()
-        {
-            var stage = CreateStage();
-
-            var task = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "LoadScoreCacheAsync")!;
-            await task;
-
-            Assert.True(task.IsCompletedSuccessfully);
-        }
-
-        [Fact]
-        public async Task CheckFilesystemChangesAsync_WhenSongManagerMissing_ShouldMarkEnumerationNeeded()
-        {
-            var stage = CreateStage();
-
-            var task = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "CheckFilesystemChangesAsync")!;
-            await task;
-
-            Assert.True(task.IsCompletedSuccessfully);
-            Assert.True(ReflectionHelpers.GetPrivateField<bool?>(stage, "_needsEnumeration"));
-        }
-
-        [Fact]
-        public async Task EnumerateSongsAsync_WhenEnumerationNotNeeded_ShouldReturnEarly()
-        {
-            var stage = CreateStage();
-            ReflectionHelpers.SetPrivateField(stage, "_needsEnumeration", false);
-            ReflectionHelpers.SetPrivateField(stage, "_currentProgressMessage", "unchanged");
-
-            var task = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "EnumerateSongsAsync")!;
-            await task;
-
-            Assert.True(task.IsCompletedSuccessfully);
-            Assert.Equal("unchanged", ReflectionHelpers.GetPrivateField<string>(stage, "_currentProgressMessage"));
-        }
-
-        [Fact]
-        public async Task BuildSongListsAsync_WhenSongManagerMissing_ShouldCompleteWithoutThrowing()
-        {
-            var stage = CreateStage();
-
-            var task = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "BuildSongListsAsync")!;
-            await task;
-
-            Assert.True(task.IsCompletedSuccessfully);
-        }
-
-        [Fact]
-        public async Task SaveSongsDbAsync_WhenSongManagerMissing_ShouldCompleteWithoutThrowing()
-        {
-            var stage = CreateStage();
-
-            var task = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "SaveSongsDBAsync")!;
             await task;
 
             Assert.True(task.IsCompletedSuccessfully);
@@ -415,39 +355,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public async Task LoadScoreCacheAsync_WhenSongOperationsSucceed_ShouldPassSongPathsToWrapper()
-        {
-            var songPaths = new[] { "SongsA", "SongsB" };
-            var stage = CreateControlledStage(songPaths: songPaths);
-
-            var task = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "LoadScoreCacheAsync")!;
-            await task;
-
-            Assert.True(task.IsCompletedSuccessfully);
-            Assert.Equal(1, stage.LoadScoreCacheCalls);
-            Assert.Equal(songPaths, stage.LastSongPaths);
-        }
-
-        [Theory]
-        [InlineData(true)]
-        [InlineData(false)]
-        public async Task CheckFilesystemChangesAsync_WhenSongOperationsSucceed_ShouldCacheEnumerationResult(bool needsEnumeration)
-        {
-            var songPaths = new[] { "SongsRoot" };
-            var stage = CreateControlledStage(songPaths: songPaths);
-            stage.NextNeedsEnumerationResult = needsEnumeration;
-
-            var task = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "CheckFilesystemChangesAsync")!;
-            await task;
-
-            Assert.True(task.IsCompletedSuccessfully);
-            Assert.Equal(1, stage.NeedsEnumerationCalls);
-            Assert.Equal(songPaths, stage.LastSongPaths);
-            Assert.Equal(needsEnumeration, ReflectionHelpers.GetPrivateField<bool?>(stage, "_needsEnumeration"));
-        }
-
-        [Fact]
-        public async Task EnumerateSongsAsync_WhenEnumerationNeeded_ShouldUseProgressReporterAndCancellationToken()
+        public async Task RunSongLoadAsync_WhenEnumerationNeeded_ShouldUseProgressReporterAndCancellationToken()
         {
             var songPaths = new[] { "SongsRoot" };
             var stage = CreateControlledStage(songPaths: songPaths);
@@ -457,10 +365,10 @@ namespace DTXMania.Test.Stage
                 ProcessedCount = 3,
                 DiscoveredSongs = 2
             };
-            stage.NextEnumerationCount = 7;
-            ReflectionHelpers.SetPrivateField(stage, "_needsEnumeration", true);
 
-            var task = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "EnumerateSongsAsync")!;
+            var task = (Task)ReflectionHelpers.InvokePrivateMethod(
+                stage,
+                "RunSongLoadAsync")!;
             await task;
 
             SpinWait.SpinUntil(
@@ -478,7 +386,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public async Task EnumerateSongsAsync_WhenProgressReportsCurrentDirectory_ShouldShowDirectoryName()
+        public async Task RunSongLoadAsync_WhenProgressReportsCurrentDirectory_ShouldShowDirectoryName()
         {
             var stage = CreateControlledStage(songPaths: new[] { "SongsRoot" });
             stage.ReportedEnumerationProgress = new EnumerationProgress
@@ -487,11 +395,11 @@ namespace DTXMania.Test.Stage
                 ProcessedCount = 1,
                 DiscoveredSongs = 0
             };
-            ReflectionHelpers.SetPrivateField(stage, "_needsEnumeration", true);
-
             using var synchronizationContextScope = new SynchronizationContextScope(new ImmediateSynchronizationContext());
 
-            var task = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "EnumerateSongsAsync")!;
+            var task = (Task)ReflectionHelpers.InvokePrivateMethod(
+                stage,
+                "RunSongLoadAsync")!;
             await task;
 
             Assert.True(task.IsCompletedSuccessfully);
@@ -501,27 +409,33 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public async Task CheckFilesystemChangesAsync_WhenNeedsEnumerationThrows_ShouldMarkEnumerationNeeded()
+        public async Task RunSongLoadAsync_WhenNeedsEnumerationThrows_ShouldFallbackAndPropagate()
         {
             var stage = new ThrowingNeedsEnumerationStartupStage();
-            ReflectionHelpers.SetPrivateField(stage, "_needsEnumeration", null);
 
-            var task = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "CheckFilesystemChangesAsync")!;
-            await task;
+            var task = (Task)ReflectionHelpers.InvokePrivateMethod(
+                stage,
+                "RunSongLoadAsync")!;
+            await Assert.ThrowsAsync<IOException>(async () => await task);
 
-            Assert.True(task.IsCompletedSuccessfully);
-            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_needsEnumeration"));
+            Assert.Equal(1, stage.BuildHierarchyCalls);
+            Assert.Equal(
+                StartupSongLoadOutcome.Failure,
+                ReflectionHelpers.GetPrivateField<StartupSongLoadOutcome>(
+                    stage,
+                    "_songLoadOutcome"));
         }
 
         [Fact]
-        public async Task EnumerateSongsAsync_WhenProgressOmitsFileAndDirectory_ShouldShowProcessedSummary()
+        public async Task RunSongLoadAsync_WhenProgressOmitsFileAndDirectory_ShouldShowProcessedSummary()
         {
             var stage = new PartialProgressStartupStage();
-            ReflectionHelpers.SetPrivateField(stage, "_needsEnumeration", true);
 
             using var synchronizationContextScope = new SynchronizationContextScope(new ImmediateSynchronizationContext());
 
-            var task = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "EnumerateSongsAsync")!;
+            var task = (Task)ReflectionHelpers.InvokePrivateMethod(
+                stage,
+                "RunSongLoadAsync")!;
             await task;
 
             Assert.True(task.IsCompletedSuccessfully);
@@ -530,153 +444,18 @@ namespace DTXMania.Test.Stage
             Assert.Contains("0 songs", message);
         }
 
-        [Fact]
-        public async Task BuildSongListsAsync_WhenSongOperationsSucceed_ShouldBuildFromDatabaseUsingCurrentSongPaths()
-        {
-            var songPaths = new[] { "SongsRoot" };
-            var stage = CreateControlledStage(songPaths: songPaths);
-            stage.RootSongCount = 12;
-
-            var task = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "BuildSongListsAsync")!;
-            await task;
-
-            Assert.True(task.IsCompletedSuccessfully);
-            Assert.Equal(1, stage.BuildSongListCalls);
-            Assert.Equal(songPaths, stage.LastSongPaths);
-        }
-
-        [Fact]
-        public async Task BuildSongListsAsync_AfterSuccessfulEnumeration_ShouldKeepPublishedHierarchyReference()
-        {
-            var publishedHierarchy = new SongListNode { Title = "Published" };
-            var stage = CreateControlledStage(songPaths: new[] { "SongsRoot" });
-            stage.NextPublishedHierarchy = publishedHierarchy;
-            stage.NextEnumerationPublished = true;
-            ReflectionHelpers.SetPrivateField(stage, "_needsEnumeration", true);
-
-            var enumerate = (Task)ReflectionHelpers.InvokePrivateMethod(
-                stage,
-                "EnumerateSongsAsync")!;
-            await enumerate;
-            var build = (Task)ReflectionHelpers.InvokePrivateMethod(
-                stage,
-                "BuildSongListsAsync")!;
-            await build;
-
-            Assert.Same(publishedHierarchy, stage.PublishedHierarchy);
-            Assert.Equal(0, stage.BuildSongListCalls);
-        }
-
-        [Fact]
-        public async Task BuildSongListsAsync_AfterEnumerationNoOp_ShouldBuildFromDatabase()
-        {
-            var stage = CreateControlledStage(
-                songPaths: new[] { "SongsRoot" });
-            stage.NextEnumerationCount = 0;
-            stage.NextPublishedHierarchy = null;
-            ReflectionHelpers.SetPrivateField(
-                stage,
-                "_needsEnumeration",
-                true);
-
-            var enumerate = (Task)ReflectionHelpers.InvokePrivateMethod(
-                stage,
-                "EnumerateSongsAsync")!;
-            await enumerate;
-            var build = (Task)ReflectionHelpers.InvokePrivateMethod(
-                stage,
-                "BuildSongListsAsync")!;
-            await build;
-
-            Assert.Equal(1, stage.BuildSongListCalls);
-            Assert.Equal("Rebuilt", stage.PublishedHierarchy?.Title);
-        }
-
-        [Fact]
-        public async Task BuildSongListsAsync_AfterEmptyPublishedEnumeration_ShouldSkipDatabaseBuild()
-        {
-            var stage = CreateControlledStage(
-                songPaths: new[] { "SongsRoot" });
-            stage.NextEnumerationCount = 0;
-            stage.NextEnumerationPublished = true;
-            ReflectionHelpers.SetPrivateField(
-                stage,
-                "_needsEnumeration",
-                true);
-
-            var enumerate = (Task)ReflectionHelpers.InvokePrivateMethod(
-                stage,
-                "EnumerateSongsAsync")!;
-            await enumerate;
-            var build = (Task)ReflectionHelpers.InvokePrivateMethod(
-                stage,
-                "BuildSongListsAsync")!;
-            await build;
-
-            Assert.Equal(0, stage.BuildSongListCalls);
-        }
-
-        [Fact]
-        public async Task SaveSongsDbAsync_WhenSaveSucceeds_ShouldMarkSongManagerInitialized()
+        public void PerformPhaseOperationSync_SaveSongsDb_ShouldOnlyMarkInitialized()
         {
             var stage = CreateControlledStage();
-            stage.NextSaveResult = true;
-            stage.RootSongCount = 5;
 
-            var task = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "SaveSongsDBAsync")!;
-            await task;
+            ReflectionHelpers.InvokePrivateMethod(
+                stage,
+                "PerformPhaseOperationSync",
+                StartupPhase.SaveSongsDB,
+                0.0);
 
-            Assert.True(task.IsCompletedSuccessfully);
-            Assert.Equal(1, stage.SaveSongsDatabaseCalls);
+            Assert.Equal(0, stage.SaveSongsDatabaseCalls);
             Assert.True(stage.MarkSongManagerInitializedCalled);
-        }
-
-        [Fact]
-        public async Task SaveSongsDbAsync_WhenSaveFails_ShouldNotMarkSongManagerInitialized()
-        {
-            var stage = CreateControlledStage();
-            stage.NextSaveResult = false;
-
-            var task = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "SaveSongsDBAsync")!;
-            await task;
-
-            Assert.True(task.IsCompletedSuccessfully);
-            Assert.Equal(1, stage.SaveSongsDatabaseCalls);
-            Assert.False(stage.MarkSongManagerInitializedCalled);
-        }
-
-        [Fact]
-        public async Task SaveSongsDbAsync_WhenSaveThrows_ShouldSwallowExceptionAndSkipInitialization()
-        {
-            var stage = CreateControlledStage();
-            stage.SaveSongsDatabaseException = new InvalidOperationException("boom");
-
-            var task = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "SaveSongsDBAsync")!;
-            await task;
-
-            Assert.True(task.IsCompletedSuccessfully);
-            Assert.Equal(1, stage.SaveSongsDatabaseCalls);
-            Assert.False(stage.MarkSongManagerInitializedCalled);
-        }
-
-        [Fact]
-        public void OnUpdate_WhenCompletePhaseDurationElapsed_ShouldRequestTitleStageTransition()
-        {
-            var stageManager = new Mock<IStageManager>();
-            var game = ReflectionHelpers.CreateGame();
-            ReflectionHelpers.SetPrivateField(game, "<StageManager>k__BackingField", stageManager.Object);
-            var stage = CreateStage(
-                phase: StartupPhase.Complete,
-                elapsedTime: 0.0,
-                phaseStartTime: 0.0,
-                game: game);
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "OnUpdate", 0.2);
-
-            stageManager.Verify(manager => manager.ChangeStage(
-                StageType.Title,
-                It.Is<IStageTransition>(transition => transition is StartupToTitleTransition)),
-                Times.Once);
         }
 
         [Fact]
@@ -689,6 +468,7 @@ namespace DTXMania.Test.Stage
             ReflectionHelpers.SetPrivateField(stage, "_startupPhase", StartupPhase.Complete);
             ReflectionHelpers.SetPrivateField(stage, "_elapsedTime", 0.0);
             ReflectionHelpers.SetPrivateField(stage, "_phaseStartTime", 0.0);
+            ReflectionHelpers.SetPrivateField(stage, "_hasRenderedStartupFrame", true);
 
             stage.UpdateForTest(0.2);
             stage.UpdateForTest(0.2);
@@ -699,7 +479,7 @@ namespace DTXMania.Test.Stage
             stageManager.Verify(manager => manager.ChangeStage(
                 StageType.Title,
                 It.Is<IStageTransition>(transition => transition is StartupToTitleTransition)),
-                Times.Exactly(2));
+                Times.Once);
         }
 
         [Fact]
@@ -717,6 +497,318 @@ namespace DTXMania.Test.Stage
             ReflectionHelpers.InvokePrivateMethod(stage, "OnUpdate", 0.05);
 
             stageManager.Verify(manager => manager.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>()), Times.Never);
+        }
+
+        [Fact]
+        public void UpdateCurrentPhase_WhenAsyncTaskCompletesImmediately_ShouldAdvanceAtAnyElapsedTime()
+        {
+            var stage = CreateStage(
+                phase: StartupPhase.SongListDB,
+                elapsedTime: 0.001,
+                phaseStartTime: 0.0,
+                currentAsyncTask: Task.CompletedTask);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
+
+            Assert.Equal(
+                StartupPhase.SongsDB,
+                ReflectionHelpers.GetPrivateField<StartupPhase>(stage, "_startupPhase"));
+        }
+
+        [Fact]
+        public void OnUpdate_WhenCompleteBeforeAnyDraw_ShouldNotRequestTitle()
+        {
+            var stageManager = new Mock<IStageManager>();
+            var game = ReflectionHelpers.CreateGame();
+            ReflectionHelpers.SetPrivateField(
+                game,
+                "<StageManager>k__BackingField",
+                stageManager.Object);
+            var stage = CreateStage(
+                phase: StartupPhase.Complete,
+                elapsedTime: 0.0,
+                phaseStartTime: 0.0,
+                game: game);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnUpdate", 0.001);
+
+            stageManager.Verify(
+                manager => manager.ChangeStage(
+                    It.IsAny<StageType>(),
+                    It.IsAny<IStageTransition>()),
+                Times.Never);
+        }
+
+        [Fact]
+        public void OnUpdate_WhenCompleteAfterOneDraw_ShouldRequestTitleOnce()
+        {
+            var stageManager = new Mock<IStageManager>();
+            var game = ReflectionHelpers.CreateGame();
+            ReflectionHelpers.SetPrivateField(
+                game,
+                "<StageManager>k__BackingField",
+                stageManager.Object);
+            var stage = new GraphicsControlledStartupStage(game);
+            ReflectionHelpers.SetPrivateField(
+                stage,
+                "_startupPhase",
+                StartupPhase.Complete);
+            ReflectionHelpers.SetPrivateField(
+                stage,
+                "_spriteBatch",
+                stage.SpriteBatchStub);
+            ReflectionHelpers.SetPrivateField(
+                stage,
+                "_whitePixel",
+                stage.WhitePixelStub);
+
+            stage.DrawForTest(0.001);
+            stage.UpdateForTest(0.001);
+            stage.UpdateForTest(0.001);
+
+            stageManager.Verify(
+                manager => manager.ChangeStage(
+                    StageType.Title,
+                    It.Is<IStageTransition>(
+                        transition => transition is StartupToTitleTransition)),
+                Times.Once);
+        }
+
+        [Fact]
+        public async Task RunSongLoadAsync_WhenEnumerationNeeded_ShouldNotBuildDatabaseHierarchy()
+        {
+            var stage = CreateControlledStage();
+            stage.NextNeedsEnumerationResult = true;
+            stage.NextEnumerationResult = CreateEnumerationResult();
+
+            var task = (Task)ReflectionHelpers.InvokePrivateMethod(
+                stage,
+                "RunSongLoadAsync")!;
+            await task;
+
+            Assert.Equal(1, stage.NeedsEnumerationCalls);
+            Assert.Equal(1, stage.EnumerateSongsCalls);
+            Assert.Equal(0, stage.BuildHierarchyCalls);
+            Assert.Equal(0, stage.SaveSongsDatabaseCalls);
+            Assert.True(stage.LastForceEnumeration);
+        }
+
+        [Fact]
+        public async Task RunSongLoadAsync_WhenCacheValid_ShouldBuildDatabaseHierarchyOnce()
+        {
+            var stage = CreateControlledStage();
+            stage.NextNeedsEnumerationResult = false;
+            stage.ForceEnumerationForTest = false;
+
+            var task = (Task)ReflectionHelpers.InvokePrivateMethod(
+                stage,
+                "RunSongLoadAsync")!;
+            await task;
+
+            Assert.Equal(1, stage.NeedsEnumerationCalls);
+            Assert.Equal(0, stage.EnumerateSongsCalls);
+            Assert.Equal(1, stage.BuildHierarchyCalls);
+            Assert.Equal(0, stage.SaveSongsDatabaseCalls);
+            Assert.False(stage.LastForceEnumeration);
+        }
+
+        [Fact]
+        public async Task RunSongLoadAsync_WhenZeroCandidatesPublish_ShouldPreservePublishedHierarchyIdentity()
+        {
+            var publishedHierarchy = new SongListNode { Title = "Published" };
+            var stage = CreateControlledStage();
+            stage.NextNeedsEnumerationResult = true;
+            stage.NextEnumerationResult = CreateEnumerationResult(
+                rootNodes: new List<SongListNode> { publishedHierarchy });
+
+            var task = (Task)ReflectionHelpers.InvokePrivateMethod(
+                stage,
+                "RunSongLoadAsync")!;
+            await task;
+            ReflectionHelpers.InvokePrivateMethod(
+                stage,
+                "PerformPhaseOperationSync",
+                StartupPhase.BuildSongLists,
+                0.0);
+
+            Assert.Same(publishedHierarchy, stage.PublishedHierarchy);
+            Assert.Equal(0, stage.BuildHierarchyCalls);
+        }
+
+        [Fact]
+        public async Task RunSongLoadAsync_WhenEnumerationCanceled_ShouldNotRunCacheFallback()
+        {
+            var originalHierarchy = new SongListNode { Title = "Original" };
+            var stage = CreateControlledStage();
+            stage.PublishedHierarchy = originalHierarchy;
+            stage.NextNeedsEnumerationResult = true;
+            stage.NextEnumerationTask =
+                Task.FromCanceled<SongEnumerationResult>(
+                    new CancellationToken(canceled: true));
+
+            var task = (Task)ReflectionHelpers.InvokePrivateMethod(
+                stage,
+                "RunSongLoadAsync")!;
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                async () => await task);
+
+            Assert.Equal(0, stage.BuildHierarchyCalls);
+            Assert.Same(originalHierarchy, stage.PublishedHierarchy);
+            Assert.Equal(
+                StartupSongLoadOutcome.Cancellation,
+                ReflectionHelpers.GetPrivateField<StartupSongLoadOutcome>(
+                    stage,
+                    "_songLoadOutcome"));
+        }
+
+        [Fact]
+        public async Task RunSongLoadAsync_WhenEnumerationFails_ShouldFallbackOnceAndKeepOriginalFailure()
+        {
+            var originalFailure = new IOException("enumeration failed");
+            var stage = CreateControlledStage();
+            stage.NextNeedsEnumerationResult = true;
+            stage.NextEnumerationTask =
+                Task.FromException<SongEnumerationResult>(originalFailure);
+
+            var task = (Task)ReflectionHelpers.InvokePrivateMethod(
+                stage,
+                "RunSongLoadAsync")!;
+            var thrown = await Assert.ThrowsAsync<IOException>(
+                async () => await task);
+            ReflectionHelpers.SetPrivateField(
+                stage,
+                "_startupPhase",
+                StartupPhase.EnumerateSongs);
+            ReflectionHelpers.SetPrivateField(
+                stage,
+                "_operationPerformedForPhase",
+                (StartupPhase?)StartupPhase.EnumerateSongs);
+            ReflectionHelpers.SetPrivateField(stage, "_currentAsyncTask", task);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
+
+            Assert.Same(originalFailure, thrown);
+            Assert.Equal(1, stage.BuildHierarchyCalls);
+            Assert.Equal(StartupPhase.BuildSongLists,
+                ReflectionHelpers.GetPrivateField<StartupPhase>(
+                    stage,
+                    "_startupPhase"));
+            Assert.Contains(
+                "Error",
+                ReflectionHelpers.GetPrivateField<string>(
+                    stage,
+                    "_currentProgressMessage"));
+        }
+
+        [Fact]
+        public async Task RunSongLoadAsync_WhenEnumerationReturnsNoResult_ShouldFallbackOnceAndFail()
+        {
+            var stage = CreateControlledStage();
+            stage.NextNeedsEnumerationResult = true;
+            stage.NextEnumerationTask =
+                Task.FromResult<SongEnumerationResult>(null!);
+
+            var task = (Task)ReflectionHelpers.InvokePrivateMethod(
+                stage,
+                "RunSongLoadAsync")!;
+            var thrown = await Assert.ThrowsAsync<InvalidOperationException>(
+                async () => await task);
+
+            Assert.Equal(
+                "Song enumeration completed without publishing a hierarchy.",
+                thrown.Message);
+            Assert.Equal(1, stage.BuildHierarchyCalls);
+            Assert.Equal(
+                StartupSongLoadOutcome.Failure,
+                ReflectionHelpers.GetPrivateField<StartupSongLoadOutcome>(
+                    stage,
+                    "_songLoadOutcome"));
+        }
+
+        [Fact]
+        public async Task RunSongLoadAsync_WhenFallbackFails_ShouldKeepOriginalErrorAndReachTerminalPhase()
+        {
+            var originalFailure = new IOException("original enumeration error");
+            var stage = CreateControlledStage();
+            stage.NextNeedsEnumerationResult = true;
+            stage.NextEnumerationTask =
+                Task.FromException<SongEnumerationResult>(originalFailure);
+            stage.BuildHierarchyException =
+                new InvalidOperationException("cache unavailable");
+
+            var task = (Task)ReflectionHelpers.InvokePrivateMethod(
+                stage,
+                "RunSongLoadAsync")!;
+            var thrown = await Assert.ThrowsAsync<IOException>(
+                async () => await task);
+            ReflectionHelpers.SetPrivateField(
+                stage,
+                "_startupPhase",
+                StartupPhase.EnumerateSongs);
+            ReflectionHelpers.SetPrivateField(
+                stage,
+                "_operationPerformedForPhase",
+                (StartupPhase?)StartupPhase.EnumerateSongs);
+            ReflectionHelpers.SetPrivateField(stage, "_currentAsyncTask", task);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
+
+            Assert.Same(originalFailure, thrown);
+            Assert.Equal(1, stage.BuildHierarchyCalls);
+            Assert.Null(stage.PublishedHierarchy);
+            Assert.Equal(StartupPhase.BuildSongLists,
+                ReflectionHelpers.GetPrivateField<StartupPhase>(
+                    stage,
+                    "_startupPhase"));
+            Assert.Contains(
+                "original enumeration error",
+                ReflectionHelpers.GetPrivateField<string>(
+                    stage,
+                    "_songLoadError"));
+        }
+
+        [Fact]
+        public void WriteSummaryOnce_WhenEnumerationCompletes_ShouldUseResultCountsAndDurations()
+        {
+            var stage = new SummaryCapturingStartupStage(
+                ReflectionHelpers.CreateGame());
+            ReflectionHelpers.SetPrivateField(
+                stage,
+                "_selectedLoadPath",
+                StartupSongLoadPath.Enumeration);
+            ReflectionHelpers.SetPrivateField(
+                stage,
+                "_enumerationResult",
+                CreateEnumerationResult(
+                    discoveredCharts: 4,
+                    parsedCharts: 3,
+                    logicalGroups: 2,
+                    persistenceDuration: TimeSpan.FromMilliseconds(33),
+                    cleanupDuration: TimeSpan.FromMilliseconds(44),
+                    hierarchyDuration: TimeSpan.FromMilliseconds(55)));
+            ReflectionHelpers.SetPrivateField(
+                stage,
+                "_databaseInitializationDuration",
+                TimeSpan.FromMilliseconds(11));
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "WriteSummaryOnce");
+
+            var summary = Assert.Single(stage.StartupSummaries);
+            Assert.Contains("path=enumeration", summary);
+            Assert.Contains("db_init_ms=11", summary);
+            Assert.Contains("discovery_parse_ms=22", summary);
+            Assert.Contains("persistence_ms=33", summary);
+            Assert.Contains("cleanup_ms=44", summary);
+            Assert.Contains("hierarchy_ms=55", summary);
+            Assert.Contains("discovered=4", summary);
+            Assert.Contains("parsed=3", summary);
+            Assert.Contains("groups=2", summary);
+            Assert.Contains("added=1", summary);
+            Assert.Contains("updated=1", summary);
+            Assert.Contains("preserved=1", summary);
+            Assert.Contains("skipped=1", summary);
+            Assert.Contains("conflicts=1", summary);
+            Assert.Contains("stale=1", summary);
         }
 
         [Fact]
@@ -991,6 +1083,78 @@ namespace DTXMania.Test.Stage
             return stage;
         }
 
+        private static SongEnumerationResult CreateEnumerationResult(
+            int discoveredCharts = 0,
+            int parsedCharts = 0,
+            int logicalGroups = 0,
+            TimeSpan? persistenceDuration = null,
+            TimeSpan? cleanupDuration = null,
+            TimeSpan? hierarchyDuration = null,
+            List<SongListNode>? rootNodes = null)
+        {
+            var paths = Enumerable.Range(1, discoveredCharts)
+                .Select(index => $"/songs/chart-{index}.dtx")
+                .ToArray();
+            var candidates = paths.Take(parsedCharts)
+                .Select((path, index) =>
+                {
+                    var song = new SongEntity
+                    {
+                        Title = $"Song {index}",
+                        Artist = "Artist"
+                    };
+                    var chart = new SongChart
+                    {
+                        Song = song,
+                        FilePath = path
+                    };
+                    song.Charts.Add(chart);
+                    return new SongImportCandidate(
+                        song,
+                        chart,
+                        path,
+                        $"group-{index}",
+                        index);
+                })
+                .ToList();
+            var pendingSongs = Enumerable.Range(1, logicalGroups)
+                .Select(index => new PendingSongNode(
+                    $"group-{index}",
+                    new SongListNode { Title = $"Group {index}" },
+                    Array.Empty<string>()))
+                .ToList();
+            var batch = new SongEnumerationBatch
+            {
+                ActiveRoots = new[] { "/songs" },
+                DiscoveredChartPaths = new HashSet<string>(
+                    paths,
+                    SongPathIdentity.CanonicalComparer),
+                Candidates = candidates,
+                RootNodes = rootNodes ?? new List<SongListNode>(),
+                PendingSongs = pendingSongs,
+                Errors = new List<SongEnumerationError>(),
+                DiscoveryAndParsingDuration = TimeSpan.FromMilliseconds(22),
+                IsComplete = true
+            };
+            var mutationCount = parsedCharts > 0 ? 1 : 0;
+            var import = new SongBulkImportResult(
+                new Dictionary<string, SongChart>(
+                    SongPathIdentity.CanonicalComparer),
+                Added: mutationCount,
+                Updated: mutationCount,
+                Preserved: mutationCount,
+                Skipped: mutationCount,
+                Conflicts: mutationCount,
+                StaleCharts: mutationCount,
+                StaleSongs: mutationCount,
+                persistenceDuration ?? TimeSpan.Zero,
+                cleanupDuration ?? TimeSpan.Zero);
+            return new SongEnumerationResult(
+                batch,
+                import,
+                hierarchyDuration ?? TimeSpan.Zero);
+        }
+
         private static IConfigManager CreateConfigManager(ConfigData? configData)
         {
             var configManager = new Mock<IConfigManager>();
@@ -1045,35 +1209,35 @@ namespace DTXMania.Test.Stage
 
             public int InitializeDatabaseCalls { get; private set; }
 
-            public int LoadScoreCacheCalls { get; private set; }
-
             public int NeedsEnumerationCalls { get; private set; }
 
             public int EnumerateSongsCalls { get; private set; }
 
-            public int BuildSongListCalls { get; private set; }
+            public int BuildHierarchyCalls { get; private set; }
 
             public int SaveSongsDatabaseCalls { get; private set; }
 
-            public SongListNode? NextPublishedHierarchy { get; set; }
-
-            public SongListNode? PublishedHierarchy { get; private set; }
+            public SongListNode? PublishedHierarchy { get; set; }
 
             public bool NextNeedsEnumerationResult { get; set; } = true;
 
-            public int NextEnumerationCount { get; set; }
-
-            public bool NextEnumerationPublished { get; set; }
-
-            public int RootSongCount { get; set; }
-
-            public bool NextSaveResult { get; set; }
-
-            public Exception? SaveSongsDatabaseException { get; set; }
+            public bool ForceEnumerationForTest { get; set; } = true;
 
             public bool MarkSongManagerInitializedCalled { get; private set; }
 
             public EnumerationProgress? ReportedEnumerationProgress { get; set; }
+
+            public bool LastForceEnumeration { get; private set; }
+
+            public SongEnumerationResult NextEnumerationResult { get; set; } =
+                CreateEnumerationResult();
+
+            public Task<SongEnumerationResult>? NextEnumerationTask { get; set; }
+
+            public Exception? BuildHierarchyException { get; set; }
+
+            protected override bool ForceEnumeration =>
+                ForceEnumerationForTest;
 
             protected override string GetSongsDatabasePath()
             {
@@ -1092,22 +1256,16 @@ namespace DTXMania.Test.Stage
                 return Task.FromResult(true);
             }
 
-            protected override Task<bool> LoadScoreCacheCoreAsync(string[] songPaths)
-            {
-                LoadScoreCacheCalls++;
-                LastSongPaths = songPaths;
-                return Task.FromResult(true);
-            }
-
             protected override Task<bool> NeedsEnumerationCoreAsync(string[] songPaths, bool forceEnumeration)
             {
                 NeedsEnumerationCalls++;
                 LastSongPaths = songPaths;
+                LastForceEnumeration = forceEnumeration;
                 return Task.FromResult(NextNeedsEnumerationResult);
             }
 
-            protected override Task<(int SongCount, bool Published)>
-                EnumerateSongsOnlyCoreAsync(
+            protected override Task<SongEnumerationResult>
+                EnumerateSongsCoreAsync(
                     string[] songPaths,
                     IProgress<EnumerationProgress> progressReporter,
                     CancellationToken cancellationToken)
@@ -1119,37 +1277,29 @@ namespace DTXMania.Test.Stage
                 {
                     progressReporter.Report(ReportedEnumerationProgress);
                 }
-                if (NextPublishedHierarchy != null)
+                var result = NextEnumerationTask == null
+                    ? NextEnumerationResult
+                    : null;
+                if (result?.Batch.RootNodes.Count > 0)
                 {
-                    PublishedHierarchy = NextPublishedHierarchy;
+                    PublishedHierarchy = result.Batch.RootNodes[0];
                 }
 
-                return Task.FromResult((
-                    NextEnumerationCount,
-                    NextEnumerationPublished));
+                return NextEnumerationTask ??
+                    Task.FromResult(NextEnumerationResult);
             }
 
-            protected override Task BuildSongListFromDatabaseCoreAsync(string[] songPaths)
+            protected override Task BuildHierarchyFromDatabaseOnceCoreAsync(
+                string[] songPaths)
             {
-                BuildSongListCalls++;
+                BuildHierarchyCalls++;
                 LastSongPaths = songPaths;
+                if (BuildHierarchyException != null)
+                {
+                    return Task.FromException(BuildHierarchyException);
+                }
                 PublishedHierarchy = new SongListNode { Title = "Rebuilt" };
                 return Task.CompletedTask;
-            }
-
-            protected override int GetRootSongCount()
-            {
-                return RootSongCount;
-            }
-
-            protected override Task<bool> SaveSongsDatabaseCoreAsync()
-            {
-                SaveSongsDatabaseCalls++;
-                if (SaveSongsDatabaseException != null)
-                {
-                    return Task.FromException<bool>(SaveSongsDatabaseException);
-                }
-                return Task.FromResult(NextSaveResult);
             }
 
             protected override void MarkSongManagerInitialized()
@@ -1222,6 +1372,16 @@ namespace DTXMania.Test.Stage
             public int EndCalls { get; private set; }
 
             public List<DrawCall> DrawCalls { get; } = new();
+
+            public void DrawForTest(double deltaTime)
+            {
+                OnDraw(deltaTime);
+            }
+
+            public void UpdateForTest(double deltaTime)
+            {
+                OnUpdate(deltaTime);
+            }
 
             protected override GraphicsDevice GetGraphicsDeviceCore()
             {
@@ -1307,8 +1467,8 @@ namespace DTXMania.Test.Stage
 
             private int _callCount;
 
-            protected override Task<(int SongCount, bool Published)>
-                EnumerateSongsOnlyCoreAsync(
+            protected override Task<SongEnumerationResult>
+                EnumerateSongsCoreAsync(
                     string[] songPaths,
                     IProgress<EnumerationProgress> progress,
                     CancellationToken cancellationToken)
@@ -1323,7 +1483,10 @@ namespace DTXMania.Test.Stage
                     progress.Report(new EnumerationProgress { CurrentFile = "song2.dtx", ProcessedCount = 2, DiscoveredSongs = 1 });
                 }
 
-                return Task.FromResult((1, true));
+                return Task.FromResult(CreateEnumerationResult(
+                    discoveredCharts: 1,
+                    parsedCharts: 1,
+                    logicalGroups: 1));
             }
         }
     }
@@ -1341,6 +1504,7 @@ namespace DTXMania.Test.Stage
             ReflectionHelpers.SetPrivateField(stage, "_startupPhase", StartupPhase.Complete);
             ReflectionHelpers.SetPrivateField(stage, "_elapsedTime", 0.0);
             ReflectionHelpers.SetPrivateField(stage, "_phaseStartTime", 0.0);
+            ReflectionHelpers.SetPrivateField(stage, "_hasRenderedStartupFrame", true);
 
             using var writer = new StringWriter();
             var originalOut = Console.Out;
@@ -1362,7 +1526,64 @@ namespace DTXMania.Test.Stage
             stageManager.Verify(manager => manager.ChangeStage(
                 StageType.Title,
                 It.Is<IStageTransition>(transition => transition is StartupToTitleTransition)),
-                Times.Exactly(2));
+                Times.Once);
+        }
+
+        [Theory]
+        [InlineData(true, "cancellation")]
+        [InlineData(false, "failure")]
+        public async Task OnUpdate_WhenSongLoadDoesNotPublish_ShouldWriteOneRawOutcomeSummary(
+            bool cancel,
+            string expectedOutcome)
+        {
+            var stageManager = new Mock<IStageManager>();
+            var game = ReflectionHelpers.CreateGame();
+            ReflectionHelpers.SetPrivateField(
+                game,
+                "<StageManager>k__BackingField",
+                stageManager.Object);
+            var stage = new DefaultOutputOutcomeStartupStage(game, cancel);
+            var loadTask = (Task)ReflectionHelpers.InvokePrivateMethod(
+                stage,
+                "RunSongLoadAsync")!;
+            await Assert.ThrowsAnyAsync<Exception>(
+                async () => await loadTask);
+            ReflectionHelpers.SetPrivateField(
+                stage,
+                "_startupPhase",
+                StartupPhase.Complete);
+            ReflectionHelpers.SetPrivateField(
+                stage,
+                "_hasRenderedStartupFrame",
+                true);
+
+            using var writer = new StringWriter();
+            var originalOut = Console.Out;
+            Console.SetOut(writer);
+            try
+            {
+                stage.UpdateForTest(0.001);
+                stage.UpdateForTest(0.001);
+            }
+            finally
+            {
+                Console.SetOut(originalOut);
+            }
+
+            var summary = Assert.Single(
+                writer.ToString().Split(
+                    Environment.NewLine,
+                    StringSplitOptions.RemoveEmptyEntries));
+            Assert.StartsWith("HPA192_STARTUP ", summary);
+            Assert.Contains($"outcome={expectedOutcome}", summary);
+            Assert.Equal(cancel ? 0 : 1, stage.BuildHierarchyCalls);
+            stageManager.Verify(
+                manager => manager.ChangeStage(
+                    StageType.Title,
+                    It.Is<IStageTransition>(
+                        transition =>
+                            transition is StartupToTitleTransition)),
+                Times.Once);
         }
 
         private sealed class DefaultOutputStartupStage : StartupStage
@@ -1374,6 +1595,49 @@ namespace DTXMania.Test.Stage
             public void UpdateForTest(double deltaTime)
             {
                 OnUpdate(deltaTime);
+            }
+        }
+
+        private sealed class DefaultOutputOutcomeStartupStage : StartupStage
+        {
+            private readonly bool _cancel;
+
+            public DefaultOutputOutcomeStartupStage(
+                BaseGame game,
+                bool cancel) : base(game)
+            {
+                _cancel = cancel;
+            }
+
+            public int BuildHierarchyCalls { get; private set; }
+
+            public void UpdateForTest(double deltaTime)
+            {
+                OnUpdate(deltaTime);
+            }
+
+            protected override Task<bool> NeedsEnumerationCoreAsync(
+                string[] songPaths,
+                bool forceEnumeration) =>
+                Task.FromResult(true);
+
+            protected override Task<SongEnumerationResult>
+                EnumerateSongsCoreAsync(
+                    string[] songPaths,
+                    IProgress<EnumerationProgress> progressReporter,
+                    CancellationToken cancellationToken) =>
+                _cancel
+                    ? Task.FromCanceled<SongEnumerationResult>(
+                        new CancellationToken(canceled: true))
+                    : Task.FromException<SongEnumerationResult>(
+                        new IOException("enumeration failed"));
+
+            protected override Task
+                BuildHierarchyFromDatabaseOnceCoreAsync(
+                    string[] songPaths)
+            {
+                BuildHierarchyCalls++;
+                return Task.CompletedTask;
             }
         }
     }

@@ -10,7 +10,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -72,7 +71,6 @@ namespace DTXMania.Game.Lib.Stage
 
         // Filesystem change detection result (cached to avoid duplicate checks)
         private bool? _needsEnumeration = null;
-        private bool _enumerationPublishedHierarchy;
 
         // Debug/testing flags
         private readonly bool _forceEnumeration = true; // TODO: Remove this or make configurable
@@ -82,9 +80,18 @@ namespace DTXMania.Game.Lib.Stage
         private double _phaseStartTime;
 
         private readonly Stopwatch _startupStopwatch = new();
-        private readonly Stopwatch _phaseStopwatch = new();
-        private readonly Dictionary<StartupPhase, TimeSpan> _measuredPhaseDurations = new();
         private bool _startupSummaryWritten;
+        private bool _hasRenderedStartupFrame;
+        private bool _titleTransitionRequested;
+        private StartupSongLoadPath _selectedLoadPath =
+            StartupSongLoadPath.Unknown;
+        private StartupSongLoadOutcome _songLoadOutcome =
+            StartupSongLoadOutcome.Success;
+        private string? _songLoadError;
+        private SongEnumerationResult? _enumerationResult;
+        private TimeSpan _databaseInitializationDuration;
+        private TimeSpan _cacheHierarchyDuration;
+        private bool _cacheFallbackAttempted;
 
         #endregion
 
@@ -93,6 +100,8 @@ namespace DTXMania.Game.Lib.Stage
         public override StageType Type => StageType.Startup;
 
         private ISkinTheme Theme => _resourceManager?.CurrentTheme ?? SkinTheme.Empty;
+
+        protected virtual bool ForceEnumeration => _forceEnumeration;
 
         #endregion
 
@@ -361,11 +370,18 @@ namespace DTXMania.Game.Lib.Stage
         {
             System.Diagnostics.Debug.WriteLine("Activating Startup Stage");
 
-            _measuredPhaseDurations.Clear();
             _startupStopwatch.Restart();
-            _phaseStopwatch.Restart();
             _startupSummaryWritten = false;
-            _enumerationPublishedHierarchy = false;
+            _hasRenderedStartupFrame = false;
+            _titleTransitionRequested = false;
+            _selectedLoadPath = StartupSongLoadPath.Unknown;
+            _songLoadOutcome = StartupSongLoadOutcome.Success;
+            _songLoadError = null;
+            _enumerationResult = null;
+            _databaseInitializationDuration = TimeSpan.Zero;
+            _cacheHierarchyDuration = TimeSpan.Zero;
+            _cacheFallbackAttempted = false;
+            _needsEnumeration = null;
 
             // Initialize graphics resources
             var graphicsDevice = GetGraphicsDeviceCore();
@@ -440,26 +456,17 @@ namespace DTXMania.Game.Lib.Stage
         protected override void OnUpdate(double deltaTime)
         {
             _elapsedTime += deltaTime;
-
-            // Update current phase
             UpdateCurrentPhase();
 
-            // Check if all phases are complete
-            if (_startupPhase == StartupPhase.Complete)
+            if (_startupPhase == StartupPhase.Complete
+                && _hasRenderedStartupFrame
+                && !_titleTransitionRequested)
             {
-                double phaseElapsed = _elapsedTime - _phaseStartTime;
-                if (phaseElapsed >= _phaseInfo[_startupPhase].duration)
-                {
-                    if (!_startupSummaryWritten)
-                    {
-                        _startupSummaryWritten = true;
-                        _startupStopwatch?.Stop();
-                        WriteStartupSummary(CreateBaselineSummary().Format());
-                    }
-
-                    // Transition to Title stage with special startup transition
-                    _game.StageManager?.ChangeStage(StageType.Title, new StartupToTitleTransition(1.0));
-                }
+                _titleTransitionRequested = true;
+                WriteSummaryOnce();
+                _game.StageManager?.ChangeStage(
+                    StageType.Title,
+                    new StartupToTitleTransition(1.0));
             }
         }
 
@@ -469,7 +476,13 @@ namespace DTXMania.Game.Lib.Stage
                 return;
 
             BeginSpriteBatchCore(_spriteBatch);
+            DrawStartupContent();
+            EndSpriteBatchCore(_spriteBatch);
+            _hasRenderedStartupFrame = true;
+        }
 
+        private void DrawStartupContent()
+        {
             // Draw background
             DrawStageBackground(_spriteBatch);
             
@@ -491,8 +504,6 @@ namespace DTXMania.Game.Lib.Stage
 
             // Draw current progress
             DrawCurrentProgress();
-
-            EndSpriteBatchCore(_spriteBatch);
         }
 
         protected override void OnDeactivate()
@@ -608,124 +619,102 @@ namespace DTXMania.Game.Lib.Stage
             if (_startupPhase == StartupPhase.Complete)
                 return;
 
-            double phaseElapsed = _elapsedTime - _phaseStartTime;
             var currentPhaseInfo = _phaseInfo[_startupPhase];
-
-            // Update current progress message
             _currentProgressMessage = currentPhaseInfo.message;
+            PerformPhaseOperationSync(
+                _startupPhase,
+                _elapsedTime - _phaseStartTime);
 
-            // Perform phase-specific operations (non-blocking)
-            PerformPhaseOperationSync(_startupPhase, phaseElapsed);
-
-            // Check if current phase is complete
-            bool phaseComplete = false;
-            
-            // For async phases, wait for task completion AND minimum duration
+            bool phaseComplete;
             if (HasAsyncOperation(_startupPhase))
             {
-                if (_currentAsyncTask != null)
+                phaseComplete = _currentAsyncTask?.IsCompleted ?? false;
+                if (_currentAsyncTask == null)
                 {
-                    // Phase is complete when both minimum duration has passed AND task is completed
-                    phaseComplete = phaseElapsed >= currentPhaseInfo.duration && _currentAsyncTask.IsCompleted;
+                    return;
+                }
 
-                    if (!_currentAsyncTask.IsCompleted)
-                    {
-                        _currentProgressMessage = $"{currentPhaseInfo.message} (in progress)";
-                    }
-                    else if (_currentAsyncTask.IsCompletedSuccessfully)
-                    {
-                        // ASCII only: the bundled font faces have no check/warning
-                        // glyph, so those characters rendered as the '*' fallback.
-                        _currentProgressMessage = $"{currentPhaseInfo.message.Replace("...", "")} - Complete";
-                    }
-                    else if (_currentAsyncTask.IsFaulted)
-                    {
-                        _currentProgressMessage = $"{currentPhaseInfo.message.Replace("...", "")} - Error";
-                        System.Diagnostics.Debug.WriteLine($"{_startupPhase} task failed: {_currentAsyncTask.Exception?.InnerException?.Message}");
-                        // Continue to next phase even on error after minimum duration
-                        phaseComplete = phaseElapsed >= currentPhaseInfo.duration;
-                    }
+                if (!_currentAsyncTask.IsCompleted)
+                {
+                    _currentProgressMessage =
+                        $"{currentPhaseInfo.message} (in progress)";
+                }
+                else if (_currentAsyncTask.IsCompletedSuccessfully)
+                {
+                    _currentProgressMessage =
+                        $"{currentPhaseInfo.message.Replace("...", "")} - Complete";
                 }
                 else
                 {
-                    // No async task started yet, not complete
-                    phaseComplete = false;
+                    _currentProgressMessage =
+                        $"{currentPhaseInfo.message.Replace("...", "")} - Error";
+                    if (_currentAsyncTask.IsFaulted)
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"{_startupPhase} task failed: " +
+                            $"{_currentAsyncTask.Exception?.InnerException?.Message}");
+                    }
                 }
             }
             else
             {
-                // For non-async phases, complete based on duration only
-                phaseComplete = phaseElapsed >= currentPhaseInfo.duration;
+                phaseComplete = true;
             }
 
             if (phaseComplete)
             {
-                // Add completion message (no marker glyph: see the note above)
-                _progressMessages.Add(currentPhaseInfo.message.Replace("...", ""));
-
-                // Reset async task for the next phase
+                _progressMessages.Add(
+                    currentPhaseInfo.message.Replace("...", ""));
                 _currentAsyncTask = null;
 
-                // Move to next phase
                 var nextPhase = GetNextPhase(_startupPhase);
                 if (nextPhase != _startupPhase)
                 {
-                    if (_phaseStopwatch != null && _measuredPhaseDurations != null)
-                    {
-                        _measuredPhaseDurations[_startupPhase] = _phaseStopwatch.Elapsed;
-                        _phaseStopwatch.Restart();
-                    }
-
                     _startupPhase = nextPhase;
                     _phaseStartTime = _elapsedTime;
-                    System.Diagnostics.Debug.WriteLine($"Startup phase changed to: {_startupPhase}");
+                    System.Diagnostics.Debug.WriteLine(
+                        $"Startup phase changed to: {_startupPhase}");
                 }
             }
         }
 
-        private TimeSpan GetBaselineDuration(StartupPhase phase) =>
-            _measuredPhaseDurations != null && _measuredPhaseDurations.TryGetValue(phase, out var duration)
-                ? duration
-                : TimeSpan.Zero;
-
-        private static int CountScoreNodes(IEnumerable<SongListNode> nodes) =>
-            nodes.Sum(node =>
-                (node.Type == NodeType.Score ? 1 : 0) + CountScoreNodes(node.Children));
-
-        private StartupSongLoadSummary CreateBaselineSummary()
+        private void WriteSummaryOnce()
         {
-            var songManager = _songManager;
+            if (_startupSummaryWritten)
+                return;
 
-            return new(
-                _needsEnumeration == false
-                    ? StartupSongLoadPath.Cache
-                    : StartupSongLoadPath.Enumeration,
-                StartupSongLoadOutcome.Success,
+            _startupSummaryWritten = true;
+            _startupStopwatch?.Stop();
+
+            var batch = _enumerationResult?.Batch;
+            var import = _enumerationResult?.Import;
+            var summary = new StartupSongLoadSummary(
+                _selectedLoadPath,
+                _songLoadOutcome,
                 _startupStopwatch?.Elapsed ?? TimeSpan.Zero,
-                GetBaselineDuration(StartupPhase.SongListDB),
-                GetBaselineDuration(StartupPhase.EnumerateSongs),
-                TimeSpan.Zero,
-                TimeSpan.Zero,
-                GetBaselineDuration(StartupPhase.BuildSongLists),
-                songManager?.EnumeratedFileCount ?? 0,
-                songManager?.DiscoveredScoreCount ?? 0,
-                songManager == null ? 0 : CountScoreNodes(songManager.RootSongs),
-                songManager?.DiscoveredScoreCount ?? 0,
-                0,
-                0,
-                Math.Max(0, (songManager?.EnumeratedFileCount ?? 0) - (songManager?.DiscoveredScoreCount ?? 0)),
-                0,
-                0,
-                null);
+                _databaseInitializationDuration,
+                batch?.DiscoveryAndParsingDuration ?? TimeSpan.Zero,
+                import?.PersistenceDuration ?? TimeSpan.Zero,
+                import?.CleanupDuration ?? TimeSpan.Zero,
+                _enumerationResult?.HierarchyDuration ??
+                    _cacheHierarchyDuration,
+                batch?.DiscoveredChartPaths.Count ?? 0,
+                batch?.Candidates.Count ?? 0,
+                batch?.PendingSongs.Count ?? 0,
+                import?.Added ?? 0,
+                import?.Updated ?? 0,
+                import?.Preserved ?? 0,
+                import?.Skipped ?? 0,
+                import?.Conflicts ?? 0,
+                import?.StaleCharts ?? 0,
+                _songLoadError);
+            WriteStartupSummary(summary.Format());
         }
 
-        private void PerformPhaseOperationSync(StartupPhase phase, double phaseElapsed)
+        private void PerformPhaseOperationSync(StartupPhase phase, double _)
         {
-            // Only perform the operation once per phase — keyed by phase, not by a
-            // time window. Gating on "phaseElapsed <= 0.1s" wedged startup forever
-            // when a single slow frame straddled a phase boundary: the async
-            // kick-off was skipped, and async phases never complete with a null task.
-            if (_operationPerformedForPhase == phase) return;
+            if (_operationPerformedForPhase == phase)
+                return;
             _operationPerformedForPhase = phase;
 
             switch (phase)
@@ -764,53 +753,38 @@ namespace DTXMania.Game.Lib.Stage
                     break;
 
                 case StartupPhase.SongsDB:
-                    // This is handled together with SongListDB in InitializeDatabaseServiceAsync
-                    System.Diagnostics.Debug.WriteLine("SongsDB initialization (handled with SongListDB)");
+                    System.Diagnostics.Debug.WriteLine(
+                        "SongsDB display phase complete.");
                     break;
 
                 case StartupPhase.LoadScoreCache:
-                    // Try to load existing songs from database cache
-                    if (_currentAsyncTask == null)
-                    {
-                        System.Diagnostics.Debug.WriteLine("Starting score cache loading...");
-                        _currentAsyncTask = LoadScoreCacheAsync();
-                    }
+                    System.Diagnostics.Debug.WriteLine(
+                        "LoadScoreCache display phase complete.");
                     break;
 
                 case StartupPhase.LoadScoreFiles:
-                    // Perform filesystem change detection during this phase
-                    if (_currentAsyncTask == null)
-                    {
-                        System.Diagnostics.Debug.WriteLine("Starting filesystem change detection...");
-                        _currentAsyncTask = CheckFilesystemChangesAsync();
-                    }
+                    System.Diagnostics.Debug.WriteLine(
+                        "LoadScoreFiles display phase complete.");
                     break;
 
                 case StartupPhase.EnumerateSongs:
-                    // Enumerate songs from file system (if cache loading failed or was outdated)
                     if (_currentAsyncTask == null)
                     {
-                        System.Diagnostics.Debug.WriteLine("Starting song enumeration...");
-                        _currentAsyncTask = EnumerateSongsAsync();
+                        System.Diagnostics.Debug.WriteLine(
+                            "Starting song load path selection...");
+                        _currentAsyncTask = RunSongLoadAsync();
                     }
                     break;
 
                 case StartupPhase.BuildSongLists:
-                    // Build final song lists
-                    if (_currentAsyncTask == null)
-                    {
-                        System.Diagnostics.Debug.WriteLine("Starting song lists building...");
-                        _currentAsyncTask = BuildSongListsAsync();
-                    }
+                    System.Diagnostics.Debug.WriteLine(
+                        "Song hierarchy already produced by selected load path.");
                     break;
 
                 case StartupPhase.SaveSongsDB:
-                    // Save songs to database
-                    if (_currentAsyncTask == null)
-                    {
-                        System.Diagnostics.Debug.WriteLine("Starting songs DB save...");
-                        _currentAsyncTask = SaveSongsDBAsync();
-                    }
+                    MarkSongManagerInitialized();
+                    System.Diagnostics.Debug.WriteLine(
+                        "SongManager fully initialized.");
                     break;
             }
         }
@@ -839,11 +813,7 @@ namespace DTXMania.Game.Lib.Stage
             return phase switch
             {
                 StartupPhase.SongListDB => true,
-                StartupPhase.LoadScoreCache => true,
-                StartupPhase.LoadScoreFiles => true,
                 StartupPhase.EnumerateSongs => true,
-                StartupPhase.BuildSongLists => true,
-                StartupPhase.SaveSongsDB => true,
                 _ => false
             };
         }
@@ -866,41 +836,27 @@ namespace DTXMania.Game.Lib.Stage
             return _songManager.InitializeDatabaseServiceAsync(databasePath, false);
         }
 
-        protected virtual Task<bool> LoadScoreCacheCoreAsync(string[] songPaths)
-        {
-            return _songManager.LoadScoreCacheAsync(songPaths);
-        }
-
         protected virtual Task<bool> NeedsEnumerationCoreAsync(string[] songPaths, bool forceEnumeration)
         {
             return _songManager.NeedsEnumerationAsync(songPaths, forceEnumeration);
         }
 
-        protected virtual Task<(int SongCount, bool Published)>
-            EnumerateSongsOnlyCoreAsync(
+        protected virtual Task<SongEnumerationResult>
+            EnumerateSongsCoreAsync(
                 string[] songPaths,
                 IProgress<EnumerationProgress> progressReporter,
                 CancellationToken cancellationToken)
         {
-            return _songManager.EnumerateSongsOnlyWithPublicationAsync(
+            return _songManager.EnumerateAndImportSongsAsync(
                 songPaths,
                 progressReporter,
                 cancellationToken);
         }
 
-        protected virtual Task BuildSongListFromDatabaseCoreAsync(string[] songPaths)
+        protected virtual Task BuildHierarchyFromDatabaseOnceCoreAsync(
+            string[] songPaths)
         {
-            return _songManager.BuildSongListFromDatabasePublicAsync(songPaths);
-        }
-
-        protected virtual int GetRootSongCount()
-        {
-            return _songManager.RootSongs.Count;
-        }
-
-        protected virtual Task<bool> SaveSongsDatabaseCoreAsync()
-        {
-            return _songManager.SaveSongsDBAsync();
+            return _songManager.BuildHierarchyFromDatabaseOnceAsync(songPaths);
         }
 
         protected virtual void MarkSongManagerInitialized()
@@ -910,6 +866,7 @@ namespace DTXMania.Game.Lib.Stage
 
         private async Task InitializeDatabaseServiceAsync()
         {
+            var initialization = Stopwatch.StartNew();
             try
             {
                 var databasePath = GetSongsDatabasePath();
@@ -921,168 +878,120 @@ namespace DTXMania.Game.Lib.Stage
             {
                 System.Diagnostics.Debug.WriteLine($"Error during database service initialization: {ex.GetType().Name}: {ex.Message}");
             }
-        }
-
-        /// <summary>
-        /// Load score cache async operation
-        /// </summary>
-        private async Task LoadScoreCacheAsync()
-        {
-            try
+            finally
             {
-                bool success = await LoadScoreCacheCoreAsync(_songPaths).ConfigureAwait(false);
-                System.Diagnostics.Debug.WriteLine($"Score cache loading: {(success ? "SUCCESS" : "FAILED - enumeration needed")}");
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Error during score cache loading: {ex.GetType().Name}: {ex.Message}");
+                initialization.Stop();
+                _databaseInitializationDuration = initialization.Elapsed;
             }
         }
 
-        /// <summary>
-        /// Check filesystem changes async operation
-        /// </summary>
-        private async Task CheckFilesystemChangesAsync()
+        private async Task RunSongLoadAsync()
         {
             try
             {
-                System.Diagnostics.Debug.WriteLine("Checking filesystem for changes...");
-                
-                // Perform detailed filesystem change detection and cache the result
-                _needsEnumeration = await NeedsEnumerationCoreAsync(_songPaths, _forceEnumeration).ConfigureAwait(false);
-                
-                if (_needsEnumeration.Value)
-                {
-                    System.Diagnostics.Debug.WriteLine("Filesystem changes detected - enumeration will be needed");
-                }
-                else
-                {
-                    System.Diagnostics.Debug.WriteLine("No filesystem changes detected - database is up to date");
-                }
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Error during filesystem change detection: {ex.GetType().Name}: {ex.Message}");
-                // On error, assume enumeration is needed to be safe
-                _needsEnumeration = true;
-            }
-        }
+                _needsEnumeration = await NeedsEnumerationCoreAsync(
+                    _songPaths,
+                    ForceEnumeration).ConfigureAwait(false);
+                _selectedLoadPath = _needsEnumeration.Value
+                    ? StartupSongLoadPath.Enumeration
+                    : StartupSongLoadPath.Cache;
 
-        /// <summary>
-        /// Enumerate songs async operation with enhanced filesystem change detection
-        /// </summary>
-        private async Task EnumerateSongsAsync()
-        {
-            _enumerationPublishedHierarchy = false;
-            try
-            {
-                System.Diagnostics.Debug.WriteLine("Using cached filesystem change detection result...");
-                
-                // Use cached result from CheckFilesystemChangesAsync to avoid duplicate filesystem checks
-                bool needsEnumeration = _needsEnumeration ?? true; // Default to true if not set for safety
-                
-                if (!needsEnumeration)
+                if (!_needsEnumeration.Value)
                 {
-                    System.Diagnostics.Debug.WriteLine("No filesystem changes detected (cached), skipping enumeration");
+                    await BuildCacheHierarchyAsync().ConfigureAwait(false);
                     return;
                 }
 
-                System.Diagnostics.Debug.WriteLine("Filesystem changes detected (cached), proceeding with enumeration...");
-                
-                // Create progress reporter for detailed enumeration feedback
-                var progressReporter = new Progress<EnumerationProgress>(progress =>
-                {
-                    // Update progress message with enumeration details
-                    var phaseInfo = _phaseInfo[StartupPhase.EnumerateSongs];
-                    if (!string.IsNullOrEmpty(progress.CurrentOperation))
-                    {
-                        _currentProgressMessage =
-                            $"{phaseInfo.message} {progress.CurrentOperation}";
-                    }
-                    else if (!string.IsNullOrEmpty(progress.CurrentFile))
-                    {
-                        var fileName = Path.GetFileName(progress.CurrentFile);
-                        _currentProgressMessage = $"{phaseInfo.message} [{progress.ProcessedCount} processed, {progress.DiscoveredSongs} songs] {fileName}";
-                    }
-                    else if (!string.IsNullOrEmpty(progress.CurrentDirectory))
-                    {
-                        var dirName = Path.GetFileName(progress.CurrentDirectory);
-                        _currentProgressMessage = $"{phaseInfo.message} Scanning directory: {dirName}";
-                    }
-                    else
-                    {
-                        _currentProgressMessage = $"{phaseInfo.message} [{progress.ProcessedCount} processed, {progress.DiscoveredSongs} songs found]";
-                    }
-                });
-
-                var (songCount, published) =
-                    await EnumerateSongsOnlyCoreAsync(
+                _enumerationResult =
+                    await EnumerateSongsCoreAsync(
                         _songPaths,
-                        progressReporter,
+                        CreateEnumerationProgressReporter(),
                         _cancellationTokenSource.Token)
                     .ConfigureAwait(false);
-                _enumerationPublishedHierarchy = published;
-                System.Diagnostics.Debug.WriteLine($"Song enumeration complete: {songCount} songs found");
+                if (_enumerationResult == null)
+                {
+                    throw new InvalidOperationException(
+                        "Song enumeration completed without publishing a hierarchy.");
+                }
             }
             catch (OperationCanceledException)
             {
-                System.Diagnostics.Debug.WriteLine("Song enumeration was canceled.");
+                _songLoadOutcome = StartupSongLoadOutcome.Cancellation;
+                _songLoadError = "cancelled";
+                throw;
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Error during song enumeration: {ex.GetType().Name}: {ex.Message}");
+                _songLoadOutcome = StartupSongLoadOutcome.Failure;
+                _songLoadError = ex.Message;
+                if (_selectedLoadPath != StartupSongLoadPath.Cache)
+                {
+                    await TryBuildCacheFallbackOnceAsync()
+                        .ConfigureAwait(false);
+                }
+                throw;
             }
         }
 
-        /// <summary>
-        /// Build song lists async operation - this populates the actual song list from database
-        /// </summary>
-        private async Task BuildSongListsAsync()
+        private async Task BuildCacheHierarchyAsync()
         {
+            var hierarchy = Stopwatch.StartNew();
+            await BuildHierarchyFromDatabaseOnceCoreAsync(_songPaths)
+                .ConfigureAwait(false);
+            hierarchy.Stop();
+            _cacheHierarchyDuration = hierarchy.Elapsed;
+        }
+
+        private async Task TryBuildCacheFallbackOnceAsync()
+        {
+            if (_cacheFallbackAttempted)
+                return;
+            _cacheFallbackAttempted = true;
+
             try
             {
-                if (_enumerationPublishedHierarchy)
-                {
-                    System.Diagnostics.Debug.WriteLine(
-                        "Song hierarchy already published by enumeration; skipping database rebuild.");
-                    return;
-                }
-
-                System.Diagnostics.Debug.WriteLine("Building song lists from database...");
-                await BuildSongListFromDatabaseCoreAsync(_songPaths).ConfigureAwait(false);
-                int songCount = GetRootSongCount();
-                System.Diagnostics.Debug.WriteLine($"Song lists building complete: {songCount} root nodes loaded");
+                await BuildCacheHierarchyAsync().ConfigureAwait(false);
             }
-            catch (Exception ex)
+            catch (Exception fallbackException)
             {
-                System.Diagnostics.Debug.WriteLine($"Error during song lists building: {ex.GetType().Name}: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine(
+                    "StartupStage: committed cache fallback failed: " +
+                    fallbackException.Message);
             }
         }
 
-        /// <summary>
-        /// Save songs database async operation
-        /// </summary>
-        private async Task SaveSongsDBAsync()
-        {
-            try
+        private IProgress<EnumerationProgress>
+            CreateEnumerationProgressReporter() =>
+            new Progress<EnumerationProgress>(progress =>
             {
-                bool success = await SaveSongsDatabaseCoreAsync().ConfigureAwait(false);
-                
-                // Mark SongManager as fully initialized after successful save
-                if (success)
+                var phaseInfo = _phaseInfo[StartupPhase.EnumerateSongs];
+                if (!string.IsNullOrEmpty(progress.CurrentOperation))
                 {
-                    MarkSongManagerInitialized();
-                    int songCount = GetRootSongCount();
-                    System.Diagnostics.Debug.WriteLine($"SongManager fully initialized: {songCount} root nodes loaded");
+                    _currentProgressMessage =
+                        $"{phaseInfo.message} {progress.CurrentOperation}";
                 }
-                
-                System.Diagnostics.Debug.WriteLine($"Songs DB save: {(success ? "SUCCESS" : "FAILED")}");
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Error during songs DB save: {ex.GetType().Name}: {ex.Message}");
-            }
-        }
+                else if (!string.IsNullOrEmpty(progress.CurrentFile))
+                {
+                    _currentProgressMessage =
+                        $"{phaseInfo.message} " +
+                        $"[{progress.ProcessedCount} processed, " +
+                        $"{progress.DiscoveredSongs} songs] " +
+                        Path.GetFileName(progress.CurrentFile);
+                }
+                else if (!string.IsNullOrEmpty(progress.CurrentDirectory))
+                {
+                    _currentProgressMessage =
+                        $"{phaseInfo.message} Scanning directory: " +
+                        Path.GetFileName(progress.CurrentDirectory);
+                }
+                else
+                {
+                    _currentProgressMessage =
+                        $"{phaseInfo.message} " +
+                        $"[{progress.ProcessedCount} processed, " +
+                        $"{progress.DiscoveredSongs} songs found]";
+                }
+            });
 
         #endregion
 
