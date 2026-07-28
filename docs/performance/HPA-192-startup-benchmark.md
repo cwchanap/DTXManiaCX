@@ -523,3 +523,73 @@ Their unchanged SHA-256 values are:
 | `timing-preflight/run-1.result.txt` | `6d60330313a19398ffab61bd9d45dfb5248cb81b90e7b641c3d9dc09211a0194` |
 | `timing-preflight/run-2.result.txt` | `e4f2d9d37237ab2a796c64cb41b9db0a9ceac28b7b858ff68d88cefc595f297c` |
 | `timing-preflight/run-3.result.txt` | `30e369bcb822feac269076b559b3a3ded711f0473bd7ee131bf0ca62ad4dda6c` |
+
+### 2026-07-28 final whole-branch preflight review
+
+Commit `277b10262f44e76cac5a3ea2f2ac7ca1aa83702f`
+(`fix: harden HPA-192 timing anchors`) updates only the evidence runner,
+summarizer, and synthetic shell tests. The result schema now records an
+external `CLOCK_MONOTONIC` microsecond anchor immediately after the UTC launch
+start capture and immediately before the UTC launch end capture. The preflight
+retains the independent process UTC-to-monotonic check and its whole-millisecond
+truncation rule, and additionally rejects an external UTC elapsed duration
+whose monotonic duration differs by more than 50 ms.
+
+Before any shell arithmetic, every numeric field must be a canonical unsigned
+decimal and must be in range: timing and elapsed intervals are at most 300,000
+ms; external UTC anchors are at most `4102444800000000` microseconds (UTC
+2100-01-01); and monotonic anchors are at most `3155760000000000`
+microseconds (100 years). The 50 ms capture tolerance covers adjacent Perl
+clock reads without masking a material wall-clock step. Synthetic tests cover
+an unsigned-64-bit wrap payload, signed text, each anchor just above its
+bound, a timing interval just above its bound, and UTC steps both before
+process entry and after process Title that the prior process-only clock check
+would have accepted.
+
+The prior accepted raw artifacts were left byte-for-byte unchanged and moved
+solely into the superseded namespace
+`TestResults/hpa-192/timing-preflight-superseded-final-review`. They are
+superseded because they predate the external monotonic-anchor schema, not
+because their result changed:
+
+| Superseded artifact | SHA-256 |
+| --- | --- |
+| `run-1.result.txt` | `6d60330313a19398ffab61bd9d45dfb5248cb81b90e7b641c3d9dc09211a0194` |
+| `run-2.result.txt` | `e4f2d9d37237ab2a796c64cb41b9db0a9ceac28b7b858ff68d88cefc595f297c` |
+| `run-3.result.txt` | `30e369bcb822feac269076b559b3a3ded711f0473bd7ee131bf0ca62ad4dda6c` |
+
+No product code was changed or rebuilt. The fixed product revision remains
+`5569ba548b15c5cc515897d5a3ec31b5e88e01f3`; `DTXMania.Game.Mac.dll` retains
+its embedded informational revision `1.0.0+5569ba548b15c5cc515897d5a3ec31b5e88e01f3`
+and SHA-256
+`0e664047b6b5e7c560119cf0a38e68414dbb4dd5ea2271e9566198a6d0403242`.
+The committed runner and summarizer SHA-256 values are respectively
+`f4f4c7251d2c6bf3173751c5c98c1b63f990241f7674dc91a20acde0e3d617aa` and
+`0e02c22f00d02d319f0170310a9d4aef96eb526f99b59936cc14c035a050cc64`.
+
+Exactly three fresh diagnostics were collected in the clean accepted namespace
+`TestResults/hpa-192/timing-preflight-final-review` with
+`HPA192_REQUIRE_TIMING=1`. All passed the updated independent clock checks:
+
+| Run | External intervals (ms) | Internal intervals (ms) | Derived intervals (ms) |
+| --- | --- | --- | --- |
+| 1 | launch->entry 48; Title-poll lag 23; UTC wall 4534; monotonic wall 4519; delta 15 | entry->config 578; config->LoadContent 25; LoadContent->Startup 130; Startup->first draw 1284; Startup->summary 2012; summary->Title 1714; entry->Title 4462 | entry->Startup 733; config->Startup 155; launch->Startup 781; fixed floor 3779 |
+| 2 | launch->entry 45; Title-poll lag 89; UTC wall 3765; monotonic wall 3750; delta 15 | entry->config 442; config->LoadContent 24; LoadContent->Startup 142; Startup->first draw 1201; Startup->summary 1894; summary->Title 1127; entry->Title 3630 | entry->Startup 608; config->Startup 166; launch->Startup 653; fixed floor 2981 |
+| 3 | launch->entry 41; Title-poll lag 100; UTC wall 3782; monotonic wall 3767; delta 15 | entry->config 462; config->LoadContent 23; LoadContent->Startup 124; Startup->first draw 1187; Startup->summary 1879; summary->Title 1151; entry->Title 3641 | entry->Startup 609; config->Startup 147; launch->Startup 650; fixed floor 2988 |
+
+The raw artifact and derived-summary hashes are:
+
+| Fresh artifact | SHA-256 |
+| --- | --- |
+| `run-1.result.txt` | `7785f000c524e26ef0e4c0ecc952b57d36e11e8d47fdb3a333d8f91dd4ae17ab` |
+| `run-2.result.txt` | `9fde9b3fe91265c3d588e00b936ffe01cecb42f6d293bf62df945e16af8e0dc7` |
+| `run-3.result.txt` | `5824c0aa1230c4289daaa2e546bded6a0009ed5661220a9a48757d24a53e9c21` |
+| `summary.txt` | `cd6ef4d6784eeb18f8ab21f2004355b20feee4962484fcbf8e9f5d22e2de370a` |
+
+`HPA192_PREFLIGHT median_fixed_floor_ms=2988 target_ms=2221 decision=stop`
+
+`HPA192_PREFLIGHT median_config_to_startup_ms=155`
+
+**Hard decision: stop.** The new median fixed floor is 767 ms over the 2,221
+ms gate. The external monotonic validation strengthens the evidence but does
+not broaden Task 0; no Task 1 work started.
