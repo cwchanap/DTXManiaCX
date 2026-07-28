@@ -24,9 +24,12 @@ write_result() {
     local launch_end_unix_us="$6"
     local title_unix_us="$7"
     local wall_ms="$8"
+    local external_monotonic_elapsed_ms="${9:-$wall_ms}"
+    local launch_start_monotonic_us=1000000
+    local launch_end_monotonic_us=$((launch_start_monotonic_us + external_monotonic_elapsed_ms * 1000))
 
     cat >"$path" <<EOF
-label=synthetic run=$run wall_ms=$wall_ms launch_start_unix_us=$launch_start_unix_us launch_end_unix_us=$launch_end_unix_us HPA192_TIMING entry_to_config_ms=$entry_to_config config_to_load_content_ms=20 load_content_to_startup_ms=30 startup_to_first_draw_ms=40 startup_to_summary_ms=100 summary_to_title_ms=2020 entry_to_title_ms=2180 entry_unix_us=$entry_unix_us title_unix_us=$title_unix_us
+label=synthetic run=$run wall_ms=$wall_ms launch_start_unix_us=$launch_start_unix_us launch_start_monotonic_us=$launch_start_monotonic_us launch_end_unix_us=$launch_end_unix_us launch_end_monotonic_us=$launch_end_monotonic_us HPA192_TIMING entry_to_config_ms=$entry_to_config config_to_load_content_ms=20 load_content_to_startup_ms=30 startup_to_first_draw_ms=40 startup_to_summary_ms=100 summary_to_title_ms=2020 entry_to_title_ms=2180 entry_unix_us=$entry_unix_us title_unix_us=$title_unix_us
 EOF
 }
 
@@ -112,6 +115,40 @@ cp "$good_one" "$negative"
 sed -i '' 's/summary_to_title_ms=2020/summary_to_title_ms=-1/' "$negative"
 assert_fails negative run_summary "$negative" "$good_two" "$good_three"
 
+above_timing_bound="$temp_root/above-timing-bound.result.txt"
+cp "$good_one" "$above_timing_bound"
+sed -i '' \
+    -e 's/entry_to_config_ms=10/entry_to_config_ms=300001/' \
+    -e 's/entry_to_title_ms=2180/entry_to_title_ms=302171/' \
+    -e 's/launch_end_unix_us=3310000/launch_end_unix_us=303301000/' \
+    -e 's/title_unix_us=3280000/title_unix_us=303271000/' \
+    -e 's/wall_ms=2310/wall_ms=302301/' \
+    "$above_timing_bound"
+assert_fails above_timing_bound run_summary "$above_timing_bound" "$good_two" "$good_three"
+
+above_unix_anchor_bound="$temp_root/above-unix-anchor-bound.result.txt"
+cp "$good_one" "$above_unix_anchor_bound"
+sed -i '' 's/entry_unix_us=1100000/entry_unix_us=4102444800000001/' "$above_unix_anchor_bound"
+assert_fails above_unix_anchor_bound run_summary "$above_unix_anchor_bound" "$good_two" "$good_three"
+
+above_monotonic_anchor_bound="$temp_root/above-monotonic-anchor-bound.result.txt"
+cp "$good_one" "$above_monotonic_anchor_bound"
+sed -i '' 's/launch_start_monotonic_us=1000000/launch_start_monotonic_us=3155760000000001/' "$above_monotonic_anchor_bound"
+assert_fails above_monotonic_anchor_bound run_summary "$above_monotonic_anchor_bound" "$good_two" "$good_three"
+
+wraparound="$temp_root/wraparound.result.txt"
+cp "$good_one" "$wraparound"
+sed -i '' \
+    -e 's/entry_to_config_ms=10/entry_to_config_ms=18446744073709551616/' \
+    -e 's/entry_to_title_ms=2180/entry_to_title_ms=2170/' \
+    "$wraparound"
+assert_fails wraparound_numeric run_summary "$wraparound" "$good_two" "$good_three"
+
+signed="$temp_root/signed.result.txt"
+cp "$good_one" "$signed"
+sed -i '' 's/entry_to_config_ms=10/entry_to_config_ms=+10/' "$signed"
+assert_fails signed_numeric run_summary "$signed" "$good_two" "$good_three"
+
 inconsistent="$temp_root/inconsistent.result.txt"
 cp "$good_one" "$inconsistent"
 sed -i '' 's/entry_to_title_ms=2180/entry_to_title_ms=2179/' "$inconsistent"
@@ -125,6 +162,14 @@ assert_fails overflow run_summary "$overflow" "$good_two" "$good_three"
 clock_step="$temp_root/clock-step.result.txt"
 write_result "$clock_step" 1 10 1100000 1000000 4310000 4280000 3310
 assert_fails process_clock_step run_summary "$clock_step" "$good_two" "$good_three"
+
+pre_entry_clock_step="$temp_root/pre-entry-clock-step.result.txt"
+write_result "$pre_entry_clock_step" 1 10 1100000 500000 3310000 3280000 2810 2310
+assert_fails pre_entry_clock_step run_summary "$pre_entry_clock_step" "$good_two" "$good_three"
+
+post_title_clock_step="$temp_root/post-title-clock-step.result.txt"
+write_result "$post_title_clock_step" 1 10 1100000 1000000 3810000 3280000 2810 2310
+assert_fails post_title_clock_step run_summary "$post_title_clock_step" "$good_two" "$good_three"
 
 sequence_root="$temp_root/sequence-sentinel-root"
 sequence_sentinel="$sequence_root/TestResults/hpa-192/comparative-order.txt"
