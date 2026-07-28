@@ -110,8 +110,251 @@ namespace DTXMania.Test.Song
                 candidates);
         }
 
+        private static SongBulkImportRequest CreateEmptyRequest(
+            IReadOnlyList<string> activeRoots,
+            IReadOnlyList<string> discoveredPaths) =>
+            new(
+                activeRoots.Select(SongPathIdentity.Normalize).ToArray(),
+                discoveredPaths.Select(SongPathIdentity.Normalize)
+                    .ToHashSet(SongPathIdentity.CanonicalComparer),
+                Array.Empty<SongImportCandidate>());
+
         private static SongImportCandidate OneCandidate() =>
             Candidate("One", "dir|one", 0, "/songs/one/chart.dtx", 50);
+
+        private sealed record SeededSong(SongEntity Song, SongChart Chart);
+
+        private sealed record ScoreSnapshot(
+            int Id,
+            int ChartId,
+            EInstrumentPart Instrument,
+            int PlaySpeedPercent,
+            string DifficultyLabel,
+            int BestScore,
+            int BestRank,
+            double BestSkillPoint,
+            double BestAchievementRate,
+            bool FullCombo,
+            bool Excellent,
+            int PlayCount,
+            int ClearCount,
+            int MaxCombo,
+            int NxImportedPlayCount,
+            int NxImportedClearCount,
+            double HighSkill,
+            double SongSkill,
+            int TotalNotes,
+            int BestPerfect,
+            int BestGreat,
+            int BestGood,
+            int BestPoor,
+            int BestMiss,
+            string ProgressBar,
+            DateTime? LastPlayedAt,
+            int LastScore,
+            double LastSkillPoint,
+            bool UsedDrumPad,
+            bool UsedKeyboard,
+            bool UsedMidi,
+            bool UsedJoypad,
+            bool UsedMouse);
+
+        private async Task<SeededSong> SeedPlayedSongAsync()
+        {
+            await using var context = new SongDbContext(_options);
+            var song = new SongEntity
+            {
+                Title = "Original",
+                Artist = "Fixture Artist",
+                Genre = "Original Genre",
+                IsBookmarked = true,
+                CreatedAt = new DateTime(
+                    2020, 1, 2, 0, 0, 0, DateTimeKind.Utc),
+                UpdatedAt = new DateTime(
+                    2020, 1, 3, 0, 0, 0, DateTimeKind.Utc)
+            };
+            var chart = new SongChart
+            {
+                Song = song,
+                FilePath = SongPathIdentity.Normalize(
+                    "/songs/played/chart.dtx"),
+                FileHash = "legacy-md5",
+                DrumLevel = 50,
+                HasDrumChart = true
+            };
+            var defaultScore = new SongScore
+            {
+                Chart = chart,
+                Instrument = EInstrumentPart.DRUMS,
+                PlaySpeedPercent = 100,
+                DifficultyLabel = "played-default",
+                BestScore = 900_000,
+                LastScore = 800_000,
+                BestRank = 90,
+                BestSkillPoint = 88.5,
+                BestAchievementRate = 97.25,
+                PlayCount = 4,
+                ClearCount = 3,
+                MaxCombo = 456,
+                FullCombo = true,
+                Excellent = true,
+                LastPlayedAt = new DateTime(
+                    2026, 7, 20, 0, 0, 0, DateTimeKind.Utc),
+                LastSkillPoint = 77.5,
+                HighSkill = 66.5,
+                SongSkill = 55.5,
+                TotalNotes = 500,
+                BestPerfect = 450,
+                BestGreat = 30,
+                BestGood = 10,
+                BestPoor = 5,
+                BestMiss = 5,
+                ProgressBar = "played",
+                UsedDrumPad = true,
+                UsedKeyboard = true,
+                UsedMidi = true,
+                UsedJoypad = true,
+                UsedMouse = true,
+                NxImportedPlayCount = 2,
+                NxImportedClearCount = 1
+            };
+            var fastScore = new SongScore
+            {
+                Chart = chart,
+                Instrument = EInstrumentPart.DRUMS,
+                PlaySpeedPercent = 150,
+                DifficultyLabel = "played-fast",
+                BestScore = 700_000,
+                PlayCount = 1
+            };
+            defaultScore.PerformanceHistory.Add(new PerformanceHistory
+            {
+                Song = song,
+                SongScore = defaultScore,
+                PerformedAt = new DateTime(
+                    2026, 7, 20, 0, 0, 0, DateTimeKind.Utc),
+                DisplayOrder = 1,
+                HistoryLine = "default"
+            });
+            fastScore.PerformanceHistory.Add(new PerformanceHistory
+            {
+                Song = song,
+                SongScore = fastScore,
+                PerformedAt = new DateTime(
+                    2026, 7, 21, 0, 0, 0, DateTimeKind.Utc),
+                DisplayOrder = 1,
+                HistoryLine = "fast"
+            });
+            chart.Scores.Add(defaultScore);
+            chart.Scores.Add(fastScore);
+            song.Charts.Add(chart);
+            context.Songs.Add(song);
+            await context.SaveChangesAsync();
+            return new SeededSong(song, chart);
+        }
+
+        private async Task<SongChart> SeedChartAsync(
+            string path,
+            string songTitle = "Seed")
+        {
+            await using var context = new SongDbContext(_options);
+            var song = new SongEntity
+            {
+                Title = songTitle,
+                Artist = "Fixture Artist"
+            };
+            var chart = new SongChart
+            {
+                Song = song,
+                FilePath = SongPathIdentity.Normalize(path),
+                DrumLevel = 50,
+                HasDrumChart = true
+            };
+            song.Charts.Add(chart);
+            context.Songs.Add(song);
+            await context.SaveChangesAsync();
+            return chart;
+        }
+
+        private async Task<SongChart> SeedChartWithStoredPathAsync(
+            string storedPath,
+            string songTitle = "Seed")
+        {
+            await using var context = new SongDbContext(_options);
+            var song = new SongEntity
+            {
+                Title = songTitle,
+                Artist = "Fixture Artist"
+            };
+            var chart = new SongChart
+            {
+                Song = song,
+                FilePath = storedPath,
+                DrumLevel = 50,
+                HasDrumChart = true
+            };
+            song.Charts.Add(chart);
+            context.Songs.Add(song);
+            await context.SaveChangesAsync();
+            return chart;
+        }
+
+        private async Task<bool> ChartExistsAsync(int chartId)
+        {
+            await using var context = new SongDbContext(_options);
+            return await context.SongCharts.AnyAsync(chart => chart.Id == chartId);
+        }
+
+        private async Task<bool> SongExistsAsync(int songId)
+        {
+            await using var context = new SongDbContext(_options);
+            return await context.Songs.AnyAsync(song => song.Id == songId);
+        }
+
+        private async Task<ScoreSnapshot[]> LoadScoreSnapshotsAsync(int chartId)
+        {
+            await using var context = new SongDbContext(_options);
+            return await context.SongScores
+                .AsNoTracking()
+                .Where(score => score.ChartId == chartId)
+                .OrderBy(score => score.Instrument)
+                .ThenBy(score => score.PlaySpeedPercent)
+                .Select(score => new ScoreSnapshot(
+                    score.Id,
+                    score.ChartId,
+                    score.Instrument,
+                    score.PlaySpeedPercent,
+                    score.DifficultyLabel,
+                    score.BestScore,
+                    score.BestRank,
+                    score.BestSkillPoint,
+                    score.BestAchievementRate,
+                    score.FullCombo,
+                    score.Excellent,
+                    score.PlayCount,
+                    score.ClearCount,
+                    score.MaxCombo,
+                    score.NxImportedPlayCount,
+                    score.NxImportedClearCount,
+                    score.HighSkill,
+                    score.SongSkill,
+                    score.TotalNotes,
+                    score.BestPerfect,
+                    score.BestGreat,
+                    score.BestGood,
+                    score.BestPoor,
+                    score.BestMiss,
+                    score.ProgressBar,
+                    score.LastPlayedAt,
+                    score.LastScore,
+                    score.LastSkillPoint,
+                    score.UsedDrumPad,
+                    score.UsedKeyboard,
+                    score.UsedMidi,
+                    score.UsedJoypad,
+                    score.UsedMouse))
+                .ToArrayAsync();
+        }
 
         private async Task ExecuteSqlAsync(string sql)
         {
@@ -321,6 +564,451 @@ namespace DTXMania.Test.Song
                 scores.Select(score => score.Instrument));
             Assert.All(scores, score => Assert.Equal(100, score.PlaySpeedPercent));
             Assert.All(scores, score => Assert.Equal(0, score.BestScore));
+        }
+
+        [Fact]
+        public async Task ImportSongsAsync_Rescan_ShouldUpdateMetadataAndPreserveUserState()
+        {
+            var seeded = await SeedPlayedSongAsync();
+            var originalCreatedAt = seeded.Song.CreatedAt;
+            var originalUpdatedAt = seeded.Song.UpdatedAt;
+            var candidate = Candidate(
+                title: "Renamed",
+                groupKey: "dir|same",
+                groupOrder: 0,
+                path: seeded.Chart.FilePath,
+                drumLevel: 75);
+
+            var result = await _service.ImportSongsAsync(
+                CreateRequest(candidate),
+                progress: null,
+                CancellationToken.None);
+
+            var normalizedPath = SongPathIdentity.Normalize(
+                seeded.Chart.FilePath);
+            var chart = result.ChartsByPath[normalizedPath];
+            Assert.Equal(seeded.Song.Id, chart.SongId);
+            Assert.Equal(seeded.Chart.Id, chart.Id);
+            Assert.True(chart.Song.IsBookmarked);
+            Assert.Equal("Renamed", chart.Song.Title);
+            Assert.Equal(75, chart.DrumLevel);
+            Assert.Equal(seeded.Chart.FileHash, chart.FileHash);
+            Assert.Equal(originalCreatedAt, chart.Song.CreatedAt);
+            Assert.True(chart.Song.UpdatedAt > originalUpdatedAt);
+            Assert.Equal(
+                new[] { 100, 150 },
+                chart.Scores
+                    .Select(score => score.PlaySpeedPercent)
+                    .OrderBy(speed => speed));
+            var defaultScore = chart.Scores.Single(
+                score => score.PlaySpeedPercent == 100);
+            Assert.Equal(900_000, defaultScore.BestScore);
+            Assert.Equal(800_000, defaultScore.LastScore);
+            Assert.Equal(90, defaultScore.BestRank);
+            Assert.True(defaultScore.FullCombo);
+            Assert.Equal(4, defaultScore.PlayCount);
+            Assert.Equal(3, defaultScore.ClearCount);
+            Assert.Equal(2, defaultScore.NxImportedPlayCount);
+            Assert.Equal(1, defaultScore.NxImportedClearCount);
+            Assert.All(
+                chart.Scores,
+                score => Assert.NotEmpty(score.PerformanceHistory));
+            Assert.Equal(1, result.Updated);
+            Assert.Equal(0, result.Added);
+            Assert.Equal(0, result.Preserved);
+        }
+
+        [Fact]
+        public async Task ImportSongsAsync_GainedInstrument_ShouldPreserveScoresAndAddOneDefaultKey()
+        {
+            var seeded = await SeedPlayedSongAsync();
+            var before = await LoadScoreSnapshotsAsync(seeded.Chart.Id);
+            var candidate = Candidate(
+                "Original",
+                "dir|played",
+                0,
+                seeded.Chart.FilePath,
+                50);
+            candidate.ParsedSong.Genre = "Original Genre";
+            candidate.ParsedChart.HasGuitarChart = true;
+            candidate.ParsedChart.GuitarLevel = 70;
+
+            await _service.ImportSongsAsync(
+                CreateRequest(candidate), progress: null, CancellationToken.None);
+            await _service.ImportSongsAsync(
+                CreateRequest(candidate), progress: null, CancellationToken.None);
+
+            var after = await LoadScoreSnapshotsAsync(seeded.Chart.Id);
+            Assert.Equal(before, after
+                .Where(score => score.Instrument == EInstrumentPart.DRUMS)
+                .ToArray());
+            var guitar = Assert.Single(
+                after,
+                score => score.Instrument == EInstrumentPart.GUITAR);
+            Assert.Equal(100, guitar.PlaySpeedPercent);
+            Assert.Equal(0, guitar.BestScore);
+        }
+
+        [Fact]
+        public async Task ImportSongsAsync_UnchangedRescan_ShouldCountPreserved()
+        {
+            var candidate = Candidate(
+                "Same", "dir|same", 0, "/songs/same/chart.dtx", 50);
+            await _service.ImportSongsAsync(
+                CreateRequest(candidate), progress: null, CancellationToken.None);
+
+            var result = await _service.ImportSongsAsync(
+                CreateRequest(candidate), progress: null, CancellationToken.None);
+
+            Assert.Equal(0, result.Added);
+            Assert.Equal(0, result.Updated);
+            Assert.Equal(1, result.Preserved);
+            Assert.Equal(0, result.Skipped);
+            Assert.Single(result.ChartsByPath.Values.Single().Scores);
+        }
+
+        [Fact]
+        public async Task ImportSongsAsync_SameMetadataInDifferentDirectories_ShouldCreateTwoSongs()
+        {
+            var request = CreateRequest(
+                Candidate(
+                    "Same", "dir|a", 0, "/songs/a/chart.dtx", 40),
+                Candidate(
+                    "Same", "dir|b", 0, "/songs/b/chart.dtx", 40));
+
+            var result = await _service.ImportSongsAsync(
+                request, progress: null, CancellationToken.None);
+
+            Assert.Equal(
+                2,
+                result.ChartsByPath.Values
+                    .Select(chart => chart.SongId)
+                    .Distinct()
+                    .Count());
+        }
+
+        [Fact]
+        public async Task ImportSongsAsync_SetDefinitionGroup_ShouldCreateOneSong()
+        {
+            var request = CreateRequest(
+                Candidate(
+                    "Basic",
+                    "set|/songs/group/set.def",
+                    1,
+                    "/songs/group/basic.dtx",
+                    20),
+                Candidate(
+                    "Extreme",
+                    "set|/songs/group/set.def",
+                    2,
+                    "/songs/group/extreme.dtx",
+                    80));
+
+            var result = await _service.ImportSongsAsync(
+                request, progress: null, CancellationToken.None);
+
+            Assert.Single(result.ChartsByPath.Values
+                .Select(chart => chart.SongId)
+                .Distinct());
+        }
+
+        [Fact]
+        public async Task ImportSongsAsync_DiscoveryDiff_ShouldDeleteOnlyInsideActiveRoots()
+        {
+            var staleInside = await SeedChartAsync(
+                "/songs/active/stale.dtx");
+            var outside = await SeedChartAsync("/songs/other/keep.dtx");
+            var request = CreateEmptyRequest(
+                activeRoots: new[] { "/songs/active" },
+                discoveredPaths: Array.Empty<string>());
+
+            var result = await _service.ImportSongsAsync(
+                request, progress: null, CancellationToken.None);
+
+            Assert.Equal(1, result.StaleCharts);
+            Assert.False(await ChartExistsAsync(staleInside.Id));
+            Assert.True(await ChartExistsAsync(outside.Id));
+        }
+
+        [Fact]
+        public async Task ImportSongsAsync_RemovedConfiguredRoot_ShouldRetainRowsOutsideActiveRoots()
+        {
+            var removedRootChart = await SeedChartAsync(
+                "/songs/removed/keep.dtx");
+            var request = CreateEmptyRequest(
+                activeRoots: new[] { "/songs/current" },
+                discoveredPaths: Array.Empty<string>());
+
+            var result = await _service.ImportSongsAsync(
+                request, progress: null, CancellationToken.None);
+
+            Assert.Equal(0, result.StaleCharts);
+            Assert.Equal(0, result.StaleSongs);
+            Assert.True(await ChartExistsAsync(removedRootChart.Id));
+            Assert.True(await SongExistsAsync(removedRootChart.SongId));
+        }
+
+        [Fact]
+        public async Task ImportSongsAsync_AmbiguousLegacyGroup_ShouldKeepAssociationsAndReportConflict()
+        {
+            var first = await SeedChartAsync(
+                "/songs/group/basic.dtx", songTitle: "A");
+            var second = await SeedChartAsync(
+                "/songs/group/extreme.dtx", songTitle: "B");
+            var request = CreateRequest(
+                Candidate(
+                    "Unified",
+                    "set|group",
+                    1,
+                    first.FilePath,
+                    20),
+                Candidate(
+                    "Unified",
+                    "set|group",
+                    2,
+                    second.FilePath,
+                    80),
+                Candidate(
+                    "Unified",
+                    "set|group",
+                    3,
+                    "/songs/group/master.dtx",
+                    95));
+
+            var result = await _service.ImportSongsAsync(
+                request, progress: null, CancellationToken.None);
+
+            Assert.Equal(
+                first.SongId,
+                result.ChartsByPath[
+                    SongPathIdentity.Normalize(first.FilePath)].SongId);
+            Assert.Equal(
+                second.SongId,
+                result.ChartsByPath[
+                    SongPathIdentity.Normalize(second.FilePath)].SongId);
+            Assert.DoesNotContain(
+                result.ChartsByPath[
+                    SongPathIdentity.Normalize(
+                        "/songs/group/master.dtx")].SongId,
+                new[] { first.SongId, second.SongId });
+            Assert.Equal(1, result.Conflicts);
+        }
+
+        [Fact]
+        public async Task ImportSongsAsync_LegacyNonCanonicalPath_ShouldMatchAndMigrateInPlace()
+        {
+            var chart = await SeedChartWithStoredPathAsync(
+                "/songs/active/nested/../chart.dtx");
+            var originalChartId = chart.Id;
+            var candidate = Candidate(
+                "Migrated",
+                "dir|active",
+                0,
+                "/songs/active/chart.dtx",
+                60);
+
+            var result = await _service.ImportSongsAsync(
+                CreateRequest(candidate), progress: null, CancellationToken.None);
+
+            var migrated = result.ChartsByPath[candidate.NormalizedChartPath];
+            Assert.Equal(originalChartId, migrated.Id);
+            Assert.Equal(candidate.NormalizedChartPath, migrated.FilePath);
+            Assert.Equal(0, result.Added);
+            Assert.Equal(0, result.StaleCharts);
+        }
+
+        [Fact]
+        public async Task ImportSongsAsync_AmbiguousLegacyAliases_ShouldRetainEveryRow()
+        {
+            if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS())
+                return;
+
+            var first = await SeedChartWithStoredPathAsync(
+                "/songs/active/Case/chart.dtx", "First");
+            var second = await SeedChartWithStoredPathAsync(
+                "/songs/active/case/chart.dtx", "Second");
+            var candidate = Candidate(
+                "Discovered",
+                "dir|active",
+                0,
+                "/songs/active/CASE/chart.dtx",
+                60);
+
+            var result = await _service.ImportSongsAsync(
+                CreateRequest(candidate), progress: null, CancellationToken.None);
+
+            Assert.True(await ChartExistsAsync(first.Id));
+            Assert.True(await ChartExistsAsync(second.Id));
+            Assert.Equal(1, result.Conflicts);
+            Assert.Equal(1, result.Skipped);
+            Assert.False(
+                result.ChartsByPath.ContainsKey(candidate.NormalizedChartPath));
+        }
+
+        [Fact]
+        public async Task ImportSongsAsync_LegacyRewriteBinaryTargetCollision_ShouldPreserveEveryRow()
+        {
+            var legacy = await SeedChartWithStoredPathAsync(
+                "/songs/active/nested/../chart.dtx", "Legacy");
+            var target = await SeedChartWithStoredPathAsync(
+                "/songs/active/chart.dtx", "Target");
+            var candidate = Candidate(
+                "Discovered",
+                "dir|active",
+                0,
+                "/songs/active/chart.dtx",
+                60);
+            var request = new SongBulkImportRequest(
+                new[] { SongPathIdentity.Normalize("/songs/active") },
+                new HashSet<string>(
+                    new[] { candidate.NormalizedChartPath },
+                    SongPathIdentity.CanonicalComparer),
+                new[] { candidate });
+
+            var result = await _service.ImportSongsAsync(
+                request, progress: null, CancellationToken.None);
+
+            Assert.True(await ChartExistsAsync(legacy.Id));
+            Assert.True(await ChartExistsAsync(target.Id));
+            Assert.Equal(1, result.Conflicts);
+            Assert.Equal(1, result.Skipped);
+            Assert.False(
+                result.ChartsByPath.ContainsKey(candidate.NormalizedChartPath));
+        }
+
+        [Fact]
+        public async Task ImportSongsAsync_MalformedPersistedPath_ShouldRetainRow()
+        {
+            var malformed = await SeedChartWithStoredPathAsync(
+                string.Empty, "Malformed");
+            var request = CreateEmptyRequest(
+                activeRoots: new[] { "/songs" },
+                discoveredPaths: Array.Empty<string>());
+
+            var result = await _service.ImportSongsAsync(
+                request, progress: null, CancellationToken.None);
+
+            Assert.True(await ChartExistsAsync(malformed.Id));
+            Assert.Equal(0, result.StaleCharts);
+            Assert.Equal(0, result.StaleSongs);
+        }
+
+        [Fact]
+        public async Task ImportSongsAsync_DiscoveredSkippedPath_ShouldProtectExistingChart()
+        {
+            var chart = await SeedChartAsync("/songs/active/skipped.dtx");
+            var request = CreateEmptyRequest(
+                activeRoots: new[] { "/songs/active" },
+                discoveredPaths: new[] { chart.FilePath });
+
+            var result = await _service.ImportSongsAsync(
+                request, progress: null, CancellationToken.None);
+
+            Assert.True(await ChartExistsAsync(chart.Id));
+            Assert.Equal(0, result.StaleCharts);
+            Assert.Equal(1, result.Skipped);
+        }
+
+        [Fact]
+        public async Task ImportSongsAsync_FinalStaleChart_ShouldRemoveEmptySong()
+        {
+            var stale = await SeedChartAsync("/songs/active/stale.dtx");
+            var request = CreateEmptyRequest(
+                activeRoots: new[] { "/songs/active" },
+                discoveredPaths: Array.Empty<string>());
+
+            var result = await _service.ImportSongsAsync(
+                request, progress: null, CancellationToken.None);
+
+            Assert.False(await ChartExistsAsync(stale.Id));
+            Assert.False(await SongExistsAsync(stale.SongId));
+            Assert.Equal(1, result.StaleCharts);
+            Assert.Equal(1, result.StaleSongs);
+        }
+
+        [Fact]
+        public async Task ImportSongsAsync_ActiveStaleChartWithInactiveSibling_ShouldRetainSong()
+        {
+            await using (var context = new SongDbContext(_options))
+            {
+                var song = new SongEntity
+                {
+                    Title = "Shared",
+                    Artist = "Fixture Artist"
+                };
+                song.Charts.Add(new SongChart
+                {
+                    FilePath = SongPathIdentity.Normalize(
+                        "/songs/active/stale.dtx"),
+                    DrumLevel = 50,
+                    HasDrumChart = true
+                });
+                song.Charts.Add(new SongChart
+                {
+                    FilePath = SongPathIdentity.Normalize(
+                        "/songs/inactive/keep.dtx"),
+                    DrumLevel = 60,
+                    HasDrumChart = true
+                });
+                context.Songs.Add(song);
+                await context.SaveChangesAsync();
+            }
+
+            int songId;
+            int activeChartId;
+            int inactiveChartId;
+            await using (var context = new SongDbContext(_options))
+            {
+                var song = await context.Songs
+                    .Include(entity => entity.Charts)
+                    .SingleAsync();
+                songId = song.Id;
+                activeChartId = song.Charts.Single(chart =>
+                    chart.FilePath.Contains("/active/")).Id;
+                inactiveChartId = song.Charts.Single(chart =>
+                    chart.FilePath.Contains("/inactive/")).Id;
+            }
+            var request = CreateEmptyRequest(
+                activeRoots: new[] { "/songs/active" },
+                discoveredPaths: Array.Empty<string>());
+
+            var result = await _service.ImportSongsAsync(
+                request, progress: null, CancellationToken.None);
+
+            Assert.False(await ChartExistsAsync(activeChartId));
+            Assert.True(await ChartExistsAsync(inactiveChartId));
+            Assert.True(await SongExistsAsync(songId));
+            Assert.Equal(1, result.StaleCharts);
+            Assert.Equal(0, result.StaleSongs);
+        }
+
+        [Fact]
+        public async Task ImportSongsAsync_MixedBatch_ShouldReportAggregateCounts()
+        {
+            var stale = await SeedChartAsync("/songs/stale/chart.dtx");
+            var candidate = Candidate(
+                "Fresh", "dir|fresh", 0, "/songs/fresh/chart.dtx", 50);
+            var request = new SongBulkImportRequest(
+                new[] { SongPathIdentity.Normalize("/songs") },
+                new HashSet<string>(
+                    new[] { candidate.NormalizedChartPath },
+                    SongPathIdentity.CanonicalComparer),
+                new[] { candidate, candidate });
+
+            var result = await _service.ImportSongsAsync(
+                request, progress: null, CancellationToken.None);
+
+            Assert.Equal(1, result.Added);
+            Assert.Equal(0, result.Updated);
+            Assert.Equal(0, result.Preserved);
+            Assert.Equal(1, result.Skipped);
+            Assert.Equal(0, result.Conflicts);
+            Assert.Equal(1, result.StaleCharts);
+            Assert.Equal(1, result.StaleSongs);
+            Assert.False(await ChartExistsAsync(stale.Id));
+            Assert.Equal(
+                SongPathIdentity.Normalize("/songs/fresh/chart.dtx"),
+                Assert.Single(result.ChartsByPath.Keys));
         }
 
         [Fact]
