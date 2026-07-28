@@ -2,8 +2,8 @@
 
 **Issue:** [HPA-192](https://linear.app/cwchanap/issue/HPA-192/optimize-fresh-startup-song-loading-with-batched-sqlite-import)  
 **Date:** 2026-07-28  
-**Status:** Design amended after review; implementation planning pending
-committed-spec review
+**Status:** Design amended after two review passes; implementation planning
+pending final committed-spec approval
 
 ## Context
 
@@ -129,8 +129,11 @@ and startup-stage serialization costs are addressed.
 
 ### Coordinator responsibility
 
-A new coordinator owns the startup song operation for the lifetime of one
-`BaseGame` launch. Final type names may vary, but its contract has these roles:
+`StartupSongLoadCoordinator` owns the startup song operation for the lifetime
+of one `BaseGame` launch. The implementation plan and tests use the
+provisional companion names `StartupSongLoadRequest`,
+`StartupSongLoadProgressSnapshot`, and `StartupSongLoadResult` so ownership is
+unambiguous. Its contract has these roles:
 
 - **Immutable request:** configured song roots, songs database path,
   force-enumeration value, and any options required by the existing startup
@@ -183,12 +186,47 @@ song hierarchy mutation and song-database access. No other production path
 may enumerate `SongManager.RootSongs` or open a song database context during
 that interval.
 
-The external game API enforces this boundary by rejecting a request to change
-away from Startup while the coordinator is nonterminal. The request is
-rejected immediately with a machine-readable not-ready error; it is not
-queued or deferred. In particular, an early request cannot force
-`SongSelect`, whose activation reads the live `RootSongs` view and opens
-recent-play or bookmark database contexts.
+`BaseGame` owns an atomic, launch-monotonic
+`ExternalStageChangesReady` flag. It begins false and becomes true on the game
+thread only after all of these events have occurred:
+
+1. The coordinator is terminal.
+2. Startup has rendered at least one frame.
+3. Startup has emitted its one summary.
+4. The normal internal Startup-to-Title transition has completed.
+
+Application shutdown uses a separate shutting-down flag and rejects new API
+work; it does not reverse this launch-monotonic readiness value.
+
+`IGameApi.ChangeStageAsync` parses the requested stage and evaluates external
+readiness on the API request thread before calling
+`QueueMainThreadAction`. While `ExternalStageChangesReady` is false, every
+valid external target, including `Startup`, `Title`, and `SongSelect`, returns
+not-ready and queues nothing. The internal
+`StageManager.ChangeStage` contract is unchanged, so Startup can still request
+the normal Title transition after its terminal and rendered-frame gates.
+
+The API returns a discriminated `StageChangeRequestResult`:
+
+- `Accepted`: the action was queued; this does not promise that the transition
+  has completed.
+- `UnknownStage`: parsing or enum validation failed.
+- `StartupNotReady`: startup lifecycle fencing rejected the request before
+  queuing.
+
+JSON-RPC preserves the existing `InvalidParams` (`-32602`) response for
+`UnknownStage`. `StartupNotReady` maps to application error code `-32004` with
+`data.reason = "startup_not_ready"` and the requested target in sanitized
+data. The MCP service preserves the code and reason instead of collapsing the
+response into an undifferentiated text failure. There is no REST stage-change
+endpoint in the current product, so this design adds no REST contract.
+
+This prevents an early external request from forcing `SongSelect`, whose
+activation reads the live `RootSongs` view and opens recent-play or bookmark
+database contexts. Keeping the gate closed through Title-transition
+completion also prevents an accepted API request from bypassing the required
+Startup frame or summary, or from being queued into an in-progress
+Startup-to-Title transition.
 
 Health/state polling, screenshots, and input remain available where they do
 not read `SongManager`, open the songs database, or leave Startup. The
@@ -210,10 +248,28 @@ The application owns cancellation because the work can begin before
 it does not cancel or restart the launch operation.
 
 Normal transition to Title occurs only after the coordinator is terminal, so
-no `SongManager` mutation continues into Title. On application shutdown,
-`BaseGame` cancels and observes the coordinator before disposing services that
-the operation may still use. Faults are always observed, including failures
-that happen before Startup activation.
+no `SongManager` mutation continues into Title.
+
+The coordinator cancellation source is owned only by `BaseGame` and is never
+stored in Startup activation state. The current load-owning behavior of
+`StartupStage.BeginActivationScope`, `RetireActivationScope`, and
+`_cancellationTokenSource` is removed from the coordinator path. Activation
+and deactivation only advance the activation generation, reset or clear UI
+guards, and attach or detach the coordinator view. They never cancel or
+observe the coordinator task.
+
+Graceful application shutdown occurs in this order:
+
+1. Mark the application as shutting down so new API actions are rejected.
+2. Stop accepting API work and cancel the coordinator token.
+3. Observe the coordinator task, including cancellation or fault.
+4. Only then dispose `StageManager`, resources, graphics, API/server objects,
+   and logging.
+
+This coordinator fence must precede the current StageManager-first teardown.
+Faults are always observed, including failures that happen before Startup
+activation. A hard process kill executes no graceful lifecycle contract; its
+missing startup summary makes that benchmark attempt invalid.
 
 Startup reactivation attaches to the same running or completed operation. Its
 activation generation continues guarding UI mutations and summary/transition
@@ -244,6 +300,21 @@ The coordinator replaces its immutable latest snapshot under a short lock or
 equivalent atomic mechanism. `StartupStage` reads that snapshot during normal
 updates.
 
+`StartupSongLoadProgressSnapshot` contains:
+
+- A domain-level step such as database initialization, path selection, cache
+  loading, discovery/parsing, persistence, hierarchy finalization, or
+  complete. It does not contain the UI-owned `StartupPhase`.
+- `DatabaseReady`, `IsTerminal`, selected load path, nullable terminal
+  outcome, and sanitized error.
+- Current operation, file, directory, and processed count from the existing
+  enumeration progress contract.
+- Discovered-chart, parsed-chart, and logical-group counts.
+
+The terminal result remains the authoritative source for final timings and
+counts. A late stage first receives the latest snapshot and then observes the
+same terminal task; snapshot replay never starts work.
+
 No coordinator lock is held while awaiting database, enumeration, import, or
 hierarchy tasks.
 
@@ -271,6 +342,19 @@ loop. It stops when it reaches an unfinished coordinator milestone or
 `Complete`. The loop is bounded by the finite startup-phase count so a logic
 error cannot spin indefinitely.
 
+The milestone-to-phase mapping is:
+
+| Coordinator state | Phases that may drain | Waiting phase |
+| --- | --- | --- |
+| Nonterminal, database not ready | `SystemSounds`, `ConfigValidation` | `SongListDB` waits for database-ready or terminal |
+| Database ready, nonterminal | `SongListDB`, `SongsDB`, `LoadScoreCache`, `LoadScoreFiles` | `EnumerateSongs` waits for terminal |
+| Terminal success or failure | Every remaining phase through `SaveSongsDB`, then `Complete` | None |
+| Terminal before database-ready | Terminal dominates and satisfies both milestone waits | None |
+
+The terminal-dominates rule prevents an initialization fault from leaving the
+UI stuck at `SongListDB`. The mapping is table-driven and does not infer
+worker state from elapsed time or display-phase names.
+
 This removes the previous one-completed-phase-per-frame serialization.
 There are no fixed sleeps or minimum phase durations.
 
@@ -296,24 +380,62 @@ Title transition.
 ## Fresh-Database Detection and Initialization
 
 `SongDatabaseService.InitializeDatabaseAsync` records whether the usable
-database was created during the current service initialization.
+database was created during the current service initialization. The
+service—not `SongManager`, the coordinator, or a later row-count query—owns
+the evidence.
 
-A database is fresh for this purpose only when:
+Initialization captures whether the file exists at entry and whether a
+service recovery path successfully deletes it. This covers:
 
-- no database existed when initialization began; or
-- an invalid database was deliberately removed through the existing recovery
-  path and a replacement was successfully created.
+- A path that was absent when initialization entered.
+- An invalid SQLite header deleted inside initialization.
+- A missing or obsolete Unicode/version marker deleted by the current
+  recreation policy.
+- A caught `file is not a database` recovery retry.
+- A corruption or explicit purge performed through
+  `SongDatabaseService.PurgeDatabaseAsync` before initialization enters.
+
+The return value from `EnsureCreatedAsync` is also retained. The fresh flag is
+set only after all required fresh initialization completes and
+`EnsureCreatedAsync` confirms that it created the schema after an absent or
+successfully deleted file. A failed/best-effort deletion that leaves the old
+file in place cannot establish freshness.
+
+The following paths are explicitly nonfresh:
+
+- A pre-existing valid database, even when every import table is empty.
+- An `EnsureCreatedAsync` result indicating that the schema already existed.
+- The `table already exists` recovery catch.
+- A test/service constructor supplied with an already-created schema.
+
+The flag is sticky for the service instance until disposal. A successful
+direct import additionally consumes that instance's one-import eligibility.
+A later application launch creates a new service, observes the now-existing
+file, and therefore cannot select the direct writer unless that launch
+deliberately deletes and recreates the database again.
 
 EF Core `EnsureCreatedAsync` remains the schema authority. The direct writer
 does not own table or index creation.
 
-For a database created during this initialization:
+The current post-`EnsureCreatedAsync` configuration is split into explicit
+fresh and existing paths:
 
-- Run the required SQLite pragmas.
-- Create/update the database-version marker.
-- Do not run legacy additive-column, foreign-key-rebuild, index-repair, or
-  receipt-migration probes against a schema that `EnsureCreatedAsync` just
-  produced from the current model.
+- **Fresh:** apply the current `PRAGMA journal_mode = DELETE` and
+  `PRAGMA case_sensitive_like = OFF` bootstrap behavior, then create/update
+  the `__DatabaseVersion` Unicode marker. The two pragma writes retain their
+  current best-effort behavior; marker failure is fail-fast on this path.
+  Otherwise a populated fresh database would be treated as obsolete and
+  deleted on the next launch.
+- **Existing:** retain the complete current configuration behavior, including
+  validity and Unicode checks, the existing best-effort version-marker
+  handling, and every additive-column, foreign-key-rebuild, index-repair,
+  playback-speed, history, and receipt migration.
+
+The fresh path does not run bookmark, NX-import, performance-history,
+playback-speed, index-repair, or receipt probes against a schema that
+`EnsureCreatedAsync` just produced from the current model. This split is a
+required part of the database-initialization timing thesis, not an optional
+micro-optimization.
 
 For a pre-existing database:
 
@@ -322,9 +444,9 @@ For a pre-existing database:
 - Keep fail-fast behavior for genuine schema errors.
 - Never select the fresh direct writer.
 
-The fresh state is internal service state, not inferred later from a zero row
-count alone. A pre-existing but empty database therefore remains on the
-normal EF path.
+If required fresh schema creation or version marking fails, initialization
+fails and the direct writer is never attempted. The fresh state is not
+inferred later from a zero row count alone.
 
 ## Guarded Direct-SQLite Fresh Import
 
@@ -336,8 +458,9 @@ The direct writer is eligible only when all of these conditions hold:
 - No successful import has committed through this service instance.
 - Songs, charts, and scores are verified empty before writing.
 - The import request represents a complete enumeration batch.
-- The normal import serialization gate grants this operation sole writer
-  ownership.
+- The one-shot coordinator is executing inside `SongManager`'s existing
+  enumeration single-flight and owns the only production import operation for
+  this launch.
 
 If an eligibility guard fails before any mutation, the operation uses the
 existing EF bulk importer.
@@ -396,6 +519,13 @@ EF insert must therefore receive a non-conflicting higher ID. On rollback,
 both table rows and `sqlite_sequence` must remain at their pre-transaction
 state.
 
+Before direct mutation, the writer verifies the EF-created `sqlite_master` DDL
+for all three tables still declares the expected AUTOINCREMENT primary keys.
+A mismatch disables the direct path before mutation and selects EF. Tests
+assert the fresh `EnsureCreatedAsync` DDL directly so a future model/provider
+change produces a focused contract failure rather than a misleading sequence
+assertion.
+
 The implementation must not associate entities by the output order of a
 multi-row `RETURNING` clause; SQLite does not guarantee that order.
 
@@ -403,13 +533,29 @@ multi-row `RETURNING` clause; SQLite does not guarantee that order.
 
 The writer uses:
 
-- One open `SqliteConnection`.
+- One open `SqliteConnection` created by `SongDatabaseService` from the same
+  data source, `Cache=Shared` setting, and 30-second command timeout as the EF
+  path; the writer does not independently format a second connection string.
 - One explicit transaction.
 - One reusable parameterized insert command for songs.
 - One reusable parameterized insert command for charts.
 - One reusable parameterized insert command for scores.
 - The same database column mappings, null semantics, enum values, Boolean
   representation, timestamps, defaults, and maximum lengths as the EF model.
+
+Before beginning the transaction, the writer executes
+`PRAGMA foreign_keys = ON` on that connection and verifies the returned state
+is enabled. Failure disables the direct path before mutation. Rows are
+inserted parent-first in `Songs`, `SongCharts`, then `SongScores` order.
+
+Every INSERT names its complete persisted column set explicitly and never
+depends on table-column order. A single reviewed writer mapping owns those
+column lists and parameter binders. It uses the same provider representation
+as EF for nullable values, integers, reals, Boolean `0`/`1`, integer enums,
+and SQLite date/time text. Tests compare the mapping with the EF-created
+schema and compare every persisted fresh row field-by-field with the EF
+importer. Defaults may be omitted only where the shared fresh plan and a
+schema assertion prove the documented EF default.
 
 Each reusable command is configured once, explicitly prepared after its
 parameters are defined, and then reuses those parameters by rebinding values
@@ -427,6 +573,20 @@ No partial song, chart, or score rows may remain.
 The direct writer reports the same aggregate milestones and returns the same
 `SongBulkImportResult` semantics as the EF importer. Fresh cleanup duration and
 counts are zero because a verified-empty database has no stale rows.
+
+### Fresh benchmark versus warm production path
+
+Accepted benchmark runs use a fresh app-data/database root. They therefore
+exercise `fresh_sqlite` when every freshness, schema, emptiness, and
+single-operation guard passes.
+
+The current force-enumeration value remains hard-coded true and is captured
+unchanged by the coordinator. On an ordinary relaunch with an existing
+database, the application still enumerates, but the import always uses the
+first-wave EF path. Warm launches benefit from coordinator overlap and bounded
+phase draining, not from the direct writer. The direct writer is used again
+only when that launch deliberately deletes or recovers the file and the
+service proves that it created a new schema.
 
 ## Existing-Database Contract
 
@@ -520,30 +680,52 @@ Implementation follows test-driven development.
   resolves the singleton on its worker.
 - Publishes database-ready and terminal completion once.
 - Replays the latest progress snapshot to a late consumer.
+- Publishes domain steps and the specified operation/file/directory/count
+  fields without exposing `StartupPhase`.
+- A terminal result remains authoritative when the latest progress snapshot
+  was observed earlier.
 - Observes an early fault.
 - Cancels and observes on application disposal.
+- Rejects new API actions, cancels and observes the coordinator, then disposes
+  dependent managers in the specified order.
 - Never leaves work running after a terminal result.
 
 ### Readiness-barrier and API tests
 
-- Holds the coordinator inside its writer transaction and verifies that an API
-  request to change from Startup to SongSelect is rejected as not ready.
-- Verifies the rejected request does not queue a later transition.
+- Holds startup before external readiness and verifies every valid external
+  target, including Startup, Title, Config, and SongSelect, returns
+  `StartupNotReady` before queuing.
+- Verifies `UnknownStage` remains distinct from `StartupNotReady`.
+- Verifies JSON-RPC uses `-32004` with
+  `data.reason = "startup_not_ready"` and MCP preserves the code and reason.
+- Verifies the rejected request never enters the main-thread queue and cannot
+  trigger a later transition.
 - Verifies no second song database context opens and no `RootSongs` read or
   enumeration occurs while the coordinator is held.
 - Verifies ordinary `GetGameState` polling remains available and database-free
   during the operation.
-- Allows the same stage-change request after terminal completion.
+- Keeps external changes blocked after coordinator completion but before the
+  Startup frame, summary, and normal Title-transition completion.
+- Allows the same request after `ExternalStageChangesReady` becomes true and
+  defines `Accepted` as queued rather than transition-completed.
+- Verifies the internal Startup-to-Title request bypasses only the external API
+  fence and retains its lifecycle gates.
 
 ### Startup-stage tests
 
 - Attaches to an already running coordinator.
 - Attaches to an already completed coordinator.
 - Reactivation does not start a duplicate operation.
+- Deactivation does not cancel or observe the coordinator; reactivation
+  attaches to the same launch task.
 - The former `SongListDB` and `EnumerateSongs` phase paths cannot launch
   database initialization or song loading.
-- Completed display-only phases drain in one bounded update.
-- An unfinished milestone stops phase draining.
+- Table-driven tests cover every milestone-to-phase row.
+- A nonterminal unfinished database milestone stops at `SongListDB`.
+- Database-ready/nonterminal state drains through `LoadScoreFiles` and stops
+  at `EnumerateSongs`.
+- Terminal success and failure drain through `Complete` in one bounded update.
+- Terminal-before-database-ready dominates both waits and cannot stick.
 - At least one Startup frame renders before Title.
 - Exactly one summary and Title request occur.
 - Retired activations cannot mutate current UI or terminal state.
@@ -559,11 +741,20 @@ Implementation follows test-driven development.
 ### Fresh initialization tests
 
 - A new database records fresh eligibility.
-- A recovered invalid database records fresh eligibility.
-- A pre-existing empty database is not considered fresh.
+- Invalid-header, Unicode/version recreation, caught-not-a-database,
+  corruption-purge, and explicit-purge paths record fresh eligibility only
+  after successful deletion and schema creation.
+- A failed deletion, `table already exists` catch, pre-created test schema,
+  and pre-existing empty database are not considered fresh.
+- `EnsureCreatedAsync` must report schema creation before the fresh flag can
+  become true, and the flag remains sticky for that service instance.
 - A fresh schema skips legacy probes but contains every current column, index,
   foreign key, and version marker.
+- Fresh bootstrap attempts the named pragmas with their current best-effort
+  semantics, treats version-marker failure as fatal, and never executes a
+  legacy probe.
 - A second startup on that database takes the complete existing-database path.
+- A pre-existing empty database reports `persistence_path=ef`.
 - Every existing migration and repair test remains green.
 
 ### Direct-writer tests
@@ -576,6 +767,8 @@ Implementation follows test-driven development.
 - Fresh songs are unbookmarked; represented instruments receive exactly one
   zeroed 100-percent score; no speed variants, performance history, or
   score-save receipts are created.
+- Fresh `sqlite_master` DDL proves AUTOINCREMENT primary keys for Songs,
+  SongCharts, and SongScores before sequence assertions run.
 - Committed explicit IDs advance every affected `sqlite_sequence` entry to at
   least the inserted maximum.
 - A later EF insert generates a higher, non-conflicting ID.
@@ -585,6 +778,11 @@ Implementation follows test-driven development.
 - Injected song, chart, and score command failures each roll back all tables.
 - A failed guard selects EF before mutation.
 - A command/schema failure does not silently retry through EF.
+- The direct connection uses the service-owned data source, `Cache=Shared`,
+  and command timeout, and verifies foreign-key enforcement before mutation.
+- Schema-contract tests cover every explicit insert column, parent-first
+  foreign-key order, null, Boolean, enum, date/time, integer, and real
+  conversion.
 
 ### Regression verification
 
@@ -635,25 +833,43 @@ Acceptance requires all of the following:
   percent.
 - Every accepted second-wave run has 100 exact chart paths.
 - Every accepted second-wave run has 100 charts and 27 songs.
+- Every accepted second-wave run reports
+  `persistence_path=fresh_sqlite`.
 - Every accepted run emits exactly one summary.
 - No correctness or lifecycle acceptance gate fails.
 
 Coordinator, overlap, stage-wait, and persistence timings are diagnostic. They
 do not replace or relax the external wall-time gate.
 
+If the second-wave median misses either performance gate, the report retains
+and records the failed result and implementation work stops without changing
+the gate or broadening this design. Any further optimization requires a new
+measurement-based diagnosis and a separately reviewed design. Cold EF-model
+work, runtime packaging, ReadyToRun, and AOT are not pre-authorized as part of
+this wave.
+
+Intermediate overlap-only or overlap-plus-drain builds may be measured and
+retained as disclosed diagnostics under the existing exclusion rules. They
+are never substituted for the predetermined acceptance samples.
+
 ## Implementation Sequence
 
 The later implementation plan will split work into independently reviewed
 tasks:
 
-1. Coordinator contracts and one-shot lifecycle tests.
-2. `BaseGame` early-start ownership, captured `SongManager`, game-API readiness
-   barrier, and disposal.
-3. `StartupStage` milestone consumption, legacy-launcher removal, early-fault
-   lifecycle, bounded phase draining, and telemetry.
-4. Fresh-database initialization state and migration-probe bypass.
-5. Pure fresh-import planning and direct prepared-command writer.
-6. Parity, rollback, ID, migration, and full-suite verification.
+1. Named coordinator request/progress/result contracts and one-shot lifecycle
+   tests.
+2. `BaseGame` early-start ownership, captured `SongManager`, typed external
+   stage-readiness/JSON-RPC contract, and coordinator-first disposal.
+3. `StartupStage` table-driven milestone consumption, legacy-launcher and
+   load-owning-CTS removal, early-fault lifecycle, bounded phase draining, and
+   telemetry.
+4. Service-owned fresh-database evidence, strict fresh bootstrap, and
+   existing-probe split.
+5. Shared fresh-import planning, guarded direct writer, explicit schema
+   mapping, connection, foreign-key, and ID contracts.
+6. Parity, rollback, DDL/sequence, migration, lifecycle, and full-suite
+   verification.
 7. Balanced benchmark and report update.
 
 The implementation plan will use subagent-driven development with
