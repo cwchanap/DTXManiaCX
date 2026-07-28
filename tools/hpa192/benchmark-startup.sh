@@ -10,7 +10,9 @@ run="${4:?usage: benchmark-startup.sh GAME_DIR CORPUS LABEL RUN_ID}"
 game_dll="$game_dir/DTXMania.Game.Mac.dll"
 result_root="$repo_root/TestResults/hpa-192/$label"
 api_key="hpa-192-benchmark-key"
-api_port=48912
+api_port="$(rtk python3 -c \
+    'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')"
+launch_token="hpa192-$label-$run"
 lock_path="${TMPDIR:-/tmp}/hpa-192-benchmark-startup.lock"
 lock_acquired=false
 run_root=""
@@ -106,13 +108,19 @@ start="$(perl -MTime::HiRes=time -e 'printf "%.6f", time')"
 (
     cd "$game_dir"
     DTXMANIA_APPDATA_ROOT="$appdata" \
-        DTXMANIA_LAUNCH_TOKEN="hpa192-$label-$run" \
+        DTXMANIA_LAUNCH_TOKEN="$launch_token" \
         dotnet "$game_dll"
 ) >"$stdout" 2>"$stderr" &
 game_pid=$!
 
 reached_title=false
 for attempt in $(seq 1 1200); do
+    health="$(curl -fsS \
+        "http://127.0.0.1:$api_port/health" 2>/dev/null || true)"
+    if [[ "$health" != *"\"launchToken\":\"$launch_token\""* ]]; then
+        sleep 0.05
+        continue
+    fi
     state="$(curl -fsS \
         -H "X-Api-Key: $api_key" \
         -H 'Content-Type: application/json' \
@@ -132,6 +140,29 @@ if [[ "$reached_title" != true ]]; then
     printf 'run %s did not reach Title\n' "$run" >&2
     exit 1
 fi
+
+database="$appdata/songs.db"
+chart_paths="$result_root/run-$run.chart-paths.txt"
+expected_chart_paths="$run_root/expected-chart-paths.txt"
+test -f "$database"
+rtk sqlite3 -noheader "$database" \
+    'SELECT FilePath FROM SongCharts;' |
+    LC_ALL=C sort >"$chart_paths"
+rtk rg --files "$corpus" |
+    rtk rg -i '\.(dtx|gda|g2d|bms|bme|bml)$' |
+    LC_ALL=C sort >"$expected_chart_paths"
+if ! rtk diff -u "$expected_chart_paths" "$chart_paths"; then
+    printf 'run %s imported chart paths differ from the frozen corpus\n' "$run" >&2
+    exit 1
+fi
+chart_count="$(rtk sqlite3 -noheader "$database" \
+    'SELECT COUNT(*) FROM SongCharts;')"
+song_count="$(rtk sqlite3 -noheader "$database" \
+    'SELECT COUNT(*) FROM Songs;')"
+database_hash="$(rtk shasum -a 256 "$database" | rtk awk '{print $1}')"
+printf 'label=%s run=%s charts=%s songs=%s database_sha256=%s\n' \
+    "$label" "$run" "$chart_count" "$song_count" "$database_hash" |
+    tee "$result_root/run-$run.database.txt"
 
 wall_ms="$(perl -e 'printf "%.0f", 1000 * ($ARGV[1] - $ARGV[0])' "$start" "$end")"
 summary_count="$(rtk awk '/^HPA192_STARTUP / { count++ } END { print count + 0 }' "$stdout")"
