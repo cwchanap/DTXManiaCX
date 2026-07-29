@@ -1,13 +1,130 @@
 using System.Collections.Generic;
+using System.IO;
 using DTXMania.Game;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Test.TestData;
 
 namespace DTXMania.Test.Stage;
 
+[CollectionDefinition("StartupCriticalPathEnvironment", DisableParallelization = true)]
+public sealed class StartupCriticalPathEnvironmentCollection;
+
 [Trait("Category", "Unit")]
+[Collection("StartupCriticalPathEnvironment")]
 public class StartupTimingTraceTests
 {
+    private const string CriticalPathVariable = "HPA192_CRITICAL_PATH";
+    private const string ExitAfterCriticalPathVariable = "HPA192_EXIT_AFTER_CRITICAL_PATH";
+
+    [Fact]
+    public void StartProcess_WhenCriticalPathFlagMissing_ShouldLeaveCompanionDisabled()
+    {
+        var previousCriticalPath = Environment.GetEnvironmentVariable(CriticalPathVariable);
+        var previousExit = Environment.GetEnvironmentVariable(ExitAfterCriticalPathVariable);
+
+        try
+        {
+            Environment.SetEnvironmentVariable(CriticalPathVariable, null);
+            Environment.SetEnvironmentVariable(ExitAfterCriticalPathVariable, "1");
+
+            var trace = StartupTimingTrace.StartProcess();
+
+            Assert.Null(trace.CriticalPathTrace);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(CriticalPathVariable, previousCriticalPath);
+            Environment.SetEnvironmentVariable(ExitAfterCriticalPathVariable, previousExit);
+        }
+    }
+
+    [Fact]
+    public void StartProcess_WhenCriticalPathFlagIsOne_ShouldShareEntryClocksWithCompanion()
+    {
+        var previousCriticalPath = Environment.GetEnvironmentVariable(CriticalPathVariable);
+        var previousExit = Environment.GetEnvironmentVariable(ExitAfterCriticalPathVariable);
+
+        try
+        {
+            Environment.SetEnvironmentVariable(CriticalPathVariable, "1");
+            Environment.SetEnvironmentVariable(ExitAfterCriticalPathVariable, "1");
+            var processTrace = StartupTimingTrace.StartProcess();
+            var clock = new FakeMonotonicClock(123);
+            var wallClock = new FakeUtcMicrosecondClock(456);
+
+            var deterministicTrace = StartupTimingTrace.Start(
+                clock,
+                wallClock,
+                enableCriticalPath: true,
+                exitAfterCriticalPath: true);
+
+            Assert.NotNull(processTrace.CriticalPathTrace);
+            Assert.True(processTrace.CriticalPathTrace.ExitAfterPublication);
+            Assert.NotNull(deterministicTrace.CriticalPathTrace);
+            Assert.Equal(1, clock.CallCount);
+            Assert.Equal(1, wallClock.CallCount);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(CriticalPathVariable, previousCriticalPath);
+            Environment.SetEnvironmentVariable(ExitAfterCriticalPathVariable, previousExit);
+        }
+    }
+
+    [Fact]
+    public void Format_WhenCriticalPathEnabled_ShouldKeepCompatibilityLineByteForByte()
+    {
+        var trace = StartupTimingTrace.Start(
+            new FakeMonotonicClock(0, 100, 400, 500, 520, 900, 1900),
+            new FakeUtcMicrosecondClock(10_000_000, 11_900_000),
+            enableCriticalPath: true);
+
+        trace.MarkConfigLoaded();
+        trace.MarkLoadContentComplete();
+        trace.MarkStartupActivated();
+        trace.MarkStartupFirstDraw();
+        trace.MarkSummaryAndTitleRequested();
+        trace.MarkTitleCompleted();
+
+        Assert.Equal(
+            "HPA192_TIMING entry_to_config_ms=100 " +
+            "config_to_load_content_ms=300 " +
+            "load_content_to_startup_ms=100 " +
+            "startup_to_first_draw_ms=20 " +
+            "startup_to_summary_ms=400 " +
+            "summary_to_title_ms=1000 " +
+            "entry_to_title_ms=1900 " +
+            "entry_unix_us=10000000 " +
+            "title_unix_us=11900000",
+            trace.TryFormatCompletedLine());
+    }
+
+    [Fact]
+    public void Disabled_WhenExitFlagIsOne_ShouldPublishNeitherCompanionPrefix()
+    {
+        var previousCriticalPath = Environment.GetEnvironmentVariable(CriticalPathVariable);
+        var previousExit = Environment.GetEnvironmentVariable(ExitAfterCriticalPathVariable);
+
+        try
+        {
+            Environment.SetEnvironmentVariable(CriticalPathVariable, null);
+            Environment.SetEnvironmentVariable(ExitAfterCriticalPathVariable, "1");
+            using var writer = new StringWriter();
+
+            var trace = StartupTimingTrace.Disabled;
+            var published = trace.CriticalPathTrace?.TryPublishTerminal(writer) ?? false;
+
+            Assert.False(published);
+            Assert.DoesNotContain("HPA192_CRITICAL_PATH", writer.ToString());
+            Assert.DoesNotContain("HPA192_CRITICAL_PATH_FAILURE", writer.ToString());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(CriticalPathVariable, previousCriticalPath);
+            Environment.SetEnvironmentVariable(ExitAfterCriticalPathVariable, previousExit);
+        }
+    }
+
     [Fact]
     public void Format_WhenAllMilestonesRecorded_ShouldEmitExactIntervalsOnce()
     {
@@ -126,7 +243,13 @@ public class StartupTimingTraceTests
 
         public long TimestampFrequency => 1_000;
 
-        public long GetTimestamp() => _milliseconds.Dequeue();
+        public int CallCount { get; private set; }
+
+        public long GetTimestamp()
+        {
+            CallCount++;
+            return _milliseconds.Dequeue();
+        }
     }
 
     private sealed class FakeUtcMicrosecondClock : IUtcMicrosecondClock

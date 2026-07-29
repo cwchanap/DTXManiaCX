@@ -42,12 +42,16 @@ internal sealed class StartupTimingTrace
     private StartupTimingTrace(
         IMonotonicClock clock,
         IUtcMicrosecondClock wallClock,
-        bool enabled)
+        bool enabled,
+        StartupCriticalPathTrace? criticalPathTrace = null)
     {
         _clock = clock;
         _wallClock = wallClock;
         _enabled = enabled;
+        CriticalPathTrace = criticalPathTrace;
     }
+
+    internal StartupCriticalPathTrace? CriticalPathTrace { get; }
 
     internal static StartupTimingTrace Disabled { get; } = new(
         new StopwatchMonotonicClock(),
@@ -56,18 +60,45 @@ internal sealed class StartupTimingTrace
 
     internal static StartupTimingTrace StartProcess()
     {
-        return Start(new StopwatchMonotonicClock(), new UtcMicrosecondClock());
+        var enableCriticalPath =
+            Environment.GetEnvironmentVariable("HPA192_CRITICAL_PATH") == "1";
+        var exitAfterCriticalPath =
+            enableCriticalPath &&
+            Environment.GetEnvironmentVariable("HPA192_EXIT_AFTER_CRITICAL_PATH") == "1";
+        return Start(
+            new StopwatchMonotonicClock(),
+            new UtcMicrosecondClock(),
+            enableCriticalPath,
+            exitAfterCriticalPath);
     }
 
-    internal static StartupTimingTrace Start(IMonotonicClock clock, IUtcMicrosecondClock wallClock)
+    internal static StartupTimingTrace Start(
+        IMonotonicClock clock,
+        IUtcMicrosecondClock wallClock,
+        bool enableCriticalPath = false,
+        bool exitAfterCriticalPath = false)
     {
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(wallClock);
 
-        var trace = new StartupTimingTrace(clock, wallClock, enabled: true);
-        trace._timestamps[(int)StartupTimingMilestone.ProcessEntry] = clock.GetTimestamp();
+        var entryTimestamp = clock.GetTimestamp();
+        var entryUnixMicroseconds = wallClock.GetUnixMicroseconds();
+        var criticalPathTrace = enableCriticalPath
+            ? StartupCriticalPathTrace.Start(
+                clock,
+                wallClock,
+                entryTimestamp,
+                entryUnixMicroseconds,
+                exitAfterCriticalPath)
+            : null;
+        var trace = new StartupTimingTrace(
+            clock,
+            wallClock,
+            enabled: true,
+            criticalPathTrace);
+        trace._timestamps[(int)StartupTimingMilestone.ProcessEntry] = entryTimestamp;
         trace._recorded[(int)StartupTimingMilestone.ProcessEntry] = true;
-        trace._entryUnixMicroseconds = wallClock.GetUnixMicroseconds();
+        trace._entryUnixMicroseconds = entryUnixMicroseconds;
         return trace;
     }
 
