@@ -891,9 +891,12 @@ HPA192_CRITICAL_PATH outcome=success error=none entry_unix_us=1785357822503205 t
 
 Every cell below is `minimum / median / maximum`. Values are milliseconds
 unless the metric is explicitly a count. Each scenario has five accepted
-samples. Each raw sample reconciles its exclusive partition exactly; medians
-of independently sorted child intervals are descriptive and are not expected
-to add to the independently sorted enclosing median.
+samples. Same-source exclusive partitions reconcile exactly per raw sample.
+Enumeration combines rounded `HPA192_STARTUP` child durations with the
+`HPA192_CRITICAL_PATH` residual and reconciles within the design-approved
+0–4 ms cross-line bound; the observed differences span 0–4 ms. Medians of
+independently sorted child intervals are descriptive and are not expected to
+add to the independently sorted enclosing median.
 
 The accepted endpoint and five top-level exclusive intervals were:
 
