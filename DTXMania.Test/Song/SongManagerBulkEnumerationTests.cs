@@ -73,6 +73,139 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
     }
 
     [Fact]
+    public async Task EnumerateAndImportSongsAsync_PublicOverload_ShouldUseNullObserver()
+    {
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+
+        var result = await _manager.EnumerateAndImportSongsAsync(
+            new[] { _songsRoot },
+            progress: null,
+            CancellationToken.None);
+
+        Assert.True(result.Batch.IsComplete);
+    }
+
+    [Fact]
+    public async Task EnumerateAndImportSongsAsync_WhenSuccessful_ShouldNotifyAfterEndEnumeration()
+    {
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        var sourceWasCleared = false;
+        var observer = new RecordingObserver((_, _) =>
+        {
+            sourceWasCleared =
+                ReflectionHelpers.GetPrivateField<CancellationTokenSource?>(
+                    _manager,
+                    "_enumCancellation") == null;
+        });
+
+        var result = await _manager.EnumerateAndImportSongsAsync(
+            new[] { _songsRoot },
+            progress: null,
+            CancellationToken.None,
+            observer);
+
+        Assert.Equal(1, observer.TerminalCount);
+        Assert.Same(result, observer.Result);
+        Assert.Equal(
+            StartupOperationOutcome.Success,
+            observer.Outcome);
+        Assert.True(sourceWasCleared);
+    }
+
+    [Fact]
+    public async Task EnumerateAndImportSongsAsync_WhenFaulted_ShouldNotifyFailureAfterCleanup()
+    {
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        WriteChart("Songs/Failure/chart.dtx", "Failure", 50);
+        var expected = new IOException("persistence unavailable");
+        _manager.ImportSongsCoreAsync = (_, _, _, _) =>
+            Task.FromException<SongBulkImportResult>(expected);
+        var sourceWasCleared = false;
+        var observer = new RecordingObserver((_, _) =>
+        {
+            sourceWasCleared =
+                ReflectionHelpers.GetPrivateField<CancellationTokenSource?>(
+                    _manager,
+                    "_enumCancellation") == null;
+        });
+
+        var actual = await Assert.ThrowsAsync<IOException>(() =>
+            _manager.EnumerateAndImportSongsAsync(
+                new[] { _songsRoot },
+                progress: null,
+                CancellationToken.None,
+                observer));
+
+        Assert.Same(expected, actual);
+        Assert.Equal(1, observer.TerminalCount);
+        Assert.Null(observer.Result);
+        Assert.Equal(
+            StartupOperationOutcome.Failure,
+            observer.Outcome);
+        Assert.True(sourceWasCleared);
+    }
+
+    [Fact]
+    public async Task EnumerateAndImportSongsAsync_WhenCancelled_ShouldNotifyCancellationAfterCleanup()
+    {
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        WriteChart("Songs/Cancelled/chart.dtx", "Cancelled", 50);
+        using var cancellation = new CancellationTokenSource();
+        var progress = new InlineProgress<EnumerationProgress>(
+            _ => cancellation.Cancel());
+        var sourceWasCleared = false;
+        var observer = new RecordingObserver((_, _) =>
+        {
+            sourceWasCleared =
+                ReflectionHelpers.GetPrivateField<CancellationTokenSource?>(
+                    _manager,
+                    "_enumCancellation") == null;
+        });
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            _manager.EnumerateAndImportSongsAsync(
+                new[] { _songsRoot },
+                progress,
+                cancellation.Token,
+                observer));
+
+        Assert.Equal(1, observer.TerminalCount);
+        Assert.Null(observer.Result);
+        Assert.Equal(
+            StartupOperationOutcome.Cancellation,
+            observer.Outcome);
+        Assert.True(sourceWasCleared);
+    }
+
+    [Fact]
+    public async Task EnumerateAndImportSongsAsync_WhenObserverThrows_ShouldPreserveResultOrException()
+    {
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        var observer = new ThrowingObserver();
+
+        var result = await _manager.EnumerateAndImportSongsAsync(
+            new[] { _songsRoot },
+            progress: null,
+            CancellationToken.None,
+            observer);
+
+        Assert.True(result.Batch.IsComplete);
+
+        var expected = new IOException("persistence unavailable");
+        _manager.ImportSongsCoreAsync = (_, _, _, _) =>
+            Task.FromException<SongBulkImportResult>(expected);
+
+        var actual = await Assert.ThrowsAsync<IOException>(() =>
+            _manager.EnumerateAndImportSongsAsync(
+                new[] { _songsRoot },
+                progress: null,
+                CancellationToken.None,
+                observer));
+
+        Assert.Same(expected, actual);
+    }
+
+    [Fact]
     public async Task EnumerateAndImportSongsAsync_WithoutDatabase_ShouldFailBeforeTraversal()
     {
         var traversalCalls = 0;
@@ -928,5 +1061,55 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
     private sealed class InlineProgress<T>(Action<T> report) : IProgress<T>
     {
         public void Report(T value) => report(value);
+    }
+
+    private sealed class RecordingObserver(
+        Action<SongEnumerationResult?, StartupOperationOutcome>? onTerminal)
+        : IStartupSongLoadTimingObserver
+    {
+        public int TerminalCount { get; private set; }
+        public SongEnumerationResult? Result { get; private set; }
+        public StartupOperationOutcome? Outcome { get; private set; }
+
+        public void BeginDatabaseSpan(StartupDatabaseTimingSpan span)
+        {
+        }
+
+        public void EndDatabaseSpan(StartupDatabaseTimingSpan span)
+        {
+        }
+
+        public void RecordUnexpectedTableExistsPath()
+        {
+        }
+
+        public void RecordEnumerationTerminal(
+            SongEnumerationResult? result,
+            StartupOperationOutcome outcome)
+        {
+            TerminalCount++;
+            Result = result;
+            Outcome = outcome;
+            onTerminal?.Invoke(result, outcome);
+        }
+    }
+
+    private sealed class ThrowingObserver : IStartupSongLoadTimingObserver
+    {
+        public void BeginDatabaseSpan(StartupDatabaseTimingSpan span) =>
+            throw new InvalidOperationException("observer begin failure");
+
+        public void EndDatabaseSpan(StartupDatabaseTimingSpan span) =>
+            throw new InvalidOperationException("observer end failure");
+
+        public void RecordUnexpectedTableExistsPath() =>
+            throw new InvalidOperationException(
+                "observer table-exists failure");
+
+        public void RecordEnumerationTerminal(
+            SongEnumerationResult? result,
+            StartupOperationOutcome outcome) =>
+            throw new InvalidOperationException(
+                "observer terminal failure");
     }
 }

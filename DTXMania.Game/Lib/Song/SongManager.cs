@@ -249,6 +249,17 @@ namespace DTXMania.Game.Lib.Song
         /// </summary>
         public async Task<bool> InitializeDatabaseServiceAsync(string? databasePath = null, bool purgeDatabaseFirst = false)
         {
+            return await InitializeDatabaseServiceAsync(
+                databasePath,
+                purgeDatabaseFirst,
+                observer: null).ConfigureAwait(false);
+        }
+
+        internal async Task<bool> InitializeDatabaseServiceAsync(
+            string? databasePath,
+            bool purgeDatabaseFirst,
+            IStartupSongLoadTimingObserver? observer)
+        {
             try
             {
                 // Initialize and capture a stable reference under lock to avoid races with Clear()
@@ -259,7 +270,21 @@ namespace DTXMania.Game.Lib.Song
                             ? Utilities.AppPaths.GetSongsDatabasePath()
                             : databasePath;
 
-                        _databaseService ??= new SongDatabaseService(resolvedDatabasePath);
+                    if (_databaseService == null)
+                    {
+                        observer.TryBeginDatabaseSpan(
+                            StartupDatabaseTimingSpan.ServiceSetup);
+                        try
+                        {
+                            _databaseService =
+                                new SongDatabaseService(resolvedDatabasePath);
+                        }
+                        finally
+                        {
+                            observer.TryEndDatabaseSpan(
+                                StartupDatabaseTimingSpan.ServiceSetup);
+                        }
+                    }
                     db = _databaseService;
                 }
 
@@ -270,25 +295,54 @@ namespace DTXMania.Game.Lib.Song
                 }
 
                 // Check for database corruption first
-                bool isDatabaseCorrupted = await IsDatabaseCorruptedAsync(db).ConfigureAwait(false);
+                bool isDatabaseCorrupted;
+                observer.TryBeginDatabaseSpan(
+                    StartupDatabaseTimingSpan.CorruptionProbe);
+                try
+                {
+                    isDatabaseCorrupted = await IsDatabaseCorruptedAsync(db)
+                        .ConfigureAwait(false);
+                }
+                finally
+                {
+                    observer.TryEndDatabaseSpan(
+                        StartupDatabaseTimingSpan.CorruptionProbe);
+                }
 
                 // Purge the database only if explicitly requested OR if corruption is detected
+                bool shouldPurge;
                 if (purgeDatabaseFirst)
                 {
                     Debug.WriteLine("SongManager: Purging existing database for fresh rebuild (explicitly requested)");
-                    await db.PurgeDatabaseAsync().ConfigureAwait(false);
+                    shouldPurge = true;
                 }
                 else if (isDatabaseCorrupted)
                 {
                     Debug.WriteLine("SongManager: Database corruption detected, purging corrupted database");
-                    await db.PurgeDatabaseAsync().ConfigureAwait(false);
+                    shouldPurge = true;
                 }
                 else
                 {
                     Debug.WriteLine("SongManager: Database appears healthy, proceeding with existing database");
+                    shouldPurge = false;
                 }
 
-                await db.InitializeDatabaseAsync().ConfigureAwait(false);
+                if (shouldPurge)
+                {
+                    observer.TryBeginDatabaseSpan(
+                        StartupDatabaseTimingSpan.InvalidRecovery);
+                    try
+                    {
+                        await db.PurgeDatabaseAsync().ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        observer.TryEndDatabaseSpan(
+                            StartupDatabaseTimingSpan.InvalidRecovery);
+                    }
+                }
+
+                await db.InitializeDatabaseAsync(observer).ConfigureAwait(false);
                 Debug.WriteLine("SongManager: Database service initialized successfully");
                 return true;
             }
@@ -598,22 +652,39 @@ namespace DTXMania.Game.Lib.Song
             IProgress<EnumerationProgress>? progress = null,
             CancellationToken cancellationToken = default)
         {
+            return EnumerateAndImportSongsAsync(
+                searchPaths,
+                progress,
+                cancellationToken,
+                observer: null);
+        }
+
+        internal Task<SongEnumerationResult> EnumerateAndImportSongsAsync(
+            string[] searchPaths,
+            IProgress<EnumerationProgress>? progress,
+            CancellationToken cancellationToken,
+            IStartupSongLoadTimingObserver? observer)
+        {
             return EnumerateAndImportSongsCoreAsync(
                 searchPaths,
                 progress,
-                cancellationToken);
+                cancellationToken,
+                observer);
         }
 
         private async Task<SongEnumerationResult> EnumerateAndImportSongsCoreAsync(
             string[] searchPaths,
             IProgress<EnumerationProgress>? progress,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            IStartupSongLoadTimingObserver? observer)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var database = GetDatabaseServiceSnapshot()
                 ?? throw new InvalidOperationException(
                     "Song database is not initialized.");
             var linked = BeginEnumeration(cancellationToken);
+            SongEnumerationResult? result = null;
+            var outcome = StartupOperationOutcome.Failure;
             try
             {
                 var batch = await BuildEnumerationBatchAsync(
@@ -640,14 +711,22 @@ namespace DTXMania.Game.Lib.Song
                 hierarchy.Stop();
                 PublishEnumeration(batch);
 
-                return new SongEnumerationResult(
+                result = new SongEnumerationResult(
                     batch,
                     import,
                     hierarchy.Elapsed);
+                outcome = StartupOperationOutcome.Success;
+                return result;
+            }
+            catch (OperationCanceledException)
+            {
+                outcome = StartupOperationOutcome.Cancellation;
+                throw;
             }
             finally
             {
                 EndEnumeration(linked);
+                observer.TryRecordEnumerationTerminal(result, outcome);
             }
         }
 
