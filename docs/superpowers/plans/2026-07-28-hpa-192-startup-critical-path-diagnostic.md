@@ -1702,6 +1702,22 @@ the predetermined 15-slot sequence.
   - record SHA-256 values for the game DLL, runner, summarizer, corpus
     manifest, System manifest, fixed `Config.ini`, and empty manifest.
 
+  Enforce the canonical phase layout before any result write or launch:
+
+  - permit the intentional repository ancestry;
+  - reject equality or ancestry overlap between writable `RESULT_ROOT` and
+    either `CORPUS` or the repository `System` tree;
+  - require `GAME_DIR` to be disjoint from `RESULT_ROOT`, except for the
+    approved exact physical child `GAME_DIR=RESULT_ROOT/build`;
+  - for `prepare-seed`, permit only that immutable `build` child and the exact
+    preceding-task control files `fixed-inputs.txt` and `environment.txt`;
+  - for `matrix`, additionally permit only the complete Task 9 fixed-input and
+    seed layout, with exact nested control-directory entries; and
+  - reject unexpected entries, nested aliases, and symlink aliases before
+    any result write or process launch.
+
+  The runner never writes the fixed build or preceding-task control files.
+
   Write the fixed config with:
 
   ```ini
@@ -1745,9 +1761,11 @@ the predetermined 15-slot sequence.
   `timed_out`, `forced_cleanup`, and `game_api_enabled` are exactly `0` or
   `1`, and every hash is lowercase 64-hex SHA-256.
 
-  A no-line process has no in-process deadline. The runner enforces a 60-second
-  external timeout, preserves stdout/stderr and metadata, then terminates only
-  that validated PID for cleanup and rejects the attempt.
+  A no-line process has no in-process deadline. The runner fixes its external
+  deadline at `launch_start_monotonic_us + 60,000,000`, reads
+  `CLOCK_MONOTONIC` on every poll so poll overhead cannot extend the bound,
+  preserves stdout/stderr and metadata, then terminates only that validated PID
+  for cleanup and rejects the attempt.
 
 - [ ] **Step 4: Implement clean seed preparation**
 
@@ -1791,8 +1809,10 @@ the predetermined 15-slot sequence.
   Use small synthetic executable scripts to cover success publication followed
   by zero exit, failure publication, no-line timeout, line followed by stuck
   process, nonzero post-publication exit, PID-scoped cleanup, no HTTP command,
-  no screenshot command, three-attempt stop, same-scenario replacement, and
-  the exact 15-slot order.
+  no screenshot command, three-attempt stop, same-scenario replacement, the
+  exact 15-slot order, the approved `RESULT_ROOT/build` layout, unexpected
+  phase entries, canonical input/output overlap and aliases, and a stepped
+  fake monotonic clock whose polling work cannot extend the deadline.
 
 - [ ] **Step 7: Run all shell tests**
 
@@ -1961,9 +1981,10 @@ for seed creation and all 15 measured slots.
   rtk git rev-parse HEAD
   ```
 
-  Expected: one successful build. Record the exact commit and DLL hash in
-  `$fixed_root/fixed-inputs.txt`. Do not rebuild between seed preparation and
-  the last matrix slot.
+  Expected: one successful build. Record the exact commit and DLL hash in the
+  only Task 10 control file, `$fixed_root/fixed-inputs.txt`. The later runner
+  treats `$fixed_root/build` as immutable and never writes it. Do not rebuild
+  between seed preparation and the last matrix slot.
 
 ### Task 11: Prepare the Seed and Collect the Fifteen Valid Samples
 
@@ -2003,9 +2024,11 @@ local; their hashes and machine-readable evidence are copied into the report.
   rtk dotnet --info
   ```
 
-  Record the exact hardware, OS, architecture, SDK, and net8 runtime in an
-  environment artifact. Do not proceed if the worktree is dirty or the fixed
-  DLL hash differs from Task 10.
+  Record the exact hardware, OS, architecture, SDK, and net8 runtime in the
+  exact Task 11 control file `$result_root/environment.txt`. At
+  `prepare-seed`, the strict result-root allowlist therefore contains only
+  `build`, `fixed-inputs.txt`, and `environment.txt`. Do not proceed if the
+  worktree is dirty or the fixed DLL hash differs from Task 10.
 
 - [ ] **Step 2: Prepare and validate the excluded setup seed**
 
