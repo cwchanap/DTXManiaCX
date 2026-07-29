@@ -424,10 +424,23 @@ if [[ -f "$state" ]]; then
 fi
 count=$((count + 1))
 printf '%s\n' "$count" >"$state"
-if (( count % 2 == 1 )); then
-    printf '%s' "$first"
+if [[ "$state" == *.monotonic &&
+      -n "${HPA192_FAKE_CLOCK_STEP_US:-}" ]]; then
+    printf '%s' \
+        "$((first + (count - 1) * HPA192_FAKE_CLOCK_STEP_US))"
+elif [[ "$state" == *.monotonic ]]; then
+    unix_count="$(cat "$HPA192_FAKE_CLOCK_STATE.unix")"
+    if (( unix_count % 2 == 0 )); then
+        printf '%s' "$second"
+    else
+        printf '%s' "$first"
+    fi
 else
-    printf '%s' "$second"
+    if (( count % 2 == 1 )); then
+        printf '%s' "$first"
+    else
+        printf '%s' "$second"
+    fi
 fi
 FAKE_PERL
 
@@ -516,6 +529,7 @@ run_fixture_runner() {
         HPA192_FAKE_SEQUENCE="$sequence" \
         HPA192_FAKE_STATE="$fixture_state" \
         HPA192_FAKE_CLOCK_STATE="$fixture_clock_state" \
+        HPA192_FAKE_CLOCK_STEP_US="${HPA192_FAKE_CLOCK_STEP_US:-}" \
         HPA192_FAKE_RAW="$fixture_raw" \
         HPA192_FAKE_CHART_PATHS="$fixture_root/expected-chart-paths.txt" \
         HPA192_FAKE_FORBIDDEN="$fixture_forbidden" \
@@ -554,6 +568,170 @@ assert_no_forbidden_commands() {
         fail "runner invoked a forbidden HTTP or screenshot command"
 }
 
+layout_failures=()
+
+layout_failure() {
+    layout_failures+=("$1")
+}
+
+assert_rejected_before_launch_without_tree_changes() {
+    local description="$1"
+    local tree="$2"
+    local before="$fixture_root/$description.before.tsv"
+    local after="$fixture_root/$description.after.tsv"
+
+    build_fixture_manifest "$tree" "$before"
+    if run_fixture_runner prepare-seed success \
+        >"$fixture_root/prepare.stdout" 2>"$fixture_root/prepare.stderr"; then
+        layout_failure "$description layout was accepted"
+    elif [[ -s "$fixture_launch_log" ]]; then
+        layout_failure "$description layout was rejected only after launch"
+    fi
+    build_fixture_manifest "$tree" "$after"
+    cmp -s "$before" "$after" ||
+        layout_failure "$description layout was written before rejection"
+}
+
+run_runner_layout_tests() {
+    local selection="${1:-all}"
+    local failure
+
+    layout_failures=()
+
+    # Break caught: rejecting the approved Task 10/11 layout merely because
+    # the immutable fixed build and control records predate seed preparation.
+    if [[ "$selection" == all || "$selection" == planned ]]; then
+        create_runner_fixture planned-layout
+        mv "$fixture_game" "$fixture_result/build"
+        fixture_game="$fixture_result/build"
+        printf 'commit=fixture\nsha256=fixture\n' \
+            >"$fixture_result/fixed-inputs.txt"
+        printf 'machine=fixture\n' >"$fixture_result/environment.txt"
+        if ! run_fixture_runner prepare-seed success \
+            >"$fixture_root/prepare.stdout" 2>"$fixture_root/prepare.stderr"; then
+            layout_failure "planned RESULT_ROOT/build layout was rejected"
+        fi
+    fi
+
+    # Break caught: treating arbitrary preexisting result-root entries as
+    # harmless even though they are outside the prepare-seed phase contract.
+    if [[ "$selection" == all || "$selection" == rejections ]]; then
+        create_runner_fixture unexpected-entry
+        printf 'unowned\n' >"$fixture_result/unexpected.bin"
+        if run_fixture_runner prepare-seed success \
+            >"$fixture_root/prepare.stdout" 2>"$fixture_root/prepare.stderr"; then
+            layout_failure "unexpected result-root entry was accepted"
+        elif [[ -s "$fixture_launch_log" ]]; then
+            layout_failure \
+                "unexpected result-root entry was rejected after launch"
+        fi
+    fi
+
+    # Break caught: allowing extra entries inside a phase-owned control
+    # directory even though the matrix contract names its complete contents.
+    if [[ "$selection" == all || "$selection" == nested ]]; then
+        create_runner_fixture nested-unexpected-entry
+        if ! run_fixture_runner prepare-seed success \
+            >"$fixture_root/prepare.stdout" 2>"$fixture_root/prepare.stderr"; then
+            layout_failure "nested-entry seed preparation failed"
+        else
+            printf 'unowned\n' >"$fixture_result/configs/unexpected.ini"
+            reset_runner_fixture
+            if run_fixture_runner matrix failure \
+                >"$fixture_root/matrix.stdout" \
+                2>"$fixture_root/matrix.stderr"; then
+                layout_failure "unexpected nested phase entry was accepted"
+            elif [[ -s "$fixture_launch_log" ]]; then
+                layout_failure \
+                    "unexpected nested phase entry was rejected after launch"
+            fi
+        fi
+    fi
+
+    # Break caught: allowing the writable result root to contain an
+    # unapproved game directory instead of the exact immutable build child.
+    if [[ "$selection" == all || "$selection" == rejections ]]; then
+        create_runner_fixture unsafe-game-child
+        mv "$fixture_game" "$fixture_result/other-build"
+        fixture_game="$fixture_result/other-build"
+        assert_rejected_before_launch_without_tree_changes \
+            unsafe-game-child \
+            "$fixture_result"
+
+        # Break caught: writing runner outputs into the frozen corpus.
+        create_runner_fixture corpus-overlap
+        fixture_result="$fixture_corpus"
+        assert_rejected_before_launch_without_tree_changes \
+            corpus-overlap \
+            "$fixture_corpus"
+
+        # Break caught: writing runner outputs into the repository System tree.
+        create_runner_fixture system-overlap
+        fixture_result="$fixture_repo/System"
+        assert_rejected_before_launch_without_tree_changes \
+            system-overlap \
+            "$fixture_repo/System"
+
+        # Break caught: a symlink alias hiding that RESULT_ROOT is the corpus.
+        create_runner_fixture symlink-alias
+        ln -s "$fixture_corpus" "$fixture_root/result-alias"
+        fixture_result="$fixture_root/result-alias"
+        assert_rejected_before_launch_without_tree_changes \
+            symlink-alias \
+            "$fixture_corpus"
+    fi
+
+    if (( ${#layout_failures[@]} > 0 )); then
+        for failure in "${layout_failures[@]}"; do
+            printf 'LAYOUT FAIL: %s\n' "$failure" >&2
+        done
+        fail "runner layout contract has ${#layout_failures[@]} failures"
+    fi
+}
+
+run_runner_deadline_tests() {
+    local attempt_number
+    local launch
+    local observation
+    local poll_sleeps
+    local result
+
+    # Break caught: a loop-count timeout whose polling work can extend the
+    # attempt beyond launch CLOCK_MONOTONIC + 60,000,000 microseconds.
+    create_runner_fixture monotonic-deadline
+    run_fixture_runner prepare-seed success \
+        >"$fixture_root/prepare.stdout" 2>"$fixture_root/prepare.stderr" ||
+        fail "deadline seed preparation failed"
+    reset_runner_fixture
+    if HPA192_FAKE_CLOCK_STEP_US=10000000 \
+        run_fixture_runner matrix no-line \
+        >"$fixture_root/matrix.stdout" 2>"$fixture_root/matrix.stderr"; then
+        fail "no-line deadline attempts were accepted"
+    fi
+    for attempt_number in 1 2 3; do
+        result="$fixture_result/slots/01-A/attempt-$attempt_number/result.txt"
+        launch="$(
+            sed -n '1s/.* launch_start_monotonic_us=\([0-9]*\) .*/\1/p' \
+                "$result"
+        )"
+        observation="$(
+            sed -n '1s/.* observation_monotonic_us=\([0-9]*\) .*/\1/p' \
+                "$result"
+        )"
+        [[ "$launch" =~ ^[0-9]+$ && "$observation" =~ ^[0-9]+$ ]] ||
+            fail "deadline attempt $attempt_number lacks monotonic metadata"
+        [[ "$((observation - launch))" -eq 60000000 ]] ||
+            fail "deadline attempt $attempt_number did not stop at 60 seconds"
+        grep -Eq ' timed_out=1 forced_cleanup=1 ' "$result" ||
+            fail "deadline attempt $attempt_number lacks timeout cleanup flags"
+    done
+    poll_sleeps="$(grep -Fxc '0.05' "$fixture_sleep_log")"
+    [[ "$poll_sleeps" -lt 500 ]] ||
+        fail "polling overhead extended the monotonic deadline"
+    assert_all_recorded_pids_dead "$fixture_target_pids"
+    assert_no_forbidden_commands
+}
+
 run_runner_process_tests() {
     local expected_order='A B C B C A C A B A C B C B A'
     local actual_order
@@ -571,9 +749,16 @@ run_runner_process_tests() {
         fail "success matrix seed preparation failed"
     seed_hash_before="$(shasum -a 256 "$fixture_result/seed/manifest.tsv")"
     reset_runner_fixture
-    run_fixture_runner matrix success \
-        >"$fixture_root/matrix.stdout" 2>"$fixture_root/matrix.stderr" ||
+    if ! run_fixture_runner matrix success \
+        >"$fixture_root/matrix.stdout" 2>"$fixture_root/matrix.stderr"; then
+        tail -80 "$fixture_root/matrix.stdout" >&2
+        tail -80 "$fixture_root/matrix.stderr" >&2
+        find "$fixture_result/slots" -name validation.txt -type f -print \
+            -exec tail -1 {} \; >&2
+        find "$fixture_result/slots" -name result.txt -type f -print \
+            -exec sed -n '1p' {} \; >&2
         fail "valid fixed matrix failed"
+    fi
     actual_order="$(tr '\n' ' ' <"$fixture_launch_log" | sed 's/ $//')"
     [[ "$actual_order" == "$expected_order" ]] ||
         fail "matrix launch order was '$actual_order'"
@@ -651,7 +836,8 @@ run_runner_process_tests() {
         >"$fixture_root/prepare.stdout" 2>"$fixture_root/prepare.stderr" ||
         fail "timeout seed preparation failed"
     reset_runner_fixture
-    if run_fixture_runner matrix no-line-child \
+    if HPA192_FAKE_CLOCK_STEP_US=1000000 \
+        run_fixture_runner matrix no-line-child \
         >"$fixture_root/matrix.stdout" 2>"$fixture_root/matrix.stderr"; then
         fail "no-line attempts were accepted"
     fi
@@ -660,7 +846,7 @@ run_runner_process_tests() {
             "$fixture_result/slots/01-A/attempt-$attempt_number/result.txt" ||
             fail "no-line attempt $attempt_number lost timeout metadata"
     done
-    [[ "$(grep -Fxc '0.05' "$fixture_sleep_log")" -ge 3600 ]] ||
+    [[ "$(grep -Fxc '0.05' "$fixture_sleep_log")" -ge 177 ]] ||
         fail "no-line attempts did not enforce the fixed 60-second poll bound"
     assert_all_recorded_pids_dead "$fixture_target_pids"
     while IFS= read -r pid; do
@@ -677,7 +863,8 @@ run_runner_process_tests() {
         >"$fixture_root/prepare.stdout" 2>"$fixture_root/prepare.stderr" ||
         fail "stderr-only seed preparation failed"
     reset_runner_fixture
-    if run_fixture_runner matrix stderr-only \
+    if HPA192_FAKE_CLOCK_STEP_US=1000000 \
+        run_fixture_runner matrix stderr-only \
         >"$fixture_root/matrix.stdout" 2>"$fixture_root/matrix.stderr"; then
         fail "stderr-only publications were accepted"
     fi
@@ -794,6 +981,20 @@ if [[ "${1:-}" == --runner-process ]]; then
     [[ -f "$runner" ]] || fail "critical-path runner is missing"
     run_runner_process_tests
     printf 'critical-path runner process tests passed\n'
+    exit 0
+fi
+
+if [[ "${1:-}" == --runner-layout ]]; then
+    [[ -f "$runner" ]] || fail "critical-path runner is missing"
+    run_runner_layout_tests "${2:-all}"
+    printf 'critical-path runner layout tests passed\n'
+    exit 0
+fi
+
+if [[ "${1:-}" == --runner-deadline ]]; then
+    [[ -f "$runner" ]] || fail "critical-path runner is missing"
+    run_runner_deadline_tests
+    printf 'critical-path runner deadline tests passed\n'
     exit 0
 fi
 
@@ -1702,5 +1903,7 @@ for attempt_number in 1 2 3; do
 done
 
 run_runner_process_tests
+run_runner_layout_tests
+run_runner_deadline_tests
 
 printf 'critical-path shell tests passed\n'

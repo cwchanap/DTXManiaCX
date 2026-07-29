@@ -830,6 +830,23 @@ Rules:
 The runner records the fixed binary, runner, summarizer, corpus manifest,
 empty-directory identity, and database-seed hashes.
 
+The planned measurement namespace is
+`RESULT_ROOT=<repository>/TestResults/hpa-192/critical-path-final`, with the
+fixed Mac output at exactly `GAME_DIR=RESULT_ROOT/build`. Repository ancestry
+is intentional and permitted, but the writable result root must be disjoint
+from the canonical corpus and repository `System` trees. `GAME_DIR` must also
+be disjoint from the result root unless it is that one exact physical
+`RESULT_ROOT/build` child. Canonical equality, ancestry, nested paths, and
+symlink aliases are checked before the runner writes or launches anything.
+
+The result root has command-specific allowlists. Before `prepare-seed`, only
+the exact immutable `build` child and the exact preceding-task control files
+`fixed-inputs.txt` and `environment.txt` may already exist. Before `matrix`,
+those inputs plus the complete Task 9 fixed-config, manifest, expected-path,
+and seed outputs may exist; their phase-owned control directories have exact
+nested allowlists. Any other entry fails closed. The runner never writes the
+fixed build or preceding-task control files.
+
 ## Runner and Validation
 
 The runner starts its external UTC and monotonic anchors immediately around
@@ -847,6 +864,9 @@ Receipt of `HPA192_CRITICAL_PATH_FAILURE` aborts the attempt immediately and
 records its rejection instead of waiting for the success line. The runner
 still allows the post-publication exit grace period before force-cleaning a
 stuck process. It makes no health, state, or screenshot HTTP requests.
+A no-line launch has a true external deadline at
+`launch_start_monotonic_us + 60,000,000`; every poll reads
+`CLOCK_MONOTONIC`, so polling overhead cannot extend the sixty-second bound.
 
 The accepted launch-to-first-Title-backbuffer-composition duration is bridged
 from the external launch anchors to `title_backbuffer_unix_us` and

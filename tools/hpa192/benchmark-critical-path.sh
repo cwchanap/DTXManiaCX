@@ -48,6 +48,22 @@ canonical_file() {
     printf '%s\n' "$canonical"
 }
 
+paths_overlap() {
+    local first="$1"
+    local second="$2"
+
+    [[ "$first" == "$second" ||
+       "$first" == "$second/"* ||
+       "$second" == "$first/"* ]]
+}
+
+path_contains() {
+    local parent="$1"
+    local child="$2"
+
+    [[ "$child" == "$parent" || "$child" == "$parent/"* ]]
+}
+
 script_path="$(canonical_file "${BASH_SOURCE[0]}" runner)"
 repo_root="$(canonical_directory "$(dirname "$script_path")/../.." repository)"
 game_dir="$(canonical_directory "$2" game)"
@@ -63,6 +79,72 @@ summarizer="$(
     canonical_file "$repo_root/tools/hpa192/summarize-critical-path.sh" summarizer
 )"
 game_dll="$(canonical_file "$game_dir/DTXMania.Game.Mac.dll" game-binary)"
+
+validate_path_relationships() {
+    path_contains "$game_dir" "$game_dll" ||
+        fail "game binary resolves outside GAME_DIR"
+    if paths_overlap "$result_root" "$corpus"; then
+        fail "RESULT_ROOT overlaps the frozen corpus"
+    fi
+    if paths_overlap "$result_root" "$system_root"; then
+        fail "RESULT_ROOT overlaps the repository System tree"
+    fi
+    if paths_overlap "$result_root" "$game_dir" &&
+       [[ "$game_dir" != "$result_root/build" ]]; then
+        fail "GAME_DIR overlaps RESULT_ROOT outside the exact build child"
+    fi
+}
+
+validate_result_root_phase_layout() {
+    local entry
+    local name
+    local expected_type
+
+    while IFS= read -r -d '' entry; do
+        name="${entry##*/}"
+        [[ ! -L "$entry" ]] ||
+            fail "result-root phase entry may not be a symlink: $name"
+        expected_type=
+        case "$name" in
+            build)
+                [[ "$game_dir" == "$result_root/build" &&
+                   "$entry" == "$game_dir" ]] ||
+                    fail "build is not the exact immutable GAME_DIR child"
+                expected_type='directory'
+                ;;
+            fixed-inputs.txt|environment.txt)
+                expected_type='file'
+                ;;
+            empty-songs|expected-chart-paths|configs|seed)
+                [[ "$command_name" == matrix ]] ||
+                    fail "unexpected prepare-seed result-root entry: $name"
+                expected_type='directory'
+                ;;
+            empty-manifest.tsv|system-manifest.tsv|corpus-manifest.tsv|fixed-identities.txt)
+                [[ "$command_name" == matrix ]] ||
+                    fail "unexpected prepare-seed result-root entry: $name"
+                expected_type='file'
+                ;;
+            *)
+                fail "unexpected $command_name result-root entry: $name"
+                ;;
+        esac
+
+        case "$expected_type" in
+            directory)
+                [[ -d "$entry" ]] ||
+                    fail "result-root phase entry is not a directory: $name"
+                ;;
+            file)
+                [[ -f "$entry" ]] ||
+                    fail "result-root phase entry is not a file: $name"
+                ;;
+        esac
+    done < <(find "$result_root" -mindepth 1 -maxdepth 1 -print0)
+}
+
+validate_path_relationships
+validate_result_root_phase_layout
 
 lock_path="${TMPDIR:-/tmp}/hpa-192-benchmark-startup.lock"
 lock_acquired=false
@@ -253,6 +335,38 @@ require_empty_directory() {
     [[ -z "$entry" ]] || fail "empty-song directory is not empty"
 }
 
+require_exact_directory_entries() {
+    local path="$1"
+    local description="$2"
+    local entry
+    local name
+    local expected
+    local allowed
+
+    shift 2
+    [[ -d "$path" && ! -L "$path" ]] ||
+        fail "$description directory is missing or aliased"
+    while IFS= read -r -d '' entry; do
+        name="${entry##*/}"
+        [[ ! -L "$entry" ]] ||
+            fail "$description contains a symlink entry: $name"
+        allowed=false
+        for expected in "$@"; do
+            if [[ "$name" == "$expected" ]]; then
+                allowed=true
+                break
+            fi
+        done
+        [[ "$allowed" == true ]] ||
+            fail "$description contains an unexpected entry: $name"
+    done < <(find "$path" -mindepth 1 -maxdepth 1 -print0)
+
+    for expected in "$@"; do
+        [[ -e "$path/$expected" && ! -L "$path/$expected" ]] ||
+            fail "$description is missing required entry: $expected"
+    done
+}
+
 write_fixed_config() {
     local path="$1"
     local song_path="$2"
@@ -387,6 +501,50 @@ expected_corpus_paths_sha256=
 expected_empty_paths_sha256=
 seed_manifest_sha256=
 seed_observed_sha256=
+
+validate_matrix_control_layout() {
+    [[ "$command_name" == matrix ]] || return 0
+
+    require_exact_directory_entries \
+        "$expected_paths_root" \
+        expected-chart-paths \
+        corpus.txt \
+        empty.txt
+    [[ -f "$expected_corpus_paths" && -f "$expected_empty_paths" ]] ||
+        fail "expected-chart-path controls must be regular files"
+
+    require_exact_directory_entries \
+        "$configs_root" \
+        configs \
+        A.Config.ini \
+        B.Config.ini \
+        C.Config.ini
+    [[ -f "$config_a" && -f "$config_b" && -f "$config_c" ]] ||
+        fail "scenario configs must be regular files"
+
+    require_exact_directory_entries \
+        "$seed_root" \
+        seed \
+        appdata \
+        manifest.tsv \
+        identity.txt \
+        setup.stdout.log \
+        setup.stderr.log \
+        setup-process.txt \
+        setup-result.txt \
+        setup-chart-paths.txt
+    [[ -d "$seed_appdata" &&
+       -f "$seed_manifest" &&
+       -f "$seed_identity" &&
+       -f "$seed_root/setup.stdout.log" &&
+       -f "$seed_root/setup.stderr.log" &&
+       -f "$seed_root/setup-process.txt" &&
+       -f "$seed_root/setup-result.txt" &&
+       -f "$seed_root/setup-chart-paths.txt" ]] ||
+        fail "seed controls have unexpected types"
+}
+
+validate_matrix_control_layout
 
 write_common_identity() {
     local path="$1"
@@ -615,6 +773,8 @@ launch_and_observe() {
     local stderr_path="$3"
     local process_metadata="$4"
     local iteration
+    local deadline_monotonic_us
+    local current_monotonic_us
 
     : >"$stdout_path"
     : >"$stderr_path"
@@ -640,7 +800,8 @@ launch_and_observe() {
     timed_out=0
     forced_cleanup=0
     first_terminal_line=
-    for ((iteration = 0; iteration < 1200; iteration++)); do
+    deadline_monotonic_us=$((launch_start_monotonic_us + 60000000))
+    while true; do
         first_terminal_line="$(
             awk '
                 /^HPA192_CRITICAL_PATH / ||
@@ -660,17 +821,22 @@ launch_and_observe() {
             observation_monotonic_us="$(monotonic_microseconds)"
             break
         fi
+        current_monotonic_us="$(monotonic_microseconds)"
+        if (( current_monotonic_us >= deadline_monotonic_us )); then
+            timed_out=1
+            observation_unix_us="$(unix_microseconds)"
+            observation_monotonic_us="$current_monotonic_us"
+            break
+        fi
         sleep 0.05
     done
 
-    if [[ -z "$first_terminal_line" ]] &&
-       kill -0 "$game_pid" 2>/dev/null; then
-        timed_out=1
-        forced_cleanup=1
-        observation_unix_us="$(unix_microseconds)"
-        observation_monotonic_us="$(monotonic_microseconds)"
-        terminate_validated_game ||
-            fail "timed-out process cleanup failed PID validation"
+    if [[ "$timed_out" == 1 ]]; then
+        if kill -0 "$game_pid" 2>/dev/null; then
+            forced_cleanup=1
+            terminate_validated_game ||
+                fail "timed-out process cleanup failed PID validation"
+        fi
     elif [[ -n "$first_terminal_line" ]]; then
         for ((iteration = 0; iteration < 100; iteration++)); do
             if ! kill -0 "$game_pid" 2>/dev/null; then
