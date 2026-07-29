@@ -160,12 +160,10 @@ validate_fixed_inputs() {
     local first_line
     local second_line
     local line_count
-    local first_name
+    local source_prefix
     local first_value
-    local first_extra
-    local second_name
+    local game_prefix
     local second_value
-    local second_extra
     local current_source_commit
     local observed_game_sha256
 
@@ -176,15 +174,17 @@ validate_fixed_inputs() {
         fail "Task 10 fixed-inputs.txt must contain exactly two lines"
     first_line="$(sed -n '1p' "$fixed_inputs")"
     second_line="$(sed -n '2p' "$fixed_inputs")"
-    IFS=$'\t' read -r first_name first_value first_extra <<<"$first_line"
-    IFS=$'\t' read -r second_name second_value second_extra <<<"$second_line"
-    [[ "$first_name" == source_commit &&
-       "$first_value" =~ ^[0-9a-f]{40}$ &&
-       -z "$first_extra" ]] ||
+    source_prefix=$'source_commit\t'
+    game_prefix=$'game_sha256\t'
+    [[ "$first_line" == "$source_prefix"* ]] ||
         fail "Task 10 source_commit is malformed"
-    [[ "$second_name" == game_sha256 &&
-       "$second_value" =~ ^[0-9a-f]{64}$ &&
-       -z "$second_extra" ]] ||
+    [[ "$second_line" == "$game_prefix"* ]] ||
+        fail "Task 10 game_sha256 is malformed"
+    first_value="${first_line#"$source_prefix"}"
+    second_value="${second_line#"$game_prefix"}"
+    [[ "$first_value" =~ ^[0-9a-f]{40}$ ]] ||
+        fail "Task 10 source_commit is malformed"
+    [[ "$second_value" =~ ^[0-9a-f]{64}$ ]] ||
         fail "Task 10 game_sha256 is malformed"
 
     if ! current_source_commit="$(
