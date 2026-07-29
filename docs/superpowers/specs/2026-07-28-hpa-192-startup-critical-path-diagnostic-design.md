@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-28
 
-**Status:** Design sections approved; written-spec review pending
+**Status:** First written-spec review addressed; approval pending
 
 ## Summary
 
@@ -92,6 +92,19 @@ The later product optimization will be evaluated against:
 This diagnostic does not claim or test final product acceptance. It establishes
 the new endpoint baseline and the evidence needed to design toward it.
 
+## Platform Scope
+
+The 15-run diagnostic matrix and the 2,221 ms acceptance gate are macOS-only
+measurements on the pinned benchmark machine. They are not cross-platform
+performance claims.
+
+The instrumentation is shared product code and must compile on both Mac and
+Windows. With diagnostic timing enabled, both platforms emit the same pinned
+`HPA192_CRITICAL_PATH` schema; with it disabled, neither emits the line.
+Focused deterministic trace tests run in both platform test projects. Windows
+CI must build the Windows game and pass those tests, but it does not run the
+Mac-local corpus benchmark.
+
 ## Non-Goals
 
 This wave will not:
@@ -126,13 +139,20 @@ deferral. The diagnostic result, not this candidate list, selects its scope.
 ### Existing output compatibility
 
 The existing `HPA192_STARTUP` and `HPA192_TIMING` lines remain byte-for-byte
-compatible in field names and semantics.
+compatible in field names and semantics. In particular, the existing
+`TitleCompleted` milestone remains in `BaseGame.Update` after Title becomes
+current and the transition completes. Its `summary_to_title_ms` and
+`entry_to_title_ms` fields do not move to the later draw endpoint. Its
+existing one-line emission flag is independent of the companion recorder's
+later success/failure publication flag, so emitting `HPA192_TIMING` cannot
+suppress `HPA192_CRITICAL_PATH`.
 
 The diagnostic adds one `HPA192_CRITICAL_PATH` line. It is emitted once, after
-the first completed Title draw. The line uses the same process-monotonic clock
-as the existing timing trace and includes UTC microsecond anchors captured
-adjacent to process entry and first Title draw. The runner continues to pair
-those anchors with independent external UTC and monotonic anchors.
+the first Title frame is copied to the backbuffer. The line uses the same
+process-monotonic clock as the existing timing trace and includes UTC
+microsecond anchors captured adjacent to process entry and that backbuffer
+copy. The runner continues to pair those anchors with independent external UTC
+and monotonic anchors.
 
 Normal runs with diagnostic timing disabled emit no
 `HPA192_CRITICAL_PATH` line and retain current behavior.
@@ -152,6 +172,16 @@ or delegates to an internal `StartupCriticalPathTrace` recorder that:
 The recorder is not a global singleton. Tests may inject deterministic
 monotonic and UTC clocks.
 
+All recorder state is protected by one private lock. A record call captures
+its timestamp, then holds the lock only long enough to update fixed-size
+milestone slots, duplicate flags, bounded counters, and terminal state. It
+does not format output or invoke callbacks while locked. Cross-milestone order
+is validated from the terminal snapshot rather than from lock-acquisition
+order, so valid concurrent worker/game-thread observations cannot fail merely
+because they acquired the lock in the opposite order. Publication copies one
+immutable snapshot under the lock and validates and formats it after releasing
+the lock.
+
 ### Explicit database observer
 
 Database initialization accepts an optional, explicitly passed diagnostic
@@ -166,15 +196,21 @@ change exception, transaction, migration, or retry behavior.
 
 ### Central first-draw endpoint
 
-The first completed Title draw is recorded centrally in `BaseGame.Draw`,
-immediately after `StageManager.Draw` returns while:
+Two Title draw boundaries are recorded centrally in `BaseGame.Draw` while:
 
 - the current stage is Title; and
 - no stage transition remains active.
 
-This endpoint proves completion of Title drawing. It is later than the current
-Title-activation marker and does not depend on API polling or stdout
-observation.
+The first boundary follows `StageManager.Draw` and measures Title stage
+rendering into the virtual render target. The terminal boundary follows
+`DrawRenderTargetToBackBuffer` and precedes `CompleteBaseDraw`; this is the
+accepted first completed Title draw. If no valid render target is copied to
+the backbuffer, the terminal milestone is not recorded and the sample is
+invalid.
+
+This endpoint is later than the current Title-activation marker and does not
+depend on API polling or stdout observation. The design does not claim to
+measure the platform compositor's later physical display presentation.
 
 ## Measurement Model
 
@@ -268,34 +304,207 @@ Record:
   `TitleStage`;
 - Title font load;
 - each Title sound load and fallback;
-- first Title update begin/end; and
-- first Title draw begin/end.
+- first Title update begin/end;
+- first Title stage draw begin/end; and
+- first Title backbuffer blit begin/end.
 
 Transition update details are retained as bounded counters and aggregate
 durations, never per-frame log events.
 
-### Required output fields
+### Milestone taxonomy
 
-`HPA192_CRITICAL_PATH` includes:
+The existing compatibility trace keeps its current semantics: all existing
+`StartupTimingMilestone` values are ordered, first-write-wins observations.
+Duplicate calls remain ignored so `HPA192_TIMING` behavior does not change.
 
-- launch outcome;
-- process-entry and first-Title-draw UTC anchors;
-- entry-to-first-Title-draw duration;
-- post-`LoadContent` initialization intervals;
-- Startup first-update and first-draw intervals;
-- database dispatch, operation, and observation intervals;
-- exclusive SQLite initialization intervals;
-- enumeration dispatch, operation, and observation intervals;
-- transition game-time, wall-time, and update count;
-- Startup deactivation;
-- Title construction and activation;
-- Title resource intervals;
-- first Title update and draw; and
-- the number of completed Startup draws before transition and exactly one
-  first-Title-draw publication milestone.
+The companion critical-path recorder has three explicit categories:
 
-Field values are canonical unsigned decimals with documented upper bounds.
-Text fields use the existing safe-token rules.
+1. **Exactly-once lifecycle milestones.** Post-`LoadContent` initialization
+   boundaries; database and enumeration invocation, task return, and internal
+   terminal completion; SQLite subphase begin/end pairs; summary and transition
+   request; transition completion; Startup deactivation; Title construction,
+   activation, and resource subphase pairs; and terminal line publication.
+   Duplicates invalidate the critical-path trace.
+2. **First-observation milestones.** First Startup update, first Startup draw,
+   first game-thread observation of each completed task, first Title update,
+   first Title stage draw, and first Title backbuffer copy. Their hooks may run
+   repeatedly; only the first begin/end pair is retained and later calls are
+   ignored. An end is valid only for the begin captured for that same first
+   observation.
+3. **Bounded aggregates.** Startup updates before first draw, accumulated game
+   time before first draw, completed Startup draws before transition,
+   transition update count, and transition accumulated game time. Aggregates
+   stop accepting updates when their enclosing lifecycle interval closes.
+
+Conditional lifecycle work such as invalid-database recovery and the
+game-start-sound fallback has a `*_ran` flag. When it does not run, its
+duration is the canonical value zero and no begin/end callback is required.
+
+### Pinned `HPA192_CRITICAL_PATH` schema
+
+The line has the following fields in this fixed order. Every
+`*_from_entry_ms` value is a process-monotonic timestamp expressed as whole
+milliseconds relative to process entry. Every other `*_ms` value is a
+whole-millisecond duration. The physical output is one
+`HPA192_CRITICAL_PATH` prefix followed by space-separated `name=value` tokens
+in exactly this order; the vertical list below names those tokens.
+
+```text
+outcome
+error
+entry_unix_us
+title_backbuffer_unix_us
+entry_to_title_backbuffer_ms
+
+load_content_complete_from_entry_ms
+base_initialize_return_from_entry_ms
+input_manager_begin_from_entry_ms
+input_manager_end_from_entry_ms
+saved_bindings_begin_from_entry_ms
+saved_bindings_end_from_entry_ms
+graphics_initialize_begin_from_entry_ms
+graphics_initialize_end_from_entry_ms
+render_target_begin_from_entry_ms
+render_target_end_from_entry_ms
+initialize_complete_from_entry_ms
+post_load_unattributed_ms
+
+startup_activation_from_entry_ms
+startup_first_update_begin_from_entry_ms
+startup_first_update_end_from_entry_ms
+startup_first_draw_begin_from_entry_ms
+startup_first_draw_end_from_entry_ms
+startup_updates_before_first_draw
+startup_game_time_before_first_draw_ms
+startup_draws_before_transition
+
+db_invoke_from_entry_ms
+db_task_return_from_entry_ms
+db_terminal_from_entry_ms
+db_observed_from_entry_ms
+db_task_returned_terminal
+
+enumeration_invoke_from_entry_ms
+enumeration_task_return_from_entry_ms
+enumeration_terminal_from_entry_ms
+enumeration_observed_from_entry_ms
+enumeration_task_returned_terminal
+
+db_service_setup_ms
+db_corruption_probe_ms
+db_invalid_recovery_ran
+db_invalid_recovery_ms
+db_ensure_created_ms
+db_encoding_pragmas_ms
+db_version_work_ms
+db_schema_validation_ms
+db_init_unattributed_ms
+
+summary_request_from_entry_ms
+transition_start_from_entry_ms
+transition_complete_from_entry_ms
+transition_update_count
+transition_game_time_ms
+startup_deactivate_begin_from_entry_ms
+startup_deactivate_end_from_entry_ms
+title_construct_begin_from_entry_ms
+title_construct_end_from_entry_ms
+title_activate_begin_from_entry_ms
+title_activate_end_from_entry_ms
+title_first_update_begin_from_entry_ms
+title_first_update_end_from_entry_ms
+title_stage_draw_begin_from_entry_ms
+title_stage_draw_end_from_entry_ms
+title_backbuffer_blit_begin_from_entry_ms
+title_backbuffer_blit_end_from_entry_ms
+summary_to_title_unattributed_ms
+
+title_background_ms
+title_menu_ms
+title_font_ms
+title_cursor_sound_ms
+title_decide_sound_ms
+title_game_start_sound_ms
+title_game_start_fallback_ran
+title_game_start_fallback_ms
+title_sound_load_count
+title_activation_unattributed_ms
+
+title_backbuffer_published
+```
+
+The database subphase durations are exclusive and, with
+`db_init_unattributed_ms`, reconcile the enclosing database operation. Title
+resource durations are exclusive children of
+`title_activate_begin_from_entry_ms` to
+`title_activate_end_from_entry_ms`; `title_activation_unattributed_ms`
+reconciles that partition. The summarizer derives dispatch, operation,
+observation, post-`LoadContent`, transition, and draw intervals from the
+pinned origin fields and rejects negative or non-reconciling results.
+
+Title sound instrumentation is statically bounded to cursor, decide, game
+start, and the optional game-start fallback. It does not allocate a dynamic
+per-sound collection or emit a line per sound. The count must equal
+`3 + title_game_start_fallback_ran`.
+
+The reconciliation fields use these exact formulas after converting every
+origin difference to whole milliseconds:
+
+```text
+post_load_unattributed_ms =
+    (initialize_complete - load_content_complete)
+    - (base_initialize_return - load_content_complete)
+    - input_manager
+    - saved_bindings
+    - graphics_initialize
+    - render_target
+
+db_init_unattributed_ms =
+    (db_terminal - db_invoke)
+    - db_service_setup
+    - db_corruption_probe
+    - db_invalid_recovery
+    - db_ensure_created
+    - db_encoding_pragmas
+    - db_version_work
+    - db_schema_validation
+
+title_activation_unattributed_ms =
+    (title_activate_end - title_activate_begin)
+    - title_background
+    - title_menu
+    - title_font
+    - title_cursor_sound
+    - title_decide_sound
+    - title_game_start_sound
+    - title_game_start_fallback
+
+summary_to_title_unattributed_ms =
+    (title_backbuffer_blit_end - summary_request)
+    - title_construction
+    - (transition_complete - transition_start)
+    - startup_deactivation
+    - title_activation
+    - title_first_update
+    - title_stage_draw
+    - title_backbuffer_blit
+```
+
+Every named duration above is the matching end origin minus its begin origin.
+The producer calculates each residual from the already-truncated enclosing and
+child intervals; the summarizer requires exact equality and a nonnegative
+result. The duplicate `load_content_complete` and `startup_activation` origins
+must also reconcile with the unchanged segmented `HPA192_TIMING` line within
+the maximum truncation loss implied by that line's number of constituent
+segments. A negative interval or a cross-line difference beyond that bound
+invalidates the sample.
+
+Numeric fields are canonical unsigned decimals. UTC anchors are at most
+`4102444800000000` microseconds (2100-01-01 UTC); monotonic origin values and
+durations are at most 300,000 ms; counters are at most 100,000; and `*_ran`,
+`*_terminal`, and `*_published` fields are exactly `0` or `1`. In the success
+schema, `outcome` is exactly `success` and `error` is exactly `none`. Missing,
+duplicate, reordered, or unknown fields invalidate the line.
 
 ## Concurrency and Terminal Semantics
 
@@ -312,8 +521,13 @@ The recorder applies these rules:
 - observer failures are contained so telemetry cannot alter production
   behavior.
 
-The benchmark accepts only a complete success trace. A failed trace may emit a
-sanitized diagnostic failure line, but the runner retains and rejects it.
+The benchmark accepts only the complete success schema above. A trace that
+reaches failure or cancellation before the backbuffer milestone emits no
+success line. It may emit exactly one
+`HPA192_CRITICAL_PATH_FAILURE outcome=... error=... last_milestone=...` line,
+where `outcome` is `failure` or `cancellation` and both text values use the
+safe single-token rules. The runner retains and rejects that attempt; the
+failure line never participates in timing arithmetic.
 
 ## Diagnostic Scenarios
 
@@ -362,7 +576,12 @@ Rules:
 - cold-first samples are retained;
 - invalid attempts remain preserved with their rejection reason;
 - an invalid slot is replaced only with the same scenario identity;
-- replacement attempts are appended and never renumber accepted evidence; and
+- replacement attempts are appended and never renumber accepted evidence;
+- each slot permits at most three total attempts: the initial attempt and two
+  replacements;
+- a slot that remains invalid after its third attempt stops the diagnostic
+  wave with `decision=stop reason=diagnostic_harness`; later slots and product
+  design do not proceed; and
 - setup launches and seed creation are explicitly excluded from measurement.
 
 The runner records the fixed binary, runner, summarizer, corpus manifest,
@@ -379,9 +598,13 @@ process launch. It waits for:
 - external observation of Title; and
 - clean process shutdown.
 
+Receipt of `HPA192_CRITICAL_PATH_FAILURE` aborts the attempt immediately and
+records its rejection instead of waiting for the success line.
+
 The accepted launch-to-first-Title-draw duration is bridged from the external
-launch anchors to the process first-draw anchors. Stdout delay and API polling
-lag remain reported diagnostics and never enter the duration.
+launch anchors to `title_backbuffer_unix_us` and
+`entry_to_title_backbuffer_ms`. Stdout delay and API polling lag remain
+reported diagnostics and never enter the duration.
 
 Every result artifact records scenario, slot, attempt, fixed hashes, corpus
 identity, counts, raw lines, derived intervals, clock checks, and acceptance
@@ -399,9 +622,15 @@ Validation fails closed for:
 - missing, duplicate, or out-of-order milestones;
 - additive partition failures;
 - wrong chart paths, chart counts, or logical-group counts;
-- zero completed Startup draws or an invalid first-Title-draw publication;
+- zero completed Startup draws or an invalid first-Title-backbuffer
+  publication;
 - acceptance-sentinel access; or
 - output from a binary or runner whose hash does not match the fixed set.
+
+Persistent invalidation is a reportable diagnostic result, not permission to
+relax validation. The report retains all attempts, the repeated rejection
+reason, fixed hashes, and the exact slot at which the three-attempt bound
+stopped the wave.
 
 ## Diagnostic Gate
 
@@ -409,7 +638,7 @@ The diagnostic wave is complete only when:
 
 - exactly five valid samples exist for each scenario;
 - each valid sample has at least one completed Startup draw and exactly one
-  accepted first-Title-draw milestone;
+  accepted first-Title-backbuffer milestone;
 - all marker partitions reconcile;
 - every fixed input and artifact is hashed;
 - timing-disabled behavior remains unchanged;
@@ -448,8 +677,10 @@ stops and reports that a broader runtime or packaging design is required.
 
 Cover:
 
+- unchanged first-write-wins behavior for the existing compatibility trace;
 - deterministic formatting;
-- exact field presence;
+- exact field order and rejection of missing, duplicate, reordered, or unknown
+  fields;
 - ordered milestones;
 - duplicate lifecycle invalidation;
 - first-write-wins frame markers;
@@ -457,7 +688,9 @@ Cover:
 - terminal dominance;
 - late worker completion;
 - cancellation and failure;
-- concurrent recording;
+- the fixed failure-line schema;
+- concurrent recording and terminal-snapshot validation under the private
+  lock;
 - overflow and bounds;
 - UTC/monotonic consistency; and
 - disabled mode.
@@ -468,13 +701,14 @@ Cover:
 
 - post-`LoadContent` initialization wiring;
 - first Startup update and draw boundaries;
-- first Title marker only after `StageManager.Draw` returns;
+- first Title stage-draw marker only after `StageManager.Draw` returns;
+- terminal Title marker only after a valid render-target-to-backbuffer blit;
 - summary and transition request exactly once;
 - transition update aggregation;
 - Startup deactivation;
 - Title construction and activation;
 - Title resource subintervals;
-- first Title update and draw; and
+- first Title update, stage draw, and backbuffer blit; and
 - repeated draws without duplicate publication.
 
 ### Async lifecycle tests
@@ -512,6 +746,8 @@ Before measurement:
 - run focused timing, Startup, Title, transition, SongManager, and database
   initialization tests;
 - run the full macOS-safe test suite;
+- verify the Windows game builds and the shared focused trace tests pass in
+  Windows CI;
 - run shell integrity tests;
 - verify `git diff --check`; and
 - record the fixed build and tool hashes.
