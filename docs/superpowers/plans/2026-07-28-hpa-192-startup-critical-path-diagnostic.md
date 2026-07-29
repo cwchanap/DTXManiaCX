@@ -1214,11 +1214,12 @@ activation-generation evidence.
   DatabaseTask_WhenCoreThrows_ShouldRetainExistingStartupBehaviorAndFailTrace
   ```
 
-  Preserve the existing protected virtual one-argument initialization seam.
-  Add a two-argument overload:
+  Preserve the existing protected virtual one-argument initialization seam as
+  the external subclass compatibility surface. Keep the observer internal and
+  add a same-assembly derived-class overload:
 
   ```csharp
-  protected virtual Task<bool> InitializeDatabaseServiceCoreAsync(
+  private protected virtual Task<bool> InitializeDatabaseServiceCoreAsync(
       string databasePath,
       IStartupSongLoadTimingObserver? observer)
   ```
@@ -1255,10 +1256,12 @@ activation-generation evidence.
   EnumerationTask_WhenLateCompletionFollowsTerminal_ShouldNotMutateTrace
   ```
 
-  Add a compatible overload:
+  Preserve the existing protected virtual three-argument enumeration seam as
+  the external subclass compatibility surface. Keep the observer internal and
+  add a same-assembly derived-class overload:
 
   ```csharp
-  protected virtual Task<SongEnumerationResult> EnumerateSongsCoreAsync(
+  private protected virtual Task<SongEnumerationResult> EnumerateSongsCoreAsync(
       string[] songPaths,
       IProgress<EnumerationProgress> progressReporter,
       CancellationToken cancellationToken,
