@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-28
 
-**Status:** First written-spec review addressed; approval pending
+**Status:** Second written-spec review addressed; approval pending
 
 ## Summary
 
@@ -147,12 +147,26 @@ existing one-line emission flag is independent of the companion recorder's
 later success/failure publication flag, so emitting `HPA192_TIMING` cannot
 suppress `HPA192_CRITICAL_PATH`.
 
-The diagnostic adds one `HPA192_CRITICAL_PATH` line. It is emitted once, after
-the first Title frame is copied to the backbuffer. The line uses the same
-process-monotonic clock as the existing timing trace and includes UTC
-microsecond anchors captured adjacent to process entry and that backbuffer
-copy. The runner continues to pair those anchors with independent external UTC
-and monotonic anchors.
+The diagnostic is enabled only when `HPA192_CRITICAL_PATH=1`. It adds one
+`HPA192_CRITICAL_PATH` line, emitted after the first Title frame is copied to
+the backbuffer. The line uses the same process-monotonic clock as the existing
+timing trace and includes UTC microsecond anchors captured adjacent to process
+entry and that backbuffer copy. The runner continues to pair those anchors
+with independent external UTC and monotonic anchors.
+
+The fixed diagnostic configuration sets `EnableGameApi=False`. The runner
+does not start or poll the HTTP API; a valid post-blit critical-path line is
+the authoritative external proof that Title became ready. This removes
+measurement-only Kestrel construction, binding, and CPU contention from the
+critical path. An attempt whose frozen configuration enables the Game API is
+invalid before timing arithmetic.
+
+For clean benchmark shutdown without the API, the runner also sets
+`HPA192_EXIT_AFTER_CRITICAL_PATH=1`. That flag is honored only while the
+critical-path recorder is enabled. After a success or failure line has been
+written and flushed, `BaseGame` schedules its normal `Exit()` path on the next
+game-thread update. The recorder only reports publication; it never invokes
+shutdown itself, and the exit request occurs after the accepted Title draw.
 
 Normal runs with diagnostic timing disabled emit no
 `HPA192_CRITICAL_PATH` line and retain current behavior.
@@ -171,6 +185,14 @@ or delegates to an internal `StartupCriticalPathTrace` recorder that:
 
 The recorder is not a global singleton. Tests may inject deterministic
 monotonic and UTC clocks.
+
+`BaseGame` implements one internal `IStartupCriticalPathHost` facade exposing
+the nullable recorder to same-assembly stage infrastructure. `StageManager`,
+`BaseStage`, `StartupStage`, and `TitleStage` resolve that facade through one
+internal helper. No additional public marker methods are added to
+`IStageGame`; its existing compatibility reporting methods remain unchanged.
+The same recorder is passed explicitly to database code through the observer
+overloads below.
 
 All recorder state is protected by one private lock. A record call captures
 its timestamp, then holds the lock only long enough to update fixed-size
@@ -208,6 +230,12 @@ accepted first completed Title draw. If no valid render target is copied to
 the backbuffer, the terminal milestone is not recorded and the sample is
 invalid.
 
+The diagnostic runner never requests a screenshot. If a screenshot is pending
+on the first Title draw, its readback would occur between `StageManager.Draw`
+and the backbuffer copy, inflating the end-to-end interval and unattributed
+residual. The recorder therefore publishes failure rather than a success line
+for that attempt.
+
 This endpoint is later than the current Title-activation marker and does not
 depend on API polling or stdout observation. The design does not claim to
 measure the platform compositor's later physical display presentation.
@@ -218,6 +246,10 @@ measure the platform compositor's later physical display presentation.
 
 Record boundaries for:
 
+- Startup construction inside the initial
+  `GetOrCreateStage(StageType.Startup)` cache miss;
+- Startup activation;
+- return from the `LoadContent` override;
 - return from `base.Initialize`, which encompasses `LoadContent`;
 - `InputManager` creation;
 - saved system-binding application;
@@ -225,8 +257,18 @@ Record boundaries for:
 - main render-target acquisition; and
 - completion of `BaseGame.Initialize`.
 
-These intervals explain the work between `LoadContent` completion, Startup
-activation, normal loop entry, and the first Startup draw.
+The existing `load_content_complete` marker occurs before
+`ChangeStage(StageType.Startup)`. Startup construction and activation therefore
+belong to the measured `LoadContent` tail and receive their own begin/end
+milestones. The interval from the `LoadContent` override returning until
+`base.Initialize` returns is also derived explicitly. Remaining gaps alone
+flow into `post_load_unattributed_ms`.
+
+The new detailed partition begins at `load_content_complete`. Process entry
+through that marker remains the external-bridge head. In particular,
+pre-`LoadContent` graphics `ApplySettings` remains visible only through the
+unchanged `HPA192_TIMING` segments and must be reported as part of that bridge
+head, not attributed to SQLite or song loading.
 
 ### Startup frame lifecycle
 
@@ -261,20 +303,41 @@ work.
 
 ### SQLite initialization
 
-Record exclusive intervals for:
+Record these exact exclusive aggregates:
 
-- service construction and option setup;
-- database existence/corruption probe;
-- invalid-file recovery, when used;
-- `EnsureCreated`;
-- encoding and PRAGMA configuration;
-- version-table work; and
-- aggregate schema/index/foreign-key validation and migration work.
+- `db_service_setup_ms`: only the first
+  `new SongDatabaseService(...)` call inside the `SongManager` lock, including
+  its directory, connection-string, options, and command-timeout setup;
+- `db_corruption_probe_ms`: the sum of read-only manager
+  `IsDatabaseCorruptedAsync` work and service
+  `IsValidSqliteDatabaseAsync` / `HasProperUnicodeConfigurationAsync` probes,
+  excluding purge or recovery;
+- `db_invalid_recovery_ms`: the sum of manager `PurgeDatabaseAsync` and service
+  `HandleInvalidDatabaseFileAsync` calls, with
+  `db_invalid_recovery_count` recording how many ran;
+- `db_ensure_created_ms`: only `EnsureCreatedAsync` calls, summed across the
+  normal and not-a-database retry paths, with `db_ensure_created_count`
+  recording the number of calls;
+- `db_encoding_pragmas_ms`: only the two PRAGMA statements and their local
+  best-effort catch inside `ConfigureUtf8EncodingAsync`;
+- `db_version_work_ms`: only `EnsureDatabaseVersionTableAsync`; and
+- `db_schema_ensures_ms`: the aggregate of `EnsureBookmarkColumnAsync`,
+  `EnsureNxImportColumnsAsync`, `EnsurePerformanceHistoryScoreScopeAsync`, and
+  `EnsurePlaybackSpeedScoreScopeAsync`, including their internal convergence
+  validation and transactions.
 
-The exclusive intervals must reconcile with the enclosing database
-initialization duration within the whole-millisecond truncation allowance.
-Conditional intervals use an explicit zero/not-run representation rather than
-omitting fields.
+Although version and schema work are nested under
+`ConfigureUtf8EncodingAsync`, they are not children of
+`db_encoding_pragmas_ms`; the observer is wired inside that method around each
+exclusive boundary. Every repeated span is paired and accumulated. A second
+`EnsureCreatedAsync` is therefore a valid recorder event rather than a
+duplicate milestone, although the frozen clean diagnostic matrix rejects
+unexpected recovery or retry counts.
+
+The producer calculates `db_init_unattributed_ms` from already-truncated
+exclusive children so the database partition reconciles exactly. Conditional
+aggregates use canonical zero values and a zero count rather than omitted
+fields.
 
 ### Enumeration and import
 
@@ -293,15 +356,21 @@ selects its stable 433–434 ms interval as a target.
 
 Record:
 
-- summary emitted and transition requested;
+- summary emitted immediately before the Title `ChangeStage` call;
+- Title construction begin/end around the first
+  `GetOrCreateStage(StageType.Title)` cache-miss path, including stage wiring
+  and cache insertion;
+- transition start immediately before `IStageTransition.Start()`;
 - transition update count;
 - transition accumulated game time;
 - transition completion entry;
 - Startup deactivation begin/end;
-- Title construction begin/end;
+- the second `GetOrCreateStage(StageType.Title)` lookup as a required cache hit
+  that emits no construction milestone; a cache miss or second construction
+  invalidates the trace;
 - Title activation begin/end;
-- Title stage-background load in `BaseStage` and Title menu load in
-  `TitleStage`;
+- Title stage-background load in `BaseStage.LoadStageBackground()` and Title
+  menu load in `TitleStage.LoadMenuTexture()`;
 - Title font load;
 - each Title sound load and fallback;
 - first Title update begin/end;
@@ -311,38 +380,59 @@ Record:
 Transition update details are retained as bounded counters and aggregate
 durations, never per-frame log events.
 
+The required temporal order is:
+
+```text
+summary_request
+title_construct_begin -> title_construct_end
+transition_start -> transition_complete
+startup_deactivate_begin -> startup_deactivate_end
+title_activate_begin -> title_activate_end
+title_first_update
+title_stage_draw
+title_backbuffer_blit
+```
+
+Construction is deliberately outside the transition interval. Defining
+`transition_start` at `ChangeStage` entry would overlap construction and
+double-subtract it from `summary_to_title_unattributed_ms`.
+
 ### Milestone taxonomy
 
 The existing compatibility trace keeps its current semantics: all existing
 `StartupTimingMilestone` values are ordered, first-write-wins observations.
 Duplicate calls remain ignored so `HPA192_TIMING` behavior does not change.
 
-The companion critical-path recorder has three explicit categories:
+The companion critical-path recorder has four explicit categories:
 
 1. **Exactly-once lifecycle milestones.** Post-`LoadContent` initialization
    boundaries; database and enumeration invocation, task return, and internal
-   terminal completion; SQLite subphase begin/end pairs; summary and transition
-   request; transition completion; Startup deactivation; Title construction,
-   activation, and resource subphase pairs; and terminal line publication.
-   Duplicates invalidate the critical-path trace.
+   terminal completion; summary and transition request; transition completion;
+   Startup deactivation; Startup and Title construction and activation; Title
+   resource subphase pairs; and terminal line publication. Duplicates
+   invalidate the critical-path trace.
 2. **First-observation milestones.** First Startup update, first Startup draw,
    first game-thread observation of each completed task, first Title update,
    first Title stage draw, and first Title backbuffer copy. Their hooks may run
    repeatedly; only the first begin/end pair is retained and later calls are
    ignored. An end is valid only for the begin captured for that same first
    observation.
-3. **Bounded aggregates.** Startup updates before first draw, accumulated game
+3. **Bounded scoped aggregates.** SQLite subphase spans may repeat only along
+   the existing recovery path. Each begin must pair with one end before another
+   span for that bucket begins, durations are summed, and counts beyond the
+   current control-flow maximum invalidate the trace.
+4. **Bounded counters.** Startup updates before first draw, accumulated game
    time before first draw, completed Startup draws before transition,
    transition update count, and transition accumulated game time. Aggregates
    stop accepting updates when their enclosing lifecycle interval closes.
 
-Conditional lifecycle work such as invalid-database recovery and the
-game-start-sound fallback has a `*_ran` flag. When it does not run, its
-duration is the canonical value zero and no begin/end callback is required.
+Conditional lifecycle work uses an explicit count or `*_ran` flag. When it
+does not run, its duration is canonical zero and no begin/end callback is
+required.
 
 ### Pinned `HPA192_CRITICAL_PATH` schema
 
-The line has the following fields in this fixed order. Every
+The success line has exactly 79 fields in the following fixed order. Every
 `*_from_entry_ms` value is a process-monotonic timestamp expressed as whole
 milliseconds relative to process entry. Every other `*_ms` value is a
 whole-millisecond duration. The physical output is one
@@ -357,6 +447,12 @@ title_backbuffer_unix_us
 entry_to_title_backbuffer_ms
 
 load_content_complete_from_entry_ms
+startup_construct_begin_from_entry_ms
+startup_construct_end_from_entry_ms
+startup_activate_begin_from_entry_ms
+startup_activation_from_entry_ms
+startup_activate_end_from_entry_ms
+load_content_return_from_entry_ms
 base_initialize_return_from_entry_ms
 input_manager_begin_from_entry_ms
 input_manager_end_from_entry_ms
@@ -369,7 +465,6 @@ render_target_end_from_entry_ms
 initialize_complete_from_entry_ms
 post_load_unattributed_ms
 
-startup_activation_from_entry_ms
 startup_first_update_begin_from_entry_ms
 startup_first_update_end_from_entry_ms
 startup_first_draw_begin_from_entry_ms
@@ -392,23 +487,24 @@ enumeration_task_returned_terminal
 
 db_service_setup_ms
 db_corruption_probe_ms
-db_invalid_recovery_ran
+db_invalid_recovery_count
 db_invalid_recovery_ms
+db_ensure_created_count
 db_ensure_created_ms
 db_encoding_pragmas_ms
 db_version_work_ms
-db_schema_validation_ms
+db_schema_ensures_ms
 db_init_unattributed_ms
 
 summary_request_from_entry_ms
+title_construct_begin_from_entry_ms
+title_construct_end_from_entry_ms
 transition_start_from_entry_ms
 transition_complete_from_entry_ms
 transition_update_count
 transition_game_time_ms
 startup_deactivate_begin_from_entry_ms
 startup_deactivate_end_from_entry_ms
-title_construct_begin_from_entry_ms
-title_construct_end_from_entry_ms
 title_activate_begin_from_entry_ms
 title_activate_end_from_entry_ms
 title_first_update_begin_from_entry_ms
@@ -444,8 +540,16 @@ pinned origin fields and rejects negative or non-reconciling results.
 
 Title sound instrumentation is statically bounded to cursor, decide, game
 start, and the optional game-start fallback. It does not allocate a dynamic
-per-sound collection or emit a line per sound. The count must equal
-`3 + title_game_start_fallback_ran`.
+per-sound collection or emit a line per sound.
+`title_sound_load_count` counts calls attempted by `TitleStage`, incrementing
+before each `LoadSound` call, and must equal
+`3 + title_game_start_fallback_ran`. Each duration records the real elapsed
+attempt even when the call throws, returns null, or returns
+`ResourceManager`'s silent fallback; failed attempts are not rewritten to
+zero. `title_game_start_fallback_ran` means the explicit second call in
+`TitleStage`'s catch block ran, not that `ResourceManager` internally produced
+a silent fallback. When the Title-level fallback does not run, only its
+duration is zero.
 
 The reconciliation fields use these exact formulas after converting every
 origin difference to whole milliseconds:
@@ -453,7 +557,9 @@ origin difference to whole milliseconds:
 ```text
 post_load_unattributed_ms =
     (initialize_complete - load_content_complete)
-    - (base_initialize_return - load_content_complete)
+    - startup_construct
+    - startup_activate
+    - (base_initialize_return - load_content_return)
     - input_manager
     - saved_bindings
     - graphics_initialize
@@ -467,7 +573,7 @@ db_init_unattributed_ms =
     - db_ensure_created
     - db_encoding_pragmas
     - db_version_work
-    - db_schema_validation
+    - db_schema_ensures
 
 title_activation_unattributed_ms =
     (title_activate_end - title_activate_begin)
@@ -481,10 +587,10 @@ title_activation_unattributed_ms =
 
 summary_to_title_unattributed_ms =
     (title_backbuffer_blit_end - summary_request)
-    - title_construction
+    - title_construct
     - (transition_complete - transition_start)
-    - startup_deactivation
-    - title_activation
+    - startup_deactivate
+    - title_activate
     - title_first_update
     - title_stage_draw
     - title_backbuffer_blit
@@ -499,12 +605,23 @@ the maximum truncation loss implied by that line's number of constituent
 segments. A negative interval or a cross-line difference beyond that bound
 invalidates the sample.
 
+`startup_activation_from_entry_ms` is the unchanged compatibility report point
+inside the new activation span. It must fall between
+`startup_activate_begin_from_entry_ms` and
+`startup_activate_end_from_entry_ms`.
+
 Numeric fields are canonical unsigned decimals. UTC anchors are at most
 `4102444800000000` microseconds (2100-01-01 UTC); monotonic origin values and
 durations are at most 300,000 ms; counters are at most 100,000; and `*_ran`,
 `*_terminal`, and `*_published` fields are exactly `0` or `1`. In the success
 schema, `outcome` is exactly `success` and `error` is exactly `none`. Missing,
 duplicate, reordered, or unknown fields invalidate the line.
+
+For the current control flow, `db_invalid_recovery_count` is between zero and
+two and `db_ensure_created_count` is one or two. The frozen diagnostic matrix
+accepts only zero recoveries and one `EnsureCreatedAsync` call; other values
+remain representable for truthful failure evidence but invalidate that
+benchmark attempt.
 
 ## Concurrency and Terminal Semantics
 
@@ -523,11 +640,31 @@ The recorder applies these rules:
 
 The benchmark accepts only the complete success schema above. A trace that
 reaches failure or cancellation before the backbuffer milestone emits no
-success line. It may emit exactly one
-`HPA192_CRITICAL_PATH_FAILURE outcome=... error=... last_milestone=...` line,
-where `outcome` is `failure` or `cancellation` and both text values use the
-safe single-token rules. The runner retains and rejects that attempt; the
-failure line never participates in timing arithmetic.
+success line.
+
+`StartupCriticalPathTrace` is the only component allowed to format or publish
+either companion prefix. Other hosts and observers only record events or
+declare an explicit terminal outcome. With the recorder enabled, at most one
+of these lines may be published:
+
+- `HPA192_CRITICAL_PATH ...` after a valid post-blit terminal snapshot; or
+- `HPA192_CRITICAL_PATH_FAILURE outcome=... error=... last_milestone=...`
+  after an observed failure or cancellation.
+
+The recorder publishes the failure line when it observes a Startup operation
+fault or cancellation, activation-generation invalidation, an illegal
+duplicate or lifecycle order, a pending screenshot on the first Title draw,
+or `BaseGame.Exiting` before success. If the terminal snapshot taken after the
+blit fails schema, bound, or partition validation, it publishes failure
+instead of success. `outcome` is `failure` or `cancellation`; `error` and
+`last_milestone` use the safe single-token rules.
+
+A process that remains alive without reaching a blit has no in-process timing
+deadline. The runner times out, preserves the no-line evidence, terminates the
+process for cleanup, and rejects the attempt. Diagnostic-disabled runs publish
+neither companion line, even if the exit-after-publication flag is present.
+The runner retains and rejects every failure line; it never participates in
+timing arithmetic.
 
 ## Diagnostic Scenarios
 
@@ -559,6 +696,8 @@ from chart work.
 
 This compares fresh schema creation with the existing-database initialization
 path without changing the production enumeration contract.
+It is not a warm song-load scenario: forced discovery, parsing, persistence,
+cleanup, and hierarchy publication still run.
 
 ## Predetermined Run Sequence
 
@@ -590,21 +729,26 @@ empty-directory identity, and database-seed hashes.
 ## Runner and Validation
 
 The runner starts its external UTC and monotonic anchors immediately around
-process launch. It waits for:
+process launch. It verifies the frozen configuration has
+`EnableGameApi=False`, sets both diagnostic environment flags, and waits for:
 
 - one valid `HPA192_STARTUP` line;
 - one valid existing `HPA192_TIMING` line;
 - one valid `HPA192_CRITICAL_PATH` line;
-- external observation of Title; and
-- clean process shutdown.
+- `title_backbuffer_published=1` within that line; and
+- zero-exit clean process shutdown through the post-publication host exit
+  path.
 
 Receipt of `HPA192_CRITICAL_PATH_FAILURE` aborts the attempt immediately and
-records its rejection instead of waiting for the success line.
+records its rejection instead of waiting for the success line. The runner
+still allows the post-publication exit grace period before force-cleaning a
+stuck process. It makes no health, state, or screenshot HTTP requests.
 
 The accepted launch-to-first-Title-draw duration is bridged from the external
 launch anchors to `title_backbuffer_unix_us` and
-`entry_to_title_backbuffer_ms`. Stdout delay and API polling lag remain
-reported diagnostics and never enter the duration.
+`entry_to_title_backbuffer_ms`. Stdout observation delay remains a reported
+diagnostic and never enters the duration; API polling does not exist in this
+matrix.
 
 Every result artifact records scenario, slot, attempt, fixed hashes, corpus
 identity, counts, raw lines, derived intervals, clock checks, and acceptance
@@ -621,6 +765,7 @@ Validation fails closed for:
 - inconsistent process UTC and monotonic elapsed time;
 - missing, duplicate, or out-of-order milestones;
 - additive partition failures;
+- nonzero database recovery or an `EnsureCreatedAsync` count other than one;
 - wrong chart paths, chart counts, or logical-group counts;
 - zero completed Startup draws or an invalid first-Title-backbuffer
   publication;
@@ -648,9 +793,13 @@ The diagnostic wave is complete only when:
 - the committed report contains raw evidence, medians, ranges, invalid
   attempts, and the ranked savings budget.
 
-The report computes scenario medians and ranges. It does not use HTTP polling
-lag, stdout observation lag, setup launches, or invalid attempts in
-performance arithmetic.
+The report computes scenario medians and ranges. It does not use stdout
+observation lag, setup launches, or invalid attempts in performance
+arithmetic. It labels process entry through
+`load_content_complete` as the external-bridge head, including the existing
+pre-`LoadContent` graphics-settings work, and does not relabel that head as
+SQLite or song-loading time. It also states that the accepted backbuffer
+endpoint excludes compositor and physical-display presentation latency.
 
 ## Product-Design Decision Rule
 
@@ -699,11 +848,16 @@ Cover:
 
 Cover:
 
-- post-`LoadContent` initialization wiring;
+- post-`LoadContent` Startup construction and activation wiring;
+- `LoadContent` return and `base.Initialize` return boundaries;
+- diagnostic Game API disablement and post-publication host exit;
 - first Startup update and draw boundaries;
 - first Title stage-draw marker only after `StageManager.Draw` returns;
 - terminal Title marker only after a valid render-target-to-backbuffer blit;
+- pending first-Title-draw screenshot rejection;
 - summary and transition request exactly once;
+- Title construction before `IStageTransition.Start`;
+- no construction milestone from the completion-time Title cache hit;
 - transition update aggregation;
 - Startup deactivation;
 - Title construction and activation;
@@ -728,14 +882,16 @@ For database initialization and enumeration/import, cover:
 ### Database observer tests
 
 Cover fresh and preinitialized databases, conditional invalid-file recovery,
-schema validation, migration failure, and observer failure containment.
+single- and double-`EnsureCreatedAsync` paths, exclusive PRAGMA/version/schema
+ensure boundaries, migration failure, and observer failure containment.
 Existing public initialization callers must remain source- and
 behavior-compatible.
 
 ### Runner tests
 
 Synthetic shell tests cover all fail-closed artifact, identity, clock,
-partition, count, hash, input-preservation, and sentinel rules. The runner,
+partition, count, hash, input-preservation, Game API disablement,
+post-publication exit, no-screenshot, timeout, and sentinel rules. The runner,
 summarizer, and shell-test scripts must pass `bash -n`.
 
 ### Integration verification
