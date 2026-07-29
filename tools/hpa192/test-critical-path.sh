@@ -225,6 +225,7 @@ create_runner_fixture() {
     fixture_sleep_log="$fixture_root/sleep.log"
     fixture_state="$fixture_root/state"
     fixture_clock_state="$fixture_root/clock"
+    fixture_terminal_ready="$fixture_root/terminal-ready"
     fixture_cache="$temp_root/runner-default-corpus-cache"
 
     mkdir -p \
@@ -299,6 +300,7 @@ fi
 count=$((count + 1))
 printf '%s\n' "$count" >"$HPA192_FAKE_STATE"
 printf '%s\n' "$$" >>"$HPA192_FAKE_TARGET_PIDS"
+rm -f "$HPA192_FAKE_TERMINAL_READY"
 /bin/sleep 0.05
 
 IFS=',' read -r -a modes <<<"${HPA192_FAKE_SEQUENCE:-success}"
@@ -396,6 +398,10 @@ case "$mode" in
     success)
         cat "$HPA192_FAKE_RAW/$scenario.txt"
         ;;
+    delayed-terminal)
+        : >"$HPA192_FAKE_TERMINAL_READY"
+        cat "$HPA192_FAKE_RAW/$scenario.txt"
+        ;;
     *)
         printf 'unknown fake mode: %s\n' "$mode" >&2
         exit 9
@@ -416,7 +422,7 @@ if [[ "$*" == *CLOCK_MONOTONIC* ]]; then
 else
     state="$HPA192_FAKE_CLOCK_STATE.unix"
     first=1000000
-    second=1370000
+    second="${HPA192_FAKE_UNIX_OBSERVATION_US:-1370000}"
 fi
 count=0
 if [[ -f "$state" ]]; then
@@ -425,6 +431,22 @@ fi
 count=$((count + 1))
 printf '%s\n' "$count" >"$state"
 if [[ "$state" == *.monotonic &&
+      "${HPA192_FAKE_LATE_TERMINAL_CLOCK:-}" == 1 ]]; then
+    unix_count="$(cat "$HPA192_FAKE_CLOCK_STATE.unix")"
+    if (( unix_count % 2 == 0 )); then
+        printf '%s' "$((first + 60000001))"
+    else
+        launch_seen="$HPA192_FAKE_CLOCK_STATE.late-launch-$unix_count"
+        if [[ ! -e "$launch_seen" ]]; then
+            : >"$launch_seen"
+            printf '%s' "$first"
+        elif [[ -e "$HPA192_FAKE_TERMINAL_READY" ]]; then
+            printf '%s' "$((first + 60000001))"
+        else
+            printf '%s' "$((first + 59999999))"
+        fi
+    fi
+elif [[ "$state" == *.monotonic &&
       -n "${HPA192_FAKE_CLOCK_STEP_US:-}" ]]; then
     printf '%s' \
         "$((first + (count - 1) * HPA192_FAKE_CLOCK_STEP_US))"
@@ -530,6 +552,8 @@ run_fixture_runner() {
         HPA192_FAKE_STATE="$fixture_state" \
         HPA192_FAKE_CLOCK_STATE="$fixture_clock_state" \
         HPA192_FAKE_CLOCK_STEP_US="${HPA192_FAKE_CLOCK_STEP_US:-}" \
+        HPA192_FAKE_LATE_TERMINAL_CLOCK="${HPA192_FAKE_LATE_TERMINAL_CLOCK:-}" \
+        HPA192_FAKE_UNIX_OBSERVATION_US="${HPA192_FAKE_UNIX_OBSERVATION_US:-}" \
         HPA192_FAKE_RAW="$fixture_raw" \
         HPA192_FAKE_CHART_PATHS="$fixture_root/expected-chart-paths.txt" \
         HPA192_FAKE_FORBIDDEN="$fixture_forbidden" \
@@ -537,6 +561,7 @@ run_fixture_runner() {
         HPA192_FAKE_TARGET_PIDS="$fixture_target_pids" \
         HPA192_FAKE_CHILD_PIDS="$fixture_child_pids" \
         HPA192_FAKE_SLEEP_LOG="$fixture_sleep_log" \
+        HPA192_FAKE_TERMINAL_READY="$fixture_terminal_ready" \
         HPA192_FAKE_GAME_DLL="$(
             /usr/bin/perl -MCwd=realpath -e \
                 'print realpath($ARGV[0])' \
@@ -729,6 +754,35 @@ run_runner_deadline_tests() {
     [[ "$poll_sleeps" -lt 500 ]] ||
         fail "polling overhead extended the monotonic deadline"
     assert_all_recorded_pids_dead "$fixture_target_pids"
+    assert_no_forbidden_commands
+
+    # Break caught: scanning and accepting a valid terminal line before
+    # checking that its first observation is already beyond the deadline.
+    create_runner_fixture late-terminal-deadline
+    run_fixture_runner prepare-seed success \
+        >"$fixture_root/prepare.stdout" 2>"$fixture_root/prepare.stderr" ||
+        fail "late-terminal seed preparation failed"
+    reset_runner_fixture
+    if HPA192_FAKE_LATE_TERMINAL_CLOCK=1 \
+       HPA192_FAKE_UNIX_OBSERVATION_US=61000001 \
+        run_fixture_runner matrix delayed-terminal,failure \
+        >"$fixture_root/matrix.stdout" 2>"$fixture_root/matrix.stderr"; then
+        fail "late-terminal matrix unexpectedly completed"
+    fi
+    result="$fixture_result/slots/01-A/attempt-1/result.txt"
+    if ! grep -Eq \
+        ' launch_start_monotonic_us=5000000 .* observation_monotonic_us=65000001 ' \
+        "$result"; then
+        sed -n '1p' "$result" >&2
+        tail -1 \
+            "$fixture_result/slots/01-A/attempt-1/validation.txt" >&2
+        fail "late-terminal fixture did not cross the deadline by one microsecond"
+    fi
+    grep -Eq ' timed_out=1 ' "$result" ||
+        fail "terminal first observed after the deadline was accepted"
+    grep -Fq 'status=rejected scenario=A slot=1 attempt=1' \
+        "$fixture_result/slots/01-A/attempt-1/validation.txt" ||
+        fail "late-terminal attempt lacks its rejection record"
     assert_no_forbidden_commands
 }
 

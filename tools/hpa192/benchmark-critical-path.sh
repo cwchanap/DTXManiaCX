@@ -802,6 +802,13 @@ launch_and_observe() {
     first_terminal_line=
     deadline_monotonic_us=$((launch_start_monotonic_us + 60000000))
     while true; do
+        current_monotonic_us="$(monotonic_microseconds)"
+        if (( current_monotonic_us >= deadline_monotonic_us )); then
+            timed_out=1
+            observation_unix_us="$(unix_microseconds)"
+            observation_monotonic_us="$current_monotonic_us"
+            break
+        fi
         first_terminal_line="$(
             awk '
                 /^HPA192_CRITICAL_PATH / ||
@@ -814,18 +821,17 @@ launch_and_observe() {
         if [[ -n "$first_terminal_line" ]]; then
             observation_unix_us="$(unix_microseconds)"
             observation_monotonic_us="$(monotonic_microseconds)"
+            if (( observation_monotonic_us >= deadline_monotonic_us )); then
+                timed_out=1
+            fi
             break
         fi
         if ! kill -0 "$game_pid" 2>/dev/null; then
             observation_unix_us="$(unix_microseconds)"
             observation_monotonic_us="$(monotonic_microseconds)"
-            break
-        fi
-        current_monotonic_us="$(monotonic_microseconds)"
-        if (( current_monotonic_us >= deadline_monotonic_us )); then
-            timed_out=1
-            observation_unix_us="$(unix_microseconds)"
-            observation_monotonic_us="$current_monotonic_us"
+            if (( observation_monotonic_us >= deadline_monotonic_us )); then
+                timed_out=1
+            fi
             break
         fi
         sleep 0.05
