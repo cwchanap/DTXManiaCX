@@ -73,6 +73,23 @@ namespace DTXMania.Game.Lib.Stage
         {
         }
 
+        protected virtual SpriteBatch CreateTitleSpriteBatch(
+            GraphicsDevice graphicsDevice)
+        {
+            return new SpriteBatch(graphicsDevice);
+        }
+
+        protected virtual Texture2D CreateTitleWhitePixel(
+            GraphicsDevice graphicsDevice)
+        {
+            return new Texture2D(graphicsDevice, 1, 1);
+        }
+
+        protected virtual void SetTitleWhitePixelData(Texture2D texture)
+        {
+            texture.SetData(new[] { Color.White });
+        }
+
         #endregion
 
         #region BaseStage Implementation
@@ -83,11 +100,24 @@ namespace DTXMania.Game.Lib.Stage
 
             // Initialize graphics resources
             var graphicsDevice = _game.GraphicsDevice;
-            _spriteBatch = new SpriteBatch(graphicsDevice);
+            var criticalPathTrace = ResolveCriticalPathTrace();
+            TryBeginAggregate(
+                criticalPathTrace,
+                StartupCriticalPathAggregate.TitleGpuSetup);
+            try
+            {
+                _spriteBatch = CreateTitleSpriteBatch(graphicsDevice);
 
-            // Create white pixel for drawing rectangles
-            _whitePixel = new Texture2D(graphicsDevice, 1, 1);
-            _whitePixel.SetData(new[] { Color.White });
+                // Create white pixel for drawing rectangles
+                _whitePixel = CreateTitleWhitePixel(graphicsDevice);
+                SetTitleWhitePixelData(_whitePixel);
+            }
+            finally
+            {
+                TryEndAggregate(
+                    criticalPathTrace,
+                    StartupCriticalPathAggregate.TitleGpuSetup);
+            }
 
             // Initialize ResourceManager using factory
             _resourceManager = _game.ResourceManager;
@@ -268,7 +298,21 @@ namespace DTXMania.Game.Lib.Stage
             try
             {
                 // Use ResourceManager to load menu texture with proper skin path resolution
-                _menuTexture = _resourceManager.LoadTexture(TexturePath.TitleMenu);
+                var criticalPathTrace = ResolveCriticalPathTrace();
+                TryBeginAggregate(
+                    criticalPathTrace,
+                    StartupCriticalPathAggregate.TitleMenu);
+                try
+                {
+                    _menuTexture =
+                        _resourceManager.LoadTexture(TexturePath.TitleMenu);
+                }
+                finally
+                {
+                    TryEndAggregate(
+                        criticalPathTrace,
+                        StartupCriticalPathAggregate.TitleMenu);
+                }
                 System.Diagnostics.Debug.WriteLine("Loaded menu texture using ResourceManager");
             }
             catch (Exception ex)
@@ -284,7 +328,21 @@ namespace DTXMania.Game.Lib.Stage
             {
                 _versionFont?.RemoveReference();
                 _versionFont = null;
-                _versionFont = _resourceManager.LoadFont("NotoSerifJP", 14);
+                var criticalPathTrace = ResolveCriticalPathTrace();
+                TryBeginAggregate(
+                    criticalPathTrace,
+                    StartupCriticalPathAggregate.TitleFont);
+                try
+                {
+                    _versionFont =
+                        _resourceManager.LoadFont("NotoSerifJP", 14);
+                }
+                finally
+                {
+                    TryEndAggregate(
+                        criticalPathTrace,
+                        StartupCriticalPathAggregate.TitleFont);
+                }
                 System.Diagnostics.Debug.WriteLine("Loaded version info font using ResourceManager");
             }
             catch (Exception ex)
@@ -296,10 +354,26 @@ namespace DTXMania.Game.Lib.Stage
 
         private void LoadSoundEffects()
         {
+            var criticalPathTrace = ResolveCriticalPathTrace();
+
             try
             {
                 // Load DTXMania-style sound effects (OGG format)
-                _cursorMoveSound = _resourceManager.LoadSound(SoundPath.CursorMove);
+                TryIncrementTitleSoundLoad(criticalPathTrace);
+                TryBeginAggregate(
+                    criticalPathTrace,
+                    StartupCriticalPathAggregate.TitleCursorSound);
+                try
+                {
+                    _cursorMoveSound =
+                        _resourceManager.LoadSound(SoundPath.CursorMove);
+                }
+                finally
+                {
+                    TryEndAggregate(
+                        criticalPathTrace,
+                        StartupCriticalPathAggregate.TitleCursorSound);
+                }
                 System.Diagnostics.Debug.WriteLine("Loaded cursor move sound");
             }
             catch (Exception ex)
@@ -309,7 +383,21 @@ namespace DTXMania.Game.Lib.Stage
 
             try
             {
-                _selectSound = _resourceManager.LoadSound(SoundPath.Decide);
+                TryIncrementTitleSoundLoad(criticalPathTrace);
+                TryBeginAggregate(
+                    criticalPathTrace,
+                    StartupCriticalPathAggregate.TitleDecideSound);
+                try
+                {
+                    _selectSound =
+                        _resourceManager.LoadSound(SoundPath.Decide);
+                }
+                finally
+                {
+                    TryEndAggregate(
+                        criticalPathTrace,
+                        StartupCriticalPathAggregate.TitleDecideSound);
+                }
                 System.Diagnostics.Debug.WriteLine("Loaded select sound");
             }
             catch (Exception ex)
@@ -320,7 +408,21 @@ namespace DTXMania.Game.Lib.Stage
             try
             {
                 // Load game start sound (note: file name has space)
-                _gameStartSound = _resourceManager.LoadSound(SoundPath.GameStart);
+                TryIncrementTitleSoundLoad(criticalPathTrace);
+                TryBeginAggregate(
+                    criticalPathTrace,
+                    StartupCriticalPathAggregate.TitleGameStartSound);
+                try
+                {
+                    _gameStartSound =
+                        _resourceManager.LoadSound(SoundPath.GameStart);
+                }
+                finally
+                {
+                    TryEndAggregate(
+                        criticalPathTrace,
+                        StartupCriticalPathAggregate.TitleGameStartSound);
+                }
                 System.Diagnostics.Debug.WriteLine("Loaded game start sound");
             }
             catch (Exception ex)
@@ -329,13 +431,90 @@ namespace DTXMania.Game.Lib.Stage
                 try
                 {
                     // Fallback to decide sound if Game start.ogg doesn't exist
-                    _gameStartSound = _resourceManager.LoadSound(SoundPath.Decide);
+                    TryMarkTitleGameStartFallbackRan(criticalPathTrace);
+                    TryIncrementTitleSoundLoad(criticalPathTrace);
+                    TryBeginAggregate(
+                        criticalPathTrace,
+                        StartupCriticalPathAggregate.TitleGameStartFallback);
+                    try
+                    {
+                        _gameStartSound =
+                            _resourceManager.LoadSound(SoundPath.Decide);
+                    }
+                    finally
+                    {
+                        TryEndAggregate(
+                            criticalPathTrace,
+                            StartupCriticalPathAggregate.TitleGameStartFallback);
+                    }
                     System.Diagnostics.Debug.WriteLine("Loaded game start sound (fallback to Decide.ogg)");
                 }
                 catch (Exception fallbackEx)
                 {
                     System.Diagnostics.Debug.WriteLine($"Failed to load game start fallback sound: {fallbackEx.Message}");
                 }
+            }
+        }
+
+        private StartupCriticalPathTrace ResolveCriticalPathTrace()
+        {
+            try
+            {
+                return StartupCriticalPathHost.Resolve(_game);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static void TryBeginAggregate(
+            StartupCriticalPathTrace trace,
+            StartupCriticalPathAggregate aggregate)
+        {
+            try
+            {
+                trace?.BeginAggregate(aggregate);
+            }
+            catch
+            {
+            }
+        }
+
+        private static void TryEndAggregate(
+            StartupCriticalPathTrace trace,
+            StartupCriticalPathAggregate aggregate)
+        {
+            try
+            {
+                trace?.EndAggregate(aggregate);
+            }
+            catch
+            {
+            }
+        }
+
+        private static void TryIncrementTitleSoundLoad(
+            StartupCriticalPathTrace trace)
+        {
+            try
+            {
+                trace?.IncrementTitleSoundLoad();
+            }
+            catch
+            {
+            }
+        }
+
+        private static void TryMarkTitleGameStartFallbackRan(
+            StartupCriticalPathTrace trace)
+        {
+            try
+            {
+                trace?.MarkTitleGameStartFallbackRan();
+            }
+            catch
+            {
             }
         }
 
