@@ -1432,6 +1432,23 @@ observation, process-exit, identity, and hash fields.
 **Produces:** Per-attempt acceptance/rejection with derived intervals, plus
 five-sample scenario medians, ranges, and exclusive savings inputs.
 
+Each artifact has exactly one `HPA192_ATTEMPT` line with these `name=value`
+tokens in this literal order:
+
+```text
+scenario slot attempt
+launch_start_unix_us launch_start_monotonic_us
+observation_unix_us observation_monotonic_us
+exit_code timed_out forced_cleanup game_api_enabled
+database_charts database_songs
+game_sha256 runner_sha256 summarizer_sha256
+corpus_manifest_sha256 corpus_observed_sha256 system_manifest_sha256
+config_sha256 config_observed_sha256
+empty_manifest_sha256 empty_observed_sha256
+seed_manifest_sha256 seed_observed_sha256
+chart_paths_sha256 expected_chart_paths_sha256
+```
+
 - [ ] **Step 1: Write failing synthetic success and schema tests**
 
   `test-critical-path.sh` creates a temporary artifact tree and emits complete
@@ -1502,8 +1519,12 @@ five-sample scenario medians, ranges, and exclusive savings inputs.
   ensure-created count two
   ```
 
-  Derive origins with subtraction only after validation, and require the five
-  producer residual formulas to reconcile exactly.
+  Derive origins with subtraction only after validation. Re-derive the four
+  directly observable companion residuals exactly: post-load, database, Title
+  activation, and summary-to-Title. The producer's fifth exact residual uses
+  enumeration child durations that are available to the artifact only through
+  rounded `HPA192_STARTUP` fields, so validate it through the approved
+  four-millisecond cross-line representation bound in Step 4.
 
 - [ ] **Step 4: Add cross-line rounding and clock tests**
 
@@ -1578,6 +1599,21 @@ five-sample scenario medians, ranges, and exclusive savings inputs.
   enumeration_async_after_task_return_ms
   enumeration_terminal_before_task_return_ms
   ```
+
+  Derive the external bridge with exact integer-millisecond arithmetic:
+
+  ```text
+  external_launch_to_entry_ms =
+      (entry_unix_us - launch_start_unix_us) / 1000
+  external_launch_to_title_backbuffer_ms =
+      external_launch_to_entry_ms + entry_to_title_backbuffer_ms
+  stdout_observation_lag_ms =
+      (observation_unix_us - title_backbuffer_unix_us) / 1000
+  ```
+
+  The accepted end-to-end duration uses the in-process monotonic
+  `entry_to_title_backbuffer_ms` span. Direct external and process UTC spans
+  are clock-alignment checks only.
 
   The five intervals from external launch-to-entry through
   summary-to-backbuffer are the top-level exclusive partition. The database
@@ -1703,6 +1739,11 @@ the predetermined 15-slot sequence.
   10. inspect the closed SQLite database and sorted chart paths; and
   11. call `summarize-critical-path.sh --validate-attempt` to append derived
       fields and an acceptance/rejection record.
+
+  Write exactly one `HPA192_ATTEMPT` line using the Task 8 field order before
+  the three raw product lines. Numeric values are canonical unsigned decimals,
+  `timed_out`, `forced_cleanup`, and `game_api_enabled` are exactly `0` or
+  `1`, and every hash is lowercase 64-hex SHA-256.
 
   A no-line process has no in-process deadline. The runner enforces a 60-second
   external timeout, preserves stdout/stderr and metadata, then terminates only

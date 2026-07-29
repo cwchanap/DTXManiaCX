@@ -854,9 +854,48 @@ from the external launch anchors to `title_backbuffer_unix_us` and
 diagnostic and never enters the duration; API polling does not exist in this
 matrix.
 
+The bridge uses these exact integer-millisecond formulas:
+
+```text
+external_launch_to_entry_ms =
+    (entry_unix_us - launch_start_unix_us) / 1000
+external_launch_to_title_backbuffer_ms =
+    external_launch_to_entry_ms + entry_to_title_backbuffer_ms
+stdout_observation_lag_ms =
+    (observation_unix_us - title_backbuffer_unix_us) / 1000
+```
+
+The second formula deliberately uses the accepted in-process monotonic span,
+not direct subtraction of the two UTC endpoints. The direct external and
+process UTC spans remain clock-alignment checks only.
+
 Every result artifact records scenario, slot, attempt, fixed hashes, corpus
 identity, counts, raw lines, derived intervals, clock checks, and acceptance
 status.
+
+The runner writes exactly one ordered metadata line before the three raw
+product lines. This is the pinned runner-to-validator contract:
+
+```text
+HPA192_ATTEMPT
+scenario slot attempt
+launch_start_unix_us launch_start_monotonic_us
+observation_unix_us observation_monotonic_us
+exit_code timed_out forced_cleanup game_api_enabled
+database_charts database_songs
+game_sha256 runner_sha256 summarizer_sha256
+corpus_manifest_sha256 corpus_observed_sha256 system_manifest_sha256
+config_sha256 config_observed_sha256
+empty_manifest_sha256 empty_observed_sha256
+seed_manifest_sha256 seed_observed_sha256
+chart_paths_sha256 expected_chart_paths_sha256
+```
+
+The fields appear as `name=value` tokens in exactly that order. Numeric
+values are bounded canonical unsigned decimals, the three state flags are
+exactly `0` or `1`, and hashes are lowercase 64-character SHA-256 tokens.
+Missing, duplicate, reordered, or additional metadata fields invalidate the
+attempt.
 
 Validation fails closed for:
 
