@@ -32,6 +32,19 @@ namespace DTXMania.Test.Song
             _testDbPath = Path.Combine(Path.GetTempPath(), $"test_songs_{Guid.NewGuid()}.db");
         }
 
+        [Fact]
+        public void InitializeDatabaseServiceAsync_PublicCompatibilityPath_ShouldNotAddAsyncStateMachine()
+        {
+            var method = typeof(SongManager).GetMethod(
+                nameof(SongManager.InitializeDatabaseServiceAsync),
+                new[] { typeof(string), typeof(bool) });
+
+            Assert.NotNull(method);
+            Assert.Empty(method!.GetCustomAttributes(
+                typeof(System.Runtime.CompilerServices.AsyncStateMachineAttribute),
+                inherit: false));
+        }
+
         public void Dispose()
         {
             // Clean up after each test

@@ -845,7 +845,12 @@ the exact immutable `build` child and the exact preceding-task control files
 those inputs plus the complete Task 9 fixed-config, manifest, expected-path,
 and seed outputs may exist; their phase-owned control directories have exact
 nested allowlists. Any other entry fails closed. The runner never writes the
-fixed build or preceding-task control files.
+fixed build or preceding-task control files. Before either command writes or
+launches anything, it requires `fixed-inputs.txt` to contain exactly the
+40-character lowercase source commit and 64-character lowercase game-DLL
+SHA-256 recorded by Task 10, verifies them against the current worktree and
+the exact `RESULT_ROOT/build/DTXMania.Game.Mac.dll`, and fails closed on
+missing, malformed, duplicated, reordered, or mismatched values.
 
 ## Runner and Validation
 

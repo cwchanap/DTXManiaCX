@@ -1982,9 +1982,18 @@ for seed creation and all 15 measured slots.
   ```
 
   Expected: one successful build. Record the exact commit and DLL hash in the
-  only Task 10 control file, `$fixed_root/fixed-inputs.txt`. The later runner
-  treats `$fixed_root/build` as immutable and never writes it. Do not rebuild
-  between seed preparation and the last matrix slot.
+  only Task 10 control file, `$fixed_root/fixed-inputs.txt`, as exactly two
+  tab-separated lines in this order:
+
+  ```text
+  source_commit	<40-character lowercase commit>
+  game_sha256	<64-character lowercase SHA-256>
+  ```
+
+  The later runner requires `GAME_DIR` to resolve to the exact physical
+  `$fixed_root/build` child and binds both control values before it writes or
+  launches anything. It treats that build as immutable and never writes it.
+  Do not rebuild between seed preparation and the last matrix slot.
 
 ### Task 11: Prepare the Seed and Collect the Fifteen Valid Samples
 
@@ -2060,8 +2069,13 @@ local; their hashes and machine-readable evidence are copied into the report.
 - [ ] **Step 4: Generate and retain the scenario summary**
 
   ```bash
+  accepted_artifacts=()
+  while IFS= read -r artifact; do
+    accepted_artifacts+=("$artifact")
+  done < "$result_root/accepted-artifacts.txt"
+
   rtk bash tools/hpa192/summarize-critical-path.sh \
-    --summarize "$result_root" |
+    --summarize "${accepted_artifacts[@]}" |
     rtk tee "$result_root/summary.txt"
   ```
 
