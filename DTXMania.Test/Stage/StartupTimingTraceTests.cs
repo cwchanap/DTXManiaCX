@@ -1,8 +1,17 @@
 using System.Collections.Generic;
 using System.IO;
 using DTXMania.Game;
+using DTXMania.Game.Lib.Config;
+using DTXMania.Game.Lib.Graphics;
+using DTXMania.Game.Lib.Input;
+using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage;
+using DTXMania.Game.Lib.UI.Components;
 using DTXMania.Test.TestData;
+using Microsoft.Extensions.Logging;
+using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
+using Moq;
 
 namespace DTXMania.Test.Stage;
 
@@ -15,6 +24,43 @@ public class StartupTimingTraceTests
 {
     private const string CriticalPathVariable = "HPA192_CRITICAL_PATH";
     private const string ExitAfterCriticalPathVariable = "HPA192_EXIT_AFTER_CRITICAL_PATH";
+
+    [Fact]
+    public void Resolve_WhenGameDoesNotImplementHost_ShouldReturnNull()
+    {
+        var game = new Mock<IStageGame>();
+
+        Assert.Null(StartupCriticalPathHost.Resolve(game.Object));
+    }
+
+    [Fact]
+    public void Resolve_WhenBaseGameOwnsEnabledTrace_ShouldReturnCompanion()
+    {
+        var trace = StartupTimingTrace.Start(
+            new FakeMonotonicClock(0),
+            new FakeUtcMicrosecondClock(10_000_000),
+            enableCriticalPath: true);
+        var game = ReflectionHelpers.CreateUninitialized<BaseGame>();
+        ReflectionHelpers.SetPrivateField(game, "_startupTimingTrace", trace);
+
+        Assert.Same(
+            trace.CriticalPathTrace,
+            StartupCriticalPathHost.Resolve(game));
+    }
+
+    [Fact]
+    public void Resolve_ShouldNotRequireConcreteBaseGame()
+    {
+        var trace = StartupTimingTrace.Start(
+            new FakeMonotonicClock(0),
+            new FakeUtcMicrosecondClock(10_000_000),
+            enableCriticalPath: true);
+        var game = new CriticalPathHostStageGame(trace.CriticalPathTrace!);
+
+        Assert.Same(
+            trace.CriticalPathTrace,
+            StartupCriticalPathHost.Resolve(game));
+    }
 
     [Fact]
     public void StartProcess_WhenCriticalPathFlagMissing_ShouldLeaveCompanionDisabled()
@@ -268,5 +314,31 @@ public class StartupTimingTraceTests
             CallCount++;
             return _microseconds.Dequeue();
         }
+    }
+
+    private sealed class CriticalPathHostStageGame : IStageGame, IStartupCriticalPathHost
+    {
+        public CriticalPathHostStageGame(StartupCriticalPathTrace trace)
+        {
+            StartupCriticalPathTrace = trace;
+        }
+
+        StartupCriticalPathTrace? IStartupCriticalPathHost.StartupCriticalPathTrace =>
+            StartupCriticalPathTrace;
+
+        private StartupCriticalPathTrace StartupCriticalPathTrace { get; }
+
+        public GraphicsDevice GraphicsDevice => null!;
+        public IStageManager StageManager => null!;
+        public IConfigManager ConfigManager => null!;
+        public InputManagerCompat InputManager => null!;
+        public IGraphicsManager GraphicsManager => null!;
+        public IResourceManager ResourceManager => null!;
+        public ILoggerFactory LoggerFactory => null!;
+        public bool CanPerformStageTransition() => false;
+        public void MarkStageTransition() { }
+        public Point? MapMouseToVirtual(Point windowPoint) => null;
+        public ITextInputSource? GetTextInputSource() => null;
+        public void RequestExit() { }
     }
 }
