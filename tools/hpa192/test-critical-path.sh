@@ -213,9 +213,9 @@ create_runner_fixture() {
 
     fixture_root="$temp_root/runner-$name"
     fixture_repo="$fixture_root/repo"
-    fixture_game="$fixture_root/game"
     fixture_corpus="$fixture_root/corpus"
     fixture_result="$fixture_root/result"
+    fixture_game="$fixture_result/build"
     fixture_fakebin="$fixture_root/fakebin"
     fixture_raw="$fixture_root/raw"
     fixture_forbidden="$fixture_root/forbidden.log"
@@ -240,6 +240,11 @@ create_runner_fixture() {
     cp "$summarizer" "$fixture_repo/tools/hpa192/summarize-critical-path.sh"
     printf 'system fixture\n' >"$fixture_repo/System/system.txt"
     : >"$fixture_game/DTXMania.Game.Mac.dll"
+    printf 'source_commit\t%s\ngame_sha256\t%s\n' \
+        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' \
+        "$(shasum -a 256 "$fixture_game/DTXMania.Game.Mac.dll" |
+            awk '{ print $1 }')" \
+        >"$fixture_result/fixed-inputs.txt"
 
     if [[ "$chart_count" -eq 100 &&
           "$set_count" -eq 27 &&
@@ -484,6 +489,19 @@ printf 'screencapture\n' >>"$HPA192_FAKE_FORBIDDEN"
 exit 97
 FORBIDDEN
 
+    cat >"$fixture_fakebin/git" <<'FAKE_GIT'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$#" -eq 4 &&
+      "$1" == -C &&
+      "$3" == rev-parse &&
+      "$4" == HEAD ]]; then
+    printf '%s\n' 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    exit 0
+fi
+exit 2
+FAKE_GIT
+
     cat >"$fixture_fakebin/ps" <<'FAKE_PS'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -523,6 +541,7 @@ FAKE_PS
         "$fixture_fakebin/sleep" \
         "$fixture_fakebin/curl" \
         "$fixture_fakebin/screencapture" \
+        "$fixture_fakebin/git" \
         "$fixture_fakebin/ps"
     : >"$fixture_forbidden"
     : >"$fixture_launch_log"
@@ -627,10 +646,6 @@ run_runner_layout_tests() {
     # the immutable fixed build and control records predate seed preparation.
     if [[ "$selection" == all || "$selection" == planned ]]; then
         create_runner_fixture planned-layout
-        mv "$fixture_game" "$fixture_result/build"
-        fixture_game="$fixture_result/build"
-        printf 'commit=fixture\nsha256=fixture\n' \
-            >"$fixture_result/fixed-inputs.txt"
         printf 'machine=fixture\n' >"$fixture_result/environment.txt"
         if ! run_fixture_runner prepare-seed success \
             >"$fixture_root/prepare.stdout" 2>"$fixture_root/prepare.stderr"; then
@@ -676,6 +691,50 @@ run_runner_layout_tests() {
     # Break caught: allowing the writable result root to contain an
     # unapproved game directory instead of the exact immutable build child.
     if [[ "$selection" == all || "$selection" == rejections ]]; then
+        create_runner_fixture disjoint-external-game
+        mv "$fixture_game" "$fixture_root/external-game"
+        fixture_game="$fixture_root/external-game"
+        assert_rejected_before_launch_without_tree_changes \
+            disjoint-external-game \
+            "$fixture_result"
+
+        # Break caught: accepting a run without Task 10's exact control file.
+        create_runner_fixture missing-fixed-inputs
+        rm -f "$fixture_result/fixed-inputs.txt"
+        assert_rejected_before_launch_without_tree_changes \
+            missing-fixed-inputs \
+            "$fixture_result"
+
+        # Break caught: accepting duplicate or unknown fixed-input fields.
+        create_runner_fixture malformed-fixed-inputs
+        printf 'game_sha256\t%s\n' \
+            "$(shasum -a 256 "$fixture_game/DTXMania.Game.Mac.dll" |
+                awk '{ print $1 }')" \
+            >>"$fixture_result/fixed-inputs.txt"
+        assert_rejected_before_launch_without_tree_changes \
+            malformed-fixed-inputs \
+            "$fixture_result"
+
+        # Break caught: using a fixed build from a different source revision.
+        create_runner_fixture changed-fixed-source
+        printf 'source_commit\t%s\ngame_sha256\t%s\n' \
+            'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' \
+            "$(shasum -a 256 "$fixture_game/DTXMania.Game.Mac.dll" |
+                awk '{ print $1 }')" \
+            >"$fixture_result/fixed-inputs.txt"
+        assert_rejected_before_launch_without_tree_changes \
+            changed-fixed-source \
+            "$fixture_result"
+
+        # Break caught: adopting a replacement DLL as the fixed baseline
+        # instead of binding to Task 10's control record.
+        create_runner_fixture changed-fixed-build
+        printf 'changed fixed build\n' \
+            >>"$fixture_game/DTXMania.Game.Mac.dll"
+        assert_rejected_before_launch_without_tree_changes \
+            changed-fixed-build \
+            "$fixture_result"
+
         create_runner_fixture unsafe-game-child
         mv "$fixture_game" "$fixture_result/other-build"
         fixture_game="$fixture_result/other-build"

@@ -247,12 +247,12 @@ namespace DTXMania.Game.Lib.Song
         /// <summary>
         /// Initializes the database service (SongListDB and SongsDB phases)
         /// </summary>
-        public async Task<bool> InitializeDatabaseServiceAsync(string? databasePath = null, bool purgeDatabaseFirst = false)
+        public Task<bool> InitializeDatabaseServiceAsync(string? databasePath = null, bool purgeDatabaseFirst = false)
         {
-            return await InitializeDatabaseServiceAsync(
+            return InitializeDatabaseServiceAsync(
                 databasePath,
                 purgeDatabaseFirst,
-                observer: null).ConfigureAwait(false);
+                observer: null);
         }
 
         internal async Task<bool> InitializeDatabaseServiceAsync(

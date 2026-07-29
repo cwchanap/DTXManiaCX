@@ -13,6 +13,10 @@ fail() {
     exit 1
 }
 
+sha256_file() {
+    shasum -a 256 "$1" | awk '{ print $1 }'
+}
+
 [[ "$#" -eq 4 ]] || usage
 command_name="$1"
 [[ "$command_name" == prepare-seed || "$command_name" == matrix ]] || usage
@@ -79,10 +83,13 @@ summarizer="$(
     canonical_file "$repo_root/tools/hpa192/summarize-critical-path.sh" summarizer
 )"
 game_dll="$(canonical_file "$game_dir/DTXMania.Game.Mac.dll" game-binary)"
+fixed_inputs="$result_root/fixed-inputs.txt"
 
 validate_path_relationships() {
     path_contains "$game_dir" "$game_dll" ||
         fail "game binary resolves outside GAME_DIR"
+    [[ "$game_dir" == "$result_root/build" ]] ||
+        fail "GAME_DIR must be the exact immutable RESULT_ROOT/build child"
     if paths_overlap "$result_root" "$corpus"; then
         fail "RESULT_ROOT overlaps the frozen corpus"
     fi
@@ -145,6 +152,57 @@ validate_result_root_phase_layout() {
 
 validate_path_relationships
 validate_result_root_phase_layout
+
+fixed_source_commit=
+fixed_game_sha256=
+
+validate_fixed_inputs() {
+    local first_line
+    local second_line
+    local line_count
+    local first_name
+    local first_value
+    local first_extra
+    local second_name
+    local second_value
+    local second_extra
+    local current_source_commit
+    local observed_game_sha256
+
+    [[ -f "$fixed_inputs" && ! -L "$fixed_inputs" ]] ||
+        fail "Task 10 fixed-inputs.txt is missing or aliased"
+    line_count="$(awk 'END { print NR + 0 }' "$fixed_inputs")"
+    [[ "$line_count" -eq 2 ]] ||
+        fail "Task 10 fixed-inputs.txt must contain exactly two lines"
+    first_line="$(sed -n '1p' "$fixed_inputs")"
+    second_line="$(sed -n '2p' "$fixed_inputs")"
+    IFS=$'\t' read -r first_name first_value first_extra <<<"$first_line"
+    IFS=$'\t' read -r second_name second_value second_extra <<<"$second_line"
+    [[ "$first_name" == source_commit &&
+       "$first_value" =~ ^[0-9a-f]{40}$ &&
+       -z "$first_extra" ]] ||
+        fail "Task 10 source_commit is malformed"
+    [[ "$second_name" == game_sha256 &&
+       "$second_value" =~ ^[0-9a-f]{64}$ &&
+       -z "$second_extra" ]] ||
+        fail "Task 10 game_sha256 is malformed"
+
+    if ! current_source_commit="$(
+        git -C "$repo_root" rev-parse HEAD 2>/dev/null
+    )"; then
+        fail "current source commit could not be resolved"
+    fi
+    [[ "$current_source_commit" == "$first_value" ]] ||
+        fail "current source commit differs from Task 10 fixed input"
+    observed_game_sha256="$(sha256_file "$game_dll")"
+    [[ "$observed_game_sha256" == "$second_value" ]] ||
+        fail "game binary differs from Task 10 fixed input"
+
+    fixed_source_commit="$first_value"
+    fixed_game_sha256="$second_value"
+}
+
+validate_fixed_inputs
 
 lock_path="${TMPDIR:-/tmp}/hpa-192-benchmark-startup.lock"
 lock_acquired=false
@@ -278,10 +336,6 @@ cleanup() {
 trap cleanup EXIT HUP INT TERM
 acquire_lock || exit 1
 temporary_root="$(mktemp -d "${TMPDIR:-/tmp}/hpa-192-critical-path.XXXXXX")"
-
-sha256_file() {
-    shasum -a 256 "$1" | awk '{ print $1 }'
-}
 
 generate_tree_manifest() {
     local root="$1"
@@ -466,6 +520,8 @@ write_expected_chart_paths \
     "$current_expected_chart_paths"
 
 game_sha256="$(sha256_file "$game_dll")"
+[[ "$game_sha256" == "$fixed_game_sha256" ]] ||
+    fail "game binary changed after Task 10 fixed-input validation"
 runner_sha256="$(sha256_file "$script_path")"
 summarizer_sha256="$(sha256_file "$summarizer")"
 corpus_manifest_sha256="$(sha256_file "$committed_corpus_manifest")"
@@ -550,6 +606,7 @@ write_common_identity() {
     local path="$1"
 
     {
+        printf 'source_commit\t%s\n' "$fixed_source_commit"
         printf 'game_dir\t%s\n' "$game_dir"
         printf 'corpus\t%s\n' "$corpus"
         printf 'result_root\t%s\n' "$result_root"
