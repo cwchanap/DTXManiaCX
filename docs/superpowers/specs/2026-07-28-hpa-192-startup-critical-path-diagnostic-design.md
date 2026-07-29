@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-28
 
-**Status:** Third written-spec review addressed; approval pending
+**Status:** Approved; implementation plan ready
 
 ## Summary
 
