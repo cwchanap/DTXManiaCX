@@ -238,14 +238,14 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
 
         base.Initialize();
 
+        _startupTimingTrace?.CriticalPathTrace?.RecordExactlyOnce(
+            StartupCriticalPathMilestone.BaseInitializeReturn);
         InitializeAfterBase();
     }
 
     private void InitializeAfterBase()
     {
         var criticalPathTrace = _startupTimingTrace?.CriticalPathTrace;
-        criticalPathTrace?.RecordExactlyOnce(
-            StartupCriticalPathMilestone.BaseInitializeReturn);
 
         // Initialize managers that are needed after base.Initialize() calls LoadContent()
         // InputManager must be created before StageManager since stages need InputManager in their constructors
