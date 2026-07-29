@@ -13,6 +13,8 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
+#pragma warning disable CS8632
+
 namespace DTXMania.Game.Lib.Stage
 {
     /// <summary>
@@ -469,6 +471,9 @@ namespace DTXMania.Game.Lib.Stage
                 _titleTransitionRequested = true;
                 WriteSummaryOnce();
                 _game.ReportStartupSummaryAndTitleRequested();
+                TryRecordExactlyOnce(
+                    ResolveCriticalPathTrace(),
+                    StartupCriticalPathMilestone.SummaryRequest);
                 _game.StageManager?.ChangeStage(
                     StageType.Title,
                     new StartupToTitleTransition(1.0));
@@ -541,6 +546,7 @@ namespace DTXMania.Game.Lib.Stage
                     new CancellationTokenSource();
             }
 
+            FailPendingActivationTrace(pendingTask);
             CancelAndObserveRetiredOperation(
                 pendingTask,
                 pendingCancellation);
@@ -559,9 +565,21 @@ namespace DTXMania.Game.Lib.Stage
                 _cancellationTokenSource = null;
             }
 
+            FailPendingActivationTrace(pendingTask);
             CancelAndObserveRetiredOperation(
                 pendingTask,
                 pendingCancellation);
+        }
+
+        private void FailPendingActivationTrace(Task pendingTask)
+        {
+            if (pendingTask == null || pendingTask.IsCompleted)
+                return;
+
+            TryFailCriticalPath(
+                ResolveCriticalPathTrace(),
+                "activation_generation_invalidated",
+                "activation_generation_invalidated");
         }
 
         private static void CancelAndObserveRetiredOperation(
@@ -703,6 +721,23 @@ namespace DTXMania.Game.Lib.Stage
                             $"{_currentAsyncTask.Exception?.InnerException?.Message}");
                     }
                 }
+
+                if (phaseComplete)
+                {
+                    var criticalPathTrace = ResolveCriticalPathTrace();
+                    if (_startupPhase == StartupPhase.SongListDB)
+                    {
+                        TryRecordExactlyOnce(
+                            criticalPathTrace,
+                            StartupCriticalPathMilestone.DatabaseObserved);
+                    }
+                    else if (_startupPhase == StartupPhase.EnumerateSongs)
+                    {
+                        TryRecordExactlyOnce(
+                            criticalPathTrace,
+                            StartupCriticalPathMilestone.EnumerationObserved);
+                    }
+                }
             }
             else
             {
@@ -796,7 +831,12 @@ namespace DTXMania.Game.Lib.Stage
                     if (_currentAsyncTask == null)
                     {
                         System.Diagnostics.Debug.WriteLine("Starting database service initialization...");
-                        _currentAsyncTask = InitializeDatabaseServiceAsync();
+                        var databaseTask =
+                            InitializeDatabaseServiceAsync();
+                        _currentAsyncTask = databaseTask;
+                        TryRecordDatabaseTaskReturned(
+                            ResolveCriticalPathTrace(),
+                            databaseTask.IsCompleted);
                     }
                     break;
 
@@ -884,6 +924,20 @@ namespace DTXMania.Game.Lib.Stage
             return _songManager.InitializeDatabaseServiceAsync(databasePath, false);
         }
 
+        private protected virtual Task<bool> InitializeDatabaseServiceCoreAsync(
+            string databasePath,
+            IStartupSongLoadTimingObserver? observer)
+        {
+            if (observer == null)
+            {
+                return InitializeDatabaseServiceCoreAsync(databasePath);
+            }
+            return _songManager.InitializeDatabaseServiceAsync(
+                databasePath,
+                false,
+                observer);
+        }
+
         protected virtual Task<bool> NeedsEnumerationCoreAsync(string[] songPaths, bool forceEnumeration)
         {
             return _songManager.NeedsEnumerationAsync(songPaths, forceEnumeration);
@@ -899,6 +953,27 @@ namespace DTXMania.Game.Lib.Stage
                 songPaths,
                 progressReporter,
                 cancellationToken);
+        }
+
+        private protected virtual Task<SongEnumerationResult>
+            EnumerateSongsCoreAsync(
+                string[] songPaths,
+                IProgress<EnumerationProgress> progressReporter,
+                CancellationToken cancellationToken,
+                IStartupSongLoadTimingObserver? observer)
+        {
+            if (observer == null)
+            {
+                return EnumerateSongsCoreAsync(
+                    songPaths,
+                    progressReporter,
+                    cancellationToken);
+            }
+            return _songManager.EnumerateAndImportSongsAsync(
+                songPaths,
+                progressReporter,
+                cancellationToken,
+                observer);
         }
 
         protected virtual Task BuildHierarchyFromDatabaseOnceCoreAsync(
@@ -933,21 +1008,41 @@ namespace DTXMania.Game.Lib.Stage
             long activationGeneration,
             CancellationToken cancellationToken)
         {
+            var criticalPathTrace = ResolveCriticalPathTrace();
+            TryRecordExactlyOnce(
+                criticalPathTrace,
+                StartupCriticalPathMilestone.DatabaseInvoke);
             var initialization = Stopwatch.StartNew();
+            var initializationFailed = false;
             try
             {
                 var databasePath = GetSongsDatabasePath();
                 EnsureDirectory(Path.GetDirectoryName(databasePath) ?? "");
-                bool success = await InitializeDatabaseServiceCoreAsync(databasePath).ConfigureAwait(false);
+                bool success = await InitializeDatabaseServiceCoreAsync(
+                        databasePath,
+                        criticalPathTrace)
+                    .ConfigureAwait(false);
+                initializationFailed = !success;
                 System.Diagnostics.Debug.WriteLine($"Database service initialization: {(success ? "SUCCESS" : "FAILED")}");
             }
             catch (Exception ex)
             {
+                initializationFailed = true;
                 System.Diagnostics.Debug.WriteLine($"Error during database service initialization: {ex.GetType().Name}: {ex.Message}");
             }
             finally
             {
                 initialization.Stop();
+                TryRecordExactlyOnce(
+                    criticalPathTrace,
+                    StartupCriticalPathMilestone.DatabaseTerminal);
+                if (initializationFailed)
+                {
+                    TryFailCriticalPath(
+                        criticalPathTrace,
+                        "database_initialization_failed",
+                        nameof(StartupCriticalPathMilestone.DatabaseTerminal));
+                }
                 lock (_activationGate)
                 {
                     if (activationGeneration == _activationGeneration &&
@@ -957,6 +1052,72 @@ namespace DTXMania.Game.Lib.Stage
                             initialization.Elapsed;
                     }
                 }
+            }
+        }
+
+        private StartupCriticalPathTrace? ResolveCriticalPathTrace()
+        {
+            try
+            {
+                return StartupCriticalPathHost.Resolve(_game);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static void TryRecordExactlyOnce(
+            StartupCriticalPathTrace? trace,
+            StartupCriticalPathMilestone milestone)
+        {
+            try
+            {
+                trace?.RecordExactlyOnce(milestone);
+            }
+            catch
+            {
+            }
+        }
+
+        private static void TryRecordDatabaseTaskReturned(
+            StartupCriticalPathTrace? trace,
+            bool wasTerminal)
+        {
+            try
+            {
+                trace?.RecordDatabaseTaskReturned(wasTerminal);
+            }
+            catch
+            {
+            }
+        }
+
+        private static void TryRecordEnumerationTaskReturned(
+            StartupCriticalPathTrace? trace,
+            bool wasTerminal)
+        {
+            try
+            {
+                trace?.RecordEnumerationTaskReturned(wasTerminal);
+            }
+            catch
+            {
+            }
+        }
+
+        private static void TryFailCriticalPath(
+            StartupCriticalPathTrace? trace,
+            string error,
+            string lastMilestone,
+            bool cancellation = false)
+        {
+            try
+            {
+                trace?.Fail(error, lastMilestone, cancellation);
+            }
+            catch
+            {
             }
         }
 
@@ -1018,17 +1179,25 @@ namespace DTXMania.Game.Lib.Stage
                 }
 
                 Task<SongEnumerationResult> enumerationTask;
+                var criticalPathTrace = ResolveCriticalPathTrace();
                 lock (_activationGate)
                 {
                     EnsureCurrentActivation(
                         activationGeneration,
                         cancellationToken);
+                    TryRecordExactlyOnce(
+                        criticalPathTrace,
+                        StartupCriticalPathMilestone.EnumerationInvoke);
                     enumerationTask = EnumerateSongsCoreAsync(
                         _songPaths,
                         CreateEnumerationProgressReporterForActivation(
                             activationGeneration,
                             cancellationToken),
-                        cancellationToken);
+                        cancellationToken,
+                        criticalPathTrace);
+                    TryRecordEnumerationTaskReturned(
+                        criticalPathTrace,
+                        enumerationTask.IsCompleted);
                 }
 
                 var enumerationResult =
@@ -1428,3 +1597,5 @@ namespace DTXMania.Game.Lib.Stage
         Complete = 9             // 9
     }
 }
+
+#pragma warning restore CS8632

@@ -327,6 +327,12 @@ before `EnumerateSongsCoreAsync`, and internal terminal is after
 These anchors make the compatibility durations and new operation intervals
 refer to the same work.
 
+The observer-aware StartupStage overloads are `private protected virtual`
+because `IStartupSongLoadTimingObserver` remains an internal diagnostic type.
+The existing protected one-argument database and three-argument enumeration
+overloads remain unchanged and are the external subclass compatibility
+surface. Diagnostic-disabled calls delegate through those existing seams.
+
 Derived intervals expose:
 
 - synchronous work before task return;
