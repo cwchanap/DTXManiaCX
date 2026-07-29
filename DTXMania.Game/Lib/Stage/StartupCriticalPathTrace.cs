@@ -80,6 +80,11 @@ internal sealed class StartupCriticalPathTrace
     private const long MaximumUtcMicroseconds = 4_102_444_800_000_000;
     private const long MaximumMilliseconds = 300_000;
     private const long MaximumCounter = 100_000;
+    private const int MaximumSafeTokenLength = 128;
+    private static readonly string[] MilestoneNames =
+        Enum.GetNames<StartupCriticalPathMilestone>();
+    private static readonly string[] AggregateNames =
+        Enum.GetNames<StartupCriticalPathAggregate>();
 
     internal static readonly string[] SuccessFieldNames =
     {
@@ -187,13 +192,16 @@ internal sealed class StartupCriticalPathTrace
         new long[Enum.GetValues<StartupCriticalPathAggregate>().Length];
     private readonly bool[] _aggregateActive =
         new bool[Enum.GetValues<StartupCriticalPathAggregate>().Length];
+    private readonly char[] _terminalErrorToken = new char[MaximumSafeTokenLength];
+    private readonly char[] _lastMilestoneToken = new char[MaximumSafeTokenLength];
 
     private TerminalOutcome _terminalOutcome;
-    private string _terminalError = "none";
-    private string _lastMilestone = "unknown";
+    private int _terminalErrorTokenLength;
+    private int _lastMilestoneTokenLength;
     private bool _publicationAttempted;
     private int _terminalClosed;
     private long _titleBackbufferUnixMicroseconds;
+    private bool _titleBackbufferWallClockPending;
     private long _startupUpdateCount;
     private long _startupGameTimeTicks;
     private long _startupDrawCount;
@@ -225,6 +233,8 @@ internal sealed class StartupCriticalPathTrace
         _entryTimestamp = entryTimestamp;
         _entryUnixMicroseconds = entryUnixMicroseconds;
         ExitAfterPublication = exitAfterPublication;
+        SetSafeToken(_terminalErrorToken, ref _terminalErrorTokenLength, "none");
+        SetSafeToken(_lastMilestoneToken, ref _lastMilestoneTokenLength, "unknown");
     }
 
     internal bool ExitAfterPublication { get; }
@@ -259,7 +269,10 @@ internal sealed class StartupCriticalPathTrace
             var index = (int)milestone;
             if (_recorded[index])
             {
-                FailLocked("duplicate_milestone", milestone.ToString(), cancellation: false);
+                FailLocked(
+                    "duplicate_milestone",
+                    MilestoneNames[index],
+                    cancellation: false);
                 return;
             }
 
@@ -299,20 +312,8 @@ internal sealed class StartupCriticalPathTrace
         if (!TryCaptureTimestamp(out var timestamp))
             return;
 
-        long wallTimestamp = 0;
-        if (end == StartupCriticalPathMilestone.TitleBackbufferBlitEnd)
-        {
-            try
-            {
-                wallTimestamp = _wallClock.GetUnixMicroseconds();
-            }
-            catch
-            {
-                Fail("wall_clock_failure", end.ToString());
-                return;
-            }
-        }
-
+        var captureWallTimestamp =
+            end == StartupCriticalPathMilestone.TitleBackbufferBlitEnd;
         lock (_sync)
         {
             if (_terminalOutcome != TerminalOutcome.Open)
@@ -326,14 +327,43 @@ internal sealed class StartupCriticalPathTrace
                 return;
             if (!_firstObservationBegun[beginIndex])
             {
-                FailLocked("unmatched_first_observation", end.ToString(), cancellation: false);
+                FailLocked(
+                    "unmatched_first_observation",
+                    MilestoneNames[endIndex],
+                    cancellation: false);
                 return;
             }
 
             _firstObservationEnded[endIndex] = true;
             RecordMilestoneLocked(end, timestamp);
-            if (end == StartupCriticalPathMilestone.TitleBackbufferBlitEnd)
-                _titleBackbufferUnixMicroseconds = wallTimestamp;
+            if (captureWallTimestamp)
+                _titleBackbufferWallClockPending = true;
+        }
+
+        if (!captureWallTimestamp)
+            return;
+
+        long wallTimestamp;
+        try
+        {
+            wallTimestamp = _wallClock.GetUnixMicroseconds();
+        }
+        catch
+        {
+            Fail("wall_clock_failure", MilestoneNames[(int)end]);
+            return;
+        }
+
+        lock (_sync)
+        {
+            if (_terminalOutcome != TerminalOutcome.Open ||
+                !_titleBackbufferWallClockPending)
+            {
+                return;
+            }
+
+            _titleBackbufferUnixMicroseconds = wallTimestamp;
+            _titleBackbufferWallClockPending = false;
         }
     }
 
@@ -350,19 +380,25 @@ internal sealed class StartupCriticalPathTrace
             var index = (int)aggregate;
             if (_aggregateActive[index])
             {
-                FailLocked("nested_aggregate", aggregate.ToString(), cancellation: false);
+                FailLocked(
+                    "nested_aggregate",
+                    AggregateNames[index],
+                    cancellation: false);
                 return;
             }
             if (_aggregateCounts[index] >= MaximumAggregateCount(aggregate))
             {
-                FailLocked("aggregate_count_exceeded", aggregate.ToString(), cancellation: false);
+                FailLocked(
+                    "aggregate_count_exceeded",
+                    AggregateNames[index],
+                    cancellation: false);
                 return;
             }
 
             _aggregateActive[index] = true;
             _aggregateBeginTimestamps[index] = timestamp;
             _aggregateCounts[index]++;
-            _lastMilestone = aggregate.ToString();
+            SetLastMilestoneLocked(AggregateNames[index]);
         }
     }
 
@@ -379,7 +415,10 @@ internal sealed class StartupCriticalPathTrace
             var index = (int)aggregate;
             if (!_aggregateActive[index])
             {
-                FailLocked("unmatched_aggregate", aggregate.ToString(), cancellation: false);
+                FailLocked(
+                    "unmatched_aggregate",
+                    AggregateNames[index],
+                    cancellation: false);
                 return;
             }
 
@@ -388,18 +427,24 @@ internal sealed class StartupCriticalPathTrace
                 var elapsed = checked(timestamp - _aggregateBeginTimestamps[index]);
                 if (elapsed < 0)
                 {
-                    FailLocked("negative_aggregate", aggregate.ToString(), cancellation: false);
+                    FailLocked(
+                        "negative_aggregate",
+                        AggregateNames[index],
+                        cancellation: false);
                     return;
                 }
 
                 _aggregateTimestampTicks[index] =
                     checked(_aggregateTimestampTicks[index] + elapsed);
                 _aggregateActive[index] = false;
-                _lastMilestone = aggregate.ToString();
+                SetLastMilestoneLocked(AggregateNames[index]);
             }
             catch (OverflowException)
             {
-                FailLocked("aggregate_overflow", aggregate.ToString(), cancellation: false);
+                FailLocked(
+                    "aggregate_overflow",
+                    AggregateNames[index],
+                    cancellation: false);
             }
         }
     }
@@ -521,9 +566,11 @@ internal sealed class StartupCriticalPathTrace
                 return;
             if (_databaseTaskReturnedRecorded)
             {
+                var milestone =
+                    StartupCriticalPathMilestone.DatabaseTaskReturn;
                 FailLocked(
                     "duplicate_milestone",
-                    StartupCriticalPathMilestone.DatabaseTaskReturn.ToString(),
+                    MilestoneNames[(int)milestone],
                     cancellation: false);
                 return;
             }
@@ -547,9 +594,11 @@ internal sealed class StartupCriticalPathTrace
                 return;
             if (_enumerationTaskReturnedRecorded)
             {
+                var milestone =
+                    StartupCriticalPathMilestone.EnumerationTaskReturn;
                 FailLocked(
                     "duplicate_milestone",
-                    StartupCriticalPathMilestone.EnumerationTaskReturn.ToString(),
+                    MilestoneNames[(int)milestone],
                     cancellation: false);
                 return;
             }
@@ -588,7 +637,7 @@ internal sealed class StartupCriticalPathTrace
             _enumerationPersistenceTicks = result.Import.PersistenceDuration.Ticks;
             _enumerationCleanupTicks = result.Import.CleanupDuration.Ticks;
             _enumerationHierarchyTicks = result.HierarchyDuration.Ticks;
-            _lastMilestone = "enumeration_result";
+            SetLastMilestoneLocked("enumeration_result");
         }
     }
 
@@ -609,7 +658,7 @@ internal sealed class StartupCriticalPathTrace
 
             _titleCompletionLookupRecorded = true;
             _titleCompletionLookupCacheHit = cacheHit;
-            _lastMilestone = "title_completion_lookup";
+            SetLastMilestoneLocked("title_completion_lookup");
             if (!cacheHit)
             {
                 FailLocked(
@@ -642,7 +691,8 @@ internal sealed class StartupCriticalPathTrace
             if (_publicationAttempted)
                 return false;
             if (_terminalOutcome == TerminalOutcome.Open &&
-                !_recorded[(int)StartupCriticalPathMilestone.TitleBackbufferBlitEnd])
+                (!_recorded[(int)StartupCriticalPathMilestone.TitleBackbufferBlitEnd] ||
+                 _titleBackbufferWallClockPending))
             {
                 return false;
             }
@@ -660,15 +710,18 @@ internal sealed class StartupCriticalPathTrace
         {
             line = FormatFailureLine(
                 snapshot.Outcome,
-                snapshot.Error,
-                snapshot.LastMilestone);
+                snapshot.ErrorToken,
+                snapshot.ErrorTokenLength,
+                snapshot.LastMilestoneToken,
+                snapshot.LastMilestoneTokenLength);
         }
         else if (!TryFormatSuccessLine(snapshot, out line, out var validationError))
         {
             line = FormatFailureLine(
                 TerminalOutcome.Failure,
                 validationError,
-                snapshot.LastMilestone);
+                snapshot.LastMilestoneToken,
+                snapshot.LastMilestoneTokenLength);
         }
 
         try
@@ -693,8 +746,12 @@ internal sealed class StartupCriticalPathTrace
 
         try
         {
-            if (_clock.TimestampFrequency <= 0 ||
-                !InRange(snapshot.EntryUnixMicroseconds, MaximumUtcMicroseconds) ||
+            if (!TryGetStableTimestampFrequency(out var timestampFrequency))
+            {
+                validationError = "clock_failure";
+                return false;
+            }
+            if (!InRange(snapshot.EntryUnixMicroseconds, MaximumUtcMicroseconds) ||
                 !InRange(snapshot.TitleBackbufferUnixMicroseconds, MaximumUtcMicroseconds))
             {
                 return false;
@@ -714,7 +771,9 @@ internal sealed class StartupCriticalPathTrace
                     return false;
                 }
 
-                origins[index] = MillisecondsFromEntry(snapshot.Timestamps[index]);
+                origins[index] = MillisecondsFromEntry(
+                    snapshot.Timestamps[index],
+                    timestampFrequency);
                 if (!InRange(origins[index], MaximumMilliseconds))
                 {
                     validationError = "origin_out_of_bounds";
@@ -732,7 +791,8 @@ internal sealed class StartupCriticalPathTrace
             for (var index = 0; index < durations.Length; index++)
             {
                 durations[index] = TimestampTicksToMilliseconds(
-                    snapshot.AggregateTimestampTicks[index]);
+                    snapshot.AggregateTimestampTicks[index],
+                    timestampFrequency);
                 if (!InRange(durations[index], MaximumMilliseconds) ||
                     !InRange(snapshot.AggregateCounts[index], MaximumCounter))
                 {
@@ -924,6 +984,11 @@ internal sealed class StartupCriticalPathTrace
         catch (OverflowException)
         {
             validationError = "clock_overflow";
+            return false;
+        }
+        catch
+        {
+            validationError = "validation_failure";
             return false;
         }
     }
@@ -1158,8 +1223,10 @@ internal sealed class StartupCriticalPathTrace
     {
         return new Snapshot(
             _terminalOutcome,
-            _terminalError,
-            _lastMilestone,
+            (char[])_terminalErrorToken.Clone(),
+            _terminalErrorTokenLength,
+            (char[])_lastMilestoneToken.Clone(),
+            _lastMilestoneTokenLength,
             _entryUnixMicroseconds,
             _titleBackbufferUnixMicroseconds,
             (long[])_timestamps.Clone(),
@@ -1194,7 +1261,7 @@ internal sealed class StartupCriticalPathTrace
         var index = (int)milestone;
         _timestamps[index] = timestamp;
         _recorded[index] = true;
-        _lastMilestone = milestone.ToString();
+        SetLastMilestoneLocked(MilestoneNames[index]);
     }
 
     private bool TryCaptureTimestamp(out long timestamp)
@@ -1259,22 +1326,91 @@ internal sealed class StartupCriticalPathTrace
     {
         _terminalOutcome =
             cancellation ? TerminalOutcome.Cancellation : TerminalOutcome.Failure;
-        _terminalError = error;
-        _lastMilestone = lastMilestone;
+        SetSafeToken(
+            _terminalErrorToken,
+            ref _terminalErrorTokenLength,
+            error);
+        SetLastMilestoneLocked(lastMilestone);
         Volatile.Write(ref _terminalClosed, 1);
     }
 
-    private long MillisecondsFromEntry(long timestamp)
+    private void SetLastMilestoneLocked(string value)
+    {
+        SetSafeToken(
+            _lastMilestoneToken,
+            ref _lastMilestoneTokenLength,
+            value);
+    }
+
+    private static void SetSafeToken(char[] destination, ref int length, string? value)
+    {
+        length = 0;
+        if (string.IsNullOrEmpty(value))
+        {
+            SetUnknownToken(destination, ref length);
+            return;
+        }
+
+        foreach (var character in value)
+        {
+            if (!IsSafeTokenCharacter(character))
+                continue;
+            if (length == destination.Length)
+                break;
+
+            destination[length++] = character;
+        }
+
+        if (length == 0)
+            SetUnknownToken(destination, ref length);
+    }
+
+    private static void SetUnknownToken(char[] destination, ref int length)
+    {
+        const string unknown = "unknown";
+        for (var index = 0; index < unknown.Length; index++)
+            destination[index] = unknown[index];
+        length = unknown.Length;
+    }
+
+    private static bool IsSafeTokenCharacter(char character) =>
+        character is >= 'a' and <= 'z' or
+            >= 'A' and <= 'Z' or
+            >= '0' and <= '9' or
+            '.' or '_' or '-';
+
+    private bool TryGetStableTimestampFrequency(out long timestampFrequency)
+    {
+        timestampFrequency = 0;
+        try
+        {
+            var firstRead = _clock.TimestampFrequency;
+            var secondRead = _clock.TimestampFrequency;
+            if (firstRead <= 0 || secondRead != firstRead)
+                return false;
+
+            timestampFrequency = firstRead;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private long MillisecondsFromEntry(long timestamp, long timestampFrequency)
     {
         return checked(
             (timestamp - _entryTimestamp) *
             1_000 /
-            _clock.TimestampFrequency);
+            timestampFrequency);
     }
 
-    private long TimestampTicksToMilliseconds(long ticks)
+    private static long TimestampTicksToMilliseconds(
+        long ticks,
+        long timestampFrequency)
     {
-        return checked(ticks * 1_000 / _clock.TimestampFrequency);
+        return checked(ticks * 1_000 / timestampFrequency);
     }
 
     private static long TimeSpanTicksToMilliseconds(long ticks)
@@ -1312,8 +1448,33 @@ internal sealed class StartupCriticalPathTrace
 
     private static string FormatFailureLine(
         TerminalOutcome outcome,
+        char[] errorToken,
+        int errorTokenLength,
+        char[] lastMilestoneToken,
+        int lastMilestoneTokenLength)
+    {
+        return FormatFailureLine(
+            outcome,
+            new string(errorToken, 0, errorTokenLength),
+            new string(lastMilestoneToken, 0, lastMilestoneTokenLength));
+    }
+
+    private static string FormatFailureLine(
+        TerminalOutcome outcome,
         string error,
-        string lastMilestone)
+        char[] lastMilestoneToken,
+        int lastMilestoneTokenLength)
+    {
+        return FormatFailureLine(
+            outcome,
+            SafeToken(error),
+            new string(lastMilestoneToken, 0, lastMilestoneTokenLength));
+    }
+
+    private static string FormatFailureLine(
+        TerminalOutcome outcome,
+        string errorToken,
+        string lastMilestoneToken)
     {
         var outcomeToken =
             outcome == TerminalOutcome.Cancellation ? "cancellation" : "failure";
@@ -1321,8 +1482,8 @@ internal sealed class StartupCriticalPathTrace
             CultureInfo.InvariantCulture,
             "HPA192_CRITICAL_PATH_FAILURE outcome={0} error={1} last_milestone={2}",
             outcomeToken,
-            SafeToken(error),
-            SafeToken(lastMilestone));
+            errorToken,
+            lastMilestoneToken);
     }
 
     private static string SafeToken(string? value)
@@ -1333,13 +1494,8 @@ internal sealed class StartupCriticalPathTrace
         var builder = new StringBuilder(value.Length);
         foreach (var character in value)
         {
-            if (character is >= 'a' and <= 'z' or
-                >= 'A' and <= 'Z' or
-                >= '0' and <= '9' or
-                '.' or '_' or '-')
-            {
+            if (IsSafeTokenCharacter(character))
                 builder.Append(character);
-            }
         }
 
         return builder.Length == 0 ? "unknown" : builder.ToString();
@@ -1385,8 +1541,10 @@ internal sealed class StartupCriticalPathTrace
 
     private sealed record Snapshot(
         TerminalOutcome Outcome,
-        string Error,
-        string LastMilestone,
+        char[] ErrorToken,
+        int ErrorTokenLength,
+        char[] LastMilestoneToken,
+        int LastMilestoneTokenLength,
         long EntryUnixMicroseconds,
         long TitleBackbufferUnixMicroseconds,
         long[] Timestamps,

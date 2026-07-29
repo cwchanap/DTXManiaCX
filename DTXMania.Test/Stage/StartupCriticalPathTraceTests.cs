@@ -104,6 +104,56 @@ public class StartupCriticalPathTraceTests
     }
 
     [Fact]
+    public void FirstObservation_WhenTitleBackbufferEndRepeatsAndUtcThrows_ShouldIgnoreRepeat()
+    {
+        var clock = new ManualMonotonicClock();
+        var trace = StartupCriticalPathTrace.Start(
+            clock,
+            new ThrowingAfterFirstUtcMicrosecondClock(2_000_000),
+            entryTimestamp: 0,
+            entryUnixMicroseconds: 1_000_000,
+            exitAfterPublication: false);
+        var fixture = new TraceFixture(trace, clock);
+        CompleteValidTrace(fixture);
+        At(fixture, 200, () => fixture.Trace.RecordFirstObservationBegin(
+            StartupCriticalPathMilestone.TitleBackbufferBlitBegin,
+            StartupCriticalPathMilestone.TitleBackbufferBlitEnd));
+        At(fixture, 201, () => fixture.Trace.RecordFirstObservationEnd(
+            StartupCriticalPathMilestone.TitleBackbufferBlitBegin,
+            StartupCriticalPathMilestone.TitleBackbufferBlitEnd));
+        using var writer = new TrackingWriter();
+
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Equal(ExpectedSuccessLine + "\n", writer.ToString());
+    }
+
+    [Fact]
+    public void Record_WhenUpdatingFixedSizeState_ShouldNotAllocate()
+    {
+        var warmup = CreateFixture();
+        At(warmup, 1, () => warmup.Trace.RecordExactlyOnce(
+            StartupCriticalPathMilestone.LoadContentComplete));
+        Aggregate(
+            warmup,
+            StartupCriticalPathAggregate.DatabaseInvalidRecovery,
+            begin: 2,
+            end: 3);
+
+        var fixture = CreateFixture();
+        fixture.Clock.Timestamp = 1;
+        var allocationBefore = GC.GetAllocatedBytesForCurrentThread();
+
+        fixture.Trace.RecordExactlyOnce(StartupCriticalPathMilestone.LoadContentComplete);
+        fixture.Clock.Timestamp = 2;
+        fixture.Trace.BeginAggregate(StartupCriticalPathAggregate.DatabaseInvalidRecovery);
+        fixture.Clock.Timestamp = 3;
+        fixture.Trace.EndAggregate(StartupCriticalPathAggregate.DatabaseInvalidRecovery);
+
+        var allocatedBytes = GC.GetAllocatedBytesForCurrentThread() - allocationBefore;
+        Assert.Equal(0, allocatedBytes);
+    }
+
+    [Fact]
     public void Aggregate_WhenRepeatedWithinBound_ShouldAccumulateAndCount()
     {
         var fixture = CreateFixture();
@@ -240,6 +290,54 @@ public class StartupCriticalPathTraceTests
         Assert.StartsWith("HPA192_CRITICAL_PATH_FAILURE ", overflowWriter.ToString());
         Assert.True(overBound.Trace.TryPublishTerminal(overBoundWriter));
         Assert.StartsWith("HPA192_CRITICAL_PATH_FAILURE ", overBoundWriter.ToString());
+    }
+
+    [Fact]
+    public void Publish_WhenTimestampFrequencyThrows_ShouldWriteFailureOnly()
+    {
+        var clock = new ThrowingFrequencyClock();
+        var fixture = new TraceFixture(
+            StartupCriticalPathTrace.Start(
+                clock,
+                new FakeUtcMicrosecondClock(2_000_000),
+                entryTimestamp: 0,
+                entryUnixMicroseconds: 1_000_000,
+                exitAfterPublication: false),
+            clock);
+        CompleteValidTrace(fixture);
+        using var writer = new TrackingWriter();
+        var published = false;
+
+        var exception = Record.Exception(
+            () => published = fixture.Trace.TryPublishTerminal(writer));
+
+        Assert.Null(exception);
+        Assert.True(published);
+        Assert.StartsWith("HPA192_CRITICAL_PATH_FAILURE ", writer.ToString());
+    }
+
+    [Fact]
+    public void Publish_WhenTimestampFrequencyChangesToZero_ShouldWriteFailureOnly()
+    {
+        var clock = new PositiveThenZeroFrequencyClock();
+        var fixture = new TraceFixture(
+            StartupCriticalPathTrace.Start(
+                clock,
+                new FakeUtcMicrosecondClock(2_000_000),
+                entryTimestamp: 0,
+                entryUnixMicroseconds: 1_000_000,
+                exitAfterPublication: false),
+            clock);
+        CompleteValidTrace(fixture);
+        using var writer = new TrackingWriter();
+        var published = false;
+
+        var exception = Record.Exception(
+            () => published = fixture.Trace.TryPublishTerminal(writer));
+
+        Assert.Null(exception);
+        Assert.True(published);
+        Assert.StartsWith("HPA192_CRITICAL_PATH_FAILURE ", writer.ToString());
     }
 
     [Fact]
@@ -498,9 +596,23 @@ public class StartupCriticalPathTraceTests
 
     private class ManualMonotonicClock : IMonotonicClock
     {
-        public long TimestampFrequency => 1_000;
+        public virtual long TimestampFrequency => 1_000;
         public long Timestamp { get; set; }
         public virtual long GetTimestamp() => Timestamp;
+    }
+
+    private sealed class ThrowingFrequencyClock : ManualMonotonicClock
+    {
+        public override long TimestampFrequency =>
+            throw new InvalidOperationException("frequency failure");
+    }
+
+    private sealed class PositiveThenZeroFrequencyClock : ManualMonotonicClock
+    {
+        private int _frequencyReadCount;
+
+        public override long TimestampFrequency =>
+            Interlocked.Increment(ref _frequencyReadCount) == 1 ? 1_000 : 0;
     }
 
     private sealed class ControlledConcurrentClock : ManualMonotonicClock
@@ -543,6 +655,25 @@ public class StartupCriticalPathTraceTests
         }
 
         public long GetUnixMicroseconds() => _values.Dequeue();
+    }
+
+    private sealed class ThrowingAfterFirstUtcMicrosecondClock : IUtcMicrosecondClock
+    {
+        private readonly long _firstValue;
+        private int _callCount;
+
+        public ThrowingAfterFirstUtcMicrosecondClock(long firstValue)
+        {
+            _firstValue = firstValue;
+        }
+
+        public long GetUnixMicroseconds()
+        {
+            if (Interlocked.Increment(ref _callCount) == 1)
+                return _firstValue;
+
+            throw new InvalidOperationException("late UTC read");
+        }
     }
 
     private sealed class TrackingWriter : StringWriter
