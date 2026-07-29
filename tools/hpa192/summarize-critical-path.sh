@@ -10,6 +10,7 @@ script_path="$(
 
 readonly max_utc_microseconds=4102444800000000
 readonly max_milliseconds=300000
+readonly max_clock_skew_microseconds=50000
 readonly max_counter=100000
 readonly max_exit_code=255
 readonly max_slot=15
@@ -216,6 +217,9 @@ scenario=unknown
 slot=unknown
 attempt=unknown
 artifact_sha256=unknown
+summary_attempt_outputs=()
+summary_attempt_outputs_emitted=0
+summary_set_failure_reason=
 
 reject() {
     local reason="$1"
@@ -291,6 +295,59 @@ parse_ordered_line() {
     done
 }
 
+read_expected_field() {
+    local line="$1"
+    local prefix="$2"
+    local names_variable="$3"
+    local expected_name="$4"
+    local output_variable="$5"
+    local -a tokens=()
+    local -a names=()
+    local index
+    local token
+    local value
+
+    eval "names=(\"\${${names_variable}[@]}\")"
+    IFS=' ' read -r -a tokens <<<"$line"
+    [[ "${tokens[0]:-}" == "$prefix" ]] || return 1
+
+    for ((index = 0; index < ${#names[@]}; index++)); do
+        [[ "${names[$index]}" == "$expected_name" ]] || continue
+        token="${tokens[$((index + 1))]:-}"
+        [[ "$token" == "$expected_name="* ]] || return 1
+        value="${token#"$expected_name="}"
+        [[ -n "$value" && "$value" != *"="* ]] || return 1
+        printf -v "$output_variable" '%s' "$value"
+        return 0
+    done
+    return 1
+}
+
+assign_readable_attempt_identity() {
+    local line="$1"
+    local readable_scenario
+    local readable_slot
+    local readable_attempt
+
+    if read_expected_field \
+        "$line" HPA192_ATTEMPT attempt_field_names scenario readable_scenario &&
+       safe_token "$readable_scenario"; then
+        scenario="$readable_scenario"
+    fi
+    if read_expected_field \
+        "$line" HPA192_ATTEMPT attempt_field_names slot readable_slot &&
+       decimal_at_most "$readable_slot" "$max_slot" &&
+       [[ "$readable_slot" -ge 1 ]]; then
+        slot="$readable_slot"
+    fi
+    if read_expected_field \
+        "$line" HPA192_ATTEMPT attempt_field_names attempt readable_attempt &&
+       decimal_at_most "$readable_attempt" "$max_attempt" &&
+       [[ "$readable_attempt" -ge 1 ]]; then
+        attempt="$readable_attempt"
+    fi
+}
+
 validate_attempt_schema() {
     local path="$1"
     local line
@@ -299,6 +356,7 @@ validate_attempt_schema() {
     [[ "$(line_count "$path" HPA192_ATTEMPT)" == 1 ]] ||
         reject attempt_line_count
     line="$(only_line "$path" HPA192_ATTEMPT)"
+    assign_readable_attempt_identity "$line"
     parse_ordered_line "$line" HPA192_ATTEMPT attempt attempt_field_names ||
         reject attempt_schema
 
@@ -719,9 +777,13 @@ validate_temporal_contract() {
 validate_cross_line_and_clocks() {
     local expected
     local difference
+    local critical_process_wall_us
     local critical_process_wall_ms
+    local timing_process_wall_us
     local timing_process_wall_ms
+    local external_wall_us
     local external_wall_ms
+    local external_monotonic_us
     local external_monotonic_ms
     local external_launch_to_entry_ms
     local external_launch_to_title_ms
@@ -767,37 +829,42 @@ validate_cross_line_and_clocks() {
     difference="$(absolute_difference "$startup_db_init_ms" "$expected")"
     [[ "$difference" -le 1 ]] || reject database_rounding
 
-    critical_process_wall_ms=$((
-        (critical_title_backbuffer_unix_us - critical_entry_unix_us) / 1000
+    critical_process_wall_us=$((
+        critical_title_backbuffer_unix_us - critical_entry_unix_us
     ))
     difference="$(
         absolute_difference \
-            "$critical_process_wall_ms" \
-            "$critical_entry_to_title_backbuffer_ms"
+            "$critical_process_wall_us" \
+            "$((critical_entry_to_title_backbuffer_ms * 1000))"
     )"
-    [[ "$difference" -le 50 ]] || reject process_clock_alignment
+    [[ "$difference" -le "$max_clock_skew_microseconds" ]] ||
+        reject process_clock_alignment
+    critical_process_wall_ms=$((critical_process_wall_us / 1000))
 
-    timing_process_wall_ms=$((
-        (timing_title_unix_us - timing_entry_unix_us) / 1000
-    ))
+    timing_process_wall_us=$((timing_title_unix_us - timing_entry_unix_us))
     difference="$(
         absolute_difference \
-            "$timing_process_wall_ms" \
-            "$timing_entry_to_title_ms"
+            "$timing_process_wall_us" \
+            "$((timing_entry_to_title_ms * 1000))"
     )"
-    [[ "$difference" -le 50 ]] || reject process_clock_alignment
+    [[ "$difference" -le "$max_clock_skew_microseconds" ]] ||
+        reject process_clock_alignment
+    timing_process_wall_ms=$((timing_process_wall_us / 1000))
 
-    external_wall_ms=$((
-        (attempt_observation_unix_us - attempt_launch_start_unix_us) / 1000
+    external_wall_us=$((
+        attempt_observation_unix_us - attempt_launch_start_unix_us
     ))
-    external_monotonic_ms=$((
-        (attempt_observation_monotonic_us -
-         attempt_launch_start_monotonic_us) / 1000
+    external_monotonic_us=$((
+        attempt_observation_monotonic_us -
+        attempt_launch_start_monotonic_us
     ))
     difference="$(
-        absolute_difference "$external_wall_ms" "$external_monotonic_ms"
+        absolute_difference "$external_wall_us" "$external_monotonic_us"
     )"
-    [[ "$difference" -le 50 ]] || reject external_clock_alignment
+    [[ "$difference" -le "$max_clock_skew_microseconds" ]] ||
+        reject external_clock_alignment
+    external_wall_ms=$((external_wall_us / 1000))
+    external_monotonic_ms=$((external_monotonic_us / 1000))
 
     external_launch_to_entry_ms=$((
         (critical_entry_unix_us - attempt_launch_start_unix_us) / 1000
@@ -1034,9 +1101,24 @@ validate_attempt() {
     emit_accepted_attempt
 }
 
+emit_summary_attempt_outputs() {
+    if [[ "$summary_attempt_outputs_emitted" == 0 &&
+          "${#summary_attempt_outputs[@]}" -gt 0 ]]; then
+        printf '%s\n' "${summary_attempt_outputs[@]}"
+        summary_attempt_outputs_emitted=1
+    fi
+}
+
 summary_fail() {
+    emit_summary_attempt_outputs
     printf 'HPA192_CRITICAL_PATH_SUMMARY status=rejected reason=%s\n' "$1"
     exit 1
+}
+
+summary_record_failure() {
+    if [[ -z "$summary_set_failure_reason" ]]; then
+        summary_set_failure_reason="$1"
+    fi
 }
 
 canonical_path() {
@@ -1057,7 +1139,7 @@ summary_require_fixed_hash() {
     if [[ -z "$previous" ]]; then
         printf -v "$variable" '%s' "$value"
     elif [[ "$value" != "$previous" ]]; then
-        summary_fail mixed_fixed_hashes
+        summary_record_failure mixed_fixed_hashes
     fi
 }
 
@@ -1073,7 +1155,7 @@ summary_require_scenario_value() {
     if [[ -z "$previous" ]]; then
         printf -v "$variable" '%s' "$value"
     elif [[ "$value" != "$previous" ]]; then
-        summary_fail "$reason"
+        summary_record_failure "$reason"
     fi
 }
 
@@ -1082,7 +1164,6 @@ summarize_attempts() {
     local -a canonical_paths=()
     local -a attempt_identities=()
     local -a accepted_slot_identities=()
-    local -a attempt_outputs=()
     local -a accepted_outputs=()
     local path
     local canonical
@@ -1103,9 +1184,16 @@ summarize_attempts() {
     local minimum
     local median
     local maximum
-    local metadata_hashes_valid
+    local metadata_scenario
+    local metadata_slot
+    local metadata_attempt
     local hash_key
+    local hash_family
     local hash_value
+
+    summary_attempt_outputs=()
+    summary_attempt_outputs_emitted=0
+    summary_set_failure_reason=
 
     [[ "${#paths[@]}" -gt 0 ]] || summary_fail missing_artifacts
 
@@ -1116,81 +1204,115 @@ summarize_attempts() {
         if (( ${#canonical_paths[@]} > 0 )); then
             for previous in "${canonical_paths[@]}"; do
                 [[ "$canonical" != "$previous" ]] ||
-                    summary_fail duplicate_canonical_artifact
+                    summary_record_failure duplicate_canonical_artifact
             done
         fi
         canonical_paths+=("$canonical")
 
         if [[ "$(line_count "$path" HPA192_ATTEMPT)" == 1 ]]; then
             metadata_line="$(only_line "$path" HPA192_ATTEMPT)"
-            if parse_ordered_line \
+            metadata_scenario=
+            metadata_slot=
+            metadata_attempt=
+            read_expected_field \
                 "$metadata_line" \
                 HPA192_ATTEMPT \
-                summary \
-                attempt_field_names &&
-               [[ "$summary_scenario" =~ ^[ABC]$ ]] &&
-               decimal_at_most "$summary_slot" "$max_slot" &&
-               [[ "$summary_slot" -ge 1 ]] &&
-               decimal_at_most "$summary_attempt" "$max_attempt" &&
-               [[ "$summary_attempt" -ge 1 ]]; then
-                identity="$summary_scenario/$summary_slot/$summary_attempt"
+                attempt_field_names \
+                scenario \
+                metadata_scenario || true
+            read_expected_field \
+                "$metadata_line" \
+                HPA192_ATTEMPT \
+                attempt_field_names \
+                slot \
+                metadata_slot || true
+            read_expected_field \
+                "$metadata_line" \
+                HPA192_ATTEMPT \
+                attempt_field_names \
+                attempt \
+                metadata_attempt || true
+
+            if [[ "$metadata_scenario" =~ ^[ABC]$ ]] &&
+               decimal_at_most "$metadata_slot" "$max_slot" &&
+               [[ "$metadata_slot" -ge 1 ]] &&
+               decimal_at_most "$metadata_attempt" "$max_attempt" &&
+               [[ "$metadata_attempt" -ge 1 ]]; then
+                identity="$metadata_scenario/$metadata_slot/$metadata_attempt"
                 if (( ${#attempt_identities[@]} > 0 )); then
                     for previous in "${attempt_identities[@]}"; do
                         [[ "$identity" != "$previous" ]] ||
-                            summary_fail duplicate_attempt_identity
+                            summary_record_failure duplicate_attempt_identity
                     done
                 fi
                 attempt_identities+=("$identity")
+            fi
 
-                metadata_hashes_valid=1
-                for hash_key in \
-                    game_sha256 \
-                    runner_sha256 \
-                    summarizer_sha256 \
-                    corpus_manifest_sha256 \
-                    corpus_observed_sha256 \
-                    system_manifest_sha256 \
+            for hash_key in \
+                game_sha256 \
+                runner_sha256 \
+                summarizer_sha256 \
+                corpus_manifest_sha256 \
+                system_manifest_sha256 \
+                empty_manifest_sha256 \
+                seed_manifest_sha256
+            do
+                hash_value=
+                if read_expected_field \
+                    "$metadata_line" \
+                    HPA192_ATTEMPT \
+                    attempt_field_names \
+                    "$hash_key" \
+                    hash_value &&
+                   sha256_token "$hash_value"; then
+                    case "$hash_key" in
+                        game_sha256) hash_family=game ;;
+                        runner_sha256) hash_family=runner ;;
+                        summarizer_sha256) hash_family=summarizer ;;
+                        corpus_manifest_sha256) hash_family=corpus ;;
+                        system_manifest_sha256) hash_family=system ;;
+                        empty_manifest_sha256) hash_family=empty ;;
+                        seed_manifest_sha256) hash_family=seed ;;
+                    esac
+                    summary_require_fixed_hash "$hash_family" "$hash_value"
+                fi
+            done
+
+            if [[ "$metadata_scenario" =~ ^[ABC]$ ]]; then
+                hash_value=
+                if read_expected_field \
+                    "$metadata_line" \
+                    HPA192_ATTEMPT \
+                    attempt_field_names \
                     config_sha256 \
-                    config_observed_sha256 \
-                    empty_manifest_sha256 \
-                    empty_observed_sha256 \
-                    seed_manifest_sha256 \
-                    seed_observed_sha256 \
-                    chart_paths_sha256 \
-                    expected_chart_paths_sha256
-                do
-                    eval "hash_value=\$summary_${hash_key}"
-                    if ! sha256_token "$hash_value"; then
-                        metadata_hashes_valid=0
-                    fi
-                done
-                if [[ "$metadata_hashes_valid" == 1 ]]; then
-                    summary_require_fixed_hash game "$summary_game_sha256"
-                    summary_require_fixed_hash runner "$summary_runner_sha256"
-                    summary_require_fixed_hash \
-                        summarizer \
-                        "$summary_summarizer_sha256"
-                    summary_require_fixed_hash \
-                        corpus \
-                        "$summary_corpus_manifest_sha256"
-                    summary_require_fixed_hash system "$summary_system_manifest_sha256"
-                    summary_require_fixed_hash empty "$summary_empty_manifest_sha256"
-                    summary_require_fixed_hash seed "$summary_seed_manifest_sha256"
+                    hash_value &&
+                   sha256_token "$hash_value"; then
                     summary_require_scenario_value \
                         config \
-                        "$summary_scenario" \
-                        "$summary_config_sha256" \
+                        "$metadata_scenario" \
+                        "$hash_value" \
                         mixed_scenario_config_hashes
+                fi
+
+                hash_value=
+                if read_expected_field \
+                    "$metadata_line" \
+                    HPA192_ATTEMPT \
+                    attempt_field_names \
+                    expected_chart_paths_sha256 \
+                    hash_value &&
+                   sha256_token "$hash_value"; then
                     summary_require_scenario_value \
                         chart_paths \
-                        "$summary_scenario" \
-                        "$summary_expected_chart_paths_sha256" \
+                        "$metadata_scenario" \
+                        "$hash_value" \
                         mixed_scenario_chart_paths
                 fi
             fi
         fi
 
         if output="$(bash "$script_path" --validate-attempt "$path")"; then
+            summary_attempt_outputs+=("$output")
             parse_ordered_line \
                 "$output" \
                 HPA192_CRITICAL_PATH_ATTEMPT \
@@ -1212,7 +1334,7 @@ summarize_attempts() {
             if (( ${#accepted_slot_identities[@]} > 0 )); then
                 for previous in "${accepted_slot_identities[@]}"; do
                     [[ "$accepted_slot_identity" != "$previous" ]] ||
-                        summary_fail duplicate_accepted_slot
+                        summary_record_failure duplicate_accepted_slot
                 done
             fi
             accepted_slot_identities+=("$accepted_slot_identity")
@@ -1225,9 +1347,14 @@ summarize_attempts() {
             esac
         else
             [[ -n "$output" ]] || summary_fail missing_rejection_record
+            summary_attempt_outputs+=("$output")
         fi
-        attempt_outputs+=("$output")
     done
+
+    emit_summary_attempt_outputs
+    if [[ -n "$summary_set_failure_reason" ]]; then
+        summary_fail "$summary_set_failure_reason"
+    fi
 
     [[ "${#accepted_outputs[@]}" -eq 15 &&
        "$count_a" -eq 5 &&
@@ -1240,8 +1367,6 @@ summarize_attempts() {
         summary_fail mixed_scenario_chart_paths
     [[ "$summary_chart_paths_B" == "$summary_fixed_empty" ]] ||
         summary_fail mixed_scenario_chart_paths
-
-    printf '%s\n' "${attempt_outputs[@]}"
 
     for current_scenario in A B C; do
         for metric in "${summary_metric_names[@]}"; do
