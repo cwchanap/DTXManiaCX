@@ -1,9 +1,18 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using DTXMania.Game;
 using DTXMania.Game.Lib.Config;
+using DTXMania.Game.Lib.Graphics;
+using DTXMania.Game.Lib.Input;
+using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage;
+using DTXMania.Game.Lib.UI.Components;
 using DTXMania.Test.TestData;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
 
 namespace DTXMania.Test.Stage
 {
@@ -245,11 +254,313 @@ namespace DTXMania.Test.Stage
             Assert.Same(stage, stage2);
         }
 
+        [Fact]
+        public void GetOrCreateStage_WhenStartupCacheMiss_ShouldRecordConstructionAroundWiring()
+        {
+            var fixture = CreateCriticalPathFixture();
+            using var manager = new StageManager(fixture.Game);
+            var wiredAndCachedAtEnd = false;
+            fixture.Clock.OnTimestamp = timestamp =>
+            {
+                if (timestamp != 2)
+                    return;
+
+                var stagesAtEnd = GetStages(manager);
+                wiredAndCachedAtEnd =
+                    stagesAtEnd.TryGetValue(StageType.Startup, out var cachedStage) &&
+                    ReferenceEquals(manager, cachedStage.StageManager);
+            };
+
+            var stage = (IStage)ReflectionHelpers.InvokePrivateMethod(
+                manager,
+                "GetOrCreateStage",
+                StageType.Startup)!;
+
+            var stages = GetStages(manager);
+            Assert.Same(manager, stage.StageManager);
+            Assert.Same(stage, stages[StageType.Startup]);
+            Assert.True(wiredAndCachedAtEnd);
+            Assert.True(
+                GetTimestamp(fixture.Trace, StartupCriticalPathMilestone.StartupConstructBegin) <
+                GetTimestamp(fixture.Trace, StartupCriticalPathMilestone.StartupConstructEnd));
+        }
+
+        [Fact]
+        public void ChangeStage_WhenTitleCacheMiss_ShouldConstructBeforeTransitionStart()
+        {
+            var fixture = CreateCriticalPathFixture();
+            using var manager = new StageManager(fixture.Game);
+            var startupStage = SetCurrentStage(manager, StageType.Startup);
+
+            manager.ChangeStage(
+                StageType.Title,
+                new TestTransition(isComplete: false, fadeOutAlpha: 1.0f));
+
+            Assert.Equal(1, startupStage.TransitionOutCount);
+            Assert.True(
+                GetTimestamp(fixture.Trace, StartupCriticalPathMilestone.TitleConstructBegin) <
+                GetTimestamp(fixture.Trace, StartupCriticalPathMilestone.TitleConstructEnd));
+            Assert.True(
+                GetTimestamp(fixture.Trace, StartupCriticalPathMilestone.TitleConstructEnd) <
+                GetTimestamp(fixture.Trace, StartupCriticalPathMilestone.TransitionStart));
+        }
+
+        [Fact]
+        public void CompleteTransition_WhenTitleLookupRepeats_ShouldRequireCacheHit()
+        {
+            var fixture = CreateCriticalPathFixture();
+            using var manager = new StageManager(fixture.Game);
+            SetCurrentStage(manager, StageType.Startup);
+            var transition = new TestTransition(isComplete: false, fadeOutAlpha: 1.0f)
+            {
+                CompleteAfterUpdate = true
+            };
+
+            manager.ChangeStage(StageType.Title, transition);
+            GetStages(manager)[StageType.Title] = new TestStage(StageType.Title)
+            {
+                StageManager = manager
+            };
+            manager.Update(0.25);
+
+            Assert.True(GetTraceBoolean(fixture.Trace, "_titleCompletionLookupRecorded"));
+            Assert.True(GetTraceBoolean(fixture.Trace, "_titleCompletionLookupCacheHit"));
+            AssertTraceOpen(fixture.Trace);
+        }
+
+        [Fact]
+        public void Update_WhenTitleTransitionRuns_ShouldAccumulateCountAndGameTime()
+        {
+            var fixture = CreateCriticalPathFixture();
+            using var manager = new StageManager(fixture.Game);
+            SetCurrentStage(manager, StageType.Startup);
+
+            manager.ChangeStage(
+                StageType.Title,
+                new TestTransition(isComplete: false, fadeOutAlpha: 1.0f));
+            manager.Update(0.25);
+            manager.Update(0.50);
+
+            Assert.Equal(2, GetTraceLong(fixture.Trace, "_transitionUpdateCount"));
+            Assert.Equal(
+                TimeSpan.FromSeconds(0.75).Ticks,
+                GetTraceLong(fixture.Trace, "_transitionGameTimeTicks"));
+        }
+
+        [Fact]
+        public void CompleteTransition_ShouldRecordCompletionBeforeStartupDeactivation()
+        {
+            var fixture = CreateCriticalPathFixture();
+            using var manager = new StageManager(fixture.Game);
+            SetCurrentStage(manager, StageType.Startup);
+            var transition = new TestTransition(isComplete: false, fadeOutAlpha: 1.0f)
+            {
+                CompleteAfterUpdate = true
+            };
+
+            manager.ChangeStage(StageType.Title, transition);
+            GetStages(manager)[StageType.Title] = new TestStage(StageType.Title)
+            {
+                StageManager = manager
+            };
+            manager.Update(0.25);
+
+            var transitionComplete = GetTimestamp(
+                fixture.Trace,
+                StartupCriticalPathMilestone.TransitionComplete);
+            var deactivateBegin = GetTimestamp(
+                fixture.Trace,
+                StartupCriticalPathMilestone.StartupDeactivateBegin);
+            var deactivateEnd = GetTimestamp(
+                fixture.Trace,
+                StartupCriticalPathMilestone.StartupDeactivateEnd);
+            Assert.True(transitionComplete < deactivateBegin);
+            Assert.True(deactivateBegin < deactivateEnd);
+        }
+
+        [Fact]
+        public void CompleteTransition_WhenTitleConstructsTwice_ShouldInvalidateTrace()
+        {
+            var fixture = CreateCriticalPathFixture();
+            using var manager = new StageManager(fixture.Game);
+            SetCurrentStage(manager, StageType.Startup);
+            var transition = new TestTransition(isComplete: false, fadeOutAlpha: 1.0f)
+            {
+                CompleteAfterUpdate = true
+            };
+
+            manager.ChangeStage(StageType.Title, transition);
+            GetStages(manager).Remove(StageType.Title);
+            _ = Record.Exception(() => manager.Update(0.25));
+            using var writer = new StringWriter();
+
+            Assert.True(fixture.Trace.TryPublishTerminal(writer));
+            Assert.Contains(
+                "outcome=failure error=title_completion_cache_miss",
+                writer.ToString());
+        }
+
+        [Fact]
+        public void ChangeStage_WhenInitialStartupInstant_ShouldNotRecordStartupToTitleTransition()
+        {
+            var fixture = CreateCriticalPathFixture();
+            using var manager = new StageManager(fixture.Game);
+            RegisterStage(manager, new TestStage(StageType.Startup));
+
+            manager.ChangeStage(StageType.Startup);
+
+            Assert.False(
+                WasRecorded(
+                    fixture.Trace,
+                    StartupCriticalPathMilestone.TransitionStart));
+            Assert.False(
+                WasRecorded(
+                    fixture.Trace,
+                    StartupCriticalPathMilestone.TransitionComplete));
+        }
+
         private void SetCurrentStage(TestStage stage)
         {
             stage.StageManager = _stageManager;
             stage.Activate();
             ReflectionHelpers.SetPrivateField(_stageManager, "_currentStage", stage);
+        }
+
+        private static TestStage SetCurrentStage(
+            StageManager manager,
+            StageType stageType)
+        {
+            var stage = new TestStage(stageType)
+            {
+                StageManager = manager
+            };
+            stage.Activate();
+            GetStages(manager)[stageType] = stage;
+            ReflectionHelpers.SetPrivateField(manager, "_currentStage", stage);
+            return stage;
+        }
+
+        private static void RegisterStage(StageManager manager, TestStage stage)
+        {
+            stage.StageManager = manager;
+            GetStages(manager)[stage.Type] = stage;
+        }
+
+        private static Dictionary<StageType, IStage> GetStages(StageManager manager)
+        {
+            var stages = ReflectionHelpers.GetPrivateField<Dictionary<StageType, IStage>>(
+                manager,
+                "_stages");
+            Assert.NotNull(stages);
+            return stages!;
+        }
+
+        private static CriticalPathFixture CreateCriticalPathFixture()
+        {
+            var clock = new IncrementingMonotonicClock();
+            var trace = StartupCriticalPathTrace.Start(
+                clock,
+                new FixedUtcMicrosecondClock(),
+                entryTimestamp: 0,
+                entryUnixMicroseconds: 1_000_000,
+                exitAfterPublication: false);
+            return new CriticalPathFixture(
+                trace,
+                clock,
+                new CriticalPathHostStageGame(trace));
+        }
+
+        private static long GetTimestamp(
+            StartupCriticalPathTrace trace,
+            StartupCriticalPathMilestone milestone)
+        {
+            var timestamps = ReflectionHelpers.GetPrivateField<long[]>(
+                trace,
+                "_timestamps");
+            Assert.NotNull(timestamps);
+            return timestamps![(int)milestone];
+        }
+
+        private static bool WasRecorded(
+            StartupCriticalPathTrace trace,
+            StartupCriticalPathMilestone milestone)
+        {
+            var recorded = ReflectionHelpers.GetPrivateField<bool[]>(
+                trace,
+                "_recorded");
+            Assert.NotNull(recorded);
+            return recorded![(int)milestone];
+        }
+
+        private static bool GetTraceBoolean(
+            StartupCriticalPathTrace trace,
+            string fieldName) =>
+            ReflectionHelpers.GetPrivateField<bool>(trace, fieldName);
+
+        private static long GetTraceLong(
+            StartupCriticalPathTrace trace,
+            string fieldName) =>
+            ReflectionHelpers.GetPrivateField<long>(trace, fieldName);
+
+        private static void AssertTraceOpen(StartupCriticalPathTrace trace)
+        {
+            using var writer = new StringWriter();
+            Assert.False(trace.TryPublishTerminal(writer));
+            Assert.Equal(string.Empty, writer.ToString());
+        }
+
+        private sealed record CriticalPathFixture(
+            StartupCriticalPathTrace Trace,
+            IncrementingMonotonicClock Clock,
+            CriticalPathHostStageGame Game);
+
+        private sealed class IncrementingMonotonicClock : IMonotonicClock
+        {
+            private long _timestamp;
+
+            public long TimestampFrequency => 1_000;
+            public Action<long> OnTimestamp { get; set; }
+
+            public long GetTimestamp()
+            {
+                var timestamp = ++_timestamp;
+                OnTimestamp?.Invoke(timestamp);
+                return timestamp;
+            }
+        }
+
+        private sealed class FixedUtcMicrosecondClock : IUtcMicrosecondClock
+        {
+            public long GetUnixMicroseconds() => 2_000_000;
+        }
+
+        private sealed class CriticalPathHostStageGame :
+            IStageGame,
+            IStartupCriticalPathHost
+        {
+            private readonly StartupCriticalPathTrace _trace;
+
+            public CriticalPathHostStageGame(StartupCriticalPathTrace trace)
+            {
+                _trace = trace;
+                ConfigManager = new ConfigManager();
+            }
+
+            StartupCriticalPathTrace? IStartupCriticalPathHost.StartupCriticalPathTrace =>
+                _trace;
+
+            public GraphicsDevice GraphicsDevice => null!;
+            public IStageManager StageManager => null!;
+            public IConfigManager ConfigManager { get; }
+            public InputManagerCompat InputManager => null!;
+            public IGraphicsManager GraphicsManager => null!;
+            public IResourceManager ResourceManager => null!;
+            public ILoggerFactory LoggerFactory => NullLoggerFactory.Instance;
+            public bool CanPerformStageTransition() => false;
+            public void MarkStageTransition() { }
+            public Point? MapMouseToVirtual(Point windowPoint) => null;
+            public ITextInputSource? GetTextInputSource() => null;
+            public void RequestExit() { }
         }
 
         private sealed class TestStage : IStage
