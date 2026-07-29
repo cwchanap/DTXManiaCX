@@ -225,6 +225,8 @@ create_runner_fixture() {
     fixture_sleep_log="$fixture_root/sleep.log"
     fixture_state="$fixture_root/state"
     fixture_clock_state="$fixture_root/clock"
+    fixture_ps_state="$fixture_root/ps-state"
+    fixture_signal_log="$fixture_root/signal.log"
     fixture_terminal_ready="$fixture_root/terminal-ready"
     fixture_cache="$temp_root/runner-default-corpus-cache"
 
@@ -306,7 +308,6 @@ count=$((count + 1))
 printf '%s\n' "$count" >"$HPA192_FAKE_STATE"
 printf '%s\n' "$$" >>"$HPA192_FAKE_TARGET_PIDS"
 rm -f "$HPA192_FAKE_TERMINAL_READY"
-/bin/sleep 0.05
 
 IFS=',' read -r -a modes <<<"${HPA192_FAKE_SEQUENCE:-success}"
 if (( count <= ${#modes[@]} )); then
@@ -314,6 +315,18 @@ if (( count <= ${#modes[@]} )); then
 else
     mode="${modes[$((${#modes[@]} - 1))]}"
 fi
+
+if [[ "$mode" == early-exit ]]; then
+    printf '%s\n' 'known immediate child failure' >&2
+    exit 23
+fi
+if [[ "$mode" == persistent-unvalidated ]]; then
+    trap 'printf "%s\n" TERM >>"$HPA192_FAKE_SIGNAL_LOG"; exit 99' TERM
+    trap 'printf "%s\n" INT >>"$HPA192_FAKE_SIGNAL_LOG"; exit 98' INT
+    /bin/sleep 120
+fi
+
+/bin/sleep 0.05
 
 dtx_path="$(
     awk -F= '
@@ -505,8 +518,9 @@ FAKE_GIT
     cat >"$fixture_fakebin/ps" <<'FAKE_PS'
 #!/usr/bin/env bash
 set -euo pipefail
+original=("$@")
 pid=
-format=
+formats=()
 while [[ "$#" -gt 0 ]]; do
     case "$1" in
         -p)
@@ -514,7 +528,7 @@ while [[ "$#" -gt 0 ]]; do
             shift 2
             ;;
         -o)
-            format="$2"
+            formats+=("$2")
             shift 2
             ;;
         *)
@@ -522,7 +536,74 @@ while [[ "$#" -gt 0 ]]; do
             ;;
     esac
 done
+format="${formats[*]}"
+mode="${HPA192_FAKE_PS_MODE:-validated}"
+
+emit_full_sample() {
+    local command_line="$1"
+    printf '%s S %s\n' "$pid" "$command_line"
+}
+
+if [[ "$mode" == early-exit ]]; then
+    /bin/sleep 0.05
+    exec /bin/ps "${original[@]}"
+fi
+
+if [[ "$mode" == transient ]]; then
+    case "$format" in
+        'pid= state= command=')
+            count=0
+            if [[ -f "$HPA192_FAKE_PS_STATE" ]]; then
+                count="$(cat "$HPA192_FAKE_PS_STATE")"
+            fi
+            count=$((count + 1))
+            printf '%s\n' "$count" >"$HPA192_FAKE_PS_STATE"
+            case "$count" in
+                1)
+                    exit 1
+                    ;;
+                2)
+                    emit_full_sample '/usr/bin/env dotnet pending-exec'
+                    ;;
+                *)
+                    emit_full_sample "dotnet $HPA192_FAKE_GAME_DLL"
+                    ;;
+            esac
+            exit 0
+            ;;
+        pid=)
+            printf '%s\n' "$pid"
+            exit 0
+            ;;
+        command=)
+            printf '%s\n' '/usr/bin/env dotnet pending-exec'
+            exit 0
+            ;;
+    esac
+fi
+
+if [[ "$mode" == persistent-unvalidated ]]; then
+    /bin/sleep 0.02
+    case "$format" in
+        'pid= state= command=')
+            emit_full_sample '/usr/bin/env dotnet pending-exec'
+            exit 0
+            ;;
+        pid=)
+            printf '%s\n' "$pid"
+            exit 0
+            ;;
+        command=)
+            printf '%s\n' '/usr/bin/env dotnet pending-exec'
+            exit 0
+            ;;
+    esac
+fi
+
 case "$format" in
+    'pid= state= command=')
+        emit_full_sample "dotnet $HPA192_FAKE_GAME_DLL"
+        ;;
     pid=)
         printf '%s\n' "$pid"
         ;;
@@ -548,17 +629,20 @@ FAKE_PS
     : >"$fixture_target_pids"
     : >"$fixture_child_pids"
     : >"$fixture_sleep_log"
+    : >"$fixture_signal_log"
 }
 
 reset_runner_fixture() {
     rm -f \
         "$fixture_state" \
         "$fixture_clock_state.unix" \
-        "$fixture_clock_state.monotonic"
+        "$fixture_clock_state.monotonic" \
+        "$fixture_ps_state"
     : >"$fixture_launch_log"
     : >"$fixture_target_pids"
     : >"$fixture_child_pids"
     : >"$fixture_sleep_log"
+    : >"$fixture_signal_log"
 }
 
 run_fixture_runner() {
@@ -573,6 +657,8 @@ run_fixture_runner() {
         HPA192_FAKE_CLOCK_STEP_US="${HPA192_FAKE_CLOCK_STEP_US:-}" \
         HPA192_FAKE_LATE_TERMINAL_CLOCK="${HPA192_FAKE_LATE_TERMINAL_CLOCK:-}" \
         HPA192_FAKE_UNIX_OBSERVATION_US="${HPA192_FAKE_UNIX_OBSERVATION_US:-}" \
+        HPA192_FAKE_PS_MODE="${HPA192_FAKE_PS_MODE:-validated}" \
+        HPA192_FAKE_PS_STATE="$fixture_ps_state" \
         HPA192_FAKE_RAW="$fixture_raw" \
         HPA192_FAKE_CHART_PATHS="$fixture_root/expected-chart-paths.txt" \
         HPA192_FAKE_FORBIDDEN="$fixture_forbidden" \
@@ -580,6 +666,7 @@ run_fixture_runner() {
         HPA192_FAKE_TARGET_PIDS="$fixture_target_pids" \
         HPA192_FAKE_CHILD_PIDS="$fixture_child_pids" \
         HPA192_FAKE_SLEEP_LOG="$fixture_sleep_log" \
+        HPA192_FAKE_SIGNAL_LOG="$fixture_signal_log" \
         HPA192_FAKE_TERMINAL_READY="$fixture_terminal_ready" \
         HPA192_FAKE_GAME_DLL="$(
             /usr/bin/perl -MCwd=realpath -e \
@@ -938,6 +1025,124 @@ run_runner_deadline_tests() {
     assert_no_forbidden_commands
 }
 
+assert_complete_process_metadata() {
+    local path="$1"
+    local expected_identity_state="$2"
+    local expected_exit_code="$3"
+    local key
+
+    [[ -f "$path" ]] ||
+        fail "process metadata is missing: $path"
+    for key in \
+        launched_pid \
+        identity_state \
+        launch_start_unix_us \
+        launch_start_monotonic_us \
+        observation_unix_us \
+        observation_monotonic_us \
+        exit_code \
+        timed_out \
+        forced_cleanup \
+        first_terminal_line; do
+        grep -Eq "^${key}"$'\t' "$path" ||
+            fail "process metadata is incomplete: missing $key"
+    done
+    grep -Fqx $'identity_state\t'"$expected_identity_state" "$path" ||
+        fail "process identity state was not $expected_identity_state"
+    grep -Fqx $'exit_code\t'"$expected_exit_code" "$path" ||
+        fail "process exit code was not $expected_exit_code"
+    grep -Eq $'^observation_unix_us\t[1-9][0-9]*$' "$path" ||
+        fail "process metadata lacks an observation UTC clock"
+    grep -Eq $'^observation_monotonic_us\t[1-9][0-9]*$' "$path" ||
+        fail "process metadata lacks an observation monotonic clock"
+}
+
+run_runner_identity_tests() {
+    local selection="${1:-all}"
+    local process_metadata
+    local launch
+    local observation
+    local pid
+
+    if [[ "$selection" == all || "$selection" == early-exit ]]; then
+        # Break caught: aborting on a pre-exec/exit identity race before the
+        # owned child is waited and its concrete exit evidence is retained.
+        create_runner_fixture immediate-child-exit
+        if HPA192_FAKE_PS_MODE=early-exit \
+            run_fixture_runner prepare-seed early-exit \
+            >"$fixture_root/prepare.stdout" 2>"$fixture_root/prepare.stderr"; then
+            fail "immediate child exit unexpectedly prepared a seed"
+        fi
+        process_metadata="$fixture_result/seed/setup-process.txt"
+        assert_complete_process_metadata \
+            "$process_metadata" child_exited 23
+        grep -Fq 'known immediate child failure' \
+            "$fixture_result/seed/setup.stderr.log" ||
+            fail "immediate child stderr was not retained"
+        grep -Fq \
+            'launched game exited before PID identity stabilized: exit_code=23' \
+            "$fixture_root/prepare.stderr" ||
+            fail "runner did not report the concrete early child exit"
+        assert_all_recorded_pids_dead "$fixture_target_pids"
+        assert_no_forbidden_commands
+    fi
+
+    if [[ "$selection" == all || "$selection" == transient ]]; then
+        # Break caught: treating a transient ps failure or pre-exec command as
+        # a fatal mismatch, or combining identity fields from separate samples.
+        create_runner_fixture transient-process-identity
+        if ! HPA192_FAKE_PS_MODE=transient \
+            run_fixture_runner prepare-seed success \
+            >"$fixture_root/prepare.stdout" 2>"$fixture_root/prepare.stderr"; then
+            tail -60 "$fixture_root/prepare.stderr" >&2
+            fail "transient process identity did not stabilize"
+        fi
+        process_metadata="$fixture_result/seed/setup-process.txt"
+        assert_complete_process_metadata \
+            "$process_metadata" validated_live 0
+        [[ "$(cat "$fixture_ps_state")" -eq 3 ]] ||
+            fail "transient identity did not require two retries"
+        assert_all_recorded_pids_dead "$fixture_target_pids"
+        assert_no_forbidden_commands
+    fi
+
+    if [[ "$selection" == all || "$selection" == persistent ]]; then
+        # Break caught: polling an unvalidated live identity without a
+        # monotonic bound, or signaling that unvalidated PID during cleanup.
+        create_runner_fixture persistent-unvalidated-identity
+        if HPA192_FAKE_PS_MODE=persistent-unvalidated \
+           HPA192_FAKE_CLOCK_STEP_US=1000000 \
+            run_fixture_runner prepare-seed persistent-unvalidated \
+            >"$fixture_root/prepare.stdout" 2>"$fixture_root/prepare.stderr"; then
+            fail "persistent unvalidated identity unexpectedly prepared a seed"
+        fi
+        process_metadata="$fixture_result/seed/setup-process.txt"
+        assert_complete_process_metadata \
+            "$process_metadata" unvalidated_timeout 255
+        launch="$(
+            sed -n 's/^launch_start_monotonic_us	//p' "$process_metadata"
+        )"
+        observation="$(
+            sed -n 's/^observation_monotonic_us	//p' "$process_metadata"
+        )"
+        [[ "$((observation - launch))" -eq 2000000 ]] ||
+            fail "unvalidated identity did not stop at the two-second bound"
+        grep -Fq \
+            'launched PID identity did not stabilize within 2000000 microseconds' \
+            "$fixture_root/prepare.stderr" ||
+            fail "runner did not report the identity-stabilization timeout"
+        [[ ! -s "$fixture_signal_log" ]] ||
+            fail "runner signaled a persistently unvalidated PID"
+        pid="$(sed -n '1p' "$fixture_target_pids")"
+        [[ "$pid" =~ ^[1-9][0-9]*$ ]] ||
+            fail "persistent unvalidated child PID was not recorded"
+        kill -0 "$pid" 2>/dev/null ||
+            fail "persistent unvalidated child did not remain unsignaled"
+        kill -KILL "$pid"
+        assert_no_forbidden_commands
+    fi
+}
+
 run_runner_process_tests() {
     local expected_order='A B C B C A C A B A C B C B A'
     local actual_order
@@ -946,6 +1151,8 @@ run_runner_process_tests() {
     local attempt_number
     local pid
     local accepted_path
+
+    run_runner_identity_tests all
 
     # Breaks caught: changing the fixed sequence, accepting malformed producer
     # artifacts, calling HTTP/screenshot commands, or mutating the clean seed.
@@ -1187,6 +1394,13 @@ if [[ "${1:-}" == --runner-process ]]; then
     [[ -f "$runner" ]] || fail "critical-path runner is missing"
     run_runner_process_tests
     printf 'critical-path runner process tests passed\n'
+    exit 0
+fi
+
+if [[ "${1:-}" == --runner-identity ]]; then
+    [[ -f "$runner" ]] || fail "critical-path runner is missing"
+    run_runner_identity_tests "${2:-all}"
+    printf 'critical-path runner identity tests passed\n'
     exit 0
 fi
 
