@@ -593,3 +593,535 @@ The raw artifact and derived-summary hashes are:
 **Hard decision: stop.** The new median fixed floor is 767 ms over the 2,221
 ms gate. The external monotonic validation strengthens the evidence but does
 not broaden Task 0; no Task 1 work started.
+
+## 2026-07-29 HPA-192 startup critical-path diagnostic
+
+### Scope and endpoint
+
+This is macOS-only diagnostic evidence from the pinned benchmark machine. It
+is not final HPA-192 acceptance and makes no cross-platform performance claim.
+The fixed configurations set `EnableGameApi=False`; the runner neither started
+nor polled the Game API and performed no HTTP, input, or screenshot operation.
+
+The accepted endpoint is the first completed render-target-to-backbuffer copy
+for a non-transitioning Title stage. It is backbuffer-composition readiness,
+not presented-frame latency. It excludes `CompleteBaseDraw`, framework
+`EndDraw` / `Present`, the application-side buffer swap and any vsync wait,
+the platform compositor, and physical-display presentation.
+
+The retained Task 0 timing-preflight values above used an earlier
+`TitleCompleted` endpoint and an enabled, polled Game API. Those values are
+useful historical context but are not arithmetically comparable with this
+diagnostic and do not enter any table or savings calculation below.
+
+The scenarios were:
+
+- A: fresh database, the frozen 100-chart corpus, 27 logical songs;
+- B: fresh database, an empty immutable song directory; and
+- C: the hashed preinitialized database seed, the same frozen 100-chart
+  corpus, and normal forced enumeration.
+
+### Frozen revision, environment, and identities
+
+The fixed diagnostic source and Release output were:
+
+```text
+source_commit=d3944225bdb5b5bb8e6764b83b98dcb45ca3a810
+game_dll_sha256=ce63d361a460866a282b37443add5c03297b0e24b71fdb63feddd74e37cf9ae9
+```
+
+The exact machine and runtime identity copied from the immutable environment
+record was:
+
+```text
+machine=MacBook Pro
+model_identifier=MacBookPro18,3
+model_number=Z15G0018PZP/A
+chip=Apple M1 Pro
+cores=10 (8 Performance and 2 Efficiency)
+memory=32 GB
+os=macOS 26.5.2 (25F84)
+architecture=arm64
+active_dotnet_sdk=10.0.100
+active_dotnet_sdk_commit=b0f34d51fc
+installed_dotnet_sdk_8=8.0.411
+net8_runtime=Microsoft.NETCore.App 8.0.17
+```
+
+The fixed tools and inputs were:
+
+| Fixed item | SHA-256 |
+| --- | --- |
+| `build/DTXMania.Game.Mac.dll` | `ce63d361a460866a282b37443add5c03297b0e24b71fdb63feddd74e37cf9ae9` |
+| `tools/hpa192/benchmark-critical-path.sh` | `db092c5741be64503c2b8b526f8ed890a50e339a55922dd57fb5fe52c5f322f7` |
+| `tools/hpa192/summarize-critical-path.sh` | `4605a908b0e451110359f76a5010331ed007ec52b40d50c8312ea48748eb2d89` |
+| `tools/hpa192/test-critical-path.sh` | `e3719446aa72480d5b57ee04d0ec49468f3bf031d1c55ee408a162f60562d7f1` |
+| `corpus-manifest.tsv` (592 entries) | `0c335aa79fd4045e77aff20494637313626729ba926f131822c40fa89778a78b` |
+| `system-manifest.tsv` (415 entries) | `a18965305cf5c1532496da869dce22644a2a9cfc0002c5b93e22b9cc46d974b0` |
+| `empty-manifest.tsv` (zero bytes) | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
+| `seed/manifest.tsv` | `b0b41a10957cbe2b819cd7aed0e4226f7b9d445437ffc4cb746763447b5ee6ca` |
+| `configs/A.Config.ini` | `c40173790c8f7d2c93f8cb1762605e2c756a21ff9a2f797313fca0650f18535a` |
+| `configs/B.Config.ini` | `9aa883d44d49c5ff5ab5d0e2d38c1814ee1b6a63a4bb65110996a79e19dec6e5` |
+| `configs/C.Config.ini` | `c40173790c8f7d2c93f8cb1762605e2c756a21ff9a2f797313fca0650f18535a` |
+| `fixed-inputs.txt` | `4f2030c00675495ab83a4c38650ac6af3c9bb8ece55fb21c2490235128fc0e71` |
+| `fixed-identities.txt` | `d774bea416bdfeb339d20e982585ad726bc3affd063bbf3af577b8c166a957da` |
+| `environment.txt` | `71d478cda377caca5ed99e10fd76c351ad095e25c40ee53f495fdf2ab6a1c811` |
+| `accepted-artifacts.txt` | `0f25da4ebe2915da1f7a0d5132c08b31bff39ff56a07b9ffa6ee2eaf8e0e5616` |
+| `summary.txt` | `854e9ad9c7179d87597f8f73a96449b35748325a409c24334785a025950b13b4` |
+| `artifact-manifest.tsv` (181 rows; excludes itself) | `0fa99753023093c2eaabaf5131abf2b43da4b5df451299f40a844ce126fe73cc` |
+
+The corpus path set also hashed to
+`66d92542e9557c31e228ebcd868dc1f1e7e5ca3dad060ee6961723f2bfc88067`;
+the empty path set hashed to the empty SHA-256 above. The seed contained 100
+charts and 27 songs and had no live SQLite WAL or SHM file.
+
+### Attempt ledger
+
+Artifact paths in this section are relative to
+`TestResults/hpa-192/critical-path-final`.
+
+| Slot | Scenario | Accepted attempt | Artifact path | Artifact SHA-256 |
+| ---: | :---: | ---: | --- | --- |
+| 01 | A | 1 | `slots/01-A/attempt-1/result.txt` | `4de213270d1275b3daf7ae8b7948834596f2ead7a50dfe8da7f8b321a5cad15c` |
+| 02 | B | 1 | `slots/02-B/attempt-1/result.txt` | `0cde14939adc75637ef40a953d5f9691b3d0fb5fde6619dc9f1f8ce45459e7ed` |
+| 03 | C | 1 | `slots/03-C/attempt-1/result.txt` | `d222c7c7a563ccdca7eb3a836128ebd40dc3e8f25c679a88b60396c1e71b5397` |
+| 04 | B | 1 | `slots/04-B/attempt-1/result.txt` | `4f8e89a9ba2d0511a558fb11518b123344149b0c265a3c7e8c941ce892a45e8f` |
+| 05 | C | 1 | `slots/05-C/attempt-1/result.txt` | `a31818894e931a914d1b5c48956bf8ecf6e273afa938f7ff8764b96ec3a60884` |
+| 06 | A | 1 | `slots/06-A/attempt-1/result.txt` | `3982ee99b611a287cb2b10a7cf868ffd48b26989db6a774fe5dac4d603c25b95` |
+| 07 | C | 1 | `slots/07-C/attempt-1/result.txt` | `a963dd456b46382ba3ca5cb01463e8ec3a819531e3f384fe94da87e349830f5e` |
+| 08 | A | 2 | `slots/08-A/attempt-2/result.txt` | `fba203c06df98c43f477cc389e5d484e656f8e67f866f0e376b2d627e68561b3` |
+| 09 | B | 1 | `slots/09-B/attempt-1/result.txt` | `3b6bfd1f3214199b3587a997dbde9beda35b80a94b68023234ca02e646e7080a` |
+| 10 | A | 1 | `slots/10-A/attempt-1/result.txt` | `cf8eb13ba90fc8913323acf28c68cafc1c1cfeafea301a23df40ec9e7b0f85d9` |
+| 11 | C | 1 | `slots/11-C/attempt-1/result.txt` | `a6ea4a2bcb865665050c1934b19cfbd9faf61884f084e40638e276faf3e3830a` |
+| 12 | B | 1 | `slots/12-B/attempt-1/result.txt` | `3865cf69ed299bb8d656db0bdc9de0617e01f27be47b879861a88fda83698768` |
+| 13 | C | 1 | `slots/13-C/attempt-1/result.txt` | `0b0a4739d778b65c72fece16c176d4b7006dde12fa1b46f88eeb91b522c82401` |
+| 14 | B | 2 | `slots/14-B/attempt-2/result.txt` | `0ccaa59187ffd311772a50307aa42d20ec2420777c835166c9ecf5a4faf9d0d2` |
+| 15 | A | 1 | `slots/15-A/attempt-1/result.txt` | `77822ee3d3edfb8a27c789969d87a21c6ae1da5e0e2580f4a9a8bd0aebaa30d2` |
+
+The accepted order is exactly:
+
+```text
+A, B, C, B, C, A, C, A, B, A, C, B, C, B, A
+```
+
+Two attempts were retained and excluded from every timing calculation:
+
+| Slot | Scenario | Attempt | Exact rejection reason | Artifact path | Artifact SHA-256 |
+| ---: | :---: | ---: | --- | --- | --- |
+| 08 | A | 1 | `load_content_rounding` | `slots/08-A/attempt-1/result.txt` | `af52e9d199d9a08e52efe5255b37b4ba117ebf4ef77968046c1e33d0a8def0d2` |
+| 14 | B | 1 | `load_content_rounding` | `slots/14-B/attempt-1/result.txt` | `bc2b04db84328a6399336929826b2e442292ac5e6e843e17bf4cd14101dd3d1f` |
+
+No slot reached a third attempt.
+
+### Accepted raw product evidence
+
+The lines below are copied byte-for-byte from each accepted result artifact.
+
+<details>
+<summary>Complete raw lines for 15 accepted artifacts</summary>
+
+#### 01-A attempt-1
+
+Artifact: `slots/01-A/attempt-1/result.txt`
+SHA-256: `4de213270d1275b3daf7ae8b7948834596f2ead7a50dfe8da7f8b321a5cad15c`
+
+```text
+HPA192_STARTUP path=enumeration outcome=success total_ms=2752 db_init_ms=1203 discovery_parse_ms=159 persistence_ms=455 cleanup_ms=1 hierarchy_ms=6 discovered=100 parsed=100 groups=27 added=100 updated=0 preserved=0 skipped=0 conflicts=0 stale=0 error=none
+HPA192_TIMING entry_to_config_ms=501 config_to_load_content_ms=26 load_content_to_startup_ms=197 startup_to_first_draw_ms=1909 startup_to_summary_ms=2639 summary_to_title_ms=1142 entry_to_title_ms=4507 entry_unix_us=1785357664328258 title_unix_us=1785357668835810
+HPA192_CRITICAL_PATH outcome=success error=none entry_unix_us=1785357664328258 title_backbuffer_unix_us=1785357668837614 entry_to_title_backbuffer_ms=4509 load_content_complete_from_entry_ms=528 startup_construct_begin_from_entry_ms=533 startup_construct_end_from_entry_ms=555 startup_activate_begin_from_entry_ms=559 startup_activation_from_entry_ms=725 startup_activate_end_from_entry_ms=725 load_content_return_from_entry_ms=726 base_initialize_return_from_entry_ms=726 input_manager_begin_from_entry_ms=726 input_manager_end_from_entry_ms=1343 saved_bindings_begin_from_entry_ms=1343 saved_bindings_end_from_entry_ms=1358 graphics_initialize_begin_from_entry_ms=1358 graphics_initialize_end_from_entry_ms=1358 render_target_begin_from_entry_ms=1365 render_target_end_from_entry_ms=1366 initialize_complete_from_entry_ms=1366 post_load_unattributed_ms=17 startup_first_update_begin_from_entry_ms=1378 startup_first_update_end_from_entry_ms=1380 startup_first_draw_begin_from_entry_ms=2613 startup_first_draw_end_from_entry_ms=2635 startup_updates_before_first_draw=3 startup_game_time_before_first_draw_ms=33 startup_draws_before_transition=44 db_invoke_from_entry_ms=1407 db_task_return_from_entry_ms=2610 db_terminal_from_entry_ms=2610 db_observed_from_entry_ms=2610 db_task_returned_terminal=1 enumeration_invoke_from_entry_ms=2650 enumeration_task_return_from_entry_ms=2672 enumeration_terminal_from_entry_ms=3326 enumeration_observed_from_entry_ms=3328 enumeration_task_returned_terminal=0 enumeration_unattributed_ms=57 db_service_setup_ms=48 db_corruption_probe_ms=735 db_invalid_recovery_count=0 db_invalid_recovery_ms=0 db_ensure_created_count=1 db_ensure_created_ms=202 db_encoding_pragmas_ms=5 db_version_work_ms=3 db_schema_ensures_ms=198 db_init_unattributed_ms=12 summary_request_from_entry_ms=3365 title_construct_begin_from_entry_ms=3365 title_construct_end_from_entry_ms=3365 transition_start_from_entry_ms=3365 transition_complete_from_entry_ms=4362 transition_update_count=60 transition_game_time_ms=1000 startup_deactivate_begin_from_entry_ms=4362 startup_deactivate_end_from_entry_ms=4363 title_activate_begin_from_entry_ms=4363 title_activate_end_from_entry_ms=4505 title_first_update_begin_from_entry_ms=4505 title_first_update_end_from_entry_ms=4507 title_stage_draw_begin_from_entry_ms=4508 title_stage_draw_end_from_entry_ms=4509 title_backbuffer_blit_begin_from_entry_ms=4509 title_backbuffer_blit_end_from_entry_ms=4509 summary_to_title_unattributed_ms=1 title_gpu_setup_ms=0 title_background_ms=26 title_menu_ms=9 title_font_ms=0 title_cursor_sound_ms=104 title_decide_sound_ms=0 title_game_start_sound_ms=0 title_game_start_fallback_ran=0 title_game_start_fallback_ms=0 title_sound_load_count=3 title_activation_unattributed_ms=3 title_backbuffer_published=1
+```
+
+#### 02-B attempt-1
+
+Artifact: `slots/02-B/attempt-1/result.txt`
+SHA-256: `0cde14939adc75637ef40a953d5f9691b3d0fb5fde6619dc9f1f8ce45459e7ed`
+
+```text
+HPA192_STARTUP path=enumeration outcome=success total_ms=3139 db_init_ms=1138 discovery_parse_ms=6 persistence_ms=150 cleanup_ms=2 hierarchy_ms=1 discovered=0 parsed=0 groups=0 added=0 updated=0 preserved=0 skipped=0 conflicts=0 stale=0 error=none
+HPA192_TIMING entry_to_config_ms=421 config_to_load_content_ms=26 load_content_to_startup_ms=141 startup_to_first_draw_ms=2846 startup_to_summary_ms=3071 summary_to_title_ms=541 entry_to_title_ms=4203 entry_unix_us=1785357673912173 title_unix_us=1785357678115578
+HPA192_CRITICAL_PATH outcome=success error=none entry_unix_us=1785357673912173 title_backbuffer_unix_us=1785357678117403 entry_to_title_backbuffer_ms=4205 load_content_complete_from_entry_ms=448 startup_construct_begin_from_entry_ms=452 startup_construct_end_from_entry_ms=467 startup_activate_begin_from_entry_ms=471 startup_activation_from_entry_ms=589 startup_activate_end_from_entry_ms=589 load_content_return_from_entry_ms=590 base_initialize_return_from_entry_ms=590 input_manager_begin_from_entry_ms=591 input_manager_end_from_entry_ms=2206 saved_bindings_begin_from_entry_ms=2206 saved_bindings_end_from_entry_ms=2222 graphics_initialize_begin_from_entry_ms=2222 graphics_initialize_end_from_entry_ms=2222 render_target_begin_from_entry_ms=2228 render_target_end_from_entry_ms=2229 initialize_complete_from_entry_ms=2229 post_load_unattributed_ms=16 startup_first_update_begin_from_entry_ms=2241 startup_first_update_end_from_entry_ms=2243 startup_first_draw_begin_from_entry_ms=3414 startup_first_draw_end_from_entry_ms=3436 startup_updates_before_first_draw=3 startup_game_time_before_first_draw_ms=33 startup_draws_before_transition=1 db_invoke_from_entry_ms=2273 db_task_return_from_entry_ms=3411 db_terminal_from_entry_ms=3411 db_observed_from_entry_ms=3411 db_task_returned_terminal=1 enumeration_invoke_from_entry_ms=3450 enumeration_task_return_from_entry_ms=3658 enumeration_terminal_from_entry_ms=3657 enumeration_observed_from_entry_ms=3658 enumeration_task_returned_terminal=1 enumeration_unattributed_ms=52 db_service_setup_ms=23 db_corruption_probe_ms=693 db_invalid_recovery_count=0 db_invalid_recovery_ms=0 db_ensure_created_count=1 db_ensure_created_ms=209 db_encoding_pragmas_ms=5 db_version_work_ms=3 db_schema_ensures_ms=193 db_init_unattributed_ms=12 summary_request_from_entry_ms=3661 title_construct_begin_from_entry_ms=3661 title_construct_end_from_entry_ms=3661 transition_start_from_entry_ms=3662 transition_complete_from_entry_ms=4044 transition_update_count=60 transition_game_time_ms=1000 startup_deactivate_begin_from_entry_ms=4044 startup_deactivate_end_from_entry_ms=4046 title_activate_begin_from_entry_ms=4046 title_activate_end_from_entry_ms=4201 title_first_update_begin_from_entry_ms=4201 title_first_update_end_from_entry_ms=4203 title_stage_draw_begin_from_entry_ms=4204 title_stage_draw_end_from_entry_ms=4205 title_backbuffer_blit_begin_from_entry_ms=4205 title_backbuffer_blit_end_from_entry_ms=4205 summary_to_title_unattributed_ms=2 title_gpu_setup_ms=0 title_background_ms=26 title_menu_ms=9 title_font_ms=0 title_cursor_sound_ms=116 title_decide_sound_ms=0 title_game_start_sound_ms=0 title_game_start_fallback_ran=0 title_game_start_fallback_ms=0 title_sound_load_count=3 title_activation_unattributed_ms=4 title_backbuffer_published=1
+```
+
+#### 03-C attempt-1
+
+Artifact: `slots/03-C/attempt-1/result.txt`
+SHA-256: `d222c7c7a563ccdca7eb3a836128ebd40dc3e8f25c679a88b60396c1e71b5397`
+
+```text
+HPA192_STARTUP path=enumeration outcome=success total_ms=4682 db_init_ms=1211 discovery_parse_ms=166 persistence_ms=438 cleanup_ms=1 hierarchy_ms=4 discovered=100 parsed=100 groups=27 added=0 updated=0 preserved=100 skipped=0 conflicts=0 stale=0 error=none
+HPA192_TIMING entry_to_config_ms=458 config_to_load_content_ms=25 load_content_to_startup_ms=143 startup_to_first_draw_ms=3919 startup_to_summary_ms=4613 summary_to_title_ms=1135 entry_to_title_ms=6375 entry_unix_us=1785357683283578 title_unix_us=1785357689659323
+HPA192_CRITICAL_PATH outcome=success error=none entry_unix_us=1785357683283578 title_backbuffer_unix_us=1785357689661170 entry_to_title_backbuffer_ms=6377 load_content_complete_from_entry_ms=484 startup_construct_begin_from_entry_ms=488 startup_construct_end_from_entry_ms=502 startup_activate_begin_from_entry_ms=506 startup_activation_from_entry_ms=626 startup_activate_end_from_entry_ms=626 load_content_return_from_entry_ms=627 base_initialize_return_from_entry_ms=627 input_manager_begin_from_entry_ms=628 input_manager_end_from_entry_ms=3246 saved_bindings_begin_from_entry_ms=3246 saved_bindings_end_from_entry_ms=3261 graphics_initialize_begin_from_entry_ms=3261 graphics_initialize_end_from_entry_ms=3261 render_target_begin_from_entry_ms=3268 render_target_end_from_entry_ms=3269 initialize_complete_from_entry_ms=3269 post_load_unattributed_ms=17 startup_first_update_begin_from_entry_ms=3282 startup_first_update_end_from_entry_ms=3284 startup_first_draw_begin_from_entry_ms=4525 startup_first_draw_end_from_entry_ms=4546 startup_updates_before_first_draw=3 startup_game_time_before_first_draw_ms=33 startup_draws_before_transition=42 db_invoke_from_entry_ms=3311 db_task_return_from_entry_ms=4522 db_terminal_from_entry_ms=4522 db_observed_from_entry_ms=4522 db_task_returned_terminal=1 enumeration_invoke_from_entry_ms=4559 enumeration_task_return_from_entry_ms=4578 enumeration_terminal_from_entry_ms=5194 enumeration_observed_from_entry_ms=5204 enumeration_task_returned_terminal=0 enumeration_unattributed_ms=27 db_service_setup_ms=24 db_corruption_probe_ms=1106 db_invalid_recovery_count=0 db_invalid_recovery_ms=0 db_ensure_created_count=1 db_ensure_created_ms=8 db_encoding_pragmas_ms=8 db_version_work_ms=2 db_schema_ensures_ms=52 db_init_unattributed_ms=11 summary_request_from_entry_ms=5240 title_construct_begin_from_entry_ms=5240 title_construct_end_from_entry_ms=5240 transition_start_from_entry_ms=5240 transition_complete_from_entry_ms=6237 transition_update_count=60 transition_game_time_ms=1000 startup_deactivate_begin_from_entry_ms=6237 startup_deactivate_end_from_entry_ms=6238 title_activate_begin_from_entry_ms=6238 title_activate_end_from_entry_ms=6373 title_first_update_begin_from_entry_ms=6373 title_first_update_end_from_entry_ms=6375 title_stage_draw_begin_from_entry_ms=6376 title_stage_draw_end_from_entry_ms=6377 title_backbuffer_blit_begin_from_entry_ms=6377 title_backbuffer_blit_end_from_entry_ms=6377 summary_to_title_unattributed_ms=1 title_gpu_setup_ms=0 title_background_ms=25 title_menu_ms=8 title_font_ms=0 title_cursor_sound_ms=97 title_decide_sound_ms=0 title_game_start_sound_ms=0 title_game_start_fallback_ran=0 title_game_start_fallback_ms=0 title_sound_load_count=3 title_activation_unattributed_ms=5 title_backbuffer_published=1
+```
+
+#### 04-B attempt-1
+
+Artifact: `slots/04-B/attempt-1/result.txt`
+SHA-256: `4f8e89a9ba2d0511a558fb11518b123344149b0c265a3c7e8c941ce892a45e8f`
+
+```text
+HPA192_STARTUP path=enumeration outcome=success total_ms=3122 db_init_ms=1113 discovery_parse_ms=6 persistence_ms=151 cleanup_ms=1 hierarchy_ms=1 discovered=0 parsed=0 groups=0 added=0 updated=0 preserved=0 skipped=0 conflicts=0 stale=0 error=none
+HPA192_TIMING entry_to_config_ms=451 config_to_load_content_ms=24 load_content_to_startup_ms=139 startup_to_first_draw_ms=2829 startup_to_summary_ms=3054 summary_to_title_ms=551 entry_to_title_ms=4222 entry_unix_us=1785357694933703 title_unix_us=1785357699155653
+HPA192_CRITICAL_PATH outcome=success error=none entry_unix_us=1785357694933703 title_backbuffer_unix_us=1785357699157657 entry_to_title_backbuffer_ms=4224 load_content_complete_from_entry_ms=476 startup_construct_begin_from_entry_ms=481 startup_construct_end_from_entry_ms=494 startup_activate_begin_from_entry_ms=498 startup_activation_from_entry_ms=615 startup_activate_end_from_entry_ms=615 load_content_return_from_entry_ms=616 base_initialize_return_from_entry_ms=616 input_manager_begin_from_entry_ms=616 input_manager_end_from_entry_ms=2241 saved_bindings_begin_from_entry_ms=2241 saved_bindings_end_from_entry_ms=2256 graphics_initialize_begin_from_entry_ms=2256 graphics_initialize_end_from_entry_ms=2256 render_target_begin_from_entry_ms=2263 render_target_end_from_entry_ms=2264 initialize_complete_from_entry_ms=2264 post_load_unattributed_ms=17 startup_first_update_begin_from_entry_ms=2277 startup_first_update_end_from_entry_ms=2279 startup_first_draw_begin_from_entry_ms=3424 startup_first_draw_end_from_entry_ms=3445 startup_updates_before_first_draw=3 startup_game_time_before_first_draw_ms=33 startup_draws_before_transition=1 db_invoke_from_entry_ms=2307 db_task_return_from_entry_ms=3421 db_terminal_from_entry_ms=3420 db_observed_from_entry_ms=3421 db_task_returned_terminal=1 enumeration_invoke_from_entry_ms=3457 enumeration_task_return_from_entry_ms=3667 enumeration_terminal_from_entry_ms=3667 enumeration_observed_from_entry_ms=3667 enumeration_task_returned_terminal=1 enumeration_unattributed_ms=51 db_service_setup_ms=24 db_corruption_probe_ms=681 db_invalid_recovery_count=0 db_invalid_recovery_ms=0 db_ensure_created_count=1 db_ensure_created_ms=197 db_encoding_pragmas_ms=5 db_version_work_ms=3 db_schema_ensures_ms=191 db_init_unattributed_ms=12 summary_request_from_entry_ms=3670 title_construct_begin_from_entry_ms=3670 title_construct_end_from_entry_ms=3670 transition_start_from_entry_ms=3670 transition_complete_from_entry_ms=4052 transition_update_count=60 transition_game_time_ms=1000 startup_deactivate_begin_from_entry_ms=4052 startup_deactivate_end_from_entry_ms=4053 title_activate_begin_from_entry_ms=4053 title_activate_end_from_entry_ms=4219 title_first_update_begin_from_entry_ms=4220 title_first_update_end_from_entry_ms=4222 title_stage_draw_begin_from_entry_ms=4222 title_stage_draw_end_from_entry_ms=4224 title_backbuffer_blit_begin_from_entry_ms=4224 title_backbuffer_blit_end_from_entry_ms=4224 summary_to_title_unattributed_ms=1 title_gpu_setup_ms=0 title_background_ms=27 title_menu_ms=8 title_font_ms=0 title_cursor_sound_ms=127 title_decide_sound_ms=0 title_game_start_sound_ms=0 title_game_start_fallback_ran=0 title_game_start_fallback_ms=0 title_sound_load_count=3 title_activation_unattributed_ms=4 title_backbuffer_published=1
+```
+
+#### 05-C attempt-1
+
+Artifact: `slots/05-C/attempt-1/result.txt`
+SHA-256: `a31818894e931a914d1b5c48956bf8ecf6e273afa938f7ff8764b96ec3a60884`
+
+```text
+HPA192_STARTUP path=enumeration outcome=success total_ms=4641 db_init_ms=1190 discovery_parse_ms=167 persistence_ms=422 cleanup_ms=1 hierarchy_ms=4 discovered=100 parsed=100 groups=27 added=0 updated=0 preserved=100 skipped=0 conflicts=0 stale=0 error=none
+HPA192_TIMING entry_to_config_ms=445 config_to_load_content_ms=25 load_content_to_startup_ms=146 startup_to_first_draw_ms=3890 startup_to_summary_ms=4567 summary_to_title_ms=1150 entry_to_title_ms=6335 entry_unix_us=1785357704453374 title_unix_us=1785357710788625
+HPA192_CRITICAL_PATH outcome=success error=none entry_unix_us=1785357704453374 title_backbuffer_unix_us=1785357710790589 entry_to_title_backbuffer_ms=6337 load_content_complete_from_entry_ms=470 startup_construct_begin_from_entry_ms=475 startup_construct_end_from_entry_ms=489 startup_activate_begin_from_entry_ms=493 startup_activation_from_entry_ms=616 startup_activate_end_from_entry_ms=616 load_content_return_from_entry_ms=617 base_initialize_return_from_entry_ms=617 input_manager_begin_from_entry_ms=618 input_manager_end_from_entry_ms=3229 saved_bindings_begin_from_entry_ms=3229 saved_bindings_end_from_entry_ms=3244 graphics_initialize_begin_from_entry_ms=3244 graphics_initialize_end_from_entry_ms=3244 render_target_begin_from_entry_ms=3250 render_target_end_from_entry_ms=3252 initialize_complete_from_entry_ms=3252 post_load_unattributed_ms=17 startup_first_update_begin_from_entry_ms=3264 startup_first_update_end_from_entry_ms=3267 startup_first_draw_begin_from_entry_ms=4486 startup_first_draw_end_from_entry_ms=4507 startup_updates_before_first_draw=3 startup_game_time_before_first_draw_ms=33 startup_draws_before_transition=41 db_invoke_from_entry_ms=3292 db_task_return_from_entry_ms=4483 db_terminal_from_entry_ms=4482 db_observed_from_entry_ms=4483 db_task_returned_terminal=1 enumeration_invoke_from_entry_ms=4520 enumeration_task_return_from_entry_ms=4542 enumeration_terminal_from_entry_ms=5142 enumeration_observed_from_entry_ms=5148 enumeration_task_returned_terminal=0 enumeration_unattributed_ms=31 db_service_setup_ms=22 db_corruption_probe_ms=1086 db_invalid_recovery_count=0 db_invalid_recovery_ms=0 db_ensure_created_count=1 db_ensure_created_ms=8 db_encoding_pragmas_ms=8 db_version_work_ms=2 db_schema_ensures_ms=51 db_init_unattributed_ms=13 summary_request_from_entry_ms=5184 title_construct_begin_from_entry_ms=5184 title_construct_end_from_entry_ms=5184 transition_start_from_entry_ms=5185 transition_complete_from_entry_ms=6182 transition_update_count=60 transition_game_time_ms=1000 startup_deactivate_begin_from_entry_ms=6182 startup_deactivate_end_from_entry_ms=6183 title_activate_begin_from_entry_ms=6183 title_activate_end_from_entry_ms=6333 title_first_update_begin_from_entry_ms=6333 title_first_update_end_from_entry_ms=6335 title_stage_draw_begin_from_entry_ms=6336 title_stage_draw_end_from_entry_ms=6337 title_backbuffer_blit_begin_from_entry_ms=6337 title_backbuffer_blit_end_from_entry_ms=6337 summary_to_title_unattributed_ms=2 title_gpu_setup_ms=0 title_background_ms=26 title_menu_ms=8 title_font_ms=0 title_cursor_sound_ms=111 title_decide_sound_ms=0 title_game_start_sound_ms=0 title_game_start_fallback_ran=0 title_game_start_fallback_ms=0 title_sound_load_count=3 title_activation_unattributed_ms=5 title_backbuffer_published=1
+```
+
+#### 06-A attempt-1
+
+Artifact: `slots/06-A/attempt-1/result.txt`
+SHA-256: `3982ee99b611a287cb2b10a7cf868ffd48b26989db6a774fe5dac4d603c25b95`
+
+```text
+HPA192_STARTUP path=enumeration outcome=success total_ms=2780 db_init_ms=1137 discovery_parse_ms=175 persistence_ms=555 cleanup_ms=1 hierarchy_ms=6 discovered=100 parsed=100 groups=27 added=100 updated=0 preserved=0 skipped=0 conflicts=0 stale=0 error=none
+HPA192_TIMING entry_to_config_ms=479 config_to_load_content_ms=25 load_content_to_startup_ms=162 startup_to_first_draw_ms=1853 startup_to_summary_ms=2698 summary_to_title_ms=1160 entry_to_title_ms=4526 entry_unix_us=1785357716912260 title_unix_us=1785357721438301
+HPA192_CRITICAL_PATH outcome=success error=none entry_unix_us=1785357716912260 title_backbuffer_unix_us=1785357721440426 entry_to_title_backbuffer_ms=4528 load_content_complete_from_entry_ms=505 startup_construct_begin_from_entry_ms=510 startup_construct_end_from_entry_ms=525 startup_activate_begin_from_entry_ms=530 startup_activation_from_entry_ms=667 startup_activate_end_from_entry_ms=667 load_content_return_from_entry_ms=668 base_initialize_return_from_entry_ms=668 input_manager_begin_from_entry_ms=668 input_manager_end_from_entry_ms=1291 saved_bindings_begin_from_entry_ms=1291 saved_bindings_end_from_entry_ms=1306 graphics_initialize_begin_from_entry_ms=1306 graphics_initialize_end_from_entry_ms=1306 render_target_begin_from_entry_ms=1313 render_target_end_from_entry_ms=1314 initialize_complete_from_entry_ms=1314 post_load_unattributed_ms=18 startup_first_update_begin_from_entry_ms=1327 startup_first_update_end_from_entry_ms=1329 startup_first_draw_begin_from_entry_ms=2499 startup_first_draw_end_from_entry_ms=2520 startup_updates_before_first_draw=3 startup_game_time_before_first_draw_ms=33 startup_draws_before_transition=51 db_invoke_from_entry_ms=1359 db_task_return_from_entry_ms=2496 db_terminal_from_entry_ms=2496 db_observed_from_entry_ms=2496 db_task_returned_terminal=1 enumeration_invoke_from_entry_ms=2535 enumeration_task_return_from_entry_ms=2555 enumeration_terminal_from_entry_ms=3324 enumeration_observed_from_entry_ms=3329 enumeration_task_returned_terminal=0 enumeration_unattributed_ms=54 db_service_setup_ms=23 db_corruption_probe_ms=698 db_invalid_recovery_count=0 db_invalid_recovery_ms=0 db_ensure_created_count=1 db_ensure_created_ms=206 db_encoding_pragmas_ms=5 db_version_work_ms=3 db_schema_ensures_ms=191 db_init_unattributed_ms=11 summary_request_from_entry_ms=3366 title_construct_begin_from_entry_ms=3366 title_construct_end_from_entry_ms=3366 transition_start_from_entry_ms=3366 transition_complete_from_entry_ms=4362 transition_update_count=60 transition_game_time_ms=1000 startup_deactivate_begin_from_entry_ms=4362 startup_deactivate_end_from_entry_ms=4364 title_activate_begin_from_entry_ms=4364 title_activate_end_from_entry_ms=4524 title_first_update_begin_from_entry_ms=4524 title_first_update_end_from_entry_ms=4526 title_stage_draw_begin_from_entry_ms=4526 title_stage_draw_end_from_entry_ms=4528 title_backbuffer_blit_begin_from_entry_ms=4528 title_backbuffer_blit_end_from_entry_ms=4528 summary_to_title_unattributed_ms=0 title_gpu_setup_ms=0 title_background_ms=26 title_menu_ms=8 title_font_ms=0 title_cursor_sound_ms=121 title_decide_sound_ms=0 title_game_start_sound_ms=0 title_game_start_fallback_ran=0 title_game_start_fallback_ms=0 title_sound_load_count=3 title_activation_unattributed_ms=5 title_backbuffer_published=1
+```
+
+#### 07-C attempt-1
+
+Artifact: `slots/07-C/attempt-1/result.txt`
+SHA-256: `a963dd456b46382ba3ca5cb01463e8ec3a819531e3f384fe94da87e349830f5e`
+
+```text
+HPA192_STARTUP path=enumeration outcome=success total_ms=3671 db_init_ms=1196 discovery_parse_ms=159 persistence_ms=441 cleanup_ms=1 hierarchy_ms=4 discovered=100 parsed=100 groups=27 added=0 updated=0 preserved=100 skipped=0 conflicts=0 stale=0 error=none
+HPA192_TIMING entry_to_config_ms=451 config_to_load_content_ms=23 load_content_to_startup_ms=146 startup_to_first_draw_ms=2903 startup_to_summary_ms=3598 summary_to_title_ms=1155 entry_to_title_ms=5374 entry_unix_us=1785357726831000 title_unix_us=1785357732205094
+HPA192_CRITICAL_PATH outcome=success error=none entry_unix_us=1785357726831000 title_backbuffer_unix_us=1785357732207022 entry_to_title_backbuffer_ms=5376 load_content_complete_from_entry_ms=475 startup_construct_begin_from_entry_ms=479 startup_construct_end_from_entry_ms=492 startup_activate_begin_from_entry_ms=496 startup_activation_from_entry_ms=621 startup_activate_end_from_entry_ms=621 load_content_return_from_entry_ms=621 base_initialize_return_from_entry_ms=621 input_manager_begin_from_entry_ms=622 input_manager_end_from_entry_ms=2240 saved_bindings_begin_from_entry_ms=2240 saved_bindings_end_from_entry_ms=2255 graphics_initialize_begin_from_entry_ms=2255 graphics_initialize_end_from_entry_ms=2255 render_target_begin_from_entry_ms=2261 render_target_end_from_entry_ms=2262 initialize_complete_from_entry_ms=2262 post_load_unattributed_ms=15 startup_first_update_begin_from_entry_ms=2274 startup_first_update_end_from_entry_ms=2276 startup_first_draw_begin_from_entry_ms=3504 startup_first_draw_end_from_entry_ms=3524 startup_updates_before_first_draw=3 startup_game_time_before_first_draw_ms=33 startup_draws_before_transition=42 db_invoke_from_entry_ms=2304 db_task_return_from_entry_ms=3501 db_terminal_from_entry_ms=3501 db_observed_from_entry_ms=3501 db_task_returned_terminal=1 enumeration_invoke_from_entry_ms=3538 enumeration_task_return_from_entry_ms=3558 enumeration_terminal_from_entry_ms=4168 enumeration_observed_from_entry_ms=4182 enumeration_task_returned_terminal=0 enumeration_unattributed_ms=26 db_service_setup_ms=23 db_corruption_probe_ms=1094 db_invalid_recovery_count=0 db_invalid_recovery_ms=0 db_ensure_created_count=1 db_ensure_created_ms=7 db_encoding_pragmas_ms=8 db_version_work_ms=2 db_schema_ensures_ms=50 db_init_unattributed_ms=13 summary_request_from_entry_ms=4219 title_construct_begin_from_entry_ms=4219 title_construct_end_from_entry_ms=4219 transition_start_from_entry_ms=4219 transition_complete_from_entry_ms=5216 transition_update_count=60 transition_game_time_ms=1000 startup_deactivate_begin_from_entry_ms=5216 startup_deactivate_end_from_entry_ms=5217 title_activate_begin_from_entry_ms=5217 title_activate_end_from_entry_ms=5372 title_first_update_begin_from_entry_ms=5372 title_first_update_end_from_entry_ms=5374 title_stage_draw_begin_from_entry_ms=5374 title_stage_draw_end_from_entry_ms=5376 title_backbuffer_blit_begin_from_entry_ms=5376 title_backbuffer_blit_end_from_entry_ms=5376 summary_to_title_unattributed_ms=0 title_gpu_setup_ms=0 title_background_ms=27 title_menu_ms=9 title_font_ms=0 title_cursor_sound_ms=114 title_decide_sound_ms=0 title_game_start_sound_ms=0 title_game_start_fallback_ran=0 title_game_start_fallback_ms=0 title_sound_load_count=3 title_activation_unattributed_ms=5 title_backbuffer_published=1
+```
+
+#### 08-A attempt-2
+
+Artifact: `slots/08-A/attempt-2/result.txt`
+SHA-256: `fba203c06df98c43f477cc389e5d484e656f8e67f866f0e376b2d627e68561b3`
+
+```text
+HPA192_STARTUP path=enumeration outcome=success total_ms=3675 db_init_ms=1118 discovery_parse_ms=153 persistence_ms=501 cleanup_ms=1 hierarchy_ms=6 discovered=100 parsed=100 groups=27 added=100 updated=0 preserved=0 skipped=0 conflicts=0 stale=0 error=none
+HPA192_TIMING entry_to_config_ms=481 config_to_load_content_ms=25 load_content_to_startup_ms=142 startup_to_first_draw_ms=2828 startup_to_summary_ms=3605 summary_to_title_ms=1141 entry_to_title_ms=5396 entry_unix_us=1785357747985825 title_unix_us=1785357753382287
+HPA192_CRITICAL_PATH outcome=success error=none entry_unix_us=1785357747985825 title_backbuffer_unix_us=1785357753384176 entry_to_title_backbuffer_ms=5398 load_content_complete_from_entry_ms=507 startup_construct_begin_from_entry_ms=512 startup_construct_end_from_entry_ms=526 startup_activate_begin_from_entry_ms=530 startup_activation_from_entry_ms=649 startup_activate_end_from_entry_ms=649 load_content_return_from_entry_ms=649 base_initialize_return_from_entry_ms=649 input_manager_begin_from_entry_ms=650 input_manager_end_from_entry_ms=2270 saved_bindings_begin_from_entry_ms=2270 saved_bindings_end_from_entry_ms=2285 graphics_initialize_begin_from_entry_ms=2285 graphics_initialize_end_from_entry_ms=2285 render_target_begin_from_entry_ms=2290 render_target_end_from_entry_ms=2292 initialize_complete_from_entry_ms=2292 post_load_unattributed_ms=15 startup_first_update_begin_from_entry_ms=2305 startup_first_update_end_from_entry_ms=2307 startup_first_draw_begin_from_entry_ms=3457 startup_first_draw_end_from_entry_ms=3478 startup_updates_before_first_draw=3 startup_game_time_before_first_draw_ms=33 startup_draws_before_transition=47 db_invoke_from_entry_ms=2336 db_task_return_from_entry_ms=3454 db_terminal_from_entry_ms=3453 db_observed_from_entry_ms=3454 db_task_returned_terminal=1 enumeration_invoke_from_entry_ms=3489 enumeration_task_return_from_entry_ms=3511 enumeration_terminal_from_entry_ms=4208 enumeration_observed_from_entry_ms=4218 enumeration_task_returned_terminal=0 enumeration_unattributed_ms=59 db_service_setup_ms=23 db_corruption_probe_ms=683 db_invalid_recovery_count=0 db_invalid_recovery_ms=0 db_ensure_created_count=1 db_ensure_created_ms=202 db_encoding_pragmas_ms=5 db_version_work_ms=3 db_schema_ensures_ms=190 db_init_unattributed_ms=11 summary_request_from_entry_ms=4254 title_construct_begin_from_entry_ms=4254 title_construct_end_from_entry_ms=4255 transition_start_from_entry_ms=4255 transition_complete_from_entry_ms=5251 transition_update_count=60 transition_game_time_ms=1000 startup_deactivate_begin_from_entry_ms=5251 startup_deactivate_end_from_entry_ms=5252 title_activate_begin_from_entry_ms=5253 title_activate_end_from_entry_ms=5394 title_first_update_begin_from_entry_ms=5394 title_first_update_end_from_entry_ms=5396 title_stage_draw_begin_from_entry_ms=5397 title_stage_draw_end_from_entry_ms=5398 title_backbuffer_blit_begin_from_entry_ms=5398 title_backbuffer_blit_end_from_entry_ms=5398 summary_to_title_unattributed_ms=2 title_gpu_setup_ms=0 title_background_ms=26 title_menu_ms=9 title_font_ms=0 title_cursor_sound_ms=103 title_decide_sound_ms=0 title_game_start_sound_ms=0 title_game_start_fallback_ran=0 title_game_start_fallback_ms=0 title_sound_load_count=3 title_activation_unattributed_ms=3 title_backbuffer_published=1
+```
+
+#### 09-B attempt-1
+
+Artifact: `slots/09-B/attempt-1/result.txt`
+SHA-256: `3b6bfd1f3214199b3587a997dbde9beda35b80a94b68023234ca02e646e7080a`
+
+```text
+HPA192_STARTUP path=enumeration outcome=success total_ms=3067 db_init_ms=1087 discovery_parse_ms=6 persistence_ms=143 cleanup_ms=2 hierarchy_ms=1 discovered=0 parsed=0 groups=0 added=0 updated=0 preserved=0 skipped=0 conflicts=0 stale=0 error=none
+HPA192_TIMING entry_to_config_ms=427 config_to_load_content_ms=23 load_content_to_startup_ms=132 startup_to_first_draw_ms=2790 startup_to_summary_ms=3003 summary_to_title_ms=543 entry_to_title_ms=4130 entry_unix_us=1785357758595599 title_unix_us=1785357762725799
+HPA192_CRITICAL_PATH outcome=success error=none entry_unix_us=1785357758595599 title_backbuffer_unix_us=1785357762727648 entry_to_title_backbuffer_ms=4132 load_content_complete_from_entry_ms=451 startup_construct_begin_from_entry_ms=456 startup_construct_end_from_entry_ms=469 startup_activate_begin_from_entry_ms=472 startup_activation_from_entry_ms=583 startup_activate_end_from_entry_ms=583 load_content_return_from_entry_ms=584 base_initialize_return_from_entry_ms=584 input_manager_begin_from_entry_ms=584 input_manager_end_from_entry_ms=2196 saved_bindings_begin_from_entry_ms=2196 saved_bindings_end_from_entry_ms=2213 graphics_initialize_begin_from_entry_ms=2213 graphics_initialize_end_from_entry_ms=2214 render_target_begin_from_entry_ms=2221 render_target_end_from_entry_ms=2223 initialize_complete_from_entry_ms=2223 post_load_unattributed_ms=16 startup_first_update_begin_from_entry_ms=2236 startup_first_update_end_from_entry_ms=2239 startup_first_draw_begin_from_entry_ms=3353 startup_first_draw_end_from_entry_ms=3374 startup_updates_before_first_draw=3 startup_game_time_before_first_draw_ms=33 startup_draws_before_transition=1 db_invoke_from_entry_ms=2263 db_task_return_from_entry_ms=3350 db_terminal_from_entry_ms=3350 db_observed_from_entry_ms=3350 db_task_returned_terminal=1 enumeration_invoke_from_entry_ms=3386 enumeration_task_return_from_entry_ms=3583 enumeration_terminal_from_entry_ms=3583 enumeration_observed_from_entry_ms=3584 enumeration_task_returned_terminal=1 enumeration_unattributed_ms=48 db_service_setup_ms=21 db_corruption_probe_ms=670 db_invalid_recovery_count=0 db_invalid_recovery_ms=0 db_ensure_created_count=1 db_ensure_created_ms=190 db_encoding_pragmas_ms=5 db_version_work_ms=3 db_schema_ensures_ms=187 db_init_unattributed_ms=11 summary_request_from_entry_ms=3587 title_construct_begin_from_entry_ms=3587 title_construct_end_from_entry_ms=3587 transition_start_from_entry_ms=3587 transition_complete_from_entry_ms=3981 transition_update_count=60 transition_game_time_ms=1000 startup_deactivate_begin_from_entry_ms=3981 startup_deactivate_end_from_entry_ms=3982 title_activate_begin_from_entry_ms=3982 title_activate_end_from_entry_ms=4128 title_first_update_begin_from_entry_ms=4128 title_first_update_end_from_entry_ms=4130 title_stage_draw_begin_from_entry_ms=4130 title_stage_draw_end_from_entry_ms=4132 title_backbuffer_blit_begin_from_entry_ms=4132 title_backbuffer_blit_end_from_entry_ms=4132 summary_to_title_unattributed_ms=0 title_gpu_setup_ms=0 title_background_ms=26 title_menu_ms=8 title_font_ms=0 title_cursor_sound_ms=109 title_decide_sound_ms=0 title_game_start_sound_ms=0 title_game_start_fallback_ran=0 title_game_start_fallback_ms=0 title_sound_load_count=3 title_activation_unattributed_ms=3 title_backbuffer_published=1
+```
+
+#### 10-A attempt-1
+
+Artifact: `slots/10-A/attempt-1/result.txt`
+SHA-256: `cf8eb13ba90fc8913323acf28c68cafc1c1cfeafea301a23df40ec9e7b0f85d9`
+
+```text
+HPA192_STARTUP path=enumeration outcome=success total_ms=1913 db_init_ms=1049 discovery_parse_ms=137 persistence_ms=425 cleanup_ms=1 hierarchy_ms=5 discovered=100 parsed=100 groups=27 added=100 updated=0 preserved=0 skipped=0 conflicts=0 stale=0 error=none
+HPA192_TIMING entry_to_config_ms=416 config_to_load_content_ms=24 load_content_to_startup_ms=135 startup_to_first_draw_ms=1173 startup_to_summary_ms=1848 summary_to_title_ms=1165 entry_to_title_ms=3589 entry_unix_us=1785357767576494 title_unix_us=1785357771165910
+HPA192_CRITICAL_PATH outcome=success error=none entry_unix_us=1785357767576494 title_backbuffer_unix_us=1785357771167977 entry_to_title_backbuffer_ms=3591 load_content_complete_from_entry_ms=441 startup_construct_begin_from_entry_ms=445 startup_construct_end_from_entry_ms=458 startup_activate_begin_from_entry_ms=462 startup_activation_from_entry_ms=575 startup_activate_end_from_entry_ms=575 load_content_return_from_entry_ms=576 base_initialize_return_from_entry_ms=576 input_manager_begin_from_entry_ms=576 input_manager_end_from_entry_ms=616 saved_bindings_begin_from_entry_ms=616 saved_bindings_end_from_entry_ms=630 graphics_initialize_begin_from_entry_ms=630 graphics_initialize_end_from_entry_ms=630 render_target_begin_from_entry_ms=636 render_target_end_from_entry_ms=638 initialize_complete_from_entry_ms=638 post_load_unattributed_ms=15 startup_first_update_begin_from_entry_ms=650 startup_first_update_end_from_entry_ms=652 startup_first_draw_begin_from_entry_ms=1729 startup_first_draw_end_from_entry_ms=1749 startup_updates_before_first_draw=3 startup_game_time_before_first_draw_ms=33 startup_draws_before_transition=41 db_invoke_from_entry_ms=677 db_task_return_from_entry_ms=1726 db_terminal_from_entry_ms=1726 db_observed_from_entry_ms=1726 db_task_returned_terminal=1 enumeration_invoke_from_entry_ms=1759 enumeration_task_return_from_entry_ms=1779 enumeration_terminal_from_entry_ms=2376 enumeration_observed_from_entry_ms=2388 enumeration_task_returned_terminal=0 enumeration_unattributed_ms=51 db_service_setup_ms=21 db_corruption_probe_ms=641 db_invalid_recovery_count=0 db_invalid_recovery_ms=0 db_ensure_created_count=1 db_ensure_created_ms=186 db_encoding_pragmas_ms=5 db_version_work_ms=3 db_schema_ensures_ms=181 db_init_unattributed_ms=12 summary_request_from_entry_ms=2424 title_construct_begin_from_entry_ms=2424 title_construct_end_from_entry_ms=2424 transition_start_from_entry_ms=2424 transition_complete_from_entry_ms=3421 transition_update_count=60 transition_game_time_ms=1000 startup_deactivate_begin_from_entry_ms=3421 startup_deactivate_end_from_entry_ms=3423 title_activate_begin_from_entry_ms=3423 title_activate_end_from_entry_ms=3587 title_first_update_begin_from_entry_ms=3587 title_first_update_end_from_entry_ms=3589 title_stage_draw_begin_from_entry_ms=3590 title_stage_draw_end_from_entry_ms=3591 title_backbuffer_blit_begin_from_entry_ms=3591 title_backbuffer_blit_end_from_entry_ms=3591 summary_to_title_unattributed_ms=1 title_gpu_setup_ms=0 title_background_ms=26 title_menu_ms=8 title_font_ms=0 title_cursor_sound_ms=126 title_decide_sound_ms=0 title_game_start_sound_ms=0 title_game_start_fallback_ran=0 title_game_start_fallback_ms=0 title_sound_load_count=3 title_activation_unattributed_ms=4 title_backbuffer_published=1
+```
+
+#### 11-C attempt-1
+
+Artifact: `slots/11-C/attempt-1/result.txt`
+SHA-256: `a6ea4a2bcb865665050c1934b19cfbd9faf61884f084e40638e276faf3e3830a`
+
+```text
+HPA192_STARTUP path=enumeration outcome=success total_ms=2505 db_init_ms=1149 discovery_parse_ms=149 persistence_ms=365 cleanup_ms=1 hierarchy_ms=3 discovered=100 parsed=100 groups=27 added=0 updated=0 preserved=100 skipped=0 conflicts=0 stale=0 error=none
+HPA192_TIMING entry_to_config_ms=435 config_to_load_content_ms=25 load_content_to_startup_ms=136 startup_to_first_draw_ms=1846 startup_to_summary_ms=2438 summary_to_title_ms=1158 entry_to_title_ms=4193 entry_unix_us=1785357777112962 title_unix_us=1785357781306688
+HPA192_CRITICAL_PATH outcome=success error=none entry_unix_us=1785357777112962 title_backbuffer_unix_us=1785357781308612 entry_to_title_backbuffer_ms=4195 load_content_complete_from_entry_ms=460 startup_construct_begin_from_entry_ms=465 startup_construct_end_from_entry_ms=478 startup_activate_begin_from_entry_ms=481 startup_activation_from_entry_ms=596 startup_activate_end_from_entry_ms=596 load_content_return_from_entry_ms=597 base_initialize_return_from_entry_ms=597 input_manager_begin_from_entry_ms=597 input_manager_end_from_entry_ms=1208 saved_bindings_begin_from_entry_ms=1208 saved_bindings_end_from_entry_ms=1223 graphics_initialize_begin_from_entry_ms=1223 graphics_initialize_end_from_entry_ms=1223 render_target_begin_from_entry_ms=1229 render_target_end_from_entry_ms=1230 initialize_complete_from_entry_ms=1230 post_load_unattributed_ms=15 startup_first_update_begin_from_entry_ms=1242 startup_first_update_end_from_entry_ms=1244 startup_first_draw_begin_from_entry_ms=2423 startup_first_draw_end_from_entry_ms=2443 startup_updates_before_first_draw=3 startup_game_time_before_first_draw_ms=33 startup_draws_before_transition=36 db_invoke_from_entry_ms=1271 db_task_return_from_entry_ms=2420 db_terminal_from_entry_ms=2420 db_observed_from_entry_ms=2420 db_task_returned_terminal=1 enumeration_invoke_from_entry_ms=2454 enumeration_task_return_from_entry_ms=2474 enumeration_terminal_from_entry_ms=2997 enumeration_observed_from_entry_ms=2999 enumeration_task_returned_terminal=0 enumeration_unattributed_ms=27 db_service_setup_ms=22 db_corruption_probe_ms=1050 db_invalid_recovery_count=0 db_invalid_recovery_ms=0 db_ensure_created_count=1 db_ensure_created_ms=7 db_encoding_pragmas_ms=8 db_version_work_ms=2 db_schema_ensures_ms=48 db_init_unattributed_ms=12 summary_request_from_entry_ms=3035 title_construct_begin_from_entry_ms=3035 title_construct_end_from_entry_ms=3035 transition_start_from_entry_ms=3035 transition_complete_from_entry_ms=4032 transition_update_count=60 transition_game_time_ms=1000 startup_deactivate_begin_from_entry_ms=4032 startup_deactivate_end_from_entry_ms=4033 title_activate_begin_from_entry_ms=4034 title_activate_end_from_entry_ms=4191 title_first_update_begin_from_entry_ms=4192 title_first_update_end_from_entry_ms=4193 title_stage_draw_begin_from_entry_ms=4194 title_stage_draw_end_from_entry_ms=4195 title_backbuffer_blit_begin_from_entry_ms=4195 title_backbuffer_blit_end_from_entry_ms=4195 summary_to_title_unattributed_ms=3 title_gpu_setup_ms=0 title_background_ms=25 title_menu_ms=8 title_font_ms=0 title_cursor_sound_ms=121 title_decide_sound_ms=0 title_game_start_sound_ms=0 title_game_start_fallback_ran=0 title_game_start_fallback_ms=0 title_sound_load_count=3 title_activation_unattributed_ms=3 title_backbuffer_published=1
+```
+
+#### 12-B attempt-1
+
+Artifact: `slots/12-B/attempt-1/result.txt`
+SHA-256: `3865cf69ed299bb8d656db0bdc9de0617e01f27be47b879861a88fda83698768`
+
+```text
+HPA192_STARTUP path=enumeration outcome=success total_ms=3153 db_init_ms=1135 discovery_parse_ms=6 persistence_ms=151 cleanup_ms=1 hierarchy_ms=1 discovered=0 parsed=0 groups=0 added=0 updated=0 preserved=0 skipped=0 conflicts=0 stale=0 error=none
+HPA192_TIMING entry_to_config_ms=459 config_to_load_content_ms=25 load_content_to_startup_ms=145 startup_to_first_draw_ms=2858 startup_to_summary_ms=3082 summary_to_title_ms=562 entry_to_title_ms=4275 entry_unix_us=1785357786386868 title_unix_us=1785357790662357
+HPA192_CRITICAL_PATH outcome=success error=none entry_unix_us=1785357786386868 title_backbuffer_unix_us=1785357790664567 entry_to_title_backbuffer_ms=4277 load_content_complete_from_entry_ms=485 startup_construct_begin_from_entry_ms=489 startup_construct_end_from_entry_ms=503 startup_activate_begin_from_entry_ms=507 startup_activation_from_entry_ms=629 startup_activate_end_from_entry_ms=629 load_content_return_from_entry_ms=630 base_initialize_return_from_entry_ms=630 input_manager_begin_from_entry_ms=631 input_manager_end_from_entry_ms=2263 saved_bindings_begin_from_entry_ms=2263 saved_bindings_end_from_entry_ms=2278 graphics_initialize_begin_from_entry_ms=2278 graphics_initialize_end_from_entry_ms=2278 render_target_begin_from_entry_ms=2284 render_target_end_from_entry_ms=2286 initialize_complete_from_entry_ms=2286 post_load_unattributed_ms=16 startup_first_update_begin_from_entry_ms=2298 startup_first_update_end_from_entry_ms=2301 startup_first_draw_begin_from_entry_ms=3467 startup_first_draw_end_from_entry_ms=3488 startup_updates_before_first_draw=3 startup_game_time_before_first_draw_ms=33 startup_draws_before_transition=1 db_invoke_from_entry_ms=2329 db_task_return_from_entry_ms=3464 db_terminal_from_entry_ms=3464 db_observed_from_entry_ms=3464 db_task_returned_terminal=1 enumeration_invoke_from_entry_ms=3500 enumeration_task_return_from_entry_ms=3709 enumeration_terminal_from_entry_ms=3709 enumeration_observed_from_entry_ms=3709 enumeration_task_returned_terminal=1 enumeration_unattributed_ms=52 db_service_setup_ms=24 db_corruption_probe_ms=696 db_invalid_recovery_count=0 db_invalid_recovery_ms=0 db_ensure_created_count=1 db_ensure_created_ms=203 db_encoding_pragmas_ms=5 db_version_work_ms=3 db_schema_ensures_ms=191 db_init_unattributed_ms=13 summary_request_from_entry_ms=3712 title_construct_begin_from_entry_ms=3712 title_construct_end_from_entry_ms=3712 transition_start_from_entry_ms=3713 transition_complete_from_entry_ms=4095 transition_update_count=60 transition_game_time_ms=1000 startup_deactivate_begin_from_entry_ms=4095 startup_deactivate_end_from_entry_ms=4096 title_activate_begin_from_entry_ms=4096 title_activate_end_from_entry_ms=4273 title_first_update_begin_from_entry_ms=4273 title_first_update_end_from_entry_ms=4275 title_stage_draw_begin_from_entry_ms=4276 title_stage_draw_end_from_entry_ms=4277 title_backbuffer_blit_begin_from_entry_ms=4277 title_backbuffer_blit_end_from_entry_ms=4277 summary_to_title_unattributed_ms=2 title_gpu_setup_ms=0 title_background_ms=26 title_menu_ms=8 title_font_ms=0 title_cursor_sound_ms=138 title_decide_sound_ms=0 title_game_start_sound_ms=0 title_game_start_fallback_ran=0 title_game_start_fallback_ms=0 title_sound_load_count=3 title_activation_unattributed_ms=5 title_backbuffer_published=1
+```
+
+#### 13-C attempt-1
+
+Artifact: `slots/13-C/attempt-1/result.txt`
+SHA-256: `0b0a4739d778b65c72fece16c176d4b7006dde12fa1b46f88eeb91b522c82401`
+
+```text
+HPA192_STARTUP path=enumeration outcome=success total_ms=1940 db_init_ms=1145 discovery_parse_ms=151 persistence_ms=375 cleanup_ms=1 hierarchy_ms=4 discovered=100 parsed=100 groups=27 added=0 updated=0 preserved=100 skipped=0 conflicts=0 stale=0 error=none
+HPA192_TIMING entry_to_config_ms=409 config_to_load_content_ms=23 load_content_to_startup_ms=133 startup_to_first_draw_ms=1267 startup_to_summary_ms=1876 summary_to_title_ms=1151 entry_to_title_ms=3594 entry_unix_us=1785357795665691 title_unix_us=1785357799260247
+HPA192_CRITICAL_PATH outcome=success error=none entry_unix_us=1785357795665691 title_backbuffer_unix_us=1785357799262177 entry_to_title_backbuffer_ms=3596 load_content_complete_from_entry_ms=433 startup_construct_begin_from_entry_ms=438 startup_construct_end_from_entry_ms=451 startup_activate_begin_from_entry_ms=454 startup_activation_from_entry_ms=566 startup_activate_end_from_entry_ms=566 load_content_return_from_entry_ms=566 base_initialize_return_from_entry_ms=566 input_manager_begin_from_entry_ms=567 input_manager_end_from_entry_ms=599 saved_bindings_begin_from_entry_ms=599 saved_bindings_end_from_entry_ms=614 graphics_initialize_begin_from_entry_ms=614 graphics_initialize_end_from_entry_ms=614 render_target_begin_from_entry_ms=619 render_target_end_from_entry_ms=620 initialize_complete_from_entry_ms=620 post_load_unattributed_ms=14 startup_first_update_begin_from_entry_ms=632 startup_first_update_end_from_entry_ms=635 startup_first_draw_begin_from_entry_ms=1813 startup_first_draw_end_from_entry_ms=1833 startup_updates_before_first_draw=3 startup_game_time_before_first_draw_ms=33 startup_draws_before_transition=37 db_invoke_from_entry_ms=664 db_task_return_from_entry_ms=1810 db_terminal_from_entry_ms=1810 db_observed_from_entry_ms=1810 db_task_returned_terminal=1 enumeration_invoke_from_entry_ms=1844 enumeration_task_return_from_entry_ms=1864 enumeration_terminal_from_entry_ms=2400 enumeration_observed_from_entry_ms=2406 enumeration_task_returned_terminal=0 enumeration_unattributed_ms=26 db_service_setup_ms=21 db_corruption_probe_ms=1047 db_invalid_recovery_count=0 db_invalid_recovery_ms=0 db_ensure_created_count=1 db_ensure_created_ms=8 db_encoding_pragmas_ms=8 db_version_work_ms=2 db_schema_ensures_ms=47 db_init_unattributed_ms=13 summary_request_from_entry_ms=2442 title_construct_begin_from_entry_ms=2442 title_construct_end_from_entry_ms=2442 transition_start_from_entry_ms=2443 transition_complete_from_entry_ms=3440 transition_update_count=60 transition_game_time_ms=1000 startup_deactivate_begin_from_entry_ms=3440 startup_deactivate_end_from_entry_ms=3441 title_activate_begin_from_entry_ms=3441 title_activate_end_from_entry_ms=3592 title_first_update_begin_from_entry_ms=3592 title_first_update_end_from_entry_ms=3594 title_stage_draw_begin_from_entry_ms=3595 title_stage_draw_end_from_entry_ms=3596 title_backbuffer_blit_begin_from_entry_ms=3596 title_backbuffer_blit_end_from_entry_ms=3596 summary_to_title_unattributed_ms=2 title_gpu_setup_ms=0 title_background_ms=26 title_menu_ms=8 title_font_ms=0 title_cursor_sound_ms=114 title_decide_sound_ms=0 title_game_start_sound_ms=0 title_game_start_fallback_ran=0 title_game_start_fallback_ms=0 title_sound_load_count=3 title_activation_unattributed_ms=3 title_backbuffer_published=1
+```
+
+#### 14-B attempt-2
+
+Artifact: `slots/14-B/attempt-2/result.txt`
+SHA-256: `0ccaa59187ffd311772a50307aa42d20ec2420777c835166c9ecf5a4faf9d0d2`
+
+```text
+HPA192_STARTUP path=enumeration outcome=success total_ms=4040 db_init_ms=1032 discovery_parse_ms=6 persistence_ms=142 cleanup_ms=1 hierarchy_ms=1 discovered=0 parsed=0 groups=0 added=0 updated=0 preserved=0 skipped=0 conflicts=0 stale=0 error=none
+HPA192_TIMING entry_to_config_ms=456 config_to_load_content_ms=25 load_content_to_startup_ms=141 startup_to_first_draw_ms=3760 startup_to_summary_ms=3971 summary_to_title_ms=553 entry_to_title_ms=5148 entry_unix_us=1785357812525575 title_unix_us=1785357817674000
+HPA192_CRITICAL_PATH outcome=success error=none entry_unix_us=1785357812525575 title_backbuffer_unix_us=1785357817675750 entry_to_title_backbuffer_ms=5150 load_content_complete_from_entry_ms=482 startup_construct_begin_from_entry_ms=487 startup_construct_end_from_entry_ms=501 startup_activate_begin_from_entry_ms=505 startup_activation_from_entry_ms=623 startup_activate_end_from_entry_ms=623 load_content_return_from_entry_ms=624 base_initialize_return_from_entry_ms=624 input_manager_begin_from_entry_ms=625 input_manager_end_from_entry_ms=3267 saved_bindings_begin_from_entry_ms=3267 saved_bindings_end_from_entry_ms=3281 graphics_initialize_begin_from_entry_ms=3281 graphics_initialize_end_from_entry_ms=3281 render_target_begin_from_entry_ms=3287 render_target_end_from_entry_ms=3288 initialize_complete_from_entry_ms=3288 post_load_unattributed_ms=17 startup_first_update_begin_from_entry_ms=3300 startup_first_update_end_from_entry_ms=3302 startup_first_draw_begin_from_entry_ms=4365 startup_first_draw_end_from_entry_ms=4384 startup_updates_before_first_draw=3 startup_game_time_before_first_draw_ms=33 startup_draws_before_transition=1 db_invoke_from_entry_ms=3330 db_task_return_from_entry_ms=4362 db_terminal_from_entry_ms=4362 db_observed_from_entry_ms=4362 db_task_returned_terminal=1 enumeration_invoke_from_entry_ms=4396 enumeration_task_return_from_entry_ms=4592 enumeration_terminal_from_entry_ms=4591 enumeration_observed_from_entry_ms=4592 enumeration_task_returned_terminal=1 enumeration_unattributed_ms=48 db_service_setup_ms=21 db_corruption_probe_ms=628 db_invalid_recovery_count=0 db_invalid_recovery_ms=0 db_ensure_created_count=1 db_ensure_created_ms=184 db_encoding_pragmas_ms=5 db_version_work_ms=2 db_schema_ensures_ms=181 db_init_unattributed_ms=11 summary_request_from_entry_ms=4595 title_construct_begin_from_entry_ms=4595 title_construct_end_from_entry_ms=4595 transition_start_from_entry_ms=4595 transition_complete_from_entry_ms=4991 transition_update_count=60 transition_game_time_ms=1000 startup_deactivate_begin_from_entry_ms=4991 startup_deactivate_end_from_entry_ms=4992 title_activate_begin_from_entry_ms=4993 title_activate_end_from_entry_ms=5146 title_first_update_begin_from_entry_ms=5146 title_first_update_end_from_entry_ms=5148 title_stage_draw_begin_from_entry_ms=5149 title_stage_draw_end_from_entry_ms=5150 title_backbuffer_blit_begin_from_entry_ms=5150 title_backbuffer_blit_end_from_entry_ms=5150 summary_to_title_unattributed_ms=2 title_gpu_setup_ms=0 title_background_ms=25 title_menu_ms=8 title_font_ms=0 title_cursor_sound_ms=117 title_decide_sound_ms=0 title_game_start_sound_ms=0 title_game_start_fallback_ran=0 title_game_start_fallback_ms=0 title_sound_load_count=3 title_activation_unattributed_ms=3 title_backbuffer_published=1
+```
+
+#### 15-A attempt-1
+
+Artifact: `slots/15-A/attempt-1/result.txt`
+SHA-256: `77822ee3d3edfb8a27c789969d87a21c6ae1da5e0e2580f4a9a8bd0aebaa30d2`
+
+```text
+HPA192_STARTUP path=enumeration outcome=success total_ms=1879 db_init_ms=1038 discovery_parse_ms=137 persistence_ms=419 cleanup_ms=1 hierarchy_ms=5 discovered=100 parsed=100 groups=27 added=100 updated=0 preserved=0 skipped=0 conflicts=0 stale=0 error=none
+HPA192_TIMING entry_to_config_ms=417 config_to_load_content_ms=22 load_content_to_startup_ms=131 startup_to_first_draw_ms=1157 startup_to_summary_ms=1816 summary_to_title_ms=1147 entry_to_title_ms=3535 entry_unix_us=1785357822503205 title_unix_us=1785357826038987
+HPA192_CRITICAL_PATH outcome=success error=none entry_unix_us=1785357822503205 title_backbuffer_unix_us=1785357826040834 entry_to_title_backbuffer_ms=3537 load_content_complete_from_entry_ms=440 startup_construct_begin_from_entry_ms=445 startup_construct_end_from_entry_ms=457 startup_activate_begin_from_entry_ms=461 startup_activation_from_entry_ms=572 startup_activate_end_from_entry_ms=572 load_content_return_from_entry_ms=572 base_initialize_return_from_entry_ms=572 input_manager_begin_from_entry_ms=573 input_manager_end_from_entry_ms=609 saved_bindings_begin_from_entry_ms=609 saved_bindings_end_from_entry_ms=623 graphics_initialize_begin_from_entry_ms=623 graphics_initialize_end_from_entry_ms=623 render_target_begin_from_entry_ms=629 render_target_end_from_entry_ms=630 initialize_complete_from_entry_ms=630 post_load_unattributed_ms=16 startup_first_update_begin_from_entry_ms=642 startup_first_update_end_from_entry_ms=644 startup_first_draw_begin_from_entry_ms=1709 startup_first_draw_end_from_entry_ms=1729 startup_updates_before_first_draw=3 startup_game_time_before_first_draw_ms=33 startup_draws_before_transition=40 db_invoke_from_entry_ms=669 db_task_return_from_entry_ms=1707 db_terminal_from_entry_ms=1706 db_observed_from_entry_ms=1707 db_task_returned_terminal=1 enumeration_invoke_from_entry_ms=1740 enumeration_task_return_from_entry_ms=1759 enumeration_terminal_from_entry_ms=2351 enumeration_observed_from_entry_ms=2352 enumeration_task_returned_terminal=0 enumeration_unattributed_ms=50 db_service_setup_ms=21 db_corruption_probe_ms=634 db_invalid_recovery_count=0 db_invalid_recovery_ms=0 db_ensure_created_count=1 db_ensure_created_ms=185 db_encoding_pragmas_ms=4 db_version_work_ms=2 db_schema_ensures_ms=179 db_init_unattributed_ms=12 summary_request_from_entry_ms=2388 title_construct_begin_from_entry_ms=2388 title_construct_end_from_entry_ms=2388 transition_start_from_entry_ms=2389 transition_complete_from_entry_ms=3385 transition_update_count=60 transition_game_time_ms=1000 startup_deactivate_begin_from_entry_ms=3385 startup_deactivate_end_from_entry_ms=3386 title_activate_begin_from_entry_ms=3387 title_activate_end_from_entry_ms=3534 title_first_update_begin_from_entry_ms=3534 title_first_update_end_from_entry_ms=3535 title_stage_draw_begin_from_entry_ms=3536 title_stage_draw_end_from_entry_ms=3537 title_backbuffer_blit_begin_from_entry_ms=3537 title_backbuffer_blit_end_from_entry_ms=3537 summary_to_title_unattributed_ms=3 title_gpu_setup_ms=0 title_background_ms=25 title_menu_ms=8 title_font_ms=0 title_cursor_sound_ms=110 title_decide_sound_ms=0 title_game_start_sound_ms=0 title_game_start_fallback_ran=0 title_game_start_fallback_ms=0 title_sound_load_count=3 title_activation_unattributed_ms=4 title_backbuffer_published=1
+```
+
+</details>
+
+### Scenario medians and ranges
+
+Every cell below is `minimum / median / maximum`. Values are milliseconds
+unless the metric is explicitly a count. Each scenario has five accepted
+samples. Each raw sample reconciles its exclusive partition exactly; medians
+of independently sorted child intervals are descriptive and are not expected
+to add to the independently sorted enclosing median.
+
+The accepted endpoint and five top-level exclusive intervals were:
+
+| Metric | Scenario A | Scenario B | Scenario C |
+| --- | ---: | ---: | ---: |
+| external launch to Title backbuffer | 3580 / 4589 / 5449 | 4175 / 4275 / 5207 | 3639 / 5430 / 6430 |
+| stdout observation lag (excluded from performance arithmetic) | 59 / 81 / 114 | 49 / 52 / 90 | 61 / 86 / 97 |
+| external launch to process entry | 43 / 51 / 117 | 43 / 51 / 68 | 43 / 52 / 54 |
+| process entry to `load_content_complete` (**external-bridge head**) | 440 / 505 / 528 | 448 / 476 / 485 | 433 / 470 / 484 |
+| `load_content_complete` to initialize complete | 190 / 809 / 1785 | 1772 / 1788 / 2806 | 187 / 1787 / 2785 |
+| initialize complete to summary request | 1758 / 1962 / 2052 | 1307 / 1406 / 1432 | 1805 / 1932 / 1971 |
+| summary request to Title backbuffer | 1144 / 1149 / 1167 | 544 / 554 / 565 | 1137 / 1154 / 1160 |
+
+The external-bridge head includes pre-`LoadContent` graphics-settings work.
+It is not SQLite time or song-loading time.
+
+The post-`LoadContent` initialization refinement was:
+
+| Exclusive metric | Scenario A | Scenario B | Scenario C |
+| --- | ---: | ---: | ---: |
+| Startup construction | 12 / 14 / 22 | 13 / 14 / 15 | 13 / 13 / 14 |
+| Startup activation | 111 / 119 / 166 | 111 / 118 / 122 | 112 / 120 / 125 |
+| base-initialize return tail | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 |
+| input-manager creation | 36 / 617 / 1620 | 1612 / 1625 / 2642 | 32 / 1618 / 2618 |
+| saved system bindings | 14 / 15 / 15 | 14 / 15 / 17 | 15 / 15 / 15 |
+| graphics-manager initialization | 0 / 0 / 0 | 0 / 0 / 1 | 0 / 0 / 0 |
+| main render-target acquisition | 1 / 1 / 2 | 1 / 1 / 2 | 1 / 1 / 2 |
+| post-load unattributed | 15 / 16 / 18 | 16 / 16 / 17 | 14 / 15 / 17 |
+
+Startup frame observations were scheduling annotations and were not used in
+the savings budget:
+
+| Annotation | Scenario A | Scenario B | Scenario C |
+| --- | ---: | ---: | ---: |
+| first Startup update duration | 2 / 2 / 2 | 2 / 2 / 3 | 2 / 2 / 3 |
+| first Startup draw duration | 20 / 21 / 22 | 19 / 21 / 22 | 20 / 20 / 21 |
+| updates before first draw (count) | 3 / 3 / 3 | 3 / 3 / 3 | 3 / 3 / 3 |
+| game time before first draw | 33 / 33 / 33 | 33 / 33 / 33 | 33 / 33 / 33 |
+| completed Startup draws before transition (count) | 40 / 44 / 51 | 1 / 1 / 1 | 36 / 41 / 42 |
+
+The exclusive dispatch, operation, and observation refinement of
+initialize-complete to summary-request was:
+
+| Exclusive metric | Scenario A | Scenario B | Scenario C |
+| --- | ---: | ---: | ---: |
+| initialize complete to database invoke | 39 / 41 / 45 | 40 / 43 / 44 | 40 / 42 / 44 |
+| database operation | 1037 / 1117 / 1203 | 1032 / 1113 / 1138 | 1146 / 1190 / 1211 |
+| database terminal to observation | 0 / 0 / 1 | 0 / 0 / 1 | 0 / 0 / 1 |
+| database observation to enumeration invoke | 33 / 35 / 40 | 34 / 36 / 39 | 34 / 37 / 37 |
+| enumeration operation | 611 / 676 / 789 | 195 / 207 / 210 | 543 / 622 / 635 |
+| enumeration terminal to observation | 1 / 5 / 12 | 0 / 1 / 1 | 2 / 6 / 14 |
+| enumeration observation to summary request | 36 / 36 / 37 | 3 / 3 / 3 | 36 / 36 / 37 |
+
+Task-return splits overlap their enclosing operations and are diagnostic
+annotations, not additional exclusive savings:
+
+| Annotation | Scenario A | Scenario B | Scenario C |
+| --- | ---: | ---: | ---: |
+| database invoke to task return | 1038 / 1118 / 1203 | 1032 / 1114 / 1138 | 1146 / 1191 / 1211 |
+| database async after task return | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 |
+| database terminal before task return | 0 / 0 / 1 | 0 / 0 / 1 | 0 / 0 / 1 |
+| enumeration invoke to task return | 19 / 20 / 22 | 196 / 208 / 210 | 19 / 20 / 22 |
+| enumeration async after task return | 592 / 654 / 769 | 0 / 0 / 0 | 523 / 600 / 616 |
+| enumeration terminal before task return | 0 / 0 / 0 | 0 / 0 / 1 | 0 / 0 / 0 |
+
+The exclusive database partition was:
+
+| Exclusive metric | Scenario A | Scenario B | Scenario C |
+| --- | ---: | ---: | ---: |
+| service setup | 21 / 23 / 48 | 21 / 23 / 24 | 21 / 22 / 24 |
+| corruption probe | 634 / 683 / 735 | 628 / 681 / 696 | 1047 / 1086 / 1106 |
+| invalid recovery | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 |
+| ensure created | 185 / 202 / 206 | 184 / 197 / 209 | 7 / 8 / 8 |
+| encoding pragmas | 4 / 5 / 5 | 5 / 5 / 5 | 8 / 8 / 8 |
+| version work | 2 / 3 / 3 | 2 / 3 / 3 | 2 / 2 / 2 |
+| schema ensures | 179 / 190 / 198 | 181 / 191 / 193 | 47 / 50 / 52 |
+| database unattributed | 11 / 12 / 12 | 11 / 12 / 13 | 11 / 13 / 13 |
+
+Every accepted attempt had zero invalid recoveries and exactly one
+`EnsureCreatedAsync` call.
+
+The exclusive enumeration/import partition was:
+
+| Exclusive metric | Scenario A | Scenario B | Scenario C |
+| --- | ---: | ---: | ---: |
+| discovery and parsing | 137 / 153 / 175 | 6 / 6 / 6 | 149 / 159 / 167 |
+| persistence | 419 / 455 / 555 | 142 / 150 / 151 | 365 / 422 / 441 |
+| cleanup | 1 / 1 / 1 | 1 / 1 / 2 | 1 / 1 / 1 |
+| hierarchy publication | 5 / 6 / 6 | 1 / 1 / 1 | 3 / 4 / 4 |
+| enumeration unattributed | 50 / 54 / 59 | 48 / 51 / 52 | 26 / 27 / 31 |
+
+The exclusive summary-request to Title-backbuffer partition was:
+
+| Exclusive metric | Scenario A | Scenario B | Scenario C |
+| --- | ---: | ---: | ---: |
+| Title construction | 0 / 0 / 1 | 0 / 0 / 0 | 0 / 0 / 0 |
+| transition wall interval | 996 / 996 / 997 | 382 / 382 / 396 | 997 / 997 / 997 |
+| Startup deactivation | 1 / 1 / 2 | 1 / 1 / 2 | 1 / 1 / 1 |
+| Title activation | 141 / 147 / 164 | 146 / 155 / 177 | 135 / 151 / 157 |
+| first Title update | 1 / 2 / 2 | 2 / 2 / 2 | 1 / 2 / 2 |
+| first Title stage draw | 1 / 1 / 2 | 1 / 1 / 2 | 1 / 1 / 2 |
+| Title backbuffer blit | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 |
+| summary-to-Title unattributed | 0 / 1 / 3 | 0 / 2 / 2 | 0 / 2 / 3 |
+
+Every accepted transition recorded 60 updates and 1,000 ms of accumulated
+game time. The lower Scenario B wall interval therefore did not remove the
+visible transition contract.
+
+The exclusive Title-activation partition was:
+
+| Exclusive metric | Scenario A | Scenario B | Scenario C |
+| --- | ---: | ---: | ---: |
+| GPU setup | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 |
+| stage background | 25 / 26 / 26 | 25 / 26 / 27 | 25 / 26 / 27 |
+| menu texture | 8 / 8 / 9 | 8 / 8 / 9 | 8 / 8 / 9 |
+| font | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 |
+| cursor sound | 103 / 110 / 126 | 109 / 117 / 138 | 97 / 114 / 121 |
+| decide sound | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 |
+| game-start sound | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 |
+| game-start fallback | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 |
+| Title-activation unattributed | 3 / 4 / 5 | 3 / 4 / 5 | 3 / 5 / 5 |
+
+Each accepted Title activation attempted exactly three sound loads and did not
+run the explicit game-start fallback.
+
+### Ranked non-overlapping Scenario A savings budget
+
+The budget starts from Scenario A's accepted external median of **4,589 ms**.
+It uses a second-fastest accepted observation as the preservation floor where
+possible, rather than assuming that an operation can disappear. The rows are
+ranked by conservative removable amount, not execution order.
+
+| Rank | Measured exclusive interval | Scenario A median | Conservative removable | Preserved remainder | Cumulative projected median | Contract or risk note |
+| ---: | --- | ---: | ---: | ---: | ---: | --- |
+| 1 | `load_content_complete` to initialize complete | 809 | 612 | 197 | 3977 | The 197 ms floor is the second-fastest accepted Scenario A observation; it retains the complete initialization path and a valid Startup draw. This parent is counted once, so Startup construction/activation, input-manager, binding, graphics, render-target, and residual children are not counted again. |
+| 2 | transition start to transition complete | 996 | 600 | 396 | 3377 | The 396 ms remainder is the slowest accepted Scenario B transition wall interval. All five B samples still recorded 60 updates, 1,000 ms accumulated transition game time, and one completed Startup draw. This is cross-scenario evidence and therefore the most optimistic item retained in the conservative budget; no summary-to-backbuffer parent saving is also counted. |
+| 3 | initialize complete to summary request | 1962 | 176 | 1786 | 3201 | The 1,786 ms floor is the second-fastest accepted Scenario A observation. This parent is counted once; database, enumeration, dispatch, observation, first-update, and first-draw markers are not subtracted separately. All first-wave atomicity, migration, rollback, cancellation, and publication contracts remain required. |
+| 4 | process entry to `load_content_complete` (external-bridge head) | 505 | 64 | 441 | 3137 | The 441 ms floor is the second-fastest accepted Scenario A observation. This includes pre-`LoadContent` graphics-settings and broader runtime work and is not relabeled as database or song work. |
+| 5 | external launch to process entry | 51 | 8 | 43 | 3129 | Two accepted Scenario A launches observed 43 ms. This is process/runtime or packaging territory, outside the measured in-process product spans. |
+| 6 | Title cursor-sound load | 110 | 6 | 104 | 3123 | The 104 ms floor is the second-fastest accepted Scenario A observation. Existing load/fallback and resource semantics must remain unchanged; Title activation itself is not also counted. |
+| 7 | Title-activation unattributed residual | 4 | 1 | 3 | 3122 | The 3 ms floor was observed twice in accepted Scenario A samples. It is exclusive of the cursor-sound row and other Title resources. |
+
+The checked arithmetic is:
+
+```text
+conservative_savings_ms = 612 + 600 + 176 + 64 + 8 + 6 + 1
+                        = 1467
+projected_median_ms = 4589 - 1467
+                    = 3122
+```
+
+The launch-to-entry, entry-to-load, load-to-initialize, and
+initialize-to-summary rows are mutually exclusive top-level siblings. The
+transition row refines the otherwise untouched summary-to-backbuffer section.
+The final two Title rows are exclusive siblings inside the otherwise untouched
+Title-activation interval. No database, enumeration, transition, frame, or
+Title-resource child is subtracted after its enclosing interval has been
+counted. Task-return and first-update/draw timings remain annotations because
+they overlap operations.
+
+Even this optimistic observed-floor budget remains **1,122 ms above** the
+2,000 ms product-design threshold. Treating the full 1,117 ms database
+operation, 676 ms enumeration operation, or their scheduling annotations as
+removable would assume unmeasured overlap and would not preserve a
+demonstrated fresh-100 execution floor. Such conditional arithmetic is
+excluded from the decision.
+
+### Verification and provenance
+
+The diagnostic implementation and evidence gates recorded:
+
+- the exact focused production filter passed 408 tests with zero failures or
+  skips, including trace, host, stage, async lifecycle, SongManager, bulk
+  enumeration, and database-service coverage;
+- the five timing-disabled compatibility tests passed, preserving the existing
+  `HPA192_STARTUP` and `HPA192_TIMING` output and the original
+  `TitleCompleted` meaning, while disabled launches emit no companion prefix
+  and do not auto-exit;
+- the macOS-safe Release suite with `ALSOFT_DRIVERS=null` first reported
+  7,137 passes and one intermittent SQLite `ObjectDisposedException`; that
+  exact test passed 1/1 in isolation and the authoritative full rerun passed
+  7,138 tests with zero failures or skips;
+- the Mac Release build passed with zero errors, and the Windows Release build
+  passed with 111 warnings and zero errors;
+- the full shell suite ended with
+  `critical-path shell tests passed`; Bash syntax, ShellCheck, timing
+  preflight, identity, process, layout, and deadline suites also passed;
+- the committed development evidence recorded 114 warnings before the
+  diagnostic branch and 111 after it; a detached pre-diagnostic build had 112
+  raw warnings versus the comparable current build's 111, and every warning
+  in a touched production file matched a pre-existing code/message. One
+  sandboxed no-incremental Mac build's additional `NU1900` was solely the
+  unavailable NuGet vulnerability cache;
+- whole-branch specification and code-quality review verified the 81-field
+  schema, compatibility, bounded state, lock and terminal semantics, observer
+  containment, SQLite and Title exclusivity, post-blit publication, and normal
+  next-update exit. Review fixes bound the frozen source/DLL inputs, included
+  retained rejected attempts in summary generation, made controls byte-exact,
+  and removed an unnecessary public async state machine;
+- runner review repairs added canonical layout boundaries, a true inclusive
+  60-second monotonic deadline, rejection of terminal output first observed at
+  or after that deadline, and coherent two-second PID identity stabilization.
+  The final repair commit is the frozen source commit
+  `d3944225bdb5b5bb8e6764b83b98dcb45ca3a810`;
+- the first repaired seed attempt's sandboxed OpenGL initialization exit 134
+  was preserved, not selected. With explicit GUI/WindowServer and
+  LaunchServices access, the one authorized unsandboxed seed then passed and
+  the fixed matrix completed. This execution detail is necessary provenance;
+  it does not turn the macOS diagnostic into acceptance evidence;
+- four Finder `.DS_Store` files were moved recoverably to the ignored
+  quarantine before measurement. The remaining live 592-file corpus manifest
+  byte-compared equal to the committed manifest, and the prior build/failure
+  namespaces and quarantine remained preserved;
+- all 17 attempts had validated process identity, exit code zero, no timeout,
+  no forced cleanup, Game API disabled, at least one Startup draw, and one
+  published Title backbuffer milestone. The two invalid attempts were retained
+  solely for `load_content_rounding` and excluded from arithmetic;
+- independent review re-opened all 17 result artifacts, reproduced every
+  range and median above, verified the exact 15-slot order and hashes, and
+  checked every one of the 181 manifest rows against its current byte length
+  and SHA-256. The complete summary SHA-256 is
+  `854e9ad9c7179d87597f8f73a96449b35748325a409c24334785a025950b13b4`;
+  the 181-row manifest SHA-256 is
+  `0fa99753023093c2eaabaf5131abf2b43da4b5df451299f40a844ce126fe73cc`;
+  and
+- `git diff --check` passed for the report.
+
+This report stops at measured candidate intervals and a conservative sizing
+budget. It does not authorize or describe product implementation mechanics.
+
+decision=stop reason=broader_runtime_or_packaging_design_required
