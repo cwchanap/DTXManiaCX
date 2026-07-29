@@ -483,7 +483,7 @@ namespace DTXMania.Test
         }
 
         [Fact]
-        public void Initialize_WhenDiagnosticEnabled_ShouldRecordPostLoadBoundariesInOrder()
+        public void Initialize_WhenBaseInitializeReturns_ShouldRecordBeforePostBaseTail()
         {
             var trace = StartupTimingTrace.Start(
                 new IncrementingMonotonicClock(),
@@ -513,6 +513,8 @@ namespace DTXMania.Test
                 graphicsManager);
 
             game.InvokeLoadContent();
+            criticalPath.RecordExactlyOnce(
+                StartupCriticalPathMilestone.BaseInitializeReturn);
             ReflectionHelpers.InvokePrivateMethod(game, "InitializeAfterBase");
 
             AssertMilestonesInOrder(
@@ -534,6 +536,10 @@ namespace DTXMania.Test
                 StartupCriticalPathMilestone.RenderTargetBegin,
                 StartupCriticalPathMilestone.RenderTargetEnd,
                 StartupCriticalPathMilestone.InitializeComplete);
+
+            using var writer = new StringWriter();
+            Assert.False(criticalPath.TryPublishTerminal(writer));
+            Assert.Equal(string.Empty, writer.ToString());
         }
 
         [Fact]
