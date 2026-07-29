@@ -157,13 +157,7 @@ fixed_source_commit=
 fixed_game_sha256=
 
 validate_fixed_inputs() {
-    local first_line
-    local second_line
     local line_count
-    local source_prefix
-    local first_value
-    local game_prefix
-    local second_value
     local current_source_commit
     local observed_game_sha256
 
@@ -172,34 +166,23 @@ validate_fixed_inputs() {
     line_count="$(awk 'END { print NR + 0 }' "$fixed_inputs")"
     [[ "$line_count" -eq 2 ]] ||
         fail "Task 10 fixed-inputs.txt must contain exactly two lines"
-    first_line="$(sed -n '1p' "$fixed_inputs")"
-    second_line="$(sed -n '2p' "$fixed_inputs")"
-    source_prefix=$'source_commit\t'
-    game_prefix=$'game_sha256\t'
-    [[ "$first_line" == "$source_prefix"* ]] ||
-        fail "Task 10 source_commit is malformed"
-    [[ "$second_line" == "$game_prefix"* ]] ||
-        fail "Task 10 game_sha256 is malformed"
-    first_value="${first_line#"$source_prefix"}"
-    second_value="${second_line#"$game_prefix"}"
-    [[ "$first_value" =~ ^[0-9a-f]{40}$ ]] ||
-        fail "Task 10 source_commit is malformed"
-    [[ "$second_value" =~ ^[0-9a-f]{64}$ ]] ||
-        fail "Task 10 game_sha256 is malformed"
 
     if ! current_source_commit="$(
         git -C "$repo_root" rev-parse HEAD 2>/dev/null
     )"; then
         fail "current source commit could not be resolved"
     fi
-    [[ "$current_source_commit" == "$first_value" ]] ||
-        fail "current source commit differs from Task 10 fixed input"
     observed_game_sha256="$(sha256_file "$game_dll")"
-    [[ "$observed_game_sha256" == "$second_value" ]] ||
-        fail "game binary differs from Task 10 fixed input"
+    if ! cmp -s "$fixed_inputs" <(
+        printf 'source_commit\t%s\ngame_sha256\t%s\n' \
+            "$current_source_commit" \
+            "$observed_game_sha256"
+    ); then
+        fail "Task 10 fixed-inputs.txt is not the exact canonical control"
+    fi
 
-    fixed_source_commit="$first_value"
-    fixed_game_sha256="$second_value"
+    fixed_source_commit="$current_source_commit"
+    fixed_game_sha256="$observed_game_sha256"
 }
 
 validate_fixed_inputs

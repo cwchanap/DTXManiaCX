@@ -729,6 +729,42 @@ run_runner_layout_tests() {
             trailing-tab-fixed-inputs \
             "$fixture_result"
 
+        # Break caught: command substitution cannot preserve an embedded NUL,
+        # so line-oriented parsing would silently validate different bytes.
+        create_runner_fixture embedded-nul-fixed-inputs
+        printf 'source_commit\t%s\000\ngame_sha256\t%s\n' \
+            'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' \
+            "$(shasum -a 256 "$fixture_game/DTXMania.Game.Mac.dll" |
+                awk '{ print $1 }')" \
+            >"$fixture_result/fixed-inputs.txt"
+        assert_rejected_before_launch_without_tree_changes \
+            embedded-nul-fixed-inputs \
+            "$fixture_result"
+
+        # Break caught: accepting the canonical tokens without the required
+        # final newline means the original control bytes were not canonical.
+        create_runner_fixture missing-final-newline-fixed-inputs
+        printf 'source_commit\t%s\ngame_sha256\t%s' \
+            'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' \
+            "$(shasum -a 256 "$fixture_game/DTXMania.Game.Mac.dll" |
+                awk '{ print $1 }')" \
+            >"$fixture_result/fixed-inputs.txt"
+        assert_rejected_before_launch_without_tree_changes \
+            missing-final-newline-fixed-inputs \
+            "$fixture_result"
+
+        # Break caught: accepting CRLF bytes when the control contract
+        # requires the exact canonical LF-only reconstruction.
+        create_runner_fixture crlf-fixed-inputs
+        printf 'source_commit\t%s\r\ngame_sha256\t%s\r\n' \
+            'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' \
+            "$(shasum -a 256 "$fixture_game/DTXMania.Game.Mac.dll" |
+                awk '{ print $1 }')" \
+            >"$fixture_result/fixed-inputs.txt"
+        assert_rejected_before_launch_without_tree_changes \
+            crlf-fixed-inputs \
+            "$fixture_result"
+
         # Break caught: accepting the two required fields in the wrong order.
         create_runner_fixture reordered-fixed-inputs
         printf 'game_sha256\t%s\nsource_commit\t%s\n' \
