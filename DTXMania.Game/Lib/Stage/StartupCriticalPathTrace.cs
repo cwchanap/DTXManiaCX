@@ -75,7 +75,7 @@ internal enum StartupCriticalPathAggregate
     TitleGameStartFallback
 }
 
-internal sealed class StartupCriticalPathTrace
+internal sealed class StartupCriticalPathTrace : IStartupSongLoadTimingObserver
 {
     private const long MaximumUtcMicroseconds = 4_102_444_800_000_000;
     private const long MaximumMilliseconds = 300_000;
@@ -672,6 +672,49 @@ internal sealed class StartupCriticalPathTrace
                 return;
 
             FailLocked(error, lastMilestone, cancellation);
+        }
+    }
+
+    void IStartupSongLoadTimingObserver.BeginDatabaseSpan(
+        StartupDatabaseTimingSpan span) =>
+        BeginAggregate(MapDatabaseAggregate(span));
+
+    void IStartupSongLoadTimingObserver.EndDatabaseSpan(
+        StartupDatabaseTimingSpan span) =>
+        EndAggregate(MapDatabaseAggregate(span));
+
+    void IStartupSongLoadTimingObserver.RecordUnexpectedTableExistsPath() =>
+        Fail(
+            "unexpected_table_exists_path",
+            "unexpected_table_exists_path");
+
+    void IStartupSongLoadTimingObserver.RecordEnumerationTerminal(
+        SongEnumerationResult? result,
+        StartupOperationOutcome outcome)
+    {
+        RecordExactlyOnce(StartupCriticalPathMilestone.EnumerationTerminal);
+
+        switch (outcome)
+        {
+            case StartupOperationOutcome.Success:
+                RecordEnumerationResult(result!);
+                break;
+
+            case StartupOperationOutcome.Failure:
+                Fail(
+                    "enumeration_failure",
+                    nameof(StartupCriticalPathMilestone.EnumerationTerminal));
+                break;
+
+            case StartupOperationOutcome.Cancellation:
+                Fail(
+                    "enumeration_cancellation",
+                    nameof(StartupCriticalPathMilestone.EnumerationTerminal),
+                    cancellation: true);
+                break;
+
+            default:
+                throw new ArgumentOutOfRangeException(nameof(outcome));
         }
     }
 
@@ -1394,6 +1437,29 @@ internal sealed class StartupCriticalPathTrace
             StartupCriticalPathAggregate.DatabaseInvalidRecovery => 2,
             StartupCriticalPathAggregate.DatabaseEnsureCreated => 2,
             _ => 1
+        };
+    }
+
+    private static StartupCriticalPathAggregate MapDatabaseAggregate(
+        StartupDatabaseTimingSpan span)
+    {
+        return span switch
+        {
+            StartupDatabaseTimingSpan.ServiceSetup =>
+                StartupCriticalPathAggregate.DatabaseServiceSetup,
+            StartupDatabaseTimingSpan.CorruptionProbe =>
+                StartupCriticalPathAggregate.DatabaseCorruptionProbe,
+            StartupDatabaseTimingSpan.InvalidRecovery =>
+                StartupCriticalPathAggregate.DatabaseInvalidRecovery,
+            StartupDatabaseTimingSpan.EnsureCreated =>
+                StartupCriticalPathAggregate.DatabaseEnsureCreated,
+            StartupDatabaseTimingSpan.EncodingPragmas =>
+                StartupCriticalPathAggregate.DatabaseEncodingPragmas,
+            StartupDatabaseTimingSpan.VersionWork =>
+                StartupCriticalPathAggregate.DatabaseVersionWork,
+            StartupDatabaseTimingSpan.SchemaEnsures =>
+                StartupCriticalPathAggregate.DatabaseSchemaEnsures,
+            _ => throw new ArgumentOutOfRangeException(nameof(span))
         };
     }
 
