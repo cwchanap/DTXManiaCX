@@ -4,9 +4,25 @@ export LC_ALL=C
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 summarizer="$repo_root/tools/hpa192/summarize-critical-path.sh"
+runner="$repo_root/tools/hpa192/benchmark-critical-path.sh"
 temp_root="$(mktemp -d "${TMPDIR:-/tmp}/hpa-192-critical-path-test.XXXXXX")"
 
 cleanup() {
+    local pid_file
+    local pid
+
+    while IFS= read -r pid_file; do
+        while IFS= read -r pid; do
+            if [[ "$pid" =~ ^[0-9]+$ ]]; then
+                kill "$pid" 2>/dev/null || true
+                wait "$pid" 2>/dev/null || true
+            fi
+        done <"$pid_file"
+    done < <(
+        find "$temp_root" \
+            \( -name 'target-pids.log' -o -name 'child-pids.log' \) \
+            -type f -print 2>/dev/null
+    )
     rm -rf -- "$temp_root"
 }
 trap cleanup EXIT
@@ -138,6 +154,648 @@ assert_summary_rejected() {
         "$stdout" ||
         fail "$name rejected for the wrong reason"
 }
+
+portable_size() {
+    if stat -f '%z' "$1" >/dev/null 2>&1; then
+        stat -f '%z' "$1"
+    else
+        stat -c '%s' "$1"
+    fi
+}
+
+build_fixture_manifest() {
+    local root="$1"
+    local output="$2"
+    local file
+    local relative
+
+    : >"$output"
+    while IFS= read -r file; do
+        relative="${file#"$root"/}"
+        printf '%s\t%s\t%s\n' \
+            "$relative" \
+            "$(portable_size "$file")" \
+            "$(shasum -a 256 "$file" | awk '{ print $1 }')" \
+            >>"$output"
+    done < <(find "$root" -type f -print | LC_ALL=C sort)
+}
+
+create_fixture_corpus() {
+    local root="$1"
+    local chart_count="$2"
+    local set_count="$3"
+    local asset_count=$((592 - chart_count - set_count))
+    local index
+
+    mkdir -p "$root/charts" "$root/groups" "$root/assets"
+    for ((index = 1; index <= chart_count; index++)); do
+        printf 'chart-%03d\n' "$index" \
+            >"$root/charts/chart-$(printf '%03d' "$index").dtx"
+    done
+    for ((index = 1; index <= set_count; index++)); do
+        mkdir -p "$root/groups/group-$(printf '%02d' "$index")"
+        printf 'set-%02d\n' "$index" \
+            >"$root/groups/group-$(printf '%02d' "$index")/SET.def"
+    done
+    for ((index = 1; index <= asset_count; index++)); do
+        printf 'asset-%03d\n' "$index" \
+            >"$root/assets/asset $(printf '%03d' "$index").bin"
+    done
+}
+
+create_runner_fixture() {
+    local name="$1"
+    local chart_count="${2:-100}"
+    local set_count="${3:-27}"
+    local full_result
+    local canonical_fixture_corpus
+    local canonical_cache_corpus
+
+    fixture_root="$temp_root/runner-$name"
+    fixture_repo="$fixture_root/repo"
+    fixture_game="$fixture_root/game"
+    fixture_corpus="$fixture_root/corpus"
+    fixture_result="$fixture_root/result"
+    fixture_fakebin="$fixture_root/fakebin"
+    fixture_raw="$fixture_root/raw"
+    fixture_forbidden="$fixture_root/forbidden.log"
+    fixture_launch_log="$fixture_root/launch.log"
+    fixture_target_pids="$fixture_root/target-pids.log"
+    fixture_child_pids="$fixture_root/child-pids.log"
+    fixture_sleep_log="$fixture_root/sleep.log"
+    fixture_state="$fixture_root/state"
+    fixture_clock_state="$fixture_root/clock"
+    fixture_cache="$temp_root/runner-default-corpus-cache"
+
+    mkdir -p \
+        "$fixture_repo/tools/hpa192" \
+        "$fixture_repo/docs/performance" \
+        "$fixture_repo/System" \
+        "$fixture_game" \
+        "$fixture_result" \
+        "$fixture_fakebin" \
+        "$fixture_raw"
+    cp "$runner" "$fixture_repo/tools/hpa192/benchmark-critical-path.sh"
+    cp "$summarizer" "$fixture_repo/tools/hpa192/summarize-critical-path.sh"
+    printf 'system fixture\n' >"$fixture_repo/System/system.txt"
+    : >"$fixture_game/DTXMania.Game.Mac.dll"
+
+    if [[ "$chart_count" -eq 100 &&
+          "$set_count" -eq 27 &&
+          -d "$fixture_cache/corpus" ]]; then
+        cp -R "$fixture_cache/corpus" "$fixture_corpus"
+        canonical_fixture_corpus="$(cd "$fixture_corpus" && pwd -P)"
+        canonical_cache_corpus="$(cd "$fixture_cache/corpus" && pwd -P)"
+        cp \
+            "$fixture_cache/corpus-manifest.tsv" \
+            "$fixture_repo/docs/performance/HPA-192-corpus-manifest.tsv"
+        sed "s|$canonical_cache_corpus|$canonical_fixture_corpus|" \
+            "$fixture_cache/expected-chart-paths.txt" \
+            >"$fixture_root/expected-chart-paths.txt"
+    else
+        create_fixture_corpus "$fixture_corpus" "$chart_count" "$set_count"
+        canonical_fixture_corpus="$(cd "$fixture_corpus" && pwd -P)"
+        build_fixture_manifest \
+            "$fixture_corpus" \
+            "$fixture_repo/docs/performance/HPA-192-corpus-manifest.tsv"
+
+        find "$canonical_fixture_corpus" -type f \
+            \( -iname '*.dtx' -o -iname '*.gda' -o -iname '*.g2d' \
+               -o -iname '*.bms' -o -iname '*.bme' -o -iname '*.bml' \) \
+            -print |
+            LC_ALL=C sort >"$fixture_root/expected-chart-paths.txt"
+        if [[ "$chart_count" -eq 100 && "$set_count" -eq 27 ]]; then
+            mkdir -p "$fixture_cache"
+            cp -R "$fixture_corpus" "$fixture_cache/corpus"
+            cp \
+                "$fixture_repo/docs/performance/HPA-192-corpus-manifest.tsv" \
+                "$fixture_cache/corpus-manifest.tsv"
+            canonical_cache_corpus="$(cd "$fixture_cache/corpus" && pwd -P)"
+            sed "s|$canonical_fixture_corpus|$canonical_cache_corpus|" \
+                "$fixture_root/expected-chart-paths.txt" \
+                >"$fixture_cache/expected-chart-paths.txt"
+        fi
+    fi
+
+    full_result="$fixture_root/raw-A.result.txt"
+    write_result "$full_result" A 1 1
+    awk '!/^HPA192_ATTEMPT /' "$full_result" >"$fixture_raw/A.txt"
+    full_result="$fixture_root/raw-B.result.txt"
+    write_result "$full_result" B 2 1
+    awk '!/^HPA192_ATTEMPT /' "$full_result" >"$fixture_raw/B.txt"
+    cp "$fixture_raw/A.txt" "$fixture_raw/C.txt"
+
+    cat >"$fixture_fakebin/dotnet" <<'FAKE_DOTNET'
+#!/usr/bin/env bash
+set -euo pipefail
+
+appdata="${DTXMANIA_APPDATA_ROOT:?}"
+config="$appdata/Config.ini"
+database="$appdata/songs.db"
+count=0
+if [[ -f "$HPA192_FAKE_STATE" ]]; then
+    count="$(cat "$HPA192_FAKE_STATE")"
+fi
+count=$((count + 1))
+printf '%s\n' "$count" >"$HPA192_FAKE_STATE"
+printf '%s\n' "$$" >>"$HPA192_FAKE_TARGET_PIDS"
+/bin/sleep 0.05
+
+IFS=',' read -r -a modes <<<"${HPA192_FAKE_SEQUENCE:-success}"
+if (( count <= ${#modes[@]} )); then
+    mode="${modes[$((count - 1))]}"
+else
+    mode="${modes[$((${#modes[@]} - 1))]}"
+fi
+
+dtx_path="$(
+    awk -F= '
+        $0 == "[System]" { in_system = 1; next }
+        /^\[/ { in_system = 0 }
+        in_system && $1 == "DTXPath" {
+            sub(/^[^=]*=/, "")
+            print
+            exit
+        }
+    ' "$config"
+)"
+if [[ "$dtx_path" == */empty-songs ]]; then
+    scenario=B
+elif [[ -f "$database" ]]; then
+    scenario=C
+else
+    scenario=A
+fi
+printf '%s\n' "$scenario" >>"$HPA192_FAKE_LAUNCH_LOG"
+
+if [[ "${HPA192_CRITICAL_PATH:-}" != 1 ||
+      "${HPA192_EXIT_AFTER_CRITICAL_PATH:-}" != 1 ]]; then
+    printf '%s\n' \
+        'HPA192_CRITICAL_PATH_FAILURE outcome=failure error=flags last_milestone=entry'
+    exit 0
+fi
+
+if [[ "$mode" == no-line-child ]]; then
+    /bin/sleep 120 &
+    printf '%s\n' "$!" >>"$HPA192_FAKE_CHILD_PIDS"
+    /bin/sleep 120
+fi
+if [[ "$mode" == no-line ]]; then
+    /bin/sleep 120
+fi
+
+rm -f "$database" "$database-wal" "$database-shm"
+sqlite3 "$database" \
+    'CREATE TABLE SongCharts (FilePath TEXT NOT NULL); CREATE TABLE Songs (Id INTEGER NOT NULL);'
+if [[ "$scenario" != B ]]; then
+    {
+        printf '%s\n' 'BEGIN;'
+        while IFS= read -r chart; do
+            printf "INSERT INTO SongCharts (FilePath) VALUES ('%s');\n" "$chart"
+        done <"$HPA192_FAKE_CHART_PATHS"
+        index=1
+        while (( index <= 27 )); do
+            printf 'INSERT INTO Songs (Id) VALUES (%s);\n' "$index"
+            index=$((index + 1))
+        done
+        printf '%s\n' 'COMMIT;'
+    } | sqlite3 "$database"
+fi
+
+case "$mode" in
+    failure)
+        printf '%s\n' \
+            'HPA192_CRITICAL_PATH_FAILURE outcome=failure error=synthetic last_milestone=database'
+        ;;
+    mutate-config)
+        /usr/bin/perl -0pi -e \
+            's/\[Api\]\nEnableGameApi=False/[Api]\nEnableGameApi=True/' \
+            "$config"
+        cat "$HPA192_FAKE_RAW/$scenario.txt"
+        ;;
+    mutate-corpus)
+        printf 'mutated during launch\n' >>"$HPA192_FAKE_CORPUS_MUTATION"
+        cat "$HPA192_FAKE_RAW/$scenario.txt"
+        ;;
+    nonzero)
+        cat "$HPA192_FAKE_RAW/$scenario.txt"
+        exit 7
+        ;;
+    missing-db)
+        rm -f "$database"
+        cat "$HPA192_FAKE_RAW/$scenario.txt"
+        ;;
+    stuck)
+        cat "$HPA192_FAKE_RAW/$scenario.txt"
+        /bin/sleep 120
+        ;;
+    stderr-only)
+        cat "$HPA192_FAKE_RAW/$scenario.txt" >&2
+        /bin/sleep 120
+        ;;
+    success)
+        cat "$HPA192_FAKE_RAW/$scenario.txt"
+        ;;
+    *)
+        printf 'unknown fake mode: %s\n' "$mode" >&2
+        exit 9
+        ;;
+esac
+FAKE_DOTNET
+
+cat >"$fixture_fakebin/perl" <<'FAKE_PERL'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$*" != *Time::HiRes* ]]; then
+    exec /usr/bin/perl "$@"
+fi
+if [[ "$*" == *CLOCK_MONOTONIC* ]]; then
+    state="$HPA192_FAKE_CLOCK_STATE.monotonic"
+    first=5000000
+    second=5370000
+else
+    state="$HPA192_FAKE_CLOCK_STATE.unix"
+    first=1000000
+    second=1370000
+fi
+count=0
+if [[ -f "$state" ]]; then
+    count="$(cat "$state")"
+fi
+count=$((count + 1))
+printf '%s\n' "$count" >"$state"
+if (( count % 2 == 1 )); then
+    printf '%s' "$first"
+else
+    printf '%s' "$second"
+fi
+FAKE_PERL
+
+    cat >"$fixture_fakebin/sleep" <<'FAKE_SLEEP'
+#!/usr/bin/env bash
+printf '%s\n' "${1:-}" >>"$HPA192_FAKE_SLEEP_LOG"
+exec /bin/sleep 0.001
+FAKE_SLEEP
+
+    cat >"$fixture_fakebin/curl" <<'FORBIDDEN'
+#!/usr/bin/env bash
+printf 'curl\n' >>"$HPA192_FAKE_FORBIDDEN"
+exit 97
+FORBIDDEN
+
+    cat >"$fixture_fakebin/screencapture" <<'FORBIDDEN'
+#!/usr/bin/env bash
+printf 'screencapture\n' >>"$HPA192_FAKE_FORBIDDEN"
+exit 97
+FORBIDDEN
+
+    cat >"$fixture_fakebin/ps" <<'FAKE_PS'
+#!/usr/bin/env bash
+set -euo pipefail
+pid=
+format=
+while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+        -p)
+            pid="$2"
+            shift 2
+            ;;
+        -o)
+            format="$2"
+            shift 2
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
+case "$format" in
+    pid=)
+        printf '%s\n' "$pid"
+        ;;
+    command=)
+        printf 'dotnet %s\n' "$HPA192_FAKE_GAME_DLL"
+        ;;
+    *)
+        exit 2
+        ;;
+esac
+FAKE_PS
+
+    chmod +x \
+        "$fixture_fakebin/dotnet" \
+        "$fixture_fakebin/perl" \
+        "$fixture_fakebin/sleep" \
+        "$fixture_fakebin/curl" \
+        "$fixture_fakebin/screencapture" \
+        "$fixture_fakebin/ps"
+    : >"$fixture_forbidden"
+    : >"$fixture_launch_log"
+    : >"$fixture_target_pids"
+    : >"$fixture_child_pids"
+    : >"$fixture_sleep_log"
+}
+
+reset_runner_fixture() {
+    rm -f \
+        "$fixture_state" \
+        "$fixture_clock_state.unix" \
+        "$fixture_clock_state.monotonic"
+    : >"$fixture_launch_log"
+    : >"$fixture_target_pids"
+    : >"$fixture_child_pids"
+    : >"$fixture_sleep_log"
+}
+
+run_fixture_runner() {
+    local command="$1"
+    local sequence="$2"
+
+    env \
+        PATH="$fixture_fakebin:$PATH" \
+        HPA192_FAKE_SEQUENCE="$sequence" \
+        HPA192_FAKE_STATE="$fixture_state" \
+        HPA192_FAKE_CLOCK_STATE="$fixture_clock_state" \
+        HPA192_FAKE_RAW="$fixture_raw" \
+        HPA192_FAKE_CHART_PATHS="$fixture_root/expected-chart-paths.txt" \
+        HPA192_FAKE_FORBIDDEN="$fixture_forbidden" \
+        HPA192_FAKE_LAUNCH_LOG="$fixture_launch_log" \
+        HPA192_FAKE_TARGET_PIDS="$fixture_target_pids" \
+        HPA192_FAKE_CHILD_PIDS="$fixture_child_pids" \
+        HPA192_FAKE_SLEEP_LOG="$fixture_sleep_log" \
+        HPA192_FAKE_GAME_DLL="$(
+            /usr/bin/perl -MCwd=realpath -e \
+                'print realpath($ARGV[0])' \
+                "$fixture_game/DTXMania.Game.Mac.dll"
+        )" \
+        HPA192_FAKE_CORPUS_MUTATION="$fixture_corpus/assets/asset 001.bin" \
+        bash "$fixture_repo/tools/hpa192/benchmark-critical-path.sh" \
+        "$command" \
+        "$fixture_game" \
+        "$fixture_corpus" \
+        "$fixture_result"
+}
+
+assert_all_recorded_pids_dead() {
+    local pid_file="$1"
+    local pid
+
+    while IFS= read -r pid; do
+        [[ "$pid" =~ ^[0-9]+$ ]] ||
+            fail "invalid PID recorded in $pid_file"
+        if kill -0 "$pid" 2>/dev/null; then
+            fail "runner left target PID $pid alive"
+        fi
+    done <"$pid_file"
+}
+
+assert_no_forbidden_commands() {
+    [[ ! -s "$fixture_forbidden" ]] ||
+        fail "runner invoked a forbidden HTTP or screenshot command"
+}
+
+run_runner_process_tests() {
+    local expected_order='A B C B C A C A B A C B C B A'
+    local actual_order
+    local seed_hash_before
+    local seed_hash_after
+    local attempt_number
+    local pid
+    local accepted_path
+
+    # Breaks caught: changing the fixed sequence, accepting malformed producer
+    # artifacts, calling HTTP/screenshot commands, or mutating the clean seed.
+    create_runner_fixture success-matrix
+    run_fixture_runner prepare-seed success \
+        >"$fixture_root/prepare.stdout" 2>"$fixture_root/prepare.stderr" ||
+        fail "success matrix seed preparation failed"
+    seed_hash_before="$(shasum -a 256 "$fixture_result/seed/manifest.tsv")"
+    reset_runner_fixture
+    run_fixture_runner matrix success \
+        >"$fixture_root/matrix.stdout" 2>"$fixture_root/matrix.stderr" ||
+        fail "valid fixed matrix failed"
+    actual_order="$(tr '\n' ' ' <"$fixture_launch_log" | sed 's/ $//')"
+    [[ "$actual_order" == "$expected_order" ]] ||
+        fail "matrix launch order was '$actual_order'"
+    [[ "$(awk 'END { print NR + 0 }' "$fixture_result/accepted-artifacts.txt")" -eq 15 ]] ||
+        fail "matrix did not retain exactly 15 accepted artifacts"
+    while IFS= read -r accepted_path; do
+        [[ "$(sed -n '1p' "$accepted_path")" == HPA192_ATTEMPT\ * ]] ||
+            fail "attempt metadata was not the first artifact line"
+        [[ "$(sed -n '2p' "$accepted_path")" == HPA192_STARTUP\ * ]] ||
+            fail "startup line did not follow attempt metadata"
+        [[ "$(sed -n '3p' "$accepted_path")" == HPA192_TIMING\ * ]] ||
+            fail "timing line was not the second raw product line"
+        [[ "$(sed -n '4p' "$accepted_path")" == HPA192_CRITICAL_PATH\ * ]] ||
+            fail "critical-path line was not the third raw product line"
+        grep -Fq 'HPA192_CRITICAL_PATH_ATTEMPT status=accepted' \
+            "$(dirname "$accepted_path")/validation.txt" ||
+            fail "accepted artifact lacks validator-derived fields"
+    done <"$fixture_result/accepted-artifacts.txt"
+    seed_hash_after="$(shasum -a 256 "$fixture_result/seed/manifest.tsv")"
+    [[ "$seed_hash_before" == "$seed_hash_after" ]] ||
+        fail "matrix mutated the clean seed manifest"
+    assert_no_forbidden_commands
+
+    # Break caught: replacing an invalid slot with a different scenario or
+    # reusing/renaming attempt evidence.
+    create_runner_fixture same-scenario-replacement
+    run_fixture_runner prepare-seed success \
+        >"$fixture_root/prepare.stdout" 2>"$fixture_root/prepare.stderr" ||
+        fail "replacement seed preparation failed"
+    reset_runner_fixture
+    run_fixture_runner matrix failure,success \
+        >"$fixture_root/matrix.stdout" 2>"$fixture_root/matrix.stderr" ||
+        fail "same-scenario replacement matrix failed"
+    actual_order="$(tr '\n' ' ' <"$fixture_launch_log" | sed 's/ $//')"
+    [[ "$actual_order" == "A $expected_order" ]] ||
+        fail "replacement launch order was '$actual_order'"
+    [[ -f "$fixture_result/slots/01-A/attempt-1/result.txt" &&
+       -f "$fixture_result/slots/01-A/attempt-2/result.txt" ]] ||
+        fail "replacement attempts were not both retained"
+    grep -Fq '/slots/01-A/attempt-2/result.txt' \
+        "$fixture_result/accepted-artifacts.txt" ||
+        fail "replacement artifact was not retained as attempt 2"
+    grep -Fq 'status=rejected scenario=A slot=1 attempt=1' \
+        "$fixture_result/slots/01-A/attempt-1/validation.txt" ||
+        fail "invalid first attempt lacks its rejection record"
+    assert_no_forbidden_commands
+
+    # Break caught: waiting for a success line after the failure prefix or
+    # launching later slots after the third rejection.
+    create_runner_fixture failure-publication
+    run_fixture_runner prepare-seed success \
+        >"$fixture_root/prepare.stdout" 2>"$fixture_root/prepare.stderr" ||
+        fail "failure-publication seed preparation failed"
+    reset_runner_fixture
+    if run_fixture_runner matrix failure \
+        >"$fixture_root/matrix.stdout" 2>"$fixture_root/matrix.stderr"; then
+        fail "failure publication was accepted"
+    fi
+    [[ "$(tr '\n' ' ' <"$fixture_launch_log")" == 'A A A ' ]] ||
+        fail "failure retries changed scenario or launched later slots"
+    for attempt_number in 1 2 3; do
+        grep -Fq 'HPA192_CRITICAL_PATH_FAILURE ' \
+            "$fixture_result/slots/01-A/attempt-$attempt_number/result.txt" ||
+            fail "failure attempt $attempt_number lost its raw terminal line"
+        grep -Eq ' timed_out=0 forced_cleanup=0 ' \
+            "$fixture_result/slots/01-A/attempt-$attempt_number/result.txt" ||
+            fail "failure publication waited until timeout"
+    done
+    assert_no_forbidden_commands
+
+    # Break caught: broad cleanup that kills a child/sibling instead of only
+    # the validated launched PID, or a no-line attempt without timeout flags.
+    create_runner_fixture no-line-timeout
+    run_fixture_runner prepare-seed success \
+        >"$fixture_root/prepare.stdout" 2>"$fixture_root/prepare.stderr" ||
+        fail "timeout seed preparation failed"
+    reset_runner_fixture
+    if run_fixture_runner matrix no-line-child \
+        >"$fixture_root/matrix.stdout" 2>"$fixture_root/matrix.stderr"; then
+        fail "no-line attempts were accepted"
+    fi
+    for attempt_number in 1 2 3; do
+        grep -Eq ' timed_out=1 forced_cleanup=1 ' \
+            "$fixture_result/slots/01-A/attempt-$attempt_number/result.txt" ||
+            fail "no-line attempt $attempt_number lost timeout metadata"
+    done
+    [[ "$(grep -Fxc '0.05' "$fixture_sleep_log")" -ge 3600 ]] ||
+        fail "no-line attempts did not enforce the fixed 60-second poll bound"
+    assert_all_recorded_pids_dead "$fixture_target_pids"
+    while IFS= read -r pid; do
+        kill -0 "$pid" 2>/dev/null ||
+            fail "PID-scoped cleanup killed child PID $pid"
+        kill "$pid"
+    done <"$fixture_child_pids"
+    assert_no_forbidden_commands
+
+    # Break caught: observing the companion prefix from stderr or any channel
+    # other than the retained local stdout file.
+    create_runner_fixture stderr-only
+    run_fixture_runner prepare-seed success \
+        >"$fixture_root/prepare.stdout" 2>"$fixture_root/prepare.stderr" ||
+        fail "stderr-only seed preparation failed"
+    reset_runner_fixture
+    if run_fixture_runner matrix stderr-only \
+        >"$fixture_root/matrix.stdout" 2>"$fixture_root/matrix.stderr"; then
+        fail "stderr-only publications were accepted"
+    fi
+    for attempt_number in 1 2 3; do
+        grep -Eq ' timed_out=1 forced_cleanup=1 ' \
+            "$fixture_result/slots/01-A/attempt-$attempt_number/result.txt" ||
+            fail "stderr-only attempt $attempt_number did not time out"
+        if grep -Fq 'HPA192_CRITICAL_PATH ' \
+            "$fixture_result/slots/01-A/attempt-$attempt_number/result.txt"; then
+            fail "stderr-only line entered result artifact"
+        fi
+        grep -Fq 'HPA192_CRITICAL_PATH ' \
+            "$fixture_result/slots/01-A/attempt-$attempt_number/stderr.log" ||
+            fail "stderr-only fixture did not emit its companion line"
+    done
+    assert_all_recorded_pids_dead "$fixture_target_pids"
+    assert_no_forbidden_commands
+
+    # Break caught: treating publication as permission to leave a stuck game
+    # alive or misclassifying the bounded grace cleanup as a no-line timeout.
+    create_runner_fixture post-publication-stuck
+    run_fixture_runner prepare-seed success \
+        >"$fixture_root/prepare.stdout" 2>"$fixture_root/prepare.stderr" ||
+        fail "stuck-process seed preparation failed"
+    reset_runner_fixture
+    if run_fixture_runner matrix stuck \
+        >"$fixture_root/matrix.stdout" 2>"$fixture_root/matrix.stderr"; then
+        fail "post-publication stuck attempts were accepted"
+    fi
+    for attempt_number in 1 2 3; do
+        grep -Eq ' timed_out=0 forced_cleanup=1 ' \
+            "$fixture_result/slots/01-A/attempt-$attempt_number/result.txt" ||
+            fail "stuck attempt $attempt_number has wrong cleanup metadata"
+    done
+    [[ "$(grep -Fxc '0.05' "$fixture_sleep_log")" -ge 300 ]] ||
+        fail "stuck attempts skipped the bounded post-publication grace"
+    assert_all_recorded_pids_dead "$fixture_target_pids"
+    assert_no_forbidden_commands
+
+    # Break caught: accepting a valid publication followed by nonzero exit.
+    create_runner_fixture nonzero-exit
+    run_fixture_runner prepare-seed success \
+        >"$fixture_root/prepare.stdout" 2>"$fixture_root/prepare.stderr" ||
+        fail "nonzero-exit seed preparation failed"
+    reset_runner_fixture
+    if run_fixture_runner matrix nonzero \
+        >"$fixture_root/matrix.stdout" 2>"$fixture_root/matrix.stderr"; then
+        fail "nonzero post-publication exits were accepted"
+    fi
+    for attempt_number in 1 2 3; do
+        grep -Eq ' exit_code=7 timed_out=0 forced_cleanup=0 ' \
+            "$fixture_result/slots/01-A/attempt-$attempt_number/result.txt" ||
+            fail "nonzero attempt $attempt_number lost exit metadata"
+    done
+    assert_no_forbidden_commands
+
+    # Break caught: treating a missing/unclean Scenario B database as a valid
+    # empty database merely because both expected counts are zero.
+    create_runner_fixture missing-empty-database
+    run_fixture_runner prepare-seed success \
+        >"$fixture_root/prepare.stdout" 2>"$fixture_root/prepare.stderr" ||
+        fail "missing-database seed preparation failed"
+    reset_runner_fixture
+    if run_fixture_runner matrix success,missing-db \
+        >"$fixture_root/matrix.stdout" 2>"$fixture_root/matrix.stderr"; then
+        fail "runner accepted attempts without a closed database"
+    fi
+    grep -Fq \
+        'decision=stop reason=diagnostic_harness slot=2 scenario=B' \
+        "$fixture_result/decision.txt" ||
+        fail "missing Scenario B database was not rejected in slot 2"
+    for attempt_number in 1 2 3; do
+        grep -Fq 'status=rejected scenario=B slot=2' \
+            "$fixture_result/slots/02-B/attempt-$attempt_number/validation.txt" ||
+            fail "missing database attempt $attempt_number was accepted"
+    done
+    assert_no_forbidden_commands
+
+    # Break caught: relying on the command-start manifest after corpus bytes
+    # change during an attempt.
+    create_runner_fixture mid-launch-corpus-mutation
+    run_fixture_runner prepare-seed success \
+        >"$fixture_root/prepare.stdout" 2>"$fixture_root/prepare.stderr" ||
+        fail "corpus-mutation seed preparation failed"
+    reset_runner_fixture
+    if run_fixture_runner matrix mutate-corpus \
+        >"$fixture_root/matrix.stdout" 2>"$fixture_root/matrix.stderr"; then
+        fail "runner accepted corpus bytes changed during launch"
+    fi
+    [[ "$(awk 'END { print NR + 0 }' "$fixture_launch_log")" -eq 1 ]] ||
+        fail "runner retried after fixed corpus bytes changed"
+    assert_no_forbidden_commands
+}
+
+if [[ "${1:-}" == --runner-seed-smoke ]]; then
+    [[ -f "$runner" ]] || fail "critical-path runner is missing"
+    create_runner_fixture seed-smoke
+    mv \
+        "$fixture_game/DTXMania.Game.Mac.dll" \
+        "$fixture_game/DTXMania.Game.Mac.real.dll"
+    ln -s \
+        DTXMania.Game.Mac.real.dll \
+        "$fixture_game/DTXMania.Game.Mac.dll"
+    if ! run_fixture_runner prepare-seed success \
+        >"$fixture_root/prepare.stdout" 2>"$fixture_root/prepare.stderr"; then
+        tail -80 "$fixture_root/prepare.stderr" >&2
+        fail "runner seed smoke failed"
+    fi
+    printf 'critical-path runner seed smoke passed\n'
+    exit 0
+fi
+
+if [[ "${1:-}" == --runner-process ]]; then
+    [[ -f "$runner" ]] || fail "critical-path runner is missing"
+    run_runner_process_tests
+    printf 'critical-path runner process tests passed\n'
+    exit 0
+fi
 
 round1_failures=()
 
@@ -928,5 +1586,121 @@ grep -Fq \
     "db_invoke_to_task_return_ms=20 db_async_after_task_return_ms=0 db_terminal_before_task_return_ms=0" \
     "$temp_root/equal-task-return.stdout" ||
     fail "equal task-return annotations were not both zero"
+
+# Breaks caught: accepting incomplete arguments or unvalidated fixed inputs.
+[[ -f "$runner" ]] || fail "critical-path runner is missing"
+if bash "$runner" >"$temp_root/runner-missing-args.stdout" \
+    2>"$temp_root/runner-missing-args.stderr"; then
+    fail "runner accepted missing arguments"
+fi
+
+create_runner_fixture missing-binary
+rm -f "$fixture_game/DTXMania.Game.Mac.dll"
+if run_fixture_runner prepare-seed success \
+    >"$fixture_root/stdout" 2>"$fixture_root/stderr"; then
+    fail "runner accepted a missing game binary"
+fi
+
+create_runner_fixture missing-corpus
+if env \
+    PATH="$fixture_fakebin:$PATH" \
+    bash "$fixture_repo/tools/hpa192/benchmark-critical-path.sh" \
+    prepare-seed \
+    "$fixture_game" \
+    "$fixture_root/missing-corpus" \
+    "$fixture_result" \
+    >"$fixture_root/stdout" 2>"$fixture_root/stderr"; then
+    fail "runner accepted a missing corpus"
+fi
+
+create_runner_fixture dirty-output
+mkdir -p "$fixture_result/seed"
+if run_fixture_runner prepare-seed success \
+    >"$fixture_root/stdout" 2>"$fixture_root/stderr"; then
+    fail "runner reused a dirty output namespace"
+fi
+[[ ! -s "$fixture_launch_log" ]] ||
+    fail "dirty output validation happened after process launch"
+
+create_runner_fixture manifest-mismatch
+printf 'changed\n' >>"$fixture_corpus/assets/asset 001.bin"
+if run_fixture_runner prepare-seed success \
+    >"$fixture_root/stdout" 2>"$fixture_root/stderr"; then
+    fail "runner accepted a corpus manifest mismatch"
+fi
+[[ ! -s "$fixture_launch_log" ]] ||
+    fail "manifest validation happened after process launch"
+
+create_runner_fixture wrong-chart-count 99 27
+if run_fixture_runner prepare-seed success \
+    >"$fixture_root/stdout" 2>"$fixture_root/stderr"; then
+    fail "runner accepted a corpus with 99 supported charts"
+fi
+[[ ! -s "$fixture_launch_log" ]] ||
+    fail "chart-count validation happened after process launch"
+
+create_runner_fixture wrong-set-count 100 26
+if run_fixture_runner prepare-seed success \
+    >"$fixture_root/stdout" 2>"$fixture_root/stderr"; then
+    fail "runner accepted a corpus with 26 SET.def files"
+fi
+[[ ! -s "$fixture_launch_log" ]] ||
+    fail "SET.def validation happened after process launch"
+
+create_runner_fixture nonempty-empty
+if ! run_fixture_runner prepare-seed success \
+    >"$fixture_root/prepare.stdout" 2>"$fixture_root/prepare.stderr"; then
+    tail -40 "$fixture_root/prepare.stderr" >&2
+    fail "valid seed preparation failed"
+fi
+printf 'not empty\n' >"$fixture_result/empty-songs/unexpected.txt"
+reset_runner_fixture
+if run_fixture_runner matrix success \
+    >"$fixture_root/matrix.stdout" 2>"$fixture_root/matrix.stderr"; then
+    fail "runner accepted a nonempty empty-song fixture"
+fi
+[[ ! -s "$fixture_launch_log" ]] ||
+    fail "empty-directory validation happened after process launch"
+
+# Break caught: cloning a seed whose content no longer matches its immutable
+# app-data manifest.
+create_runner_fixture changed-seed
+if ! run_fixture_runner prepare-seed success \
+    >"$fixture_root/prepare.stdout" 2>"$fixture_root/prepare.stderr"; then
+    fail "changed-seed fixture preparation failed"
+fi
+printf 'drift\n' >"$fixture_result/seed/appdata/unexpected.txt"
+reset_runner_fixture
+if run_fixture_runner matrix success \
+    >"$fixture_root/matrix.stdout" 2>"$fixture_root/matrix.stderr"; then
+    fail "runner accepted changed seed bytes"
+fi
+[[ ! -s "$fixture_launch_log" ]] ||
+    fail "seed validation happened after process launch"
+
+# Break caught: trusting a config whose exact API value changes after launch.
+create_runner_fixture api-enabled
+if ! run_fixture_runner prepare-seed success \
+    >"$fixture_root/prepare.stdout" 2>"$fixture_root/prepare.stderr"; then
+    tail -40 "$fixture_root/prepare.stderr" >&2
+    fail "API config fixture seed preparation failed"
+fi
+reset_runner_fixture
+if run_fixture_runner matrix mutate-config \
+    >"$fixture_root/matrix.stdout" 2>"$fixture_root/matrix.stderr"; then
+    fail "runner accepted API-enabled attempts"
+fi
+grep -Fq \
+    'HPA192_CRITICAL_PATH_DECISION decision=stop reason=diagnostic_harness slot=1 scenario=A' \
+    "$fixture_result/decision.txt" ||
+    fail "API-enabled attempts did not stop after the bounded retries"
+for attempt_number in 1 2 3; do
+    grep -Eq \
+        "^HPA192_ATTEMPT scenario=A slot=1 attempt=$attempt_number .* game_api_enabled=1 " \
+        "$fixture_result/slots/01-A/attempt-$attempt_number/result.txt" ||
+        fail "API-enabled attempt $attempt_number lost its fail-closed metadata"
+done
+
+run_runner_process_tests
 
 printf 'critical-path shell tests passed\n'
