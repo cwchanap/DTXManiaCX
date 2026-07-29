@@ -2069,19 +2069,39 @@ local; their hashes and machine-readable evidence are copied into the report.
 - [ ] **Step 4: Generate and retain the scenario summary**
 
   ```bash
-  accepted_artifacts=()
+  accepted_count="$(
+    awk 'END { print NR + 0 }' "$result_root/accepted-artifacts.txt"
+  )"
+  [[ "$accepted_count" -eq 15 ]] || {
+    printf 'expected 15 accepted artifacts, found %s\n' \
+      "$accepted_count" >&2
+    exit 1
+  }
+
+  attempt_artifacts=()
   while IFS= read -r artifact; do
-    accepted_artifacts+=("$artifact")
-  done < "$result_root/accepted-artifacts.txt"
+    attempt_artifacts+=("$artifact")
+  done < <(
+    for artifact in \
+      "$result_root"/slots/*/attempt-*/result.txt
+    do
+      [[ -f "$artifact" ]] || continue
+      printf '%s\n' "$artifact"
+    done |
+      LC_ALL=C sort
+  )
 
   rtk bash tools/hpa192/summarize-critical-path.sh \
-    --summarize "${accepted_artifacts[@]}" |
+    --summarize "${attempt_artifacts[@]}" |
     rtk tee "$result_root/summary.txt"
   ```
 
   Expected: exactly five valid A, five valid B, and five valid C artifacts;
-  every partition and clock check passes; every valid attempt reports one
-  completed Startup draw and one published Title backbuffer.
+  `accepted-artifacts.txt` independently contains exactly 15 paths; every
+  retained attempt emits an accepted or rejected record in deterministic
+  slot/attempt order; rejected attempts are excluded from arithmetic; every
+  partition and clock check passes; every valid attempt reports one completed
+  Startup draw and one published Title backbuffer.
 
 - [ ] **Step 5: Verify artifact immutability after summarization**
 

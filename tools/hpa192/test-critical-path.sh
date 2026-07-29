@@ -705,14 +705,71 @@ run_runner_layout_tests() {
             missing-fixed-inputs \
             "$fixture_result"
 
-        # Break caught: accepting duplicate or unknown fixed-input fields.
+        # Break caught: Bash read treats adjacent IFS whitespace as one
+        # separator, which would accept a repeated TAB in the control line.
+        create_runner_fixture repeated-tab-fixed-inputs
+        printf 'source_commit\t\t%s\ngame_sha256\t%s\n' \
+            'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' \
+            "$(shasum -a 256 "$fixture_game/DTXMania.Game.Mac.dll" |
+                awk '{ print $1 }')" \
+            >"$fixture_result/fixed-inputs.txt"
+        assert_rejected_before_launch_without_tree_changes \
+            repeated-tab-fixed-inputs \
+            "$fixture_result"
+
+        # Break caught: Bash read discards trailing IFS whitespace, which
+        # would accept a trailing TAB after an otherwise canonical token.
+        create_runner_fixture trailing-tab-fixed-inputs
+        printf 'source_commit\t%s\t\ngame_sha256\t%s\n' \
+            'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' \
+            "$(shasum -a 256 "$fixture_game/DTXMania.Game.Mac.dll" |
+                awk '{ print $1 }')" \
+            >"$fixture_result/fixed-inputs.txt"
+        assert_rejected_before_launch_without_tree_changes \
+            trailing-tab-fixed-inputs \
+            "$fixture_result"
+
+        # Break caught: accepting the two required fields in the wrong order.
+        create_runner_fixture reordered-fixed-inputs
+        printf 'game_sha256\t%s\nsource_commit\t%s\n' \
+            "$(shasum -a 256 "$fixture_game/DTXMania.Game.Mac.dll" |
+                awk '{ print $1 }')" \
+            'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' \
+            >"$fixture_result/fixed-inputs.txt"
+        assert_rejected_before_launch_without_tree_changes \
+            reordered-fixed-inputs \
+            "$fixture_result"
+
+        # Break caught: accepting a duplicated key in place of the required
+        # ordered pair.
+        create_runner_fixture duplicate-fixed-inputs
+        printf 'source_commit\t%s\nsource_commit\t%s\n' \
+            'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' \
+            'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' \
+            >"$fixture_result/fixed-inputs.txt"
+        assert_rejected_before_launch_without_tree_changes \
+            duplicate-fixed-inputs \
+            "$fixture_result"
+
+        # Break caught: accepting a noncanonical token.
         create_runner_fixture malformed-fixed-inputs
+        printf 'source_commit\t%s\ngame_sha256\t%s\n' \
+            'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' \
+            "$(shasum -a 256 "$fixture_game/DTXMania.Game.Mac.dll" |
+                awk '{ print $1 }')" \
+            >"$fixture_result/fixed-inputs.txt"
+        assert_rejected_before_launch_without_tree_changes \
+            malformed-fixed-inputs \
+            "$fixture_result"
+
+        # Break caught: accepting an otherwise canonical third control line.
+        create_runner_fixture extra-fixed-inputs-line
         printf 'game_sha256\t%s\n' \
             "$(shasum -a 256 "$fixture_game/DTXMania.Game.Mac.dll" |
                 awk '{ print $1 }')" \
             >>"$fixture_result/fixed-inputs.txt"
         assert_rejected_before_launch_without_tree_changes \
-            malformed-fixed-inputs \
+            extra-fixed-inputs-line \
             "$fixture_result"
 
         # Break caught: using a fixed build from a different source revision.
