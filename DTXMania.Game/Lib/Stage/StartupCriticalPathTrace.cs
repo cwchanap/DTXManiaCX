@@ -80,7 +80,6 @@ internal sealed class StartupCriticalPathTrace
     private const long MaximumUtcMicroseconds = 4_102_444_800_000_000;
     private const long MaximumMilliseconds = 300_000;
     private const long MaximumCounter = 100_000;
-    private const int MaximumSafeTokenLength = 128;
     private static readonly string[] MilestoneNames =
         Enum.GetNames<StartupCriticalPathMilestone>();
     private static readonly string[] AggregateNames =
@@ -192,12 +191,10 @@ internal sealed class StartupCriticalPathTrace
         new long[Enum.GetValues<StartupCriticalPathAggregate>().Length];
     private readonly bool[] _aggregateActive =
         new bool[Enum.GetValues<StartupCriticalPathAggregate>().Length];
-    private readonly char[] _terminalErrorToken = new char[MaximumSafeTokenLength];
-    private readonly char[] _lastMilestoneToken = new char[MaximumSafeTokenLength];
 
     private TerminalOutcome _terminalOutcome;
-    private int _terminalErrorTokenLength;
-    private int _lastMilestoneTokenLength;
+    private string? _terminalErrorRaw = "none";
+    private string? _lastMilestoneRaw = "unknown";
     private bool _publicationAttempted;
     private int _terminalClosed;
     private long _titleBackbufferUnixMicroseconds;
@@ -233,8 +230,6 @@ internal sealed class StartupCriticalPathTrace
         _entryTimestamp = entryTimestamp;
         _entryUnixMicroseconds = entryUnixMicroseconds;
         ExitAfterPublication = exitAfterPublication;
-        SetSafeToken(_terminalErrorToken, ref _terminalErrorTokenLength, "none");
-        SetSafeToken(_lastMilestoneToken, ref _lastMilestoneTokenLength, "unknown");
     }
 
     internal bool ExitAfterPublication { get; }
@@ -710,18 +705,15 @@ internal sealed class StartupCriticalPathTrace
         {
             line = FormatFailureLine(
                 snapshot.Outcome,
-                snapshot.ErrorToken,
-                snapshot.ErrorTokenLength,
-                snapshot.LastMilestoneToken,
-                snapshot.LastMilestoneTokenLength);
+                snapshot.ErrorRaw,
+                snapshot.LastMilestoneRaw);
         }
         else if (!TryFormatSuccessLine(snapshot, out line, out var validationError))
         {
             line = FormatFailureLine(
                 TerminalOutcome.Failure,
                 validationError,
-                snapshot.LastMilestoneToken,
-                snapshot.LastMilestoneTokenLength);
+                snapshot.LastMilestoneRaw);
         }
 
         try
@@ -1223,10 +1215,8 @@ internal sealed class StartupCriticalPathTrace
     {
         return new Snapshot(
             _terminalOutcome,
-            (char[])_terminalErrorToken.Clone(),
-            _terminalErrorTokenLength,
-            (char[])_lastMilestoneToken.Clone(),
-            _lastMilestoneTokenLength,
+            _terminalErrorRaw,
+            _lastMilestoneRaw,
             _entryUnixMicroseconds,
             _titleBackbufferUnixMicroseconds,
             (long[])_timestamps.Clone(),
@@ -1326,52 +1316,13 @@ internal sealed class StartupCriticalPathTrace
     {
         _terminalOutcome =
             cancellation ? TerminalOutcome.Cancellation : TerminalOutcome.Failure;
-        SetSafeToken(
-            _terminalErrorToken,
-            ref _terminalErrorTokenLength,
-            error);
+        _terminalErrorRaw = error;
         SetLastMilestoneLocked(lastMilestone);
         Volatile.Write(ref _terminalClosed, 1);
     }
 
-    private void SetLastMilestoneLocked(string value)
-    {
-        SetSafeToken(
-            _lastMilestoneToken,
-            ref _lastMilestoneTokenLength,
-            value);
-    }
-
-    private static void SetSafeToken(char[] destination, ref int length, string? value)
-    {
-        length = 0;
-        if (string.IsNullOrEmpty(value))
-        {
-            SetUnknownToken(destination, ref length);
-            return;
-        }
-
-        foreach (var character in value)
-        {
-            if (!IsSafeTokenCharacter(character))
-                continue;
-            if (length == destination.Length)
-                break;
-
-            destination[length++] = character;
-        }
-
-        if (length == 0)
-            SetUnknownToken(destination, ref length);
-    }
-
-    private static void SetUnknownToken(char[] destination, ref int length)
-    {
-        const string unknown = "unknown";
-        for (var index = 0; index < unknown.Length; index++)
-            destination[index] = unknown[index];
-        length = unknown.Length;
-    }
+    private void SetLastMilestoneLocked(string value) =>
+        _lastMilestoneRaw = value;
 
     private static bool IsSafeTokenCharacter(char character) =>
         character is >= 'a' and <= 'z' or
@@ -1448,33 +1399,8 @@ internal sealed class StartupCriticalPathTrace
 
     private static string FormatFailureLine(
         TerminalOutcome outcome,
-        char[] errorToken,
-        int errorTokenLength,
-        char[] lastMilestoneToken,
-        int lastMilestoneTokenLength)
-    {
-        return FormatFailureLine(
-            outcome,
-            new string(errorToken, 0, errorTokenLength),
-            new string(lastMilestoneToken, 0, lastMilestoneTokenLength));
-    }
-
-    private static string FormatFailureLine(
-        TerminalOutcome outcome,
-        string error,
-        char[] lastMilestoneToken,
-        int lastMilestoneTokenLength)
-    {
-        return FormatFailureLine(
-            outcome,
-            SafeToken(error),
-            new string(lastMilestoneToken, 0, lastMilestoneTokenLength));
-    }
-
-    private static string FormatFailureLine(
-        TerminalOutcome outcome,
-        string errorToken,
-        string lastMilestoneToken)
+        string? error,
+        string? lastMilestone)
     {
         var outcomeToken =
             outcome == TerminalOutcome.Cancellation ? "cancellation" : "failure";
@@ -1482,8 +1408,8 @@ internal sealed class StartupCriticalPathTrace
             CultureInfo.InvariantCulture,
             "HPA192_CRITICAL_PATH_FAILURE outcome={0} error={1} last_milestone={2}",
             outcomeToken,
-            errorToken,
-            lastMilestoneToken);
+            SafeToken(error),
+            SafeToken(lastMilestone));
     }
 
     private static string SafeToken(string? value)
@@ -1541,10 +1467,8 @@ internal sealed class StartupCriticalPathTrace
 
     private sealed record Snapshot(
         TerminalOutcome Outcome,
-        char[] ErrorToken,
-        int ErrorTokenLength,
-        char[] LastMilestoneToken,
-        int LastMilestoneTokenLength,
+        string? ErrorRaw,
+        string? LastMilestoneRaw,
         long EntryUnixMicroseconds,
         long TitleBackbufferUnixMicroseconds,
         long[] Timestamps,

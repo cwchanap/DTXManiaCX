@@ -266,6 +266,43 @@ public class StartupCriticalPathTraceTests
     }
 
     [Fact]
+    public void Terminal_WhenSafeTokensExceedPreviousBuffer_ShouldNotTruncate()
+    {
+        var error = new string('e', 200);
+        var lastMilestone = new string('m', 200);
+        var fixture = CreateFixture();
+        fixture.Trace.Fail(error, lastMilestone);
+        using var writer = new TrackingWriter();
+
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Equal(
+            $"HPA192_CRITICAL_PATH_FAILURE outcome=failure error={error} " +
+            $"last_milestone={lastMilestone}\n",
+            writer.ToString());
+    }
+
+    [Fact]
+    public void Terminal_WhenLongTokensContainUnsafeCharacters_ShouldFilterWithoutTruncating()
+    {
+        var errorPrefix = new string('a', 140);
+        var errorSuffix = new string('b', 140);
+        var milestonePrefix = new string('c', 140);
+        var milestoneSuffix = new string('d', 140);
+        var fixture = CreateFixture();
+        fixture.Trace.Fail(
+            errorPrefix + " /!\n" + ".-_" + errorSuffix,
+            milestonePrefix + "\t? " + "_." + milestoneSuffix);
+        using var writer = new TrackingWriter();
+
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Equal(
+            "HPA192_CRITICAL_PATH_FAILURE outcome=failure " +
+            $"error={errorPrefix}.-_{errorSuffix} " +
+            $"last_milestone={milestonePrefix}_.{milestoneSuffix}\n",
+            writer.ToString());
+    }
+
+    [Fact]
     public void Publish_WhenClockValueOverflowsOrExceedsBound_ShouldWriteFailureOnly()
     {
         var overflow = CreateFixture();
