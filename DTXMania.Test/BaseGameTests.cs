@@ -483,6 +483,131 @@ namespace DTXMania.Test
         }
 
         [Fact]
+        public void Initialize_WhenDiagnosticEnabled_ShouldRecordPostLoadBoundariesInOrder()
+        {
+            var trace = StartupTimingTrace.Start(
+                new IncrementingMonotonicClock(),
+                new ConstantUtcMicrosecondClock(),
+                enableCriticalPath: true);
+            var criticalPath = Assert.IsType<StartupCriticalPathTrace>(trace.CriticalPathTrace);
+            var resourceManager = new Mock<IResourceManager>();
+            var stageManager = new Mock<IStageManager>();
+            var renderTarget = ReflectionHelpers.CreateUninitialized<RenderTarget2D>();
+            var graphicsManager = new StubGraphicsManager(
+                isDeviceAvailable: true,
+                new RecordingRenderTargetManager(renderTarget));
+            LoadContentTestableBaseGame? game = null;
+            stageManager.Setup(value => value.ChangeStage(StageType.Startup))
+                .Callback(() =>
+                {
+                    criticalPath.RecordExactlyOnce(StartupCriticalPathMilestone.StartupConstructBegin);
+                    criticalPath.RecordExactlyOnce(StartupCriticalPathMilestone.StartupConstructEnd);
+                    criticalPath.RecordExactlyOnce(StartupCriticalPathMilestone.StartupActivateBegin);
+                    game!.ReportStartupActivated();
+                    criticalPath.RecordExactlyOnce(StartupCriticalPathMilestone.StartupActivateEnd);
+                });
+            game = CreateGameForDiagnosticInitialization(
+                trace,
+                resourceManager.Object,
+                stageManager.Object,
+                graphicsManager);
+
+            game.InvokeLoadContent();
+            ReflectionHelpers.InvokePrivateMethod(game, "InitializeAfterBase");
+
+            AssertMilestonesInOrder(
+                criticalPath,
+                StartupCriticalPathMilestone.LoadContentComplete,
+                StartupCriticalPathMilestone.StartupConstructBegin,
+                StartupCriticalPathMilestone.StartupConstructEnd,
+                StartupCriticalPathMilestone.StartupActivateBegin,
+                StartupCriticalPathMilestone.StartupActivation,
+                StartupCriticalPathMilestone.StartupActivateEnd,
+                StartupCriticalPathMilestone.LoadContentReturn,
+                StartupCriticalPathMilestone.BaseInitializeReturn,
+                StartupCriticalPathMilestone.InputManagerBegin,
+                StartupCriticalPathMilestone.InputManagerEnd,
+                StartupCriticalPathMilestone.SavedBindingsBegin,
+                StartupCriticalPathMilestone.SavedBindingsEnd,
+                StartupCriticalPathMilestone.GraphicsInitializeBegin,
+                StartupCriticalPathMilestone.GraphicsInitializeEnd,
+                StartupCriticalPathMilestone.RenderTargetBegin,
+                StartupCriticalPathMilestone.RenderTargetEnd,
+                StartupCriticalPathMilestone.InitializeComplete);
+        }
+
+        [Fact]
+        public void LoadContent_WhenStartupChangesStage_ShouldRecordReturnAfterActivation()
+        {
+            var trace = StartupTimingTrace.Start(
+                new IncrementingMonotonicClock(),
+                new ConstantUtcMicrosecondClock(),
+                enableCriticalPath: true);
+            var criticalPath = Assert.IsType<StartupCriticalPathTrace>(trace.CriticalPathTrace);
+            var stageManager = new Mock<IStageManager>();
+            LoadContentTestableBaseGame? game = null;
+            stageManager.Setup(value => value.ChangeStage(StageType.Startup))
+                .Callback(() => game!.ReportStartupActivated());
+            game = CreateGameForDiagnosticInitialization(
+                trace,
+                new Mock<IResourceManager>().Object,
+                stageManager.Object,
+                new StubGraphicsManager(isDeviceAvailable: true, CreateFailingRenderTargetManager()));
+
+            game.InvokeLoadContent();
+
+            AssertMilestonesInOrder(
+                criticalPath,
+                StartupCriticalPathMilestone.LoadContentComplete,
+                StartupCriticalPathMilestone.StartupActivation,
+                StartupCriticalPathMilestone.LoadContentReturn);
+        }
+
+        [Fact]
+        public void LoadContent_WhenGameApiDisabled_ShouldNotQueueApiStartup()
+        {
+            var game = CreateGameForLoadContent(
+                new ConfigData { EnableGameApi = false },
+                new Mock<IResourceManager>().Object,
+                new Mock<IStageManager>().Object,
+                ReflectionHelpers.CreateUninitialized<SpriteBatch>());
+
+            game.InvokeLoadContent();
+
+            Assert.Equal(0, game.QueueGameApiStartupCallCount);
+            Assert.Null(ReflectionHelpers.GetPrivateField<Task>(game, "_gameApiStartTask"));
+        }
+
+        [Fact]
+        public void Initialize_WhenDiagnosticDisabled_ShouldKeepExistingCallsUnchanged()
+        {
+            var resourceManager = new Mock<IResourceManager>();
+            var stageManager = new Mock<IStageManager>();
+            var renderTarget = ReflectionHelpers.CreateUninitialized<RenderTarget2D>();
+            var renderTargetManager = new RecordingRenderTargetManager(renderTarget);
+            var graphicsManager = new StubGraphicsManager(
+                isDeviceAvailable: true,
+                renderTargetManager);
+            var game = CreateGameForDiagnosticInitialization(
+                StartupTimingTrace.Disabled,
+                resourceManager.Object,
+                stageManager.Object,
+                graphicsManager);
+
+            game.InvokeLoadContent();
+            ReflectionHelpers.InvokePrivateMethod(game, "InitializeAfterBase");
+
+            Assert.Equal(1, game.CreateLoadContentServicesCallCount);
+            stageManager.Verify(value => value.ChangeStage(StageType.Startup), Times.Once);
+            Assert.Equal(1, graphicsManager.InitializeCallCount);
+            Assert.Equal(
+                ("MainRenderTarget", GameConstants.Display.VirtualWidth, GameConstants.Display.VirtualHeight),
+                renderTargetManager.LastRequest);
+            Assert.Same(renderTarget, ReflectionHelpers.GetPrivateField<RenderTarget2D>(game, "_renderTarget"));
+            Assert.IsType<InputManagerCompat>(game.InputManager);
+        }
+
+        [Fact]
         public void Update_WhenFullscreenToggleRequested_ShouldToggleFullscreenUpdateStageAndDrainQueuedActions()
         {
             var stageManager = new Mock<IStageManager>();
@@ -711,6 +836,179 @@ namespace DTXMania.Test
         }
 
         [Fact]
+        public void Draw_WhenTitleReady_ShouldEndStageDrawAfterStageManagerDrawReturns()
+        {
+            var trace = CreatePreparedCriticalPathTrace();
+            var criticalPath = Assert.IsType<StartupCriticalPathTrace>(trace.CriticalPathTrace);
+            var stageManager = CreateTitleStageManager();
+            stageManager.Setup(value => value.Draw(It.IsAny<double>()))
+                .Callback(() =>
+                {
+                    Assert.False(IsMilestoneRecorded(
+                        criticalPath,
+                        StartupCriticalPathMilestone.TitleStageDrawEnd));
+                });
+            var game = CreateDrawHarness(trace, stageManager.Object);
+
+            game.InvokeBaseDraw(new GameTime());
+
+            Assert.True(IsMilestoneRecorded(
+                criticalPath,
+                StartupCriticalPathMilestone.TitleStageDrawBegin));
+            Assert.True(IsMilestoneRecorded(
+                criticalPath,
+                StartupCriticalPathMilestone.TitleStageDrawEnd));
+        }
+
+        [Fact]
+        public void Draw_WhenValidRenderTargetBlits_ShouldPublishAfterBlitBeforeCompleteBaseDraw()
+        {
+            var trace = CreatePreparedCriticalPathTrace();
+            var stageManager = CreateTitleStageManager();
+            var game = CreateDrawHarness(trace, stageManager.Object);
+            stageManager.Setup(value => value.Draw(It.IsAny<double>()))
+                .Callback(() => game.CallOrder.Add("stage"));
+            game.DiagnosticWriter.OnWriteLine = () => game.CallOrder.Add("publish");
+
+            game.InvokeBaseDraw(new GameTime());
+
+            Assert.Equal(
+                new[] { "stage", "blit", "publish", "complete" },
+                game.CallOrder);
+            Assert.StartsWith("HPA192_CRITICAL_PATH outcome=success", game.DiagnosticWriter.ToString());
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void Draw_WhenRenderTargetMissingOrDisposed_ShouldNotPublishSuccess(bool disposed)
+        {
+            var trace = CreatePreparedCriticalPathTrace();
+            RenderTarget2D? invalidRenderTarget = null;
+            if (disposed)
+            {
+                invalidRenderTarget = ReflectionHelpers.CreateUninitialized<RenderTarget2D>();
+                invalidRenderTarget.Dispose();
+            }
+
+            var game = CreateDrawHarness(
+                trace,
+                CreateTitleStageManager().Object,
+                invalidRenderTarget,
+                new NullableRenderTargetManager(null));
+            ReflectionHelpers.SetPrivateField(game, "_renderTarget", invalidRenderTarget);
+
+            game.InvokeBaseDraw(new GameTime());
+
+            Assert.DoesNotContain("HPA192_CRITICAL_PATH outcome=success", game.DiagnosticWriter.ToString());
+            Assert.False(IsMilestoneRecorded(
+                trace.CriticalPathTrace!,
+                StartupCriticalPathMilestone.TitleBackbufferBlitEnd));
+        }
+
+        [Fact]
+        public void Draw_WhenFirstTitleFrameHasPendingScreenshot_ShouldPublishFailure()
+        {
+            var trace = CreatePreparedCriticalPathTrace();
+            var game = CreateDrawHarness(trace, CreateTitleStageManager().Object);
+            var pendingScreenshot = new TaskCompletionSource<byte[]?>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            ReflectionHelpers.SetPrivateField(game, "_pendingScreenshot", pendingScreenshot);
+
+            game.InvokeBaseDraw(new GameTime());
+
+            Assert.Contains(
+                "HPA192_CRITICAL_PATH_FAILURE outcome=failure error=screenshot_pending",
+                game.DiagnosticWriter.ToString());
+            Assert.DoesNotContain("HPA192_CRITICAL_PATH outcome=success", game.DiagnosticWriter.ToString());
+        }
+
+        [Fact]
+        public void Draw_WhenRepeatedAfterPublication_ShouldNotPublishAgain()
+        {
+            var trace = CreatePreparedCriticalPathTrace();
+            var game = CreateDrawHarness(trace, CreateTitleStageManager().Object);
+
+            game.InvokeBaseDraw(new GameTime());
+            game.InvokeBaseDraw(new GameTime());
+
+            Assert.Equal(1, game.DiagnosticWriter.WriteLineCallCount);
+        }
+
+        [Fact]
+        public void Update_WhenExitAfterPublicationEnabled_ShouldExitOnFollowingUpdate()
+        {
+            var trace = CreatePreparedCriticalPathTrace(exitAfterPublication: true);
+            trace.CriticalPathTrace!.Fail("worker_failure", "database");
+            var game = CreateDrawHarness(trace, new Mock<IStageManager>().Object);
+
+            game.InvokeBaseUpdate(new GameTime());
+
+            Assert.Equal(0, game.RequestGameExitCallCount);
+            Assert.Equal(1, game.CompleteBaseUpdateCallCount);
+
+            game.InvokeBaseUpdate(new GameTime());
+
+            Assert.Equal(1, game.RequestGameExitCallCount);
+            Assert.Equal(1, game.CompleteBaseUpdateCallCount);
+        }
+
+        [Fact]
+        public void Update_WhenExitFlagEnabledButRecorderDisabled_ShouldNotExit()
+        {
+            var game = CreateDrawHarness(
+                StartupTimingTrace.Disabled,
+                new Mock<IStageManager>().Object);
+
+            game.InvokeBaseUpdate(new GameTime());
+            game.InvokeBaseUpdate(new GameTime());
+
+            Assert.Equal(0, game.RequestGameExitCallCount);
+            Assert.Equal(2, game.CompleteBaseUpdateCallCount);
+            Assert.Equal(string.Empty, game.DiagnosticWriter.ToString());
+        }
+
+        [Fact]
+        public void OnGameExiting_BeforeSuccess_ShouldPublishExitFailureAndStillFlushConfig()
+        {
+            var tempDir = Path.Combine(
+                AppContext.BaseDirectory,
+                "TestResults",
+                "critical-path-exit",
+                Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+            var configPath = Path.Combine(tempDir, "Config.ini");
+            try
+            {
+                var configManager = new ConfigManager();
+                configManager.LoadConfig(configPath);
+                configManager.SetAutoPlay(true);
+                var trace = CreatePreparedCriticalPathTrace();
+                var game = CreateDrawHarness(trace, new Mock<IStageManager>().Object);
+                ReflectionHelpers.SetPrivateField(
+                    game,
+                    "<ConfigManager>k__BackingField",
+                    configManager);
+
+                ReflectionHelpers.InvokePrivateMethod(
+                    game,
+                    "OnGameExiting",
+                    null!,
+                    EventArgs.Empty);
+
+                Assert.Contains(
+                    "HPA192_CRITICAL_PATH_FAILURE outcome=failure error=exit_before_success",
+                    game.DiagnosticWriter.ToString());
+                Assert.Contains("AutoPlay=True", File.ReadAllText(configPath));
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                    Directory.Delete(tempDir, recursive: true);
+            }
+        }
+
+        [Fact]
         public void DisposeManagedResources_WhenServerStopsSuccessfully_ShouldDisposeCollaboratorsAndCancelPendingScreenshot()
         {
             var game = CreateGameForLifecycle();
@@ -869,6 +1167,166 @@ namespace DTXMania.Test
             game.LoadContentServicesToReturn = new BaseGame.LoadContentServices(spriteBatch, resourceManager, stageManager);
 
             return game;
+        }
+
+        private static LoadContentTestableBaseGame CreateGameForDiagnosticInitialization(
+            StartupTimingTrace trace,
+            IResourceManager resourceManager,
+            IStageManager stageManager,
+            StubGraphicsManager graphicsManager)
+        {
+            var game = ReflectionHelpers.CreateUninitialized<LoadContentTestableBaseGame>();
+            var loggerFactory = LoggerFactory.Create(builder => { });
+            var configManager = new ConfigManager();
+
+            ReflectionHelpers.SetPrivateField(game, "_loggerFactory", loggerFactory);
+            ReflectionHelpers.SetPrivateField(game, "_logger", loggerFactory.CreateLogger<BaseGame>());
+            ReflectionHelpers.SetPrivateField(game, "_startupTimingTrace", trace);
+            ReflectionHelpers.SetPrivateField(game, "_graphicsManager", graphicsManager);
+            ReflectionHelpers.SetPrivateField(game, "<ConfigManager>k__BackingField", configManager);
+            game.LoadContentServicesToReturn = new BaseGame.LoadContentServices(
+                ReflectionHelpers.CreateUninitialized<SpriteBatch>(),
+                resourceManager,
+                stageManager);
+
+            return game;
+        }
+
+        private static Mock<IStageManager> CreateTitleStageManager()
+        {
+            var titleStage = new Mock<IStage>();
+            titleStage.SetupGet(value => value.Type).Returns(StageType.Title);
+            var stageManager = new Mock<IStageManager>();
+            stageManager.SetupGet(value => value.CurrentStage).Returns(titleStage.Object);
+            stageManager.SetupGet(value => value.IsTransitioning).Returns(false);
+            return stageManager;
+        }
+
+        private static DrawHarnessBaseGame CreateDrawHarness(
+            StartupTimingTrace trace,
+            IStageManager stageManager,
+            RenderTarget2D? renderTarget = null,
+            RenderTargetManager? renderTargetManager = null)
+        {
+            var game = ReflectionHelpers.CreateUninitialized<DrawHarnessBaseGame>();
+            renderTarget ??= ReflectionHelpers.CreateUninitialized<RenderTarget2D>();
+            renderTargetManager ??= new RecordingRenderTargetManager(renderTarget);
+            var graphicsManager = new StubGraphicsManager(
+                isDeviceAvailable: true,
+                renderTargetManager);
+
+            ReflectionHelpers.SetPrivateField(game, "_mainThreadActions", new ConcurrentQueue<Action>());
+            ReflectionHelpers.SetPrivateField(game, "_pendingScreenshot", null);
+            ReflectionHelpers.SetPrivateField(game, "_startupTimingTrace", trace);
+            ReflectionHelpers.SetPrivateField(game, "_totalGameTime", 0.0);
+            ReflectionHelpers.SetPrivateField(game, "_lastStageTransitionTime", 0.0);
+            ReflectionHelpers.SetPrivateField(game, "_graphicsManager", graphicsManager);
+            ReflectionHelpers.SetPrivateField(game, "_renderTarget", renderTarget);
+            ReflectionHelpers.SetPrivateField(game, "<StageManager>k__BackingField", stageManager);
+            ReflectionHelpers.SetPrivateField(
+                game,
+                "<ConfigManager>k__BackingField",
+                CreateConfigManager(new ConfigData()));
+            return game;
+        }
+
+        private static StartupTimingTrace CreatePreparedCriticalPathTrace(
+            bool exitAfterPublication = false)
+        {
+            var trace = StartupTimingTrace.Start(
+                new SequenceMonotonicClock(0, 200, 201, 202, 203),
+                new SequenceUtcMicrosecondClock(1_000_000, 2_000_000),
+                enableCriticalPath: true,
+                exitAfterCriticalPath: exitAfterPublication);
+            var criticalPath = trace.CriticalPathTrace!;
+            var timestamps = ReflectionHelpers.GetPrivateField<long[]>(criticalPath, "_timestamps")!;
+            var recorded = ReflectionHelpers.GetPrivateField<bool[]>(criticalPath, "_recorded")!;
+
+            foreach (var milestone in Enum.GetValues<StartupCriticalPathMilestone>())
+            {
+                if (milestone is StartupCriticalPathMilestone.TitleStageDrawBegin or
+                    StartupCriticalPathMilestone.TitleStageDrawEnd or
+                    StartupCriticalPathMilestone.TitleBackbufferBlitBegin or
+                    StartupCriticalPathMilestone.TitleBackbufferBlitEnd)
+                {
+                    continue;
+                }
+
+                var index = (int)milestone;
+                recorded[index] = true;
+                timestamps[index] = index + 1;
+            }
+
+            var aggregateCounts = ReflectionHelpers.GetPrivateField<long[]>(
+                criticalPath,
+                "_aggregateCounts")!;
+            foreach (var aggregate in Enum.GetValues<StartupCriticalPathAggregate>())
+            {
+                if (aggregate is not StartupCriticalPathAggregate.DatabaseInvalidRecovery and
+                    not StartupCriticalPathAggregate.TitleGameStartFallback)
+                {
+                    aggregateCounts[(int)aggregate] = 1;
+                }
+            }
+
+            ReflectionHelpers.SetPrivateField(
+                criticalPath,
+                "_databaseTaskReturnedRecorded",
+                true);
+            ReflectionHelpers.SetPrivateField(
+                criticalPath,
+                "_enumerationTaskReturnedRecorded",
+                true);
+            ReflectionHelpers.SetPrivateField(
+                criticalPath,
+                "_enumerationResultRecorded",
+                true);
+            ReflectionHelpers.SetPrivateField(
+                criticalPath,
+                "_titleCompletionLookupRecorded",
+                true);
+            ReflectionHelpers.SetPrivateField(
+                criticalPath,
+                "_titleCompletionLookupCacheHit",
+                true);
+            ReflectionHelpers.SetPrivateField(
+                criticalPath,
+                "_titleSoundLoadCount",
+                3L);
+            ReflectionHelpers.SetPrivateField(
+                criticalPath,
+                "_lastMilestoneRaw",
+                nameof(StartupCriticalPathMilestone.TitleFirstUpdateEnd));
+            return trace;
+        }
+
+        private static bool IsMilestoneRecorded(
+            StartupCriticalPathTrace trace,
+            StartupCriticalPathMilestone milestone)
+        {
+            var recorded = ReflectionHelpers.GetPrivateField<bool[]>(trace, "_recorded");
+            return recorded![(int)milestone];
+        }
+
+        private static void AssertMilestonesInOrder(
+            StartupCriticalPathTrace trace,
+            params StartupCriticalPathMilestone[] milestones)
+        {
+            var timestamps = ReflectionHelpers.GetPrivateField<long[]>(trace, "_timestamps");
+            var recorded = ReflectionHelpers.GetPrivateField<bool[]>(trace, "_recorded");
+            Assert.NotNull(timestamps);
+            Assert.NotNull(recorded);
+
+            long previous = long.MinValue;
+            foreach (var milestone in milestones)
+            {
+                var index = (int)milestone;
+                Assert.True(recorded![index], $"Expected {milestone} to be recorded.");
+                Assert.True(
+                    timestamps![index] > previous,
+                    $"Expected {milestone} after the previous milestone.");
+                previous = timestamps[index];
+            }
         }
 
         private static StartupTestableBaseGame CreateGameForStartup(ConfigData config)
@@ -1094,6 +1552,25 @@ namespace DTXMania.Test
             }
         }
 
+        private sealed class NullableRenderTargetManager : RenderTargetManager
+        {
+            private readonly RenderTarget2D? _renderTarget;
+
+            public NullableRenderTargetManager(RenderTarget2D? renderTarget)
+                : base(ReflectionHelpers.CreateUninitialized<GraphicsDevice>())
+            {
+                _renderTarget = renderTarget;
+            }
+
+            protected override RenderTarget2D CreateRenderTarget(
+                int width,
+                int height,
+                SurfaceFormat format,
+                DepthFormat depthFormat,
+                int multiSampleCount) =>
+                _renderTarget!;
+        }
+
         private sealed class StubGraphicsManager : IGraphicsManager
         {
             public StubGraphicsManager(bool isDeviceAvailable, RenderTargetManager renderTargetManager)
@@ -1108,6 +1585,7 @@ namespace DTXMania.Test
             public RenderTargetManager RenderTargetManager { get; }
             public bool DisposeCalled { get; private set; }
             public int ToggleFullscreenCallCount { get; private set; }
+            public int InitializeCallCount { get; private set; }
             public int SettingsChangedRemoveCount { get; private set; }
             public int DeviceLostRemoveCount { get; private set; }
             public int DeviceResetRemoveCount { get; private set; }
@@ -1149,6 +1627,7 @@ namespace DTXMania.Test
 
             public void Initialize()
             {
+                InitializeCallCount++;
             }
 
             public bool ApplySettings(GraphicsSettings settings) => false;
@@ -1187,6 +1666,46 @@ namespace DTXMania.Test
                 UpdateCallCount++;
                 OnUpdate?.Invoke(deltaTime);
             }
+        }
+
+        private sealed class IncrementingMonotonicClock : IMonotonicClock
+        {
+            private long _timestamp;
+
+            public long TimestampFrequency => 1_000;
+
+            public long GetTimestamp() => _timestamp++;
+        }
+
+        private sealed class ConstantUtcMicrosecondClock : IUtcMicrosecondClock
+        {
+            public long GetUnixMicroseconds() => 10_000_000;
+        }
+
+        private sealed class SequenceMonotonicClock : IMonotonicClock
+        {
+            private readonly Queue<long> _timestamps;
+
+            public SequenceMonotonicClock(params long[] timestamps)
+            {
+                _timestamps = new Queue<long>(timestamps);
+            }
+
+            public long TimestampFrequency => 1_000;
+
+            public long GetTimestamp() => _timestamps.Dequeue();
+        }
+
+        private sealed class SequenceUtcMicrosecondClock : IUtcMicrosecondClock
+        {
+            private readonly Queue<long> _timestamps;
+
+            public SequenceUtcMicrosecondClock(params long[] timestamps)
+            {
+                _timestamps = new Queue<long>(timestamps);
+            }
+
+            public long GetUnixMicroseconds() => _timestamps.Dequeue();
         }
 
         private sealed class TrackableRenderTarget : RenderTarget2D
@@ -1273,6 +1792,10 @@ namespace DTXMania.Test
 
             private List<Color>? _clearCalls;
 
+            private List<string>? _callOrder;
+
+            private RecordingStringWriter? _diagnosticWriter;
+
             public List<RenderTarget2D?> SetRenderTargetCalls => _setRenderTargetCalls ??= new List<RenderTarget2D?>();
 
             public List<Color> ClearCalls => _clearCalls ??= new List<Color>();
@@ -1282,6 +1805,15 @@ namespace DTXMania.Test
             public Exception? CapturePendingScreenshotException { get; set; }
 
             public RenderTarget2D? DrawnRenderTarget { get; private set; }
+
+            public List<string> CallOrder => _callOrder ??= new List<string>();
+
+            public RecordingStringWriter DiagnosticWriter =>
+                _diagnosticWriter ??= new RecordingStringWriter();
+
+            public int RequestGameExitCallCount { get; private set; }
+
+            public int CompleteBaseUpdateCallCount { get; private set; }
 
             internal override void SetDrawRenderTarget(RenderTarget2D? renderTarget)
             {
@@ -1306,15 +1838,50 @@ namespace DTXMania.Test
             internal override void DrawRenderTargetToBackBuffer(RenderTarget2D renderTarget)
             {
                 DrawnRenderTarget = renderTarget;
+                CallOrder.Add("blit");
             }
 
             internal override void CompleteBaseDraw(GameTime gameTime)
             {
+                CallOrder.Add("complete");
+            }
+
+            internal override bool ShouldToggleFullscreen(KeyboardState keyboardState) => false;
+
+            internal override void CompleteBaseUpdate(GameTime gameTime)
+            {
+                CompleteBaseUpdateCallCount++;
+            }
+
+            internal override TextWriter StartupDiagnosticWriter => DiagnosticWriter;
+
+            internal override void RequestGameExit()
+            {
+                RequestGameExitCallCount++;
             }
 
             public void InvokeBaseDraw(GameTime gameTime)
             {
                 base.Draw(gameTime);
+            }
+
+            public void InvokeBaseUpdate(GameTime gameTime)
+            {
+                base.Update(gameTime);
+            }
+        }
+
+        private sealed class RecordingStringWriter : StringWriter
+        {
+            public Action? OnWriteLine { get; set; }
+
+            public int WriteLineCallCount { get; private set; }
+
+            public override void WriteLine(string? value)
+            {
+                WriteLineCallCount++;
+                OnWriteLine?.Invoke();
+                base.WriteLine(value);
             }
         }
 
