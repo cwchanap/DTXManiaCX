@@ -139,6 +139,55 @@ assert_summary_rejected() {
         fail "$name rejected for the wrong reason"
 }
 
+round1_failures=()
+
+round1_failure() {
+    round1_failures+=("$1")
+}
+
+round1_expect_validate_rejected() {
+    local name="$1"
+    local expected_reason="$2"
+    local artifact="$3"
+    local stdout="$temp_root/$name.stdout"
+    local stderr="$temp_root/$name.stderr"
+
+    if run_validate "$artifact" >"$stdout" 2>"$stderr"; then
+        round1_failure "$name unexpectedly succeeded"
+    elif ! grep -Fq "reason=$expected_reason" "$stdout"; then
+        round1_failure "$name rejected for the wrong reason"
+    fi
+}
+
+round1_expect_summary_rejected() {
+    local name="$1"
+    local expected_reason="$2"
+    local expected_attempt_records="$3"
+    shift 3
+    local stdout="$temp_root/$name.stdout"
+    local stderr="$temp_root/$name.stderr"
+    local attempt_records
+
+    if run_summary "$@" >"$stdout" 2>"$stderr"; then
+        round1_failure "$name unexpectedly succeeded"
+    elif ! grep -Fq \
+        "HPA192_CRITICAL_PATH_SUMMARY status=rejected reason=$expected_reason" \
+        "$stdout"; then
+        round1_failure "$name rejected for the wrong reason"
+    fi
+
+    attempt_records="$(
+        awk '
+            /^HPA192_CRITICAL_PATH_ATTEMPT / { count++ }
+            END { print count + 0 }
+        ' "$stdout"
+    )"
+    if [[ "$attempt_records" -ne "$expected_attempt_records" ]]; then
+        round1_failure \
+            "$name retained $attempt_records/$expected_attempt_records attempt records"
+    fi
+}
+
 good="$temp_root/good.result.txt"
 write_result "$good"
 
@@ -591,6 +640,95 @@ if grep -Eq \
     "^HPA192_CRITICAL_PATH_SUMMARY .*metric=(db_invoke_to_task_return|db_async_after_task_return|db_terminal_before_task_return|enumeration_invoke_to_task_return|enumeration_async_after_task_return|enumeration_terminal_before_task_return)_ms " \
     "$temp_root/matrix.stdout"; then
     fail "diagnostic annotations entered the exclusive savings summary"
+fi
+
+# Fix round 1: each case exercises the real validator/summarizer and records
+# every regression before failing, so one RED run proves all reported breaks.
+for clock_skew_us in 50001 50999; do
+    process_clock_us="$temp_root/process-clock-$clock_skew_us.result.txt"
+    cp "$good" "$process_clock_us"
+    process_title_unix_us=$((1360000 + clock_skew_us))
+    process_observation_unix_us=$((process_title_unix_us + 10000))
+    process_observation_monotonic_us=$((5000000 +
+        process_observation_unix_us - 1000000))
+    replace_once "$process_clock_us" \
+        "observation_unix_us=1370000 observation_monotonic_us=5370000" \
+        "observation_unix_us=$process_observation_unix_us observation_monotonic_us=$process_observation_monotonic_us"
+    replace_once "$process_clock_us" \
+        "title_backbuffer_unix_us=1360000" \
+        "title_backbuffer_unix_us=$process_title_unix_us"
+    round1_expect_validate_rejected \
+        "process_clock_${clock_skew_us}us" \
+        process_clock_alignment \
+        "$process_clock_us"
+
+    external_clock_us="$(copy_and_replace \
+        "external-clock-$clock_skew_us" \
+        "$good" \
+        "observation_unix_us=1370000" \
+        "observation_unix_us=$((1370000 + clock_skew_us))")"
+    round1_expect_validate_rejected \
+        "external_clock_${clock_skew_us}us" \
+        external_clock_alignment \
+        "$external_clock_us"
+done
+
+malformed_peer_hash="$temp_root/malformed-peer-hash.result.txt"
+cp "${matrix_paths[0]}" "$malformed_peer_hash"
+replace_once "$malformed_peer_hash" \
+    "scenario=A slot=1 attempt=1" \
+    "scenario=A slot=1 attempt=2"
+replace_once "$malformed_peer_hash" \
+    "game_sha256=$(hash_for a)" \
+    "game_sha256=$(hash_for 6)"
+replace_once "$malformed_peer_hash" \
+    "runner_sha256=$(hash_for b)" \
+    "runner_sha256=malformed"
+round1_expect_summary_rejected \
+    malformed_peer_fixed_hash \
+    mixed_fixed_hashes \
+    16 \
+    "${matrix_paths[@]}" \
+    "$malformed_peer_hash"
+if ! grep -Eq \
+    "^HPA192_CRITICAL_PATH_ATTEMPT status=rejected scenario=A slot=1 attempt=2 reason=attempt_hash artifact_sha256=[0-9a-f]{64}$" \
+    "$temp_root/malformed_peer_fixed_hash.stdout"; then
+    round1_failure \
+        "malformed_peer_fixed_hash lost its readable per-attempt rejection"
+fi
+
+readable_duplicate="$temp_root/readable-duplicate.result.txt"
+cp "${matrix_paths[0]}" "$readable_duplicate"
+replace_once "$readable_duplicate" \
+    "runner_sha256=$(hash_for b)" \
+    "runner_hash=$(hash_for b)"
+round1_expect_summary_rejected \
+    readable_duplicate_identity \
+    duplicate_attempt_identity \
+    16 \
+    "${matrix_paths[@]}" \
+    "$readable_duplicate"
+if ! grep -Eq \
+    "^HPA192_CRITICAL_PATH_ATTEMPT status=rejected scenario=A slot=1 attempt=1 reason=attempt_schema artifact_sha256=[0-9a-f]{64}$" \
+    "$temp_root/readable_duplicate_identity.stdout"; then
+    round1_failure \
+        "readable_duplicate_identity lost its readable per-attempt rejection"
+fi
+
+round1_expect_summary_rejected \
+    incomplete_records_retained \
+    incomplete_acceptance_sequence \
+    14 \
+    "${matrix_paths[@]:0:14}"
+
+if (( ${#round1_failures[@]} > 0 )); then
+    printf 'Fix round 1 RED:\n' >&2
+    printf '  - %s\n' "${round1_failures[@]}" >&2
+    fail "fix round 1 regressions remain"
+fi
+if [[ "${1:-}" == --fix-round-1 ]]; then
+    printf 'critical-path fix round 1 tests passed\n'
+    exit 0
 fi
 
 # Break caught: lexicographic sorting or selecting anything but sample three.
