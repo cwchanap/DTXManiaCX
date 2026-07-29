@@ -1747,14 +1747,32 @@ the predetermined 15-slot sequence.
   3. capture external UTC and `CLOCK_MONOTONIC` microseconds adjacent to
      process launch;
   4. launch with both diagnostic flags set to `1`;
-  5. poll only the local stdout file for either companion prefix;
-  6. capture adjacent external observation clocks at the first prefix;
-  7. abort observation immediately on the failure prefix;
-  8. allow a bounded post-publication grace period for self-exit;
-  9. require exit code zero and never send input or HTTP;
-  10. inspect the closed SQLite database and sorted chart paths; and
-  11. call `summarize-critical-path.sh --validate-attempt` to append derived
+  5. stabilize the owned child identity for at most `2,000,000`
+     monotonic microseconds from the launch anchor using one coherent
+     PID/state/command `ps` sample per poll;
+  6. poll only the local stdout file for either companion prefix;
+  7. capture adjacent external observation clocks at the first prefix;
+  8. abort observation immediately on the failure prefix;
+  9. allow a bounded post-publication grace period for self-exit;
+  10. require exit code zero and never send input or HTTP;
+  11. inspect the closed SQLite database and sorted chart paths; and
+  12. call `summarize-critical-path.sh --validate-attempt` to append derived
       fields and an acceptance/rejection record.
+
+  The identity phase treats missing `ps` output and a live pre-exec command as
+  transient until the inclusive
+  `now >= launch_start_monotonic_us + 2,000,000` boundary. A validated sample
+  records `identity_state=validated_live`. An owned child that exits first is
+  safely waited under `set -e`; its stderr, exact exit code, adjacent
+  observation clocks, and complete `process.txt` metadata are retained before
+  the runner reports the concrete early exit. A persistently live unvalidated
+  PID records `identity_state=unvalidated_timeout`, observation clocks, and
+  exit-code sentinel `255`, then fails without being signaled. Only a
+  coherently validated live PID is eligible for later cleanup signals.
+
+  Do not alter the platform launcher or inherited-environment behavior in
+  this repair. Freezing the inherited environment is a deferred Minor
+  hardening item.
 
   Write exactly one `HPA192_ATTEMPT` line using the Task 8 field order before
   the three raw product lines. Numeric values are canonical unsigned decimals,
@@ -1812,7 +1830,11 @@ the predetermined 15-slot sequence.
   no screenshot command, three-attempt stop, same-scenario replacement, the
   exact 15-slot order, the approved `RESULT_ROOT/build` layout, unexpected
   phase entries, canonical input/output overlap and aliases, and a stepped
-  fake monotonic clock whose polling work cannot extend the deadline.
+  fake monotonic clock whose polling work cannot extend the deadline. Also
+  cover an immediate known-nonzero child exit with retained stderr and
+  complete metadata, transient missing/pre-exec identity that later validates
+  atomically, and a persistently live unvalidated identity that reaches the
+  exact two-second monotonic bound without receiving a signal.
 
 - [ ] **Step 7: Run all shell tests**
 

@@ -192,7 +192,10 @@ lock_acquired=false
 temporary_root=
 game_pid=
 game_pid_validated=false
+game_pid_sample_state=not_sampled
+game_pid_identity_state=not_started
 game_exit_code=255
+identity_stabilization_us=2000000
 
 release_lock() {
     if [[ "$lock_acquired" == true &&
@@ -227,30 +230,44 @@ acquire_lock() {
     done
 }
 
-validate_live_game_pid() {
+sample_game_pid_identity() {
     local actual_pid
     local command_line
+    local process_sample
+    local process_state
 
+    game_pid_sample_state=invalid_pid
     if [[ ! "$game_pid" =~ ^[1-9][0-9]*$ || "$game_pid" -le 1 ]]; then
-        printf 'invalid launched PID token: %s\n' "$game_pid" >&2
         return 1
     fi
-    if ! kill -0 "$game_pid" 2>/dev/null; then
-        printf 'launched PID is no longer live: %s\n' "$game_pid" >&2
+    if ! process_sample="$(
+        ps -p "$game_pid" -o pid= -o state= -o command= 2>/dev/null
+    )"; then
+        process_sample=
+    fi
+    if [[ -z "${process_sample//[[:space:]]/}" ]]; then
+        if kill -0 "$game_pid" 2>/dev/null; then
+            game_pid_sample_state=transient_ps
+        else
+            game_pid_sample_state=child_exited
+        fi
         return 1
     fi
-    actual_pid="$(ps -p "$game_pid" -o pid= 2>/dev/null | tr -d '[:space:]')"
+
+    read -r actual_pid process_state command_line <<<"$process_sample"
     if [[ "$actual_pid" != "$game_pid" ]]; then
-        printf 'launched PID identity mismatch: expected %s observed %s\n' \
-            "$game_pid" "${actual_pid:-missing}" >&2
+        game_pid_sample_state=identity_mismatch
         return 1
     fi
-    command_line="$(ps -p "$game_pid" -o command= 2>/dev/null || true)"
+    if [[ "$process_state" == *Z* ]]; then
+        game_pid_sample_state=child_exited
+        return 1
+    fi
     if [[ "$command_line" != *"$game_dll"* ]]; then
-        printf 'launched PID command does not identify the game DLL: %s\n' \
-            "${command_line:-missing}" >&2
+        game_pid_sample_state=pre_exec
         return 1
     fi
+    game_pid_sample_state=validated_live
 }
 
 wait_for_game() {
@@ -271,25 +288,34 @@ terminate_validated_game() {
     local iteration
 
     [[ -n "$game_pid" ]] || return 0
-    if ! kill -0 "$game_pid" 2>/dev/null; then
-        wait_for_game
-        return 0
+    if ! sample_game_pid_identity; then
+        if [[ "$game_pid_sample_state" == child_exited ]]; then
+            wait_for_game
+            return 0
+        fi
+        printf 'refusing to terminate unvalidated PID %s\n' "$game_pid" >&2
+        return 1
     fi
-    if [[ "$game_pid_validated" != true ]] || ! validate_live_game_pid; then
+    if [[ "$game_pid_validated" != true ]]; then
         printf 'refusing to terminate unvalidated PID %s\n' "$game_pid" >&2
         return 1
     fi
 
     kill -TERM "$game_pid"
     for ((iteration = 0; iteration < 40; iteration++)); do
-        if ! kill -0 "$game_pid" 2>/dev/null; then
-            wait_for_game
-            return 0
+        if ! sample_game_pid_identity; then
+            if [[ "$game_pid_sample_state" == child_exited ]]; then
+                wait_for_game
+                return 0
+            fi
+        else
+            game_pid_validated=true
         fi
         sleep 0.05
     done
 
-    if validate_live_game_pid; then
+    if [[ "$game_pid_validated" == true ]] &&
+       sample_game_pid_identity; then
         kill -KILL "$game_pid"
     else
         printf 'refusing to force-kill changed PID %s\n' "$game_pid" >&2
@@ -807,6 +833,60 @@ timed_out=0
 forced_cleanup=0
 first_terminal_line=
 
+append_process_metadata() {
+    local process_metadata="$1"
+
+    {
+        printf 'identity_state\t%s\n' "$game_pid_identity_state"
+        printf 'launch_start_unix_us\t%s\n' "$launch_start_unix_us"
+        printf 'launch_start_monotonic_us\t%s\n' \
+            "$launch_start_monotonic_us"
+        printf 'observation_unix_us\t%s\n' "$observation_unix_us"
+        printf 'observation_monotonic_us\t%s\n' "$observation_monotonic_us"
+        printf 'exit_code\t%s\n' "$game_exit_code"
+        printf 'timed_out\t%s\n' "$timed_out"
+        printf 'forced_cleanup\t%s\n' "$forced_cleanup"
+        printf 'first_terminal_line\t%s\n' "$first_terminal_line"
+    } >>"$process_metadata"
+}
+
+stabilize_game_pid_identity() {
+    local process_metadata="$1"
+    local identity_deadline_monotonic_us
+    local current_monotonic_us
+
+    identity_deadline_monotonic_us=$((
+        launch_start_monotonic_us + identity_stabilization_us
+    ))
+    while true; do
+        if sample_game_pid_identity; then
+            game_pid_validated=true
+            game_pid_identity_state=validated_live
+            return 0
+        fi
+        if [[ "$game_pid_sample_state" == child_exited ]]; then
+            observation_unix_us="$(unix_microseconds)"
+            observation_monotonic_us="$(monotonic_microseconds)"
+            game_pid_identity_state=child_exited
+            wait_for_game
+            append_process_metadata "$process_metadata"
+            fail \
+                "launched game exited before PID identity stabilized: exit_code=$game_exit_code"
+        fi
+
+        current_monotonic_us="$(monotonic_microseconds)"
+        if (( current_monotonic_us >= identity_deadline_monotonic_us )); then
+            observation_unix_us="$(unix_microseconds)"
+            observation_monotonic_us="$current_monotonic_us"
+            game_pid_identity_state=unvalidated_timeout
+            append_process_metadata "$process_metadata"
+            fail \
+                "launched PID identity did not stabilize within $identity_stabilization_us microseconds"
+        fi
+        sleep 0.05
+    done
+}
+
 launch_and_observe() {
     local appdata="$1"
     local stdout_path="$2"
@@ -818,6 +898,14 @@ launch_and_observe() {
 
     : >"$stdout_path"
     : >"$stderr_path"
+    observation_unix_us=0
+    observation_monotonic_us=0
+    timed_out=0
+    forced_cleanup=0
+    first_terminal_line=
+    game_exit_code=255
+    game_pid_validated=false
+    game_pid_identity_state=stabilizing
     launch_start_unix_us="$(unix_microseconds)"
     launch_start_monotonic_us="$(monotonic_microseconds)"
     (
@@ -831,15 +919,8 @@ launch_and_observe() {
     game_pid=$!
     printf 'launched_pid\t%s\n' "$game_pid" >"$process_metadata"
 
-    if validate_live_game_pid; then
-        game_pid_validated=true
-    elif kill -0 "$game_pid" 2>/dev/null; then
-        fail "launched PID could not be validated"
-    fi
+    stabilize_game_pid_identity "$process_metadata"
 
-    timed_out=0
-    forced_cleanup=0
-    first_terminal_line=
     deadline_monotonic_us=$((launch_start_monotonic_us + 60000000))
     while true; do
         current_monotonic_us="$(monotonic_microseconds)"
@@ -898,17 +979,7 @@ launch_and_observe() {
     fi
 
     wait_for_game
-    {
-        printf 'launch_start_unix_us\t%s\n' "$launch_start_unix_us"
-        printf 'launch_start_monotonic_us\t%s\n' \
-            "$launch_start_monotonic_us"
-        printf 'observation_unix_us\t%s\n' "$observation_unix_us"
-        printf 'observation_monotonic_us\t%s\n' "$observation_monotonic_us"
-        printf 'exit_code\t%s\n' "$game_exit_code"
-        printf 'timed_out\t%s\n' "$timed_out"
-        printf 'forced_cleanup\t%s\n' "$forced_cleanup"
-        printf 'first_terminal_line\t%s\n' "$first_terminal_line"
-    } >>"$process_metadata"
+    append_process_metadata "$process_metadata"
 }
 
 database_charts=0

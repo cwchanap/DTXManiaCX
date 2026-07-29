@@ -865,6 +865,27 @@ process launch. It verifies the frozen configuration has
 - zero-exit clean process shutdown through the post-publication host exit
   path.
 
+Before stdout observation, the runner gives the owned child a
+`2,000,000`-microsecond monotonic identity-stabilization phase measured from
+the existing launch anchor. Each poll reads PID, process state, and command
+from one coherent `ps` sample. Missing/transient `ps` output and a live
+pre-exec command remain retryable until
+`now >= launch_start_monotonic_us + 2,000,000`; that exact boundary is an
+inclusive `unvalidated_timeout`. A coherent live sample containing the exact
+game-DLL path records `identity_state=validated_live` and proceeds.
+
+If the owned child exits during stabilization, the runner records adjacent
+observation clocks, safely waits for the child under `set -e`, retains its
+stderr and exact exit code, appends complete process metadata, records
+`identity_state=child_exited`, and then reports the concrete early-exit
+failure. A persistently live unvalidated child records
+`identity_state=unvalidated_timeout`, observation clocks, and the unavailable
+exit-code sentinel `255`, then fails without sending any signal. Only a
+coherently validated live identity may be signaled by later bounded cleanup.
+`process.txt` therefore always records `launched_pid`, `identity_state`, both
+launch clocks, both observation clocks, `exit_code`, `timed_out`,
+`forced_cleanup`, and `first_terminal_line` before an identity-phase failure.
+
 Receipt of `HPA192_CRITICAL_PATH_FAILURE` aborts the attempt immediately and
 records its rejection instead of waiting for the success line. The runner
 still allows the post-publication exit grace period before force-cleaning a
@@ -872,6 +893,12 @@ stuck process. It makes no health, state, or screenshot HTTP requests.
 A no-line launch has a true external deadline at
 `launch_start_monotonic_us + 60,000,000`; every poll reads
 `CLOCK_MONOTONIC`, so polling overhead cannot extend the sixty-second bound.
+
+This repair does not change the platform launcher or freeze the inherited
+process environment. The runner continues to inherit the invoking environment
+while overriding its fixed diagnostic variables. Environment-freeze
+hardening remains a deferred Minor follow-up, not part of this diagnostic
+acceptance contract.
 
 The accepted launch-to-first-Title-backbuffer-composition duration is bridged
 from the external launch anchors to `title_backbuffer_unix_us` and
