@@ -8,6 +8,7 @@ using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Test.TestData;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
@@ -466,7 +467,8 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         await _manager.InitializeDatabaseServiceAsync(_databasePath);
         var setRoot = Path.Combine(_songsRoot, "Protected Set");
         Directory.CreateDirectory(setRoot);
-        var setDefPath = Path.Combine(setRoot, "set.def");
+        var setDefPath = SongPathIdentity.Normalize(
+            Path.Combine(setRoot, "set.def"));
         await File.WriteAllTextAsync(
             setDefPath,
             """
@@ -938,6 +940,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
     public void Dispose()
     {
         SongManager.ResetInstanceForTesting();
+        SqliteConnection.ClearAllPools();
         if (Directory.Exists(_testRoot))
             Directory.Delete(_testRoot, recursive: true);
     }
@@ -953,7 +956,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
             "#BPM: 120",
             $"#DLEVEL: {drumLevel}"
         });
-        return path;
+        return SongPathIdentity.Normalize(path);
     }
 
     private static IEnumerable<SongListNode> FlattenScoreNodes(

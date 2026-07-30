@@ -551,10 +551,12 @@ namespace DTXMania.Game.Lib.Song.Entities
                     collidingIds = chartIdentities
                         .Where(identity =>
                             identity.Id != chart.Id &&
-                            string.Equals(
+                            SongPathIdentity.TryNormalize(
                                 identity.FilePath,
-                                targetPath,
-                                StringComparison.Ordinal))
+                                out var normalizedPath) &&
+                            SongPathIdentity.CanonicalComparer.Equals(
+                                normalizedPath,
+                                targetPath))
                         .Select(identity => identity.Id)
                         .OrderBy(id => id)
                         .ToArray();
