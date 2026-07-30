@@ -280,7 +280,8 @@ parse_ordered_line() {
     local token
     local value
 
-    eval "names=(\"\${${names_variable}[@]}\")"
+    local -n names_ref="$names_variable"
+    names=("${names_ref[@]}")
     IFS=' ' read -r -a tokens <<<"$line"
     [[ "${tokens[0]:-}" == "$prefix" ]] || return 1
     [[ "${#tokens[@]}" -eq "$((${#names[@]} + 1))" ]] || return 1
@@ -307,7 +308,8 @@ read_expected_field() {
     local token
     local value
 
-    eval "names=(\"\${${names_variable}[@]}\")"
+    local -n names_ref="$names_variable"
+    names=("${names_ref[@]}")
     IFS=' ' read -r -a tokens <<<"$line"
     [[ "${tokens[0]:-}" == "$prefix" ]] || return 1
 
@@ -1361,11 +1363,25 @@ summarize_attempts() {
        "$count_b" -eq 5 &&
        "$count_c" -eq 5 ]] ||
         summary_fail incomplete_acceptance_sequence
-    [[ "$summary_config_A" == "$summary_config_C" ]] ||
+
+    # Under set -u, explicitly reject empty required values before comparing.
+    # These variables are assigned during acceptance; if any is empty the
+    # scenario data is incomplete and we fail closed.
+    local _cfg_a="${summary_config_A:-}"
+    local _cfg_c="${summary_config_C:-}"
+    local _paths_a="${summary_chart_paths_A:-}"
+    local _paths_b="${summary_chart_paths_B:-}"
+    local _paths_c="${summary_chart_paths_C:-}"
+    local _fixed_empty="${summary_fixed_empty:-}"
+    [[ -n "$_cfg_a" && -n "$_cfg_c" ]] ||
+        summary_fail missing_scenario_config_hashes
+    [[ -n "$_paths_a" && -n "$_paths_b" && -n "$_paths_c" && -n "$_fixed_empty" ]] ||
+        summary_fail missing_scenario_chart_paths
+    [[ "$_cfg_a" == "$_cfg_c" ]] ||
         summary_fail mixed_scenario_config_hashes
-    [[ "$summary_chart_paths_A" == "$summary_chart_paths_C" ]] ||
+    [[ "$_paths_a" == "$_paths_c" ]] ||
         summary_fail mixed_scenario_chart_paths
-    [[ "$summary_chart_paths_B" == "$summary_fixed_empty" ]] ||
+    [[ "$_paths_b" == "$_fixed_empty" ]] ||
         summary_fail mixed_scenario_chart_paths
 
     for current_scenario in A B C; do

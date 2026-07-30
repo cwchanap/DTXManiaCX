@@ -30,6 +30,14 @@ internal interface IStartupSongLoadTimingObserver
         StartupOperationOutcome outcome);
 }
 
+/// <summary>
+/// Exception-safe wrappers for <see cref="IStartupSongLoadTimingObserver"/>.
+/// The empty catch blocks intentionally swallow all exceptions from observer
+/// implementations so that instrumentation failures can never break song
+/// loading. The explicit wrappers also preserve the zero-allocation guarantee
+/// of the hot path by avoiding boxing/lambda captures. Do not alter the catch
+/// behavior or wrapper implementation.
+/// </summary>
 internal static class StartupSongLoadTimingObserverExtensions
 {
     internal static void TryBeginDatabaseSpan(

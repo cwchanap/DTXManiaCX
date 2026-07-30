@@ -456,17 +456,8 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
 
-        private StartupCriticalPathTrace ResolveCriticalPathTrace()
-        {
-            try
-            {
-                return StartupCriticalPathHost.Resolve(_game);
-            }
-            catch
-            {
-                return null;
-            }
-        }
+        private StartupCriticalPathTrace ResolveCriticalPathTrace() =>
+            StartupCriticalPathHost.TryResolve(_game);
 
         private static void TryBeginAggregate(
             StartupCriticalPathTrace trace,

@@ -51,19 +51,23 @@ namespace DTXMania.Game.Lib.Stage
                 return existingStage;
             }
 
+            var isStartupOrTitle =
+                stageType is StageType.Startup or StageType.Title;
             var criticalPathTrace =
-                stageType is StageType.Startup or StageType.Title
+                isStartupOrTitle
                     ? ResolveCriticalPathTrace()
                     : null;
-            var constructBegin = stageType == StageType.Startup
-                ? StartupCriticalPathMilestone.StartupConstructBegin
-                : StartupCriticalPathMilestone.TitleConstructBegin;
-            var constructEnd = stageType == StageType.Startup
-                ? StartupCriticalPathMilestone.StartupConstructEnd
-                : StartupCriticalPathMilestone.TitleConstructEnd;
-            if (stageType is StageType.Startup or StageType.Title)
+            StartupCriticalPathMilestone? constructBegin = null;
+            StartupCriticalPathMilestone? constructEnd = null;
+            if (isStartupOrTitle)
             {
-                criticalPathTrace?.RecordExactlyOnce(constructBegin);
+                constructBegin = stageType == StageType.Startup
+                    ? StartupCriticalPathMilestone.StartupConstructBegin
+                    : StartupCriticalPathMilestone.TitleConstructBegin;
+                constructEnd = stageType == StageType.Startup
+                    ? StartupCriticalPathMilestone.StartupConstructEnd
+                    : StartupCriticalPathMilestone.TitleConstructEnd;
+                criticalPathTrace?.RecordExactlyOnce(constructBegin.Value);
             }
 
             try
@@ -89,9 +93,9 @@ namespace DTXMania.Game.Lib.Stage
             }
             finally
             {
-                if (stageType is StageType.Startup or StageType.Title)
+                if (constructEnd.HasValue)
                 {
-                    criticalPathTrace?.RecordExactlyOnce(constructEnd);
+                    criticalPathTrace?.RecordExactlyOnce(constructEnd.Value);
                 }
             }
         }
@@ -290,17 +294,8 @@ namespace DTXMania.Game.Lib.Stage
             _currentStage?.Type == StageType.Startup &&
             _targetStageType == StageType.Title;
 
-        private StartupCriticalPathTrace ResolveCriticalPathTrace()
-        {
-            try
-            {
-                return StartupCriticalPathHost.Resolve(_game);
-            }
-            catch
-            {
-                return null;
-            }
-        }
+        private StartupCriticalPathTrace ResolveCriticalPathTrace() =>
+            StartupCriticalPathHost.TryResolve(_game);
 
         private void DrawTransition(double deltaTime)
         {

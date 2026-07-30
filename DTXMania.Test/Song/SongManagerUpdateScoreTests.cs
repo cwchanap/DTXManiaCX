@@ -439,8 +439,8 @@ public class SongManagerUpdateScoreTests : IDisposable
 
     /// <summary>
     /// Walks the song-list tree to find the first NodeType.Score node whose Title
-    /// matches. Used to locate legacy (ChartId == 0) set.def nodes that cannot be
-    /// keyed by chart id.
+    /// matches. Used to locate set.def nodes by title since set.def groups are
+    /// keyed by set-definition path rather than individual chart ids.
     /// </summary>
     private static SongListNode? FindScoreNodeByTitle(
         System.Collections.Generic.IReadOnlyList<SongListNode> roots, string title)
@@ -497,10 +497,9 @@ public class SongManagerUpdateScoreTests : IDisposable
 
     /// <summary>
     /// Creates a set.def-backed song folder with a single difficulty chart. The
-    /// resulting in-memory node is a legacy set.def node whose cached SongScore
-    /// entries carry ChartId == 0 (the code path exercised by the regression test).
-    /// All such songs use the same drum level (50) so a difficulty-only fallback
-    /// would collide across songs.
+    /// resulting in-memory node carries persisted non-zero ChartId values
+    /// assigned by the database during enumeration. All such songs use the same
+    /// drum level (50) so a difficulty-only fallback would collide across songs.
     /// </summary>
     private static async Task CreateSetDefSongAsync(string root, string title, string dtxFileName)
     {

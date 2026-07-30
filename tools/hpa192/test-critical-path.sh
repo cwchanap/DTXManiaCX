@@ -989,7 +989,7 @@ run_runner_deadline_tests() {
         grep -Eq ' timed_out=1 forced_cleanup=1 ' "$result" ||
             fail "deadline attempt $attempt_number lacks timeout cleanup flags"
     done
-    poll_sleeps="$(grep -Fxc '0.05' "$fixture_sleep_log")"
+    poll_sleeps="$(grep -Fxc '0.05' "$fixture_sleep_log" || true)"
     [[ "$poll_sleeps" -lt 500 ]] ||
         fail "polling overhead extended the monotonic deadline"
     assert_all_recorded_pids_dead "$fixture_target_pids"

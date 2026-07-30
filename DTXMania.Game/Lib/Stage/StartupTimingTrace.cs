@@ -135,6 +135,25 @@ internal sealed class StartupTimingTrace
         if (!_enabled || _invalid || _emitted || !_recorded[(int)StartupTimingMilestone.TitleCompleted])
             return null;
 
+        var frequency = _clock.TimestampFrequency;
+        if (frequency <= 0)
+        {
+            _emitted = true;
+            return null;
+        }
+
+        long IntervalMilliseconds(StartupTimingMilestone start, StartupTimingMilestone end)
+        {
+            try
+            {
+                return checked((_timestamps[(int)end] - _timestamps[(int)start]) * 1_000 / frequency);
+            }
+            catch (OverflowException)
+            {
+                return -1;
+            }
+        }
+
         _emitted = true;
         return string.Format(
             CultureInfo.InvariantCulture,
@@ -151,11 +170,6 @@ internal sealed class StartupTimingTrace
             IntervalMilliseconds(StartupTimingMilestone.ProcessEntry, StartupTimingMilestone.TitleCompleted),
             _entryUnixMicroseconds,
             _titleUnixMicroseconds);
-    }
-
-    private long IntervalMilliseconds(StartupTimingMilestone start, StartupTimingMilestone end)
-    {
-        return checked((_timestamps[(int)end] - _timestamps[(int)start]) * 1_000 / _clock.TimestampFrequency);
     }
 
     private sealed class StopwatchMonotonicClock : IMonotonicClock

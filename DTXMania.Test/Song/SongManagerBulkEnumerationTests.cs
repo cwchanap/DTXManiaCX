@@ -1031,21 +1031,27 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
     }
 
     [Fact]
-    public async Task BuildEnumerationBatchAsync_WhenRootIsBlank_ShouldThrowDirectoryNotFound()
+    public async Task BuildEnumerationBatchAsync_WhenRootIsBlank_ShouldSkipAndRecordRootFailure()
     {
-        await Assert.ThrowsAsync<DirectoryNotFoundException>(() =>
-            _manager.BuildEnumerationBatchAsync(
-                new[] { "  " }, null, CancellationToken.None));
+        var batch = await _manager.BuildEnumerationBatchAsync(
+            new[] { "  " }, null, CancellationToken.None);
+
+        Assert.Empty(batch.Candidates);
+        var rootError = Assert.Single(batch.Errors, e => e.IsRootFailure);
+        Assert.Contains("blank", rootError.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public async Task BuildEnumerationBatchAsync_WhenRootDoesNotExist_ShouldThrowDirectoryNotFound()
+    public async Task BuildEnumerationBatchAsync_WhenRootDoesNotExist_ShouldSkipAndRecordRootFailure()
     {
-        await Assert.ThrowsAsync<DirectoryNotFoundException>(() =>
-            _manager.BuildEnumerationBatchAsync(
-                new[] { Path.Combine(_testRoot, "Nonexistent") },
-                null,
-                CancellationToken.None));
+        var batch = await _manager.BuildEnumerationBatchAsync(
+            new[] { Path.Combine(_testRoot, "Nonexistent") },
+            null,
+            CancellationToken.None);
+
+        Assert.Empty(batch.Candidates);
+        var rootError = Assert.Single(batch.Errors, e => e.IsRootFailure);
+        Assert.Contains("does not exist", rootError.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -1233,7 +1239,16 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         SongManager.ResetInstanceForTesting();
         SqliteConnection.ClearAllPools();
         if (Directory.Exists(_testRoot))
-            Directory.Delete(_testRoot, recursive: true);
+        {
+            try
+            {
+                Directory.Delete(_testRoot, recursive: true);
+            }
+            catch
+            {
+                // Ignore errors during cleanup (e.g. lingering SQLite file locks)
+            }
+        }
     }
 
     private string WriteChart(string relativePath, string title, int drumLevel)

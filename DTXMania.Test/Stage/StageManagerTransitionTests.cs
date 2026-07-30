@@ -519,7 +519,7 @@ namespace DTXMania.Test.Stage
             private long _timestamp;
 
             public long TimestampFrequency => 1_000;
-            public Action<long> OnTimestamp { get; set; }
+            public Action<long>? OnTimestamp { get; set; }
 
             public long GetTimestamp()
             {
