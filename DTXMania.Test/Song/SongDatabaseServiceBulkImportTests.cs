@@ -1110,9 +1110,13 @@ namespace DTXMania.Test.Song
                     .SingleAsync();
                 songId = song.Id;
                 activeChartId = song.Charts.Single(chart =>
-                    chart.FilePath.Contains("/active/")).Id;
+                    SongPathIdentity.IsUnderRoot(
+                        chart.FilePath,
+                        "/songs/active")).Id;
                 inactiveChartId = song.Charts.Single(chart =>
-                    chart.FilePath.Contains("/inactive/")).Id;
+                    SongPathIdentity.IsUnderRoot(
+                        chart.FilePath,
+                        "/songs/inactive")).Id;
             }
             var request = CreateEmptyRequest(
                 activeRoots: new[] { "/songs/active" },
