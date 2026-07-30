@@ -694,11 +694,12 @@ namespace DTXMania.Game.Lib.Stage
             bool phaseComplete;
             if (HasAsyncOperation(_startupPhase))
             {
-                phaseComplete = _currentAsyncTask?.IsCompleted ?? false;
                 if (_currentAsyncTask == null)
                 {
                     return;
                 }
+
+                phaseComplete = _currentAsyncTask.IsCompleted;
 
                 if (!_currentAsyncTask.IsCompleted)
                 {
@@ -1055,17 +1056,8 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
 
-        private StartupCriticalPathTrace? ResolveCriticalPathTrace()
-        {
-            try
-            {
-                return StartupCriticalPathHost.Resolve(_game);
-            }
-            catch
-            {
-                return null;
-            }
-        }
+        private StartupCriticalPathTrace? ResolveCriticalPathTrace() =>
+            StartupCriticalPathHost.TryResolve(_game);
 
         private static void TryRecordExactlyOnce(
             StartupCriticalPathTrace? trace,
@@ -1316,18 +1308,6 @@ namespace DTXMania.Game.Lib.Stage
                 System.Diagnostics.Debug.WriteLine(
                     "StartupStage: committed cache fallback failed: " +
                     fallbackException.Message);
-            }
-        }
-
-        private IProgress<EnumerationProgress>
-            CreateEnumerationProgressReporter()
-        {
-            lock (_activationGate)
-            {
-                return CreateEnumerationProgressReporterForActivation(
-                    _activationGeneration,
-                    _cancellationTokenSource?.Token ??
-                    CancellationToken.None);
             }
         }
 

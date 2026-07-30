@@ -53,6 +53,23 @@ namespace DTXMania.Game.Lib.Song
         public bool IsComplete { get; init; }
     }
 
+    /// <summary>
+    /// Result of a bulk song import operation.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>PersistenceDuration</c> measures the entire import operation from
+    /// the start of preload (chart identity query) through SaveChanges and
+    /// transaction commit — it spans pre-save processing (matching, mutation
+    /// staging, stale-removal) as well as SaveChanges/transaction persistence.
+    /// </para>
+    /// <para>
+    /// <c>CleanupDuration</c> measures stale-removal staging only —
+    /// identifying and removing stale charts and empty songs from the change
+    /// tracker before SaveChanges. It does not include SaveChanges or
+    /// transaction commit.
+    /// </para>
+    /// </remarks>
     public sealed record SongBulkImportResult(
         IReadOnlyDictionary<string, SongChart> ChartsByPath,
         int Added,

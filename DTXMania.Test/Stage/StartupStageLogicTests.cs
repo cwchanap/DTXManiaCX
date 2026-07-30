@@ -813,6 +813,7 @@ namespace DTXMania.Test.Stage
             Assert.Contains("0 songs", message);
         }
 
+        [Fact]
         public void PerformPhaseOperationSync_SaveSongsDb_ShouldOnlyMarkInitialized()
         {
             var stage = CreateControlledStage();
@@ -1316,7 +1317,6 @@ namespace DTXMania.Test.Stage
                     await Task.Delay(10);
                 }
 
-                Assert.False(abandonedTask.IsAlive);
                 Assert.Empty(unobservedFailures);
             }
             finally

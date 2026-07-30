@@ -789,6 +789,7 @@ internal sealed class StartupCriticalPathTrace : IStartupSongLoadTimingObserver
             if (!InRange(snapshot.EntryUnixMicroseconds, MaximumUtcMicroseconds) ||
                 !InRange(snapshot.TitleBackbufferUnixMicroseconds, MaximumUtcMicroseconds))
             {
+                validationError = "invalid_wall_clock";
                 return false;
             }
             if (Array.Exists(snapshot.AggregateActive, active => active))

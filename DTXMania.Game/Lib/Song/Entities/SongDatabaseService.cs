@@ -429,6 +429,9 @@ namespace DTXMania.Game.Lib.Song.Entities
 
             try
             {
+                // Measures the entire import operation: preload, matching,
+                // mutation staging, stale-removal, SaveChanges, and commit.
+                // Reported as PersistenceDuration in SongBulkImportResult.
                 var persistence = Stopwatch.StartNew();
                 var chartsByPath = new Dictionary<string, SongChart>(
                     SongPathIdentity.CanonicalComparer);
@@ -464,13 +467,24 @@ namespace DTXMania.Game.Lib.Song.Entities
                         $"'{identity.FilePath}'");
                 }
 
+                // Pre-normalize active roots once to avoid redundant Normalize
+                // calls per chart per root in the containment check below.
+                var normalizedActiveRoots = request.ActiveRoots
+                    .Select(root =>
+                    {
+                        SongPathIdentity.TryNormalize(root, out var normalized);
+                        return normalized;
+                    })
+                    .Where(r => !string.IsNullOrEmpty(r))
+                    .ToArray();
+
                 var activeChartIds = chartIdentities
                     .Where(chart =>
                         SongPathIdentity.TryNormalize(
                             chart.FilePath,
                             out var normalized) &&
-                        request.ActiveRoots.Any(root =>
-                            SongPathIdentity.IsUnderRoot(normalized, root)) &&
+                        normalizedActiveRoots.Any(root =>
+                            SongPathIdentity.IsUnderNormalizedRoot(normalized, root)) &&
                         (_activeChartIdentityFilter == null ||
                             _activeChartIdentityFilter(chart.Id)))
                     .Select(chart => chart.Id)
@@ -886,6 +900,9 @@ namespace DTXMania.Game.Lib.Song.Entities
                     request.Candidates.Count,
                     request.Candidates.Count));
 
+                // Measures stale-removal staging only: identifying and removing
+                // stale charts and empty songs from the change tracker before
+                // SaveChanges. Reported as CleanupDuration in SongBulkImportResult.
                 var cleanup = Stopwatch.StartNew();
                 var staleCharts = persistedCharts
                     .Where(chart =>
@@ -1783,7 +1800,7 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// Song retains every eagerly loaded score variant and each variant's pitch-bearing
         /// history, so materialization does not collapse chart/instrument/speed identity.
         /// </summary>
-        public async Task<List<SongEntity>> GetRecentlyPlayedSongsAsync(int limit = 20)
+        public async Task<List<SongEntity>> GetRecentlyPlayedSongsAsync(int limit = 20, int skip = 0)
         {
             if (limit <= 0) return new List<SongEntity>();
 
@@ -1799,6 +1816,7 @@ namespace DTXMania.Game.Lib.Song.Entities
                 .GroupBy(s => s.SongId)
                 .Select(g => new { SongId = g.Key, LastPlayed = g.Max(s => s.LastPlayedAt) })
                 .OrderByDescending(x => x.LastPlayed)
+                .Skip(skip)
                 .Take(limit)
                 .Select(x => x.SongId)
                 .ToListAsync();

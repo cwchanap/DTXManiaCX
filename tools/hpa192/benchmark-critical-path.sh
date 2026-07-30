@@ -1253,6 +1253,7 @@ run_matrix() {
     local attempt_root
     local accepted
     local result_path
+    local output_path
 
     verify_common_outputs
     verify_seed

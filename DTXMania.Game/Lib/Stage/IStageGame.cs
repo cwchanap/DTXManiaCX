@@ -40,8 +40,23 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         void RequestExit();
 
+        /// <summary>
+        /// Diagnostic hook fired when the Startup stage is activated.
+        /// Default implementation is a best-effort no-op.
+        /// </summary>
         void ReportStartupActivated() { }
+
+        /// <summary>
+        /// Diagnostic hook fired when the Startup stage renders its first frame.
+        /// Default implementation is a best-effort no-op.
+        /// </summary>
         void ReportStartupFrameRendered() { }
+
+        /// <summary>
+        /// Diagnostic hook fired when the Startup stage requests the song load
+        /// summary and transitions to the Title stage. Default implementation is
+        /// a best-effort no-op.
+        /// </summary>
         void ReportStartupSummaryAndTitleRequested() { }
     }
 }

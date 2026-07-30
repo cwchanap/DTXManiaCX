@@ -20,6 +20,7 @@ namespace DTXMania.Test.Song
     /// Unit tests for SongDatabaseService class
     /// Tests song grouping functionality and database operations
     /// </summary>
+    [Trait("Category", "Unit")]
     public class SongDatabaseServiceTests : IDisposable
     {
         private readonly SongDatabaseService _databaseService;

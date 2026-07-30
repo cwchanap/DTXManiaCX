@@ -14,7 +14,10 @@ require_timing="${HPA192_REQUIRE_TIMING:-0}"
 require_external_ready="${HPA192_REQUIRE_EXTERNAL_READY:-0}"
 expected_persistence_path="${HPA192_EXPECT_PERSISTENCE_PATH:-}"
 expected_song_count="${HPA192_EXPECT_SONG_COUNT:-}"
-api_port="$(rtk python3 -c \
+# Optional rtk harness prefix. When rtk is unavailable, leave this unset (or
+# set to empty) so commands run directly without the wrapper.
+RTK="${HPA192_RTK_PREFIX:-}"
+api_port="$($RTK python3 -c \
     'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')"
 launch_token="hpa192-$label-$run"
 lock_path="${TMPDIR:-/tmp}/hpa-192-benchmark-startup.lock"
@@ -141,7 +144,7 @@ for attempt in $(seq 1 1200); do
         "http://127.0.0.1:$api_port/jsonrpc" 2>/dev/null || true)"
     if [[ "$state" == *"TitleStage"* ]]; then
         if [[ "$require_timing" == 1 ]]; then
-            timing_count_so_far="$(rtk awk '/^HPA192_TIMING / { count++ } END { print count + 0 }' "$stdout")"
+            timing_count_so_far="$($RTK awk '/^HPA192_TIMING / { count++ } END { print count + 0 }' "$stdout")"
             if [[ "$timing_count_so_far" != 1 ]]; then
                 sleep 0.05
                 continue
@@ -166,38 +169,38 @@ database="$appdata/songs.db"
 chart_paths="$result_root/run-$run.chart-paths.txt"
 expected_chart_paths="$run_root/expected-chart-paths.txt"
 test -f "$database"
-rtk sqlite3 -noheader "$database" \
+$RTK sqlite3 -noheader "$database" \
     'SELECT FilePath FROM SongCharts;' |
     LC_ALL=C sort >"$chart_paths"
-rtk rg --files "$corpus" |
-    rtk rg -i '\.(dtx|gda|g2d|bms|bme|bml)$' |
+$RTK rg --files "$corpus" |
+    $RTK rg -i '\.(dtx|gda|g2d|bms|bme|bml)$' |
     LC_ALL=C sort >"$expected_chart_paths"
-if ! rtk diff -u "$expected_chart_paths" "$chart_paths"; then
+if ! $RTK diff -u "$expected_chart_paths" "$chart_paths"; then
     printf 'run %s imported chart paths differ from the frozen corpus\n' "$run" >&2
     exit 1
 fi
-chart_count="$(rtk sqlite3 -noheader "$database" \
+chart_count="$($RTK sqlite3 -noheader "$database" \
     'SELECT COUNT(*) FROM SongCharts;')"
-song_count="$(rtk sqlite3 -noheader "$database" \
+song_count="$($RTK sqlite3 -noheader "$database" \
     'SELECT COUNT(*) FROM Songs;')"
-database_hash="$(rtk shasum -a 256 "$database" | rtk awk '{print $1}')"
+database_hash="$($RTK shasum -a 256 "$database" | $RTK awk '{print $1}')"
 printf 'label=%s run=%s charts=%s songs=%s database_sha256=%s\n' \
     "$label" "$run" "$chart_count" "$song_count" "$database_hash" |
     tee "$result_root/run-$run.database.txt"
 
 wall_ms="$(((launch_end_unix_us - launch_start_unix_us) / 1000))"
-summary_count="$(rtk awk '/^HPA192_STARTUP / { count++ } END { print count + 0 }' "$stdout")"
+summary_count="$($RTK awk '/^HPA192_STARTUP / { count++ } END { print count + 0 }' "$stdout")"
 if [[ "$summary_count" != 1 ]]; then
     printf 'run %s emitted %s HPA192_STARTUP lines; expected exactly one\n' "$run" "$summary_count" >&2
     exit 1
 fi
-summary="$(rtk awk '/^HPA192_STARTUP / { print }' "$stdout")"
-timing_count="$(rtk awk '/^HPA192_TIMING / { count++ } END { print count + 0 }' "$stdout")"
+summary="$($RTK awk '/^HPA192_STARTUP / { print }' "$stdout")"
+timing_count="$($RTK awk '/^HPA192_TIMING / { count++ } END { print count + 0 }' "$stdout")"
 if [[ "$require_timing" == 1 && "$timing_count" != 1 ]]; then
     printf 'run %s emitted %s HPA192_TIMING lines; expected exactly one\n' "$run" "$timing_count" >&2
     exit 1
 fi
-timing="$(rtk awk '/^HPA192_TIMING / { print }' "$stdout")"
+timing="$($RTK awk '/^HPA192_TIMING / { print }' "$stdout")"
 if [[ "$require_external_ready" == 1 ]]; then
     printf 'run %s requested external readiness, but Task 0 has no readiness field\n' "$run" >&2
     exit 1

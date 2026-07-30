@@ -15,6 +15,19 @@ fail() {
     exit 1
 }
 
+# Portable in-place replace: replaces all occurrences of $old with $new in $path.
+# Uses perl to avoid BSD/GNU sed incompatibility (sed -i '' vs sed -i).
+replace_inplace() {
+    local path="$1" old="$2" new="$3"
+    OLD="$old" NEW="$new" perl -pi -e 's/\Q$ENV{OLD}\E/$ENV{NEW}/g' "$path"
+}
+
+# Portable in-place line append: appends $suffix to every line in $path.
+append_inplace() {
+    local path="$1" suffix="$2"
+    SUFFIX="$suffix" perl -pi -e 's/$/$ENV{SUFFIX}/' "$path"
+}
+
 write_result() {
     local path="$1"
     local run="$2"
@@ -83,7 +96,9 @@ rounded_three="$temp_root/rounded-3.result.txt"
 write_result "$rounded_one" 1 10 1100000 1000000 3310000 3280000 2310
 write_result "$rounded_two" 2 10 1100000 1000000 3410000 3280000 2410
 write_result "$rounded_three" 3 10 1100000 1000000 3510000 3280000 2510
-sed -i '' 's/entry_to_title_ms=2180/entry_to_title_ms=2184/' "$rounded_one" "$rounded_two" "$rounded_three"
+replace_inplace "$rounded_one" "entry_to_title_ms=2180" "entry_to_title_ms=2184"
+replace_inplace "$rounded_two" "entry_to_title_ms=2180" "entry_to_title_ms=2184"
+replace_inplace "$rounded_three" "entry_to_title_ms=2180" "entry_to_title_ms=2184"
 run_summary "$rounded_one" "$rounded_two" "$rounded_three" >"$temp_root/rounded.out"
 assert_contains "HPA192_PREFLIGHT median_fixed_floor_ms=2220 target_ms=2221 decision=continue" "$temp_root/rounded.out"
 
@@ -102,61 +117,57 @@ assert_fails missing run_summary "$missing" "$good_two" "$good_three"
 
 duplicate="$temp_root/duplicate.result.txt"
 cp "$good_one" "$duplicate"
-sed -i '' 's/$/ HPA192_TIMING entry_to_config_ms=10/' "$duplicate"
+append_inplace "$duplicate" " HPA192_TIMING entry_to_config_ms=10"
 assert_fails duplicate run_summary "$duplicate" "$good_two" "$good_three"
 
 nonnumeric="$temp_root/nonnumeric.result.txt"
 cp "$good_one" "$nonnumeric"
-sed -i '' 's/entry_to_config_ms=10/entry_to_config_ms=ten/' "$nonnumeric"
+replace_inplace "$nonnumeric" "entry_to_config_ms=10" "entry_to_config_ms=ten"
 assert_fails nonnumeric run_summary "$nonnumeric" "$good_two" "$good_three"
 
 negative="$temp_root/negative.result.txt"
 cp "$good_one" "$negative"
-sed -i '' 's/summary_to_title_ms=2020/summary_to_title_ms=-1/' "$negative"
+replace_inplace "$negative" "summary_to_title_ms=2020" "summary_to_title_ms=-1"
 assert_fails negative run_summary "$negative" "$good_two" "$good_three"
 
 above_timing_bound="$temp_root/above-timing-bound.result.txt"
 cp "$good_one" "$above_timing_bound"
-sed -i '' \
-    -e 's/entry_to_config_ms=10/entry_to_config_ms=300001/' \
-    -e 's/entry_to_title_ms=2180/entry_to_title_ms=302171/' \
-    -e 's/launch_end_unix_us=3310000/launch_end_unix_us=303301000/' \
-    -e 's/title_unix_us=3280000/title_unix_us=303271000/' \
-    -e 's/wall_ms=2310/wall_ms=302301/' \
-    "$above_timing_bound"
+replace_inplace "$above_timing_bound" "entry_to_config_ms=10" "entry_to_config_ms=300001"
+replace_inplace "$above_timing_bound" "entry_to_title_ms=2180" "entry_to_title_ms=302171"
+replace_inplace "$above_timing_bound" "launch_end_unix_us=3310000" "launch_end_unix_us=303301000"
+replace_inplace "$above_timing_bound" "title_unix_us=3280000" "title_unix_us=303271000"
+replace_inplace "$above_timing_bound" "wall_ms=2310" "wall_ms=302301"
 assert_fails above_timing_bound run_summary "$above_timing_bound" "$good_two" "$good_three"
 
 above_unix_anchor_bound="$temp_root/above-unix-anchor-bound.result.txt"
 cp "$good_one" "$above_unix_anchor_bound"
-sed -i '' 's/entry_unix_us=1100000/entry_unix_us=4102444800000001/' "$above_unix_anchor_bound"
+replace_inplace "$above_unix_anchor_bound" "entry_unix_us=1100000" "entry_unix_us=4102444800000001"
 assert_fails above_unix_anchor_bound run_summary "$above_unix_anchor_bound" "$good_two" "$good_three"
 
 above_monotonic_anchor_bound="$temp_root/above-monotonic-anchor-bound.result.txt"
 cp "$good_one" "$above_monotonic_anchor_bound"
-sed -i '' 's/launch_start_monotonic_us=1000000/launch_start_monotonic_us=3155760000000001/' "$above_monotonic_anchor_bound"
+replace_inplace "$above_monotonic_anchor_bound" "launch_start_monotonic_us=1000000" "launch_start_monotonic_us=3155760000000001"
 assert_fails above_monotonic_anchor_bound run_summary "$above_monotonic_anchor_bound" "$good_two" "$good_three"
 
 wraparound="$temp_root/wraparound.result.txt"
 cp "$good_one" "$wraparound"
-sed -i '' \
-    -e 's/entry_to_config_ms=10/entry_to_config_ms=18446744073709551616/' \
-    -e 's/entry_to_title_ms=2180/entry_to_title_ms=2170/' \
-    "$wraparound"
+replace_inplace "$wraparound" "entry_to_config_ms=10" "entry_to_config_ms=18446744073709551616"
+replace_inplace "$wraparound" "entry_to_title_ms=2180" "entry_to_title_ms=2170"
 assert_fails wraparound_numeric run_summary "$wraparound" "$good_two" "$good_three"
 
 signed="$temp_root/signed.result.txt"
 cp "$good_one" "$signed"
-sed -i '' 's/entry_to_config_ms=10/entry_to_config_ms=+10/' "$signed"
+replace_inplace "$signed" "entry_to_config_ms=10" "entry_to_config_ms=+10"
 assert_fails signed_numeric run_summary "$signed" "$good_two" "$good_three"
 
 inconsistent="$temp_root/inconsistent.result.txt"
 cp "$good_one" "$inconsistent"
-sed -i '' 's/entry_to_title_ms=2180/entry_to_title_ms=2179/' "$inconsistent"
+replace_inplace "$inconsistent" "entry_to_title_ms=2180" "entry_to_title_ms=2179"
 assert_fails underflow run_summary "$inconsistent" "$good_two" "$good_three"
 
 overflow="$temp_root/overflow.result.txt"
 cp "$good_one" "$overflow"
-sed -i '' 's/entry_to_title_ms=2180/entry_to_title_ms=2185/' "$overflow"
+replace_inplace "$overflow" "entry_to_title_ms=2180" "entry_to_title_ms=2185"
 assert_fails overflow run_summary "$overflow" "$good_two" "$good_three"
 
 clock_step="$temp_root/clock-step.result.txt"

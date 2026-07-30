@@ -12,6 +12,7 @@ using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 
 namespace DTXMania.Test.Song
 {
+    [Trait("Category", "Unit")]
     public sealed class SongDatabaseServiceBulkImportTests : IDisposable
     {
         private sealed class CountingSongDbContext : SongDbContext

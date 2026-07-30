@@ -46,6 +46,22 @@ namespace DTXMania.Game.Lib.Song
                 && !Path.IsPathRooted(relative);
         }
 
+        /// <summary>
+        /// Checks whether <paramref name="normalizedPath"/> is contained within
+        /// <paramref name="normalizedRoot"/>. Both arguments must already be
+        /// normalized via <see cref="Normalize"/>. Avoids redundant normalization
+        /// when checking many paths against a pre-normalized root.
+        /// </summary>
+        public static bool IsUnderNormalizedRoot(
+            string normalizedPath,
+            string normalizedRoot)
+        {
+            var relative = Path.GetRelativePath(normalizedRoot, normalizedPath);
+            return relative != ".."
+                && !relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+                && !Path.IsPathRooted(relative);
+        }
+
         public static string ForSetDefinition(string setDefPath) =>
             $"set|{Normalize(setDefPath)}";
 

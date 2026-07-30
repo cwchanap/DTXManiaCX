@@ -1644,6 +1644,10 @@ namespace DTXMania.Test
                 SurfaceFormat format,
                 DepthFormat depthFormat,
                 int multiSampleCount) =>
+                // Intentionally returns the nullable backing field as null to
+                // simulate the missing-render-target scenario. The null-forgiving
+                // operator suppresses the compiler warning; do not replace this
+                // with a throw, as tests rely on the null return value.
                 _renderTarget!;
         }
 

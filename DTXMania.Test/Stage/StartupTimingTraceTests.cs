@@ -85,7 +85,7 @@ public class StartupTimingTraceTests
     }
 
     [Fact]
-    public void StartProcess_WhenCriticalPathFlagIsOne_ShouldShareEntryClocksWithCompanion()
+    public void StartProcess_WhenCriticalPathFlagIsOne_ShouldEnableCriticalPathAndExitAfterPublication()
     {
         var previousCriticalPath = Environment.GetEnvironmentVariable(CriticalPathVariable);
         var previousExit = Environment.GetEnvironmentVariable(ExitAfterCriticalPathVariable);
@@ -95,26 +95,32 @@ public class StartupTimingTraceTests
             Environment.SetEnvironmentVariable(CriticalPathVariable, "1");
             Environment.SetEnvironmentVariable(ExitAfterCriticalPathVariable, "1");
             var processTrace = StartupTimingTrace.StartProcess();
-            var clock = new FakeMonotonicClock(123);
-            var wallClock = new FakeUtcMicrosecondClock(456);
-
-            var deterministicTrace = StartupTimingTrace.Start(
-                clock,
-                wallClock,
-                enableCriticalPath: true,
-                exitAfterCriticalPath: true);
 
             Assert.NotNull(processTrace.CriticalPathTrace);
             Assert.True(processTrace.CriticalPathTrace.ExitAfterPublication);
-            Assert.NotNull(deterministicTrace.CriticalPathTrace);
-            Assert.Equal(1, clock.CallCount);
-            Assert.Equal(1, wallClock.CallCount);
         }
         finally
         {
             Environment.SetEnvironmentVariable(CriticalPathVariable, previousCriticalPath);
             Environment.SetEnvironmentVariable(ExitAfterCriticalPathVariable, previousExit);
         }
+    }
+
+    [Fact]
+    public void Start_WhenCriticalPathEnabledWithInjectedClocks_ShouldShareEntryClocksWithCompanion()
+    {
+        var clock = new FakeMonotonicClock(123);
+        var wallClock = new FakeUtcMicrosecondClock(456);
+
+        var deterministicTrace = StartupTimingTrace.Start(
+            clock,
+            wallClock,
+            enableCriticalPath: true,
+            exitAfterCriticalPath: true);
+
+        Assert.NotNull(deterministicTrace.CriticalPathTrace);
+        Assert.Equal(1, clock.CallCount);
+        Assert.Equal(1, wallClock.CallCount);
     }
 
     [Fact]

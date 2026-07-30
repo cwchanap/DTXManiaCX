@@ -5,6 +5,7 @@ using Xunit;
 
 namespace DTXMania.Test.Song
 {
+    [Trait("Category", "Unit")]
     public sealed class SongPathIdentityTests
     {
         [Fact]
@@ -67,9 +68,15 @@ namespace DTXMania.Test.Song
         [Fact]
         public void SetDefinitionGroupKey_ShouldIgnoreChartTitleDifferences()
         {
-            var key = SongPathIdentity.ForSetDefinition("/songs/group/set.def");
+            // Two charts with different titles under the same set.def should
+            // produce identical set-definition group keys, since the key is
+            // derived solely from the set.def path.
+            var setDefPath = "/songs/group/set.def";
+            var first = SongPathIdentity.ForSetDefinition(setDefPath);
+            var second = SongPathIdentity.ForSetDefinition(setDefPath);
 
-            Assert.StartsWith("set|", key, StringComparison.Ordinal);
+            Assert.Equal(first, second);
+            Assert.StartsWith("set|", first, StringComparison.Ordinal);
         }
     }
 }

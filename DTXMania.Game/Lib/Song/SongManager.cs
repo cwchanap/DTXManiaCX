@@ -411,11 +411,8 @@ namespace DTXMania.Game.Lib.Song
             if (GetDatabaseServiceSnapshot() == null)
                 return (0, false);
 
-            lock (_lockObject)
-            {
-                if (_enumCancellation is { IsCancellationRequested: false })
-                    return (0, false);
-            }
+            if (!IsEnumerationIdle())
+                return (0, false);
 
             var result = await EnumerateAndImportSongsAsync(
                 searchPaths,
@@ -614,11 +611,8 @@ namespace DTXMania.Game.Lib.Song
             if (GetDatabaseServiceSnapshot() == null)
                 return 0;
 
-            lock (_lockObject)
-            {
-                if (_enumCancellation is { IsCancellationRequested: false })
-                    return 0;
-            }
+            if (!IsEnumerationIdle())
+                return 0;
 
             var result = await EnumerateAndImportSongsAsync(
                 searchPaths,
@@ -730,6 +724,18 @@ namespace DTXMania.Game.Lib.Song
             }
         }
 
+        /// <summary>
+        /// Fast-path check: returns false if an enumeration is already in
+        /// progress, avoiding a throw from <see cref="BeginEnumeration"/>.
+        /// </summary>
+        private bool IsEnumerationIdle()
+        {
+            lock (_lockObject)
+            {
+                return _enumCancellation is not { IsCancellationRequested: false };
+            }
+        }
+
         private CancellationTokenSource BeginEnumeration(CancellationToken token)
         {
             lock (_lockObject)
@@ -763,9 +769,12 @@ namespace DTXMania.Game.Lib.Song
             private readonly Stopwatch _stopwatch = Stopwatch.StartNew();
 
             public SongEnumerationBatchBuilder(
-                IReadOnlyList<string> activeRoots)
+                IReadOnlyList<string> activeRoots,
+                List<SongEnumerationError>? errors = null)
             {
                 ActiveRoots = activeRoots;
+                if (errors != null)
+                    Errors.AddRange(errors);
             }
 
             public IReadOnlyList<string> ActiveRoots { get; }
@@ -812,26 +821,60 @@ namespace DTXMania.Game.Lib.Song
             IEnumerable<string> searchPaths)
         {
             ArgumentNullException.ThrowIfNull(searchPaths);
-            var roots = searchPaths.Select(path =>
+            var validRoots = new List<string>();
+            var errors = new List<SongEnumerationError>();
+            foreach (var path in searchPaths)
             {
                 if (string.IsNullOrWhiteSpace(path))
                 {
-                    throw new DirectoryNotFoundException(
-                        "A configured song root is blank.");
+                    var blankError = new SongEnumerationError(
+                        path ?? string.Empty,
+                        "A configured song root is blank.",
+                        IsRootFailure: true);
+                    errors.Add(blankError);
+                    Debug.WriteLine(
+                        $"SongManager: skipping blank song root: {blankError.Message}");
+                    continue;
                 }
 
-                var normalized = SongPathIdentity.Normalize(path);
+                string normalized;
+                try
+                {
+                    normalized = SongPathIdentity.Normalize(path);
+                }
+                catch (Exception ex) when (
+                    ex is ArgumentException or NotSupportedException
+                        or System.IO.PathTooLongException)
+                {
+                    var normalizeError = new SongEnumerationError(
+                        path,
+                        $"Configured song root path is invalid: {ex.Message}",
+                        IsRootFailure: true);
+                    errors.Add(normalizeError);
+                    Debug.WriteLine(
+                        $"SongManager: skipping invalid song root: {normalizeError.Message}");
+                    continue;
+                }
+
                 if (!Directory.Exists(normalized))
                 {
-                    throw new DirectoryNotFoundException(
-                        $"Configured song root does not exist: {normalized}");
+                    var missingError = new SongEnumerationError(
+                        normalized,
+                        $"Configured song root does not exist: {normalized}",
+                        IsRootFailure: true);
+                    errors.Add(missingError);
+                    Debug.WriteLine(
+                        $"SongManager: skipping missing song root: {missingError.Message}");
+                    continue;
                 }
 
-                return normalized;
-            })
-            .Distinct(SongPathIdentity.CanonicalComparer)
-            .ToArray();
-            return new SongEnumerationBatchBuilder(roots);
+                validRoots.Add(normalized);
+            }
+
+            var distinctRoots = validRoots
+                .Distinct(SongPathIdentity.CanonicalComparer)
+                .ToArray();
+            return new SongEnumerationBatchBuilder(distinctRoots, errors);
         }
 
         private async Task EnumerateDirectoryIntoBatchAsync(
@@ -2928,10 +2971,53 @@ namespace DTXMania.Game.Lib.Song
             if (db == null) return new List<SongListNode>();
 
             var hasActiveRoots = GetCurrentSearchPathsSnapshot().Length > 0;
-            var songs = await db.GetRecentlyPlayedSongsAsync(
-                hasActiveRoots ? int.MaxValue : limit).ConfigureAwait(false);
-            var nodes = new List<SongListNode>(Math.Min(songs.Count, limit));
-            var activeSongs = songs
+            var nodes = new List<SongListNode>(limit);
+
+            // When active roots exist, we cannot push the root-containment filter
+            // into the DB query (it's a SongManager concept). Instead of loading
+            // all played songs via int.MaxValue, fetch bounded batches and page
+            // until we collect `limit` active songs or exhaust the recency list.
+            if (!hasActiveRoots)
+            {
+                var songs = await db.GetRecentlyPlayedSongsAsync(limit)
+                    .ConfigureAwait(false);
+                AppendActiveNodes(songs, limit, ref nodes, orderByActive: false);
+                return nodes;
+            }
+
+            const int batchSize = 64;
+            var skip = 0;
+            while (nodes.Count < limit)
+            {
+                // Fetch a bounded batch of recently played songs by skipping
+                // already-fetched rows. The DB query orders by LastPlayedAt
+                // descending, so Skip(offset).Take(batchSize) pages through
+                // the recency list without loading all played songs at once.
+                var batch = await db.GetRecentlyPlayedSongsAsync(batchSize, skip)
+                    .ConfigureAwait(false);
+                if (batch.Count == 0)
+                    break;
+
+                // Filter to songs with active charts and append up to limit.
+                AppendActiveNodes(batch, limit, ref nodes, orderByActive: true);
+                if (batch.Count < batchSize)
+                    break; // exhausted
+
+                skip += batchSize;
+                if (skip > 10000)
+                    break; // safety valve to avoid unbounded paging
+            }
+
+            return nodes;
+        }
+
+        private void AppendActiveNodes(
+            List<SongEntity> songs,
+            int limit,
+            ref List<SongListNode> nodes,
+            bool orderByActive)
+        {
+            var items = songs
                 .Select(song =>
                 {
                     var charts = GetActiveCharts(song);
@@ -2945,15 +3031,18 @@ namespace DTXMania.Game.Lib.Song
                 })
                 .Where(item =>
                     item.Charts.Length > 0 && item.LastPlayedAt.HasValue);
-            if (hasActiveRoots)
+
+            if (orderByActive)
             {
-                activeSongs = activeSongs
+                items = items
                     .OrderByDescending(item => item.LastPlayedAt)
                     .ThenBy(item => item.Song.Id);
             }
 
-            foreach (var item in activeSongs)
+            foreach (var item in items)
             {
+                if (nodes.Count >= limit)
+                    break;
                 var song = item.Song;
                 var charts = item.Charts;
                 song.Charts = charts;
@@ -2969,11 +3058,8 @@ namespace DTXMania.Game.Lib.Song
                         .Select(score => (int?)score.PlaySpeedPercent)
                         .FirstOrDefault();
                     nodes.Add(node);
-                    if (nodes.Count >= limit)
-                        break;
                 }
             }
-            return nodes;
         }
 
         /// <summary>
