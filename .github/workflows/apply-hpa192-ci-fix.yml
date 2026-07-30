@@ -1,0 +1,151 @@
+name: Apply HPA-192 CI fix
+
+on:
+  push:
+    branches:
+      - codex/hpa-192-batched-import
+    paths:
+      - .github/workflows/apply-hpa192-ci-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/hpa-192-batched-import
+          fetch-depth: 0
+
+      - name: Apply focused Windows test fixes
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: Path, old: str, new: str) -> None:
+              text = path.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(
+                      f"expected exactly one match in {path}, found {count}: {old[:80]!r}"
+                  )
+              path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          manager_tests = Path("DTXMania.Test/Song/SongManagerBulkEnumerationTests.cs")
+          replace_once(
+              manager_tests,
+              "using DTXMania.Test.TestData;\nusing Microsoft.EntityFrameworkCore;",
+              "using DTXMania.Test.TestData;\nusing Microsoft.Data.Sqlite;\nusing Microsoft.EntityFrameworkCore;",
+          )
+          replace_once(
+              manager_tests,
+              """        var setDefPath = Path.Combine(setRoot, \"set.def\");""",
+              """        var setDefPath = SongPathIdentity.Normalize(
+            Path.Combine(setRoot, \"set.def\"));""",
+          )
+          replace_once(
+              manager_tests,
+              """    public void Dispose()
+    {
+        SongManager.ResetInstanceForTesting();
+        if (Directory.Exists(_testRoot))
+            Directory.Delete(_testRoot, recursive: true);
+    }""",
+              """    public void Dispose()
+    {
+        SongManager.ResetInstanceForTesting();
+        SqliteConnection.ClearAllPools();
+        if (Directory.Exists(_testRoot))
+            Directory.Delete(_testRoot, recursive: true);
+    }""",
+          )
+          replace_once(
+              manager_tests,
+              """    private string WriteChart(string relativePath, string title, int drumLevel)
+    {
+        var path = Path.Combine(_testRoot, relativePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllLines(path, new[]
+        {
+            $\"#TITLE: {title}\",
+            \"#ARTIST: Fixture Artist\",
+            \"#BPM: 120\",
+            $\"#DLEVEL: {drumLevel}\"
+        });
+        return path;
+    }""",
+              """    private string WriteChart(string relativePath, string title, int drumLevel)
+    {
+        var path = Path.Combine(_testRoot, relativePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllLines(path, new[]
+        {
+            $\"#TITLE: {title}\",
+            \"#ARTIST: Fixture Artist\",
+            \"#BPM: 120\",
+            $\"#DLEVEL: {drumLevel}\"
+        });
+        return SongPathIdentity.Normalize(path);
+    }""",
+          )
+
+          import_tests = Path("DTXMania.Test/Song/SongDatabaseServiceBulkImportTests.cs")
+          replace_once(
+              import_tests,
+              """            var legacy = await SeedChartWithStoredPathAsync(
+                \"/songs/active/Chart.dtx\", \"Legacy\");
+            var target = await SeedChartWithStoredPathAsync(
+                \"/songs/active/chart.dtx\", \"Target\");
+            var candidate = Candidate(""",
+              """            var legacy = await SeedChartWithStoredPathAsync(
+                \"/songs/active/Chart.dtx\", \"Legacy\");
+            var targetPath = SongPathIdentity.Normalize(
+                \"/songs/active/chart.dtx\");
+            var target = await SeedChartWithStoredPathAsync(
+                targetPath, \"Target\");
+            var candidate = Candidate(""",
+          )
+          replace_once(
+              import_tests,
+              """            Assert.Contains(
+                storedCharts,
+                chart => chart.Id == target.Id &&
+                    chart.FilePath == \"/songs/active/chart.dtx\");""",
+              """            Assert.Contains(
+                storedCharts,
+                chart => chart.Id == target.Id &&
+                    chart.FilePath == targetPath);""",
+          )
+          replace_once(
+              import_tests,
+              """                activeChartId = song.Charts.Single(chart =>
+                    chart.FilePath.Contains(\"/active/\")).Id;
+                inactiveChartId = song.Charts.Single(chart =>
+                    chart.FilePath.Contains(\"/inactive/\")).Id;""",
+              """                activeChartId = song.Charts.Single(chart =>
+                    SongPathIdentity.IsUnderRoot(
+                        chart.FilePath,
+                        \"/songs/active\")).Id;
+                inactiveChartId = song.Charts.Single(chart =>
+                    SongPathIdentity.IsUnderRoot(
+                        chart.FilePath,
+                        \"/songs/inactive\")).Id;""",
+          )
+          PY
+
+          git diff --check
+          git diff -- DTXMania.Test/Song/SongManagerBulkEnumerationTests.cs \
+            DTXMania.Test/Song/SongDatabaseServiceBulkImportTests.cs
+
+      - name: Commit fixes
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add DTXMania.Test/Song/SongManagerBulkEnumerationTests.cs \
+            DTXMania.Test/Song/SongDatabaseServiceBulkImportTests.cs
+          git commit -m "test: fix Windows song import coverage"
+          git push origin HEAD:codex/hpa-192-batched-import
