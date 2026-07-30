@@ -2572,65 +2572,65 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-    public void CreateEnumerationProgressReporter_ShouldUpdateCurrentOperation()
-    {
-        var stage = CreateControlledStage();
-        ReflectionHelpers.SetPrivateField(stage, "_activationGeneration", 1L);
-        using var synchronizationContext = new SynchronizationContextScope(
-            new ImmediateSynchronizationContext());
-
-        var reporter = ReflectionHelpers.InvokePrivateMethod<IProgress<EnumerationProgress>>(
-            stage,
-            "CreateEnumerationProgressReporterForActivation",
-            1L,
-            CancellationToken.None);
-
-        Assert.NotNull(reporter);
-        reporter!.Report(new EnumerationProgress
+        public void CreateEnumerationProgressReporter_ShouldUpdateCurrentOperation()
         {
-            CurrentOperation = "Scanning"
-        });
-        Assert.Contains(
-            "Scanning",
-            ReflectionHelpers.GetPrivateField<string>(
-  stage,
-  "_currentProgressMessage")!);
-    }
+            var stage = CreateControlledStage();
+            ReflectionHelpers.SetPrivateField(stage, "_activationGeneration", 1L);
+            using var synchronizationContext = new SynchronizationContextScope(
+                new ImmediateSynchronizationContext());
 
-    [Fact]
-    public void CreateEnumerationProgressReporter_WhenReportedWithStaleGeneration_ShouldReturnEarly()
-    {
-        var stage = CreateControlledStage();
-        ReflectionHelpers.SetPrivateField(stage, "_activationGeneration", 1L);
-        ReflectionHelpers.SetPrivateField(
-            stage,
-            "_currentProgressMessage",
-            "Before");
-        using var synchronizationContext = new SynchronizationContextScope(
-            new ImmediateSynchronizationContext());
-        var reporter = ReflectionHelpers.InvokePrivateMethod<IProgress<EnumerationProgress>>(
-            stage,
-            "CreateEnumerationProgressReporterForActivation",
-            1L,
-            CancellationToken.None);
+            var reporter = ReflectionHelpers.InvokePrivateMethod<IProgress<EnumerationProgress>>(
+                stage,
+                "CreateEnumerationProgressReporterForActivation",
+                1L,
+                CancellationToken.None);
 
-        Assert.NotNull(reporter);
-        ReflectionHelpers.SetPrivateField(stage, "_activationGeneration", 2L);
-        reporter!.Report(new EnumerationProgress
+            Assert.NotNull(reporter);
+            reporter!.Report(new EnumerationProgress
+            {
+                CurrentOperation = "Scanning"
+            });
+            Assert.Contains(
+                "Scanning",
+                ReflectionHelpers.GetPrivateField<string>(
+                    stage,
+                    "_currentProgressMessage")!);
+        }
+
+        [Fact]
+        public void CreateEnumerationProgressReporter_WhenReportedWithStaleGeneration_ShouldReturnEarly()
         {
-            CurrentOperation = "Scanning",
-            ProcessedCount = 1,
-            DiscoveredSongs = 10
-        });
+            var stage = CreateControlledStage();
+            ReflectionHelpers.SetPrivateField(stage, "_activationGeneration", 1L);
+            ReflectionHelpers.SetPrivateField(
+                stage,
+                "_currentProgressMessage",
+                "Before");
+            using var synchronizationContext = new SynchronizationContextScope(
+                new ImmediateSynchronizationContext());
+            var reporter = ReflectionHelpers.InvokePrivateMethod<IProgress<EnumerationProgress>>(
+                stage,
+                "CreateEnumerationProgressReporterForActivation",
+                1L,
+                CancellationToken.None);
 
-        Assert.Equal(
-            "Before",
-            ReflectionHelpers.GetPrivateField<string>(
-  stage,
-  "_currentProgressMessage"));
-    }
+            Assert.NotNull(reporter);
+            ReflectionHelpers.SetPrivateField(stage, "_activationGeneration", 2L);
+            reporter!.Report(new EnumerationProgress
+            {
+                CurrentOperation = "Scanning",
+                ProcessedCount = 1,
+                DiscoveredSongs = 10
+            });
 
-            [Fact]
+            Assert.Equal(
+                "Before",
+                ReflectionHelpers.GetPrivateField<string>(
+                    stage,
+                    "_currentProgressMessage"));
+        }
+
+        [Fact]
         public async Task TryBuildCacheFallbackOnceForActivationAsync_WhenAlreadyAttempted_ShouldReturnEarly()
         {
             var stage = CreateControlledStage();

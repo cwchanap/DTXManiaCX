@@ -1296,7 +1296,7 @@ public class StartupCriticalPathTraceTests
         Assert.Contains("error=invalid_wall_clock", writer.ToString());
     }
 
-        [Fact]
+    [Fact]
     public void Publish_WhenAggregateStillOpen_ShouldFailAggregateStillOpen()
     {
         var fixture = CreateFixture();
