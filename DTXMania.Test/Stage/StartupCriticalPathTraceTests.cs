@@ -1285,7 +1285,7 @@ public class StartupCriticalPathTraceTests
     }
 
     [Fact]
-    public void Publish_WhenTitleBackbufferUnixMicrosecondsOutOfRange_ShouldFailSchemaValidation()
+    public void Publish_WhenTitleBackbufferUnixMicrosecondsOutOfRange_ShouldFailInvalidWallClock()
     {
         var fixture = CreateFixture();
         CompleteValidTrace(fixture);
@@ -1293,10 +1293,10 @@ public class StartupCriticalPathTraceTests
 
         using var writer = new TrackingWriter();
         Assert.True(fixture.Trace.TryPublishTerminal(writer));
-        Assert.Contains("error=schema_validation_failed", writer.ToString());
+        Assert.Contains("error=invalid_wall_clock", writer.ToString());
     }
 
-    [Fact]
+        [Fact]
     public void Publish_WhenAggregateStillOpen_ShouldFailAggregateStillOpen()
     {
         var fixture = CreateFixture();

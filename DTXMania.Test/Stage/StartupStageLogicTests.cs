@@ -2572,39 +2572,65 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void CreateEnumerationProgressReporter_ShouldReturnProgressInstance()
+    public void CreateEnumerationProgressReporter_ShouldUpdateCurrentOperation()
+    {
+        var stage = CreateControlledStage();
+        ReflectionHelpers.SetPrivateField(stage, "_activationGeneration", 1L);
+        using var synchronizationContext = new SynchronizationContextScope(
+            new ImmediateSynchronizationContext());
+
+        var reporter = ReflectionHelpers.InvokePrivateMethod<IProgress<EnumerationProgress>>(
+            stage,
+            "CreateEnumerationProgressReporterForActivation",
+            1L,
+            CancellationToken.None);
+
+        Assert.NotNull(reporter);
+        reporter!.Report(new EnumerationProgress
         {
-            var stage = CreateControlledStage();
+            CurrentOperation = "Scanning"
+        });
+        Assert.Contains(
+            "Scanning",
+            ReflectionHelpers.GetPrivateField<string>(
+  stage,
+  "_currentProgressMessage")!);
+    }
 
-            var reporter = ReflectionHelpers.InvokePrivateMethod<IProgress<EnumerationProgress>>(
-                stage,
-                "CreateEnumerationProgressReporter");
+    [Fact]
+    public void CreateEnumerationProgressReporter_WhenReportedWithStaleGeneration_ShouldReturnEarly()
+    {
+        var stage = CreateControlledStage();
+        ReflectionHelpers.SetPrivateField(stage, "_activationGeneration", 1L);
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_currentProgressMessage",
+            "Before");
+        using var synchronizationContext = new SynchronizationContextScope(
+            new ImmediateSynchronizationContext());
+        var reporter = ReflectionHelpers.InvokePrivateMethod<IProgress<EnumerationProgress>>(
+            stage,
+            "CreateEnumerationProgressReporterForActivation",
+            1L,
+            CancellationToken.None);
 
-            Assert.NotNull(reporter);
-        }
-
-        [Fact]
-        public void CreateEnumerationProgressReporter_WhenReportedWithStaleGeneration_ShouldReturnEarly()
+        Assert.NotNull(reporter);
+        ReflectionHelpers.SetPrivateField(stage, "_activationGeneration", 2L);
+        reporter!.Report(new EnumerationProgress
         {
-            var stage = CreateControlledStage();
-            ReflectionHelpers.SetPrivateField(stage, "_startupPhase", StartupPhase.EnumerateSongs);
-            var reporter = ReflectionHelpers.InvokePrivateMethod<IProgress<EnumerationProgress>>(
-                stage,
-                "CreateEnumerationProgressReporter");
+            CurrentOperation = "Scanning",
+            ProcessedCount = 1,
+            DiscoveredSongs = 10
+        });
 
-            // Bump the activation generation so the reporter's captured generation is stale.
-            ReflectionHelpers.SetPrivateField(stage, "_activationGeneration", 999L);
+        Assert.Equal(
+            "Before",
+            ReflectionHelpers.GetPrivateField<string>(
+  stage,
+  "_currentProgressMessage"));
+    }
 
-            // Should not throw despite stale generation.
-            reporter!.Report(new EnumerationProgress
-            {
-                CurrentOperation = "Scanning",
-                ProcessedCount = 1,
-                DiscoveredSongs = 10
-            });
-        }
-
-        [Fact]
+            [Fact]
         public async Task TryBuildCacheFallbackOnceForActivationAsync_WhenAlreadyAttempted_ShouldReturnEarly()
         {
             var stage = CreateControlledStage();
