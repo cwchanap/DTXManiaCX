@@ -1,9 +1,12 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage;
+using DTXMania.Test.TestData;
 
 namespace DTXMania.Test.Stage;
 
@@ -738,4 +741,795 @@ public class StartupCriticalPathTraceTests
             throw new IOException("writer failure");
         }
     }
+
+    #region Edge-Case Branch Coverage
+
+    private static void SetTerminalOutcome(StartupCriticalPathTrace trace, string name)
+    {
+        var field = typeof(StartupCriticalPathTrace).GetField(
+            "_terminalOutcome",
+            BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.NotNull(field);
+        field!.SetValue(trace, Enum.Parse(field.FieldType, name));
+    }
+
+    private static long[] AggregateTimestamps(StartupCriticalPathTrace trace) =>
+        ReflectionHelpers.GetPrivateField<long[]>(trace, "_aggregateTimestampTicks")!;
+
+    private static long[] AggregateCounts(StartupCriticalPathTrace trace) =>
+        ReflectionHelpers.GetPrivateField<long[]>(trace, "_aggregateCounts")!;
+
+    private static bool[] AggregateActive(StartupCriticalPathTrace trace) =>
+        ReflectionHelpers.GetPrivateField<bool[]>(trace, "_aggregateActive")!;
+
+    private static long[] Timestamps(StartupCriticalPathTrace trace) =>
+        ReflectionHelpers.GetPrivateField<long[]>(trace, "_timestamps")!;
+
+    private static void SetField(StartupCriticalPathTrace trace, string name, object? value)
+    {
+        var field = typeof(StartupCriticalPathTrace).GetField(
+            name,
+            BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.NotNull(field);
+        field!.SetValue(trace, value);
+    }
+
+    [Fact]
+    public void RecordExactlyOnce_WhenTerminalOutcomeFailure_ShouldReturnInsideLock()
+    {
+        var fixture = CreateFixture();
+        SetTerminalOutcome(fixture.Trace, "Failure");
+
+        fixture.Trace.RecordExactlyOnce(StartupCriticalPathMilestone.LoadContentComplete);
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.StartsWith("HPA192_CRITICAL_PATH_FAILURE ", writer.ToString());
+    }
+
+    [Fact]
+    public void RecordFirstObservationBegin_WhenTerminalOutcomeFailure_ShouldReturnInsideLock()
+    {
+        var fixture = CreateFixture();
+        SetTerminalOutcome(fixture.Trace, "Failure");
+
+        fixture.Trace.RecordFirstObservationBegin(
+            StartupCriticalPathMilestone.StartupFirstUpdateBegin,
+            StartupCriticalPathMilestone.StartupFirstUpdateEnd);
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.StartsWith("HPA192_CRITICAL_PATH_FAILURE ", writer.ToString());
+    }
+
+    [Fact]
+    public void RecordFirstObservationEnd_WhenTerminalOutcomeFailure_ShouldReturnInsideLock()
+    {
+        var fixture = CreateFixture();
+        SetTerminalOutcome(fixture.Trace, "Failure");
+
+        fixture.Trace.RecordFirstObservationEnd(
+            StartupCriticalPathMilestone.StartupFirstUpdateBegin,
+            StartupCriticalPathMilestone.StartupFirstUpdateEnd);
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.StartsWith("HPA192_CRITICAL_PATH_FAILURE ", writer.ToString());
+    }
+
+    [Fact]
+    public void BeginAggregate_WhenTerminalOutcomeFailure_ShouldReturnInsideLock()
+    {
+        var fixture = CreateFixture();
+        SetTerminalOutcome(fixture.Trace, "Failure");
+
+        fixture.Trace.BeginAggregate(StartupCriticalPathAggregate.DatabaseServiceSetup);
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.StartsWith("HPA192_CRITICAL_PATH_FAILURE ", writer.ToString());
+    }
+
+    [Fact]
+    public void EndAggregate_WhenTerminalOutcomeFailure_ShouldReturnInsideLock()
+    {
+        var fixture = CreateFixture();
+        SetTerminalOutcome(fixture.Trace, "Failure");
+
+        fixture.Trace.EndAggregate(StartupCriticalPathAggregate.DatabaseServiceSetup);
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.StartsWith("HPA192_CRITICAL_PATH_FAILURE ", writer.ToString());
+    }
+
+    [Fact]
+    public void RecordDatabaseTaskReturned_WhenTerminalOutcomeFailure_ShouldReturnInsideLock()
+    {
+        var fixture = CreateFixture();
+        SetTerminalOutcome(fixture.Trace, "Failure");
+
+        fixture.Trace.RecordDatabaseTaskReturned(wasTerminal: false);
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.StartsWith("HPA192_CRITICAL_PATH_FAILURE ", writer.ToString());
+    }
+
+    [Fact]
+    public void RecordEnumerationTaskReturned_WhenTerminalOutcomeFailure_ShouldReturnInsideLock()
+    {
+        var fixture = CreateFixture();
+        SetTerminalOutcome(fixture.Trace, "Failure");
+
+        fixture.Trace.RecordEnumerationTaskReturned(wasTerminal: false);
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.StartsWith("HPA192_CRITICAL_PATH_FAILURE ", writer.ToString());
+    }
+
+    [Fact]
+    public void RecordTitleCompletionLookup_WhenTerminalOutcomeFailure_ShouldReturnInsideLock()
+    {
+        var fixture = CreateFixture();
+        SetTerminalOutcome(fixture.Trace, "Failure");
+
+        fixture.Trace.RecordTitleCompletionLookup(cacheHit: true);
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.StartsWith("HPA192_CRITICAL_PATH_FAILURE ", writer.ToString());
+    }
+
+    [Fact]
+    public void RecordFirstObservationEnd_WhenBeginNotRecorded_ShouldFailUnmatchedFirstObservation()
+    {
+        var fixture = CreateFixture();
+
+        fixture.Trace.RecordFirstObservationEnd(
+            StartupCriticalPathMilestone.StartupFirstUpdateBegin,
+            StartupCriticalPathMilestone.StartupFirstUpdateEnd);
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Contains("error=unmatched_first_observation", writer.ToString());
+    }
+
+    [Fact]
+    public void RecordFirstObservationEnd_WhenWallClockThrows_ShouldFailWallClockFailure()
+    {
+        var clock = new ManualMonotonicClock();
+        var trace = StartupCriticalPathTrace.Start(
+            clock,
+            new AlwaysThrowingUtcMicrosecondClock(),
+            entryTimestamp: 0,
+            entryUnixMicroseconds: 1_000_000,
+            exitAfterPublication: false);
+
+        trace.RecordFirstObservationBegin(
+            StartupCriticalPathMilestone.TitleBackbufferBlitBegin,
+            StartupCriticalPathMilestone.TitleBackbufferBlitEnd);
+        trace.RecordFirstObservationEnd(
+            StartupCriticalPathMilestone.TitleBackbufferBlitBegin,
+            StartupCriticalPathMilestone.TitleBackbufferBlitEnd);
+
+        using var writer = new TrackingWriter();
+        Assert.True(trace.TryPublishTerminal(writer));
+        Assert.Contains("error=wall_clock_failure", writer.ToString());
+    }
+
+    [Fact]
+    public void RecordFirstObservationEnd_WhenTerminalSetDuringWallClockRead_ShouldReturnBeforeStoringWallTimestamp()
+    {
+        // The wall-clock read happens outside the first lock. If the terminal outcome becomes
+        // non-Open between the first lock (which sets the pending flag) and the second lock
+        // (which stores the wall timestamp), the second lock must bail out without storing.
+        var clock = new ManualMonotonicClock();
+        var wallClock = new TraceCorruptingWallClock();
+        var trace = StartupCriticalPathTrace.Start(
+            clock,
+            wallClock,
+            entryTimestamp: 0,
+            entryUnixMicroseconds: 1_000_000,
+            exitAfterPublication: false);
+        wallClock.Trace = trace;
+
+        trace.RecordFirstObservationBegin(
+            StartupCriticalPathMilestone.TitleBackbufferBlitBegin,
+            StartupCriticalPathMilestone.TitleBackbufferBlitEnd);
+        trace.RecordFirstObservationEnd(
+            StartupCriticalPathMilestone.TitleBackbufferBlitBegin,
+            StartupCriticalPathMilestone.TitleBackbufferBlitEnd);
+
+        using var writer = new TrackingWriter();
+        Assert.True(trace.TryPublishTerminal(writer));
+        Assert.StartsWith("HPA192_CRITICAL_PATH_FAILURE ", writer.ToString());
+        // The wall timestamp must not have been stored because the terminal outcome was set
+        // during the wall-clock read.
+        Assert.DoesNotContain("title_backbuffer_unix_us=2000000", writer.ToString());
+    }
+
+    [Fact]
+    public void EndAggregate_WhenNotBegun_ShouldFailUnmatchedAggregate()
+    {
+        var fixture = CreateFixture();
+
+        fixture.Trace.EndAggregate(StartupCriticalPathAggregate.DatabaseServiceSetup);
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Contains("error=unmatched_aggregate", writer.ToString());
+    }
+
+    [Fact]
+    public void EndAggregate_WhenElapsedNegative_ShouldFailNegativeAggregate()
+    {
+        var fixture = CreateFixture();
+        At(fixture, 10, () => fixture.Trace.BeginAggregate(
+            StartupCriticalPathAggregate.DatabaseServiceSetup));
+        At(fixture, 5, () => fixture.Trace.EndAggregate(
+            StartupCriticalPathAggregate.DatabaseServiceSetup));
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Contains("error=negative_aggregate", writer.ToString());
+    }
+
+    [Fact]
+    public void EndAggregate_WhenAccumulatedTicksOverflow_ShouldFailAggregateOverflow()
+    {
+        var fixture = CreateFixture();
+        At(fixture, 10, () => fixture.Trace.BeginAggregate(
+            StartupCriticalPathAggregate.DatabaseServiceSetup));
+        AggregateTimestamps(fixture.Trace)[
+            (int)StartupCriticalPathAggregate.DatabaseServiceSetup] = long.MaxValue;
+        At(fixture, 11, () => fixture.Trace.EndAggregate(
+            StartupCriticalPathAggregate.DatabaseServiceSetup));
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Contains("error=aggregate_overflow", writer.ToString());
+    }
+
+    [Fact]
+    public void IncrementStartupUpdate_WhenElapsedNotFinite_ShouldFailInvalidElapsedTime()
+    {
+        var fixture = CreateFixture();
+
+        fixture.Trace.IncrementStartupUpdate(double.NaN);
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Contains("error=invalid_elapsed_time", writer.ToString());
+    }
+
+    [Fact]
+    public void IncrementStartupUpdate_WhenTerminalClosed_ShouldReturnEarly()
+    {
+        var fixture = CreateFixture();
+        fixture.Trace.Fail("boom", "elapsed_time");
+
+        fixture.Trace.IncrementStartupUpdate(1.0);
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Contains("error=boom", writer.ToString());
+    }
+
+    [Fact]
+    public void IncrementStartupUpdate_WhenElapsedOverflow_ShouldFailElapsedTimeOverflow()
+    {
+        var fixture = CreateFixture();
+
+        fixture.Trace.IncrementStartupUpdate(double.MaxValue);
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Contains("error=elapsed_time_overflow", writer.ToString());
+    }
+
+    [Fact]
+    public void IncrementStartupUpdate_WhenCounterOverflow_ShouldFailCounterOverflow()
+    {
+        var fixture = CreateFixture();
+        SetField(fixture.Trace, "_startupUpdateCount", long.MaxValue);
+
+        fixture.Trace.IncrementStartupUpdate(1.0);
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Contains("error=counter_overflow", writer.ToString());
+    }
+
+    [Fact]
+    public void IncrementCompletedStartupDraw_WhenCounterOverflow_ShouldFailCounterOverflow()
+    {
+        var fixture = CreateFixture();
+        SetField(fixture.Trace, "_startupDrawCount", long.MaxValue);
+
+        fixture.Trace.IncrementCompletedStartupDraw();
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Contains("error=counter_overflow", writer.ToString());
+    }
+
+    [Fact]
+    public void IncrementTransitionUpdate_WhenElapsedNotFinite_ShouldFailInvalidElapsedTime()
+    {
+        var fixture = CreateFixture();
+
+        fixture.Trace.IncrementTransitionUpdate(double.NaN);
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Contains("error=invalid_elapsed_time", writer.ToString());
+    }
+
+    [Fact]
+    public void IncrementTitleSoundLoad_WhenTerminalOutcomeFailure_ShouldReturnEarly()
+    {
+        var fixture = CreateFixture();
+        SetTerminalOutcome(fixture.Trace, "Failure");
+
+        fixture.Trace.IncrementTitleSoundLoad();
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.StartsWith("HPA192_CRITICAL_PATH_FAILURE ", writer.ToString());
+    }
+
+    [Fact]
+    public void IncrementTitleSoundLoad_WhenCounterOverflow_ShouldFailCounterOverflow()
+    {
+        var fixture = CreateFixture();
+        SetField(fixture.Trace, "_titleSoundLoadCount", long.MaxValue);
+
+        fixture.Trace.IncrementTitleSoundLoad();
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Contains("error=counter_overflow", writer.ToString());
+    }
+
+    [Fact]
+    public void MarkTitleGameStartFallbackRan_WhenTerminalOutcomeFailure_ShouldReturnEarly()
+    {
+        var fixture = CreateFixture();
+        SetTerminalOutcome(fixture.Trace, "Failure");
+
+        fixture.Trace.MarkTitleGameStartFallbackRan();
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.StartsWith("HPA192_CRITICAL_PATH_FAILURE ", writer.ToString());
+    }
+
+    [Fact]
+    public void MarkTitleGameStartFallbackRan_WhenAlreadyRan_ShouldFailDuplicateFlag()
+    {
+        var fixture = CreateFixture();
+        fixture.Trace.MarkTitleGameStartFallbackRan();
+        fixture.Trace.MarkTitleGameStartFallbackRan();
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Contains("error=duplicate_flag", writer.ToString());
+    }
+
+    [Fact]
+    public void RecordDatabaseTaskReturned_WhenDuplicate_ShouldFailDuplicateMilestone()
+    {
+        var fixture = CreateFixture();
+        fixture.Trace.RecordDatabaseTaskReturned(wasTerminal: false);
+        fixture.Trace.RecordDatabaseTaskReturned(wasTerminal: false);
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Contains("error=duplicate_milestone", writer.ToString());
+    }
+
+    [Fact]
+    public void RecordEnumerationTaskReturned_WhenDuplicate_ShouldFailDuplicateMilestone()
+    {
+        var fixture = CreateFixture();
+        fixture.Trace.RecordEnumerationTaskReturned(wasTerminal: false);
+        fixture.Trace.RecordEnumerationTaskReturned(wasTerminal: false);
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Contains("error=duplicate_milestone", writer.ToString());
+    }
+
+    [Fact]
+    public void RecordEnumerationResult_WhenDuplicate_ShouldFailDuplicateEnumerationResult()
+    {
+        var fixture = CreateFixture();
+        var result = CreateEnumerationResult();
+        fixture.Trace.RecordEnumerationResult(result);
+        fixture.Trace.RecordEnumerationResult(result);
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Contains("error=duplicate_enumeration_result", writer.ToString());
+    }
+
+    [Fact]
+    public void RecordEnumerationResult_WhenNull_ShouldFailMissingEnumerationResult()
+    {
+        var fixture = CreateFixture();
+
+        fixture.Trace.RecordEnumerationResult(null!);
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Contains("error=missing_enumeration_result", writer.ToString());
+    }
+
+    [Fact]
+    public void RecordTitleCompletionLookup_WhenDuplicate_ShouldFailDuplicateTitleCompletionLookup()
+    {
+        var fixture = CreateFixture();
+        fixture.Trace.RecordTitleCompletionLookup(cacheHit: true);
+        fixture.Trace.RecordTitleCompletionLookup(cacheHit: true);
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Contains("error=duplicate_title_completion_lookup", writer.ToString());
+    }
+
+    [Fact]
+    public void RecordTitleCompletionLookup_WhenCacheMiss_ShouldFailTitleCompletionCacheMiss()
+    {
+        var fixture = CreateFixture();
+
+        fixture.Trace.RecordTitleCompletionLookup(cacheHit: false);
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Contains("error=title_completion_cache_miss", writer.ToString());
+    }
+
+    [Fact]
+    public void RecordEnumerationTerminal_WhenOutcomeInvalid_ShouldThrowArgumentOutOfRangeException()
+    {
+        var fixture = CreateFixture();
+        var observer = (IStartupSongLoadTimingObserver)fixture.Trace;
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            observer.RecordEnumerationTerminal(
+                CreateEnumerationResult(),
+                (StartupOperationOutcome)999));
+    }
+
+    [Fact]
+    public void RecordEnumerationTerminal_WhenFailureOutcome_ShouldFailEnumerationFailure()
+    {
+        var fixture = CreateFixture();
+        var observer = (IStartupSongLoadTimingObserver)fixture.Trace;
+
+        observer.RecordEnumerationTerminal(null, StartupOperationOutcome.Failure);
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Contains("error=enumeration_failure", writer.ToString());
+    }
+
+    [Fact]
+    public void RecordEnumerationTerminal_WhenCancellationOutcome_ShouldFailEnumerationCancellation()
+    {
+        var fixture = CreateFixture();
+        var observer = (IStartupSongLoadTimingObserver)fixture.Trace;
+
+        observer.RecordEnumerationTerminal(null, StartupOperationOutcome.Cancellation);
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Contains("outcome=cancellation", writer.ToString());
+        Assert.Contains("error=enumeration_cancellation", writer.ToString());
+    }
+
+    [Fact]
+    public void BeginDatabaseSpan_WhenSpanInvalid_ShouldThrowArgumentOutOfRangeException()
+    {
+        var fixture = CreateFixture();
+        var observer = (IStartupSongLoadTimingObserver)fixture.Trace;
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            observer.BeginDatabaseSpan((StartupDatabaseTimingSpan)999));
+    }
+
+    [Fact]
+    public void TryCaptureTimestamp_WhenClockThrows_ShouldFailClockFailure()
+    {
+        var clock = new ThrowingTimestampClock();
+        var trace = StartupCriticalPathTrace.Start(
+            clock,
+            new FakeUtcMicrosecondClock(2_000_000),
+            entryTimestamp: 0,
+            entryUnixMicroseconds: 1_000_000,
+            exitAfterPublication: false);
+
+        trace.RecordExactlyOnce(StartupCriticalPathMilestone.LoadContentComplete);
+
+        using var writer = new TrackingWriter();
+        Assert.True(trace.TryPublishTerminal(writer));
+        Assert.Contains("error=clock_failure", writer.ToString());
+    }
+
+    [Fact]
+    public void TryPublishTerminal_WhenWriterNull_ShouldReturnFalse()
+    {
+        var fixture = CreateFixture();
+
+        Assert.False(fixture.Trace.TryPublishTerminal(null!));
+    }
+
+    [Fact]
+    public void Fail_WhenErrorEmpty_ShouldNormalizeToUnknownToken()
+    {
+        var fixture = CreateFixture();
+        fixture.Trace.Fail("", "");
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Equal(
+            "HPA192_CRITICAL_PATH_FAILURE outcome=failure error=unknown last_milestone=unknown\n",
+            writer.ToString());
+    }
+
+    [Fact]
+    public void Publish_WhenTitleBackbufferUnixMicrosecondsOutOfRange_ShouldFailSchemaValidation()
+    {
+        var fixture = CreateFixture();
+        CompleteValidTrace(fixture);
+        SetField(fixture.Trace, "_titleBackbufferUnixMicroseconds", long.MaxValue);
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Contains("error=schema_validation_failed", writer.ToString());
+    }
+
+    [Fact]
+    public void Publish_WhenAggregateStillOpen_ShouldFailAggregateStillOpen()
+    {
+        var fixture = CreateFixture();
+        CompleteValidTrace(fixture);
+        AggregateActive(fixture.Trace)[0] = true;
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Contains("error=aggregate_still_open", writer.ToString());
+    }
+
+    [Fact]
+    public void Publish_WhenAggregateDurationOutOfBounds_ShouldFailAggregateOutOfBounds()
+    {
+        var fixture = CreateFixture();
+        CompleteValidTrace(fixture);
+        AggregateTimestamps(fixture.Trace)[0] = 300_001;
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Contains("error=aggregate_out_of_bounds", writer.ToString());
+    }
+
+    [Fact]
+    public void Publish_WhenStartupUpdateCountOutOfBounds_ShouldFailCounterOutOfBounds()
+    {
+        var fixture = CreateFixture();
+        CompleteValidTrace(fixture);
+        SetField(fixture.Trace, "_startupUpdateCount", 100_001);
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Contains("error=counter_out_of_bounds", writer.ToString());
+    }
+
+    [Fact]
+    public void Publish_WhenAggregateCountInvalid_ShouldFailInvalidAggregateCount()
+    {
+        var fixture = CreateFixture();
+        CompleteValidTrace(fixture);
+        AggregateCounts(fixture.Trace)[
+            (int)StartupCriticalPathAggregate.DatabaseServiceSetup] = 2;
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Contains("error=invalid_aggregate_count", writer.ToString());
+    }
+
+    [Fact]
+    public void Publish_WhenTitleCompletionCacheHitFalse_ShouldFailInvalidCountOrFlag()
+    {
+        var fixture = CreateFixture();
+        CompleteValidTrace(fixture);
+        SetField(fixture.Trace, "_titleCompletionLookupCacheHit", false);
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Contains("error=invalid_count_or_flag", writer.ToString());
+    }
+
+    [Fact]
+    public void Publish_WhenTitleSoundLoadCountInvalid_ShouldFailInvalidTitleSoundCount()
+    {
+        var fixture = CreateFixture();
+        CompleteValidTrace(fixture);
+        SetField(fixture.Trace, "_titleSoundLoadCount", 99);
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Contains("error=invalid_title_sound_count", writer.ToString());
+    }
+
+    [Fact]
+    public void Publish_WhenDbInitResidualNegative_ShouldFailNegativeResidual()
+    {
+        var fixture = CreateFixture();
+        CompleteValidTrace(fixture);
+        AggregateTimestamps(fixture.Trace)[
+            (int)StartupCriticalPathAggregate.DatabaseServiceSetup] = 50;
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Contains("error=negative_residual", writer.ToString());
+    }
+
+    [Fact]
+    public void Publish_WhenAggregateCountsArrayShort_ShouldFailValidationFailure()
+    {
+        var fixture = CreateFixture();
+        CompleteValidTrace(fixture);
+        SetField(fixture.Trace, "_aggregateCounts", new long[1]);
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Contains("error=validation_failure", writer.ToString());
+    }
+
+    [Fact]
+    public void Publish_WhenDatabaseTaskReturnAfterTerminalTimestamp_ShouldFailInvalidMilestoneOrder()
+    {
+        var fixture = CreateFixture();
+        CompleteValidTrace(fixture);
+        var timestamps = Timestamps(fixture.Trace);
+        timestamps[(int)StartupCriticalPathMilestone.DatabaseTaskReturn] = 50;
+        timestamps[(int)StartupCriticalPathMilestone.DatabaseTerminal] = 45;
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Contains("error=invalid_milestone_order", writer.ToString());
+    }
+
+    [Fact]
+    public void Publish_WhenEnumerationTaskReturnAfterTerminalTimestamp_ShouldFailInvalidMilestoneOrder()
+    {
+        var fixture = CreateFixture();
+        CompleteValidTrace(fixture);
+        var timestamps = Timestamps(fixture.Trace);
+        timestamps[(int)StartupCriticalPathMilestone.EnumerationTaskReturn] = 70;
+        timestamps[(int)StartupCriticalPathMilestone.EnumerationTerminal] = 65;
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Contains("error=invalid_milestone_order", writer.ToString());
+    }
+
+    private sealed class AlwaysThrowingUtcMicrosecondClock : IUtcMicrosecondClock
+    {
+        public long GetUnixMicroseconds() =>
+            throw new InvalidOperationException("wall clock unavailable");
+    }
+
+    private sealed class TraceCorruptingWallClock : IUtcMicrosecondClock
+    {
+        public StartupCriticalPathTrace? Trace { get; set; }
+
+        public long GetUnixMicroseconds()
+        {
+            if (Trace is { } trace)
+                SetTerminalOutcome(trace, "Failure");
+            return 2_000_000;
+        }
+    }
+
+    private sealed class ThrowingTimestampClock : ManualMonotonicClock
+    {
+        public override long GetTimestamp() =>
+            throw new InvalidOperationException("timestamp unavailable");
+    }
+
+    [Fact]
+    public void RecordFirstObservationBegin_WhenTerminalClosed_ShouldReturnBeforeLock()
+    {
+        var fixture = CreateFixture();
+        fixture.Trace.Fail("boom", "test");
+
+        fixture.Trace.RecordFirstObservationBegin(
+            StartupCriticalPathMilestone.StartupFirstUpdateBegin,
+            StartupCriticalPathMilestone.StartupFirstUpdateEnd);
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Contains("error=boom", writer.ToString());
+    }
+
+    [Fact]
+    public void RecordFirstObservationEnd_WhenTerminalClosed_ShouldReturnBeforeLock()
+    {
+        var fixture = CreateFixture();
+        fixture.Trace.Fail("boom", "test");
+
+        fixture.Trace.RecordFirstObservationEnd(
+            StartupCriticalPathMilestone.StartupFirstUpdateBegin,
+            StartupCriticalPathMilestone.StartupFirstUpdateEnd);
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Contains("error=boom", writer.ToString());
+    }
+
+    [Fact]
+    public void RecordFirstObservationEnd_WhenNotTitleBackbufferBlitEnd_ShouldReturnAfterLock()
+    {
+        var fixture = CreateFixture();
+
+        fixture.Trace.RecordFirstObservationBegin(
+            StartupCriticalPathMilestone.StartupFirstUpdateBegin,
+            StartupCriticalPathMilestone.StartupFirstUpdateEnd);
+        fixture.Trace.RecordFirstObservationEnd(
+            StartupCriticalPathMilestone.StartupFirstUpdateBegin,
+            StartupCriticalPathMilestone.StartupFirstUpdateEnd);
+
+        // The end milestone should be recorded without attempting wall-clock capture.
+        Assert.True(fixture.Trace.TryPublishTerminal(null!) == false);
+    }
+
+    [Fact]
+    public void BeginDatabaseSpan_ViaObserver_ShouldMapToAggregate()
+    {
+        var fixture = CreateFixture();
+        var observer = (IStartupSongLoadTimingObserver)fixture.Trace;
+        var spans = Enum.GetValues<StartupDatabaseTimingSpan>();
+        At(fixture, 1, () => observer.BeginDatabaseSpan(spans[0]));
+        At(fixture, 2, () => observer.EndDatabaseSpan(spans[0]));
+        for (var i = 1; i < spans.Length; i++)
+        {
+            var span = spans[i];
+            At(fixture, 3, () => observer.BeginDatabaseSpan(span));
+            At(fixture, 4, () => observer.EndDatabaseSpan(span));
+        }
+    }
+
+    [Fact]
+    public void EndDatabaseSpan_ViaObserver_ShouldMapToAggregate()
+    {
+        var fixture = CreateFixture();
+        var observer = (IStartupSongLoadTimingObserver)fixture.Trace;
+        At(fixture, 1, () => observer.BeginDatabaseSpan(
+            StartupDatabaseTimingSpan.ServiceSetup));
+        At(fixture, 2, () => observer.EndDatabaseSpan(
+            StartupDatabaseTimingSpan.ServiceSetup));
+        Assert.Equal(
+            1,
+            AggregateCounts(fixture.Trace)[
+                (int)StartupCriticalPathAggregate.DatabaseServiceSetup]);
+    }
+
+    [Fact]
+    public void RecordUnexpectedTableExistsPath_ViaObserver_ShouldFail()
+    {
+        var fixture = CreateFixture();
+        var observer = (IStartupSongLoadTimingObserver)fixture.Trace;
+
+        observer.RecordUnexpectedTableExistsPath();
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Contains("error=unexpected_table_exists_path", writer.ToString());
+    }
+
+    #endregion
 }

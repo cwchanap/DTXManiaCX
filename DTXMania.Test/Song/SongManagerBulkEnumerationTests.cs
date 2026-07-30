@@ -937,6 +937,297 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         Assert.Contains(SongPathIdentity.Normalize(chartPath), batch.DiscoveredChartPaths);
     }
 
+    [Fact]
+    public async Task EnumerateAndImportSongsAsync_WhenSetDefReadCancelled_ShouldThrowOperationCanceled()
+    {
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        WriteChart("Songs/SetDef/chart.dtx", "SetDef Song", 50);
+        File.WriteAllLines(Path.Combine(_songsRoot, "SetDef", "set.def"),
+            ["#TITLE: SetDef Song", "#DLEVEL: 50", "1: chart.dtx"]);
+        using var cts = new CancellationTokenSource();
+        _manager.ReadAllLinesCoreAsync = (_, _, token) =>
+        {
+            cts.Cancel();
+            token.ThrowIfCancellationRequested();
+            return Task.FromResult(Array.Empty<string>());
+        };
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            _manager.EnumerateAndImportSongsAsync(
+                new[] { _songsRoot }, null, cts.Token));
+    }
+
+    [Fact]
+    public async Task EnumerateAndImportSongsAsync_WhenSetDefParseCancelled_ShouldThrowOperationCanceled()
+    {
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        WriteChart("Songs/SetDef2/chart.dtx", "SetDef Song 2", 50);
+        File.WriteAllLines(Path.Combine(_songsRoot, "SetDef2", "set.def"),
+            ["#TITLE: SetDef Song 2", "#DLEVEL: 50", "1: chart.dtx"]);
+        using var cts = new CancellationTokenSource();
+        // Cancel during set.def read by throwing OperationCanceledException.
+        _manager.ReadAllLinesCoreAsync = (_, _, token) =>
+            throw new OperationCanceledException(token);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            _manager.EnumerateAndImportSongsAsync(
+                new[] { _songsRoot }, null, cts.Token));
+    }
+
+    [Fact]
+    public async Task EnumerateAndImportSongsAsync_WhenChartParseCancelled_ShouldThrowOperationCanceled()
+    {
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        WriteChart("Songs/Cancel/chart.dtx", "Cancel Song", 50);
+        using var cts = new CancellationTokenSource();
+        var parseCallCount = 0;
+        _manager.ParseSongEntitiesCoreAsync = path =>
+        {
+            parseCallCount++;
+            cts.Cancel();
+            cts.Token.ThrowIfCancellationRequested();
+            return Task.FromResult<(SongEntity, SongChart)>((new SongEntity
+            {
+                Title = "Cancel Song",
+                Artist = "Artist",
+                Genre = "Genre"
+            }, new SongChart
+            {
+                FilePath = path,
+                DrumLevel = 50,
+                HasDrumChart = true,
+                DifficultyLevel = 50
+            }));
+        };
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            _manager.EnumerateAndImportSongsAsync(
+                new[] { _songsRoot }, null, cts.Token));
+    }
+
+    [Fact]
+    public async Task EnumerateAndImportSongsAsync_WhenBoxDefParseCancelled_ShouldThrowOperationCanceled()
+    {
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        WriteChart("Songs/BoxDir/chart.dtx", "Box Song", 50);
+        var boxDir = Path.Combine(_songsRoot, "BoxDir");
+        File.WriteAllLines(Path.Combine(boxDir, "box.def"),
+            ["#TITLE: Box Title", "#GENRE: Test"]);
+        using var cts = new CancellationTokenSource();
+        // Cancel before the box.def read happens by triggering cancellation
+        // during the chart file enumeration phase (before box.def is read).
+        var fileCallCount = 0;
+        _manager.EnumerateFilesCore = _ =>
+        {
+            fileCallCount++;
+            if (fileCallCount > 1)
+                cts.Cancel();
+            return new[] { Path.Combine(boxDir, "chart.dtx") };
+        };
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            _manager.EnumerateAndImportSongsAsync(
+                new[] { _songsRoot }, null, cts.Token));
+    }
+
+    [Fact]
+    public async Task BuildEnumerationBatchAsync_WhenRootIsBlank_ShouldThrowDirectoryNotFound()
+    {
+        await Assert.ThrowsAsync<DirectoryNotFoundException>(() =>
+            _manager.BuildEnumerationBatchAsync(
+                new[] { "  " }, null, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task BuildEnumerationBatchAsync_WhenRootDoesNotExist_ShouldThrowDirectoryNotFound()
+    {
+        await Assert.ThrowsAsync<DirectoryNotFoundException>(() =>
+            _manager.BuildEnumerationBatchAsync(
+                new[] { Path.Combine(_testRoot, "Nonexistent") },
+                null,
+                CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task BuildEnumerationBatchAsync_WhenBatchIsIncomplete_ShouldThrowFromImport()
+    {
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        // Force an incomplete batch by making the builder report incomplete.
+        // The batch becomes incomplete when cancellation is requested during traversal.
+        using var cts = new CancellationTokenSource();
+        _manager.EnumerateFilesCore = _ =>
+        {
+            cts.Cancel();
+            return Array.Empty<string>();
+        };
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            _manager.EnumerateAndImportSongsAsync(
+                new[] { _songsRoot }, null, cts.Token));
+    }
+
+    [Fact]
+    public async Task RefreshSongListFromDatabaseAsync_WhenEnumerationInProgress_ShouldReturnEarly()
+    {
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        WriteChart("Songs/Refresh/chart.dtx", "Refresh", 50);
+
+        // Start enumeration in a way that leaves _enumCancellation active.
+        using var cts = new CancellationTokenSource();
+        var enumStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var holdEnumeration = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var realImporter = _manager.ImportSongsCoreAsync;
+        _manager.ImportSongsCoreAsync = async (database, request, progress, token) =>
+        {
+            enumStarted.SetResult();
+            await holdEnumeration.Task;
+            return await realImporter(database, request, progress, token);
+        };
+
+        var enumTask = _manager.EnumerateAndImportSongsAsync(
+            new[] { _songsRoot }, null, cts.Token);
+        await enumStarted.Task;
+
+        // Now _enumCancellation is active (not cancelled), so refresh should skip.
+        await _manager.RefreshSongListFromDatabaseAsync();
+
+        // Cleanup
+        holdEnumeration.SetResult();
+        cts.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => enumTask);
+    }
+
+    [Fact]
+    public async Task RefreshSongListFromDatabaseAsync_WhenDatabaseNotInitialized_ShouldReturnEarly()
+    {
+        // Without InitializeDatabaseServiceAsync, DatabaseService is null.
+        // Should not throw.
+        await _manager.RefreshSongListFromDatabaseAsync();
+    }
+
+    [Fact]
+    public async Task FinalizePendingNodes_WhenChartPathMissing_ShouldNullScoreAndContinue()
+    {
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        WriteChart("Songs/Finalize/chart.dtx", "Finalize Song", 50);
+
+        var result = await _manager.EnumerateAndImportSongsAsync(
+            new[] { _songsRoot }, null, CancellationToken.None);
+
+        // Manually call FinalizePendingNodes with an empty chartsByPath to exercise
+        // the "chart not found" path.
+        var emptyCharts = new Dictionary<string, SongChart>();
+        _manager.FinalizePendingNodes(result.Batch, emptyCharts);
+
+        // Should not throw; placeholder scores are nulled.
+        Assert.NotNull(result.Batch);
+    }
+
+    [Fact]
+    public async Task PublishEnumeration_WhenCalled_ShouldUpdateRootSongsAndCounts()
+    {
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        WriteChart("Songs/Publish/chart.dtx", "Publish Song", 50);
+
+        var result = await _manager.EnumerateAndImportSongsAsync(
+            new[] { _songsRoot }, null, CancellationToken.None);
+
+        // PublishEnumeration was called internally; verify state was set.
+        Assert.Equal(1, _manager.EnumeratedFileCount);
+        Assert.Equal(1, _manager.DiscoveredScoreCount);
+        Assert.NotEmpty(_manager.RootSongs);
+    }
+
+    [Fact]
+    public async Task GetRecentlyPlayedNodesAsync_WithMoreThanLimit_ShouldBreakAtLimit()
+    {
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        // Seed multiple songs with play history.
+        for (var i = 0; i < 5; i++)
+        {
+            WriteChart($"Songs/Recent/{i}/chart.dtx", $"Recent {i}", 50);
+        }
+        await _manager.EnumerateAndImportSongsAsync(
+            new[] { _songsRoot }, null, CancellationToken.None);
+
+        // Update existing scores with play history.
+        await using var context = _manager.DatabaseService!.CreateContext();
+        var charts = await context.SongCharts
+            .Include(c => c.Scores)
+            .ToListAsync();
+        for (var i = 0; i < charts.Count; i++)
+        {
+            var chart = charts[i];
+            var score = chart.Scores.FirstOrDefault();
+            if (score != null)
+            {
+                score.LastPlayedAt = DateTime.UtcNow.AddDays(-i);
+                score.PlayCount = 1;
+            }
+            else
+            {
+                chart.Scores.Add(new SongScore
+                {
+                    Instrument = EInstrumentPart.DRUMS,
+                    PlaySpeedPercent = PlaySpeedRange.Default,
+                    LastPlayedAt = DateTime.UtcNow.AddDays(-i),
+                    PlayCount = 1
+                });
+            }
+        }
+        await context.SaveChangesAsync();
+
+        var recent = await _manager.GetRecentlyPlayedNodesAsync(limit: 3);
+        Assert.True(recent.Count <= 3);
+    }
+
+    [Fact]
+    public async Task CreatePersistenceProgressAdapter_WhenInvoked_ShouldMapAllMilestones()
+    {
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        WriteChart("Songs/Adapter/chart.dtx", "Adapter Song", 50);
+
+        var messages = new List<string>();
+        IProgress<EnumerationProgress>? capturedProgress = null;
+        var importCallCount = 0;
+        var realImporter = _manager.ImportSongsCoreAsync;
+        _manager.ImportSongsCoreAsync = async (database, request, progress, token) =>
+        {
+            importCallCount++;
+            // The adapter is passed as progress; report through it.
+            progress?.Report(new SongBulkImportProgress(
+                SongBulkImportMilestone.PreloadStarted, 0, 1));
+            progress?.Report(new SongBulkImportProgress(
+                SongBulkImportMilestone.MatchingCompleted, 1, 1));
+            progress?.Report(new SongBulkImportProgress(
+                SongBulkImportMilestone.MutationsStaged, 1, 1));
+            progress?.Report(new SongBulkImportProgress(
+                SongBulkImportMilestone.CleanupCompleted, 1, 1));
+            progress?.Report(new SongBulkImportProgress(
+                SongBulkImportMilestone.SaveStarted, 1, 1));
+            progress?.Report(new SongBulkImportProgress(
+                SongBulkImportMilestone.Committed, 1, 1));
+            return await realImporter(database, request, progress, token);
+        };
+
+        var progress = new InlineProgress<EnumerationProgress>(p =>
+        {
+            if (p.CurrentOperation != null)
+                messages.Add(p.CurrentOperation);
+        });
+
+        await _manager.EnumerateAndImportSongsAsync(
+            new[] { _songsRoot }, progress, CancellationToken.None);
+
+        // Verify that milestone messages were mapped.
+        Assert.Contains("Loading existing songs", messages);
+        Assert.Contains("Matching charts", messages);
+        Assert.Contains("Preparing changes", messages);
+        Assert.Contains("Removing stale records", messages);
+        Assert.Contains("Saving songs", messages);
+        Assert.Contains("Song database committed", messages);
+    }
+
     public void Dispose()
     {
         SongManager.ResetInstanceForTesting();

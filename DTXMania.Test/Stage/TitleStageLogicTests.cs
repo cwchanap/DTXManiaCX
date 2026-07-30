@@ -12,6 +12,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using Moq;
+using System.Reflection;
 using System.Runtime.Serialization;
 using XnaButtonState = Microsoft.Xna.Framework.Input.ButtonState;
 
@@ -1544,5 +1545,112 @@ namespace DTXMania.Test.Stage
                 WasDisposed = true;
             }
         }
+
+        #region Try* Helper and ResolveCriticalPathTrace Branch Coverage
+
+        private static void InvokePrivateStaticTry(
+            string methodName,
+            StartupCriticalPathTrace trace,
+            StartupCriticalPathAggregate aggregate)
+        {
+            var method = typeof(TitleStage).GetMethod(
+                methodName,
+                System.Reflection.BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(method);
+            method!.Invoke(null, [trace, aggregate]);
+        }
+
+        private static StartupCriticalPathTrace CreateCorruptedTrace()
+        {
+            var clock = new ManualMonotonicClock();
+            var trace = StartupCriticalPathTrace.Start(
+                clock,
+                new FixedUtcMicrosecondClock(),
+                entryTimestamp: 0,
+                entryUnixMicroseconds: 1_000_000,
+                exitAfterPublication: false);
+            // Corrupt the sync lock so every locked method throws ArgumentNullException,
+            // exercising the defensive catch blocks in the Try* helpers.
+            ReflectionHelpers.SetPrivateField(trace, "_sync", null!);
+            return trace;
+        }
+
+        [Fact]
+        public void TryBeginAggregate_WhenTraceThrows_ShouldSwallowException()
+        {
+            var trace = CreateCorruptedTrace();
+            InvokePrivateStaticTry(
+                "TryBeginAggregate",
+                trace,
+                StartupCriticalPathAggregate.TitleGpuSetup);
+        }
+
+        [Fact]
+        public void TryEndAggregate_WhenTraceThrows_ShouldSwallowException()
+        {
+            var trace = CreateCorruptedTrace();
+            InvokePrivateStaticTry(
+                "TryEndAggregate",
+                trace,
+                StartupCriticalPathAggregate.TitleGpuSetup);
+        }
+
+        [Fact]
+        public void TryIncrementTitleSoundLoad_WhenTraceThrows_ShouldSwallowException()
+        {
+            var trace = CreateCorruptedTrace();
+            var method = typeof(TitleStage).GetMethod(
+                "TryIncrementTitleSoundLoad",
+                System.Reflection.BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(method);
+            method!.Invoke(null, [trace]);
+        }
+
+        [Fact]
+        public void TryMarkTitleGameStartFallbackRan_WhenTraceThrows_ShouldSwallowException()
+        {
+            var trace = CreateCorruptedTrace();
+            var method = typeof(TitleStage).GetMethod(
+                "TryMarkTitleGameStartFallbackRan",
+                System.Reflection.BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(method);
+            method!.Invoke(null, [trace]);
+        }
+
+        [Fact]
+        public void ResolveCriticalPathTrace_WhenHostThrows_ShouldReturnNull()
+        {
+            var game = new ThrowingCriticalPathHostStageGame();
+            var stage = new TitleStage(game);
+
+            var result = ReflectionHelpers.InvokePrivateMethod<StartupCriticalPathTrace?>(
+                stage,
+                "ResolveCriticalPathTrace");
+
+            Assert.Null(result);
+        }
+
+        private sealed class ThrowingCriticalPathHostStageGame :
+            IStageGame,
+            IStartupCriticalPathHost
+        {
+            StartupCriticalPathTrace? IStartupCriticalPathHost.StartupCriticalPathTrace =>
+                throw new InvalidOperationException("host unavailable");
+
+            public GraphicsDevice GraphicsDevice => null!;
+            public IStageManager StageManager => null!;
+            public IConfigManager ConfigManager => null!;
+            public InputManagerCompat InputManager => null!;
+            public IGraphicsManager GraphicsManager => null!;
+            public IResourceManager ResourceManager => null!;
+            public ILoggerFactory LoggerFactory => NullLoggerFactory.Instance;
+            public bool CanPerformStageTransition() => false;
+            public void MarkStageTransition() { }
+            public Point? MapMouseToVirtual(Point windowPoint) => null;
+            public ITextInputSource? GetTextInputSource() => null;
+            public void RequestExit() { }
+        }
+
+        #endregion
     }
 }

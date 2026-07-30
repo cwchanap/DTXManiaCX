@@ -2115,6 +2115,34 @@ namespace DTXMania.Test.Stage
             {
                 MarkSongManagerInitializedCalled = true;
             }
+
+            public Task<bool> InvokeInitializeDatabaseServiceCoreWithObserverAsync(
+                string databasePath,
+                IStartupSongLoadTimingObserver? observer)
+            {
+                var method = typeof(StartupStage).GetMethods(
+                        BindingFlags.NonPublic | BindingFlags.Instance)
+                    .First(m => m.Name == "InitializeDatabaseServiceCoreAsync"
+                        && m.GetParameters().Length == 2);
+                var task = (Task<bool>)method.Invoke(this, [databasePath, observer])!;
+                return task;
+            }
+
+            public Task<SongEnumerationResult> InvokeEnumerateSongsCoreWithObserverAsync(
+                string[] songPaths,
+                IProgress<EnumerationProgress> progress,
+                CancellationToken cancellationToken,
+                IStartupSongLoadTimingObserver? observer)
+            {
+                var method = typeof(StartupStage).GetMethods(
+                        BindingFlags.NonPublic | BindingFlags.Instance)
+                    .First(m => m.Name == "EnumerateSongsCoreAsync"
+                        && m.GetParameters().Length == 4);
+                var task = (Task<SongEnumerationResult>)method.Invoke(
+                    this,
+                    [songPaths, progress, cancellationToken, observer])!;
+                return task;
+            }
         }
 
         private sealed class LifecycleControlledStartupStage :
@@ -2398,6 +2426,269 @@ namespace DTXMania.Test.Stage
                     logicalGroups: 1));
             }
         }
+
+        #region Patch Coverage: Try* Helpers, ResolveCriticalPathTrace, Phase Operations
+
+        [Fact]
+        public void CancelAndObserveRetiredOperation_WhenCtsDisposed_ShouldSwallowObjectDisposedException()
+        {
+            var stage = CreateControlledStage();
+            var cts = new CancellationTokenSource();
+            cts.Dispose();
+
+            var method = typeof(StartupStage).GetMethod(
+                "CancelAndObserveRetiredOperation",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(method);
+            var exception = Record.Exception(() =>
+                method!.Invoke(null, [Task.CompletedTask, cts]));
+
+            Assert.Null(exception);
+        }
+
+        [Fact]
+        public void ResolveCriticalPathTrace_WhenHostThrows_ShouldReturnNull()
+        {
+            var game = ReflectionHelpers.CreateGame();
+            // The default BaseGame does not implement IStartupCriticalPathHost, so
+            // StartupCriticalPathHost.Resolve throws — the catch must return null.
+            var stage = new ControlledStartupStage(game);
+
+            var result = ReflectionHelpers.InvokePrivateMethod<StartupCriticalPathTrace?>(
+                stage,
+                "ResolveCriticalPathTrace");
+
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void TryRecordExactlyOnce_WhenTraceThrows_ShouldSwallowException()
+        {
+            var trace = CreateCorruptedTrace();
+            InvokeStaticTryHelper("TryRecordExactlyOnce", trace, StartupCriticalPathMilestone.LoadContentComplete);
+        }
+
+        [Fact]
+        public void TryRecordDatabaseTaskReturned_WhenTraceThrows_ShouldSwallowException()
+        {
+            var trace = CreateCorruptedTrace();
+            InvokeStaticTryHelper("TryRecordDatabaseTaskReturned", trace, false);
+        }
+
+        [Fact]
+        public void TryRecordEnumerationTaskReturned_WhenTraceThrows_ShouldSwallowException()
+        {
+            var trace = CreateCorruptedTrace();
+            InvokeStaticTryHelper("TryRecordEnumerationTaskReturned", trace, false);
+        }
+
+        [Fact]
+        public void TryFailCriticalPath_WhenTraceThrows_ShouldSwallowException()
+        {
+            var trace = CreateCorruptedTrace();
+            InvokeStaticTryHelper("TryFailCriticalPath", trace, "error", "milestone", false);
+        }
+
+        [Fact]
+        public void PerformPhaseOperation_LoadScoreCache_ShouldWriteDebugMessage()
+        {
+            var stage = CreateControlledStage();
+            ReflectionHelpers.SetPrivateField(stage, "_operationPerformedForPhase", StartupPhase.SystemSounds);
+
+            ReflectionHelpers.InvokePrivateMethod(
+                stage,
+                "PerformPhaseOperationSync",
+                StartupPhase.LoadScoreCache,
+                0.0);
+        }
+
+        [Fact]
+        public void PerformPhaseOperation_LoadScoreFiles_ShouldWriteDebugMessage()
+        {
+            var stage = CreateControlledStage();
+            ReflectionHelpers.SetPrivateField(stage, "_operationPerformedForPhase", StartupPhase.SystemSounds);
+
+            ReflectionHelpers.InvokePrivateMethod(
+                stage,
+                "PerformPhaseOperationSync",
+                StartupPhase.LoadScoreFiles,
+                0.0);
+        }
+
+        [Fact]
+        public void PerformPhaseOperation_SaveSongsDB_ShouldMarkSongManagerInitialized()
+        {
+            var stage = CreateControlledStage();
+            ReflectionHelpers.SetPrivateField(stage, "_operationPerformedForPhase", StartupPhase.SystemSounds);
+
+            ReflectionHelpers.InvokePrivateMethod(
+                stage,
+                "PerformPhaseOperationSync",
+                StartupPhase.SaveSongsDB,
+                0.0);
+
+            Assert.True(stage.MarkSongManagerInitializedCalled);
+        }
+
+        [Fact]
+        public void WriteSummaryOnce_WhenAlreadyWritten_ShouldReturnEarly()
+        {
+            var stage = CreateControlledStage();
+            ReflectionHelpers.SetPrivateField(stage, "_startupSummaryWritten", true);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "WriteSummaryOnce");
+
+            // Should not throw; the early return means no summary is written.
+        }
+
+        [Fact]
+        public async Task InitializeDatabaseServiceCoreAsync_WithObserver_ShouldDelegateToOverload()
+        {
+            var stage = CreateControlledStage();
+            var observer = new NullStartupSongLoadTimingObserver();
+
+            var result = await stage.InvokeInitializeDatabaseServiceCoreWithObserverAsync(
+                "test.db",
+                observer);
+
+            Assert.True(result);
+            Assert.Equal(1, stage.InitializeDatabaseCalls);
+        }
+
+        [Fact]
+        public async Task EnumerateSongsCoreAsync_WithObserver_ShouldDelegateToOverload()
+        {
+            var stage = CreateControlledStage();
+            var observer = new NullStartupSongLoadTimingObserver();
+
+            var result = await stage.InvokeEnumerateSongsCoreWithObserverAsync(
+                new[] { "Songs" },
+                new Mock<IProgress<EnumerationProgress>>().Object,
+                CancellationToken.None,
+                observer);
+
+            Assert.NotNull(result);
+            Assert.Equal(1, stage.EnumerateSongsCalls);
+        }
+
+        [Fact]
+        public void CreateEnumerationProgressReporter_ShouldReturnProgressInstance()
+        {
+            var stage = CreateControlledStage();
+
+            var reporter = ReflectionHelpers.InvokePrivateMethod<IProgress<EnumerationProgress>>(
+                stage,
+                "CreateEnumerationProgressReporter");
+
+            Assert.NotNull(reporter);
+        }
+
+        [Fact]
+        public void CreateEnumerationProgressReporter_WhenReportedWithStaleGeneration_ShouldReturnEarly()
+        {
+            var stage = CreateControlledStage();
+            ReflectionHelpers.SetPrivateField(stage, "_startupPhase", StartupPhase.EnumerateSongs);
+            var reporter = ReflectionHelpers.InvokePrivateMethod<IProgress<EnumerationProgress>>(
+                stage,
+                "CreateEnumerationProgressReporter");
+
+            // Bump the activation generation so the reporter's captured generation is stale.
+            ReflectionHelpers.SetPrivateField(stage, "_activationGeneration", 999L);
+
+            // Should not throw despite stale generation.
+            reporter!.Report(new EnumerationProgress
+            {
+                CurrentOperation = "Scanning",
+                ProcessedCount = 1,
+                DiscoveredSongs = 10
+            });
+        }
+
+        [Fact]
+        public async Task TryBuildCacheFallbackOnceForActivationAsync_WhenAlreadyAttempted_ShouldReturnEarly()
+        {
+            var stage = CreateControlledStage();
+            ReflectionHelpers.SetPrivateField(stage, "_cacheFallbackAttempted", true);
+            ReflectionHelpers.SetPrivateField(stage, "_activationGeneration", 1L);
+
+            var task = (Task)ReflectionHelpers.InvokePrivateMethod(
+                stage,
+                "TryBuildCacheFallbackOnceForActivationAsync",
+                1L,
+                CancellationToken.None)!;
+            await task;
+
+            Assert.Equal(0, stage.BuildHierarchyCalls);
+        }
+
+        [Fact]
+        public async Task TryBuildCacheFallbackOnceForActivationAsync_WhenGenerationMismatch_ShouldReturnEarly()
+        {
+            var stage = CreateControlledStage();
+            ReflectionHelpers.SetPrivateField(stage, "_activationGeneration", 2L);
+
+            var task = (Task)ReflectionHelpers.InvokePrivateMethod(
+                stage,
+                "TryBuildCacheFallbackOnceForActivationAsync",
+                1L,
+                CancellationToken.None)!;
+            await task;
+
+            Assert.Equal(0, stage.BuildHierarchyCalls);
+        }
+
+        [Fact]
+        public async Task TryBuildCacheFallbackOnceForActivationAsync_WhenBuildThrows_ShouldSwallowException()
+        {
+            var stage = CreateControlledStage();
+            stage.BuildHierarchyException = new InvalidOperationException("fallback failed");
+            ReflectionHelpers.SetPrivateField(stage, "_activationGeneration", 1L);
+
+            var task = (Task)ReflectionHelpers.InvokePrivateMethod(
+                stage,
+                "TryBuildCacheFallbackOnceForActivationAsync",
+                1L,
+                CancellationToken.None)!;
+            var exception = await Record.ExceptionAsync(() => task);
+
+            Assert.Null(exception);
+            Assert.Equal(1, stage.BuildHierarchyCalls);
+        }
+
+        private static StartupCriticalPathTrace CreateCorruptedTrace()
+        {
+            var clock = new ManualMonotonicClock();
+            var trace = StartupCriticalPathTrace.Start(
+                clock,
+                new FakeUtcMicrosecondClock(),
+                entryTimestamp: 0,
+                entryUnixMicroseconds: 1_000_000,
+                exitAfterPublication: false);
+            ReflectionHelpers.SetPrivateField(trace, "_sync", null!);
+            return trace;
+        }
+
+        private static void InvokeStaticTryHelper(string methodName, params object[] args)
+        {
+            var method = typeof(StartupStage).GetMethod(
+                methodName,
+                BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(method);
+            var exception = Record.Exception(() => method!.Invoke(null, args));
+            Assert.Null(exception);
+        }
+
+        private sealed class NullStartupSongLoadTimingObserver : IStartupSongLoadTimingObserver
+        {
+            public void BeginDatabaseSpan(StartupDatabaseTimingSpan span) { }
+            public void EndDatabaseSpan(StartupDatabaseTimingSpan span) { }
+            public void RecordUnexpectedTableExistsPath() { }
+            public void RecordEnumerationTerminal(
+                SongEnumerationResult? result,
+                StartupOperationOutcome outcome) { }
+        }
+
+        #endregion
     }
 
     [Collection("ConsoleOut")]
