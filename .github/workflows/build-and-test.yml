@@ -1,130 +1,366 @@
 name: Build and Test
 
 on:
+  push:
+    branches: [ main ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  apply-hpa192-windows-test-fix:
-    if: github.head_ref == 'codex/hpa-192-batched-import'
-    runs-on: ubuntu-latest
+  build-and-test-windows:
+    runs-on: windows-latest
+    
     steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: codex/hpa-192-batched-import
-          fetch-depth: 0
+    - name: Checkout code
+      uses: actions/checkout@v7
+    
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v6
+      with:
+        dotnet-version: '8.0.x'
+    
+    - name: Cache NuGet packages
+      uses: actions/cache@v6
+      with:
+        path: ~/.nuget/packages
+        key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+        restore-keys: |
+          ${{ runner.os }}-nuget-
+    
+    - name: Restore dependencies
+      run: dotnet restore DTXMania.Game/DTXMania.Game.Windows.csproj
 
-      - name: Apply focused Windows test fixes
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
+    - name: Build Windows project
+      run: dotnet build DTXMania.Game/DTXMania.Game.Windows.csproj --configuration Debug --no-restore
 
-          def replace_once(path: Path, old: str, new: str) -> None:
-              text = path.read_text(encoding="utf-8")
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(
-                      f"expected exactly one match in {path}, found {count}: {old[:80]!r}"
-                  )
-              path.write_text(text.replace(old, new, 1), encoding="utf-8")
+    - name: Run tests on Windows
+      env:
+        ALSOFT_DRIVERS: 'null'
+      run: dotnet test DTXMania.Test/DTXMania.Test.csproj --configuration Debug --verbosity normal --logger trx --results-directory ./TestResults /p:CollectCoverage=true /p:CoverletOutput=./TestResults/Coverage/ /p:CoverletOutputFormat=cobertura /p:IncludeTestAssembly=false /p:Exclude="[DTXMania.Test*]*"
 
-          manager_tests = Path("DTXMania.Test/Song/SongManagerBulkEnumerationTests.cs")
-          replace_once(
-              manager_tests,
-              "using DTXMania.Test.TestData;\nusing Microsoft.EntityFrameworkCore;",
-              "using DTXMania.Test.TestData;\nusing Microsoft.Data.Sqlite;\nusing Microsoft.EntityFrameworkCore;",
-          )
-          replace_once(
-              manager_tests,
-              '        var setDefPath = Path.Combine(setRoot, "set.def");',
-              '        var setDefPath = SongPathIdentity.Normalize(\n            Path.Combine(setRoot, "set.def"));',
-          )
-          replace_once(
-              manager_tests,
-              """    public void Dispose()
-    {
-        SongManager.ResetInstanceForTesting();
-        if (Directory.Exists(_testRoot))
-            Directory.Delete(_testRoot, recursive: true);
-    }""",
-              """    public void Dispose()
-    {
-        SongManager.ResetInstanceForTesting();
-        SqliteConnection.ClearAllPools();
-        if (Directory.Exists(_testRoot))
-            Directory.Delete(_testRoot, recursive: true);
-    }""",
-          )
-          replace_once(
-              manager_tests,
-              """        return path;
-    }
+    - name: Upload test results
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      if: always()
+      with:
+        name: test-results-windows
+        path: ./TestResults
 
-    private static IEnumerable<SongListNode> FlattenScoreNodes(""",
-              """        return SongPathIdentity.Normalize(path);
-    }
+    - name: Locate coverage report
+      shell: pwsh
+      if: always()
+      run: |
+        $candidatePaths = @(
+          "TestResults/coverage.cobertura.xml",
+          "TestResults/Coverage/coverage.cobertura.xml",
+          "DTXMania.Test/TestResults/coverage.cobertura.xml",
+          "DTXMania.Test/TestResults/Coverage/coverage.cobertura.xml"
+        )
 
-    private static IEnumerable<SongListNode> FlattenScoreNodes(""",
-          )
+        $coveragePath = $candidatePaths |
+          ForEach-Object { Join-Path $PWD $_ } |
+          Where-Object { Test-Path $_ } |
+          Select-Object -First 1
 
-          import_tests = Path("DTXMania.Test/Song/SongDatabaseServiceBulkImportTests.cs")
-          replace_once(
-              import_tests,
-              """            var legacy = await SeedChartWithStoredPathAsync(
-                "/songs/active/Chart.dtx", "Legacy");
-            var target = await SeedChartWithStoredPathAsync(
-                "/songs/active/chart.dtx", "Target");
-            var candidate = Candidate(""",
-              """            var legacy = await SeedChartWithStoredPathAsync(
-                "/songs/active/Chart.dtx", "Legacy");
-            var targetPath = SongPathIdentity.Normalize(
-                "/songs/active/chart.dtx");
-            var target = await SeedChartWithStoredPathAsync(
-                targetPath, "Target");
-            var candidate = Candidate(""",
-          )
-          replace_once(
-              import_tests,
-              """            Assert.Contains(
-                storedCharts,
-                chart => chart.Id == target.Id &&
-                    chart.FilePath == "/songs/active/chart.dtx");""",
-              """            Assert.Contains(
-                storedCharts,
-                chart => chart.Id == target.Id &&
-                    chart.FilePath == targetPath);""",
-          )
-          replace_once(
-              import_tests,
-              """                activeChartId = song.Charts.Single(chart =>
-                    chart.FilePath.Contains("/active/")).Id;
-                inactiveChartId = song.Charts.Single(chart =>
-                    chart.FilePath.Contains("/inactive/")).Id;""",
-              """                activeChartId = song.Charts.Single(chart =>
-                    SongPathIdentity.IsUnderRoot(
-                        chart.FilePath,
-                        "/songs/active")).Id;
-                inactiveChartId = song.Charts.Single(chart =>
-                    SongPathIdentity.IsUnderRoot(
-                        chart.FilePath,
-                        "/songs/inactive")).Id;""",
-          )
-          PY
+        if ($coveragePath) {
+          "CODECOV_FILE=$coveragePath" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "Coverage report found: $coveragePath"
+        }
+        else {
+          Write-Warning "coverage.cobertura.xml not found in TestResults. Skipping Codecov upload."
+        }
 
-          git diff --check
-          git diff -- DTXMania.Test/Song/SongManagerBulkEnumerationTests.cs \
-            DTXMania.Test/Song/SongDatabaseServiceBulkImportTests.cs
+    - name: Upload coverage reports to Codecov
+      uses: codecov/codecov-action@v7
+      if: always() && env.CODECOV_FILE != ''
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        files: ${{ env.CODECOV_FILE }}
+        flags: unit,windows
+        fail_ci_if_error: false
+        verbose: true
 
-      - name: Commit fixes
-        shell: bash
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add DTXMania.Test/Song/SongManagerBulkEnumerationTests.cs \
-            DTXMania.Test/Song/SongDatabaseServiceBulkImportTests.cs
-          git commit -m "test: fix Windows song import coverage"
-          git push origin HEAD:codex/hpa-192-batched-import
+    - name: Setup Python for tool tests
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      with:
+        python-version: '3.11'
+
+    - name: Run skingen/sfxgen tool unit tests
+      shell: bash
+      run: |
+        # Mirror the macOS job: the CX Neon asset pipelines (tools/skingen,
+        # tools/sfxgen) ship Python unit tests that guard manifest/inventory
+        # consistency. Running them on Windows too catches platform-specific
+        # path drift (backslash vs forward slash) and ensures the TexturePath/
+        # SoundPath constants stay in sync with the tool manifests on both
+        # platforms. skingen tests require Pillow; sfxgen is stdlib-only.
+        pip install "Pillow>=10,<12"
+        python -m unittest discover -s tools/skingen -p "test_*.py" -v
+        python -m unittest discover -s tools/sfxgen -p "test_*.py" -v
+
+    - name: Validate committed CX Neon pack (integrity gate)
+      shell: bash
+      run: |
+        # skingen/sfxgen `validate` decode every committed System/CXNeon asset
+        # and check it matches the manifest dimensions / decodes as a real
+        # image/audio file. CxNeonPackTests (run above) only checks File.Exists,
+        # so without this gate a corrupt or wrong-dimension image would pass CI
+        # and ship — exactly the gap the release.yml integrity gate closes, but
+        # regular CI never ran it. The pack is now committed (131 Graphics, 8
+        # Sounds), so a missing Graphics/ or Sounds/ is a regression, not an
+        # interim state — fail-closed (no self-skip), matching release.yml.
+        if [ ! -d "System/CXNeon/Graphics" ] || [ ! -d "System/CXNeon/Sounds" ]; then
+          echo "::error::CX Neon pack missing from repo (System/CXNeon/Graphics or Sounds). Run tools/skingen/ and tools/sfxgen/ to produce it before merging." >&2
+          exit 1
+        fi
+        # sfxgen validate decodes every OGG via ffmpeg; install a full
+        # OGG/Vorbis-capable build so _decode_ok doesn't fail-close every
+        # sound and false-positive the gate. brew/choco exit 0 when the
+        # package is already installed, so this is a no-op on cached runners.
+        if [ "$RUNNER_OS" = "macOS" ]; then brew install ffmpeg; fi
+        if [ "$RUNNER_OS" = "Windows" ]; then choco install ffmpeg -y --no-progress; fi
+        python tools/skingen/skingen.py validate
+        python tools/sfxgen/sfxgen.py validate
+
+  build-and-test-macos:
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v7
+    
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v6
+      with:
+        dotnet-version: '8.0.x'
+    
+    - name: Cache NuGet packages
+      uses: actions/cache@v6
+      with:
+        path: ~/.nuget/packages
+        key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+        restore-keys: |
+          ${{ runner.os }}-nuget-
+    
+    - name: Restore dependencies
+      run: dotnet restore DTXMania.Game/DTXMania.Game.Mac.csproj
+
+    - name: Build Mac project
+      run: dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj --configuration Debug --no-restore
+
+    - name: Run tests on macOS
+      run: dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --configuration Debug --no-build --verbosity normal --collect:"XPlat Code Coverage" --settings ./coverlet.runsettings --results-directory ./TestResults --logger trx
+
+    - name: Locate coverage report on macOS
+      if: always()
+      shell: bash
+      run: |
+        coverage_file=$(find TestResults DTXMania.Test/TestResults -type f -name "coverage.cobertura.xml" 2>/dev/null | head -n 1 || true)
+        if [ -n "$coverage_file" ]; then
+          echo "Coverage report found: $coverage_file"
+        else
+          echo "::warning::coverage.cobertura.xml not found in macOS TestResults directories."
+        fi
+
+    - name: Upload test results
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      if: always()
+      with:
+        name: test-results-macos
+        path: ./TestResults
+
+    - name: Setup Python for tool tests
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      with:
+        python-version: '3.11'
+
+    - name: Run skingen/sfxgen tool unit tests
+      shell: bash
+      run: |
+        # The CX Neon asset pipelines (tools/skingen, tools/sfxgen) ship Python
+        # unit tests that guard manifest/inventory consistency. Run them on every
+        # push/PR so drift between SoundPath/TexturePath constants and the tool
+        # manifests is caught here rather than only in the manual release job.
+        # skingen tests require Pillow; sfxgen is stdlib-only.
+        pip install "Pillow>=10,<12"
+        python -m unittest discover -s tools/skingen -p "test_*.py" -v
+        python -m unittest discover -s tools/sfxgen -p "test_*.py" -v
+
+    - name: Validate committed CX Neon pack (integrity gate)
+      shell: bash
+      run: |
+        # Mirror the Windows leg: run skingen/sfxgen `validate` against the
+        # committed System/CXNeon pack so a corrupt or wrong-dimension asset
+        # fails CI here, not just in the manual release job. CxNeonPackTests
+        # (run above) only checks File.Exists. Fail-closed if the pack is
+        # missing — it is committed, so absence is a regression.
+        if [ ! -d "System/CXNeon/Graphics" ] || [ ! -d "System/CXNeon/Sounds" ]; then
+          echo "::error::CX Neon pack missing from repo (System/CXNeon/Graphics or Sounds). Run tools/skingen/ and tools/sfxgen/ to produce it before merging." >&2
+          exit 1
+        fi
+        # sfxgen validate decodes every OGG via ffmpeg; install a full
+        # OGG/Vorbis-capable build so _decode_ok doesn't fail-close every
+        # sound and false-positive the gate. brew exits 0 when already installed.
+        brew install ffmpeg
+        python tools/skingen/skingen.py validate
+        python tools/sfxgen/sfxgen.py validate
+
+  gameplay-e2e-windows:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v7
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v6
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Cache NuGet packages
+      uses: actions/cache@v6
+      with:
+        path: ~/.nuget/packages
+        key: ${{ runner.os }}-nuget-e2e-${{ hashFiles('**/*.csproj') }}
+        restore-keys: |
+          ${{ runner.os }}-nuget-
+
+    - name: Restore Windows game
+      run: dotnet restore DTXMania.Game/DTXMania.Game.Windows.csproj
+
+    - name: Restore E2E project
+      run: dotnet restore DTXMania.E2E/DTXMania.E2E.csproj --runtime win-x64
+
+    - name: Build Windows game
+      run: dotnet build DTXMania.Game/DTXMania.Game.Windows.csproj --configuration Debug --no-restore
+
+    - name: Run gameplay E2E smoke
+      env:
+        ALSOFT_DRIVERS: 'null'
+        DTXMANIA_E2E_GAME_PROJECT: DTXMania.Game/DTXMania.Game.Windows.csproj
+        DTXMANIA_E2E_ARTIFACT_ROOT: TestResults/e2e
+      run: dotnet test DTXMania.E2E/DTXMania.E2E.csproj --configuration Debug --verbosity normal --logger trx --results-directory ./TestResults/e2e --filter "Category=E2E"
+
+    - name: Run E2E support tests
+      run: dotnet test DTXMania.E2E/DTXMania.E2E.csproj --configuration Debug --verbosity normal --logger trx --results-directory ./TestResults/e2e-support --filter "Category=E2E-Support"
+
+    - name: Upload gameplay E2E artifacts
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      if: always()
+      with:
+        name: gameplay-e2e-windows
+        path: ./TestResults/e2e
+
+  build-artifacts:
+    runs-on: ${{ matrix.os }}
+    needs: [build-and-test-windows, build-and-test-macos]
+    if: github.event_name == 'workflow_dispatch'
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            project: DTXMania.Game/DTXMania.Game.Windows.csproj
+            output: windows
+            artifact: dtxmania-windows
+          - os: macos-latest
+            project: DTXMania.Game/DTXMania.Game.Mac.csproj
+            output: macos
+            artifact: dtxmania-macos
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v7
+    
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v6
+      with:
+        dotnet-version: '8.0.x'
+    
+    - name: Restore dependencies
+      run: dotnet restore ${{ matrix.project }}
+    
+    - name: Build Release
+      run: dotnet build ${{ matrix.project }} --configuration Release --no-restore
+    
+    - name: Publish
+      run: dotnet publish ${{ matrix.project }} --configuration Release --output ./publish/${{ matrix.output }} --no-restore --self-contained false
+
+    - name: Setup Python for pack validation
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      with:
+        python-version: '3.11'
+
+    - name: Validate CX Neon pack is complete
+      shell: bash
+      run: |
+        # Skip validation when the pack has not been produced yet (matches the
+        # vacuous-pass behavior of CxNeonPackTests). The pack is excluded from
+        # the bundled release until both Graphics/ and Sounds/ exist.
+        if [ ! -d "System/CXNeon/Graphics" ] || [ ! -d "System/CXNeon/Sounds" ]; then
+          echo "CX Neon pack not yet produced — skipping validation."
+          exit 0
+        fi
+        pip install "Pillow>=10,<12"
+        # sfxgen validate decodes every OGG via ffmpeg, which is not guaranteed
+        # to be on PATH on either runner. Install a full OGG/Vorbis-capable build
+        # before running it so _decode_ok doesn't fail-close every sound.
+        if [ "$RUNNER_OS" = "macOS" ]; then brew install ffmpeg; fi
+        if [ "$RUNNER_OS" = "Windows" ]; then choco install ffmpeg -y --no-progress; fi
+        python tools/skingen/skingen.py validate
+        python tools/sfxgen/sfxgen.py validate
+
+    - name: Bundle CX Neon skin as the base System skin
+      shell: bash
+      run: |
+        # Skip bundling when the pack has not been produced yet (matches the
+        # vacuous-pass behavior of CxNeonPackTests and the validate step above).
+        # The pack is excluded from the bundled release until both Graphics/
+        # and Sounds/ exist, so users never see a selectable-but-blank skin.
+        if [ ! -d "System/CXNeon/Graphics" ] || [ ! -d "System/CXNeon/Sounds" ]; then
+          echo "CX Neon pack not yet produced — skipping bundle."
+          exit 0
+        fi
+        dest="./publish/${{ matrix.output }}/System"
+        mkdir -p "$dest"
+        cp -R System/CXNeon/Graphics "$dest/Graphics"
+        cp -R System/CXNeon/Sounds "$dest/Sounds"
+        cp System/CXNeon/Theme.ini "$dest/Theme.ini"
+
+    - name: Assert no NX-derived assets in the release
+      shell: bash
+      run: |
+        # The only System content allowed in the artifact is what we just
+        # copied from System/CXNeon. Fail if anything else snuck in.
+        # Skip when the CX Neon pack was not bundled (see previous step).
+        system_dir="./publish/${{ matrix.output }}/System"
+        if [ ! -d "$system_dir" ]; then
+          echo "No System dir in release artifact — skipping NX-asset assertion."
+          exit 0
+        fi
+        # GITHUB_WORKSPACE is a Windows-style path (e.g. D:\a\...) on the
+        # windows-latest leg. Git Bash does not translate the backslash prefix
+        # when it is interpolated into a POSIX [ -f ] test, so every bundled
+        # CX Neon file would be reported as unexpected and the assertion would
+        # fail once the pack ships. cygpath -u converts to a POSIX path on
+        # Windows; on macOS GITHUB_WORKSPACE is already POSIX and cygpath is
+        # absent, so fall back to the raw value.
+        if command -v cygpath >/dev/null 2>&1; then
+          workspace="$(cygpath -u "$GITHUB_WORKSPACE")"
+        else
+          workspace="$GITHUB_WORKSPACE"
+        fi
+        unexpected=$(cd "$system_dir" && find . -type f | while read -r f; do
+          [ -f "$workspace/System/CXNeon/${f#./}" ] || echo "$f"
+        done)
+        if [ -n "$unexpected" ]; then
+          echo "Unexpected System files in release artifact:"; echo "$unexpected"; exit 1
+        fi
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      with:
+        name: ${{ matrix.artifact }}-${{ github.sha }}
+        path: ./publish/${{ matrix.output }}
