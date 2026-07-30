@@ -1,17 +1,16 @@
 name: Apply HPA-192 CI fix
 
 on:
-  push:
+  pull_request:
     branches:
       - codex/hpa-192-batched-import
-    paths:
-      - .github/workflows/apply-hpa192-ci-fix.yml
 
 permissions:
   contents: write
 
 jobs:
   apply-fix:
+    if: github.head_ref == 'automation/hpa192-ci-fix-trigger'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
