@@ -1,11 +1,16 @@
 using System;
 using System.Collections.Concurrent;
 using DTXMania.Game;
+using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Graphics;
+using DTXMania.Game.Lib.Input;
+using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.UI.Components;
 using DTXMania.Test.TestData;
+using Microsoft.Extensions.Logging;
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
 using Moq;
 using Xunit;
 
@@ -97,6 +102,44 @@ namespace DTXMania.Test.Stage
             var result = stageGame.MapMouseToVirtual(new Point(300, 200));
 
             Assert.Equal(new Point(300, 200), result);
+        }
+
+        [Fact]
+        public void IStageGame_DefaultStartupReportMethods_ShouldBeNoOps_WhenImplementationDoesNotOverrideThem()
+        {
+            // The three startup-report methods are default interface methods (DIMs) with empty
+            // bodies, acting as optional hooks. An implementation that does not override them
+            // must still be able to call them through the interface without throwing.
+            IStageGame stageGame = new MinimalStageGameStub();
+
+            var exception = Record.Exception(() =>
+            {
+                stageGame.ReportStartupActivated();
+                stageGame.ReportStartupFrameRendered();
+                stageGame.ReportStartupSummaryAndTitleRequested();
+            });
+
+            Assert.Null(exception);
+        }
+
+        /// <summary>
+        /// Minimal <see cref="IStageGame"/> implementation that leaves the three startup-report
+        /// default interface methods unoverridden, so the DIM bodies can be exercised.
+        /// </summary>
+        private sealed class MinimalStageGameStub : IStageGame
+        {
+            public GraphicsDevice GraphicsDevice => null!;
+            public IStageManager StageManager => null!;
+            public IConfigManager ConfigManager => null!;
+            public InputManagerCompat InputManager => null!;
+            public IGraphicsManager GraphicsManager => null!;
+            public IResourceManager ResourceManager => null!;
+            public ILoggerFactory LoggerFactory => null!;
+            public bool CanPerformStageTransition() => false;
+            public void MarkStageTransition() { }
+            public Point? MapMouseToVirtual(Point windowPoint) => windowPoint;
+            public ITextInputSource? GetTextInputSource() => null;
+            public void RequestExit() { }
         }
 
         /// <summary>

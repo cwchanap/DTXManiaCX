@@ -1192,5 +1192,75 @@ namespace DTXMania.Test.Song
 
             await AssertDatabaseCountsAsync(songs: 0, charts: 0, scores: 0);
         }
+
+        [Fact]
+        public async Task ImportSongsAsync_RescanWithNoChanges_ShouldCountAsPreserved()
+        {
+            // Seed a song with a chart.
+            var seeded = await SeedPlayedSongAsync();
+            // Re-import the same chart with identical metadata.
+            // The Candidate helper sets FileSize and LastModified, which the
+            // seeded chart doesn't have, so the chart will be "updated" not "preserved".
+            // To test the preserved path, we need to match the seeded chart's fields exactly.
+            var candidate = new SongImportCandidate(
+                new SongEntity
+                {
+                    Title = "Original",
+                    Artist = "Fixture Artist",
+                    Genre = "Original Genre"
+                },
+                new SongChart
+                {
+                    FilePath = seeded.Chart.FilePath,
+                    FileHash = "legacy-md5",
+                    DrumLevel = 50,
+                    HasDrumChart = true
+                },
+                SongPathIdentity.Normalize(seeded.Chart.FilePath),
+                "dir|played",
+                0);
+
+            var result = await _service.ImportSongsAsync(
+                CreateRequest(candidate),
+                progress: null,
+                CancellationToken.None);
+
+            // With matching metadata, the chart should be preserved (not updated).
+            Assert.Equal(0, result.Updated);
+            Assert.Equal(0, result.Added);
+            Assert.Equal(1, result.Preserved);
+        }
+
+        [Fact]
+        public async Task ImportSongsAsync_NewChartForExistingSong_ShouldAddChartToExistingSong()
+        {
+            // Seed a song with one chart.
+            var seeded = await SeedPlayedSongAsync();
+            // Import both the existing chart (for matching) and a new chart
+            // at a different path but same group key.
+            var existingCandidate = Candidate(
+                title: "Original",
+                groupKey: "dir|played",
+                groupOrder: 0,
+                path: seeded.Chart.FilePath,
+                drumLevel: 50);
+            var newCandidate = Candidate(
+                title: "Original",
+                groupKey: "dir|played",
+                groupOrder: 1,
+                path: "/songs/played/newchart.dtx",
+                drumLevel: 90);
+
+            var result = await _service.ImportSongsAsync(
+                CreateRequest(existingCandidate, newCandidate),
+                progress: null,
+                CancellationToken.None);
+
+            // The new chart should be added to the existing song.
+            Assert.Equal(1, result.Added);
+            // The existing chart may be updated if AddMissingInitialScores adds a score.
+            // The seeded chart has 2 scores; the new chart gets 1 default score = 3 total.
+            await AssertDatabaseCountsAsync(songs: 1, charts: 2, scores: 3);
+        }
     }
 }

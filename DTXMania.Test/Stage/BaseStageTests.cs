@@ -592,6 +592,24 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void Activate_WhenCriticalPathHostGetterThrows_ShouldSwallowAndContinueActivation()
+        {
+            // ResolveCriticalPathTrace wraps StartupCriticalPathHost.Resolve in a try/catch so a
+            // throwing host getter degrades to a null trace rather than failing activation. The
+            // Title stage still activates and loads its background.
+            var resourceManager = new Mock<IResourceManager>();
+            resourceManager.Setup(x => x.LoadTexture(It.IsAny<string>())).Returns(new Mock<ITexture>().Object);
+            var game = new ThrowingCriticalPathHostStageGame(resourceManager.Object);
+            var stage = new TestStage(game, StageType.Title, TexturePath.TitleBackground);
+
+            var exception = Record.Exception(() => stage.Activate());
+
+            Assert.Null(exception);
+            Assert.Equal(StagePhase.FadeIn, stage.CurrentPhase);
+            Assert.True(stage.BackgroundReady);
+        }
+
+        [Fact]
         public void FullLifecycle_WithBaseNoOpHooks_ShouldNotThrow()
         {
             var resourceManager = new Mock<IResourceManager>();
@@ -724,6 +742,38 @@ namespace DTXMania.Test.Stage
 
             StartupCriticalPathTrace? IStartupCriticalPathHost.StartupCriticalPathTrace =>
                 _trace;
+
+            public GraphicsDevice GraphicsDevice => null!;
+            public IStageManager StageManager => null!;
+            public IConfigManager ConfigManager { get; }
+            public InputManagerCompat InputManager => null!;
+            public IGraphicsManager GraphicsManager => null!;
+            public IResourceManager ResourceManager { get; }
+            public ILoggerFactory LoggerFactory => NullLoggerFactory.Instance;
+            public bool CanPerformStageTransition() => false;
+            public void MarkStageTransition() { }
+            public Point? MapMouseToVirtual(Point windowPoint) => null;
+            public ITextInputSource? GetTextInputSource() => null;
+            public void RequestExit() { }
+        }
+
+        /// <summary>
+        /// <see cref="IStageGame"/> + <see cref="IStartupCriticalPathHost"/> whose trace getter
+        /// throws, used to exercise <see cref="BaseStage"/>'s defensive catch in
+        /// <c>ResolveCriticalPathTrace</c>.
+        /// </summary>
+        private sealed class ThrowingCriticalPathHostStageGame :
+            IStageGame,
+            IStartupCriticalPathHost
+        {
+            public ThrowingCriticalPathHostStageGame(IResourceManager resourceManager)
+            {
+                ResourceManager = resourceManager;
+                ConfigManager = new ConfigManager();
+            }
+
+            StartupCriticalPathTrace? IStartupCriticalPathHost.StartupCriticalPathTrace =>
+                throw new InvalidOperationException("trace resolution failed");
 
             public GraphicsDevice GraphicsDevice => null!;
             public IStageManager StageManager => null!;

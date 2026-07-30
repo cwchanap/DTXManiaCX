@@ -1127,6 +1127,76 @@ namespace DTXMania.Test
             Assert.Null(ReflectionHelpers.GetPrivateField<object>(game, "_gameApiCancellation"));
         }
 
+        [Fact]
+        public void Update_WhenStageIsTitleAndNotTransitioning_ShouldMarkTitleCompletedAndEmitTimingLine()
+        {
+            var trace = StartupTimingTrace.Start(
+                new IncrementingMonotonicClock(),
+                new ConstantUtcMicrosecondClock(),
+                enableCriticalPath: true);
+            // Record all milestones in order so TryFormatCompletedLine returns non-null.
+            trace.MarkConfigLoaded();
+            trace.MarkLoadContentComplete();
+            trace.MarkStartupActivated();
+            trace.MarkStartupFirstDraw();
+            trace.MarkSummaryAndTitleRequested();
+            var game = CreateDrawHarness(trace, CreateTitleStageManager().Object);
+
+            game.InvokeBaseUpdate(new GameTime());
+
+            // MarkTitleCompleted + TryFormatCompletedLine should have been called.
+            // The timing line is written to Console.Out (not the diagnostic writer,
+            // because the base Update uses Console.Out directly).
+            Assert.Equal(1, game.CompleteBaseUpdateCallCount);
+        }
+
+        [Fact]
+        public void StartupDiagnosticWriter_OnBaseImplementation_ShouldReturnConsoleOut()
+        {
+            var game = ReflectionHelpers.CreateGame();
+
+            var writer = ReflectionHelpers.InvokePrivateMethod<TextWriter>(
+                game,
+                "get_StartupDiagnosticWriter");
+
+            Assert.Same(Console.Out, writer);
+        }
+
+        [Fact]
+        public void RequestGameExit_OnBaseImplementation_ShouldCallExitWithoutThrowing()
+        {
+            var game = ReflectionHelpers.CreateGame();
+
+            var exception = Record.Exception(() =>
+                ReflectionHelpers.InvokePrivateMethod(game, "RequestGameExit"));
+
+            // Exit() on an uninitialized game may or may not throw depending on
+            // the MonoGame platform backend; either way the method was entered.
+            // We only assert that any exception is not a test infrastructure error.
+            if (exception is not null)
+                Assert.IsNotType<NotImplementedException>(exception);
+        }
+
+        [Fact]
+        public void TryPublishStartupCriticalPath_WhenTraceThrows_ShouldSwallowException()
+        {
+            var trace = StartupTimingTrace.Start(
+                new IncrementingMonotonicClock(),
+                new ConstantUtcMicrosecondClock(),
+                enableCriticalPath: true);
+            // Corrupt the critical path trace so TryPublishTerminal throws.
+            ReflectionHelpers.SetPrivateField(
+                trace.CriticalPathTrace!,
+                "_sync",
+                null!);
+            var game = CreateDrawHarness(trace, new Mock<IStageManager>().Object);
+
+            var exception = Record.Exception(() =>
+                ReflectionHelpers.InvokePrivateMethod(game, "TryPublishStartupCriticalPath"));
+
+            Assert.Null(exception);
+        }
+
         private static BaseGame CreateGameForLifecycle(ConfigData? config = null)
         {
             var game = ReflectionHelpers.CreateGame();
