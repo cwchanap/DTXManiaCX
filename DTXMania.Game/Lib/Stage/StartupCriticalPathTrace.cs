@@ -171,6 +171,26 @@ internal sealed class StartupCriticalPathTrace : IStartupSongLoadTimingObserver
     };
 
     private readonly object _sync = new();
+
+    /// <summary>
+    /// Test-only failure seam. When set, the methods exercised by the
+    /// defensive Try* helpers (<see cref="TryPublishTerminal"/>,
+    /// <see cref="BeginAggregate"/>, <see cref="EndAggregate"/>,
+    /// <see cref="IncrementTitleSoundLoad"/>,
+    /// <see cref="MarkTitleGameStartFallbackRan"/>,
+    /// <see cref="RecordEnumerationTaskReturned"/>, <see cref="Fail"/>)
+    /// throw before performing any work, letting tests verify the helpers
+    /// swallow the exception without corrupting internal state via reflection.
+    /// Production code never sets this hook.
+    /// </summary>
+    internal Action? TestFailureHook { get; set; }
+
+    private void RaiseTestFailureIfConfigured()
+    {
+        if (TestFailureHook is not null)
+            TestFailureHook();
+    }
+
     private readonly IMonotonicClock _clock;
     private readonly IUtcMicrosecondClock _wallClock;
     private readonly long _entryTimestamp;
@@ -364,6 +384,7 @@ internal sealed class StartupCriticalPathTrace : IStartupSongLoadTimingObserver
 
     internal void BeginAggregate(StartupCriticalPathAggregate aggregate)
     {
+        RaiseTestFailureIfConfigured();
         if (!TryCaptureTimestamp(out var timestamp))
             return;
 
@@ -399,6 +420,7 @@ internal sealed class StartupCriticalPathTrace : IStartupSongLoadTimingObserver
 
     internal void EndAggregate(StartupCriticalPathAggregate aggregate)
     {
+        RaiseTestFailureIfConfigured();
         if (!TryCaptureTimestamp(out var timestamp))
             return;
 
@@ -509,6 +531,7 @@ internal sealed class StartupCriticalPathTrace : IStartupSongLoadTimingObserver
 
     internal void IncrementTitleSoundLoad()
     {
+        RaiseTestFailureIfConfigured();
         lock (_sync)
         {
             if (_terminalOutcome != TerminalOutcome.Open ||
@@ -530,6 +553,7 @@ internal sealed class StartupCriticalPathTrace : IStartupSongLoadTimingObserver
 
     internal void MarkTitleGameStartFallbackRan()
     {
+        RaiseTestFailureIfConfigured();
         lock (_sync)
         {
             if (_terminalOutcome != TerminalOutcome.Open ||
@@ -580,6 +604,7 @@ internal sealed class StartupCriticalPathTrace : IStartupSongLoadTimingObserver
 
     internal void RecordEnumerationTaskReturned(bool wasTerminal)
     {
+        RaiseTestFailureIfConfigured();
         if (!TryCaptureTimestamp(out var timestamp))
             return;
 
@@ -666,6 +691,7 @@ internal sealed class StartupCriticalPathTrace : IStartupSongLoadTimingObserver
 
     internal void Fail(string error, string lastMilestone, bool cancellation = false)
     {
+        RaiseTestFailureIfConfigured();
         lock (_sync)
         {
             if (_terminalOutcome != TerminalOutcome.Open)
@@ -720,6 +746,7 @@ internal sealed class StartupCriticalPathTrace : IStartupSongLoadTimingObserver
 
     internal bool TryPublishTerminal(TextWriter writer)
     {
+        RaiseTestFailureIfConfigured();
         if (writer is null)
             return false;
 

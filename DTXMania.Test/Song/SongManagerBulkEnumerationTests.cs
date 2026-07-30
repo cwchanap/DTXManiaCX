@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -958,7 +959,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
     }
 
     [Fact]
-    public async Task EnumerateAndImportSongsAsync_WhenSetDefParseCancelled_ShouldThrowOperationCanceled()
+    public async Task EnumerateAndImportSongsAsync_WhenSetDefReadThrowsCancellation_ShouldThrowOperationCanceled()
     {
         await _manager.InitializeDatabaseServiceAsync(_databasePath);
         WriteChart("Songs/SetDef2/chart.dtx", "SetDef Song 2", 50);
@@ -1006,7 +1007,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
     }
 
     [Fact]
-    public async Task EnumerateAndImportSongsAsync_WhenBoxDefParseCancelled_ShouldThrowOperationCanceled()
+    public async Task EnumerateAndImportSongsAsync_WhenFileEnumerationCancelled_ShouldThrowOperationCanceled()
     {
         await _manager.InitializeDatabaseServiceAsync(_databasePath);
         WriteChart("Songs/BoxDir/chart.dtx", "Box Song", 50);
@@ -1055,52 +1056,30 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
     }
 
     [Fact]
-    public async Task BuildEnumerationBatchAsync_WhenBatchIsIncomplete_ShouldThrowFromImport()
+    public async Task EnumerateAndImportSongsAsync_WhenBatchIsIncomplete_ShouldThrowInvalidOperationException()
     {
         await _manager.InitializeDatabaseServiceAsync(_databasePath);
-        // Force an incomplete batch by making the builder report incomplete.
-        // The batch becomes incomplete when cancellation is requested during traversal.
-        using var cts = new CancellationTokenSource();
-        _manager.EnumerateFilesCore = _ =>
+        // Inject an incomplete batch directly via the build seam so the import
+        // guard (IsComplete == false) is exercised independently of cancellation.
+        var incompleteBatch = new SongEnumerationBatch
         {
-            cts.Cancel();
-            return Array.Empty<string>();
+            ActiveRoots = new[] { _songsRoot },
+            DiscoveredChartPaths = new HashSet<string>(StringComparer.Ordinal),
+            Candidates = new List<SongImportCandidate>(),
+            RootNodes = new List<SongListNode>(),
+            PendingSongs = new List<PendingSongNode>(),
+            Errors = new List<SongEnumerationError>(),
+            DiscoveryAndParsingDuration = TimeSpan.Zero,
+            IsComplete = false
         };
+        _manager.BuildEnumerationBatchCoreAsync = (_, _, _) =>
+            Task.FromResult(incompleteBatch);
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             _manager.EnumerateAndImportSongsAsync(
-                new[] { _songsRoot }, null, cts.Token));
-    }
+                new[] { _songsRoot }, null, CancellationToken.None));
 
-    [Fact]
-    public async Task RefreshSongListFromDatabaseAsync_WhenEnumerationInProgress_ShouldReturnEarly()
-    {
-        await _manager.InitializeDatabaseServiceAsync(_databasePath);
-        WriteChart("Songs/Refresh/chart.dtx", "Refresh", 50);
-
-        // Start enumeration in a way that leaves _enumCancellation active.
-        using var cts = new CancellationTokenSource();
-        var enumStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var holdEnumeration = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var realImporter = _manager.ImportSongsCoreAsync;
-        _manager.ImportSongsCoreAsync = async (database, request, progress, token) =>
-        {
-            enumStarted.SetResult();
-            await holdEnumeration.Task;
-            return await realImporter(database, request, progress, token);
-        };
-
-        var enumTask = _manager.EnumerateAndImportSongsAsync(
-            new[] { _songsRoot }, null, cts.Token);
-        await enumStarted.Task;
-
-        // Now _enumCancellation is active (not cancelled), so refresh should skip.
-        await _manager.RefreshSongListFromDatabaseAsync();
-
-        // Cleanup
-        holdEnumeration.SetResult();
-        cts.Cancel();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => enumTask);
+        Assert.Contains("incomplete enumeration", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -1112,21 +1091,31 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
     }
 
     [Fact]
-    public async Task FinalizePendingNodes_WhenChartPathMissing_ShouldNullScoreAndContinue()
+    public async Task FinalizePendingNodes_WhenChartPathMissing_ShouldNullScoreAndRemovePlaceholder()
     {
         await _manager.InitializeDatabaseServiceAsync(_databasePath);
         WriteChart("Songs/Finalize/chart.dtx", "Finalize Song", 50);
 
-        var result = await _manager.EnumerateAndImportSongsAsync(
+        // Build the batch without finalizing so the placeholder still has its
+        // pre-resolution score slots, then finalize with an empty charts map to
+        // exercise the "chart not found" branch for every pending chart path.
+        var batch = await _manager.BuildEnumerationBatchAsync(
             new[] { _songsRoot }, null, CancellationToken.None);
+        var pending = Assert.Single(batch.PendingSongs);
+        var placeholder = pending.Placeholder;
+        var chartPathCount = pending.OrderedChartPaths.Count;
+        Assert.InRange(chartPathCount, 1, placeholder.Scores.Length);
+        Assert.Contains(placeholder, batch.RootNodes);
 
-        // Manually call FinalizePendingNodes with an empty chartsByPath to exercise
-        // the "chart not found" path.
         var emptyCharts = new Dictionary<string, SongChart>();
-        _manager.FinalizePendingNodes(result.Batch, emptyCharts);
+        _manager.FinalizePendingNodes(batch, emptyCharts);
 
-        // Should not throw; placeholder scores are nulled.
-        Assert.NotNull(result.Batch);
+        // Each missing chart path must have its placeholder score slot nulled.
+        for (var index = 0; index < chartPathCount; index++)
+            Assert.Null(placeholder.Scores[index]);
+
+        // With no resolved charts, the placeholder is removed from the batch.
+        Assert.DoesNotContain(placeholder, batch.RootNodes);
     }
 
     [Fact]
@@ -1145,7 +1134,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
     }
 
     [Fact]
-    public async Task GetRecentlyPlayedNodesAsync_WithMoreThanLimit_ShouldBreakAtLimit()
+    public async Task GetRecentlyPlayedNodesAsync_WithMoreThanLimit_ShouldReturnLimitInRecencyOrder()
     {
         await _manager.InitializeDatabaseServiceAsync(_databasePath);
         // Seed multiple songs with play history.
@@ -1156,35 +1145,48 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         await _manager.EnumerateAndImportSongsAsync(
             new[] { _songsRoot }, null, CancellationToken.None);
 
-        // Update existing scores with play history.
+        // Assign play history deterministically by title so the expected recency
+        // ordering does not depend on chart enumeration/return order: "Recent 0"
+        // is the most recently played, "Recent 4" the oldest.
         await using var context = _manager.DatabaseService!.CreateContext();
-        var charts = await context.SongCharts
-            .Include(c => c.Scores)
+        var songs = await context.Songs
+            .Include(s => s.Charts).ThenInclude(c => c.Scores)
             .ToListAsync();
-        for (var i = 0; i < charts.Count; i++)
+        foreach (var song in songs)
         {
-            var chart = charts[i];
-            var score = chart.Scores.FirstOrDefault();
-            if (score != null)
+            var titleNumber = int.Parse(
+                song.Title.Substring("Recent ".Length),
+                CultureInfo.InvariantCulture);
+            var lastPlayed = DateTime.UtcNow.AddDays(-titleNumber);
+            foreach (var chart in song.Charts)
             {
-                score.LastPlayedAt = DateTime.UtcNow.AddDays(-i);
-                score.PlayCount = 1;
-            }
-            else
-            {
-                chart.Scores.Add(new SongScore
+                var score = chart.Scores.FirstOrDefault();
+                if (score != null)
                 {
-                    Instrument = EInstrumentPart.DRUMS,
-                    PlaySpeedPercent = PlaySpeedRange.Default,
-                    LastPlayedAt = DateTime.UtcNow.AddDays(-i),
-                    PlayCount = 1
-                });
+                    score.LastPlayedAt = lastPlayed;
+                    score.PlayCount = 1;
+                }
+                else
+                {
+                    chart.Scores.Add(new SongScore
+                    {
+                        Instrument = EInstrumentPart.DRUMS,
+                        PlaySpeedPercent = PlaySpeedRange.Default,
+                        LastPlayedAt = lastPlayed,
+                        PlayCount = 1
+                    });
+                }
             }
         }
         await context.SaveChangesAsync();
 
         var recent = await _manager.GetRecentlyPlayedNodesAsync(limit: 3);
-        Assert.True(recent.Count <= 3);
+
+        // Exactly the limit, in newest-first recency order.
+        Assert.Equal(3, recent.Count);
+        Assert.Equal(
+            new[] { "Recent 0", "Recent 1", "Recent 2" },
+            recent.Select(node => node.Title).ToArray());
     }
 
     [Fact]

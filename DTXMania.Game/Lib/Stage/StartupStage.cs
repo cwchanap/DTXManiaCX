@@ -488,8 +488,13 @@ namespace DTXMania.Game.Lib.Stage
             BeginSpriteBatchCore(_spriteBatch);
             DrawStartupContent();
             EndSpriteBatchCore(_spriteBatch);
-            _hasRenderedStartupFrame = true;
-            _game.ReportStartupFrameRendered();
+            // Report the first rendered frame exactly once; subsequent draws
+            // must not re-emit the startup-frame-rendered notification.
+            if (!_hasRenderedStartupFrame)
+            {
+                _hasRenderedStartupFrame = true;
+                _game.ReportStartupFrameRendered();
+            }
         }
 
         private void DrawStartupContent()

@@ -1128,7 +1128,7 @@ namespace DTXMania.Test
         }
 
         [Fact]
-        public void Update_WhenStageIsTitleAndNotTransitioning_ShouldMarkTitleCompletedAndEmitTimingLine()
+        public void Update_WhenStageIsTitleAndNotTransitioning_ShouldInvokeBaseUpdateOnce()
         {
             var trace = StartupTimingTrace.Start(
                 new IncrementingMonotonicClock(),

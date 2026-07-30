@@ -1359,43 +1359,6 @@ namespace DTXMania.Test.Stage
             public long GetTimestamp() => Timestamp;
         }
 
-        private sealed class FixedUtcMicrosecondClock : IUtcMicrosecondClock
-        {
-            public long GetUnixMicroseconds() => 2_000_000;
-        }
-
-        private sealed class CriticalPathHostStageGame :
-            IStageGame,
-            IStartupCriticalPathHost
-        {
-            private readonly StartupCriticalPathTrace _trace;
-
-            public CriticalPathHostStageGame(
-                StartupCriticalPathTrace trace,
-                IResourceManager resourceManager)
-            {
-                _trace = trace;
-                ResourceManager = resourceManager;
-                ConfigManager = new ConfigManager();
-            }
-
-            StartupCriticalPathTrace? IStartupCriticalPathHost.StartupCriticalPathTrace =>
-                _trace;
-
-            public GraphicsDevice GraphicsDevice => null!;
-            public IStageManager StageManager => null!;
-            public IConfigManager ConfigManager { get; }
-            public InputManagerCompat InputManager => null!;
-            public IGraphicsManager GraphicsManager => null!;
-            public IResourceManager ResourceManager { get; }
-            public ILoggerFactory LoggerFactory => NullLoggerFactory.Instance;
-            public bool CanPerformStageTransition() => false;
-            public void MarkStageTransition() { }
-            public Point? MapMouseToVirtual(Point windowPoint) => null;
-            public ITextInputSource? GetTextInputSource() => null;
-            public void RequestExit() { }
-        }
-
         private sealed class ControlledTitleStage : TitleStage
         {
             private readonly StartupCriticalPathTrace _trace;
@@ -1557,23 +1520,15 @@ namespace DTXMania.Test.Stage
                 methodName,
                 System.Reflection.BindingFlags.NonPublic | BindingFlags.Static);
             Assert.NotNull(method);
-            method!.Invoke(null, [trace, aggregate]);
+            var exception = Record.Exception(() =>
+                method!.Invoke(null, [trace, aggregate]));
+            Assert.Null(exception);
         }
 
-        private static StartupCriticalPathTrace CreateCorruptedTrace()
-        {
-            var clock = new ManualMonotonicClock();
-            var trace = StartupCriticalPathTrace.Start(
-                clock,
-                new FixedUtcMicrosecondClock(),
-                entryTimestamp: 0,
-                entryUnixMicroseconds: 1_000_000,
-                exitAfterPublication: false);
-            // Corrupt the sync lock so every locked method throws ArgumentNullException,
-            // exercising the defensive catch blocks in the Try* helpers.
-            ReflectionHelpers.SetPrivateField(trace, "_sync", null!);
-            return trace;
-        }
+        private static StartupCriticalPathTrace CreateCorruptedTrace() =>
+            CriticalPathTestFixtures.CreateCorruptedTrace(
+                new ManualMonotonicClock(),
+                new FixedUtcMicrosecondClock());
 
         [Fact]
         public void TryBeginAggregate_WhenTraceThrows_ShouldSwallowException()
@@ -1603,7 +1558,8 @@ namespace DTXMania.Test.Stage
                 "TryIncrementTitleSoundLoad",
                 System.Reflection.BindingFlags.NonPublic | BindingFlags.Static);
             Assert.NotNull(method);
-            method!.Invoke(null, [trace]);
+            var exception = Record.Exception(() => method!.Invoke(null, [trace]));
+            Assert.Null(exception);
         }
 
         [Fact]
@@ -1614,7 +1570,8 @@ namespace DTXMania.Test.Stage
                 "TryMarkTitleGameStartFallbackRan",
                 System.Reflection.BindingFlags.NonPublic | BindingFlags.Static);
             Assert.NotNull(method);
-            method!.Invoke(null, [trace]);
+            var exception = Record.Exception(() => method!.Invoke(null, [trace]));
+            Assert.Null(exception);
         }
 
         [Fact]

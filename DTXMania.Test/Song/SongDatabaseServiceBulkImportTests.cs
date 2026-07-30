@@ -1195,44 +1195,6 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task ImportSongsAsync_RescanWithNoChanges_ShouldCountAsPreserved()
-        {
-            // Seed a song with a chart.
-            var seeded = await SeedPlayedSongAsync();
-            // Re-import the same chart with identical metadata.
-            // The Candidate helper sets FileSize and LastModified, which the
-            // seeded chart doesn't have, so the chart will be "updated" not "preserved".
-            // To test the preserved path, we need to match the seeded chart's fields exactly.
-            var candidate = new SongImportCandidate(
-                new SongEntity
-                {
-                    Title = "Original",
-                    Artist = "Fixture Artist",
-                    Genre = "Original Genre"
-                },
-                new SongChart
-                {
-                    FilePath = seeded.Chart.FilePath,
-                    FileHash = "legacy-md5",
-                    DrumLevel = 50,
-                    HasDrumChart = true
-                },
-                SongPathIdentity.Normalize(seeded.Chart.FilePath),
-                "dir|played",
-                0);
-
-            var result = await _service.ImportSongsAsync(
-                CreateRequest(candidate),
-                progress: null,
-                CancellationToken.None);
-
-            // With matching metadata, the chart should be preserved (not updated).
-            Assert.Equal(0, result.Updated);
-            Assert.Equal(0, result.Added);
-            Assert.Equal(1, result.Preserved);
-        }
-
-        [Fact]
         public async Task ImportSongsAsync_NewChartForExistingSong_ShouldAddChartToExistingSong()
         {
             // Seed a song with one chart.

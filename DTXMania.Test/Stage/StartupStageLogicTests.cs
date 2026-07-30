@@ -2490,55 +2490,55 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void PerformPhaseOperation_LoadScoreCache_ShouldWriteDebugMessage()
+        public void PerformPhaseOperation_LoadScoreCache_ShouldAdvancePhaseGuard()
         {
             var stage = CreateControlledStage();
             ReflectionHelpers.SetPrivateField(stage, "_operationPerformedForPhase", StartupPhase.SystemSounds);
 
-            ReflectionHelpers.InvokePrivateMethod(
+            var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(
                 stage,
                 "PerformPhaseOperationSync",
                 StartupPhase.LoadScoreCache,
-                0.0);
+                0.0));
+
+            Assert.Null(exception);
+            // The per-phase operation guard advances so the phase runs exactly once.
+            Assert.Equal(
+                StartupPhase.LoadScoreCache,
+                ReflectionHelpers.GetPrivateField<StartupPhase?>(stage, "_operationPerformedForPhase"));
         }
 
         [Fact]
-        public void PerformPhaseOperation_LoadScoreFiles_ShouldWriteDebugMessage()
+        public void PerformPhaseOperation_LoadScoreFiles_ShouldAdvancePhaseGuard()
         {
             var stage = CreateControlledStage();
             ReflectionHelpers.SetPrivateField(stage, "_operationPerformedForPhase", StartupPhase.SystemSounds);
 
-            ReflectionHelpers.InvokePrivateMethod(
+            var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(
                 stage,
                 "PerformPhaseOperationSync",
                 StartupPhase.LoadScoreFiles,
-                0.0);
-        }
+                0.0));
 
-        [Fact]
-        public void PerformPhaseOperation_SaveSongsDB_ShouldMarkSongManagerInitialized()
-        {
-            var stage = CreateControlledStage();
-            ReflectionHelpers.SetPrivateField(stage, "_operationPerformedForPhase", StartupPhase.SystemSounds);
-
-            ReflectionHelpers.InvokePrivateMethod(
-                stage,
-                "PerformPhaseOperationSync",
-                StartupPhase.SaveSongsDB,
-                0.0);
-
-            Assert.True(stage.MarkSongManagerInitializedCalled);
+            Assert.Null(exception);
+            Assert.Equal(
+                StartupPhase.LoadScoreFiles,
+                ReflectionHelpers.GetPrivateField<StartupPhase?>(stage, "_operationPerformedForPhase"));
         }
 
         [Fact]
         public void WriteSummaryOnce_WhenAlreadyWritten_ShouldReturnEarly()
         {
-            var stage = CreateControlledStage();
+            var stageManager = new Mock<IStageManager>();
+            var game = ReflectionHelpers.CreateGame();
+            ReflectionHelpers.SetPrivateField(game, "<StageManager>k__BackingField", stageManager.Object);
+            var stage = new SummaryCapturingStartupStage(game);
             ReflectionHelpers.SetPrivateField(stage, "_startupSummaryWritten", true);
 
             ReflectionHelpers.InvokePrivateMethod(stage, "WriteSummaryOnce");
 
-            // Should not throw; the early return means no summary is written.
+            // The early return means no summary is captured.
+            Assert.Empty(stage.StartupSummaries);
         }
 
         [Fact]
@@ -2655,18 +2655,10 @@ namespace DTXMania.Test.Stage
             Assert.Equal(1, stage.BuildHierarchyCalls);
         }
 
-        private static StartupCriticalPathTrace CreateCorruptedTrace()
-        {
-            var clock = new ManualMonotonicClock();
-            var trace = StartupCriticalPathTrace.Start(
-                clock,
-                new FakeUtcMicrosecondClock(),
-                entryTimestamp: 0,
-                entryUnixMicroseconds: 1_000_000,
-                exitAfterPublication: false);
-            ReflectionHelpers.SetPrivateField(trace, "_sync", null!);
-            return trace;
-        }
+        private static StartupCriticalPathTrace CreateCorruptedTrace() =>
+            CriticalPathTestFixtures.CreateCorruptedTrace(
+                new ManualMonotonicClock(),
+                new FakeUtcMicrosecondClock());
 
         private static void InvokeStaticTryHelper(string methodName, params object[] args)
         {

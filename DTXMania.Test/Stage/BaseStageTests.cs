@@ -720,43 +720,6 @@ namespace DTXMania.Test.Stage
             public long GetTimestamp() => ++Timestamp;
         }
 
-        private sealed class FixedUtcMicrosecondClock : IUtcMicrosecondClock
-        {
-            public long GetUnixMicroseconds() => 2_000_000;
-        }
-
-        private sealed class CriticalPathHostStageGame :
-            IStageGame,
-            IStartupCriticalPathHost
-        {
-            private readonly StartupCriticalPathTrace _trace;
-
-            public CriticalPathHostStageGame(
-                StartupCriticalPathTrace trace,
-                IResourceManager resourceManager)
-            {
-                _trace = trace;
-                ResourceManager = resourceManager;
-                ConfigManager = new ConfigManager();
-            }
-
-            StartupCriticalPathTrace? IStartupCriticalPathHost.StartupCriticalPathTrace =>
-                _trace;
-
-            public GraphicsDevice GraphicsDevice => null!;
-            public IStageManager StageManager => null!;
-            public IConfigManager ConfigManager { get; }
-            public InputManagerCompat InputManager => null!;
-            public IGraphicsManager GraphicsManager => null!;
-            public IResourceManager ResourceManager { get; }
-            public ILoggerFactory LoggerFactory => NullLoggerFactory.Instance;
-            public bool CanPerformStageTransition() => false;
-            public void MarkStageTransition() { }
-            public Point? MapMouseToVirtual(Point windowPoint) => null;
-            public ITextInputSource? GetTextInputSource() => null;
-            public void RequestExit() { }
-        }
-
         /// <summary>
         /// <see cref="IStageGame"/> + <see cref="IStartupCriticalPathHost"/> whose trace getter
         /// throws, used to exercise <see cref="BaseStage"/>'s defensive catch in
