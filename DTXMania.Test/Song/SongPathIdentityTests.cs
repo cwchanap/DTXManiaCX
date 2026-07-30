@@ -66,17 +66,22 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void SetDefinitionGroupKey_ShouldIgnoreChartTitleDifferences()
+        public void SetDefinitionGroupKey_ShouldNormalizePathAndDistinguishDifferentSetDefs()
         {
-            // Two charts with different titles under the same set.def should
-            // produce identical set-definition group keys, since the key is
-            // derived solely from the set.def path.
-            var setDefPath = "/songs/group/set.def";
-            var first = SongPathIdentity.ForSetDefinition(setDefPath);
-            var second = SongPathIdentity.ForSetDefinition(setDefPath);
+            // A non-canonical spelling of the same set.def path must produce the
+            // same key as the canonical spelling (normalization contract).
+            var canonical = "/songs/group/set.def";
+            var nonCanonical = "/songs/group/./set.def";
+            var first = SongPathIdentity.ForSetDefinition(canonical);
+            var second = SongPathIdentity.ForSetDefinition(nonCanonical);
 
             Assert.Equal(first, second);
             Assert.StartsWith("set|", first, StringComparison.Ordinal);
+
+            // A different set.def path must produce a different key (distinct-path
+            // contract), proving the key is not a constant.
+            var other = SongPathIdentity.ForSetDefinition("/songs/other/set.def");
+            Assert.NotEqual(first, other);
         }
     }
 }

@@ -121,6 +121,17 @@ public class StartupTimingTraceTests
         Assert.NotNull(deterministicTrace.CriticalPathTrace);
         Assert.Equal(1, clock.CallCount);
         Assert.Equal(1, wallClock.CallCount);
+
+        // The injected clock values (123, 456) must be shared with the
+        // companion critical-path trace as its entry timestamp and entry
+        // Unix microseconds, proving the two traces share a common origin.
+        var companion = deterministicTrace.CriticalPathTrace!;
+        Assert.Equal(
+            123,
+            ReflectionHelpers.GetPrivateField<long>(companion, "_entryTimestamp"));
+        Assert.Equal(
+            456,
+            ReflectionHelpers.GetPrivateField<long>(companion, "_entryUnixMicroseconds"));
     }
 
     [Fact]

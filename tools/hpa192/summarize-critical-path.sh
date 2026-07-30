@@ -280,8 +280,8 @@ parse_ordered_line() {
     local token
     local value
 
-    local -n names_ref="$names_variable"
-    names=("${names_ref[@]}")
+    local names_ref="$names_variable"
+    eval "names=(\"\${${names_ref}[@]}\")"
     IFS=' ' read -r -a tokens <<<"$line"
     [[ "${tokens[0]:-}" == "$prefix" ]] || return 1
     [[ "${#tokens[@]}" -eq "$((${#names[@]} + 1))" ]] || return 1
@@ -308,8 +308,8 @@ read_expected_field() {
     local token
     local value
 
-    local -n names_ref="$names_variable"
-    names=("${names_ref[@]}")
+    local names_ref="$names_variable"
+    eval "names=(\"\${${names_ref}[@]}\")"
     IFS=' ' read -r -a tokens <<<"$line"
     [[ "${tokens[0]:-}" == "$prefix" ]] || return 1
 

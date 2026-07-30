@@ -1477,19 +1477,27 @@ public class StartupCriticalPathTraceTests
     }
 
     [Fact]
-    public void RecordFirstObservationEnd_WhenNotTitleBackbufferBlitEnd_ShouldReturnAfterLock()
+    public void RecordFirstObservationEnd_WhenNotTitleBackbufferBlitEnd_ShouldRecordMilestoneAndSkipWallClock()
     {
         var fixture = CreateFixture();
+        var begin = StartupCriticalPathMilestone.StartupFirstUpdateBegin;
+        var end = StartupCriticalPathMilestone.StartupFirstUpdateEnd;
 
-        fixture.Trace.RecordFirstObservationBegin(
-            StartupCriticalPathMilestone.StartupFirstUpdateBegin,
-            StartupCriticalPathMilestone.StartupFirstUpdateEnd);
-        fixture.Trace.RecordFirstObservationEnd(
-            StartupCriticalPathMilestone.StartupFirstUpdateBegin,
-            StartupCriticalPathMilestone.StartupFirstUpdateEnd);
+        At(fixture, 100, () => fixture.Trace.RecordFirstObservationBegin(begin, end));
+        At(fixture, 200, () => fixture.Trace.RecordFirstObservationEnd(begin, end));
 
-        // The end milestone should be recorded without attempting wall-clock capture.
-        Assert.True(fixture.Trace.TryPublishTerminal(null!) == false);
+        // The end milestone is recorded: its timestamp is captured and the
+        // ended flag is set.
+        var ended = ReflectionHelpers.GetPrivateField<bool[]>(fixture.Trace, "_firstObservationEnded")!;
+        Assert.True(ended[(int)end]);
+        Assert.Equal(200, Timestamps(fixture.Trace)[(int)end]);
+
+        // Because this is not TitleBackbufferBlitEnd, the wall-clock capture
+        // path is skipped: no pending flag is set and no wall timestamp stored.
+        Assert.False(ReflectionHelpers.GetPrivateField<bool>(
+            fixture.Trace, "_titleBackbufferWallClockPending"));
+        Assert.Equal(0, ReflectionHelpers.GetPrivateField<long>(
+            fixture.Trace, "_titleBackbufferUnixMicroseconds"));
     }
 
     [Fact]
@@ -1497,15 +1505,55 @@ public class StartupCriticalPathTraceTests
     {
         var fixture = CreateFixture();
         var observer = (IStartupSongLoadTimingObserver)fixture.Trace;
-        var spans = Enum.GetValues<StartupDatabaseTimingSpan>();
-        At(fixture, 1, () => observer.BeginDatabaseSpan(spans[0]));
-        At(fixture, 2, () => observer.EndDatabaseSpan(spans[0]));
-        for (var i = 1; i < spans.Length; i++)
+
+        // Each StartupDatabaseTimingSpan maps 1:1 to a StartupCriticalPathAggregate.
+        // Replicating the mapping here verifies the observer routes every span to
+        // its correct aggregate (not just any aggregate).
+        var expectedAggregate = new Dictionary<StartupDatabaseTimingSpan, StartupCriticalPathAggregate>
         {
-            var span = spans[i];
-            At(fixture, 3, () => observer.BeginDatabaseSpan(span));
-            At(fixture, 4, () => observer.EndDatabaseSpan(span));
+            [StartupDatabaseTimingSpan.ServiceSetup] = StartupCriticalPathAggregate.DatabaseServiceSetup,
+            [StartupDatabaseTimingSpan.CorruptionProbe] = StartupCriticalPathAggregate.DatabaseCorruptionProbe,
+            [StartupDatabaseTimingSpan.InvalidRecovery] = StartupCriticalPathAggregate.DatabaseInvalidRecovery,
+            [StartupDatabaseTimingSpan.EnsureCreated] = StartupCriticalPathAggregate.DatabaseEnsureCreated,
+            [StartupDatabaseTimingSpan.EncodingPragmas] = StartupCriticalPathAggregate.DatabaseEncodingPragmas,
+            [StartupDatabaseTimingSpan.VersionWork] = StartupCriticalPathAggregate.DatabaseVersionWork,
+            [StartupDatabaseTimingSpan.SchemaEnsures] = StartupCriticalPathAggregate.DatabaseSchemaEnsures,
+        };
+
+        var counts = AggregateCounts(fixture.Trace);
+        var ticks = AggregateTimestamps(fixture.Trace);
+        var active = AggregateActive(fixture.Trace);
+        var beginTimestamps = ReflectionHelpers.GetPrivateField<long[]>(
+            fixture.Trace, "_aggregateBeginTimestamps")!;
+
+        var beginTs = 100;
+        var endTs = 200;
+        foreach (var span in Enum.GetValues<StartupDatabaseTimingSpan>())
+        {
+            var aggregate = expectedAggregate[span];
+            var index = (int)aggregate;
+
+            At(fixture, beginTs, () => observer.BeginDatabaseSpan(span));
+            // The aggregate must be active between Begin and End.
+            Assert.True(active[index]);
+            Assert.Equal(beginTs, beginTimestamps[index]);
+
+            At(fixture, endTs, () => observer.EndDatabaseSpan(span));
+
+            // Each span increments its correct aggregate's count exactly once,
+            // records the begin/end timing, and deactivates the span.
+            Assert.Equal(1, counts[index]);
+            Assert.Equal(endTs - beginTs, ticks[index]);
+            Assert.False(active[index]);
+
+            beginTs += 1000;
+            endTs += 1000;
         }
+
+        // Every database aggregate was exercised exactly once.
+        Assert.All(
+            Enum.GetValues<StartupDatabaseTimingSpan>(),
+            span => Assert.Equal(1, counts[(int)expectedAggregate[span]]));
     }
 
     [Fact]

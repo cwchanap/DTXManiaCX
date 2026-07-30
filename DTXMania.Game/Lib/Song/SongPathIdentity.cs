@@ -40,10 +40,7 @@ namespace DTXMania.Game.Lib.Song
 
         public static bool IsUnderRoot(string path, string root)
         {
-            var relative = Path.GetRelativePath(Normalize(root), Normalize(path));
-            return relative != ".."
-                && !relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
-                && !Path.IsPathRooted(relative);
+            return IsUnderNormalizedRoot(Normalize(path), Normalize(root));
         }
 
         /// <summary>

@@ -24,7 +24,7 @@ namespace DTXMania.Game.Lib.Song.Entities
         private readonly string _databasePath;
         private readonly DbContextOptions<SongDbContext> _options;
         private readonly Func<SongDbContext>? _contextFactory;
-        private readonly Func<int, bool> _activeChartIdentityFilter;
+        private readonly Func<int, bool>? _activeChartIdentityFilter;
         private readonly object _initializationLock = new object();
         private readonly SemaphoreSlim _initializationSemaphore = new SemaphoreSlim(1, 1);
         private bool _isInitialized = false;
@@ -1816,6 +1816,7 @@ namespace DTXMania.Game.Lib.Song.Entities
                 .GroupBy(s => s.SongId)
                 .Select(g => new { SongId = g.Key, LastPlayed = g.Max(s => s.LastPlayedAt) })
                 .OrderByDescending(x => x.LastPlayed)
+                .ThenBy(x => x.SongId)
                 .Skip(skip)
                 .Take(limit)
                 .Select(x => x.SongId)

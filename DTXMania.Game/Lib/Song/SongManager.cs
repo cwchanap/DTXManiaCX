@@ -55,6 +55,11 @@ namespace DTXMania.Game.Lib.Song
         /// </summary>
         private SongManager()
         {
+            // Default batch-building delegate captures this instance so tests
+            // can override BuildEnumerationBatchCoreAsync to inject controlled
+            // batches (e.g. an incomplete batch) without subclassing.
+            BuildEnumerationBatchCoreAsync = (searchPaths, progress, token) =>
+                BuildEnumerationBatchAsync(searchPaths, progress, token);
         }
 
         #endregion
@@ -89,6 +94,13 @@ namespace DTXMania.Game.Lib.Song
             CancellationToken,
             Task<SongBulkImportResult>> ImportSongsCoreAsync
             { get; set; } = DefaultImportSongsAsync;
+
+        internal Func<
+            string[],
+            IProgress<EnumerationProgress>?,
+            CancellationToken,
+            Task<SongEnumerationBatch>> BuildEnumerationBatchCoreAsync
+            { get; set; }
 
         internal Func<SongDatabaseService, Task<DatabaseStats?>>
             GetDatabaseStatsCoreAsync { get; set; } =
@@ -149,11 +161,25 @@ namespace DTXMania.Game.Lib.Song
             if (searchPaths == null || searchPaths.Length == 0)
                 return;
 
-            _currentSearchPaths = searchPaths
-                .Where(path => SongPathIdentity.TryNormalize(path, out _))
-                .Select(SongPathIdentity.Normalize)
+            // Normalize once, retaining only successful results, then dedupe.
+            var normalized = new List<string>(searchPaths.Length);
+            foreach (var path in searchPaths)
+            {
+                if (SongPathIdentity.TryNormalize(path, out var normalizedPath))
+                    normalized.Add(normalizedPath);
+            }
+
+            var distinct = normalized
                 .Distinct(SongPathIdentity.CanonicalComparer)
                 .ToArray();
+
+            // Assign under the same lock used by GetCurrentSearchPathsSnapshot,
+            // RefreshSongListFromDatabaseAsync, PublishEnumeration, and Clear so
+            // readers never observe a torn _currentSearchPaths reference.
+            lock (_lockObject)
+            {
+                _currentSearchPaths = distinct;
+            }
         }
 
         private static Task<SongBulkImportResult> DefaultImportSongsAsync(
@@ -411,13 +437,17 @@ namespace DTXMania.Game.Lib.Song
             if (GetDatabaseServiceSnapshot() == null)
                 return (0, false);
 
-            if (!IsEnumerationIdle())
+            // Acquire atomically so a concurrent enumeration returns (0, false)
+            // instead of racing into the throwing acquire path.
+            if (!TryBeginEnumeration(cancellationToken, out var linked))
                 return (0, false);
 
-            var result = await EnumerateAndImportSongsAsync(
+            var result = await EnumerateAndImportSongsCoreAsync(
                 searchPaths,
                 progress,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                observer: null,
+                linked).ConfigureAwait(false);
             await UpdateEnumerationTimestampAsync().ConfigureAwait(false);
 
             return (result.Batch.Candidates.Count, true);
@@ -611,13 +641,17 @@ namespace DTXMania.Game.Lib.Song
             if (GetDatabaseServiceSnapshot() == null)
                 return 0;
 
-            if (!IsEnumerationIdle())
+            // Acquire atomically so a concurrent enumeration returns 0 instead of
+            // racing into the throwing acquire path.
+            if (!TryBeginEnumeration(cancellationToken, out var linked))
                 return 0;
 
-            var result = await EnumerateAndImportSongsAsync(
+            var result = await EnumerateAndImportSongsCoreAsync(
                 searchPaths,
                 progress,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                observer: null,
+                linked).ConfigureAwait(false);
             return result.Batch.Candidates.Count;
         }
 
@@ -659,29 +693,38 @@ namespace DTXMania.Game.Lib.Song
             CancellationToken cancellationToken,
             IStartupSongLoadTimingObserver? observer)
         {
+            // Acquire the enumeration slot atomically. Direct callers of this
+            // public/internal entry point keep the historical throwing contract:
+            // a concurrent enumeration surfaces as InvalidOperationException.
+            if (!TryBeginEnumeration(cancellationToken, out var linked))
+            {
+                throw new InvalidOperationException(
+                    "Song enumeration is already in progress.");
+            }
             return EnumerateAndImportSongsCoreAsync(
                 searchPaths,
                 progress,
                 cancellationToken,
-                observer);
+                observer,
+                linked);
         }
 
         private async Task<SongEnumerationResult> EnumerateAndImportSongsCoreAsync(
             string[] searchPaths,
             IProgress<EnumerationProgress>? progress,
             CancellationToken cancellationToken,
-            IStartupSongLoadTimingObserver? observer)
+            IStartupSongLoadTimingObserver? observer,
+            CancellationTokenSource linked)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var database = GetDatabaseServiceSnapshot()
                 ?? throw new InvalidOperationException(
                     "Song database is not initialized.");
-            var linked = BeginEnumeration(cancellationToken);
             SongEnumerationResult? result = null;
             var outcome = StartupOperationOutcome.Failure;
             try
             {
-                var batch = await BuildEnumerationBatchAsync(
+                var batch = await BuildEnumerationBatchCoreAsync(
                     searchPaths,
                     progress,
                     linked.Token).ConfigureAwait(false);
@@ -725,31 +768,29 @@ namespace DTXMania.Game.Lib.Song
         }
 
         /// <summary>
-        /// Fast-path check: returns false if an enumeration is already in
-        /// progress, avoiding a throw from <see cref="BeginEnumeration"/>.
+        /// Atomically checks whether enumeration is idle and, if so, assigns a new
+        /// linked cancellation source for the upcoming enumeration. Returns false
+        /// (without mutating state) when an enumeration is already in progress,
+        /// eliminating the check-then-act race that a separate idle-check and
+        /// acquire step would introduce under concurrent callers.
         /// </summary>
-        private bool IsEnumerationIdle()
-        {
-            lock (_lockObject)
-            {
-                return _enumCancellation is not { IsCancellationRequested: false };
-            }
-        }
-
-        private CancellationTokenSource BeginEnumeration(CancellationToken token)
+        private bool TryBeginEnumeration(
+            CancellationToken token,
+            out CancellationTokenSource linked)
         {
             lock (_lockObject)
             {
                 if (_enumCancellation is { IsCancellationRequested: false })
                 {
-                    throw new InvalidOperationException(
-                        "Song enumeration is already in progress.");
+                    linked = null!;
+                    return false;
                 }
 
                 _enumCancellation?.Dispose();
                 _enumCancellation =
                     CancellationTokenSource.CreateLinkedTokenSource(token);
-                return _enumCancellation;
+                linked = _enumCancellation;
+                return true;
             }
         }
 
