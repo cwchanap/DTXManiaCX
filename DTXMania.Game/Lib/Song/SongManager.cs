@@ -786,7 +786,10 @@ namespace DTXMania.Game.Lib.Song
                     return false;
                 }
 
-                _enumCancellation?.Dispose();
+                // Replace the tracked source without disposing the outgoing one:
+                // EndEnumeration owns disposal of the previous enumeration's source
+                // once its task finishes, which avoids disposing a token that the
+                // in-flight enumeration may still be observing.
                 _enumCancellation =
                     CancellationTokenSource.CreateLinkedTokenSource(token);
                 linked = _enumCancellation;
@@ -1507,6 +1510,14 @@ namespace DTXMania.Game.Lib.Song
                         continue;
                     }
 
+                    // Normalize the search-path root once instead of re-normalizing
+                    // it for every chart via IsUnderRoot.
+                    if (!SongPathIdentity.TryNormalize(searchPath, out var normalizedRoot))
+                    {
+                        Debug.WriteLine($"SongManager: Skipping unnormalizable path during database rebuild: {searchPath}");
+                        continue;
+                    }
+
                     // Get all charts that belong to this search path
                     var relevantCharts = allSongs
                         .SelectMany(song => song.Charts
@@ -1514,9 +1525,9 @@ namespace DTXMania.Game.Lib.Song
                                 SongPathIdentity.TryNormalize(
                                     chart.FilePath,
                                     out var normalized) &&
-                                SongPathIdentity.IsUnderRoot(
+                                SongPathIdentity.IsUnderNormalizedRoot(
                                     normalized,
-                                    searchPath))
+                                    normalizedRoot))
                             .Select(chart => (song, chart)))
                         .ToList();
 
@@ -3981,6 +3992,9 @@ namespace DTXMania.Game.Lib.Song
                 ImportSongsCoreAsync = DefaultImportSongsAsync;
                 GetDatabaseStatsCoreAsync =
                     static database => database.GetDatabaseStatsAsync();
+                BuildEnumerationBatchCoreAsync =
+                    (searchPaths, progress, token) =>
+                        BuildEnumerationBatchAsync(searchPaths, progress, token);
             }
             DiscoveredScoreCount = 0;
             EnumeratedFileCount = 0;

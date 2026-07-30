@@ -178,6 +178,8 @@ internal sealed class StartupCriticalPathTrace : IStartupSongLoadTimingObserver
     /// <see cref="BeginAggregate"/>, <see cref="EndAggregate"/>,
     /// <see cref="IncrementTitleSoundLoad"/>,
     /// <see cref="MarkTitleGameStartFallbackRan"/>,
+    /// <see cref="RecordExactlyOnce"/>,
+    /// <see cref="RecordDatabaseTaskReturned"/>,
     /// <see cref="RecordEnumerationTaskReturned"/>, <see cref="Fail"/>)
     /// throw before performing any work, letting tests verify the helpers
     /// swallow the exception without corrupting internal state via reflection.
@@ -273,6 +275,7 @@ internal sealed class StartupCriticalPathTrace : IStartupSongLoadTimingObserver
 
     internal void RecordExactlyOnce(StartupCriticalPathMilestone milestone)
     {
+        RaiseTestFailureIfConfigured();
         if (!TryCaptureTimestamp(out var timestamp))
             return;
 
@@ -576,6 +579,7 @@ internal sealed class StartupCriticalPathTrace : IStartupSongLoadTimingObserver
 
     internal void RecordDatabaseTaskReturned(bool wasTerminal)
     {
+        RaiseTestFailureIfConfigured();
         if (!TryCaptureTimestamp(out var timestamp))
             return;
 
