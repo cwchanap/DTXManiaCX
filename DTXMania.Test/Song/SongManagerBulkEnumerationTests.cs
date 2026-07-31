@@ -244,6 +244,75 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         Assert.False(_manager.IsEnumerating);
     }
 
+    [Fact]
+    public async Task EnumerateAndImportSongsAsync_WithAlreadyCancelledToken_ShouldFreeSlotForSubsequentEnumeration()
+    {
+        // Regression: an already-cancelled token used to throw from the
+        // pre-try cancellation check, skipping EndEnumeration and leaving
+        // _enumCancellation non-null permanently. Every subsequent call was
+        // then rejected as "already in progress."
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            _manager.EnumerateAndImportSongsAsync(
+                new[] { _songsRoot },
+                progress: null,
+                cts.Token));
+
+        // The slot must be released even though the throw happened before the
+        // batch builder ran.
+        Assert.False(_manager.IsEnumerating);
+        Assert.Null(
+            ReflectionHelpers.GetPrivateField<CancellationTokenSource?>(
+                _manager,
+                "_enumCancellation"));
+
+        // A subsequent enumeration must start and complete normally.
+        WriteChart("Songs/Recovery/chart.dtx", "Recovery", 50);
+        var result = await _manager.EnumerateAndImportSongsAsync(
+            new[] { _songsRoot },
+            progress: null,
+            CancellationToken.None);
+
+        Assert.True(result.Batch.IsComplete);
+        Assert.Single(result.Batch.DiscoveredChartPaths);
+    }
+
+    [Fact]
+    public async Task EnumerateAndImportSongsAsync_WithoutDatabase_ThenInitialized_ShouldAllowRetry()
+    {
+        // Regression: calling the direct entry point without an initialized
+        // database used to throw from the pre-try database snapshot, skipping
+        // EndEnumeration and leaving _enumCancellation non-null permanently.
+        // Initializing the database afterward did not free the slot, so the
+        // retry was rejected as "already in progress."
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            _manager.EnumerateAndImportSongsAsync(
+                new[] { _songsRoot },
+                progress: null,
+                CancellationToken.None));
+
+        Assert.False(_manager.IsEnumerating);
+        Assert.Null(
+            ReflectionHelpers.GetPrivateField<CancellationTokenSource?>(
+                _manager,
+                "_enumCancellation"));
+
+        // Initialize the database after the failed attempt and verify the
+        // enumeration can be retried successfully.
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        WriteChart("Songs/Retry/chart.dtx", "Retry", 60);
+        var result = await _manager.EnumerateAndImportSongsAsync(
+            new[] { _songsRoot },
+            progress: null,
+            CancellationToken.None);
+
+        Assert.True(result.Batch.IsComplete);
+        Assert.Single(result.Batch.DiscoveredChartPaths);
+    }
+
     private static async Task<SongEnumerationBatch> ParkUntilReleasedThenCancelAsync(
         TaskCompletionSource<bool> gate, CancellationToken token)
     {

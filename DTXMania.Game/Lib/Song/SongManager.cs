@@ -720,14 +720,20 @@ namespace DTXMania.Game.Lib.Song
             IStartupSongLoadTimingObserver? observer,
             CancellationTokenSource linked)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var database = GetDatabaseServiceSnapshot()
-                ?? throw new InvalidOperationException(
-                    "Song database is not initialized.");
             SongEnumerationResult? result = null;
             var outcome = StartupOperationOutcome.Failure;
             try
             {
+                // The cancellation check and database snapshot must run inside
+                // the try/finally so that a pre-try throw (already-cancelled
+                // token, or uninitialized database on the direct entry point)
+                // still reaches EndEnumeration in the finally. Without this,
+                // _enumCancellation stays non-null permanently and every
+                // subsequent enumeration is rejected as "already in progress".
+                cancellationToken.ThrowIfCancellationRequested();
+                var database = GetDatabaseServiceSnapshot()
+                    ?? throw new InvalidOperationException(
+                        "Song database is not initialized.");
                 var batch = await BuildEnumerationBatchCoreAsync(
                     searchPaths,
                     progress,
