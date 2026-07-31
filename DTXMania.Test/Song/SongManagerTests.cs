@@ -629,9 +629,10 @@ namespace DTXMania.Test.Song
                     Assert.Equal("Test Artist", node.DatabaseSong?.Artist);
                 });
                 
-                // Parsed candidates remain chart-oriented while publication counters
-                // describe the logical hierarchy and discovered chart paths.
-                Assert.Equal(1, _manager.DiscoveredScoreCount);
+                // DiscoveredScoreCount counts difficulty charts, not logical
+                // songs: three parsed difficulties report 3, matching the legacy
+                // per-chart contract.
+                Assert.Equal(3, _manager.DiscoveredScoreCount);
                 Assert.Equal(3, _manager.EnumeratedFileCount);
             }
             finally

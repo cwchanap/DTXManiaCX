@@ -942,10 +942,22 @@ namespace DTXMania.Game.Lib.Song.Entities
                 cancellationToken.ThrowIfCancellationRequested();
                 await transaction.CommitAsync(cancellationToken)
                     .ConfigureAwait(false);
-                progress?.Report(new(
-                    SongBulkImportMilestone.Committed,
-                    request.Candidates.Count,
-                    request.Candidates.Count));
+                // The transaction has committed; nothing the progress callback
+                // can do should be able to turn this into a reported failure or
+                // trigger a meaningless post-commit rollback. Report outside the
+                // catch scope so a throwing subscriber is swallowed and logged.
+                try
+                {
+                    progress?.Report(new(
+                        SongBulkImportMilestone.Committed,
+                        request.Candidates.Count,
+                        request.Candidates.Count));
+                }
+                catch (Exception progressException)
+                {
+                    Debug.WriteLine(
+                        $"SongDatabaseService: Committed progress callback failed: {progressException.Message}");
+                }
                 persistence.Stop();
 
                 return new SongBulkImportResult(
@@ -1800,7 +1812,15 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// Song retains every eagerly loaded score variant and each variant's pitch-bearing
         /// history, so materialization does not collapse chart/instrument/speed identity.
         /// </summary>
-        public async Task<List<SongEntity>> GetRecentlyPlayedSongsAsync(int limit = 20, int skip = 0)
+        /// <param name="activeChartIds">
+        /// When non-null, recency (grouping, ordering, and pagination) considers only the
+        /// scores of these charts. This pushes an active-root criterion into SQL so that
+        /// ordering is globally correct across pages; null means every chart is considered.
+        /// </param>
+        public async Task<List<SongEntity>> GetRecentlyPlayedSongsAsync(
+            int limit = 20,
+            int skip = 0,
+            IReadOnlyCollection<int>? activeChartIds = null)
         {
             if (limit <= 0) return new List<SongEntity>();
 
@@ -1810,8 +1830,11 @@ namespace DTXMania.Game.Lib.Song.Entities
             // integer IDs back to the client instead of every played SongScore row.
             // The IDs are then used in a second query to load full Song+Chart+Score
             // graphs, and manually reordered client-side (IN does not preserve order).
-            var orderedIds = await context.SongScores
-                .Where(s => s.LastPlayedAt != null)
+            IQueryable<SongScore> scores = context.SongScores
+                .Where(s => s.LastPlayedAt != null);
+            if (activeChartIds != null)
+                scores = scores.Where(s => activeChartIds.Contains(s.ChartId));
+            var orderedIds = await scores
                 .Select(s => new { s.Chart.SongId, s.LastPlayedAt })
                 .GroupBy(s => s.SongId)
                 .Select(g => new { SongId = g.Key, LastPlayed = g.Max(s => s.LastPlayedAt) })
@@ -1841,6 +1864,41 @@ namespace DTXMania.Game.Lib.Song.Entities
                     result.Add(song);
             }
             return result;
+        }
+
+        /// <summary>
+        /// Returns the database IDs of charts whose <see cref="SongChart.FilePath"/>
+        /// resides under one of <paramref name="roots"/> (root-containment uses
+        /// <see cref="SongPathIdentity"/>, mirroring SongManager's active-chart
+        /// rule). Used to push an active-root criterion into recency queries so
+        /// that ordering and pagination are globally correct. Returns an empty
+        /// list for an empty root set.
+        /// </summary>
+        public async Task<IReadOnlyList<int>> GetActiveChartIdsAsync(
+            IReadOnlyList<string> roots)
+        {
+            if (roots == null || roots.Count == 0)
+                return Array.Empty<int>();
+
+            var normalizedRoots = roots
+                .Select(SongPathIdentity.Normalize)
+                .ToArray();
+            using var context = CreateContext();
+            var charts = await context.SongCharts
+                .AsNoTracking()
+                .Select(chart => new { chart.Id, chart.FilePath })
+                .ToListAsync();
+            var activeIds = new List<int>(charts.Count);
+            foreach (var chart in charts)
+            {
+                if (SongPathIdentity.TryNormalize(chart.FilePath, out var normalized) &&
+                    normalizedRoots.Any(root =>
+                        SongPathIdentity.IsUnderRoot(normalized, root)))
+                {
+                    activeIds.Add(chart.Id);
+                }
+            }
+            return activeIds;
         }
 
         /// <summary>

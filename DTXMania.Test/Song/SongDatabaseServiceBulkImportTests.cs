@@ -1163,6 +1163,33 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
+        public async Task ImportSongsAsync_WhenCommittedProgressCallbackThrows_ShouldStillReturnCommittedResult()
+        {
+            // The transaction has already committed by the time the Committed
+            // milestone is reported. A throwing progress callback must not be
+            // able to turn that committed import into a reported failure (or
+            // trigger a meaningless post-commit rollback).
+            var progress = new InlineProgress<SongBulkImportProgress>(
+                update =>
+                {
+                    if (update.Milestone == SongBulkImportMilestone.Committed)
+                        throw new InvalidOperationException("callback exploded");
+                });
+
+            var result = await _service.ImportSongsAsync(
+                CreateRequest(OneCandidate()),
+                progress,
+                CancellationToken.None);
+
+            Assert.Equal(1, result.Added);
+            Assert.All(
+                result.ChartsByPath.Values,
+                chart => Assert.True(chart.Id > 0));
+            Assert.Equal(1, _countingContext.SaveChangesAsyncCalls);
+            await AssertDatabaseCountsAsync(songs: 1, charts: 1, scores: 1);
+        }
+
+        [Fact]
         public async Task ImportSongsAsync_WhenCancelledAtSave_ShouldRollBackEverything()
         {
             using var cancellation = new CancellationTokenSource();
