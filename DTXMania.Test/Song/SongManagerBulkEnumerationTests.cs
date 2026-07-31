@@ -324,7 +324,10 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
     private static async Task SpinUntilAsync(
         Func<bool> condition, string message)
     {
-        for (var i = 0; i < 100; i++)
+        // 600 iterations * 10ms = 6s budget. A loaded CI host may schedule
+        // the background enumeration's slot acquisition slowly, so the budget
+        // is intentionally generous while keeping the 10ms polling cadence.
+        for (var i = 0; i < 600; i++)
         {
             if (condition())
                 return;
@@ -1083,8 +1086,13 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
 
         // Target has the most-recent ACTIVE play and must rank first even though
         // the decoys' inactive charts pushed it past the first all-chart page.
-        Assert.Equal("Target", recent.First().Title);
-        Assert.True(recent.Count <= 3);
+        // The decoys follow in active-chart recency order (Decoy 0 before Decoy
+        // 1 before Decoy 2); with a limit of 3 only Target, Decoy 0, and Decoy
+        // 1 are returned.
+        Assert.Equal(3, recent.Count);
+        Assert.Equal(
+            new[] { "Target", "Decoy 0", "Decoy 1" },
+            recent.Select(node => node.Title).ToArray());
     }
 
     [Fact]
