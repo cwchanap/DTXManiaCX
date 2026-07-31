@@ -557,23 +557,42 @@ namespace DTXMania.Game.Lib.Song.Entities
                     }
                 }
 
+                // Precompute normalized-path -> ordered chart-id lookup once so
+                // each migration-collision check is O(1) instead of re-scanning
+                // and re-normalizing every persisted chart identity per call.
+                var chartIdsByNormalizedPath = chartIdentities
+                    .Select(identity =>
+                    {
+                        var valid = SongPathIdentity.TryNormalize(
+                            identity.FilePath, out var normalizedPath);
+                        return new
+                        {
+                            identity.Id,
+                            NormalizedPath = normalizedPath,
+                            Valid = valid
+                        };
+                    })
+                    .Where(item => item.Valid)
+                    .GroupBy(
+                        item => item.NormalizedPath,
+                        SongPathIdentity.CanonicalComparer)
+                    .ToDictionary(
+                        group => group.Key,
+                        group => group
+                            .Select(item => item.Id)
+                            .OrderBy(id => id)
+                            .ToArray(),
+                        SongPathIdentity.CanonicalComparer);
+
                 bool HasBinaryTargetCollision(
                     SongChart chart,
                     string targetPath,
                     out int[] collidingIds)
                 {
-                    collidingIds = chartIdentities
-                        .Where(identity =>
-                            identity.Id != chart.Id &&
-                            SongPathIdentity.TryNormalize(
-                                identity.FilePath,
-                                out var normalizedPath) &&
-                            SongPathIdentity.CanonicalComparer.Equals(
-                                normalizedPath,
-                                targetPath))
-                        .Select(identity => identity.Id)
-                        .OrderBy(id => id)
-                        .ToArray();
+                    collidingIds = chartIdsByNormalizedPath.TryGetValue(
+                            targetPath, out var ids)
+                        ? ids.Where(id => id != chart.Id).ToArray()
+                        : Array.Empty<int>();
                     return collidingIds.Length > 0;
                 }
 
