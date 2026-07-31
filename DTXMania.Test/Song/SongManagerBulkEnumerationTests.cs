@@ -61,7 +61,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         Assert.Single(result.Batch.PendingSongs);
         Assert.Equal(1, _bulkImportCalls);
         Assert.Equal(2, _manager.EnumeratedFileCount);
-        Assert.Equal(1, _manager.DiscoveredScoreCount);
+        Assert.Equal(2, _manager.DiscoveredScoreCount);
         var node = Assert.Single(FlattenScoreNodes(_manager.RootSongs));
         Assert.Equal(2, node.AvailableDifficulties);
         Assert.All(node.Scores.Where(score => score != null), score =>
@@ -72,6 +72,22 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
                     Array.IndexOf(node.Scores, score),
                     PlaySpeedRange.Default)));
         });
+    }
+
+    [Fact]
+    public async Task EnumerateAndImportSongsAsync_WithThreeDifficultiesInOneSet_ShouldReportDiscoveredScoreCountAsChartCount()
+    {
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        WriteChart("Songs/Set/basic.dtx", title: "Set Song", drumLevel: 20);
+        WriteChart("Songs/Set/advanced.dtx", title: "Set Song", drumLevel: 50);
+        WriteChart("Songs/Set/extreme.dtx", title: "Set Song", drumLevel: 80);
+
+        await _manager.EnumerateAndImportSongsAsync(
+            new[] { _songsRoot }, progress: null, CancellationToken.None);
+
+        // DiscoveredScoreCount is a count of discovered scores/charts, not of
+        // grouped logical songs: a three-difficulty set reports 3.
+        Assert.Equal(3, _manager.DiscoveredScoreCount);
     }
 
     [Fact]
@@ -177,6 +193,104 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
             StartupOperationOutcome.Cancellation,
             observer.Outcome);
         Assert.True(sourceWasCleared);
+    }
+
+    [Fact]
+    public async Task Enumeration_WhenCancelledButNotTerminated_ShouldKeepSlotOccupiedUntilTermination()
+    {
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+
+        // Park the enumeration inside the batch builder so it holds the slot
+        // after cancellation but before EndEnumeration runs.
+        var gate = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        _manager.BuildEnumerationBatchCoreAsync = (_, _, token) =>
+            ParkUntilReleasedThenCancelAsync(gate, token);
+
+        using var cts = new CancellationTokenSource();
+        // Fire enumeration A without awaiting: it acquires the slot then parks.
+        var enumerationA = _manager.EnumerateAndImportSongsAsync(
+            new[] { _songsRoot }, progress: null, cts.Token);
+
+        await SpinUntilAsync(
+            () => _manager.IsEnumerating,
+            "Enumeration slot was never acquired.");
+
+        // Cancel while A is still executing inside the batch builder.
+        cts.Cancel();
+
+        try
+        {
+            // The slot must remain occupied until A actually terminates, so a
+            // concurrent caller cannot start a second enumeration against the
+            // shared _rootSongs/database state while A winds down.
+            Assert.True(_manager.IsEnumerating);
+
+            // A second enumeration must be rejected while A has not terminated.
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                _manager.EnumerateAndImportSongsAsync(
+                    new[] { _songsRoot }, progress: null, CancellationToken.None));
+        }
+        finally
+        {
+            // Release A regardless of assertion outcome so it terminates and
+            // frees the singleton slot for subsequent tests.
+            gate.TrySetResult(true);
+            try { await enumerationA; }
+            catch (OperationCanceledException) { /* expected termination */ }
+        }
+
+        // After A terminates the slot is free again.
+        Assert.False(_manager.IsEnumerating);
+    }
+
+    private static async Task<SongEnumerationBatch> ParkUntilReleasedThenCancelAsync(
+        TaskCompletionSource<bool> gate, CancellationToken token)
+    {
+        await gate.Task.ConfigureAwait(false);
+        token.ThrowIfCancellationRequested();
+        throw new OperationCanceledException(token);
+    }
+
+    private static async Task SpinUntilAsync(
+        Func<bool> condition, string message)
+    {
+        for (var i = 0; i < 100; i++)
+        {
+            if (condition())
+                return;
+            await Task.Delay(10);
+        }
+        Assert.True(condition(), message);
+    }
+
+    [Fact]
+    public async Task EnumerateAndImportSongsAsync_WhenSongDiscoveredSubscriberThrows_ShouldNotFailOrSuppressOtherSubscribers()
+    {
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        WriteChart("Songs/A/basic.dtx", title: "Grouped", drumLevel: 20);
+        WriteChart("Songs/A/extreme.dtx", title: "Grouped", drumLevel: 80);
+
+        var secondDiscoveredCalls = 0;
+        var completedCalls = 0;
+        // First subscriber throws; it must not stop the second subscriber or
+        // EnumerationCompleted, and must not turn the committed/published
+        // import into a reported failure.
+        _manager.SongDiscovered += (_, _) => throw new InvalidOperationException("boom");
+        _manager.SongDiscovered += (_, _) => secondDiscoveredCalls++;
+        _manager.EnumerationCompleted += (_, _) => completedCalls++;
+        var observer = new RecordingObserver(onTerminal: null);
+
+        var result = await _manager.EnumerateAndImportSongsAsync(
+            new[] { _songsRoot }, progress: null, CancellationToken.None, observer);
+
+        Assert.NotNull(result);
+        Assert.True(result.Batch.IsComplete);
+        Assert.Equal(StartupOperationOutcome.Success, observer.Outcome);
+        Assert.Same(result, observer.Result);
+        Assert.True(secondDiscoveredCalls > 0,
+            "A throwing SongDiscovered subscriber suppressed later subscribers.");
+        Assert.Equal(1, completedCalls);
     }
 
     [Fact]
@@ -836,6 +950,72 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
                 node.DatabaseSong!.Charts,
                 chart => Assert.True(
                     SongPathIdentity.IsUnderRoot(chart.FilePath, activeRoot))));
+    }
+
+    [Fact]
+    public async Task GetRecentlyPlayedNodesAsync_WhenActiveRecencyRanksAcrossPageBoundary_ShouldOrderGloballyByActiveRecency()
+    {
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        var activeRoot = Path.Combine(_testRoot, "Active");
+        var inactiveRoot = Path.Combine(_testRoot, "Removed");
+        var now = DateTime.UtcNow;
+
+        await using (var context = _manager.DatabaseService!.CreateContext())
+        {
+            // 64 decoys: globally recent (an inactive chart just played) but
+            // actively ancient (an active chart played over a year ago). They
+            // fill page one of an all-chart ordering, which is exactly one more
+            // than the batch size used by the legacy paging loop.
+            for (var i = 0; i < 64; i++)
+            {
+                var decoy = new SongEntity
+                {
+                    Title = $"Decoy {i}",
+                    Artist = "Fixture",
+                    Genre = "Fixture"
+                };
+                var inactiveChart = CreatePersistedChart(
+                    SongPathIdentity.Normalize(
+                        Path.Combine(inactiveRoot, $"d{i}/inactive.dtx")),
+                    50);
+                inactiveChart.Scores.Add(CreatePlayedScore(now.AddMilliseconds(-(i + 1))));
+                var activeChart = CreatePersistedChart(
+                    SongPathIdentity.Normalize(
+                        Path.Combine(activeRoot, $"d{i}/active.dtx")),
+                    50);
+                activeChart.Scores.Add(CreatePlayedScore(now.AddYears(-1).AddDays(-i)));
+                decoy.Charts.Add(inactiveChart);
+                decoy.Charts.Add(activeChart);
+                context.Songs.Add(decoy);
+            }
+
+            // Target: only an active chart, played a minute ago. Globally it
+            // ranks beyond the 64-song page boundary (no recent inactive play),
+            // but by active-chart recency it is the most recent of all.
+            var target = new SongEntity
+            {
+                Title = "Target",
+                Artist = "Fixture",
+                Genre = "Fixture"
+            };
+            var targetChart = CreatePersistedChart(
+                SongPathIdentity.Normalize(
+                    Path.Combine(activeRoot, "target/active.dtx")),
+                60);
+            targetChart.Scores.Add(CreatePlayedScore(now.AddMinutes(-1)));
+            target.Charts.Add(targetChart);
+            context.Songs.Add(target);
+
+            await context.SaveChangesAsync();
+        }
+        await _manager.BuildSongListFromDatabasePublicAsync(new[] { activeRoot });
+
+        var recent = await _manager.GetRecentlyPlayedNodesAsync(limit: 3);
+
+        // Target has the most-recent ACTIVE play and must rank first even though
+        // the decoys' inactive charts pushed it past the first all-chart page.
+        Assert.Equal("Target", recent.First().Title);
+        Assert.True(recent.Count <= 3);
     }
 
     [Fact]

@@ -246,8 +246,12 @@ namespace DTXMania.Game.Lib.Song
             {
                 lock (_lockObject)
                 {
-                    var c = _enumCancellation;
-                    return c != null && !c.Token.IsCancellationRequested;
+                    // The slot is occupied for as long as an enumeration task is
+                    // in flight, including the cancellation-winddown window
+                    // before EndEnumeration clears the source. This stays in sync
+                    // with TryBeginEnumeration's occupancy rule: any non-null
+                    // source means busy, even if it has already been cancelled.
+                    return _enumCancellation != null;
                 }
             }
         }
@@ -780,16 +784,20 @@ namespace DTXMania.Game.Lib.Song
         {
             lock (_lockObject)
             {
-                if (_enumCancellation is { IsCancellationRequested: false })
+                // Any non-null source means the slot is occupied, including one
+                // that has been cancelled but whose enumeration task has not yet
+                // reached EndEnumeration. Clearing the slot on cancellation
+                // alone would let a new enumeration start while the previous
+                // task is still mid-traversal/transaction/rollback/publication,
+                // racing on the shared _rootSongs list and the database. Only
+                // EndEnumeration — run in the prior task's finally block — clears
+                // the slot, proving the prior operation has terminated.
+                if (_enumCancellation != null)
                 {
                     linked = null!;
                     return false;
                 }
 
-                // Replace the tracked source without disposing the outgoing one:
-                // EndEnumeration owns disposal of the previous enumeration's source
-                // once its task finishes, which avoids disposing a token that the
-                // in-flight enumeration may still be observing.
                 _enumCancellation =
                     CancellationTokenSource.CreateLinkedTokenSource(token);
                 linked = _enumCancellation;
@@ -1446,12 +1454,57 @@ namespace DTXMania.Game.Lib.Song
                 _rootSongs.AddRange(batch.RootNodes);
                 _currentSearchPaths = batch.ActiveRoots.ToArray();
                 EnumeratedFileCount = batch.DiscoveredChartPaths.Count;
-                DiscoveredScoreCount = batch.PendingSongs.Count;
+                // Count discovered difficulty charts, not grouped logical songs:
+                // a multi-difficulty set contributes one PendingSong but one
+                // candidate per chart, and the contract is "number of discovered
+                // scores" (mirroring the legacy per-chart increment).
+                DiscoveredScoreCount = batch.Candidates.Count;
             }
 
             foreach (var song in FlattenScoreNodes(batch.RootNodes))
-                SongDiscovered?.Invoke(this, new SongDiscoveredEventArgs(song));
-            EnumerationCompleted?.Invoke(this, EventArgs.Empty);
+                SafeInvoke(SongDiscovered, this, new SongDiscoveredEventArgs(song), nameof(SongDiscovered));
+            SafeInvoke(EnumerationCompleted, this, EventArgs.Empty, nameof(EnumerationCompleted));
+        }
+
+        // Subscribers run independently so that one throwing handler cannot
+        // suppress later handlers, cannot stop EnumerationCompleted, and —
+        // because the database has already committed and the hierarchy is
+        // already published by the time these fire — cannot escape to turn a
+        // successful import into a reported failure. Exceptions are logged.
+        private static void SafeInvoke<TArgs>(
+            EventHandler<TArgs>? evt,
+            object sender,
+            TArgs args,
+            string eventName) where TArgs : EventArgs
+        {
+            if (evt == null) return;
+            foreach (var handler in evt.GetInvocationList())
+            {
+                try { ((EventHandler<TArgs>)handler)(sender, args); }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine(
+                        $"SongManager: {eventName} subscriber threw: {ex.Message}");
+                }
+            }
+        }
+
+        private static void SafeInvoke(
+            EventHandler? evt,
+            object sender,
+            EventArgs args,
+            string eventName)
+        {
+            if (evt == null) return;
+            foreach (var handler in evt.GetInvocationList())
+            {
+                try { ((EventHandler)handler)(sender, args); }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine(
+                        $"SongManager: {eventName} subscriber threw: {ex.Message}");
+                }
+            }
         }
 
         private static IEnumerable<SongListNode> FlattenScoreNodes(
@@ -3020,55 +3073,39 @@ namespace DTXMania.Game.Lib.Song
         public async Task<List<SongListNode>> GetRecentlyPlayedNodesAsync(int limit = 20)
         {
             var db = GetDatabaseServiceSnapshot();
-            if (db == null) return new List<SongListNode>();
+            if (db == null || limit <= 0) return new List<SongListNode>();
 
-            var hasActiveRoots = GetCurrentSearchPathsSnapshot().Length > 0;
-            var nodes = new List<SongListNode>(limit);
-
-            // When active roots exist, we cannot push the root-containment filter
-            // into the DB query (it's a SongManager concept). Instead of loading
-            // all played songs via int.MaxValue, fetch bounded batches and page
-            // until we collect `limit` active songs or exhaust the recency list.
-            if (!hasActiveRoots)
+            // Push the active-root criterion into the DB query as a set of active
+            // chart IDs so that grouping, ordering, AND pagination all use
+            // active-chart recency. This is what makes the ordering globally
+            // correct: a song promoted up the all-chart ordering by a play on a
+            // now-inactive chart can no longer push a more-recently-played active
+            // song past the page boundary. With active filtering in SQL, every
+            // returned song already has at least one active chart, so a single
+            // bounded query is sufficient (no client-side re-pagination).
+            IReadOnlyCollection<int>? activeChartIds = null;
+            var roots = GetCurrentSearchPathsSnapshot();
+            if (roots.Length > 0)
             {
-                var songs = await db.GetRecentlyPlayedSongsAsync(limit)
+                activeChartIds = await db.GetActiveChartIdsAsync(roots)
                     .ConfigureAwait(false);
-                AppendActiveNodes(songs, limit, ref nodes, orderByActive: false);
-                return nodes;
             }
 
-            const int batchSize = 64;
-            var skip = 0;
-            while (nodes.Count < limit)
-            {
-                // Fetch a bounded batch of recently played songs by skipping
-                // already-fetched rows. The DB query orders by LastPlayedAt
-                // descending, so Skip(offset).Take(batchSize) pages through
-                // the recency list without loading all played songs at once.
-                var batch = await db.GetRecentlyPlayedSongsAsync(batchSize, skip)
-                    .ConfigureAwait(false);
-                if (batch.Count == 0)
-                    break;
-
-                // Filter to songs with active charts and append up to limit.
-                AppendActiveNodes(batch, limit, ref nodes, orderByActive: true);
-                if (batch.Count < batchSize)
-                    break; // exhausted
-
-                skip += batchSize;
-                if (skip > 10000)
-                    break; // safety valve to avoid unbounded paging
-            }
-
+            var songs = await db.GetRecentlyPlayedSongsAsync(limit, 0, activeChartIds)
+                .ConfigureAwait(false);
+            var nodes = new List<SongListNode>(songs.Count);
+            AppendActiveNodes(songs, limit, ref nodes);
             return nodes;
         }
 
         private void AppendActiveNodes(
             List<SongEntity> songs,
             int limit,
-            ref List<SongListNode> nodes,
-            bool orderByActive)
+            ref List<SongListNode> nodes)
         {
+            // The DB query already orders by active-chart recency, so callers
+            // receive songs in the correct global order; we only filter to each
+            // song's active charts and build nodes, preserving DB order.
             var items = songs
                 .Select(song =>
                 {
@@ -3083,13 +3120,6 @@ namespace DTXMania.Game.Lib.Song
                 })
                 .Where(item =>
                     item.Charts.Length > 0 && item.LastPlayedAt.HasValue);
-
-            if (orderByActive)
-            {
-                items = items
-                    .OrderByDescending(item => item.LastPlayedAt)
-                    .ThenBy(item => item.Song.Id);
-            }
 
             foreach (var item in items)
             {
