@@ -312,6 +312,11 @@ jobs:
         with:
           name: dtxmania-windows-installer
           path: installer/windows/Output/DTXMania-Setup-${{ env.APP_VERSION }}.exe
+          # GITHUB_RUN_ID is stable across reruns (only GITHUB_RUN_ATTEMPT
+          # increments), and upload-artifact v4 defaults overwrite to false,
+          # so a rerun would 409 on the prior attempt's immutable artifact.
+          # Mirror create-release's --clobber rerun handling.
+          overwrite: true
 
   mac-installer:
     needs: prepare-release
@@ -595,6 +600,7 @@ jobs:
         with:
           name: dtxmania-macos-dmg
           path: output/DTXMania-${{ env.APP_VERSION }}-arm64.dmg
+          overwrite: true # see windows-installer upload note; same rerun concern
 
   create-release:
     name: Create GitHub release
