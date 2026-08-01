@@ -109,10 +109,16 @@ jobs:
             # SHA (not the tag name) and create-release must target it —
             # otherwise a force-moved tag could make Windows and macOS build
             # different commits, and the release could point elsewhere again.
-            encoded_tag="$(jq -rn --arg v "$INPUT_TAG" '$v | @uri')"
+            # Qualify with tags/ so the commits endpoint resolves the tag ref
+            # unambiguously. A bare short name is also accepted, but when a
+            # branch and tag share the same name Git resolves refs/heads/
+            # before refs/tags/, so the lookup would silently resolve the
+            # branch instead of the tag and defeat the integrity check below.
+            qualified_tag="tags/${INPUT_TAG}"
+            encoded_ref="$(jq -rn --arg v "$qualified_tag" '$v | @uri')"
             if ! resolved_sha="$(gh api \
                 -H 'Accept: application/vnd.github.sha' \
-                "repos/${GITHUB_REPOSITORY}/commits/${encoded_tag}")"; then
+                "repos/${GITHUB_REPOSITORY}/commits/${encoded_ref}")"; then
               echo "::error::Could not resolve input tag '${INPUT_TAG}' to a commit via the GitHub API." >&2
               exit 1
             fi
@@ -641,14 +647,24 @@ jobs:
           # an actual HTTP 404; an auth, rate-limit, network, or server
           # failure must not be treated as "tag does not exist", or the check
           # becomes fail-open.
-          encoded_tag="$(jq -rn --arg v "$RELEASE_TAG" '$v | @uri')"
+          # Qualify with tags/ so the commits endpoint resolves the tag ref
+          # unambiguously. A bare short name is also accepted, but when a
+          # branch and tag share the same name Git resolves refs/heads/
+          # before refs/tags/, so the lookup would silently resolve the
+          # branch instead of the tag. The verification would then compare
+          # the branch SHA against TARGET_SHA (also resolved from the
+          # branch in prepare-release) and pass, while gh release create
+          # --target is ignored for an existing tag — shipping assets built
+          # from the branch commit under a release tagged at a different one.
+          qualified_tag="tags/${RELEASE_TAG}"
+          encoded_ref="$(jq -rn --arg v "$qualified_tag" '$v | @uri')"
           # Use -i so we can read the HTTP status from the response even on a
           # non-2xx, distinguishing a real 404 from auth/rate-limit/server
           # errors. gh api still exits non-zero on 4xx/5xx, so swallow its
           # exit status and parse the captured output.
           response="$(gh api -i \
               -H 'Accept: application/vnd.github.sha' \
-              "repos/${GH_REPO}/commits/${encoded_tag}" 2>/dev/null)" || true
+              "repos/${GH_REPO}/commits/${encoded_ref}" 2>/dev/null)" || true
           # Status line is the first line: "HTTP/2.0 200 OK". Strip any
           # trailing CR so a CRLF blank-line separator is detectable later.
           status="$(printf '%s\n' "$response" | sed 's/\r$//' | head -n1 | awk '{print $2}')"
