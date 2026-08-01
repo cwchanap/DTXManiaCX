@@ -37,6 +37,11 @@ jobs:
       checkout_ref: ${{ steps.release.outputs.checkout_ref }}
       target_sha: ${{ steps.release.outputs.target_sha }}
       prerelease: ${{ steps.release.outputs.prerelease }}
+      # Only the no-tag manual dev dispatch reaches create-release without an
+      # existing tag (gh release create makes it at target_sha). Every other
+      # path — main push, tag push, explicit-tag dispatch — has a tag by this
+      # point, so a missing tag there is an error, not an expected state.
+      allow_missing_tag: ${{ steps.release.outputs.allow_missing_tag }}
 
     steps:
       - name: Create tag for main push
@@ -52,6 +57,12 @@ jobs:
           RUN_NUMBER: ${{ github.run_number }}
         run: |
           set -euo pipefail
+
+          # A tag is expected to already exist for every path except the
+          # no-tag manual dev dispatch, where gh release create makes it at
+          # target_sha. create-release uses this to decide whether a missing
+          # tag is an expected state or an integrity failure.
+          allow_missing_tag=false
 
           if [[ "$EVENT_NAME" == "push" && "$REF" == "refs/heads/main" ]]; then
             release_tag="v0.0.0-main.${RUN_NUMBER}"
@@ -115,6 +126,9 @@ jobs:
             # selected branch can advance while installer jobs are queued.
             checkout_ref="$COMMIT_SHA"
             target_sha="$COMMIT_SHA"
+            # gh release create below creates this tag at target_sha, so it
+            # legitimately does not exist yet when create-release verifies.
+            allow_missing_tag=true
           fi
 
           prerelease=false
@@ -127,6 +141,7 @@ jobs:
             echo "checkout_ref=$checkout_ref"
             echo "target_sha=$target_sha"
             echo "prerelease=$prerelease"
+            echo "allow_missing_tag=$allow_missing_tag"
           } >> "$GITHUB_OUTPUT"
           echo "Release tag: $release_tag"
           echo "Checkout ref: $checkout_ref"
@@ -608,27 +623,63 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ needs.prepare-release.outputs.release_tag }}
           TARGET_SHA: ${{ needs.prepare-release.outputs.target_sha }}
+          ALLOW_MISSING_TAG: ${{ needs.prepare-release.outputs.allow_missing_tag }}
         shell: bash
         run: |
           set -euo pipefail
           # git refs can be rewritten. Before publishing, confirm the release
           # tag still resolves to the commit the artifacts were built from, so
           # a force-push to the tag while the installer jobs were queued can't
-          # publish a release whose binaries came from a different commit. A
-          # dev (no-tag) dispatch has no tag yet — gh release create below
-          # creates it at TARGET_SHA — so a missing tag is fine.
+          # publish a release whose binaries came from a different commit.
+          #
+          # Only the no-tag manual dev dispatch reaches this step without an
+          # existing tag (gh release create below creates it at TARGET_SHA);
+          # prepare-release signals that via ALLOW_MISSING_TAG=true. Every
+          # other path — main push, tag push, explicit-tag dispatch — has a
+          # tag by now, so a missing tag there is an integrity failure, not
+          # an expected state. And a missing tag is only acceptable when it is
+          # an actual HTTP 404; an auth, rate-limit, network, or server
+          # failure must not be treated as "tag does not exist", or the check
+          # becomes fail-open.
           encoded_tag="$(jq -rn --arg v "$RELEASE_TAG" '$v | @uri')"
-          if current_sha="$(gh api \
+          # Use -i so we can read the HTTP status from the response even on a
+          # non-2xx, distinguishing a real 404 from auth/rate-limit/server
+          # errors. gh api still exits non-zero on 4xx/5xx, so swallow its
+          # exit status and parse the captured output.
+          response="$(gh api -i \
               -H 'Accept: application/vnd.github.sha' \
-              "repos/${GH_REPO}/commits/${encoded_tag}" 2>/dev/null)"; then
-            if [[ "$current_sha" != "$TARGET_SHA" ]]; then
-              echo "::error::Tag $RELEASE_TAG now resolves to $current_sha, expected $TARGET_SHA. Refusing to publish artifacts built from $TARGET_SHA." >&2
+              "repos/${GH_REPO}/commits/${encoded_tag}" 2>/dev/null)" || true
+          # Status line is the first line: "HTTP/2.0 200 OK". Strip any
+          # trailing CR so a CRLF blank-line separator is detectable later.
+          status="$(printf '%s\n' "$response" | sed 's/\r$//' | head -n1 | awk '{print $2}')"
+
+          case "$status" in
+            200)
+              # Body is the bare SHA after the blank line separating headers
+              # from the body. Print lines following the first blank line and
+              # take the last non-empty one as the SHA.
+              current_sha="$(printf '%s\n' "$response" | sed 's/\r$//' \
+                | awk 'NF==0{blank=1;next} blank{print}' \
+                | tail -n1 | tr -d '[:space:]')"
+              if [[ "$current_sha" != "$TARGET_SHA" ]]; then
+                echo "::error::Tag $RELEASE_TAG now resolves to $current_sha, expected $TARGET_SHA. Refusing to publish artifacts built from $TARGET_SHA." >&2
+                exit 1
+              fi
+              echo "Tag $RELEASE_TAG still points at $TARGET_SHA."
+              ;;
+            404)
+              if [[ "$ALLOW_MISSING_TAG" == "true" ]]; then
+                echo "Tag $RELEASE_TAG does not exist yet; it will be created at $TARGET_SHA."
+              else
+                echo "::error::Tag $RELEASE_TAG does not exist but is required for this release path. Refusing to publish without verifying tag-to-build relationship." >&2
+                exit 1
+              fi
+              ;;
+            *)
+              echo "::error::Unable to verify tag $RELEASE_TAG: GitHub API returned HTTP ${status:-<no response>}. Refusing to publish without verifying tag-to-build relationship." >&2
               exit 1
-            fi
-            echo "Tag $RELEASE_TAG still points at $TARGET_SHA."
-          else
-            echo "Tag $RELEASE_TAG does not exist yet; it will be created at $TARGET_SHA."
-          fi
+              ;;
+          esac
 
       - name: Create GitHub release with build assets
         env:
