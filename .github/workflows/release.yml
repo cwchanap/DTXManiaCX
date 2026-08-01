@@ -80,13 +80,24 @@ jobs:
             fi
           elif [[ "$EVENT_NAME" == "push" ]]; then
             release_tag="$REF_NAME"
-            checkout_ref="$release_tag"
+            # Tag push: checkout the immutable commit the tag pointed to at
+            # push time (COMMIT_SHA = github.sha), not the tag ref itself.
+            # A tag can be moved between this step and the installer jobs'
+            # checkouts, which would let Windows/macOS build a different
+            # commit from each other and from TARGET_SHA.
+            checkout_ref="$COMMIT_SHA"
           elif [[ -n "$INPUT_TAG" ]]; then
             release_tag="$INPUT_TAG"
+            # Explicitly requested historical tag. github.sha for a dispatch
+            # is the selected branch tip, not this tag's commit, so the tag
+            # name is the only way to resolve the intended commit.
             checkout_ref="$INPUT_TAG"
           else
             release_tag="v0.0.0-dev.${RUN_NUMBER}"
-            checkout_ref="$REF"
+            # No-tag manual dispatch: checkout the immutable dispatch-time
+            # commit (COMMIT_SHA = github.sha), not the branch ref. The
+            # selected branch can advance while installer jobs are queued.
+            checkout_ref="$COMMIT_SHA"
           fi
 
           prerelease=false
@@ -571,6 +582,12 @@ jobs:
       - name: Create GitHub release with build assets
         env:
           GH_TOKEN: ${{ github.token }}
+          # This job does not check out the repository, so there is no local
+          # git remote for `gh` to resolve the repository from. GH_TOKEN only
+          # authenticates; it does not select a repository. Set GH_REPO so the
+          # gh release view/upload/create commands below target this repository
+          # instead of failing with "could not determine repository".
+          GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ needs.prepare-release.outputs.release_tag }}
           PRERELEASE: ${{ needs.prepare-release.outputs.prerelease }}
           TARGET_SHA: ${{ github.sha }}
