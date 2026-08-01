@@ -35,6 +35,7 @@ jobs:
     outputs:
       release_tag: ${{ steps.release.outputs.release_tag }}
       checkout_ref: ${{ steps.release.outputs.checkout_ref }}
+      target_sha: ${{ steps.release.outputs.target_sha }}
       prerelease: ${{ steps.release.outputs.prerelease }}
 
     steps:
@@ -60,6 +61,7 @@ jobs:
             # a tag moved between this step and checkout can't pull in the
             # wrong commit.
             checkout_ref="$COMMIT_SHA"
+            target_sha="$COMMIT_SHA"
 
             # Re-runs keep the original tag stable. Refuse to continue if a
             # tag with the generated name was moved to another commit.
@@ -86,18 +88,33 @@ jobs:
             # checkouts, which would let Windows/macOS build a different
             # commit from each other and from TARGET_SHA.
             checkout_ref="$COMMIT_SHA"
+            target_sha="$COMMIT_SHA"
           elif [[ -n "$INPUT_TAG" ]]; then
             release_tag="$INPUT_TAG"
             # Explicitly requested historical tag. github.sha for a dispatch
-            # is the selected branch tip, not this tag's commit, so the tag
-            # name is the only way to resolve the intended commit.
-            checkout_ref="$INPUT_TAG"
+            # is the selected branch tip, not this tag's commit, so resolve
+            # the tag once to its immutable commit SHA here. git refs can be
+            # rewritten, so both installer jobs must check out the resolved
+            # SHA (not the tag name) and create-release must target it —
+            # otherwise a force-moved tag could make Windows and macOS build
+            # different commits, and the release could point elsewhere again.
+            encoded_tag="$(jq -rn --arg v "$INPUT_TAG" '$v | @uri')"
+            if ! resolved_sha="$(gh api \
+                -H 'Accept: application/vnd.github.sha' \
+                "repos/${GITHUB_REPOSITORY}/commits/${encoded_tag}")"; then
+              echo "::error::Could not resolve input tag '${INPUT_TAG}' to a commit via the GitHub API." >&2
+              exit 1
+            fi
+            checkout_ref="$resolved_sha"
+            target_sha="$resolved_sha"
+            echo "Resolved tag ${release_tag} to ${resolved_sha}."
           else
             release_tag="v0.0.0-dev.${RUN_NUMBER}"
             # No-tag manual dispatch: checkout the immutable dispatch-time
             # commit (COMMIT_SHA = github.sha), not the branch ref. The
             # selected branch can advance while installer jobs are queued.
             checkout_ref="$COMMIT_SHA"
+            target_sha="$COMMIT_SHA"
           fi
 
           prerelease=false
@@ -108,10 +125,12 @@ jobs:
           {
             echo "release_tag=$release_tag"
             echo "checkout_ref=$checkout_ref"
+            echo "target_sha=$target_sha"
             echo "prerelease=$prerelease"
           } >> "$GITHUB_OUTPUT"
           echo "Release tag: $release_tag"
           echo "Checkout ref: $checkout_ref"
+          echo "Target SHA: $target_sha"
 
   windows-installer:
     needs: prepare-release
@@ -579,6 +598,38 @@ jobs:
           name: dtxmania-macos-dmg
           path: release-assets
 
+      - name: Verify release tag still resolves to build commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # This job does not check out the repository, so there is no local
+          # git remote for `gh` to resolve the repository from. GH_TOKEN only
+          # authenticates; it does not select a repository. Set GH_REPO so the
+          # gh api calls below target this repository.
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.prepare-release.outputs.release_tag }}
+          TARGET_SHA: ${{ needs.prepare-release.outputs.target_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # git refs can be rewritten. Before publishing, confirm the release
+          # tag still resolves to the commit the artifacts were built from, so
+          # a force-push to the tag while the installer jobs were queued can't
+          # publish a release whose binaries came from a different commit. A
+          # dev (no-tag) dispatch has no tag yet — gh release create below
+          # creates it at TARGET_SHA — so a missing tag is fine.
+          encoded_tag="$(jq -rn --arg v "$RELEASE_TAG" '$v | @uri')"
+          if current_sha="$(gh api \
+              -H 'Accept: application/vnd.github.sha' \
+              "repos/${GH_REPO}/commits/${encoded_tag}" 2>/dev/null)"; then
+            if [[ "$current_sha" != "$TARGET_SHA" ]]; then
+              echo "::error::Tag $RELEASE_TAG now resolves to $current_sha, expected $TARGET_SHA. Refusing to publish artifacts built from $TARGET_SHA." >&2
+              exit 1
+            fi
+            echo "Tag $RELEASE_TAG still points at $TARGET_SHA."
+          else
+            echo "Tag $RELEASE_TAG does not exist yet; it will be created at $TARGET_SHA."
+          fi
+
       - name: Create GitHub release with build assets
         env:
           GH_TOKEN: ${{ github.token }}
@@ -590,7 +641,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ needs.prepare-release.outputs.release_tag }}
           PRERELEASE: ${{ needs.prepare-release.outputs.prerelease }}
-          TARGET_SHA: ${{ github.sha }}
+          TARGET_SHA: ${{ needs.prepare-release.outputs.target_sha }}
         shell: bash
         run: |
           set -euo pipefail
