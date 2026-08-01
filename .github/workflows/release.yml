@@ -54,7 +54,12 @@ jobs:
 
           if [[ "$EVENT_NAME" == "push" && "$REF" == "refs/heads/main" ]]; then
             release_tag="v0.0.0-main.${RUN_NUMBER}"
-            checkout_ref="$release_tag"
+            # Checkout the triggering commit directly instead of the generated
+            # tag. The tag is still created above for publishing (release_tag),
+            # but downstream jobs should check out the immutable commit SHA so
+            # a tag moved between this step and checkout can't pull in the
+            # wrong commit.
+            checkout_ref="$COMMIT_SHA"
 
             # Re-runs keep the original tag stable. Refuse to continue if a
             # tag with the generated name was moved to another commit.
@@ -564,12 +569,43 @@ jobs:
           path: release-assets
 
       - name: Create GitHub release with build assets
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
-        with:
-          tag_name: ${{ needs.prepare-release.outputs.release_tag }}
-          target_commitish: ${{ github.sha }}
-          name: DTXManiaCX ${{ needs.prepare-release.outputs.release_tag }}
-          generate_release_notes: true
-          prerelease: ${{ needs.prepare-release.outputs.prerelease }}
-          files: release-assets/*
-          fail_on_unmatched_files: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare-release.outputs.release_tag }}
+          PRERELEASE: ${{ needs.prepare-release.outputs.prerelease }}
+          TARGET_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Match fail_on_unmatched_files: true — bash's default glob expands
+          # to the literal pattern when nothing matches (nullglob is off), so
+          # enable nullglob temporarily to get an empty array and check it.
+          shopt -s nullglob
+          assets=(release-assets/*)
+          shopt -u nullglob
+          if [ ${#assets[@]} -eq 0 ]; then
+            echo "::error::No release assets found in release-assets/" >&2
+            exit 1
+          fi
+
+          prerelease_args=()
+          if [ "$PRERELEASE" = "true" ]; then
+            prerelease_args+=(--prerelease)
+          fi
+
+          # Re-runs of a failed create-release job may encounter a release
+          # that already exists for the tag. softprops/action-gh-release
+          # updated it in place; replicate that by uploading assets with
+          # --clobber instead of erroring on the existing release.
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists; uploading assets."
+            gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
+          else
+            gh release create "$RELEASE_TAG" \
+              --target "$TARGET_SHA" \
+              --title "DTXManiaCX $RELEASE_TAG" \
+              --generate-notes \
+              "${prerelease_args[@]}" \
+              "${assets[@]}"
+          fi
