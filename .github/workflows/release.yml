@@ -1,46 +1,120 @@
 name: Release
 
 on:
-  release:
-    types: [published]
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag to build (e.g. v1.2.3). Defaults to a dev version.'
+        description: 'Release tag to build (e.g. v1.2.3). Defaults to a unique dev release.'
         required: false
         type: string
 
+# A push to main creates a unique CI tag at the pushed commit and continues in
+# this same workflow run. Tag pushes and manual runs use the existing tag/input
+# behavior below. A GITHUB_TOKEN-created tag does not recursively trigger a
+# second workflow run, so the release must continue from this run.
+
 # One release pipeline per tag at a time. Cancel in-flight runs for the same
-# tag so re-publishing a release doesn't race on asset uploads.
+# tag so release creation and asset uploads do not race.
 concurrency:
-  group: release-${{ github.event.release.tag_name || github.event.inputs.tag || github.run_id }}
+  group: release-${{ github.event_name == 'push' && github.ref_type == 'tag' && github.ref_name || github.event_name == 'push' && github.ref == 'refs/heads/main' && format('v0.0.0-main.{0}', github.run_number) || github.event.inputs.tag || format('v0.0.0-dev.{0}', github.run_number) }}
   cancel-in-progress: false
 
 permissions: {}
 
 jobs:
+  prepare-release:
+    name: Prepare release tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      release_tag: ${{ steps.release.outputs.release_tag }}
+      checkout_ref: ${{ steps.release.outputs.checkout_ref }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
+
+    steps:
+      - name: Create tag for main push
+        id: release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          COMMIT_SHA: ${{ github.sha }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$EVENT_NAME" == "push" && "$REF" == "refs/heads/main" ]]; then
+            release_tag="v0.0.0-main.${RUN_NUMBER}"
+            checkout_ref="$release_tag"
+
+            # Re-runs keep the original tag stable. Refuse to continue if a
+            # tag with the generated name was moved to another commit.
+            if existing_sha=$(gh api \
+              "repos/${GITHUB_REPOSITORY}/git/ref/tags/${release_tag}" \
+              --jq '.object.sha' 2>/dev/null); then
+              if [[ "$existing_sha" != "$COMMIT_SHA" ]]; then
+                echo "Tag ${release_tag} already points to ${existing_sha}, expected ${COMMIT_SHA}." >&2
+                exit 1
+              fi
+              echo "Tag ${release_tag} already points to ${COMMIT_SHA}."
+            else
+              gh api --method POST \
+                "repos/${GITHUB_REPOSITORY}/git/refs" \
+                -f "ref=refs/tags/${release_tag}" \
+                -f "sha=${COMMIT_SHA}"
+              echo "Created tag ${release_tag} at ${COMMIT_SHA}."
+            fi
+          elif [[ "$EVENT_NAME" == "push" ]]; then
+            release_tag="$REF_NAME"
+            checkout_ref="$release_tag"
+          elif [[ -n "$INPUT_TAG" ]]; then
+            release_tag="$INPUT_TAG"
+            checkout_ref="$INPUT_TAG"
+          else
+            release_tag="v0.0.0-dev.${RUN_NUMBER}"
+            checkout_ref="$REF"
+          fi
+
+          prerelease=false
+          if [[ "$release_tag" == *-* ]]; then
+            prerelease=true
+          fi
+
+          {
+            echo "release_tag=$release_tag"
+            echo "checkout_ref=$checkout_ref"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+          echo "Release tag: $release_tag"
+          echo "Checkout ref: $checkout_ref"
+
   windows-installer:
+    needs: prepare-release
     runs-on: windows-latest
     timeout-minutes: 30
     permissions:
-      contents: write
+      contents: read
+    env:
+      RELEASE_TAG: ${{ needs.prepare-release.outputs.release_tag }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           persist-credentials: false
-          # For release events this defaults to the published tag; for
-          # workflow_dispatch we must explicitly check out inputs.tag so a
-          # manual rerun of an older tag builds that tag's source, not the
-          # default branch. Empty (no tag input) falls back to the default
-          # branch for dev builds.
-          ref: ${{ github.event.release.tag_name || github.event.inputs.tag }}
+          ref: ${{ needs.prepare-release.outputs.checkout_ref }}
 
       - name: Normalize version from tag
         shell: pwsh
-        env:
-          RELEASE_TAG: ${{ github.event.release.tag_name || github.event.inputs.tag || 'v0.0.0-dev' }}
         run: |
           $tag = "$env:RELEASE_TAG"
           $version = $tag -replace '^v', ''
@@ -180,16 +254,11 @@ jobs:
       - name: Upload installer artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: dtxmania-windows-installer-${{ env.APP_VERSION }}
+          name: dtxmania-windows-installer
           path: installer/windows/Output/DTXMania-Setup-${{ env.APP_VERSION }}.exe
 
-      - name: Attach installer to release
-        if: github.event_name == 'release'
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
-        with:
-          files: installer/windows/Output/DTXMania-Setup-${{ env.APP_VERSION }}.exe
-
   mac-installer:
+    needs: prepare-release
     # Pin to macos-15 (Apple Silicon / arm64) instead of macos-latest. This
     # job publishes an arm64-only .app bundle and builds FFmpeg from source
     # for the host architecture (./configure passes no --arch flag), so an
@@ -201,20 +270,18 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 30
     permissions:
-      contents: write
+      contents: read
+    env:
+      RELEASE_TAG: ${{ needs.prepare-release.outputs.release_tag }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           persist-credentials: false
-          # See windows-installer job: check out inputs.tag on manual runs so
-          # the built source matches the version label.
-          ref: ${{ github.event.release.tag_name || github.event.inputs.tag }}
+          ref: ${{ needs.prepare-release.outputs.checkout_ref }}
 
       - name: Normalize version from tag
-        env:
-          RELEASE_TAG: ${{ github.event.release.tag_name || github.event.inputs.tag || 'v0.0.0-dev' }}
         run: |
           tag="$RELEASE_TAG"
           version="${tag#v}"
@@ -470,11 +537,39 @@ jobs:
       - name: Upload DMG artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: dtxmania-macos-dmg-${{ env.APP_VERSION }}
+          name: dtxmania-macos-dmg
           path: output/DTXMania-${{ env.APP_VERSION }}-arm64.dmg
 
-      - name: Attach DMG to release
-        if: github.event_name == 'release'
+  create-release:
+    name: Create GitHub release
+    runs-on: ubuntu-latest
+    needs:
+      - prepare-release
+      - windows-installer
+      - mac-installer
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download Windows installer
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dtxmania-windows-installer
+          path: release-assets
+
+      - name: Download macOS DMG
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dtxmania-macos-dmg
+          path: release-assets
+
+      - name: Create GitHub release with build assets
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
-          files: output/DTXMania-${{ env.APP_VERSION }}-arm64.dmg
+          tag_name: ${{ needs.prepare-release.outputs.release_tag }}
+          target_commitish: ${{ github.sha }}
+          name: DTXManiaCX ${{ needs.prepare-release.outputs.release_tag }}
+          generate_release_notes: true
+          prerelease: ${{ needs.prepare-release.outputs.prerelease }}
+          files: release-assets/*
+          fail_on_unmatched_files: true
