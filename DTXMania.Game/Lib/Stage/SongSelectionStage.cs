@@ -127,6 +127,7 @@ namespace DTXMania.Game.Lib.Stage
         private Task<List<SongListNode>> _songInitializationTask;
         private bool _songInitializationProcessed = false;
         private CancellationTokenSource _cancellationTokenSource;
+        private SongLibrarySnapshot? _backgroundLibrarySnapshot;
 
         // UI Components - Enhanced DTXManiaNX style
         private UIManager _uiManager;
@@ -231,6 +232,7 @@ namespace DTXMania.Game.Lib.Stage
             AssignInputManager(_game.InputManager);
             _inputManager?.ClearPendingCommands();
             _cancellationTokenSource = new CancellationTokenSource();
+            _backgroundLibrarySnapshot = null;
 
             // Get config manager from game
             _configManager = _game.ConfigManager;
@@ -386,6 +388,7 @@ namespace DTXMania.Game.Lib.Stage
 
             // Clean up task references
             _songInitializationTask = null;
+            _backgroundLibrarySnapshot = null;
 
             // Clean up UI
             _uiManager?.Dispose();
@@ -616,7 +619,7 @@ namespace DTXMania.Game.Lib.Stage
             {
                 HasStatusPanel = true, // We have a status panel, so use right-side positioning
                 WhitePixel = _whitePixel,
-                SongsRootPath = _configManager?.Config?.DTXPath
+                ActiveSongRootPaths = Array.Empty<string>()
             };
 
             // Initialize graphics generator for status panel
@@ -747,9 +750,12 @@ namespace DTXMania.Game.Lib.Stage
                             
                             // Check for cancellation after initialization
                             token.ThrowIfCancellationRequested();
-                            
-                            // Return the song list without modifying shared state
-                            return new List<SongListNode>(songManager.RootSongs);
+
+                            // Read a single coherent publication. The UI thread applies
+                            // both hierarchy and root paths together when this task ends.
+                            var snapshot = songManager.GetLibrarySnapshot();
+                            _backgroundLibrarySnapshot = snapshot;
+                            return snapshot.RootSongs.ToList();
                         }
                         catch (OperationCanceledException)
                         {
@@ -767,8 +773,7 @@ namespace DTXMania.Game.Lib.Stage
                 }
                 else
                 {
-                    // Initialize display with song list
-                    _currentSongList = new List<SongListNode>(songManager.RootSongs);
+                    ApplyLibrarySnapshot(songManager.GetLibrarySnapshot());
                 }
 
                 PopulateSongList();
@@ -782,6 +787,13 @@ namespace DTXMania.Game.Lib.Stage
                 _currentSongList = new List<SongListNode>();
                 PopulateSongList();
             }
+        }
+
+        private void ApplyLibrarySnapshot(SongLibrarySnapshot snapshot)
+        {
+            _currentSongList = snapshot.RootSongs.ToList();
+            if (_previewImagePanel != null)
+                _previewImagePanel.ActiveSongRootPaths = snapshot.ActiveRoots;
         }
 
         /// <summary>
@@ -837,6 +849,14 @@ namespace DTXMania.Game.Lib.Stage
 
                     // Update the song list on the main thread
                     _currentSongList = songList;
+                    if (_backgroundLibrarySnapshot != null)
+                    {
+                        if (_previewImagePanel != null)
+                        {
+                            _previewImagePanel.ActiveSongRootPaths =
+                                _backgroundLibrarySnapshot.ActiveRoots;
+                        }
+                    }
                     PopulateSongList();
 
                     // Reapply any persisted filter now that the real song list is available
@@ -852,6 +872,7 @@ namespace DTXMania.Game.Lib.Stage
                 {
                     // Clean up the task reference
                     _songInitializationTask = null;
+                    _backgroundLibrarySnapshot = null;
                 }
 
                 if (_searchFilterModal != null && _searchFilterModal.IsOpen)
@@ -1102,7 +1123,7 @@ namespace DTXMania.Game.Lib.Stage
 
             try
             {
-                var roots = SongManager.Instance.RootSongs;
+                var roots = SongManager.Instance.GetLibrarySnapshot().RootSongs;
                 _filteredView = _filterService.Apply(
                     roots,
                     _filterCriteria,
@@ -2486,7 +2507,10 @@ namespace DTXMania.Game.Lib.Stage
             // Reconcile the flag across every in-memory representation of this song (browse
             // tree, Recent list, Bookmarks list) so the star marker stays consistent across
             // tabs without a reload — each surface holds a distinct node/entity instance.
-            BookmarkStateReconciler.Apply(SongManager.Instance.RootSongs, songId, newState);
+            BookmarkStateReconciler.Apply(
+                SongManager.Instance.GetLibrarySnapshot().RootSongs,
+                songId,
+                newState);
             BookmarkStateReconciler.Apply(_recentPlayNodes, songId, newState);
             BookmarkStateReconciler.Apply(_bookmarkNodes, songId, newState);
 
@@ -2524,7 +2548,10 @@ namespace DTXMania.Game.Lib.Stage
                     continue;
                 }
 
-                BookmarkStateReconciler.Apply(SongManager.Instance.RootSongs, revert.SongId, revert.RevertTo);
+                BookmarkStateReconciler.Apply(
+                    SongManager.Instance.GetLibrarySnapshot().RootSongs,
+                    revert.SongId,
+                    revert.RevertTo);
                 BookmarkStateReconciler.Apply(_recentPlayNodes, revert.SongId, revert.RevertTo);
                 BookmarkStateReconciler.Apply(_bookmarkNodes, revert.SongId, revert.RevertTo);
 

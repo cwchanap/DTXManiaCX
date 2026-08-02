@@ -71,6 +71,10 @@ namespace DTXMania.Game.Lib.Song
         private CancellationTokenSource? _enumCancellation;
         private SongDatabaseService? _databaseService;
         private string[] _currentSearchPaths = Array.Empty<string>();
+        private long _publicationVersion;
+
+        internal SongRootPolicy RootPolicy { get; set; } =
+            SongRootPolicy.ForCurrentPlatform();
 
         internal Func<string, Task<(SongEntity song, SongChart chart)>>
             ParseSongEntitiesCoreAsync { get; set; } =
@@ -156,21 +160,11 @@ namespace DTXMania.Game.Lib.Song
             }
         }
 
-        private void SetCurrentSearchPaths(string[] searchPaths)
+        internal void SetCurrentSearchPaths(IReadOnlyList<string> searchPaths)
         {
-            if (searchPaths == null || searchPaths.Length == 0)
-                return;
-
-            // Normalize once, retaining only successful results, then dedupe.
-            var normalized = new List<string>(searchPaths.Length);
-            foreach (var path in searchPaths)
-            {
-                if (SongPathIdentity.TryNormalize(path, out var normalizedPath))
-                    normalized.Add(normalizedPath);
-            }
-
-            var distinct = normalized
-                .Distinct(SongPathIdentity.CanonicalComparer)
+            ArgumentNullException.ThrowIfNull(searchPaths);
+            var distinct = RootPolicy.Validate(searchPaths)
+                .CanonicalRoots
                 .ToArray();
 
             // Assign under the same lock used by GetCurrentSearchPathsSnapshot,
@@ -194,13 +188,17 @@ namespace DTXMania.Game.Lib.Song
         /// </summary>
         public IReadOnlyList<SongListNode> RootSongs
         {
-            get
-            {
-                lock (_lockObject)
-                {
-                    return _rootSongs.AsReadOnly();
-                }
-            }
+            get => GetLibrarySnapshot().RootSongs;
+        }
+
+        /// <summary>
+        /// Gets a stable, versioned view of the currently published library.
+        /// Reading never changes the publication version.
+        /// </summary>
+        public SongLibrarySnapshot GetLibrarySnapshot()
+        {
+            lock (_lockObject)
+                return CreateSnapshotLocked();
         }
 
         /// <summary>
@@ -269,6 +267,12 @@ namespace DTXMania.Game.Lib.Song
         /// Fired when enumeration completes
         /// </summary>
         public event EventHandler? EnumerationCompleted;
+
+        /// <summary>
+        /// Fired after a complete library snapshot has been published. Subscribers run
+        /// outside the manager lock and always receive one coherent hierarchy/root view.
+        /// </summary>
+        public event EventHandler<SongLibraryPublishedEventArgs>? SongLibraryPublished;
 
         #endregion
 
@@ -390,7 +394,6 @@ namespace DTXMania.Game.Lib.Song
         {
             try
             {
-                SetCurrentSearchPaths(searchPaths);
                 var db = GetDatabaseServiceSnapshot();
                 if (db == null)
                 {
@@ -452,9 +455,12 @@ namespace DTXMania.Game.Lib.Song
                 cancellationToken,
                 observer: null,
                 linked).ConfigureAwait(false);
-            await UpdateEnumerationTimestampAsync().ConfigureAwait(false);
+            if (result.Outcome == SongEnumerationOutcome.ImportedAndPublished)
+                await UpdateEnumerationTimestampAsync().ConfigureAwait(false);
 
-            return (result.Batch.Candidates.Count, true);
+            return (
+                result.Batch.Candidates.Count,
+                result.Outcome == SongEnumerationOutcome.ImportedAndPublished);
         }
 
         /// <summary>
@@ -525,8 +531,6 @@ namespace DTXMania.Game.Lib.Song
         /// </summary>
         public async Task BuildSongListFromDatabasePublicAsync(string[] searchPaths)
         {
-            SetCurrentSearchPaths(searchPaths);
-
             await BuildHierarchyFromDatabaseOnceAsync(searchPaths).ConfigureAwait(false);
         }
 
@@ -744,6 +748,17 @@ namespace DTXMania.Game.Lib.Song
                         "An incomplete enumeration cannot be imported.");
                 }
 
+                if (batch.ActiveRoots.Count == 0)
+                {
+                    result = new SongEnumerationResult(
+                        SongEnumerationOutcome.NoActiveRoots,
+                        batch,
+                        SongBulkImportResult.Empty,
+                        TimeSpan.Zero);
+                    outcome = StartupOperationOutcome.Success;
+                    return result;
+                }
+
                 var import = await ImportSongsCoreAsync(
                     database,
                     new SongBulkImportRequest(
@@ -759,6 +774,7 @@ namespace DTXMania.Game.Lib.Song
                 PublishEnumeration(batch);
 
                 result = new SongEnumerationResult(
+                    SongEnumerationOutcome.ImportedAndPublished,
                     batch,
                     import,
                     hierarchy.Elapsed);
@@ -875,64 +891,48 @@ namespace DTXMania.Game.Lib.Song
             public List<string> OrderedChartPaths { get; } = new();
         }
 
-        private static SongEnumerationBatchBuilder CreateBatchBuilder(
+        private SongEnumerationBatchBuilder CreateBatchBuilder(
             IEnumerable<string> searchPaths)
         {
             ArgumentNullException.ThrowIfNull(searchPaths);
-            var validRoots = new List<string>();
+            var configuredRoots = searchPaths.ToArray();
+            var validation = RootPolicy.Validate(configuredRoots);
             var errors = new List<SongEnumerationError>();
-            foreach (var path in searchPaths)
+            foreach (var diagnostic in validation.Diagnostics)
             {
-                if (string.IsNullOrWhiteSpace(path))
-                {
-                    var blankError = new SongEnumerationError(
-                        path ?? string.Empty,
-                        "A configured song root is blank.",
-                        IsRootFailure: true);
-                    errors.Add(blankError);
-                    Debug.WriteLine(
-                        $"SongManager: skipping blank song root: {blankError.Message}");
+                if (diagnostic.IsWarning)
                     continue;
-                }
 
-                string normalized;
-                try
-                {
-                    normalized = SongPathIdentity.Normalize(path);
-                }
-                catch (Exception ex) when (
-                    ex is ArgumentException or NotSupportedException
-                        or System.IO.PathTooLongException)
-                {
-                    var normalizeError = new SongEnumerationError(
-                        path,
-                        $"Configured song root path is invalid: {ex.Message}",
-                        IsRootFailure: true);
-                    errors.Add(normalizeError);
-                    Debug.WriteLine(
-                        $"SongManager: skipping invalid song root: {normalizeError.Message}");
-                    continue;
-                }
-
-                if (!Directory.Exists(normalized))
-                {
-                    var missingError = new SongEnumerationError(
-                        normalized,
-                        $"Configured song root does not exist: {normalized}",
-                        IsRootFailure: true);
-                    errors.Add(missingError);
-                    Debug.WriteLine(
-                        $"SongManager: skipping missing song root: {missingError.Message}");
-                    continue;
-                }
-
-                validRoots.Add(normalized);
+                var error = new SongEnumerationError(
+                    diagnostic.Path,
+                    diagnostic.Message,
+                    IsRootFailure: true);
+                errors.Add(error);
+                Debug.WriteLine($"SongManager: skipping song root: {error.Message}");
             }
 
-            var distinctRoots = validRoots
-                .Distinct(SongPathIdentity.CanonicalComparer)
-                .ToArray();
-            return new SongEnumerationBatchBuilder(distinctRoots, errors);
+            var activeRoots = new List<string>();
+            foreach (var normalizedRoot in validation.CanonicalRoots)
+            {
+                var availability = RootPolicy.Probe(normalizedRoot);
+                if (availability == SongRootAvailability.Available)
+                {
+                    activeRoots.Add(normalizedRoot);
+                    continue;
+                }
+
+                var message = availability == SongRootAvailability.Missing
+                    ? $"Configured song root does not exist: {normalizedRoot}"
+                    : $"Configured song root is inaccessible: {normalizedRoot}";
+                var error = new SongEnumerationError(
+                    normalizedRoot,
+                    message,
+                    IsRootFailure: true);
+                errors.Add(error);
+                Debug.WriteLine($"SongManager: skipping song root: {error.Message}");
+            }
+
+            return new SongEnumerationBatchBuilder(activeRoots, errors);
         }
 
         private async Task EnumerateDirectoryIntoBatchAsync(
@@ -1454,23 +1454,66 @@ namespace DTXMania.Game.Lib.Song
 
         internal void PublishEnumeration(SongEnumerationBatch batch)
         {
+            ArgumentNullException.ThrowIfNull(batch);
+            SongLibrarySnapshot snapshot;
             lock (_lockObject)
             {
                 _rootSongs.Clear();
                 _rootSongs.AddRange(batch.RootNodes);
-                _currentSearchPaths = batch.ActiveRoots.ToArray();
+                _currentSearchPaths = RootPolicy.Validate(batch.ActiveRoots)
+                    .CanonicalRoots
+                    .ToArray();
                 EnumeratedFileCount = batch.DiscoveredChartPaths.Count;
                 // Count discovered difficulty charts, not grouped logical songs:
                 // a multi-difficulty set contributes one PendingSong but one
                 // candidate per chart, and the contract is "number of discovered
                 // scores" (mirroring the legacy per-chart increment).
                 DiscoveredScoreCount = batch.Candidates.Count;
+                _publicationVersion++;
+                snapshot = CreateSnapshotLocked();
             }
 
+            SafeInvoke(
+                SongLibraryPublished,
+                this,
+                new SongLibraryPublishedEventArgs(snapshot),
+                nameof(SongLibraryPublished));
             foreach (var song in FlattenScoreNodes(batch.RootNodes))
                 SafeInvoke(SongDiscovered, this, new SongDiscoveredEventArgs(song), nameof(SongDiscovered));
             SafeInvoke(EnumerationCompleted, this, EventArgs.Empty, nameof(EnumerationCompleted));
         }
+
+        /// <summary>
+        /// Publishes an explicit empty library. Startup uses this to distinguish an
+        /// intentionally empty accepted-root set from a failed or unfinished enumeration.
+        /// </summary>
+        public void PublishEmptyLibrary()
+        {
+            SongLibrarySnapshot snapshot;
+            lock (_lockObject)
+            {
+                _rootSongs.Clear();
+                _currentSearchPaths = Array.Empty<string>();
+                EnumeratedFileCount = 0;
+                DiscoveredScoreCount = 0;
+                _publicationVersion++;
+                snapshot = CreateSnapshotLocked();
+            }
+
+            SafeInvoke(
+                SongLibraryPublished,
+                this,
+                new SongLibraryPublishedEventArgs(snapshot),
+                nameof(SongLibraryPublished));
+        }
+
+        private SongLibrarySnapshot CreateSnapshotLocked() =>
+            new(
+                _publicationVersion,
+                Array.AsReadOnly(_rootSongs.ToArray()),
+                Array.AsReadOnly(_currentSearchPaths.ToArray()),
+                EnumeratedFileCount,
+                DiscoveredScoreCount);
 
         // Subscribers run independently so that one throwing handler cannot
         // suppress later handlers, cannot stop EnumerationCompleted, and —
@@ -1560,23 +1603,14 @@ namespace DTXMania.Game.Lib.Song
             {
                 var newRootNodes = new List<SongListNode>();
                 var allSongs = await db.GetSongsAsync().ConfigureAwait(false);
+                var configuredRoots = RootPolicy.Validate(searchPaths)
+                    .CanonicalRoots;
+                var availableRoots = configuredRoots
+                    .Where(root => RootPolicy.Probe(root) == SongRootAvailability.Available)
+                    .ToArray();
 
-                foreach (var searchPath in searchPaths)
+                foreach (var normalizedRoot in availableRoots)
                 {
-                    if (string.IsNullOrEmpty(searchPath) || !Directory.Exists(searchPath))
-                    {
-                        Debug.WriteLine($"SongManager: Skipping invalid path during database rebuild: {searchPath}");
-                        continue;
-                    }
-
-                    // Normalize the search-path root once instead of re-normalizing
-                    // it for every chart via IsUnderRoot.
-                    if (!SongPathIdentity.TryNormalize(searchPath, out var normalizedRoot))
-                    {
-                        Debug.WriteLine($"SongManager: Skipping unnormalizable path during database rebuild: {searchPath}");
-                        continue;
-                    }
-
                     // Get all charts that belong to this search path
                     var relevantCharts = allSongs
                         .SelectMany(song => song.Charts
@@ -1591,21 +1625,37 @@ namespace DTXMania.Game.Lib.Song
                         .ToList();
 
                     // Build the folder hierarchy structure from file paths
-                    var pathNodes = await BuildHierarchyFromCharts(searchPath, relevantCharts);
+                    var pathNodes = await BuildHierarchyFromCharts(normalizedRoot, relevantCharts);
                     newRootNodes.AddRange(pathNodes);
                 }
 
-                // Update root songs list
-                lock (_lockObject)
-                {
-                    _rootSongs.Clear();
-                    _rootSongs.AddRange(newRootNodes);
-                }
+                PublishDatabaseHierarchy(newRootNodes, configuredRoots);
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"SongManager: Error building song list from database: {ex.Message}");
             }
+        }
+
+        private void PublishDatabaseHierarchy(
+            IReadOnlyList<SongListNode> rootNodes,
+            IReadOnlyList<string> activeRoots)
+        {
+            SongLibrarySnapshot snapshot;
+            lock (_lockObject)
+            {
+                _rootSongs.Clear();
+                _rootSongs.AddRange(rootNodes);
+                _currentSearchPaths = activeRoots.ToArray();
+                _publicationVersion++;
+                snapshot = CreateSnapshotLocked();
+            }
+
+            SafeInvoke(
+                SongLibraryPublished,
+                this,
+                new SongLibraryPublishedEventArgs(snapshot),
+                nameof(SongLibraryPublished));
         }
 
         /// <summary>
@@ -3270,7 +3320,6 @@ namespace DTXMania.Game.Lib.Song
         {
             try
             {
-                SetCurrentSearchPaths(searchPaths);
                 if (forceEnumeration)
                 {
                     Debug.WriteLine("SongManager: Force enumeration requested");
@@ -3295,7 +3344,14 @@ namespace DTXMania.Game.Lib.Song
                 Debug.WriteLine($"SongManager: Database contains {stats.SongCount} songs, checking for filesystem changes...");
 
                 // Check for filesystem changes by comparing directory modification times
-                var changeDetected = await DetectFilesystemChangesAsync(searchPaths);
+                // Cache freshness must evaluate the same canonical root set as database
+                // hierarchy rebuilds and filesystem enumeration. Otherwise duplicate or
+                // overlapping configured roots can double-count charts here while the
+                // published library only contains one root identity.
+                var canonicalRoots = RootPolicy.Validate(searchPaths)
+                    .CanonicalRoots
+                    .ToArray();
+                var changeDetected = await DetectFilesystemChangesAsync(canonicalRoots);
                 if (changeDetected)
                 {
                     Debug.WriteLine("SongManager: Filesystem changes detected, enumeration needed");
@@ -4006,6 +4062,7 @@ namespace DTXMania.Game.Lib.Song
         /// </summary>
         public void Clear()
         {
+            SongLibrarySnapshot snapshot;
             lock (_lockObject)
             {
                 // Cancel any ongoing enumeration first
@@ -4018,6 +4075,9 @@ namespace DTXMania.Game.Lib.Song
                 _databaseService?.Dispose();
                 _databaseService = null;
                 _currentSearchPaths = Array.Empty<string>();
+                EnumeratedFileCount = 0;
+                DiscoveredScoreCount = 0;
+                _publicationVersion++;
                 ParseSongEntitiesCoreAsync =
                     DTXChartParser.ParseSongEntitiesAsync;
                 EnumerateFilesCore = Directory.EnumerateFiles;
@@ -4031,9 +4091,15 @@ namespace DTXMania.Game.Lib.Song
                 BuildEnumerationBatchCoreAsync =
                     (searchPaths, progress, token) =>
                         BuildEnumerationBatchAsync(searchPaths, progress, token);
+                RootPolicy = SongRootPolicy.ForCurrentPlatform();
+                snapshot = CreateSnapshotLocked();
             }
-            DiscoveredScoreCount = 0;
-            EnumeratedFileCount = 0;
+
+            SafeInvoke(
+                SongLibraryPublished,
+                this,
+                new SongLibraryPublishedEventArgs(snapshot),
+                nameof(SongLibraryPublished));
         }
 
         /// <summary>
