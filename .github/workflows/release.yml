@@ -254,9 +254,29 @@ jobs:
           # CxNeonPackTests (File.Exists only) passes and a broken asset ships.
           pip install "Pillow>=10,<12"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          # sfxgen validate decodes every OGG via ffmpeg; ensure a full
-          # OGG/Vorbis-capable build is on PATH before running it.
-          choco install ffmpeg -y --no-progress
+          # sfxgen validate decodes every OGG via ffmpeg. Chocolatey can
+          # report success even when its package-feed request times out, so
+          # retry and verify that the executable is actually available before
+          # running the integrity gate.
+          $ffmpeg = Get-Command ffmpeg -ErrorAction SilentlyContinue
+          if (-not $ffmpeg) {
+            $chocoInstall = if ($env:ChocolateyInstall) { $env:ChocolateyInstall } else { 'C:\ProgramData\chocolatey' }
+            $chocoBin = Join-Path $chocoInstall 'bin'
+            $env:PATH = "$chocoBin;$env:PATH"
+
+            for ($attempt = 1; $attempt -le 3 -and -not $ffmpeg; $attempt++) {
+              Write-Host "Installing ffmpeg with Chocolatey (attempt $attempt of 3)..."
+              choco install ffmpeg -y --no-progress
+              $ffmpeg = Get-Command ffmpeg -ErrorAction SilentlyContinue
+              if (-not $ffmpeg -and $attempt -lt 3) {
+                Start-Sleep -Seconds (15 * $attempt)
+              }
+            }
+          }
+          if (-not $ffmpeg) {
+            throw 'ffmpeg is required for CX Neon audio validation but Chocolatey did not make it available on PATH.'
+          }
+          ffmpeg -version
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tools/skingen/skingen.py validate
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -402,7 +422,7 @@ jobs:
           # (ManagedSound.LoadMp3File) needs mp3float + mp3 demuxer + pcm_s16le
           # encoder + s16le muxer. The non-default-speed variant pipeline
           # (FfmpegAudioVariantProcessor) additionally needs the atempo/apad/
-          # atrim filters for tempo change, plus WAV/OGG/s16le demuxers and
+          # atrim filters for tempo change, plus WAV/OGG/raw-PCM demuxers and
           # their decoders so .wav/.ogg/.xa sources can be prepared at non-1.00x
           # speed. The WAV decoder set must include adpcm_ima_wav and adpcm_ms
           # because the default profile handles MS/IMA-ADPCM WAVs natively via
@@ -435,10 +455,10 @@ jobs:
             --enable-decoder=pcm_s16le,pcm_s24le,pcm_f32le,pcm_u8,pcm_alaw,pcm_mulaw \
             --enable-decoder=adpcm_ima_wav,adpcm_ms \
             --enable-demuxer=mp3 \
-            --enable-demuxer=wav,ogg,s16le \
+            --enable-demuxer=wav,ogg,pcm_s16le \
             --enable-parser=mpegaudio,vorbis \
             --enable-protocol=file,pipe \
-            --enable-muxer=s16le \
+            --enable-muxer=pcm_s16le \
             --enable-encoder=pcm_s16le \
             --enable-filter=aformat,anull,aresample,atempo,apad,atrim
           make -j"$(sysctl -n hw.ncpu)"
