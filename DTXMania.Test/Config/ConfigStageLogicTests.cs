@@ -111,7 +111,7 @@ public class ConfigStageLogicTests
     }
 
     [Fact]
-    public void SongFoldersPanel_WhenApplyUpdatesConfig_ShouldShowRestartRequiredStatus()
+    public void SongFoldersPanel_WhenApplyIsUnchanged_ShouldCloseWithoutStartingReload()
     {
         var configuredRoot = Path.GetTempPath();
         var configData = new ConfigData();
@@ -119,13 +119,6 @@ public class ConfigStageLogicTests
         configData.SongRoots.Add(configuredRoot);
         var configManager = new Mock<IConfigManager>();
         configManager.SetupGet(manager => manager.Config).Returns(configData);
-        configManager.Setup(manager => manager.SetSongRoots(
-                It.IsAny<string>(),
-                It.IsAny<IReadOnlyList<string>>()))
-            .Returns(new SongRootUpdateResult(
-                SongRootUpdateStatus.Updated,
-                new[] { configuredRoot },
-                Array.Empty<SongRootDiagnostic>()));
 
         using var inputManager = new InputManagerCompat(new ConfigManager(), new TestMidiDeviceBackend());
         var game = ReflectionHelpers.CreateGame();
@@ -147,11 +140,10 @@ public class ConfigStageLogicTests
         panel!.Update(0, new KeyboardState(Keys.Enter), new KeyboardState());
 
         configManager.Verify(manager => manager.SetSongRoots(
-            It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>()), Times.Once);
+            It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>()), Times.Never);
         Assert.Null(ReflectionHelpers.GetPrivateField<IConfigOverlayPanel>(stage, "_activePanel"));
-        Assert.Contains("restart",
-            ReflectionHelpers.GetPrivateField<string>(stage, "_songFolderStatus"),
-            StringComparison.OrdinalIgnoreCase);
+        Assert.True(string.IsNullOrEmpty(
+            ReflectionHelpers.GetPrivateField<string>(stage, "_songFolderStatus")));
     }
 
     [Fact]

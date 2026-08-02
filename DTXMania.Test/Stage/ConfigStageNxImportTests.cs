@@ -1,7 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Threading;
 using System.Threading.Tasks;
 using DTXMania.Game;
 using DTXMania.Game.Lib.Config;
@@ -52,6 +55,35 @@ public class ConfigStageNxImportTests : IDisposable
         return (new ConfigStage(game, () => availability), configManager, inputManager);
     }
 
+    private static (ConfigStage Stage, InputManagerCompat InputManager) CreateStage(
+        IConfigManager configManager,
+        ISongLibraryReloadService reloadService,
+        Func<IProgress<NxImportProgress>?, CancellationToken, Task<NxImportResult>> nxImportAsync,
+        Func<Task> refreshSongListAsync,
+        Func<Func<Task<ConfigSongOperationCompletion>>, Task<ConfigSongOperationCompletion>>? backgroundRunner = null,
+        Func<Task, Action<Task>, Task>? continuationRegistrar = null)
+    {
+        var inputManager = new InputManagerCompat(new ConfigManager(), new TestMidiDeviceBackend());
+        var game = ReflectionHelpers.CreateGame();
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager);
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.InputManager), inputManager);
+        var availability = new FfmpegRuntimeAvailability(
+            IsAvailable: true,
+            DiagnosticReason: null,
+            BinaryFolder: null);
+        return (
+            new ConfigStage(
+                game,
+                () => availability,
+                () => new Mock<IFolderPickerService>().Object,
+                reloadService,
+                nxImportAsync,
+                refreshSongListAsync,
+                backgroundRunner ?? (work => Task.Run(work)),
+                continuationRegistrar),
+            inputManager);
+    }
+
     private static void InitializeStageMenu(ConfigStage stage, bool includePanels = false)
     {
         // Config is truth; only the item list (and optionally the system panel) need setup.
@@ -83,24 +115,39 @@ public class ConfigStageNxImportTests : IDisposable
     }
 
     [Fact]
-        public void OnDeactivate_WhileImportRunning_ShouldCancelImport()
-        {
-            var (stage, _, inputManager) = CreateStage();
+    public async Task Deactivate_ShouldCancelWithoutBlocking()
+    {
+        var config = new ConfigManager();
+        var importStarted = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var importCompletion = new TaskCompletionSource<NxImportResult>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var (stage, inputManager) = CreateStage(
+            config,
+            new DelegateSongLibraryReloadService(),
+            (_, _) =>
+            {
+                importStarted.TrySetResult(true);
+                return importCompletion.Task;
+            },
+            () => Task.CompletedTask);
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
-
-            // Start the import — this creates and stores a CancellationTokenSource.
             ReflectionHelpers.InvokePrivateMethod(stage, "StartNxScoreImport");
+            await importStarted.Task;
 
-            // The CTS should have been created.
-            var cts = ReflectionHelpers.GetPrivateField<System.Threading.CancellationTokenSource>(stage, "_importCts");
+            var cts = ReflectionHelpers.GetPrivateField<CancellationTokenSource>(stage, "_songOperationCts");
             Assert.NotNull(cts);
 
-            // Deactivate should cancel the token.
+            var stopwatch = Stopwatch.StartNew();
             ReflectionHelpers.InvokePrivateMethod(stage, "OnDeactivate");
+            stopwatch.Stop();
 
             Assert.True(cts.IsCancellationRequested);
+            Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(1));
+
+            importCompletion.TrySetResult(new NxImportResult());
         }
     }
 
@@ -112,32 +159,124 @@ public class ConfigStageNxImportTests : IDisposable
         {
             InitializeStageMenu(stage, includePanels: false);
 
-            // Before starting, no CTS.
-            Assert.Null(ReflectionHelpers.GetPrivateField<System.Threading.CancellationTokenSource>(stage, "_importCts"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<CancellationTokenSource>(stage, "_songOperationCts"));
 
             ReflectionHelpers.InvokePrivateMethod(stage, "StartNxScoreImport");
 
-            // After starting, CTS should exist and not be cancelled.
-            var cts = ReflectionHelpers.GetPrivateField<System.Threading.CancellationTokenSource>(stage, "_importCts");
+            var cts = ReflectionHelpers.GetPrivateField<CancellationTokenSource>(stage, "_songOperationCts");
             Assert.NotNull(cts);
             Assert.False(cts.IsCancellationRequested);
         }
     }
 
     [Fact]
-    public void StartNxScoreImport_WhenAlreadyRunning_ShouldReturnEarly()
+    public async Task NxImportAndReload_ShouldNotOverlap()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var configData = new ConfigData();
+        configData.SongRoots.Clear();
+        configData.SongRoots.Add("/old");
+        var config = new Mock<IConfigManager>();
+        config.SetupGet(manager => manager.Config).Returns(configData);
+        var importStarted = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var importCompletion = new TaskCompletionSource<NxImportResult>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var (stage, inputManager) = CreateStage(
+            config.Object,
+            new DelegateSongLibraryReloadService(),
+            (_, _) =>
+            {
+                importStarted.TrySetResult(true);
+                return importCompletion.Task;
+            },
+            () => Task.CompletedTask);
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
-            ReflectionHelpers.SetPrivateField(stage, "_importRunning", true);
-            ReflectionHelpers.SetPrivateField(stage, "_importStatus", "Existing status");
-
             ReflectionHelpers.InvokePrivateMethod(stage, "StartNxScoreImport");
+            await importStarted.Task;
 
-            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_importRunning"));
-            Assert.Equal("Existing status", ReflectionHelpers.GetPrivateField<string>(stage, "_importStatus"));
+            var result = ApplySongRoots(stage, new[] { "/new" });
+
+            Assert.Equal(SongFolderApplyStatus.Busy, result.Status);
+            config.Verify(manager => manager.SetSongRoots(
+                It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>()), Times.Never);
+
+            importCompletion.TrySetResult(new NxImportResult());
+            Assert.True(await WaitUntilOperationCompletesAsync(stage, timeoutMs: 5000));
+        }
+    }
+
+    [Fact]
+    public void UnchangedApply_ShouldNotAcquirePersistOrScan()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "hpa191-unchanged");
+        var configData = new ConfigData();
+        configData.SongRoots.Clear();
+        configData.SongRoots.Add(root);
+        var config = new Mock<IConfigManager>();
+        config.SetupGet(manager => manager.Config).Returns(configData);
+        var reloadCalls = 0;
+        var (stage, inputManager) = CreateStage(
+            config.Object,
+            new DelegateSongLibraryReloadService((_, _, _) =>
+            {
+                reloadCalls++;
+                return Task.FromResult(new SongLibraryReloadResult(
+                    SongLibraryReloadOutcome.Published, 0, 0, 0));
+            }),
+            (_, _) => Task.FromResult(new NxImportResult()),
+            () => Task.CompletedTask);
+        using (inputManager)
+        {
+            var result = ApplySongRoots(stage, new[] { root });
+
+            Assert.Equal(SongFolderApplyStatus.Unchanged, result.Status);
+            Assert.False(GetCoordinator(stage).IsBusy);
+            Assert.Equal(0, reloadCalls);
+            config.Verify(manager => manager.SetSongRoots(
+                It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>()), Times.Never);
+        }
+    }
+
+    [Fact]
+    public async Task ReorderOnlyApply_ShouldImportOnce()
+    {
+        var first = Path.Combine(Path.GetTempPath(), "hpa191-first");
+        var second = Path.Combine(Path.GetTempPath(), "hpa191-second");
+        var configData = new ConfigData();
+        configData.SongRoots.Clear();
+        configData.SongRoots.Add(first);
+        configData.SongRoots.Add(second);
+        var config = new Mock<IConfigManager>();
+        config.SetupGet(manager => manager.Config).Returns(configData);
+        config.Setup(manager => manager.SetSongRoots(
+                It.IsAny<string>(),
+                It.IsAny<IReadOnlyList<string>>()))
+            .Returns(new SongRootUpdateResult(
+                SongRootUpdateStatus.Updated,
+                new[] { second, first },
+                Array.Empty<SongRootDiagnostic>()));
+        var reloadCalls = 0;
+        var (stage, inputManager) = CreateStage(
+            config.Object,
+            new DelegateSongLibraryReloadService((_, _, _) =>
+            {
+                reloadCalls++;
+                return Task.FromResult(new SongLibraryReloadResult(
+                    SongLibraryReloadOutcome.Published, 0, 2, 2));
+            }),
+            (_, _) => Task.FromResult(new NxImportResult()),
+            () => Task.CompletedTask);
+        using (inputManager)
+        {
+            var result = ApplySongRoots(stage, new[] { second, first });
+
+            Assert.Equal(SongFolderApplyStatus.Started, result.Status);
+            Assert.True(await WaitUntilOperationCompletesAsync(stage, timeoutMs: 5000));
+            Assert.Equal(1, reloadCalls);
+            config.Verify(manager => manager.SetSongRoots(
+                It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>()), Times.Once);
         }
     }
 
@@ -154,11 +293,9 @@ public class ConfigStageNxImportTests : IDisposable
 
             ReflectionHelpers.InvokePrivateMethod(stage, "StartNxScoreImport");
 
-            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_importRunning"));
             Assert.Equal("Importing NX scores...", ReflectionHelpers.GetPrivateField<string>(stage, "_importStatus"));
 
-            // Poll until the fire-and-forget task completes.
-            var completed = await WaitUntilImportCompletesAsync(stage, timeoutMs: 5000);
+            var completed = await WaitUntilOperationCompletesAsync(stage, timeoutMs: 5000);
             Assert.True(completed, "Import did not complete within timeout");
 
             var status = ReflectionHelpers.GetPrivateField<string>(stage, "_importStatus");
@@ -182,7 +319,7 @@ public class ConfigStageNxImportTests : IDisposable
 
             ReflectionHelpers.InvokePrivateMethod(stage, "StartNxScoreImport");
 
-            var completed = await WaitUntilImportCompletesAsync(stage, timeoutMs: 5000);
+            var completed = await WaitUntilOperationCompletesAsync(stage, timeoutMs: 5000);
             Assert.True(completed, "Import did not complete within timeout");
 
             Assert.StartsWith("NX import failed:", ReflectionHelpers.GetPrivateField<string>(stage, "_importStatus"));
@@ -202,7 +339,7 @@ public class ConfigStageNxImportTests : IDisposable
 
             ReflectionHelpers.InvokePrivateMethod(stage, "StartNxScoreImport");
 
-            var completed = await WaitUntilImportCompletesAsync(stage, timeoutMs: 5000);
+            var completed = await WaitUntilOperationCompletesAsync(stage, timeoutMs: 5000);
             Assert.True(completed, "Import did not complete within timeout");
 
             Assert.Equal("NX import unavailable (no database)",
@@ -305,7 +442,7 @@ public class ConfigStageNxImportTests : IDisposable
             Assert.Empty(manager.RootSongs);
 
             ReflectionHelpers.InvokePrivateMethod(stage, "StartNxScoreImport");
-            var completed = await WaitUntilImportCompletesAsync(stage, timeoutMs: 5000);
+            var completed = await WaitUntilOperationCompletesAsync(stage, timeoutMs: 5000);
             Assert.True(completed, "Import did not complete within timeout");
 
             // After import + refresh, RootSongs should contain the chart.
@@ -317,16 +454,145 @@ public class ConfigStageNxImportTests : IDisposable
         }
     }
 
-    private static async Task<bool> WaitUntilImportCompletesAsync(ConfigStage stage, int timeoutMs)
+    [Fact]
+    public async Task WorkerProgress_ShouldUpdateOnlyWhenDrained()
+    {
+        var config = new ConfigManager();
+        IProgress<NxImportProgress>? progress = null;
+        var importStarted = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var importCompletion = new TaskCompletionSource<NxImportResult>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var (stage, inputManager) = CreateStage(
+            config,
+            new DelegateSongLibraryReloadService(),
+            (reportedProgress, _) =>
+            {
+                progress = reportedProgress;
+                importStarted.TrySetResult(true);
+                return importCompletion.Task;
+            },
+            () => Task.CompletedTask);
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            ReflectionHelpers.InvokePrivateMethod(stage, "StartNxScoreImport");
+            await importStarted.Task;
+
+            progress!.Report(new NxImportProgress { Imported = 2, Scanned = 3 });
+
+            Assert.Equal("Importing NX scores...",
+                ReflectionHelpers.GetPrivateField<string>(stage, "_importStatus"));
+
+            DrainOperationUpdates(stage);
+
+            Assert.Equal("Importing... 2 imported / 3 scanned",
+                ReflectionHelpers.GetPrivateField<string>(stage, "_importStatus"));
+
+            importCompletion.TrySetResult(new NxImportResult());
+            Assert.True(await WaitUntilOperationCompletesAsync(stage, timeoutMs: 5000));
+        }
+    }
+
+    [Fact]
+    public async Task EveryTerminalPath_ShouldDisposeAndReleaseOnce()
+    {
+        var config = new ConfigManager();
+        var (constructionStage, constructionInput) = CreateStage(
+            config,
+            new DelegateSongLibraryReloadService(),
+            (_, _) => Task.FromResult(new NxImportResult()),
+            () => Task.CompletedTask,
+            _ => throw new InvalidOperationException("construction failed"));
+        using (constructionInput)
+        {
+            InitializeStageMenu(constructionStage, includePanels: false);
+            ReflectionHelpers.InvokePrivateMethod(constructionStage, "StartNxScoreImport");
+            Assert.False(GetCoordinator(constructionStage).IsBusy);
+        }
+
+        var terminal = new TaskCompletionSource<ConfigSongOperationCompletion>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var (registrationStage, registrationInput) = CreateStage(
+            new ConfigManager(),
+            new DelegateSongLibraryReloadService(),
+            (_, _) => Task.FromResult(new NxImportResult()),
+            () => Task.CompletedTask,
+            _ => terminal.Task,
+            (_, _) => throw new InvalidOperationException("registration failed"));
+        using (registrationInput)
+        {
+            InitializeStageMenu(registrationStage, includePanels: false);
+            ReflectionHelpers.InvokePrivateMethod(registrationStage, "StartNxScoreImport");
+            Assert.True(GetCoordinator(registrationStage).IsBusy);
+
+            terminal.TrySetResult(new ConfigSongOperationCompletion("done"));
+            Assert.True(await WaitUntilOperationCompletesAsync(registrationStage, timeoutMs: 5000));
+            Assert.False(GetCoordinator(registrationStage).IsBusy);
+        }
+    }
+
+    private static SongFolderApplyResult ApplySongRoots(
+        ConfigStage stage,
+        IReadOnlyList<string> roots)
+    {
+        var method = typeof(ConfigStage).GetMethod(
+            "ApplySongRoots",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        return Assert.IsType<SongFolderApplyResult>(method!.Invoke(stage, new object[] { roots }));
+    }
+
+    private static ConfigSongOperationCoordinator GetCoordinator(ConfigStage stage) =>
+        ReflectionHelpers.GetPrivateField<ConfigSongOperationCoordinator>(
+            stage,
+            "_songOperationCoordinator");
+
+    private static void DrainOperationUpdates(ConfigStage stage) =>
+        ReflectionHelpers.InvokePrivateMethod(stage, "OnUpdate", 0d);
+
+    private static async Task<bool> WaitUntilOperationCompletesAsync(ConfigStage stage, int timeoutMs)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
         while (sw.ElapsedMilliseconds < timeoutMs)
         {
-            if (!ReflectionHelpers.GetPrivateField<bool>(stage, "_importRunning"))
+            if (!GetCoordinator(stage).IsBusy)
+            {
+                DrainOperationUpdates(stage);
                 return true;
+            }
             await Task.Delay(50);
         }
         return false;
+    }
+
+    private sealed class DelegateSongLibraryReloadService : ISongLibraryReloadService
+    {
+        private readonly Func<
+            IReadOnlyList<string>,
+            IProgress<SongLibraryReloadProgress>?,
+            CancellationToken,
+            Task<SongLibraryReloadResult>> _reload;
+
+        public DelegateSongLibraryReloadService(
+            Func<
+                IReadOnlyList<string>,
+                IProgress<SongLibraryReloadProgress>?,
+                CancellationToken,
+                Task<SongLibraryReloadResult>>? reload = null)
+        {
+            _reload = reload ?? ((_, _, _) => Task.FromResult(
+                new SongLibraryReloadResult(
+                    SongLibraryReloadOutcome.Published,
+                    UnavailableRootCount: 0,
+                    EnumeratedFileCount: 0,
+                    DiscoveredScoreCount: 0)));
+        }
+
+        public Task<SongLibraryReloadResult> ReloadAsync(
+            IReadOnlyList<string> configuredRoots,
+            IProgress<SongLibraryReloadProgress>? progress,
+            CancellationToken cancellationToken) =>
+            _reload(configuredRoots, progress, cancellationToken);
     }
 
     private static SpriteBatch CreateUninitializedSpriteBatch()

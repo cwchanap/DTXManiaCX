@@ -1472,6 +1472,35 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
     }
 
     [Fact]
+    public async Task EnumerateAndImportSongsAsync_WhenCancellationArrivesAfterCommit_ShouldStillFinalizeAndPublish()
+    {
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        WriteChart("Songs/PostCommit/chart.dtx", "Post Commit", 50);
+        using var cancellation = new CancellationTokenSource();
+        var realImporter = _manager.ImportSongsCoreAsync;
+        _manager.ImportSongsCoreAsync = async (database, request, progress, token) =>
+        {
+            var import = await realImporter(database, request, progress, token);
+            // The default importer returns only after SaveChanges/transaction
+            // commit. This models a Config deactivation that races immediately
+            // afterward: finalization/publication must still complete.
+            cancellation.Cancel();
+            return import;
+        };
+        var published = 0;
+        _manager.SongLibraryPublished += (_, _) => published++;
+
+        var result = await _manager.EnumerateAndImportSongsAsync(
+            new[] { _songsRoot }, null, cancellation.Token);
+
+        Assert.True(cancellation.IsCancellationRequested);
+        Assert.Equal(SongEnumerationOutcome.ImportedAndPublished, result.Outcome);
+        Assert.Equal(1, published);
+        Assert.NotEmpty(_manager.RootSongs);
+        Assert.Equal(1, _manager.DiscoveredScoreCount);
+    }
+
+    [Fact]
     public async Task GetRecentlyPlayedNodesAsync_WithMoreThanLimit_ShouldReturnLimitInRecencyOrder()
     {
         await _manager.InitializeDatabaseServiceAsync(_databasePath);
