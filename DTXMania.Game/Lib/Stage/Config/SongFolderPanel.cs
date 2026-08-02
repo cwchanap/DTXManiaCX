@@ -52,6 +52,13 @@ namespace DTXMania.Game.Lib.Stage.Config
         private static readonly Color WarningTextColor = new(255, 196, 96);
         private static readonly Color ErrorTextColor = new(255, 96, 96);
 
+        private const int BoardWidth = 760;
+        private const int BoardHeight = 560;
+        private const int RowHeight = 38;
+        private const int RowPadding = 20;
+        private const int RowViewportTopOffset = 74;
+        private const int ViewportRowCapacity = 9;
+
         private IReadOnlyList<string> _configuredRoots;
         private readonly IFolderPickerService _folderPicker;
         private readonly SongRootPolicy _rootPolicy;
@@ -63,6 +70,7 @@ namespace DTXMania.Game.Lib.Stage.Config
         private int _activationGeneration;
         private int _selectedIndex;
         private int _selectedRootIndex;
+        private int _firstVisibleRowIndex;
 
         internal SongFolderPanel(
             IReadOnlyList<string> configuredRoots,
@@ -103,6 +111,18 @@ namespace DTXMania.Game.Lib.Stage.Config
         /// <summary>Most recent Config-owned apply outcome for the stage event handler.</summary>
         internal SongFolderApplyStatus? LastApplyStatus { get; private set; }
 
+        /// <summary>First row currently rendered in the bounded panel viewport.</summary>
+        internal int FirstVisibleRowIndex => _firstVisibleRowIndex;
+
+        /// <summary>Number of complete rows rendered in the panel viewport.</summary>
+        internal int VisibleRowCapacity => ViewportRowCapacity;
+
+        /// <summary>Current keyboard selection in the root/action row sequence.</summary>
+        internal int SelectedRowIndex => _selectedIndex;
+
+        /// <summary>Total root and action rows available to keyboard navigation.</summary>
+        internal int TotalRowCount => RowCount;
+
         public void Activate()
         {
             CancelPendingPicker();
@@ -112,6 +132,7 @@ namespace DTXMania.Game.Lib.Stage.Config
             _draftRoots.AddRange(_configuredRoots);
             _selectedIndex = 0;
             _selectedRootIndex = 0;
+            _firstVisibleRowIndex = 0;
             LastApplyStatus = null;
             IsActive = true;
             SetValidationStatus(_rootPolicy.Validate(_draftRoots));
@@ -146,11 +167,13 @@ namespace DTXMania.Game.Lib.Stage.Config
             {
                 _selectedIndex = (_selectedIndex - 1 + RowCount) % RowCount;
                 RememberSelectedRoot();
+                EnsureSelectedRowVisible();
             }
             else if (IsJustPressed(current, previous, Keys.Down))
             {
                 _selectedIndex = (_selectedIndex + 1) % RowCount;
                 RememberSelectedRoot();
+                EnsureSelectedRowVisible();
             }
             else if (IsJustPressed(current, previous, Keys.Enter))
             {
@@ -169,56 +192,58 @@ namespace DTXMania.Game.Lib.Stage.Config
             if (!IsActive || spriteBatch == null)
                 return;
 
-            const int boardWidth = 760;
-            const int boardHeight = 560;
-            const int rowHeight = 38;
-            const int rowPadding = 20;
-            var boardX = (virtualWidth - boardWidth) / 2;
-            var boardY = (virtualHeight - boardHeight) / 2;
+            var boardX = (virtualWidth - BoardWidth) / 2;
+            var boardY = (virtualHeight - BoardHeight) / 2;
 
             if (whitePixel != null)
             {
                 spriteBatch.Draw(whitePixel,
                     new Rectangle(0, 0, virtualWidth, virtualHeight), BackdropColor);
                 spriteBatch.Draw(whitePixel,
-                    new Rectangle(boardX - 4, boardY - 4, boardWidth + 8, boardHeight + 8),
+                    new Rectangle(boardX - 4, boardY - 4, BoardWidth + 8, BoardHeight + 8),
                     BoardBorderColor);
                 spriteBatch.Draw(whitePixel,
-                    new Rectangle(boardX, boardY, boardWidth, boardHeight), BoardColor);
+                    new Rectangle(boardX, boardY, BoardWidth, BoardHeight), BoardColor);
             }
 
             const string title = "SONG FOLDERS";
             DrawCenteredText(spriteBatch, boldFont ?? font, title, virtualWidth, boardY + 20, PrimaryTextColor);
 
-            var y = boardY + 74;
-            for (var rootIndex = 0; rootIndex < _draftRoots.Count; rootIndex++)
+            var firstVisibleRow = Math.Clamp(_firstVisibleRowIndex, 0,
+                Math.Max(0, RowCount - ViewportRowCapacity));
+            var lastVisibleRowExclusive = Math.Min(RowCount, firstVisibleRow + ViewportRowCapacity);
+            var y = boardY + RowViewportTopOffset;
+
+            // The panel uses a complete-row viewport rather than an arbitrary root limit.
+            // Only rows inside this board region are drawn, so folders/actions outside the
+            // viewport cannot overlap the status or instruction areas below it.
+            for (var rowIndex = firstVisibleRow; rowIndex < lastVisibleRowExclusive; rowIndex++)
             {
-                DrawRow(spriteBatch, font, boldFont, whitePixel, boardX, y, boardWidth, rowHeight,
-                    rootIndex, _draftRoots[rootIndex]);
-                y += rowHeight;
+                DrawRow(spriteBatch, font, boldFont, whitePixel, boardX, y, BoardWidth, RowHeight,
+                    rowIndex, GetRowLabel(rowIndex));
+                y += RowHeight;
             }
 
-            y += 10;
-            for (var actionIndex = 0; actionIndex < Actions.Length; actionIndex++)
-            {
-                var rowIndex = _draftRoots.Count + actionIndex;
-                DrawRow(spriteBatch, font, boldFont, whitePixel, boardX, y, boardWidth, rowHeight,
-                    rowIndex, GetActionLabel(Actions[actionIndex]));
-                y += rowHeight;
-            }
+            if (firstVisibleRow > 0)
+                font?.DrawString(spriteBatch, "More above ↑",
+                    new Vector2(boardX + RowPadding, boardY + 52), WarningTextColor);
+            if (lastVisibleRowExclusive < RowCount)
+                font?.DrawString(spriteBatch, "More below ↓",
+                    new Vector2(boardX + RowPadding, boardY + RowViewportTopOffset +
+                        (ViewportRowCapacity * RowHeight) + 4), WarningTextColor);
 
             if (!string.IsNullOrWhiteSpace(StatusMessage))
             {
                 var color = IsWarningStatus() ? WarningTextColor : ErrorTextColor;
                 font?.DrawString(spriteBatch, StatusMessage,
-                    new Vector2(boardX + rowPadding, boardY + boardHeight - 64), color);
+                    new Vector2(boardX + RowPadding, boardY + BoardHeight - 64), color);
             }
 
             var instruction = _pickerCancellation == null
                 ? "UP/DOWN: Navigate | ENTER: Select | ESC: Cancel"
                 : "Waiting for folder picker... ESC: Cancel";
             DrawCenteredText(spriteBatch, font, instruction, virtualWidth,
-                boardY + boardHeight - 34, PrimaryTextColor);
+                boardY + BoardHeight - 34, PrimaryTextColor);
         }
 
         private int RowCount => _draftRoots.Count + Actions.Length;
@@ -352,6 +377,7 @@ namespace DTXMania.Game.Lib.Stage.Config
             _draftRoots.AddRange(validation.CanonicalRoots);
             _selectedRootIndex = _draftRoots.Count - 1;
             _selectedIndex = _selectedRootIndex;
+            EnsureSelectedRowVisible();
             SetValidationStatus(validation);
         }
 
@@ -367,6 +393,7 @@ namespace DTXMania.Game.Lib.Stage.Config
             _draftRoots.RemoveAt(rootIndex);
             _selectedRootIndex = Math.Min(rootIndex, _draftRoots.Count - 1);
             _selectedIndex = _selectedRootIndex;
+            EnsureSelectedRowVisible();
             SetValidationStatus(_rootPolicy.Validate(_draftRoots));
         }
 
@@ -455,6 +482,21 @@ namespace DTXMania.Game.Lib.Stage.Config
                 _selectedRootIndex = _selectedIndex;
         }
 
+        private void EnsureSelectedRowVisible()
+        {
+            if (_selectedIndex < _firstVisibleRowIndex)
+            {
+                _firstVisibleRowIndex = _selectedIndex;
+            }
+            else if (_selectedIndex >= _firstVisibleRowIndex + ViewportRowCapacity)
+            {
+                _firstVisibleRowIndex = _selectedIndex - ViewportRowCapacity + 1;
+            }
+
+            _firstVisibleRowIndex = Math.Clamp(_firstVisibleRowIndex, 0,
+                Math.Max(0, RowCount - ViewportRowCapacity));
+        }
+
         private void SetValidationStatus(SongRootValidationResult validation)
         {
             StatusMessage = GetDiagnosticMessage(validation.Diagnostics, fallback: null);
@@ -513,6 +555,10 @@ namespace DTXMania.Game.Lib.Stage.Config
             ActionRow.Cancel => "Cancel",
             _ => string.Empty,
         };
+
+        private string GetRowLabel(int rowIndex) => rowIndex < _draftRoots.Count
+            ? _draftRoots[rowIndex]
+            : GetActionLabel(Actions[rowIndex - _draftRoots.Count]);
 
         private void DrawRow(
             SpriteBatch spriteBatch,

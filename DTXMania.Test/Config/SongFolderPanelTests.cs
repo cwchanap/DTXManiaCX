@@ -280,6 +280,59 @@ public sealed class SongFolderPanelTests
     }
 
     [Fact]
+    public void NavigateLongDraft_ShouldScrollAndKeepActionsReachable()
+    {
+        var roots = Enumerable.Range(0, 7)
+            .Select(_ => TemporaryDirectory.Create())
+            .ToArray();
+        try
+        {
+            var applyCalls = 0;
+            var panel = CreatePanel(
+                roots.Select(root => root.Path).ToArray(),
+                apply: draft =>
+                {
+                    applyCalls++;
+                    return new SongFolderApplyResult(
+                        SongFolderApplyStatus.Busy,
+                        draft,
+                        new[] { new SongRootDiagnostic(string.Empty, "busy", IsWarning: false) });
+                });
+            panel.Activate();
+
+            Assert.Equal(0, panel.FirstVisibleRowIndex);
+            Assert.True(panel.TotalRowCount > panel.VisibleRowCapacity);
+
+            for (var index = 0; index < roots.Length + 4; index++)
+                Press(panel, Keys.Down);
+
+            Assert.Equal(roots.Length + 4, panel.SelectedRowIndex); // Apply
+            Assert.True(panel.FirstVisibleRowIndex > 0);
+            Assert.InRange(panel.SelectedRowIndex,
+                panel.FirstVisibleRowIndex,
+                panel.FirstVisibleRowIndex + panel.VisibleRowCapacity - 1);
+
+            Press(panel, Keys.Enter);
+            Assert.Equal(1, applyCalls);
+            Assert.True(panel.IsActive);
+
+            Press(panel, Keys.Down);
+            Assert.Equal(roots.Length + 5, panel.SelectedRowIndex); // Cancel
+            Assert.InRange(panel.SelectedRowIndex,
+                panel.FirstVisibleRowIndex,
+                panel.FirstVisibleRowIndex + panel.VisibleRowCapacity - 1);
+
+            Press(panel, Keys.Enter);
+            Assert.False(panel.IsActive);
+        }
+        finally
+        {
+            foreach (var root in roots)
+                root.Dispose();
+        }
+    }
+
+    [Fact]
     public void Apply_WhenUnchanged_ShouldCloseSilently()
     {
         using var root = TemporaryDirectory.Create();
