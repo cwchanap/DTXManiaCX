@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using DTXMania.Game.Lib.Song.Entities;
 
 namespace DTXMania.Game.Lib.Song
@@ -80,10 +81,47 @@ namespace DTXMania.Game.Lib.Song
         int StaleCharts,
         int StaleSongs,
         TimeSpan PersistenceDuration,
-        TimeSpan CleanupDuration);
+        TimeSpan CleanupDuration)
+    {
+        private static readonly IReadOnlyDictionary<string, SongChart> EmptyCharts =
+            new ReadOnlyDictionary<string, SongChart>(
+                new Dictionary<string, SongChart>(StringComparer.Ordinal));
+
+        public static SongBulkImportResult Empty { get; } = new(
+            EmptyCharts,
+            Added: 0,
+            Updated: 0,
+            Preserved: 0,
+            Skipped: 0,
+            Conflicts: 0,
+            StaleCharts: 0,
+            StaleSongs: 0,
+            PersistenceDuration: TimeSpan.Zero,
+            CleanupDuration: TimeSpan.Zero);
+    }
+
+    public enum SongEnumerationOutcome
+    {
+        ImportedAndPublished,
+        NoActiveRoots,
+    }
 
     public sealed record SongEnumerationResult(
+        SongEnumerationOutcome Outcome,
         SongEnumerationBatch Batch,
         SongBulkImportResult Import,
-        TimeSpan HierarchyDuration);
+        TimeSpan HierarchyDuration)
+    {
+        public SongEnumerationResult(
+            SongEnumerationBatch batch,
+            SongBulkImportResult import,
+            TimeSpan hierarchyDuration)
+            : this(
+                SongEnumerationOutcome.ImportedAndPublished,
+                batch,
+                import,
+                hierarchyDuration)
+        {
+        }
+    }
 }

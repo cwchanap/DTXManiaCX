@@ -54,6 +54,7 @@ namespace DTXMania.Game.Lib.Config
         }
 
         private readonly ILogger<ConfigManager> _logger;
+        private readonly SongRootPolicy _songRootPolicy;
         public ConfigData Config { get; private set; }
 
         /// <summary>
@@ -68,7 +69,16 @@ namespace DTXMania.Game.Lib.Config
         private string? _loadedConfigPath;
 
         public ConfigManager(ILogger<ConfigManager>? logger = null)
+            : this(SongRootPolicy.ForCurrentPlatform(), logger)
         {
+        }
+
+        internal ConfigManager(
+            SongRootPolicy songRootPolicy,
+            ILogger<ConfigManager>? logger = null)
+        {
+            _songRootPolicy = songRootPolicy ??
+                throw new ArgumentNullException(nameof(songRootPolicy));
             _logger = logger ?? NullLogger<ConfigManager>.Instance;
             Config = new ConfigData();
         }
@@ -699,6 +709,86 @@ namespace DTXMania.Game.Lib.Config
         public event EventHandler<EventArgs>? KeyBindingsChanged;
 
         public event EventHandler<EventArgs>? SystemKeyBindingsChanged;
+
+        public event EventHandler<SongRootsChangedEventArgs>? SongRootsChanged;
+
+        /// <summary>
+        /// Persists an ordered set of validated song-library roots immediately. A failed
+        /// write restores the exact in-memory roots and legacy compatibility mirror.
+        /// </summary>
+        public SongRootUpdateResult SetSongRoots(
+            string configFilePath,
+            IReadOnlyList<string> roots)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(configFilePath);
+            ArgumentNullException.ThrowIfNull(roots);
+
+            var validation = _songRootPolicy.Validate(roots);
+            if (!validation.IsValid)
+            {
+                return new SongRootUpdateResult(
+                    SongRootUpdateStatus.ValidationFailed,
+                    validation.CanonicalRoots,
+                    validation.Diagnostics);
+            }
+
+            var oldRoots = Config.SongRoots.ToArray();
+            var oldCanonicalRoots = _songRootPolicy.Validate(oldRoots)
+                .CanonicalRoots;
+            if (oldCanonicalRoots.SequenceEqual(
+                validation.CanonicalRoots,
+                _songRootPolicy.Comparer))
+            {
+                return new SongRootUpdateResult(
+                    SongRootUpdateStatus.Unchanged,
+                    validation.CanonicalRoots,
+                    validation.Diagnostics);
+            }
+
+            var oldDtxPath = Config.DTXPath;
+            Config.SongRoots.Clear();
+            Config.SongRoots.AddRange(validation.CanonicalRoots);
+            Config.DTXPath = validation.CanonicalRoots.FirstOrDefault() ?? string.Empty;
+
+            try
+            {
+                SaveConfig(configFilePath);
+            }
+            catch (Exception ex)
+            {
+                Config.SongRoots.Clear();
+                Config.SongRoots.AddRange(oldRoots);
+                Config.DTXPath = oldDtxPath;
+                _logger.LogError(
+                    ex,
+                    "Failed to persist song roots to {Path}; restored the in-memory configuration.",
+                    configFilePath);
+
+                var diagnostics = validation.Diagnostics
+                    .Concat(
+                    [
+                        new SongRootDiagnostic(
+                            configFilePath,
+                            $"Could not persist song roots: {ex.Message}",
+                            IsWarning: false),
+                    ])
+                    .ToArray();
+                return new SongRootUpdateResult(
+                    SongRootUpdateStatus.PersistenceFailed,
+                    validation.CanonicalRoots,
+                    diagnostics);
+            }
+
+            RaiseEvent(
+                SongRootsChanged,
+                new SongRootsChangedEventArgs(
+                    oldCanonicalRoots,
+                    validation.CanonicalRoots));
+            return new SongRootUpdateResult(
+                SongRootUpdateStatus.Updated,
+                validation.CanonicalRoots,
+                validation.Diagnostics);
+        }
 
         public void SetScrollSpeed(string configFilePath, int percent)
         {

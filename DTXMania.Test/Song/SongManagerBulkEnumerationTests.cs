@@ -1300,8 +1300,8 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
     }
 
     [Fact]
-    public async Task BuildEnumerationBatchAsync_WhenRootDoesNotExist_ShouldSkipAndRecordRootFailure()
-    {
+        public async Task BuildEnumerationBatchAsync_WhenRootDoesNotExist_ShouldSkipAndRecordRootFailure()
+        {
         var batch = await _manager.BuildEnumerationBatchAsync(
             new[] { Path.Combine(_testRoot, "Nonexistent") },
             null,
@@ -1309,12 +1309,31 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
 
         Assert.Empty(batch.Candidates);
         var rootError = Assert.Single(batch.Errors, e => e.IsRootFailure);
-        Assert.Contains("does not exist", rootError.Message, StringComparison.OrdinalIgnoreCase);
-    }
+            Assert.Contains("does not exist", rootError.Message, StringComparison.OrdinalIgnoreCase);
+        }
 
-    [Fact]
-    public async Task EnumerateAndImportSongsAsync_WhenBatchIsIncomplete_ShouldThrowInvalidOperationException()
-    {
+        [Fact]
+        public async Task BuildEnumerationBatchAsync_ShouldUseRootPolicyToDeduplicateActiveRoots()
+        {
+            var root = Path.Combine(_testRoot, "PolicyRoot");
+            Directory.CreateDirectory(root);
+            _manager.RootPolicy = new SongRootPolicy(
+                SongRootPolicy.CreateComparer(ignoreCase: true));
+
+            var batch = await _manager.BuildEnumerationBatchAsync(
+                new[] { root, root.ToUpperInvariant() },
+                null,
+                CancellationToken.None);
+
+            Assert.Equal([Path.GetFullPath(root)], batch.ActiveRoots);
+            Assert.Contains(batch.Errors, error =>
+                error.IsRootFailure &&
+                error.Message.Contains("duplicate", StringComparison.OrdinalIgnoreCase));
+        }
+
+        [Fact]
+        public async Task EnumerateAndImportSongsAsync_WhenBatchIsIncomplete_ShouldThrowInvalidOperationException()
+        {
         await _manager.InitializeDatabaseServiceAsync(_databasePath);
         // Inject an incomplete batch directly via the build seam so the import
         // guard (IsComplete == false) is exercised independently of cancellation.
@@ -1336,11 +1355,52 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
             _manager.EnumerateAndImportSongsAsync(
                 new[] { _songsRoot }, null, CancellationToken.None));
 
-        Assert.Contains("incomplete enumeration", ex.Message, StringComparison.OrdinalIgnoreCase);
-    }
+            Assert.Contains("incomplete enumeration", ex.Message, StringComparison.OrdinalIgnoreCase);
+        }
 
-    [Fact]
-    public async Task RefreshSongListFromDatabaseAsync_WhenDatabaseNotInitialized_ShouldReturnEarly()
+        [Fact]
+        public async Task EnumerateAndImportSongsAsync_WhenCompleteBatchHasNoActiveRoots_ShouldNotImportOrPublish()
+        {
+            await SeedPublishedLibraryAsync();
+            var before = _manager.GetLibrarySnapshot();
+            var importCalls = 0;
+            var publishEvents = 0;
+            _manager.ImportSongsCoreAsync = (_, _, _, _) =>
+            {
+                importCalls++;
+                return Task.FromResult(SongBulkImportResult.Empty);
+            };
+            _manager.SongLibraryPublished += (_, _) => publishEvents++;
+            _manager.BuildEnumerationBatchCoreAsync = (_, _, _) =>
+                Task.FromResult(new SongEnumerationBatch
+                {
+                    ActiveRoots = Array.Empty<string>(),
+                    DiscoveredChartPaths = new HashSet<string>(StringComparer.Ordinal),
+                    Candidates = new List<SongImportCandidate>(),
+                    RootNodes = new List<SongListNode>(),
+                    PendingSongs = new List<PendingSongNode>(),
+                    Errors = new List<SongEnumerationError>(),
+                    DiscoveryAndParsingDuration = TimeSpan.Zero,
+                    IsComplete = true,
+                });
+
+            var result = await _manager.EnumerateAndImportSongsAsync(
+                new[] { _songsRoot }, null, CancellationToken.None);
+            var after = _manager.GetLibrarySnapshot();
+
+            Assert.Equal(SongEnumerationOutcome.NoActiveRoots, result.Outcome);
+            Assert.Same(SongBulkImportResult.Empty, result.Import);
+            Assert.Equal(TimeSpan.Zero, result.HierarchyDuration);
+            Assert.Equal(0, importCalls);
+            Assert.Equal(0, publishEvents);
+            Assert.Equal(before.Version, after.Version);
+            Assert.Equal(before.RootSongs, after.RootSongs);
+            Assert.Equal(before.ActiveRoots, after.ActiveRoots);
+            Assert.False(_manager.IsEnumerating);
+        }
+
+        [Fact]
+        public async Task RefreshSongListFromDatabaseAsync_WhenDatabaseNotInitialized_ShouldReturnEarly()
     {
         // Without InitializeDatabaseServiceAsync, DatabaseService is null.
         // Should not throw.

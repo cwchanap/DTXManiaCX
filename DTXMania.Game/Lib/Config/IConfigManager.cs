@@ -33,6 +33,25 @@ namespace DTXMania.Game.Lib.Config
         event EventHandler<EventArgs>? SystemKeyBindingsChanged;
 
         /// <summary>
+        /// Raised after a validated song-root edit has been persisted successfully.
+        /// </summary>
+        event EventHandler<SongRootsChangedEventArgs>? SongRootsChanged
+        {
+            add { }
+            remove { }
+        }
+
+        /// <summary>
+        /// Validates, persists, and publishes an ordered song-root update. Existing
+        /// interface implementations that do not own persisted song roots can opt out.
+        /// </summary>
+        SongRootUpdateResult SetSongRoots(
+            string configFilePath,
+            IReadOnlyList<string> roots) =>
+            throw new NotSupportedException(
+                "This configuration manager does not support song-root updates.");
+
+        /// <summary>
         /// Sets the scroll speed (percent), snapping to the nearest allowed step and
         /// clamping to the allowed range. Persists to the given file path and raises
         /// ScrollSpeedChanged when the value actually changes.

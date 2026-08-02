@@ -1428,7 +1428,7 @@ namespace DTXMania.Test.Stage
             Assert.Same(uiFont.Object, playHistoryPanel.ManagedFont);
             Assert.Equal(75, playHistoryPanel.PlaySpeedPercent);
             Assert.True(previewImagePanel!.Visible);
-            Assert.Equal("SongsRoot", GetPrivateField<string>(previewImagePanel, "_songsRootPath"));
+            Assert.Empty(previewImagePanel.ActiveSongRootPaths);
             Assert.Equal(7, mainPanel.Children.Count);
             Assert.Same(titleLabel, mainPanel.Children[0]);
             Assert.Same(breadcrumbLabel, mainPanel.Children[1]);
