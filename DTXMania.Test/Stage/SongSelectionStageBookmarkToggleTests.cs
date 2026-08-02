@@ -210,6 +210,31 @@ namespace DTXMania.Test.Stage
             }
         }
 
+        [Fact]
+        public void ToggleBookmarkForSelectedSong_WhenAppliedSnapshotExists_ReconcilesThatSnapshotInsteadOfANewerManagerView()
+        {
+            var stage = CreateStage();
+            var selectedSong = new DTXMania.Game.Lib.Song.Entities.Song { Id = 42, Title = "Selected", IsBookmarked = false };
+            var appliedSong = new DTXMania.Game.Lib.Song.Entities.Song { Id = 42, Title = "Applied", IsBookmarked = false };
+            var selectedNode = new SongListNode { Type = NodeType.Score, Title = "Selected", DatabaseSongId = 42, DatabaseSong = selectedSong };
+            var appliedNode = new SongListNode { Type = NodeType.Score, Title = "Applied", DatabaseSongId = 42, DatabaseSong = appliedSong };
+            var display = new SongListDisplay { CurrentList = new List<SongListNode> { selectedNode } };
+            var snapshot = new SongLibrarySnapshot(
+                Version: 101,
+                RootSongs: new[] { appliedNode },
+                ActiveRoots: new[] { "/library/active" },
+                EnumeratedFileCount: 1,
+                DiscoveredScoreCount: 1);
+
+            AttachCoreUi(stage, display);
+            SetPrivateField(stage, "_activeTab", SongSelectionTab.AllSongs);
+            SetPrivateField(stage, "_appliedLibrarySnapshot", snapshot);
+
+            InvokePrivateMethod(stage, "ToggleBookmarkForSelectedSong");
+
+            Assert.True(appliedSong.IsBookmarked);
+        }
+
         // Guards the "&& !newState" condition: bookmarking ON while on the Bookmarks tab must
         // flip the flag but must NOT remove the row (only an un-bookmark removes it).
         [Fact]

@@ -49,6 +49,27 @@ public class PreviewImagePanelTests
     }
 
     [Fact]
+    public void ClearSelectedSong_ShouldReleasePreviewAndResetSelectionDelay()
+    {
+        var panel = new PreviewImagePanel();
+        var song = new SongListNode { Type = NodeType.Score, Title = "Song" };
+        var preview = new Mock<ITexture>();
+        SetField(panel, "_currentSong", song);
+        SetField(panel, "_currentPreviewTexture", preview.Object);
+        SetField(panel, "_displayDelay", 0.5d);
+
+        var clear = typeof(PreviewImagePanel).GetMethod("ClearSelectedSong");
+
+        Assert.NotNull(clear);
+        clear!.Invoke(panel, null);
+
+        Assert.Null(GetField<SongListNode>(panel, "_currentSong"));
+        Assert.Null(GetField<ITexture>(panel, "_currentPreviewTexture"));
+        Assert.Equal(0d, GetField<double>(panel, "_displayDelay"));
+        preview.Verify(texture => texture.RemoveReference(), Times.Once);
+    }
+
+    [Fact]
     public void Update_ShouldIncreaseDelay_AndShouldDisplayPreviewAfterThreshold()
     {
         var panel = new PreviewImagePanel();

@@ -2437,6 +2437,26 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void ApplyLibrarySnapshot_ShouldRetainTheCoherentSnapshotUsedForUiProjection()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            var song = CreateScoreNode("Snapshot Song");
+            var snapshot = new SongLibrarySnapshot(
+                Version: 91,
+                RootSongs: new[] { song },
+                ActiveRoots: new[] { "/library/active" },
+                EnumeratedFileCount: 1,
+                DiscoveredScoreCount: 1);
+
+            AttachCoreUi(stage, display: display);
+            InvokePrivateMethod(stage, "ApplyLibrarySnapshot", snapshot);
+
+            Assert.Same(snapshot, GetPrivateField<SongLibrarySnapshot>(stage, "_appliedLibrarySnapshot"));
+            Assert.Equal(91L, GetPrivateField<long>(stage, "_appliedLibraryPublicationVersion"));
+        }
+
+        [Fact]
         public void InitializeSongList_WhenSongManagerIsNotInitialized_ShouldStartBackgroundTaskAndKeepDisplayEmpty()
         {
             var stage = CreateStage();
