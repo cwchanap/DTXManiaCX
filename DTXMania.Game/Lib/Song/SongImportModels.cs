@@ -106,6 +106,42 @@ namespace DTXMania.Game.Lib.Song
         NoActiveRoots,
     }
 
+    /// <summary>
+    /// Identifies the live-library phase that failed after the database import
+    /// had already committed. Callers must not present this as a rollback.
+    /// </summary>
+    public enum SongEnumerationPostCommitPhase
+    {
+        Finalization,
+        Publication,
+    }
+
+    /// <summary>
+    /// Signals an HPA-192 failure after the import transaction committed but
+    /// before its in-memory library publication completed. The captured batch
+    /// lets callers retain accurate root-failure diagnostics while reporting
+    /// the operation as partial success requiring recovery/restart.
+    /// </summary>
+    public sealed class SongEnumerationPostCommitException : Exception
+    {
+        internal SongEnumerationPostCommitException(
+            SongEnumerationPostCommitPhase phase,
+            SongEnumerationBatch batch,
+            SongBulkImportResult import,
+            Exception innerException)
+            : base($"Song enumeration {phase.ToString().ToLowerInvariant()} failed after database commit.",
+                innerException)
+        {
+            Phase = phase;
+            Batch = batch ?? throw new ArgumentNullException(nameof(batch));
+            Import = import ?? throw new ArgumentNullException(nameof(import));
+        }
+
+        public SongEnumerationPostCommitPhase Phase { get; }
+        public SongEnumerationBatch Batch { get; }
+        public SongBulkImportResult Import { get; }
+    }
+
     public sealed record SongEnumerationResult(
         SongEnumerationOutcome Outcome,
         SongEnumerationBatch Batch,

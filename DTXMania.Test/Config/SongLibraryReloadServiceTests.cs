@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -11,9 +12,20 @@ using Xunit;
 
 namespace DTXMania.Test.Config;
 
+[Collection("SongManager")]
 [Trait("Category", "Unit")]
-public sealed class SongLibraryReloadServiceTests
+public sealed class SongLibraryReloadServiceTests : IDisposable
 {
+    private readonly string _testRoot = Path.Combine(
+        Path.GetTempPath(), "HPA-191-ReloadService", Guid.NewGuid().ToString("N"));
+    private readonly string _databasePath;
+
+    public SongLibraryReloadServiceTests()
+    {
+        _databasePath = Path.Combine(_testRoot, "songs.db");
+        SongManager.ResetInstanceForTesting();
+    }
+
     [Fact]
     public async Task ReloadAsync_WhenEnumerationIsBusy_ShouldReturnBusyWithoutPublishing()
     {
@@ -81,20 +93,49 @@ public sealed class SongLibraryReloadServiceTests
     }
 
     [Fact]
-    public async Task ReloadAsync_WhenPublicationFailsAfterCommit_ShouldRequireRestart()
+    public async Task ReloadAsync_WhenDefaultEnumerationFinalizationFailsAfterCommit_ShouldRequireRestart()
     {
-        var service = new SongLibraryReloadService(
-            (_, _, _) => throw new SongLibraryReloadPostCommitPublicationException(
-                "publication observer failed"));
+        var songRoot = Path.Combine(_testRoot, "Songs");
+        Directory.CreateDirectory(songRoot);
+        File.WriteAllLines(Path.Combine(songRoot, "committed.dtx"), new[]
+        {
+            "#TITLE: Committed Reload",
+            "#ARTIST: Fixture Artist",
+            "#BPM: 120",
+            "#DLEVEL: 50"
+        });
+        var manager = SongManager.Instance;
+        Assert.True(await manager.InitializeDatabaseServiceAsync(_databasePath));
+        manager.FinalizePendingNodesCore = (_, _) =>
+            throw new InvalidOperationException("finalization failed after commit");
+        var service = new SongLibraryReloadService();
 
         var result = await service.ReloadAsync(
-            new[] { "/songs" }, progress: null, CancellationToken.None);
+            new[] { songRoot }, progress: null, CancellationToken.None);
 
         Assert.Equal(
             SongLibraryReloadOutcome.PartialSuccessRestartRequired,
             result.Outcome);
         Assert.True(result.RequiresRestart);
-        Assert.True(result.RetainsCurrentSnapshot);
+        Assert.False(result.RetainsCurrentSnapshot);
+        Assert.Contains("finalization failed after commit", result.FailureMessage);
+        Assert.Single(await manager.DatabaseService!.GetSongsAsync());
+    }
+
+    public void Dispose()
+    {
+        SongManager.ResetInstanceForTesting();
+        if (Directory.Exists(_testRoot))
+        {
+            try
+            {
+                Directory.Delete(_testRoot, recursive: true);
+            }
+            catch (IOException)
+            {
+                // SQLite can briefly retain a sidecar file after disposal.
+            }
+        }
     }
 
     private static SongEnumerationResult CreateResult(
