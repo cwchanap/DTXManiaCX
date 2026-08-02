@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
@@ -28,6 +29,14 @@ namespace DTXMania.Game.Lib.Config
         };
 
         private const string MidiVelocityPrefix = "MidiVelocity.";
+        private const string SongRootPrefix = "SongRoot.";
+
+        private enum SongRootsLoadSource
+        {
+            Indexed,
+            LegacyDTXPath,
+            ManagedDefault,
+        }
 
         /// <summary>
         /// Logical token persisted in Config.ini to represent the bundled default
@@ -87,6 +96,7 @@ namespace DTXMania.Game.Lib.Config
             _loadedConfigPath = filePath;
             EnsureConfigDirectory(filePath);
             Config.MidiVelocityThresholds.Clear();
+            Config.SongRoots.Clear();
             if (!File.Exists(filePath))
             {
                 NormalizeConfigPaths(baseDir);
@@ -95,6 +105,8 @@ namespace DTXMania.Game.Lib.Config
             }
 
             var lines = File.ReadAllLines(filePath, Encoding.UTF8);
+            var indexedSongRoots = new Dictionary<int, string>();
+            string? legacyDtxPath = null;
 
             foreach (var line in lines)
             {
@@ -110,8 +122,11 @@ namespace DTXMania.Game.Lib.Config
                 var key = parts[0].Trim();
                 var value = parts[1].Trim();
 
-                ParseConfigLine(key, value);
+                ParseConfigLine(key, value, indexedSongRoots, ref legacyDtxPath);
             }
+
+            var songRootsLoadSource = FinalizeSongRoots(indexedSongRoots, legacyDtxPath);
+            var songRootsMigrated = songRootsLoadSource != SongRootsLoadSource.Indexed;
 
             // Capture the pre-normalization SkinPath so we can detect whether
             // NormalizeConfigPaths migrated it (e.g. absolute bundled path →
@@ -121,27 +136,36 @@ namespace DTXMania.Game.Lib.Config
             // token's relocation-survival guarantee.
             var skinPathBeforeNormalization = Config.SkinPath;
 
-            NormalizeConfigPaths(baseDir);
+            NormalizeConfigPaths(baseDir, songRootsLoadSource == SongRootsLoadSource.LegacyDTXPath);
 
             var skinPathMigrated = !string.Equals(
                 skinPathBeforeNormalization, Config.SkinPath,
                 AppPaths.SkinPathComparison);
 
-            if (skinPathMigrated)
+            if (skinPathMigrated || songRootsMigrated)
             {
                 try
                 {
                     SaveConfig(filePath);
-                    _logger.LogInformation(
-                        "Migrated SkinPath from '{OldPath}' to '{NewPath}' and persisted the change to the config file.",
-                        skinPathBeforeNormalization, Config.SkinPath);
+                    if (skinPathMigrated)
+                    {
+                        _logger.LogInformation(
+                            "Migrated SkinPath from '{OldPath}' to '{NewPath}' and persisted the change to the config file.",
+                            skinPathBeforeNormalization, Config.SkinPath);
+                    }
+
+                    if (songRootsMigrated)
+                    {
+                        _logger.LogInformation(
+                            "Persisted SongRoot migration using {SongRootCount} configured root(s).",
+                            Config.SongRoots.Count);
+                    }
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex,
-                        "Failed to persist SkinPath migration from '{OldPath}' to '{NewPath}'. " +
-                        "In-memory value is correct; the file will be updated on the next save.",
-                        skinPathBeforeNormalization, Config.SkinPath);
+                        "Failed to persist configuration migration. In-memory values are correct; " +
+                        "the file will be updated on the next save.");
                 }
             }
 
@@ -364,8 +388,15 @@ namespace DTXMania.Game.Lib.Config
             }
         }
 
-        private void ParseConfigLine(string key, string value)
+        private void ParseConfigLine(
+            string key,
+            string value,
+            Dictionary<int, string> indexedSongRoots,
+            ref string? legacyDtxPath)
         {
+            if (TryCaptureIndexedSongRoot(key, value, indexedSongRoots))
+                return;
+
             switch (key)
             {
                 case "DTXManiaVersion":
@@ -375,7 +406,7 @@ namespace DTXMania.Game.Lib.Config
                     Config.SkinPath = value;
                     break;
                 case "DTXPath":
-                    Config.DTXPath = value;
+                    legacyDtxPath = value;
                     break;
                 case "UseBoxDefSkin":
                     Config.UseBoxDefSkin = value.ToLower() == "true";
@@ -490,9 +521,80 @@ namespace DTXMania.Game.Lib.Config
             }
         }
 
+        private bool TryCaptureIndexedSongRoot(
+            string key,
+            string value,
+            Dictionary<int, string> indexedSongRoots)
+        {
+            if (!key.StartsWith(SongRootPrefix, StringComparison.Ordinal))
+                return false;
+
+            var indexText = key.Substring(SongRootPrefix.Length);
+            if (!int.TryParse(indexText, NumberStyles.None, CultureInfo.InvariantCulture, out var index))
+            {
+                _logger.LogWarning(
+                    "Ignoring malformed SongRoot entry '{Key}={Value}': index must be a non-negative decimal integer.",
+                    key,
+                    value);
+                return true;
+            }
+
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                _logger.LogWarning(
+                    "Ignoring blank SongRoot entry '{Key}'.",
+                    key);
+                return true;
+            }
+
+            if (indexedSongRoots.ContainsKey(index))
+            {
+                _logger.LogWarning(
+                    "SongRoot index {Index} appeared more than once; using the last value.",
+                    index);
+            }
+
+            indexedSongRoots[index] = value;
+            return true;
+        }
+
+        private SongRootsLoadSource FinalizeSongRoots(
+            IReadOnlyDictionary<int, string> indexedSongRoots,
+            string? legacyDtxPath)
+        {
+            if (indexedSongRoots.Count > 0)
+            {
+                foreach (var root in indexedSongRoots.OrderBy(pair => pair.Key).Select(pair => pair.Value))
+                {
+                    Config.SongRoots.Add(root);
+                }
+
+                Config.DTXPath = Config.SongRoots[0];
+                return SongRootsLoadSource.Indexed;
+            }
+
+            if (!string.IsNullOrWhiteSpace(legacyDtxPath))
+            {
+                Config.SongRoots.Add(legacyDtxPath);
+                Config.DTXPath = legacyDtxPath;
+                return SongRootsLoadSource.LegacyDTXPath;
+            }
+
+            var defaultSongsPath = AppPaths.GetDefaultSongsPath();
+            Config.SongRoots.Add(defaultSongsPath);
+            Config.DTXPath = defaultSongsPath;
+            return SongRootsLoadSource.ManagedDefault;
+        }
+
         public void SaveConfig(string filePath)
         {
             EnsureConfigDirectory(filePath);
+            var songRoots = Config.SongRoots.ToArray();
+            if (songRoots.Length > 0)
+            {
+                Config.DTXPath = songRoots[0];
+            }
+
             var sb = new StringBuilder();
             sb.AppendLine("; DTXMania Configuration File");
             sb.AppendLine($"; Generated: {DateTime.Now}");
@@ -502,6 +604,10 @@ namespace DTXMania.Game.Lib.Config
             sb.AppendLine($"DTXManiaVersion={Config.DTXManiaVersion}");
             sb.AppendLine($"SkinPath={Config.SkinPath}");
             sb.AppendLine($"DTXPath={Config.DTXPath}");
+            for (var index = 0; index < songRoots.Length; index++)
+            {
+                sb.AppendLine($"{SongRootPrefix}{index}={songRoots[index]}");
+            }
             sb.AppendLine();
 
             sb.AppendLine("[Skin]");
@@ -579,6 +685,7 @@ namespace DTXMania.Game.Lib.Config
             var tempFile = filePath + ".tmp";
             File.WriteAllText(tempFile, sb.ToString(), Encoding.UTF8);
             File.Move(tempFile, filePath, overwrite: true);
+            ClearMatchingPendingSavePath(filePath);
         }
 
         public void ResetToDefaults()
@@ -775,7 +882,6 @@ namespace DTXMania.Game.Lib.Config
             try
             {
                 SaveConfig(path);
-                _pendingSavePath = null;
             }
             catch (Exception ex)
             {
@@ -790,6 +896,32 @@ namespace DTXMania.Game.Lib.Config
         private void MarkDirty(string? path = null)
         {
             _pendingSavePath = path ?? _loadedConfigPath ?? _pendingSavePath;
+        }
+
+        private void ClearMatchingPendingSavePath(string savedPath)
+        {
+            if (_pendingSavePath == null)
+                return;
+
+            try
+            {
+                var pendingPath = Path.GetFullPath(_pendingSavePath);
+                var normalizedSavedPath = Path.GetFullPath(savedPath);
+                if (string.Equals(
+                    NormalizePathForComparison(pendingPath),
+                    NormalizePathForComparison(normalizedSavedPath),
+                    AppPaths.SkinPathComparison))
+                {
+                    _pendingSavePath = null;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Could not compare pending config path '{PendingPath}' with saved path '{SavedPath}'; retaining the pending save marker.",
+                    _pendingSavePath,
+                    savedPath);
+            }
         }
 
         /// <summary>
@@ -1134,25 +1266,34 @@ namespace DTXMania.Game.Lib.Config
                 || string.Equals(normalized, "./Songs", StringComparison.OrdinalIgnoreCase);
         }
 
-        private void NormalizeConfigPaths(string baseDir)
+        private void NormalizeConfigPaths(string baseDir, bool migrateLegacySongsPath = false)
         {
             var defaultSystemSkinRoot = AppPaths.GetDefaultSystemSkinRoot();
             var defaultSongsPath = AppPaths.GetDefaultSongsPath();
-            var shouldMigrateLegacySongsPath = IsLegacyDefaultSongsPath(Config.DTXPath, defaultSongsPath);
-
-            if (shouldMigrateLegacySongsPath)
-            {
-                _logger.LogInformation(
-                    "Migrating legacy DTXPath '{LegacyPath}' to '{DefaultSongsPath}'",
-                    Config.DTXPath,
-                    defaultSongsPath);
-            }
 
             // Honor configured paths first, fallback to defaults if not set
             Config.SystemSkinRoot = AppPaths.ResolvePathOrDefault(Config.SystemSkinRoot, defaultSystemSkinRoot);
-            Config.DTXPath = shouldMigrateLegacySongsPath
-                ? defaultSongsPath
-                : AppPaths.ResolvePathOrDefault(Config.DTXPath, defaultSongsPath);
+
+            if (Config.SongRoots.Count == 0)
+            {
+                Config.SongRoots.Add(defaultSongsPath);
+            }
+
+            if (migrateLegacySongsPath && IsLegacyDefaultSongsPath(Config.SongRoots[0], defaultSongsPath))
+            {
+                _logger.LogInformation(
+                    "Migrating legacy DTXPath '{LegacyPath}' to '{DefaultSongsPath}'",
+                    Config.SongRoots[0],
+                    defaultSongsPath);
+                Config.SongRoots[0] = defaultSongsPath;
+            }
+
+            for (var index = 0; index < Config.SongRoots.Count; index++)
+            {
+                Config.SongRoots[index] = AppPaths.ResolvePathOrDefault(Config.SongRoots[index], defaultSongsPath);
+            }
+
+            Config.DTXPath = Config.SongRoots[0];
 
             // SkinPath: persist the "Default" token when the configured path is
             // empty, the app-data default, or a validating bundled root candidate.
@@ -1190,7 +1331,13 @@ namespace DTXMania.Game.Lib.Config
             }
 
             EnsureDirectorySafe(Config.SystemSkinRoot);
-            EnsureDirectorySafe(Config.DTXPath);
+            if (Config.SongRoots.Any(root => string.Equals(
+                NormalizePathForComparison(root),
+                NormalizePathForComparison(defaultSongsPath),
+                AppPaths.SkinPathComparison)))
+            {
+                EnsureDirectorySafe(defaultSongsPath);
+            }
         }
 
         /// <summary>

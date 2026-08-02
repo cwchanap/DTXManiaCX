@@ -31,6 +31,15 @@ public class ConfigDataTests
         Assert.False(config.AutoPlay);
     }
 
+    [Fact]
+    public void DefaultConfig_ShouldContainManagedSongRootAndMirror()
+    {
+        var config = new ConfigData();
+
+        Assert.Equal([AppPaths.GetDefaultSongsPath()], config.SongRoots);
+        Assert.Equal(config.SongRoots[0], config.DTXPath);
+    }
+
     [Theory]
     [InlineData(640, 480)]
     [InlineData(1280, 720)]
