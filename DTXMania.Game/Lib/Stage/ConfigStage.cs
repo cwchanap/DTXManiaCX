@@ -13,6 +13,7 @@ using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Game;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
@@ -20,6 +21,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using DTXMania.Game.Lib.Utilities;
 using DTXMania.Game.Platform;
 using Microsoft.Extensions.Logging;
@@ -163,10 +165,20 @@ namespace DTXMania.Game.Lib.Stage
         private static readonly Color InnerBoardColor = new(8, 10, 22, 196);
         private static readonly Color InnerBoardBorderColor = new(74, 62, 150, 224);
 
-        private volatile string _importStatus = "";
-        private volatile string _songFolderStatus = "";
-        private volatile bool _importRunning;
-        private CancellationTokenSource? _importCts;
+        private string _importStatus = "";
+        private string _songFolderStatus = "";
+        private readonly ConfigSongOperationCoordinator _songOperationCoordinator = new();
+        private readonly ConcurrentQueue<ConfigSongOperationUpdate> _songOperationUpdates = new();
+        private readonly ISongLibraryReloadService _songLibraryReloadService;
+        private readonly Func<IProgress<NxImportProgress>?, CancellationToken, Task<NxImportResult>> _nxImportAsync;
+        private readonly Func<Task> _refreshSongListAsync;
+        private readonly Func<
+            Func<Task<ConfigSongOperationCompletion>>,
+            Task<ConfigSongOperationCompletion>> _backgroundSongOperationRunner;
+        private readonly Func<Task, Action<Task>, Task>? _songOperationContinuationRegistrar;
+        private CancellationTokenSource? _songOperationCts;
+        private ActiveSongOperation? _activeSongOperation;
+        private int _activationGeneration;
 
         #endregion
 
@@ -190,6 +202,29 @@ namespace DTXMania.Game.Lib.Stage
             IStageGame game,
             Func<FfmpegRuntimeAvailability> ffmpegAvailabilityProvider,
             Func<IFolderPickerService> folderPickerServiceFactory)
+            : this(
+                game,
+                ffmpegAvailabilityProvider,
+                folderPickerServiceFactory,
+                new SongLibraryReloadService(),
+                (progress, token) => SongManager.Instance.ImportNxScoresAsync(progress, token),
+                () => SongManager.Instance.RefreshSongListFromDatabaseAsync(),
+                work => Task.Run(work),
+                continuationRegistrar: null)
+        {
+        }
+
+        internal ConfigStage(
+            IStageGame game,
+            Func<FfmpegRuntimeAvailability> ffmpegAvailabilityProvider,
+            Func<IFolderPickerService> folderPickerServiceFactory,
+            ISongLibraryReloadService songLibraryReloadService,
+            Func<IProgress<NxImportProgress>?, CancellationToken, Task<NxImportResult>> nxImportAsync,
+            Func<Task> refreshSongListAsync,
+            Func<
+                Func<Task<ConfigSongOperationCompletion>>,
+                Task<ConfigSongOperationCompletion>> backgroundSongOperationRunner,
+            Func<Task, Action<Task>, Task>? continuationRegistrar)
             : base(game)
         {
             _configManager = game.ConfigManager ?? throw new InvalidOperationException("ConfigManager not found");
@@ -197,6 +232,15 @@ namespace DTXMania.Game.Lib.Stage
                 ?? throw new ArgumentNullException(nameof(ffmpegAvailabilityProvider));
             _folderPickerServiceFactory = folderPickerServiceFactory
                 ?? throw new ArgumentNullException(nameof(folderPickerServiceFactory));
+            _songLibraryReloadService = songLibraryReloadService
+                ?? throw new ArgumentNullException(nameof(songLibraryReloadService));
+            _nxImportAsync = nxImportAsync
+                ?? throw new ArgumentNullException(nameof(nxImportAsync));
+            _refreshSongListAsync = refreshSongListAsync
+                ?? throw new ArgumentNullException(nameof(refreshSongListAsync));
+            _backgroundSongOperationRunner = backgroundSongOperationRunner
+                ?? throw new ArgumentNullException(nameof(backgroundSongOperationRunner));
+            _songOperationContinuationRegistrar = continuationRegistrar;
         }
 
         #endregion
@@ -216,11 +260,8 @@ namespace DTXMania.Game.Lib.Stage
             _focusOnMenu = true;
             _itemScroll = 0;
 
-            // Clear any import status left over from a previous visit. StageManager reuses this
-            // instance, so without this a stale "Imported N scores" / "cancelled" message would
-            // survive leaving and re-entering Config. (_importRunning is intentionally NOT reset
-            // here: the background task clears it in its finally, and the StartNxScoreImport guard
-            // correctly serializes a still-draining task.)
+            // Clear any status left over from a previous visit. In-flight operation updates are
+            // tagged with the activation generation and discarded by OnUpdate after deactivation.
             _importStatus = "";
             _songFolderStatus = "";
 
@@ -230,6 +271,8 @@ namespace DTXMania.Game.Lib.Stage
 
         protected override void OnUpdate(double deltaTime)
         {
+            DrainSongOperationUpdates();
+
             _previousKeyboardState = _currentKeyboardState;
             _currentKeyboardState = Keyboard.GetState();
 
@@ -296,9 +339,8 @@ namespace DTXMania.Game.Lib.Stage
         {
             _logger.LogDebug("Deactivating Config Stage");
 
+            CancelSongOperationForDeactivation();
             FlushPendingSaveSafely();
-
-            _importCts?.Cancel();
 
             _activePanel?.Deactivate();
             _activePanel = null;
@@ -333,9 +375,7 @@ namespace DTXMania.Game.Lib.Stage
             {
                 _logger.LogDebug("Disposing Config Stage resources");
 
-                _importCts?.Cancel();
-                _importCts?.Dispose();
-                _importCts = null;
+                CancelSongOperationForDeactivation();
 
                 if (_songFolderPicker is IDisposable disposableFolderPicker)
                     disposableFolderPicker.Dispose();
@@ -963,11 +1003,6 @@ namespace DTXMania.Game.Lib.Stage
             {
                 _configManager.SetSystemKeyBindings(_systemPanel.GetWorkingMappingSnapshot());
             }
-            else if (sender == _songFolderPanel &&
-                     _songFolderPanel.LastApplyStatus == SongFolderApplyStatus.Updated)
-            {
-                _songFolderStatus = "Song folders saved. Restart required to reload songs.";
-            }
         }
 
         private void OnPanelClosed(object? sender, EventArgs e)
@@ -977,13 +1012,90 @@ namespace DTXMania.Game.Lib.Stage
 
         private SongFolderApplyResult ApplySongRoots(IReadOnlyList<string> roots)
         {
+            var rootPolicy = SongRootPolicy.ForCurrentPlatform();
+            var validation = rootPolicy.Validate(roots);
+            if (!validation.IsValid)
+            {
+                return new SongFolderApplyResult(
+                    SongFolderApplyStatus.ValidationFailed,
+                    validation.CanonicalRoots,
+                    validation.Diagnostics);
+            }
+
+            // Avoid acquiring a long-operation lease, persisting, or scanning when
+            // this exact ordered root set is already configured. The ordering is
+            // intentional: a reordering is a real library rebuild request.
+            var configuredRoots = rootPolicy.Validate(_configManager.Config.SongRoots);
+            if (configuredRoots.CanonicalRoots.SequenceEqual(
+                    validation.CanonicalRoots,
+                    rootPolicy.Comparer))
+            {
+                return new SongFolderApplyResult(
+                    SongFolderApplyStatus.Unchanged,
+                    validation.CanonicalRoots,
+                    validation.Diagnostics);
+            }
+
+            var lease = _songOperationCoordinator.TryAcquire(
+                ConfigSongOperationKind.SongFolderReload);
+            if (lease == null)
+            {
+                return new SongFolderApplyResult(
+                    SongFolderApplyStatus.Busy,
+                    validation.CanonicalRoots,
+                    new[]
+                    {
+                        new SongRootDiagnostic(
+                            string.Empty,
+                            "Another song operation is already running.",
+                            IsWarning: false)
+                    });
+            }
+
+            CancellationTokenSource? cancellation = null;
+            var releaseTransferred = false;
             try
             {
-                var updateResult = _configManager.SetSongRoots(AppPaths.GetConfigFilePath(), roots);
+                var updateResult = _configManager.SetSongRoots(
+                    AppPaths.GetConfigFilePath(),
+                    validation.CanonicalRoots);
+                if (updateResult.Status != SongRootUpdateStatus.Updated)
+                {
+                    return new SongFolderApplyResult(
+                        MapSongFolderApplyStatus(updateResult.Status),
+                        updateResult.CanonicalRoots,
+                        updateResult.Diagnostics);
+                }
+
+                _importStatus = "";
+                _songFolderStatus = "Reloading configured song folders...";
+                cancellation = new CancellationTokenSource();
+                releaseTransferred = StartSongOperation(
+                    lease,
+                    cancellation,
+                    ConfigSongOperationKind.SongFolderReload,
+                    (token, progress) => RunSongFolderReloadAsync(
+                        updateResult.CanonicalRoots,
+                        token,
+                        progress));
+                if (releaseTransferred)
+                {
+                    return new SongFolderApplyResult(
+                        SongFolderApplyStatus.Started,
+                        updateResult.CanonicalRoots,
+                        updateResult.Diagnostics);
+                }
+
                 return new SongFolderApplyResult(
-                    MapSongFolderApplyStatus(updateResult.Status),
+                    SongFolderApplyStatus.PersistenceFailed,
                     updateResult.CanonicalRoots,
-                    updateResult.Diagnostics);
+                    new[]
+                    {
+                        new SongRootDiagnostic(
+                            string.Empty,
+                            "Song folders were saved, but the reload could not be started. Restart required.",
+                            IsWarning: false)
+                    });
             }
             catch (Exception exception)
             {
@@ -996,8 +1108,16 @@ namespace DTXMania.Game.Lib.Stage
                         new SongRootDiagnostic(
                             string.Empty,
                             "Unable to save song folders: " + exception.Message,
-                            IsWarning: false)
+                        IsWarning: false)
                     });
+            }
+            finally
+            {
+                if (!releaseTransferred)
+                {
+                    cancellation?.Dispose();
+                    lease.Dispose();
+                }
             }
         }
 
@@ -1032,73 +1152,304 @@ namespace DTXMania.Game.Lib.Stage
 
         private void StartNxScoreImport()
         {
-            if (_importRunning)
+            var lease = _songOperationCoordinator.TryAcquire(
+                ConfigSongOperationKind.NxScoreImport);
+            if (lease == null)
+            {
+                _importStatus = "Another song operation is already running.";
                 return;
-            _importRunning = true;
+            }
+
             _songFolderStatus = "";
             _importStatus = "Importing NX scores...";
-
-            _importCts?.Cancel();
-            _importCts?.Dispose();
-            _importCts = new CancellationTokenSource();
-            var token = _importCts.Token;
-
-            IProgress<NxImportProgress> progress = new InlineProgress<NxImportProgress>(p =>
+            var cancellation = new CancellationTokenSource();
+            if (StartSongOperation(
+                    lease,
+                    cancellation,
+                    ConfigSongOperationKind.NxScoreImport,
+                    RunNxScoreImportAsync))
             {
-                _importStatus = $"Importing... {p.Imported} imported / {p.Scanned} scanned";
-            });
+                return;
+            }
 
-            _ = System.Threading.Tasks.Task.Run(async () =>
+            cancellation.Dispose();
+            lease.Dispose();
+            _importStatus = "NX import could not be started.";
+        }
+
+        /// <summary>
+        /// Starts one already-leased Config operation. All synchronous lifecycle
+        /// work is contained here: construct the task, attach its terminal
+        /// observer, then hand lease/CTS disposal to that terminal path.
+        /// </summary>
+        private bool StartSongOperation(
+            ConfigSongOperationLease lease,
+            CancellationTokenSource cancellation,
+            ConfigSongOperationKind kind,
+            Func<CancellationToken, IProgress<string>, Task<ConfigSongOperationCompletion>> operation)
+        {
+            try
             {
-                NxImportResult? result = null;
+                var activationGeneration = Volatile.Read(ref _activationGeneration);
+                IProgress<string> progress = new InlineProgress<string>(status =>
+                    EnqueueSongOperationUpdate(
+                        activationGeneration,
+                        lease,
+                        kind,
+                        status,
+                        isTerminal: false));
+                var task = _backgroundSongOperationRunner(
+                    () => operation(cancellation.Token, progress));
+                if (task == null)
+                    throw new InvalidOperationException("Song operation runner returned no task.");
+
+                // These fields are only mutated on the Config update thread;
+                // terminal worker callbacks enqueue immutable updates instead.
+                _songOperationCts = cancellation;
+                _activeSongOperation = new ActiveSongOperation(lease, cancellation);
+
                 try
                 {
-                    result = await SongManager.Instance.ImportNxScoresAsync(progress, token);
-                    _importStatus = result.DbUnavailable
-                        ? "NX import unavailable (no database)"
-                        : $"Imported {result.Imported} scores ({result.Scanned} charts scanned" +
-                          (result.Errors > 0 ? $", {result.Errors} errors)" : ")");
+                    _songOperationCoordinator.RegisterTerminalContinuation(
+                        lease,
+                        task,
+                        completed => CompleteSongOperation(
+                            completed,
+                            activationGeneration,
+                            lease,
+                            cancellation,
+                            kind),
+                        _songOperationContinuationRegistrar);
+                }
+                catch (Exception exception)
+                {
+                    // The coordinator installs a fallback terminal continuation
+                    // before rethrowing, so ownership remains with the running
+                    // task rather than being released early here.
+                    _logger.LogWarning(
+                        exception,
+                        "ConfigStage: terminal observer registration failed for {Operation}",
+                        kind);
+                }
 
-                    if (result.Imported > 0)
-                    {
-                        token.ThrowIfCancellationRequested();
-                        try
-                        {
-                            await SongManager.Instance.RefreshSongListFromDatabaseAsync();
-                        }
-                        catch (System.Exception ex)
-                        {
-                            // Scores were written, but the live song list didn't refresh. Surface the
-                            // partial failure so the user isn't left looking at a stale list with no
-                            // explanation (a restart will pick up the imported scores).
-                            _importStatus = $"Imported {result.Imported} scores, but the song list didn't " +
-                                $"refresh (restart to see them). {ex.GetBaseException().Message}";
-                            _logger.LogWarning(ex, "ConfigStage: NX import succeeded but song list refresh failed");
-                        }
-                    }
-                }
-                catch (System.OperationCanceledException)
-                {
-                    // If cancellation landed AFTER a successful import (between the write and the
-                    // song-list refresh, at the ThrowIfCancellationRequested above), scores ARE on
-                    // disk — report partial success instead of a bare "cancelled" that hides the
-                    // write. Mid-import cancellation (result null / nothing imported) is a real cancel.
-                    _importStatus = (result != null && result.Imported > 0)
-                        ? $"Imported {result.Imported} scores (cancelled before the song list could refresh)"
-                        : "NX import cancelled";
-                }
-                catch (System.Exception ex)
-                {
-                    var detail = ex.GetBaseException().Message;
-                    _importStatus = $"NX import failed: {detail}";
-                    _logger.LogError(ex, "ConfigStage: NX import failed");
-                }
-                finally
-                {
-                    _importRunning = false;
-                }
-            });
+                return true;
+            }
+            catch (Exception exception)
+            {
+                _logger.LogWarning(
+                    exception,
+                    "ConfigStage: failed to start {Operation}",
+                    kind);
+                return false;
+            }
         }
+
+        private async Task<ConfigSongOperationCompletion> RunSongFolderReloadAsync(
+            IReadOnlyList<string> roots,
+            CancellationToken cancellationToken,
+            IProgress<string> status)
+        {
+            var progress = new InlineProgress<SongLibraryReloadProgress>(update =>
+                status.Report(FormatSongLibraryReloadProgress(update)));
+            var result = await _songLibraryReloadService.ReloadAsync(
+                roots,
+                progress,
+                cancellationToken).ConfigureAwait(false);
+            return new ConfigSongOperationCompletion(
+                FormatSongLibraryReloadResult(result));
+        }
+
+        private async Task<ConfigSongOperationCompletion> RunNxScoreImportAsync(
+            CancellationToken cancellationToken,
+            IProgress<string> status)
+        {
+            var progress = new InlineProgress<NxImportProgress>(update =>
+                status.Report($"Importing... {update.Imported} imported / {update.Scanned} scanned"));
+            var result = await _nxImportAsync(progress, cancellationToken)
+                .ConfigureAwait(false);
+            if (result.DbUnavailable)
+                return new ConfigSongOperationCompletion("NX import unavailable (no database)");
+
+            if (result.Imported > 0)
+            {
+                try
+                {
+                    // The import has committed before it returns. Deliberately do
+                    // not check cancellation here: this final refresh is the
+                    // commit-through-publication terminal section.
+                    await _refreshSongListAsync().ConfigureAwait(false);
+                }
+                catch (Exception exception)
+                {
+                    _logger.LogWarning(
+                        exception,
+                        "ConfigStage: NX import committed but song-list refresh failed");
+                    return new ConfigSongOperationCompletion(
+                        $"Imported {result.Imported} scores, but the song list didn't " +
+                        $"refresh (restart to see them). {exception.GetBaseException().Message}");
+                }
+            }
+
+            return new ConfigSongOperationCompletion(
+                $"Imported {result.Imported} scores ({result.Scanned} charts scanned" +
+                (result.Errors > 0 ? $", {result.Errors} errors)" : ")"));
+        }
+
+        private void CompleteSongOperation(
+            Task completed,
+            int activationGeneration,
+            ConfigSongOperationLease lease,
+            CancellationTokenSource cancellation,
+            ConfigSongOperationKind kind)
+        {
+            string status = string.Empty;
+            try
+            {
+                if (completed.IsCanceled)
+                {
+                    status = kind == ConfigSongOperationKind.NxScoreImport
+                        ? "NX import cancelled"
+                        : "Song folder reload cancelled; keeping the current song list.";
+                }
+                else if (completed.IsFaulted)
+                {
+                    var exception = completed.Exception?.GetBaseException();
+                    _logger.LogError(
+                        exception,
+                        "ConfigStage: {Operation} failed",
+                        kind);
+                    var prefix = kind == ConfigSongOperationKind.NxScoreImport
+                        ? "NX import failed"
+                        : "Song folder reload failed; keeping the current song list";
+                    status = exception == null
+                        ? prefix
+                        : $"{prefix}: {exception.Message}";
+                }
+                else
+                {
+                    status = ((Task<ConfigSongOperationCompletion>)completed)
+                        .GetAwaiter()
+                        .GetResult()
+                        .Status;
+                }
+            }
+            catch (Exception exception)
+            {
+                _logger.LogError(
+                    exception,
+                    "ConfigStage: {Operation} terminal observation failed",
+                    kind);
+                status = kind == ConfigSongOperationKind.NxScoreImport
+                    ? $"NX import failed: {exception.GetBaseException().Message}"
+                    : $"Song folder reload failed; keeping the current song list: {exception.GetBaseException().Message}";
+            }
+            finally
+            {
+                EnqueueSongOperationUpdate(
+                    activationGeneration,
+                    lease,
+                    kind,
+                    status ?? string.Empty,
+                    isTerminal: true);
+                cancellation.Dispose();
+            }
+        }
+
+        private void EnqueueSongOperationUpdate(
+            int activationGeneration,
+            ConfigSongOperationLease lease,
+            ConfigSongOperationKind kind,
+            string status,
+            bool isTerminal)
+        {
+            _songOperationUpdates.Enqueue(new ConfigSongOperationUpdate(
+                activationGeneration,
+                lease,
+                kind,
+                status,
+                isTerminal));
+        }
+
+        private void DrainSongOperationUpdates()
+        {
+            var activationGeneration = Volatile.Read(ref _activationGeneration);
+            while (_songOperationUpdates.TryDequeue(out var update))
+            {
+                if (update.ActivationGeneration != activationGeneration)
+                    continue;
+
+                if (update.Kind == ConfigSongOperationKind.NxScoreImport)
+                    _importStatus = update.Status;
+                else
+                    _songFolderStatus = update.Status;
+
+                if (update.IsTerminal &&
+                    ReferenceEquals(_activeSongOperation?.Lease, update.Lease))
+                {
+                    _activeSongOperation = null;
+                    _songOperationCts = null;
+                }
+            }
+        }
+
+        private void CancelSongOperationForDeactivation()
+        {
+            Interlocked.Increment(ref _activationGeneration);
+            try
+            {
+                _songOperationCts?.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // A terminal continuation may have released it just before
+                // deactivation. It has already enqueued its stale update.
+            }
+        }
+
+        private static string FormatSongLibraryReloadProgress(
+            SongLibraryReloadProgress progress)
+        {
+            if (!string.IsNullOrWhiteSpace(progress.CurrentOperation))
+            {
+                return $"Reloading songs: {progress.CurrentOperation} " +
+                    $"({progress.ProcessedCount} processed / {progress.DiscoveredSongs} discovered)";
+            }
+
+            return $"Reloading songs: {progress.ProcessedCount} processed / " +
+                $"{progress.DiscoveredSongs} discovered";
+        }
+
+        private static string FormatSongLibraryReloadResult(
+            SongLibraryReloadResult result)
+        {
+            var warning = result.UnavailableRootCount == 0
+                ? string.Empty
+                : $" ({result.UnavailableRootCount} configured root" +
+                  (result.UnavailableRootCount == 1 ? " unavailable)" : "s unavailable)");
+            return result.Outcome switch
+            {
+                SongLibraryReloadOutcome.Published =>
+                    $"Reloaded {result.DiscoveredScoreCount} song charts.{warning}",
+                SongLibraryReloadOutcome.NoActiveRoots =>
+                    "No configured song folders are available; keeping the current song list.",
+                SongLibraryReloadOutcome.Busy =>
+                    "Song library reload is busy; keeping the current song list.",
+                SongLibraryReloadOutcome.Cancelled =>
+                    "Song folder reload cancelled; keeping the current song list.",
+                SongLibraryReloadOutcome.PartialSuccessRestartRequired =>
+                    "Song folders were saved, but publication needs a restart.",
+                SongLibraryReloadOutcome.Failed =>
+                    "Song folder reload failed; keeping the current song list" +
+                    (string.IsNullOrWhiteSpace(result.FailureMessage)
+                        ? "."
+                        : $": {result.FailureMessage}"),
+                _ => "Song folder reload failed; keeping the current song list."
+            };
+        }
+
+        private sealed record ActiveSongOperation(
+            ConfigSongOperationLease Lease,
+            CancellationTokenSource Cancellation);
 
         #endregion
 
