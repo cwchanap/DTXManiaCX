@@ -71,6 +71,7 @@ namespace DTXMania.Game.Lib.Song
         private CancellationTokenSource? _enumCancellation;
         private SongDatabaseService? _databaseService;
         private string[] _currentSearchPaths = Array.Empty<string>();
+        private string[] _pendingSearchPaths = Array.Empty<string>();
         private long _publicationVersion;
 
         internal SongRootPolicy RootPolicy { get; set; } =
@@ -167,12 +168,18 @@ namespace DTXMania.Game.Lib.Song
                 .CanonicalRoots
                 .ToArray();
 
-            // Assign under the same lock used by GetCurrentSearchPathsSnapshot,
-            // RefreshSongListFromDatabaseAsync, PublishEnumeration, and Clear so
-            // readers never observe a torn _currentSearchPaths reference.
+            // A non-empty set is input for a future database rebuild, not a partial
+            // publication. Publishing roots without matching hierarchy/count data
+            // would make a snapshot internally inconsistent.
+            if (distinct.Length == 0)
+            {
+                PublishEmptyLibrary();
+                return;
+            }
+
             lock (_lockObject)
             {
-                _currentSearchPaths = distinct;
+                _pendingSearchPaths = distinct;
             }
         }
 
@@ -544,7 +551,9 @@ namespace DTXMania.Game.Lib.Song
             string[] searchPaths;
             lock (_lockObject)
             {
-                searchPaths = _currentSearchPaths.ToArray();
+                searchPaths = _pendingSearchPaths.Length > 0
+                    ? _pendingSearchPaths.ToArray()
+                    : _currentSearchPaths.ToArray();
             }
 
             if (searchPaths.Length > 0)
@@ -1460,9 +1469,11 @@ namespace DTXMania.Game.Lib.Song
             {
                 _rootSongs.Clear();
                 _rootSongs.AddRange(batch.RootNodes);
-                _currentSearchPaths = RootPolicy.Validate(batch.ActiveRoots)
+                var activeRoots = RootPolicy.Validate(batch.ActiveRoots)
                     .CanonicalRoots
                     .ToArray();
+                _currentSearchPaths = activeRoots;
+                _pendingSearchPaths = activeRoots.ToArray();
                 EnumeratedFileCount = batch.DiscoveredChartPaths.Count;
                 // Count discovered difficulty charts, not grouped logical songs:
                 // a multi-difficulty set contributes one PendingSong but one
@@ -1494,6 +1505,7 @@ namespace DTXMania.Game.Lib.Song
             {
                 _rootSongs.Clear();
                 _currentSearchPaths = Array.Empty<string>();
+                _pendingSearchPaths = Array.Empty<string>();
                 EnumeratedFileCount = 0;
                 DiscoveredScoreCount = 0;
                 _publicationVersion++;
@@ -1609,6 +1621,15 @@ namespace DTXMania.Game.Lib.Song
                     .Where(root => RootPolicy.Probe(root) == SongRootAvailability.Available)
                     .ToArray();
 
+                if (availableRoots.Length == 0)
+                {
+                    Debug.WriteLine(
+                        "SongManager: Database hierarchy refresh skipped — no active search roots.");
+                    return;
+                }
+
+                var activeChartCount = 0;
+
                 foreach (var normalizedRoot in availableRoots)
                 {
                     // Get all charts that belong to this search path
@@ -1624,12 +1645,17 @@ namespace DTXMania.Game.Lib.Song
                             .Select(chart => (song, chart)))
                         .ToList();
 
+                    activeChartCount += relevantCharts.Count;
+
                     // Build the folder hierarchy structure from file paths
                     var pathNodes = await BuildHierarchyFromCharts(normalizedRoot, relevantCharts);
                     newRootNodes.AddRange(pathNodes);
                 }
 
-                PublishDatabaseHierarchy(newRootNodes, configuredRoots);
+                PublishDatabaseHierarchy(
+                    newRootNodes,
+                    availableRoots,
+                    activeChartCount);
             }
             catch (Exception ex)
             {
@@ -1639,7 +1665,8 @@ namespace DTXMania.Game.Lib.Song
 
         private void PublishDatabaseHierarchy(
             IReadOnlyList<SongListNode> rootNodes,
-            IReadOnlyList<string> activeRoots)
+            IReadOnlyList<string> activeRoots,
+            int activeChartCount)
         {
             SongLibrarySnapshot snapshot;
             lock (_lockObject)
@@ -1647,6 +1674,9 @@ namespace DTXMania.Game.Lib.Song
                 _rootSongs.Clear();
                 _rootSongs.AddRange(rootNodes);
                 _currentSearchPaths = activeRoots.ToArray();
+                _pendingSearchPaths = _currentSearchPaths.ToArray();
+                EnumeratedFileCount = activeChartCount;
+                DiscoveredScoreCount = activeChartCount;
                 _publicationVersion++;
                 snapshot = CreateSnapshotLocked();
             }
@@ -4075,6 +4105,7 @@ namespace DTXMania.Game.Lib.Song
                 _databaseService?.Dispose();
                 _databaseService = null;
                 _currentSearchPaths = Array.Empty<string>();
+                _pendingSearchPaths = Array.Empty<string>();
                 EnumeratedFileCount = 0;
                 DiscoveredScoreCount = 0;
                 _publicationVersion++;
