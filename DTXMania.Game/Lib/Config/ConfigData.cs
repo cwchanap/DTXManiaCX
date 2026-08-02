@@ -9,6 +9,12 @@ namespace DTXMania.Game.Lib.Config
         public string DTXManiaVersion { get; set; } = "NX1.5.0-MG";
         public string SkinPath { get; set; } = AppPaths.GetDefaultSystemSkinRoot();
         public string DTXPath { get; set; } = AppPaths.GetDefaultSongsPath();
+        public List<string> SongRoots { get; } = new();
+
+        public ConfigData()
+        {
+            SongRoots.Add(DTXPath);
+        }
 
         // Skin settings
         public bool UseBoxDefSkin { get; set; } = true;
