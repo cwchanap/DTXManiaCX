@@ -13,6 +13,11 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Icon.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="Platform/Mac/MacFolderPickerService.cs" />
+    <Compile Remove="Platform/FolderPickerServiceFactory.Mac.cs" />
+  </ItemGroup>
   
   
   <ItemGroup>
