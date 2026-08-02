@@ -140,6 +140,18 @@ namespace DTXMania.Game.Lib.Song.Components
         }
 
         /// <summary>
+        /// Clears the selected-song presentation when a library publication removes the
+        /// previous chart. This releases its texture immediately so a stale preimage cannot
+        /// survive while Song Select resets to the replacement list.
+        /// </summary>
+        public void ClearSelectedSong()
+        {
+            _currentSong = null;
+            ResetDisplayDelay();
+            ReleaseCurrentPreviewTexture();
+        }
+
+        /// <summary>
         /// Update timing and delay logic (called from stage)
         /// </summary>
         public override void Update(double deltaTime)

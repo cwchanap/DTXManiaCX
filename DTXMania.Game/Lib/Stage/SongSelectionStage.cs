@@ -95,6 +95,10 @@ namespace DTXMania.Game.Lib.Stage
         // SongListDisplay off the update thread. volatile so the update thread reliably
         // observes the flag set by the background continuation.
         private volatile bool _tabListNeedsRefresh;
+        // A background cache continuation increments this before requesting a refresh. The
+        // update thread consumes the value around a projection so a completion that lands
+        // during reconciliation is re-queued instead of being lost by a stale false write.
+        private int _asyncTabListRefreshVersion;
         // Activation token bumped on every Activate(). Captured by BeginRecentPlaysLoad so
         // its background continuation can detect that a later Deactivate/Activate cycle has
         // occurred and discard stale results instead of overwriting fresh state.
@@ -128,6 +132,15 @@ namespace DTXMania.Game.Lib.Stage
         private bool _songInitializationProcessed = false;
         private CancellationTokenSource _cancellationTokenSource;
         private SongLibrarySnapshot? _backgroundLibrarySnapshot;
+
+        // One coherent library publication backs every song-select projection.  The event
+        // publisher can run on a worker thread, so it only records a version; OnUpdate is
+        // the sole place that replaces UI-owned collections from a fetched snapshot.
+        private SongLibrarySnapshot? _appliedLibrarySnapshot;
+        private long _pendingLibraryPublicationVersion;
+        private long _appliedLibraryPublicationVersion;
+        private int _libraryPublicationActive;
+        private SongLibraryEmptyState _libraryEmptyState = SongLibraryEmptyState.HasSongs;
 
         // UI Components - Enhanced DTXManiaNX style
         private UIManager _uiManager;
@@ -203,6 +216,13 @@ namespace DTXMania.Game.Lib.Stage
         private const double BGM_FADE_OUT_DURATION = SongSelectionUILayout.Audio.BgmFadeOutDuration;
         private const double BGM_FADE_IN_DURATION = SongSelectionUILayout.Audio.BgmFadeInDuration;
 
+        private enum SongLibraryEmptyState
+        {
+            HasSongs,
+            NoActiveRoots,
+            NoSupportedCharts
+        }
+
         #endregion
 
         #region Properties
@@ -233,6 +253,16 @@ namespace DTXMania.Game.Lib.Stage
             _inputManager?.ClearPendingCommands();
             _cancellationTokenSource = new CancellationTokenSource();
             _backgroundLibrarySnapshot = null;
+            _songInitializationProcessed = false;
+            _appliedLibrarySnapshot = null;
+            _libraryEmptyState = SongLibraryEmptyState.HasSongs;
+            Interlocked.Exchange(ref _pendingLibraryPublicationVersion, 0);
+            Interlocked.Exchange(ref _appliedLibraryPublicationVersion, 0);
+
+            // Bump before starting any background work, so its continuations and the
+            // publication subscriber belong to the same activation.
+            _activationVersion++;
+            SubscribeLibraryPublications();
 
             // Get config manager from game
             _configManager = _game.ConfigManager;
@@ -332,9 +362,7 @@ namespace DTXMania.Game.Lib.Stage
             // that set the flag just before Deactivate). Without this, the first OnUpdate
             // would repopulate the All Songs list and reset selection/scroll to index 0.
             _tabListNeedsRefresh = false;
-            // Bump the activation token so any in-flight BeginRecentPlaysLoad continuation
-            // from a prior activation discards its stale result.
-            _activationVersion++;
+            Interlocked.Exchange(ref _asyncTabListRefreshVersion, 0);
             BeginRecentPlaysLoad();
             _ = BeginBookmarksLoad();
 
@@ -348,6 +376,16 @@ namespace DTXMania.Game.Lib.Stage
 
         public override void Deactivate()
         {
+            // Stop accepting publications before resources and UI collections begin tearing
+            // down. A publisher already in flight can at most race to record a version, which
+            // is discarded on the next activation; it never mutates the UI from its callback.
+            UnsubscribeLibraryPublications();
+
+            // Invalidate every activation-scoped continuation immediately rather than waiting
+            // for the next Activate call. This prevents a canceled initialization task from
+            // writing a stale snapshot into a stage that is already inactive.
+            _activationVersion++;
+
             if (_configManager != null)
             {
                 _configManager.ScrollSpeedChanged -= OnScrollSpeedChanged;
@@ -389,6 +427,8 @@ namespace DTXMania.Game.Lib.Stage
             // Clean up task references
             _songInitializationTask = null;
             _backgroundLibrarySnapshot = null;
+            _appliedLibrarySnapshot = null;
+            Interlocked.Exchange(ref _pendingLibraryPublicationVersion, 0);
 
             // Clean up UI
             _uiManager?.Dispose();
@@ -731,6 +771,7 @@ namespace DTXMania.Game.Lib.Stage
                 if (!songManager.IsInitialized)
                 {
                     var token = _cancellationTokenSource.Token;
+                    int initializationActivationVersion = _activationVersion;
 
                     // Start background task to initialize SongManager and fetch song list
                     // This task only fetches data and doesn't modify shared state or UI
@@ -754,7 +795,11 @@ namespace DTXMania.Game.Lib.Stage
                             // Read a single coherent publication. The UI thread applies
                             // both hierarchy and root paths together when this task ends.
                             var snapshot = songManager.GetLibrarySnapshot();
-                            _backgroundLibrarySnapshot = snapshot;
+                            if (!token.IsCancellationRequested
+                                && initializationActivationVersion == _activationVersion)
+                            {
+                                _backgroundLibrarySnapshot = snapshot;
+                            }
                             return snapshot.RootSongs.ToList();
                         }
                         catch (OperationCanceledException)
@@ -791,9 +836,63 @@ namespace DTXMania.Game.Lib.Stage
 
         private void ApplyLibrarySnapshot(SongLibrarySnapshot snapshot)
         {
+            ApplyLibrarySnapshotCore(snapshot, markVersionApplied: true);
+        }
+
+        private void ApplyLibrarySnapshotForReconciliation(SongLibrarySnapshot snapshot)
+        {
+            ApplyLibrarySnapshotCore(snapshot, markVersionApplied: false);
+        }
+
+        private void ApplyLibrarySnapshotCore(
+            SongLibrarySnapshot snapshot,
+            bool markVersionApplied)
+        {
+            ArgumentNullException.ThrowIfNull(snapshot);
+
+            _appliedLibrarySnapshot = snapshot;
             _currentSongList = snapshot.RootSongs.ToList();
+            _libraryEmptyState = ResolveLibraryEmptyState(snapshot);
             if (_previewImagePanel != null)
                 _previewImagePanel.ActiveSongRootPaths = snapshot.ActiveRoots;
+
+            if (markVersionApplied)
+                Interlocked.Exchange(ref _appliedLibraryPublicationVersion, snapshot.Version);
+        }
+
+        private void SubscribeLibraryPublications()
+        {
+            var songManager = SongManager.Instance;
+            Interlocked.Exchange(ref _libraryPublicationActive, 1);
+            // The stage instance is retained by StageManager, so activation may happen many
+            // times. Remove first to keep the callback single-subscribed.
+            songManager.SongLibraryPublished -= OnSongLibraryPublished;
+            songManager.SongLibraryPublished += OnSongLibraryPublished;
+        }
+
+        private void UnsubscribeLibraryPublications()
+        {
+            Interlocked.Exchange(ref _libraryPublicationActive, 0);
+            SongManager.Instance.SongLibraryPublished -= OnSongLibraryPublished;
+        }
+
+        private void OnSongLibraryPublished(object? sender, SongLibraryPublishedEventArgs e)
+        {
+            if (Volatile.Read(ref _libraryPublicationActive) == 0)
+                return;
+
+            long publishedVersion = e.Snapshot.Version;
+            long observedVersion;
+            do
+            {
+                observedVersion = Volatile.Read(ref _pendingLibraryPublicationVersion);
+                if (publishedVersion <= observedVersion)
+                    return;
+            }
+            while (Interlocked.CompareExchange(
+                       ref _pendingLibraryPublicationVersion,
+                       publishedVersion,
+                       observedVersion) != observedVersion);
         }
 
         /// <summary>
@@ -847,26 +946,45 @@ namespace DTXMania.Game.Lib.Stage
                     // Get the result from the completed task
                     var songList = _songInitializationTask.Result;
 
-                    // Update the song list on the main thread
-                    _currentSongList = songList;
+                    // Update the song list on the main thread. A publication can have been
+                    // reconciled while this background task was running; do not let its older
+                    // copied snapshot overwrite the newer UI snapshot.
+                    bool shouldProjectInitializationResult = false;
                     if (_backgroundLibrarySnapshot != null)
                     {
-                        if (_previewImagePanel != null)
+                        // If an update-thread publication has already restored the user's
+                        // navigation and selection, even an equal-version initialization
+                        // result must not repopulate the old projection and reset it.
+                        if (_appliedLibrarySnapshot == null
+                            || _backgroundLibrarySnapshot.Version >
+                                Volatile.Read(ref _appliedLibraryPublicationVersion))
                         {
-                            _previewImagePanel.ActiveSongRootPaths =
-                                _backgroundLibrarySnapshot.ActiveRoots;
+                            ApplyLibrarySnapshot(_backgroundLibrarySnapshot);
+                            shouldProjectInitializationResult = true;
                         }
                     }
-                    PopulateSongList();
+                    else if (_appliedLibrarySnapshot == null)
+                    {
+                        _currentSongList = songList;
+                        shouldProjectInitializationResult = true;
+                    }
 
-                    // Reapply any persisted filter now that the real song list is available
-                    ReapplyPersistedFilterIfActive();
+                    if (shouldProjectInitializationResult)
+                    {
+                        PopulateSongList();
+
+                        // Reapply any persisted filter now that the real song list is available.
+                        ReapplyPersistedFilterIfActive();
+                    }
                 }
                 catch (Exception ex)
                 {
                     System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Error processing completed song initialization: {ex.Message}");
-                    _currentSongList = new List<SongListNode>();
-                    PopulateSongList();
+                    if (_appliedLibrarySnapshot == null)
+                    {
+                        _currentSongList = new List<SongListNode>();
+                        PopulateSongList();
+                    }
                 }
                 finally
                 {
@@ -878,6 +996,401 @@ namespace DTXMania.Game.Lib.Stage
                 if (_searchFilterModal != null && _searchFilterModal.IsOpen)
                     _searchFilterModal.IsLibraryReady = true;
             }
+        }
+
+        /// <summary>
+        /// Reconciles the newest publication only from the stage update thread. The event
+        /// callback intentionally never carries a hierarchy into this method; fetching here
+        /// gives roots and active paths from one current snapshot.
+        /// </summary>
+        private void ApplyPendingLibraryPublication()
+        {
+            if (Volatile.Read(ref _libraryPublicationActive) == 0)
+                return;
+
+            long appliedVersion = Volatile.Read(ref _appliedLibraryPublicationVersion);
+            long pendingVersion = Volatile.Read(ref _pendingLibraryPublicationVersion);
+            if (pendingVersion <= appliedVersion)
+                return;
+
+            // Exactly one snapshot is read for one reconciliation pass. If another
+            // publication lands while it is read, leave this pass untouched and take the
+            // newer coherent snapshot on the next update.
+            var snapshot = SongManager.Instance.GetLibrarySnapshot();
+            if (Volatile.Read(ref _libraryPublicationActive) == 0
+                || snapshot.Version <= appliedVersion
+                || snapshot.Version < pendingVersion)
+            {
+                return;
+            }
+
+            ReconcileLibrarySnapshot(snapshot);
+        }
+
+        private void ReconcileLibrarySnapshot(SongLibrarySnapshot snapshot)
+        {
+            ArgumentNullException.ThrowIfNull(snapshot);
+
+            var navigationPaths = CaptureNavigationPaths();
+            var previousSelection = _selectedSong ?? _songListDisplay?.SelectedSong;
+            var previousSelectionIdentity = GetStableSelectionIdentity(previousSelection);
+            int tabListRefreshVersion = BeginTabListRefreshConsumption();
+
+            // Apply roots and root paths from this single snapshot before rebuilding any
+            // projection. Navigation rebuild then selects child lists owned by that same tree.
+            ApplyLibrarySnapshotForReconciliation(snapshot);
+            RestoreNavigationPaths(navigationPaths, snapshot);
+            RebuildFilteredViewForSnapshot(snapshot);
+
+            var restoredSelection = FindVisibleSongByIdentity(previousSelectionIdentity);
+            if (previousSelectionIdentity != null && restoredSelection == null)
+                ClearRemovedSelectionPresentation();
+
+            if (_songListDisplay != null)
+            {
+                RefreshSongListForActiveTab();
+                if (restoredSelection != null)
+                    RestoreSelectedSong(restoredSelection);
+                else
+                    _selectedSong = _songListDisplay.SelectedSong;
+            }
+
+            UpdateBreadcrumb();
+            UpdateStatusPanelFolderHint();
+            CompleteTabListRefreshConsumption(tabListRefreshVersion);
+            Interlocked.Exchange(ref _appliedLibraryPublicationVersion, snapshot.Version);
+        }
+
+        private List<string> CaptureNavigationPaths()
+        {
+            var states = _navigationStack.Reverse().ToList();
+            var paths = new List<string>(states.Count);
+
+            for (int index = 0; index < states.Count; index++)
+            {
+                var parentNodes = states[index].Children;
+                var childNodes = index + 1 < states.Count
+                    ? states[index + 1].Children
+                    : _currentSongList;
+                var enteredBox = parentNodes.FirstOrDefault(node =>
+                    node.Type == NodeType.Box && ReferenceEquals(node.Children, childNodes));
+                var stablePath = GetStableBoxPath(enteredBox);
+                if (stablePath == null)
+                    break;
+                paths.Add(stablePath);
+            }
+
+            return paths;
+        }
+
+        private void RestoreNavigationPaths(
+            IReadOnlyList<string> navigationPaths,
+            SongLibrarySnapshot snapshot)
+        {
+            _navigationStack.Clear();
+            _currentSongList = snapshot.RootSongs.ToList();
+            _currentBreadcrumb = "";
+
+            foreach (var path in navigationPaths)
+            {
+                var box = _currentSongList.FirstOrDefault(node =>
+                    node.Type == NodeType.Box
+                    && StringComparer.Ordinal.Equals(GetStableBoxPath(node), path));
+                if (box == null)
+                    break;
+
+                _navigationStack.Push(new SongListNode
+                {
+                    Children = _currentSongList,
+                    Title = _currentBreadcrumb
+                });
+                _currentSongList = box.Children;
+                _currentBreadcrumb = string.IsNullOrEmpty(_currentBreadcrumb)
+                    ? box.DisplayTitle
+                    : $"{_currentBreadcrumb} > {box.DisplayTitle}";
+            }
+        }
+
+        private SongListNode? FindVisibleSongByIdentity(string? identity)
+        {
+            if (string.IsNullOrEmpty(identity))
+                return null;
+
+            IEnumerable<SongListNode> candidates;
+            if (_activeTab == SongSelectionTab.RecentPlays)
+            {
+                candidates = FilterNodesForAppliedLibrary(_recentPlayNodes);
+            }
+            else if (_activeTab == SongSelectionTab.Bookmarks)
+            {
+                candidates = FilterNodesForAppliedLibrary(_bookmarkNodes);
+            }
+            else if (_filteredView != null)
+            {
+                candidates = _filteredView.Select(result => result.Node);
+            }
+            else
+            {
+                candidates = _currentSongList;
+            }
+
+            return candidates.FirstOrDefault(node =>
+                StringComparer.Ordinal.Equals(GetStableSelectionIdentity(node), identity));
+        }
+
+        private void RestoreSelectedSong(SongListNode restoredSelection)
+        {
+            if (_songListDisplay == null)
+                return;
+
+            for (int index = 0; index < _songListDisplay.CurrentList.Count; index++)
+            {
+                if (!ReferenceEquals(_songListDisplay.CurrentList[index], restoredSelection))
+                    continue;
+
+                _songListDisplay.SelectedIndex = index;
+                _selectedSong = restoredSelection;
+                return;
+            }
+        }
+
+        private void ClearRemovedSelectionPresentation()
+        {
+            _selectedSong = null;
+            _isInStatusPanel = false;
+            StopCurrentPreview();
+            _previewImagePanel?.ClearSelectedSong();
+            if (_statusPanel != null)
+            {
+                _statusPanel.Visible = false;
+                _statusPanel.UpdateSongInfo(null, _currentDifficulty);
+            }
+            _playHistoryPanel?.UpdateSongInfo(null, _currentDifficulty);
+        }
+
+        private IReadOnlyList<string>? GetAppliedActiveRoots() =>
+            _appliedLibrarySnapshot?.ActiveRoots;
+
+        private static string? GetStableBoxPath(SongListNode? node)
+        {
+            if (node?.Type != NodeType.Box
+                || !SongPathIdentity.TryNormalize(node.DirectoryPath, out var path))
+            {
+                return null;
+            }
+
+            return path;
+        }
+
+        private static string? GetStableSelectionIdentity(SongListNode? node)
+        {
+            if (node?.Type == NodeType.Box)
+            {
+                return SongPathIdentity.TryNormalize(node.DirectoryPath, out var boxPath)
+                    ? $"box:{boxPath}"
+                    : null;
+            }
+
+            if (node?.Type != NodeType.Score)
+                return null;
+
+            int songId = node.DatabaseSongId ?? node.DatabaseSong?.Id ?? 0;
+            if (songId > 0)
+                return $"song:{songId}";
+
+            foreach (var path in GetNodeChartPaths(node))
+            {
+                if (SongPathIdentity.TryNormalize(path, out var normalized))
+                    return $"chart:{normalized}";
+            }
+
+            return null;
+        }
+
+        private List<SongListNode> FilterNodesForActiveRoots(
+            IEnumerable<SongListNode>? nodes,
+            IReadOnlyList<string>? activeRoots)
+        {
+            if (nodes == null)
+                return new List<SongListNode>();
+
+            // Unit-level callers that have not applied a snapshot still exercise the legacy
+            // tab rendering path. A live stage always has an applied snapshot before it draws,
+            // so null means "no root contract yet", not an intentionally empty root set.
+            if (activeRoots == null)
+            {
+                try
+                {
+                    return nodes.ToList();
+                }
+                catch (InvalidOperationException)
+                {
+                    return new List<SongListNode>();
+                }
+            }
+
+            if (activeRoots.Count == 0)
+                return new List<SongListNode>();
+
+            var normalizedRoots = new List<string>(activeRoots.Count);
+            foreach (var root in activeRoots)
+            {
+                if (SongPathIdentity.TryNormalize(root, out var normalized))
+                    normalizedRoots.Add(normalized);
+            }
+
+            if (normalizedRoots.Count == 0)
+                return new List<SongListNode>();
+
+            SongListNode[] copiedNodes;
+            try
+            {
+                copiedNodes = nodes.ToArray();
+            }
+            catch (InvalidOperationException)
+            {
+                // A caller supplied a mutable list being replaced concurrently. Do not leak
+                // a collection-modified exception into the update thread; the next refresh
+                // will project the replacement list.
+                return new List<SongListNode>();
+            }
+
+            var filtered = new List<SongListNode>(copiedNodes.Length);
+            foreach (var node in copiedNodes)
+            {
+                if (NodeIsUnderAnyActiveRoot(node, normalizedRoots))
+                    filtered.Add(node);
+            }
+
+            return filtered;
+        }
+
+        /// <summary>
+        /// Projects a cached flat tab against the coherent library currently displayed by this
+        /// stage. The cache remains intact so a chart that is re-published under an active root
+        /// becomes eligible again without a destructive cache rebuild.
+        /// </summary>
+        private List<SongListNode> FilterNodesForAppliedLibrary(IEnumerable<SongListNode>? nodes)
+        {
+            var rootFilteredNodes = FilterNodesForActiveRoots(nodes, GetAppliedActiveRoots());
+            if (_appliedLibrarySnapshot == null || rootFilteredNodes.Count == 0)
+                return rootFilteredNodes;
+
+            var publishedScoreIdentities = GetPublishedScoreIdentities(
+                _appliedLibrarySnapshot.RootSongs);
+            if (publishedScoreIdentities.Count == 0)
+                return new List<SongListNode>();
+
+            return rootFilteredNodes
+                .Where(node => HasPublishedScoreIdentity(node, publishedScoreIdentities))
+                .ToList();
+        }
+
+        private static HashSet<string> GetPublishedScoreIdentities(
+            IEnumerable<SongListNode> nodes)
+        {
+            var identities = new HashSet<string>(StringComparer.Ordinal);
+            AddPublishedScoreIdentities(nodes, identities);
+            return identities;
+        }
+
+        private static void AddPublishedScoreIdentities(
+            IEnumerable<SongListNode> nodes,
+            ISet<string> identities)
+        {
+            foreach (var node in nodes)
+            {
+                foreach (var identity in GetScoreIdentityCandidates(node))
+                    identities.Add(identity);
+
+                if (node.Children.Count > 0)
+                    AddPublishedScoreIdentities(node.Children, identities);
+            }
+        }
+
+        private static bool HasPublishedScoreIdentity(
+            SongListNode node,
+            ISet<string> publishedScoreIdentities)
+        {
+            return GetScoreIdentityCandidates(node)
+                .Any(publishedScoreIdentities.Contains);
+        }
+
+        private static IEnumerable<string> GetScoreIdentityCandidates(SongListNode node)
+        {
+            if (node.Type != NodeType.Score)
+                yield break;
+
+            int songId = node.DatabaseSongId ?? node.DatabaseSong?.Id ?? 0;
+            if (songId > 0)
+                yield return $"song:{songId}";
+
+            foreach (var path in GetNodeChartPaths(node))
+            {
+                if (SongPathIdentity.TryNormalize(path, out var normalized))
+                    yield return $"chart:{normalized}";
+            }
+        }
+
+        private static bool NodeIsUnderAnyActiveRoot(
+            SongListNode node,
+            IReadOnlyList<string> normalizedRoots)
+        {
+            foreach (var path in GetNodeChartPaths(node))
+            {
+                if (!SongPathIdentity.TryNormalize(path, out var normalizedPath))
+                    continue;
+
+                foreach (var root in normalizedRoots)
+                {
+                    if (SongPathIdentity.IsUnderNormalizedRoot(normalizedPath, root))
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static IEnumerable<string> GetNodeChartPaths(SongListNode node)
+        {
+            if (!string.IsNullOrWhiteSpace(node.DatabaseChart?.FilePath))
+                yield return node.DatabaseChart.FilePath;
+
+            var charts = node.DatabaseSong?.Charts?.ToArray();
+            if (charts != null)
+            {
+                foreach (var chart in charts)
+                {
+                    if (!string.IsNullOrWhiteSpace(chart?.FilePath))
+                        yield return chart.FilePath;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(node.DirectoryPath))
+                yield return node.DirectoryPath;
+        }
+
+        private SongLibraryEmptyState ResolveLibraryEmptyState(SongLibrarySnapshot snapshot)
+        {
+            if (snapshot.ActiveRoots.Count == 0)
+                return SongLibraryEmptyState.NoActiveRoots;
+
+            return ContainsPublishedScore(snapshot.RootSongs)
+                ? SongLibraryEmptyState.HasSongs
+                : SongLibraryEmptyState.NoSupportedCharts;
+        }
+
+        private static bool ContainsPublishedScore(IEnumerable<SongListNode> nodes)
+        {
+            foreach (var node in nodes)
+            {
+                if (node.Type == NodeType.Score)
+                    return true;
+                if (node.Children.Count > 0 && ContainsPublishedScore(node.Children))
+                    return true;
+            }
+
+            return false;
         }
 
         #endregion
@@ -1114,6 +1627,12 @@ namespace DTXMania.Game.Lib.Stage
 
         private void RebuildFilteredView()
         {
+            var snapshot = _appliedLibrarySnapshot ?? SongManager.Instance.GetLibrarySnapshot();
+            RebuildFilteredViewForSnapshot(snapshot);
+        }
+
+        private void RebuildFilteredViewForSnapshot(SongLibrarySnapshot snapshot)
+        {
             if (_filterCriteria.IsEmpty)
             {
                 _filteredView = null;
@@ -1123,9 +1642,8 @@ namespace DTXMania.Game.Lib.Stage
 
             try
             {
-                var roots = SongManager.Instance.GetLibrarySnapshot().RootSongs;
                 _filteredView = _filterService.Apply(
-                    roots,
+                    snapshot.RootSongs,
                     _filterCriteria,
                     SynchronizeActivePlaySpeed());
                 _showEmptyFilterMessage = _filteredView.Count == 0;
@@ -1164,11 +1682,33 @@ namespace DTXMania.Game.Lib.Stage
                 PopulateSongListForCurrentMode();
         }
 
+        private void RequestAsyncTabListRefresh()
+        {
+            // Increment before the volatile flag write. A reconciliation that sees the new
+            // generation but races this write will restore the flag itself; one that completes
+            // first is followed by this write and is likewise re-queued.
+            Interlocked.Increment(ref _asyncTabListRefreshVersion);
+            _tabListNeedsRefresh = true;
+        }
+
+        private int BeginTabListRefreshConsumption()
+        {
+            int version = Volatile.Read(ref _asyncTabListRefreshVersion);
+            _tabListNeedsRefresh = false;
+            return version;
+        }
+
+        private void CompleteTabListRefreshConsumption(int consumedVersion)
+        {
+            if (Volatile.Read(ref _asyncTabListRefreshVersion) != consumedVersion)
+                _tabListNeedsRefresh = true;
+        }
+
         private void PopulateRecentPlaysList()
         {
-            var nodes = _recentPlayNodes ?? new List<SongListNode>();
+            var nodes = FilterNodesForAppliedLibrary(_recentPlayNodes);
             LabelRecentPlayNodes(nodes);
-            _songListDisplay.CurrentList = new List<SongListNode>(nodes);
+            _songListDisplay.CurrentList = nodes;
             // Show empty message only when the load succeeded but returned nothing.
             // A failed load gets its own distinct message in the draw path.
             _showEmptyRecentMessage = !_recentPlaysLoadFailed && nodes.Count == 0;
@@ -1176,8 +1716,8 @@ namespace DTXMania.Game.Lib.Stage
 
         private void PopulateBookmarksList()
         {
-            var nodes = _bookmarkNodes ?? new List<SongListNode>();
-            _songListDisplay.CurrentList = new List<SongListNode>(nodes);
+            var nodes = FilterNodesForAppliedLibrary(_bookmarkNodes);
+            _songListDisplay.CurrentList = nodes;
             // Show empty message only when the load succeeded but returned nothing.
             // A failed load gets its own distinct message in the draw path.
             _showEmptyBookmarksMessage = !_bookmarksLoadFailed && nodes.Count == 0;
@@ -1240,6 +1780,10 @@ namespace DTXMania.Game.Lib.Stage
             // Check for completed song initialization task
             CheckSongInitializationCompletion();
 
+            // Publication callbacks only captured a version. Apply the current coherent
+            // snapshot here, on the update thread, before input and UI traversal observe it.
+            ApplyPendingLibraryPublication();
+
             // Update owned fallback input manager (shared one is updated by BaseGame)
             if (_ownsInputManager)
                 _inputManager?.Update(deltaTime);
@@ -1257,8 +1801,9 @@ namespace DTXMania.Game.Lib.Stage
             // Apply any pending tab list repopulate on the update thread.
             if (_tabListNeedsRefresh)
             {
-                _tabListNeedsRefresh = false;
+                int tabListRefreshVersion = BeginTabListRefreshConsumption();
                 RefreshSongListForActiveTab();
+                CompleteTabListRefreshConsumption(tabListRefreshVersion);
             }
 
             // Update UI (PreviewImagePanel will handle its own timing)
@@ -1285,6 +1830,23 @@ namespace DTXMania.Game.Lib.Stage
                 && (_searchFilterModal == null || !_searchFilterModal.IsOpen))
             {
                 string msg = "No songs match this filter";
+                _font.DrawString(_spriteBatch, msg,
+                    new Vector2(SongSelectionUILayout.SongBars.UnselectedBarX + 100, SongSelectionUILayout.SongBars.SelectedBarY),
+                    ResolveStatusTextColor(CurrentTheme));
+            }
+
+            // Do not collapse an intentionally empty root set into the same message as a
+            // configured folder containing no supported charts. Configuration and scanning
+            // recovery actions differ, so the Song Select state must make that distinction.
+            if (_activeTab == SongSelectionTab.AllSongs
+                && _filteredView == null
+                && _libraryEmptyState != SongLibraryEmptyState.HasSongs
+                && _font != null
+                && (_searchFilterModal == null || !_searchFilterModal.IsOpen))
+            {
+                string msg = _libraryEmptyState == SongLibraryEmptyState.NoActiveRoots
+                    ? "No active song folders configured"
+                    : "No supported charts found in active song folders";
                 _font.DrawString(_spriteBatch, msg,
                     new Vector2(SongSelectionUILayout.SongBars.UnselectedBarX + 100, SongSelectionUILayout.SongBars.SelectedBarY),
                     ResolveStatusTextColor(CurrentTheme));
@@ -2356,7 +2918,7 @@ namespace DTXMania.Game.Lib.Stage
                         {
                             _recentPlaysLoadFailed = true;
                             if (_activeTab == SongSelectionTab.RecentPlays)
-                                _tabListNeedsRefresh = true;
+                                RequestAsyncTabListRefresh();
                         }
                         return;
                     }
@@ -2373,7 +2935,7 @@ namespace DTXMania.Game.Lib.Stage
                     // and reset selection/scroll. Tab switches into Recent already request a
                     // refresh via SwitchToNextTab and rely on this load to populate the list.
                     if (_activeTab == SongSelectionTab.RecentPlays)
-                        _tabListNeedsRefresh = true;
+                        RequestAsyncTabListRefresh();
                 }, TaskScheduler.Default);
         }
 
@@ -2413,7 +2975,7 @@ namespace DTXMania.Game.Lib.Stage
                     {
                         _bookmarksLoadFailed = true;
                         if (_activeTab == SongSelectionTab.Bookmarks)
-                            _tabListNeedsRefresh = true;
+                            RequestAsyncTabListRefresh();
                     }
                     return;
                 }
@@ -2437,7 +2999,7 @@ namespace DTXMania.Game.Lib.Stage
                 // and reset selection/scroll. Tab switches into Bookmarks already request a
                 // refresh via SwitchToNextTab and rely on this load to populate the list.
                 if (_activeTab == SongSelectionTab.Bookmarks)
-                    _tabListNeedsRefresh = true;
+                    RequestAsyncTabListRefresh();
             });
         }
 
@@ -2508,7 +3070,8 @@ namespace DTXMania.Game.Lib.Stage
             // tree, Recent list, Bookmarks list) so the star marker stays consistent across
             // tabs without a reload — each surface holds a distinct node/entity instance.
             BookmarkStateReconciler.Apply(
-                SongManager.Instance.GetLibrarySnapshot().RootSongs,
+                _appliedLibrarySnapshot?.RootSongs
+                    ?? SongManager.Instance.GetLibrarySnapshot().RootSongs,
                 songId,
                 newState);
             BookmarkStateReconciler.Apply(_recentPlayNodes, songId, newState);
@@ -2549,7 +3112,8 @@ namespace DTXMania.Game.Lib.Stage
                 }
 
                 BookmarkStateReconciler.Apply(
-                    SongManager.Instance.GetLibrarySnapshot().RootSongs,
+                    _appliedLibrarySnapshot?.RootSongs
+                        ?? SongManager.Instance.GetLibrarySnapshot().RootSongs,
                     revert.SongId,
                     revert.RevertTo);
                 BookmarkStateReconciler.Apply(_recentPlayNodes, revert.SongId, revert.RevertTo);
