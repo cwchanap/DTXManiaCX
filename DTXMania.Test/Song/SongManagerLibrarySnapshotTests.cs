@@ -121,16 +121,45 @@ public sealed class SongManagerLibrarySnapshotTests : IDisposable
     }
 
     [Fact]
-    public void SetCurrentSearchPaths_WithEmptyInput_ShouldClearActiveRoots()
+    public void SetCurrentSearchPaths_ShouldKeepPublishedSnapshotCoherentUntilFullPublication()
     {
         _manager.RootPolicy = new SongRootPolicy(
             SongRootPolicy.CreateComparer(ignoreCase: true));
-        _manager.SetCurrentSearchPaths(["/roots/one", "/ROOTS/ONE"]);
-        Assert.Equal(["/roots/one"], _manager.GetLibrarySnapshot().ActiveRoots);
+        var rootNode = CreateScoreNode("Published");
+        _manager.PublishEnumeration(CreateBatch(["/roots/published"], [rootNode]));
+        var before = _manager.GetLibrarySnapshot();
+
+        _manager.SetCurrentSearchPaths(["/roots/pending", "/ROOTS/PENDING"]);
+
+        var after = _manager.GetLibrarySnapshot();
+
+        Assert.Equal(before.Version, after.Version);
+        Assert.Equal(before.RootSongs, after.RootSongs);
+        Assert.Equal(before.ActiveRoots, after.ActiveRoots);
+        Assert.Equal(before.EnumeratedFileCount, after.EnumeratedFileCount);
+        Assert.Equal(before.DiscoveredScoreCount, after.DiscoveredScoreCount);
+    }
+
+    [Fact]
+    public void SetCurrentSearchPaths_WithEmptyInput_ShouldPublishEmptyLibrary()
+    {
+        _manager.PublishEnumeration(CreateBatch(
+            ["/roots/published"],
+            [CreateScoreNode("Published")]));
+        var before = _manager.GetLibrarySnapshot();
+        SongLibrarySnapshot? published = null;
+        _manager.SongLibraryPublished += (_, args) => published = args.Snapshot;
 
         _manager.SetCurrentSearchPaths(Array.Empty<string>());
 
-        Assert.Empty(_manager.GetLibrarySnapshot().ActiveRoots);
+        var after = _manager.GetLibrarySnapshot();
+        Assert.Equal(before.Version + 1, after.Version);
+        Assert.Empty(after.RootSongs);
+        Assert.Empty(after.ActiveRoots);
+        Assert.Equal(0, after.EnumeratedFileCount);
+        Assert.Equal(0, after.DiscoveredScoreCount);
+        Assert.NotNull(published);
+        Assert.Equal(after.Version, published!.Version);
     }
 
     [Fact]

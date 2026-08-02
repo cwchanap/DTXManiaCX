@@ -1030,6 +1030,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         await _manager.InitializeDatabaseServiceAsync(_databasePath);
         var activeRoot = Path.Combine(_testRoot, "Active");
         var inactiveRoot = Path.Combine(_testRoot, "Removed");
+        Directory.CreateDirectory(activeRoot);
         var now = DateTime.UtcNow;
 
         await using (var context = _manager.DatabaseService!.CreateContext())
@@ -1397,6 +1398,26 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
             Assert.Equal(before.RootSongs, after.RootSongs);
             Assert.Equal(before.ActiveRoots, after.ActiveRoots);
             Assert.False(_manager.IsEnumerating);
+        }
+
+        [Fact]
+        public async Task RefreshSongListFromDatabaseAsync_WhenCurrentRootBecomesUnavailable_ShouldPreservePublishedSnapshot()
+        {
+            await SeedPublishedLibraryAsync();
+            var before = _manager.GetLibrarySnapshot();
+            var publishEvents = 0;
+            _manager.SongLibraryPublished += (_, _) => publishEvents++;
+            Directory.Delete(_songsRoot, recursive: true);
+
+            await _manager.RefreshSongListFromDatabaseAsync();
+
+            var after = _manager.GetLibrarySnapshot();
+            Assert.Equal(0, publishEvents);
+            Assert.Equal(before.Version, after.Version);
+            Assert.Equal(before.RootSongs, after.RootSongs);
+            Assert.Equal(before.ActiveRoots, after.ActiveRoots);
+            Assert.Equal(before.EnumeratedFileCount, after.EnumeratedFileCount);
+            Assert.Equal(before.DiscoveredScoreCount, after.DiscoveredScoreCount);
         }
 
         [Fact]
