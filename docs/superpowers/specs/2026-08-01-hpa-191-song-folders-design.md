@@ -2,160 +2,154 @@
 
 **Issue:** [HPA-191](https://linear.app/cwchanap/issue/HPA-191/allow-change-song-folders)  
 **Date:** 2026-08-01  
-**Status:** Revised draft for review
+**Status:** Revised after second-pass design review
 
 ## Context
 
-DTXManiaCX currently persists one song-library path in `ConfigData.DTXPath` and
-writes it as `DTXPath=` in `Config.ini`. `ConfigStage` displays that value as a
-read-only **DTX Folder** item. During startup, `StartupStage` wraps the value in
-a one-element string array before passing it into the song-loading pipeline.
+DTXManiaCX currently persists one song-library path in `ConfigData.DTXPath`,
+writes it as `DTXPath=` in `Config.ini`, displays it as a read-only **DTX
+Folder** item in `ConfigStage`, and wraps it in a one-element array during
+startup.
 
 The lower-level song system is already substantially multi-root capable:
 
-- `SongManager` accepts arrays of search roots.
+- `SongManager` accepts ordered arrays of search roots.
 - Enumeration normalizes and deduplicates roots.
 - Root traversal order is preserved in the published hierarchy.
-- HPA-192 bulk import and cleanup are scoped to active roots.
-- Database rows outside active roots are retained, protecting scores,
-  bookmarks, performance history, and other user-owned state when a library is
-  temporarily removed or unavailable.
+- HPA-192 bulk import and stale cleanup are scoped to the active roots supplied
+  to a completed import.
+- Rows outside active roots are retained, protecting bookmarks, score variants,
+  play history, ranks, full-combo state, and performance history when a library
+  is removed or unavailable.
 
-HPA-191 therefore does not require a database schema change or another song
-import architecture. The work is to make the ordered root list a first-class
-configuration value, expose safe cross-platform editing in Config, audit every
-legacy `DTXPath` runtime consumer, and reload the active library without routing
-the game through boot-only startup state.
+HPA-191 therefore does not introduce another importer or a database schema
+migration. It makes the ordered root list a first-class configuration value,
+adds safe Config editing and platform folder selection, migrates every runtime
+consumer away from the single-root compatibility property, and performs one
+atomic live reload without routing the game through boot-only `StartupStage`
+state.
 
 ## Goals
 
-- Allow the player to add, remove, and reorder song-library roots from Config.
-- Support one or more persisted roots while retaining compatibility with
-  existing `DTXPath` configurations.
-- Apply valid changes immediately and perform at most one live library reload.
-- Preserve the currently published hierarchy until a replacement reload has
-  completed successfully.
-- Preserve database records and user-owned data for roots removed from the
-  active configuration or temporarily unavailable.
-- Support Windows and macOS folder selection without referencing platform UI
-  frameworks from shared game code.
-- Reject configurations that would scan the same textual subtree more than
-  once under the selected root-comparison policy.
+- Allow players to add, remove, and reorder song-library roots from Config.
+- Persist one or more ordered roots while migrating existing `DTXPath`
+  configurations without library loss.
+- Apply valid changes immediately and perform at most one live reload.
+- Preserve the currently published hierarchy until a replacement library has
+  committed and published successfully.
+- Preserve database rows and user-owned state for removed or temporarily
+  unavailable roots.
+- Support Windows and macOS folder selection without platform UI dependencies
+  in shared game code.
+- Reject textual duplicate or parent/child root combinations that would scan the
+  same subtree more than once under the selected root-comparison policy.
 - Keep startup deterministic when some or all configured roots are unavailable.
-- Serialize Config-initiated song-library mutation operations so NX score import
-  and song-folder reload cannot write or rebuild the library concurrently.
+- Serialize Config-initiated library mutation operations so NX score import and
+  song-folder reload cannot race.
+- Keep an already-active Song Select stage coherent when a reload publishes
+  after Config has deactivated.
 
 ## Non-goals
 
 - DTXCreator changes.
-- Changes to chart parsing, `set.def`, or `box.def` semantics.
+- Chart parser, `set.def`, or `box.def` semantic changes.
 - Song database schema changes.
-- Filesystem watchers or automatic reload when a removable drive is mounted.
-- Background rescans after every individual add, remove, or reorder action.
-- A database-only optimization for reorder-only changes; any changed ordered
-  root list performs one full enumeration/import in HPA-191.
-- Editing or creating song files from Config.
+- Filesystem watchers or automatic reload when removable media mounts.
+- Rescanning after each individual draft edit.
+- A database-only reorder fast path. Any changed ordered root list performs one
+  full enumeration/import in HPA-191.
+- Editing or creating chart files from Config.
 - Synthetic top-level boxes for each configured root.
-- Merging same-named folders or songs across different roots.
-- Deleting retained database records for removed roots.
-- Resolving filesystem aliases to a physical target. Symlinks, junctions, bind
-  mounts, aliases, and case-sensitive macOS volumes can expose the same target
-  through distinct paths; realpath/inode-based deduplication is deferred.
-- General-purpose file-picker infrastructure beyond directory selection.
+- Merging same-named folders or songs across roots.
+- Deleting retained records for removed roots.
+- Resolving filesystem aliases to physical targets. Symlinks, junctions, bind
+  mounts, aliases, and case-sensitive macOS volumes may expose one target through
+  distinct paths; realpath/inode-based deduplication is deferred.
+- General-purpose file-picker infrastructure beyond folder selection.
 - Replacing the macOS AppleScript adapter with a native `NSOpenPanel` helper.
-- Linux-specific picker integration; the configuration and reload contracts
+- Linux-specific picker integration. The configuration and reload contracts
   remain platform-neutral, but HPA-191 targets the existing Windows and macOS
-  game projects.
+  projects.
 
 ## Chosen Approach
 
 Add an ordered `SongRoots` collection as the sole configured-root source of
-truth. Retain `DTXPath` only as a serialized compatibility mirror of the first
-root. A dedicated Config overlay edits a working copy and commits it only when
-the player selects **Apply**. An asynchronous platform-specific folder-picker
-service supplies new paths. After configuration is atomically persisted, a
-focused song-library reload service invokes the existing HPA-192
-enumeration/import path once.
+truth. Keep `DTXPath` only as a serialized compatibility mirror of the first
+root. A Config overlay edits a private draft and commits through one
+Config-owned delegate. An asynchronous platform picker supplies new paths.
+After the changed list is persisted atomically, a focused reload service invokes
+the existing HPA-192 enumeration/import path once.
 
-The old hierarchy remains published until the complete replacement batch has
-committed and been published. A failed or cancelled pre-commit reload therefore
-cannot leave Song Select displaying a partial library.
+The old hierarchy remains active until the complete replacement batch commits,
+finalizes, and publishes. Failure or cancellation before commit cannot expose a
+partial list.
 
-Three root states are distinguished throughout the design:
+The design distinguishes three root states:
 
-- **Configured roots:** the ordered canonical paths persisted in `Config.ini`.
-- **Available roots:** configured roots that currently exist and pass a minimal
+- **Configured roots:** ordered normalized paths persisted in `Config.ini`.
+- **Available roots:** configured roots that currently exist and pass a shallow
   access probe.
 - **Active roots:** roots represented by the currently published `SongManager`
-  hierarchy. Active roots change only after successful publication, or during a
-  clean startup that intentionally publishes an empty active library.
+  hierarchy.
 
-Configured roots and active roots may temporarily differ. For example, a player
-can save new roots and then encounter a failed reload; Song Select must continue
-to use the old active-root snapshot until a later reload or startup succeeds.
+Configured and active roots may differ after a failed reload. Runtime surfaces
+that represent the published library must use the active-root snapshot, not the
+new configured list.
 
 ## Alternatives Considered
 
 ### Save and require restart
 
-This is the smallest implementation, but it leaves the active library stale
-until restart and gives weak feedback that the change succeeded. It is rejected
-for the final feature because the existing bulk importer provides an atomic
-publication boundary suitable for a live reload. Slice 2 temporarily uses this
-behavior until Slice 3 lands.
+This is the smallest change but leaves the active library stale and provides
+weak confirmation. It is rejected for the completed feature. Slice 2 uses a
+temporary restart-required state until Slice 3 lands.
 
-### Transition Config back through StartupStage
+### Transition Config through StartupStage
 
-This reuses the startup progress screen, but `StartupStage` owns boot-specific
-phase state, activation generations, timing summaries, and exactly-once startup
-telemetry. Re-entering it for a user-initiated operation would couple unrelated
-lifecycles and make telemetry ambiguous. It is rejected.
+`StartupStage` owns boot phases, activation generations, timing summaries, and
+exactly-once startup telemetry. Re-entering it for a user operation would couple
+unrelated lifecycles and make telemetry ambiguous. It is rejected.
 
 ### Rebuild from SQLite for reorder-only changes
 
-The database hierarchy builder could potentially republish roots in a different
-order without reparsing charts. HPA-191 deliberately does not add that branch.
-Apply is an explicit refresh operation, and one full scan also observes any
-filesystem changes made while the panel was open. A future measured
-optimization may special-case reorder-only changes.
+The hierarchy builder could potentially republish roots in a new order without
+parsing charts. HPA-191 deliberately does not add that branch. Apply is an
+explicit refresh and one full scan also observes filesystem changes made while
+the panel was open. A future measured optimization may specialize reorder-only
+changes.
 
-### Store one delimited `SongRoots=` value
+### Store one delimited value
 
-A delimiter would conflict with legal path characters and complicate escaping
-and hand editing. Indexed keys are easier to parse, order, diagnose, and migrate.
+A delimiter conflicts with legal path characters and complicates escaping and
+hand editing. Indexed keys are easier to parse, order, diagnose, and migrate.
 
 ## Configuration Contract
 
 ### Runtime model
 
-`ConfigData` gains an ordered mutable collection:
+`ConfigData` gains:
 
 ```csharp
 public List<string> SongRoots { get; } = new();
 ```
 
-The property remains get-only. Load, reset, and successful update operations
-clear and refill the existing list rather than replacing the list reference.
-Consumers must never retain or mutate that live collection. Every UI, event,
-reload, and startup boundary receives an immutable copied snapshot.
+The property remains get-only. Load, reset, and successful updates clear and
+refill the existing collection instead of replacing its reference. Consumers
+must never retain or mutate the live list. Startup, UI, events, and reload
+boundaries receive copied immutable snapshots.
 
-`DTXPath` remains available for source and downgrade compatibility, but is a
-mirror only:
+`DTXPath` remains for source and downgrade compatibility only:
 
-- After load, reset, or a successful root update, it equals the first canonical
+- After load, reset, or a successful update, it equals the first normalized
   configured root.
-- Production startup, Config UI, reload, active-root filtering, previews, and
-  other runtime behavior consume `SongRoots` or the active-root snapshot, never
-  `DTXPath`.
-- Direct legacy mutation of `DTXPath` is not a supported way to change the
-  runtime library.
+- Startup, Config, reload, active views, previews, and all other runtime behavior
+  consume configured or active root snapshots instead.
+- Direct mutation of `DTXPath` is not a supported runtime update mechanism.
 
-At least one configured root is always required. Availability is not required;
-a single configured path may point to a disconnected removable drive.
+At least one configured root is required. Availability is not required; the
+only root may be a disconnected removable or network location.
 
 ### Persisted format
-
-`Config.ini` stores roots in explicit order:
 
 ```ini
 [System]
@@ -166,60 +160,73 @@ SongRoot.1=D:\Community Charts
 
 Rules:
 
-1. `SongRoot.<index>` uses a non-negative decimal integer index.
-2. Roots are loaded in ascending numeric order; gaps are allowed.
-3. Malformed suffixes, blank values, and negative indexes are ignored with a
+1. `SongRoot.<index>` uses a non-negative decimal integer.
+2. Entries load in ascending numeric order; gaps are allowed.
+3. Malformed suffixes, negative indexes, and blank values are ignored with a
    warning.
 4. Duplicate indexes use the last parsed value and emit a warning.
-5. Values may contain `=` because `ConfigManager` splits on the first `=` only.
+5. Values may contain `=` because parsing splits on the first `=` only.
 6. Save rewrites indexes densely from zero.
-7. `DTXPath` is always written as the first root for downgrade compatibility.
-8. `SongRoot.*` entries are authoritative whenever at least one structurally
-   valid indexed entry exists.
-9. When no valid indexed entry exists, load migrates legacy `DTXPath` into a
-   one-element list.
-10. When neither representation yields a valid path, load restores the managed
-    default root.
+7. `DTXPath` mirrors the first root.
+8. At least one structurally valid indexed entry makes `SongRoot.*`
+   authoritative.
+9. With no valid indexed entry, load migrates legacy `DTXPath` into a one-root
+   list.
+10. If neither representation yields a valid path, load restores the managed
+    default.
 
-A successful legacy migration is persisted immediately through the existing
+A successful legacy migration is immediately persisted through the existing
 atomic temp-file replacement.
+
+### Downgrade compatibility caveat
+
+The `DTXPath` mirror is best-effort compatibility, not a guarantee that older
+build behavior is safe. If the first root is an unavailable removable or
+network path and the user runs a pre-HPA-191 build, that older build may execute
+its unconditional directory-creation behavior and create an empty directory at
+that path. HPA-191 cannot prevent behavior after a downgrade; ordering a stable
+local root first reduces that risk.
 
 ### Legacy path migration
 
-The existing migration from legacy `Songs` defaults to the current managed
-`DTXFiles` location is retained. It applies to the fallback `DTXPath` value
-before that value becomes `SongRoots[0]`.
+The existing known-default migration from `Songs` to the managed `DTXFiles`
+location remains. It applies to the fallback legacy value before it becomes
+`SongRoots[0]`. Indexed custom roots are not remapped merely because their final
+segment is named `Songs`.
 
-Indexed custom roots are not remapped merely because their final segment is
-named `Songs`; only known legacy default representations are migrated.
+Previous builds may already have created empty custom directories while a
+removable or network root was unavailable. HPA-191 does not delete or move such
+folders.
 
-Previous releases may already have created an empty custom directory while a
-removable or network path was unavailable. HPA-191 stops creating such paths,
-but it does not delete or move directories created by earlier versions. The
-migration is logged; filesystem cleanup is left to the user.
+### Deliberate removal of custom-root auto-creation
 
-### Directory creation
+Today `NormalizeConfigPaths` unconditionally calls
+`EnsureDirectorySafe(Config.DTXPath)`, creating every configured custom path at
+load. Slice 1 deliberately removes that behavior.
 
-The game may create the managed default `AppPaths.GetDefaultSongsPath()` when it
-is selected or restored as the fallback root.
+After HPA-191:
 
-The game must not create arbitrary custom roots. A missing custom path may be a
-removable drive, network mount, renamed directory, or user error. Creating it
-would hide the problem and could produce an unwanted directory on the wrong
-volume.
+- The game may create only `AppPaths.GetDefaultSongsPath()` when the managed
+  default is selected or restored as fallback.
+- Missing custom roots are retained as unavailable configuration values.
+- No load, migration, Apply, startup, or availability probe creates a custom
+  directory.
+- Existing directories created by older versions are left untouched.
+
+This is an intentional product behavior change, not merely an implementation
+detail of the multi-root format.
 
 ## Root Path Identity and Validation
 
-Root comparison is intentionally distinct from HPA-192 chart identity.
-`SongPathIdentity.CanonicalComparer` remains ordinal and continues to protect
-exact persisted chart identities. HPA-191 does not redefine it as
-platform-aware.
+Root identity is intentionally separate from HPA-192 chart identity.
+`SongPathIdentity.CanonicalComparer` remains ordinal for exact persisted chart
+identity.
 
 ### Shared root policy
 
-Add an internal `SongRootPolicy` in the shared `DTXMania.Game` assembly. It is
-the only path used by Config load, Config UI, `SetSongRoots`, startup,
-`SongManager` defensive root deduplication, and availability probing.
+Add internal `SongRootPolicy` in the shared `DTXMania.Game` assembly. Config
+load, Config UI, `SetSongRoots`, startup, defensive `SongManager` root
+deduplication, overlap checks, and availability probing all use this policy.
 
 `SongRootPolicy.RootComparer` uses
 `SongPathIdentity.LegacyAliasComparer`:
@@ -227,86 +234,95 @@ the only path used by Config load, Config UI, `SetSongRoots`, startup,
 - Windows and macOS: ordinal ignore-case.
 - Linux and other platforms: ordinal case-sensitive.
 
-This is a deliberate user-facing root policy. On a case-sensitive macOS volume,
-paths that differ only by case are still treated as duplicate configured roots
-for HPA-191. Resolving actual filesystem case or targets is outside scope.
+On a case-sensitive macOS volume, case-only root variants are still treated as
+duplicates for HPA-191. Physical-case and real-target discovery are out of
+scope.
 
-`SongPathIdentity` remains internal. No public API exposure is required because
-`ConfigManager`, stages, `SongManager`, and `SongRootPolicy` live in the same
-assembly. Tests use the repository's existing internal-test access pattern.
+`SongPathIdentity` remains internal. No public exposure is necessary because the
+policy and consumers live in the shared assembly; tests use the repository's
+internal-test access pattern.
 
 ### Canonicalization
 
 For each non-blank input:
 
 1. Expand supported home-relative forms through `AppPaths`.
-2. Resolve relative legacy paths against the same app-data base used today.
+2. Resolve legacy relative paths against the existing app-data base.
 3. Convert to an absolute full path.
-4. Normalize separators and trailing separators through
+4. Normalize separators and trailing separators with
    `SongPathIdentity.Normalize`.
 5. Compare roots with `SongRootPolicy.RootComparer`.
 6. Persist the normalized absolute value.
 
-Root order is semantically meaningful. It controls traversal order and the
-ordering of root-level nodes in Song Select.
+Root order controls traversal and root-level presentation order.
 
-`SongManager.SetCurrentSearchPaths`, enumeration batch root creation, and other
-defensive deduplication must use `SongRootPolicy.RootComparer`, not
-`SongPathIdentity.CanonicalComparer`, so direct callers cannot reintroduce root
-case aliases that Config rejects.
+### Defensive SongManager alignment
+
+`SongManager.SetCurrentSearchPaths`, enumeration-batch root creation, and every
+other defensive root deduplication point must use
+`SongRootPolicy.RootComparer`, not the ordinal chart comparer. Direct callers
+must not reintroduce aliases that Config rejects.
+
+This is a deliberate behavior change for all `SetCurrentSearchPaths` callers,
+including startup cache/database paths such as `LoadScoreCacheAsync`,
+`BuildSongListFromDatabasePublicAsync`, and `NeedsEnumerationAsync`. On Windows
+and macOS, roots differing only by case will now collapse to one root in those
+paths as well as during fresh enumeration.
+
+Slice 1 must add focused coverage for `SetCurrentSearchPaths` behavior and its
+snapshot, plus caller-path tests for cache load, database hierarchy rebuild, and
+enumeration decisions. The comparer change must not rely only on Config-panel
+integration tests.
 
 ### Blocking structural errors
 
-The following prevent Apply and leave the current configuration unchanged:
+Apply is blocked by:
 
-- No configured roots.
+- No roots.
 - Blank or syntactically invalid paths.
-- Duplicate roots under `SongRootPolicy.RootComparer`.
-- Overlapping roots where either normalized path is an ancestor of the other.
+- Duplicates under `SongRootPolicy.RootComparer`.
+- Parent/child overlap in either direction after normalization.
 
-Overlap checks use the same root comparer for path-segment equality. Authored
-order does not make an overlap valid.
+Overlap segment comparison uses the same root comparer. Authored order does not
+make overlap valid.
 
-Hand-edited invalid configuration must not prevent startup. During load, roots
-are processed in numeric order and the first accepted root wins. Later duplicate
-or overlapping entries are dropped with warnings. If all entries are rejected,
-the managed default is restored.
+Hand-edited invalid configuration must not prevent startup. Load processes
+entries in numeric order; the first accepted root wins and later duplicate or
+overlapping entries are dropped with warnings. If all are rejected, the managed
+default is restored.
 
 Symlink, junction, mount, and alias targets are not resolved. Two textually
-different non-overlapping paths that reach the same physical directory may both
+different non-overlapping paths reaching the same physical directory may both
 scan in v1.
 
 ### Availability warnings
 
-Missing and inaccessible paths are warnings, not structural errors. They remain
-configured so removable or network libraries can return later.
+Missing and inaccessible roots are warnings, not structural failures. They stay
+configured so removable and network libraries can return later.
 
-A minimal availability probe must:
+The shallow probe:
 
-- Check that the directory exists.
-- Attempt to begin a shallow directory enumeration to detect obvious access
-  failures without recursively scanning charts.
-- Catch path, I/O, and authorization errors and return a diagnostic instead of
-  throwing.
+- Checks directory existence.
+- Attempts to begin a shallow directory enumeration.
+- Catches path, I/O, and authorization failures and returns a diagnostic.
+- Never recursively scans charts and never creates directories.
 
-Only roots passing this probe are supplied to a live reload or normal startup
-load. A path may still fail later because availability can change during a
-scan; that failure follows the reload error contract below.
+Only available roots are supplied to startup or live reload. A root may still
+fail during scanning if availability changes; that follows the reload failure
+contract.
 
 ## Config User Experience
 
 ### System menu entry
 
-Replace the read-only **DTX Folder** item with a navigation item named
-**Song Folders**.
-
-Its value summary is `1 folder` or `<n> folders`. The description states that
-folders are scanned in displayed order and Apply reloads the library once.
+Replace **DTX Folder** with a navigation item named **Song Folders**. Its value
+is `1 folder` or `<n> folders`. The description says folders are scanned in the
+displayed order and Apply reloads once.
 
 ### Overlay abstraction
 
-Introduce `IConfigOverlayPanel` containing the common members currently carried
-by `IKeyAssignPanel`:
+Introduce `IConfigOverlayPanel` with the common lifecycle currently carried by
+`IKeyAssignPanel`:
 
 - `IsActive`
 - `Closed`
@@ -315,10 +331,9 @@ by `IKeyAssignPanel`:
 - `Update(...)`
 - `Draw(...)`
 
-`IKeyAssignPanel` inherits `IConfigOverlayPanel`, preserving its existing
-`Saved`-before-`Closed` contract. `ConfigStage._activePanel` becomes
-`IConfigOverlayPanel`. This is a targeted boundary correction, not a broader UI
-refactor.
+`IKeyAssignPanel` inherits it and keeps the existing `Saved`-before-`Closed`
+contract. `ConfigStage._activePanel` becomes `IConfigOverlayPanel`. This is a
+targeted boundary correction, not a broad UI rewrite.
 
 ### SongFolderPanel ownership
 
@@ -326,44 +341,33 @@ refactor.
 
 - An immutable configured-root snapshot.
 - `IFolderPickerService`.
-- The shared root validation policy.
-- A commit delegate owned by `ConfigStage`:
+- The shared validation policy.
+- A Config-owned commit delegate:
 
 ```csharp
 Func<IReadOnlyList<string>, SongFolderCommitResult> commitRoots
 ```
 
-The panel owns a private draft list. Opening, reordering, adding, removing, or
-cancelling does not mutate `ConfigData`.
+The panel owns a private draft. Add, remove, reorder, Back, and Cancel never
+mutate configuration.
 
-The Config-owned delegate is the only commit owner. For a draft snapshot it:
+The delegate is the only commit owner:
 
-1. Canonicalizes and compares against the current configured snapshot.
-2. Returns `Unchanged` without acquiring an operation slot or writing.
-3. For a changed list, attempts to reserve the Config operation slot as
-   `SongFolderReload` **before** calling `SetSongRoots`.
-4. Returns `Busy` without persisting when NX import or another reload owns the
+1. Canonicalize and compare the draft with the current configured snapshot.
+2. Return `Unchanged` without acquiring a slot or writing.
+3. For a changed list, reserve the Config operation slot as
+   `SongFolderReload` before persistence.
+4. Return `Busy` without persisting if NX import or another reload owns the
    slot.
-5. Calls `IConfigManager.SetSongRoots` only after the slot is reserved.
-6. Releases the slot immediately when validation or persistence fails.
-7. Retains the reserved slot on `Updated` so the `Saved` handler can start the
-   matching reload without a race.
+5. Call `SetSongRoots` only while holding the reservation.
+6. Release the slot immediately on validation or persistence failure.
+7. Retain the reservation on `Updated` for handoff to the reload task.
 
-On **Apply**, the panel passes an immutable draft snapshot to that delegate.
-Validation, persistence, or busy failure keeps the panel open and displays the
-returned diagnostic. On `Updated` or `Unchanged`, the panel stores the immutable
-committed snapshot, raises `Saved`, then raises `Closed`.
+On Apply, failure or `Busy` keeps the panel open with a diagnostic. On `Updated`
+or `Unchanged`, the panel stores an immutable committed snapshot, raises
+`Saved`, then `Closed`.
 
-`ConfigStage` reads the committed snapshot during `Saved`:
-
-- `Unchanged`: no operation slot is held and no reload starts.
-- `Updated`: the reload starts using the already-reserved slot. The handler must
-  either attach the reload task or release the slot before returning; it must
-  not leave a reserved slot orphaned if task construction fails.
-
-The panel never holds `IConfigManager` and never persists roots independently.
-
-The panel-level result distinguishes orchestration from persistence:
+The panel never holds `IConfigManager` and never persists independently.
 
 ```csharp
 public enum SongFolderCommitStatus
@@ -383,19 +387,19 @@ public sealed record SongFolderCommitResult(
 
 Supported actions:
 
-- **Add Folder** — invoke the platform picker and append a unique selection.
-- **Remove** — remove the selected root when at least one draft root remains.
-- **Move Up** / **Move Down** — change scan and display order.
-- **Apply** — validate and commit the complete draft.
-- **Cancel** — discard the draft and close.
+- **Add Folder**
+- **Remove** while one draft root remains
+- **Move Up** / **Move Down**
+- **Apply**
+- **Cancel**
 
-Structural errors keep the panel open. Availability warnings appear beside
-roots but do not disable Apply. Picker cancellation is a no-op; picker failure
-leaves the draft unchanged and displays an error.
+Structural errors keep the panel open. Availability warnings do not disable
+Apply. Picker cancellation is a no-op; picker failure leaves the draft
+unchanged.
 
 ## Platform Folder Picker
 
-Shared code depends on an asynchronous interface:
+Shared code uses:
 
 ```csharp
 public interface IFolderPickerService
@@ -406,30 +410,34 @@ public interface IFolderPickerService
 }
 ```
 
-The result distinguishes selected, cancelled, unavailable, and failed outcomes
-and carries an error message only for failure.
+The result distinguishes Selected, Cancelled, Unavailable, and Failed. While a
+picker is active, repeat Add actions are ignored. Completion updates panel state
+only when its activation generation remains current.
 
-While a picker is active, the panel displays a selecting state and ignores
-repeat Add actions. Picker completion is marshalled back to panel state only if
-the panel activation generation is still current.
+### Windows
 
-Platform composition selects the implementation:
+`FolderBrowserDialog` is acceptable because the Windows project already enables
+WinForms. The platform implementation owns STA dispatch; shared update code does
+not assume it runs on an STA thread. The dialog starts from the selected root or
+managed default when valid.
 
-- **Windows:** `FolderBrowserDialog` is acceptable because the Windows project
-  already enables WinForms. The implementation owns the required STA thread or
-  platform dispatcher; shared game/update code does not assume its thread is
-  STA. The dialog starts from the selected root or managed default when valid.
-- **macOS:** invoke `osascript` with `choose folder`, a clear prompt, and a
-  default location when `initialDirectory` exists. Construct arguments through
-  `ProcessStartInfo.ArgumentList`, never shell interpolation. Await process exit
-  asynchronously, map user cancellation to `Cancelled`, terminate the process
-  on cancellation when safe, and map privacy/automation denial or other
-  non-cancellation failures to `Failed` with stderr in structured logs.
+### macOS
 
-The shared project must not reference WinForms, AppleScript process
-construction, or native picker types. Headless tests inject a deterministic fake
-picker. A future native `NSOpenPanel` helper may replace AppleScript without
-changing the shared interface.
+Invoke `osascript` using Standard Additions `choose folder`, with a clear prompt
+and `default location` when the initial directory exists. Build arguments with
+`ProcessStartInfo.ArgumentList`, never shell interpolation. Await exit
+asynchronously, distinguish the standard user-cancel error, terminate on
+cancellation when safe, and log stderr for non-cancellation failures.
+
+The first invocation may display macOS system consent or privacy UI depending on
+the host process and selected location. The product must not promise a specific
+System Settings pane. Cancellation remains a normal `Cancelled` result;
+permission or authorization denial is `Failed` with a concise user message and
+structured diagnostic.
+
+Shared code must not reference WinForms, AppleScript construction, or native
+picker types. Headless tests inject a deterministic fake. A future
+`NSOpenPanel` helper may replace the adapter without changing the interface.
 
 ## Config Persistence API
 
@@ -440,8 +448,6 @@ SongRootUpdateResult SetSongRoots(
     string configFilePath,
     IReadOnlyList<string> roots);
 ```
-
-This persistence-level result remains independent of Config's `Busy` status:
 
 ```csharp
 public enum SongRootUpdateStatus
@@ -463,270 +469,265 @@ public sealed record SongRootUpdateResult(
 }
 ```
 
-The implementation may adjust concrete type names but must preserve those four
-persistence outcomes and immutable snapshots.
-
-The operation:
+The persistence operation:
 
 1. Validates and canonicalizes the complete list.
 2. Captures prior `SongRoots` and `DTXPath` snapshots.
-3. Clears/refills `SongRoots` and updates `DTXPath` in memory.
-4. Writes the complete config immediately through atomic temp-file replacement.
-5. Clears any pending deferred-save marker on success because all current
-   settings were written.
+3. Clears/refills `SongRoots` and updates the mirror in memory.
+4. Writes the complete config through atomic temp-file replacement.
+5. Clears the deferred-save marker on success because all settings were written.
 6. Restores prior in-memory values if persistence fails.
 7. Raises `SongRootsChanged` only after persistence succeeds.
-8. Returns `Unchanged` without a write or event when the canonical ordered list
-   is unchanged.
+8. Returns `Unchanged` without write or event for an equal ordered list.
 
-`SongRootsChangedEventArgs` carries copied immutable old and new root snapshots.
-Subscriber exceptions are isolated using existing config-event behavior. A
-subscriber failure cannot undo accepted persisted configuration.
+Event args carry copied immutable old/new snapshots. Subscriber exceptions are
+isolated and cannot roll back accepted configuration.
 
 ## Live Library Reload
 
 ### Boundary
 
-Introduce `ISongLibraryReloadService` so `ConfigStage` does not own raw
-`SongManager` orchestration and tests do not need the singleton.
+Introduce `ISongLibraryReloadService` so `ConfigStage` does not directly own raw
+singleton orchestration.
 
-The production implementation:
+The production service:
 
-- Resolves available roots from the persisted configured snapshot.
+- Probes the persisted configured snapshot.
 - Adapts `EnumerationProgress` to Config status.
-- Invokes `SongManager.EnumerateAndImportSongsAsync` exactly once for any
-  changed ordered list, including reorder-only changes.
-- Returns the successful active-root set, aggregate counts, skipped-root
-  warnings, busy, cancellation, partial post-commit failure, or terminal
-  pre-commit failure.
+- Calls `SongManager.EnumerateAndImportSongsAsync` exactly once for every changed
+  ordered list, including reorder-only changes.
+- Returns active roots, aggregate counts, unavailable warnings, Busy,
+  cancellation, pre-commit failure, or post-commit partial failure.
 - Allows one in-flight reload.
 
-It does not call `NeedsEnumerationAsync` and does not invent a cache or
-reorder-only path. HPA-192 remains the sole importer and publication authority.
+It does not call `NeedsEnumerationAsync` or create another cache/reorder path.
 
 ### Apply sequence
 
-1. The panel validates its draft locally.
-2. Config's commit delegate detects `Unchanged` or reserves the
-   `SongFolderReload` operation slot for a changed list.
-3. A busy slot returns `Busy`; roots are not persisted and the panel stays open.
-4. With the slot reserved, `ConfigManager.SetSongRoots` atomically persists the
-   canonical ordered list.
-5. Validation/persistence failure releases the slot and keeps the panel open.
-6. `Updated` stores the committed snapshot and raises `Saved` before `Closed`.
-7. Config's `Saved` handler starts reload using the existing slot reservation.
-8. The reload service probes all configured roots.
-9. When at least one root is available, one enumeration/import starts with only
-   those roots.
-10. The old hierarchy remains active while discovery and persistence run.
-11. On successful commit, finalization and publication replace the hierarchy and
-    active-root snapshot atomically.
-12. Config reports folder, chart, unavailable-folder, and error counts. Logical
-    song counts remain structured-log detail rather than user-facing copy.
+1. Panel validates the draft locally.
+2. Config's delegate returns `Unchanged` or reserves `SongFolderReload`.
+3. A busy slot returns `Busy`; no persistence occurs.
+4. With the slot reserved, `SetSongRoots` persists the canonical list.
+5. Failure releases the slot and keeps the panel open.
+6. `Updated` raises `Saved` before `Closed`.
+7. The `Saved` handler starts reload using the reservation.
+8. Reload probes configured roots.
+9. With at least one available root, it starts one enumeration/import.
+10. The previous hierarchy stays active during discovery and persistence.
+11. Commit, finalization, and publication replace hierarchy and active roots.
+12. Config reports folder, chart, unavailable-folder, and error counts.
 
-Unavailable configured roots are omitted from the scan and listed as warnings.
-Their database records remain outside active import cleanup.
-
-When no configured root is available, Config skips the importer, retains the
-current active hierarchy, reports the warning, and releases the operation slot.
+If no root is available, import is skipped, the previous hierarchy is retained,
+a warning is shown, and the operation slot is released.
 
 ### Config operation mutual exclusion
 
-`ConfigStage` owns one operation slot for Config-initiated song-library work:
+`ConfigStage` owns:
 
 ```text
 None | NxScoreImport | SongFolderReload
 ```
 
-Both `StartNxScoreImport` and changed-root Apply must reserve this slot before
-performing persistence or database work and release it only in their terminal
-continuation.
+NX import and changed-root Apply acquire the same slot. Apply while NX import is
+active returns `Busy` without persistence. NX import while reload is active is
+rejected. A second reload is rejected. Lower-level
+`InvalidOperationException` from an occupied SongManager enumeration slot is
+mapped to a user-visible Busy result.
 
-Required behavior:
+### Throw-safe reservation handoff
 
-- Apply while NX import is running returns `Busy`; roots are not persisted and
-  no reload starts.
-- NX import while reload is running is rejected with a clear status.
-- A second reload is rejected while reload is active.
-- Existing `SongManager` enumeration-slot rejection is converted to a `Busy`
-  reload result, never an unhandled `InvalidOperationException`.
-- Future Config features that mutate or rebuild the song library must use the
-  same slot.
+The reservation-to-task handoff is a strict implementation invariant. Acquiring
+the slot, persisting, raising `Saved`, constructing the reload task, and
+transferring release ownership must use `try/finally` or an equivalent scoped
+lease.
 
-The operation slot prevents the current NX import and reload paths from racing
-on SQLite and hierarchy refresh. `SongManager` retains its own enumeration slot
-as the lower-level defensive boundary for non-Config callers.
+Required ownership rule:
+
+- Before the reload task is attached, synchronous code owns the lease and must
+  release it in `finally` on every exit or exception.
+- Only after the terminal continuation is attached may release ownership move
+  to that continuation.
+- Task-construction, event-subscriber, or continuation-registration failure
+  cannot orphan the slot.
+- The terminal continuation releases exactly once.
+
+A dedicated test injects a throw at each handoff point and verifies the next
+operation can acquire the slot.
 
 ### Cancellation, commit, and publication
 
-The HPA-192 transaction commit through hierarchy publication is treated as a
-non-cancellable terminal section:
+Database commit through hierarchy publication is non-cancellable:
 
 - Cancellation is honored during probing, discovery, parsing, matching, and
-  persistence before database commit.
-- Once bulk import commits successfully, the caller must not perform another
-  cancellation check before `FinalizePendingNodes` and `PublishEnumeration`.
-- A cancellation request arriving after commit is ignored until publication
-  completes; the result is success, not cancellation.
-- This prevents the database from reflecting new active-root cleanup while the
-  old hierarchy remains solely because cancellation arrived in the
-  commit-to-publish gap.
+  persistence before commit.
+- After commit succeeds, no cancellation check occurs before
+  `FinalizePendingNodes` and `PublishEnumeration`.
+- A request arriving after commit is ignored until publication completes and is
+  reported as success.
 
-If an unexpected finalization or publication exception occurs after commit, the
-old hierarchy remains atomically intact, but the database may already reflect
-the new import. Report a distinct partial-success failure requiring restart;
-do not claim rollback.
+This prevents the database from reflecting new active-root cleanup while the
+old hierarchy remains solely because cancellation arrived in the commit-to-
+publish gap.
+
+An unexpected finalization/publication exception after commit reports a distinct
+partial-success/restart-required outcome. It must not claim rollback.
 
 ### Config deactivation
 
-Leaving Config requests cancellation for whichever Config song operation owns
-the slot. Deactivation never synchronously waits for filesystem or SQLite work
-on the game/update thread.
+Leaving Config requests cancellation but never blocks the update thread waiting
+for filesystem or SQLite work.
 
-Use the same pattern as `StartupStage`:
+Use the `StartupStage` retirement pattern:
 
 - Increment an activation generation.
 - Cancel the operation CTS.
 - Attach an execute-synchronously observation continuation.
-- Observe any fault and dispose the CTS only after task termination.
-- Release the Config operation slot in that terminal continuation.
-- Suppress UI/status writes from stale generations.
+- Observe faults and dispose the CTS only after termination.
+- Release the operation lease in the terminal continuation.
+- Suppress Config UI/status writes from stale generations.
 
-The game-wide `SongManager` operation may finish after Config deactivates. A
-post-commit reload still finalizes and publishes; only Config-specific visual
-feedback is suppressed.
-
-### Failure classes
-
-Before database commit, failure or cancellation means:
-
-- Persisted configured roots remain saved when persistence had already
-  succeeded.
-- Database transaction rolls back.
-- Previous active hierarchy and active-root snapshot remain published.
-- No partial hierarchy is exposed.
-- Config reports that saved roots will be retried on startup or Apply.
-
-After database commit, cancellation no longer changes the success path. An
-unexpected post-commit publication failure uses the partial-success recovery
-message described above.
+A post-commit reload may finish and publish after Config deactivates.
 
 ## Startup Integration
 
-`StartupStage` reads an immutable snapshot of `Config.SongRoots`, never
-`DTXPath`.
+`StartupStage` reads an immutable `SongRoots` snapshot, never `DTXPath`.
 
-Before cache/enumeration selection, startup performs the shared availability
-probe:
+Before cache/enumeration selection:
 
-- Available roots are passed to `NeedsEnumerationAsync`, cache hierarchy
-  construction, and enumeration.
-- Unavailable roots are logged once with diagnostics.
-- Root order remains configured order.
+- Probe configured roots.
+- Pass available roots in configured order to `NeedsEnumerationAsync`, cache
+  hierarchy construction, or enumeration.
+- Log unavailable roots once.
 
-When no configured root is available during clean startup, startup publishes an
-empty active hierarchy and empty active-root snapshot through a dedicated
-`SongManager` operation that does not import, stale-clean, or delete database
-records. Startup completes and Title remains reachable.
-
-A later startup or Apply restores songs from retained data or enumeration using
-the normal load decision.
+When no root is available on clean startup, publish an empty active hierarchy
+and empty active-root snapshot through a dedicated SongManager operation that
+does not import, stale-clean, or delete database rows. Startup completes and
+Title remains reachable.
 
 ## Runtime Consumer Audit
 
-Slice 1 must grep every production `DTXPath` read and classify it. No runtime
+Slice 1 must grep and classify every production `DTXPath` read. No runtime
 consumer may silently remain first-root-only.
 
-Known consumers include:
+Known consumers:
 
-- `StartupStage`: switch to configured `SongRoots` snapshot.
-- `ConfigStage`: replace the read-only DTX Folder item.
-- `SongSelectionStage` / `PreviewImagePanel`: remove the single
-  `SongsRootPath` fallback.
-- Any E2E fixture or runtime helper that supplies production configuration.
+- `StartupStage`: configured `SongRoots` snapshot.
+- `ConfigStage`: replace the read-only item.
+- `SongSelectionStage` / `PreviewImagePanel`: active-root fallback snapshot.
+- E2E fixtures and runtime helpers that provide production configuration.
+
+A source-level architecture test or explicit allowlist must fail if a new
+runtime `Config.DTXPath` read is introduced outside serialization/migration
+compatibility code.
 
 ### Preview resolution
 
-The selected chart's normalized absolute `SongChart.FilePath` remains the first
-and authoritative source for its directory.
+The normalized absolute `SongChart.FilePath` is authoritative. For legacy nodes
+with relative directories, replace `PreviewImagePanel.SongsRootPath` with an
+immutable ordered active-root snapshot such as `ActiveSongRootPaths`, trying
+each active root in order.
 
-For legacy nodes whose directory is still relative,
-`PreviewImagePanel.SongsRootPath` becomes an immutable ordered active-root
-snapshot, for example `ActiveSongRootPaths`. The panel tries each active root in
-order. It must not use configured roots because a failed reload can leave the
-old hierarchy and old active roots authoritative.
+Configured roots must not be used for this fallback because failed reload leaves
+the previous active hierarchy authoritative. Root N greater than zero must
+resolve correctly.
 
-`SongManager` exposes a copied read-only current-search-path snapshot for
-SongSelection activation and refresh. A preview under root N greater than zero
-must resolve without falling back to root zero.
+`SongManager` exposes a copied current-search-path snapshot for Song Select
+activation and refresh.
+
+## Active Song Select Publication Handling
+
+A reload can commit and publish after Config deactivates. A player may reach an
+already-active Song Select stage before that terminal publication. Today Song
+Select copies `SongManager.RootSongs` during initialization and does not observe
+later publication, so merely proving that the stale list does not crash is
+insufficient.
+
+HPA-191 requires an update-thread refresh contract:
+
+- Song Select subscribes on activation and unsubscribes on deactivation to a
+  library-published notification. The existing `EnumerationCompleted` event may
+  be used if its post-publication contract is made explicit; otherwise add a
+  dedicated `SongLibraryPublished` event carrying a monotonically increasing
+  publication version and active-root snapshot.
+- The event handler never mutates UI collections. It records a pending version
+  or enqueues a refresh request guarded by the stage activation version.
+- `OnUpdate` snapshots `RootSongs` and active roots and replaces the displayed
+  root list on the game thread.
+- If the current navigation path still exists, restore it by stable path or
+  database identity. Otherwise reset to the root.
+- Preserve the selected chart by stable chart/database identity when possible;
+  otherwise select the first valid item.
+- Stop previews and clear status/history panels when the selected item no longer
+  exists.
+- Rebuild active All Songs, Bookmarks, Recent, filter, breadcrumb, preview-root,
+  and empty-state data from one publication version so the UI never mixes old
+  and new snapshots.
+- Stale or deactivated-stage notifications are ignored.
+
+Integration coverage must publish a replacement library while Song Select is
+active, including while inside a box and while Bookmarks or Recent is selected,
+and verify safe deterministic reconciliation rather than stale display or
+background-thread mutation.
 
 ## Active Views and Retained Data
 
-Removed or unavailable-root rows remain in SQLite, but active Song Select views
-must not surface them after a successful reload excludes that root.
+Removed/unavailable rows stay in SQLite, but active views do not surface them
+after a successful publication excludes their root:
 
-Product rule:
-
-- All Songs uses the published active hierarchy.
-- Bookmarks and Recent filter database-backed results to the current active-root
-  snapshot.
-- If reload fails and the previous hierarchy stays active, previous roots'
-  Bookmarks and Recent entries remain visible because those roots remain active.
-- After successful removal reload, off-root Bookmarks and Recent entries are
-  hidden but retained.
-- Re-adding and successfully publishing the root makes retained entries visible
-  again with user-owned data intact.
+- All Songs uses the active hierarchy.
+- Bookmarks and Recent filter database-backed rows to active roots.
+- If reload fails, old active roots and their entries remain visible.
+- After successful removal, off-root entries are hidden but retained.
+- Successful re-add makes them visible with user data intact.
 
 ## Empty Library UX
 
-Song Select must show a deliberate empty state rather than a blank list:
+Song Select distinguishes:
 
-- No active roots and no configured root is currently available: **No song
-  folders are currently available. Open Config to reconnect or change them.**
-- At least one active root exists but contains no supported charts: **No songs
-  were found in the active song folders.**
+- No active roots and no configured root currently available: **No song folders
+  are currently available. Open Config to reconnect or change them.**
+- At least one active root but no supported charts: **No songs were found in the
+  active song folders.**
 
-Exact copy may be localized later, but the two conditions remain distinct and
-are covered by logic tests.
+Exact wording may be localized later; the conditions remain distinct.
 
 ## SongManager and Database Interaction
 
 No database migration is required.
 
-The existing HPA-192 contracts remain in force:
+HPA-192 contracts remain authoritative:
 
-- Enumeration and persistence receive an ordered root array.
-- Root aliases are defensively deduplicated with `SongRootPolicy.RootComparer`.
-- Cleanup affects only roots supplied to the successful import.
-- Charts and songs outside those roots are retained.
-- Bookmarks, score-speed variants, play counts, recent timestamps, ranks,
-  full-combo state, and performance history remain user-owned.
-- Replacement hierarchy is published only after transaction commit.
+- Enumeration/persistence receive an ordered root array.
+- Root aliases are defensively deduplicated through `SongRootPolicy`.
+- Cleanup affects only roots supplied to a successful import.
+- Off-root charts and songs are retained.
+- User-owned scores, bookmarks, timestamps, ranks, combos, and history are
+  preserved.
+- Publication follows transaction commit.
 
-HPA-191 prevents textual parent/child overlaps before they reach `SongManager`.
-The importer is not responsible for resolving physical aliases or choosing
-which overlapping root the player intended.
+HPA-191 prevents textual overlap before import. The importer does not resolve
+physical aliases.
 
-Multiple roots remain flattened into the existing root-level hierarchy in
-configured order. Equal display titles are allowed; identity remains path and
-database based, and nodes are not merged.
+Multiple roots remain flattened into the current root-level hierarchy. Equal
+display titles are allowed; identity remains path/database based.
 
 ## Logging and User Feedback
 
 Structured logs include:
 
-- Migration from `DTXPath` to indexed roots.
-- Dropped malformed, duplicate, or overlapping hand-edited entries.
-- Canonical old/new root lists after commit.
-- Availability warnings by configured root.
+- `DTXPath` migration and indexed-root parsing warnings.
+- Deliberate suppression of custom-root directory creation.
+- Old/new normalized root snapshots after commit.
+- Availability diagnostics.
 - Picker selected/cancelled outcomes at debug level and failures at warning.
-- Config operation-slot busy decisions.
+- Config operation-slot busy decisions and lease handoff failures.
 - Reload start, success, cancellation, pre-commit failure, and post-commit
-  partial failure with aggregate counts.
+  partial failure.
+- Song Select publication-version refresh and reconciliation outcome.
 
-Normal logs must not emit new per-file success messages beyond HPA-192 progress.
+Do not add per-file success logs beyond HPA-192 progress.
 
-Config user-facing examples:
+User-facing examples:
 
 - `Reloading songs: 48 / 100 charts`
 - `Loaded 2 folders, 100 charts; 1 folder unavailable`
@@ -737,155 +738,189 @@ Config user-facing examples:
 
 ## Testing Strategy
 
-### Configuration unit tests
+### Configuration tests
 
-- Default config contains exactly managed default root and mirrors `DTXPath`.
+- Default config has one managed root and matching `DTXPath`.
 - Indexed roots round-trip in order and rewrite densely.
-- Legacy `DTXPath` migrates to one indexed root and persists immediately.
-- Legacy default `Songs` migration still resolves to `DTXFiles`.
-- Indexed entries take precedence over `DTXPath`.
-- Gaps, malformed indexes, duplicate indexes, and blank values behave as
-  specified.
-- Root duplicates use `SongRootPolicy.RootComparer`: ignore-case on Windows and
-  macOS, ordinal on Linux.
-- `SongPathIdentity.CanonicalComparer` remains ordinal for chart identity.
-- Parent/child overlaps are rejected symmetrically.
-- Symlink/junction aliases are documented but not resolved.
-- Missing custom roots are not created.
-- Managed default root is created when restored.
-- Persistence failure restores old roots and emits no event.
-- Successful update raises one event with immutable snapshots.
-- Persistence result statuses are distinct.
+- Legacy `DTXPath` migrates and persists immediately.
+- Known legacy `Songs` default migrates to `DTXFiles`.
+- Indexed entries take precedence.
+- Gaps, malformed indexes, duplicate indexes, and blanks behave as specified.
+- Root comparer is ignore-case on Windows/macOS and ordinal on Linux.
+- Chart canonical comparer remains ordinal.
+- Parent/child overlap is rejected symmetrically.
+- Physical aliases are documented but unresolved.
+- Custom missing roots are not created.
+- The managed default is created when restored.
+- Tests explicitly prove removal of the current unconditional custom-root
+  `EnsureDirectorySafe` behavior.
+- Persistence failure restores prior state and emits no event.
+- Successful update emits immutable old/new snapshots once.
+- Persistence statuses are distinct.
+- Downgrade mirror behavior is documented and serialization remains stable.
+
+### SongManager root-policy tests
+
+- `SetCurrentSearchPaths` directly deduplicates case aliases under
+  `SongRootPolicy` and preserves first occurrence/order.
+- Its copied snapshot cannot be externally mutated.
+- `LoadScoreCacheAsync`, `BuildSongListFromDatabasePublicAsync`, and
+  `NeedsEnumerationAsync` receive the aligned deduplicated roots.
+- Fresh enumeration and cache hierarchy behavior agree on root identity.
+- Linux case-distinct roots remain distinct.
 
 ### Config and panel tests
 
-- System exposes **Song Folders** instead of a read-only path.
-- Singular/plural count summaries are correct.
-- Panel starts from an isolated draft.
-- Add, remove, reorder, Apply, Cancel, and Back are deterministic.
+- System exposes **Song Folders**.
+- Singular/plural summaries are correct.
+- Panel uses an isolated draft.
+- Add/remove/reorder/Apply/Cancel/Back are deterministic.
 - Async picker cancellation/failure does not mutate the draft.
-- Stale picker completion cannot update a reactivated/disposed panel.
-- Structural errors keep panel open; availability warnings may be applied.
-- Last configured root cannot be removed without adding another.
+- Stale picker completion cannot update an inactive panel.
+- Structural errors block; availability warnings may be applied.
+- Last root cannot be removed without replacement.
 - Config's delegate is the only `SetSongRoots` caller.
 - Busy changed-root Apply does not persist.
-- Persistence failure releases the reserved slot, keeps panel open, and starts
-  no reload.
-- `Saved` fires before `Closed` after successful commit.
-- Updated `Saved` handler cannot orphan the reserved slot.
-- Active overlay polymorphism continues supporting key panels.
+- Persistence failure releases the lease and starts no reload.
+- `Saved` precedes `Closed` after success.
+- Throws at each reservation-handoff point cannot orphan the lease.
+- Key panels still work through overlay polymorphism.
+- macOS permission/authorization failure maps to Failed, while normal picker
+  cancellation maps to Cancelled.
 
-### Operation and reload tests
+### Reload and lifecycle tests
 
-- Unchanged ordered roots perform no write, slot acquisition, or scan.
-- Reorder-only changed roots perform exactly one full importer call.
+- Unchanged roots do not write, acquire, or scan.
+- Reorder-only change invokes one full import.
 - Successful Apply invokes importer once with available roots in order.
-- Unavailable roots are skipped without blocking available roots.
-- No available roots skip import, retain hierarchy, and release the slot.
-- Apply is rejected without persistence while NX import runs.
-- NX import is rejected while reload runs.
-- Lower-level enumeration busy maps to a user-visible Busy result.
-- Leaving Config cancels and asynchronously observes active operation.
-- Stale generation continuations cannot write Config UI state.
+- Unavailable roots do not block available ones.
+- No available roots skip import, retain hierarchy, and release the lease.
+- Apply is rejected without persistence during NX import.
+- NX import is rejected during reload.
+- Lower-level busy maps to user-visible Busy.
+- Leaving Config cancels and observes without blocking.
+- Stale continuations cannot write Config UI.
 - Pre-commit failure/cancellation preserves old hierarchy.
-- Cancellation after commit cannot suppress publication and reports success.
-- Unexpected post-commit publication failure reports partial success/restart.
+- Post-commit cancellation cannot suppress publication.
+- Unexpected post-commit publication failure reports partial success.
 
-### Startup and runtime integration tests
+### Song Select publication tests
 
-- Startup consumes `SongRoots`, not compatibility `DTXPath`.
-- Every production `DTXPath` consumer is removed or compatibility-only.
+- Publication while Song Select is active is processed only on the update
+  thread.
+- Root list, active roots, filters, Bookmarks, Recent, preview fallback, and
+  empty-state data use the same publication version.
+- Selection is restored by stable identity when retained.
+- Removed selection resets deterministically and stops preview/status state.
+- Publication while inside a removed box resets to root safely.
+- Publication during Bookmarks or Recent refreshes that tab against active roots.
+- Notifications after deactivation are ignored.
+- Multiple fast publications apply only the newest version.
+
+### Startup and integration tests
+
+- Startup uses `SongRoots`, not compatibility `DTXPath`.
+- Production `DTXPath` reads are absent outside compatibility allowlist.
 - Multiple roots appear in configured order.
-- Root aliases are imported once under selected root comparer.
-- Charts under distinct roots are imported once each.
-- Root N preview fallback uses active roots, not configured root zero.
-- Removed-root songs disappear from active hierarchy after success but remain in
-  SQLite with scores/bookmarks intact.
-- Bookmarks and Recent hide off-active-root rows and restore them after re-add.
+- Root aliases import once under the root comparer.
+- Distinct roots import each chart once.
+- Root N preview fallback uses active roots.
+- Removed-root songs disappear after successful reload but remain stored.
+- Bookmarks/Recent hide off-active entries and restore after re-add.
 - Missing removable root does not block another root.
-- No available roots publish empty active library without database cleanup.
-- Distinct Song Select empty states are selected correctly.
-- Windows and macOS compile with only their picker implementation.
-- Existing HPA-192 cancellation, retention, and performance tests remain green.
+- No available roots publish an empty active library without cleanup.
+- Empty states are distinct.
+- Windows and macOS compile only their picker implementation.
+- Existing HPA-192 cancellation, retention, and performance tests stay green.
 
 ## Implementation Slices
 
-The slices are hard dependencies and land in order: **Slice 1 → Slice 2 →
-Slice 3**. Each is intended to fit within three engineer days.
+Slices are hard dependencies and land in order: **Slice 1 → Slice 2 → Slice
+3**. Each is scoped to at most three engineer days.
 
 ### Slice 1: Canonical multi-root configuration and consumer migration
 
-- Add `SongRoots`, indexed INI format, compatibility mirror, migration,
-  persistence result, immutable event snapshots, and immediate persistence.
-- Add internal `SongRootPolicy` with explicit root comparer, overlap validation,
-  normalization, and availability probing.
-- Align `SongManager` defensive root deduplication with root policy.
-- Update startup to consume snapshots and publish empty active library when no
-  root is available.
-- Audit and migrate all production `DTXPath` consumers, including active-root
-  preview fallback and active-root snapshot exposure.
-- Add configuration, startup, preview, and consumer-audit tests.
+- Add `SongRoots`, indexed INI format, mirror, migration, persistence result,
+  immutable event snapshots, and immediate persistence.
+- Replace unconditional custom-root directory creation with managed-default-only
+  creation and add behavior-removal tests.
+- Add internal `SongRootPolicy` with normalization, explicit comparer, overlap,
+  and availability probing.
+- Align all `SongManager` root deduplication with the policy.
+- Add direct `SetCurrentSearchPaths` and startup cache/database caller coverage.
+- Update startup to consume snapshots and publish empty active state when needed.
+- Audit all production `DTXPath` consumers and add an architecture allowlist
+  test.
+- Add active-root snapshot exposure and multi-root preview fallback.
 - Do not add Config editing UI or live reload.
 
 ### Slice 2: Cross-platform SongFolderPanel
 
 Depends on Slice 1.
 
-- Add `IConfigOverlayPanel` and adapt key-panel interface.
-- Add asynchronous `IFolderPickerService` with Windows, macOS, and fake
-  implementations.
+- Add `IConfigOverlayPanel` and adapt key panels.
+- Add asynchronous Windows, macOS, and fake picker implementations.
+- Include macOS consent/authorization UX and result mapping.
 - Replace **DTX Folder** with **Song Folders** and implement draft editing.
-- Commit through Config's single commit delegate and `SetSongRoots`.
-- Show temporary `restart required` status after `Updated` until Slice 3.
-- Verify persisted roots are consumed by Startup on next launch.
-- Add panel, picker-threading, and platform-boundary tests.
+- Commit through Config's single delegate.
+- Show temporary restart-required status after `Updated`.
+- Verify startup consumes persisted roots on next launch.
+- Add panel, threading, privacy-failure, and platform-boundary tests.
 
-### Slice 3: Live reload and retained-data integration
+### Slice 3: Live reload and active-stage reconciliation
 
 Depends on Slices 1 and 2.
 
 - Add `ISongLibraryReloadService`.
-- Add Config operation mutual exclusion shared by NX import and reload, with
-  reservation before changed-root persistence.
-- Add progress, unavailable-root summaries, non-blocking cancellation
-  observation, commit-to-publish terminal semantics, and failure feedback.
-- Add active-root filtering for Bookmarks/Recent and deliberate empty-state UX.
-- Verify successful publication, old-hierarchy retention, post-commit recovery,
-  and removed-root data retention.
-- Add multi-root integration tests and Windows/macOS build validation.
+- Add Config mutual exclusion and scoped lease handoff with throw-safe release.
+- Add progress, warnings, non-blocking retirement, commit-to-publish terminal
+  semantics, and failure feedback.
+- Add active-root filtering for Bookmarks/Recent and deliberate empty states.
+- Add update-thread Song Select reconciliation for out-of-band publication,
+  including stable selection/navigation restoration.
+- Verify successful publication, retained old hierarchy on pre-commit failure,
+  post-commit recovery, and removed-root data retention.
+- Add multi-root lifecycle integration tests and Windows/macOS builds.
 
 ## Acceptance Criteria
 
-- Existing one-path `DTXPath` configurations migrate without library loss.
-- Fresh install has one managed default song root.
-- Config allows adding, removing, and reordering roots on Windows and macOS.
-- Ordered roots survive restart and are read by startup after Slice 2.
-- Root duplicate comparison is ignore-case on Windows/macOS and ordinal on
-  Linux; chart canonical identity remains ordinal.
-- Duplicate and textual parent/child-overlapping roots cannot be applied.
-- Missing custom roots remain configured and are never created automatically.
-- Previously auto-created custom directories are not deleted by migration.
-- Unchanged roots do not acquire slot or scan; any changed ordered list performs
-  at most one full scan, including reorder-only changes.
-- Busy changed-root Apply does not persist the draft.
-- Every available root is scanned in configured order.
-- NX import and song reload cannot run concurrently from Config.
-- Busy lower-level enumeration is reported without an unhandled exception.
-- One unavailable root does not prevent available roots from loading.
-- Successful reload replaces active hierarchy atomically.
-- Pre-commit failure or cancellation never exposes partial hierarchy.
-- Cancellation after commit cannot suppress hierarchy publication.
-- Config deactivation never blocks game thread waiting for reload/import.
-- No available root during Apply retains previous active hierarchy.
-- No available root during startup reaches Title with empty active library and
+- Existing one-path configurations migrate without library loss.
+- Fresh install has one managed default root.
+- Config adds, removes, and reorders roots on Windows and macOS.
+- Ordered roots survive restart and startup reads them.
+- Root comparison is ignore-case on Windows/macOS and ordinal on Linux; chart
+  canonical identity remains ordinal.
+- `SetCurrentSearchPaths` and startup cache/database paths use the same policy
+  with direct tests.
+- Duplicate and textual parent/child roots cannot be applied.
+- Missing custom roots remain configured and are never auto-created.
+- Removal of the current custom-path `EnsureDirectorySafe` behavior is explicit
+  and tested.
+- Existing auto-created directories are not deleted.
+- The first-root downgrade mirror and its older-build recreation caveat are
+  documented.
+- Unchanged roots do not acquire or scan; any changed ordered list performs at
+  most one full scan.
+- Busy changed-root Apply does not persist.
+- Every available root scans in configured order.
+- NX import and reload cannot run concurrently.
+- Slot handoff is throw-safe and cannot orphan ownership.
+- One unavailable root does not block available roots.
+- Successful reload atomically replaces hierarchy and active roots.
+- Pre-commit failure/cancellation never exposes partial hierarchy.
+- Post-commit cancellation cannot suppress publication.
+- Config deactivation never blocks the game thread.
+- Song Select safely reconciles an out-of-band publication while active.
+- No available root during Apply retains the previous active hierarchy.
+- No available root during startup reaches Title with empty active state and
   leaves SQLite untouched.
-- Preview fallback under any active root resolves correctly.
-- Removing a root hides songs, Bookmarks, and Recent after successful reload
-  while preserving database records and user-owned data.
-- Re-adding a root restores retained user data and active views.
-- Song Select distinguishes unavailable folders from available-but-empty roots.
-- `DTXPath` remains compatibility mirror only; every runtime consumer uses
-  configured or active snapshots as appropriate.
-- Symlink/junction/physical-target deduplication is outside scope.
-- No DTXCreator, parser, song schema, or synthetic-root-navigation changes are
+- Preview fallback works under every active root.
+- Removing a root hides its songs, Bookmarks, and Recent entries while retaining
+  database data.
+- Re-adding restores retained state and active views.
+- Song Select distinguishes unavailable roots from available-but-empty roots.
+- `DTXPath` remains compatibility-only; runtime consumers use configured or
+  active snapshots as appropriate.
+- Physical-target deduplication remains explicitly outside scope.
+- No DTXCreator, parser, schema, or synthetic-root-navigation change is
   included.
