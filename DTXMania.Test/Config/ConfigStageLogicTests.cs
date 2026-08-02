@@ -56,6 +56,41 @@ public class ConfigStageLogicTests
     }
 
     [Fact]
+    public void DrawItemList_WhenSongFoldersHasMultipleRoots_ShouldRenderCountInValueColumn()
+    {
+        var configManager = new ConfigManager();
+        configManager.Config.SongRoots.Clear();
+        configManager.Config.SongRoots.Add("/tmp/first");
+        configManager.Config.SongRoots.Add("/tmp/second");
+        configManager.Config.SongRoots.Add("/tmp/third");
+        var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice(configManager);
+        using (inputManager)
+        {
+            stage.InitializeDrawingState();
+            ReflectionHelpers.InvokePrivateMethod(stage, "SetupConfigItems");
+            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 0);
+            ReflectionHelpers.SetPrivateField(stage, "_focusOnMenu", false);
+
+            var font = new Mock<IFont>();
+            font.Setup(itemFont => itemFont.MeasureString(It.IsAny<string>()))
+                .Returns(new Vector2(40f, 14f));
+            var draws = new List<(string Text, Vector2 Position)>();
+            font.Setup(itemFont => itemFont.DrawString(
+                    It.IsAny<SpriteBatch>(), It.IsAny<string>(), It.IsAny<Vector2>(), It.IsAny<Color>()))
+                .Callback<SpriteBatch, string, Vector2, Color>((_, text, position, _) =>
+                    draws.Add((text, position)));
+            ReflectionHelpers.SetPrivateField(stage, "_font", font.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_boldFont", font.Object);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "DrawItemList");
+
+            var expectedValueX = ConfigUILayout.ItemListX + ConfigUILayout.ItemValueOffsetX;
+            Assert.Contains(draws, draw =>
+                draw.Text == "3 folders" && Math.Abs(draw.Position.X - expectedValueX) < 0.01f);
+        }
+    }
+
+    [Fact]
     public void SongFoldersItem_WhenActivated_ShouldOpenOverlayWithoutMutatingConfig()
     {
         var (stage, configManager, inputManager) = CreateStage();

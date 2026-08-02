@@ -1524,7 +1524,10 @@ namespace DTXMania.Game.Lib.Stage
         // the coupling is documented here instead.
         private static string GetItemValueText(IConfigItem item)
         {
-            if (item is NavigationConfigItem)
+            // Most navigation rows deliberately show a fixed arrow. Song Folders is a
+            // navigation row with meaningful value-column content, so handle it before
+            // the generic marker and preserve activation behavior through its base type.
+            if (item is NavigationConfigItem && item is not SongFoldersNavigationConfigItem)
                 return ">";
 
             var text = item.GetDisplayText();
