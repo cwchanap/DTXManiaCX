@@ -172,6 +172,7 @@ namespace DTXMania.Game.Lib.Stage
         private readonly ISongLibraryReloadService _songLibraryReloadService;
         private readonly Func<IProgress<NxImportProgress>?, CancellationToken, Task<NxImportResult>> _nxImportAsync;
         private readonly Func<Task> _refreshSongListAsync;
+        private readonly Func<CancellationTokenSource> _songOperationCtsFactory;
         private readonly Func<
             Func<Task<ConfigSongOperationCompletion>>,
             Task<ConfigSongOperationCompletion>> _backgroundSongOperationRunner;
@@ -224,7 +225,8 @@ namespace DTXMania.Game.Lib.Stage
             Func<
                 Func<Task<ConfigSongOperationCompletion>>,
                 Task<ConfigSongOperationCompletion>> backgroundSongOperationRunner,
-            Func<Task, Action<Task>, Task>? continuationRegistrar)
+            Func<Task, Action<Task>, Task>? continuationRegistrar,
+            Func<CancellationTokenSource>? songOperationCtsFactory = null)
             : base(game)
         {
             _configManager = game.ConfigManager ?? throw new InvalidOperationException("ConfigManager not found");
@@ -238,6 +240,8 @@ namespace DTXMania.Game.Lib.Stage
                 ?? throw new ArgumentNullException(nameof(nxImportAsync));
             _refreshSongListAsync = refreshSongListAsync
                 ?? throw new ArgumentNullException(nameof(refreshSongListAsync));
+            _songOperationCtsFactory = songOperationCtsFactory ??
+                (() => new CancellationTokenSource());
             _backgroundSongOperationRunner = backgroundSongOperationRunner
                 ?? throw new ArgumentNullException(nameof(backgroundSongOperationRunner));
             _songOperationContinuationRegistrar = continuationRegistrar;
@@ -1152,29 +1156,45 @@ namespace DTXMania.Game.Lib.Stage
 
         private void StartNxScoreImport()
         {
-            var lease = _songOperationCoordinator.TryAcquire(
-                ConfigSongOperationKind.NxScoreImport);
-            if (lease == null)
+            ConfigSongOperationLease? lease = null;
+            CancellationTokenSource? cancellation = null;
+            var releaseTransferred = false;
+            try
             {
-                _importStatus = "Another song operation is already running.";
-                return;
-            }
+                lease = _songOperationCoordinator.TryAcquire(
+                    ConfigSongOperationKind.NxScoreImport);
+                if (lease == null)
+                {
+                    _importStatus = "Another song operation is already running.";
+                    return;
+                }
 
-            _songFolderStatus = "";
-            _importStatus = "Importing NX scores...";
-            var cancellation = new CancellationTokenSource();
-            if (StartSongOperation(
+                _songFolderStatus = "";
+                _importStatus = "Importing NX scores...";
+                cancellation = _songOperationCtsFactory()
+                    ?? throw new InvalidOperationException(
+                        "Song operation CTS factory returned null.");
+                releaseTransferred = StartSongOperation(
                     lease,
                     cancellation,
                     ConfigSongOperationKind.NxScoreImport,
-                    RunNxScoreImportAsync))
-            {
-                return;
+                    RunNxScoreImportAsync);
+                if (!releaseTransferred)
+                    _importStatus = "NX import could not be started.";
             }
-
-            cancellation.Dispose();
-            lease.Dispose();
-            _importStatus = "NX import could not be started.";
+            catch (Exception exception)
+            {
+                _logger.LogWarning(exception, "ConfigStage: NX import could not be started");
+                _importStatus = "NX import could not be started.";
+            }
+            finally
+            {
+                if (!releaseTransferred)
+                {
+                    cancellation?.Dispose();
+                    lease?.Dispose();
+                }
+            }
         }
 
         /// <summary>

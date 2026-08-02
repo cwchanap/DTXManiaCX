@@ -26,8 +26,9 @@ internal enum SongLibraryReloadOutcome
 
 /// <summary>
 /// Immutable Config-facing summary of an HPA-192 enumeration/import attempt.
-/// An unsuccessful pre-commit result always retains the previously published
-/// song hierarchy; only a completed HPA-192 publication reports Published.
+/// An unsuccessful pre-commit result retains the previously published song
+/// hierarchy. A post-commit failure must instead require recovery/restart,
+/// because the database and live snapshot may no longer agree.
 /// </summary>
 internal sealed record SongLibraryReloadResult(
     SongLibraryReloadOutcome Outcome,
@@ -40,8 +41,7 @@ internal sealed record SongLibraryReloadResult(
         SongLibraryReloadOutcome.Busy or
         SongLibraryReloadOutcome.NoActiveRoots or
         SongLibraryReloadOutcome.Cancelled or
-        SongLibraryReloadOutcome.Failed or
-        SongLibraryReloadOutcome.PartialSuccessRestartRequired;
+        SongLibraryReloadOutcome.Failed;
 
     internal bool RequiresRestart =>
         Outcome == SongLibraryReloadOutcome.PartialSuccessRestartRequired;
@@ -61,26 +61,6 @@ internal sealed record ConfigSongOperationUpdate(
     ConfigSongOperationKind Kind,
     string Status,
     bool IsTerminal);
-
-/// <summary>
-/// Marks a failure that happened after HPA-192 committed the database but
-/// before its live publication could be completed. Config must not describe
-/// this as a rollback: the next restart can rebuild from the committed rows.
-/// </summary>
-internal sealed class SongLibraryReloadPostCommitPublicationException : Exception
-{
-    internal SongLibraryReloadPostCommitPublicationException(string message)
-        : base(message)
-    {
-    }
-
-    internal SongLibraryReloadPostCommitPublicationException(
-        string message,
-        Exception innerException)
-        : base(message, innerException)
-    {
-    }
-}
 
 internal interface ISongLibraryReloadService
 {

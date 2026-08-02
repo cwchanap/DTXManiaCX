@@ -61,7 +61,8 @@ public class ConfigStageNxImportTests : IDisposable
         Func<IProgress<NxImportProgress>?, CancellationToken, Task<NxImportResult>> nxImportAsync,
         Func<Task> refreshSongListAsync,
         Func<Func<Task<ConfigSongOperationCompletion>>, Task<ConfigSongOperationCompletion>>? backgroundRunner = null,
-        Func<Task, Action<Task>, Task>? continuationRegistrar = null)
+        Func<Task, Action<Task>, Task>? continuationRegistrar = null,
+        Func<CancellationTokenSource>? cancellationTokenSourceFactory = null)
     {
         var inputManager = new InputManagerCompat(new ConfigManager(), new TestMidiDeviceBackend());
         var game = ReflectionHelpers.CreateGame();
@@ -80,7 +81,8 @@ public class ConfigStageNxImportTests : IDisposable
                 nxImportAsync,
                 refreshSongListAsync,
                 backgroundRunner ?? (work => Task.Run(work)),
-                continuationRegistrar),
+                continuationRegistrar,
+                cancellationTokenSourceFactory),
             inputManager);
     }
 
@@ -166,6 +168,37 @@ public class ConfigStageNxImportTests : IDisposable
             var cts = ReflectionHelpers.GetPrivateField<CancellationTokenSource>(stage, "_songOperationCts");
             Assert.NotNull(cts);
             Assert.False(cts.IsCancellationRequested);
+        }
+    }
+
+    [Fact]
+    public void StartNxScoreImport_WhenCtsConstructionFails_ShouldReleaseLeaseWithoutStartingWorker()
+    {
+        var importCalls = 0;
+        var (stage, inputManager) = CreateStage(
+            new ConfigManager(),
+            new DelegateSongLibraryReloadService(),
+            (_, _) =>
+            {
+                importCalls++;
+                return Task.FromResult(new NxImportResult());
+            },
+            () => Task.CompletedTask,
+            cancellationTokenSourceFactory: () =>
+                throw new InvalidOperationException("cts setup failed"));
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "StartNxScoreImport");
+
+            Assert.False(GetCoordinator(stage).IsBusy);
+            Assert.Null(ReflectionHelpers.GetPrivateField<CancellationTokenSource>(
+                stage,
+                "_songOperationCts"));
+            Assert.Equal("NX import could not be started.",
+                ReflectionHelpers.GetPrivateField<string>(stage, "_importStatus"));
+            Assert.Equal(0, importCalls);
         }
     }
 

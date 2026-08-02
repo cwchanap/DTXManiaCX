@@ -1500,6 +1500,39 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         Assert.Equal(1, _manager.DiscoveredScoreCount);
     }
 
+    [Theory]
+    [InlineData(SongEnumerationPostCommitPhase.Finalization)]
+    [InlineData(SongEnumerationPostCommitPhase.Publication)]
+    public async Task EnumerateAndImportSongsAsync_WhenPostCommitPhaseFails_ShouldThrowPhaseAwareException(
+        SongEnumerationPostCommitPhase expectedPhase)
+    {
+        await SeedPublishedLibraryAsync();
+        var before = _manager.GetLibrarySnapshot();
+        WriteChart("Songs/PostCommitFailure/new.dtx", "Committed New", 50);
+        var failure = new InvalidOperationException("post-commit phase failed");
+
+        if (expectedPhase == SongEnumerationPostCommitPhase.Finalization)
+        {
+            _manager.FinalizePendingNodesCore = (_, _) => throw failure;
+        }
+        else
+        {
+            _manager.PublishEnumerationCore = _ => throw failure;
+        }
+
+        var exception = await Assert.ThrowsAsync<SongEnumerationPostCommitException>(() =>
+            _manager.EnumerateAndImportSongsAsync(
+                new[] { _songsRoot }, null, CancellationToken.None));
+
+        Assert.Equal(expectedPhase, exception.Phase);
+        Assert.Same(failure, exception.InnerException);
+        Assert.Equal(2, exception.Batch.Candidates.Count);
+        Assert.Equal(_seededChartCount + 1, await CountChartsAsync());
+        var after = _manager.GetLibrarySnapshot();
+        Assert.Equal(before.Version, after.Version);
+        Assert.Equal(before.RootSongs, after.RootSongs);
+    }
+
     [Fact]
     public async Task GetRecentlyPlayedNodesAsync_WithMoreThanLimit_ShouldReturnLimitInRecencyOrder()
     {

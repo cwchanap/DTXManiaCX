@@ -60,6 +60,9 @@ namespace DTXMania.Game.Lib.Song
             // batches (e.g. an incomplete batch) without subclassing.
             BuildEnumerationBatchCoreAsync = (searchPaths, progress, token) =>
                 BuildEnumerationBatchAsync(searchPaths, progress, token);
+            FinalizePendingNodesCore = (batch, chartsByPath) =>
+                FinalizePendingNodes(batch, chartsByPath);
+            PublishEnumerationCore = PublishEnumeration;
         }
 
         #endregion
@@ -105,6 +108,14 @@ namespace DTXMania.Game.Lib.Song
             IProgress<EnumerationProgress>?,
             CancellationToken,
             Task<SongEnumerationBatch>> BuildEnumerationBatchCoreAsync
+            { get; set; }
+
+        internal Action<
+            SongEnumerationBatch,
+            IReadOnlyDictionary<string, SongChart>> FinalizePendingNodesCore
+            { get; set; }
+
+        internal Action<SongEnumerationBatch> PublishEnumerationCore
             { get; set; }
 
         internal Func<SongDatabaseService, Task<DatabaseStats?>>
@@ -778,9 +789,33 @@ namespace DTXMania.Game.Lib.Song
                     linked.Token).ConfigureAwait(false);
 
                 var hierarchy = Stopwatch.StartNew();
-                FinalizePendingNodes(batch, import.ChartsByPath);
+                try
+                {
+                    FinalizePendingNodesCore(batch, import.ChartsByPath);
+                }
+                catch (Exception exception)
+                {
+                    hierarchy.Stop();
+                    throw new SongEnumerationPostCommitException(
+                        SongEnumerationPostCommitPhase.Finalization,
+                        batch,
+                        import,
+                        exception);
+                }
+
                 hierarchy.Stop();
-                PublishEnumeration(batch);
+                try
+                {
+                    PublishEnumerationCore(batch);
+                }
+                catch (Exception exception)
+                {
+                    throw new SongEnumerationPostCommitException(
+                        SongEnumerationPostCommitPhase.Publication,
+                        batch,
+                        import,
+                        exception);
+                }
 
                 result = new SongEnumerationResult(
                     SongEnumerationOutcome.ImportedAndPublished,
@@ -4122,6 +4157,9 @@ namespace DTXMania.Game.Lib.Song
                 BuildEnumerationBatchCoreAsync =
                     (searchPaths, progress, token) =>
                         BuildEnumerationBatchAsync(searchPaths, progress, token);
+                FinalizePendingNodesCore = (batch, chartsByPath) =>
+                    FinalizePendingNodes(batch, chartsByPath);
+                PublishEnumerationCore = PublishEnumeration;
                 RootPolicy = SongRootPolicy.ForCurrentPlatform();
                 snapshot = CreateSnapshotLocked();
             }

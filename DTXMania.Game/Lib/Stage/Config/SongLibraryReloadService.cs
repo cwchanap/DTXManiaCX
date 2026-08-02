@@ -65,8 +65,7 @@ internal sealed class SongLibraryReloadService : ISongLibraryReloadService
                 configuredRoots,
                 enumerationProgress,
                 cancellationToken).ConfigureAwait(false);
-            var unavailableRootCount = result.Batch.Errors.Count(
-                error => error.IsRootFailure);
+            var unavailableRootCount = CountUnavailableRoots(result.Batch);
 
             return result.Outcome switch
             {
@@ -101,6 +100,15 @@ internal sealed class SongLibraryReloadService : ISongLibraryReloadService
                 DiscoveredScoreCount: 0,
                 exception.Message);
         }
+        catch (SongEnumerationPostCommitException exception)
+        {
+            return new SongLibraryReloadResult(
+                SongLibraryReloadOutcome.PartialSuccessRestartRequired,
+                CountUnavailableRoots(exception.Batch),
+                exception.Batch.DiscoveredChartPaths.Count,
+                exception.Batch.Candidates.Count,
+                exception.GetBaseException().Message);
+        }
         catch (OperationCanceledException)
         {
             return new SongLibraryReloadResult(
@@ -108,15 +116,6 @@ internal sealed class SongLibraryReloadService : ISongLibraryReloadService
                 UnavailableRootCount: 0,
                 EnumeratedFileCount: 0,
                 DiscoveredScoreCount: 0);
-        }
-        catch (SongLibraryReloadPostCommitPublicationException exception)
-        {
-            return new SongLibraryReloadResult(
-                SongLibraryReloadOutcome.PartialSuccessRestartRequired,
-                UnavailableRootCount: 0,
-                EnumeratedFileCount: 0,
-                DiscoveredScoreCount: 0,
-                exception.GetBaseException().Message);
         }
         catch (Exception exception)
         {
@@ -127,6 +126,12 @@ internal sealed class SongLibraryReloadService : ISongLibraryReloadService
                 DiscoveredScoreCount: 0,
                 exception.GetBaseException().Message);
         }
+    }
+
+    private static int CountUnavailableRoots(SongEnumerationBatch batch)
+    {
+        ArgumentNullException.ThrowIfNull(batch);
+        return batch.Errors.Where(error => error.IsRootFailure).Count();
     }
 
     private sealed class ReloadProgressAdapter : IProgress<EnumerationProgress>
