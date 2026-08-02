@@ -122,7 +122,13 @@ namespace DTXMania.Game.Lib.Stage
         private Task<List<SongListNode>> _songInitializationTask;
         private bool _songInitializationProcessed = false;
         private CancellationTokenSource _cancellationTokenSource;
-        private SongLibrarySnapshot? _backgroundLibrarySnapshot;
+        // Initializers run on workers, so they return immutable records to this queue instead
+        // of writing a shared snapshot field. OnUpdate consumes only the record that belongs to
+        // the current activation and initialization generation.
+        private readonly System.Collections.Concurrent.ConcurrentQueue<SongInitializationResult>
+            _pendingSongInitializationResults = new();
+        private long _songInitializationGeneration;
+        private long _activeSongInitializationGeneration;
 
         // One coherent library publication backs every song-select projection.  The event
         // publisher can run on a worker thread, so it only records a version; OnUpdate is
@@ -231,6 +237,12 @@ namespace DTXMania.Game.Lib.Stage
 
         private readonly record struct BookmarkLoadRequest(int ActivationVersion);
 
+        internal readonly record struct SongInitializationResult(
+            int ActivationVersion,
+            long Generation,
+            SongLibrarySnapshot? Snapshot,
+            IReadOnlyList<SongListNode> SongList);
+
         #endregion
 
         #region Properties
@@ -265,8 +277,8 @@ namespace DTXMania.Game.Lib.Stage
             Interlocked.Increment(ref _activationVersion);
             UnsubscribeLibraryPublications();
             _cancellationTokenSource = new CancellationTokenSource();
-            _backgroundLibrarySnapshot = null;
             _songInitializationProcessed = false;
+            Interlocked.Exchange(ref _activeSongInitializationGeneration, 0);
             _appliedLibrarySnapshot = null;
             _libraryEmptyState = SongLibraryEmptyState.HasSongs;
             Interlocked.Exchange(ref _pendingLibraryPublicationVersion, 0);
@@ -442,7 +454,7 @@ namespace DTXMania.Game.Lib.Stage
 
             // Clean up task references
             _songInitializationTask = null;
-            _backgroundLibrarySnapshot = null;
+            Interlocked.Exchange(ref _activeSongInitializationGeneration, 0);
             _appliedLibrarySnapshot = null;
             Interlocked.Exchange(ref _pendingLibraryPublicationVersion, 0);
 
@@ -788,11 +800,18 @@ namespace DTXMania.Game.Lib.Stage
                 {
                     var token = _cancellationTokenSource.Token;
                     int initializationActivationVersion = Volatile.Read(ref _activationVersion);
+                    long initializationGeneration =
+                        Interlocked.Increment(ref _songInitializationGeneration);
+                    Interlocked.Exchange(
+                        ref _activeSongInitializationGeneration,
+                        initializationGeneration);
 
                     // Start background task to initialize SongManager and fetch song list
-                    // This task only fetches data and doesn't modify shared state or UI
-                    _songInitializationTask = Task.Run(async () =>
+                    // This task only fetches data and queues an immutable result; it never
+                    // writes stage-owned state or UI collections from a worker thread.
+                    _songInitializationTask = Task.Run(() =>
                     {
+                        SongInitializationResult result;
                         try
                         {
                             // Check for cancellation before starting
@@ -809,25 +828,35 @@ namespace DTXMania.Game.Lib.Stage
                             token.ThrowIfCancellationRequested();
 
                             // Read a single coherent publication. The UI thread applies
-                            // both hierarchy and root paths together when this task ends.
+                            // both hierarchy and root paths together when it consumes this
+                            // activation-tagged result on the update thread.
                             var snapshot = songManager.GetLibrarySnapshot();
-                            if (!token.IsCancellationRequested
-                                && initializationActivationVersion ==
-                                    Volatile.Read(ref _activationVersion))
-                            {
-                                _backgroundLibrarySnapshot = snapshot;
-                            }
-                            return snapshot.RootSongs.ToList();
+                            result = new SongInitializationResult(
+                                initializationActivationVersion,
+                                initializationGeneration,
+                                snapshot,
+                                Array.AsReadOnly(snapshot.RootSongs.ToArray()));
                         }
                         catch (OperationCanceledException)
                         {
-                            return new List<SongListNode>();
+                            result = new SongInitializationResult(
+                                initializationActivationVersion,
+                                initializationGeneration,
+                                null,
+                                Array.Empty<SongListNode>());
                         }
                         catch (Exception ex)
                         {
                             System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to initialize SongManager: {ex.Message}");
-                            return new List<SongListNode>();
+                            result = new SongInitializationResult(
+                                initializationActivationVersion,
+                                initializationGeneration,
+                                null,
+                                Array.Empty<SongListNode>());
                         }
+
+                        _pendingSongInitializationResults.Enqueue(result);
+                        return result.SongList.ToList();
                     }, token);
 
                     // While no coherent snapshot is available, do not leave a BackBox from
@@ -1005,27 +1034,36 @@ namespace DTXMania.Game.Lib.Stage
 
                 try
                 {
-                    // Get the result from the completed task
+                    // Get the result from the completed task. Its immutable snapshot record is
+                    // selected separately by activation and generation, so an old worker that
+                    // completes after a reactivation cannot overwrite this task's result.
                     var songList = _songInitializationTask.Result;
+                    int activationVersion = Volatile.Read(ref _activationVersion);
+                    long initializationGeneration =
+                        Volatile.Read(ref _activeSongInitializationGeneration);
+                    var initializationResult = ConsumeSongInitializationResult(
+                        activationVersion,
+                        initializationGeneration);
 
                     // Update the song list on the main thread. A publication can have been
                     // reconciled while this background task was running; do not let its older
                     // copied snapshot overwrite the newer UI snapshot.
                     bool shouldProjectInitializationResult = false;
-                    if (_backgroundLibrarySnapshot != null)
+                    if (initializationResult?.Snapshot != null)
                     {
+                        var snapshot = initializationResult.Value.Snapshot!;
                         // If an update-thread publication has already restored the user's
                         // navigation and selection, even an equal-version initialization
                         // result must not repopulate the old projection and reset it.
                         if (_appliedLibrarySnapshot == null
-                            || _backgroundLibrarySnapshot.Version >
+                            || snapshot.Version >
                                 Volatile.Read(ref _appliedLibraryPublicationVersion))
                         {
                             // Even the initialization result may replace a hierarchy that was
                             // already being displayed. Reconcile instead of raw-applying so a
                             // retained box path and selection are restored against this exact
                             // snapshot, while a removed path is cleared before projection.
-                            ReconcileLibrarySnapshot(_backgroundLibrarySnapshot);
+                            ReconcileLibrarySnapshot(snapshot);
                         }
                     }
                     else if (_appliedLibrarySnapshot == null)
@@ -1055,12 +1093,28 @@ namespace DTXMania.Game.Lib.Stage
                 {
                     // Clean up the task reference
                     _songInitializationTask = null;
-                    _backgroundLibrarySnapshot = null;
                 }
 
                 if (_searchFilterModal != null && _searchFilterModal.IsOpen)
                     _searchFilterModal.IsLibraryReady = true;
             }
+        }
+
+        private SongInitializationResult? ConsumeSongInitializationResult(
+            int activationVersion,
+            long initializationGeneration)
+        {
+            SongInitializationResult? matchingResult = null;
+            while (_pendingSongInitializationResults.TryDequeue(out var result))
+            {
+                if (result.ActivationVersion == activationVersion
+                    && result.Generation == initializationGeneration)
+                {
+                    matchingResult = result;
+                }
+            }
+
+            return matchingResult;
         }
 
         /// <summary>
