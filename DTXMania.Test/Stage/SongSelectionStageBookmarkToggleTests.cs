@@ -511,10 +511,19 @@ namespace DTXMania.Test.Stage
             var nodes = GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes");
             Assert.Single(nodes);
 
-            // Settle the write; the chained load fires and (no DB connected) overwrites with
-            // an empty list.
+            // Settle the write. Its worker continuation only queues a reload request, so the
+            // stage-owned cache stays unchanged until the update path consumes that request.
             tcs.SetResult(true);
             await Task.Delay(400);
+
+            nodes = GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes");
+            Assert.Single(nodes);
+
+            // First update-thread pass begins the deferred load; the second applies its
+            // completion (the no-DB loader returns an empty list).
+            InvokePrivateMethod(stage, "ConsumePendingTabLoadWork");
+            await Task.Delay(400);
+            InvokePrivateMethod(stage, "ConsumePendingTabLoadWork");
 
             nodes = GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes");
             Assert.Empty(nodes);
