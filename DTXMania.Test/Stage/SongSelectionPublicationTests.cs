@@ -423,7 +423,9 @@ namespace DTXMania.Test.Stage
             SetPrivateField(stage, "_selectedSong", selected);
             SetPrivateField(stage, "_appliedLibrarySnapshot", appliedSnapshot);
             SetPrivateField(stage, "_appliedLibraryPublicationVersion", 51L);
-            SetPrivateField(stage, "_backgroundLibrarySnapshot", staleSnapshot);
+            SetPrivateField(stage, "_activationVersion", 0);
+            SetPrivateField(stage, "_activeSongInitializationGeneration", 1L);
+            EnqueueSongInitializationResult(stage, 0, 1, staleSnapshot, new[] { oldNode });
             SetPrivateField(stage, "_songInitializationTask", Task.FromResult(new List<SongListNode> { oldNode }));
             SetPrivateField(stage, "_songInitializationProcessed", false);
 
@@ -461,7 +463,9 @@ namespace DTXMania.Test.Stage
             var newerSnapshot = Snapshot(82, new[] { replacementBox }, new[] { "/library/shared" });
             SetPrivateField(stage, "_appliedLibrarySnapshot", appliedSnapshot);
             SetPrivateField(stage, "_appliedLibraryPublicationVersion", 81L);
-            SetPrivateField(stage, "_backgroundLibrarySnapshot", newerSnapshot);
+            SetPrivateField(stage, "_activationVersion", 0);
+            SetPrivateField(stage, "_activeSongInitializationGeneration", 1L);
+            EnqueueSongInitializationResult(stage, 0, 1, newerSnapshot, new[] { replacementBox });
             SetPrivateField(stage, "_songInitializationTask",
                 Task.FromResult(new List<SongListNode> { replacementBox }));
             SetPrivateField(stage, "_songInitializationProcessed", false);
@@ -474,6 +478,62 @@ namespace DTXMania.Test.Stage
             Assert.Equal("BOX", GetPrivateField<string>(stage, "_currentBreadcrumb"));
             Assert.Same(replacementSong, display.SelectedSong);
             Assert.Equal(82L, GetPrivateField<long>(stage, "_appliedLibraryPublicationVersion"));
+        }
+
+        [Fact]
+        public async Task CheckSongInitializationCompletion_WhenOldActivationCompletesAfterNewCompletion_ShouldUseNewSnapshot()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            AttachCoreUi(stage, display: display);
+            var oldNode = Score("Old", 91, "/library/old/old.dtx");
+            var newNode = Score("New", 92, "/library/new/new.dtx");
+            var oldSnapshot = Snapshot(91, new[] { oldNode }, new[] { "/library/old" });
+            var newSnapshot = Snapshot(92, new[] { newNode }, new[] { "/library/new" });
+            var oldWorkerPassedTokenCheck = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var releaseOldWorker = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var newWorker = new TaskCompletionSource<List<SongListNode>>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+
+            SetPrivateField(stage, "_activationVersion", 71);
+            var completions = GetPrivateField<
+                System.Collections.Concurrent.ConcurrentQueue<SongSelectionStage.SongInitializationResult>>(
+                stage,
+                "_pendingSongInitializationResults")!;
+            var oldWorker = Task.Run(async () =>
+            {
+                // Model the prior initializer after it has passed its activation check but
+                // before it publishes its immutable completion record.
+                oldWorkerPassedTokenCheck.TrySetResult(true);
+                await releaseOldWorker.Task;
+                completions.Enqueue(new SongSelectionStage.SongInitializationResult(
+                    71,
+                    1,
+                    oldSnapshot,
+                    new[] { oldNode }));
+            });
+            await oldWorkerPassedTokenCheck.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+            // A later activation completes and installs its own task/snapshot first.
+            SetPrivateField(stage, "_activationVersion", 72);
+            SetPrivateField(stage, "_activeSongInitializationGeneration", 2L);
+            EnqueueSongInitializationResult(stage, 72, 2, newSnapshot, new[] { newNode });
+            SetPrivateField(stage, "_songInitializationTask", newWorker.Task);
+            SetPrivateField(stage, "_songInitializationProcessed", false);
+            newWorker.SetResult(new List<SongListNode> { newNode });
+
+            // The old worker is released last. Its record must be discarded instead of being
+            // paired with the newer activation's completed task.
+            releaseOldWorker.SetResult(true);
+            await oldWorker.WaitAsync(TimeSpan.FromSeconds(1));
+
+            InvokePrivateMethod(stage, "CheckSongInitializationCompletion");
+
+            Assert.Equal(92L, GetPrivateField<long>(stage, "_appliedLibraryPublicationVersion"));
+            Assert.Equal(new[] { newNode }, display.CurrentList);
+            Assert.Empty(completions);
         }
 
         [Fact]
@@ -535,6 +595,24 @@ namespace DTXMania.Test.Stage
             Assert.Equal(27L, GetPrivateField<long>(stage, "_appliedLibraryPublicationVersion"));
             Assert.Equal(new[] { newestNode }, display.CurrentList);
             Assert.DoesNotContain(oldNode, display.CurrentList);
+        }
+
+        private static void EnqueueSongInitializationResult(
+            SongSelectionStage stage,
+            int activationVersion,
+            long generation,
+            SongLibrarySnapshot? snapshot,
+            IReadOnlyList<SongListNode> songList)
+        {
+            var completions = GetPrivateField<
+                System.Collections.Concurrent.ConcurrentQueue<SongSelectionStage.SongInitializationResult>>(
+                stage,
+                "_pendingSongInitializationResults")!;
+            completions.Enqueue(new SongSelectionStage.SongInitializationResult(
+                activationVersion,
+                generation,
+                snapshot,
+                songList));
         }
 
         private static SongListNode Box(string title, string directoryPath, params SongListNode[] children)
