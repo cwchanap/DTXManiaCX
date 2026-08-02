@@ -4,7 +4,6 @@ using DTXMania.Game.Lib.Resources;
 using Microsoft.Xna.Framework.Graphics;
 using Moq;
 using System;
-using System.Runtime.Serialization;
 using Xunit;
 using DTXMania.Test.TestData;
 
@@ -16,7 +15,7 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void Deactivate_WhenFontLoaded_ShouldReleaseFontReference()
         {
-            var stage = CreateUninitializedStage();
+            var stage = SongSelectionStageTestFactory.CreateStage();
             var mockFont = new Mock<IFont>();
             ReflectionHelpers.SetPrivateField(stage, "_font", mockFont.Object);
 
@@ -47,13 +46,6 @@ namespace DTXMania.Test.Stage
             // Graphics resources should be null after cleanup in catch block
             Assert.Null(ReflectionHelpers.GetPrivateField<SpriteBatch>(stage, "_spriteBatch"));
             Assert.Null(ReflectionHelpers.GetPrivateField<Texture2D>(stage, "_whitePixel"));
-        }
-
-        private static SongSelectionStage CreateUninitializedStage()
-        {
-#pragma warning disable SYSLIB0050
-            return (SongSelectionStage)FormatterServices.GetUninitializedObject(typeof(SongSelectionStage));
-#pragma warning restore SYSLIB0050
         }
 
         private class TestableSongSelectionStage : SongSelectionStage
