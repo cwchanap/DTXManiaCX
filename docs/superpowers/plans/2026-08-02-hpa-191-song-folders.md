@@ -2,51 +2,58 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Let players persist, edit, and live-reload an ordered list of song-library roots while preserving atomic HPA-192 publication, retained user data, and a coherent active Song Select stage.
+**Goal:** Let players persist, edit, and live-reload an ordered list of song-library roots while preserving HPA-192 atomic publication, retained user data, and a coherent active Song Select stage.
 
-**Architecture:** Configuration owns the ordered `SongRoots` list and keeps `DTXPath` only as a compatibility mirror. `SongManager` owns comparer-aware root identity and publishes copied, versioned library snapshots rather than live collection wrappers. Config uses one operation coordinator for NX score import and song-root reload; Song Select consumes publication notifications only on the update thread.
+**Architecture:** Configuration owns ordered `SongRoots` and keeps `DTXPath` only as a compatibility mirror. `SongManager` centralizes comparer-aware root identity and publishes copied, versioned `SongLibrarySnapshot` values. Config serializes NX score import and song-root reload through one scoped operation coordinator; Song Select consumes publication only on the update thread.
 
-**Tech Stack:** .NET 8, C# 12, MonoGame 3.8, Entity Framework Core SQLite, xUnit, WinForms on Windows, `osascript` Standard Additions on macOS.
+**Tech Stack:** .NET 8, C# 12, MonoGame 3.8, Entity Framework Core SQLite, xUnit, WinForms on Windows, `/usr/bin/osascript` Standard Additions on macOS.
 
 ## Global Constraints
 
 - DTXCreator is out of scope.
-- Do not change chart parsing, `set.def`, `box.def`, database schema, or synthetic root navigation.
+- Do not change chart parsing, `set.def`, `box.def`, database schema, or root-navigation semantics.
 - `SongRoots` is the configured-root source of truth; `DTXPath` is serialization/migration compatibility only.
-- Keep Config.ini parsing section-agnostic and split each assignment on the first `=` only.
+- Config.ini parsing remains section-agnostic and splits on the first `=` only.
 - Create only `AppPaths.GetDefaultSongsPath()` automatically; never create a missing custom root.
-- Root comparison is ordinal-ignore-case on Windows/macOS and ordinal on Linux/other platforms, through a testable comparer seam.
+- Root comparison is ordinal-ignore-case on Windows/macOS and ordinal on Linux/other platforms, through an injectable test seam.
 - `SongPathIdentity.CanonicalComparer` remains ordinal for chart identity.
 - Parent/child overlap uses segment-wise comparison through the root comparer; do not use `Path.GetRelativePath` for this policy.
 - Physical-target deduplication for symlinks, junctions, aliases, bind mounts, or inodes remains out of scope.
 - Never expose `_rootSongs` or `_currentSearchPaths` through a live collection wrapper.
-- Publish hierarchy, active roots, counts, and publication version as one coherent snapshot.
-- Startup may explicitly publish an empty library without database cleanup; a normal live reload with zero active roots must not import or publish.
-- Any changed ordered root list, including reorder-only changes, performs one full HPA-192 scan; an unchanged list performs none.
-- HPA-192 enumeration-batch root failures are authoritative for roots actually rejected at scan time.
+- Hierarchy, active roots, counts, and publication version change as one coherent snapshot.
+- Startup may explicitly publish an empty library without cleanup. A normal live reload with zero active roots must not import or publish.
+- Any changed ordered root list, including reorder-only changes, performs one full HPA-192 scan; unchanged lists perform none.
+- HPA-192 enumeration-batch root failures are authoritative for roots rejected at scan time.
 - Database commit through hierarchy publication is a non-cancellable terminal section.
 - Config NX score import and song-root reload share one exclusive, throw-safe operation lifecycle.
-- Worker threads may report progress into a queue; only the game update thread mutates Config or Song Select UI state.
-- Runtime `Config.DTXPath` reads are forbidden outside an explicit serialization/migration compatibility allowlist.
-- Platform picker implementation files must not compile into the opposite platform project.
-- The slices land in order: **1a → 1b → 2 → 3a → 3b**.
-- Each slice must remain reviewable within three engineer days. Split a slice rather than broadening it.
+- Worker threads report immutable progress updates; only the game update thread changes Config or Song Select UI state.
+- Runtime `Config.DTXPath` reads are forbidden outside an explicit compatibility allowlist.
+- Platform picker source must not compile into the opposite platform target.
+- Slices land in order: **1a → 1b → 2 → 3a → 3b**.
+- Each slice must remain reviewable within three engineer days.
+
+## Branch and PR Strategy
+
+1. Merge documentation PR #109 first.
+2. Create a fresh implementation branch from updated `main`; do not add production code to the documentation PR.
+3. Use one implementation PR with five clearly separated slice commits and review gates.
+4. Do not squash during implementation; retain slice boundaries until the complete feature passes final verification.
 
 ---
 
-## File Structure
+## File Map
 
-### New shared production files
+### New shared files
 
-- `DTXMania.Game/Lib/Config/SongRootConfigModels.cs` — persistence statuses, diagnostics, and immutable change-event snapshots.
-- `DTXMania.Game/Lib/Song/SongRootPolicy.cs` — normalization, testable comparer construction, deduplication, overlap validation, and availability probing.
-- `DTXMania.Game/Lib/Song/SongLibrarySnapshot.cs` — immutable publication snapshot and event arguments.
-- `DTXMania.Game/Lib/Stage/Config/IConfigOverlayPanel.cs` — common Config overlay lifecycle.
-- `DTXMania.Game/Lib/Stage/Config/FolderPickerModels.cs` — picker interface/result contract.
+- `DTXMania.Game/Lib/Config/SongRootConfigModels.cs` — persistence statuses, diagnostics, and immutable event snapshots.
+- `DTXMania.Game/Lib/Song/SongRootPolicy.cs` — normalization, comparer construction, deduplication, overlap validation, and availability probing.
+- `DTXMania.Game/Lib/Song/SongLibrarySnapshot.cs` — copied publication snapshot and event args.
+- `DTXMania.Game/Lib/Stage/Config/IConfigOverlayPanel.cs` — generalized Config overlay lifecycle.
+- `DTXMania.Game/Lib/Stage/Config/FolderPickerModels.cs` — picker and panel-apply contracts.
 - `DTXMania.Game/Lib/Stage/Config/SongFolderPanel.cs` — isolated draft-list UI.
-- `DTXMania.Game/Lib/Stage/Config/ConfigSongOperationCoordinator.cs` — one exclusive Config song-operation lease.
-- `DTXMania.Game/Lib/Stage/Config/SongLibraryReloadModels.cs` — orchestration statuses and progress snapshots.
-- `DTXMania.Game/Lib/Stage/Config/SongLibraryReloadService.cs` — HPA-192 adapter and result mapping.
+- `DTXMania.Game/Lib/Stage/Config/ConfigSongOperationCoordinator.cs` — exclusive scoped lease.
+- `DTXMania.Game/Lib/Stage/Config/SongLibraryReloadModels.cs` — reload progress/result contracts.
+- `DTXMania.Game/Lib/Stage/Config/SongLibraryReloadService.cs` — HPA-192 adapter.
 
 ### New platform files
 
@@ -55,9 +62,7 @@
 - `DTXMania.Game/Platform/FolderPickerServiceFactory.Windows.cs`
 - `DTXMania.Game/Platform/FolderPickerServiceFactory.Mac.cs`
 
-The Windows and macOS projects must exclude the opposite platform directory/factory file through explicit `<Compile Remove=...>` entries.
-
-### Primary modified production files
+### Primary modified files
 
 - `DTXMania.Game/Lib/Config/ConfigData.cs`
 - `DTXMania.Game/Lib/Config/IConfigManager.cs`
@@ -72,25 +77,11 @@ The Windows and macOS projects must exclude the opposite platform directory/fact
 - `DTXMania.Game/DTXMania.Game.Windows.csproj`
 - `DTXMania.Game/DTXMania.Game.Mac.csproj`
 
-### New focused tests
-
-- `DTXMania.Test/Config/SongRootConfigTests.cs`
-- `DTXMania.Test/Config/DTXPathCompatibilityArchitectureTests.cs`
-- `DTXMania.Test/Song/SongRootPolicyTests.cs`
-- `DTXMania.Test/Song/SongManagerLibrarySnapshotTests.cs`
-- `DTXMania.Test/Config/SongFolderPanelTests.cs`
-- `DTXMania.Test/Config/FolderPickerContractTests.cs`
-- `DTXMania.Test/Config/ConfigSongOperationCoordinatorTests.cs`
-- `DTXMania.Test/Config/SongLibraryReloadServiceTests.cs`
-- `DTXMania.Test/Stage/SongSelectionPublicationTests.cs`
-
-Existing tests remain the regression home where the behavior already belongs, especially `ConfigManagerTests`, `StartupStageLogicTests`, `SongManagerBulkEnumerationTests`, `ConfigStageNxImportTests`, `PreviewImagePanelTests`, and `SongSelectionStageLogicTests`.
-
 ---
 
 ## Slice 1a — Configuration Model and Persistence
 
-### Task 1A: Persist Ordered Song Roots Without Runtime Consumer Changes
+### Task 1A: Persist Ordered Song Roots
 
 **Files:**
 - Create: `DTXMania.Game/Lib/Config/SongRootConfigModels.cs`
@@ -100,7 +91,7 @@ Existing tests remain the regression home where the behavior already belongs, es
 - Modify: `DTXMania.Test/Config/ConfigDataTests.cs`
 - Modify: `DTXMania.Test/Config/ConfigManagerTests.cs`
 
-**Interfaces:**
+**Produces:**
 
 ```csharp
 public enum SongRootUpdateStatus
@@ -128,25 +119,26 @@ public sealed class SongRootsChangedEventArgs : EventArgs
 }
 ```
 
-This slice defines the models and file format but does not add Config UI or live reload. The final comparer-aware `SetSongRoots` implementation is completed in Slice 1b after `SongRootPolicy` exists.
+This slice adds the stored model and compatibility behavior. The comparer-aware setter is completed in Slice 1b after `SongRootPolicy` exists.
 
-- [ ] **Step 1: Add red tests for default, repeated load, and indexed parsing**
+- [ ] **Step 1: Write red tests for the persisted format**
 
-Add tests named:
+Add tests:
 
 ```text
 DefaultConfig_ShouldContainManagedSongRootAndMirror
 LoadConfig_ShouldClearSongRootsBeforeSecondParse
 LoadConfig_ShouldReadIndexedRootsInNumericOrder
-LoadConfig_ShouldUseLastDuplicateIndexAndWarn
+LoadConfig_ShouldUseLastDuplicateIndex
 LoadConfig_ShouldPreferIndexedRootsOverLegacyDTXPath
 LoadConfig_ShouldMigrateLegacyDTXPathAndPersistIndexedRoot
 SaveConfig_ShouldWriteDenseIndexesAndFirstRootMirror
+LoadConfig_ShouldRemainSectionAgnostic
 ```
 
-Use temporary Config.ini files. Include an INI with unrelated section headers and prove `SongRoot.*` remains global because the current parser does not track sections.
+Use temporary Config.ini files. Include unrelated `[System]` and `[Other]` headers and prove keys remain global.
 
-- [ ] **Step 2: Run the focused red tests**
+- [ ] **Step 2: Run the red tests**
 
 ```bash
 dotnet test DTXMania.Test/DTXMania.Test.csproj \
@@ -155,38 +147,40 @@ dotnet test DTXMania.Test/DTXMania.Test.csproj \
 
 Expected: failures because `SongRoots` and indexed serialization do not exist.
 
-- [ ] **Step 3: Add the ConfigData and load/save model**
+- [ ] **Step 3: Implement load/save and migration**
 
-Add to `ConfigData`:
+Add:
 
 ```csharp
 public List<string> SongRoots { get; } = new();
 ```
 
-At the start of every `LoadConfig`, call `Config.SongRoots.Clear()` beside the existing MIDI-threshold clearing. Parse `SongRoot.<non-negative integer>` into a temporary index/value map, then finalize the list after all lines are read. Keep `[Section]` lines ignored exactly as today.
+At every `LoadConfig` start, call `Config.SongRoots.Clear()` beside `MidiVelocityThresholds.Clear()`. Collect `SongRoot.<non-negative integer>` entries during parsing and finalize after all lines are read.
 
-Finalize with this precedence:
+Precedence:
 
-1. Accepted indexed roots in ascending index order.
-2. Legacy `DTXPath` migrated into one root.
-3. Managed default root.
+1. accepted indexed roots in numeric order;
+2. migrated legacy `DTXPath`;
+3. managed default root.
 
-Save dense `SongRoot.0..N` entries and write `DTXPath` as the first root.
+Save dense `SongRoot.0..N` and mirror the first root into `DTXPath`.
 
-- [ ] **Step 4: Remove unconditional custom-root creation**
+- [ ] **Step 4: Remove custom-root auto-creation**
 
-Replace the current `EnsureDirectorySafe(Config.DTXPath)` behavior with managed-default-only creation. Add tests proving:
+Replace unconditional `EnsureDirectorySafe(Config.DTXPath)` with managed-default-only creation.
 
-- missing custom roots remain strings in Config;
-- no custom directory is created during load, migration, or save;
-- the managed default is created when selected as fallback;
-- directories created by older versions are not deleted.
+Tests must prove:
 
-- [ ] **Step 5: Correct pending-save path clearing**
+- missing custom paths remain configured;
+- load/migration/save never creates them;
+- managed default creation still works;
+- old directories are not deleted.
 
-When an explicit full config save succeeds, clear `_pendingSavePath` only when its normalized path equals the file just written. A save to another path must leave the pending marker intact.
+- [ ] **Step 5: Correct pending-save clearing**
 
-Add tests:
+After a full save, clear `_pendingSavePath` only when its normalized path equals the path just written. A save to another file must retain the pending marker.
+
+Add:
 
 ```text
 SaveConfig_ShouldClearMatchingPendingPath
@@ -194,38 +188,38 @@ SaveConfig_ShouldRetainDifferentPendingPath
 FlushPendingSave_ShouldRetryAfterFailure
 ```
 
-- [ ] **Step 6: Add immutable persistence/event model tests**
+- [ ] **Step 6: Verify immutable model snapshots**
 
-Construct `SongRootsChangedEventArgs` from mutable source lists, mutate the sources, and prove the event snapshots remain unchanged. Do not raise the event from load/reset.
+Construct event args/results from mutable lists, mutate the originals, and assert exposed values are unchanged. Use copied read-only arrays, not caller-owned lists.
 
-- [ ] **Step 7: Run Slice 1a gate**
+- [ ] **Step 7: Run the Slice 1a gate**
 
 ```bash
 dotnet test DTXMania.Test/DTXMania.Test.csproj \
   --filter "FullyQualifiedName~SongRootConfigTests|FullyQualifiedName~ConfigManagerTests|FullyQualifiedName~ConfigDataTests"
-
 dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj -c Debug
 ```
 
-Expected: all focused tests pass and the macOS game project builds.
-
-- [ ] **Step 8: Commit Slice 1a**
+- [ ] **Step 8: Commit explicit files**
 
 ```bash
-git add DTXMania.Game/Lib/Config \
+git add \
+  DTXMania.Game/Lib/Config/SongRootConfigModels.cs \
+  DTXMania.Game/Lib/Config/ConfigData.cs \
+  DTXMania.Game/Lib/Config/ConfigManager.cs \
+  DTXMania.Test/Config/SongRootConfigTests.cs \
   DTXMania.Test/Config/ConfigDataTests.cs \
-  DTXMania.Test/Config/ConfigManagerTests.cs \
-  DTXMania.Test/Config/SongRootConfigTests.cs
+  DTXMania.Test/Config/ConfigManagerTests.cs
 git commit -m "feat: persist ordered song roots"
 ```
 
-**Review gate:** verify the serialized format, repeated-load clearing, section-agnostic behavior, custom-directory behavior removal, and pending-save path handling before starting Slice 1b.
+**Gate:** indexed format, repeated-load clearing, section-agnostic parsing, custom-directory behavior removal, and pending-save correctness.
 
 ---
 
-## Slice 1b — Root Policy, SongManager Snapshots, and Startup Consumers
+## Slice 1b — Root Policy, Safe SongManager Snapshots, and Consumers
 
-### Task 1B: Centralize Root Identity and Publish Safe Library Snapshots
+### Task 1B: Centralize Root Identity and Publication
 
 **Files:**
 - Create: `DTXMania.Game/Lib/Song/SongRootPolicy.cs`
@@ -240,9 +234,9 @@ git commit -m "feat: persist ordered song roots"
 - Modify: `DTXMania.Game/Lib/Stage/StartupStage.cs`
 - Modify: `DTXMania.Game/Lib/Stage/SongSelectionStage.cs`
 - Modify: `DTXMania.Game/Lib/Song/Components/PreviewImagePanel.cs`
-- Modify: relevant existing SongManager, startup, and preview tests.
+- Modify: focused existing SongManager/startup/preview tests.
 
-**Interfaces:**
+**Produces:**
 
 ```csharp
 internal sealed class SongRootPolicy
@@ -269,11 +263,11 @@ public sealed class SongLibraryPublishedEventArgs : EventArgs
 }
 ```
 
-`SongManager.GetLibrarySnapshot()` returns copied root and root-path arrays captured under `_lockObject`. `RootSongs` may remain as a compatibility property only if it returns the copied snapshot list, never `_rootSongs.AsReadOnly()`.
+All snapshot lists are copied and wrapped read-only. Published node graphs are not structurally mutated after publication.
 
-- [ ] **Step 1: Write the comparer and overlap red tests**
+- [ ] **Step 1: Write root-policy red tests**
 
-Add theory coverage that executes both policies on every host:
+Execute both policies on every CI host:
 
 ```csharp
 [Theory]
@@ -284,30 +278,21 @@ public void DuplicatePolicy_ShouldFollowInjectedCaseMode(
     bool expectedDuplicate)
 ```
 
-Add explicit parent/child matrices including:
+Add overlap cases:
 
 ```text
 /Users/me/Songs + /Users/me/SONGS/Extra
 C:\Songs + c:\songs\Pack
-/songs + /Songs/Pack under ordinal mode
+/songs + /Songs/Pack in ordinal mode
 ```
 
-Assert overlap compares path segments through the injected comparer and does not call `Path.GetRelativePath`.
+- [ ] **Step 2: Implement segment-wise `SongRootPolicy`**
 
-- [ ] **Step 2: Implement `SongRootPolicy`**
+The policy must normalize, preserve first occurrence/order, detect duplicates, and compare root/path segments using the injected comparer. Do not delegate overlap to `Path.GetRelativePath`.
 
-The policy must:
+`ForCurrentPlatform()` uses the production OS policy; tests use `CreateComparer(true/false)`.
 
-1. Normalize absolute paths with `SongPathIdentity.Normalize`.
-2. Preserve first occurrence and configured order.
-3. Detect duplicate roots through the injected comparer.
-4. Split normalized roots into root/segment components and compare each segment through the same comparer.
-5. Reject same-path and parent/child overlap symmetrically.
-6. Probe existence/access without creating directories.
-
-Use `CreateComparer(true)` for ignore-case tests and `CreateComparer(false)` for ordinal tests. `ForCurrentPlatform()` selects the production mode.
-
-- [ ] **Step 3: Complete the typed Config setter**
+- [ ] **Step 3: Complete `SetSongRoots`**
 
 Add to `IConfigManager`:
 
@@ -319,34 +304,36 @@ SongRootUpdateResult SetSongRoots(
 event EventHandler<SongRootsChangedEventArgs>? SongRootsChanged;
 ```
 
-`ConfigManager.SetSongRoots` validates through `SongRootPolicy`, writes the complete config immediately, rolls back memory on persistence failure, raises one event after success, and returns `Unchanged` without writing or raising when the canonical ordered list is equal.
+Validate through `SongRootPolicy`, persist immediately, roll memory back on failure, raise one event after success, and return `Unchanged` without write/event for an equal canonical ordered list.
 
-- [ ] **Step 4: Replace live library views with coherent snapshots**
+- [ ] **Step 4: Replace live SongManager views**
 
-Under `_lockObject`, capture:
+Make `SetCurrentSearchPaths` `internal` for direct tests while keeping it non-public.
+
+Publication methods, not reads, increment `_publicationVersion`:
 
 ```csharp
-new SongLibrarySnapshot(
-    ++_publicationVersion,
-    _rootSongs.ToArray(),
-    _currentSearchPaths.ToArray(),
-    EnumeratedFileCount,
-    DiscoveredScoreCount)
+private SongLibrarySnapshot CreateSnapshotLocked() =>
+    new(
+        _publicationVersion,
+        Array.AsReadOnly(_rootSongs.ToArray()),
+        Array.AsReadOnly(_currentSearchPaths.ToArray()),
+        EnumeratedFileCount,
+        DiscoveredScoreCount);
 ```
 
-Required changes:
+Required behavior:
 
-- `GetLibrarySnapshot()` returns a copied snapshot.
-- `PublishEnumeration` replaces hierarchy/roots/counts, increments one version, then raises `SongLibraryPublished` outside the lock.
-- `PublishEmptyLibrary` clears hierarchy, active roots, and counts in one version and raises the same event.
-- `SetCurrentSearchPaths(Array.Empty<string>())` clears `_currentSearchPaths`; remove the current empty-input early return.
-- defensive deduplication in `SetCurrentSearchPaths` and `CreateBatchBuilder` uses `SongRootPolicy`.
+- `GetLibrarySnapshot()` reads the current version without incrementing it.
+- `PublishEnumeration` replaces hierarchy/roots/counts, increments once, captures one snapshot, then raises `SongLibraryPublished` outside the lock.
+- `PublishEmptyLibrary` clears hierarchy/roots/counts, increments once, and publishes one empty snapshot.
+- empty input to `SetCurrentSearchPaths` clears active roots.
+- `RootSongs`, if retained, returns the copied snapshot list rather than `_rootSongs.AsReadOnly()`.
+- `SetCurrentSearchPaths` and `CreateBatchBuilder` use `SongRootPolicy` deduplication.
 
-Do not mutate a previously published root list after it has been handed to a consumer.
+- [ ] **Step 5: Add a non-null zero-active-root result**
 
-- [ ] **Step 5: Add zero-active-root import behavior**
-
-Extend `SongEnumerationResult` with an explicit outcome such as:
+Update models:
 
 ```csharp
 public enum SongEnumerationOutcome
@@ -354,20 +341,21 @@ public enum SongEnumerationOutcome
     ImportedAndPublished,
     NoActiveRoots
 }
+
+public sealed record SongEnumerationResult(
+    SongEnumerationOutcome Outcome,
+    SongEnumerationBatch Batch,
+    SongBulkImportResult Import,
+    TimeSpan HierarchyDuration);
 ```
 
-When `BuildEnumerationBatchAsync` returns a complete batch with no active roots:
+Add `SongBulkImportResult.Empty` with empty read-only chart map, zero counts, and zero durations. When a complete batch has no active roots, return `NoActiveRoots` with `Empty`; do not import or publish, and always release the enumeration slot.
 
-- do not call `ImportSongsCoreAsync`;
-- do not call `PublishEnumeration`;
-- return `NoActiveRoots` with batch root-failure errors available to callers;
-- always release the enumeration slot.
-
-A clean startup with no available roots calls `PublishEmptyLibrary()` explicitly after deciding not to clean/import.
+Startup with no accepted roots calls `PublishEmptyLibrary()` explicitly.
 
 - [ ] **Step 6: Migrate startup and preview consumers**
 
-`StartupStage` snapshots `Config.SongRoots`, uses the shared policy, and chooses cache/enumeration paths from the accepted roots. `SongSelectionStage` initializes from one `SongLibrarySnapshot`.
+`StartupStage` snapshots `Config.SongRoots`. `SongSelectionStage` initializes from one `SongLibrarySnapshot`.
 
 Replace `PreviewImagePanel.SongsRootPath` with:
 
@@ -375,62 +363,70 @@ Replace `PreviewImagePanel.SongsRootPath` with:
 public IReadOnlyList<string> ActiveSongRootPaths { get; set; }
 ```
 
-Absolute chart paths remain authoritative. Relative fallback tries active roots in order.
+Absolute chart path remains authoritative; relative fallback tries active roots in order.
 
-- [ ] **Step 7: Add architecture and concurrency regression tests**
+- [ ] **Step 7: Add architecture and concurrency tests**
 
-Tests must prove:
+Prove:
 
-- `RootSongs`/`GetLibrarySnapshot` remain stable while another thread publishes;
-- filter projection and `BookmarkStateReconciler.Apply` cannot observe collection modification;
-- root list and active roots share one publication version;
+- snapshots remain stable while another thread publishes;
+- filter and bookmark reconciliation cannot observe collection mutation;
+- hierarchy and active roots share one version;
 - empty publication clears both;
-- `LoadScoreCacheAsync`, `BuildSongListFromDatabasePublicAsync`, and `NeedsEnumerationAsync` receive deduplicated roots;
-- no production `Config.DTXPath` read remains outside Config serialization/migration allowlist.
+- cache/database/enumeration callers use aligned deduplication;
+- no production `Config.DTXPath` read remains outside an explicit allowlist.
 
-The architecture test should scan `DTXMania.Game/**/*.cs` and list the allowed files explicitly so a future runtime read fails the test.
-
-- [ ] **Step 8: Run Slice 1b gate**
+- [ ] **Step 8: Run the Slice 1b gate**
 
 ```bash
 dotnet test DTXMania.Test/DTXMania.Test.csproj \
   --filter "FullyQualifiedName~SongRootPolicyTests|FullyQualifiedName~SongManagerLibrarySnapshotTests|FullyQualifiedName~SongManagerBulkEnumerationTests|FullyQualifiedName~StartupStageLogicTests|FullyQualifiedName~PreviewImagePanelTests|FullyQualifiedName~DTXPathCompatibilityArchitectureTests"
-
 dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj -c Debug
 ```
 
-- [ ] **Step 9: Commit Slice 1b**
+- [ ] **Step 9: Commit explicit files**
 
 ```bash
-git add DTXMania.Game/Lib/Song \
-  DTXMania.Game/Lib/Config \
+git add \
+  DTXMania.Game/Lib/Song/SongRootPolicy.cs \
+  DTXMania.Game/Lib/Song/SongLibrarySnapshot.cs \
+  DTXMania.Game/Lib/Song/SongImportModels.cs \
+  DTXMania.Game/Lib/Song/SongManager.cs \
+  DTXMania.Game/Lib/Config/IConfigManager.cs \
+  DTXMania.Game/Lib/Config/ConfigManager.cs \
   DTXMania.Game/Lib/Stage/StartupStage.cs \
   DTXMania.Game/Lib/Stage/SongSelectionStage.cs \
-  DTXMania.Test
+  DTXMania.Game/Lib/Song/Components/PreviewImagePanel.cs \
+  DTXMania.Test/Song/SongRootPolicyTests.cs \
+  DTXMania.Test/Song/SongManagerLibrarySnapshotTests.cs \
+  DTXMania.Test/Config/DTXPathCompatibilityArchitectureTests.cs \
+  DTXMania.Test/Song/SongManagerBulkEnumerationTests.cs \
+  DTXMania.Test/Stage/StartupStageLogicTests.cs \
+  DTXMania.Test/UI/PreviewImagePanelTests.cs
 git commit -m "feat: publish versioned song library snapshots"
 ```
 
-**Review gate:** no live `RootSongs` wrapper, no empty-root stale snapshot, no platform-dependent untested comparer branch, and no runtime `DTXPath` consumer.
+**Gate:** no live root wrapper, no stale active roots after empty publication, both comparer modes tested, and no runtime `DTXPath` consumer.
 
 ---
 
 ## Slice 2 — Cross-Platform SongFolderPanel
 
-### Task 2: Add Draft Editing and Platform Folder Selection
+### Task 2: Add Draft Editing and Platform Pickers
 
 **Files:**
 - Create: `DTXMania.Game/Lib/Stage/Config/IConfigOverlayPanel.cs`
 - Create: `DTXMania.Game/Lib/Stage/Config/FolderPickerModels.cs`
 - Create: `DTXMania.Game/Lib/Stage/Config/SongFolderPanel.cs`
-- Create: platform picker/factory files listed in File Structure.
+- Create: four platform files listed above.
 - Create: `DTXMania.Test/Config/SongFolderPanelTests.cs`
 - Create: `DTXMania.Test/Config/FolderPickerContractTests.cs`
 - Modify: `DTXMania.Game/Lib/Stage/KeyAssign/IKeyAssignPanel.cs`
 - Modify: `DTXMania.Game/Lib/Stage/ConfigStage.cs`
-- Modify: both platform `.csproj` files.
+- Modify: both game `.csproj` files.
 - Modify: `DTXMania.Test/Config/ConfigStageLogicTests.cs`
 
-**Interfaces:**
+**Produces:**
 
 ```csharp
 public interface IConfigOverlayPanel
@@ -451,115 +447,81 @@ public interface IFolderPickerService
         string? initialDirectory,
         CancellationToken cancellationToken);
 }
+
+internal enum SongFolderApplyStatus
+{
+    Updated,
+    Unchanged,
+    Busy,
+    ValidationFailed,
+    PersistenceFailed,
+    Started
+}
 ```
 
-`IKeyAssignPanel` inherits `IConfigOverlayPanel`. `ConfigStage._activePanel` uses the generalized interface.
+`IKeyAssignPanel` inherits `IConfigOverlayPanel`.
 
-- [ ] **Step 1: Add panel-lifecycle and draft red tests**
+- [ ] **Step 1: Write panel red tests**
 
-Cover:
+Cover isolated draft, Add, Remove-last protection, Move Up/Down, Cancel/Back, structural errors, availability warnings, picker cancellation/failure, stale picker generation, and `Saved` before `Closed`.
 
-```text
-Activate_ShouldCopyConfiguredRoots
-CancelAndBack_ShouldDiscardDraft
-Add_ShouldAppendSelectedFolder
-PickerCancellation_ShouldNotMutateDraft
-Remove_ShouldProtectLastRoot
-MoveUpAndMoveDown_ShouldPreserveSelection
-StructuralError_ShouldKeepPanelOpen
-AvailabilityWarning_ShouldAllowApply
-Saved_ShouldFireBeforeClosed
-```
+- [ ] **Step 2: Generalize overlay lifecycle**
 
-Use an injected fake picker and fake apply delegate. The panel never receives `IConfigManager`.
-
-- [ ] **Step 2: Add `IConfigOverlayPanel` and adapt key panels**
-
-Move only the common lifecycle members into the new interface. Preserve the existing key-panel requirement that `Saved` fires before `Closed`.
-
-Run existing key assignment tests immediately after this refactor.
+Extract only common members into `IConfigOverlayPanel`; preserve existing key-panel semantics and run key-assignment tests.
 
 - [ ] **Step 3: Implement `SongFolderPanel`**
 
-The panel owns:
+The panel owns copied draft state and receives a fakeable picker, root policy, and Config-owned apply delegate. It never holds `IConfigManager`.
 
-- a copied draft root list;
-- selected row/action indexes;
-- async picker state and activation generation;
-- structural diagnostics and availability warnings;
-- a Config-owned apply delegate.
+- [ ] **Step 4: Implement platform pickers**
 
-Use the root policy for validation. Picker completion may modify draft state only if the captured panel generation is current.
+Windows uses `FolderBrowserDialog` on an owned STA dispatcher. macOS uses `/usr/bin/osascript`, `ProcessStartInfo.ArgumentList`, asynchronous exit, and distinct cancellation vs authorization failure mapping.
 
-- [ ] **Step 4: Add platform picker implementations**
+- [ ] **Step 5: Isolate compilation**
 
-Windows:
+Add explicit `<Compile Remove=...>` entries so each target compiles exactly one picker implementation and factory.
 
-- use `FolderBrowserDialog`;
-- own STA dispatch in the platform service;
-- return Selected/Cancelled/Failed without blocking the game update thread.
+- [ ] **Step 6: Wire Config with restart-required behavior**
 
-macOS:
+Replace **DTX Folder** with **Song Folders**, showing `1 folder` or `<n> folders`. Slice 2 apply calls `SetSongRoots`; `Updated` closes with restart-required status, `Unchanged` closes silently, failures keep the panel open.
 
-- invoke `/usr/bin/osascript` with `ProcessStartInfo.ArgumentList`;
-- use `choose folder` and `default location` only when valid;
-- await exit asynchronously;
-- distinguish normal user cancellation from authorization/privacy failure;
-- include stderr only in structured diagnostics.
-
-Do not launch real dialogs in unit tests.
-
-- [ ] **Step 5: Isolate platform compilation**
-
-Add explicit compile exclusions:
-
-```xml
-<!-- Windows project -->
-<Compile Remove="Platform/Mac/**/*.cs" />
-<Compile Remove="Platform/FolderPickerServiceFactory.Mac.cs" />
-
-<!-- Mac project -->
-<Compile Remove="Platform/Windows/**/*.cs" />
-<Compile Remove="Platform/FolderPickerServiceFactory.Windows.cs" />
-```
-
-The exact glob may be adjusted to the final directory layout, but each project must compile only one factory and one native implementation.
-
-- [ ] **Step 6: Wire Config navigation with temporary restart behavior**
-
-Replace read-only **DTX Folder** with a `NavigationConfigItem` named **Song Folders**. Display `1 folder` or `<n> folders`.
-
-For Slice 2, the Config-owned delegate calls `SetSongRoots`. On `Updated`, close the panel and show a restart-required status. On `Unchanged`, close without status. On failure, keep the panel open.
-
-- [ ] **Step 7: Run Slice 2 gate**
+- [ ] **Step 7: Run the Slice 2 gate**
 
 ```bash
 dotnet test DTXMania.Test/DTXMania.Test.csproj \
   --filter "FullyQualifiedName~SongFolderPanelTests|FullyQualifiedName~FolderPickerContractTests|FullyQualifiedName~ConfigStageLogicTests|FullyQualifiedName~KeyAssign"
-
 dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj -c Debug
 dotnet build DTXMania.Game/DTXMania.Game.Windows.csproj -c Debug
 ```
 
-- [ ] **Step 8: Commit Slice 2**
+- [ ] **Step 8: Commit explicit files**
 
 ```bash
-git add DTXMania.Game/Lib/Stage/Config \
-  DTXMania.Game/Lib/Stage/KeyAssign \
+git add \
+  DTXMania.Game/Lib/Stage/Config/IConfigOverlayPanel.cs \
+  DTXMania.Game/Lib/Stage/Config/FolderPickerModels.cs \
+  DTXMania.Game/Lib/Stage/Config/SongFolderPanel.cs \
+  DTXMania.Game/Lib/Stage/KeyAssign/IKeyAssignPanel.cs \
   DTXMania.Game/Lib/Stage/ConfigStage.cs \
-  DTXMania.Game/Platform \
-  DTXMania.Game/*.csproj \
-  DTXMania.Test/Config
+  DTXMania.Game/Platform/Windows/WindowsFolderPickerService.cs \
+  DTXMania.Game/Platform/Mac/MacFolderPickerService.cs \
+  DTXMania.Game/Platform/FolderPickerServiceFactory.Windows.cs \
+  DTXMania.Game/Platform/FolderPickerServiceFactory.Mac.cs \
+  DTXMania.Game/DTXMania.Game.Windows.csproj \
+  DTXMania.Game/DTXMania.Game.Mac.csproj \
+  DTXMania.Test/Config/SongFolderPanelTests.cs \
+  DTXMania.Test/Config/FolderPickerContractTests.cs \
+  DTXMania.Test/Config/ConfigStageLogicTests.cs
 git commit -m "feat: add song folder configuration panel"
 ```
 
-**Review gate:** panel draft isolation, platform build isolation, async picker lifecycle, and restart persistence through Startup.
+**Gate:** isolated draft, async picker lifecycle, platform build isolation, and persisted roots consumed after restart.
 
 ---
 
-## Slice 3a — Config Operation Coordinator and Live Reload
+## Slice 3a — Config Coordinator and Live Reload
 
-### Task 3A: Serialize Config Song Operations and Start One Live Reload
+### Task 3A: Serialize Config Song Operations
 
 **Files:**
 - Create: `DTXMania.Game/Lib/Stage/Config/ConfigSongOperationCoordinator.cs`
@@ -569,9 +531,9 @@ git commit -m "feat: add song folder configuration panel"
 - Create: `DTXMania.Test/Config/SongLibraryReloadServiceTests.cs`
 - Modify: `DTXMania.Game/Lib/Stage/ConfigStage.cs`
 - Modify: `DTXMania.Test/Stage/ConfigStageNxImportTests.cs`
-- Modify: relevant SongManager bulk-enumeration tests.
+- Modify: `DTXMania.Test/Song/SongManagerBulkEnumerationTests.cs`
 
-**Interfaces:**
+**Produces:**
 
 ```csharp
 internal enum ConfigSongOperationKind
@@ -594,215 +556,168 @@ internal interface ISongLibraryReloadService
 }
 ```
 
-Persistence and orchestration results remain separate. Config maps `SongRootUpdateResult` into a panel-facing orchestration result that may additionally be `Busy` or `Started`.
+Persistence results remain in Config; orchestration adds Busy/Started without changing `IConfigManager` concerns.
 
 - [ ] **Step 1: Write coordinator red tests**
 
-Cover:
+Cover single ownership, cross-operation Busy, exactly-once release, task-construction throw, continuation-registration throw, and repeated Dispose.
+
+- [ ] **Step 2: Implement the scoped coordinator**
+
+Replace check-then-set booleans with atomic lease acquisition. One Config method owns:
 
 ```text
-TryAcquire_ShouldAllowOneOwner
-TryAcquire_ShouldRejectDifferentOperationWhileBusy
-Dispose_ShouldReleaseExactlyOnce
-ThrowDuringOperationConstruction_ShouldReleaseLease
-TerminalContinuationRegistrationFailure_ShouldReleaseLease
-```
-
-Use an injectable continuation/task factory to force each synchronous handoff failure.
-
-- [ ] **Step 2: Implement a scoped coordinator**
-
-The coordinator owns one atomic state. A lease releases through `Dispose()` exactly once. Do not expose check-then-set booleans.
-
-`ConfigStage` uses one method for song-root Apply:
-
-```text
-validate/compare
+compare/validate
 → acquire lease
-→ persist roots
+→ persist
 → create CTS
-→ construct reload task
-→ register observation/progress/terminal release
-→ store operation handle
-→ return Started to panel
+→ construct operation task
+→ register progress and terminal observation
+→ transfer release to terminal continuation
+→ return Started
 ```
 
-All synchronous steps remain inside one `try/finally`. `Saved` only reports that the draft was accepted; it does not acquire, transfer, or release the lease.
+All synchronous steps stay inside one `try/finally`. `SongFolderPanel.Saved` does not transfer lease ownership.
 
-- [ ] **Step 3: Implement the reload adapter**
+- [ ] **Step 3: Implement reload result mapping**
 
-`SongLibraryReloadService` calls the existing HPA-192 operation once with the configured roots.
+Call HPA-192 once.
 
-Result mapping:
+Map:
 
-- occupied lower-level enumeration slot → `Busy`;
-- `SongEnumerationOutcome.NoActiveRoots` → `NoAvailableRoots`, old hierarchy retained;
-- successful import/publication → `Success`;
-- pre-commit cancellation/failure → old hierarchy retained;
+- occupied enumeration slot → Busy;
+- `NoActiveRoots` → retain old hierarchy;
+- success → published snapshot;
+- pre-commit cancel/failure → retain old hierarchy;
 - unexpected post-commit publication failure → partial-success/restart-required.
 
-For completed enumeration, count unavailable roots from `Batch.Errors.Where(error => error.IsRootFailure)`. A shallow preflight may provide early UI warnings, but it cannot override the batch result.
+For completed enumeration, derive unavailable count from `Batch.Errors.Where(e => e.IsRootFailure)`. Preflight may show an early warning but never overrides batch truth.
 
-- [ ] **Step 4: Migrate NX import onto the same lifecycle**
+- [ ] **Step 4: Migrate NX import fully**
 
-Remove `_importRunning` check-then-set ownership. NX import must:
+Remove `_importRunning` ownership and worker writes to `_importStatus`. NX import uses the same coordinator, activation generation, immutable update queue, task observation, CTS disposal, and terminal release.
 
-- acquire `ConfigSongOperationKind.NxScoreImport`;
-- use the same activation generation;
-- enqueue progress/status rather than writing `_importStatus` from a worker;
-- cancel on Config deactivation;
-- attach an observation continuation;
-- dispose CTS and release lease exactly once in the terminal continuation.
+- [ ] **Step 5: Marshal progress on the update thread**
 
-Both operations must reject each other with a concise status.
+Worker continuations enqueue immutable updates tagged with activation generation. `ConfigStage.OnUpdate` drains current-generation updates only. Deactivation increments generation, requests cancellation, and never waits synchronously.
 
-- [ ] **Step 5: Add update-thread status marshalling**
+- [ ] **Step 6: Protect commit-to-publication**
 
-Use a thread-safe queue of immutable operation updates. `ConfigStage.OnUpdate` drains only updates whose activation generation is current. Deactivation increments the generation before cancellation.
+Add a regression test proving cancellation after database commit cannot prevent finalization/publication.
 
-Never wait synchronously for filesystem or SQLite work during stage teardown.
+- [ ] **Step 7: Run operation tests**
 
-- [ ] **Step 6: Preserve the commit-to-publication terminal section**
-
-Ensure HPA-192 does not check cancellation after database commit and before `FinalizePendingNodes`/`PublishEnumeration`. Add a regression test where cancellation arrives after commit and publication still completes successfully.
-
-- [ ] **Step 7: Add operation integration tests**
-
-Required tests:
+Required cases:
 
 ```text
 UnchangedApply_ShouldNotAcquirePersistOrScan
 BusyApply_ShouldNotPersist
-ReorderOnlyApply_ShouldInvokeImporterOnce
+ReorderOnlyApply_ShouldImportOnce
 NoActiveRoots_ShouldRetainCurrentSnapshot
 BatchRootFailures_ShouldDriveWarningCount
 NxImportAndReload_ShouldNotOverlap
 Deactivate_ShouldCancelWithoutBlocking
-WorkerProgress_ShouldReachUIOnlyThroughUpdateDrain
-EveryTerminalPath_ShouldDisposeCtsAndReleaseLeaseOnce
+WorkerProgress_ShouldUpdateOnlyWhenDrained
+EveryTerminalPath_ShouldDisposeAndReleaseOnce
 ```
 
-- [ ] **Step 8: Run Slice 3a gate**
+- [ ] **Step 8: Run the Slice 3a gate**
 
 ```bash
 dotnet test DTXMania.Test/DTXMania.Test.csproj \
   --filter "FullyQualifiedName~ConfigSongOperationCoordinatorTests|FullyQualifiedName~SongLibraryReloadServiceTests|FullyQualifiedName~ConfigStageNxImportTests|FullyQualifiedName~SongManagerBulkEnumerationTests"
 ```
 
-- [ ] **Step 9: Commit Slice 3a**
+- [ ] **Step 9: Commit explicit files**
 
 ```bash
-git add DTXMania.Game/Lib/Stage/Config \
+git add \
+  DTXMania.Game/Lib/Stage/Config/ConfigSongOperationCoordinator.cs \
+  DTXMania.Game/Lib/Stage/Config/SongLibraryReloadModels.cs \
+  DTXMania.Game/Lib/Stage/Config/SongLibraryReloadService.cs \
   DTXMania.Game/Lib/Stage/ConfigStage.cs \
-  DTXMania.Game/Lib/Song \
-  DTXMania.Test/Config \
+  DTXMania.Test/Config/ConfigSongOperationCoordinatorTests.cs \
+  DTXMania.Test/Config/SongLibraryReloadServiceTests.cs \
   DTXMania.Test/Stage/ConfigStageNxImportTests.cs \
   DTXMania.Test/Song/SongManagerBulkEnumerationTests.cs
 git commit -m "feat: live reload configured song roots"
 ```
 
-**Review gate:** no split lease ownership, no worker-thread UI writes, no NX/reload overlap, and no normal publication for a zero-active-root batch.
+**Gate:** no split lease ownership, no worker-thread UI writes, no NX/reload overlap, and no live publication for a zero-active-root batch.
 
 ---
 
-## Slice 3b — Active Song Select Reconciliation and Retained Views
+## Slice 3b — Active Song Select Reconciliation
 
-### Task 3B: Reconcile Runtime Publication on the Update Thread
+### Task 3B: Apply Publications on the Update Thread
 
 **Files:**
 - Create: `DTXMania.Test/Stage/SongSelectionPublicationTests.cs`
 - Modify: `DTXMania.Game/Lib/Stage/SongSelectionStage.cs`
 - Modify: `DTXMania.Game/Lib/Song/Components/PreviewImagePanel.cs`
-- Modify: existing Song Selection, bookmark, recent, and preview tests.
+- Modify: `DTXMania.Test/Stage/SongSelectionStageLogicTests.cs`
+- Modify: `DTXMania.Test/Stage/SongSelectionStageBookmarkToggleTests.cs`
+- Modify: `DTXMania.Test/UI/PreviewImagePanelTests.cs`
 
-**Interfaces:**
+**Consumes:** `SongLibraryPublished` and `GetLibrarySnapshot()` from Slice 1b.
 
-`SongSelectionStage` subscribes to `SongManager.SongLibraryPublished` on activation and unsubscribes on deactivation. The event handler stores only the newest pending publication version; it never changes UI collections.
+- [ ] **Step 1: Write reconciliation red tests**
 
-- [ ] **Step 1: Write publication-reconciliation red tests**
+Cover active publication, retained/removed box navigation, retained/removed selected chart, Bookmarks, Recent, multiple publications, and post-deactivation notification.
 
-Create scenarios for:
+- [ ] **Step 2: Subscribe safely**
 
-```text
-PublicationWhileActive_ShouldApplyOnUpdateThread
-PublicationInsideRetainedBox_ShouldRestoreNavigation
-PublicationInsideRemovedBox_ShouldResetToRoot
-PublicationWithRetainedSelection_ShouldRestoreByStableIdentity
-PublicationRemovingSelection_ShouldStopPreviewAndClearPanels
-PublicationOnBookmarks_ShouldFilterToActiveRoots
-PublicationOnRecent_ShouldFilterToActiveRoots
-MultiplePublications_ShouldApplyNewestVersionOnly
-NotificationAfterDeactivate_ShouldBeIgnored
-```
+Subscribe on activation and unsubscribe on deactivation. The event handler records only the highest pending version; it never mutates UI collections.
 
-Use test snapshots with stable chart/database identities and distinct publication versions.
+- [ ] **Step 3: Reconcile one snapshot in `OnUpdate`**
 
-- [ ] **Step 2: Add event subscription and pending-version state**
+When pending version exceeds applied version:
 
-On activation:
-
-- capture one `SongLibrarySnapshot`;
-- subscribe to publication;
-- remember current activation version.
-
-The event handler atomically records the highest pending version only. On deactivation, unsubscribe before disposing stage resources.
-
-- [ ] **Step 3: Reconcile one coherent snapshot in `OnUpdate`**
-
-When a pending version exceeds the applied version:
-
-1. fetch one current `SongLibrarySnapshot`;
-2. ignore it if superseded or stage generation changed;
-3. replace root-list and active-root state from that snapshot;
-4. restore navigation by stable path/database identity if possible;
-5. restore selected chart by stable chart/database identity if possible;
-6. otherwise reset deterministically to root/first item;
+1. fetch one current snapshot;
+2. verify activation/version;
+3. replace roots and active paths;
+4. restore navigation by stable path/database identity when possible;
+5. restore selected chart by stable identity when possible;
+6. otherwise reset deterministically;
 7. rebuild filter, Bookmarks, Recent, breadcrumb, preview roots, and empty state;
-8. stop preview and clear status/history when selection disappeared;
-9. mark the snapshot version as applied.
+8. stop preview and clear panels when selection disappeared;
+9. mark the version applied.
 
-Do not mix `RootSongs` from one version with active roots from another.
+Never mix hierarchy from one version with active roots from another.
 
-- [ ] **Step 4: Filter Bookmarks and Recent to active roots**
+- [ ] **Step 4: Filter retained tabs by active roots**
 
-Database-backed tab loaders must filter chart paths through the active-root snapshot from the same publication version. Off-root rows remain stored and reappear after a successful root re-add.
+Bookmarks and Recent hide off-active-root rows without deleting database records. Re-add makes retained rows visible again.
 
-- [ ] **Step 5: Implement deliberate empty states**
+- [ ] **Step 5: Add explicit empty-state resolver**
 
-Distinguish:
+Return distinct states for no active roots versus active roots containing no supported charts. Keep condition resolution in one testable method.
 
-```text
-No active roots:
-No song folders are currently available. Open Config to reconnect or change them.
+- [ ] **Step 6: Add concurrent-publication coverage**
 
-Active roots with no supported charts:
-No songs were found in the active song folders.
-```
+Run filter projection and bookmark reconciliation on an old copied snapshot while publishing a new one. Assert no collection-modified exception and final UI uses only the newest version.
 
-Keep copy in one testable resolver method so future localization does not duplicate conditions.
-
-- [ ] **Step 6: Add concurrent-publication regression coverage**
-
-Run filter projection and bookmark reconciliation against a copied snapshot while publishing another version. Assert no `InvalidOperationException`, no background-thread mutation, and final UI data all references the newest applied version.
-
-- [ ] **Step 7: Run Slice 3b gate**
+- [ ] **Step 7: Run the Slice 3b gate**
 
 ```bash
 dotnet test DTXMania.Test/DTXMania.Test.csproj \
   --filter "FullyQualifiedName~SongSelectionPublicationTests|FullyQualifiedName~SongSelectionStageLogicTests|FullyQualifiedName~SongSelectionStageBookmark|FullyQualifiedName~PreviewImagePanelTests"
 ```
 
-- [ ] **Step 8: Commit Slice 3b**
+- [ ] **Step 8: Commit explicit files**
 
 ```bash
-git add DTXMania.Game/Lib/Stage/SongSelectionStage.cs \
+git add \
+  DTXMania.Game/Lib/Stage/SongSelectionStage.cs \
   DTXMania.Game/Lib/Song/Components/PreviewImagePanel.cs \
-  DTXMania.Test/Stage \
-  DTXMania.Test/UI
+  DTXMania.Test/Stage/SongSelectionPublicationTests.cs \
+  DTXMania.Test/Stage/SongSelectionStageLogicTests.cs \
+  DTXMania.Test/Stage/SongSelectionStageBookmarkToggleTests.cs \
+  DTXMania.Test/UI/PreviewImagePanelTests.cs
 git commit -m "feat: reconcile live song library publication"
 ```
 
-**Review gate:** active Song Select never enumerates a live backing list, applies publication only on the update thread, and keeps hierarchy/tabs/previews on one version.
+**Gate:** active Song Select enumerates only copied snapshots, applies publication only on update, and keeps hierarchy/tabs/previews on one version.
 
 ---
 
@@ -816,33 +731,38 @@ dotnet test DTXMania.Test/DTXMania.Test.csproj -c Release
 
 Expected: zero failed tests.
 
-- [ ] **Build both game targets**
+- [ ] **Build both targets**
 
 ```bash
 dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj -c Release
 dotnet build DTXMania.Game/DTXMania.Game.Windows.csproj -c Release
 ```
 
-Expected: both builds succeed; each compiles only its own picker implementation.
+Expected: both succeed and compile only their own picker implementation.
 
-- [ ] **Run production consumer audit**
+- [ ] **Run the compatibility audit**
 
 ```bash
 rg "Config\??\.DTXPath|ConfigData\.DTXPath|\.DTXPath" DTXMania.Game --glob '*.cs'
 ```
 
-Expected: matches only the compatibility property plus Config load/save/migration code allowed by `DTXPathCompatibilityArchitectureTests`.
+Expected: only allowlisted Config compatibility code.
 
-- [ ] **Manual smoke checks**
+- [ ] **Manual smoke matrix**
 
-1. Migrate an existing one-root Config.ini and verify roots persist after restart.
-2. Add a second local root, reorder, Apply, and verify one reload.
-3. Configure one missing removable root plus one available root; verify available songs load and warning count matches scan errors.
-4. Remove a root; verify songs/bookmarks/recent disappear from active views but return after re-add.
-5. Leave Config during reload and enter Song Select; verify post-publication reconciliation without stale selection or crash.
-6. Start NX score import and attempt Apply; verify Busy and no config write.
-7. Test picker cancellation on Windows and macOS.
+1. Migrate an existing one-root Config.ini and restart.
+2. Add/reorder two local roots and verify one reload.
+3. Combine one unavailable removable root with one available root and compare warning count with batch root failures.
+4. Remove/re-add a root and verify retained scores, Bookmarks, and Recent.
+5. Leave Config during reload and enter Song Select; verify deterministic post-publication reconciliation.
+6. Start NX import and attempt Apply; verify Busy and no write.
+7. Cancel platform pickers on Windows and macOS.
 
-- [ ] **Final commit/checkpoint**
+## Plan Self-Review Checklist
 
-Do not squash slice commits until all review gates pass. The final PR should show the five bounded implementation checkpoints clearly enough to bisect regressions.
+- [x] Every design acceptance criterion maps to a slice and test gate.
+- [x] Both comparer branches are testable on every CI host.
+- [x] Publication version increments only during publication.
+- [x] Zero-active-root results keep a non-null empty import result.
+- [x] Commit commands stage explicit files only.
+- [x] No placeholders or undefined cross-slice interfaces remain.
