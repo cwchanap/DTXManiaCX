@@ -21,6 +21,7 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using DTXMania.Game.Lib.Utilities;
+using DTXMania.Game.Platform;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -80,7 +81,10 @@ namespace DTXMania.Game.Lib.Stage
         private KeyboardState _currentKeyboardState;
 
         private SystemKeyAssignPanel? _systemPanel;
-        private IKeyAssignPanel? _activePanel;
+        private SongFolderPanel? _songFolderPanel;
+        private IConfigOverlayPanel? _activePanel;
+        private readonly Func<IFolderPickerService> _folderPickerServiceFactory;
+        private IFolderPickerService? _songFolderPicker;
 
         private SpriteBatch _spriteBatch;
         private Texture2D _whitePixel;
@@ -160,6 +164,7 @@ namespace DTXMania.Game.Lib.Stage
         private static readonly Color InnerBoardBorderColor = new(74, 62, 150, 224);
 
         private volatile string _importStatus = "";
+        private volatile string _songFolderStatus = "";
         private volatile bool _importRunning;
         private CancellationTokenSource? _importCts;
 
@@ -170,18 +175,28 @@ namespace DTXMania.Game.Lib.Stage
         public override StageType Type => StageType.Config;
 
         public ConfigStage(IStageGame game)
-            : this(game, FfmpegRuntime.EnsureConfigured)
+            : this(game, FfmpegRuntime.EnsureConfigured, FolderPickerServiceFactory.Create)
         {
         }
 
         internal ConfigStage(
             IStageGame game,
             Func<FfmpegRuntimeAvailability> ffmpegAvailabilityProvider)
+            : this(game, ffmpegAvailabilityProvider, FolderPickerServiceFactory.Create)
+        {
+        }
+
+        internal ConfigStage(
+            IStageGame game,
+            Func<FfmpegRuntimeAvailability> ffmpegAvailabilityProvider,
+            Func<IFolderPickerService> folderPickerServiceFactory)
             : base(game)
         {
             _configManager = game.ConfigManager ?? throw new InvalidOperationException("ConfigManager not found");
             _ffmpegAvailabilityProvider = ffmpegAvailabilityProvider
                 ?? throw new ArgumentNullException(nameof(ffmpegAvailabilityProvider));
+            _folderPickerServiceFactory = folderPickerServiceFactory
+                ?? throw new ArgumentNullException(nameof(folderPickerServiceFactory));
         }
 
         #endregion
@@ -207,6 +222,7 @@ namespace DTXMania.Game.Lib.Stage
             // here: the background task clears it in its finally, and the StartNxScoreImport guard
             // correctly serializes a still-draining task.)
             _importStatus = "";
+            _songFolderStatus = "";
 
             _previousKeyboardState = Keyboard.GetState();
             _currentKeyboardState = Keyboard.GetState();
@@ -320,6 +336,10 @@ namespace DTXMania.Game.Lib.Stage
                 _importCts?.Cancel();
                 _importCts?.Dispose();
                 _importCts = null;
+
+                if (_songFolderPicker is IDisposable disposableFolderPicker)
+                    disposableFolderPicker.Dispose();
+                _songFolderPicker = null;
 
                 _whitePixel?.Dispose();
                 _spriteBatch?.Dispose();
@@ -580,10 +600,12 @@ namespace DTXMania.Game.Lib.Stage
                 _skinDropdown = skinItem;
             }
 
-            var dtxFolderItem = new ReadOnlyConfigItem(
-                "DTX Folder",
-                () => _configManager.Config.DTXPath)
-            { Description = "Folder scanned for songs and charts (read-only)." };
+            var songFoldersItem = new SongFoldersNavigationConfigItem(
+                () => FormatSongFolderCount(_configManager.Config.SongRoots.Count),
+                () => OpenPanel(_songFolderPanel))
+            {
+                Description = "Edit the ordered song folders. Apply saves the list; restart to reload songs."
+            };
 
             var systemKeyItem = new NavigationConfigItem("System Key Mapping",
                 () => OpenPanel(_systemPanel))
@@ -658,7 +680,7 @@ namespace DTXMania.Game.Lib.Stage
             {
                 systemItems.Add(skinItem);
             }
-            systemItems.Add(dtxFolderItem);
+            systemItems.Add(songFoldersItem);
             systemItems.Add(systemKeyItem);
             systemItems.Add(importItem);
 
@@ -912,9 +934,18 @@ namespace DTXMania.Game.Lib.Stage
             _systemPanel._commandPressedProvider = IsPanelCommandPressed;
             _systemPanel.Saved += OnPanelSaved;
             _systemPanel.Closed += OnPanelClosed;
+
+            _songFolderPicker ??= _folderPickerServiceFactory();
+            _songFolderPanel = new SongFolderPanel(
+                _configManager.Config.SongRoots.ToArray(),
+                _songFolderPicker,
+                SongRootPolicy.ForCurrentPlatform(),
+                ApplySongRoots);
+            _songFolderPanel.Saved += OnPanelSaved;
+            _songFolderPanel.Closed += OnPanelClosed;
         }
 
-        private void OpenPanel(IKeyAssignPanel? panel)
+        private void OpenPanel(IConfigOverlayPanel? panel)
         {
             if (panel == null) return;
             _activePanel = panel;
@@ -932,6 +963,11 @@ namespace DTXMania.Game.Lib.Stage
             {
                 _configManager.SetSystemKeyBindings(_systemPanel.GetWorkingMappingSnapshot());
             }
+            else if (sender == _songFolderPanel &&
+                     _songFolderPanel.LastApplyStatus == SongFolderApplyStatus.Updated)
+            {
+                _songFolderStatus = "Song folders saved. Restart required to reload songs.";
+            }
         }
 
         private void OnPanelClosed(object? sender, EventArgs e)
@@ -939,11 +975,67 @@ namespace DTXMania.Game.Lib.Stage
             _activePanel = null;
         }
 
+        private SongFolderApplyResult ApplySongRoots(IReadOnlyList<string> roots)
+        {
+            try
+            {
+                var updateResult = _configManager.SetSongRoots(AppPaths.GetConfigFilePath(), roots);
+                return new SongFolderApplyResult(
+                    MapSongFolderApplyStatus(updateResult.Status),
+                    updateResult.CanonicalRoots,
+                    updateResult.Diagnostics);
+            }
+            catch (Exception exception)
+            {
+                _logger.LogWarning(exception, "ConfigStage: failed to save song folders");
+                return new SongFolderApplyResult(
+                    SongFolderApplyStatus.PersistenceFailed,
+                    roots,
+                    new[]
+                    {
+                        new SongRootDiagnostic(
+                            string.Empty,
+                            "Unable to save song folders: " + exception.Message,
+                            IsWarning: false)
+                    });
+            }
+        }
+
+        private static SongFolderApplyStatus MapSongFolderApplyStatus(SongRootUpdateStatus status) => status switch
+        {
+            SongRootUpdateStatus.Updated => SongFolderApplyStatus.Updated,
+            SongRootUpdateStatus.Unchanged => SongFolderApplyStatus.Unchanged,
+            SongRootUpdateStatus.ValidationFailed => SongFolderApplyStatus.ValidationFailed,
+            SongRootUpdateStatus.PersistenceFailed => SongFolderApplyStatus.PersistenceFailed,
+            _ => SongFolderApplyStatus.PersistenceFailed,
+        };
+
+        private static string FormatSongFolderCount(int count) => count == 1
+            ? "1 folder"
+            : $"{count} folders";
+
+        private sealed class SongFoldersNavigationConfigItem : NavigationConfigItem
+        {
+            private readonly Func<string> _summaryProvider;
+
+            public SongFoldersNavigationConfigItem(
+                Func<string> summaryProvider,
+                Action onActivate)
+                : base("Song Folders", onActivate)
+            {
+                _summaryProvider = summaryProvider
+                    ?? throw new ArgumentNullException(nameof(summaryProvider));
+            }
+
+            public override string GetDisplayText() => $"{Name}: {_summaryProvider()}";
+        }
+
         private void StartNxScoreImport()
         {
             if (_importRunning)
                 return;
             _importRunning = true;
+            _songFolderStatus = "";
             _importStatus = "Importing NX scores...";
 
             _importCts?.Cancel();
@@ -1536,10 +1628,13 @@ namespace DTXMania.Game.Lib.Stage
 
         private void DrawImportStatus()
         {
-            if (string.IsNullOrEmpty(_importStatus) || _font == null)
+            var status = string.IsNullOrEmpty(_songFolderStatus)
+                ? _importStatus
+                : _songFolderStatus;
+            if (string.IsNullOrEmpty(status) || _font == null)
                 return;
 
-            _font.DrawString(_spriteBatch, _importStatus, ConfigUILayout.ImportStatusPos, ImportStatusColor);
+            _font.DrawString(_spriteBatch, status, ConfigUILayout.ImportStatusPos, ImportStatusColor);
         }
 
         // The stage draws into the fixed 1280x720 render target (letterboxed to the window once
