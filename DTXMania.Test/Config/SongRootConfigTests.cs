@@ -147,6 +147,57 @@ public sealed class SongRootConfigTests
     }
 
     [Fact]
+    public void LoadConfig_LegacyCaseVariant_ShouldFollowPlatformSongPathPolicy()
+    {
+        WithTemporaryAppDataRoot(root =>
+        {
+            var defaultRoot = AppPaths.GetDefaultSongsPath();
+            var caseVariantLegacyRoot = Path.Combine(root, "SONGS");
+            var configFile = Path.Combine(root, "Config.ini");
+            File.WriteAllLines(configFile,
+            [
+                "[System]",
+                $"DTXPath={caseVariantLegacyRoot}",
+            ]);
+
+            var manager = new ConfigManager();
+
+            manager.LoadConfig(configFile);
+
+            var expectsCaseInsensitiveSongPaths =
+                OperatingSystem.IsWindows() || OperatingSystem.IsMacOS();
+            var expectedRoot = expectsCaseInsensitiveSongPaths
+                ? defaultRoot
+                : caseVariantLegacyRoot;
+            Assert.Equal([expectedRoot], manager.Config.SongRoots);
+        });
+    }
+
+    [Fact]
+    public void LoadConfig_CaseVariantManagedDefault_ShouldCreateDirectoryBySongPathPolicy()
+    {
+        WithTemporaryAppDataRoot(root =>
+        {
+            var defaultRoot = AppPaths.GetDefaultSongsPath();
+            var caseVariantDefaultRoot = Path.Combine(root, "dtxfiles");
+            var configFile = Path.Combine(root, "Config.ini");
+            File.WriteAllLines(configFile,
+            [
+                "[System]",
+                $"SongRoot.0={caseVariantDefaultRoot}",
+            ]);
+
+            var manager = new ConfigManager();
+
+            manager.LoadConfig(configFile);
+
+            var expectsCaseInsensitiveSongPaths =
+                OperatingSystem.IsWindows() || OperatingSystem.IsMacOS();
+            Assert.Equal(expectsCaseInsensitiveSongPaths, Directory.Exists(defaultRoot));
+        });
+    }
+
+    [Fact]
     public void SaveConfig_ShouldWriteDenseIndexesAndFirstRootMirror()
     {
         WithTemporaryAppDataRoot(root =>
