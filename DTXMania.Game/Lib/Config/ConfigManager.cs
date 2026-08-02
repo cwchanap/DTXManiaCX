@@ -8,6 +8,7 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using DTXMania.Game.Lib.Input;
+using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Stage.KeyAssign;
 using DTXMania.Game.Lib.Utilities;
 using Microsoft.Extensions.Logging;
@@ -1261,9 +1262,9 @@ namespace DTXMania.Game.Lib.Config
                 Path.Combine(Path.GetDirectoryName(defaultSongsPath) ?? string.Empty, "Songs"));
 
             // Only match the specific legacy defaults, not every path ending in "Songs".
-            return string.Equals(normalized, legacyDefaultSongsPath, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(normalized, "Songs", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(normalized, "./Songs", StringComparison.OrdinalIgnoreCase);
+            return SongPathIdentity.LegacyAliasComparer.Equals(normalized, legacyDefaultSongsPath)
+                || SongPathIdentity.LegacyAliasComparer.Equals(normalized, "Songs")
+                || SongPathIdentity.LegacyAliasComparer.Equals(normalized, "./Songs");
         }
 
         private void NormalizeConfigPaths(string baseDir, bool migrateLegacySongsPath = false)
@@ -1331,10 +1332,9 @@ namespace DTXMania.Game.Lib.Config
             }
 
             EnsureDirectorySafe(Config.SystemSkinRoot);
-            if (Config.SongRoots.Any(root => string.Equals(
+            if (Config.SongRoots.Any(root => SongPathIdentity.LegacyAliasComparer.Equals(
                 NormalizePathForComparison(root),
-                NormalizePathForComparison(defaultSongsPath),
-                AppPaths.SkinPathComparison)))
+                NormalizePathForComparison(defaultSongsPath))))
             {
                 EnsureDirectorySafe(defaultSongsPath);
             }
