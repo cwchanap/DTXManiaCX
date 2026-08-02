@@ -1063,7 +1063,7 @@ public class SongManagerCoverageTests : IDisposable
     }
 
     [Fact]
-    public async Task EnumerateSongsAsync_WhenRootSongCacheIsUnavailable_ShouldPropagatePublicationFailure()
+    public async Task EnumerateSongsAsync_WhenRootSongCacheIsUnavailable_ShouldReportPostCommitPublicationFailure()
     {
         var songsRoot = Path.Combine(_testRoot, "BrokenRootSongs");
         Directory.CreateDirectory(songsRoot);
@@ -1076,8 +1076,19 @@ public class SongManagerCoverageTests : IDisposable
         {
             ReflectionHelpers.SetPrivateField(_manager, "_rootSongs", null!);
 
-            await Assert.ThrowsAsync<NullReferenceException>(() =>
+            var exception = await Assert.ThrowsAsync<SongEnumerationPostCommitException>(() =>
                 _manager.EnumerateSongsAsync(new[] { songsRoot }));
+
+            Assert.Equal(SongEnumerationPostCommitPhase.Publication, exception.Phase);
+            Assert.True(exception.Batch.IsComplete);
+            Assert.Equal(songsRoot, Assert.Single(exception.Batch.ActiveRoots));
+            Assert.Equal(1, exception.Import.Added);
+            Assert.Single(exception.Import.ChartsByPath);
+            Assert.IsType<NullReferenceException>(exception.InnerException);
+
+            var committedSong = Assert.Single(await _manager.DatabaseService!.GetSongsAsync());
+            Assert.Equal("Broken Root Song", committedSong.Title);
+            Assert.Single(committedSong.Charts);
         }
         finally
         {
