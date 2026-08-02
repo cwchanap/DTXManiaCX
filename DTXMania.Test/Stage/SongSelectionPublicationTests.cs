@@ -60,6 +60,58 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void InitializeSongList_WhenReentrySnapshotRemovesCurrentBox_ShouldClearStaleNavigation()
+        {
+            var songManager = SongManager.Instance;
+            var rootSongs = GetPrivateField<List<SongListNode>>(songManager, "_rootSongs")!;
+            var originalRoots = rootSongs.ToList();
+            var originalActiveRoots = GetPrivateField<string[]>(songManager, "_currentSearchPaths")!;
+            var originalVersion = GetPrivateField<long>(songManager, "_publicationVersion");
+            var originalInitialized = GetPrivateField<bool>(songManager, "_isInitialized");
+            var oldSong = Score("Old", 41, "/library/old/BOX/old.dtx");
+            var oldBox = Box("BOX", "/library/old/BOX", oldSong);
+            var replacement = Score("Replacement", 42, "/library/new/replacement.dtx");
+            var stage = CreateStage();
+            var display = new SongListDisplay
+            {
+                CurrentList = new List<SongListNode>
+                {
+                    new() { Type = NodeType.BackBox, Title = ".." },
+                    oldSong
+                }
+            };
+
+            try
+            {
+                AttachCoreUi(stage, display: display);
+                SetPrivateField(stage, "_currentSongList", oldBox.Children);
+                SetPrivateField(stage, "_currentBreadcrumb", "BOX");
+                SetPrivateField(stage, "_selectedSong", oldSong);
+                GetPrivateField<Stack<SongListNode>>(stage, "_navigationStack")!.Push(
+                    new SongListNode { Children = new List<SongListNode> { oldBox }, Title = "" });
+                rootSongs.Clear();
+                rootSongs.Add(replacement);
+                SetPrivateField(songManager, "_currentSearchPaths", new[] { "/library/new" });
+                SetPrivateField(songManager, "_publicationVersion", 61L);
+                SetPrivateField(songManager, "_isInitialized", true);
+
+                InvokePrivateMethod(stage, "InitializeSongList");
+
+                Assert.Empty(GetPrivateField<Stack<SongListNode>>(stage, "_navigationStack")!);
+                Assert.Equal("", GetPrivateField<string>(stage, "_currentBreadcrumb"));
+                Assert.Equal(new[] { replacement }, display.CurrentList);
+            }
+            finally
+            {
+                rootSongs.Clear();
+                rootSongs.AddRange(originalRoots);
+                SetPrivateField(songManager, "_currentSearchPaths", originalActiveRoots);
+                SetPrivateField(songManager, "_publicationVersion", originalVersion);
+                SetPrivateField(songManager, "_isInitialized", originalInitialized);
+            }
+        }
+
+        [Fact]
         public void ReconcileLibrarySnapshot_WhenSelectedBoxIsRetainedByDirectoryPath_ShouldSelectTheNewBox()
         {
             var firstOldBox = Box("First", "/library/one/FIRST");
@@ -245,6 +297,42 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void SongLibraryPublished_WhenPriorActivationHandlerRuns_ShouldIgnoreIt()
+        {
+            var songManager = SongManager.Instance;
+            var originalHandler = GetPrivateField<EventHandler<SongLibraryPublishedEventArgs>>(
+                songManager,
+                "SongLibraryPublished");
+            var stage = CreateStage();
+
+            try
+            {
+                SetPrivateField(songManager, "SongLibraryPublished", null);
+                SetPrivateField(stage, "_activationVersion", 41);
+                InvokePrivateMethod(stage, "SubscribeLibraryPublications");
+                var priorActivationHandler = GetPrivateField<EventHandler<SongLibraryPublishedEventArgs>>(
+                    songManager,
+                    "SongLibraryPublished");
+                Assert.NotNull(priorActivationHandler);
+
+                SetPrivateField(stage, "_activationVersion", 42);
+                InvokePrivateMethod(stage, "SubscribeLibraryPublications");
+                SetPrivateField(stage, "_pendingLibraryPublicationVersion", 0L);
+
+                priorActivationHandler!(songManager,
+                    new SongLibraryPublishedEventArgs(
+                        Snapshot(73, Array.Empty<SongListNode>(), Array.Empty<string>())));
+
+                Assert.Equal(0L, GetPrivateField<long>(stage, "_pendingLibraryPublicationVersion"));
+            }
+            finally
+            {
+                InvokePrivateMethod(stage, "UnsubscribeLibraryPublications");
+                SetPrivateField(songManager, "SongLibraryPublished", originalHandler);
+            }
+        }
+
+        [Fact]
         public void ApplyPendingLibraryPublication_ShouldFetchAndApplyTheCurrentManagerSnapshotOnTheUpdateThread()
         {
             var songManager = SongManager.Instance;
@@ -343,6 +431,49 @@ namespace DTXMania.Test.Stage
 
             Assert.Same(selected, display.SelectedSong);
             Assert.Same(appliedSnapshot, GetPrivateField<SongLibrarySnapshot>(stage, "_appliedLibrarySnapshot"));
+        }
+
+        [Fact]
+        public void CheckSongInitializationCompletion_WhenNewerSnapshotArrives_ShouldReconcileNestedSelection()
+        {
+            var oldSong = Score("Old", 1, "/library/shared/BOX/old.dtx");
+            var oldBox = Box("BOX", "/library/shared/BOX", oldSong);
+            var replacementSong = Score("Replacement", 1, "/library/shared/BOX/replacement.dtx");
+            var replacementBox = Box("BOX", "/library/shared/BOX", replacementSong);
+            var stage = CreateStage();
+            var display = new SongListDisplay
+            {
+                CurrentList = new List<SongListNode>
+                {
+                    new() { Type = NodeType.BackBox, Title = ".." },
+                    oldSong
+                }
+            };
+            AttachCoreUi(stage, display: display);
+            display.SelectedIndex = 1;
+            SetPrivateField(stage, "_currentSongList", oldBox.Children);
+            SetPrivateField(stage, "_currentBreadcrumb", "BOX");
+            SetPrivateField(stage, "_selectedSong", oldSong);
+            GetPrivateField<Stack<SongListNode>>(stage, "_navigationStack")!.Push(
+                new SongListNode { Children = new List<SongListNode> { oldBox }, Title = "" });
+
+            var appliedSnapshot = Snapshot(81, new[] { oldBox }, new[] { "/library/shared" });
+            var newerSnapshot = Snapshot(82, new[] { replacementBox }, new[] { "/library/shared" });
+            SetPrivateField(stage, "_appliedLibrarySnapshot", appliedSnapshot);
+            SetPrivateField(stage, "_appliedLibraryPublicationVersion", 81L);
+            SetPrivateField(stage, "_backgroundLibrarySnapshot", newerSnapshot);
+            SetPrivateField(stage, "_songInitializationTask",
+                Task.FromResult(new List<SongListNode> { replacementBox }));
+            SetPrivateField(stage, "_songInitializationProcessed", false);
+
+            InvokePrivateMethod(stage, "CheckSongInitializationCompletion");
+
+            Assert.Same(replacementBox.Children,
+                GetPrivateField<List<SongListNode>>(stage, "_currentSongList"));
+            Assert.Single(GetPrivateField<Stack<SongListNode>>(stage, "_navigationStack")!);
+            Assert.Equal("BOX", GetPrivateField<string>(stage, "_currentBreadcrumb"));
+            Assert.Same(replacementSong, display.SelectedSong);
+            Assert.Equal(82L, GetPrivateField<long>(stage, "_appliedLibraryPublicationVersion"));
         }
 
         [Fact]
