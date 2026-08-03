@@ -133,6 +133,28 @@ public sealed class CrashLogBufferProviderTests
     }
 
     [Fact]
+    public void UnknownEventId_ShouldNotRetainCallerControlledNumericId()
+    {
+        using var provider = new CrashLogBufferProvider(
+            CrashLogFieldPolicy.Default,
+            TimeProvider.System,
+            capacity: 8);
+        using var factory = LoggerFactory.Create(builder => builder.AddProvider(provider));
+        var logger = factory.CreateLogger("test");
+
+        logger.LogInformation(
+            new EventId(36, "midi_note_36"),
+            "Unknown lifecycle event {Stage}",
+            StageType.Title);
+
+        var record = Assert.Single(provider.Snapshot());
+        Assert.Equal(0, record.EventId.Id);
+        Assert.Null(record.EventId.Name);
+        Assert.Equal("[UNCLASSIFIED MESSAGE OMITTED]", record.MessageTemplate);
+        Assert.Empty(record.Properties);
+    }
+
+    [Fact]
     public void ExceptionType_ShouldBeRetainedWithoutItsMessage()
     {
         using var provider = new CrashLogBufferProvider(

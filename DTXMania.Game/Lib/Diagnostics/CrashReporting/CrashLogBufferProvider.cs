@@ -71,7 +71,7 @@ internal sealed class CrashLogBufferProvider : ILoggerProvider
             if (!hasOriginalFormat
                 || !_policy.TryClassify(eventId, originalFormat, out var safeEventId, out var safeMessageTemplate))
             {
-                Append(CreateUnclassifiedRecord(logLevel, eventId, exception));
+                Append(CreateUnclassifiedRecord(logLevel, exception));
                 return;
             }
 
@@ -94,16 +94,16 @@ internal sealed class CrashLogBufferProvider : ILoggerProvider
         }
         catch (Exception)
         {
-            Append(CreateUnclassifiedRecord(logLevel, eventId, exception));
+            Append(CreateUnclassifiedRecord(logLevel, exception));
         }
     }
 
-    private CrashLogRecord CreateUnclassifiedRecord(LogLevel logLevel, EventId eventId, Exception? exception)
+    private CrashLogRecord CreateUnclassifiedRecord(LogLevel logLevel, Exception? exception)
     {
         return new CrashLogRecord(
             _timeProvider.GetUtcNow(),
             logLevel,
-            new EventId(eventId.Id),
+            CrashLogFieldPolicy.UnclassifiedEventId,
             CrashLogFieldPolicy.UnclassifiedMessageTemplate,
             EmptyProperties.Instance,
             GetExceptionType(exception));
