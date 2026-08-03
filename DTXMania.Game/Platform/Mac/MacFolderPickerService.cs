@@ -87,8 +87,8 @@ namespace DTXMania.Game.Platform
 
         internal static FolderPickerResult MapProcessResult(
             int exitCode,
-            string standardOutput,
-            string standardError)
+            string? standardOutput,
+            string? standardError)
         {
             var output = standardOutput?.Trim() ?? string.Empty;
             var error = standardError?.Trim() ?? string.Empty;

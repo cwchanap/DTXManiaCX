@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using DTXMania.Game.Lib.Config;
 using Xunit;
 
@@ -51,6 +52,11 @@ public sealed class SongRootConfigModelsTests
         Assert.Equal(new[] { "/a", "/b" }, result.CanonicalRoots);
         Assert.Single(result.Diagnostics);
         Assert.Equal("missing", result.Diagnostics[0].Message);
+
+        // The exposed collections must be read-only wrappers, matching the
+        // SongRootUpdateResult contract that guards against caller mutation.
+        Assert.IsType<ReadOnlyCollection<string>>(result.CanonicalRoots);
+        Assert.IsType<ReadOnlyCollection<SongRootDiagnostic>>(result.Diagnostics);
     }
 
     [Fact]

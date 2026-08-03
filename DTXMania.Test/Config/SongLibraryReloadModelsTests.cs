@@ -31,8 +31,12 @@ public sealed class SongLibraryReloadModelsTests
                 EnumeratedFileCount: 0,
                 DiscoveredScoreCount: 0);
 
-            Assert.Equal(expectedRetainsSnapshot, result.RetainsCurrentSnapshot);
-            Assert.Equal(expectedRequiresRestart, result.RequiresRestart);
+            Assert.True(
+                expectedRetainsSnapshot == result.RetainsCurrentSnapshot,
+                $"outcome={outcome}: expected RetainsCurrentSnapshot={expectedRetainsSnapshot}, actual={result.RetainsCurrentSnapshot}");
+            Assert.True(
+                expectedRequiresRestart == result.RequiresRestart,
+                $"outcome={outcome}: expected RequiresRestart={expectedRequiresRestart}, actual={result.RequiresRestart}");
         }
     }
 

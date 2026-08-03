@@ -99,7 +99,7 @@ public sealed class SongLibraryReloadServiceAdditionalTests
     }
 
     [Fact]
-    public async Task ReloadAsync_WhenPublishedWithDiscoveredScores_ShouldReportScoreCount()
+    public async Task ReloadAsync_WhenPublishedWithDiscoveredChartsButNoScores_ShouldReportChartCountAndZeroScoreCount()
     {
         var service = new SongLibraryReloadService(
             (_, _, _) =>

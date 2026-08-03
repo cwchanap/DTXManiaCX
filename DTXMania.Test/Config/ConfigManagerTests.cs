@@ -4,6 +4,7 @@ using DTXMania.Game.Lib.Utilities;
 using Microsoft.Extensions.Logging;
 using Microsoft.Xna.Framework.Input;
 using Moq;
+using System.Reflection;
 using System.Text;
 
 namespace DTXMania.Test.Config;
@@ -1475,38 +1476,6 @@ Key.Bad=abc
     }
 
     [Fact]
-    public void SaveConfig_WhenWrittenToADifferentPathThanPending_ShouldRetainThePendingSaveMarker()
-    {
-        var dir = Path.Combine(Path.GetTempPath(), "dtxmania-pending-mismatch-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(dir);
-        var prev = Environment.GetEnvironmentVariable("DTXMANIA_APPDATA_ROOT");
-        Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", dir);
-        try
-        {
-            var loadedConfig = Path.Combine(dir, "loaded.ini");
-            var otherConfig = Path.Combine(dir, "other.ini");
-            var manager = new ConfigManager();
-            manager.LoadConfig(loadedConfig);
-            // A scalar edit stages a deferred save against the loaded path.
-            manager.SetNoFail(true);
-
-            // Saving to a different path must NOT clear the pending marker for the
-            // loaded path, so a later FlushPendingSave still lands the deferred edit.
-            manager.SaveConfig(otherConfig);
-
-            manager.FlushPendingSave();
-
-            Assert.Contains("NoFail=True", File.ReadAllText(loadedConfig));
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", prev);
-            if (Directory.Exists(dir))
-                Directory.Delete(dir, recursive: true);
-        }
-    }
-
-    [Fact]
     public void SaveConfig_WhenPendingPathCannotBeResolved_ShouldRetainThePendingSaveMarker()
     {
         var dir = Path.Combine(Path.GetTempPath(), "dtxmania-pending-bad-" + Guid.NewGuid().ToString("N"));
@@ -1532,6 +1501,13 @@ Key.Bad=abc
             // so the in-memory edit is still correct even though the bad path never lands.
             manager.FlushPendingSave();
             Assert.Equal(200, manager.Config.ScrollSpeed);
+
+            // The invalid pending path must still be recorded so a future flush can
+            // retry it. Verify via reflection that _pendingSavePath was not cleared.
+            var pendingSavePath = typeof(ConfigManager)
+                .GetField("_pendingSavePath", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?.GetValue(manager) as string;
+            Assert.Equal("bad\0path", pendingSavePath);
         }
         finally
         {

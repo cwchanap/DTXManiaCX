@@ -263,8 +263,9 @@ public sealed class SongSelectionStageRootFilterAdditionalTests
     {
         var stage = CreateStage();
 
-        Assert.Throws<TargetInvocationException>(() =>
+        var thrown = Assert.Throws<TargetInvocationException>(() =>
             InvokePrivateMethod(stage, "ApplyLibrarySnapshotCore", new object?[] { null, true }));
+        Assert.IsType<ArgumentNullException>(thrown.InnerException);
     }
 
     [Fact]
@@ -272,8 +273,9 @@ public sealed class SongSelectionStageRootFilterAdditionalTests
     {
         var stage = CreateStage();
 
-        Assert.Throws<TargetInvocationException>(() =>
+        var thrown = Assert.Throws<TargetInvocationException>(() =>
             InvokePrivateMethod(stage, "ReconcileLibrarySnapshot", new object?[] { null }));
+        Assert.IsType<ArgumentNullException>(thrown.InnerException);
     }
 
     [Fact]
@@ -289,36 +291,6 @@ public sealed class SongSelectionStageRootFilterAdditionalTests
     }
 
     #region Helpers
-
-    private static SongListNode Box(string title, string directoryPath, params SongListNode[] children)
-    {
-        var box = new SongListNode
-        {
-            Type = NodeType.Box,
-            Title = title,
-            DirectoryPath = directoryPath,
-            Children = children.ToList(),
-        };
-        foreach (var child in box.Children)
-            child.Parent = box;
-        return box;
-    }
-
-    private static SongListNode Score(string title, int songId, string chartPath)
-    {
-        var chart = new SongChart { FilePath = chartPath };
-        var song = new SongEntity { Id = songId, Title = title, Charts = new List<SongChart> { chart } };
-        chart.Song = song;
-        chart.SongId = songId;
-        return new SongListNode
-        {
-            Type = NodeType.Score,
-            Title = title,
-            DatabaseSongId = songId,
-            DatabaseSong = song,
-            DatabaseChart = chart,
-        };
-    }
 
     private static SongLibrarySnapshot Snapshot(
         long version,

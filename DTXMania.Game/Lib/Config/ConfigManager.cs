@@ -147,13 +147,24 @@ namespace DTXMania.Game.Lib.Config
             // token's relocation-survival guarantee.
             var skinPathBeforeNormalization = Config.SkinPath;
 
+            // Capture the pre-normalization SongRoots so we can detect whether
+            // NormalizeConfigPaths discarded malformed entries, replaced them
+            // with resolved paths, or inserted the managed default. Those
+            // corrections must be persisted alongside skin/SongRoot migrations
+            // so a corrupted or stale SongRoot.* line does not survive a
+            // relocation-triggered reload.
+            var songRootsBeforeNormalization = Config.SongRoots.ToList();
+
             NormalizeConfigPaths(baseDir, songRootsLoadSource == SongRootsLoadSource.LegacyDTXPath);
 
             var skinPathMigrated = !string.Equals(
                 skinPathBeforeNormalization, Config.SkinPath,
                 AppPaths.SkinPathComparison);
 
-            if (skinPathMigrated || songRootsMigrated)
+            var songRootsCorrected = !SongRootsSequenceEqual(
+                songRootsBeforeNormalization, Config.SongRoots);
+
+            if (skinPathMigrated || songRootsMigrated || songRootsCorrected)
             {
                 try
                 {
@@ -169,6 +180,13 @@ namespace DTXMania.Game.Lib.Config
                     {
                         _logger.LogInformation(
                             "Persisted SongRoot migration using {SongRootCount} configured root(s).",
+                            Config.SongRoots.Count);
+                    }
+
+                    if (songRootsCorrected && !songRootsMigrated)
+                    {
+                        _logger.LogInformation(
+                            "NormalizeConfigPaths corrected {SongRootCount} SongRoot entry/entries; persisting the updated values to the config file.",
                             Config.SongRoots.Count);
                     }
                 }
@@ -961,6 +979,24 @@ namespace DTXMania.Game.Lib.Config
             if (string.IsNullOrEmpty(path))
                 return string.Empty;
             return path.Replace('\\', '/').TrimEnd('/');
+        }
+
+        /// <summary>
+        /// Compares two SongRoot lists element-by-element using the platform's
+        /// path comparison so that discarded, replaced, or inserted entries are
+        /// detected after <see cref="NormalizeConfigPaths"/> runs.
+        /// </summary>
+        private static bool SongRootsSequenceEqual(
+            IReadOnlyList<string> first, IReadOnlyList<string> second)
+        {
+            if (first.Count != second.Count)
+                return false;
+            for (var i = 0; i < first.Count; i++)
+            {
+                if (!string.Equals(first[i], second[i], AppPaths.SkinPathComparison))
+                    return false;
+            }
+            return true;
         }
 
         /// <inheritdoc/>

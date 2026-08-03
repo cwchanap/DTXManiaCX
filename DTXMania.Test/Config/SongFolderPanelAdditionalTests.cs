@@ -486,10 +486,8 @@ public sealed class SongFolderPanelAdditionalTests
 
     private static SpriteBatch CreateUninitializedSpriteBatch()
     {
-#pragma warning disable SYSLIB0050
-        return (SpriteBatch)System.Runtime.Serialization.FormatterServices
+        return (SpriteBatch)System.Runtime.CompilerServices.RuntimeHelpers
             .GetUninitializedObject(typeof(SpriteBatch));
-#pragma warning restore SYSLIB0050
     }
 
     private sealed class DelayedFolderPicker : IFolderPickerService

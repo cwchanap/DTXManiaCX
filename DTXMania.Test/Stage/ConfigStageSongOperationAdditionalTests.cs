@@ -18,6 +18,7 @@ using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework.Input;
 using Moq;
 using Xunit;
+using static DTXMania.Test.Stage.ConfigStageTestFactory;
 
 namespace DTXMania.Test.Stage;
 
@@ -31,7 +32,7 @@ public sealed class ConfigStageSongOperationAdditionalTests
     public void FormatSongFolderCount_ShouldSingularizeOneAndPluralizeOthers(
         int count, string expected)
     {
-        Assert.Equal(expected, InvokeStatic("FormatSongFolderCount", count));
+        Assert.Equal(expected, InvokeStatic<string>("FormatSongFolderCount", count));
     }
 
     [Fact]
@@ -335,46 +336,6 @@ public sealed class ConfigStageSongOperationAdditionalTests
 
     #region Helpers
 
-    private static (ConfigStage Stage, InputManagerCompat InputManager) CreateStage(
-        IConfigManager? configManager = null,
-        ISongLibraryReloadService? reloadService = null,
-        Func<Func<Task<ConfigSongOperationCompletion>>, Task<ConfigSongOperationCompletion>>? backgroundRunner = null)
-    {
-        configManager ??= new ConfigManager();
-        reloadService ??= new DelegateReloadService(SongLibraryReloadOutcome.Published, 0, 0);
-        var inputManager = new InputManagerCompat(new ConfigManager(), new TestMidiDeviceBackend());
-        var game = ReflectionHelpers.CreateGame();
-        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager);
-        ReflectionHelpers.SetProperty(game, nameof(BaseGame.InputManager), inputManager);
-        var availability = new FfmpegRuntimeAvailability(
-            IsAvailable: true,
-            DiagnosticReason: null,
-            BinaryFolder: null);
-        return (
-            new ConfigStage(
-                game,
-                () => availability,
-                () => new Mock<IFolderPickerService>().Object,
-                reloadService,
-                (_, _) => Task.FromResult(new NxImportResult()),
-                () => Task.CompletedTask,
-                backgroundRunner ?? (work => Task.Run(work)),
-                continuationRegistrar: null),
-            inputManager);
-    }
-
-    private static SongFolderApplyResult ApplySongRoots(
-        ConfigStage stage, IReadOnlyList<string> roots)
-    {
-        var method = typeof(ConfigStage).GetMethod(
-            "ApplySongRoots", BindingFlags.Instance | BindingFlags.NonPublic);
-        return Assert.IsType<SongFolderApplyResult>(method!.Invoke(stage, new object[] { roots }));
-    }
-
-    private static ConfigSongOperationCoordinator GetCoordinator(ConfigStage stage) =>
-        ReflectionHelpers.GetPrivateField<ConfigSongOperationCoordinator>(
-            stage, "_songOperationCoordinator");
-
     private static void DrainSongOperationUpdates(ConfigStage stage) =>
         InvokePrivate(stage, "DrainSongOperationUpdates");
 
@@ -403,14 +364,6 @@ public sealed class ConfigStageSongOperationAdditionalTests
         }
     }
 
-    private static string InvokeStatic(string name, params object[] args)
-    {
-        var method = typeof(ConfigStage).GetMethod(
-            name, BindingFlags.Static | BindingFlags.NonPublic);
-        Assert.NotNull(method);
-        return (string)method!.Invoke(null, args)!;
-    }
-
     private static void InvokePrivate(ConfigStage stage, string name, params object?[] args)
     {
         var method = typeof(ConfigStage).GetMethod(
@@ -424,33 +377,6 @@ public sealed class ConfigStageSongOperationAdditionalTests
 
     private static void SetPrivateField(object target, string name, object? value) =>
         ReflectionHelpers.SetPrivateField(target, name, value);
-
-    private sealed class DelegateReloadService : ISongLibraryReloadService
-    {
-        private readonly SongLibraryReloadOutcome _outcome;
-        private readonly int _unavailableRootCount;
-        private readonly int _discoveredScoreCount;
-
-        public DelegateReloadService(
-            SongLibraryReloadOutcome outcome,
-            int unavailableRootCount,
-            int discoveredScoreCount)
-        {
-            _outcome = outcome;
-            _unavailableRootCount = unavailableRootCount;
-            _discoveredScoreCount = discoveredScoreCount;
-        }
-
-        public Task<SongLibraryReloadResult> ReloadAsync(
-            IReadOnlyList<string> configuredRoots,
-            IProgress<SongLibraryReloadProgress>? progress,
-            CancellationToken cancellationToken) =>
-            Task.FromResult(new SongLibraryReloadResult(
-                _outcome,
-                _unavailableRootCount,
-                EnumeratedFileCount: 0,
-                _discoveredScoreCount));
-    }
 
     #endregion
 }
