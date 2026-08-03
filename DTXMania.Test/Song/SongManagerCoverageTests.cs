@@ -1367,6 +1367,120 @@ public class SongManagerCoverageTests : IDisposable
         Assert.False(result);
     }
 
+    // Regression: GetActiveChartCountAsync must count charts, not score rows.
+    // One chart can have many SongScore rows (ChartId + Instrument + PlaySpeedPercent).
+    // Counting score rows would permanently exceed the filesystem file count and
+    // force a full rescan on every startup once a player records results at multiple
+    // speeds or instruments.
+    [Fact]
+    public async Task DetectFilesystemChangesAsync_WithMultipleScoreVariantsOnOneChart_ShouldNotTriggerFullScan()
+    {
+        var songsRoot = Path.Combine(_testRoot, "ScoreVariantStability");
+        var songFolder = Path.Combine(songsRoot, "Song");
+        Directory.CreateDirectory(songFolder);
+        await CreateDtxFileAsync(Path.Combine(songFolder, "song.dtx"), "Stable Song", "Coverage Bot", "Rock", 35);
+        await InitializeAndEnumerateAsync(songsRoot);
+
+        // Simulate a player who has recorded results at multiple play speeds.
+        // The import seeded one DRUMS score row at 100%; add two more variants
+        // at canonical speeds (105, 110) so the chart now has 3 score rows.
+        Assert.NotNull(_manager.DatabaseService);
+        using (var context = _manager.DatabaseService!.CreateContext())
+        {
+            var chart = Assert.Single(context.SongCharts.ToList());
+            context.SongScores.Add(new SongScore
+            {
+                ChartId = chart.Id,
+                Instrument = EInstrumentPart.DRUMS,
+                PlaySpeedPercent = 105,
+            });
+            context.SongScores.Add(new SongScore
+            {
+                ChartId = chart.Id,
+                Instrument = EInstrumentPart.DRUMS,
+                PlaySpeedPercent = 110,
+            });
+            await context.SaveChangesAsync();
+        }
+
+        // Set the database file's last-write time AFTER all writes (including the
+        // score-row inserts above) so GetLastEnumerationTimestampAsync reports a
+        // steady-state timestamp in the future. Setting it before the inserts
+        // would let SaveChangesAsync overwrite it with the current time.
+        SetDatabaseLastWriteTime(DateTime.Now.AddMinutes(5));
+
+        // Filesystem still has exactly 1 chart file; database now has 3 score rows
+        // but 1 chart row. The cache-freshness check compares chart counts, so it
+        // must NOT report a mismatch.
+        var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
+            _manager,
+            "DetectFilesystemChangesAsync",
+            (object)new[] { songsRoot });
+
+        Assert.False(result);
+    }
+
+    // Regression: CountDTXFilesAsync must count ALL supported chart extensions,
+    // not just *.dtx. A library containing .gda/.g2d/.bms/.bme/.bml charts would
+    // otherwise have filesystem count 0 (no .dtx files) vs database count > 0,
+    // forcing a full rescan on every startup.
+    [Fact]
+    public async Task CountDTXFilesAsync_WithNonDtxChartFile_ShouldCountIt()
+    {
+        var songsRoot = Path.Combine(_testRoot, "NonDtxCount");
+        var songFolder = Path.Combine(songsRoot, "Song");
+        Directory.CreateDirectory(songFolder);
+        // .gda is in DTXChartParser.SupportedExtensions; no .dtx files present.
+        await File.WriteAllTextAsync(Path.Combine(songFolder, "chart.gda"), """
+#TITLE: GDA Song
+#ARTIST: Coverage Bot
+#BPM: 120
+#DLEVEL: 40
+#00002:11111111
+#00011:01010101
+""");
+
+        var result = await ReflectionHelpers.InvokePrivateMethod<Task<int>>(
+            _manager,
+            "CountDTXFilesAsync",
+            (object)new[] { songsRoot });
+
+        Assert.Equal(1, result);
+    }
+
+    // Regression: CheckDirectoryForChangesAsync must scan ALL supported chart
+    // extensions, not just *.dtx. A modified .bms chart would otherwise be missed
+    // when the total file count is unchanged.
+    [Fact]
+    public async Task CheckDirectoryForChangesAsync_WhenNonDtxChartWasModified_ShouldReturnTrue()
+    {
+        var songsRoot = Path.Combine(_testRoot, "NonDtxModified");
+        var songFolder = Path.Combine(songsRoot, "Song");
+        Directory.CreateDirectory(songFolder);
+        // .bms is in DTXChartParser.SupportedExtensions.
+        var bmsPath = Path.Combine(songFolder, "chart.bms");
+        await File.WriteAllTextAsync(bmsPath, """
+#TITLE: BMS Song
+#ARTIST: Coverage Bot
+#BPM: 120
+#DLEVEL: 40
+#00002:11111111
+#00011:01010101
+""");
+
+        var lastEnumerationTime = DateTime.Now.AddMinutes(-5);
+        Directory.SetLastWriteTime(songsRoot, lastEnumerationTime.AddMinutes(-1));
+        File.SetLastWriteTime(bmsPath, DateTime.Now);
+
+        var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
+            _manager,
+            "CheckDirectoryForChangesAsync",
+            songsRoot,
+            lastEnumerationTime);
+
+        Assert.True(result);
+    }
+
     [Fact]
     public async Task FindMovedFileAsync_WhenSearchPathStateIsInvalid_ShouldReturnNull()
     {
