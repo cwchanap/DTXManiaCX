@@ -490,6 +490,11 @@ namespace DTXMania.Game.Lib.Input
         public bool MidiAvailable => _midiInputSource?.IsAvailable ?? false;
 
         /// <summary>
+        /// Gets the current number of connected MIDI devices without exposing device names or identifiers.
+        /// </summary>
+        public int ConnectedMidiDeviceCount => _midiInputSource?.DeviceCount ?? 0;
+
+        /// <summary>
         /// Clears all pending injected state: the button queue, injected key states, press events,
         /// and any pending/accepted injected MIDI notes. Call this when switching stages to prevent
         /// stale injected inputs from leaking into the next stage.

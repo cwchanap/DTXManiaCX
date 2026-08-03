@@ -50,6 +50,19 @@ namespace DTXMania.Test.Input
         }
 
         [Fact]
+        public void ConnectedMidiDeviceCount_ShouldBeZeroBeforeDevicesAndRefreshToCurrentCount()
+        {
+            Assert.Equal(0, _inputManager.ConnectedMidiDeviceCount);
+
+            _midiBackend.SetDevices(
+                new TestMidiInputDevice("midi-a", "Secret Kit A"),
+                new TestMidiInputDevice("midi-b", "Secret Kit B"));
+            _inputManager.Update(GameConstants.Input.DeviceScanIntervalMs / 1000.0);
+
+            Assert.Equal(2, _inputManager.ConnectedMidiDeviceCount);
+        }
+
+        [Fact]
         public void Constructor_NullConfigManager_ThrowsArgumentNullException()
         {
             // Act & Assert

@@ -75,4 +75,21 @@ public sealed class CrashContextSnapshotStoreTests
         Assert.Equal(Path.GetFullPath(path), paths[0]);
         Assert.True(AppPaths.SkinPathComparer.Equals(paths[0], Path.GetFullPath(path)));
     }
+
+    [Fact]
+    public void AudioUnavailable_ShouldPreserveOnlyTheFixedFailureCode()
+    {
+        var store = new CrashContextSnapshotStore();
+
+        store.SetSnapshot(new CrashContextSnapshot(
+            CrashContextKind.Audio,
+            CrashContextStatus.Unavailable,
+            new Dictionary<string, object?> { ["DeviceName"] = "Secret audio device" },
+            CrashContextPublisher.AudioDeviceSummaryUnavailable));
+
+        var audio = Assert.Single(store.Snapshot());
+
+        Assert.Empty(audio.Fields);
+        Assert.Equal(CrashContextPublisher.AudioDeviceSummaryUnavailable, audio.FailureCode);
+    }
 }

@@ -1,4 +1,7 @@
 using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.Serialization;
 using System.Threading;
@@ -10,6 +13,7 @@ using DTXMania.Game.Lib.Diagnostics.CrashReporting;
 using DTXMania.Game.Lib.Graphics;
 using DTXMania.Game.Lib.JsonRpc;
 using DTXMania.Game.Lib.Input;
+using DTXMania.Game.Lib.Input.Midi;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Test.TestData;
@@ -25,6 +29,58 @@ namespace DTXMania.Test
     [Trait("Category", "Unit")]
     public class BaseGameTests
     {
+        [Fact]
+        public void PublishConfigurationContext_ShouldUseOnlyApprovedConcreteFields()
+        {
+            var diagnostics = new RecordingGameCrashDiagnostics();
+            var config = new ConfigData
+            {
+                ScreenWidth = 1920,
+                ScreenHeight = 1080,
+                FullScreen = true,
+                VSyncWait = false,
+                BufferSizeMs = 80,
+                AutoPlay = true,
+                NoFail = true,
+                EnableGameApi = true,
+                GameApiKey = "must-not-appear",
+                DTXPath = @"C:\\Secret\\Songs",
+                SkinPath = @"C:\\Secret\\Skin"
+            };
+            config.KeyBindings["Snare"] = 1;
+
+            CrashContextPublisher.PublishConfiguration(diagnostics, config);
+
+            var snapshot = diagnostics.Contexts.Snapshots.Single(
+                item => item.Kind == CrashContextKind.Configuration);
+            Assert.Equal(1920, snapshot.Fields["ScreenWidth"]);
+            Assert.Equal(1, snapshot.Fields["KeyBindingCount"]);
+            Assert.DoesNotContain(
+                snapshot.Fields,
+                field => field.Key.Contains("Key", StringComparison.Ordinal)
+                    && field.Value?.ToString() == "must-not-appear");
+            Assert.DoesNotContain(
+                snapshot.Fields.Values,
+                value => value?.ToString()?.Contains("Secret", StringComparison.Ordinal) == true);
+        }
+
+        [Fact]
+        public void ReportStartupActivated_ShouldPublishTheCachedStartupMilestone()
+        {
+            var game = ReflectionHelpers.CreateGame();
+            var diagnostics = new RecordingGameCrashDiagnostics();
+            SetCrashDiagnostics(game, diagnostics);
+
+            game.ReportStartupActivated();
+
+            var snapshot = Assert.Single(
+                diagnostics.Contexts.Snapshots,
+                item => item.Kind == CrashContextKind.Startup);
+            Assert.Equal(
+                StartupCriticalPathMilestone.StartupActivation,
+                snapshot.Fields["Milestone"]);
+        }
+
         [Theory]
         [InlineData(0.1, 0.0, false)]
         [InlineData(GameConstants.StageTransition.DebounceDelaySeconds, 0.0, true)]
@@ -669,6 +725,35 @@ namespace DTXMania.Test
             Assert.Equal(new[] { "input", "toggle", "stage", "action" }, callOrder);
             Assert.Equal(0.016, ReflectionHelpers.GetPrivateField<double>(game, "_totalGameTime"));
             Assert.True(ReflectionHelpers.GetPrivateField<ConcurrentQueue<Action>>(game, "_mainThreadActions")!.IsEmpty);
+        }
+
+        [Fact]
+        public void Update_WhenMidiDeviceCountChanges_ShouldPublishOnlyTheCount()
+        {
+            var stageManager = new Mock<IStageManager>();
+            var inputManager = new TrackingInputManager { UpdateBaseInputManager = true };
+            inputManager.SetMidiDevices(new TestMidiInputDevice("midi-1", "Secret MIDI Device"));
+            var graphicsManager = new StubGraphicsManager(isDeviceAvailable: true, CreateFailingRenderTargetManager());
+            var game = CreateGameForUpdate(inputManager, stageManager.Object, graphicsManager);
+            var diagnostics = new RecordingGameCrashDiagnostics();
+            SetCrashDiagnostics(game, diagnostics);
+
+            ReflectionHelpers.InvokePrivateMethod(
+                game,
+                "Update",
+                new GameTime(TimeSpan.Zero, TimeSpan.FromSeconds(GameConstants.Input.DeviceScanIntervalMs / 1000.0)));
+
+            var input = Assert.Single(
+                diagnostics.Contexts.Snapshots,
+                item => item.Kind == CrashContextKind.Input);
+            Assert.Equal(1, input.Fields["MidiDeviceCount"]);
+            Assert.Contains(
+                diagnostics.Breadcrumbs.Events,
+                item => item.EventName == "midi_device_count_changed"
+                    && Equals(item.Properties["MidiDeviceCount"], 1));
+            Assert.DoesNotContain(
+                diagnostics.Breadcrumbs.Events.SelectMany(item => item.Properties.Values),
+                value => value?.ToString()?.Contains("Secret MIDI Device", StringComparison.Ordinal) == true);
         }
 
         [Fact]
@@ -1767,18 +1852,37 @@ namespace DTXMania.Test
 
         private sealed class TrackingInputManager : InputManagerCompat
         {
+            private readonly TestMidiDeviceBackend _midiBackend;
+
             public TrackingInputManager()
-                : base(new ConfigManager(), new TestMidiDeviceBackend())
+                : this(new TestMidiDeviceBackend())
             {
+            }
+
+            private TrackingInputManager(TestMidiDeviceBackend midiBackend)
+                : base(new ConfigManager(), midiBackend)
+            {
+                _midiBackend = midiBackend;
             }
 
             public int UpdateCallCount { get; private set; }
 
             public Action<double>? OnUpdate { get; set; }
 
+            public bool UpdateBaseInputManager { get; set; }
+
+            public void SetMidiDevices(params IMidiInputDevice[] devices)
+            {
+                _midiBackend.SetDevices(devices);
+            }
+
             public override void Update(double deltaTime)
             {
                 UpdateCallCount++;
+                if (UpdateBaseInputManager)
+                {
+                    base.Update(deltaTime);
+                }
                 OnUpdate?.Invoke(deltaTime);
             }
         }
@@ -2072,6 +2176,63 @@ namespace DTXMania.Test
             public ICrashSensitiveDataSink SensitiveData => EmptyCrashSensitiveDataSink.Instance;
 
             public ICrashReportInbox Inbox => EmptyCrashReportInbox.Instance;
+        }
+
+        private sealed class RecordingGameCrashDiagnostics : IGameCrashDiagnostics
+        {
+            public RecordingBreadcrumbSink Breadcrumbs { get; } = new();
+
+            public RecordingContextSink Contexts { get; } = new();
+
+            public RecordingSensitiveDataSink SensitiveData { get; } = new();
+
+            public ILoggerFactory LoggerFactory => Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance;
+
+            ICrashBreadcrumbSink IGameCrashDiagnostics.Breadcrumbs => Breadcrumbs;
+
+            ICrashContextSink IGameCrashDiagnostics.Contexts => Contexts;
+
+            ICrashSensitiveDataSink IGameCrashDiagnostics.SensitiveData => SensitiveData;
+
+            public ICrashReportInbox Inbox => EmptyCrashReportInbox.Instance;
+        }
+
+        private sealed class RecordingBreadcrumbSink : ICrashBreadcrumbSink
+        {
+            private readonly List<(string EventName, IReadOnlyDictionary<string, object?> Properties)> _events = new();
+
+            public IReadOnlyList<(string EventName, IReadOnlyDictionary<string, object?> Properties)> Events => _events;
+
+            public void Record(string eventName, IReadOnlyDictionary<string, object?>? properties = null)
+            {
+                _events.Add((
+                    eventName,
+                    properties ?? new ReadOnlyDictionary<string, object?>(new Dictionary<string, object?>())));
+            }
+        }
+
+        private sealed class RecordingContextSink : ICrashContextSink
+        {
+            private readonly List<CrashContextSnapshot> _snapshots = new();
+
+            public IReadOnlyList<CrashContextSnapshot> Snapshots => _snapshots;
+
+            public void SetSnapshot(CrashContextSnapshot snapshot)
+            {
+                _snapshots.Add(snapshot);
+            }
+        }
+
+        private sealed class RecordingSensitiveDataSink : ICrashSensitiveDataSink
+        {
+            private readonly List<string?> _paths = new();
+
+            public IReadOnlyList<string?> Paths => _paths;
+
+            public void RegisterPath(string? path)
+            {
+                _paths.Add(path);
+            }
         }
     }
 }

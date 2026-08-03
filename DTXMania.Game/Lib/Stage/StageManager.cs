@@ -1,11 +1,18 @@
 using System;
 using System.Collections.Generic;
 using DTXMania.Game;
+using DTXMania.Game.Lib.Diagnostics.CrashReporting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace DTXMania.Game.Lib.Stage
 {
+    internal enum StageTransitionRejectionReason
+    {
+        Disposed,
+        AlreadyTransitioning
+    }
+
     /// <summary>
     /// Enhanced stage manager with transition support and structured logging.
     /// Based on DTXManiaNX stage management patterns with eフェーズID handling.
@@ -18,6 +25,8 @@ namespace DTXMania.Game.Lib.Stage
     {
         private readonly IStageGame _game;
         private readonly ILogger<StageManager> _logger;
+        private readonly ICrashBreadcrumbSink _breadcrumbs;
+        private readonly ICrashContextSink _contexts;
         private readonly Dictionary<StageType, IStage> _stages;
         private IStage _currentStage;
         private IStage _previousStage;
@@ -33,10 +42,16 @@ namespace DTXMania.Game.Lib.Stage
         public StagePhase CurrentPhase => _currentStage?.CurrentPhase ?? StagePhase.Inactive;
         public bool IsTransitioning => _isTransitioning;
 
-        public StageManager(IStageGame game, ILogger<StageManager> logger = null)
+        public StageManager(
+            IStageGame game,
+            ILogger<StageManager>? logger = null,
+            ICrashBreadcrumbSink? breadcrumbs = null,
+            ICrashContextSink? contexts = null)
         {
             _game = game ?? throw new ArgumentNullException(nameof(game));
             _logger = logger ?? NullLogger<StageManager>.Instance;
+            _breadcrumbs = breadcrumbs ?? EmptyCrashBreadcrumbSink.Instance;
+            _contexts = contexts ?? EmptyCrashContextSink.Instance;
             _stages = new Dictionary<StageType, IStage>();
             // Don't initialize stages immediately - use lazy initialization
         }
@@ -115,17 +130,19 @@ namespace DTXMania.Game.Lib.Stage
             if (_disposed)
             {
                 _logger.LogWarning("Cannot change to {StageType} - manager is disposed", stageType);
+                RecordTransitionRejected(StageTransitionRejectionReason.Disposed);
                 return;
             }
 
             if (_isTransitioning)
             {
                 _logger.LogDebug("Already transitioning, ignoring change to {StageType}", stageType);
+                RecordTransitionRejected(StageTransitionRejectionReason.AlreadyTransitioning);
                 return;
             }
 
             // GetOrCreateStage throws ArgumentException for unknown types, so targetStage is never null
-            var targetStage = GetOrCreateStage(stageType);
+            _ = GetOrCreateStage(stageType);
 
             var previousStageType = _currentStage?.Type;
             
@@ -134,6 +151,16 @@ namespace DTXMania.Game.Lib.Stage
             _pendingSharedData = sharedData;
             _currentTransition = transition ?? new InstantTransition();
             _isTransitioning = true;
+
+            var safeTransitionFields = CreateTransitionFields(
+                previousStageType ?? StageType.Startup,
+                stageType);
+            _breadcrumbs.Record("stage_transition_requested", safeTransitionFields);
+            _logger.LogDebug(
+                new EventId(5103, "stage_transition_requested"),
+                "Stage transition requested: {PreviousStage} -> {TargetStage}",
+                previousStageType ?? StageType.Startup,
+                stageType);
 
             // Log transition details
             var transitionTypeName = _currentTransition.GetType().Name;
@@ -157,6 +184,12 @@ namespace DTXMania.Game.Lib.Stage
                     StartupCriticalPathMilestone.TransitionStart);
             }
             _currentTransition.Start();
+            _breadcrumbs.Record("stage_transition_started", safeTransitionFields);
+            _logger.LogDebug(
+                new EventId(5104, "stage_transition_started"),
+                "Stage transition started: {PreviousStage} -> {TargetStage}",
+                previousStageType ?? StageType.Startup,
+                stageType);
 
             // Notify current stage of transition out
             if (_currentStage != null)
@@ -272,14 +305,22 @@ namespace DTXMania.Game.Lib.Stage
                     _stages.ContainsKey(StageType.Title));
             }
             var newStage = GetOrCreateStage(_targetStageType);
-            if (newStage != null)
-            {
-                _currentStage = newStage;
-                _logger.LogDebug("Activating new stage: {StageType}", _targetStageType);
-                _currentStage.Activate(_pendingSharedData);
-                _currentStage.OnTransitionIn(_currentTransition);
-                _currentStage.OnTransitionComplete();
-            }
+            _currentStage = newStage;
+            _logger.LogDebug("Activating new stage: {StageType}", _targetStageType);
+            _currentStage.Activate(_pendingSharedData);
+            _currentStage.OnTransitionIn(_currentTransition);
+            _currentStage.OnTransitionComplete();
+
+            var completedTransitionFields = CreateTransitionFields(
+                previousStageType ?? StageType.Startup,
+                _targetStageType);
+            CrashContextPublisher.PublishStage(_contexts, _targetStageType, _stages.Count);
+            _breadcrumbs.Record("stage_transition_completed", completedTransitionFields);
+            _logger.LogInformation(
+                new EventId(5105, "stage_transition_completed"),
+                "Stage transition completed: {PreviousStage} -> {TargetStage}",
+                previousStageType ?? StageType.Startup,
+                _targetStageType);
 
             // Clean up transition state
             _isTransitioning = false;
@@ -288,6 +329,30 @@ namespace DTXMania.Game.Lib.Stage
             _previousStage = null;
 
             _logger.LogInformation("Stage transition to {StageType} completed", _targetStageType);
+        }
+
+        private void RecordTransitionRejected(StageTransitionRejectionReason reason)
+        {
+            var fields = new Dictionary<string, object?>
+            {
+                ["Reason"] = reason
+            };
+            _breadcrumbs.Record("stage_transition_rejected", fields);
+            _logger.LogWarning(
+                new EventId(5111, "stage_transition_rejected"),
+                "Stage transition rejected: {Reason}",
+                reason);
+        }
+
+        private static Dictionary<string, object?> CreateTransitionFields(
+            StageType previousStage,
+            StageType targetStage)
+        {
+            return new Dictionary<string, object?>
+            {
+                ["PreviousStage"] = previousStage,
+                ["TargetStage"] = targetStage
+            };
         }
 
         private bool IsStartupToTitleTransition =>
