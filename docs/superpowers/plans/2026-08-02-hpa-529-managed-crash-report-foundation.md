@@ -22,6 +22,8 @@
 - WindowsDX callback propagation must run automatically in the existing Windows E2E job.
 - DesktopGL callback propagation must be verified manually on Apple Silicon and recorded with exact commands, commit/build identity, OS/runtime information, and observed results.
 - Production code must not expose a crash-injection switch in Release builds. The E2E injection hook must be compiled only under `DEBUG`.
+- Implement the tasks in order. Do not start Task 5 until Task 4's process ownership tests pass; do not start Task 7 until Tasks 1–6 pass on both unit-test projects.
+- Keep each task as a separate reviewable commit. Correct a defect in the task that introduced its contract rather than hiding it in a later integration-only commit.
 - The canonical design and normative amendments are:
   - `docs/superpowers/specs/2026-08-02-hpa-519-managed-crash-report-design.md`
   - `docs/superpowers/specs/2026-08-02-hpa-519-managed-crash-report-design-review.md`
