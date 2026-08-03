@@ -408,6 +408,7 @@ namespace DTXMania.Game.Lib.Stage.Config
             (_draftRoots[rootIndex], _draftRoots[targetIndex]) =
                 (_draftRoots[targetIndex], _draftRoots[rootIndex]);
             _selectedRootIndex = targetIndex;
+            SetValidationStatus(_rootPolicy.Validate(_draftRoots));
         }
 
         private void ApplyDraft()

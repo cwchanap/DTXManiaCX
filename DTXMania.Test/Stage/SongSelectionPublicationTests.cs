@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
@@ -537,6 +538,109 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public async Task Deactivate_WhenCancelledInitializerCompletesLate_ShouldDiscardOnlyItsInactiveGeneration()
+        {
+            var stage = CreateStage();
+            var currentNode = Score("Current", 311, "/library/current/current.dtx");
+            var staleNode = Score("Stale", 310, "/library/stale/stale.dtx");
+            var staleSnapshot = Snapshot(310, new[] { staleNode }, new[] { "/library/stale" });
+            var display = new SongListDisplay
+            {
+                CurrentList = new List<SongListNode> { currentNode }
+            };
+            AttachCoreUi(stage, display: display);
+            var completions = GetPrivateField<
+                System.Collections.Concurrent.ConcurrentQueue<SongSelectionStage.SongInitializationResult>>(
+                stage,
+                "_pendingSongInitializationResults")!;
+            var workerStarted = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var releaseWorker = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var worker = Task.Run(async () =>
+            {
+                workerStarted.TrySetResult(true);
+                await releaseWorker.Task;
+                completions.Enqueue(new SongSelectionStage.SongInitializationResult(
+                    310,
+                    17,
+                    staleSnapshot,
+                    new[] { staleNode }));
+                return new List<SongListNode> { staleNode };
+            });
+
+            SetPrivateField(stage, "_activationVersion", 310);
+            SetPrivateField(stage, "_activeSongInitializationGeneration", 17L);
+            SetPrivateField(stage, "_songInitializationTask", worker);
+            SetPrivateField(stage, "_cancellationTokenSource", new CancellationTokenSource());
+            await workerStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+            stage.Deactivate();
+            releaseWorker.TrySetResult(true);
+            await worker.WaitAsync(TimeSpan.FromSeconds(1));
+            await WaitForSongInitializationQueueAsync(completions, results => results.Length == 0);
+
+            Assert.Empty(completions);
+            Assert.Equal(new[] { currentNode }, display.CurrentList);
+            Assert.Null(GetPrivateField<SongLibrarySnapshot>(stage, "_appliedLibrarySnapshot"));
+        }
+
+        [Fact]
+        public async Task Deactivate_WhenCancelledInitializerCompletesLate_ShouldPreserveNewerGenerationRecords()
+        {
+            var stage = CreateStage();
+            var staleNode = Score("Stale", 320, "/library/stale/stale.dtx");
+            var newerNode = Score("Newer", 321, "/library/newer/newer.dtx");
+            var staleSnapshot = Snapshot(320, new[] { staleNode }, new[] { "/library/stale" });
+            var newerSnapshot = Snapshot(321, new[] { newerNode }, new[] { "/library/newer" });
+            var completions = GetPrivateField<
+                System.Collections.Concurrent.ConcurrentQueue<SongSelectionStage.SongInitializationResult>>(
+                stage,
+                "_pendingSongInitializationResults")!;
+            var workerStarted = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var releaseWorker = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var worker = Task.Run(async () =>
+            {
+                workerStarted.TrySetResult(true);
+                await releaseWorker.Task;
+                completions.Enqueue(new SongSelectionStage.SongInitializationResult(
+                    320,
+                    23,
+                    staleSnapshot,
+                    new[] { staleNode }));
+                return new List<SongListNode> { staleNode };
+            });
+
+            SetPrivateField(stage, "_activationVersion", 320);
+            SetPrivateField(stage, "_activeSongInitializationGeneration", 23L);
+            SetPrivateField(stage, "_songInitializationTask", worker);
+            SetPrivateField(stage, "_cancellationTokenSource", new CancellationTokenSource());
+            await workerStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+            stage.Deactivate();
+            completions.Enqueue(new SongSelectionStage.SongInitializationResult(
+                321,
+                24,
+                newerSnapshot,
+                new[] { newerNode }));
+            releaseWorker.TrySetResult(true);
+            await worker.WaitAsync(TimeSpan.FromSeconds(1));
+            await WaitForSongInitializationQueueAsync(
+                completions,
+                results => results.Length == 1 &&
+                           results[0].ActivationVersion == 321 &&
+                           results[0].Generation == 24);
+
+            var remaining = Assert.Single(completions);
+            Assert.Equal(321, remaining.ActivationVersion);
+            Assert.Equal(24L, remaining.Generation);
+            Assert.Same(newerSnapshot, remaining.Snapshot);
+            Assert.Equal(new[] { newerNode }, remaining.SongList);
+        }
+
+        [Fact]
         public void CheckSongInitializationCompletion_WhenPriorActivationCompletesAfterSynchronousReactivation_ShouldDiscardQueuedResult()
         {
             var stage = CreateStage();
@@ -653,6 +757,22 @@ namespace DTXMania.Test.Stage
                 generation,
                 snapshot,
                 songList));
+        }
+
+        private static async Task WaitForSongInitializationQueueAsync(
+            System.Collections.Concurrent.ConcurrentQueue<SongSelectionStage.SongInitializationResult> completions,
+            Func<SongSelectionStage.SongInitializationResult[], bool> condition)
+        {
+            for (var attempt = 0; attempt < 100; attempt++)
+            {
+                if (condition(completions.ToArray()))
+                    return;
+
+                await Task.Delay(10);
+            }
+
+            Assert.True(condition(completions.ToArray()),
+                "The expected SongSelection initialization completion queue state was not observed.");
         }
 
         private static SongListNode Box(string title, string directoryPath, params SongListNode[] children)

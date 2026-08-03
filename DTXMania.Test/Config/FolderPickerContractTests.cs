@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using DTXMania.Game.Lib.Stage.Config;
 using DTXMania.Game.Platform;
+using DTXMania.Test.TestData;
 
 namespace DTXMania.Test.Config;
 
@@ -114,6 +115,46 @@ public sealed class FolderPickerContractTests
         Assert.Equal(1, firstDialog.CloseRequests);
     }
 
+    [Fact]
+    public async Task StaDispatcher_WhenInitializationFails_ShouldRejectSubsequentRequestsAfterThreadStops()
+    {
+        var factory = new InitializationFailingFolderPickerDialogFactory();
+        using var picker = new StaFolderPickerDispatcher(factory);
+
+        await factory.InitializationAttempted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        var dispatcherThread = ReflectionHelpers.GetPrivateField<Thread>(picker, "_dispatcherThread");
+        Assert.NotNull(dispatcherThread);
+        Assert.True(dispatcherThread!.Join(TimeSpan.FromSeconds(1)));
+
+        var result = await picker.PickFolderAsync(null, CancellationToken.None)
+            .WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.Equal(FolderPickerStatus.Unavailable, result.Status);
+    }
+
+    [Fact]
+    public async Task StaDispatcher_WhenDialogDisposalFails_ShouldContinueServingSubsequentRequests()
+    {
+        var firstDialog = new DisposeThrowingFolderPickerDialog(
+            FolderPickerResult.Selected("/tmp/first-songs"));
+        var secondDialog = new ImmediateFolderPickerDialog(
+            FolderPickerResult.Selected("/tmp/second-songs"));
+        var factory = new QueuedFolderPickerDialogFactory(firstDialog, secondDialog);
+        using var picker = new StaFolderPickerDispatcher(factory);
+
+        var firstResult = await picker.PickFolderAsync(null, CancellationToken.None)
+            .WaitAsync(TimeSpan.FromSeconds(1));
+        await firstDialog.DisposeAttempted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        var secondResult = await picker.PickFolderAsync(null, CancellationToken.None)
+            .WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.Equal(FolderPickerStatus.Selected, firstResult.Status);
+        Assert.Equal("/tmp/first-songs", firstResult.Path);
+        Assert.Equal(FolderPickerStatus.Selected, secondResult.Status);
+        Assert.Equal("/tmp/second-songs", secondResult.Path);
+    }
+
     private sealed class QueuedFolderPickerDialogFactory : IStaFolderPickerDialogFactory
     {
         private readonly Queue<IStaFolderPickerDialog> _dialogs;
@@ -182,6 +223,50 @@ public sealed class FolderPickerContractTests
 
         public void Dispose()
         {
+        }
+    }
+
+    private sealed class InitializationFailingFolderPickerDialogFactory : IStaFolderPickerDialogFactory
+    {
+        internal TaskCompletionSource<bool> InitializationAttempted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void InitializeDispatcherThread()
+        {
+            InitializationAttempted.TrySetResult(true);
+            throw new InvalidOperationException("The dispatcher could not initialize.");
+        }
+
+        public IStaFolderPickerDialog CreateDialog() =>
+            throw new InvalidOperationException("The dispatcher did not initialize.");
+
+        public void CloseOnDispatcher(IStaFolderPickerDialog dialog)
+        {
+        }
+    }
+
+    private sealed class DisposeThrowingFolderPickerDialog : IStaFolderPickerDialog
+    {
+        private readonly FolderPickerResult _result;
+
+        internal DisposeThrowingFolderPickerDialog(FolderPickerResult result)
+        {
+            _result = result;
+        }
+
+        internal TaskCompletionSource<bool> DisposeAttempted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public FolderPickerResult Show(string? initialDirectory) => _result;
+
+        public void Close()
+        {
+        }
+
+        public void Dispose()
+        {
+            DisposeAttempted.TrySetResult(true);
+            throw new InvalidOperationException("The native dialog could not be disposed.");
         }
     }
 }
