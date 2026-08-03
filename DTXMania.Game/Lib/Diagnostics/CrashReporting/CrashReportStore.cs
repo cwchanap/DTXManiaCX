@@ -223,7 +223,8 @@ internal sealed class CrashReportStore
             using var document = JsonDocument.Parse(reportStream);
             var root = document.RootElement;
 
-            if (!root.TryGetProperty("schemaVersion", out var schemaVersion)
+            if (root.ValueKind != JsonValueKind.Object
+                || !root.TryGetProperty("schemaVersion", out var schemaVersion)
                 || schemaVersion.ValueKind != JsonValueKind.Number
                 || !schemaVersion.TryGetInt32(out var schemaVersionValue)
                 || schemaVersionValue != 1

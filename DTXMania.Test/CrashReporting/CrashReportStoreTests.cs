@@ -243,6 +243,31 @@ public sealed class CrashReportStoreTests
     }
 
     [Fact]
+    public void DiscoverCompletedReports_WhenZipMetadataIsNotAnObject_ShouldUseFilenameFallbacks()
+    {
+        using var fixture = CrashStoreFixture.Create();
+        const string reportId = "crash-20260802-120000Z-a1b2c3";
+        var path = Path.Combine(fixture.RootPath, reportId + ".zip");
+        using (var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Create))
+        using (var writer = new StreamWriter(archive.CreateEntry("report.json").Open(), Encoding.UTF8))
+        {
+            writer.Write("[]");
+        }
+
+        var report = Assert.Single(fixture.CreateStore().DiscoverCompletedReports());
+
+        Assert.Equal(reportId, report.ReportId);
+        Assert.Equal(new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.Zero), report.CapturedAtUtc);
+        Assert.Equal("Unknown", report.BuildId);
+        Assert.Equal("Unknown", report.OperatingSystem);
+        Assert.Equal("Unknown", report.ProcessArchitecture);
+        Assert.Equal("Unknown", report.StageOrMilestone);
+        Assert.Equal("Unknown", report.ExceptionType);
+        Assert.Equal(CrashReportFormat.ZipBundle, report.Format);
+    }
+
+    [Fact]
     public void DiscoverCompletedReports_WhenEmergencyHeaderDoesNotMatchFileName_ShouldUseFilenameFallbacks()
     {
         using var fixture = CrashStoreFixture.Create();
