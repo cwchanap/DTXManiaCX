@@ -12,6 +12,8 @@ internal enum DebugCrashInjectionPoint
 
 internal static class DebugCrashInjection
 {
+    internal const string ControlledCrashMessage = "DTXMANIA_E2E_CONTROLLED_CRASH";
+
     private static readonly DebugCrashInjectionPoint? RequestedInjectionPoint =
         Environment.GetEnvironmentVariable("DTXMANIA_E2E_CRASH_INJECTION") switch
         {
@@ -30,7 +32,7 @@ internal static class DebugCrashInjection
             return;
         }
 
-        throw new InvalidOperationException("DTXMANIA_E2E_CONTROLLED_CRASH");
+        throw new InvalidOperationException(ControlledCrashMessage);
     }
 }
 #endif

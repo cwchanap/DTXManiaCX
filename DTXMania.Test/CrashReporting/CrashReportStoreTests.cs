@@ -86,6 +86,44 @@ public sealed class CrashReportStoreTests
         Assert.Contains("[EXCEPTION MESSAGE OMITTED]", exceptionText);
     }
 
+#if DEBUG
+    [Fact]
+    public void WriteZip_WithControlledDebugMarker_ShouldPersistFixedMessage()
+    {
+        var document = CreateArchiveDocument(
+            exception: new InvalidOperationException(DebugCrashInjection.ControlledCrashMessage));
+        var writer = new CrashReportArchiveWriter();
+        using var destination = new MemoryStream();
+
+        writer.WriteZip(destination, document);
+        destination.Position = 0;
+
+        using var archive = new ZipArchive(destination, ZipArchiveMode.Read, leaveOpen: true);
+        using var reader = new StreamReader(archive.GetEntry("exception.txt")!.Open(), Encoding.UTF8);
+        var exceptionText = reader.ReadToEnd();
+
+        Assert.Equal(
+            1,
+            exceptionText.Split(DebugCrashInjection.ControlledCrashMessage, StringSplitOptions.None).Length - 1);
+    }
+
+    [Fact]
+    public void WriteEmergencyText_WithControlledDebugMarker_ShouldPersistFixedMessage()
+    {
+        var document = CreateArchiveDocument(
+            exception: new InvalidOperationException(DebugCrashInjection.ControlledCrashMessage));
+        var writer = new CrashReportArchiveWriter();
+        using var destination = new MemoryStream();
+
+        writer.WriteEmergencyText(destination, document);
+
+        var emergencyText = Encoding.UTF8.GetString(destination.ToArray());
+        Assert.Equal(
+            1,
+            emergencyText.Split(DebugCrashInjection.ControlledCrashMessage, StringSplitOptions.None).Length - 1);
+    }
+#endif
+
     [Fact]
     public void WriteZip_ShouldExcludeHardwareAndMidiLikeValuesAtThePersistenceBoundary()
     {

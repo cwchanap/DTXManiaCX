@@ -36,6 +36,33 @@ public sealed class CrashReportSanitizerTests
             sanitizer.SanitizeExceptionMessage("Failed to load Secret Song Name"));
     }
 
+    [Theory]
+    [InlineData("DTXMANIA_E2E_CONTROLLED_CRASH ")]
+    [InlineData("DTXMANIA_E2E_CONTROLLED_CRASH-extra")]
+    [InlineData("dtxmania_e2e_controlled_crash")]
+    public void SanitizeExceptionMessage_WithNearControlledMarker_ShouldOmitContent(string message)
+    {
+        var sanitizer = new CrashReportSanitizer([]);
+
+        Assert.Equal(CrashReportSanitizer.ExceptionMessageOmitted, sanitizer.SanitizeExceptionMessage(message));
+    }
+
+#if DEBUG
+    [Fact]
+    public void SanitizeExceptionChain_WithControlledDebugMarker_ShouldPreserveOnlyFixedMessage()
+    {
+        var sanitizer = new CrashReportSanitizer([]);
+
+        var result = sanitizer.SanitizeExceptionChain(
+            new InvalidOperationException(DebugCrashInjection.ControlledCrashMessage));
+
+        Assert.Contains(
+            "Message: " + DebugCrashInjection.ControlledCrashMessage,
+            result,
+            StringComparison.Ordinal);
+    }
+#endif
+
     [Fact]
     public void SanitizeStackTrace_ShouldRemoveApiKeyLikeValuesAndUriQueries()
     {
