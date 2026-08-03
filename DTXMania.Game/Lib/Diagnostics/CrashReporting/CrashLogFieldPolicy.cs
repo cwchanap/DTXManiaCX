@@ -31,6 +31,8 @@ internal sealed class CrashLogFieldPolicy
 
     private readonly IReadOnlyDictionary<int, CrashLogEventDefinition> _events;
 
+    internal static EventId UnclassifiedEventId { get; } = default;
+
     internal static CrashLogFieldPolicy Default { get; } = new(new Dictionary<int, CrashLogEventDefinition>
     {
         [5100] = new(5100, "crash_safe_stage", "Crash-safe stage changed to {Stage}"),
