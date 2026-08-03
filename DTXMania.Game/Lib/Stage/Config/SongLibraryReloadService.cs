@@ -16,9 +16,6 @@ namespace DTXMania.Game.Lib.Stage.Config;
 /// </summary>
 internal sealed class SongLibraryReloadService : ISongLibraryReloadService
 {
-    private const string EnumerationBusyMessage =
-        "Song enumeration is already in progress.";
-
     private readonly Func<
         IReadOnlyList<string>,
         IProgress<EnumerationProgress>?,
@@ -87,11 +84,7 @@ internal sealed class SongLibraryReloadService : ISongLibraryReloadService
                     "The song library reload ended with an unknown outcome."),
             };
         }
-        catch (InvalidOperationException exception) when (
-            string.Equals(
-                exception.Message,
-                EnumerationBusyMessage,
-                StringComparison.Ordinal))
+        catch (SongEnumerationBusyException exception)
         {
             return new SongLibraryReloadResult(
                 SongLibraryReloadOutcome.Busy,

@@ -393,7 +393,12 @@ namespace DTXMania.Game.Lib.Stage.Config
             var rootIndex = Math.Clamp(_selectedRootIndex, 0, _draftRoots.Count - 1);
             _draftRoots.RemoveAt(rootIndex);
             _selectedRootIndex = Math.Min(rootIndex, _draftRoots.Count - 1);
-            _selectedIndex = _selectedRootIndex;
+            // Keep the cursor on the Remove action row so the user can press
+            // Remove again to delete the next root, matching MoveSelectedRoot's
+            // repeatable interaction. The action rows shift down by one after a
+            // removal, so recompute the Remove row index against the new count.
+            _selectedIndex = _draftRoots.Count +
+                Array.IndexOf(Actions, ActionRow.Remove);
             EnsureSelectedRowVisible();
             SetValidationStatus(_rootPolicy.Validate(_draftRoots));
         }

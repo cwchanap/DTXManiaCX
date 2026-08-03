@@ -109,7 +109,8 @@ namespace DTXMania.Game.Platform
                             var path = new char[MaxPathLength + 1];
                             return SHGetPathFromIDList(itemIdList, path)
                                 ? FolderPickerResult.Selected(new string(path).TrimEnd('\0'))
-                                : FolderPickerResult.Cancelled();
+                                : FolderPickerResult.Failed(
+                                    "The selected folder path could not be extracted from the picker result.");
                         }
                         finally
                         {

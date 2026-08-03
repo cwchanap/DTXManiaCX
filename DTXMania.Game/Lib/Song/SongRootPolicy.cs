@@ -156,11 +156,21 @@ namespace DTXMania.Game.Lib.Song
 
         internal SongRootAvailability Probe(string normalizedRoot)
         {
+            // Directory.Exists swallows access exceptions internally and returns
+            // false for both missing and inaccessible directories, so the catch
+            // blocks below would never fire from Exists alone. Distinguish the
+            // two by attempting a read access on a directory that Exists reports
+            // as present: an inaccessible root surfaces as Inaccessible rather
+            // than being misreported as Missing.
             try
             {
-                return Directory.Exists(normalizedRoot)
-                    ? SongRootAvailability.Available
-                    : SongRootAvailability.Missing;
+                if (!Directory.Exists(normalizedRoot))
+                    return SongRootAvailability.Missing;
+
+                // Force a real directory read. EnumerateFileSystemEntries touches
+                // the directory's metadata/ACL rather than just stat-ing it.
+                _ = Directory.EnumerateFileSystemEntries(normalizedRoot);
+                return SongRootAvailability.Available;
             }
             catch (UnauthorizedAccessException)
             {

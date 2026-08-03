@@ -227,7 +227,7 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
             Assert.True(_manager.IsEnumerating);
 
             // A second enumeration must be rejected while A has not terminated.
-            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            await Assert.ThrowsAsync<SongEnumerationBusyException>(() =>
                 _manager.EnumerateAndImportSongsAsync(
                     new[] { _songsRoot }, progress: null, CancellationToken.None));
         }

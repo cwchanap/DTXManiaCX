@@ -726,8 +726,7 @@ namespace DTXMania.Game.Lib.Song
             // a concurrent enumeration surfaces as InvalidOperationException.
             if (!TryBeginEnumeration(cancellationToken, out var linked))
             {
-                throw new InvalidOperationException(
-                    "Song enumeration is already in progress.");
+                throw new SongEnumerationBusyException();
             }
             return EnumerateAndImportSongsCoreAsync(
                 searchPaths,
@@ -1557,8 +1556,8 @@ namespace DTXMania.Game.Lib.Song
         private SongLibrarySnapshot CreateSnapshotLocked() =>
             new(
                 _publicationVersion,
-                Array.AsReadOnly(_rootSongs.ToArray()),
-                Array.AsReadOnly(_currentSearchPaths.ToArray()),
+                _rootSongs,
+                _currentSearchPaths,
                 EnumeratedFileCount,
                 DiscoveredScoreCount);
 

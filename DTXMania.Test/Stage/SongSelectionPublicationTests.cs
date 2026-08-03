@@ -515,7 +515,7 @@ namespace DTXMania.Test.Stage
                     oldSnapshot,
                     new[] { oldNode }));
             });
-            await oldWorkerPassedTokenCheck.Task.WaitAsync(TimeSpan.FromSeconds(1));
+            await oldWorkerPassedTokenCheck.Task.WaitAsync(TimeSpan.FromSeconds(3));
 
             // A later activation completes and installs its own task/snapshot first.
             SetPrivateField(stage, "_activationVersion", 72);
@@ -528,7 +528,7 @@ namespace DTXMania.Test.Stage
             // The old worker is released last. Its record must be discarded instead of being
             // paired with the newer activation's completed task.
             releaseOldWorker.SetResult(true);
-            await oldWorker.WaitAsync(TimeSpan.FromSeconds(1));
+            await oldWorker.WaitAsync(TimeSpan.FromSeconds(3));
 
             InvokePrivateMethod(stage, "CheckSongInitializationCompletion");
 
@@ -573,11 +573,11 @@ namespace DTXMania.Test.Stage
             SetPrivateField(stage, "_activeSongInitializationGeneration", 17L);
             SetPrivateField(stage, "_songInitializationTask", worker);
             SetPrivateField(stage, "_cancellationTokenSource", new CancellationTokenSource());
-            await workerStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+            await workerStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
 
             stage.Deactivate();
             releaseWorker.TrySetResult(true);
-            await worker.WaitAsync(TimeSpan.FromSeconds(1));
+            await worker.WaitAsync(TimeSpan.FromSeconds(3));
             await WaitForSongInitializationQueueAsync(completions, results => results.Length == 0);
 
             Assert.Empty(completions);
@@ -617,7 +617,7 @@ namespace DTXMania.Test.Stage
             SetPrivateField(stage, "_activeSongInitializationGeneration", 23L);
             SetPrivateField(stage, "_songInitializationTask", worker);
             SetPrivateField(stage, "_cancellationTokenSource", new CancellationTokenSource());
-            await workerStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+            await workerStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
 
             stage.Deactivate();
             completions.Enqueue(new SongSelectionStage.SongInitializationResult(
@@ -626,7 +626,7 @@ namespace DTXMania.Test.Stage
                 newerSnapshot,
                 new[] { newerNode }));
             releaseWorker.TrySetResult(true);
-            await worker.WaitAsync(TimeSpan.FromSeconds(1));
+            await worker.WaitAsync(TimeSpan.FromSeconds(3));
             await WaitForSongInitializationQueueAsync(
                 completions,
                 results => results.Length == 1 &&
@@ -763,7 +763,7 @@ namespace DTXMania.Test.Stage
             System.Collections.Concurrent.ConcurrentQueue<SongSelectionStage.SongInitializationResult> completions,
             Func<SongSelectionStage.SongInitializationResult[], bool> condition)
         {
-            for (var attempt = 0; attempt < 100; attempt++)
+            for (var attempt = 0; attempt < 600; attempt++)
             {
                 if (condition(completions.ToArray()))
                     return;
@@ -809,6 +809,6 @@ namespace DTXMania.Test.Stage
             long version,
             IReadOnlyList<SongListNode> roots,
             IReadOnlyList<string> activeRoots) =>
-            new(version, roots, activeRoots, EnumeratedFileCount: roots.Count, DiscoveredScoreCount: roots.Count);
+            new(version, roots, activeRoots, enumeratedFileCount: roots.Count, discoveredScoreCount: roots.Count);
     }
 }

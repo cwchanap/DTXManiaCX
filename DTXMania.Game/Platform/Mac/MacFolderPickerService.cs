@@ -39,6 +39,7 @@ namespace DTXMania.Game.Platform
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
                     StopProcess(process);
+                    await ObserveQuietlyAsync(outputTask, errorTask).ConfigureAwait(false);
                     return FolderPickerResult.Cancelled();
                 }
 
@@ -164,6 +165,40 @@ namespace DTXMania.Game.Platform
             {
                 // Best effort only; the cancellation result is still authoritative.
             }
+            catch (AggregateException)
+            {
+                // process-tree termination may report partial failures (e.g. a
+                // child already exited). Best effort only; cancellation remains
+                // authoritative.
+            }
+        }
+
+        /// <summary>
+        /// Awaits the redirected-stream read tasks so they finish or are observed
+        /// before the process is disposed, suppressing cancellation or failure
+        /// that is expected once the process has been killed.
+        /// </summary>
+        private static async Task ObserveQuietlyAsync(Task outputTask, Task errorTask)
+        {
+            async Task ObserveOneAsync(Task task)
+            {
+                try
+                {
+                    await task.ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Expected when the cancellation token was passed to ReadToEndAsync.
+                }
+                catch (Exception)
+                {
+                    // The redirected stream read failed after process kill;
+                    // the cancellation result is still authoritative.
+                }
+            }
+
+            await Task.WhenAll(ObserveOneAsync(outputTask), ObserveOneAsync(errorTask))
+                .ConfigureAwait(false);
         }
     }
 }

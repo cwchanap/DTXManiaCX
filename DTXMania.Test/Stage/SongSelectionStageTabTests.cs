@@ -27,6 +27,23 @@ namespace DTXMania.Test.Stage
             Title = title
         };
 
+        private static async Task WaitForTabLoadCompletionAsync(
+            SongSelectionStage stage, int timeoutMs = 3000)
+        {
+            var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+            while (true)
+            {
+                var queue = GetPrivateField<System.Collections.ICollection>(
+                    stage, "_pendingTabLoadCompletions");
+                if (queue != null && queue.Count > 0)
+                    return;
+                if (DateTime.UtcNow >= deadline)
+                    throw new TimeoutException(
+                        "The recent-plays load did not enqueue a completion within the timeout.");
+                await Task.Delay(10);
+            }
+        }
+
         [Fact]
         public void RefreshSongListForActiveTab_OnRecentTab_ShowsCachedRecentNodes()
         {
@@ -405,7 +422,7 @@ namespace DTXMania.Test.Stage
             InvokePrivateMethod(stage, "BeginRecentPlaysLoad");
             // Do NOT bump version — continuation should be accepted.
 
-            await Task.Delay(300);
+            await WaitForTabLoadCompletionAsync(stage);
 
             // The worker has only queued its immutable result; stage-owned cache state stays
             // unchanged until the update-thread consumer runs.

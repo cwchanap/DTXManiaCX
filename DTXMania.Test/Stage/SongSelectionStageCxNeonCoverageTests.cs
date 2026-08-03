@@ -10,6 +10,7 @@ using Xunit;
 namespace DTXMania.Test.Stage
 {
     [Trait("Category", "Unit")]
+    [Collection("SongManager")]
     public class SongSelectionStageCxNeonCoverageTests
     {
         [Fact]

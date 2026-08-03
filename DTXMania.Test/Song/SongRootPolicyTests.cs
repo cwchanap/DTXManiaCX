@@ -113,17 +113,20 @@ public sealed class SongRootPolicyTests
             manager.Config.DTXPath = oldRoot;
             SongRootsChangedEventArgs? raised = null;
             var eventCount = 0;
+            var configFileExistedWhenRaised = false;
             manager.SongRootsChanged += (_, args) =>
             {
                 eventCount++;
                 raised = args;
-                Assert.True(File.Exists(configFile));
+                configFileExistedWhenRaised = File.Exists(configFile);
             };
 
             var result = manager.SetSongRoots(
                 configFile,
                 [Path.Combine(firstRoot, "."), secondRoot]);
 
+            Assert.True(configFileExistedWhenRaised,
+                "The config file should exist when SongRootsChanged is raised.");
             Assert.Equal(SongRootUpdateStatus.Updated, result.Status);
             Assert.Equal(
                 [Path.GetFullPath(firstRoot), Path.GetFullPath(secondRoot)],

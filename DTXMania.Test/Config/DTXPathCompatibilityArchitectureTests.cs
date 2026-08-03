@@ -26,6 +26,8 @@ public sealed class DTXPathCompatibilityArchitectureTests
                 gameDirectory,
                 "*.cs",
                 SearchOption.AllDirectories)
+            .Where(path => !path.Contains(Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+                           && !path.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar, StringComparison.Ordinal))
             .Where(path => File.ReadAllText(path).Contains(
                 "DTXPath",
                 StringComparison.Ordinal))
@@ -35,7 +37,9 @@ public sealed class DTXPathCompatibilityArchitectureTests
             .OrderBy(relativePath => relativePath, StringComparer.Ordinal)
             .ToArray();
 
-        Assert.Empty(offenders);
+        Assert.True(offenders.Length == 0,
+            "The following files reference DTXPath outside the compatibility boundary: " +
+            string.Join(", ", offenders));
     }
 
     private static string FindGameDirectory()

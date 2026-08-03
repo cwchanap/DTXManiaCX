@@ -10,6 +10,7 @@ using DTXMania.Test.TestData;
 namespace DTXMania.Test.Stage
 {
     [Trait("Category", "Unit")]
+    [Collection("SongManager")]
     public class SongSelectionStageFontLifecycleTests
     {
         [Fact]

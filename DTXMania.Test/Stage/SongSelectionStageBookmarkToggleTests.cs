@@ -45,6 +45,23 @@ namespace DTXMania.Test.Stage
             return display;
         }
 
+        private static async Task WaitForQueueCountAsync(
+            SongSelectionStage stage, string fieldName, int timeoutMs = 3000)
+        {
+            var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+            while (true)
+            {
+                var queue = GetPrivateField<System.Collections.ICollection>(
+                    stage, fieldName);
+                if (queue != null && queue.Count > 0)
+                    return;
+                if (DateTime.UtcNow >= deadline)
+                    throw new TimeoutException(
+                        $"The '{fieldName}' queue was not populated within {timeoutMs}ms.");
+                await Task.Delay(10);
+            }
+        }
+
         [Fact]
         public void ToggleBookmarkForSelectedSong_OnScoreNode_FlipsBookmarkFlag()
         {
@@ -211,28 +228,46 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void ToggleBookmarkForSelectedSong_WhenAppliedSnapshotExists_ReconcilesThatSnapshotInsteadOfANewerManagerView()
+        public void ToggleBookmark_WhenAppliedSnapshotExists_ShouldReconcileAppliedSongAndLeaveManagerViewBystanderUnchanged()
         {
             var stage = CreateStage();
             var selectedSong = new DTXMania.Game.Lib.Song.Entities.Song { Id = 42, Title = "Selected", IsBookmarked = false };
             var appliedSong = new DTXMania.Game.Lib.Song.Entities.Song { Id = 42, Title = "Applied", IsBookmarked = false };
+            // A manager-view bystander sharing the same song id must NOT be reconciled
+            // when an applied snapshot owns the canonical view for this toggle.
+            var bystanderSong = new DTXMania.Game.Lib.Song.Entities.Song { Id = 42, Title = "Bystander", IsBookmarked = false };
             var selectedNode = new SongListNode { Type = NodeType.Score, Title = "Selected", DatabaseSongId = 42, DatabaseSong = selectedSong };
             var appliedNode = new SongListNode { Type = NodeType.Score, Title = "Applied", DatabaseSongId = 42, DatabaseSong = appliedSong };
+            var bystanderNode = new SongListNode { Type = NodeType.Score, Title = "Bystander", DatabaseSongId = 42, DatabaseSong = bystanderSong };
             var display = new SongListDisplay { CurrentList = new List<SongListNode> { selectedNode } };
             var snapshot = new SongLibrarySnapshot(
-                Version: 101,
-                RootSongs: new[] { appliedNode },
-                ActiveRoots: new[] { "/library/active" },
-                EnumeratedFileCount: 1,
-                DiscoveredScoreCount: 1);
+                version: 101,
+                rootSongs: new[] { appliedNode },
+                activeRoots: new[] { "/library/active" },
+                enumeratedFileCount: 1,
+                discoveredScoreCount: 1);
 
             AttachCoreUi(stage, display);
             SetPrivateField(stage, "_activeTab", SongSelectionTab.AllSongs);
             SetPrivateField(stage, "_appliedLibrarySnapshot", snapshot);
 
-            InvokePrivateMethod(stage, "ToggleBookmarkForSelectedSong");
+            var roots = GetPrivateField<List<SongListNode>>(SongManager.Instance, "_rootSongs");
+            var savedRoots = roots.ToList();
+            roots.Clear();
+            roots.Add(bystanderNode);
 
-            Assert.True(appliedSong.IsBookmarked);
+            try
+            {
+                InvokePrivateMethod(stage, "ToggleBookmarkForSelectedSong");
+
+                Assert.True(appliedSong.IsBookmarked);     // reconciled via the applied snapshot
+                Assert.False(bystanderSong.IsBookmarked);  // manager-view bystander untouched
+            }
+            finally
+            {
+                roots.Clear();
+                roots.AddRange(savedRoots);
+            }
         }
 
         // Guards the "&& !newState" condition: bookmarking ON while on the Bookmarks tab must
@@ -514,7 +549,7 @@ namespace DTXMania.Test.Stage
             // Settle the write. Its worker continuation only queues a reload request, so the
             // stage-owned cache stays unchanged until the update path consumes that request.
             tcs.SetResult(true);
-            await Task.Delay(400);
+            await WaitForQueueCountAsync(stage, "_pendingBookmarkLoadRequests");
 
             nodes = GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes");
             Assert.Single(nodes);
@@ -522,7 +557,7 @@ namespace DTXMania.Test.Stage
             // First update-thread pass begins the deferred load; the second applies its
             // completion (the no-DB loader returns an empty list).
             InvokePrivateMethod(stage, "ConsumePendingTabLoadWork");
-            await Task.Delay(400);
+            await WaitForQueueCountAsync(stage, "_pendingTabLoadCompletions");
             InvokePrivateMethod(stage, "ConsumePendingTabLoadWork");
 
             nodes = GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes");

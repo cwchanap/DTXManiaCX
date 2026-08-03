@@ -1153,8 +1153,11 @@ namespace DTXMania.Game.Lib.Stage
                         EnsureCurrentActivation(
                             activationGeneration,
                             cancellationToken);
-                        PublishEmptyLibraryCore();
                     }
+                    // Publish outside the gate so synchronous
+                    // SongLibraryPublished subscribers are not invoked while
+                    // _activationGate is held.
+                    PublishEmptyLibraryCore();
                     return;
                 }
 
@@ -1241,8 +1244,11 @@ namespace DTXMania.Game.Lib.Stage
                         EnsureCurrentActivation(
                             activationGeneration,
                             cancellationToken);
-                        PublishEmptyLibraryCore();
                     }
+                    // Publish outside the gate so synchronous
+                    // SongLibraryPublished subscribers are not invoked while
+                    // _activationGate is held.
+                    PublishEmptyLibraryCore();
                 }
             }
             catch (OperationCanceledException)
