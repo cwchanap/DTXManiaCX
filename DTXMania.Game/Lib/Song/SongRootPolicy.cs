@@ -167,9 +167,18 @@ namespace DTXMania.Game.Lib.Song
                 if (!Directory.Exists(normalizedRoot))
                     return SongRootAvailability.Missing;
 
-                // Force a real directory read. EnumerateFileSystemEntries touches
-                // the directory's metadata/ACL rather than just stat-ing it.
-                _ = Directory.EnumerateFileSystemEntries(normalizedRoot);
+                // Force a real directory read. EnumerateFileSystemEntries is
+                // documented as lazy: constructing the enumerable alone is not
+                // guaranteed to open the directory on every runtime, so advance
+                // the enumerator once to force the ACL/read check inside this
+                // try block. (On .NET 8 macOS construction already throws, but
+                // MoveNext makes the eager-read contract runtime-independent.)
+                // MoveNext returns false for an empty but readable directory;
+                // only whether it throws matters here.
+                using var entries = Directory
+                    .EnumerateFileSystemEntries(normalizedRoot)
+                    .GetEnumerator();
+                _ = entries.MoveNext();
                 return SongRootAvailability.Available;
             }
             catch (UnauthorizedAccessException)

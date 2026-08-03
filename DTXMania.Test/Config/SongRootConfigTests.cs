@@ -276,6 +276,53 @@ public sealed class SongRootConfigTests
     }
 
     [Fact]
+    public void LoadConfig_WhenIndexedRootHasInvalidPathCharacter_ShouldDiscardAndFallBackToManagedDefault()
+    {
+        WithTemporaryAppDataRoot(root =>
+        {
+            var defaultRoot = AppPaths.GetDefaultSongsPath();
+            var configFile = Path.Combine(root, "Config.ini");
+            // A NUL character is an illegal path character that Path.GetFullPath
+            // rejects. Without per-entry recovery this aborts LoadConfig entirely.
+            File.WriteAllLines(configFile,
+            [
+                "[System]",
+                "SongRoot.0=bad\0root",
+            ]);
+
+            var manager = new ConfigManager();
+
+            manager.LoadConfig(configFile);
+
+            Assert.Equal([defaultRoot], manager.Config.SongRoots);
+            Assert.Equal(defaultRoot, manager.Config.DTXPath);
+        });
+    }
+
+    [Fact]
+    public void LoadConfig_WhenSomeIndexedRootsAreInvalid_ShouldDiscardInvalidAndKeepValid()
+    {
+        WithTemporaryAppDataRoot(root =>
+        {
+            var validRoot = Path.Combine(root, "roots", "valid");
+            var configFile = Path.Combine(root, "Config.ini");
+            File.WriteAllLines(configFile,
+            [
+                "[System]",
+                "SongRoot.0=bad\0root",
+                $"SongRoot.1={validRoot}",
+            ]);
+
+            var manager = new ConfigManager();
+
+            manager.LoadConfig(configFile);
+
+            Assert.Equal([validRoot], manager.Config.SongRoots);
+            Assert.Equal(validRoot, manager.Config.DTXPath);
+        });
+    }
+
+    [Fact]
     public void LoadAndSave_ShouldNotCreateMissingCustomRoots()
     {
         WithTemporaryAppDataRoot(root =>
