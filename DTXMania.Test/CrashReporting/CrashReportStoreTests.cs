@@ -6,11 +6,13 @@ using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using DTXMania.Game.Lib.Diagnostics.CrashReporting;
 using DTXMania.Game.Lib.Stage;
 using Microsoft.Extensions.Logging;
+using Microsoft.Xna.Framework.Graphics;
 
 namespace DTXMania.Test.CrashReporting;
 
@@ -139,8 +141,156 @@ public sealed class CrashReportStoreTests
 
         AssertPersistedPropertiesContainOnlySafeValues(logs.RootElement.GetProperty("properties"));
         AssertPersistedPropertiesContainOnlySafeValues(breadcrumbs.RootElement[0].GetProperty("properties"));
-        AssertPersistedPropertiesContainOnlySafeValues(
-            report.RootElement.GetProperty("contextStatuses")[0].GetProperty("fields"));
+        Assert.Empty(
+            report.RootElement.GetProperty("contextStatuses")[0]
+                .GetProperty("fields")
+                .EnumerateObject());
+    }
+
+    [Fact]
+    public void WriteZip_ShouldPersistOnlyTheApprovedTaskFiveContextFields()
+    {
+        const string secret = "Secret song and API key";
+        var document = CreateArchiveDocument() with
+        {
+            Context =
+            [
+                new CrashContextSnapshot(
+                    CrashContextKind.Process,
+                    CrashContextStatus.Available,
+                    new Dictionary<string, object?>
+                    {
+                        ["RuntimeFramework"] = ".NET 8.0",
+                        ["OperatingSystem"] = "macOS",
+                        ["ProcessArchitecture"] = Architecture.Arm64,
+                        ["ProcessStartUtc"] = new DateTimeOffset(2026, 8, 3, 12, 0, 0, TimeSpan.Zero),
+                        ["CommandLine"] = secret
+                    }),
+                new CrashContextSnapshot(
+                    CrashContextKind.Application,
+                    CrashContextStatus.Available,
+                    new Dictionary<string, object?>
+                    {
+                        ["ApplicationVersion"] = "1.2.3",
+                        ["BuildPath"] = secret
+                    }),
+                new CrashContextSnapshot(
+                    CrashContextKind.Startup,
+                    CrashContextStatus.Available,
+                    new Dictionary<string, object?>
+                    {
+                        ["Milestone"] = StartupCriticalPathMilestone.StartupActivation,
+                        ["SongTitle"] = secret
+                    }),
+                new CrashContextSnapshot(
+                    CrashContextKind.Configuration,
+                    CrashContextStatus.Available,
+                    new Dictionary<string, object?>
+                    {
+                        ["ScreenWidth"] = 1920,
+                        ["ScreenHeight"] = 1080,
+                        ["FullScreen"] = true,
+                        ["VSyncWait"] = false,
+                        ["BufferSizeMs"] = 80,
+                        ["AutoPlay"] = true,
+                        ["NoFail"] = true,
+                        ["EnableGameApi"] = true,
+                        ["KeyBindingCount"] = 4,
+                        ["SystemKeyBindingCount"] = 3,
+                        ["UnboundDrumLaneCount"] = 1,
+                        ["UnboundDrumButtonCount"] = 2,
+                        ["MidiVelocityThresholdCount"] = 5,
+                        ["GameApiKey"] = secret,
+                        ["DTXPath"] = @"C:\\Secret\\Songs"
+                    }),
+                new CrashContextSnapshot(
+                    CrashContextKind.Graphics,
+                    CrashContextStatus.Available,
+                    new Dictionary<string, object?>
+                    {
+                        ["Width"] = 1920,
+                        ["Height"] = 1080,
+                        ["Fullscreen"] = true,
+                        ["VSync"] = false,
+                        ["BackBufferFormat"] = SurfaceFormat.Color,
+                        ["DepthStencilFormat"] = DepthFormat.Depth24,
+                        ["MultiSampleCount"] = 4,
+                        ["DeviceAvailable"] = true,
+                        ["GraphicsSettings"] = secret
+                    }),
+                new CrashContextSnapshot(
+                    CrashContextKind.Stage,
+                    CrashContextStatus.Available,
+                    new Dictionary<string, object?>
+                    {
+                        ["Stage"] = StageType.Title,
+                        ["StageCount"] = 3,
+                        ["SharedData"] = secret
+                    }),
+                new CrashContextSnapshot(
+                    CrashContextKind.Input,
+                    CrashContextStatus.Available,
+                    new Dictionary<string, object?>
+                    {
+                        ["MidiDeviceCount"] = 2,
+                        ["MidiDeviceName"] = secret
+                    }),
+                new CrashContextSnapshot(
+                    CrashContextKind.Audio,
+                    CrashContextStatus.Unavailable,
+                    new Dictionary<string, object?> { ["DeviceName"] = secret },
+                    CrashContextPublisher.AudioDeviceSummaryUnavailable)
+            ]
+        };
+        var writer = new CrashReportArchiveWriter();
+        using var destination = new MemoryStream();
+
+        writer.WriteZip(destination, document);
+        destination.Position = 0;
+
+        using var archive = new ZipArchive(destination, ZipArchiveMode.Read, leaveOpen: true);
+        using var reader = new StreamReader(archive.GetEntry("report.json")!.Open(), Encoding.UTF8);
+        var reportText = reader.ReadToEnd();
+        using var report = JsonDocument.Parse(reportText);
+        var contexts = report.RootElement.GetProperty("contextStatuses").EnumerateArray().ToArray();
+        var process = Assert.Single(contexts, item => item.GetProperty("kind").GetString() == "Process");
+        var application = Assert.Single(contexts, item => item.GetProperty("kind").GetString() == "Application");
+        var startup = Assert.Single(contexts, item => item.GetProperty("kind").GetString() == "Startup");
+        var configuration = Assert.Single(contexts, item => item.GetProperty("kind").GetString() == "Configuration");
+        var graphics = Assert.Single(contexts, item => item.GetProperty("kind").GetString() == "Graphics");
+        var stage = Assert.Single(contexts, item => item.GetProperty("kind").GetString() == "Stage");
+        var input = Assert.Single(contexts, item => item.GetProperty("kind").GetString() == "Input");
+        var audio = Assert.Single(contexts, item => item.GetProperty("kind").GetString() == "Audio");
+
+        Assert.Equal(
+            ["OperatingSystem", "ProcessArchitecture", "ProcessStartUtc", "RuntimeFramework"],
+            process.GetProperty("fields").EnumerateObject().Select(item => item.Name).ToArray());
+        Assert.Equal(
+            ["ApplicationVersion"],
+            application.GetProperty("fields").EnumerateObject().Select(item => item.Name).ToArray());
+        Assert.Equal(
+            ["Milestone"],
+            startup.GetProperty("fields").EnumerateObject().Select(item => item.Name).ToArray());
+        Assert.Equal(
+            [
+                "AutoPlay", "BufferSizeMs", "EnableGameApi", "FullScreen", "KeyBindingCount",
+                "MidiVelocityThresholdCount", "NoFail", "ScreenHeight", "ScreenWidth",
+                "SystemKeyBindingCount", "UnboundDrumButtonCount", "UnboundDrumLaneCount", "VSyncWait"
+            ],
+            configuration.GetProperty("fields").EnumerateObject().Select(item => item.Name).ToArray());
+        Assert.Equal(
+            [
+                "BackBufferFormat", "DepthStencilFormat", "DeviceAvailable", "Fullscreen", "Height",
+                "MultiSampleCount", "VSync", "Width"
+            ],
+            graphics.GetProperty("fields").EnumerateObject().Select(item => item.Name).ToArray());
+        Assert.Equal(
+            ["Stage", "StageCount"],
+            stage.GetProperty("fields").EnumerateObject().Select(item => item.Name).ToArray());
+        Assert.Equal(2, input.GetProperty("fields").GetProperty("MidiDeviceCount").GetInt32());
+        Assert.Equal(CrashContextPublisher.AudioDeviceSummaryUnavailable, audio.GetProperty("failureCode").GetString());
+        Assert.Empty(audio.GetProperty("fields").EnumerateObject());
+        Assert.DoesNotContain(secret, reportText, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -2,6 +2,8 @@
 
 using System;
 using System.IO;
+using System.IO.Compression;
+using System.Linq;
 using System.Text.Json;
 using DTXMania.Game.Lib.Diagnostics.CrashReporting;
 using DTXMania.Game.Lib.Stage;
@@ -79,6 +81,42 @@ public sealed class CrashReportRuntimeTests
 
             Assert.Null(exception);
             Assert.Contains("crash_reporting_capture_failed", errorWriter.ToString());
+        }
+        finally
+        {
+            DeleteReportRoot(reportRoot);
+        }
+    }
+
+    [Fact]
+    public void CaptureFatal_ShouldPersistCachedProcessAndApplicationContext()
+    {
+        var reportRoot = CreateReportRoot();
+
+        try
+        {
+            using var runtime = CrashReportRuntime.CreateBestEffort(
+                StartupTimingTrace.Disabled,
+                TextWriter.Null,
+                storeFactory: () => CreateStore(reportRoot));
+
+            runtime.CaptureFatal(new InvalidOperationException("fatal game failure"));
+
+            var reportPath = Assert.Single(Directory.EnumerateFiles(reportRoot, "*.zip"));
+            using var stream = File.OpenRead(reportPath);
+            using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
+            using var reader = new StreamReader(archive.GetEntry("report.json")!.Open());
+            using var report = JsonDocument.Parse(reader.ReadToEnd());
+            var contexts = report.RootElement.GetProperty("contextStatuses").EnumerateArray().ToArray();
+            var process = Assert.Single(contexts, item => item.GetProperty("kind").GetString() == "Process");
+            var application = Assert.Single(contexts, item => item.GetProperty("kind").GetString() == "Application");
+            var processFields = process.GetProperty("fields");
+
+            Assert.True(processFields.TryGetProperty("RuntimeFramework", out _));
+            Assert.True(processFields.TryGetProperty("OperatingSystem", out _));
+            Assert.True(processFields.TryGetProperty("ProcessArchitecture", out _));
+            Assert.True(processFields.TryGetProperty("ProcessStartUtc", out _));
+            Assert.True(application.GetProperty("fields").TryGetProperty("ApplicationVersion", out _));
         }
         finally
         {

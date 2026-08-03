@@ -62,4 +62,24 @@ public sealed class CrashBreadcrumbBufferTests
         Assert.Equal("[REDACTED]", breadcrumb.Properties["Status"]);
         Assert.False(breadcrumb.Properties.ContainsKey("SongTitle"));
     }
+
+    [Fact]
+    public void MidiDeviceCountChanged_ShouldRetainOnlyTheSafeCount()
+    {
+        var buffer = new CrashBreadcrumbBuffer(TimeProvider.System, capacity: 2);
+
+        buffer.Record(
+            "midi_device_count_changed",
+            new Dictionary<string, object?>
+            {
+                ["MidiDeviceCount"] = 2,
+                ["MidiDeviceName"] = "Secret MIDI Device"
+            });
+
+        var breadcrumb = Assert.Single(buffer.Snapshot());
+
+        Assert.Equal("midi_device_count_changed", breadcrumb.EventName);
+        Assert.Equal(2, breadcrumb.Properties["MidiDeviceCount"]);
+        Assert.False(breadcrumb.Properties.ContainsKey("MidiDeviceName"));
+    }
 }

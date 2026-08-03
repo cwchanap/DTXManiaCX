@@ -44,6 +44,20 @@ public sealed class MidiInputSource : IInputSource
         }
     }
 
+    /// <summary>
+    /// Gets the current number of active MIDI devices without exposing device names or identifiers.
+    /// </summary>
+    public int DeviceCount
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _devices.Count;
+            }
+        }
+    }
+
     public IReadOnlyList<string> DeviceNames
     {
         get

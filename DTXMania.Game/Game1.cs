@@ -16,6 +16,7 @@ using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Text;
@@ -78,6 +79,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
 
     private StartupTimingTrace? _startupTimingTrace = StartupTimingTrace.Disabled;
     private bool _startupDiagnosticExitPending;
+    private int _lastKnownMidiDeviceCount = -1;
 
     StartupCriticalPathTrace?
         IStartupCriticalPathHost.StartupCriticalPathTrace =>
@@ -125,16 +127,25 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
         _startupTimingTrace?.MarkStartupActivated();
         _startupTimingTrace?.CriticalPathTrace?.RecordExactlyOnce(
             StartupCriticalPathMilestone.StartupActivation);
+        CrashContextPublisher.PublishStartupMilestone(
+            _gameCrashDiagnostics,
+            StartupCriticalPathMilestone.StartupActivation);
     }
 
     public void ReportStartupFrameRendered()
     {
         _startupTimingTrace?.MarkStartupFirstDraw();
+        CrashContextPublisher.PublishStartupMilestone(
+            _gameCrashDiagnostics,
+            StartupCriticalPathMilestone.StartupFirstDrawEnd);
     }
 
     public void ReportStartupSummaryAndTitleRequested()
     {
         _startupTimingTrace?.MarkSummaryAndTitleRequested();
+        CrashContextPublisher.PublishStartupMilestone(
+            _gameCrashDiagnostics,
+            StartupCriticalPathMilestone.SummaryRequest);
     }
 
     /// <summary>
@@ -214,6 +225,10 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
         ConfigManager = new ConfigManager();
         ConfigManager.LoadConfig(AppPaths.GetConfigFilePath());
         _startupTimingTrace?.MarkConfigLoaded();
+        var config = ConfigManager.Config;
+        CrashContextPublisher.PublishConfiguration(_gameCrashDiagnostics, config);
+        CrashContextPublisher.RegisterSensitivePrefixes(_gameCrashDiagnostics, config);
+        CrashContextPublisher.PublishAudioUnavailable(_gameCrashDiagnostics);
 
         // Ensure deferred config writes (e.g. scroll-speed changes) are flushed
         // even if the normal deactivate path is skipped during abrupt exit.
@@ -223,7 +238,6 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
         _graphicsManager = new GraphicsManager(this, _graphicsDeviceManager, _loggerFactory.CreateLogger<GraphicsManager>());
 
         // Apply graphics settings from config
-        var config = ConfigManager.Config;
         var graphicsSettings = config.ToGraphicsSettings();
 
         _graphicsManager.ApplySettings(graphicsSettings);
@@ -251,6 +265,10 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
         try
         {
             InputManager = new InputManagerCompat(ConfigManager);
+            _lastKnownMidiDeviceCount = InputManager.ModularInputManager.ConnectedMidiDeviceCount;
+            CrashContextPublisher.PublishInput(
+                _gameCrashDiagnostics,
+                _lastKnownMidiDeviceCount);
         }
         finally
         {
@@ -277,6 +295,10 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
         try
         {
             _graphicsManager.Initialize();
+            CrashContextPublisher.PublishGraphics(
+                _gameCrashDiagnostics,
+                _graphicsManager.Settings,
+                _graphicsManager.IsDeviceAvailable);
         }
         finally
         {
@@ -284,7 +306,14 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
                 StartupCriticalPathMilestone.GraphicsInitializeEnd);
         }
 
-        _logger.LogInformation("Graphics Manager initialized with settings: {Settings}", _graphicsManager.Settings);
+        var initializedGraphicsSettings = _graphicsManager.Settings;
+        _logger.LogInformation(
+            new EventId(5114, "graphics_initialized"),
+            "Graphics initialized: {Width}x{Height}, fullscreen={Fullscreen}, vsync={VSync}",
+            initializedGraphicsSettings.Width,
+            initializedGraphicsSettings.Height,
+            initializedGraphicsSettings.IsFullscreen,
+            initializedGraphicsSettings.VSync);
 
         // Create the main render target at the fixed virtual resolution (NOT the configured
         // screen resolution). Every stage draws its 1280x720-authored layout 1:1 into this
@@ -352,7 +381,11 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
         return new LoadContentServices(
             new SpriteBatch(GraphicsDevice),
             resourceManager,
-            new StageManager(this));
+            new StageManager(
+                this,
+                _loggerFactory.CreateLogger<StageManager>(),
+                _gameCrashDiagnostics.Breadcrumbs,
+                _gameCrashDiagnostics.Contexts));
     }
 
     internal virtual Task QueueGameApiStartup()
@@ -434,7 +467,11 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
             Exit();
 
         // Update input manager before stage manager updates
-        InputManager?.Update(gameTime.ElapsedGameTime.TotalSeconds);
+        if (InputManager != null)
+        {
+            InputManager.Update(gameTime.ElapsedGameTime.TotalSeconds);
+            PublishMidiDeviceCountIfChanged();
+        }
 
         // Handle Alt+Enter for fullscreen toggle
         var keyboardState = Keyboard.GetState();
@@ -745,9 +782,29 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
     {
         // Update configuration when graphics settings change
         ConfigManager.Config.UpdateFromGraphicsSettings(e.NewSettings);
+        CrashContextPublisher.PublishConfiguration(_gameCrashDiagnostics, ConfigManager.Config);
+        CrashContextPublisher.PublishGraphics(
+            _gameCrashDiagnostics,
+            e.NewSettings,
+            _graphicsManager.IsDeviceAvailable);
+
+        var safeSettingsFields = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["Width"] = e.NewSettings.Width,
+            ["Height"] = e.NewSettings.Height,
+            ["Fullscreen"] = e.NewSettings.IsFullscreen,
+            ["VSync"] = e.NewSettings.VSync
+        };
+        _gameCrashDiagnostics.Breadcrumbs.Record("graphics_settings_changed", safeSettingsFields);
 
         // Log the change
-        _logger.LogInformation("Graphics settings changed: {OldSettings} -> {NewSettings}", e.OldSettings, e.NewSettings);
+        _logger.LogInformation(
+            new EventId(5107, "graphics_settings_changed"),
+            "Graphics settings updated: {Width}x{Height}, fullscreen={Fullscreen}, vsync={VSync}",
+            e.NewSettings.Width,
+            e.NewSettings.Height,
+            e.NewSettings.IsFullscreen,
+            e.NewSettings.VSync);
 
         // Always recreate render target when graphics settings change
         // This handles resolution changes, fullscreen toggle, and other graphics changes
@@ -779,8 +836,16 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
     private void OnGraphicsDeviceLost(object? sender, EventArgs e)
     {
         // Handle device lost scenario
-        // For now, just log that it happened
-        _logger.LogWarning("Graphics device lost");
+        var settings = _graphicsManager?.Settings;
+        if (settings != null)
+        {
+            CrashContextPublisher.PublishGraphics(_gameCrashDiagnostics, settings, isDeviceAvailable: false);
+        }
+
+        _gameCrashDiagnostics.Breadcrumbs.Record("graphics_device_lost");
+        _logger.LogWarning(
+            new EventId(5112, "graphics_device_lost"),
+            "Graphics device lost");
     }
 
     private void OnGameExiting(object? sender, EventArgs e)
@@ -807,7 +872,19 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
     {
         // Handle device reset scenario
         // Render targets are automatically recreated by the graphics manager
-        _logger.LogInformation("Graphics device reset");
+        var settings = _graphicsManager?.Settings;
+        if (settings != null)
+        {
+            CrashContextPublisher.PublishGraphics(
+                _gameCrashDiagnostics,
+                settings,
+                _graphicsManager.IsDeviceAvailable);
+        }
+
+        _gameCrashDiagnostics.Breadcrumbs.Record("graphics_device_reset");
+        _logger.LogInformation(
+            new EventId(5113, "graphics_device_reset"),
+            "Graphics device reset");
 
         // Ensure our main render target is recreated after device reset
         try
@@ -824,6 +901,27 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
             _logger.LogError(ex, "Error recreating render target after device reset");
             _renderTarget = null; // Will be recreated in Draw() method
         }
+    }
+
+    private void PublishMidiDeviceCountIfChanged()
+    {
+        var midiDeviceCount = InputManager.ModularInputManager.ConnectedMidiDeviceCount;
+        if (midiDeviceCount == _lastKnownMidiDeviceCount)
+        {
+            return;
+        }
+
+        _lastKnownMidiDeviceCount = midiDeviceCount;
+        CrashContextPublisher.PublishInput(_gameCrashDiagnostics, midiDeviceCount);
+        var fields = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["MidiDeviceCount"] = midiDeviceCount
+        };
+        _gameCrashDiagnostics.Breadcrumbs.Record("midi_device_count_changed", fields);
+        _logger.LogDebug(
+            new EventId(5108, "midi_device_count_changed"),
+            "MIDI device count: {MidiDeviceCount}",
+            midiDeviceCount);
     }
 
     protected override void Dispose(bool disposing)

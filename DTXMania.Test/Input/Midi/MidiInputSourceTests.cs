@@ -24,6 +24,23 @@ public sealed class MidiInputSourceTests
     }
 
     [Fact]
+    public void DeviceCount_ShouldTrackActiveDevicesWithoutExposingIdentifiers()
+    {
+        var first = new FakeMidiInputDevice("Secret Kit A", "secret-a");
+        var second = new FakeMidiInputDevice("Secret Kit B", "secret-b");
+        var backend = new FakeMidiDeviceBackend(first, second);
+        using var source = new MidiInputSource(backend, _ => 0);
+
+        source.Initialize();
+        Assert.Equal(2, source.DeviceCount);
+
+        backend.SetDevices(second);
+        source.RefreshDevices();
+
+        Assert.Equal(1, source.DeviceCount);
+    }
+
+    [Fact]
     public void Initialize_DeviceStartFailure_SkipsDeviceAndKeepsRunning()
     {
         var device = new FakeMidiInputDevice("Broken Device", "broken") { ThrowOnStart = true };

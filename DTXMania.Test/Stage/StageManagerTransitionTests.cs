@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using DTXMania.Game;
 using DTXMania.Game.Lib.Config;
+using DTXMania.Game.Lib.Diagnostics.CrashReporting;
 using DTXMania.Game.Lib.Graphics;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Resources;
@@ -58,6 +59,48 @@ namespace DTXMania.Test.Stage
             Assert.Equal(1, _titleStage.ActivateCount);
             Assert.Equal(1, _titleStage.TransitionInCount);
             Assert.Equal(1, _titleStage.TransitionCompleteCount);
+        }
+
+        [Fact]
+        public void ChangeStage_ShouldRecordRequestedAndCompletedBreadcrumbs()
+        {
+            var breadcrumbs = new RecordingBreadcrumbSink();
+            var contexts = new RecordingContextSink();
+            using var manager = new StageManager(
+                ReflectionHelpers.CreateGame(),
+                NullLogger<StageManager>.Instance,
+                breadcrumbs,
+                contexts);
+            var title = new TestStage(StageType.Title) { StageManager = manager };
+            var stages = ReflectionHelpers.GetPrivateField<Dictionary<StageType, IStage>>(manager, "_stages");
+            Assert.NotNull(stages);
+            stages![StageType.Title] = title;
+
+            manager.ChangeStage(StageType.Title);
+
+            Assert.Contains(breadcrumbs.Events, item => item.EventName == "stage_transition_requested");
+            Assert.Contains(breadcrumbs.Events, item => item.EventName == "stage_transition_completed");
+            var stage = Assert.Single(contexts.Snapshots, item => item.Kind == CrashContextKind.Stage);
+            Assert.Equal(StageType.Title, stage.Fields["Stage"]);
+        }
+
+        [Fact]
+        public void ChangeStage_WhenRejected_ShouldUseTheFixedRejectedBreadcrumb()
+        {
+            var breadcrumbs = new RecordingBreadcrumbSink();
+            using var manager = new StageManager(
+                ReflectionHelpers.CreateGame(),
+                NullLogger<StageManager>.Instance,
+                breadcrumbs,
+                EmptyCrashContextSink.Instance);
+            manager.Dispose();
+
+            manager.ChangeStage(StageType.Title);
+
+            var rejected = Assert.Single(
+                breadcrumbs.Events,
+                item => item.EventName == "stage_transition_rejected");
+            Assert.IsAssignableFrom<Enum>(rejected.Properties["Reason"]);
         }
 
         [Fact]
@@ -561,6 +604,33 @@ namespace DTXMania.Test.Stage
             public Point? MapMouseToVirtual(Point windowPoint) => null;
             public ITextInputSource? GetTextInputSource() => null;
             public void RequestExit() { }
+        }
+
+        private sealed class RecordingBreadcrumbSink : ICrashBreadcrumbSink
+        {
+            private readonly List<CrashBreadcrumb> _events = new();
+
+            public IReadOnlyList<CrashBreadcrumb> Events => _events;
+
+            public void Record(string eventName, IReadOnlyDictionary<string, object?>? properties = null)
+            {
+                _events.Add(new CrashBreadcrumb(
+                    DateTimeOffset.UtcNow,
+                    eventName,
+                    properties ?? new Dictionary<string, object?>()));
+            }
+        }
+
+        private sealed class RecordingContextSink : ICrashContextSink
+        {
+            private readonly List<CrashContextSnapshot> _snapshots = new();
+
+            public IReadOnlyList<CrashContextSnapshot> Snapshots => _snapshots;
+
+            public void SetSnapshot(CrashContextSnapshot snapshot)
+            {
+                _snapshots.Add(snapshot);
+            }
         }
 
         private sealed class TestStage : IStage

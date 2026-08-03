@@ -78,6 +78,7 @@ public sealed class CrashReportRuntime : ICrashRuntimeLifetime
 
         var writer = errorWriter ?? Console.Error;
         ILoggerFactory? loggerFactory = null;
+        var processStartedUtc = DateTimeOffset.UtcNow;
 
         try
         {
@@ -92,26 +93,35 @@ public sealed class CrashReportRuntime : ICrashRuntimeLifetime
             var reportStore = storeFactory();
             loggerFactory = CreateLoggerFactory(logBufferProvider);
 
-            return new CrashReportRuntime(
+            var runtime = new CrashReportRuntime(
                 loggerFactory,
                 logBufferProvider,
                 breadcrumbBuffer,
                 contextSnapshotStore,
                 reportStore,
                 writer);
+            CrashContextPublisher.PublishProcessAndApplication(
+                runtime.GameDiagnostics,
+                processStartedUtc);
+            runtime.GameDiagnostics.Breadcrumbs.Record("process_started");
+            return runtime;
         }
         catch (Exception exception) when (IsExpectedBootstrapException(exception))
         {
             DisposePartialFactory(loggerFactory);
             WriteSafeError(writer, "crash_reporting_disabled code=" + BootstrapFailureCode);
 
-            return new CrashReportRuntime(
+            var runtime = new CrashReportRuntime(
                 CreateConsoleLoggerFactory(),
                 crashLogBufferProvider: null,
                 crashBreadcrumbBuffer: null,
                 crashContextSnapshotStore: null,
                 crashReportStore: null,
                 writer);
+            CrashContextPublisher.PublishProcessAndApplication(
+                runtime.GameDiagnostics,
+                processStartedUtc);
+            return runtime;
         }
     }
 

@@ -9,6 +9,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using DTXMania.Game.Lib.Stage;
+using Microsoft.Xna.Framework.Graphics;
 
 namespace DTXMania.Game.Lib.Diagnostics.CrashReporting;
 
@@ -35,6 +36,9 @@ internal sealed class CrashReportArchiveWriter : ICrashReportArtifactWriter
     private const int MinimumReportedWidth = 320;
     private const int MinimumReportedHeight = 200;
     private const int MaximumReportedDimension = 16_384;
+    private const int MaximumReportedCount = 100_000;
+    private const int MaximumBufferMilliseconds = 60_000;
+    private const int MaximumMultiSampleCount = 64;
 
     private static readonly UTF8Encoding Utf8WithoutBom = new(encoderShouldEmitUTF8Identifier: false);
     private static readonly JsonSerializerOptions IndentedJsonOptions = new()
@@ -54,8 +58,10 @@ internal sealed class CrashReportArchiveWriter : ICrashReportArtifactWriter
         "stage_transition_requested",
         "stage_transition_started",
         "stage_transition_completed",
+        "stage_transition_rejected",
         "configuration_opened",
         "configuration_closed",
+        "graphics_settings_changed",
         "graphics_device_lost",
         "graphics_device_reset",
         "audio_device_attached",
@@ -64,6 +70,7 @@ internal sealed class CrashReportArchiveWriter : ICrashReportArtifactWriter
         "midi_device_attached",
         "midi_device_detached",
         "midi_device_selected",
+        "midi_device_count_changed",
         "song_selection_entered",
         "gameplay_entered",
         "exit_requested"
@@ -139,7 +146,7 @@ internal sealed class CrashReportArchiveWriter : ICrashReportArtifactWriter
             sanitizer.SanitizeTypeName(document.Summary.ExceptionType));
         var logs = SanitizeLogs(document.Logs, sanitizer, out var logsTruncated);
         var breadcrumbs = SanitizeBreadcrumbs(document.Breadcrumbs, out var breadcrumbsTruncated);
-        var context = SanitizeContext(document.Context);
+        var context = SanitizeContext(document.Context, sanitizer);
         var exceptionText = sanitizer.SanitizeExceptionChain(document.Exception, out var exceptionChainTruncated);
 
         return new SanitizedDocument(
@@ -249,7 +256,8 @@ internal sealed class CrashReportArchiveWriter : ICrashReportArtifactWriter
     }
 
     private static IReadOnlyList<SerializedContext> SanitizeContext(
-        IReadOnlyList<CrashContextSnapshot> context)
+        IReadOnlyList<CrashContextSnapshot> context,
+        CrashReportSanitizer sanitizer)
     {
         var sanitized = new List<SerializedContext>(context.Count);
         foreach (var snapshot in context)
@@ -257,8 +265,8 @@ internal sealed class CrashReportArchiveWriter : ICrashReportArtifactWriter
             sanitized.Add(new SerializedContext(
                 snapshot.Kind.ToString(),
                 snapshot.Status.ToString(),
-                SanitizeProperties(snapshot.Fields),
-                snapshot.FailureCode is null ? null : CrashReportSanitizer.RedactedValue));
+                SanitizeContextProperties(snapshot.Kind, snapshot.Fields, sanitizer),
+                SanitizeContextFailureCode(snapshot.Kind, snapshot.FailureCode)));
         }
 
         return sanitized;
@@ -280,6 +288,225 @@ internal sealed class CrashReportArchiveWriter : ICrashReportArtifactWriter
         }
 
         return sanitized;
+    }
+
+    private static IReadOnlyDictionary<string, object?> SanitizeContextProperties(
+        CrashContextKind kind,
+        IReadOnlyDictionary<string, object?> properties,
+        CrashReportSanitizer sanitizer)
+    {
+        var sanitized = new SortedDictionary<string, object?>(StringComparer.Ordinal);
+        foreach (var property in properties)
+        {
+            if (TrySanitizeContextProperty(
+                    kind,
+                    property.Key,
+                    property.Value,
+                    sanitizer,
+                    out var normalizedValue))
+            {
+                sanitized[property.Key] = normalizedValue;
+            }
+        }
+
+        return sanitized;
+    }
+
+    private static bool TrySanitizeContextProperty(
+        CrashContextKind kind,
+        string propertyName,
+        object? value,
+        CrashReportSanitizer sanitizer,
+        out object? sanitizedValue)
+    {
+        sanitizedValue = null;
+
+        switch (kind)
+        {
+            case CrashContextKind.Process:
+                switch (propertyName)
+                {
+                    case "RuntimeFramework" or "OperatingSystem" when value is string metadata:
+                        sanitizedValue = sanitizer.SanitizeMetadata(
+                            metadata,
+                            CrashReportSanitizer.RedactedValue);
+                        return true;
+
+                    case "ProcessArchitecture" when value is Architecture architecture
+                                                   && Enum.IsDefined(architecture):
+                        sanitizedValue = architecture.ToString();
+                        return true;
+
+                    case "ProcessStartUtc" when value is DateTimeOffset processStartUtc:
+                        sanitizedValue = processStartUtc.ToUniversalTime();
+                        return true;
+                }
+                break;
+
+            case CrashContextKind.Application:
+                if (propertyName == "ApplicationVersion" && value is string applicationVersion)
+                {
+                    sanitizedValue = sanitizer.SanitizeStableLabel(
+                        applicationVersion,
+                        CrashReportSanitizer.RedactedValue);
+                    return true;
+                }
+                break;
+
+            case CrashContextKind.Startup:
+                if (propertyName == "Milestone"
+                    && value is StartupCriticalPathMilestone milestone
+                    && Enum.IsDefined(milestone))
+                {
+                    sanitizedValue = milestone.ToString();
+                    return true;
+                }
+                break;
+
+            case CrashContextKind.Configuration:
+                return TrySanitizeConfigurationContextProperty(
+                    propertyName,
+                    value,
+                    out sanitizedValue);
+
+            case CrashContextKind.Stage:
+                if (propertyName == "Stage"
+                    && value is StageType stage
+                    && Enum.IsDefined(stage))
+                {
+                    sanitizedValue = stage.ToString();
+                    return true;
+                }
+
+                if (propertyName == "StageCount" && TrySanitizeCount(value, out sanitizedValue))
+                {
+                    return true;
+                }
+                break;
+
+            case CrashContextKind.Graphics:
+                return TrySanitizeGraphicsContextProperty(
+                    propertyName,
+                    value,
+                    out sanitizedValue);
+
+            case CrashContextKind.Input:
+                return propertyName == "MidiDeviceCount"
+                    && TrySanitizeCount(value, out sanitizedValue);
+
+            case CrashContextKind.Audio:
+                break;
+        }
+
+        return false;
+    }
+
+    private static bool TrySanitizeConfigurationContextProperty(
+        string propertyName,
+        object? value,
+        out object? sanitizedValue)
+    {
+        sanitizedValue = null;
+
+        switch (propertyName)
+        {
+            case "ScreenWidth" or "ScreenHeight" when TrySanitizeContextDimension(value, out sanitizedValue):
+            case "KeyBindingCount" or "SystemKeyBindingCount" or "UnboundDrumLaneCount"
+                or "UnboundDrumButtonCount" or "MidiVelocityThresholdCount"
+                when TrySanitizeCount(value, out sanitizedValue):
+                return true;
+
+            case "BufferSizeMs" when value is int bufferSizeMs
+                                     && bufferSizeMs >= 0
+                                     && bufferSizeMs <= MaximumBufferMilliseconds:
+                sanitizedValue = bufferSizeMs;
+                return true;
+
+            case "FullScreen" or "VSyncWait" or "AutoPlay" or "NoFail" or "EnableGameApi"
+                when value is bool booleanValue:
+                sanitizedValue = booleanValue;
+                return true;
+
+            default:
+                return false;
+        }
+    }
+
+    private static bool TrySanitizeGraphicsContextProperty(
+        string propertyName,
+        object? value,
+        out object? sanitizedValue)
+    {
+        sanitizedValue = null;
+
+        switch (propertyName)
+        {
+            case "Width" or "Height" when TrySanitizeContextDimension(value, out sanitizedValue):
+                return true;
+
+            case "Fullscreen" or "VSync" or "DeviceAvailable" when value is bool booleanValue:
+                sanitizedValue = booleanValue;
+                return true;
+
+            case "BackBufferFormat" when value is SurfaceFormat backBufferFormat
+                                         && Enum.IsDefined(backBufferFormat):
+                sanitizedValue = backBufferFormat.ToString();
+                return true;
+
+            case "DepthStencilFormat" when value is DepthFormat depthStencilFormat
+                                           && Enum.IsDefined(depthStencilFormat):
+                sanitizedValue = depthStencilFormat.ToString();
+                return true;
+
+            case "MultiSampleCount" when value is int multiSampleCount
+                                         && multiSampleCount >= 0
+                                         && multiSampleCount <= MaximumMultiSampleCount:
+                sanitizedValue = multiSampleCount;
+                return true;
+
+            default:
+                return false;
+        }
+    }
+
+    private static string? SanitizeContextFailureCode(CrashContextKind kind, string? failureCode)
+    {
+        if (failureCode is null)
+        {
+            return null;
+        }
+
+        return kind == CrashContextKind.Audio
+               && string.Equals(
+                   failureCode,
+                   CrashContextPublisher.AudioDeviceSummaryUnavailable,
+                   StringComparison.Ordinal)
+            ? CrashContextPublisher.AudioDeviceSummaryUnavailable
+            : CrashReportSanitizer.RedactedValue;
+    }
+
+    private static bool TrySanitizeContextDimension(object? value, out object? sanitizedValue)
+    {
+        if (value is int dimension && dimension >= 0 && dimension <= MaximumReportedDimension)
+        {
+            sanitizedValue = dimension;
+            return true;
+        }
+
+        sanitizedValue = null;
+        return false;
+    }
+
+    private static bool TrySanitizeCount(object? value, out object? sanitizedValue)
+    {
+        if (value is int count && count >= 0 && count <= MaximumReportedCount)
+        {
+            sanitizedValue = count;
+            return true;
+        }
+
+        sanitizedValue = null;
+        return false;
     }
 
     private static bool TrySanitizePersistedProperty(
@@ -319,10 +546,22 @@ internal sealed class CrashReportArchiveWriter : ICrashReportArtifactWriter
                 sanitizedValue = height;
                 return true;
 
-            // Generic counters, status values, and MIDI fields are intentionally omitted.
-            // Task 2 permits those scalar values in memory, but their meanings are not
-            // sufficiently constrained to guarantee that a hardware or MIDI identifier
-            // cannot reach a persisted report.
+            case "MidiDeviceCount"
+                when value is int midiDeviceCount
+                     && midiDeviceCount >= 0
+                     && midiDeviceCount <= MaximumReportedCount:
+                sanitizedValue = midiDeviceCount;
+                return true;
+
+            case "Reason"
+                when value is StageTransitionRejectionReason reason
+                     && Enum.IsDefined(reason):
+                sanitizedValue = reason.ToString();
+                return true;
+
+            // Generic counters and status values are intentionally omitted. The explicit
+            // bounded MIDI device count above is the only MIDI-shaped value permitted at
+            // persistence; no hardware name or identifier has a serialization case.
             default:
                 return false;
         }

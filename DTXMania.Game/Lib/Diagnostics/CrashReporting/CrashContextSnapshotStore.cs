@@ -22,8 +22,10 @@ internal sealed class CrashContextSnapshotStore : ICrashContextSink, ICrashSensi
         var normalizedSnapshot = new CrashContextSnapshot(
             snapshot.Kind,
             snapshot.Status,
-            NormalizeFields(snapshot.Fields),
-            snapshot.FailureCode is null ? null : CrashLogFieldPolicy.RedactedValue);
+            NormalizeFields(snapshot.Kind, snapshot.Fields),
+            CrashLogFieldPolicy.Default.NormalizeContextFailureCode(
+                snapshot.Kind,
+                snapshot.FailureCode));
 
         lock (_gate)
         {
@@ -80,12 +82,18 @@ internal sealed class CrashContextSnapshotStore : ICrashContextSink, ICrashSensi
         }
     }
 
-    private static IReadOnlyDictionary<string, object?> NormalizeFields(IReadOnlyDictionary<string, object?> fields)
+    private static IReadOnlyDictionary<string, object?> NormalizeFields(
+        CrashContextKind kind,
+        IReadOnlyDictionary<string, object?> fields)
     {
         var normalizedFields = new Dictionary<string, object?>(StringComparer.Ordinal);
         foreach (var field in fields)
         {
-            if (CrashLogFieldPolicy.Default.TryNormalizeProperty(field.Key, field.Value, out var normalizedValue))
+            if (CrashLogFieldPolicy.Default.TryNormalizeContextProperty(
+                    kind,
+                    field.Key,
+                    field.Value,
+                    out var normalizedValue))
             {
                 normalizedFields[field.Key] = normalizedValue;
             }
