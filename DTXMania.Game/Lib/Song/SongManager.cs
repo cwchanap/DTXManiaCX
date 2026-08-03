@@ -504,8 +504,6 @@ namespace DTXMania.Game.Lib.Song
                 cancellationToken,
                 observer: null,
                 linked).ConfigureAwait(false);
-            if (result.Outcome == SongEnumerationOutcome.ImportedAndPublished)
-                await UpdateEnumerationTimestampAsync().ConfigureAwait(false);
 
             return (
                 result.Batch.Candidates.Count,
@@ -776,6 +774,16 @@ namespace DTXMania.Game.Lib.Song
         {
             SongEnumerationResult? result = null;
             var outcome = StartupOperationOutcome.Failure;
+
+            // Capture the enumeration start as the freshness watermark. It is
+            // persisted only after successful publication so that any file edit
+            // during the (possibly long) scan remains newer than the watermark
+            // and triggers the next refresh. Using the completion time instead
+            // would mask mid-scan edits: a file parsed early and then modified
+            // while other roots are still scanning would have an mtime older
+            // than the completion-time watermark and be silently ignored.
+            var enumerationStartedUtc = DateTime.UtcNow;
+
             try
             {
                 // The cancellation check and database snapshot must run inside
@@ -853,6 +861,14 @@ namespace DTXMania.Game.Lib.Song
                     import,
                     hierarchy.Elapsed);
                 outcome = StartupOperationOutcome.Success;
+
+                // Persist the START watermark (not the completion time) so that
+                // mid-scan edits remain newer than the watermark and are detected
+                // by the next freshness check. NoActiveRoots and failure paths
+                // do not update the watermark: nothing was enumerated.
+                await SetEnumerationWatermarkAsync(enumerationStartedUtc)
+                    .ConfigureAwait(false);
+
                 return result;
             }
             catch (OperationCanceledException)
@@ -3634,8 +3650,8 @@ namespace DTXMania.Game.Lib.Song
         }
 
         /// <summary>
-        /// Detects filesystem changes in song directories by walking the active
-        /// roots once via the shared chart-inventory scanner.
+        /// Detects filesystem changes in song directories by walking the
+        /// available roots once via the shared chart-inventory scanner.
         /// </summary>
         private async Task<bool> DetectFilesystemChangesAsync(string[] searchPaths)
         {
@@ -3649,29 +3665,50 @@ namespace DTXMania.Game.Lib.Song
                     return true; // First time enumeration
                 }
 
-                Debug.WriteLine($"SongManager: Last enumeration was at {lastEnumerationTime:yyyy-MM-dd HH:mm:ss}");
+                Debug.WriteLine($"SongManager: Last enumeration was at {lastEnumerationTime:yyyy-MM-dd HH:mm:ss} UTC");
 
-                // Walk the active roots once, mirroring full enumeration's directory
-                // and set.def discovery rules. The inventory yields exactly the chart
-                // files enumeration would import (set.def-referenced charts only in a
-                // set.def directory; case-insensitive extension matching) plus the
-                // set.def and directory mtimes used by the change check below. This
-                // replaces the previous per-extension recursive globs (six walks for
-                // counting plus seven for timestamp checking per root).
+                // Probe canonical roots once and carry only currently available
+                // roots through every downstream check. A missing or inaccessible
+                // configured root is a diagnostic condition, NOT a filesystem
+                // change: a full scan cannot make the root available, and
+                // treating its absence as a change whenever another root has
+                // charts forces a perpetual rescan on every startup. When the
+                // root returns (external drive reattached, network share
+                // mounted), the count mismatch between the filesystem inventory
+                // — now including it — and the scoped database count naturally
+                // triggers a refresh.
+                var availableRoots = new List<string>(searchPaths.Length);
+                foreach (var searchPath in searchPaths)
+                {
+                    if (string.IsNullOrEmpty(searchPath))
+                        continue;
+                    if (Directory.Exists(searchPath))
+                        availableRoots.Add(searchPath);
+                    else
+                        Debug.WriteLine($"SongManager: Configured root unavailable, skipping freshness check: {searchPath}");
+                }
+
+                // Walk the available roots once, mirroring full enumeration's
+                // directory and set.def discovery rules. The inventory yields
+                // exactly the chart files enumeration would import (set.def-
+                // referenced charts only in a set.def directory; case-insensitive
+                // extension matching) plus the set.def and directory mtimes used
+                // by the change check below.
                 var inventory = await ScanChartInventoryAsync(
-                    searchPaths, CancellationToken.None).ConfigureAwait(false);
+                    availableRoots.ToArray(), CancellationToken.None).ConfigureAwait(false);
 
-                // File count mismatch is a reliable indicator of added/removed charts.
-                // Both counts are scoped to the same active root set: the inventory is
-                // restricted to these searchPaths, so the database count must be too.
-                // The global chart count would include retained rows belonging to a
-                // removed root, which can never match the scoped filesystem count and
-                // would force a full rescan on every startup. The database side counts
-                // charts (one row per chart file), not score rows, so it matches the
-                // one-file-per-chart filesystem contract even when a chart has many
-                // score variants.
+                // File count mismatch is a reliable indicator of added/removed
+                // charts. Both counts are scoped to the same available root set:
+                // the inventory is restricted to these roots, so the database
+                // count must be too. The global chart count would include
+                // retained rows belonging to a removed or unavailable root,
+                // which can never match the scoped filesystem count and would
+                // force a full rescan on every startup. The database side counts
+                // charts (one row per chart file), not score rows, so it matches
+                // the one-file-per-chart filesystem contract even when a chart
+                // has many score variants.
                 var currentFileCount = inventory.Charts.Count;
-                var databaseChartCount = await GetActiveDatabaseChartCountAsync(searchPaths);
+                var databaseChartCount = await GetActiveDatabaseChartCountAsync(availableRoots);
 
                 Debug.WriteLine($"SongManager: Current chart files: {currentFileCount}, Database charts: {databaseChartCount}");
 
@@ -3681,39 +3718,19 @@ namespace DTXMania.Game.Lib.Song
                     return true;
                 }
 
-                // A configured root that no longer exists (deleted/unmounted/detached)
-                // is a change when the database still holds charts: those charts may be
-                // unreachable from the filesystem. The count mismatch above already
-                // catches the case where the missing root had charts, but check
-                // explicitly to preserve the conservative rescan whenever any
-                // configured root is absent and the active library is non-empty.
-                foreach (var searchPath in searchPaths)
-                {
-                    if (string.IsNullOrEmpty(searchPath))
-                        continue;
-                    if (!Directory.Exists(Path.GetFullPath(searchPath)) && databaseChartCount > 0)
-                    {
-                        Debug.WriteLine($"SongManager: Configured root missing: {searchPath}");
-                        return true;
-                    }
-                }
-
-                // Check if files in database still exist at their recorded paths (detects moves).
-                // Scoped to the same active roots as the file/DB counts above so retained
-                // charts belonging to a removed root are not flagged as missing.
-                var filesMovedOrDeleted = await CheckDatabaseFilesStillExist(searchPaths);
+                // Check if files in database still exist at their recorded paths
+                // (detects moves). Scoped to the same available roots as the
+                // file/DB counts above so retained charts belonging to a removed
+                // or unavailable root are not flagged as missing.
+                var filesMovedOrDeleted = await CheckDatabaseFilesStillExist(availableRoots);
                 if (filesMovedOrDeleted)
                 {
                     Debug.WriteLine($"SongManager: Some files have been moved or deleted since last enumeration");
                     return true;
                 }
 
-                // A missing configured root with database rows is a change (e.g. an
-                // external song drive was detached). The inventory skips non-existent
-                // roots, so its chart count is 0 for that root while the scoped database
-                // count is > 0 — already caught by the count mismatch above. Check the
-                // remaining roots' mtimes against the last enumeration time using the
-                // single inventory walk.
+                // Check the available roots' mtimes against the last enumeration
+                // time using the single inventory walk.
                 if (InventoryHasChangesSince(inventory, lastEnumerationTime.Value))
                 {
                     Debug.WriteLine("SongManager: Changes detected in song directories");
@@ -3831,8 +3848,8 @@ namespace DTXMania.Game.Lib.Song
             var dirInfo = new DirectoryInfo(directoryPath);
             inventory.Directories.Add(new ChartInventoryEntry(
                 SongPathIdentity.Normalize(directoryPath),
-                dirInfo.LastWriteTime,
-                dirInfo.CreationTime));
+                dirInfo.LastWriteTimeUtc,
+                dirInfo.CreationTimeUtc));
 
             var setDefPath = Path.Combine(directoryPath, "set.def");
             if (File.Exists(setDefPath))
@@ -3843,8 +3860,8 @@ namespace DTXMania.Game.Lib.Song
                 var setDefInfo = new FileInfo(setDefPath);
                 inventory.SetDefinitions.Add(new ChartInventoryEntry(
                     SongPathIdentity.Normalize(setDefPath),
-                    setDefInfo.LastWriteTime,
-                    setDefInfo.CreationTime));
+                    setDefInfo.LastWriteTimeUtc,
+                    setDefInfo.CreationTimeUtc));
                 foreach (var chartPath in EnumerateSetDefReferencedCharts(
                     setDefPath, cancellationToken))
                 {
@@ -3854,8 +3871,8 @@ namespace DTXMania.Game.Lib.Song
                     var chartInfo = new FileInfo(chartPath);
                     inventory.Charts.Add(new ChartInventoryEntry(
                         chartPath,
-                        chartInfo.LastWriteTime,
-                        chartInfo.CreationTime));
+                        chartInfo.LastWriteTimeUtc,
+                        chartInfo.CreationTimeUtc));
                 }
                 return;
             }
@@ -3877,8 +3894,8 @@ namespace DTXMania.Game.Lib.Song
                 var fileInfo = new FileInfo(file);
                 inventory.Charts.Add(new ChartInventoryEntry(
                     file,
-                    fileInfo.LastWriteTime,
-                    fileInfo.CreationTime));
+                    fileInfo.LastWriteTimeUtc,
+                    fileInfo.CreationTimeUtc));
             }
 
             foreach (var subdirectory in EnumerateDirectoriesCore(directoryPath)
@@ -3977,6 +3994,13 @@ namespace DTXMania.Game.Lib.Song
         /// enumeration time from it would let an unrelated write mask later chart
         /// edits when the file count is unchanged. A null result means no
         /// enumeration has been recorded yet and forces a first-time scan.
+        /// </para>
+        /// <para>
+        /// Returns UTC directly. The inventory walker uses
+        /// <c>LastWriteTimeUtc</c>/<c>CreationTimeUtc</c>, so the comparison is
+        /// UTC-vs-UTC — no local-time conversion that would break under DST or
+        /// timezone shifts.
+        /// </para>
         /// </summary>
         private async Task<DateTime?> GetLastEnumerationTimestampAsync()
         {
@@ -3995,14 +4019,8 @@ namespace DTXMania.Game.Lib.Song
                     return null;
                 }
 
-                // Convert to local time before returning: downstream change detection
-                // compares this against FileInfo/DirectoryInfo LastWriteTime values,
-                // which are returned in local time. Comparing a UTC DateTime directly
-                // against a Local DateTime would mis-order them by the timezone offset
-                // on non-UTC systems and report every file as modified (or never).
-                var localTimestamp = timestamp.Value.ToLocalTime();
-                Debug.WriteLine($"SongManager: Last successful enumeration at {localTimestamp:yyyy-MM-dd HH:mm:ss} (local)");
-                return localTimestamp;
+                Debug.WriteLine($"SongManager: Last successful enumeration at {timestamp.Value:yyyy-MM-dd HH:mm:ss} UTC");
+                return timestamp;
             }
             catch (Exception ex)
             {
@@ -4013,22 +4031,27 @@ namespace DTXMania.Game.Lib.Song
         }
 
         /// <summary>
-        /// Persists the enumeration timestamp after a successful enumeration. The
-        /// value is updated only here (after ImportedAndPublished) so unrelated
-        /// database writes cannot advance it.
+        /// Persists the enumeration watermark after a successful
+        /// <see cref="SongEnumerationOutcome.ImportedAndPublished"/> result.
+        /// The watermark is the START of filesystem traversal (captured in
+        /// <see cref="EnumerateAndImportSongsCoreAsync"/>), not the completion
+        /// time, so that files edited during the scan remain newer than the
+        /// watermark and trigger the next freshness check. Updated only here so
+        /// unrelated database writes (bookmark toggles, score saves) cannot
+        /// advance it.
         /// </summary>
-        private async Task UpdateEnumerationTimestampAsync()
+        private async Task SetEnumerationWatermarkAsync(DateTime startUtc)
         {
             try
             {
                 if (_databaseService == null) return;
 
-                await _databaseService.SetLastSuccessfulEnumerationUtcAsync(DateTime.UtcNow);
-                Debug.WriteLine($"SongManager: Enumeration timestamp persisted at {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC");
+                await _databaseService.SetLastSuccessfulEnumerationUtcAsync(startUtc);
+                Debug.WriteLine($"SongManager: Enumeration watermark persisted at {startUtc:yyyy-MM-dd HH:mm:ss} UTC (scan start)");
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"SongManager: Error updating enumeration timestamp: {ex.Message}");
+                Debug.WriteLine($"SongManager: Error updating enumeration watermark: {ex.Message}");
             }
         }
 
