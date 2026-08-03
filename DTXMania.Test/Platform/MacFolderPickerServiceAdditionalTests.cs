@@ -34,18 +34,11 @@ public sealed class MacFolderPickerServiceAdditionalTests
     }
 
     [Fact]
-    public async Task PickFolderAsync_WhenOsascriptReturnsImmediately_ShouldMapOutputToSelected()
+    public void MapProcessResult_WhenZeroExitReturnsPosixPath_ShouldMapToSelected()
     {
-        if (!OperatingSystem.IsMacOS())
-        {
-            return;
-        }
-
-        // Launch a harmless osascript that returns a POSIX path without showing
-        // a dialog, by directly invoking the service against a temp directory.
-        // The service's BuildAppleScript always uses `choose folder`, so we
-        // instead verify the MapProcessResult path that PickFolderAsync delegates
-        // to, ensuring a zero-exit path output maps to Selected.
+        // Verify the MapProcessResult path that PickFolderAsync delegates to,
+        // ensuring a zero-exit POSIX path output maps to Selected. This runs on
+        // every platform since MapProcessResult is a pure static method.
         var result = MacFolderPickerService.MapProcessResult(
             exitCode: 0,
             standardOutput: "/Users/test/Songs",
@@ -90,7 +83,7 @@ public sealed class MacFolderPickerServiceAdditionalTests
     }
 
     [Fact]
-    public void MapProcessResult_WhenAuthorizationDeniedWithBlankDetails_ShouldUseFallbackMessage()
+    public void MapProcessResult_WhenAuthorizationDeniedWithTrimmedDetails_ShouldReturnFailedWithDetails()
     {
         var result = MacFolderPickerService.MapProcessResult(
             exitCode: 1,

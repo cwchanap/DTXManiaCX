@@ -140,6 +140,7 @@ public sealed class SongLibraryReloadServiceTests : IDisposable
     public async Task ReloadAsync_WhenProgressIsReported_ShouldForwardAdaptedProgressValues()
     {
         var reported = new List<SongLibraryReloadProgress>();
+        var progress = new SynchronousProgress<SongLibraryReloadProgress>(reported.Add);
         var service = new SongLibraryReloadService(
             (roots, progress, token) =>
             {
@@ -164,7 +165,6 @@ public sealed class SongLibraryReloadServiceTests : IDisposable
                     Array.Empty<SongEnumerationError>()));
             });
 
-        var progress = new Progress<SongLibraryReloadProgress>(reported.Add);
         var result = await service.ReloadAsync(
             new[] { "/songs" }, progress, CancellationToken.None);
 
@@ -252,5 +252,19 @@ public sealed class SongLibraryReloadServiceTests : IDisposable
             },
             SongBulkImportResult.Empty,
             TimeSpan.Zero);
+    }
+
+    /// <summary>
+    /// An <see cref="IProgress{T}"/> that invokes the callback synchronously on
+    /// the reporting thread, unlike <see cref="Progress{T}"/> which posts to a
+    /// captured <see cref="SynchronizationContext"/>. This guarantees the
+    /// recorded values are visible before assertions run.
+    /// </summary>
+    private sealed class SynchronousProgress<T> : IProgress<T>
+    {
+        private readonly Action<T> _callback;
+        public SynchronousProgress(Action<T> callback) =>
+            _callback = callback ?? throw new ArgumentNullException(nameof(callback));
+        public void Report(T value) => _callback(value);
     }
 }

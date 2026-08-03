@@ -151,7 +151,7 @@ public sealed class MacFolderPickerServiceTests
     }
 
     [Fact]
-    public void MapProcessResult_WhenAuthorizationDeniedWithoutDetails_ShouldReturnFailedWithFallbackMessage()
+    public void MapProcessResult_WhenAuthorizationDeniedErrorCodeReturned_ShouldReturnFailedWithDetails()
     {
         var result = MacFolderPickerService.MapProcessResult(
             exitCode: 1,

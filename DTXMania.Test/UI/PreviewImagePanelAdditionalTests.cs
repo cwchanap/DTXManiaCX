@@ -52,44 +52,18 @@ public class PreviewImagePanelAdditionalTests
     }
 
     [Fact]
-    public void ResolveSongDirectoryPath_WhenPathResolutionThrowsAndActiveRootFallbackExists_ShouldReturnActiveRootPath()
+    public void ResolveSongDirectoryPath_WhenPathCannotBeNormalized_ShouldReturnOriginalValue()
     {
         var panel = new PreviewImagePanel();
-        var root = Path.Combine(Path.GetTempPath(), "dtx-preview-catch-root", Guid.NewGuid().ToString("N"));
-        var relative = Path.Combine("genre", "song");
-        var expected = Path.Combine(root, relative);
-        Directory.CreateDirectory(expected);
+        panel.ActiveSongRootPaths = new[] { "/some/active/root" };
 
-        try
-        {
-            panel.ActiveSongRootPaths = new[] { root };
+        // A NUL character in the relative path makes Path.GetFullPath throw,
+        // and the catch block's active-root fallback also cannot resolve it,
+        // so the original value is returned unchanged.
+        var invalidRelative = "genre/song\0";
+        var resolved = InvokePrivate<string>(panel, "ResolveSongDirectoryPath", invalidRelative);
 
-            // Force the primary try block to throw by temporarily changing the current
-            // directory to a non-existent path. The catch block's active-root fallback
-            // should still resolve the directory.
-            var originalDir = Environment.CurrentDirectory;
-            try
-            {
-                // Use a NUL character in the relative path to make Path.GetFullPath throw,
-                // triggering the catch block. But we need a valid directory under the root,
-                // so instead we use a path that GetFullPath rejects.
-                var invalidRelative = relative + "\0";
-                var resolved = InvokePrivate<string>(panel, "ResolveSongDirectoryPath", invalidRelative);
-
-                // The catch block's fallback also can't resolve a NUL path, so it returns
-                // the original value.
-                Assert.Equal(invalidRelative, resolved);
-            }
-            finally
-            {
-                Environment.CurrentDirectory = originalDir;
-            }
-        }
-        finally
-        {
-            if (Directory.Exists(root))
-                Directory.Delete(root, recursive: true);
-        }
+        Assert.Equal(invalidRelative, resolved);
     }
 
     [Fact]

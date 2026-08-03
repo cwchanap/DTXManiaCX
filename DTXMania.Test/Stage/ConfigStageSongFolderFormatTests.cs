@@ -18,6 +18,7 @@ using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework.Input;
 using Moq;
 using Xunit;
+using static DTXMania.Test.Stage.ConfigStageTestFactory;
 
 namespace DTXMania.Test.Stage;
 
@@ -250,7 +251,7 @@ public sealed class ConfigStageSongFolderFormatTests
             .Throws(new InvalidOperationException("Config write failed"));
         var (stage, inputManager) = CreateStage(
             config.Object,
-            new DelegateSongLibraryReloadService(),
+            new DelegateReloadService(SongLibraryReloadOutcome.Published, 0, 0),
             (_, _) => Task.FromResult(new NxImportResult()),
             () => Task.CompletedTask);
         using (inputManager)
@@ -281,7 +282,7 @@ public sealed class ConfigStageSongFolderFormatTests
                 Array.Empty<SongRootDiagnostic>()));
         var (stage, inputManager) = CreateStage(
             config.Object,
-            new DelegateSongLibraryReloadService(),
+            new DelegateReloadService(SongLibraryReloadOutcome.Published, 0, 0),
             (_, _) => Task.FromResult(new NxImportResult()),
             () => Task.CompletedTask);
         using (inputManager)
@@ -310,7 +311,7 @@ public sealed class ConfigStageSongFolderFormatTests
                 new[] { new SongRootDiagnostic("/new", "Invalid path", IsWarning: false) }));
         var (stage, inputManager) = CreateStage(
             config.Object,
-            new DelegateSongLibraryReloadService(),
+            new DelegateReloadService(SongLibraryReloadOutcome.Published, 0, 0),
             (_, _) => Task.FromResult(new NxImportResult()),
             () => Task.CompletedTask);
         using (inputManager)
@@ -320,69 +321,5 @@ public sealed class ConfigStageSongFolderFormatTests
             Assert.Equal(SongFolderApplyStatus.ValidationFailed, result.Status);
             Assert.False(GetCoordinator(stage).IsBusy);
         }
-    }
-
-    private static (ConfigStage Stage, InputManagerCompat InputManager) CreateStage(
-        IConfigManager configManager,
-        ISongLibraryReloadService reloadService,
-        Func<IProgress<NxImportProgress>?, CancellationToken, Task<NxImportResult>> nxImportAsync,
-        Func<Task> refreshSongListAsync)
-    {
-        var inputManager = new InputManagerCompat(new ConfigManager(), new TestMidiDeviceBackend());
-        var game = ReflectionHelpers.CreateGame();
-        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager);
-        ReflectionHelpers.SetProperty(game, nameof(BaseGame.InputManager), inputManager);
-        var availability = new FfmpegRuntimeAvailability(
-            IsAvailable: true,
-            DiagnosticReason: null,
-            BinaryFolder: null);
-        return (
-            new ConfigStage(
-                game,
-                () => availability,
-                () => new Mock<IFolderPickerService>().Object,
-                reloadService,
-                nxImportAsync,
-                refreshSongListAsync,
-                work => Task.Run(work),
-                continuationRegistrar: null),
-            inputManager);
-    }
-
-    private static SongFolderApplyResult ApplySongRoots(
-        ConfigStage stage,
-        IReadOnlyList<string> roots)
-    {
-        var method = typeof(ConfigStage).GetMethod(
-            "ApplySongRoots",
-            BindingFlags.Instance | BindingFlags.NonPublic);
-        return Assert.IsType<SongFolderApplyResult>(method!.Invoke(stage, new object[] { roots }));
-    }
-
-    private static ConfigSongOperationCoordinator GetCoordinator(ConfigStage stage) =>
-        ReflectionHelpers.GetPrivateField<ConfigSongOperationCoordinator>(
-            stage,
-            "_songOperationCoordinator");
-
-    private static T InvokeStatic<T>(string methodName, params object?[] args)
-    {
-        var method = typeof(ConfigStage).GetMethod(
-            methodName,
-            BindingFlags.Static | BindingFlags.NonPublic);
-        Assert.NotNull(method);
-        return (T)method!.Invoke(null, args)!;
-    }
-
-    private sealed class DelegateSongLibraryReloadService : ISongLibraryReloadService
-    {
-        public Task<SongLibraryReloadResult> ReloadAsync(
-            IReadOnlyList<string> configuredRoots,
-            IProgress<SongLibraryReloadProgress>? progress,
-            CancellationToken cancellationToken) =>
-            Task.FromResult(new SongLibraryReloadResult(
-                SongLibraryReloadOutcome.Published,
-                UnavailableRootCount: 0,
-                EnumeratedFileCount: 0,
-                DiscoveredScoreCount: 0));
     }
 }

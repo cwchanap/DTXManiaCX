@@ -18,8 +18,11 @@ public sealed class SongRootPolicyAdditionalTests
         var policy = SongRootPolicy.ForCurrentPlatform();
 
         Assert.NotNull(policy);
-        // The current platform (Windows or macOS) uses a case-insensitive comparer.
-        Assert.True(policy.Comparer.Equals("/Songs", "/SONGS"));
+        // Windows and macOS use case-insensitive path comparison; Linux uses
+        // case-sensitive. Derive the expectation from the same condition the
+        // policy uses so the test is correct on every supported platform.
+        var expectIgnoreCase = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS();
+        Assert.Equal(expectIgnoreCase, policy.Comparer.Equals("/Songs", "/SONGS"));
     }
 
     [Fact]

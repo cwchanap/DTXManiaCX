@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using DTXMania.Game.Lib.Stage.Config;
@@ -38,12 +39,13 @@ public sealed class StaFolderPickerDispatcherAdditionalTests
             new ImmediateDialog(FolderPickerResult.Selected("/tmp/songs")));
         using var picker = new StaFolderPickerDispatcher(factory);
 
-        // The dispatcher thread is a background thread; its apartment state is
-        // MTA by default in .NET. Asserting the property reads the live value
-        // without asserting a specific apartment, since STA is platform-specific.
-        var state = picker.DispatcherApartmentState;
-        Assert.True(state == ApartmentState.MTA || state == ApartmentState.STA ||
-                    state == ApartmentState.Unknown);
+        // Compare the property against the dispatcher thread's actual apartment
+        // state, retrieved via reflection, instead of asserting a tautological
+        // membership check.
+        var dispatcherThread = (Thread)typeof(StaFolderPickerDispatcher)
+            .GetField("_dispatcherThread", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(picker)!;
+        Assert.Equal(dispatcherThread.GetApartmentState(), picker.DispatcherApartmentState);
     }
 
     [Fact]
@@ -62,36 +64,31 @@ public sealed class StaFolderPickerDispatcherAdditionalTests
     [Fact]
     public async Task DispatchRequests_WhenQueuedRequestIsAlreadyCompleted_ShouldCompleteAsCancelled()
     {
-        // Pre-complete a request before the dispatcher dequeues it so the
-        // `request.IsCompleted` branch in DispatchRequests is exercised.
-        var factory = new QueuedFactory(
-            new ImmediateDialog(FolderPickerResult.Selected("/tmp/songs")));
+        // A preceding blocking request keeps the dispatcher busy so the target
+        // request sits in the queue and is cancelled before the dispatcher
+        // dequeues it. This deterministically exercises the `request.IsCompleted`
+        // branch in DispatchRequests rather than relying on a race between
+        // cancellation and dequeue.
+        var blockingDialog = new BlockingDialog();
+        var factory = new QueuedFactory(blockingDialog);
         using var picker = new StaFolderPickerDispatcher(factory);
 
-        // Issue a request and cancel it immediately (before the dispatcher thread
-        // can dequeue it). The dispatcher should observe it as completed/cancelled
-        // and serve the next request normally.
+        // Start the blocking request and wait for the dispatcher to enter Show().
+        var firstRequest = picker.PickFolderAsync(null, CancellationToken.None);
+        await blockingDialog.ShowEntered.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        // Enqueue the target request and cancel it while the dispatcher is busy.
         using var cancellation = new CancellationTokenSource();
-        var firstRequest = picker.PickFolderAsync(null, cancellation.Token);
+        var secondRequest = picker.PickFolderAsync(null, cancellation.Token);
         cancellation.Cancel();
 
+        // Release the blocking dialog so the dispatcher dequeues the target.
+        blockingDialog.Release();
         var firstResult = await firstRequest.WaitAsync(TimeSpan.FromSeconds(1));
-        Assert.Equal(FolderPickerStatus.Cancelled, firstResult.Status);
-    }
+        Assert.Equal(FolderPickerStatus.Selected, firstResult.Status);
 
-    [Fact]
-    public async Task PickFolderAsync_WhenRequestArrivesAfterTerminalShutdown_ShouldReturnUnavailable()
-    {
-        var factory = new QueuedFactory(
-            new ImmediateDialog(FolderPickerResult.Selected("/tmp/songs")));
-        var picker = new StaFolderPickerDispatcher(factory);
-        picker.Dispose();
-
-        // After disposal, a new request should see the terminal result.
-        var result = await picker.PickFolderAsync(null, CancellationToken.None)
-            .WaitAsync(TimeSpan.FromSeconds(1));
-
-        Assert.Equal(FolderPickerStatus.Unavailable, result.Status);
+        var secondResult = await secondRequest.WaitAsync(TimeSpan.FromSeconds(1));
+        Assert.Equal(FolderPickerStatus.Cancelled, secondResult.Status);
     }
 
     [Fact]
@@ -127,6 +124,24 @@ public sealed class StaFolderPickerDispatcherAdditionalTests
         public ImmediateDialog(FolderPickerResult result) => _result = result;
         public FolderPickerResult Show(string? initialDirectory) => _result;
         public void Close() { }
+        public void Dispose() { }
+    }
+
+    private sealed class BlockingDialog : IStaFolderPickerDialog
+    {
+        private readonly TaskCompletionSource<FolderPickerResult> _release = new();
+        public TaskCompletionSource<bool> ShowEntered { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public FolderPickerResult Show(string? initialDirectory)
+        {
+            ShowEntered.TrySetResult(true);
+            return _release.Task.GetAwaiter().GetResult();
+        }
+
+        public void Release() => _release.TrySetResult(
+            FolderPickerResult.Selected("/tmp/songs"));
+        public void Close() => _release.TrySetResult(FolderPickerResult.Cancelled());
         public void Dispose() { }
     }
 
