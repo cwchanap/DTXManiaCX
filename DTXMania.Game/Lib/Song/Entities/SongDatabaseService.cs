@@ -1921,6 +1921,61 @@ namespace DTXMania.Game.Lib.Song.Entities
         }
 
         /// <summary>
+        /// Counts <see cref="SongScoreEntity"/> rows whose chart's
+        /// <see cref="SongChart.FilePath"/> resides under one of
+        /// <paramref name="roots"/>, mirroring the active-chart containment rule
+        /// used by <see cref="GetActiveChartIdsAsync"/>. This is the
+        /// active-root-scoped counterpart to the global
+        /// <see cref="DatabaseStats.ScoreCount"/> returned by
+        /// <see cref="GetDatabaseStatsAsync"/>: cache-freshness checks must count
+        /// only the active root set, otherwise retained rows belonging to a
+        /// removed root make the filesystem and database counts diverge forever
+        /// and force a full rescan on every startup. Returns 0 for an empty root
+        /// set or when no active charts have scores.
+        /// </summary>
+        public async Task<int> GetActiveScoreCountAsync(IReadOnlyList<string> roots)
+        {
+            if (roots == null || roots.Count == 0)
+                return 0;
+
+            // Normalize defensively so blank or malformed roots (which
+            // CountDTXFilesAsync also skips) do not abort the count. Mirrors the
+            // active-root pre-normalization in ImportSongsAsync.
+            var normalizedRoots = roots
+                .Select(root =>
+                {
+                    SongPathIdentity.TryNormalize(root, out var normalized);
+                    return normalized;
+                })
+                .Where(r => !string.IsNullOrEmpty(r))
+                .ToArray();
+            if (normalizedRoots.Length == 0)
+                return 0;
+            using var context = CreateContext();
+            var charts = await context.SongCharts
+                .AsNoTracking()
+                .Select(chart => new { chart.Id, chart.FilePath })
+                .ToListAsync();
+            var activeChartIds = new HashSet<int>();
+            foreach (var chart in charts)
+            {
+                if (SongPathIdentity.TryNormalize(chart.FilePath, out var normalized) &&
+                    normalizedRoots.Any(root =>
+                        SongPathIdentity.IsUnderRoot(normalized, root)))
+                {
+                    activeChartIds.Add(chart.Id);
+                }
+            }
+
+            if (activeChartIds.Count == 0)
+                return 0;
+
+            return await context.SongScores
+                .AsNoTracking()
+                .CountAsync(score => activeChartIds.Contains(score.ChartId));
+        }
+
+        /// <summary>
         /// Sets or clears the bookmark flag on a song. No-op if the song id is not found.
         /// </summary>
         public async Task SetBookmarkAsync(int songId, bool bookmarked)

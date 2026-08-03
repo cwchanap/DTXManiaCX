@@ -266,6 +266,42 @@ public class SongManagerCoverageTests : IDisposable
     }
 
     [Fact]
+    public async Task NeedsEnumerationAsync_WhenARootIsRemovedAndItsRowsRetained_ShouldStillLoadFromCache()
+    {
+        // Regression: the filesystem file count is scoped to the active roots,
+        // so the database score count must be scoped to the same roots. The
+        // global score count would include retained rows belonging to a removed
+        // root, which can never match the scoped filesystem count and would
+        // force a full rescan on every subsequent startup.
+        var retainedRoot = Path.Combine(_testRoot, "RetainedSongs");
+        var removedRoot = Path.Combine(_testRoot, "RemovedSongs");
+        var retainedFolder = Path.Combine(retainedRoot, "Retained Song");
+        var removedFolder = Path.Combine(removedRoot, "Removed Song");
+
+        Directory.CreateDirectory(retainedFolder);
+        Directory.CreateDirectory(removedFolder);
+        await CreateDtxFileAsync(Path.Combine(retainedFolder, "retained.dtx"), "Retained Song", "Coverage Bot", "Jazz", 40);
+        await CreateDtxFileAsync(Path.Combine(removedFolder, "removed.dtx"), "Removed Song", "Coverage Bot", "Jazz", 50);
+
+        // Enumerate both roots so the database holds rows for each.
+        var initialized = await _manager.InitializeDatabaseServiceAsync(_testDbPath);
+        Assert.True(initialized);
+        var enumerated = await _manager.EnumerateSongsAsync(new[] { retainedRoot, removedRoot });
+        Assert.True(enumerated >= 2);
+        Assert.NotNull(_manager.DatabaseService);
+
+        // The removed root's files still exist on disk; only the configured root
+        // set changes. Its rows remain in the database (the import path only
+        // removes stale charts under active roots).
+        SetDatabaseLastWriteTime(DateTime.Now.AddMinutes(5));
+
+        // Simulate the next startup with the removed root no longer configured.
+        var needsEnumeration = await _manager.NeedsEnumerationAsync(new[] { retainedRoot });
+
+        Assert.False(needsEnumeration);
+    }
+
+    [Fact]
     public async Task NeedsEnumerationAsync_WhenFileCountChanges_ShouldReturnTrue()
     {
         var songsRoot = Path.Combine(_testRoot, "ChangedSongs");

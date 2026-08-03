@@ -1379,10 +1379,46 @@ namespace DTXMania.Game.Lib.Config
                 Config.SongRoots[0] = defaultSongsPath;
             }
 
+            // Resolve each persisted root, discarding entries whose stored value
+            // is malformed (e.g. contains illegal path characters or a NUL).
+            // ResolvePathOrDefault eventually calls Path.GetFullPath, which throws
+            // for such values; without per-entry recovery a single corrupted
+            // SongRoot.* line would abort LoadConfig entirely and prevent the
+            // application from starting. Invalid entries are logged and dropped;
+            // when no valid root survives, the managed default restores a usable
+            // library root so configuration loading always completes.
+            var resolvedSongRoots = new List<string>(Config.SongRoots.Count);
             for (var index = 0; index < Config.SongRoots.Count; index++)
             {
-                Config.SongRoots[index] = AppPaths.ResolvePathOrDefault(Config.SongRoots[index], defaultSongsPath);
+                var persistedRoot = Config.SongRoots[index];
+                try
+                {
+                    resolvedSongRoots.Add(
+                        AppPaths.ResolvePathOrDefault(persistedRoot, defaultSongsPath));
+                }
+                catch (Exception ex) when (
+                    ex is ArgumentException or PathTooLongException
+                        or NotSupportedException or IOException
+                        or UnauthorizedAccessException
+                        or System.Security.SecurityException)
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "Discarding malformed SongRoot entry '{PersistedRoot}' that could not be resolved to an absolute path.",
+                        persistedRoot);
+                }
             }
+
+            if (resolvedSongRoots.Count == 0)
+            {
+                _logger.LogWarning(
+                    "No configured SongRoot entries resolved to a valid path; " +
+                    "falling back to the managed default songs root.");
+                resolvedSongRoots.Add(defaultSongsPath);
+            }
+
+            Config.SongRoots.Clear();
+            Config.SongRoots.AddRange(resolvedSongRoots);
 
             Config.DTXPath = Config.SongRoots[0];
 

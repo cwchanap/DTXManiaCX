@@ -230,12 +230,42 @@ namespace DTXMania.Game.Lib.Song
             {
                 dbService = _databaseService;
             }
-            
+
             if (dbService == null) return 0;
             try
             {
                 var stats = await dbService.GetDatabaseStatsAsync();
                 return stats.ScoreCount;
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
+        /// <summary>
+        /// Number of score rows in the database whose charts reside under one of
+        /// <paramref name="activeRoots"/>. This is the active-root-scoped
+        /// counterpart to <see cref="GetDatabaseScoreCountAsync"/>: cache
+        /// freshness checks compare it against the filesystem file count, which is
+        /// also scoped to the active roots. Using the global count instead would
+        /// count retained rows belonging to a removed root and force a full
+        /// rescan on every subsequent startup.
+        /// </summary>
+        internal async Task<int> GetActiveDatabaseScoreCountAsync(
+            IReadOnlyList<string> activeRoots)
+        {
+            // Copy reference under lock to avoid race with Clear()
+            SongDatabaseService? dbService;
+            lock (_lockObject)
+            {
+                dbService = _databaseService;
+            }
+
+            if (dbService == null) return 0;
+            try
+            {
+                return await dbService.GetActiveScoreCountAsync(activeRoots);
             }
             catch
             {
@@ -3614,9 +3644,14 @@ namespace DTXMania.Game.Lib.Song
 
                 Debug.WriteLine($"SongManager: Last enumeration was at {lastEnumerationTime:yyyy-MM-dd HH:mm:ss}");
 
-                // First, check if file counts have changed - this is a reliable indicator
+                // First, check if file counts have changed - this is a reliable indicator.
+                // Both counts must be scoped to the same active root set: the filesystem
+                // count is restricted to these searchPaths, so the database count must be
+                // too. The global score count would include retained rows belonging to a
+                // removed root, which can never match the scoped filesystem count and would
+                // force a full rescan on every startup.
                 var currentFileCount = await CountDTXFilesAsync(searchPaths);
-                var databaseSongCount = await GetDatabaseScoreCountAsync();
+                var databaseSongCount = await GetActiveDatabaseScoreCountAsync(searchPaths);
                 
                 Debug.WriteLine($"SongManager: Current DTX files: {currentFileCount}, Database songs: {databaseSongCount}");
                 
