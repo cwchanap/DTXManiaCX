@@ -17,6 +17,7 @@ using DTXMania.Game.Lib.Stage.Config;
 using DTXMania.Test.TestData;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Xna.Framework.Graphics;
+using Microsoft.Xna.Framework.Input;
 using Moq;
 using Xunit;
 using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
@@ -314,6 +315,98 @@ public class ConfigStageNxImportTests : IDisposable
     }
 
     [Fact]
+    public async Task ApplyViaSongFolderPanel_WhenReloadStarts_ShouldCloseAsCommittedSaveAndLeaveCoordinatorRunning()
+    {
+        var first = Path.Combine(Path.GetTempPath(), $"hpa191-panel-first-{Guid.NewGuid():N}");
+        var second = Path.Combine(Path.GetTempPath(), $"hpa191-panel-second-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(first);
+        Directory.CreateDirectory(second);
+        try
+        {
+            var configData = new ConfigData();
+            configData.SongRoots.Clear();
+            configData.SongRoots.Add(first);
+            configData.DTXPath = first;
+            var config = new Mock<IConfigManager>();
+            config.SetupGet(manager => manager.Config).Returns(configData);
+            config.Setup(manager => manager.SetSongRoots(
+                    It.IsAny<string>(),
+                    It.Is<IReadOnlyList<string>>(roots =>
+                        roots.SequenceEqual(new[] { first, second }))))
+                .Returns(new SongRootUpdateResult(
+                    SongRootUpdateStatus.Updated,
+                    new[] { first, second },
+                    Array.Empty<SongRootDiagnostic>()));
+
+            var picker = new Mock<IFolderPickerService>();
+            picker.Setup(service => service.PickFolderAsync(first, It.IsAny<CancellationToken>()))
+                .Returns(Task.FromResult(FolderPickerResult.Selected(second)));
+            var reloadStarted = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var reloadCompletion = new TaskCompletionSource<SongLibraryReloadResult>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var (stage, inputManager) = CreateStage(
+                config.Object,
+                new DelegateSongLibraryReloadService((roots, _, _) =>
+                {
+                    Assert.Equal(new[] { first, second }, roots);
+                    reloadStarted.TrySetResult(true);
+                    return reloadCompletion.Task;
+                }),
+                (_, _) => Task.FromResult(new NxImportResult()),
+                () => Task.CompletedTask);
+            using (inputManager)
+            {
+                ReflectionHelpers.SetPrivateField(stage, "_songFolderPicker", picker.Object);
+                InitializeStageMenu(stage, includePanels: true);
+                var panel = ReflectionHelpers.GetPrivateField<SongFolderPanel>(
+                    stage,
+                    "_songFolderPanel")!;
+                var events = new List<string>();
+                panel.Saved += (_, _) => events.Add("Saved");
+                panel.Closed += (_, _) => events.Add("Closed");
+
+                ReflectionHelpers.InvokePrivateMethod(stage, "OpenPanel", panel);
+                PressPanel(panel, Keys.Down);
+                PressPanel(panel, Keys.Enter);
+                await Task.Yield();
+                panel.Update(0, new KeyboardState(), new KeyboardState());
+
+                for (var index = 0; index < 5; index++)
+                    PressPanel(panel, Keys.Down);
+                PressPanel(panel, Keys.Enter);
+
+                await reloadStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+                Assert.Equal(SongFolderApplyStatus.Started, panel.LastApplyStatus);
+                Assert.False(panel.IsActive);
+                Assert.Equal(new[] { "Saved", "Closed" }, events);
+                Assert.Null(ReflectionHelpers.GetPrivateField<IConfigOverlayPanel>(
+                    stage,
+                    "_activePanel"));
+                Assert.True(GetCoordinator(stage).IsBusy);
+
+                panel.Activate();
+                Assert.Equal(new[] { first, second }, panel.DraftRoots);
+
+                reloadCompletion.TrySetResult(new SongLibraryReloadResult(
+                    SongLibraryReloadOutcome.Published,
+                    UnavailableRootCount: 0,
+                    EnumeratedFileCount: 2,
+                    DiscoveredScoreCount: 2));
+                Assert.True(await WaitUntilOperationCompletesAsync(stage, timeoutMs: 5000));
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(first))
+                Directory.Delete(first, recursive: true);
+            if (Directory.Exists(second))
+                Directory.Delete(second, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task StartNxScoreImport_WhenNotRunning_ShouldSetStatusAndCompleteImport()
     {
         var manager = SongManager.Instance;
@@ -574,6 +667,9 @@ public class ConfigStageNxImportTests : IDisposable
             BindingFlags.Instance | BindingFlags.NonPublic);
         return Assert.IsType<SongFolderApplyResult>(method!.Invoke(stage, new object[] { roots }));
     }
+
+    private static void PressPanel(SongFolderPanel panel, Keys key) =>
+        panel.Update(0, new KeyboardState(key), new KeyboardState());
 
     private static ConfigSongOperationCoordinator GetCoordinator(ConfigStage stage) =>
         ReflectionHelpers.GetPrivateField<ConfigSongOperationCoordinator>(

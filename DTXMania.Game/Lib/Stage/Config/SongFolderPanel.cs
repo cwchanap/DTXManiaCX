@@ -71,6 +71,7 @@ namespace DTXMania.Game.Lib.Stage.Config
         private int _selectedIndex;
         private int _selectedRootIndex;
         private int _firstVisibleRowIndex;
+        private bool _statusIsWarning;
 
         internal SongFolderPanel(
             IReadOnlyList<string> configuredRoots,
@@ -234,7 +235,7 @@ namespace DTXMania.Game.Lib.Stage.Config
 
             if (!string.IsNullOrWhiteSpace(StatusMessage))
             {
-                var color = IsWarningStatus() ? WarningTextColor : ErrorTextColor;
+                var color = _statusIsWarning ? WarningTextColor : ErrorTextColor;
                 font?.DrawString(spriteBatch, StatusMessage,
                     new Vector2(boardX + RowPadding, boardY + BoardHeight - 64), color);
             }
@@ -290,7 +291,7 @@ namespace DTXMania.Game.Lib.Stage.Config
 
             var cancellation = new CancellationTokenSource();
             _pickerCancellation = cancellation;
-            StatusMessage = null;
+            SetStatusMessage(null);
             var initialDirectory = _selectedRootIndex >= 0 && _selectedRootIndex < _draftRoots.Count
                 ? _draftRoots[_selectedRootIndex]
                 : null;
@@ -349,16 +350,16 @@ namespace DTXMania.Game.Lib.Stage.Config
                     AddSelectedFolder(result.Path!);
                     return;
                 case FolderPickerStatus.Cancelled:
-                    StatusMessage = null;
+                    SetStatusMessage(null);
                     return;
                 case FolderPickerStatus.Unavailable:
-                    StatusMessage = result.Message ?? "Folder picker is unavailable.";
+                    SetStatusMessage(result.Message ?? "Folder picker is unavailable.");
                     return;
                 case FolderPickerStatus.Failed:
-                    StatusMessage = result.Message ?? "Folder picker failed.";
+                    SetStatusMessage(result.Message ?? "Folder picker failed.");
                     return;
                 default:
-                    StatusMessage = "Folder picker returned an unknown result.";
+                    SetStatusMessage("Folder picker returned an unknown result.");
                     return;
             }
         }
@@ -385,7 +386,7 @@ namespace DTXMania.Game.Lib.Stage.Config
         {
             if (_draftRoots.Count <= 1)
             {
-                StatusMessage = "At least one song folder is required.";
+                SetStatusMessage("At least one song folder is required.");
                 return;
             }
 
@@ -426,7 +427,7 @@ namespace DTXMania.Game.Lib.Stage.Config
             catch (Exception exception)
             {
                 LastApplyStatus = SongFolderApplyStatus.PersistenceFailed;
-                StatusMessage = exception.Message;
+                SetStatusMessage(exception.Message);
                 return;
             }
 
@@ -443,16 +444,17 @@ namespace DTXMania.Game.Lib.Stage.Config
                 case SongFolderApplyStatus.Busy:
                 case SongFolderApplyStatus.ValidationFailed:
                 case SongFolderApplyStatus.PersistenceFailed:
-                    StatusMessage = GetDiagnosticMessage(result.Diagnostics, "Could not save song folders.");
+                    SetStatusFromDiagnostics(result.Diagnostics, "Could not save song folders.");
                     return;
                 case SongFolderApplyStatus.Started:
-                    // Slice 2 has no live reload. A later Config-owned coordinator
-                    // may use this status to drive progress without changing this
-                    // panel's persistence boundary.
-                    StatusMessage = "Song-folder update has started.";
+                    // Config has already persisted the roots and transferred reload ownership
+                    // to its coordinator. Treat this as the same committed panel boundary as
+                    // Updated so progress can continue behind the closed overlay.
+                    _configuredRoots = Array.AsReadOnly(result.CanonicalRoots.ToArray());
+                    CommitAndClose();
                     return;
                 default:
-                    StatusMessage = "Could not save song folders.";
+                    SetStatusMessage("Could not save song folders.");
                     return;
             }
         }
@@ -499,25 +501,24 @@ namespace DTXMania.Game.Lib.Stage.Config
 
         private void SetValidationStatus(SongRootValidationResult validation)
         {
-            StatusMessage = GetDiagnosticMessage(validation.Diagnostics, fallback: null);
+            SetStatusFromDiagnostics(validation.Diagnostics, fallback: null);
         }
 
-        private bool IsWarningStatus()
-        {
-            if (string.IsNullOrWhiteSpace(StatusMessage))
-                return false;
-
-            return _rootPolicy.Validate(_draftRoots).Diagnostics.Any(diagnostic =>
-                diagnostic.IsWarning && diagnostic.Message == StatusMessage);
-        }
-
-        private static string? GetDiagnosticMessage(
+        private void SetStatusFromDiagnostics(
             IReadOnlyList<SongRootDiagnostic> diagnostics,
             string? fallback)
         {
-            return diagnostics.FirstOrDefault(diagnostic => !diagnostic.IsWarning)?.Message
-                ?? diagnostics.FirstOrDefault()?.Message
-                ?? fallback;
+            var diagnostic = diagnostics.FirstOrDefault(candidate => !candidate.IsWarning)
+                ?? diagnostics.FirstOrDefault();
+            SetStatusMessage(
+                diagnostic?.Message ?? fallback,
+                diagnostic?.IsWarning ?? false);
+        }
+
+        private void SetStatusMessage(string? message, bool isWarning = false)
+        {
+            StatusMessage = message;
+            _statusIsWarning = !string.IsNullOrWhiteSpace(message) && isWarning;
         }
 
         private void CancelPendingPicker()

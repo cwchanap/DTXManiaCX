@@ -167,6 +167,33 @@ public sealed class SongRootPolicyTests
     }
 
     [Fact]
+    public void SetSongRoots_WhenNoRootsAreSupplied_ShouldRejectTheEmptyConfiguration()
+    {
+        WithTemporaryDirectory(root =>
+        {
+            var existingRoot = Path.Combine(root, "existing");
+            Directory.CreateDirectory(existingRoot);
+            var configFile = Path.Combine(root, "Config.ini");
+            var manager = new ConfigManager(
+                new SongRootPolicy(SongRootPolicy.CreateComparer(false)));
+            manager.Config.SongRoots.Clear();
+            manager.Config.SongRoots.Add(existingRoot);
+            manager.Config.DTXPath = existingRoot;
+
+            var result = manager.SetSongRoots(configFile, Array.Empty<string>());
+
+            Assert.Equal(SongRootUpdateStatus.ValidationFailed, result.Status);
+            Assert.Empty(result.CanonicalRoots);
+            Assert.Contains(result.Diagnostics, diagnostic =>
+                !diagnostic.IsWarning &&
+                diagnostic.Message.Contains("at least one", StringComparison.OrdinalIgnoreCase));
+            Assert.Equal(new[] { existingRoot }, manager.Config.SongRoots);
+            Assert.Equal(existingRoot, manager.Config.DTXPath);
+            Assert.False(File.Exists(configFile));
+        });
+    }
+
+    [Fact]
     public void SetSongRoots_WhenImmediatePersistenceFails_ShouldRestoreMemoryAndNotRaiseEvent()
     {
         WithTemporaryDirectory(root =>

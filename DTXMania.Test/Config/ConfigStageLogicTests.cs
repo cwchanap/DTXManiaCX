@@ -56,6 +56,23 @@ public class ConfigStageLogicTests
     }
 
     [Fact]
+    public void SetupConfigItems_SongFoldersDescription_ShouldExplainApplyTriggersOneLiveReload()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            var categories = ReflectionHelpers.GetPrivateField<List<ConfigCategory>>(stage, "_categories");
+            var item = categories!.SelectMany(category => category.Items)
+                .Single(item => item.Name == "Song Folders");
+
+            Assert.Equal(
+                "Edit the ordered song folders. Apply saves the list and triggers one live reload.",
+                item.Description);
+        }
+    }
+
+    [Fact]
     public void DrawItemList_WhenSongFoldersHasMultipleRoots_ShouldRenderCountInValueColumn()
     {
         var configManager = new ConfigManager();

@@ -1,182 +1,227 @@
 #nullable enable
 
 using System;
-using System.Collections.Concurrent;
-using System.ComponentModel;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows.Forms;
 using DTXMania.Game.Lib.Stage.Config;
 
 namespace DTXMania.Game.Platform
 {
     /// <summary>
-    /// Windows folder picker running all WinForms dialog work on an owned STA
+    /// Windows folder picker running all native dialog work on an owned STA
     /// dispatcher thread. Config's update path never needs to assume STA.
     /// </summary>
     internal sealed class WindowsFolderPickerService : IFolderPickerService, IDisposable
     {
-        private readonly BlockingCollection<PickerRequest> _requests = new();
-        private readonly CancellationTokenSource _shutdown = new();
-        private readonly Thread _dispatcherThread;
-        private int _disposed;
+        private readonly StaFolderPickerDispatcher _dispatcher;
 
         public WindowsFolderPickerService()
+            : this(new WindowsFolderPickerDialogFactory())
         {
-            _dispatcherThread = new Thread(DispatchRequests)
-            {
-                IsBackground = true,
-                Name = "DTXMania Folder Picker STA",
-            };
-            _dispatcherThread.SetApartmentState(ApartmentState.STA);
-            _dispatcherThread.Start();
         }
 
-        internal ApartmentState DispatcherApartmentState => _dispatcherThread.GetApartmentState();
+        internal WindowsFolderPickerService(IStaFolderPickerDialogFactory dialogFactory)
+        {
+            _dispatcher = new StaFolderPickerDispatcher(
+                dialogFactory,
+                static thread => thread.SetApartmentState(ApartmentState.STA));
+        }
+
+        internal ApartmentState DispatcherApartmentState => _dispatcher.DispatcherApartmentState;
 
         public Task<FolderPickerResult> PickFolderAsync(
             string? initialDirectory,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken) =>
+            _dispatcher.PickFolderAsync(initialDirectory, cancellationToken);
+
+        public void Dispose() => _dispatcher.Dispose();
+
+        private sealed class WindowsFolderPickerDialogFactory : IStaFolderPickerDialogFactory
         {
-            if (cancellationToken.IsCancellationRequested)
-                return Task.FromResult(FolderPickerResult.Cancelled());
-
-            if (Volatile.Read(ref _disposed) != 0)
+            public void InitializeDispatcherThread()
             {
-                return Task.FromResult(FolderPickerResult.Unavailable(
-                    "The Windows folder picker is no longer available."));
             }
 
-            var request = new PickerRequest(initialDirectory, cancellationToken);
-            try
-            {
-                _requests.Add(request, _shutdown.Token);
-            }
-            catch (OperationCanceledException)
-            {
-                request.Complete(cancellationToken.IsCancellationRequested
-                    ? FolderPickerResult.Cancelled()
-                    : FolderPickerResult.Unavailable("The Windows folder picker is shutting down."));
-            }
-            catch (InvalidOperationException)
-            {
-                request.Complete(FolderPickerResult.Unavailable(
-                    "The Windows folder picker is no longer available."));
-            }
+            public IStaFolderPickerDialog CreateDialog() => new WindowsFolderPickerDialog();
 
-            return request.Task;
-        }
-
-        public void Dispose()
-        {
-            if (Interlocked.Exchange(ref _disposed, 1) != 0)
-                return;
-
-            _requests.CompleteAdding();
-            _shutdown.Cancel();
-            if (!ReferenceEquals(Thread.CurrentThread, _dispatcherThread) &&
-                _dispatcherThread.Join(TimeSpan.FromSeconds(1)))
+            public void CloseOnDispatcher(IStaFolderPickerDialog dialog)
             {
-                _requests.Dispose();
-                _shutdown.Dispose();
+                // WindowsFolderPickerDialog posts WM_CLOSE to the native window;
+                // Windows dispatches that message on the dialog's STA thread.
+                dialog.Close();
             }
         }
 
-        private void DispatchRequests()
+        /// <summary>
+        /// A closeable native SHBrowseForFolder dialog. FolderBrowserDialog does
+        /// not expose its modal window handle, so its ShowDialog call cannot be
+        /// released deterministically after cancellation. The callback here
+        /// captures that native handle and posts WM_CLOSE to its owning STA.
+        /// </summary>
+        private sealed class WindowsFolderPickerDialog : IStaFolderPickerDialog
         {
-            try
+            private const uint BifReturnOnlyFileSystemDirectories = 0x0001;
+            private const uint BifEditBox = 0x0010;
+            private const uint BifNewDialogStyle = 0x0040;
+            private const uint BffmInitialized = 1;
+            private const uint BffmSetSelectionW = 0x0400 + 103;
+            private const uint WmClose = 0x0010;
+            private const int MaxPathLength = 260;
+
+            private readonly object _dialogLock = new();
+            private IntPtr _dialogHandle;
+            private bool _closeRequested;
+            private string? _initialDirectory;
+
+            public FolderPickerResult Show(string? initialDirectory)
             {
-                foreach (var request in _requests.GetConsumingEnumerable(_shutdown.Token))
+                try
                 {
-                    if (request.CancellationToken.IsCancellationRequested)
+                    _initialDirectory = !string.IsNullOrWhiteSpace(initialDirectory) &&
+                        Directory.Exists(initialDirectory)
+                        ? initialDirectory
+                        : null;
+
+                    var callback = new BrowseCallback(HandleBrowseCallback);
+                    var displayName = Marshal.AllocHGlobal((MaxPathLength + 1) * sizeof(char));
+                    var handle = GCHandle.Alloc(this);
+                    try
                     {
-                        request.Complete(FolderPickerResult.Cancelled());
-                        continue;
+                        var browseInfo = new BrowseInfo
+                        {
+                            DisplayName = displayName,
+                            Title = "Choose song folder",
+                            Flags = BifReturnOnlyFileSystemDirectories |
+                                BifEditBox |
+                                BifNewDialogStyle,
+                            Callback = callback,
+                            CallbackData = GCHandle.ToIntPtr(handle),
+                        };
+
+                        var itemIdList = SHBrowseForFolder(ref browseInfo);
+                        if (itemIdList == IntPtr.Zero)
+                            return FolderPickerResult.Cancelled();
+
+                        try
+                        {
+                            var path = new char[MaxPathLength + 1];
+                            return SHGetPathFromIDList(itemIdList, path)
+                                ? FolderPickerResult.Selected(new string(path).TrimEnd('\0'))
+                                : FolderPickerResult.Cancelled();
+                        }
+                        finally
+                        {
+                            Marshal.FreeCoTaskMem(itemIdList);
+                        }
                     }
-
-                    request.Complete(ShowDialog(request.InitialDirectory, request.CancellationToken));
+                    finally
+                    {
+                        handle.Free();
+                        Marshal.FreeHGlobal(displayName);
+                        lock (_dialogLock)
+                            _dialogHandle = IntPtr.Zero;
+                    }
+                }
+                catch (Exception exception)
+                {
+                    return FolderPickerResult.Failed(exception.Message);
                 }
             }
-            catch (OperationCanceledException)
+
+            public void Close()
             {
-                // Dispose requested while the dispatcher was idle.
-            }
-            finally
-            {
-                while (_requests.TryTake(out var request))
+                lock (_dialogLock)
                 {
-                    request.Complete(FolderPickerResult.Unavailable(
-                        "The Windows folder picker is shutting down."));
+                    _closeRequested = true;
+                    PostCloseMessage(_dialogHandle);
                 }
             }
-        }
 
-        private static FolderPickerResult ShowDialog(
-            string? initialDirectory,
-            CancellationToken cancellationToken)
-        {
-            try
+            public void Dispose() => Close();
+
+            private int HandleBrowseCallback(
+                IntPtr windowHandle,
+                uint message,
+                IntPtr lParam,
+                IntPtr callbackData)
             {
-                if (cancellationToken.IsCancellationRequested)
-                    return FolderPickerResult.Cancelled();
+                if (message != BffmInitialized)
+                    return 0;
 
-                using var dialog = new FolderBrowserDialog
+                lock (_dialogLock)
                 {
-                    Description = "Choose song folder",
-                    UseDescriptionForTitle = true,
-                };
-                if (!string.IsNullOrWhiteSpace(initialDirectory) && Directory.Exists(initialDirectory))
-                    dialog.SelectedPath = initialDirectory;
-
-                var result = dialog.ShowDialog();
-                if (cancellationToken.IsCancellationRequested ||
-                    result != DialogResult.OK ||
-                    string.IsNullOrWhiteSpace(dialog.SelectedPath))
-                {
-                    return FolderPickerResult.Cancelled();
+                    _dialogHandle = windowHandle;
+                    if (_closeRequested)
+                    {
+                        PostCloseMessage(windowHandle);
+                    }
+                    else if (!string.IsNullOrWhiteSpace(_initialDirectory))
+                    {
+                        var path = Marshal.StringToHGlobalUni(_initialDirectory);
+                        try
+                        {
+                            SendMessage(windowHandle, BffmSetSelectionW, (IntPtr)1, path);
+                        }
+                        finally
+                        {
+                            Marshal.FreeHGlobal(path);
+                        }
+                    }
                 }
 
-                return FolderPickerResult.Selected(dialog.SelectedPath);
+                return 0;
             }
-            catch (Win32Exception exception)
+
+            private static void PostCloseMessage(IntPtr windowHandle)
             {
-                return FolderPickerResult.Unavailable(exception.Message);
+                if (windowHandle != IntPtr.Zero)
+                    PostMessage(windowHandle, WmClose, IntPtr.Zero, IntPtr.Zero);
             }
-            catch (Exception exception)
+
+            [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+            private struct BrowseInfo
             {
-                return FolderPickerResult.Failed(exception.Message);
-            }
-        }
-
-        private sealed class PickerRequest
-        {
-            private readonly TaskCompletionSource<FolderPickerResult> _completion =
-                new(TaskCreationOptions.RunContinuationsAsynchronously);
-            private CancellationTokenRegistration _cancellationRegistration;
-
-            internal PickerRequest(string? initialDirectory, CancellationToken cancellationToken)
-            {
-                InitialDirectory = initialDirectory;
-                CancellationToken = cancellationToken;
-                _cancellationRegistration = cancellationToken.Register(
-                    static state => ((PickerRequest)state!).Complete(FolderPickerResult.Cancelled()),
-                    this);
-                if (_completion.Task.IsCompleted)
-                    _cancellationRegistration.Dispose();
+                internal IntPtr OwnerWindow;
+                internal IntPtr RootItemIdList;
+                internal IntPtr DisplayName;
+                [MarshalAs(UnmanagedType.LPWStr)]
+                internal string? Title;
+                internal uint Flags;
+                internal BrowseCallback? Callback;
+                internal IntPtr CallbackData;
+                internal int ImageIndex;
             }
 
-            internal string? InitialDirectory { get; }
+            [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+            private delegate int BrowseCallback(
+                IntPtr windowHandle,
+                uint message,
+                IntPtr lParam,
+                IntPtr callbackData);
 
-            internal CancellationToken CancellationToken { get; }
+            [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+            private static extern IntPtr SHBrowseForFolder(ref BrowseInfo browseInfo);
 
-            internal Task<FolderPickerResult> Task => _completion.Task;
+            [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+            [return: MarshalAs(UnmanagedType.Bool)]
+            private static extern bool SHGetPathFromIDList(IntPtr itemIdList, [Out] char[] path);
 
-            internal void Complete(FolderPickerResult result)
-            {
-                if (_completion.TrySetResult(result))
-                    _cancellationRegistration.Dispose();
-            }
+            [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+            private static extern IntPtr SendMessage(
+                IntPtr windowHandle,
+                uint message,
+                IntPtr wParam,
+                IntPtr lParam);
+
+            [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+            [return: MarshalAs(UnmanagedType.Bool)]
+            private static extern bool PostMessage(
+                IntPtr windowHandle,
+                uint message,
+                IntPtr wParam,
+                IntPtr lParam);
         }
     }
 }
