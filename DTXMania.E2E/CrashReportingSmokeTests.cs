@@ -56,7 +56,7 @@ public sealed class CrashReportingSmokeTests
             Assert.Empty(Directory.EnumerateFiles(reportRoot, "*.tmp"));
 
             var summary = ReadCrashSummary(reportPath);
-            Assert.Equal("InvalidOperationException", summary.ExceptionType);
+            Assert.Equal(typeof(InvalidOperationException).FullName, summary.ExceptionType);
             Assert.Equal(
                 1,
                 ReadPrimaryExceptionText(reportPath)

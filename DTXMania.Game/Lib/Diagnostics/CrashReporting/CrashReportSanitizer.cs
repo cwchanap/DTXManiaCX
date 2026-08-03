@@ -87,6 +87,16 @@ internal sealed class CrashReportSanitizer
 
     internal string SanitizeExceptionMessage(string? message)
     {
+#if DEBUG
+        if (string.Equals(
+                message,
+                DebugCrashInjection.ControlledCrashMessage,
+                StringComparison.Ordinal))
+        {
+            return DebugCrashInjection.ControlledCrashMessage;
+        }
+#endif
+
         return ExceptionMessageOmitted;
     }
 
@@ -161,7 +171,7 @@ internal sealed class CrashReportSanitizer
             builder.Append("ExceptionType: ")
                 .AppendLine(SanitizeExceptionType(current.GetType()));
             builder.Append("Message: ")
-                .AppendLine(ExceptionMessageOmitted);
+                .AppendLine(SanitizeExceptionMessage(current.Message));
 
             var stackTrace = SanitizeStackTrace(current.StackTrace);
             if (!string.IsNullOrEmpty(stackTrace))

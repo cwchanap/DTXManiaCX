@@ -128,8 +128,9 @@ public sealed class GameProcessDriver : IAsyncDisposable
                     // Process-exit race on Windows — safe to ignore.
                 }
 
-                await WaitForExitAsync(TimeSpan.FromSeconds(10), CancellationToken.None);
             }
+
+            await WaitForExitAsync(TimeSpan.FromSeconds(10), CancellationToken.None);
         }
         finally
         {
