@@ -22,7 +22,7 @@ public sealed class SongSelectionStageIdentityTests
 
         var result = InvokeStatic<string?>("GetStableBoxPath", node);
 
-        Assert.Equal("/library/one/BOX", result);
+        Assert.Equal(SongPathIdentity.Normalize("/library/one/BOX"), result);
     }
 
     [Fact]
@@ -60,7 +60,7 @@ public sealed class SongSelectionStageIdentityTests
 
         var result = InvokeStatic<string?>("GetStableSelectionIdentity", node);
 
-        Assert.Equal("box:/library/one/BOX", result);
+        Assert.Equal($"box:{SongPathIdentity.Normalize("/library/one/BOX")}", result);
     }
 
     [Fact]
@@ -86,7 +86,7 @@ public sealed class SongSelectionStageIdentityTests
 
         var result = InvokeStatic<string?>("GetStableSelectionIdentity", node);
 
-        Assert.Equal("chart:/library/song.dtx", result);
+        Assert.Equal($"chart:{SongPathIdentity.Normalize("/library/song.dtx")}", result);
     }
 
     [Fact]
@@ -116,7 +116,7 @@ public sealed class SongSelectionStageIdentityTests
             .ToList();
 
         Assert.Contains("song:42", candidates);
-        Assert.Contains("chart:/library/song.dtx", candidates);
+        Assert.Contains($"chart:{SongPathIdentity.Normalize("/library/song.dtx")}", candidates);
     }
 
     [Fact]
@@ -129,7 +129,7 @@ public sealed class SongSelectionStageIdentityTests
             .ToList();
 
         Assert.Single(candidates);
-        Assert.Equal("chart:/library/song.dtx", candidates[0]);
+        Assert.Equal($"chart:{SongPathIdentity.Normalize("/library/song.dtx")}", candidates[0]);
     }
 
     [Fact]
