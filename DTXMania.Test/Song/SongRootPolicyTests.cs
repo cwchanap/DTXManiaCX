@@ -225,6 +225,183 @@ public sealed class SongRootPolicyTests
         });
     }
 
+    [Fact]
+    public void Validate_WhenRootIsBlank_ShouldReportNonWarningDiagnosticWithoutAddingCanonicalRoot()
+    {
+        var policy = new SongRootPolicy(SongRootPolicy.CreateComparer(false));
+
+        var result = policy.Validate(["/policy/Songs", "   "]);
+
+        Assert.False(result.IsValid);
+        Assert.Single(result.CanonicalRoots);
+        Assert.Contains(result.Diagnostics, diagnostic =>
+            !diagnostic.IsWarning &&
+            diagnostic.Message.Contains("blank", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Validate_WhenRootCannotBeNormalized_ShouldReportInvalidDiagnosticWithoutAddingCanonicalRoot()
+    {
+        var policy = new SongRootPolicy(SongRootPolicy.CreateComparer(false));
+
+        // A NUL character is an illegal path character that Path.GetFullPath rejects.
+        var result = policy.Validate(["/policy/Songs", "/bad\0root"]);
+
+        Assert.False(result.IsValid);
+        Assert.Single(result.CanonicalRoots);
+        Assert.Contains(result.Diagnostics, diagnostic =>
+            !diagnostic.IsWarning &&
+            diagnostic.Message.Contains("invalid", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Validate_WhenConfiguredRootIsMissing_ShouldReportWarningAndKeepRootValid()
+    {
+        WithTemporaryDirectory(root =>
+        {
+            var missing = Path.Combine(root, "does-not-exist");
+            var policy = new SongRootPolicy(SongRootPolicy.CreateComparer(false));
+
+            var result = policy.Validate([missing]);
+
+            Assert.True(result.IsValid);
+            Assert.Equal([Path.GetFullPath(missing)], result.CanonicalRoots);
+            Assert.Contains(result.Diagnostics, diagnostic =>
+                diagnostic.IsWarning &&
+                diagnostic.Message.Contains("does not exist", StringComparison.OrdinalIgnoreCase));
+        });
+    }
+
+    [Fact]
+    public void Validate_WhenConfiguredRootIsInaccessible_ShouldReportWarningAndKeepRootValid()
+    {
+        WithTemporaryDirectory(root =>
+        {
+            var restricted = Path.Combine(root, "restricted");
+            Directory.CreateDirectory(restricted);
+            if (!TryDenyEnumeration(restricted))
+            {
+                // Running as root or on a filesystem that ignores POSIX permission bits
+                // (e.g. a FAT mount) cannot produce an inaccessible directory; skip the
+                // assertion rather than reporting a false failure.
+                return;
+            }
+
+            try
+            {
+                var policy = new SongRootPolicy(SongRootPolicy.CreateComparer(false));
+
+                var result = policy.Validate([restricted]);
+
+                Assert.True(result.IsValid);
+                Assert.Equal([restricted], result.CanonicalRoots);
+                Assert.Contains(result.Diagnostics, diagnostic =>
+                    diagnostic.IsWarning &&
+                    diagnostic.Message.Contains("inaccessible", StringComparison.OrdinalIgnoreCase));
+            }
+            finally
+            {
+                RestoreEnumeration(restricted);
+            }
+        });
+    }
+
+    [Fact]
+    public void Probe_WhenRootIsInaccessible_ShouldReturnInaccessible()
+    {
+        WithTemporaryDirectory(root =>
+        {
+            var restricted = Path.Combine(root, "restricted");
+            Directory.CreateDirectory(restricted);
+            if (!TryDenyEnumeration(restricted))
+                return;
+
+            try
+            {
+                var policy = new SongRootPolicy(SongRootPolicy.CreateComparer(false));
+
+                Assert.Equal(
+                    SongRootAvailability.Inaccessible,
+                    policy.Probe(restricted));
+            }
+            finally
+            {
+                RestoreEnumeration(restricted);
+            }
+        });
+    }
+
+    [Fact]
+    public void IsAncestor_WhenPathsCannotBeNormalized_ShouldReturnFalse()
+    {
+        var policy = new SongRootPolicy(SongRootPolicy.CreateComparer(false));
+
+        Assert.False(policy.IsAncestor("/bad\0parent", "/child"));
+        Assert.False(policy.IsAncestor("/parent", "/bad\0child"));
+    }
+
+    [Fact]
+    public void NormalizeWindowsDrivePath_ShouldResolveParentSegmentDuringOverlapCheck()
+    {
+        // A Windows-style drive path with a parent (..) segment must collapse before
+        // the overlap check so a child of the resolved root is detected as overlapping.
+        var policy = new SongRootPolicy(SongRootPolicy.CreateComparer(true));
+
+        var result = policy.Validate([@"C:\Songs", @"C:\Songs\..\Songs\Pack"]);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Diagnostics, diagnostic =>
+            !diagnostic.IsWarning &&
+            diagnostic.Message.Contains("overlap", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void CreateComparer_WhenIgnoreCaseIsFalse_ShouldProduceAnOrdinalComparer()
+    {
+        var comparer = SongRootPolicy.CreateComparer(ignoreCase: false);
+
+        Assert.NotEqual(comparer, StringComparer.OrdinalIgnoreCase);
+        Assert.False(comparer.Equals("/Songs", "/SONGS"));
+    }
+
+    private static bool TryDenyEnumeration(string directory)
+    {
+        // Remove all permissions so enumeration fails with EACCES for non-root
+        // callers. Uses chmod so the test does not depend on a Mono.Unix binding.
+        return RunChmod("000", directory);
+    }
+
+    private static void RestoreEnumeration(string directory)
+    {
+        // Best-effort restore; the temporary directory is deleted by the caller.
+        RunChmod("755", directory);
+    }
+
+    private static bool RunChmod(string mode, string path)
+    {
+        try
+        {
+            var info = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "/bin/chmod",
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            info.ArgumentList.Add(mode);
+            info.ArgumentList.Add(path);
+            using var process = System.Diagnostics.Process.Start(info);
+            if (process == null)
+                return false;
+            process.WaitForExit();
+            return process.ExitCode == 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private static void WithTemporaryDirectory(Action<string> action)
     {
         var root = Path.Combine(

@@ -155,6 +155,92 @@ public sealed class FolderPickerContractTests
         Assert.Equal("/tmp/second-songs", secondResult.Path);
     }
 
+    [Fact]
+    public async Task StaDispatcher_WhenAlreadyCancelledBeforeEnqueue_ShouldReturnCancelledImmediately()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        var factory = new QueuedFolderPickerDialogFactory(
+            new ImmediateFolderPickerDialog(FolderPickerResult.Selected("/tmp/songs")));
+        using var picker = new StaFolderPickerDispatcher(factory);
+
+        var result = await picker.PickFolderAsync(null, cancellation.Token)
+            .WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.Equal(FolderPickerStatus.Cancelled, result.Status);
+    }
+
+    [Fact]
+    public async Task StaDispatcher_WhenRequestArrivesAfterDisposal_ShouldReturnUnavailable()
+    {
+        var factory = new QueuedFolderPickerDialogFactory(
+            new ImmediateFolderPickerDialog(FolderPickerResult.Selected("/tmp/songs")));
+        var picker = new StaFolderPickerDispatcher(factory);
+        picker.Dispose();
+
+        var result = await picker.PickFolderAsync(null, CancellationToken.None)
+            .WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.Equal(FolderPickerStatus.Unavailable, result.Status);
+    }
+
+    [Fact]
+    public async Task StaDispatcher_WhenCloseOnDispatcherThrows_ShouldStillReportCancellation()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var firstDialog = new BlockingFolderPickerDialog();
+        var factory = new CloseThrowingFolderPickerDialogFactory(firstDialog);
+        using var picker = new StaFolderPickerDispatcher(factory);
+
+        var request = picker.PickFolderAsync(null, cancellation.Token);
+        await firstDialog.Opened.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        cancellation.Cancel();
+
+        var result = await request.WaitAsync(TimeSpan.FromSeconds(1));
+        Assert.Equal(FolderPickerStatus.Cancelled, result.Status);
+        Assert.Equal(1, factory.CloseRequests);
+    }
+
+    [Fact]
+    public async Task StaDispatcher_WhenCancellationTargetsARequestThatIsNotActive_ShouldCompleteItAsCancelled()
+    {
+        // Queue two requests against a blocking first dialog. Cancelling the second
+        // request while the first is still open must complete the second as Cancelled
+        // even though it is not the active dialog (CancelRequest's null-active branch).
+        using var firstCancellation = new CancellationTokenSource();
+        using var secondCancellation = new CancellationTokenSource();
+        var firstDialog = new BlockingFolderPickerDialog();
+        var secondDialog = new ImmediateFolderPickerDialog(FolderPickerResult.Selected("/tmp/second"));
+        var factory = new QueuedFolderPickerDialogFactory(firstDialog, secondDialog);
+        using var picker = new StaFolderPickerDispatcher(factory);
+
+        var firstRequest = picker.PickFolderAsync(null, firstCancellation.Token);
+        await firstDialog.Opened.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        var secondRequest = picker.PickFolderAsync(null, secondCancellation.Token);
+
+        secondCancellation.Cancel();
+        var secondResult = await secondRequest.WaitAsync(TimeSpan.FromSeconds(1));
+        Assert.Equal(FolderPickerStatus.Cancelled, secondResult.Status);
+
+        // The first request is still open; release and assert it completes.
+        firstCancellation.Cancel();
+        var firstResult = await firstRequest.WaitAsync(TimeSpan.FromSeconds(1));
+        Assert.Equal(FolderPickerStatus.Cancelled, firstResult.Status);
+    }
+
+    [Fact]
+    public void StaDispatcher_DisposeCalledTwice_ShouldBeIdempotent()
+    {
+        var factory = new QueuedFolderPickerDialogFactory(
+            new ImmediateFolderPickerDialog(FolderPickerResult.Selected("/tmp/songs")));
+        var picker = new StaFolderPickerDispatcher(factory);
+
+        picker.Dispose();
+        // A second dispose must not throw and must remain a no-op.
+        picker.Dispose();
+    }
+
     private sealed class QueuedFolderPickerDialogFactory : IStaFolderPickerDialogFactory
     {
         private readonly Queue<IStaFolderPickerDialog> _dialogs;
@@ -267,6 +353,30 @@ public sealed class FolderPickerContractTests
         {
             DisposeAttempted.TrySetResult(true);
             throw new InvalidOperationException("The native dialog could not be disposed.");
+        }
+    }
+
+    private sealed class CloseThrowingFolderPickerDialogFactory : IStaFolderPickerDialogFactory
+    {
+        private readonly IStaFolderPickerDialog _dialog;
+
+        internal CloseThrowingFolderPickerDialogFactory(IStaFolderPickerDialog dialog)
+        {
+            _dialog = dialog;
+        }
+
+        internal int CloseRequests { get; private set; }
+
+        public void InitializeDispatcherThread()
+        {
+        }
+
+        public IStaFolderPickerDialog CreateDialog() => _dialog;
+
+        public void CloseOnDispatcher(IStaFolderPickerDialog dialog)
+        {
+            CloseRequests++;
+            throw new InvalidOperationException("The platform close marshalling failed.");
         }
     }
 }

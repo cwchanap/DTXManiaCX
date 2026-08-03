@@ -204,6 +204,48 @@ public sealed class SongManagerLibrarySnapshotTests : IDisposable
             stableSnapshot.ActiveRoots);
     }
 
+    [Fact]
+    public void SongLibrarySnapshot_Deconstruct_ShouldExposeAllConstructorFields()
+    {
+        var rootNode = CreateScoreNode("Deconstructed");
+        var snapshot = new SongLibrarySnapshot(
+            version: 17,
+            rootSongs: new List<SongListNode> { rootNode },
+            activeRoots: new List<string> { "/roots/one", "/roots/two" },
+            enumeratedFileCount: 9,
+            discoveredScoreCount: 5);
+
+        var (version, rootSongs, activeRoots, enumeratedFileCount, discoveredScoreCount) = snapshot;
+
+        Assert.Equal(17, version);
+        Assert.Equal([rootNode], rootSongs);
+        Assert.Equal(["/roots/one", "/roots/two"], activeRoots);
+        Assert.Equal(9, enumeratedFileCount);
+        Assert.Equal(5, discoveredScoreCount);
+    }
+
+    [Fact]
+    public void SongLibraryPublishedEventArgs_Constructor_ShouldRejectNullSnapshot()
+    {
+        Assert.Throws<ArgumentNullException>(() =>
+            new SongLibraryPublishedEventArgs(null!));
+    }
+
+    [Fact]
+    public void SongLibraryPublishedEventArgs_ShouldExposeThePublishedSnapshot()
+    {
+        var snapshot = new SongLibrarySnapshot(
+            version: 3,
+            rootSongs: new List<SongListNode> { CreateScoreNode("Event") },
+            activeRoots: new List<string> { "/roots/one" },
+            enumeratedFileCount: 1,
+            discoveredScoreCount: 1);
+
+        var args = new SongLibraryPublishedEventArgs(snapshot);
+
+        Assert.Same(snapshot, args.Snapshot);
+    }
+
     public void Dispose()
     {
         SongManager.ResetInstanceForTesting();
