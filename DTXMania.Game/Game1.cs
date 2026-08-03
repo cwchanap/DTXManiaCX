@@ -2,6 +2,7 @@
 
 using DTXMania.Game.Lib;
 using DTXMania.Game.Lib.Config;
+using DTXMania.Game.Lib.Diagnostics.CrashReporting;
 using DTXMania.Game.Lib.Graphics;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.JsonRpc;
@@ -49,6 +50,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
     private IGraphicsManager _graphicsManager = null!;
     private SpriteBatch _spriteBatch = null!;
     private RenderTarget2D _renderTarget = null!;
+    private readonly IGameCrashDiagnostics _gameCrashDiagnostics;
     private readonly ILoggerFactory _loggerFactory;
 
     public IStageManager StageManager { get; protected set; } = null!;
@@ -63,6 +65,8 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
     /// create typed loggers that survive Release builds, unlike <c>System.Diagnostics.Debug</c>,
     /// whose calls are compiled out via <c>[Conditional("DEBUG")]</c>.</summary>
     public ILoggerFactory LoggerFactory => _loggerFactory;
+
+    public ICrashReportInbox CrashReportInbox => _gameCrashDiagnostics.Inbox;
 
 
     // Global stage transition debouncing
@@ -180,27 +184,20 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
         return tcs.Task;
     }
 
-    public BaseGame()
+    internal BaseGame(
+        StartupTimingTrace startupTimingTrace,
+        IGameCrashDiagnostics crashDiagnostics)
     {
+        _startupTimingTrace = startupTimingTrace ?? throw new ArgumentNullException(nameof(startupTimingTrace));
+        _gameCrashDiagnostics = crashDiagnostics ?? throw new ArgumentNullException(nameof(crashDiagnostics));
+
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
         _graphicsDeviceManager = new GraphicsDeviceManager(this);
         Content.RootDirectory = "Content";
         IsMouseVisible = true;
 
-        // Fully qualified: this class also exposes a LoggerFactory instance property (for stages),
-        // so the unqualified name would otherwise bind to that property instead of the static factory.
-        _loggerFactory = Microsoft.Extensions.Logging.LoggerFactory.Create(builder =>
-        {
-            builder.AddConsole();
-        });
-        
+        _loggerFactory = _gameCrashDiagnostics.LoggerFactory;
         _logger = _loggerFactory.CreateLogger<BaseGame>();
-    }
-
-    internal BaseGame(StartupTimingTrace startupTimingTrace)
-        : this()
-    {
-        _startupTimingTrace = startupTimingTrace ?? throw new ArgumentNullException(nameof(startupTimingTrace));
     }
 
     [ExcludeFromCodeCoverage]
@@ -921,18 +918,15 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
         // Dispose other resources
         _spriteBatch?.Dispose();
         _renderTarget?.Dispose();
-        _loggerFactory.Dispose();
     }
 }
 
-public class Game1 : BaseGame
+public class Game1 : BaseGame, IGameApplication
 {
-    public Game1()
-    {
-    }
-
-    internal Game1(StartupTimingTrace startupTimingTrace)
-        : base(startupTimingTrace)
+    internal Game1(
+        StartupTimingTrace startupTimingTrace,
+        IGameCrashDiagnostics crashDiagnostics)
+        : base(startupTimingTrace, crashDiagnostics)
     {
     }
 }

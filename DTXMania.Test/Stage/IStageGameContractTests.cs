@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using DTXMania.Game;
 using DTXMania.Game.Lib.Config;
+using DTXMania.Game.Lib.Diagnostics.CrashReporting;
 using DTXMania.Game.Lib.Graphics;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Resources;
@@ -35,6 +36,29 @@ namespace DTXMania.Test.Stage
             Assert.NotNull(iface.GetMethod("MapMouseToVirtual"));
             Assert.NotNull(iface.GetMethod("GetTextInputSource"));
             Assert.NotNull(iface.GetMethod("RequestExit"));
+        }
+
+        [Fact]
+        public void IStageGame_ShouldExposeOnlyTheNarrowCrashReportInbox()
+        {
+            var iface = typeof(BaseGame).GetInterface(IStageGameFullName)!;
+            var property = iface.GetProperty(nameof(IStageGame.CrashReportInbox));
+
+            Assert.NotNull(property);
+            Assert.Equal(typeof(ICrashReportInbox), property!.PropertyType);
+        }
+
+        [Fact]
+        public void CrashReportInbox_ShouldForwardTheInjectedDiagnosticsFacade()
+        {
+            var game = ReflectionHelpers.CreateGame();
+            var inbox = new Mock<ICrashReportInbox>().Object;
+            var diagnostics = new Mock<IGameCrashDiagnostics>();
+            diagnostics.SetupGet(value => value.Inbox).Returns(inbox);
+
+            ReflectionHelpers.SetPrivateField(game, "_gameCrashDiagnostics", diagnostics.Object);
+
+            Assert.Same(inbox, game.CrashReportInbox);
         }
 
         [Fact]
@@ -135,6 +159,7 @@ namespace DTXMania.Test.Stage
             public IGraphicsManager GraphicsManager => null!;
             public IResourceManager ResourceManager => null!;
             public ILoggerFactory LoggerFactory => null!;
+            public ICrashReportInbox CrashReportInbox => EmptyCrashReportInbox.Instance;
             public bool CanPerformStageTransition() => false;
             public void MarkStageTransition() { }
             public Point? MapMouseToVirtual(Point windowPoint) => windowPoint;
@@ -149,6 +174,13 @@ namespace DTXMania.Test.Stage
         /// </summary>
         private sealed class TextInputSpyGame : BaseGame
         {
+            private TextInputSpyGame(
+                StartupTimingTrace startupTimingTrace,
+                IGameCrashDiagnostics crashDiagnostics)
+                : base(startupTimingTrace, crashDiagnostics)
+            {
+            }
+
             private readonly GameWindow? _window;
 
             protected override GameWindow? GetGameWindow() => _window;

@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using DTXMania.Game;
 using DTXMania.Game.Lib;
 using DTXMania.Game.Lib.Config;
+using DTXMania.Game.Lib.Diagnostics.CrashReporting;
 using DTXMania.Game.Lib.Graphics;
 using DTXMania.Game.Lib.JsonRpc;
 using DTXMania.Game.Lib.Input;
@@ -49,6 +50,33 @@ namespace DTXMania.Test
             ReflectionHelpers.SetPrivateField(game, "_loggerFactory", factory);
 
             Assert.Same(factory, game.LoggerFactory);
+        }
+
+        [Fact]
+        public void LoggerFactory_ConstructorContract_ShouldRequireInjectedDiagnosticsAndRemoveSelfOwnedFallbacks()
+        {
+            const BindingFlags constructorFlags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+
+            Assert.NotNull(typeof(BaseGame).GetConstructor(
+                constructorFlags,
+                binder: null,
+                types: [typeof(StartupTimingTrace), typeof(IGameCrashDiagnostics)],
+                modifiers: null));
+            Assert.Null(typeof(BaseGame).GetConstructor(
+                constructorFlags,
+                binder: null,
+                types: Type.EmptyTypes,
+                modifiers: null));
+            Assert.NotNull(typeof(Game1).GetConstructor(
+                constructorFlags,
+                binder: null,
+                types: [typeof(StartupTimingTrace), typeof(IGameCrashDiagnostics)],
+                modifiers: null));
+            Assert.Null(typeof(Game1).GetConstructor(
+                constructorFlags,
+                binder: null,
+                types: Type.EmptyTypes,
+                modifiers: null));
         }
 
         [Fact]
@@ -382,10 +410,8 @@ namespace DTXMania.Test
             configManager.Config.SystemKeyBindings["SystemKey.Activate"] = Keys.F1.ToString();
             var inputManager = new InputManagerCompat(configManager, new TestMidiDeviceBackend());
             var game = ReflectionHelpers.CreateGame();
-            using var loggerFactory = LoggerFactory.Create(builder => { });
 
-            ReflectionHelpers.SetPrivateField(game, "_loggerFactory", loggerFactory);
-            ReflectionHelpers.SetPrivateField(game, "_logger", loggerFactory.CreateLogger<BaseGame>());
+            SetCrashDiagnostics(game, new TestGameCrashDiagnostics());
             ReflectionHelpers.SetPrivateField(game, "<ConfigManager>k__BackingField", configManager);
             ReflectionHelpers.SetPrivateField(game, "<InputManager>k__BackingField", inputManager);
 
@@ -1017,7 +1043,8 @@ namespace DTXMania.Test
         [Fact]
         public void DisposeManagedResources_WhenServerStopsSuccessfully_ShouldDisposeCollaboratorsAndCancelPendingScreenshot()
         {
-            var game = CreateGameForLifecycle();
+            var loggerFactory = new Mock<ILoggerFactory>();
+            var game = CreateGameForLifecycle(loggerFactory: loggerFactory.Object);
             var stageManager = new Mock<IStageManager>();
             var resourceManager = new Mock<IResourceManager>();
             var graphicsManager = new StubGraphicsManager(isDeviceAvailable: true, CreateFailingRenderTargetManager());
@@ -1049,6 +1076,7 @@ namespace DTXMania.Test
             Assert.Null(ReflectionHelpers.GetPrivateField<object>(game, "_gameApiCancellation"));
             Assert.True(pendingScreenshot.Task.IsCanceled);
             Assert.Null(ReflectionHelpers.GetPrivateField<object>(game, "_pendingScreenshot"));
+            loggerFactory.Verify(factory => factory.Dispose(), Times.Never);
         }
 
         [Fact]
@@ -1197,16 +1225,29 @@ namespace DTXMania.Test
             Assert.Null(exception);
         }
 
-        private static BaseGame CreateGameForLifecycle(ConfigData? config = null)
+        private static BaseGame CreateGameForLifecycle(
+            ConfigData? config = null,
+            ILoggerFactory? loggerFactory = null)
         {
             var game = ReflectionHelpers.CreateGame();
-            var loggerFactory = LoggerFactory.Create(builder => { });
+            var diagnostics = new TestGameCrashDiagnostics(loggerFactory);
 
-            ReflectionHelpers.SetPrivateField(game, "_loggerFactory", loggerFactory);
-            ReflectionHelpers.SetPrivateField(game, "_logger", loggerFactory.CreateLogger<BaseGame>());
+            SetCrashDiagnostics(game, diagnostics);
             ReflectionHelpers.SetPrivateField(game, "<ConfigManager>k__BackingField", CreateConfigManager(config ?? new ConfigData()));
 
             return game;
+        }
+
+        private static void SetCrashDiagnostics(
+            BaseGame game,
+            IGameCrashDiagnostics diagnostics)
+        {
+            ReflectionHelpers.SetPrivateField(game, "_gameCrashDiagnostics", diagnostics);
+            ReflectionHelpers.SetPrivateField(game, "_loggerFactory", diagnostics.LoggerFactory);
+            ReflectionHelpers.SetPrivateField(
+                game,
+                "_logger",
+                diagnostics.LoggerFactory.CreateLogger<BaseGame>());
         }
 
         private static TestableBaseGame CreateGameForUpdate(
@@ -1235,10 +1276,8 @@ namespace DTXMania.Test
             SpriteBatch spriteBatch)
         {
             var game = ReflectionHelpers.CreateUninitialized<LoadContentTestableBaseGame>();
-            var loggerFactory = LoggerFactory.Create(builder => { });
 
-            ReflectionHelpers.SetPrivateField(game, "_loggerFactory", loggerFactory);
-            ReflectionHelpers.SetPrivateField(game, "_logger", loggerFactory.CreateLogger<BaseGame>());
+            SetCrashDiagnostics(game, new TestGameCrashDiagnostics());
             ReflectionHelpers.SetPrivateField(game, "<ConfigManager>k__BackingField", CreateConfigManager(config));
             game.LoadContentServicesToReturn = new BaseGame.LoadContentServices(spriteBatch, resourceManager, stageManager);
 
@@ -1252,11 +1291,9 @@ namespace DTXMania.Test
             StubGraphicsManager graphicsManager)
         {
             var game = ReflectionHelpers.CreateUninitialized<LoadContentTestableBaseGame>();
-            var loggerFactory = LoggerFactory.Create(builder => { });
             var configManager = new ConfigManager();
 
-            ReflectionHelpers.SetPrivateField(game, "_loggerFactory", loggerFactory);
-            ReflectionHelpers.SetPrivateField(game, "_logger", loggerFactory.CreateLogger<BaseGame>());
+            SetCrashDiagnostics(game, new TestGameCrashDiagnostics());
             ReflectionHelpers.SetPrivateField(game, "_startupTimingTrace", trace);
             ReflectionHelpers.SetPrivateField(game, "_graphicsManager", graphicsManager);
             ReflectionHelpers.SetPrivateField(game, "<ConfigManager>k__BackingField", configManager);
@@ -1408,10 +1445,8 @@ namespace DTXMania.Test
         private static StartupTestableBaseGame CreateGameForStartup(ConfigData config)
         {
             var game = ReflectionHelpers.CreateUninitialized<StartupTestableBaseGame>();
-            var loggerFactory = LoggerFactory.Create(builder => { });
 
-            ReflectionHelpers.SetPrivateField(game, "_loggerFactory", loggerFactory);
-            ReflectionHelpers.SetPrivateField(game, "_logger", loggerFactory.CreateLogger<BaseGame>());
+            SetCrashDiagnostics(game, new TestGameCrashDiagnostics());
             ReflectionHelpers.SetPrivateField(game, "<ConfigManager>k__BackingField", CreateConfigManager(config));
 
             return game;
@@ -1805,6 +1840,13 @@ namespace DTXMania.Test
 
         private sealed class TestableBaseGame : BaseGame
         {
+            private TestableBaseGame(
+                StartupTimingTrace startupTimingTrace,
+                IGameCrashDiagnostics crashDiagnostics)
+                : base(startupTimingTrace, crashDiagnostics)
+            {
+            }
+
             public int CompleteBaseUpdateCallCount { get; private set; }
 
             public bool ShouldToggleFullscreenResult { get; set; }
@@ -1825,6 +1867,13 @@ namespace DTXMania.Test
 
         private sealed class LoadContentTestableBaseGame : BaseGame
         {
+            private LoadContentTestableBaseGame(
+                StartupTimingTrace startupTimingTrace,
+                IGameCrashDiagnostics crashDiagnostics)
+                : base(startupTimingTrace, crashDiagnostics)
+            {
+            }
+
             public BaseGame.LoadContentServices LoadContentServicesToReturn { get; set; }
 
             public Task StartGameApiServerTask { get; set; } = Task.CompletedTask;
@@ -1853,6 +1902,13 @@ namespace DTXMania.Test
 
         private sealed class StartupTestableBaseGame : BaseGame
         {
+            private StartupTestableBaseGame(
+                StartupTimingTrace startupTimingTrace,
+                IGameCrashDiagnostics crashDiagnostics)
+                : base(startupTimingTrace, crashDiagnostics)
+            {
+            }
+
             public int StartJsonRpcServerCallCount { get; private set; }
 
             public CancellationToken LastStartJsonRpcServerToken { get; private set; }
@@ -1868,6 +1924,13 @@ namespace DTXMania.Test
 
         private sealed class DrawHarnessBaseGame : BaseGame
         {
+            private DrawHarnessBaseGame(
+                StartupTimingTrace startupTimingTrace,
+                IGameCrashDiagnostics crashDiagnostics)
+                : base(startupTimingTrace, crashDiagnostics)
+            {
+            }
+
             private List<RenderTarget2D?>? _setRenderTargetCalls;
 
             private List<Color>? _clearCalls;
@@ -1972,6 +2035,13 @@ namespace DTXMania.Test
         /// </summary>
         private sealed class ViewportSpyGame : BaseGame
         {
+            private ViewportSpyGame(
+                StartupTimingTrace startupTimingTrace,
+                IGameCrashDiagnostics crashDiagnostics)
+                : base(startupTimingTrace, crashDiagnostics)
+            {
+            }
+
             private Rectangle? _viewportBounds;
 
             public void SetViewportBounds(Rectangle bounds)
@@ -1980,10 +2050,28 @@ namespace DTXMania.Test
                 // MapMouseToVirtual's first guard checks _graphicsManager; set a non-null stub so
                 // the method proceeds to TryGetViewportBounds instead of short-circuiting.
                 ReflectionHelpers.SetPrivateField(this, "_graphicsManager",
-                    new StubGraphicsManager(isDeviceAvailable: true, CreateFailingRenderTargetManager()));
+                new StubGraphicsManager(isDeviceAvailable: true, CreateFailingRenderTargetManager()));
             }
 
             protected override Rectangle? TryGetViewportBounds() => _viewportBounds;
+        }
+
+        private sealed class TestGameCrashDiagnostics : IGameCrashDiagnostics
+        {
+            internal TestGameCrashDiagnostics(ILoggerFactory? loggerFactory = null)
+            {
+                LoggerFactory = loggerFactory ?? Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance;
+            }
+
+            public ILoggerFactory LoggerFactory { get; }
+
+            public ICrashBreadcrumbSink Breadcrumbs => EmptyCrashBreadcrumbSink.Instance;
+
+            public ICrashContextSink Contexts => EmptyCrashContextSink.Instance;
+
+            public ICrashSensitiveDataSink SensitiveData => EmptyCrashSensitiveDataSink.Instance;
+
+            public ICrashReportInbox Inbox => EmptyCrashReportInbox.Instance;
         }
     }
 }
