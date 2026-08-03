@@ -13,6 +13,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using DTXMania.Game.Lib.Stage;
 
 namespace DTXMania.Game.Lib.Diagnostics.CrashReporting;
 
@@ -387,29 +388,41 @@ internal sealed class CrashReportStore
 
     private static string GetStageOrMilestone(IReadOnlyList<CrashContextSnapshot> context)
     {
+        if (context is null)
+        {
+            return "Unknown";
+        }
+
+        string? startupMilestone = null;
         foreach (var snapshot in context)
         {
-            if (snapshot.Status != CrashContextStatus.Available)
+            if (snapshot is null
+                || snapshot.Status != CrashContextStatus.Available
+                || snapshot.Fields is not { } fields)
             {
                 continue;
             }
 
             if (snapshot.Kind == CrashContextKind.Stage
-                && snapshot.Fields.TryGetValue("Stage", out var stage)
-                && stage is Enum stageValue)
+                && fields.TryGetValue("Stage", out var stage)
+                && stage is StageType stageValue
+                && Enum.IsDefined(stageValue)
+                && stageValue != StageType.Startup)
             {
                 return stageValue.ToString();
             }
 
-            if (snapshot.Kind == CrashContextKind.Startup
-                && snapshot.Fields.TryGetValue("Milestone", out var milestone)
-                && milestone is Enum milestoneValue)
+            if (startupMilestone is null
+                && snapshot.Kind == CrashContextKind.Startup
+                && fields.TryGetValue("Milestone", out var milestone)
+                && milestone is StartupCriticalPathMilestone milestoneValue
+                && Enum.IsDefined(milestoneValue))
             {
-                return milestoneValue.ToString();
+                startupMilestone = milestoneValue.ToString();
             }
         }
 
-        return "Unknown";
+        return startupMilestone ?? "Unknown";
     }
 
     private static string GetExceptionTypeName(Exception exception)
