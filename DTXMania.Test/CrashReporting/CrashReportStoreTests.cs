@@ -85,6 +85,65 @@ public sealed class CrashReportStoreTests
     }
 
     [Fact]
+    public void WriteZip_ShouldExcludeHardwareAndMidiLikeValuesAtThePersistenceBoundary()
+    {
+        var deviceId = Guid.Parse("9bc2520f-5b38-4e6c-a1c4-5f34e0135da3");
+        var unsafeProperties = new Dictionary<string, object?>
+        {
+            ["MidiDeviceCount"] = deviceId,
+            ["Count"] = 36,
+            ["Status"] = 36,
+            ["Width"] = 36,
+            ["Height"] = 36,
+            ["Stage"] = deviceId,
+            ["Fullscreen"] = true
+        };
+        var capturedAt = new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.Zero);
+        var document = CreateArchiveDocument() with
+        {
+            Logs =
+            [
+                new CrashLogRecord(
+                    capturedAt,
+                    LogLevel.Information,
+                    new EventId(5108, "midi_device_count_changed"),
+                    "MIDI device count: {MidiDeviceCount}",
+                    unsafeProperties,
+                    ExceptionType: null)
+            ],
+            Breadcrumbs =
+            [
+                new CrashBreadcrumb(capturedAt, "midi_device_selected", unsafeProperties)
+            ],
+            Context =
+            [
+                new CrashContextSnapshot(
+                    CrashContextKind.Input,
+                    CrashContextStatus.Available,
+                    unsafeProperties)
+            ]
+        };
+        var writer = new CrashReportArchiveWriter();
+        using var destination = new MemoryStream();
+
+        writer.WriteZip(destination, document);
+        destination.Position = 0;
+
+        using var archive = new ZipArchive(destination, ZipArchiveMode.Read, leaveOpen: true);
+        using var logsReader = new StreamReader(archive.GetEntry("logs.ndjson")!.Open(), Encoding.UTF8);
+        using var logs = JsonDocument.Parse(logsReader.ReadToEnd());
+        using var breadcrumbsReader = new StreamReader(archive.GetEntry("breadcrumbs.json")!.Open(), Encoding.UTF8);
+        using var breadcrumbs = JsonDocument.Parse(breadcrumbsReader.ReadToEnd());
+        using var reportReader = new StreamReader(archive.GetEntry("report.json")!.Open(), Encoding.UTF8);
+        using var report = JsonDocument.Parse(reportReader.ReadToEnd());
+
+        AssertPersistedPropertiesContainOnlySafeValues(logs.RootElement.GetProperty("properties"));
+        AssertPersistedPropertiesContainOnlySafeValues(breadcrumbs.RootElement[0].GetProperty("properties"));
+        AssertPersistedPropertiesContainOnlySafeValues(
+            report.RootElement.GetProperty("contextStatuses")[0].GetProperty("fields"));
+    }
+
+    [Fact]
     public void Capture_ShouldWriteTemporaryFileInReportDirectoryBeforeFinalization()
     {
         using var fixture = CrashStoreFixture.Create();
@@ -147,6 +206,60 @@ public sealed class CrashReportStoreTests
         var store = fixture.CreateStore();
 
         var report = Assert.Single(store.DiscoverCompletedReports());
+
+        Assert.Equal(reportId, report.ReportId);
+        Assert.Equal(new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.Zero), report.CapturedAtUtc);
+        Assert.Equal("Unknown", report.BuildId);
+        Assert.Equal("Unknown", report.OperatingSystem);
+        Assert.Equal("Unknown", report.ProcessArchitecture);
+        Assert.Equal("Unknown", report.StageOrMilestone);
+        Assert.Equal("Unknown", report.ExceptionType);
+        Assert.Equal(CrashReportFormat.EmergencyText, report.Format);
+    }
+
+    [Fact]
+    public void DiscoverCompletedReports_WhenZipSchemaIsCorrupt_ShouldUseFilenameFallbacks()
+    {
+        using var fixture = CrashStoreFixture.Create();
+        const string reportId = "crash-20260802-120000Z-a1b2c3";
+        var path = Path.Combine(fixture.RootPath, reportId + ".zip");
+        using (var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Create))
+        using (var writer = new StreamWriter(archive.CreateEntry("report.json").Open(), Encoding.UTF8))
+        {
+            writer.Write("{\"schemaVersion\":1.5}");
+        }
+
+        var report = Assert.Single(fixture.CreateStore().DiscoverCompletedReports());
+
+        Assert.Equal(reportId, report.ReportId);
+        Assert.Equal(new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.Zero), report.CapturedAtUtc);
+        Assert.Equal("Unknown", report.BuildId);
+        Assert.Equal("Unknown", report.OperatingSystem);
+        Assert.Equal("Unknown", report.ProcessArchitecture);
+        Assert.Equal("Unknown", report.StageOrMilestone);
+        Assert.Equal("Unknown", report.ExceptionType);
+        Assert.Equal(CrashReportFormat.ZipBundle, report.Format);
+    }
+
+    [Fact]
+    public void DiscoverCompletedReports_WhenEmergencyHeaderDoesNotMatchFileName_ShouldUseFilenameFallbacks()
+    {
+        using var fixture = CrashStoreFixture.Create();
+        const string reportId = "crash-20260802-120000Z-a1b2c3";
+        File.WriteAllText(
+            Path.Combine(fixture.RootPath, reportId + ".txt"),
+            "DTXMANIACX-CRASH-REPORT 1\n"
+            + "ReportId: crash-20260802-120001Z-d4e5f6\n"
+            + "CapturedAtUtc: 2026-08-02T12:00:01.0000000+00:00\n"
+            + "BuildId: Secret Song Build\n"
+            + "OperatingSystem: Secret Album OS\n"
+            + "ProcessArchitecture: Secret Architecture\n"
+            + "StageOrMilestone: SecretStage\n"
+            + "ExceptionType: Secret.Exception\n"
+            + "---\n");
+
+        var report = Assert.Single(fixture.CreateStore().DiscoverCompletedReports());
 
         Assert.Equal(reportId, report.ReportId);
         Assert.Equal(new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.Zero), report.CapturedAtUtc);
@@ -298,6 +411,18 @@ public sealed class CrashReportStoreTests
                     new Dictionary<string, object?> { ["Stage"] = StageType.Title })
             ],
             [Path.Combine(Path.GetTempPath(), "Users", "alice")]);
+    }
+
+    private static void AssertPersistedPropertiesContainOnlySafeValues(JsonElement properties)
+    {
+        Assert.True(properties.TryGetProperty("Fullscreen", out var fullscreen));
+        Assert.True(fullscreen.GetBoolean());
+        Assert.False(properties.TryGetProperty("MidiDeviceCount", out _));
+        Assert.False(properties.TryGetProperty("Count", out _));
+        Assert.False(properties.TryGetProperty("Status", out _));
+        Assert.False(properties.TryGetProperty("Width", out _));
+        Assert.False(properties.TryGetProperty("Height", out _));
+        Assert.False(properties.TryGetProperty("Stage", out _));
     }
 
     private sealed class CrashStoreFixture : IDisposable

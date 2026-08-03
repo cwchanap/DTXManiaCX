@@ -122,7 +122,8 @@ internal sealed class CrashReportStore
                 .ThenByDescending(static report => report.FileName, StringComparer.Ordinal)
                 .ToArray();
         }
-        catch (Exception exception) when (IsExpectedFileSystemException(exception))
+        catch (Exception exception) when (IsExpectedFileSystemException(exception)
+                                          || exception is FormatException or OverflowException)
         {
             WriteSafeError("crash_report_discovery_failed");
             return Array.Empty<CrashReportSummary>();
@@ -202,7 +203,7 @@ internal sealed class CrashReportStore
     private bool TryReadZipSummary(string path, string fileName, out CrashReportSummary summary)
     {
         summary = default!;
-        if (!TryParseReportFileName(fileName, out _))
+        if (!TryParseReportFileName(fileName, out var fallback))
         {
             return false;
         }
@@ -214,7 +215,8 @@ internal sealed class CrashReportStore
             var reportEntry = archive.GetEntry("report.json");
             if (reportEntry is null)
             {
-                return false;
+                summary = CreateUnknownSummary(fallback, CrashReportFormat.ZipBundle, fileName);
+                return true;
             }
 
             using var reportStream = reportEntry.Open();
@@ -223,7 +225,8 @@ internal sealed class CrashReportStore
 
             if (!root.TryGetProperty("schemaVersion", out var schemaVersion)
                 || schemaVersion.ValueKind != JsonValueKind.Number
-                || schemaVersion.GetInt32() != 1
+                || !schemaVersion.TryGetInt32(out var schemaVersionValue)
+                || schemaVersionValue != 1
                 || !TryGetString(root, "reportId", out var reportId)
                 || !TryGetDateTimeOffset(root, "capturedAtUtc", out var capturedAtUtc)
                 || !TryGetString(root, "buildId", out var buildId)
@@ -232,7 +235,14 @@ internal sealed class CrashReportStore
                 || !TryGetString(root, "stageOrMilestone", out var stageOrMilestone)
                 || !TryGetString(root, "exceptionType", out var exceptionType))
             {
-                return false;
+                summary = CreateUnknownSummary(fallback, CrashReportFormat.ZipBundle, fileName);
+                return true;
+            }
+
+            if (!MatchesFileName(fallback, reportId, capturedAtUtc))
+            {
+                summary = CreateUnknownSummary(fallback, CrashReportFormat.ZipBundle, fileName);
+                return true;
             }
 
             summary = SanitizeDiscoveredSummary(
@@ -247,8 +257,15 @@ internal sealed class CrashReportStore
                 fileName);
             return true;
         }
-        catch (Exception exception) when (IsExpectedFileSystemException(exception)
-                                          || exception is JsonException)
+        catch (Exception exception) when (exception is InvalidDataException
+                                          or JsonException
+                                          or FormatException
+                                          or OverflowException)
+        {
+            summary = CreateUnknownSummary(fallback, CrashReportFormat.ZipBundle, fileName);
+            return true;
+        }
+        catch (Exception exception) when (IsExpectedFileSystemException(exception))
         {
             return false;
         }
@@ -308,6 +325,12 @@ internal sealed class CrashReportStore
                 || !fields.TryGetValue("ProcessArchitecture", out var processArchitecture)
                 || !fields.TryGetValue("StageOrMilestone", out var stageOrMilestone)
                 || !fields.TryGetValue("ExceptionType", out var exceptionType))
+            {
+                summary = CreateUnknownSummary(fallback, CrashReportFormat.EmergencyText, fileName);
+                return true;
+            }
+
+            if (!MatchesFileName(fallback, reportId, capturedAtUtc))
             {
                 summary = CreateUnknownSummary(fallback, CrashReportFormat.EmergencyText, fileName);
                 return true;
@@ -458,6 +481,18 @@ internal sealed class CrashReportStore
             "Unknown",
             format,
             fileName);
+    }
+
+    private static bool MatchesFileName(
+        ParsedReportFileName file,
+        string reportId,
+        DateTimeOffset capturedAtUtc)
+    {
+        return string.Equals(reportId, file.ReportId, StringComparison.Ordinal)
+            && string.Equals(
+                capturedAtUtc.ToUniversalTime().ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture),
+                file.CapturedAtUtc.ToUniversalTime().ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture),
+                StringComparison.Ordinal);
     }
 
     private static bool TryParseReportFileName(string fileName, out ParsedReportFileName parsed)
