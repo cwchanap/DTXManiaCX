@@ -1921,19 +1921,25 @@ namespace DTXMania.Game.Lib.Song.Entities
         }
 
         /// <summary>
-        /// Counts <see cref="SongScoreEntity"/> rows whose chart's
-        /// <see cref="SongChart.FilePath"/> resides under one of
-        /// <paramref name="roots"/>, mirroring the active-chart containment rule
-        /// used by <see cref="GetActiveChartIdsAsync"/>. This is the
-        /// active-root-scoped counterpart to the global
-        /// <see cref="DatabaseStats.ScoreCount"/> returned by
-        /// <see cref="GetDatabaseStatsAsync"/>: cache-freshness checks must count
-        /// only the active root set, otherwise retained rows belonging to a
-        /// removed root make the filesystem and database counts diverge forever
-        /// and force a full rescan on every startup. Returns 0 for an empty root
-        /// set or when no active charts have scores.
+        /// Counts <see cref="SongChart"/> rows whose <see cref="SongChart.FilePath"/>
+        /// resides under one of <paramref name="roots"/> (root-containment uses
+        /// <see cref="SongPathIdentity"/>, mirroring SongManager's active-chart
+        /// rule). This is the active-root-scoped chart count compared against the
+        /// filesystem chart-file count by the cache-freshness check.
+        /// <para>
+        /// IMPORTANT: this must count <em>charts</em>, not <see cref="SongScoreEntity"/>
+        /// rows. A single chart has one-to-many <see cref="SongScoreEntity"/> rows
+        /// (uniqueness = ChartId + Instrument + PlaySpeedPercent): import seeds
+        /// DRUMS/GUITAR/BASS rows, and each distinct play speed adds another. Once a
+        /// player records results at multiple speeds or instruments, the score-row
+        /// count permanently exceeds the chart-file count and forces a full rescan
+        /// on every startup. Counting charts keeps the database side of the
+        /// cache-freshness comparison aligned with the filesystem contract (one
+        /// file = one chart).
+        /// </para>
+        /// Returns 0 for an empty root set or when no active charts exist.
         /// </summary>
-        public async Task<int> GetActiveScoreCountAsync(IReadOnlyList<string> roots)
+        public async Task<int> GetActiveChartCountAsync(IReadOnlyList<string> roots)
         {
             if (roots == null || roots.Count == 0)
                 return 0;
@@ -1967,12 +1973,10 @@ namespace DTXMania.Game.Lib.Song.Entities
                 }
             }
 
-            if (activeChartIds.Count == 0)
-                return 0;
-
-            return await context.SongScores
-                .AsNoTracking()
-                .CountAsync(score => activeChartIds.Contains(score.ChartId));
+            // Count active charts, NOT score rows: one chart file maps to many
+            // SongScore rows across instrument and play-speed variants, so the
+            // score count would never match the filesystem file count.
+            return activeChartIds.Count;
         }
 
         /// <summary>

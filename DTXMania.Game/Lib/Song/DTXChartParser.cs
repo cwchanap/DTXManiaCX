@@ -24,6 +24,17 @@ namespace DTXMania.Game.Lib.Song
         private static readonly string[] _supportedExtensions = { ".dtx", ".gda", ".g2d", ".bms", ".bme", ".bml" };
         private static bool _encodingProviderRegistered;
 
+        /// <summary>
+        /// The set of chart file extensions this parser accepts, without the
+        /// leading dot (e.g. ".dtx", ".gda"). Exposed so filesystem-scan helpers
+        /// (cache-freshness counts, change detection) enumerate exactly the same
+        /// formats as full enumeration, which filters via
+        /// <see cref="IsSupportedFile"/>. Without this, counting only "*.dtx"
+        /// permanently mismatches libraries containing .gda/.g2d/.bms/.bme/.bml
+        /// charts and forces a full rescan on every startup.
+        /// </summary>
+        public static IReadOnlyCollection<string> SupportedExtensions => _supportedExtensions;
+
         #endregion
 
         #region Constants

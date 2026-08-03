@@ -244,15 +244,16 @@ namespace DTXMania.Game.Lib.Song
         }
 
         /// <summary>
-        /// Number of score rows in the database whose charts reside under one of
+        /// Number of chart rows in the database whose files reside under one of
         /// <paramref name="activeRoots"/>. This is the active-root-scoped
-        /// counterpart to <see cref="GetDatabaseScoreCountAsync"/>: cache
-        /// freshness checks compare it against the filesystem file count, which is
-        /// also scoped to the active roots. Using the global count instead would
-        /// count retained rows belonging to a removed root and force a full
-        /// rescan on every subsequent startup.
+        /// counterpart to the global chart count: cache freshness checks compare
+        /// it against the filesystem chart-file count, which is also scoped to the
+        /// active roots. Using the global count instead would count retained rows
+        /// belonging to a removed root and force a full rescan on every subsequent
+        /// startup. Counts charts (not score rows) so the database side matches
+        /// the one-file-per-chart filesystem contract.
         /// </summary>
-        internal async Task<int> GetActiveDatabaseScoreCountAsync(
+        internal async Task<int> GetActiveDatabaseChartCountAsync(
             IReadOnlyList<string> activeRoots)
         {
             // Copy reference under lock to avoid race with Clear()
@@ -265,7 +266,7 @@ namespace DTXMania.Game.Lib.Song
             if (dbService == null) return 0;
             try
             {
-                return await dbService.GetActiveScoreCountAsync(activeRoots);
+                return await dbService.GetActiveChartCountAsync(activeRoots);
             }
             catch
             {
@@ -3647,17 +3648,19 @@ namespace DTXMania.Game.Lib.Song
                 // First, check if file counts have changed - this is a reliable indicator.
                 // Both counts must be scoped to the same active root set: the filesystem
                 // count is restricted to these searchPaths, so the database count must be
-                // too. The global score count would include retained rows belonging to a
+                // too. The global chart count would include retained rows belonging to a
                 // removed root, which can never match the scoped filesystem count and would
-                // force a full rescan on every startup.
+                // force a full rescan on every startup. The database side counts charts
+                // (one row per chart file), not score rows, so it matches the one-file-
+                // per-chart filesystem contract even when a chart has many score variants.
                 var currentFileCount = await CountDTXFilesAsync(searchPaths);
-                var databaseSongCount = await GetActiveDatabaseScoreCountAsync(searchPaths);
+                var databaseChartCount = await GetActiveDatabaseChartCountAsync(searchPaths);
                 
-                Debug.WriteLine($"SongManager: Current DTX files: {currentFileCount}, Database songs: {databaseSongCount}");
+                Debug.WriteLine($"SongManager: Current chart files: {currentFileCount}, Database charts: {databaseChartCount}");
                 
-                if (currentFileCount != databaseSongCount)
+                if (currentFileCount != databaseChartCount)
                 {
-                    Debug.WriteLine($"SongManager: File count mismatch detected - files: {currentFileCount}, database: {databaseSongCount}");
+                    Debug.WriteLine($"SongManager: File count mismatch detected - files: {currentFileCount}, database: {databaseChartCount}");
                     return true;
                 }
 
@@ -3719,29 +3722,41 @@ namespace DTXMania.Game.Lib.Song
         }
 
         /// <summary>
-        /// Counts DTX files in all search paths
+        /// Counts supported chart files in all search paths. Uses the same
+        /// extension set as <see cref="DTXChartParser.IsSupportedFile"/> so the
+        /// count matches what full enumeration would import. Counting only
+        /// "*.dtx" would permanently mismatch libraries containing .gda/.g2d/
+        /// .bms/.bme/.bml charts and force a full rescan on every startup.
         /// </summary>
         private async Task<int> CountDTXFilesAsync(string[] searchPaths)
         {
             int totalCount = 0;
             try
             {
+                // Build the glob patterns once from the canonical supported set.
+                var searchPatterns = DTXChartParser.SupportedExtensions
+                    .Select(ext => "*" + ext)
+                    .ToArray();
                 foreach (var searchPath in searchPaths.Where(path => !string.IsNullOrEmpty(path) && Directory.Exists(path)))
                 {
                     // Use async enumeration to avoid blocking
                     await Task.Run(() =>
                     {
-                        int pathCount = Directory.EnumerateFiles(searchPath, "*.dtx", SearchOption.AllDirectories).Count();
+                        int pathCount = 0;
+                        foreach (var pattern in searchPatterns)
+                        {
+                            pathCount += Directory.EnumerateFiles(searchPath, pattern, SearchOption.AllDirectories).Count();
+                        }
                         totalCount += pathCount;
-                        Debug.WriteLine($"SongManager: Found {pathCount} DTX files in {searchPath}");
+                        Debug.WriteLine($"SongManager: Found {pathCount} supported chart files in {searchPath}");
                     });
                 }
-                Debug.WriteLine($"SongManager: Total DTX files found: {totalCount}");
+                Debug.WriteLine($"SongManager: Total supported chart files found: {totalCount}");
                 return totalCount;
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"SongManager: Error counting DTX files: {ex.Message}");
+                Debug.WriteLine($"SongManager: Error counting chart files: {ex.Message}");
                 return -1; // Return invalid count to trigger enumeration
             }
         }
@@ -3765,12 +3780,18 @@ namespace DTXMania.Game.Lib.Song
                     return true;
                 }
 
-                // Check for new or modified DTX/SET files using async enumeration
-                var dtxExtensions = new[] { "*.dtx", "*.set" };
+                // Check for new or modified chart/SET files using async enumeration.
+                // The chart extension set must match DTXChartParser.SupportedExtensions
+                // so modifications to .gda/.g2d/.bms/.bme/.bml charts are detected when
+                // the total file count is unchanged; "*.set" covers SET.def changes.
+                var chartPatterns = DTXChartParser.SupportedExtensions
+                    .Select(ext => "*" + ext)
+                    .Append("*.set")
+                    .ToArray();
                 int totalFilesChecked = 0;
                 int modifiedFilesFound = 0;
 
-                foreach (var extension in dtxExtensions)
+                foreach (var extension in chartPatterns)
                 {
                     Debug.WriteLine($"SongManager: Scanning for {extension} files in {directoryPath}");
                     
