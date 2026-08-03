@@ -485,6 +485,85 @@ public sealed class SongFolderPanelTests
         Assert.False(panel.IsActive);
     }
 
+    [Fact]
+    public async Task AddFolder_WhenPickerReturnsNull_ShouldReportFailureWithoutCrashing()
+    {
+        using var root = TemporaryDirectory.Create();
+        var panel = CreatePanel(new[] { root.Path }, new NullFolderPicker());
+        panel.Activate();
+
+        ActivateAction(panel, rootCount: 1, actionOffset: 0);
+        await WaitForPendingPickerCompletionAsync(panel);
+        DrainPicker(panel);
+
+        Assert.True(panel.IsActive);
+        Assert.Contains("returned no result", panel.StatusMessage, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AddFolder_WhenPickerThrowsUnexpectedException_ShouldReportFailure()
+    {
+        using var root = TemporaryDirectory.Create();
+        var panel = CreatePanel(new[] { root.Path }, new ThrowingFolderPicker());
+        panel.Activate();
+
+        ActivateAction(panel, rootCount: 1, actionOffset: 0);
+        await WaitForPendingPickerCompletionAsync(panel);
+        DrainPicker(panel);
+
+        Assert.True(panel.IsActive);
+        Assert.Contains("picker blew up", panel.StatusMessage, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AddFolder_WhenPickerReportsAnUnknownStatus_ShouldReportUnknownResult()
+    {
+        using var root = TemporaryDirectory.Create();
+        var unknown = new FolderPickerResult((FolderPickerStatus)999);
+        var panel = CreatePanel(new[] { root.Path }, new QueuedFolderPicker(unknown));
+        panel.Activate();
+
+        ActivateAction(panel, rootCount: 1, actionOffset: 0);
+        DrainPicker(panel);
+
+        Assert.True(panel.IsActive);
+        Assert.Contains("unknown result", panel.StatusMessage, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Apply_WhenConfigDelegateThrows_ShouldKeepPanelOpenWithPersistenceFailureStatus()
+    {
+        using var root = TemporaryDirectory.Create();
+        var panel = CreatePanel(
+            new[] { root.Path },
+            apply: _ => throw new InvalidOperationException("apply blew up"));
+        panel.Activate();
+
+        ActivateAction(panel, rootCount: 1, actionOffset: 4);
+
+        Assert.True(panel.IsActive);
+        Assert.Equal(SongFolderApplyStatus.PersistenceFailed, panel.LastApplyStatus);
+        Assert.Contains("apply blew up", panel.StatusMessage, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Apply_WhenConfigDelegateReportsUnknownStatus_ShouldKeepPanelOpenWithGenericMessage()
+    {
+        using var root = TemporaryDirectory.Create();
+        var panel = CreatePanel(
+            new[] { root.Path },
+            apply: roots => new SongFolderApplyResult(
+                (SongFolderApplyStatus)999,
+                roots,
+                Array.Empty<SongRootDiagnostic>()));
+        panel.Activate();
+
+        ActivateAction(panel, rootCount: 1, actionOffset: 4);
+
+        Assert.True(panel.IsActive);
+        Assert.Contains("Could not save song folders.", panel.StatusMessage, StringComparison.Ordinal);
+    }
+
     private static SongFolderPanel CreatePanel(
         IReadOnlyList<string> configuredRoots,
         IFolderPickerService? picker = null,
@@ -586,6 +665,22 @@ public sealed class SongFolderPanelTests
         public Task<FolderPickerResult> PickFolderAsync(
             string? initialDirectory,
             CancellationToken cancellationToken) => Completion.Task;
+    }
+
+    private sealed class NullFolderPicker : IFolderPickerService
+    {
+        public Task<FolderPickerResult> PickFolderAsync(
+            string? initialDirectory,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<FolderPickerResult>(null!);
+    }
+
+    private sealed class ThrowingFolderPicker : IFolderPickerService
+    {
+        public Task<FolderPickerResult> PickFolderAsync(
+            string? initialDirectory,
+            CancellationToken cancellationToken) =>
+            Task.FromException<FolderPickerResult>(new InvalidOperationException("picker blew up"));
     }
 
     private sealed class TemporaryDirectory : IDisposable

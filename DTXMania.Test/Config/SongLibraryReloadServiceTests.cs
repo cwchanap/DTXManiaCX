@@ -121,6 +121,100 @@ public sealed class SongLibraryReloadServiceTests : IDisposable
         Assert.Single(await manager.DatabaseService!.GetSongsAsync());
     }
 
+    [Fact]
+    public async Task ReloadAsync_WhenEnumerationThrowsUnexpectedException_ShouldReturnFailedRetainingSnapshot()
+    {
+        var service = new SongLibraryReloadService(
+            (_, _, _) => throw new InvalidOperationException("unexpected boom"));
+
+        var result = await service.ReloadAsync(
+            new[] { "/songs" }, progress: null, CancellationToken.None);
+
+        Assert.Equal(SongLibraryReloadOutcome.Failed, result.Outcome);
+        Assert.True(result.RetainsCurrentSnapshot);
+        Assert.False(result.RequiresRestart);
+        Assert.Contains("unexpected boom", result.FailureMessage);
+    }
+
+    [Fact]
+    public async Task ReloadAsync_WhenProgressIsReported_ShouldForwardAdaptedProgressValues()
+    {
+        var reported = new List<SongLibraryReloadProgress>();
+        var service = new SongLibraryReloadService(
+            (roots, progress, token) =>
+            {
+                progress?.Report(new EnumerationProgress
+                {
+                    CurrentOperation = "Scanning",
+                    ProcessedCount = 4,
+                    DiscoveredSongs = 2,
+                    CurrentFile = "/songs/a.dtx",
+                    CurrentDirectory = "/songs",
+                });
+                progress?.Report(new EnumerationProgress
+                {
+                    CurrentOperation = "Importing",
+                    ProcessedCount = 5,
+                    DiscoveredSongs = 3,
+                    CurrentFile = "/songs/b.dtx",
+                    CurrentDirectory = "/songs/sub",
+                });
+                return Task.FromResult(CreateResult(
+                    SongEnumerationOutcome.ImportedAndPublished,
+                    Array.Empty<SongEnumerationError>()));
+            });
+
+        var progress = new Progress<SongLibraryReloadProgress>(reported.Add);
+        var result = await service.ReloadAsync(
+            new[] { "/songs" }, progress, CancellationToken.None);
+
+        Assert.Equal(SongLibraryReloadOutcome.Published, result.Outcome);
+        Assert.Equal(2, reported.Count);
+        Assert.Equal("Scanning", reported[0].CurrentOperation);
+        Assert.Equal(4, reported[0].ProcessedCount);
+        Assert.Equal(2, reported[0].DiscoveredSongs);
+        Assert.Equal("/songs/a.dtx", reported[0].CurrentFile);
+        Assert.Equal("/songs", reported[0].CurrentDirectory);
+        Assert.Equal("Importing", reported[1].CurrentOperation);
+        Assert.Equal("/songs/sub", reported[1].CurrentDirectory);
+    }
+
+    [Fact]
+    public async Task ReloadAsync_WhenPublished_ShouldReportEnumeratedFileCount()
+    {
+        var service = new SongLibraryReloadService(
+            (_, _, _) =>
+            {
+                var batch = new SongEnumerationBatch
+                {
+                    ActiveRoots = new[] { "/songs" },
+                    DiscoveredChartPaths = new HashSet<string>(StringComparer.Ordinal)
+                    {
+                        "/songs/a.dtx", "/songs/b.dtx", "/songs/c.dtx",
+                    },
+                    Candidates = new List<SongImportCandidate>(),
+                    RootNodes = new List<SongListNode>(),
+                    PendingSongs = new List<PendingSongNode>(),
+                    Errors = new List<SongEnumerationError>(),
+                    DiscoveryAndParsingDuration = TimeSpan.Zero,
+                    IsComplete = true,
+                };
+                return Task.FromResult(new SongEnumerationResult(
+                    SongEnumerationOutcome.ImportedAndPublished,
+                    batch,
+                    SongBulkImportResult.Empty,
+                    TimeSpan.Zero));
+            });
+
+        var result = await service.ReloadAsync(
+            new[] { "/songs" }, progress: null, CancellationToken.None);
+
+        Assert.Equal(SongLibraryReloadOutcome.Published, result.Outcome);
+        Assert.Equal(3, result.EnumeratedFileCount);
+        Assert.Equal(0, result.DiscoveredScoreCount);
+        Assert.Equal(0, result.UnavailableRootCount);
+    }
+
     public void Dispose()
     {
         SongManager.ResetInstanceForTesting();
