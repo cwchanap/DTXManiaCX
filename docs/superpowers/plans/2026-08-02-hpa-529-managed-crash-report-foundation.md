@@ -336,24 +336,13 @@ public void UnknownRenderedMessage_ShouldBeOmitted()
 }
 
 [Fact]
-public void UnknownStringProperty_ShouldBeRedacted()
+public void UnknownStringValue_ShouldBeRedactedByCentralPolicy()
 {
-    using var provider = new CrashLogBufferProvider(
-        CrashLogFieldPolicy.Default,
-        TimeProvider.System,
-        capacity: 8);
-    using var factory = LoggerFactory.Create(builder => builder.AddProvider(provider));
-    var logger = factory.CreateLogger("test");
+    var normalized = CrashLogFieldPolicy.Default.NormalizeProperty(
+        propertyName: "Status",
+        value: "Secret Song");
 
-    logger.LogInformation(
-        new EventId(5101, "StageTransitionRequested"),
-        "Stage transition to {TargetStage} for {SongTitle}",
-        StageType.Title,
-        "Secret Song");
-
-    var record = Assert.Single(provider.Snapshot());
-    Assert.Equal(StageType.Title, record.Properties["TargetStage"]);
-    Assert.Equal("[REDACTED]", record.Properties["SongTitle"]);
+    Assert.Equal("[REDACTED]", normalized);
 }
 ```
 
@@ -521,6 +510,20 @@ internal sealed record CrashReportWriteResult(
     bool UsedEmergencyFallback,
     string? FailureCode);
 
+internal sealed record CrashReportDocument(
+    CrashReportSummary Summary,
+    Exception Exception,
+    IReadOnlyList<CrashLogRecord> Logs,
+    IReadOnlyList<CrashBreadcrumb> Breadcrumbs,
+    IReadOnlyList<CrashContextSnapshot> Context,
+    IReadOnlyList<string> SensitivePaths);
+
+internal interface ICrashReportArtifactWriter
+{
+    void WriteZip(Stream destination, CrashReportDocument document);
+    void WriteEmergencyText(Stream destination, CrashReportDocument document);
+}
+
 internal sealed class CrashReportStore
 {
     CrashReportWriteResult Capture(CrashCaptureData data);
@@ -577,7 +580,7 @@ Required tests:
 1. ZIP contains exactly `report.json`, `exception.txt`, `logs.ndjson`, `breadcrumbs.json`, and `README.txt`.
 2. `report.json` has schema version `1` and format-neutral summary fields.
 3. ZIP is first written with a `.tmp` name and finalized in the same directory.
-4. A throwing ZIP writer produces one emergency `.txt`.
+4. A throwing `ICrashReportArtifactWriter.WriteZip` produces one emergency `.txt` through `WriteEmergencyText`.
 5. Emergency text starts with a versioned allowlisted header and can be discovered as `CrashReportFormat.EmergencyText`.
 6. Corrupt emergency header falls back to filename ID/time and `Unknown` fields.
 7. Six mixed ZIP/text reports retain exactly five newest reports.
@@ -585,7 +588,7 @@ Required tests:
 9. Discovery never reads or exposes the free-form emergency exception body.
 10. Unwritable capture returns `Report = null` and a safe `FailureCode` without throwing.
 
-Define `CrashStoreFixture` as a private test helper in `CrashReportStoreTests.cs`; it owns a temporary directory, fake `TimeProvider`, injectable archive writer, deterministic report IDs, and cleanup.
+Define `CrashStoreFixture` as a private test helper in `CrashReportStoreTests.cs`; it owns a temporary directory, fake `TimeProvider`, fake `ICrashReportArtifactWriter`, deterministic report IDs, and cleanup.
 
 Example retention test:
 
@@ -599,7 +602,7 @@ public void Capture_SixMixedReports_ShouldRetainNewestFiveAcrossFormats()
     for (var index = 0; index < 6; index++)
     {
         fixture.Clock.Advance(TimeSpan.FromSeconds(1));
-        fixture.ArchiveWriter.FailZip = index % 2 == 1;
+        fixture.ArtifactWriter.FailZip = index % 2 == 1;
         Assert.NotNull(store.Capture(fixture.CreateCapture(index)).Report);
     }
 
@@ -639,7 +642,9 @@ Do not attempt to infer whether an arbitrary phrase is a song title. Omission is
 
 - [ ] **Step 5: Implement versioned ZIP serialization**
 
-`CrashReportArchiveWriter.WriteZip` writes:
+`CrashReportArchiveWriter` implements `ICrashReportArtifactWriter`.
+
+`WriteZip` writes:
 - `report.json` — schema `1`, report ID, UTC timestamp, assembly informational version with assembly-version fallback, OS/runtime/architecture, summary, context statuses, included entries, truncation flags;
 - `exception.txt` — exception type, omitted/sanitized message field, sanitized stack, bounded inner chain;
 - `logs.ndjson` — newest records that fit both 500-entry and 512-KB limits;
@@ -648,17 +653,17 @@ Do not attempt to infer whether an arbitrary phrase is a song title. Omission is
 
 Use deterministic UTF-8 without BOM and `JsonSerializerOptions.WriteIndented = true` only for `report.json` and `breadcrumbs.json`.
 
-`WriteEmergencyText` starts with this machine-readable header:
+`WriteEmergencyText` starts with this grammar; angle-bracket terms below are values supplied from `CrashReportDocument.Summary`, not unresolved implementation fields:
 
 ```text
 DTXMANIACX-CRASH-REPORT 1
-ReportId: <id>
-CapturedAtUtc: <round-trip UTC>
-BuildId: <sanitized build>
-OperatingSystem: <sanitized OS>
-ProcessArchitecture: <architecture>
-StageOrMilestone: <sanitized value or Unknown>
-ExceptionType: <type>
+ReportId: <report-id-value>
+CapturedAtUtc: <round-trip-utc-value>
+BuildId: <sanitized-build-value>
+OperatingSystem: <sanitized-os-value>
+ProcessArchitecture: <architecture-value>
+StageOrMilestone: <sanitized-value-or-Unknown>
+ExceptionType: <exception-type-value>
 ---
 ```
 
@@ -671,7 +676,7 @@ Construction:
 ```csharp
 internal CrashReportStore(
     string rootPath,
-    CrashReportArchiveWriter writer,
+    ICrashReportArtifactWriter writer,
     TimeProvider timeProvider,
     TextWriter errorWriter)
 ```
@@ -860,9 +865,9 @@ public static CrashReportRuntime CreateBestEffort(
 ```
 
 The production method must:
-1. create the console logger factory first;
-2. attempt to add crash components without creating the report directory;
-3. on expected setup failure, dispose the partially built factory and create a fresh console-only factory;
+1. construct crash components that perform no report-directory I/O;
+2. create one logger factory with `AddConsole()` and, when enabled, `AddProvider(crashLogBufferProvider)`;
+3. on an expected crash-component or provider setup failure, dispose the partial factory if one exists and create one fresh console-only factory;
 4. write one sanitized `crash_reporting_disabled code=<fixed-code>` line to `errorWriter ?? Console.Error`;
 5. return a disabled runtime.
 
@@ -898,7 +903,7 @@ internal BaseGame(
     _logger = _loggerFactory.CreateLogger<BaseGame>();
 }
 
-public sealed class Game1 : BaseGame, IGameApplication
+public class Game1 : BaseGame, IGameApplication
 {
     internal Game1(
         StartupTimingTrace startupTimingTrace,
@@ -909,7 +914,7 @@ public sealed class Game1 : BaseGame, IGameApplication
 }
 ```
 
-Adapt the actual existing `Game1` declaration without sealing it if tests subclass it. Remove production parameterless constructors. Do not add a constructor that creates its own logger factory.
+Remove production parameterless constructors. Do not add a constructor that creates its own logger factory.
 
 Remove `_loggerFactory.Dispose()` from `BaseGame.DisposeManagedResources()`.
 
@@ -923,9 +928,13 @@ Do not expose the full runtime, store, or context registry through `IStageGame`.
 
 - [ ] **Step 6: Implement explicit entry-point lifecycle**
 
-`Program.cs` becomes conceptually:
+`Program.cs` becomes:
 
 ```csharp
+using DTXMania.Game;
+using DTXMania.Game.Lib.Diagnostics.CrashReporting;
+using DTXMania.Game.Lib.Stage;
+
 var startupTrace = StartupTimingTrace.StartProcess();
 var crashRuntime = CrashReportRuntime.CreateBestEffort(startupTrace, Console.Error);
 
@@ -1162,7 +1171,15 @@ Record:
 
 Never include shared-data values or song identity.
 
-Update `BaseGame.CreateLoadContentServices()` to pass the process-owned sinks.
+Update `BaseGame.CreateLoadContentServices()` to create the manager as:
+
+```csharp
+new StageManager(
+    this,
+    _loggerFactory.CreateLogger<StageManager>(),
+    _gameCrashDiagnostics.Breadcrumbs,
+    _gameCrashDiagnostics.Contexts)
+```
 
 - [ ] **Step 8: Add count-only MIDI context**
 
@@ -1244,8 +1261,7 @@ git commit -m "feat: capture cached game crash context"
 **Files:**
 - Test: `DTXMania.Test/CrashReporting/CrashReportIntegrationTests.cs`
 - Test helper (inside the same file): `TemporaryAppDataRoot` and `CrashReportTestReader`
-- Modify as needed: `DTXMania.Game/Lib/Diagnostics/CrashReporting/CrashReportRuntime.cs`
-- Modify as needed: `DTXMania.Game/Lib/Diagnostics/CrashReporting/GameEntryPoint.cs`
+- No production file change is expected; a production correction belongs in the task that introduced the defective contract and must retain that task's focused regression test.
 
 **Interfaces:**
 - Consumes: all prior production components.
@@ -1333,10 +1349,7 @@ Expected: both suites pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add \
-  DTXMania.Test/CrashReporting/CrashReportIntegrationTests.cs \
-  DTXMania.Game/Lib/Diagnostics/CrashReporting/CrashReportRuntime.cs \
-  DTXMania.Game/Lib/Diagnostics/CrashReporting/GameEntryPoint.cs
+git add DTXMania.Test/CrashReporting/CrashReportIntegrationTests.cs
 git commit -m "test: verify crash report integration"
 ```
 
@@ -1415,17 +1428,19 @@ Call the hook:
 
 - [ ] **Step 3: Write Windows crash smoke tests**
 
-For both `update` and `draw`:
-1. build an isolated fixture with `E2EFixtureBuilder`;
-2. start the Windows game project with the debug-only environment override;
-3. wait for non-zero exit;
-4. assert exactly one completed report under `<fixture.AppDataRoot>/CrashReports`;
-5. assert no `.tmp`;
-6. open the ZIP or text summary and assert exception type is `InvalidOperationException`;
-7. assert the controlled crash appears once as the primary exception;
-8. assert stdout/stderr and report files are copied to `fixture.ArtifactRoot` on failure.
+Add a private `ReadCrashSummary(string reportPath)` helper to `CrashReportingSmokeTests.cs`. It must open `report.json` from ZIP or parse only the emergency header before `---` and return a `CrashReportSummary`. Do not reference internal production parser types from the E2E assembly.
 
-Example test shape:
+For both `update` and `draw`, the test must:
+1. build an isolated fixture with `E2EFixtureBuilder`;
+2. start the Windows game project with `DTXMANIA_E2E_CRASH_INJECTION` set to the theory value;
+3. await `WaitForExitAsync` and assert a non-zero exit code;
+4. enumerate `<fixture.AppDataRoot>/CrashReports` and assert exactly one completed `.zip` or `.txt`;
+5. assert no `.tmp` exists;
+6. call `ReadCrashSummary` and assert `ExceptionType == "InvalidOperationException"`;
+7. inspect `exception.txt` or the emergency body and assert `DTXMANIA_E2E_CONTROLLED_CRASH` appears exactly once;
+8. copy stdout, stderr, and report files to `fixture.ArtifactRoot` in the test's `finally` block.
+
+Use this concrete test skeleton:
 
 ```csharp
 [Theory(Timeout = 180_000)]
@@ -1434,10 +1449,62 @@ Example test shape:
 public async Task ControlledCallbackCrash_ShouldReachProgramBoundaryExactlyOnce(
     string injectionPoint)
 {
-    // Build fixture, start process with environment override, await exit,
-    // inspect one completed report, and assert no duplicate.
+    var repoRoot = FindRepoRoot();
+    var runRoot = Path.Combine(
+        Path.GetTempPath(),
+        "dtx-crash-e2e-" + Guid.NewGuid().ToString("N"));
+    var fixture = E2EFixtureBuilder.Build(
+        runRoot,
+        repoRoot,
+        GetAvailablePort());
+    await using var process = new GameProcessDriver();
+
+    try
+    {
+        process.Start(
+            repoRoot,
+            "DTXMania.Game/DTXMania.Game.Windows.csproj",
+            fixture,
+            environmentOverrides: new Dictionary<string, string?>
+            {
+                ["DTXMANIA_E2E_CRASH_INJECTION"] = injectionPoint
+            });
+
+        var exitCode = await process.WaitForExitAsync(
+            TimeSpan.FromSeconds(120),
+            CancellationToken.None);
+        Assert.NotEqual(0, exitCode);
+
+        var reportRoot = Path.Combine(fixture.AppDataRoot, "CrashReports");
+        var reports = Directory.EnumerateFiles(reportRoot, "crash-*")
+            .Where(path => Path.GetExtension(path) is ".zip" or ".txt")
+            .ToArray();
+        var reportPath = Assert.Single(reports);
+        Assert.Empty(Directory.EnumerateFiles(reportRoot, "*.tmp"));
+
+        var summary = ReadCrashSummary(reportPath);
+        Assert.Equal("InvalidOperationException", summary.ExceptionType);
+        Assert.Equal(
+            1,
+            ReadPrimaryExceptionText(reportPath)
+                .Split("DTXMANIA_E2E_CONTROLLED_CRASH")
+                .Length - 1);
+    }
+    finally
+    {
+        await E2EArtifactWriter.WriteTextAsync(
+            fixture,
+            $"crash-{injectionPoint}-stdout.log",
+            process.StandardOutput);
+        await E2EArtifactWriter.WriteTextAsync(
+            fixture,
+            $"crash-{injectionPoint}-stderr.log",
+            process.StandardError);
+    }
 }
 ```
+
+Use the existing overloads from `E2EFixtureBuilder`; adjust only the fixture builder arguments needed by the current signature, not the test behavior above.
 
 - [ ] **Step 4: Run E2E support tests**
 
@@ -1566,10 +1633,18 @@ Assert:
 Repeat Step 2 with a fresh root and:
 
 ```bash
+run_root="$(mktemp -d /tmp/dtx-hpa529-draw.XXXXXX)"
+export DTXMANIA_APPDATA_ROOT="$run_root"
 export DTXMANIA_E2E_CRASH_INJECTION="draw"
+set +e
+dotnet run --project DTXMania.Game/DTXMania.Game.Mac.csproj --configuration Debug
+exit_code=$?
+set -e
+test "$exit_code" -ne 0
+find "$run_root/CrashReports" -maxdepth 1 -type f -name 'crash-*' -print
 ```
 
-Assert the same conditions.
+Assert the same conditions as the update run.
 
 - [ ] **Step 4: Inspect privacy-sensitive output**
 
