@@ -109,9 +109,12 @@ public sealed class MacFolderPickerServiceAdditionalTests
     {
         using var directory = TemporaryDirectory.Create();
         var script = InvokeBuildAppleScript(directory.Path);
+        var escapedPath = directory.Path
+            .Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("\"", "\\\"", StringComparison.Ordinal);
 
         Assert.Contains("default location POSIX file", script, StringComparison.Ordinal);
-        Assert.Contains(directory.Path, script, StringComparison.Ordinal);
+        Assert.Contains(escapedPath, script, StringComparison.Ordinal);
     }
 
     [Fact]
