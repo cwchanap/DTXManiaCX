@@ -86,6 +86,47 @@ public sealed class SongFolderPanelTests
     }
 
     [Fact]
+    public void MoveSelectedRoot_WhenAvailabilityWarningsChangeOrder_ShouldRefreshCachedStatusAndSeverity()
+    {
+        var firstMissingPath = Path.Combine(Path.GetTempPath(),
+            $"dtxmania-panel-first-missing-{Guid.NewGuid():N}");
+        var secondMissingPath = Path.Combine(Path.GetTempPath(),
+            $"dtxmania-panel-second-missing-{Guid.NewGuid():N}");
+        var panel = CreatePanel(new[] { firstMissingPath, secondMissingPath });
+        panel.Activate();
+
+        Assert.Contains(firstMissingPath, panel.StatusMessage);
+
+        Press(panel, Keys.Down); // select the second root
+        ActivateActionFromCurrent(panel, pressesToAction: 3); // Move Up
+
+        Assert.Equal(new[] { secondMissingPath, firstMissingPath }, panel.DraftRoots);
+        var statusMessage = Assert.IsType<string>(panel.StatusMessage);
+        Assert.Contains(secondMissingPath, statusMessage);
+
+        var font = new Mock<IFont>();
+        font.Setup(value => value.MeasureString(It.IsAny<string>())).Returns(Vector2.One);
+        var spriteBatch = CreateUninitializedSpriteBatch();
+
+        try
+        {
+            panel.Draw(spriteBatch, font.Object, boldFont: null, whitePixel: null,
+                virtualWidth: 1280, virtualHeight: 720);
+
+            font.Verify(value => value.DrawString(
+                    spriteBatch,
+                    statusMessage,
+                    It.IsAny<Vector2>(),
+                    It.Is<Color>(color => color == new Color(255, 196, 96))),
+                Times.Once);
+        }
+        finally
+        {
+            GC.SuppressFinalize(spriteBatch);
+        }
+    }
+
+    [Fact]
     public void CancelAction_ShouldDiscardDraftWithoutApplying()
     {
         using var first = TemporaryDirectory.Create();

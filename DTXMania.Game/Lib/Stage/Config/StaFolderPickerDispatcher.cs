@@ -44,9 +44,11 @@ namespace DTXMania.Game.Lib.Stage.Config
         private readonly BlockingCollection<PickerRequest> _requests = new();
         private readonly CancellationTokenSource _shutdown = new();
         private readonly Thread _dispatcherThread;
+        private readonly object _requestGate = new();
         private readonly object _activeDialogLock = new();
         private PickerRequest? _activeRequest;
         private IStaFolderPickerDialog? _activeDialog;
+        private FolderPickerResult? _terminalResult;
         private int _disposed;
 
         internal StaFolderPickerDispatcher(
@@ -72,27 +74,26 @@ namespace DTXMania.Game.Lib.Stage.Config
             if (cancellationToken.IsCancellationRequested)
                 return Task.FromResult(FolderPickerResult.Cancelled());
 
-            if (Volatile.Read(ref _disposed) != 0)
-            {
-                return Task.FromResult(FolderPickerResult.Unavailable(
-                    "The folder picker is no longer available."));
-            }
-
             var request = new PickerRequest(initialDirectory, cancellationToken, CancelRequest);
-            try
+            lock (_requestGate)
             {
-                _requests.Add(request, _shutdown.Token);
-            }
-            catch (OperationCanceledException)
-            {
-                request.Complete(cancellationToken.IsCancellationRequested
-                    ? FolderPickerResult.Cancelled()
-                    : FolderPickerResult.Unavailable("The folder picker is shutting down."));
-            }
-            catch (InvalidOperationException)
-            {
-                request.Complete(FolderPickerResult.Unavailable(
-                    "The folder picker is no longer available."));
+                if (_terminalResult != null || Volatile.Read(ref _disposed) != 0)
+                {
+                    request.Complete(_terminalResult ?? FolderPickerResult.Unavailable(
+                        "The folder picker is no longer available."));
+                }
+                else
+                {
+                    try
+                    {
+                        _requests.Add(request);
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        request.Complete(_terminalResult ?? FolderPickerResult.Unavailable(
+                            "The folder picker is no longer available."));
+                    }
+                }
             }
 
             return request.Task;
@@ -103,7 +104,8 @@ namespace DTXMania.Game.Lib.Stage.Config
             if (Interlocked.Exchange(ref _disposed, 1) != 0)
                 return;
 
-            _requests.CompleteAdding();
+            TransitionToTerminal(FolderPickerResult.Unavailable(
+                "The folder picker is shutting down."));
             _shutdown.Cancel();
             StopActiveDialog();
 
@@ -117,6 +119,7 @@ namespace DTXMania.Game.Lib.Stage.Config
 
         private void DispatchRequests()
         {
+            FolderPickerResult? terminalResult = null;
             try
             {
                 _dialogFactory.InitializeDispatcherThread();
@@ -135,15 +138,16 @@ namespace DTXMania.Game.Lib.Stage.Config
             catch (OperationCanceledException)
             {
                 // Dispose requested while the dispatcher was idle.
+                terminalResult = FolderPickerResult.Unavailable(
+                    "The folder picker is shutting down.");
             }
             catch (Exception exception)
             {
-                DrainPendingRequests(FolderPickerResult.Unavailable(exception.Message));
-                return;
+                terminalResult = FolderPickerResult.Unavailable(exception.Message);
             }
             finally
             {
-                DrainPendingRequests(FolderPickerResult.Unavailable(
+                TransitionToTerminal(terminalResult ?? FolderPickerResult.Unavailable(
                     "The folder picker is shutting down."));
             }
         }
@@ -183,7 +187,17 @@ namespace DTXMania.Game.Lib.Stage.Config
                     }
                 }
 
-                dialog?.Dispose();
+                if (dialog != null)
+                {
+                    try
+                    {
+                        dialog.Dispose();
+                    }
+                    catch (Exception exception)
+                    {
+                        request.Complete(FolderPickerResult.Failed(exception.Message));
+                    }
+                }
             }
         }
 
@@ -243,6 +257,19 @@ namespace DTXMania.Game.Lib.Stage.Config
         {
             while (_requests.TryTake(out var request))
                 request.Complete(result);
+        }
+
+        private void TransitionToTerminal(FolderPickerResult result)
+        {
+            FolderPickerResult terminalResult;
+            lock (_requestGate)
+            {
+                _terminalResult ??= result;
+                terminalResult = _terminalResult;
+                _requests.CompleteAdding();
+            }
+
+            DrainPendingRequests(terminalResult);
         }
 
         private sealed class PickerRequest

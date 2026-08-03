@@ -127,6 +127,9 @@ namespace DTXMania.Game.Lib.Stage
         // the current activation and initialization generation.
         private readonly System.Collections.Concurrent.ConcurrentQueue<SongInitializationResult>
             _pendingSongInitializationResults = new();
+        // Both worker publication and deactivation cleanup use this gate. It makes the
+        // post-task selective cleanup atomic with enqueues while retaining newer records.
+        private readonly object _songInitializationQueueGate = new();
         private long _songInitializationGeneration;
         private long _activeSongInitializationGeneration;
 
@@ -405,6 +408,14 @@ namespace DTXMania.Game.Lib.Stage
 
         public override void Deactivate()
         {
+            // Capture the cancelled initializer identity before invalidating this activation.
+            // Its worker can have passed cancellation checks and enqueue only after the
+            // immediate drain below, so its terminal continuation removes just this record.
+            var cancelledInitializationTask = _songInitializationTask;
+            int cancelledInitializationActivationVersion = Volatile.Read(ref _activationVersion);
+            long cancelledInitializationGeneration =
+                Volatile.Read(ref _activeSongInitializationGeneration);
+
             // Invalidate every activation-scoped continuation immediately rather than waiting
             // for the next Activate call. This prevents a canceled initialization task from
             // writing a stale snapshot into a stage that is already inactive.
@@ -426,24 +437,37 @@ namespace DTXMania.Game.Lib.Stage
 
             // Use non-blocking observation to avoid hanging the UI
             // Attach a continuation to handle exceptions without waiting synchronously
-            if (_songInitializationTask != null)
+            if (cancelledInitializationTask != null)
             {
                 // Capture the token source so we can dispose it after the task completes
                 var cts = _cancellationTokenSource;
                 _cancellationTokenSource = null;
 
                 // Observe the task result asynchronously via continuation to prevent unobserved exceptions
-                _songInitializationTask.ContinueWith(
+                cancelledInitializationTask.ContinueWith(
                     task =>
                     {
-                        if (task.IsFaulted)
+                        try
                         {
-                            // Log the exception for debugging but don't throw
-                            System.Diagnostics.Debug.WriteLine(
-                                $"SongSelectionStage.Deactivate: Task faulted during deactivation: {task.Exception?.GetBaseException().Message}");
+                            if (task.IsFaulted)
+                            {
+                                // Log the exception for debugging but don't throw
+                                System.Diagnostics.Debug.WriteLine(
+                                    $"SongSelectionStage.Deactivate: Task faulted during deactivation: {task.Exception?.GetBaseException().Message}");
+                            }
+
+                            // This continuation never touches UI-owned state. The worker queues
+                            // its immutable record before completing, so selective cleanup here
+                            // catches records published after the immediate deactivation drain.
+                            DiscardQueuedSongInitializationResults(
+                                cancelledInitializationActivationVersion,
+                                cancelledInitializationGeneration);
                         }
-                        // Dispose the token source after the task has completed
-                        cts?.Dispose();
+                        finally
+                        {
+                            // Dispose the token source after the task has completed.
+                            cts?.Dispose();
+                        }
                     },
                     TaskScheduler.Default);
             }
@@ -857,7 +881,10 @@ namespace DTXMania.Game.Lib.Stage
                                 Array.Empty<SongListNode>());
                         }
 
-                        _pendingSongInitializationResults.Enqueue(result);
+                        lock (_songInitializationQueueGate)
+                        {
+                            _pendingSongInitializationResults.Enqueue(result);
+                        }
                         return result.SongList.ToList();
                     }, token);
 
@@ -1117,12 +1144,15 @@ namespace DTXMania.Game.Lib.Stage
             long initializationGeneration)
         {
             SongInitializationResult? matchingResult = null;
-            while (_pendingSongInitializationResults.TryDequeue(out var result))
+            lock (_songInitializationQueueGate)
             {
-                if (result.ActivationVersion == activationVersion
-                    && result.Generation == initializationGeneration)
+                while (_pendingSongInitializationResults.TryDequeue(out var result))
                 {
-                    matchingResult = result;
+                    if (result.ActivationVersion == activationVersion
+                        && result.Generation == initializationGeneration)
+                    {
+                        matchingResult = result;
+                    }
                 }
             }
 
@@ -1131,10 +1161,37 @@ namespace DTXMania.Game.Lib.Stage
 
         private void DiscardQueuedSongInitializationResults()
         {
-            while (_pendingSongInitializationResults.TryDequeue(out _))
+            lock (_songInitializationQueueGate)
             {
-                // Records are immutable and activation-tagged. Without an active initializer,
-                // none can legitimately be projected into this stage activation.
+                while (_pendingSongInitializationResults.TryDequeue(out _))
+                {
+                    // Records are immutable and activation-tagged. Without an active initializer,
+                    // none can legitimately be projected into this stage activation.
+                }
+            }
+        }
+
+        private void DiscardQueuedSongInitializationResults(
+            int activationVersion,
+            long initializationGeneration)
+        {
+            lock (_songInitializationQueueGate)
+            {
+                if (_pendingSongInitializationResults.IsEmpty)
+                    return;
+
+                var retainedResults = new List<SongInitializationResult>();
+                while (_pendingSongInitializationResults.TryDequeue(out var result))
+                {
+                    if (result.ActivationVersion != activationVersion ||
+                        result.Generation != initializationGeneration)
+                    {
+                        retainedResults.Add(result);
+                    }
+                }
+
+                foreach (var result in retainedResults)
+                    _pendingSongInitializationResults.Enqueue(result);
             }
         }
 
