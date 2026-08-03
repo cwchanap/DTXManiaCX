@@ -284,6 +284,26 @@ public class AppPathsEnvironmentTests
     }
 
     [Fact]
+    public void GetCrashReportsRoot_ShouldUseAppDataCrashReportsDirectory()
+    {
+        var previous = Environment.GetEnvironmentVariable("DTXMANIA_APPDATA_ROOT");
+        var root = Path.Combine(Path.GetTempPath(), "dtx-crash-root-" + Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", root);
+
+            Assert.Equal(
+                Path.Combine(Path.GetFullPath(root), "CrashReports"),
+                AppPaths.GetCrashReportsRoot());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", previous);
+        }
+    }
+
+    [Fact]
     public void GetAppDataRoot_WhenEnvironmentOverrideIsBlank_ShouldUseDefaultRoot()
     {
         const string envName = "DTXMANIA_APPDATA_ROOT";

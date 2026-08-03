@@ -109,6 +109,11 @@ namespace DTXMania.Game.Lib.Utilities
             return Path.GetFullPath(Path.Combine(GetAppDataRoot(), "Config.ini"));
         }
 
+        public static string GetCrashReportsRoot()
+        {
+            return Path.GetFullPath(Path.Combine(GetAppDataRoot(), "CrashReports"));
+        }
+
         public static string GetDefaultSongsPath()
         {
             return Path.GetFullPath(Path.Combine(GetAppDataRoot(), "DTXFiles"));
