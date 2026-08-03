@@ -104,7 +104,7 @@ public class SongManagerCoverageTests : IDisposable
         await CreateDtxFileAsync(Path.Combine(songFolder, "song.dtx"), "Refresh Song", "Test Bot", "Pop", 40);
 
         await InitializeAndEnumerateAsync(songsRoot);
-        SetDatabaseLastWriteTime(DateTime.Now.AddMinutes(5));
+        await SetLastEnumerationTimestampAsync(DateTime.Now.AddMinutes(5));
         ClearRootSongs();
 
         await _manager.RefreshSongListFromDatabaseAsync();
@@ -177,7 +177,7 @@ public class SongManagerCoverageTests : IDisposable
         await CreateDtxFileAsync(Path.Combine(songFolder, "cached.dtx"), "Cached Song", "Coverage Bot", "Fusion", 35);
 
         await InitializeAndEnumerateAsync(songsRoot);
-        SetDatabaseLastWriteTime(DateTime.Now.AddMinutes(5));
+        await SetLastEnumerationTimestampAsync(DateTime.Now.AddMinutes(5));
         ClearRootSongs();
 
         var loaded = await _manager.LoadScoreCacheAsync(new[] { songsRoot });
@@ -258,7 +258,7 @@ public class SongManagerCoverageTests : IDisposable
         await CreateDtxFileAsync(Path.Combine(songFolder, "stable.dtx"), "Stable Song", "Coverage Bot", "Jazz", 40);
 
         await InitializeAndEnumerateAsync(songsRoot);
-        SetDatabaseLastWriteTime(DateTime.Now.AddMinutes(5));
+        await SetLastEnumerationTimestampAsync(DateTime.Now.AddMinutes(5));
 
         var needsEnumeration = await _manager.NeedsEnumerationAsync(new[] { songsRoot });
 
@@ -293,12 +293,91 @@ public class SongManagerCoverageTests : IDisposable
         // The removed root's files still exist on disk; only the configured root
         // set changes. Its rows remain in the database (the import path only
         // removes stale charts under active roots).
-        SetDatabaseLastWriteTime(DateTime.Now.AddMinutes(5));
+        await SetLastEnumerationTimestampAsync(DateTime.Now.AddMinutes(5));
 
         // Simulate the next startup with the removed root no longer configured.
         var needsEnumeration = await _manager.NeedsEnumerationAsync(new[] { retainedRoot });
 
         Assert.False(needsEnumeration);
+    }
+
+    [Fact]
+    public async Task NeedsEnumerationAsync_WhenRemovedRootIsDeletedAndItsRowsRetained_ShouldStillLoadFromCache()
+    {
+        // Regression: CheckDatabaseFilesStillExist must scope its existence check to
+        // the active roots. A removed root's charts are retained in the database
+        // (the import path only purges stale charts under active roots), and the
+        // root's files are typically gone (deleted, unmounted, or on an external
+        // drive that was detached). The unscoped check loaded every retained chart
+        // and flagged the removed root's charts as missing on every startup, forcing
+        // a full rescan even though the active library was unchanged.
+        var retainedRoot = Path.Combine(_testRoot, "RetainedSongsKept");
+        var removedRoot = Path.Combine(_testRoot, "RemovedSongsDeleted");
+        var retainedFolder = Path.Combine(retainedRoot, "Retained Song");
+        var removedFolder = Path.Combine(removedRoot, "Removed Song");
+
+        Directory.CreateDirectory(retainedFolder);
+        Directory.CreateDirectory(removedFolder);
+        await CreateDtxFileAsync(Path.Combine(retainedFolder, "retained.dtx"), "Retained Song", "Coverage Bot", "Jazz", 40);
+        await CreateDtxFileAsync(Path.Combine(removedFolder, "removed.dtx"), "Removed Song", "Coverage Bot", "Jazz", 50);
+
+        // Enumerate both roots so the database holds rows for each.
+        var initialized = await _manager.InitializeDatabaseServiceAsync(_testDbPath);
+        Assert.True(initialized);
+        var enumerated = await _manager.EnumerateSongsAsync(new[] { retainedRoot, removedRoot });
+        Assert.True(enumerated >= 2);
+        Assert.NotNull(_manager.DatabaseService);
+
+        // The removed root's files are gone (deleted/unmounted/detached) but its
+        // rows remain in the database (the import path only purges stale charts
+        // under active roots).
+        Directory.Delete(removedRoot, recursive: true);
+        await SetLastEnumerationTimestampAsync(DateTime.Now.AddMinutes(5));
+
+        // Simulate the next startup with the removed root no longer configured.
+        var needsEnumeration = await _manager.NeedsEnumerationAsync(new[] { retainedRoot });
+
+        Assert.False(needsEnumeration);
+    }
+
+    [Fact]
+    public async Task NeedsEnumerationAsync_WhenUnrelatedDatabaseWriteFollowsChartEdit_ShouldStillDetectEdit()
+    {
+        // Regression: the cache-freshness threshold must be an explicit
+        // LastSuccessfulEnumerationUtc metadata value, not the SQLite database
+        // file's last-write time. An unrelated SaveChangesAsync (bookmark toggle,
+        // score save) advances the database file mtime; deriving the enumeration
+        // time from it would let that write mask a chart edit that happened between
+        // the enumeration and the write when the file count is unchanged.
+        var songsRoot = Path.Combine(_testRoot, "UnrelatedWriteAfterEdit");
+        var songFolder = Path.Combine(songsRoot, "Song");
+        var songPath = Path.Combine(songFolder, "song.dtx");
+        Directory.CreateDirectory(songFolder);
+        await CreateDtxFileAsync(songPath, "Edit Song", "Coverage Bot", "Rock", 35);
+        await InitializeAndEnumerateAsync(songsRoot);
+        Assert.NotNull(_manager.DatabaseService);
+
+        // Simulate an enumeration that finished 10 minutes ago. Pin both the
+        // metadata threshold and the directory mtimes to that moment so the only
+        // signal that can trip change detection is the chart file edit below.
+        var enumerationTime = DateTime.Now.AddMinutes(-10);
+        await SetLastEnumerationTimestampAsync(enumerationTime);
+        Directory.SetLastWriteTime(songsRoot, enumerationTime.AddMinutes(-1));
+        Directory.SetLastWriteTime(songFolder, enumerationTime.AddMinutes(-1));
+
+        // Modify the chart 5 minutes after the enumeration (file count unchanged).
+        File.SetLastWriteTime(songPath, enumerationTime.AddMinutes(5));
+
+        // Perform an unrelated database write (bookmark toggle) now. Under the old
+        // DB-mtime-based threshold, this advanced the threshold to ~now, which is
+        // after the chart edit, masking it (the 5-minutes-ago edit would appear
+        // older than the now-1minute threshold).
+        var song = (await _manager.DatabaseService!.GetSongsAsync()).Single();
+        await _manager.DatabaseService.SetBookmarkAsync(song.Id, true);
+
+        var needsEnumeration = await _manager.NeedsEnumerationAsync(new[] { songsRoot });
+
+        Assert.True(needsEnumeration);
     }
 
     [Fact]
@@ -312,7 +391,7 @@ public class SongManagerCoverageTests : IDisposable
         await CreateDtxFileAsync(Path.Combine(firstSongFolder, "first.dtx"), "First Song", "Coverage Bot", "Jazz", 40);
 
         await InitializeAndEnumerateAsync(songsRoot);
-        SetDatabaseLastWriteTime(DateTime.Now.AddMinutes(5));
+        await SetLastEnumerationTimestampAsync(DateTime.Now.AddMinutes(5));
 
         Directory.CreateDirectory(secondSongFolder);
         await CreateDtxFileAsync(Path.Combine(secondSongFolder, "second.dtx"), "Second Song", "Coverage Bot", "Jazz", 55);
@@ -389,7 +468,7 @@ public class SongManagerCoverageTests : IDisposable
 
         ReflectionHelpers.SetPrivateField(_manager, "_currentSearchPaths", new[] { songsRoot });
 
-        var checkTask = ReflectionHelpers.InvokePrivateMethod<Task<bool>>(_manager, "CheckDatabaseFilesStillExist");
+        var checkTask = ReflectionHelpers.InvokePrivateMethod<Task<bool>>(_manager, "CheckDatabaseFilesStillExist", new object[] { new[] { songsRoot } });
         Assert.NotNull(checkTask);
 
         var changeDetected = await checkTask!;
@@ -798,10 +877,10 @@ public class SongManagerCoverageTests : IDisposable
         File.Delete(chartPath);
         
         ReflectionHelpers.SetPrivateField(_manager, "_currentSearchPaths", new[] { Path.Combine(_testRoot, "NonExistentPath") });
-        
-        var checkTask = ReflectionHelpers.InvokePrivateMethod<Task<bool>>(_manager, "CheckDatabaseFilesStillExist");
+
+        var checkTask = ReflectionHelpers.InvokePrivateMethod<Task<bool>>(_manager, "CheckDatabaseFilesStillExist", new object[] { new[] { songsRoot } });
         Assert.NotNull(checkTask);
-        
+
         var changeDetected = await checkTask!;
         
         Assert.True(changeDetected);
@@ -846,7 +925,7 @@ public class SongManagerCoverageTests : IDisposable
     [Fact]
     public async Task CheckDatabaseFilesStillExist_WithoutDatabaseService_ShouldReturnFalse()
     {
-        var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(_manager, "CheckDatabaseFilesStillExist");
+        var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(_manager, "CheckDatabaseFilesStillExist", new object[] { new[] { _testRoot } });
 
         Assert.False(result);
     }
@@ -860,7 +939,7 @@ public class SongManagerCoverageTests : IDisposable
         {
             ReflectionHelpers.SetPrivateField(_manager, "_databaseService", CreateBrokenDatabaseServiceWithDatabasePath("\0invalid"));
 
-            var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(_manager, "CheckDatabaseFilesStillExist");
+            var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(_manager, "CheckDatabaseFilesStillExist", new object[] { new[] { _testRoot } });
 
             Assert.False(result);
         }
@@ -953,96 +1032,6 @@ public class SongManagerCoverageTests : IDisposable
             "CheckDirectoryForChangesAsync",
             "\0invalid",
             DateTime.Now);
-
-        Assert.True(result);
-    }
-
-    [Fact]
-    public async Task CheckSubdirectoriesForChangesAsync_WhenMaxDepthReached_ShouldReturnFalse()
-    {
-        var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
-            _manager,
-            "CheckSubdirectoriesForChangesAsync",
-            _testRoot,
-            DateTime.Now,
-            10,
-            10);
-
-        Assert.False(result);
-    }
-
-    [Fact]
-    public async Task CheckSubdirectoriesForChangesAsync_WhenOnlySkippedDirectoriesExist_ShouldReturnFalse()
-    {
-        Directory.CreateDirectory(Path.Combine(_testRoot, "System"));
-        Directory.CreateDirectory(Path.Combine(_testRoot, "Cache"));
-        Directory.CreateDirectory(Path.Combine(_testRoot, ".hidden"));
-
-        var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
-            _manager,
-            "CheckSubdirectoriesForChangesAsync",
-            _testRoot,
-            DateTime.Now,
-            0,
-            10);
-
-        Assert.False(result);
-    }
-
-    [Fact]
-    public async Task CheckSubdirectoriesForChangesAsync_WhenSubdirectoryWasModified_ShouldReturnTrue()
-    {
-        var songsRoot = Path.Combine(_testRoot, "SubdirModified");
-        var subdir = Path.Combine(songsRoot, "Pack");
-        Directory.CreateDirectory(subdir);
-        var lastEnumerationTime = DateTime.Now.AddMinutes(-5);
-        Directory.SetLastWriteTime(subdir, DateTime.Now);
-
-        var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
-            _manager,
-            "CheckSubdirectoriesForChangesAsync",
-            songsRoot,
-            lastEnumerationTime,
-            0,
-            10);
-
-        Assert.True(result);
-    }
-
-    [Fact]
-    public async Task CheckSubdirectoriesForChangesAsync_WhenSubdirectoryDtxWasModified_ShouldReturnTrue()
-    {
-        var songsRoot = Path.Combine(_testRoot, "SubdirFileModified");
-        var subdir = Path.Combine(songsRoot, "Pack");
-        Directory.CreateDirectory(subdir);
-        var dtxPath = Path.Combine(subdir, "changed.dtx");
-        await CreateDtxFileAsync(dtxPath, "Changed Song", "Coverage Bot", "Rock", 40);
-
-        var lastEnumerationTime = DateTime.Now.AddMinutes(-5);
-        Directory.SetLastWriteTime(subdir, lastEnumerationTime.AddMinutes(-1));
-        File.SetLastWriteTime(dtxPath, DateTime.Now);
-
-        var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
-            _manager,
-            "CheckSubdirectoriesForChangesAsync",
-            songsRoot,
-            lastEnumerationTime,
-            0,
-            10);
-
-        Assert.True(result);
-    }
-
-    [Fact]
-    public async Task CheckSubdirectoriesForChangesAsync_WithInvalidPath_ShouldReturnTrue()
-    {
-        var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
-            _manager,
-            "CheckSubdirectoriesForChangesAsync",
-            "\0invalid",
-            DateTime.Now,
-            0,
-            10);
 
         Assert.True(result);
     }
@@ -1185,7 +1174,7 @@ public class SongManagerCoverageTests : IDisposable
 
         Directory.CreateDirectory(movedFolder);
         File.Move(originalPath, movedPath);
-        SetDatabaseLastWriteTime(DateTime.Now.AddMinutes(5));
+        await SetLastEnumerationTimestampAsync(DateTime.Now.AddMinutes(5));
 
         var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
             _manager,
@@ -1225,7 +1214,7 @@ public class SongManagerCoverageTests : IDisposable
         await CreateDtxFileAsync(songPath, "Changed Song", "Coverage Bot", "Rock", 35);
         await InitializeAndEnumerateAsync(songsRoot);
 
-        SetDatabaseLastWriteTime(DateTime.Now.AddMinutes(-10));
+        await SetLastEnumerationTimestampAsync(DateTime.Now.AddMinutes(-10));
         File.SetLastWriteTime(songPath, DateTime.Now);
 
         var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
@@ -1357,7 +1346,7 @@ public class SongManagerCoverageTests : IDisposable
         Directory.CreateDirectory(songFolder);
         await CreateDtxFileAsync(Path.Combine(songFolder, "song.dtx"), "Stable Song", "Coverage Bot", "Rock", 35);
         await InitializeAndEnumerateAsync(songsRoot);
-        SetDatabaseLastWriteTime(DateTime.Now.AddMinutes(5));
+        await SetLastEnumerationTimestampAsync(DateTime.Now.AddMinutes(5));
 
         var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
             _manager,
@@ -1407,7 +1396,7 @@ public class SongManagerCoverageTests : IDisposable
         // score-row inserts above) so GetLastEnumerationTimestampAsync reports a
         // steady-state timestamp in the future. Setting it before the inserts
         // would let SaveChangesAsync overwrite it with the current time.
-        SetDatabaseLastWriteTime(DateTime.Now.AddMinutes(5));
+        await SetLastEnumerationTimestampAsync(DateTime.Now.AddMinutes(5));
 
         // Filesystem still has exactly 1 chart file; database now has 3 score rows
         // but 1 chart row. The cache-freshness check compares chart counts, so it
@@ -1479,6 +1468,76 @@ public class SongManagerCoverageTests : IDisposable
             lastEnumerationTime);
 
         Assert.True(result);
+    }
+
+    // Regression: the chart-inventory scanner must count only the charts full
+    // enumeration would import. A set.def directory containing one referenced
+    // chart plus one unreferenced (backup/loose) chart must report a filesystem
+    // count of 1, matching the database count of 1. The previous recursive-glob
+    // counter ignored set.def and counted both files (filesystem count 2 vs
+    // database count 1), forcing a permanent rescan on every startup.
+    [Fact]
+    public async Task CountDTXFilesAsync_WithSetDefAndUnreferencedChart_ShouldCountOnlyReferenced()
+    {
+        var songsRoot = Path.Combine(_testRoot, "SetDefUnreferenced");
+        var setFolder = Path.Combine(songsRoot, "Song");
+        Directory.CreateDirectory(setFolder);
+
+        // set.def references only referenced.dtx; unreferenced.dtx is a loose
+        // chart in the same directory that enumeration must NOT import.
+        await File.WriteAllTextAsync(Path.Combine(setFolder, "set.def"), """
+#TITLE: SetDef Song
+#L1FILE referenced.dtx
+""");
+        await CreateDtxFileAsync(
+            Path.Combine(setFolder, "referenced.dtx"),
+            "SetDef Song", "Coverage Bot", "Rock", 40);
+        await CreateDtxFileAsync(
+            Path.Combine(setFolder, "unreferenced.dtx"),
+            "Unreferenced", "Coverage Bot", "Rock", 40);
+
+        var count = await ReflectionHelpers.InvokePrivateMethod<Task<int>>(
+            _manager,
+            "CountDTXFilesAsync",
+            (object)new[] { songsRoot });
+
+        Assert.Equal(1, count);
+    }
+
+    // Regression: DetectFilesystemChangesAsync must reach steady state (return
+    // false) after enumerating a set.def directory with an unreferenced chart.
+    // The previous recursive-glob counter permanently mismatched (filesystem 2
+    // vs database 1) and forced a rescan on every startup.
+    [Fact]
+    public async Task DetectFilesystemChangesAsync_WithSetDefAndUnreferencedChart_ShouldReachSteadyState()
+    {
+        var songsRoot = Path.Combine(_testRoot, "SetDefSteadyState");
+        var setFolder = Path.Combine(songsRoot, "Song");
+        Directory.CreateDirectory(setFolder);
+
+        await File.WriteAllTextAsync(Path.Combine(setFolder, "set.def"), """
+#TITLE: SetDef Song
+#L1FILE referenced.dtx
+""");
+        await CreateDtxFileAsync(
+            Path.Combine(setFolder, "referenced.dtx"),
+            "SetDef Song", "Coverage Bot", "Rock", 40);
+        await CreateDtxFileAsync(
+            Path.Combine(setFolder, "unreferenced.dtx"),
+            "Unreferenced", "Coverage Bot", "Rock", 40);
+
+        await InitializeAndEnumerateAsync(songsRoot);
+        // Pin the enumeration timestamp to the future so the only signal that can
+        // trip change detection is the count mismatch (or lack of it).
+        await SetLastEnumerationTimestampAsync(DateTime.Now.AddMinutes(5));
+        ClearRootSongs();
+
+        var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
+            _manager,
+            "DetectFilesystemChangesAsync",
+            (object)new[] { songsRoot });
+
+        Assert.False(result);
     }
 
     [Fact]
@@ -1692,10 +1751,18 @@ public class SongManagerCoverageTests : IDisposable
         rootSongs!.Clear();
     }
 
-    private void SetDatabaseLastWriteTime(DateTime lastWriteTime)
+    /// <summary>
+    /// Persists an explicit last-successful-enumeration timestamp into the
+    /// __EnumerationMetadata table, mirroring how UpdateEnumerationTimestampAsync
+    /// records it after a real enumeration. The cache-freshness check reads this
+    /// metadata value (not the database file's last-write time), so tests that need
+    /// to control the freshness threshold must write it here. <paramref name="localTimestamp"/>
+    /// is interpreted as a local time and stored as UTC.
+    /// </summary>
+    private async Task SetLastEnumerationTimestampAsync(DateTime localTimestamp)
     {
         Assert.NotNull(_manager.DatabaseService);
-        File.SetLastWriteTime(_manager.DatabaseService!.DatabasePath, lastWriteTime);
+        await _manager.DatabaseService!.SetLastSuccessfulEnumerationUtcAsync(localTimestamp.ToUniversalTime());
     }
 
     private static SongDatabaseService CreateBrokenDatabaseService()

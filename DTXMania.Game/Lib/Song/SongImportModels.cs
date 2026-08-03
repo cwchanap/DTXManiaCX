@@ -27,6 +27,40 @@ namespace DTXMania.Game.Lib.Song
         string Message,
         bool IsRootFailure);
 
+    /// <summary>
+    /// One filesystem entry (chart file, set.def, or directory) collected by the
+    /// shared chart-inventory scanner, with the timestamps the cache-freshness
+    /// change check compares against the last successful enumeration time.
+    /// </summary>
+    internal sealed record ChartInventoryEntry(
+        string Path,
+        DateTime LastWriteTime,
+        DateTime CreationTime);
+
+    /// <summary>
+    /// The result of a single filesystem walk over the active song roots that
+    /// mirrors full enumeration's directory and set.def discovery rules. Used by
+    /// both the chart-file count and the mtime change check so they agree with
+    /// what full enumeration would import (set.def-referenced charts only, no
+    /// unreferenced/backup charts; case-insensitive extension matching) and so
+    /// the active roots are walked once instead of once per extension per pass.
+    /// <para>
+    /// <see cref="Charts"/> holds exactly the chart files full enumeration would
+    /// import (deduplicated by normalized path so overlapping roots or a set.def
+    /// referencing the same file from two difficulties cannot double-count).
+    /// <see cref="SetDefinitions"/> holds every <c>set.def</c> discovered (its
+    /// modification signals a rescan even when referenced charts are unchanged).
+    /// <see cref="Directories"/> holds every directory visited for the directory
+    /// mtime change signal.
+    /// </para>
+    /// </summary>
+    internal sealed class ChartInventory
+    {
+        public List<ChartInventoryEntry> Charts { get; } = new();
+        public List<ChartInventoryEntry> SetDefinitions { get; } = new();
+        public List<ChartInventoryEntry> Directories { get; } = new();
+    }
+
     internal enum SongBulkImportMilestone
     {
         PreloadStarted,
