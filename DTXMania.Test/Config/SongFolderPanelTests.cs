@@ -8,9 +8,13 @@ using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using DTXMania.Game.Lib.Config;
+using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Stage.Config;
+using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
+using Moq;
 
 namespace DTXMania.Test.Config;
 
@@ -184,6 +188,43 @@ public sealed class SongFolderPanelTests
 
         Assert.Equal(new[] { Path.GetFullPath(missingPath) }, capturedRoots);
         Assert.False(panel.IsActive);
+    }
+
+    [Fact]
+    public void Draw_WhenAvailabilityChangesAfterActivation_ShouldUseCachedWarningAcrossRepeatedFrames()
+    {
+        var missingPath = Path.Combine(Path.GetTempPath(), $"dtxmania-panel-cache-{Guid.NewGuid():N}");
+        var panel = CreatePanel(new[] { missingPath });
+        panel.Activate();
+        var statusMessage = Assert.IsType<string>(panel.StatusMessage);
+        var font = new Mock<IFont>();
+        font.Setup(value => value.MeasureString(It.IsAny<string>())).Returns(Vector2.One);
+        var spriteBatch = CreateUninitializedSpriteBatch();
+
+        try
+        {
+            // The panel already captured the missing-root warning. If Draw validates again,
+            // this newly created directory changes that warning into a non-warning frame.
+            Directory.CreateDirectory(missingPath);
+
+            panel.Draw(spriteBatch, font.Object, boldFont: null, whitePixel: null,
+                virtualWidth: 1280, virtualHeight: 720);
+            panel.Draw(spriteBatch, font.Object, boldFont: null, whitePixel: null,
+                virtualWidth: 1280, virtualHeight: 720);
+
+            font.Verify(value => value.DrawString(
+                    spriteBatch,
+                    statusMessage,
+                    It.IsAny<Vector2>(),
+                    It.Is<Color>(color => color == new Color(255, 196, 96))),
+                Times.Exactly(2));
+        }
+        finally
+        {
+            GC.SuppressFinalize(spriteBatch);
+            if (Directory.Exists(missingPath))
+                Directory.Delete(missingPath, recursive: true);
+        }
     }
 
     [Fact]
@@ -418,6 +459,14 @@ public sealed class SongFolderPanelTests
 
     private static void Press(SongFolderPanel panel, Keys key) =>
         panel.Update(0, new KeyboardState(key), new KeyboardState());
+
+    private static SpriteBatch CreateUninitializedSpriteBatch()
+    {
+#pragma warning disable SYSLIB0050
+        return (SpriteBatch)System.Runtime.Serialization.FormatterServices
+            .GetUninitializedObject(typeof(SpriteBatch));
+#pragma warning restore SYSLIB0050
+    }
 
     private sealed class QueuedFolderPicker : IFolderPickerService
     {

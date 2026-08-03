@@ -537,6 +537,46 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void CheckSongInitializationCompletion_WhenPriorActivationCompletesAfterSynchronousReactivation_ShouldDiscardQueuedResult()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            AttachCoreUi(stage, display: display);
+            var currentNode = Score("Current", 101, "/library/current/current.dtx");
+            var staleNode = Score("Stale", 100, "/library/stale/stale.dtx");
+            var currentSnapshot = Snapshot(101, new[] { currentNode }, new[] { "/library/current" });
+            var staleSnapshot = Snapshot(100, new[] { staleNode }, new[] { "/library/stale" });
+            var completions = GetPrivateField<
+                System.Collections.Concurrent.ConcurrentQueue<SongSelectionStage.SongInitializationResult>>(
+                stage,
+                "_pendingSongInitializationResults")!;
+
+            // Model a late worker from activation 100 arriving after activation 101 took the
+            // already-initialized synchronous path, so there is no current initializer task.
+            SetPrivateField(stage, "_activationVersion", 101);
+            SetPrivateField(stage, "_activeSongInitializationGeneration", 0L);
+            SetPrivateField(stage, "_songInitializationTask", null!);
+            SetPrivateField(stage, "_songInitializationProcessed", false);
+            SetPrivateField(stage, "_appliedLibrarySnapshot", currentSnapshot);
+            SetPrivateField(stage, "_appliedLibraryPublicationVersion", 101L);
+            SetPrivateField(stage, "_currentSongList", new List<SongListNode> { currentNode });
+            display.CurrentList = new List<SongListNode> { currentNode };
+            completions.Enqueue(new SongSelectionStage.SongInitializationResult(
+                100,
+                17,
+                staleSnapshot,
+                new[] { staleNode }));
+
+            InvokePrivateMethod(stage, "CheckSongInitializationCompletion");
+
+            Assert.Empty(completions);
+            Assert.Same(currentSnapshot, GetPrivateField<SongLibrarySnapshot>(
+                stage,
+                "_appliedLibrarySnapshot"));
+            Assert.Equal(new[] { currentNode }, display.CurrentList);
+        }
+
+        [Fact]
         public void OnSongLibraryPublished_AfterDeactivation_ShouldIgnoreTheNotification()
         {
             var stage = CreateStage();

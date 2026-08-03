@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using DTXMania.Game.Lib.Stage.Config;
@@ -86,5 +87,101 @@ public sealed class FolderPickerContractTests
     public void PlatformFactory_ShouldProduceTheMacPickerForTheMacBuild()
     {
         Assert.IsType<MacFolderPickerService>(FolderPickerServiceFactory.Create());
+    }
+
+    [Fact]
+    public async Task StaDispatcher_WhenCancellationOccursWhileDialogIsOpen_ShouldCloseItAndServeTheNextRequest()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var firstDialog = new BlockingFolderPickerDialog();
+        var secondDialog = new ImmediateFolderPickerDialog(FolderPickerResult.Selected("/tmp/next-songs"));
+        var factory = new QueuedFolderPickerDialogFactory(firstDialog, secondDialog);
+        using var picker = new StaFolderPickerDispatcher(factory);
+
+        var firstRequest = picker.PickFolderAsync(null, cancellation.Token);
+        await firstDialog.Opened.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        cancellation.Cancel();
+
+        var firstResult = await firstRequest.WaitAsync(TimeSpan.FromSeconds(1));
+        var secondResult = await picker.PickFolderAsync(null, CancellationToken.None)
+            .WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.Equal(FolderPickerStatus.Cancelled, firstResult.Status);
+        Assert.Equal(FolderPickerStatus.Selected, secondResult.Status);
+        Assert.Equal("/tmp/next-songs", secondResult.Path);
+        Assert.Equal(1, factory.CloseRequests);
+        Assert.Equal(1, firstDialog.CloseRequests);
+    }
+
+    private sealed class QueuedFolderPickerDialogFactory : IStaFolderPickerDialogFactory
+    {
+        private readonly Queue<IStaFolderPickerDialog> _dialogs;
+
+        internal QueuedFolderPickerDialogFactory(params IStaFolderPickerDialog[] dialogs)
+        {
+            _dialogs = new Queue<IStaFolderPickerDialog>(dialogs);
+        }
+
+        internal int CloseRequests { get; private set; }
+
+        public void InitializeDispatcherThread()
+        {
+        }
+
+        public IStaFolderPickerDialog CreateDialog() => _dialogs.Dequeue();
+
+        public void CloseOnDispatcher(IStaFolderPickerDialog dialog)
+        {
+            CloseRequests++;
+            dialog.Close();
+        }
+    }
+
+    private sealed class BlockingFolderPickerDialog : IStaFolderPickerDialog
+    {
+        private readonly ManualResetEventSlim _closed = new(false);
+
+        internal TaskCompletionSource<bool> Opened { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal int CloseRequests { get; private set; }
+
+        public FolderPickerResult Show(string? initialDirectory)
+        {
+            Opened.TrySetResult(true);
+            if (!_closed.Wait(TimeSpan.FromSeconds(3)))
+                throw new TimeoutException("The test dialog was not closed after cancellation.");
+
+            return FolderPickerResult.Cancelled();
+        }
+
+        public void Close()
+        {
+            CloseRequests++;
+            _closed.Set();
+        }
+
+        public void Dispose() => _closed.Dispose();
+    }
+
+    private sealed class ImmediateFolderPickerDialog : IStaFolderPickerDialog
+    {
+        private readonly FolderPickerResult _result;
+
+        internal ImmediateFolderPickerDialog(FolderPickerResult result)
+        {
+            _result = result;
+        }
+
+        public FolderPickerResult Show(string? initialDirectory) => _result;
+
+        public void Close()
+        {
+        }
+
+        public void Dispose()
+        {
+        }
     }
 }

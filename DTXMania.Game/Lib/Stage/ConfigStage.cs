@@ -648,7 +648,7 @@ namespace DTXMania.Game.Lib.Stage
                 () => FormatSongFolderCount(_configManager.Config.SongRoots.Count),
                 () => OpenPanel(_songFolderPanel))
             {
-                Description = "Edit the ordered song folders. Apply saves the list; restart to reload songs."
+                Description = "Edit the ordered song folders. Apply saves the list and triggers one live reload."
             };
 
             var systemKeyItem = new NavigationConfigItem("System Key Mapping",

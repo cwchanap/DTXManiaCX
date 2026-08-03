@@ -43,6 +43,19 @@ namespace DTXMania.Game.Lib.Song
         {
             ArgumentNullException.ThrowIfNull(roots);
 
+            if (roots.Count == 0)
+            {
+                return new SongRootValidationResult(
+                    Array.Empty<string>(),
+                    new[]
+                    {
+                        new SongRootDiagnostic(
+                            string.Empty,
+                            "At least one configured song root is required.",
+                            IsWarning: false),
+                    });
+            }
+
             var canonicalRoots = new List<string>(roots.Count);
             var diagnostics = new List<SongRootDiagnostic>();
             foreach (var configuredRoot in roots)

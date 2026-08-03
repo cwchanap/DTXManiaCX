@@ -279,6 +279,7 @@ namespace DTXMania.Game.Lib.Stage
             _cancellationTokenSource = new CancellationTokenSource();
             _songInitializationProcessed = false;
             Interlocked.Exchange(ref _activeSongInitializationGeneration, 0);
+            DiscardQueuedSongInitializationResults();
             _appliedLibrarySnapshot = null;
             _libraryEmptyState = SongLibraryEmptyState.HasSongs;
             Interlocked.Exchange(ref _pendingLibraryPublicationVersion, 0);
@@ -455,6 +456,7 @@ namespace DTXMania.Game.Lib.Stage
             // Clean up task references
             _songInitializationTask = null;
             Interlocked.Exchange(ref _activeSongInitializationGeneration, 0);
+            DiscardQueuedSongInitializationResults();
             _appliedLibrarySnapshot = null;
             Interlocked.Exchange(ref _pendingLibraryPublicationVersion, 0);
 
@@ -1027,8 +1029,18 @@ namespace DTXMania.Game.Lib.Stage
 
         private void CheckSongInitializationCompletion()
         {
+            // A synchronous reactivation has no initializer task, but a cancelled worker from
+            // an earlier activation can still enqueue a tagged result afterward. It cannot be
+            // applied without a current task, so discard it on the update thread instead of
+            // retaining copied snapshots/root arrays until some future asynchronous load.
+            if (_songInitializationTask == null)
+            {
+                DiscardQueuedSongInitializationResults();
+                return;
+            }
+
             // Check if we have a running task and it's completed
-            if (_songInitializationTask != null && _songInitializationTask.IsCompleted && !_songInitializationProcessed)
+            if (_songInitializationTask.IsCompleted && !_songInitializationProcessed)
             {
                 _songInitializationProcessed = true;
 
@@ -1115,6 +1127,15 @@ namespace DTXMania.Game.Lib.Stage
             }
 
             return matchingResult;
+        }
+
+        private void DiscardQueuedSongInitializationResults()
+        {
+            while (_pendingSongInitializationResults.TryDequeue(out _))
+            {
+                // Records are immutable and activation-tagged. Without an active initializer,
+                // none can legitimately be projected into this stage activation.
+            }
         }
 
         /// <summary>
