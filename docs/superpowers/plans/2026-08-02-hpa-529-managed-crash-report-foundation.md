@@ -2,6 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Status:** Ready for implementation after PR review.  
 **Goal:** Add process-boundary managed crash capture that preserves console logging, writes privacy-safe local ZIP or emergency-text reports, keeps the newest five reports, and proves `Update`/`Draw` exceptions reach the executable boundary on WindowsDX and DesktopGL.
 
 **Architecture:** `CrashReportRuntime` is created at process entry and owns the shared `ILoggerFactory`, bounded crash buffers, cached context, sanitizer, and report store. `Game1` receives only an `IGameCrashDiagnostics` facade; fatal capture occurs in an explicit entry-point lifecycle before guarded game disposal. The crash path reads immutable copies of already-cached state and performs no network, database, graphics, device-enumeration, shell, or cross-thread work.
