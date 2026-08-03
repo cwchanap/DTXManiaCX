@@ -266,6 +266,57 @@ public class SongManagerCoverageTests : IDisposable
     }
 
     [Fact]
+    public async Task NeedsEnumerationAsync_WithPopulatedRootAndMissingEmptyRoot_ShouldReturnFalse()
+    {
+        // Reviewer regression (item 1): one stable populated root plus one
+        // missing empty configured root must reach steady state. The old
+        // missing-root check fired for the unavailable root whenever another
+        // root had charts, forcing a perpetual full scan.
+        var populatedRoot = Path.Combine(_testRoot, "PopulatedSongs");
+        var populatedFolder = Path.Combine(populatedRoot, "Song");
+        Directory.CreateDirectory(populatedFolder);
+        await CreateDtxFileAsync(
+            Path.Combine(populatedFolder, "song.dtx"),
+            "Populated Song", "Coverage Bot", "Rock", 35);
+
+        await InitializeAndEnumerateAsync(populatedRoot);
+        await SetLastEnumerationTimestampAsync(DateTime.Now.AddMinutes(5));
+
+        var missingRoot = Path.Combine(_testRoot, "MissingSongs");
+
+        var needsEnumeration = await _manager.NeedsEnumerationAsync(
+            new[] { populatedRoot, missingRoot });
+
+        Assert.False(needsEnumeration);
+    }
+
+    [Fact]
+    public async Task NeedsEnumerationAsync_AfterEnumerationViaCore_ShouldReturnFalseWithoutManualTimestamp()
+    {
+        // Reviewer regression (item 2): the timestamp must be set by
+        // EnumerateAndImportSongsCoreAsync (the path used by startup and Config
+        // live reload). Before the fix, only the test-only
+        // EnumerateSongsOnlyWithPublicationAsync wrapper set it, so
+        // LastSuccessfulEnumerationUtc was never persisted in production and
+        // every startup was a full scan.
+        var songsRoot = Path.Combine(_testRoot, "CoreTimestampSongs");
+        var songFolder = Path.Combine(songsRoot, "Song");
+        Directory.CreateDirectory(songFolder);
+        await CreateDtxFileAsync(
+            Path.Combine(songFolder, "song.dtx"),
+            "Core Timestamp Song", "Coverage Bot", "Jazz", 40);
+
+        // EnumerateSongsAsync routes through EnumerateAndImportSongsCoreAsync
+        // — the same core used by EnumerateAndImportSongsAsync (startup/reload).
+        // No manual SetLastEnumerationTimestampAsync: the core must set it.
+        await InitializeAndEnumerateAsync(songsRoot);
+
+        var needsEnumeration = await _manager.NeedsEnumerationAsync(new[] { songsRoot });
+
+        Assert.False(needsEnumeration);
+    }
+
+    [Fact]
     public async Task NeedsEnumerationAsync_WhenARootIsRemovedAndItsRowsRetained_ShouldStillLoadFromCache()
     {
         // Regression: the filesystem file count is scoped to the active roots,
@@ -1185,13 +1236,20 @@ public class SongManagerCoverageTests : IDisposable
     }
 
     [Fact]
-    public async Task DetectFilesystemChangesAsync_WhenMissingSearchPathHasDatabaseSongs_ShouldReturnTrue()
+    public async Task DetectFilesystemChangesAsync_WhenSecondaryRootMissing_ShouldNotForceRescan()
     {
+        // Regression: a missing/inaccessible configured root must not be treated
+        // as a filesystem change. The old explicit missing-root check fired
+        // whenever any configured root was absent AND the database had charts
+        // from another root, forcing a full scan on every startup — a scan that
+        // could never make the missing root available. The fix probes roots
+        // once and carries only available roots through every downstream check.
         var existingRoot = Path.Combine(_testRoot, "ExistingSongs");
         var existingFolder = Path.Combine(existingRoot, "Song");
         Directory.CreateDirectory(existingFolder);
         await CreateDtxFileAsync(Path.Combine(existingFolder, "song.dtx"), "Existing Song", "Coverage Bot", "Rock", 35);
         await InitializeAndEnumerateAsync(existingRoot);
+        await SetLastEnumerationTimestampAsync(DateTime.Now.AddMinutes(5));
 
         var missingRoot = Path.Combine(_testRoot, "MissingSongs");
 
@@ -1200,7 +1258,7 @@ public class SongManagerCoverageTests : IDisposable
             "DetectFilesystemChangesAsync",
             (object)new[] { missingRoot, existingRoot });
 
-        Assert.True(result);
+        Assert.False(result);
     }
 
     [Fact]
