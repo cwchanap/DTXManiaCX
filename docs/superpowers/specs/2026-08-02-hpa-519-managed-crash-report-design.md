@@ -2,6 +2,7 @@
 
 **Date:** 2026-08-02  
 **Status:** Approved  
+**Amended by:** [`2026-08-02-hpa-519-managed-crash-report-design-review.md`](./2026-08-02-hpa-519-managed-crash-report-design-review.md) — normative implementation constraints.  
 **Linear:** HPA-519 — Crash report  
 **Scope:** Capture managed fatal exceptions observed at the executable process boundary, retain a small sanitized diagnostic bundle, and offer a non-blocking GitHub issue handoff on the next launch.
 
