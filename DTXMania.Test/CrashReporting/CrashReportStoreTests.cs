@@ -367,6 +367,33 @@ public sealed class CrashReportStoreTests
     }
 
     [Fact]
+    public void Capture_WhenStartupMilestonePrecedesActiveStage_ShouldPreferActiveStage()
+    {
+        using var fixture = CrashStoreFixture.Create();
+        var contextStore = new CrashContextSnapshotStore();
+        contextStore.SetSnapshot(new CrashContextSnapshot(
+            CrashContextKind.Startup,
+            CrashContextStatus.Available,
+            new Dictionary<string, object?>
+            {
+                ["Milestone"] = StartupCriticalPathMilestone.SummaryRequest
+            }));
+        contextStore.SetSnapshot(new CrashContextSnapshot(
+            CrashContextKind.Stage,
+            CrashContextStatus.Available,
+            new Dictionary<string, object?>
+            {
+                ["Stage"] = StageType.Title
+            }));
+
+        var capture = fixture.CreateCapture(0) with { Context = contextStore.Snapshot() };
+
+        var report = Assert.IsType<CrashReportSummary>(fixture.CreateStore().Capture(capture).Report);
+
+        Assert.Equal(StageType.Title.ToString(), report.StageOrMilestone);
+    }
+
+    [Fact]
     public void Capture_EmergencyText_ShouldUseVersionedHeaderAndBeDiscoverable()
     {
         using var fixture = CrashStoreFixture.Create();
