@@ -49,13 +49,24 @@ public sealed class MacFolderPickerServiceTests
         var startInfo = MacFolderPickerService.CreateStartInfo(directory.Path);
 
         var script = startInfo.ArgumentList[1];
+        var escapedPath = directory.Path
+            .Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("\"", "\\\"", StringComparison.Ordinal);
         Assert.Contains("default location POSIX file", script, StringComparison.Ordinal);
-        Assert.Contains(directory.Path, script, StringComparison.Ordinal);
+        Assert.Contains(escapedPath, script, StringComparison.Ordinal);
     }
 
     [Fact]
     public void CreateStartInfo_WhenPathContainsSpecialCharacters_ShouldEscapeForAppleScript()
     {
+        if (OperatingSystem.IsWindows())
+        {
+            // Windows forbids quotes in directory names. The Windows-safe
+            // backslash case is covered by the existing-directory test above,
+            // while the macOS job exercises both quote and backslash escaping.
+            return;
+        }
+
         // Build a directory whose name contains characters AppleScript must escape
         // (double-quote and backslash). Both are legal in macOS directory names.
         var suffix = "with\"quote\\and-backslash-" + Guid.NewGuid().ToString("N");
