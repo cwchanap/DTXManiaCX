@@ -105,11 +105,11 @@ public sealed class SongManagerLibrarySnapshotTests : IDisposable
         var activeRoots = new List<string> { "/roots/one" };
 
         var snapshot = new SongLibrarySnapshot(
-            Version: 42,
-            RootSongs: roots,
-            ActiveRoots: activeRoots,
-            EnumeratedFileCount: 3,
-            DiscoveredScoreCount: 2);
+            version: 42,
+            rootSongs: roots,
+            activeRoots: activeRoots,
+            enumeratedFileCount: 3,
+            discoveredScoreCount: 2);
         roots.Clear();
         activeRoots[0] = "/roots/mutated";
 

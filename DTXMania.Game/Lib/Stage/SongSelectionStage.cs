@@ -137,6 +137,7 @@ namespace DTXMania.Game.Lib.Stage
         // publisher can run on a worker thread, so it only records a version; OnUpdate is
         // the sole place that replaces UI-owned collections from a fetched snapshot.
         private SongLibrarySnapshot? _appliedLibrarySnapshot;
+        private HashSet<string>? _appliedLibraryScoreIdentities;
         private long _pendingLibraryPublicationVersion;
         private long _appliedLibraryPublicationVersion;
         private int _libraryPublicationActive;
@@ -284,6 +285,7 @@ namespace DTXMania.Game.Lib.Stage
             Interlocked.Exchange(ref _activeSongInitializationGeneration, 0);
             DiscardQueuedSongInitializationResults();
             _appliedLibrarySnapshot = null;
+            _appliedLibraryScoreIdentities = null;
             _libraryEmptyState = SongLibraryEmptyState.HasSongs;
             Interlocked.Exchange(ref _pendingLibraryPublicationVersion, 0);
             Interlocked.Exchange(ref _appliedLibraryPublicationVersion, 0);
@@ -482,6 +484,7 @@ namespace DTXMania.Game.Lib.Stage
             Interlocked.Exchange(ref _activeSongInitializationGeneration, 0);
             DiscardQueuedSongInitializationResults();
             _appliedLibrarySnapshot = null;
+            _appliedLibraryScoreIdentities = null;
             Interlocked.Exchange(ref _pendingLibraryPublicationVersion, 0);
 
             // Clean up UI
@@ -938,6 +941,8 @@ namespace DTXMania.Game.Lib.Stage
             ArgumentNullException.ThrowIfNull(snapshot);
 
             _appliedLibrarySnapshot = snapshot;
+            _appliedLibraryScoreIdentities =
+                GetPublishedScoreIdentities(snapshot.RootSongs);
             _currentSongList = snapshot.RootSongs.ToList();
             _libraryEmptyState = ResolveLibraryEmptyState(snapshot);
             if (_previewImagePanel != null)
@@ -1473,9 +1478,8 @@ namespace DTXMania.Game.Lib.Stage
             if (_appliedLibrarySnapshot == null || rootFilteredNodes.Count == 0)
                 return rootFilteredNodes;
 
-            var publishedScoreIdentities = GetPublishedScoreIdentities(
-                _appliedLibrarySnapshot.RootSongs);
-            if (publishedScoreIdentities.Count == 0)
+            var publishedScoreIdentities = _appliedLibraryScoreIdentities;
+            if (publishedScoreIdentities == null || publishedScoreIdentities.Count == 0)
                 return new List<SongListNode>();
 
             return rootFilteredNodes

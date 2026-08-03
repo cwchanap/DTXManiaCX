@@ -315,7 +315,7 @@ public sealed class SongFolderPanelTests
         panel.Activate();
 
         picker.Completion.TrySetResult(FolderPickerResult.Selected(staleSelection.Path));
-        await Task.Yield();
+        await WaitForPendingPickerCompletionAsync(panel);
         DrainPicker(panel);
 
         Assert.Equal(new[] { root.Path }, panel.DraftRoots);
@@ -438,12 +438,16 @@ public sealed class SongFolderPanelTests
     public void Apply_WhenConfigOwnedDelegateReportsFailure_ShouldKeepPanelOpen()
     {
         using var root = TemporaryDirectory.Create();
-        foreach (var status in new[]
-                 {
-                     SongFolderApplyStatus.Busy,
-                     SongFolderApplyStatus.ValidationFailed,
-                     SongFolderApplyStatus.PersistenceFailed,
-                 })
+        // SongFolderApplyStatus is internal, so it cannot be exposed on a public
+        // Theory parameter. The loop preserves per-status diagnostic clarity via
+        // explicit assertion messages instead.
+        var failureStatuses = new[]
+        {
+            SongFolderApplyStatus.Busy,
+            SongFolderApplyStatus.ValidationFailed,
+            SongFolderApplyStatus.PersistenceFailed,
+        };
+        foreach (var status in failureStatuses)
         {
             var panel = CreatePanel(
                 new[] { root.Path },
@@ -455,9 +459,30 @@ public sealed class SongFolderPanelTests
 
             ActivateAction(panel, rootCount: 1, actionOffset: 4);
 
-            Assert.True(panel.IsActive);
-            Assert.Contains("apply failed", panel.StatusMessage);
+            Assert.True(panel.IsActive,
+                $"Status {status} should keep the panel open.");
+            Assert.True(panel.StatusMessage.Contains("apply failed", StringComparison.Ordinal),
+                $"Status {status} should surface the diagnostic message.");
         }
+    }
+
+    [Fact]
+    public void Apply_WhenStarted_ShouldCommitRootsRaiseSavedBeforeClosedAndClosePanel()
+    {
+        using var root = TemporaryDirectory.Create();
+        var panel = CreatePanel(
+            new[] { root.Path },
+            apply: roots => ApplyResult(SongFolderApplyStatus.Started, roots));
+        var events = new List<string>();
+        panel.Saved += (_, _) => events.Add("Saved");
+        panel.Closed += (_, _) => events.Add("Closed");
+        panel.Activate();
+
+        ActivateAction(panel, rootCount: 1, actionOffset: 4);
+
+        Assert.Equal(SongFolderApplyStatus.Started, panel.LastApplyStatus);
+        Assert.Equal(new[] { "Saved", "Closed" }, events);
+        Assert.False(panel.IsActive);
     }
 
     private static SongFolderPanel CreatePanel(
@@ -497,6 +522,28 @@ public sealed class SongFolderPanelTests
 
     private static void DrainPicker(SongFolderPanel panel) =>
         panel.Update(0, new KeyboardState(), new KeyboardState());
+
+    private static int PendingPickerCompletionCount(SongFolderPanel panel)
+    {
+        var queue = typeof(SongFolderPanel)
+            .GetField("_pickerCompletions", BindingFlags.NonPublic | BindingFlags.Instance)
+            ?.GetValue(panel) as System.Collections.ICollection;
+        return queue?.Count ?? 0;
+    }
+
+    private static async Task WaitForPendingPickerCompletionAsync(
+        SongFolderPanel panel,
+        int timeoutMs = 2000)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        while (PendingPickerCompletionCount(panel) == 0)
+        {
+            if (DateTime.UtcNow >= deadline)
+                throw new TimeoutException(
+                    "A picker completion was not enqueued within the timeout.");
+            await Task.Yield();
+        }
+    }
 
     private static void Press(SongFolderPanel panel, Keys key) =>
         panel.Update(0, new KeyboardState(key), new KeyboardState());

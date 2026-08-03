@@ -269,6 +269,14 @@ namespace DTXMania.Game.Lib.Stage
             _importStatus = "";
             _songFolderStatus = "";
 
+            // Drop stale operation state from a prior activation. Terminal updates from a
+            // prior generation are discarded by DrainSongOperationUpdates, so without this
+            // the fields would retain references to a superseded lease/CTS until the next
+            // operation overwrites them. The prior operation's task continuation still owns
+            // lease/CTS disposal, so clearing the handles here does not leak.
+            _activeSongOperation = null;
+            _songOperationCts = null;
+
             _previousKeyboardState = Keyboard.GetState();
             _currentKeyboardState = Keyboard.GetState();
         }
@@ -1073,7 +1081,9 @@ namespace DTXMania.Game.Lib.Stage
 
                 _importStatus = "";
                 _songFolderStatus = "Reloading configured song folders...";
-                cancellation = new CancellationTokenSource();
+                cancellation = _songOperationCtsFactory()
+                    ?? throw new InvalidOperationException(
+                        "Song operation CTS factory returned null.");
                 releaseTransferred = StartSongOperation(
                     lease,
                     cancellation,

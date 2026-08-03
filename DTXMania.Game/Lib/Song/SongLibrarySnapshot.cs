@@ -13,20 +13,20 @@ namespace DTXMania.Game.Lib.Song
     public sealed record SongLibrarySnapshot
     {
         public SongLibrarySnapshot(
-            long Version,
-            IReadOnlyList<SongListNode> RootSongs,
-            IReadOnlyList<string> ActiveRoots,
-            int EnumeratedFileCount,
-            int DiscoveredScoreCount)
+            long version,
+            IReadOnlyList<SongListNode> rootSongs,
+            IReadOnlyList<string> activeRoots,
+            int enumeratedFileCount,
+            int discoveredScoreCount)
         {
-            ArgumentNullException.ThrowIfNull(RootSongs);
-            ArgumentNullException.ThrowIfNull(ActiveRoots);
+            ArgumentNullException.ThrowIfNull(rootSongs);
+            ArgumentNullException.ThrowIfNull(activeRoots);
 
-            this.Version = Version;
-            this.RootSongs = Array.AsReadOnly(RootSongs.ToArray());
-            this.ActiveRoots = Array.AsReadOnly(ActiveRoots.ToArray());
-            this.EnumeratedFileCount = EnumeratedFileCount;
-            this.DiscoveredScoreCount = DiscoveredScoreCount;
+            Version = version;
+            RootSongs = Array.AsReadOnly(rootSongs.ToArray());
+            ActiveRoots = Array.AsReadOnly(activeRoots.ToArray());
+            EnumeratedFileCount = enumeratedFileCount;
+            DiscoveredScoreCount = discoveredScoreCount;
         }
 
         public long Version { get; }
@@ -36,17 +36,17 @@ namespace DTXMania.Game.Lib.Song
         public int DiscoveredScoreCount { get; }
 
         public void Deconstruct(
-            out long Version,
-            out IReadOnlyList<SongListNode> RootSongs,
-            out IReadOnlyList<string> ActiveRoots,
-            out int EnumeratedFileCount,
-            out int DiscoveredScoreCount)
+            out long version,
+            out IReadOnlyList<SongListNode> rootSongs,
+            out IReadOnlyList<string> activeRoots,
+            out int enumeratedFileCount,
+            out int discoveredScoreCount)
         {
-            Version = this.Version;
-            RootSongs = this.RootSongs;
-            ActiveRoots = this.ActiveRoots;
-            EnumeratedFileCount = this.EnumeratedFileCount;
-            DiscoveredScoreCount = this.DiscoveredScoreCount;
+            version = Version;
+            rootSongs = RootSongs;
+            activeRoots = ActiveRoots;
+            enumeratedFileCount = EnumeratedFileCount;
+            discoveredScoreCount = DiscoveredScoreCount;
         }
     }
 

@@ -2443,11 +2443,11 @@ namespace DTXMania.Test.Stage
             var display = new SongListDisplay();
             var song = CreateScoreNode("Snapshot Song");
             var snapshot = new SongLibrarySnapshot(
-                Version: 91,
-                RootSongs: new[] { song },
-                ActiveRoots: new[] { "/library/active" },
-                EnumeratedFileCount: 1,
-                DiscoveredScoreCount: 1);
+                version: 91,
+                rootSongs: new[] { song },
+                activeRoots: new[] { "/library/active" },
+                enumeratedFileCount: 1,
+                discoveredScoreCount: 1);
 
             AttachCoreUi(stage, display: display);
             InvokePrivateMethod(stage, "ApplyLibrarySnapshot", snapshot);

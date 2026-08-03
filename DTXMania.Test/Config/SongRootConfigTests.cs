@@ -7,6 +7,7 @@ using DTXMania.Game.Lib.Utilities;
 namespace DTXMania.Test.Config;
 
 [Collection("AppPaths")]
+[Trait("Category", "Unit")]
 public sealed class SongRootConfigTests
 {
     [Fact]

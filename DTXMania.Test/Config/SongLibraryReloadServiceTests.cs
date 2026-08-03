@@ -30,8 +30,7 @@ public sealed class SongLibraryReloadServiceTests : IDisposable
     public async Task ReloadAsync_WhenEnumerationIsBusy_ShouldReturnBusyWithoutPublishing()
     {
         var service = new SongLibraryReloadService(
-            (_, _, _) => throw new InvalidOperationException(
-                "Song enumeration is already in progress."));
+            (_, _, _) => throw new SongEnumerationBusyException());
 
         var result = await service.ReloadAsync(
             new[] { "/songs" }, progress: null, CancellationToken.None);

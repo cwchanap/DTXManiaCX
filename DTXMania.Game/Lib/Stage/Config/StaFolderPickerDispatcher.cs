@@ -193,9 +193,12 @@ namespace DTXMania.Game.Lib.Stage.Config
                     {
                         dialog.Dispose();
                     }
-                    catch (Exception exception)
+                    catch (Exception)
                     {
-                        request.Complete(FolderPickerResult.Failed(exception.Message));
+                        // The request has already been completed by Show() or
+                        // the catch above, so re-completing it here would be a
+                        // no-op (TrySetResult returns false). Disposal failures
+                        // are best-effort and must not surface to the caller.
                     }
                 }
             }
