@@ -53,6 +53,24 @@ public sealed class CrashReportSanitizerTests
     }
 
     [Fact]
+    public void SanitizeStackTrace_ShouldRemoveWindowsUncPathsAndUriCredentials()
+    {
+        var sanitizer = new CrashReportSanitizer([]);
+        const string credential = "uri-credential-secret";
+        const string input =
+            @"at Loader.Run() in \\server\share\Secret Album\chart.dtx:line 42; https://alice:uri-credential-secret@example.test/song?token=uri-credential-secret";
+
+        var result = sanitizer.SanitizeStackTrace(input);
+
+        Assert.DoesNotContain("Secret Album", result, StringComparison.Ordinal);
+        Assert.DoesNotContain("chart.dtx", result, StringComparison.Ordinal);
+        Assert.DoesNotContain("alice", result, StringComparison.Ordinal);
+        Assert.DoesNotContain(credential, result, StringComparison.Ordinal);
+        Assert.Contains("[SOURCE]", result, StringComparison.Ordinal);
+        Assert.Contains("https://[REDACTED]@example.test/song", result, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void SanitizeStackTrace_ShouldReplaceRegisteredSongAndSkinRoots()
     {
         var root = Path.Combine(Path.GetTempPath(), "dtx-sanitizer-roots");

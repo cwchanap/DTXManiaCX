@@ -21,24 +21,32 @@ internal sealed class CrashReportSanitizer
     private const int MaximumInnerExceptions = 8;
 
     private static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(100);
+    private static readonly Regex UriUserInfoRegex = new(
+        """(?<prefix>\b(?:https?|ftp)://)[^/\s@?#]+@""",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
+        RegexTimeout);
     private static readonly Regex UriQueryRegex = new(
         """(?<uri>\b(?:https?|ftp)://[^\s\]\)\}]+?)(?:\?[^\s\]\)}]*)""",
         RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
         RegexTimeout);
     private static readonly Regex ApiKeyValueRegex = new(
-        """(?<prefix>\b(?:api[_-]?key|access[_-]?token|token|authorization|password|secret)\b\s*(?:=|:)\s*(?:bearer\s+)?)(?<value>[^\s,;]+)""",
+        """(?<prefix>\b(?:api[_-]?key|access[_-]?token|token|authorization|password|secret)\b\s*(?:=|:)\s*)(?<value>[^\s,;]+(?:\s+[^\s,;]+)?)""",
         RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
         RegexTimeout);
     private static readonly Regex SourceFrameRegex = new(
-        """(?m)(?<prefix>\s+in\s+)(?:[A-Za-z]:[\\/][^\r\n:]+|/[^\r\n:]+)(?::line\s+(?<line>\d+))""",
+        """(?m)(?<prefix>\s+in\s+)(?:[A-Za-z]:[\\/][^\r\n:]+|\\\\[^\r\n:]+|/[^\r\n:]+)(?::line\s+(?<line>\d+))""",
         RegexOptions.CultureInvariant,
         RegexTimeout);
     private static readonly Regex WindowsAbsolutePathRegex = new(
-        """(?<![A-Za-z0-9_])[A-Za-z]:[\\/][^\s:"<>|?*;,\]\)}]+""",
+        """(?<![A-Za-z0-9_])[A-Za-z]:[\\/][^\r\n:;,\]\)}<>|?*]+""",
+        RegexOptions.CultureInvariant,
+        RegexTimeout);
+    private static readonly Regex WindowsUncPathRegex = new(
+        """(?<!\\)\\\\[^\r\n:;,\]\)}]+""",
         RegexOptions.CultureInvariant,
         RegexTimeout);
     private static readonly Regex UnixAbsolutePathRegex = new(
-        """(?<![A-Za-z0-9_:/])/(?:[^\s:/]+/)*[^\s:;,\]\)}]+""",
+        """(?<![A-Za-z0-9_:/])/[^\r\n:;,\]\)}]+""",
         RegexOptions.CultureInvariant,
         RegexTimeout);
     private static readonly Regex HomeSegmentRegex = new(
@@ -96,7 +104,10 @@ internal sealed class CrashReportSanitizer
 
         try
         {
-            var sanitized = UriQueryRegex.Replace(stackTrace, "$" + "{uri}");
+            var sanitized = UriUserInfoRegex.Replace(
+                stackTrace,
+                "$" + "{prefix}" + RedactedValue + "@");
+            sanitized = UriQueryRegex.Replace(sanitized, "$" + "{uri}");
             sanitized = ApiKeyValueRegex.Replace(sanitized, "$" + "{prefix}" + RedactedValue);
             sanitized = SourceFrameRegex.Replace(
                 sanitized,
@@ -111,6 +122,7 @@ internal sealed class CrashReportSanitizer
 
             sanitized = RegisteredPathTailRegex.Replace(sanitized, "[PATH]");
             sanitized = WindowsAbsolutePathRegex.Replace(sanitized, "[PATH]");
+            sanitized = WindowsUncPathRegex.Replace(sanitized, "[PATH]");
             sanitized = UnixAbsolutePathRegex.Replace(sanitized, "[PATH]");
             sanitized = HomeSegmentRegex.Replace(sanitized, "[USER]");
             return Limit(sanitized, MaximumStackTraceLength);

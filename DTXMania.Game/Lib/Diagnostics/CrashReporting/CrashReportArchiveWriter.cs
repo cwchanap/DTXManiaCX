@@ -8,6 +8,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using DTXMania.Game.Lib.Stage;
 
 namespace DTXMania.Game.Lib.Diagnostics.CrashReporting;
 
@@ -31,6 +32,9 @@ internal sealed class CrashReportArchiveWriter : ICrashReportArtifactWriter
     private const int MaximumLogRecords = 500;
     private const int MaximumLogBytes = 512 * 1024;
     private const int MaximumBreadcrumbs = 100;
+    private const int MinimumReportedWidth = 320;
+    private const int MinimumReportedHeight = 200;
+    private const int MaximumReportedDimension = 16_384;
 
     private static readonly UTF8Encoding Utf8WithoutBom = new(encoderShouldEmitUTF8Identifier: false);
     private static readonly JsonSerializerOptions IndentedJsonOptions = new()
@@ -64,6 +68,8 @@ internal sealed class CrashReportArchiveWriter : ICrashReportArtifactWriter
         "gameplay_entered",
         "exit_requested"
     };
+    private static readonly IReadOnlyDictionary<string, object?> EmptyProperties =
+        new Dictionary<string, object?>(StringComparer.Ordinal);
 
     public void WriteZip(Stream destination, CrashReportDocument document)
     {
@@ -215,7 +221,7 @@ internal sealed class CrashReportArchiveWriter : ICrashReportArtifactWriter
             eventId.Id,
             isClassified ? eventId.Name : null,
             messageTemplate,
-            SanitizeProperties(record.Properties),
+            SanitizeProperties(isClassified ? record.Properties : EmptyProperties),
             record.ExceptionType is null ? null : sanitizer.SanitizeTypeName(record.ExceptionType));
     }
 
@@ -264,7 +270,7 @@ internal sealed class CrashReportArchiveWriter : ICrashReportArtifactWriter
         var sanitized = new SortedDictionary<string, object?>(StringComparer.Ordinal);
         foreach (var property in properties)
         {
-            if (CrashLogFieldPolicy.Default.TryNormalizeProperty(
+            if (TrySanitizePersistedProperty(
                 property.Key,
                 property.Value,
                 out var normalizedValue))
@@ -274,6 +280,52 @@ internal sealed class CrashReportArchiveWriter : ICrashReportArtifactWriter
         }
 
         return sanitized;
+    }
+
+    private static bool TrySanitizePersistedProperty(
+        string propertyName,
+        object? value,
+        out object? sanitizedValue)
+    {
+        sanitizedValue = null;
+
+        switch (propertyName)
+        {
+            case "Stage" or "PreviousStage" or "TargetStage"
+                when value is StageType stage && Enum.IsDefined(stage):
+                sanitizedValue = stage.ToString();
+                return true;
+
+            case "Milestone"
+                when value is StartupCriticalPathMilestone milestone && Enum.IsDefined(milestone):
+                sanitizedValue = milestone.ToString();
+                return true;
+
+            case "Fullscreen" or "VSync" or "Enabled" when value is bool booleanValue:
+                sanitizedValue = booleanValue;
+                return true;
+
+            case "Width"
+                when value is int width
+                     && width >= MinimumReportedWidth
+                     && width <= MaximumReportedDimension:
+                sanitizedValue = width;
+                return true;
+
+            case "Height"
+                when value is int height
+                     && height >= MinimumReportedHeight
+                     && height <= MaximumReportedDimension:
+                sanitizedValue = height;
+                return true;
+
+            // Generic counters, status values, and MIDI fields are intentionally omitted.
+            // Task 2 permits those scalar values in memory, but their meanings are not
+            // sufficiently constrained to guarantee that a hardware or MIDI identifier
+            // cannot reach a persisted report.
+            default:
+                return false;
+        }
     }
 
     private static void WriteJsonEntry<T>(
