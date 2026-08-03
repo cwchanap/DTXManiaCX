@@ -44,7 +44,9 @@ public sealed class SongManagerLibrarySnapshotTests : IDisposable
 
         Assert.Equal([firstNode], firstSnapshot.RootSongs);
         Assert.Equal([firstNode], rootSongsView);
-        Assert.Equal(["/roots/one"], firstSnapshot.ActiveRoots);
+        Assert.Equal(
+            [System.IO.Path.GetFullPath("/roots/one")],
+            firstSnapshot.ActiveRoots);
     }
 
     [Fact]
@@ -92,7 +94,12 @@ public sealed class SongManagerLibrarySnapshotTests : IDisposable
         Assert.NotNull(published);
         Assert.Equal(current.Version, published!.Version);
         Assert.Equal([rootNode], published.RootSongs);
-        Assert.Equal(["/roots/one", "/roots/two"], published.ActiveRoots);
+        Assert.Equal(
+            [
+                System.IO.Path.GetFullPath("/roots/one"),
+                System.IO.Path.GetFullPath("/roots/two"),
+            ],
+            published.ActiveRoots);
         Assert.Equal(0, published.EnumeratedFileCount);
         Assert.Equal(0, published.DiscoveredScoreCount);
     }
@@ -192,7 +199,9 @@ public sealed class SongManagerLibrarySnapshotTests : IDisposable
 
         Assert.Equal(["First"], enumeratedTitles);
         Assert.Equal([firstNode], stableSnapshot.RootSongs);
-        Assert.Equal(["/roots/one"], stableSnapshot.ActiveRoots);
+        Assert.Equal(
+            [System.IO.Path.GetFullPath("/roots/one")],
+            stableSnapshot.ActiveRoots);
     }
 
     public void Dispose()
