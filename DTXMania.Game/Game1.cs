@@ -452,6 +452,10 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
 
     protected override void Update(GameTime gameTime)
     {
+#if DEBUG
+        DebugCrashInjection.ThrowIfRequested(DebugCrashInjectionPoint.Update);
+#endif
+
         if (_startupDiagnosticExitPending)
         {
             _startupDiagnosticExitPending = false;
@@ -547,6 +551,10 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
 
     protected override void Draw(GameTime gameTime)
     {
+#if DEBUG
+        DebugCrashInjection.ThrowIfRequested(DebugCrashInjectionPoint.Draw);
+#endif
+
         if (!_graphicsManager.IsDeviceAvailable)
         {
             // Fulfill any pending screenshot with null so callers are not blocked indefinitely
