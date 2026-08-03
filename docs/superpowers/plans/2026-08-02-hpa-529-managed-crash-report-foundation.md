@@ -585,6 +585,8 @@ Required tests:
 9. Discovery never reads or exposes the free-form emergency exception body.
 10. Unwritable capture returns `Report = null` and a safe `FailureCode` without throwing.
 
+Define `CrashStoreFixture` as a private test helper in `CrashReportStoreTests.cs`; it owns a temporary directory, fake `TimeProvider`, injectable archive writer, deterministic report IDs, and cleanup.
+
 Example retention test:
 
 ```csharp
@@ -1027,7 +1029,7 @@ public void PublishConfigurationContext_ShouldUseOnlyApprovedConcreteFields()
     };
     config.KeyBindings["Snare"] = 1;
 
-    BaseGameCrashContext.PublishConfiguration(diagnostics, config);
+    CrashContextPublisher.PublishConfiguration(diagnostics, config);
 
     var snapshot = diagnostics.Contexts.Single(CrashContextKind.Configuration);
     Assert.Equal(1920, snapshot.Fields["ScreenWidth"]);
@@ -1037,7 +1039,7 @@ public void PublishConfigurationContext_ShouldUseOnlyApprovedConcreteFields()
 }
 ```
 
-Use `CrashContextPublisher.PublishConfiguration` as the concrete helper name; keep it internal and deterministic.
+Use `CrashContextPublisher.PublishConfiguration` as the concrete helper; keep the class internal and deterministic.
 
 - [ ] **Step 2: Write failing stage and input tests**
 
@@ -1241,6 +1243,7 @@ git commit -m "feat: capture cached game crash context"
 
 **Files:**
 - Test: `DTXMania.Test/CrashReporting/CrashReportIntegrationTests.cs`
+- Test helper (inside the same file): `TemporaryAppDataRoot` and `CrashReportTestReader`
 - Modify as needed: `DTXMania.Game/Lib/Diagnostics/CrashReporting/CrashReportRuntime.cs`
 - Modify as needed: `DTXMania.Game/Lib/Diagnostics/CrashReporting/GameEntryPoint.cs`
 
@@ -1249,6 +1252,8 @@ git commit -m "feat: capture cached game crash context"
 - Produces: deterministic integration proof using `DTXMANIA_APPDATA_ROOT` and fake `IGameApplication`.
 
 - [ ] **Step 1: Write the pre-graphics integration test**
+
+Inside `CrashReportIntegrationTests.cs`, define `TemporaryAppDataRoot` as a disposable temporary-directory helper and `CrashReportTestReader.ReadAllText(string path)` to concatenate the approved ZIP entries or read the emergency text file. These helpers must not live in production code.
 
 ```csharp
 [Fact]
@@ -1260,7 +1265,7 @@ public void Run_WhenFactoryThrowsBeforeGameConstruction_ShouldWriteOneSanitizedR
     try
     {
         Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", appData.Path);
-        using var runtime = CrashReportRuntime.CreateBestEffort(
+        var runtime = CrashReportRuntime.CreateBestEffort(
             StartupTimingTrace.Disabled,
             TextWriter.Null);
 
@@ -1571,16 +1576,20 @@ Assert the same conditions.
 For ZIP:
 
 ```bash
-unzip -p "<actual-report-path>" report.json
-unzip -p "<actual-report-path>" exception.txt
-unzip -p "<actual-report-path>" logs.ndjson
-unzip -p "<actual-report-path>" breadcrumbs.json
+report_path="$(find "$DTXMANIA_APPDATA_ROOT/CrashReports" -maxdepth 1 -type f -name 'crash-*.zip' | head -n 1)"
+test -n "$report_path"
+unzip -p "$report_path" report.json
+unzip -p "$report_path" exception.txt
+unzip -p "$report_path" logs.ndjson
+unzip -p "$report_path" breadcrumbs.json
 ```
 
 For emergency text:
 
 ```bash
-sed -n '1,80p' "<actual-report-path>"
+report_path="$(find "$DTXMANIA_APPDATA_ROOT/CrashReports" -maxdepth 1 -type f -name 'crash-*.txt' | head -n 1)"
+test -n "$report_path"
+sed -n '1,80p' "$report_path"
 ```
 
 Confirm:
