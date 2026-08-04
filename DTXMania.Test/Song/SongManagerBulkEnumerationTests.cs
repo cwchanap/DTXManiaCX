@@ -1234,6 +1234,313 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
     }
 
     [Fact]
+    public async Task EnumerateAndImportSongsAsync_WhenSetDefReferencesParentTraversal_ShouldRejectOutsideChart()
+    {
+        // Regression (review item 1): a set.def #LnFILE that escapes the
+        // active-root boundary via ../ traversal must be rejected. Without
+        // this, the escaped chart is counted by the filesystem inventory but
+        // excluded by the database freshness count (which scopes to active
+        // roots), producing a permanent count mismatch and perpetual rescans.
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        var setRoot = Path.Combine(_songsRoot, "Boundary Set");
+        Directory.CreateDirectory(setRoot);
+        // Create a chart OUTSIDE the active root (_songsRoot).
+        var outsideDir = Path.Combine(_testRoot, "Outside");
+        Directory.CreateDirectory(outsideDir);
+        var outsideChartPath = Path.Combine(outsideDir, "outside.dtx");
+        await File.WriteAllTextAsync(outsideChartPath, """
+            #TITLE: Outside
+            #ARTIST: Fixture Artist
+            #BPM: 120
+            #DLEVEL: 50
+            """);
+        var insideChartPath = WriteChart(
+            "Songs/Boundary Set/inside.dtx", "Inside", 30);
+        // ../ from "Boundary Set" -> "Songs" -> ../Outside -> outside _songsRoot
+        await File.WriteAllTextAsync(
+            Path.Combine(setRoot, "set.def"),
+            """
+            #TITLE Boundary Set
+            #L1FILE inside.dtx
+            #L2FILE ../../Outside/outside.dtx
+            """);
+
+        var result = await _manager.EnumerateAndImportSongsAsync(
+            new[] { _songsRoot }, null, CancellationToken.None);
+
+        var normalizedOutside = SongPathIdentity.Normalize(outsideChartPath);
+        Assert.DoesNotContain(normalizedOutside, result.Batch.DiscoveredChartPaths);
+        Assert.DoesNotContain(result.Batch.Candidates, c =>
+            SongPathIdentity.CanonicalComparer.Equals(
+                c.NormalizedChartPath, normalizedOutside));
+        // The inside chart must still be imported.
+        Assert.Contains(insideChartPath, result.Batch.DiscoveredChartPaths);
+        Assert.Single(result.Batch.Candidates);
+    }
+
+    [Fact]
+    public async Task EnumerateAndImportSongsAsync_WhenSetDefReferencesAbsolutePath_ShouldRejectOutsideChart()
+    {
+        // Regression (review item 1): a set.def #LnFILE that uses an absolute
+        // path outside the active root must be rejected. Path.Combine with an
+        // absolute second argument returns the absolute path verbatim.
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        var setRoot = Path.Combine(_songsRoot, "Abs Set");
+        Directory.CreateDirectory(setRoot);
+        var outsideDir = Path.Combine(_testRoot, "AbsoluteOutside");
+        Directory.CreateDirectory(outsideDir);
+        var outsideChartPath = Path.Combine(outsideDir, "outside.dtx");
+        await File.WriteAllTextAsync(outsideChartPath, """
+            #TITLE: Absolute Outside
+            #ARTIST: Fixture Artist
+            #BPM: 120
+            #DLEVEL: 60
+            """);
+        var insideChartPath = WriteChart(
+            "Songs/Abs Set/inside.dtx", "Inside Abs", 25);
+        await File.WriteAllTextAsync(
+            Path.Combine(setRoot, "set.def"),
+            $"""
+            #TITLE Abs Set
+            #L1FILE inside.dtx
+            #L2FILE {outsideChartPath}
+            """);
+
+        var result = await _manager.EnumerateAndImportSongsAsync(
+            new[] { _songsRoot }, null, CancellationToken.None);
+
+        var normalizedOutside = SongPathIdentity.Normalize(outsideChartPath);
+        Assert.DoesNotContain(normalizedOutside, result.Batch.DiscoveredChartPaths);
+        Assert.DoesNotContain(result.Batch.Candidates, c =>
+            SongPathIdentity.CanonicalComparer.Equals(
+                c.NormalizedChartPath, normalizedOutside));
+        Assert.Contains(insideChartPath, result.Batch.DiscoveredChartPaths);
+        Assert.Single(result.Batch.Candidates);
+    }
+
+    [Fact]
+    public async Task NeedsEnumerationAsync_WhenSetDefReferencesOutsideChart_ShouldNotProducePermanentMismatch()
+    {
+        // Regression (review item 1): after importing a set.def with an
+        // outside-root reference, the inventory scanner must NOT count the
+        // outside chart. Without the fix, the inventory count exceeds the
+        // database count (which scopes to active roots), forcing a perpetual
+        // rescan even when nothing changed.
+        var songsRoot = Path.Combine(_testRoot, "MismatchSongs");
+        Directory.CreateDirectory(songsRoot);
+        var setRoot = Path.Combine(songsRoot, "Set");
+        Directory.CreateDirectory(setRoot);
+        var outsideDir = Path.Combine(_testRoot, "MismatchOutside");
+        Directory.CreateDirectory(outsideDir);
+        var outsideChartPath = Path.Combine(outsideDir, "outside.dtx");
+        await File.WriteAllTextAsync(outsideChartPath, """
+            #TITLE: Outside
+            #ARTIST: Fixture Artist
+            #BPM: 120
+            #DLEVEL: 50
+            """);
+        var insideChartPath = Path.Combine(setRoot, "inside.dtx");
+        await File.WriteAllTextAsync(insideChartPath, """
+            #TITLE: Inside
+            #ARTIST: Fixture Artist
+            #BPM: 120
+            #DLEVEL: 30
+            """);
+        await File.WriteAllTextAsync(
+            Path.Combine(setRoot, "set.def"),
+            """
+            #TITLE Set
+            #L1FILE inside.dtx
+            #L2FILE ../../MismatchOutside/outside.dtx
+            """);
+        var oldTime = DateTime.UtcNow.AddMinutes(-10);
+        var setDefPath = Path.Combine(setRoot, "set.def");
+        File.SetLastWriteTimeUtc(insideChartPath, oldTime);
+        File.SetCreationTimeUtc(insideChartPath, oldTime);
+        File.SetLastWriteTimeUtc(outsideChartPath, oldTime);
+        File.SetCreationTimeUtc(outsideChartPath, oldTime);
+        File.SetLastWriteTimeUtc(setDefPath, oldTime);
+        File.SetCreationTimeUtc(setDefPath, oldTime);
+        Directory.SetLastWriteTimeUtc(setRoot, oldTime);
+        Directory.SetCreationTimeUtc(setRoot, oldTime);
+        Directory.SetLastWriteTimeUtc(songsRoot, oldTime);
+        Directory.SetCreationTimeUtc(songsRoot, oldTime);
+
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        var result = await _manager.EnumerateAndImportSongsAsync(
+            new[] { songsRoot }, null, CancellationToken.None);
+        Assert.Single(result.Batch.Candidates);
+
+        // After a successful enumeration with no subsequent file changes, the
+        // freshness check must report no changes needed. Without the fix, the
+        // inventory would count the outside chart (1 inside + 1 outside = 2)
+        // while the database counts only the inside chart (1), producing a
+        // permanent mismatch.
+        var needsEnumeration = await _manager.NeedsEnumerationAsync(
+            new[] { songsRoot });
+        Assert.False(needsEnumeration);
+    }
+
+    [Fact]
+    public async Task NeedsEnumerationAsync_WhenChartParseFails_ShouldReturnTrueToRetryDirtyRoot()
+    {
+        // Regression (review item 2): a recoverable parse failure leaves the
+        // chart's old database row preserved (discovered but unupdated). If the
+        // root's watermark advances past the file's mtime, the next freshness
+        // check sees matching counts and a stale watermark → no rescan → the
+        // chart's content is permanently stale. The fix suppresses the
+        // watermark advance for roots with recoverable errors so the next
+        // check triggers a rescan that retries the failed parse.
+        var songsRoot = Path.Combine(_testRoot, "RecoverableErrorSongs");
+        Directory.CreateDirectory(songsRoot);
+        var chartPath = Path.Combine(songsRoot, "song.dtx");
+        await File.WriteAllTextAsync(chartPath, """
+            #TITLE: Recoverable
+            #ARTIST: Fixture Artist
+            #BPM: 120
+            #DLEVEL: 50
+            """);
+        var oldTime = DateTime.UtcNow.AddMinutes(-10);
+        File.SetLastWriteTimeUtc(chartPath, oldTime);
+        File.SetCreationTimeUtc(chartPath, oldTime);
+        Directory.SetLastWriteTimeUtc(songsRoot, oldTime);
+        Directory.SetCreationTimeUtc(songsRoot, oldTime);
+
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        var canonicalRoot = _manager.RootPolicy
+            .Validate(new[] { songsRoot }).CanonicalRoots.Single();
+
+        // First enumeration: succeed so the chart is in the database and the
+        // root's per-root watermark is established.
+        var firstResult = await _manager.EnumerateAndImportSongsAsync(
+            new[] { songsRoot }, null, CancellationToken.None);
+        Assert.Single(firstResult.Batch.Candidates);
+        var firstWatermark = await _manager.DatabaseService!
+            .GetLastSuccessfulEnumerationUtcAsync(canonicalRoot);
+        Assert.NotNull(firstWatermark);
+
+        // Simulate a transient parse failure on the next enumeration by
+        // replacing the parser with one that throws for this chart.
+        var realParser = _manager.ParseSongEntitiesCoreAsync;
+        _manager.ParseSongEntitiesCoreAsync = path =>
+            SongPathIdentity.CanonicalComparer.Equals(path, SongPathIdentity.Normalize(chartPath))
+                ? Task.FromException<(SongEntity, SongChart)>(
+                    new InvalidDataException($"transient parse failure for {path}"))
+                : realParser(path);
+
+        // Second enumeration: the parse fails, producing a recoverable error.
+        // The chart's old DB row is preserved (discovered but unupdated).
+        var secondResult = await _manager.EnumerateAndImportSongsAsync(
+            new[] { songsRoot }, null, CancellationToken.None);
+        Assert.Contains(secondResult.Batch.Errors, error =>
+            error.Path == SongPathIdentity.Normalize(chartPath) &&
+            !error.IsRootFailure);
+
+        // Restore the real parser so the freshness check's inventory scan
+        // (if it reaches that point) works normally.
+        _manager.ParseSongEntitiesCoreAsync = realParser;
+
+        // The root's per-root watermark must NOT have advanced. Without the
+        // fix, it would advance to the second enumeration's backed-off start,
+        // silently accepting the stale chart content.
+        var secondWatermark = await _manager.DatabaseService!
+            .GetLastSuccessfulEnumerationUtcAsync(canonicalRoot);
+        Assert.Equal(firstWatermark!.Value.ToUniversalTime(),
+            secondWatermark!.Value.ToUniversalTime());
+
+        // Set the file's mtime to just after the first watermark so the
+        // freshness check detects the change and triggers a retry.
+        var editTime = firstWatermark.Value.AddSeconds(10);
+        File.SetLastWriteTimeUtc(chartPath, editTime);
+        var needsEnumeration = await _manager.NeedsEnumerationAsync(
+            new[] { songsRoot });
+        Assert.True(needsEnumeration);
+    }
+
+    [Fact]
+    public async Task NeedsEnumerationAsync_WhenRecoverableErrorInOneRoot_ShouldStillAdvanceCleanRoot()
+    {
+        // Regression (review item 2): when one root has a recoverable error
+        // and another is clean, only the dirty root's watermark is suppressed.
+        // The clean root's watermark advances so it does not needlessly rescan.
+        var rootA = Path.Combine(_testRoot, "CleanRoot");
+        var rootB = Path.Combine(_testRoot, "DirtyRoot");
+        Directory.CreateDirectory(rootA);
+        Directory.CreateDirectory(rootB);
+        var chartA = Path.Combine(rootA, "clean.dtx");
+        var chartB = Path.Combine(rootB, "dirty.dtx");
+        await File.WriteAllTextAsync(chartA, """
+            #TITLE: Clean
+            #ARTIST: Fixture Artist
+            #BPM: 120
+            #DLEVEL: 40
+            """);
+        await File.WriteAllTextAsync(chartB, """
+            #TITLE: Dirty
+            #ARTIST: Fixture Artist
+            #BPM: 120
+            #DLEVEL: 60
+            """);
+        var oldTime = DateTime.UtcNow.AddMinutes(-10);
+        File.SetLastWriteTimeUtc(chartA, oldTime);
+        File.SetCreationTimeUtc(chartA, oldTime);
+        File.SetLastWriteTimeUtc(chartB, oldTime);
+        File.SetCreationTimeUtc(chartB, oldTime);
+        Directory.SetLastWriteTimeUtc(rootA, oldTime);
+        Directory.SetCreationTimeUtc(rootA, oldTime);
+        Directory.SetLastWriteTimeUtc(rootB, oldTime);
+        Directory.SetCreationTimeUtc(rootB, oldTime);
+
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        var canonicalA = _manager.RootPolicy
+            .Validate(new[] { rootA }).CanonicalRoots.Single();
+        var canonicalB = _manager.RootPolicy
+            .Validate(new[] { rootB }).CanonicalRoots.Single();
+
+        // First enumeration: both charts succeed, both watermarks established.
+        await _manager.EnumerateAndImportSongsAsync(
+            new[] { rootA, rootB }, null, CancellationToken.None);
+        var firstWatermarkA = await _manager.DatabaseService!
+            .GetLastSuccessfulEnumerationUtcAsync(canonicalA);
+        var firstWatermarkB = await _manager.DatabaseService!
+            .GetLastSuccessfulEnumerationUtcAsync(canonicalB);
+        Assert.NotNull(firstWatermarkA);
+        Assert.NotNull(firstWatermarkB);
+
+        // Second enumeration: chartB parse fails (recoverable error in rootB).
+        var realParser = _manager.ParseSongEntitiesCoreAsync;
+        _manager.ParseSongEntitiesCoreAsync = path =>
+            SongPathIdentity.CanonicalComparer.Equals(path, SongPathIdentity.Normalize(chartB))
+                ? Task.FromException<(SongEntity, SongChart)>(
+                    new InvalidDataException($"transient parse failure for {path}"))
+                : realParser(path);
+        await _manager.EnumerateAndImportSongsAsync(
+            new[] { rootA, rootB }, null, CancellationToken.None);
+        _manager.ParseSongEntitiesCoreAsync = realParser;
+
+        // rootA's watermark advanced (clean), rootB's did not (dirty).
+        var secondWatermarkA = await _manager.DatabaseService!
+            .GetLastSuccessfulEnumerationUtcAsync(canonicalA);
+        var secondWatermarkB = await _manager.DatabaseService!
+            .GetLastSuccessfulEnumerationUtcAsync(canonicalB);
+        Assert.NotEqual(firstWatermarkA!.Value.ToUniversalTime(),
+            secondWatermarkA!.Value.ToUniversalTime());
+        Assert.Equal(firstWatermarkB!.Value.ToUniversalTime(),
+            secondWatermarkB!.Value.ToUniversalTime());
+
+        // Checking only rootA should report no changes needed (clean).
+        var needsA = await _manager.NeedsEnumerationAsync(new[] { rootA });
+        Assert.False(needsA);
+
+        // Checking only rootB should report changes needed (dirty watermark).
+        // Set chartB's mtime to just after the first watermark to ensure the
+        // change is detectable.
+        File.SetLastWriteTimeUtc(chartB, firstWatermarkB.Value.AddSeconds(10));
+        var needsB = await _manager.NeedsEnumerationAsync(new[] { rootB });
+        Assert.True(needsB);
+    }
+
+    [Fact]
     public async Task EnumerateAndImportSongsAsync_WhenChartParseCancelled_ShouldThrowOperationCanceled()
     {
         await _manager.InitializeDatabaseServiceAsync(_databasePath);

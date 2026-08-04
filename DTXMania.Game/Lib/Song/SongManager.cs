@@ -872,10 +872,22 @@ namespace DTXMania.Game.Lib.Song
                 // so that mid-scan edits remain newer than the watermark and are
                 // detected by the next freshness check. NoActiveRoots and failure
                 // paths do not update the watermark: nothing was enumerated.
-                await SetEnumerationWatermarkAsync(
-                    batch.ActiveRoots,
-                    enumerationStartedUtc)
-                    .ConfigureAwait(false);
+                //
+                // Roots with recoverable (non-root) errors are excluded: a
+                // recoverable error (file parse failure, set.def read failure)
+                // leaves the chart's old database row preserved but unupdated.
+                // Advancing that root's watermark would make the next freshness
+                // check see matching counts and a watermark newer than the file's
+                // mtime, silently accepting stale content. Leaving the watermark
+                // dirty forces a rescan that retries the failed parse.
+                var rootsToAdvance = GetRootsWithoutRecoverableErrors(batch);
+                if (rootsToAdvance.Count > 0)
+                {
+                    await SetEnumerationWatermarkAsync(
+                        rootsToAdvance,
+                        enumerationStartedUtc)
+                        .ConfigureAwait(false);
+                }
 
                 return result;
             }
@@ -1270,6 +1282,19 @@ namespace DTXMania.Game.Lib.Song
                 if (!DTXChartParser.IsSupportedFile(path) ||
                     !File.Exists(path))
                 {
+                    continue;
+                }
+
+                // Reject set.def chart references that escape the active-root
+                // boundary (../ traversal or absolute paths). Without this, an
+                // escaped reference is counted by the filesystem inventory but
+                // excluded by the database freshness count (which scopes to
+                // active roots), producing a permanent count mismatch and
+                // perpetual rescans.
+                if (!IsPathUnderAnyRoot(path, builder.ActiveRoots))
+                {
+                    Debug.WriteLine(
+                        $"SongManager: Rejecting set.def chart reference outside active roots: {path}");
                     continue;
                 }
 
@@ -3873,12 +3898,19 @@ namespace DTXMania.Game.Lib.Song
             {
                 var inventory = new ChartInventory();
                 var seenCharts = new HashSet<string>(SongPathIdentity.CanonicalComparer);
+                // Pre-normalize the available roots once so every set.def
+                // containment check reuses the same normalized set without
+                // re-normalizing per chart reference.
+                var normalizedRoots = searchPaths
+                    .Where(path => !string.IsNullOrEmpty(path) && Directory.Exists(path))
+                    .Select(SongPathIdentity.Normalize)
+                    .ToArray();
                 foreach (var root in searchPaths
                     .Where(path => !string.IsNullOrEmpty(path) && Directory.Exists(path)))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     ScanChartInventoryDirectory(
-                        root, inventory, seenCharts, cancellationToken);
+                        root, inventory, seenCharts, normalizedRoots, cancellationToken);
                 }
                 return inventory;
             }, cancellationToken);
@@ -3888,6 +3920,7 @@ namespace DTXMania.Game.Lib.Song
             string directoryPath,
             ChartInventory inventory,
             HashSet<string> seenCharts,
+            IReadOnlyList<string> normalizedRoots,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -3909,7 +3942,7 @@ namespace DTXMania.Game.Lib.Song
                     setDefInfo.LastWriteTimeUtc,
                     setDefInfo.CreationTimeUtc));
                 foreach (var chartPath in EnumerateSetDefReferencedCharts(
-                    setDefPath, cancellationToken))
+                    setDefPath, normalizedRoots, cancellationToken))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     if (!seenCharts.Add(chartPath))
@@ -3950,20 +3983,25 @@ namespace DTXMania.Game.Lib.Song
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 ScanChartInventoryDirectory(
-                    subdirectory, inventory, seenCharts, cancellationToken);
+                    subdirectory, inventory, seenCharts, normalizedRoots, cancellationToken);
             }
         }
 
         /// <summary>
         /// Resolves the chart file paths a <c>set.def</c> references (and that
-        /// exist on disk and are supported), mirroring
-        /// <see cref="ParseSetDefinitionIntoBatchAsync"/>. Reuses the shared
-        /// <see cref="ReadSetDefLines"/> encoding chain and
+        /// exist on disk, are supported, and remain within an active root),
+        /// mirroring <see cref="ParseSetDefinitionIntoBatchAsync"/>. Reuses the
+        /// shared <see cref="ReadSetDefLines"/> encoding chain and
         /// <see cref="ParseSetDefContent"/> so the inventory never drifts from
-        /// what full enumeration imports.
+        /// what full enumeration imports. References that escape the active-root
+        /// boundary via <c>../</c> traversal or absolute paths are rejected so
+        /// the inventory count matches the database freshness count (which
+        /// scopes to active roots).
         /// </summary>
         private IEnumerable<string> EnumerateSetDefReferencedCharts(
-            string setDefPath, CancellationToken cancellationToken)
+            string setDefPath,
+            IReadOnlyList<string> normalizedRoots,
+            CancellationToken cancellationToken)
         {
             var directory = Path.GetDirectoryName(setDefPath) ?? "";
             var lines = ReadSetDefLines(setDefPath);
@@ -3979,6 +4017,7 @@ namespace DTXMania.Game.Lib.Song
                 var path = SongPathIdentity.Normalize(Path.Combine(directory, fileName));
                 if (DTXChartParser.IsSupportedFile(path) &&
                     File.Exists(path) &&
+                    IsPathUnderAnyRoot(path, normalizedRoots) &&
                     emitted.Add(path))
                 {
                     yield return path;
@@ -4080,6 +4119,54 @@ namespace DTXMania.Game.Lib.Song
         }
 
         /// <summary>
+        /// Checks whether a normalized chart path is contained within any of
+        /// the supplied normalized active roots. Used to reject <c>set.def</c>
+        /// <c>#LnFILE</c> references that escape the active-root boundary via
+        /// <c>../</c> traversal or absolute paths — such references would be
+        /// counted by the filesystem inventory but excluded by the database
+        /// freshness count (which scopes to active roots), producing a
+        /// permanent count mismatch and perpetual rescans.
+        /// </summary>
+        private static bool IsPathUnderAnyRoot(
+            string normalizedPath,
+            IReadOnlyList<string> normalizedRoots)
+        {
+            if (normalizedRoots.Count == 0)
+                return false;
+
+            foreach (var root in normalizedRoots)
+            {
+                if (SongPathIdentity.IsUnderNormalizedRoot(normalizedPath, root))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Finds the most specific (longest) normalized active root that
+        /// contains the supplied normalized path, or <c>null</c> if the path is
+        /// not beneath any root. Used to map a recoverable enumeration error
+        /// (file parse failure, set.def read failure) to the root whose
+        /// watermark must NOT advance so the next freshness check retries it.
+        /// </summary>
+        private static string? FindContainingRoot(
+            string normalizedPath,
+            IReadOnlyList<string> normalizedRoots)
+        {
+            string? containingRoot = null;
+            foreach (var root in normalizedRoots)
+            {
+                if (!SongPathIdentity.IsUnderNormalizedRoot(normalizedPath, root) ||
+                    (containingRoot != null && root.Length <= containingRoot.Length))
+                {
+                    continue;
+                }
+                containingRoot = root;
+            }
+            return containingRoot;
+        }
+
+        /// <summary>
         /// Gets the timestamp of the last successful enumeration from the database.
         /// <para>
         /// The timestamp is an explicitly persisted
@@ -4123,6 +4210,43 @@ namespace DTXMania.Game.Lib.Song
                 Debug.WriteLine($"SongManager: Stack trace: {ex.StackTrace}");
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Returns the subset of <paramref name="batch"/>'s active roots that
+        /// had NO recoverable (non-root) enumeration errors. Roots with
+        /// recoverable errors (file parse failures, set.def read failures) are
+        /// excluded so their watermarks are not advanced, forcing the next
+        /// freshness check to rescan and retry the failed operation rather than
+        /// silently accepting stale content.
+        /// </summary>
+        private static IReadOnlyList<string> GetRootsWithoutRecoverableErrors(
+            SongEnumerationBatch batch)
+        {
+            if (batch.Errors.Count == 0)
+                return batch.ActiveRoots;
+
+            var dirtyRoots = new HashSet<string>(SongPathIdentity.CanonicalComparer);
+            foreach (var error in batch.Errors)
+            {
+                if (error.IsRootFailure)
+                    continue;
+                var containingRoot = FindContainingRoot(
+                    error.Path, batch.ActiveRoots);
+                if (containingRoot != null)
+                {
+                    dirtyRoots.Add(containingRoot);
+                    Debug.WriteLine(
+                        $"SongManager: Suppressing watermark advance for root with recoverable error: {containingRoot} ({error.Message})");
+                }
+            }
+
+            if (dirtyRoots.Count == 0)
+                return batch.ActiveRoots;
+
+            return batch.ActiveRoots
+                .Where(root => !dirtyRoots.Contains(root))
+                .ToArray();
         }
 
         /// <summary>
