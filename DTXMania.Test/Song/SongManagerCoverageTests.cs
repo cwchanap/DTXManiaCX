@@ -301,10 +301,10 @@ public class SongManagerCoverageTests : IDisposable
         // every startup was a full scan.
         var songsRoot = Path.Combine(_testRoot, "CoreTimestampSongs");
         var songFolder = Path.Combine(songsRoot, "Song");
+        var chartPath = Path.Combine(songFolder, "song.dtx");
         Directory.CreateDirectory(songFolder);
-        await CreateDtxFileAsync(
-            Path.Combine(songFolder, "song.dtx"),
-            "Core Timestamp Song", "Coverage Bot", "Jazz", 40);
+        await CreateDtxFileAsync(chartPath, "Core Timestamp Song", "Coverage Bot", "Jazz", 40);
+        SetFilesystemTimes(chartPath, DateTime.UtcNow.AddMinutes(-1));
 
         // EnumerateSongsAsync routes through EnumerateAndImportSongsCoreAsync
         // — the same core used by EnumerateAndImportSongsAsync (startup/reload).
@@ -314,6 +314,130 @@ public class SongManagerCoverageTests : IDisposable
         var needsEnumeration = await _manager.NeedsEnumerationAsync(new[] { songsRoot });
 
         Assert.False(needsEnumeration);
+    }
+
+    [Fact]
+    public async Task NeedsEnumerationAsync_WhenRootExistsButCannotBeEnumerated_ShouldNotForceRescan()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        var populatedRoot = Path.Combine(_testRoot, "ReadableSongs");
+        var inaccessibleRoot = Path.Combine(_testRoot, "InaccessibleSongs");
+        var populatedChart = Path.Combine(populatedRoot, "Song", "song.dtx");
+        await CreateDtxFileAsync(populatedChart, "Readable Song", "Coverage Bot", "Rock", 35);
+        SetFilesystemTimes(populatedChart, DateTime.UtcNow.AddMinutes(-1));
+
+        await InitializeAndEnumerateAsync(populatedRoot);
+        await SetLastEnumerationTimestampAsync(DateTime.UtcNow.AddMinutes(5).ToLocalTime());
+
+        Directory.CreateDirectory(inaccessibleRoot);
+        try
+        {
+            File.SetUnixFileMode(inaccessibleRoot, UnixFileMode.None);
+            var canEnumerate = true;
+            try
+            {
+                using var entries = Directory
+                    .EnumerateFileSystemEntries(inaccessibleRoot)
+                    .GetEnumerator();
+                _ = entries.MoveNext();
+            }
+            catch (UnauthorizedAccessException)
+            {
+                canEnumerate = false;
+            }
+            catch (IOException)
+            {
+                canEnumerate = false;
+            }
+
+            // Permission-restricted tests cannot exercise the branch when the
+            // process has elevated privileges (for example, a root CI runner).
+            if (canEnumerate)
+                return;
+
+            var needsEnumeration = await _manager.NeedsEnumerationAsync(
+                new[] { populatedRoot, inaccessibleRoot });
+
+            Assert.False(needsEnumeration);
+        }
+        finally
+        {
+            File.SetUnixFileMode(
+                inaccessibleRoot,
+                UnixFileMode.UserRead |
+                UnixFileMode.UserWrite |
+                UnixFileMode.UserExecute);
+        }
+    }
+
+    [Fact]
+    public async Task NeedsEnumerationAsync_WhenTimestampIsRoundedBeforeWatermark_ShouldDetectChange()
+    {
+        var songsRoot = Path.Combine(_testRoot, "CoarseTimestampSongs");
+        var chartPath = Path.Combine(songsRoot, "Song", "song.dtx");
+        await CreateDtxFileAsync(chartPath, "Coarse Timestamp Song", "Coverage Bot", "Rock", 35);
+        SetFilesystemTimes(chartPath, DateTime.UtcNow.AddHours(-3));
+
+        await InitializeAndEnumerateAsync(songsRoot);
+
+        var scanStartUtc = DateTime.UtcNow.AddHours(-1);
+        var persistedWatermarkUtc = scanStartUtc.AddSeconds(-5);
+        await SetLastEnumerationTimestampAsync(persistedWatermarkUtc.ToLocalTime());
+        await SetRootEnumerationTimestampAsync(songsRoot, persistedWatermarkUtc);
+
+        // Model a coarse filesystem timestamp rounded just before the exact
+        // watermark. The conservative scan watermark must still see it.
+        var roundedEditUtc = scanStartUtc.AddSeconds(-1);
+        await File.AppendAllTextAsync(chartPath, "#COMMENT: rounded edit\n");
+        SetFilesystemTimes(chartPath, roundedEditUtc, preserveCreationTime: true);
+
+        var needsEnumeration = await _manager.NeedsEnumerationAsync(new[] { songsRoot });
+
+        Assert.True(needsEnumeration);
+    }
+
+    [Fact]
+    public async Task NeedsEnumerationAsync_WhenUnavailableRootReturnsWithInPlaceEdit_ShouldDetectChange()
+    {
+        var rootA = Path.Combine(_testRoot, "RootA");
+        var rootB = Path.Combine(_testRoot, "RootB");
+        var chartA = Path.Combine(rootA, "Song A", "song.dtx");
+        var chartB = Path.Combine(rootB, "Song B", "song.dtx");
+
+        await CreateDtxFileAsync(chartA, "Song A", "Coverage Bot", "Rock", 35);
+        await CreateDtxFileAsync(chartB, "Song B", "Coverage Bot", "Rock", 40);
+
+        var oldFilesystemTimeUtc = DateTime.UtcNow.AddHours(-3);
+        SetFilesystemTimes(chartA, oldFilesystemTimeUtc);
+        SetFilesystemTimes(chartB, oldFilesystemTimeUtc);
+
+        var initialized = await _manager.InitializeDatabaseServiceAsync(_testDbPath);
+        Assert.True(initialized);
+        var initialEnumeration = await _manager.EnumerateSongsAsync(new[] { rootA, rootB });
+        Assert.True(initialEnumeration >= 2);
+
+        // Establish a known per-root baseline before simulating the unavailable
+        // root. The root-B edit below is newer than this baseline but older than
+        // the partial root-A scan watermark.
+        var baselineUtc = DateTime.UtcNow.AddHours(-2);
+        await SetLastEnumerationTimestampAsync(baselineUtc.ToLocalTime());
+        await SetRootEnumerationTimestampAsync(rootA, baselineUtc);
+        await SetRootEnumerationTimestampAsync(rootB, baselineUtc);
+
+        // Omit B from this enumeration to model the configured root being
+        // unavailable. Its database rows remain retained while A advances.
+        var partialEnumeration = await _manager.EnumerateSongsAsync(new[] { rootA });
+        Assert.True(partialEnumeration >= 1);
+
+        var editedAtUtc = DateTime.UtcNow.AddMinutes(-1);
+        await File.AppendAllTextAsync(chartB, "#COMMENT: edited\n");
+        SetFilesystemTimes(chartB, editedAtUtc, preserveCreationTime: true);
+
+        var needsEnumeration = await _manager.NeedsEnumerationAsync(new[] { rootA, rootB });
+
+        Assert.True(needsEnumeration);
     }
 
     [Fact]
@@ -1802,6 +1926,24 @@ public class SongManagerCoverageTests : IDisposable
 """);
     }
 
+    private static void SetFilesystemTimes(
+        string filePath,
+        DateTime utcTimestamp,
+        bool preserveCreationTime = false)
+    {
+        var directoryPath = Path.GetDirectoryName(filePath)!;
+        var rootPath = Directory.GetParent(directoryPath)!.FullName;
+        File.SetLastWriteTimeUtc(filePath, utcTimestamp);
+        Directory.SetLastWriteTimeUtc(directoryPath, utcTimestamp);
+        Directory.SetLastWriteTimeUtc(rootPath, utcTimestamp);
+        if (!preserveCreationTime)
+        {
+            File.SetCreationTimeUtc(filePath, utcTimestamp);
+            Directory.SetCreationTimeUtc(directoryPath, utcTimestamp);
+            Directory.SetCreationTimeUtc(rootPath, utcTimestamp);
+        }
+    }
+
     private void ClearRootSongs()
     {
         var rootSongs = ReflectionHelpers.GetPrivateField<List<SongListNode>>(_manager, "_rootSongs");
@@ -1820,7 +1962,30 @@ public class SongManagerCoverageTests : IDisposable
     private async Task SetLastEnumerationTimestampAsync(DateTime localTimestamp)
     {
         Assert.NotNull(_manager.DatabaseService);
-        await _manager.DatabaseService!.SetLastSuccessfulEnumerationUtcAsync(localTimestamp.ToUniversalTime());
+        var utcTimestamp = localTimestamp.ToUniversalTime();
+        await _manager.DatabaseService!.SetLastSuccessfulEnumerationUtcAsync(utcTimestamp);
+
+        var currentRoots = ReflectionHelpers.GetPrivateField<string[]>(
+            _manager,
+            "_currentSearchPaths");
+        if (currentRoots == null)
+            return;
+
+        foreach (var root in currentRoots)
+            await SetRootEnumerationTimestampAsync(root, utcTimestamp);
+    }
+
+    private async Task SetRootEnumerationTimestampAsync(string root, DateTime utcTimestamp)
+    {
+        Assert.NotNull(_manager.DatabaseService);
+        var canonicalRoot = _manager.RootPolicy
+            .Validate(new[] { root })
+            .CanonicalRoots
+            .Single();
+
+        await _manager.DatabaseService!.SetLastSuccessfulEnumerationUtcAsync(
+            new[] { canonicalRoot },
+            utcTimestamp.ToUniversalTime());
     }
 
     private static SongDatabaseService CreateBrokenDatabaseService()

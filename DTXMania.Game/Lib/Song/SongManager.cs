@@ -132,6 +132,11 @@ namespace DTXMania.Game.Lib.Song
         private static readonly Regex SpacedCommandPattern = new Regex(@"#\s*([A-Z\s]+?)\s+(.*)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
         private static readonly Regex ExcessiveSpacesPattern = new Regex(@"\s+", RegexOptions.Compiled);
 
+        // Back off the persisted scan-start watermark to account for filesystems
+        // that round modification times down to a coarse resolution.
+        private static readonly TimeSpan EnumerationWatermarkBackoff =
+            TimeSpan.FromSeconds(5);
+
         #endregion
 
         #region Public Properties
@@ -775,14 +780,15 @@ namespace DTXMania.Game.Lib.Song
             SongEnumerationResult? result = null;
             var outcome = StartupOperationOutcome.Failure;
 
-            // Capture the enumeration start as the freshness watermark. It is
-            // persisted only after successful publication so that any file edit
-            // during the (possibly long) scan remains newer than the watermark
-            // and triggers the next refresh. Using the completion time instead
-            // would mask mid-scan edits: a file parsed early and then modified
-            // while other roots are still scanning would have an mtime older
-            // than the completion-time watermark and be silently ignored.
-            var enumerationStartedUtc = DateTime.UtcNow;
+            // Capture a conservatively backed-off enumeration start as the
+            // freshness watermark. It is persisted only after successful
+            // publication so that any file edit during the (possibly long) scan
+            // remains newer than the watermark and triggers the next refresh.
+            // Using the completion time instead would mask mid-scan edits: a
+            // file parsed early and then modified while other roots are still
+            // scanning would have an mtime older than the completion-time
+            // watermark and be silently ignored.
+            var enumerationStartedUtc = DateTime.UtcNow - EnumerationWatermarkBackoff;
 
             try
             {
@@ -862,11 +868,13 @@ namespace DTXMania.Game.Lib.Song
                     hierarchy.Elapsed);
                 outcome = StartupOperationOutcome.Success;
 
-                // Persist the START watermark (not the completion time) so that
-                // mid-scan edits remain newer than the watermark and are detected
-                // by the next freshness check. NoActiveRoots and failure paths
-                // do not update the watermark: nothing was enumerated.
-                await SetEnumerationWatermarkAsync(enumerationStartedUtc)
+                // Persist the backed-off START watermark (not the completion time)
+                // so that mid-scan edits remain newer than the watermark and are
+                // detected by the next freshness check. NoActiveRoots and failure
+                // paths do not update the watermark: nothing was enumerated.
+                await SetEnumerationWatermarkAsync(
+                    batch.ActiveRoots,
+                    enumerationStartedUtc)
                     .ConfigureAwait(false);
 
                 return result;
@@ -3674,15 +3682,14 @@ namespace DTXMania.Game.Lib.Song
                 // treating its absence as a change whenever another root has
                 // charts forces a perpetual rescan on every startup. When the
                 // root returns (external drive reattached, network share
-                // mounted), the count mismatch between the filesystem inventory
-                // — now including it — and the scoped database count naturally
-                // triggers a refresh.
+                // mounted), its retained watermark is used to detect edits even
+                // when the chart count still matches the retained database rows.
                 var availableRoots = new List<string>(searchPaths.Length);
                 foreach (var searchPath in searchPaths)
                 {
                     if (string.IsNullOrEmpty(searchPath))
                         continue;
-                    if (Directory.Exists(searchPath))
+                    if (RootPolicy.Probe(searchPath) == SongRootAvailability.Available)
                         availableRoots.Add(searchPath);
                     else
                         Debug.WriteLine($"SongManager: Configured root unavailable, skipping freshness check: {searchPath}");
@@ -3729,9 +3736,16 @@ namespace DTXMania.Game.Lib.Song
                     return true;
                 }
 
-                // Check the available roots' mtimes against the last enumeration
-                // time using the single inventory walk.
-                if (InventoryHasChangesSince(inventory, lastEnumerationTime.Value))
+                // Check each available root against its own last successful
+                // watermark. A root omitted from a partial scan has no new
+                // watermark, so its return is conservatively treated as a change.
+                var rootWatermarks = await GetRootEnumerationWatermarksAsync(
+                    availableRoots,
+                    lastEnumerationTime.Value).ConfigureAwait(false);
+                if (InventoryHasChangesSince(
+                        inventory,
+                        availableRoots,
+                        rootWatermarks))
                 {
                     Debug.WriteLine("SongManager: Changes detected in song directories");
                     return true;
@@ -3748,16 +3762,43 @@ namespace DTXMania.Game.Lib.Song
             }
         }
 
+        private async Task<IReadOnlyDictionary<string, DateTime>>
+            GetRootEnumerationWatermarksAsync(
+                IReadOnlyList<string> availableRoots,
+                DateTime legacyWatermark)
+        {
+            var watermarks = new Dictionary<string, DateTime>(
+                SongPathIdentity.CanonicalComparer);
+            var database = GetDatabaseServiceSnapshot();
+            if (database == null)
+                return watermarks;
+
+            foreach (var root in availableRoots)
+            {
+                var watermark = await database
+                    .GetLastSuccessfulEnumerationUtcAsync(root)
+                    .ConfigureAwait(false);
+                if (watermark.HasValue)
+                    watermarks[root] = watermark.Value;
+            }
+
+            // Databases created before per-root watermarks only have the global
+            // value. Use it as a one-time migration fallback; once any root
+            // watermark exists, an omitted root must remain missing so a return
+            // after a partial scan cannot inherit another root's newer time.
+            if (watermarks.Count == 0)
+            {
+                foreach (var root in availableRoots)
+                    watermarks[root] = legacyWatermark;
+            }
+
+            return watermarks;
+        }
+
         /// <summary>
         /// Counts the chart files full enumeration would import across the active
-        /// roots, by delegating to the shared <see cref="ScanChartInventoryAsync"/>.
-        /// This matches enumeration's directory and set.def discovery rules: in a
-        /// set.def directory only the referenced charts are counted (not loose or
-        /// backup charts), and extension matching is case-insensitive via
-        /// <see cref="DTXChartParser.IsSupportedFile"/> so uppercase chart files
-        /// (e.g. CHART.DTX) are counted on case-sensitive filesystems. The previous
-        /// recursive-glob counter mismatched both cases and forced a permanent
-        /// rescan.
+        /// roots by delegating to the shared inventory scanner. Kept as a private
+        /// compatibility seam for existing coverage of the inventory contract.
         /// </summary>
         private async Task<int> CountDTXFilesAsync(string[] searchPaths)
         {
@@ -3771,35 +3812,40 @@ namespace DTXMania.Game.Lib.Song
             catch (Exception ex)
             {
                 Debug.WriteLine($"SongManager: Error counting chart files: {ex.Message}");
-                return -1; // Return invalid count to trigger enumeration
+                return -1;
             }
         }
 
         /// <summary>
-        /// Checks a single root directory for new or modified chart/set.def/directory
-        /// entries since <paramref name="lastEnumerationTime"/> by delegating to the
-        /// shared <see cref="ScanChartInventoryAsync"/>. Mirrors enumeration's
-        /// discovery rules (set.def-referenced charts only; case-insensitive
-        /// extensions; the set.def file itself is watched so label/reference edits
-        /// trigger a rescan even when referenced charts are unchanged). A missing or
-        /// unreadable directory assumes changes, matching the previous behavior.
+        /// Checks one root against a supplied watermark using the shared inventory
+        /// scanner. Kept as a private compatibility seam for existing coverage of
+        /// the inventory contract; live freshness checks use per-root watermarks.
         /// </summary>
-        private async Task<bool> CheckDirectoryForChangesAsync(string directoryPath, DateTime lastEnumerationTime)
+        private async Task<bool> CheckDirectoryForChangesAsync(
+            string directoryPath,
+            DateTime lastEnumerationTime)
         {
             try
             {
                 if (string.IsNullOrEmpty(directoryPath) || !Directory.Exists(directoryPath))
-                    return true; // Missing root with database rows is a change.
+                    return true;
 
                 var inventory = await ScanChartInventoryAsync(
                     new[] { directoryPath }, CancellationToken.None).ConfigureAwait(false);
-                return InventoryHasChangesSince(inventory, lastEnumerationTime);
+                var normalizedRoot = SongPathIdentity.Normalize(directoryPath);
+                return InventoryHasChangesSince(
+                    inventory,
+                    new[] { normalizedRoot },
+                    new Dictionary<string, DateTime>(SongPathIdentity.CanonicalComparer)
+                    {
+                        [normalizedRoot] = lastEnumerationTime
+                    });
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"SongManager: Error checking directory {directoryPath}: {ex.Message}");
                 Debug.WriteLine($"SongManager: Stack trace: {ex.StackTrace}");
-                return true; // Assume changes on error
+                return true;
             }
         }
 
@@ -3942,18 +3988,34 @@ namespace DTXMania.Game.Lib.Song
 
         /// <summary>
         /// Returns true if any directory, set.def, or chart in
-        /// <paramref name="inventory"/> was created or modified after
-        /// <paramref name="lastEnumerationTime"/>. Mirrors the per-entry checks
-        /// previously spread across <c>CheckDirectoryForChangesAsync</c> and
-        /// <c>CheckSubdirectoriesForChangesAsync</c>, but evaluated over a single
-        /// inventory walk instead of one recursive walk per extension.
+        /// <paramref name="inventory"/> was created or modified after the
+        /// watermark for its containing root. Mirrors the per-entry checks
+        /// previously spread across multiple recursive checks, but evaluated over
+        /// a single inventory walk instead of one recursive walk per extension.
         /// </summary>
         private static bool InventoryHasChangesSince(
-            ChartInventory inventory, DateTime lastEnumerationTime)
+            ChartInventory inventory,
+            IReadOnlyList<string> activeRoots,
+            IReadOnlyDictionary<string, DateTime> rootWatermarks)
         {
+            foreach (var root in activeRoots)
+            {
+                if (!rootWatermarks.ContainsKey(root))
+                {
+                    Debug.WriteLine(
+                        $"SongManager: No enumeration watermark found for returning root: {root}");
+                    return true;
+                }
+            }
+
             foreach (var dir in inventory.Directories)
             {
-                if (dir.LastWriteTime > lastEnumerationTime)
+                if (TryGetRootWatermark(
+                        dir.Path,
+                        activeRoots,
+                        rootWatermarks,
+                        out var watermark) &&
+                    dir.LastWriteTime > watermark)
                 {
                     Debug.WriteLine($"SongManager: Directory modified: {dir.Path} at {dir.LastWriteTime:yyyy-MM-dd HH:mm:ss}");
                     return true;
@@ -3962,8 +4024,13 @@ namespace DTXMania.Game.Lib.Song
 
             foreach (var setDef in inventory.SetDefinitions)
             {
-                if (setDef.CreationTime > lastEnumerationTime ||
-                    setDef.LastWriteTime > lastEnumerationTime)
+                if (TryGetRootWatermark(
+                        setDef.Path,
+                        activeRoots,
+                        rootWatermarks,
+                        out var watermark) &&
+                    (setDef.CreationTime > watermark ||
+                     setDef.LastWriteTime > watermark))
                 {
                     Debug.WriteLine($"SongManager: set.def modified: {setDef.Path} at {setDef.LastWriteTime:yyyy-MM-dd HH:mm:ss}");
                     return true;
@@ -3972,16 +4039,44 @@ namespace DTXMania.Game.Lib.Song
 
             foreach (var chart in inventory.Charts)
             {
-                if (chart.CreationTime > lastEnumerationTime ||
-                    chart.LastWriteTime > lastEnumerationTime)
+                if (TryGetRootWatermark(
+                        chart.Path,
+                        activeRoots,
+                        rootWatermarks,
+                        out var watermark) &&
+                    (chart.CreationTime > watermark ||
+                     chart.LastWriteTime > watermark))
                 {
-                    var reason = chart.CreationTime > lastEnumerationTime ? "new" : "modified";
+                    var reason = chart.CreationTime > watermark ? "new" : "modified";
                     Debug.WriteLine($"SongManager: {reason.ToUpper()} chart detected: {chart.Path} at {chart.LastWriteTime:yyyy-MM-dd HH:mm:ss}");
                     return true;
                 }
             }
 
             return false;
+        }
+
+        private static bool TryGetRootWatermark(
+            string path,
+            IReadOnlyList<string> activeRoots,
+            IReadOnlyDictionary<string, DateTime> rootWatermarks,
+            out DateTime watermark)
+        {
+            watermark = default;
+            string? containingRoot = null;
+            foreach (var root in activeRoots)
+            {
+                if (!SongPathIdentity.IsUnderNormalizedRoot(path, root) ||
+                    (containingRoot != null && root.Length <= containingRoot.Length))
+                {
+                    continue;
+                }
+
+                containingRoot = root;
+            }
+
+            return containingRoot != null &&
+                rootWatermarks.TryGetValue(containingRoot, out watermark);
         }
 
         /// <summary>
@@ -4033,20 +4128,26 @@ namespace DTXMania.Game.Lib.Song
         /// <summary>
         /// Persists the enumeration watermark after a successful
         /// <see cref="SongEnumerationOutcome.ImportedAndPublished"/> result.
-        /// The watermark is the START of filesystem traversal (captured in
-        /// <see cref="EnumerateAndImportSongsCoreAsync"/>), not the completion
-        /// time, so that files edited during the scan remain newer than the
-        /// watermark and trigger the next freshness check. Updated only here so
-        /// unrelated database writes (bookmark toggles, score saves) cannot
-        /// advance it.
+        /// The watermark is the backed-off START of filesystem traversal
+        /// (captured in <see cref="EnumerateAndImportSongsCoreAsync"/>), not the
+        /// completion time, so that files edited during the scan remain newer
+        /// than the watermark and trigger the next freshness check. Updated only
+        /// for the roots in the successful batch so a partial multi-root scan
+        /// cannot advance another root's watermark. Unrelated database writes
+        /// (bookmark toggles, score saves) cannot advance either value.
         /// </summary>
-        private async Task SetEnumerationWatermarkAsync(DateTime startUtc)
+        private async Task SetEnumerationWatermarkAsync(
+            IReadOnlyList<string> activeRoots,
+            DateTime startUtc)
         {
             try
             {
                 if (_databaseService == null) return;
 
                 await _databaseService.SetLastSuccessfulEnumerationUtcAsync(startUtc);
+                await _databaseService.SetLastSuccessfulEnumerationUtcAsync(
+                    activeRoots,
+                    startUtc);
                 Debug.WriteLine($"SongManager: Enumeration watermark persisted at {startUtc:yyyy-MM-dd HH:mm:ss} UTC (scan start)");
             }
             catch (Exception ex)
