@@ -4135,6 +4135,13 @@ namespace DTXMania.Game.Lib.Song
         /// for the roots in the successful batch so a partial multi-root scan
         /// cannot advance another root's watermark. Unrelated database writes
         /// (bookmark toggles, score saves) cannot advance either value.
+        /// <para>
+        /// The global and per-root watermarks are written as one atomic database
+        /// transaction. A crash or failure mid-write cannot leave the global
+        /// timestamp committed while per-root rows are absent, which would
+        /// otherwise cause the legacy fallback to assign another root's newer
+        /// timestamp to a returning root and hide its edits.
+        /// </para>
         /// </summary>
         private async Task SetEnumerationWatermarkAsync(
             IReadOnlyList<string> activeRoots,
@@ -4144,11 +4151,20 @@ namespace DTXMania.Game.Lib.Song
             {
                 if (_databaseService == null) return;
 
-                await _databaseService.SetLastSuccessfulEnumerationUtcAsync(startUtc);
-                await _databaseService.SetLastSuccessfulEnumerationUtcAsync(
-                    activeRoots,
-                    startUtc);
-                Debug.WriteLine($"SongManager: Enumeration watermark persisted at {startUtc:yyyy-MM-dd HH:mm:ss} UTC (scan start)");
+                var success = await _databaseService
+                    .SetEnumerationWatermarkAtomicallyAsync(startUtc, activeRoots)
+                    .ConfigureAwait(false);
+                if (success)
+                {
+                    Debug.WriteLine($"SongManager: Enumeration watermark persisted at {startUtc:yyyy-MM-dd HH:mm:ss} UTC (scan start)");
+                }
+                else
+                {
+                    // A failed write leaves the previous watermark in place (or
+                    // none), so the next freshness check remains conservative.
+                    // No partial state is possible because the write is atomic.
+                    Debug.WriteLine($"SongManager: Enumeration watermark write failed; previous watermark retained.");
+                }
             }
             catch (Exception ex)
             {
