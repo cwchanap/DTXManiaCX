@@ -1418,8 +1418,8 @@ public class SongManagerCoverageTests : IDisposable
     {
         var songsRoot = Path.Combine(_testRoot, "DirectoryModified");
         Directory.CreateDirectory(songsRoot);
-        var lastEnumerationTime = DateTime.Now.AddMinutes(-5);
-        Directory.SetLastWriteTime(songsRoot, DateTime.Now);
+        var lastEnumerationTime = DateTime.UtcNow.AddMinutes(-5);
+        Directory.SetLastWriteTimeUtc(songsRoot, DateTime.UtcNow);
 
         var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
             _manager,
@@ -1438,9 +1438,9 @@ public class SongManagerCoverageTests : IDisposable
         var dtxPath = Path.Combine(songsRoot, "changed.dtx");
         await CreateDtxFileAsync(dtxPath, "Changed Song", "Coverage Bot", "Rock", 40);
 
-        var lastEnumerationTime = DateTime.Now.AddMinutes(-5);
-        Directory.SetLastWriteTime(songsRoot, lastEnumerationTime.AddMinutes(-1));
-        File.SetLastWriteTime(dtxPath, DateTime.Now);
+        var lastEnumerationTime = DateTime.UtcNow.AddMinutes(-5);
+        Directory.SetLastWriteTimeUtc(songsRoot, lastEnumerationTime.AddMinutes(-1));
+        File.SetLastWriteTimeUtc(dtxPath, DateTime.UtcNow);
 
         var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
             _manager,
@@ -1826,10 +1826,11 @@ public class SongManagerCoverageTests : IDisposable
             await context.SaveChangesAsync();
         }
 
-        // Set the database file's last-write time AFTER all writes (including the
-        // score-row inserts above) so GetLastEnumerationTimestampAsync reports a
-        // steady-state timestamp in the future. Setting it before the inserts
-        // would let SaveChangesAsync overwrite it with the current time.
+        // Set the explicit __EnumerationMetadata enumeration timestamp AFTER all
+        // writes (including the score-row inserts above) so the freshness check
+        // sees a steady-state watermark in the future. The watermark is the
+        // persisted LastSuccessfulEnumerationUtc value, not the database file's
+        // last-write time, so unrelated SaveChangesAsync calls cannot advance it.
         await SetLastEnumerationTimestampAsync(DateTime.Now.AddMinutes(5));
 
         // Filesystem still has exactly 1 chart file; database now has 3 score rows
@@ -1891,9 +1892,9 @@ public class SongManagerCoverageTests : IDisposable
 #00011:01010101
 """);
 
-        var lastEnumerationTime = DateTime.Now.AddMinutes(-5);
-        Directory.SetLastWriteTime(songsRoot, lastEnumerationTime.AddMinutes(-1));
-        File.SetLastWriteTime(bmsPath, DateTime.Now);
+        var lastEnumerationTime = DateTime.UtcNow.AddMinutes(-5);
+        Directory.SetLastWriteTimeUtc(songsRoot, lastEnumerationTime.AddMinutes(-1));
+        File.SetLastWriteTimeUtc(bmsPath, DateTime.UtcNow);
 
         var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
             _manager,

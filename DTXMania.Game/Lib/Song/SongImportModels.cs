@@ -34,8 +34,8 @@ namespace DTXMania.Game.Lib.Song
     /// </summary>
     internal sealed record ChartInventoryEntry(
         string Path,
-        DateTime LastWriteTime,
-        DateTime CreationTime);
+        DateTime LastWriteTimeUtc,
+        DateTime CreationTimeUtc);
 
     /// <summary>
     /// The result of a single filesystem walk over the active song roots that

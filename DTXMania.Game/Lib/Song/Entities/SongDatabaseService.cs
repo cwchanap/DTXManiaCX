@@ -1899,9 +1899,19 @@ namespace DTXMania.Game.Lib.Song.Entities
             if (roots == null || roots.Count == 0)
                 return Array.Empty<int>();
 
+            // Normalize defensively so blank or malformed roots do not abort the
+            // query. Mirrors the active-root pre-normalization in
+            // GetActiveChartCountAsync.
             var normalizedRoots = roots
-                .Select(SongPathIdentity.Normalize)
+                .Select(root =>
+                {
+                    SongPathIdentity.TryNormalize(root, out var normalized);
+                    return normalized;
+                })
+                .Where(r => !string.IsNullOrEmpty(r))
                 .ToArray();
+            if (normalizedRoots.Length == 0)
+                return Array.Empty<int>();
             using var context = CreateContext();
             var charts = await context.SongCharts
                 .AsNoTracking()
@@ -1935,9 +1945,19 @@ namespace DTXMania.Game.Lib.Song.Entities
             if (roots == null || roots.Count == 0)
                 return Array.Empty<(int, string)>();
 
+            // Normalize defensively so blank or malformed roots (which
+            // CountDTXFilesAsync also skips) do not abort the lookup. Mirrors
+            // the active-root pre-normalization in GetActiveChartCountAsync.
             var normalizedRoots = roots
-                .Select(SongPathIdentity.Normalize)
+                .Select(root =>
+                {
+                    SongPathIdentity.TryNormalize(root, out var normalized);
+                    return normalized;
+                })
+                .Where(r => !string.IsNullOrEmpty(r))
                 .ToArray();
+            if (normalizedRoots.Length == 0)
+                return Array.Empty<(int, string)>();
             using var context = CreateContext();
             var charts = await context.SongCharts
                 .AsNoTracking()
@@ -2298,8 +2318,22 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// </summary>
         private const string LastSuccessfulEnumerationKey = "LastSuccessfulEnumerationUtc";
 
-        private const string LastSuccessfulEnumerationRootKeyPrefix =
+        /// <summary>
+        /// Key prefix for per-root enumeration watermarks stored in
+        /// <see cref="__EnumerationMetadata"/>. Exposed as internal so tests
+        /// can build the same wildcard delete filter without hardcoding the
+        /// literal. The full key is built by <see cref="BuildRootWatermarkKey"/>.
+        /// </summary>
+        internal const string LastSuccessfulEnumerationRootKeyPrefix =
             "LastSuccessfulEnumerationUtc:Root:";
+
+        /// <summary>
+        /// Builds the per-root watermark key for a normalized root. Centralized
+        /// so the read/write/atomic-write sites cannot drift from each other.
+        /// </summary>
+        private static string BuildRootWatermarkKey(string normalizedRoot) =>
+            LastSuccessfulEnumerationRootKeyPrefix +
+                SongPathIdentity.GetStableRootKey(normalizedRoot);
 
         /// <summary>
         /// Ensures the <c>__EnumerationMetadata</c> key/value table exists. Created
@@ -2375,7 +2409,7 @@ namespace DTXMania.Game.Lib.Song.Entities
                 using var context = CreateContext();
                 var value = await context.Database.SqlQueryRaw<string>(
                     "SELECT Value FROM __EnumerationMetadata WHERE Key = {0} LIMIT 1",
-                    LastSuccessfulEnumerationRootKeyPrefix + SongPathIdentity.GetStableRootKey(normalizedRoot))
+                    BuildRootWatermarkKey(normalizedRoot))
                     .ToListAsync();
                 var raw = value.FirstOrDefault();
                 if (string.IsNullOrEmpty(raw) ||
@@ -2452,7 +2486,7 @@ namespace DTXMania.Game.Lib.Song.Entities
 
                     await context.Database.ExecuteSqlRawAsync(
                         "INSERT OR REPLACE INTO __EnumerationMetadata (Key, Value) VALUES ({0}, {1})",
-                        LastSuccessfulEnumerationRootKeyPrefix + SongPathIdentity.GetStableRootKey(normalizedRoot),
+                        BuildRootWatermarkKey(normalizedRoot),
                         value);
                 }
             }
@@ -2511,7 +2545,7 @@ namespace DTXMania.Game.Lib.Song.Entities
 
                         await context.Database.ExecuteSqlRawAsync(
                             "INSERT OR REPLACE INTO __EnumerationMetadata (Key, Value) VALUES ({0}, {1})",
-                            LastSuccessfulEnumerationRootKeyPrefix + SongPathIdentity.GetStableRootKey(normalizedRoot),
+                            BuildRootWatermarkKey(normalizedRoot),
                             value).ConfigureAwait(false);
                     }
                 }

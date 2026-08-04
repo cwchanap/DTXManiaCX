@@ -3933,66 +3933,85 @@ namespace DTXMania.Game.Lib.Song
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var dirInfo = new DirectoryInfo(directoryPath);
-            inventory.Directories.Add(new ChartInventoryEntry(
-                SongPathIdentity.Normalize(directoryPath),
-                dirInfo.LastWriteTimeUtc,
-                dirInfo.CreationTimeUtc));
-
-            var setDefPath = Path.Combine(directoryPath, "set.def");
-            if (File.Exists(setDefPath))
+            // Wrap this directory's access (DirectoryInfo construction and
+            // file/directory enumeration) so an inaccessible or unreadable
+            // directory skips itself while its siblings continue scanning.
+            // OperationCanceledException is NOT caught here, so cancellation
+            // from ThrowIfCancellationRequested (above and in the loops below)
+            // propagates unchanged.
+            try
             {
-                // set.def directory: only referenced charts are imported; loose
-                // charts and subdirectories are NOT scanned (enumeration returns
-                // early after ParseSetDefinitionIntoBatchAsync).
-                var setDefInfo = new FileInfo(setDefPath);
-                inventory.SetDefinitions.Add(new ChartInventoryEntry(
-                    SongPathIdentity.Normalize(setDefPath),
-                    setDefInfo.LastWriteTimeUtc,
-                    setDefInfo.CreationTimeUtc));
-                foreach (var chartPath in EnumerateSetDefReferencedCharts(
-                    setDefPath, cancellationToken))
+                var dirInfo = new DirectoryInfo(directoryPath);
+                inventory.Directories.Add(new ChartInventoryEntry(
+                    SongPathIdentity.Normalize(directoryPath),
+                    dirInfo.LastWriteTimeUtc,
+                    dirInfo.CreationTimeUtc));
+
+                var setDefPath = Path.Combine(directoryPath, "set.def");
+                if (File.Exists(setDefPath))
+                {
+                    // set.def directory: only referenced charts are imported; loose
+                    // charts and subdirectories are NOT scanned (enumeration returns
+                    // early after ParseSetDefinitionIntoBatchAsync).
+                    var setDefInfo = new FileInfo(setDefPath);
+                    inventory.SetDefinitions.Add(new ChartInventoryEntry(
+                        SongPathIdentity.Normalize(setDefPath),
+                        setDefInfo.LastWriteTimeUtc,
+                        setDefInfo.CreationTimeUtc));
+                    foreach (var chartPath in EnumerateSetDefReferencedCharts(
+                        setDefPath, cancellationToken))
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        if (!seenCharts.Add(chartPath))
+                            continue;
+                        var chartInfo = new FileInfo(chartPath);
+                        inventory.Charts.Add(new ChartInventoryEntry(
+                            chartPath,
+                            chartInfo.LastWriteTimeUtc,
+                            chartInfo.CreationTimeUtc));
+                    }
+                    return;
+                }
+
+                // No set.def: collect loose supported charts (case-insensitive via
+                // IsSupportedFile, matching full enumeration) and recurse into all
+                // subdirectories. Boxes are organizational only and do not filter
+                // charts, so they are recursed like any other directory.
+                foreach (var file in EnumerateFilesCore(directoryPath)
+                    .Where(DTXChartParser.IsSupportedFile)
+                    .Select(SongPathIdentity.Normalize)
+                    .OrderBy(path => path, SongPathIdentity.CanonicalComparer))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    if (!seenCharts.Add(chartPath))
+                    if (!File.Exists(file))
                         continue;
-                    var chartInfo = new FileInfo(chartPath);
+                    if (!seenCharts.Add(file))
+                        continue;
+                    var fileInfo = new FileInfo(file);
                     inventory.Charts.Add(new ChartInventoryEntry(
-                        chartPath,
-                        chartInfo.LastWriteTimeUtc,
-                        chartInfo.CreationTimeUtc));
+                        file,
+                        fileInfo.LastWriteTimeUtc,
+                        fileInfo.CreationTimeUtc));
                 }
-                return;
-            }
 
-            // No set.def: collect loose supported charts (case-insensitive via
-            // IsSupportedFile, matching full enumeration) and recurse into all
-            // subdirectories. Boxes are organizational only and do not filter
-            // charts, so they are recursed like any other directory.
-            foreach (var file in EnumerateFilesCore(directoryPath)
-                .Where(DTXChartParser.IsSupportedFile)
-                .Select(SongPathIdentity.Normalize)
-                .OrderBy(path => path, SongPathIdentity.CanonicalComparer))
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (!File.Exists(file))
-                    continue;
-                if (!seenCharts.Add(file))
-                    continue;
-                var fileInfo = new FileInfo(file);
-                inventory.Charts.Add(new ChartInventoryEntry(
-                    file,
-                    fileInfo.LastWriteTimeUtc,
-                    fileInfo.CreationTimeUtc));
+                foreach (var subdirectory in EnumerateDirectoriesCore(directoryPath)
+                    .Select(SongPathIdentity.Normalize)
+                    .OrderBy(path => path, SongPathIdentity.CanonicalComparer))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    ScanChartInventoryDirectory(
+                        subdirectory, inventory, seenCharts, cancellationToken);
+                }
             }
-
-            foreach (var subdirectory in EnumerateDirectoriesCore(directoryPath)
-                .Select(SongPathIdentity.Normalize)
-                .OrderBy(path => path, SongPathIdentity.CanonicalComparer))
+            catch (UnauthorizedAccessException ex)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                ScanChartInventoryDirectory(
-                    subdirectory, inventory, seenCharts, cancellationToken);
+                Debug.WriteLine(
+                    $"SongManager: Skipping inaccessible directory during inventory scan: {directoryPath}: {ex.Message}");
+            }
+            catch (IOException ex)
+            {
+                Debug.WriteLine(
+                    $"SongManager: Skipping unreadable directory during inventory scan: {directoryPath}: {ex.Message}");
             }
         }
 
@@ -4067,9 +4086,9 @@ namespace DTXMania.Game.Lib.Song
                         activeRoots,
                         rootWatermarks,
                         out var watermark) &&
-                    dir.LastWriteTime > watermark)
+                    dir.LastWriteTimeUtc > watermark)
                 {
-                    Debug.WriteLine($"SongManager: Directory modified: {dir.Path} at {dir.LastWriteTime:yyyy-MM-dd HH:mm:ss}");
+                    Debug.WriteLine($"SongManager: Directory modified: {dir.Path} at {dir.LastWriteTimeUtc:yyyy-MM-dd HH:mm:ss}");
                     return true;
                 }
             }
@@ -4081,10 +4100,10 @@ namespace DTXMania.Game.Lib.Song
                         activeRoots,
                         rootWatermarks,
                         out var watermark) &&
-                    (setDef.CreationTime > watermark ||
-                     setDef.LastWriteTime > watermark))
+                    (setDef.CreationTimeUtc > watermark ||
+                     setDef.LastWriteTimeUtc > watermark))
                 {
-                    Debug.WriteLine($"SongManager: set.def modified: {setDef.Path} at {setDef.LastWriteTime:yyyy-MM-dd HH:mm:ss}");
+                    Debug.WriteLine($"SongManager: set.def modified: {setDef.Path} at {setDef.LastWriteTimeUtc:yyyy-MM-dd HH:mm:ss}");
                     return true;
                 }
             }
@@ -4096,11 +4115,11 @@ namespace DTXMania.Game.Lib.Song
                         activeRoots,
                         rootWatermarks,
                         out var watermark) &&
-                    (chart.CreationTime > watermark ||
-                     chart.LastWriteTime > watermark))
+                    (chart.CreationTimeUtc > watermark ||
+                     chart.LastWriteTimeUtc > watermark))
                 {
-                    var reason = chart.CreationTime > watermark ? "new" : "modified";
-                    Debug.WriteLine($"SongManager: {reason.ToUpper()} chart detected: {chart.Path} at {chart.LastWriteTime:yyyy-MM-dd HH:mm:ss}");
+                    var reason = chart.CreationTimeUtc > watermark ? "new" : "modified";
+                    Debug.WriteLine($"SongManager: {reason.ToUpper()} chart detected: {chart.Path} at {chart.LastWriteTimeUtc:yyyy-MM-dd HH:mm:ss}");
                     return true;
                 }
             }
@@ -4115,18 +4134,7 @@ namespace DTXMania.Game.Lib.Song
             out DateTime watermark)
         {
             watermark = default;
-            string? containingRoot = null;
-            foreach (var root in activeRoots)
-            {
-                if (!SongPathIdentity.IsUnderNormalizedRoot(path, root) ||
-                    (containingRoot != null && root.Length <= containingRoot.Length))
-                {
-                    continue;
-                }
-
-                containingRoot = root;
-            }
-
+            var containingRoot = FindContainingRoot(path, activeRoots);
             return containingRoot != null &&
                 rootWatermarks.TryGetValue(containingRoot, out watermark);
         }
@@ -4262,9 +4270,10 @@ namespace DTXMania.Game.Lib.Song
         {
             try
             {
-                if (_databaseService == null) return;
+                var databaseService = GetDatabaseServiceSnapshot();
+                if (databaseService == null) return;
 
-                var success = await _databaseService
+                var success = await databaseService
                     .SetEnumerationWatermarkAtomicallyAsync(startUtc, activeRoots)
                     .ConfigureAwait(false);
                 if (success)

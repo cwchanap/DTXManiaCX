@@ -1793,7 +1793,8 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         await using (var context = _manager.DatabaseService!.CreateContext())
         {
             await context.Database.ExecuteSqlRawAsync(
-                "DELETE FROM __EnumerationMetadata WHERE Key LIKE 'LastSuccessfulEnumerationUtc:Root:%'");
+                "DELETE FROM __EnumerationMetadata WHERE Key LIKE {0}",
+                SongDatabaseService.LastSuccessfulEnumerationRootKeyPrefix + "%");
         }
         var legacyGlobal = DateTime.UtcNow.AddMinutes(-20);
         await _manager.DatabaseService!
@@ -1917,8 +1918,8 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
     }
 
     [Fact]
-        public async Task BuildEnumerationBatchAsync_WhenRootDoesNotExist_ShouldSkipAndRecordRootFailure()
-        {
+    public async Task BuildEnumerationBatchAsync_WhenRootDoesNotExist_ShouldSkipAndRecordRootFailure()
+    {
         var batch = await _manager.BuildEnumerationBatchAsync(
             new[] { Path.Combine(_testRoot, "Nonexistent") },
             null,
@@ -1926,10 +1927,10 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
 
         Assert.Empty(batch.Candidates);
         var rootError = Assert.Single(batch.Errors, e => e.IsRootFailure);
-            Assert.Contains("does not exist", rootError.Message, StringComparison.OrdinalIgnoreCase);
-        }
+        Assert.Contains("does not exist", rootError.Message, StringComparison.OrdinalIgnoreCase);
+    }
 
-        [Fact]
+    [Fact]
         public async Task BuildEnumerationBatchAsync_ShouldUseRootPolicyToDeduplicateActiveRoots()
         {
             var root = Path.Combine(_testRoot, "PolicyRoot");
@@ -1948,9 +1949,9 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
                 error.Message.Contains("duplicate", StringComparison.OrdinalIgnoreCase));
         }
 
-        [Fact]
-        public async Task EnumerateAndImportSongsAsync_WhenBatchIsIncomplete_ShouldThrowInvalidOperationException()
-        {
+    [Fact]
+    public async Task EnumerateAndImportSongsAsync_WhenBatchIsIncomplete_ShouldThrowInvalidOperationException()
+    {
         await _manager.InitializeDatabaseServiceAsync(_databasePath);
         // Inject an incomplete batch directly via the build seam so the import
         // guard (IsComplete == false) is exercised independently of cancellation.
@@ -1972,8 +1973,8 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
             _manager.EnumerateAndImportSongsAsync(
                 new[] { _songsRoot }, null, CancellationToken.None));
 
-            Assert.Contains("incomplete enumeration", ex.Message, StringComparison.OrdinalIgnoreCase);
-        }
+        Assert.Contains("incomplete enumeration", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
 
         [Fact]
         public async Task EnumerateAndImportSongsAsync_WhenCompleteBatchHasNoActiveRoots_ShouldNotImportOrPublish()
