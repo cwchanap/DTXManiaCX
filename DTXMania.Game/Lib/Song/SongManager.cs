@@ -1263,6 +1263,7 @@ namespace DTXMania.Game.Lib.Song
             }
 
             var directory = Path.GetDirectoryName(setDefPath) ?? "";
+            var normalizedSetDefDirectory = SongPathIdentity.Normalize(directory);
             var groupKey = SongPathIdentity.ForSetDefinition(setDefPath);
             SongListNode? placeholder = null;
             var orderedPaths = new List<string>();
@@ -1277,6 +1278,17 @@ namespace DTXMania.Game.Lib.Song
                 if (string.IsNullOrWhiteSpace(fileName))
                     continue;
 
+                // Reject absolute set.def chart references outright.
+                // Path.Combine silently overrides the set.def directory when
+                // the second argument is rooted, which would let an absolute
+                // path point anywhere on disk.
+                if (Path.IsPathRooted(fileName))
+                {
+                    Debug.WriteLine(
+                        $"SongManager: Rejecting absolute set.def chart reference: {fileName}");
+                    continue;
+                }
+
                 var path = SongPathIdentity.Normalize(
                     Path.Combine(directory, fileName));
                 if (!DTXChartParser.IsSupportedFile(path) ||
@@ -1285,16 +1297,23 @@ namespace DTXMania.Game.Lib.Song
                     continue;
                 }
 
-                // Reject set.def chart references that escape the active-root
-                // boundary (../ traversal or absolute paths). Without this, an
-                // escaped reference is counted by the filesystem inventory but
-                // excluded by the database freshness count (which scopes to
-                // active roots), producing a permanent count mismatch and
-                // perpetual rescans.
-                if (!IsPathUnderAnyRoot(path, builder.ActiveRoots))
+                // Reject set.def chart references that escape the directory
+                // containing the set.def. A reference like
+                // ../Sibling/chart.dtx (still inside the active root) creates a
+                // duplicate placeholder: one under the set.def's directory, one
+                // under the chart's own directory. Both resolve to the single
+                // persisted chart in the freshly published hierarchy, but on a
+                // cached restart the chart is placed only by its physical
+                // path, so the duplicate/misplaced node disappears — an
+                // inconsistency between fresh publish and cached
+                // reconstruction. Valid child paths (e.g. charts/basic.dtx)
+                // are permitted.
+                if (!SongPathIdentity.IsUnderNormalizedRoot(
+                        path,
+                        normalizedSetDefDirectory))
                 {
                     Debug.WriteLine(
-                        $"SongManager: Rejecting set.def chart reference outside active roots: {path}");
+                        $"SongManager: Rejecting set.def chart reference outside its directory: {path}");
                     continue;
                 }
 
@@ -3898,19 +3917,12 @@ namespace DTXMania.Game.Lib.Song
             {
                 var inventory = new ChartInventory();
                 var seenCharts = new HashSet<string>(SongPathIdentity.CanonicalComparer);
-                // Pre-normalize the available roots once so every set.def
-                // containment check reuses the same normalized set without
-                // re-normalizing per chart reference.
-                var normalizedRoots = searchPaths
-                    .Where(path => !string.IsNullOrEmpty(path) && Directory.Exists(path))
-                    .Select(SongPathIdentity.Normalize)
-                    .ToArray();
                 foreach (var root in searchPaths
                     .Where(path => !string.IsNullOrEmpty(path) && Directory.Exists(path)))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     ScanChartInventoryDirectory(
-                        root, inventory, seenCharts, normalizedRoots, cancellationToken);
+                        root, inventory, seenCharts, cancellationToken);
                 }
                 return inventory;
             }, cancellationToken);
@@ -3920,7 +3932,6 @@ namespace DTXMania.Game.Lib.Song
             string directoryPath,
             ChartInventory inventory,
             HashSet<string> seenCharts,
-            IReadOnlyList<string> normalizedRoots,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -3942,7 +3953,7 @@ namespace DTXMania.Game.Lib.Song
                     setDefInfo.LastWriteTimeUtc,
                     setDefInfo.CreationTimeUtc));
                 foreach (var chartPath in EnumerateSetDefReferencedCharts(
-                    setDefPath, normalizedRoots, cancellationToken))
+                    setDefPath, cancellationToken))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     if (!seenCharts.Add(chartPath))
@@ -3983,27 +3994,28 @@ namespace DTXMania.Game.Lib.Song
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 ScanChartInventoryDirectory(
-                    subdirectory, inventory, seenCharts, normalizedRoots, cancellationToken);
+                    subdirectory, inventory, seenCharts, cancellationToken);
             }
         }
 
         /// <summary>
         /// Resolves the chart file paths a <c>set.def</c> references (and that
-        /// exist on disk, are supported, and remain within an active root),
-        /// mirroring <see cref="ParseSetDefinitionIntoBatchAsync"/>. Reuses the
-        /// shared <see cref="ReadSetDefLines"/> encoding chain and
+        /// exist on disk, are supported, and remain within the directory
+        /// containing the set.def), mirroring
+        /// <see cref="ParseSetDefinitionIntoBatchAsync"/>. Reuses the shared
+        /// <see cref="ReadSetDefLines"/> encoding chain and
         /// <see cref="ParseSetDefContent"/> so the inventory never drifts from
-        /// what full enumeration imports. References that escape the active-root
-        /// boundary via <c>../</c> traversal or absolute paths are rejected so
-        /// the inventory count matches the database freshness count (which
-        /// scopes to active roots).
+        /// what full enumeration imports. References that escape the set.def's
+        /// directory via <c>../</c> traversal or absolute paths are rejected so
+        /// the inventory count matches the database freshness count and no
+        /// duplicate placeholders are created.
         /// </summary>
         private IEnumerable<string> EnumerateSetDefReferencedCharts(
             string setDefPath,
-            IReadOnlyList<string> normalizedRoots,
             CancellationToken cancellationToken)
         {
             var directory = Path.GetDirectoryName(setDefPath) ?? "";
+            var normalizedSetDefDirectory = SongPathIdentity.Normalize(directory);
             var lines = ReadSetDefLines(setDefPath);
             if (lines == null)
                 yield break;
@@ -4014,10 +4026,13 @@ namespace DTXMania.Game.Lib.Song
             {
                 if (string.IsNullOrWhiteSpace(fileName))
                     continue;
+                if (Path.IsPathRooted(fileName))
+                    continue;
                 var path = SongPathIdentity.Normalize(Path.Combine(directory, fileName));
                 if (DTXChartParser.IsSupportedFile(path) &&
                     File.Exists(path) &&
-                    IsPathUnderAnyRoot(path, normalizedRoots) &&
+                    SongPathIdentity.IsUnderNormalizedRoot(
+                        path, normalizedSetDefDirectory) &&
                     emitted.Add(path))
                 {
                     yield return path;
@@ -4116,30 +4131,6 @@ namespace DTXMania.Game.Lib.Song
 
             return containingRoot != null &&
                 rootWatermarks.TryGetValue(containingRoot, out watermark);
-        }
-
-        /// <summary>
-        /// Checks whether a normalized chart path is contained within any of
-        /// the supplied normalized active roots. Used to reject <c>set.def</c>
-        /// <c>#LnFILE</c> references that escape the active-root boundary via
-        /// <c>../</c> traversal or absolute paths — such references would be
-        /// counted by the filesystem inventory but excluded by the database
-        /// freshness count (which scopes to active roots), producing a
-        /// permanent count mismatch and perpetual rescans.
-        /// </summary>
-        private static bool IsPathUnderAnyRoot(
-            string normalizedPath,
-            IReadOnlyList<string> normalizedRoots)
-        {
-            if (normalizedRoots.Count == 0)
-                return false;
-
-            foreach (var root in normalizedRoots)
-            {
-                if (SongPathIdentity.IsUnderNormalizedRoot(normalizedPath, root))
-                    return true;
-            }
-            return false;
         }
 
         /// <summary>
