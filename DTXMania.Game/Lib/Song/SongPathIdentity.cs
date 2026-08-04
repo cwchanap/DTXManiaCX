@@ -14,6 +14,35 @@ namespace DTXMania.Game.Lib.Song
                 ? StringComparer.OrdinalIgnoreCase
                 : StringComparer.Ordinal;
 
+        /// <summary>
+        /// Whether path identity is case-sensitive on the current platform.
+        /// Windows and macOS default to case-insensitive filesystems; Linux and
+        /// other Unix systems are case-sensitive. Mirrors the comparer selected
+        /// by <see cref="SongRootPolicy.ForCurrentPlatform"/>.
+        /// </summary>
+        public static bool IsCaseSensitive =>
+            !OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS();
+
+        /// <summary>
+        /// Produces a stable root identity key from an already-normalized root
+        /// path. On case-insensitive platforms (Windows, macOS) the key is
+        /// lowercased so that differently-cased paths representing the same
+        /// configured root produce the same storage key. On case-sensitive
+        /// platforms the path is returned unchanged.
+        /// <para>
+        /// This must be used consistently for per-root watermark storage and
+        /// lookup so that a casing-only change in configuration cannot make a
+        /// root's watermark appear absent.
+        /// </para>
+        /// </summary>
+        public static string GetStableRootKey(string normalizedRoot)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(normalizedRoot);
+            return IsCaseSensitive
+                ? normalizedRoot
+                : normalizedRoot.ToLowerInvariant();
+        }
+
         public static string Normalize(string path)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(path);

@@ -61,46 +61,41 @@ namespace DTXMania.Game.Lib.Stage
         private SongSelectionTab _activeTab = SongSelectionTab.AllSongs;
         private static readonly SongSelectionTab[] AllTabs = System.Enum.GetValues<SongSelectionTab>();
         // Cached recent-plays nodes (flat Score nodes), refreshed on activation and on
-        // switching into the Recent tab. Null until first load. volatile: published from a
-        // background load continuation and read on the update thread (release-acquire pair
-        // with _tabListNeedsRefresh).
-        private volatile List<SongListNode>? _recentPlayNodes;
+        // switching into the Recent tab. Null until first load. Worker completions only
+        // enqueue immutable records; this and all related flags are update-thread owned.
+        private List<SongListNode>? _recentPlayNodes;
         private bool _showEmptyRecentMessage;
         // True when the most recent BeginRecentPlaysLoad continuation failed (DB error,
         // IO error, etc.). Distinct from _showEmptyRecentMessage so a corrupted/locked
         // score DB doesn't look identical to "no plays yet."
         private bool _recentPlaysLoadFailed;
         // Cached bookmark nodes (flat Score nodes), refreshed on activation and on switching
-        // into the Bookmarks tab. Null until first load. volatile: published from a background
-        // load continuation and read on the update thread (release-acquire pair with
-        // _tabListNeedsRefresh).
-        private volatile List<SongListNode>? _bookmarkNodes;
+        // into the Bookmarks tab. Worker completions only enqueue immutable records; this and
+        // all related flags are update-thread owned.
+        private List<SongListNode>? _bookmarkNodes;
         private bool _showEmptyBookmarksMessage;
         // True when the most recent BeginBookmarksLoad continuation failed (DB/IO error).
         private bool _bookmarksLoadFailed;
-        // Per-load sequence guard for BeginBookmarksLoad. Incremented on every call so a
-        // completion from an older same-activation load (e.g., the activation-time warm load
-        // still in flight when the user bookmarks a song and switches to the Bookmarks tab)
-        // can detect it has been superseded by a newer load and discard its stale result
-        // instead of overwriting _bookmarkNodes with a pre-toggle snapshot that omits the
-        // just-bookmarked song. Interlocked because BeginBookmarksLoad is called from both
-        // the update thread (Activate, ProcessPendingBookmarkReverts) and thread-pool
-        // continuations (SwitchToNextTab's Task.WhenAll chain). volatile so the plain read
-        // in the continuation observes the latest increment.
-        private volatile int _bookmarksLoadVersion;
+        // Per-load sequence guard for BeginBookmarksLoad. Incremented on the update thread so
+        // a queued completion from an older same-activation load cannot overwrite the result
+        // of a newer load with a pre-toggle snapshot that omits a newly bookmarked song.
+        private int _bookmarksLoadVersion;
         private Func<Task<List<SongListNode>>> _loadBookmarkedNodesAsync =
             () => SongManager.Instance.GetBookmarkedNodesAsync();
-        // Set when the active tab's list must be repopulated on the next OnUpdate.
-        // Used so background recent-plays loads and lane-hit/Tab switches never mutate
-        // SongListDisplay off the update thread. volatile so the update thread reliably
-        // observes the flag set by the background continuation.
-        private volatile bool _tabListNeedsRefresh;
-        // Activation token bumped on every Activate(). Captured by BeginRecentPlaysLoad so
-        // its background continuation can detect that a later Deactivate/Activate cycle has
-        // occurred and discard stale results instead of overwriting fresh state.
-        // volatile: written on the update thread (Activate) and read on a background
-        // continuation thread; ensures the continuation sees the latest bump.
-        private volatile int _activationVersion;
+        private readonly System.Collections.Concurrent.ConcurrentQueue<TabLoadCompletion>
+            _pendingTabLoadCompletions = new();
+        private readonly System.Collections.Concurrent.ConcurrentQueue<BookmarkLoadRequest>
+            _pendingBookmarkLoadRequests = new();
+        // Set when the active tab's list must be repopulated on the next OnUpdate. It is owned
+        // by the update thread; worker continuations enqueue completion records instead.
+        private bool _tabListNeedsRefresh;
+        // Completion application increments this before requesting a refresh. The update thread
+        // consumes the value around a projection so a refresh requested during reconciliation is
+        // re-queued instead of being lost by a stale false write.
+        private int _asyncTabListRefreshVersion;
+        // Activation token bumped on every Activate()/Deactivate(). Workers capture it in their
+        // immutable records; update-thread consumption and publication callbacks validate it.
+        private int _activationVersion;
 
         // Serializes bookmark persistence writes per song. Each toggle chains after the
         // in-flight write for the same song so rapid double-toggles apply in order and the
@@ -127,6 +122,28 @@ namespace DTXMania.Game.Lib.Stage
         private Task<List<SongListNode>> _songInitializationTask;
         private bool _songInitializationProcessed = false;
         private CancellationTokenSource _cancellationTokenSource;
+        // Initializers run on workers, so they return immutable records to this queue instead
+        // of writing a shared snapshot field. OnUpdate consumes only the record that belongs to
+        // the current activation and initialization generation.
+        private readonly System.Collections.Concurrent.ConcurrentQueue<SongInitializationResult>
+            _pendingSongInitializationResults = new();
+        // Both worker publication and deactivation cleanup use this gate. It makes the
+        // post-task selective cleanup atomic with enqueues while retaining newer records.
+        private readonly object _songInitializationQueueGate = new();
+        private long _songInitializationGeneration;
+        private long _activeSongInitializationGeneration;
+
+        // One coherent library publication backs every song-select projection.  The event
+        // publisher can run on a worker thread, so it only records a version; OnUpdate is
+        // the sole place that replaces UI-owned collections from a fetched snapshot.
+        private SongLibrarySnapshot? _appliedLibrarySnapshot;
+        private HashSet<string>? _appliedLibraryScoreIdentities;
+        private long _pendingLibraryPublicationVersion;
+        private long _appliedLibraryPublicationVersion;
+        private int _libraryPublicationActive;
+        private readonly object _libraryPublicationGate = new();
+        private EventHandler<SongLibraryPublishedEventArgs>? _libraryPublicationHandler;
+        private SongLibraryEmptyState _libraryEmptyState = SongLibraryEmptyState.HasSongs;
 
         // UI Components - Enhanced DTXManiaNX style
         private UIManager _uiManager;
@@ -202,6 +219,34 @@ namespace DTXMania.Game.Lib.Stage
         private const double BGM_FADE_OUT_DURATION = SongSelectionUILayout.Audio.BgmFadeOutDuration;
         private const double BGM_FADE_IN_DURATION = SongSelectionUILayout.Audio.BgmFadeInDuration;
 
+        private enum SongLibraryEmptyState
+        {
+            HasSongs,
+            NoActiveRoots,
+            NoSupportedCharts
+        }
+
+        private enum TabLoadKind
+        {
+            RecentPlays,
+            Bookmarks
+        }
+
+        private readonly record struct TabLoadCompletion(
+            TabLoadKind Kind,
+            int ActivationVersion,
+            int LoadVersion,
+            IReadOnlyList<SongListNode>? Nodes,
+            Exception? Error);
+
+        private readonly record struct BookmarkLoadRequest(int ActivationVersion);
+
+        internal readonly record struct SongInitializationResult(
+            int ActivationVersion,
+            long Generation,
+            SongLibrarySnapshot? Snapshot,
+            IReadOnlyList<SongListNode> SongList);
+
         #endregion
 
         #region Properties
@@ -230,7 +275,24 @@ namespace DTXMania.Game.Lib.Stage
             // Use game's shared InputManager (supports MCP key injection)
             AssignInputManager(_game.InputManager);
             _inputManager?.ClearPendingCommands();
+            // Invalidate the prior activation before resetting publication state. An event
+            // callback that was already in flight now carries an older token and cannot write
+            // a pending version into this activation.
+            Interlocked.Increment(ref _activationVersion);
+            UnsubscribeLibraryPublications();
             _cancellationTokenSource = new CancellationTokenSource();
+            _songInitializationProcessed = false;
+            Interlocked.Exchange(ref _activeSongInitializationGeneration, 0);
+            DiscardQueuedSongInitializationResults();
+            _appliedLibrarySnapshot = null;
+            _appliedLibraryScoreIdentities = null;
+            _libraryEmptyState = SongLibraryEmptyState.HasSongs;
+            Interlocked.Exchange(ref _pendingLibraryPublicationVersion, 0);
+            Interlocked.Exchange(ref _appliedLibraryPublicationVersion, 0);
+
+            // The subscriber captures the activation token after the old one has been
+            // invalidated, so a retained delegate from an earlier activation is harmless.
+            SubscribeLibraryPublications();
 
             // Get config manager from game
             _configManager = _game.ConfigManager;
@@ -314,11 +376,10 @@ namespace DTXMania.Game.Lib.Stage
             // Initialize UI
             InitializeUI(uiFont);
 
-            // Start song loading
-            InitializeSongList();
-
             // Always start on All Songs for predictability; warm the recent-plays cache so
-            // the Recent tab is populated the moment the user switches to it.
+            // the Recent tab is populated the moment the user switches to it. Reset this
+            // before projecting the activation snapshot so reconciliation never renders a
+            // previous activation's tab while restoring hierarchy and selection.
             _activeTab = SongSelectionTab.AllSongs;
             _recentPlayNodes = null;
             _showEmptyRecentMessage = false;
@@ -330,9 +391,12 @@ namespace DTXMania.Game.Lib.Stage
             // that set the flag just before Deactivate). Without this, the first OnUpdate
             // would repopulate the All Songs list and reset selection/scroll to index 0.
             _tabListNeedsRefresh = false;
-            // Bump the activation token so any in-flight BeginRecentPlaysLoad continuation
-            // from a prior activation discards its stale result.
-            _activationVersion++;
+            Interlocked.Exchange(ref _asyncTabListRefreshVersion, 0);
+
+            // Start song loading after the tab state is reset. An initialized manager is
+            // reconciled instead of raw-applied, which restores only paths still present in
+            // the current snapshot and clears a removed hierarchy before it is displayed.
+            InitializeSongList();
             BeginRecentPlaysLoad();
             _ = BeginBookmarksLoad();
 
@@ -346,6 +410,24 @@ namespace DTXMania.Game.Lib.Stage
 
         public override void Deactivate()
         {
+            // Capture the cancelled initializer identity before invalidating this activation.
+            // Its worker can have passed cancellation checks and enqueue only after the
+            // immediate drain below, so its terminal continuation removes just this record.
+            var cancelledInitializationTask = _songInitializationTask;
+            int cancelledInitializationActivationVersion = Volatile.Read(ref _activationVersion);
+            long cancelledInitializationGeneration =
+                Volatile.Read(ref _activeSongInitializationGeneration);
+
+            // Invalidate every activation-scoped continuation immediately rather than waiting
+            // for the next Activate call. This prevents a canceled initialization task from
+            // writing a stale snapshot into a stage that is already inactive.
+            Interlocked.Increment(ref _activationVersion);
+
+            // Stop accepting publications before resources and UI collections begin tearing
+            // down. A publisher already in flight carries the prior activation token and is
+            // rejected by the fenced handler before it can record a pending version.
+            UnsubscribeLibraryPublications();
+
             if (_configManager != null)
             {
                 _configManager.ScrollSpeedChanged -= OnScrollSpeedChanged;
@@ -357,24 +439,37 @@ namespace DTXMania.Game.Lib.Stage
 
             // Use non-blocking observation to avoid hanging the UI
             // Attach a continuation to handle exceptions without waiting synchronously
-            if (_songInitializationTask != null)
+            if (cancelledInitializationTask != null)
             {
                 // Capture the token source so we can dispose it after the task completes
                 var cts = _cancellationTokenSource;
                 _cancellationTokenSource = null;
 
                 // Observe the task result asynchronously via continuation to prevent unobserved exceptions
-                _songInitializationTask.ContinueWith(
+                cancelledInitializationTask.ContinueWith(
                     task =>
                     {
-                        if (task.IsFaulted)
+                        try
                         {
-                            // Log the exception for debugging but don't throw
-                            System.Diagnostics.Debug.WriteLine(
-                                $"SongSelectionStage.Deactivate: Task faulted during deactivation: {task.Exception?.GetBaseException().Message}");
+                            if (task.IsFaulted)
+                            {
+                                // Log the exception for debugging but don't throw
+                                System.Diagnostics.Debug.WriteLine(
+                                    $"SongSelectionStage.Deactivate: Task faulted during deactivation: {task.Exception?.GetBaseException().Message}");
+                            }
+
+                            // This continuation never touches UI-owned state. The worker queues
+                            // its immutable record before completing, so selective cleanup here
+                            // catches records published after the immediate deactivation drain.
+                            DiscardQueuedSongInitializationResults(
+                                cancelledInitializationActivationVersion,
+                                cancelledInitializationGeneration);
                         }
-                        // Dispose the token source after the task has completed
-                        cts?.Dispose();
+                        finally
+                        {
+                            // Dispose the token source after the task has completed.
+                            cts?.Dispose();
+                        }
                     },
                     TaskScheduler.Default);
             }
@@ -386,6 +481,11 @@ namespace DTXMania.Game.Lib.Stage
 
             // Clean up task references
             _songInitializationTask = null;
+            Interlocked.Exchange(ref _activeSongInitializationGeneration, 0);
+            DiscardQueuedSongInitializationResults();
+            _appliedLibrarySnapshot = null;
+            _appliedLibraryScoreIdentities = null;
+            Interlocked.Exchange(ref _pendingLibraryPublicationVersion, 0);
 
             // Clean up UI
             _uiManager?.Dispose();
@@ -616,7 +716,7 @@ namespace DTXMania.Game.Lib.Stage
             {
                 HasStatusPanel = true, // We have a status panel, so use right-side positioning
                 WhitePixel = _whitePixel,
-                SongsRootPath = _configManager?.Config?.DTXPath
+                ActiveSongRootPaths = Array.Empty<string>()
             };
 
             // Initialize graphics generator for status panel
@@ -728,11 +828,19 @@ namespace DTXMania.Game.Lib.Stage
                 if (!songManager.IsInitialized)
                 {
                     var token = _cancellationTokenSource.Token;
+                    int initializationActivationVersion = Volatile.Read(ref _activationVersion);
+                    long initializationGeneration =
+                        Interlocked.Increment(ref _songInitializationGeneration);
+                    Interlocked.Exchange(
+                        ref _activeSongInitializationGeneration,
+                        initializationGeneration);
 
                     // Start background task to initialize SongManager and fetch song list
-                    // This task only fetches data and doesn't modify shared state or UI
-                    _songInitializationTask = Task.Run(async () =>
+                    // This task only fetches data and queues an immutable result; it never
+                    // writes stage-owned state or UI collections from a worker thread.
+                    _songInitializationTask = Task.Run(() =>
                     {
+                        SongInitializationResult result;
                         try
                         {
                             // Check for cancellation before starting
@@ -747,40 +855,168 @@ namespace DTXMania.Game.Lib.Stage
                             
                             // Check for cancellation after initialization
                             token.ThrowIfCancellationRequested();
-                            
-                            // Return the song list without modifying shared state
-                            return new List<SongListNode>(songManager.RootSongs);
+
+                            // Read a single coherent publication. The UI thread applies
+                            // both hierarchy and root paths together when it consumes this
+                            // activation-tagged result on the update thread.
+                            var snapshot = songManager.GetLibrarySnapshot();
+                            result = new SongInitializationResult(
+                                initializationActivationVersion,
+                                initializationGeneration,
+                                snapshot,
+                                Array.AsReadOnly(snapshot.RootSongs.ToArray()));
                         }
                         catch (OperationCanceledException)
                         {
-                            return new List<SongListNode>();
+                            result = new SongInitializationResult(
+                                initializationActivationVersion,
+                                initializationGeneration,
+                                null,
+                                Array.Empty<SongListNode>());
                         }
                         catch (Exception ex)
                         {
                             System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to initialize SongManager: {ex.Message}");
-                            return new List<SongListNode>();
+                            result = new SongInitializationResult(
+                                initializationActivationVersion,
+                                initializationGeneration,
+                                null,
+                                Array.Empty<SongListNode>());
                         }
+
+                        lock (_songInitializationQueueGate)
+                        {
+                            _pendingSongInitializationResults.Enqueue(result);
+                        }
+                        return result.SongList.ToList();
                     }, token);
 
-                    // For now, initialize with empty list
+                    // While no coherent snapshot is available, do not leave a BackBox from
+                    // the previous activation visible over the empty placeholder list.
+                    ClearNavigationForPendingLibrary();
                     _currentSongList = new List<SongListNode>();
+                    PopulateSongList();
+                    ReapplyPersistedFilterIfActive();
                 }
                 else
                 {
-                    // Initialize display with song list
-                    _currentSongList = new List<SongListNode>(songManager.RootSongs);
+                    // Re-entry can retain an old navigation stack. Project the activation
+                    // snapshot through the same path as a live publication so retained boxes
+                    // are restored and removed boxes cannot expose stale children.
+                    ReconcileLibrarySnapshot(songManager.GetLibrarySnapshot());
                 }
-
-                PopulateSongList();
-                ReapplyPersistedFilterIfActive();
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Error loading songs: {ex.Message}");
 
                 // Fallback to empty list
+                ClearNavigationForPendingLibrary();
                 _currentSongList = new List<SongListNode>();
                 PopulateSongList();
+            }
+        }
+
+        private void ClearNavigationForPendingLibrary()
+        {
+            _navigationStack.Clear();
+            _currentBreadcrumb = "";
+            ClearRemovedSelectionPresentation();
+        }
+
+        private void ApplyLibrarySnapshot(SongLibrarySnapshot snapshot)
+        {
+            ApplyLibrarySnapshotCore(snapshot, markVersionApplied: true);
+        }
+
+        private void ApplyLibrarySnapshotForReconciliation(SongLibrarySnapshot snapshot)
+        {
+            ApplyLibrarySnapshotCore(snapshot, markVersionApplied: false);
+        }
+
+        private void ApplyLibrarySnapshotCore(
+            SongLibrarySnapshot snapshot,
+            bool markVersionApplied)
+        {
+            ArgumentNullException.ThrowIfNull(snapshot);
+
+            _appliedLibrarySnapshot = snapshot;
+            _appliedLibraryScoreIdentities =
+                GetPublishedScoreIdentities(snapshot.RootSongs);
+            _currentSongList = snapshot.RootSongs.ToList();
+            _libraryEmptyState = ResolveLibraryEmptyState(snapshot);
+            if (_previewImagePanel != null)
+                _previewImagePanel.ActiveSongRootPaths = snapshot.ActiveRoots;
+
+            if (markVersionApplied)
+                Interlocked.Exchange(ref _appliedLibraryPublicationVersion, snapshot.Version);
+        }
+
+        private void SubscribeLibraryPublications()
+        {
+            var songManager = SongManager.Instance;
+            EventHandler<SongLibraryPublishedEventArgs>? previousHandler;
+            lock (_libraryPublicationGate)
+            {
+                previousHandler = _libraryPublicationHandler;
+                _libraryPublicationHandler = null;
+                Interlocked.Exchange(ref _libraryPublicationActive, 0);
+            }
+
+            if (previousHandler != null)
+                songManager.SongLibraryPublished -= previousHandler;
+
+            int capturedActivationVersion = Volatile.Read(ref _activationVersion);
+            EventHandler<SongLibraryPublishedEventArgs> handler = (sender, args) =>
+                OnSongLibraryPublishedForActivation(capturedActivationVersion, args);
+
+            lock (_libraryPublicationGate)
+            {
+                _libraryPublicationHandler = handler;
+                Interlocked.Exchange(ref _libraryPublicationActive, 1);
+            }
+            songManager.SongLibraryPublished += handler;
+        }
+
+        private void UnsubscribeLibraryPublications()
+        {
+            EventHandler<SongLibraryPublishedEventArgs>? handler;
+            lock (_libraryPublicationGate)
+            {
+                Interlocked.Exchange(ref _libraryPublicationActive, 0);
+                handler = _libraryPublicationHandler;
+                _libraryPublicationHandler = null;
+            }
+
+            if (handler != null)
+                SongManager.Instance.SongLibraryPublished -= handler;
+        }
+
+        private void OnSongLibraryPublished(object? sender, SongLibraryPublishedEventArgs e)
+        {
+            // Kept as a direct test seam. Production subscriptions call the token-capturing
+            // helper below through a closure created for each activation.
+            OnSongLibraryPublishedForActivation(
+                Volatile.Read(ref _activationVersion),
+                e);
+        }
+
+        private void OnSongLibraryPublishedForActivation(
+            int capturedActivationVersion,
+            SongLibraryPublishedEventArgs e)
+        {
+            lock (_libraryPublicationGate)
+            {
+                if (Volatile.Read(ref _libraryPublicationActive) == 0
+                    || capturedActivationVersion != Volatile.Read(ref _activationVersion))
+                {
+                    return;
+                }
+
+                long publishedVersion = e.Snapshot.Version;
+                long pendingVersion = Volatile.Read(ref _pendingLibraryPublicationVersion);
+                if (publishedVersion > pendingVersion)
+                    Interlocked.Exchange(ref _pendingLibraryPublicationVersion, publishedVersion);
             }
         }
 
@@ -825,28 +1061,77 @@ namespace DTXMania.Game.Lib.Stage
 
         private void CheckSongInitializationCompletion()
         {
+            // A synchronous reactivation has no initializer task, but a cancelled worker from
+            // an earlier activation can still enqueue a tagged result afterward. It cannot be
+            // applied without a current task, so discard it on the update thread instead of
+            // retaining copied snapshots/root arrays until some future asynchronous load.
+            if (_songInitializationTask == null)
+            {
+                DiscardQueuedSongInitializationResults();
+                return;
+            }
+
             // Check if we have a running task and it's completed
-            if (_songInitializationTask != null && _songInitializationTask.IsCompleted && !_songInitializationProcessed)
+            if (_songInitializationTask.IsCompleted && !_songInitializationProcessed)
             {
                 _songInitializationProcessed = true;
 
                 try
                 {
-                    // Get the result from the completed task
+                    // Get the result from the completed task. Its immutable snapshot record is
+                    // selected separately by activation and generation, so an old worker that
+                    // completes after a reactivation cannot overwrite this task's result.
                     var songList = _songInitializationTask.Result;
+                    int activationVersion = Volatile.Read(ref _activationVersion);
+                    long initializationGeneration =
+                        Volatile.Read(ref _activeSongInitializationGeneration);
+                    var initializationResult = ConsumeSongInitializationResult(
+                        activationVersion,
+                        initializationGeneration);
 
-                    // Update the song list on the main thread
-                    _currentSongList = songList;
-                    PopulateSongList();
+                    // Update the song list on the main thread. A publication can have been
+                    // reconciled while this background task was running; do not let its older
+                    // copied snapshot overwrite the newer UI snapshot.
+                    bool shouldProjectInitializationResult = false;
+                    if (initializationResult?.Snapshot != null)
+                    {
+                        var snapshot = initializationResult.Value.Snapshot!;
+                        // If an update-thread publication has already restored the user's
+                        // navigation and selection, even an equal-version initialization
+                        // result must not repopulate the old projection and reset it.
+                        if (_appliedLibrarySnapshot == null
+                            || snapshot.Version >
+                                Volatile.Read(ref _appliedLibraryPublicationVersion))
+                        {
+                            // Even the initialization result may replace a hierarchy that was
+                            // already being displayed. Reconcile instead of raw-applying so a
+                            // retained box path and selection are restored against this exact
+                            // snapshot, while a removed path is cleared before projection.
+                            ReconcileLibrarySnapshot(snapshot);
+                        }
+                    }
+                    else if (_appliedLibrarySnapshot == null)
+                    {
+                        _currentSongList = songList;
+                        shouldProjectInitializationResult = true;
+                    }
 
-                    // Reapply any persisted filter now that the real song list is available
-                    ReapplyPersistedFilterIfActive();
+                    if (shouldProjectInitializationResult)
+                    {
+                        PopulateSongList();
+
+                        // Reapply any persisted filter now that the real song list is available.
+                        ReapplyPersistedFilterIfActive();
+                    }
                 }
                 catch (Exception ex)
                 {
                     System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Error processing completed song initialization: {ex.Message}");
-                    _currentSongList = new List<SongListNode>();
-                    PopulateSongList();
+                    if (_appliedLibrarySnapshot == null)
+                    {
+                        _currentSongList = new List<SongListNode>();
+                        PopulateSongList();
+                    }
                 }
                 finally
                 {
@@ -857,6 +1142,456 @@ namespace DTXMania.Game.Lib.Stage
                 if (_searchFilterModal != null && _searchFilterModal.IsOpen)
                     _searchFilterModal.IsLibraryReady = true;
             }
+        }
+
+        private SongInitializationResult? ConsumeSongInitializationResult(
+            int activationVersion,
+            long initializationGeneration)
+        {
+            SongInitializationResult? matchingResult = null;
+            lock (_songInitializationQueueGate)
+            {
+                while (_pendingSongInitializationResults.TryDequeue(out var result))
+                {
+                    if (result.ActivationVersion == activationVersion
+                        && result.Generation == initializationGeneration)
+                    {
+                        matchingResult = result;
+                    }
+                }
+            }
+
+            return matchingResult;
+        }
+
+        private void DiscardQueuedSongInitializationResults()
+        {
+            lock (_songInitializationQueueGate)
+            {
+                while (_pendingSongInitializationResults.TryDequeue(out _))
+                {
+                    // Records are immutable and activation-tagged. Without an active initializer,
+                    // none can legitimately be projected into this stage activation.
+                }
+            }
+        }
+
+        private void DiscardQueuedSongInitializationResults(
+            int activationVersion,
+            long initializationGeneration)
+        {
+            lock (_songInitializationQueueGate)
+            {
+                if (_pendingSongInitializationResults.IsEmpty)
+                    return;
+
+                var retainedResults = new List<SongInitializationResult>();
+                while (_pendingSongInitializationResults.TryDequeue(out var result))
+                {
+                    if (result.ActivationVersion != activationVersion ||
+                        result.Generation != initializationGeneration)
+                    {
+                        retainedResults.Add(result);
+                    }
+                }
+
+                foreach (var result in retainedResults)
+                    _pendingSongInitializationResults.Enqueue(result);
+            }
+        }
+
+        /// <summary>
+        /// Reconciles the newest publication only from the stage update thread. The event
+        /// callback intentionally never carries a hierarchy into this method; fetching here
+        /// gives roots and active paths from one current snapshot.
+        /// </summary>
+        private void ApplyPendingLibraryPublication()
+        {
+            if (Volatile.Read(ref _libraryPublicationActive) == 0)
+                return;
+
+            long appliedVersion = Volatile.Read(ref _appliedLibraryPublicationVersion);
+            long pendingVersion = Volatile.Read(ref _pendingLibraryPublicationVersion);
+            if (pendingVersion <= appliedVersion)
+                return;
+
+            // Exactly one snapshot is read for one reconciliation pass. If another
+            // publication lands while it is read, leave this pass untouched and take the
+            // newer coherent snapshot on the next update.
+            var snapshot = SongManager.Instance.GetLibrarySnapshot();
+            if (Volatile.Read(ref _libraryPublicationActive) == 0
+                || snapshot.Version <= appliedVersion
+                || snapshot.Version < pendingVersion)
+            {
+                return;
+            }
+
+            ReconcileLibrarySnapshot(snapshot);
+        }
+
+        private void ReconcileLibrarySnapshot(SongLibrarySnapshot snapshot)
+        {
+            ArgumentNullException.ThrowIfNull(snapshot);
+
+            var navigationPaths = CaptureNavigationPaths();
+            var previousSelection = _selectedSong ?? _songListDisplay?.SelectedSong;
+            var previousSelectionIdentity = GetStableSelectionIdentity(previousSelection);
+            int tabListRefreshVersion = BeginTabListRefreshConsumption();
+
+            // Apply roots and root paths from this single snapshot before rebuilding any
+            // projection. Navigation rebuild then selects child lists owned by that same tree.
+            ApplyLibrarySnapshotForReconciliation(snapshot);
+            RestoreNavigationPaths(navigationPaths, snapshot);
+            RebuildFilteredViewForSnapshot(snapshot);
+
+            var restoredSelection = FindVisibleSongByIdentity(previousSelectionIdentity);
+            if (previousSelectionIdentity != null && restoredSelection == null)
+                ClearRemovedSelectionPresentation();
+
+            if (_songListDisplay != null)
+            {
+                RefreshSongListForActiveTab();
+                if (restoredSelection != null)
+                    RestoreSelectedSong(restoredSelection);
+                else
+                    _selectedSong = _songListDisplay.SelectedSong;
+            }
+
+            UpdateBreadcrumb();
+            UpdateStatusPanelFolderHint();
+            CompleteTabListRefreshConsumption(tabListRefreshVersion);
+            Interlocked.Exchange(ref _appliedLibraryPublicationVersion, snapshot.Version);
+        }
+
+        private List<string> CaptureNavigationPaths()
+        {
+            var states = _navigationStack.Reverse().ToList();
+            var paths = new List<string>(states.Count);
+
+            for (int index = 0; index < states.Count; index++)
+            {
+                var parentNodes = states[index].Children;
+                var childNodes = index + 1 < states.Count
+                    ? states[index + 1].Children
+                    : _currentSongList;
+                var enteredBox = parentNodes.FirstOrDefault(node =>
+                    node.Type == NodeType.Box && ReferenceEquals(node.Children, childNodes));
+                var stablePath = GetStableBoxPath(enteredBox);
+                if (stablePath == null)
+                    break;
+                paths.Add(stablePath);
+            }
+
+            return paths;
+        }
+
+        private void RestoreNavigationPaths(
+            IReadOnlyList<string> navigationPaths,
+            SongLibrarySnapshot snapshot)
+        {
+            _navigationStack.Clear();
+            _currentSongList = snapshot.RootSongs.ToList();
+            _currentBreadcrumb = "";
+
+            foreach (var path in navigationPaths)
+            {
+                var box = _currentSongList.FirstOrDefault(node =>
+                    node.Type == NodeType.Box
+                    && StringComparer.Ordinal.Equals(GetStableBoxPath(node), path));
+                if (box == null)
+                    break;
+
+                _navigationStack.Push(new SongListNode
+                {
+                    Children = _currentSongList,
+                    Title = _currentBreadcrumb
+                });
+                _currentSongList = box.Children;
+                _currentBreadcrumb = string.IsNullOrEmpty(_currentBreadcrumb)
+                    ? box.DisplayTitle
+                    : $"{_currentBreadcrumb} > {box.DisplayTitle}";
+            }
+        }
+
+        private SongListNode? FindVisibleSongByIdentity(string? identity)
+        {
+            if (string.IsNullOrEmpty(identity))
+                return null;
+
+            IEnumerable<SongListNode> candidates;
+            if (_activeTab == SongSelectionTab.RecentPlays)
+            {
+                candidates = FilterNodesForAppliedLibrary(_recentPlayNodes);
+            }
+            else if (_activeTab == SongSelectionTab.Bookmarks)
+            {
+                candidates = FilterNodesForAppliedLibrary(_bookmarkNodes);
+            }
+            else if (_filteredView != null)
+            {
+                candidates = _filteredView.Select(result => result.Node);
+            }
+            else
+            {
+                candidates = _currentSongList;
+            }
+
+            return candidates.FirstOrDefault(node =>
+                StringComparer.Ordinal.Equals(GetStableSelectionIdentity(node), identity));
+        }
+
+        private void RestoreSelectedSong(SongListNode restoredSelection)
+        {
+            if (_songListDisplay == null)
+                return;
+
+            for (int index = 0; index < _songListDisplay.CurrentList.Count; index++)
+            {
+                if (!ReferenceEquals(_songListDisplay.CurrentList[index], restoredSelection))
+                    continue;
+
+                _songListDisplay.SelectedIndex = index;
+                _selectedSong = restoredSelection;
+                return;
+            }
+        }
+
+        private void ClearRemovedSelectionPresentation()
+        {
+            _selectedSong = null;
+            _isInStatusPanel = false;
+            StopCurrentPreview();
+            _previewImagePanel?.ClearSelectedSong();
+            if (_statusPanel != null)
+            {
+                _statusPanel.Visible = false;
+                _statusPanel.UpdateSongInfo(null, _currentDifficulty);
+            }
+            _playHistoryPanel?.UpdateSongInfo(null, _currentDifficulty);
+        }
+
+        private IReadOnlyList<string>? GetAppliedActiveRoots() =>
+            _appliedLibrarySnapshot?.ActiveRoots;
+
+        private static string? GetStableBoxPath(SongListNode? node)
+        {
+            if (node?.Type != NodeType.Box
+                || !SongPathIdentity.TryNormalize(node.DirectoryPath, out var path))
+            {
+                return null;
+            }
+
+            return path;
+        }
+
+        private static string? GetStableSelectionIdentity(SongListNode? node)
+        {
+            if (node?.Type == NodeType.Box)
+            {
+                return SongPathIdentity.TryNormalize(node.DirectoryPath, out var boxPath)
+                    ? $"box:{boxPath}"
+                    : null;
+            }
+
+            if (node?.Type != NodeType.Score)
+                return null;
+
+            int songId = node.DatabaseSongId ?? node.DatabaseSong?.Id ?? 0;
+            if (songId > 0)
+                return $"song:{songId}";
+
+            foreach (var path in GetNodeChartPaths(node))
+            {
+                if (SongPathIdentity.TryNormalize(path, out var normalized))
+                    return $"chart:{normalized}";
+            }
+
+            return null;
+        }
+
+        private List<SongListNode> FilterNodesForActiveRoots(
+            IEnumerable<SongListNode>? nodes,
+            IReadOnlyList<string>? activeRoots)
+        {
+            if (nodes == null)
+                return new List<SongListNode>();
+
+            // Unit-level callers that have not applied a snapshot still exercise the legacy
+            // tab rendering path. A live stage always has an applied snapshot before it draws,
+            // so null means "no root contract yet", not an intentionally empty root set.
+            if (activeRoots == null)
+            {
+                try
+                {
+                    return nodes.ToList();
+                }
+                catch (InvalidOperationException)
+                {
+                    return new List<SongListNode>();
+                }
+            }
+
+            if (activeRoots.Count == 0)
+                return new List<SongListNode>();
+
+            var normalizedRoots = new List<string>(activeRoots.Count);
+            foreach (var root in activeRoots)
+            {
+                if (SongPathIdentity.TryNormalize(root, out var normalized))
+                    normalizedRoots.Add(normalized);
+            }
+
+            if (normalizedRoots.Count == 0)
+                return new List<SongListNode>();
+
+            SongListNode[] copiedNodes;
+            try
+            {
+                copiedNodes = nodes.ToArray();
+            }
+            catch (InvalidOperationException)
+            {
+                // A caller supplied a mutable list being replaced concurrently. Do not leak
+                // a collection-modified exception into the update thread; the next refresh
+                // will project the replacement list.
+                return new List<SongListNode>();
+            }
+
+            var filtered = new List<SongListNode>(copiedNodes.Length);
+            foreach (var node in copiedNodes)
+            {
+                if (NodeIsUnderAnyActiveRoot(node, normalizedRoots))
+                    filtered.Add(node);
+            }
+
+            return filtered;
+        }
+
+        /// <summary>
+        /// Projects a cached flat tab against the coherent library currently displayed by this
+        /// stage. The cache remains intact so a chart that is re-published under an active root
+        /// becomes eligible again without a destructive cache rebuild.
+        /// </summary>
+        private List<SongListNode> FilterNodesForAppliedLibrary(IEnumerable<SongListNode>? nodes)
+        {
+            var rootFilteredNodes = FilterNodesForActiveRoots(nodes, GetAppliedActiveRoots());
+            if (_appliedLibrarySnapshot == null || rootFilteredNodes.Count == 0)
+                return rootFilteredNodes;
+
+            var publishedScoreIdentities = _appliedLibraryScoreIdentities;
+            if (publishedScoreIdentities == null || publishedScoreIdentities.Count == 0)
+                return new List<SongListNode>();
+
+            return rootFilteredNodes
+                .Where(node => HasPublishedScoreIdentity(node, publishedScoreIdentities))
+                .ToList();
+        }
+
+        private static HashSet<string> GetPublishedScoreIdentities(
+            IEnumerable<SongListNode> nodes)
+        {
+            var identities = new HashSet<string>(StringComparer.Ordinal);
+            AddPublishedScoreIdentities(nodes, identities);
+            return identities;
+        }
+
+        private static void AddPublishedScoreIdentities(
+            IEnumerable<SongListNode> nodes,
+            ISet<string> identities)
+        {
+            foreach (var node in nodes)
+            {
+                foreach (var identity in GetScoreIdentityCandidates(node))
+                    identities.Add(identity);
+
+                if (node.Children.Count > 0)
+                    AddPublishedScoreIdentities(node.Children, identities);
+            }
+        }
+
+        private static bool HasPublishedScoreIdentity(
+            SongListNode node,
+            ISet<string> publishedScoreIdentities)
+        {
+            return GetScoreIdentityCandidates(node)
+                .Any(publishedScoreIdentities.Contains);
+        }
+
+        private static IEnumerable<string> GetScoreIdentityCandidates(SongListNode node)
+        {
+            if (node.Type != NodeType.Score)
+                yield break;
+
+            int songId = node.DatabaseSongId ?? node.DatabaseSong?.Id ?? 0;
+            if (songId > 0)
+                yield return $"song:{songId}";
+
+            foreach (var path in GetNodeChartPaths(node))
+            {
+                if (SongPathIdentity.TryNormalize(path, out var normalized))
+                    yield return $"chart:{normalized}";
+            }
+        }
+
+        private static bool NodeIsUnderAnyActiveRoot(
+            SongListNode node,
+            IReadOnlyList<string> normalizedRoots)
+        {
+            foreach (var path in GetNodeChartPaths(node))
+            {
+                if (!SongPathIdentity.TryNormalize(path, out var normalizedPath))
+                    continue;
+
+                foreach (var root in normalizedRoots)
+                {
+                    if (SongPathIdentity.IsUnderNormalizedRoot(normalizedPath, root))
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static IEnumerable<string> GetNodeChartPaths(SongListNode node)
+        {
+            if (!string.IsNullOrWhiteSpace(node.DatabaseChart?.FilePath))
+                yield return node.DatabaseChart.FilePath;
+
+            var charts = node.DatabaseSong?.Charts?.ToArray();
+            if (charts != null)
+            {
+                foreach (var chart in charts)
+                {
+                    if (!string.IsNullOrWhiteSpace(chart?.FilePath))
+                        yield return chart.FilePath;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(node.DirectoryPath))
+                yield return node.DirectoryPath;
+        }
+
+        private SongLibraryEmptyState ResolveLibraryEmptyState(SongLibrarySnapshot snapshot)
+        {
+            if (snapshot.ActiveRoots.Count == 0)
+                return SongLibraryEmptyState.NoActiveRoots;
+
+            return ContainsPublishedScore(snapshot.RootSongs)
+                ? SongLibraryEmptyState.HasSongs
+                : SongLibraryEmptyState.NoSupportedCharts;
+        }
+
+        private static bool ContainsPublishedScore(IEnumerable<SongListNode> nodes)
+        {
+            foreach (var node in nodes)
+            {
+                if (node.Type == NodeType.Score)
+                    return true;
+                if (node.Children.Count > 0 && ContainsPublishedScore(node.Children))
+                    return true;
+            }
+
+            return false;
         }
 
         #endregion
@@ -1093,6 +1828,12 @@ namespace DTXMania.Game.Lib.Stage
 
         private void RebuildFilteredView()
         {
+            var snapshot = _appliedLibrarySnapshot ?? SongManager.Instance.GetLibrarySnapshot();
+            RebuildFilteredViewForSnapshot(snapshot);
+        }
+
+        private void RebuildFilteredViewForSnapshot(SongLibrarySnapshot snapshot)
+        {
             if (_filterCriteria.IsEmpty)
             {
                 _filteredView = null;
@@ -1102,9 +1843,8 @@ namespace DTXMania.Game.Lib.Stage
 
             try
             {
-                var roots = SongManager.Instance.RootSongs;
                 _filteredView = _filterService.Apply(
-                    roots,
+                    snapshot.RootSongs,
                     _filterCriteria,
                     SynchronizeActivePlaySpeed());
                 _showEmptyFilterMessage = _filteredView.Count == 0;
@@ -1143,11 +1883,33 @@ namespace DTXMania.Game.Lib.Stage
                 PopulateSongListForCurrentMode();
         }
 
+        private void RequestAsyncTabListRefresh()
+        {
+            // Increment before the refresh flag write. A reconciliation that sees the new
+            // generation but races this request will restore the flag itself; one that completes
+            // first is followed by this write and is likewise re-queued.
+            Interlocked.Increment(ref _asyncTabListRefreshVersion);
+            _tabListNeedsRefresh = true;
+        }
+
+        private int BeginTabListRefreshConsumption()
+        {
+            int version = Volatile.Read(ref _asyncTabListRefreshVersion);
+            _tabListNeedsRefresh = false;
+            return version;
+        }
+
+        private void CompleteTabListRefreshConsumption(int consumedVersion)
+        {
+            if (Volatile.Read(ref _asyncTabListRefreshVersion) != consumedVersion)
+                _tabListNeedsRefresh = true;
+        }
+
         private void PopulateRecentPlaysList()
         {
-            var nodes = _recentPlayNodes ?? new List<SongListNode>();
+            var nodes = FilterNodesForAppliedLibrary(_recentPlayNodes);
             LabelRecentPlayNodes(nodes);
-            _songListDisplay.CurrentList = new List<SongListNode>(nodes);
+            _songListDisplay.CurrentList = nodes;
             // Show empty message only when the load succeeded but returned nothing.
             // A failed load gets its own distinct message in the draw path.
             _showEmptyRecentMessage = !_recentPlaysLoadFailed && nodes.Count == 0;
@@ -1155,8 +1917,8 @@ namespace DTXMania.Game.Lib.Stage
 
         private void PopulateBookmarksList()
         {
-            var nodes = _bookmarkNodes ?? new List<SongListNode>();
-            _songListDisplay.CurrentList = new List<SongListNode>(nodes);
+            var nodes = FilterNodesForAppliedLibrary(_bookmarkNodes);
+            _songListDisplay.CurrentList = nodes;
             // Show empty message only when the load succeeded but returned nothing.
             // A failed load gets its own distinct message in the draw path.
             _showEmptyBookmarksMessage = !_bookmarksLoadFailed && nodes.Count == 0;
@@ -1219,6 +1981,14 @@ namespace DTXMania.Game.Lib.Stage
             // Check for completed song initialization task
             CheckSongInitializationCompletion();
 
+            // Publication callbacks only captured a version. Apply the current coherent
+            // snapshot here, on the update thread, before input and UI traversal observe it.
+            ApplyPendingLibraryPublication();
+
+            // Background tab loads only enqueue immutable records. Apply them here so cache
+            // lists, flags, and refresh requests remain owned by the stage update thread.
+            ConsumePendingTabLoadWork();
+
             // Update owned fallback input manager (shared one is updated by BaseGame)
             if (_ownsInputManager)
                 _inputManager?.Update(deltaTime);
@@ -1236,8 +2006,9 @@ namespace DTXMania.Game.Lib.Stage
             // Apply any pending tab list repopulate on the update thread.
             if (_tabListNeedsRefresh)
             {
-                _tabListNeedsRefresh = false;
+                int tabListRefreshVersion = BeginTabListRefreshConsumption();
                 RefreshSongListForActiveTab();
+                CompleteTabListRefreshConsumption(tabListRefreshVersion);
             }
 
             // Update UI (PreviewImagePanel will handle its own timing)
@@ -1264,6 +2035,23 @@ namespace DTXMania.Game.Lib.Stage
                 && (_searchFilterModal == null || !_searchFilterModal.IsOpen))
             {
                 string msg = "No songs match this filter";
+                _font.DrawString(_spriteBatch, msg,
+                    new Vector2(SongSelectionUILayout.SongBars.UnselectedBarX + 100, SongSelectionUILayout.SongBars.SelectedBarY),
+                    ResolveStatusTextColor(CurrentTheme));
+            }
+
+            // Do not collapse an intentionally empty root set into the same message as a
+            // configured folder containing no supported charts. Configuration and scanning
+            // recovery actions differ, so the Song Select state must make that distinction.
+            if (_activeTab == SongSelectionTab.AllSongs
+                && _filteredView == null
+                && _libraryEmptyState != SongLibraryEmptyState.HasSongs
+                && _font != null
+                && (_searchFilterModal == null || !_searchFilterModal.IsOpen))
+            {
+                string msg = _libraryEmptyState == SongLibraryEmptyState.NoActiveRoots
+                    ? "No active song folders configured"
+                    : "No supported charts found in active song folders";
                 _font.DrawString(_spriteBatch, msg,
                     new Vector2(SongSelectionUILayout.SongBars.UnselectedBarX + 100, SongSelectionUILayout.SongBars.SelectedBarY),
                     ResolveStatusTextColor(CurrentTheme));
@@ -2301,9 +3089,13 @@ namespace DTXMania.Game.Lib.Stage
                 // present in _bookmarkNodes, so a newly bookmarked song wouldn't appear until
                 // the next reload). Task.WhenAll of an empty/completed set settles immediately.
                 var pending = _pendingBookmarkWrites.Values.ToArray();
+                int capturedActivationVersion = Volatile.Read(ref _activationVersion);
                 _ = Task.WhenAll(pending).ContinueWith(_ =>
                 {
-                    _ = BeginBookmarksLoad();
+                    // This continuation may run on a worker. It never starts a stage-owned
+                    // load directly; OnUpdate validates the activation token before doing so.
+                    _pendingBookmarkLoadRequests.Enqueue(
+                        new BookmarkLoadRequest(capturedActivationVersion));
                 }, TaskScheduler.Default);
             }
 
@@ -2312,112 +3104,135 @@ namespace DTXMania.Game.Lib.Stage
         }
 
         /// <summary>
-        /// Loads recent-plays nodes in the background and flags a repopulate when done.
-        /// Safe to call when the singleton DB is unavailable (returns an empty list).
-        /// Captures <see cref="_activationVersion"/> so a completion that lands after a
-        /// subsequent Deactivate/Activate cycle is discarded instead of overwriting fresh
-        /// state or spuriously flagging a list refresh.
+        /// Loads recent-plays nodes in the background. Its continuation only enqueues an
+        /// immutable completion record; OnUpdate validates and applies it.
         /// </summary>
         private void BeginRecentPlaysLoad()
         {
-            int capturedVersion = _activationVersion;
+            int capturedVersion = Volatile.Read(ref _activationVersion);
             _ = SongManager.Instance.GetRecentlyPlayedNodesAsync(RecentPlaysLimit)
                 .ContinueWith(task =>
                 {
-                    if (task.IsFaulted || task.IsCanceled)
+                    if (task.IsCompletedSuccessfully)
                     {
-                        // Log the full exception (type + stack), not just the base message,
-                        // so DB/IO failures are diagnosable from the debug output.
-                        System.Diagnostics.Debug.WriteLine(
-                            $"SongSelectionStage: recent-plays load failed:\n{task.Exception}");
-                        // Discard stale completions from a prior activation.
-                        if (capturedVersion == _activationVersion)
-                        {
-                            _recentPlaysLoadFailed = true;
-                            if (_activeTab == SongSelectionTab.RecentPlays)
-                                _tabListNeedsRefresh = true;
-                        }
+                        _pendingTabLoadCompletions.Enqueue(new TabLoadCompletion(
+                            TabLoadKind.RecentPlays,
+                            capturedVersion,
+                            0,
+                            CopyTabLoadNodes(task.Result),
+                            null));
                         return;
                     }
-                    // Discard stale completions from a prior activation. Without this guard,
-                    // a slow load from activation N can overwrite the _recentPlayNodes that
-                    // activation N+1 already populated, and trigger an unwanted list rebuild.
-                    if (capturedVersion != _activationVersion)
-                        return;
-                    _recentPlaysLoadFailed = false;
-                    _recentPlayNodes = task.Result;
-                    // Only request a list repopulate when the user is actually viewing the
-                    // Recent tab. Activate() warms the cache while the user is on All Songs;
-                    // flagging a refresh there would spuriously rebuild the All Songs list
-                    // and reset selection/scroll. Tab switches into Recent already request a
-                    // refresh via SwitchToNextTab and rely on this load to populate the list.
-                    if (_activeTab == SongSelectionTab.RecentPlays)
-                        _tabListNeedsRefresh = true;
+
+                    _pendingTabLoadCompletions.Enqueue(new TabLoadCompletion(
+                        TabLoadKind.RecentPlays,
+                        capturedVersion,
+                        0,
+                        null,
+                        task.Exception is Exception error
+                            ? error
+                            : new TaskCanceledException(task)));
                 }, TaskScheduler.Default);
         }
 
         /// <summary>
-        /// Loads bookmark nodes in the background and flags a repopulate when done.
-        /// Safe when the DB is unavailable (returns an empty list). Captures
-        /// <see cref="_activationVersion"/> so a completion that lands after a later
-        /// Deactivate/Activate cycle is discarded, and assigns a per-load sequence id
-        /// (<see cref="_bookmarksLoadVersion"/>) so an older same-activation load
-        /// cannot overwrite the result of a newer load.
+        /// Loads bookmark nodes in the background. Its worker only queues a completion; the
+        /// update thread validates the activation and per-load generation before applying it.
         /// </summary>
         private Task BeginBookmarksLoad()
         {
-            int capturedVersion = _activationVersion;
+            int capturedVersion = Volatile.Read(ref _activationVersion);
             // Assign a monotonic per-load id so an older same-activation load (e.g., the
             // activation-time warm load still in flight when the user bookmarks a song and
             // switches to the Bookmarks tab) can detect it has been superseded by a newer
             // load and discard its stale result.
             int capturedLoadVersion = Interlocked.Increment(ref _bookmarksLoadVersion);
+            var loadBookmarkedNodesAsync = _loadBookmarkedNodesAsync;
             return Task.Run(async () =>
             {
-                List<SongListNode>? nodes = null;
                 try
                 {
-                    nodes = await _loadBookmarkedNodesAsync().ConfigureAwait(false);
+                    var nodes = await loadBookmarkedNodesAsync().ConfigureAwait(false);
+                    _pendingTabLoadCompletions.Enqueue(new TabLoadCompletion(
+                        TabLoadKind.Bookmarks,
+                        capturedVersion,
+                        capturedLoadVersion,
+                        CopyTabLoadNodes(nodes),
+                        null));
                 }
                 catch (Exception ex)
                 {
-                    // Log the full exception (type + stack), not just the base message,
-                    // so DB/IO failures are diagnosable from the debug output.
+                    _pendingTabLoadCompletions.Enqueue(new TabLoadCompletion(
+                        TabLoadKind.Bookmarks,
+                        capturedVersion,
+                        capturedLoadVersion,
+                        null,
+                        ex));
+                }
+            });
+        }
+
+        private static IReadOnlyList<SongListNode> CopyTabLoadNodes(
+            IEnumerable<SongListNode>? nodes)
+        {
+            return Array.AsReadOnly(nodes?.ToArray() ?? Array.Empty<SongListNode>());
+        }
+
+        private void ConsumePendingTabLoadWork()
+        {
+            int activationVersion = Volatile.Read(ref _activationVersion);
+            while (_pendingBookmarkLoadRequests.TryDequeue(out var request))
+            {
+                if (request.ActivationVersion == activationVersion)
+                    _ = BeginBookmarksLoad();
+            }
+
+            while (_pendingTabLoadCompletions.TryDequeue(out var completion))
+            {
+                if (completion.ActivationVersion != activationVersion)
+                    continue;
+
+                if (completion.Kind == TabLoadKind.Bookmarks
+                    && completion.LoadVersion != Volatile.Read(ref _bookmarksLoadVersion))
+                {
+                    continue;
+                }
+
+                if (completion.Error != null)
+                {
                     System.Diagnostics.Debug.WriteLine(
-                        $"SongSelectionStage: bookmarks load failed:\n{ex}");
-                    // Discard stale completions from a prior activation or a newer
-                    // same-activation load.
-                    if (capturedVersion == _activationVersion
-                        && capturedLoadVersion == _bookmarksLoadVersion)
+                        $"SongSelectionStage: {completion.Kind} load failed:\n{completion.Error}");
+                    if (completion.Kind == TabLoadKind.RecentPlays)
+                    {
+                        _recentPlaysLoadFailed = true;
+                        if (_activeTab == SongSelectionTab.RecentPlays)
+                            RequestAsyncTabListRefresh();
+                    }
+                    else
                     {
                         _bookmarksLoadFailed = true;
                         if (_activeTab == SongSelectionTab.Bookmarks)
-                            _tabListNeedsRefresh = true;
+                            RequestAsyncTabListRefresh();
                     }
-                    return;
+                    continue;
                 }
-                // Discard stale completions from a prior activation. Without this guard,
-                // a slow load from activation N can overwrite the _bookmarkNodes that
-                // activation N+1 already populated, and trigger an unwanted list rebuild.
-                if (capturedVersion != _activationVersion)
-                    return;
-                // Discard completions from an older same-activation load. Without this
-                // guard, the activation-time warm load (which queried the DB before a
-                // bookmark toggle committed) can complete after a newer load triggered
-                // by a tab switch, overwriting _bookmarkNodes with a stale pre-toggle
-                // result that omits the just-bookmarked song.
-                if (capturedLoadVersion != _bookmarksLoadVersion)
-                    return;
-                _bookmarksLoadFailed = false;
-                _bookmarkNodes = nodes;
-                // Only request a list repopulate when the user is actually viewing the
-                // Bookmarks tab. Activate() warms the cache while the user is on All Songs;
-                // flagging a refresh there would spuriously rebuild the All Songs list
-                // and reset selection/scroll. Tab switches into Bookmarks already request a
-                // refresh via SwitchToNextTab and rely on this load to populate the list.
-                if (_activeTab == SongSelectionTab.Bookmarks)
-                    _tabListNeedsRefresh = true;
-            });
+
+                var nodes = completion.Nodes?.ToList() ?? new List<SongListNode>();
+                if (completion.Kind == TabLoadKind.RecentPlays)
+                {
+                    _recentPlaysLoadFailed = false;
+                    _recentPlayNodes = nodes;
+                    if (_activeTab == SongSelectionTab.RecentPlays)
+                        RequestAsyncTabListRefresh();
+                }
+                else
+                {
+                    _bookmarksLoadFailed = false;
+                    _bookmarkNodes = nodes;
+                    if (_activeTab == SongSelectionTab.Bookmarks)
+                        RequestAsyncTabListRefresh();
+                }
+            }
         }
 
         /// <summary>
@@ -2486,17 +3301,19 @@ namespace DTXMania.Game.Lib.Stage
             // Reconcile the flag across every in-memory representation of this song (browse
             // tree, Recent list, Bookmarks list) so the star marker stays consistent across
             // tabs without a reload — each surface holds a distinct node/entity instance.
-            BookmarkStateReconciler.Apply(SongManager.Instance.RootSongs, songId, newState);
+            BookmarkStateReconciler.Apply(
+                _appliedLibrarySnapshot?.RootSongs
+                    ?? SongManager.Instance.GetLibrarySnapshot().RootSongs,
+                songId,
+                newState);
             BookmarkStateReconciler.Apply(_recentPlayNodes, songId, newState);
             BookmarkStateReconciler.Apply(_bookmarkNodes, songId, newState);
 
             // On the Bookmarks tab, an un-bookmark should drop the row from view.
             if (_activeTab == SongSelectionTab.Bookmarks && !newState)
             {
-                // _bookmarkNodes is volatile and may be replaced by a background BeginBookmarksLoad
-                // continuation. RemoveAll targets the list reference seen here; if that reference was
-                // just swapped, the removal is harmlessly lost — _tabListNeedsRefresh forces the next
-                // update to repopulate from the new list regardless.
+                // Bookmark caches are update-thread owned. A pending background query only
+                // becomes visible when its queued completion is applied on a later update.
                 _bookmarkNodes?.RemoveAll(n =>
                     ReferenceEquals(n, node) || (n.DatabaseSongId ?? n.DatabaseSong?.Id) == songId);
                 _tabListNeedsRefresh = true;
@@ -2524,7 +3341,11 @@ namespace DTXMania.Game.Lib.Stage
                     continue;
                 }
 
-                BookmarkStateReconciler.Apply(SongManager.Instance.RootSongs, revert.SongId, revert.RevertTo);
+                BookmarkStateReconciler.Apply(
+                    _appliedLibrarySnapshot?.RootSongs
+                        ?? SongManager.Instance.GetLibrarySnapshot().RootSongs,
+                    revert.SongId,
+                    revert.RevertTo);
                 BookmarkStateReconciler.Apply(_recentPlayNodes, revert.SongId, revert.RevertTo);
                 BookmarkStateReconciler.Apply(_bookmarkNodes, revert.SongId, revert.RevertTo);
 

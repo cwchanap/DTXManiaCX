@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Test.TestData;
+using Microsoft.EntityFrameworkCore;
 using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 
 namespace DTXMania.Test.Song;
@@ -104,7 +105,7 @@ public class SongManagerCoverageTests : IDisposable
         await CreateDtxFileAsync(Path.Combine(songFolder, "song.dtx"), "Refresh Song", "Test Bot", "Pop", 40);
 
         await InitializeAndEnumerateAsync(songsRoot);
-        SetDatabaseLastWriteTime(DateTime.Now.AddMinutes(5));
+        await SetLastEnumerationTimestampAsync(DateTime.Now.AddMinutes(5));
         ClearRootSongs();
 
         await _manager.RefreshSongListFromDatabaseAsync();
@@ -177,7 +178,7 @@ public class SongManagerCoverageTests : IDisposable
         await CreateDtxFileAsync(Path.Combine(songFolder, "cached.dtx"), "Cached Song", "Coverage Bot", "Fusion", 35);
 
         await InitializeAndEnumerateAsync(songsRoot);
-        SetDatabaseLastWriteTime(DateTime.Now.AddMinutes(5));
+        await SetLastEnumerationTimestampAsync(DateTime.Now.AddMinutes(5));
         ClearRootSongs();
 
         var loaded = await _manager.LoadScoreCacheAsync(new[] { songsRoot });
@@ -258,11 +259,552 @@ public class SongManagerCoverageTests : IDisposable
         await CreateDtxFileAsync(Path.Combine(songFolder, "stable.dtx"), "Stable Song", "Coverage Bot", "Jazz", 40);
 
         await InitializeAndEnumerateAsync(songsRoot);
-        SetDatabaseLastWriteTime(DateTime.Now.AddMinutes(5));
+        await SetLastEnumerationTimestampAsync(DateTime.Now.AddMinutes(5));
 
         var needsEnumeration = await _manager.NeedsEnumerationAsync(new[] { songsRoot });
 
         Assert.False(needsEnumeration);
+    }
+
+    [Fact]
+    public async Task NeedsEnumerationAsync_WithPopulatedRootAndMissingEmptyRoot_ShouldReturnFalse()
+    {
+        // Reviewer regression (item 1): one stable populated root plus one
+        // missing empty configured root must reach steady state. The old
+        // missing-root check fired for the unavailable root whenever another
+        // root had charts, forcing a perpetual full scan.
+        var populatedRoot = Path.Combine(_testRoot, "PopulatedSongs");
+        var populatedFolder = Path.Combine(populatedRoot, "Song");
+        Directory.CreateDirectory(populatedFolder);
+        await CreateDtxFileAsync(
+            Path.Combine(populatedFolder, "song.dtx"),
+            "Populated Song", "Coverage Bot", "Rock", 35);
+
+        await InitializeAndEnumerateAsync(populatedRoot);
+        await SetLastEnumerationTimestampAsync(DateTime.Now.AddMinutes(5));
+
+        var missingRoot = Path.Combine(_testRoot, "MissingSongs");
+
+        var needsEnumeration = await _manager.NeedsEnumerationAsync(
+            new[] { populatedRoot, missingRoot });
+
+        Assert.False(needsEnumeration);
+    }
+
+    [Fact]
+    public async Task NeedsEnumerationAsync_AfterEnumerationViaCore_ShouldReturnFalseWithoutManualTimestamp()
+    {
+        // Reviewer regression (item 2): the timestamp must be set by
+        // EnumerateAndImportSongsCoreAsync (the path used by startup and Config
+        // live reload). Before the fix, only the test-only
+        // EnumerateSongsOnlyWithPublicationAsync wrapper set it, so
+        // LastSuccessfulEnumerationUtc was never persisted in production and
+        // every startup was a full scan.
+        var songsRoot = Path.Combine(_testRoot, "CoreTimestampSongs");
+        var songFolder = Path.Combine(songsRoot, "Song");
+        var chartPath = Path.Combine(songFolder, "song.dtx");
+        Directory.CreateDirectory(songFolder);
+        await CreateDtxFileAsync(chartPath, "Core Timestamp Song", "Coverage Bot", "Jazz", 40);
+        SetFilesystemTimes(chartPath, DateTime.UtcNow.AddMinutes(-1));
+
+        // EnumerateSongsAsync routes through EnumerateAndImportSongsCoreAsync
+        // — the same core used by EnumerateAndImportSongsAsync (startup/reload).
+        // No manual SetLastEnumerationTimestampAsync: the core must set it.
+        await InitializeAndEnumerateAsync(songsRoot);
+
+        var needsEnumeration = await _manager.NeedsEnumerationAsync(new[] { songsRoot });
+
+        Assert.False(needsEnumeration);
+    }
+
+    [Fact]
+    public async Task NeedsEnumerationAsync_WhenRootExistsButCannotBeEnumerated_ShouldNotForceRescan()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        var populatedRoot = Path.Combine(_testRoot, "ReadableSongs");
+        var inaccessibleRoot = Path.Combine(_testRoot, "InaccessibleSongs");
+        var populatedChart = Path.Combine(populatedRoot, "Song", "song.dtx");
+        await CreateDtxFileAsync(populatedChart, "Readable Song", "Coverage Bot", "Rock", 35);
+        SetFilesystemTimes(populatedChart, DateTime.UtcNow.AddMinutes(-1));
+
+        await InitializeAndEnumerateAsync(populatedRoot);
+        await SetLastEnumerationTimestampAsync(DateTime.UtcNow.AddMinutes(5).ToLocalTime());
+
+        Directory.CreateDirectory(inaccessibleRoot);
+        try
+        {
+            File.SetUnixFileMode(inaccessibleRoot, UnixFileMode.None);
+            var canEnumerate = true;
+            try
+            {
+                using var entries = Directory
+                    .EnumerateFileSystemEntries(inaccessibleRoot)
+                    .GetEnumerator();
+                _ = entries.MoveNext();
+            }
+            catch (UnauthorizedAccessException)
+            {
+                canEnumerate = false;
+            }
+            catch (IOException)
+            {
+                canEnumerate = false;
+            }
+
+            // Permission-restricted tests cannot exercise the branch when the
+            // process has elevated privileges (for example, a root CI runner).
+            if (canEnumerate)
+                return;
+
+            var needsEnumeration = await _manager.NeedsEnumerationAsync(
+                new[] { populatedRoot, inaccessibleRoot });
+
+            Assert.False(needsEnumeration);
+        }
+        finally
+        {
+            File.SetUnixFileMode(
+                inaccessibleRoot,
+                UnixFileMode.UserRead |
+                UnixFileMode.UserWrite |
+                UnixFileMode.UserExecute);
+        }
+    }
+
+    [Fact]
+    public async Task NeedsEnumerationAsync_WhenTimestampIsRoundedBeforeWatermark_ShouldDetectChange()
+    {
+        var songsRoot = Path.Combine(_testRoot, "CoarseTimestampSongs");
+        var chartPath = Path.Combine(songsRoot, "Song", "song.dtx");
+        await CreateDtxFileAsync(chartPath, "Coarse Timestamp Song", "Coverage Bot", "Rock", 35);
+        SetFilesystemTimes(chartPath, DateTime.UtcNow.AddHours(-3));
+
+        await InitializeAndEnumerateAsync(songsRoot);
+
+        var scanStartUtc = DateTime.UtcNow.AddHours(-1);
+        var persistedWatermarkUtc = scanStartUtc.AddSeconds(-5);
+        await SetLastEnumerationTimestampAsync(persistedWatermarkUtc.ToLocalTime());
+        await SetRootEnumerationTimestampAsync(songsRoot, persistedWatermarkUtc);
+
+        // Model a coarse filesystem timestamp rounded just before the exact
+        // watermark. The conservative scan watermark must still see it.
+        var roundedEditUtc = scanStartUtc.AddSeconds(-1);
+        await File.AppendAllTextAsync(chartPath, "#COMMENT: rounded edit\n");
+        SetFilesystemTimes(chartPath, roundedEditUtc, preserveCreationTime: true);
+
+        var needsEnumeration = await _manager.NeedsEnumerationAsync(new[] { songsRoot });
+
+        Assert.True(needsEnumeration);
+    }
+
+    [Fact]
+    public async Task NeedsEnumerationAsync_WhenUnavailableRootReturnsWithInPlaceEdit_ShouldDetectChange()
+    {
+        var rootA = Path.Combine(_testRoot, "RootA");
+        var rootB = Path.Combine(_testRoot, "RootB");
+        var chartA = Path.Combine(rootA, "Song A", "song.dtx");
+        var chartB = Path.Combine(rootB, "Song B", "song.dtx");
+
+        await CreateDtxFileAsync(chartA, "Song A", "Coverage Bot", "Rock", 35);
+        await CreateDtxFileAsync(chartB, "Song B", "Coverage Bot", "Rock", 40);
+
+        var oldFilesystemTimeUtc = DateTime.UtcNow.AddHours(-3);
+        SetFilesystemTimes(chartA, oldFilesystemTimeUtc);
+        SetFilesystemTimes(chartB, oldFilesystemTimeUtc);
+
+        var initialized = await _manager.InitializeDatabaseServiceAsync(_testDbPath);
+        Assert.True(initialized);
+        var initialEnumeration = await _manager.EnumerateSongsAsync(new[] { rootA, rootB });
+        Assert.True(initialEnumeration >= 2);
+
+        // Establish a known per-root baseline before simulating the unavailable
+        // root. The root-B edit below is newer than this baseline but older than
+        // the partial root-A scan watermark.
+        var baselineUtc = DateTime.UtcNow.AddHours(-2);
+        await SetLastEnumerationTimestampAsync(baselineUtc.ToLocalTime());
+        await SetRootEnumerationTimestampAsync(rootA, baselineUtc);
+        await SetRootEnumerationTimestampAsync(rootB, baselineUtc);
+
+        // Omit B from this enumeration to model the configured root being
+        // unavailable. Its database rows remain retained while A advances.
+        var partialEnumeration = await _manager.EnumerateSongsAsync(new[] { rootA });
+        Assert.True(partialEnumeration >= 1);
+
+        var editedAtUtc = DateTime.UtcNow.AddMinutes(-1);
+        await File.AppendAllTextAsync(chartB, "#COMMENT: edited\n");
+        SetFilesystemTimes(chartB, editedAtUtc, preserveCreationTime: true);
+
+        var needsEnumeration = await _manager.NeedsEnumerationAsync(new[] { rootA, rootB });
+
+        Assert.True(needsEnumeration);
+    }
+
+    [Fact]
+    public async Task SetEnumerationWatermarkAtomicallyAsync_WhenSuccessful_WritesBothGlobalAndPerRoot()
+    {
+        var rootA = Path.Combine(_testRoot, "RootA");
+        var rootB = Path.Combine(_testRoot, "RootB");
+        await CreateDtxFileAsync(
+            Path.Combine(rootA, "Song A", "song.dtx"),
+            "Song A", "Coverage Bot", "Rock", 35);
+        await CreateDtxFileAsync(
+            Path.Combine(rootB, "Song B", "song.dtx"),
+            "Song B", "Coverage Bot", "Rock", 40);
+
+        var initialized = await _manager.InitializeDatabaseServiceAsync(_testDbPath);
+        Assert.True(initialized);
+        Assert.NotNull(_manager.DatabaseService);
+
+        var watermark = DateTime.UtcNow.AddHours(-1);
+        var canonicalA = _manager.RootPolicy
+            .Validate(new[] { rootA }).CanonicalRoots.Single();
+        var canonicalB = _manager.RootPolicy
+            .Validate(new[] { rootB }).CanonicalRoots.Single();
+
+        // A successful atomic write must commit both the global watermark and
+        // every supplied per-root watermark. A partial commit (global only)
+        // would leave per-root rows absent, forcing a conservative full rescan
+        // on every startup until the per-root rows catch up.
+        var success = await _manager.DatabaseService!
+            .SetEnumerationWatermarkAtomicallyAsync(
+                watermark,
+                new[] { canonicalA, canonicalB });
+
+        Assert.True(success);
+        var global = await _manager.DatabaseService!
+            .GetLastSuccessfulEnumerationUtcAsync();
+        Assert.Equal(watermark.ToUniversalTime(), global!.Value.ToUniversalTime());
+        var perRootA = await _manager.DatabaseService!
+            .GetLastSuccessfulEnumerationUtcAsync(canonicalA);
+        Assert.Equal(watermark.ToUniversalTime(), perRootA!.Value.ToUniversalTime());
+        var perRootB = await _manager.DatabaseService!
+            .GetLastSuccessfulEnumerationUtcAsync(canonicalB);
+        Assert.Equal(watermark.ToUniversalTime(), perRootB!.Value.ToUniversalTime());
+    }
+
+    [Fact]
+    public async Task SetEnumerationWatermarkAtomicallyAsync_WhenLegacyDatabaseHasGlobalOnly_WritesBothAtomically()
+    {
+        // Regression: a legacy database has a global watermark but no per-root
+        // rows. The atomic write must add per-root rows alongside the global
+        // update in one transaction, eliminating the window where a crash after
+        // the global write but before the root writes would leave zero per-root
+        // rows and force a conservative full rescan on every subsequent startup.
+        var rootA = Path.Combine(_testRoot, "RootA");
+        await CreateDtxFileAsync(
+            Path.Combine(rootA, "Song A", "song.dtx"),
+            "Song A", "Coverage Bot", "Rock", 35);
+
+        var initialized = await _manager.InitializeDatabaseServiceAsync(_testDbPath);
+        Assert.True(initialized);
+        Assert.NotNull(_manager.DatabaseService);
+
+        // Seed a legacy global-only watermark (no per-root rows).
+        var legacyGlobal = DateTime.UtcNow.AddHours(-3);
+        await _manager.DatabaseService!
+            .SetLastSuccessfulEnumerationUtcAsync(legacyGlobal);
+        Assert.Null(await _manager.DatabaseService!
+            .GetLastSuccessfulEnumerationUtcAsync(rootA));
+
+        var canonicalA = _manager.RootPolicy
+            .Validate(new[] { rootA }).CanonicalRoots.Single();
+        var newWatermark = DateTime.UtcNow.AddHours(-1);
+
+        var success = await _manager.DatabaseService!
+            .SetEnumerationWatermarkAtomicallyAsync(
+                newWatermark,
+                new[] { canonicalA });
+
+        Assert.True(success);
+        // Both global and per-root must be at the new watermark — no partial state.
+        var global = await _manager.DatabaseService!
+            .GetLastSuccessfulEnumerationUtcAsync();
+        Assert.Equal(newWatermark.ToUniversalTime(), global!.Value.ToUniversalTime());
+        var perRootA = await _manager.DatabaseService!
+            .GetLastSuccessfulEnumerationUtcAsync(canonicalA);
+        Assert.Equal(newWatermark.ToUniversalTime(), perRootA!.Value.ToUniversalTime());
+    }
+
+    [Fact]
+    public async Task SetEnumerationWatermarkAtomicallyAsync_WhenWriteFails_LeavesNoPartialState()
+    {
+        // Regression: a failed atomic write must not leave the global watermark
+        // committed while per-root rows are absent. The transaction rolls back
+        // as a unit, so the previous watermark is retained and the next
+        // freshness check remains conservative.
+        var rootA = Path.Combine(_testRoot, "RootA");
+        await CreateDtxFileAsync(
+            Path.Combine(rootA, "Song A", "song.dtx"),
+            "Song A", "Coverage Bot", "Rock", 35);
+
+        var initialized = await _manager.InitializeDatabaseServiceAsync(_testDbPath);
+        Assert.True(initialized);
+        Assert.NotNull(_manager.DatabaseService);
+
+        // Establish a known baseline watermark.
+        var baseline = DateTime.UtcNow.AddHours(-2);
+        var canonicalA = _manager.RootPolicy
+            .Validate(new[] { rootA }).CanonicalRoots.Single();
+        Assert.True(await _manager.DatabaseService!
+            .SetEnumerationWatermarkAtomicallyAsync(baseline, new[] { canonicalA }));
+
+        // Swap in a broken service that cannot create contexts, simulating a
+        // mid-write crash or storage failure. The atomic method must return
+        // false and leave the baseline watermark intact.
+        var originalService = _manager.DatabaseService;
+        var brokenService = CreateBrokenDatabaseService();
+        ReflectionHelpers.SetPrivateField(_manager, "_databaseService", brokenService);
+        try
+        {
+            var newWatermark = DateTime.UtcNow.AddHours(-1);
+            var success = await brokenService
+                .SetEnumerationWatermarkAtomicallyAsync(
+                    newWatermark,
+                    new[] { canonicalA });
+
+            Assert.False(success);
+        }
+        finally
+        {
+            ReflectionHelpers.SetPrivateField(_manager, "_databaseService", originalService);
+        }
+
+        // The real database must still have the baseline watermark — no partial
+        // state was created by the failed write.
+        var global = await originalService!
+            .GetLastSuccessfulEnumerationUtcAsync();
+        Assert.Equal(baseline.ToUniversalTime(), global!.Value.ToUniversalTime());
+        var perRootA = await originalService!
+            .GetLastSuccessfulEnumerationUtcAsync(canonicalA);
+        Assert.Equal(baseline.ToUniversalTime(), perRootA!.Value.ToUniversalTime());
+    }
+
+    [Fact]
+    public async Task SetEnumerationWatermarkAtomicallyAsync_WhenPerRootInsertFails_RollsBackGlobalInsert()
+    {
+        // Review item 3: the existing WhenWriteFails test uses a broken service
+        // that fails before the transaction begins (CreateContext throws). This
+        // test exercises a MID-TRANSACTION failure: the global-key INSERT
+        // succeeds, then the per-root INSERT is aborted by a SQLite trigger.
+        // The transaction must roll back as a unit so the global watermark is
+        // NOT left committed while per-root rows are absent — that partial
+        // state would force a conservative full rescan on every subsequent
+        // startup until the per-root rows are written.
+        var rootA = Path.Combine(_testRoot, "RootA");
+        await CreateDtxFileAsync(
+            Path.Combine(rootA, "Song A", "song.dtx"),
+            "Song A", "Coverage Bot", "Rock", 35);
+
+        var initialized = await _manager.InitializeDatabaseServiceAsync(_testDbPath);
+        Assert.True(initialized);
+        Assert.NotNull(_manager.DatabaseService);
+
+        // Establish a known baseline watermark (both global and per-root).
+        var baseline = DateTime.UtcNow.AddHours(-2);
+        var canonicalA = _manager.RootPolicy
+            .Validate(new[] { rootA }).CanonicalRoots.Single();
+        Assert.True(await _manager.DatabaseService!
+            .SetEnumerationWatermarkAtomicallyAsync(baseline, new[] { canonicalA }));
+
+        // Install a SQLite trigger that aborts any INSERT on
+        // __EnumerationMetadata when the key starts with the per-root prefix.
+        // This causes the per-root INSERT OR REPLACE to fail AFTER the global
+        // INSERT OR REPLACE has already executed within the same transaction.
+        await using (var triggerContext = _manager.DatabaseService!.CreateContext())
+        {
+            await triggerContext.Database.ExecuteSqlRawAsync(
+                """
+                CREATE TRIGGER abort_per_root_watermark_insert
+                BEFORE INSERT ON __EnumerationMetadata
+                WHEN NEW.Key LIKE 'LastSuccessfulEnumerationUtc:Root:%'
+                BEGIN
+                    SELECT RAISE(ABORT, 'per-root insert aborted by test trigger');
+                END
+                """);
+        }
+
+        var newWatermark = DateTime.UtcNow.AddHours(-1);
+        var success = await _manager.DatabaseService!
+            .SetEnumerationWatermarkAtomicallyAsync(
+                newWatermark,
+                new[] { canonicalA });
+
+        // The atomic method must return false (the transaction failed).
+        Assert.False(success);
+
+        // The global watermark must still be the baseline — the preceding
+        // global-key INSERT was rolled back, not left committed.
+        var global = await _manager.DatabaseService!
+            .GetLastSuccessfulEnumerationUtcAsync();
+        Assert.Equal(baseline.ToUniversalTime(), global!.Value.ToUniversalTime());
+
+        // The per-root watermark must also still be the baseline.
+        var perRootA = await _manager.DatabaseService!
+            .GetLastSuccessfulEnumerationUtcAsync(canonicalA);
+        Assert.Equal(baseline.ToUniversalTime(), perRootA!.Value.ToUniversalTime());
+    }
+
+    [Fact]
+    public async Task NeedsEnumerationAsync_WhenRootCasingChangesOnCaseInsensitivePlatform_WatermarkStillFound()
+    {
+        // Regression: on case-insensitive platforms (Windows, macOS), changing
+        // only the casing of a configured root path must not make its per-root
+        // watermark appear absent. The stable root identity key lowercases the
+        // normalized path so /Songs and /songs produce the same storage key.
+        // Without this, a casing change would zero out the per-root watermark
+        // count and force a needless conservative full rescan.
+        var rootUpper = Path.Combine(_testRoot, "Songs");
+        var chartPath = Path.Combine(rootUpper, "My Song", "song.dtx");
+        await CreateDtxFileAsync(chartPath, "My Song", "Coverage Bot", "Rock", 35);
+
+        var oldFilesystemTimeUtc = DateTime.UtcNow.AddHours(-3);
+        SetFilesystemTimes(chartPath, oldFilesystemTimeUtc);
+
+        await InitializeAndEnumerateAsync(rootUpper);
+
+        // Age the watermark so the unchanged chart is NOT considered fresh.
+        var watermarkUtc = DateTime.UtcNow.AddHours(-1);
+        await SetLastEnumerationTimestampAsync(watermarkUtc.ToLocalTime());
+        await SetRootEnumerationTimestampAsync(rootUpper, watermarkUtc);
+
+        // On case-insensitive platforms, present the same root with different
+        // casing. The per-root watermark must still be found, so the unchanged
+        // chart is NOT flagged as a change. On case-sensitive platforms (Linux),
+        // different casing is a genuinely different path, so the watermark is
+        // legitimately absent and a rescan is expected.
+        var rootLower = Path.Combine(_testRoot, "songs");
+        var needsEnumeration = await _manager.NeedsEnumerationAsync(new[] { rootLower });
+
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
+        {
+            Assert.False(needsEnumeration,
+                "A casing-only change must not invalidate the per-root watermark " +
+                "on case-insensitive platforms.");
+        }
+        else
+        {
+            // On Linux, /Songs and /songs are different directories; the
+            // watermark is legitimately absent and a rescan is the safe
+            // default.
+            Assert.True(needsEnumeration);
+        }
+    }
+
+    [Fact]
+    public async Task NeedsEnumerationAsync_WhenARootIsRemovedAndItsRowsRetained_ShouldStillLoadFromCache()
+    {
+        // Regression: the filesystem file count is scoped to the active roots,
+        // so the database score count must be scoped to the same roots. The
+        // global score count would include retained rows belonging to a removed
+        // root, which can never match the scoped filesystem count and would
+        // force a full rescan on every subsequent startup.
+        var retainedRoot = Path.Combine(_testRoot, "RetainedSongs");
+        var removedRoot = Path.Combine(_testRoot, "RemovedSongs");
+        var retainedFolder = Path.Combine(retainedRoot, "Retained Song");
+        var removedFolder = Path.Combine(removedRoot, "Removed Song");
+
+        Directory.CreateDirectory(retainedFolder);
+        Directory.CreateDirectory(removedFolder);
+        await CreateDtxFileAsync(Path.Combine(retainedFolder, "retained.dtx"), "Retained Song", "Coverage Bot", "Jazz", 40);
+        await CreateDtxFileAsync(Path.Combine(removedFolder, "removed.dtx"), "Removed Song", "Coverage Bot", "Jazz", 50);
+
+        // Enumerate both roots so the database holds rows for each.
+        var initialized = await _manager.InitializeDatabaseServiceAsync(_testDbPath);
+        Assert.True(initialized);
+        var enumerated = await _manager.EnumerateSongsAsync(new[] { retainedRoot, removedRoot });
+        Assert.True(enumerated >= 2);
+        Assert.NotNull(_manager.DatabaseService);
+
+        // The removed root's files still exist on disk; only the configured root
+        // set changes. Its rows remain in the database (the import path only
+        // removes stale charts under active roots).
+        await SetLastEnumerationTimestampAsync(DateTime.Now.AddMinutes(5));
+
+        // Simulate the next startup with the removed root no longer configured.
+        var needsEnumeration = await _manager.NeedsEnumerationAsync(new[] { retainedRoot });
+
+        Assert.False(needsEnumeration);
+    }
+
+    [Fact]
+    public async Task NeedsEnumerationAsync_WhenRemovedRootIsDeletedAndItsRowsRetained_ShouldStillLoadFromCache()
+    {
+        // Regression: CheckDatabaseFilesStillExist must scope its existence check to
+        // the active roots. A removed root's charts are retained in the database
+        // (the import path only purges stale charts under active roots), and the
+        // root's files are typically gone (deleted, unmounted, or on an external
+        // drive that was detached). The unscoped check loaded every retained chart
+        // and flagged the removed root's charts as missing on every startup, forcing
+        // a full rescan even though the active library was unchanged.
+        var retainedRoot = Path.Combine(_testRoot, "RetainedSongsKept");
+        var removedRoot = Path.Combine(_testRoot, "RemovedSongsDeleted");
+        var retainedFolder = Path.Combine(retainedRoot, "Retained Song");
+        var removedFolder = Path.Combine(removedRoot, "Removed Song");
+
+        Directory.CreateDirectory(retainedFolder);
+        Directory.CreateDirectory(removedFolder);
+        await CreateDtxFileAsync(Path.Combine(retainedFolder, "retained.dtx"), "Retained Song", "Coverage Bot", "Jazz", 40);
+        await CreateDtxFileAsync(Path.Combine(removedFolder, "removed.dtx"), "Removed Song", "Coverage Bot", "Jazz", 50);
+
+        // Enumerate both roots so the database holds rows for each.
+        var initialized = await _manager.InitializeDatabaseServiceAsync(_testDbPath);
+        Assert.True(initialized);
+        var enumerated = await _manager.EnumerateSongsAsync(new[] { retainedRoot, removedRoot });
+        Assert.True(enumerated >= 2);
+        Assert.NotNull(_manager.DatabaseService);
+
+        // The removed root's files are gone (deleted/unmounted/detached) but its
+        // rows remain in the database (the import path only purges stale charts
+        // under active roots).
+        Directory.Delete(removedRoot, recursive: true);
+        await SetLastEnumerationTimestampAsync(DateTime.Now.AddMinutes(5));
+
+        // Simulate the next startup with the removed root no longer configured.
+        var needsEnumeration = await _manager.NeedsEnumerationAsync(new[] { retainedRoot });
+
+        Assert.False(needsEnumeration);
+    }
+
+    [Fact]
+    public async Task NeedsEnumerationAsync_WhenUnrelatedDatabaseWriteFollowsChartEdit_ShouldStillDetectEdit()
+    {
+        // Regression: the cache-freshness threshold must be an explicit
+        // LastSuccessfulEnumerationUtc metadata value, not the SQLite database
+        // file's last-write time. An unrelated SaveChangesAsync (bookmark toggle,
+        // score save) advances the database file mtime; deriving the enumeration
+        // time from it would let that write mask a chart edit that happened between
+        // the enumeration and the write when the file count is unchanged.
+        var songsRoot = Path.Combine(_testRoot, "UnrelatedWriteAfterEdit");
+        var songFolder = Path.Combine(songsRoot, "Song");
+        var songPath = Path.Combine(songFolder, "song.dtx");
+        Directory.CreateDirectory(songFolder);
+        await CreateDtxFileAsync(songPath, "Edit Song", "Coverage Bot", "Rock", 35);
+        await InitializeAndEnumerateAsync(songsRoot);
+        Assert.NotNull(_manager.DatabaseService);
+
+        // Simulate an enumeration that finished 10 minutes ago. Pin both the
+        // metadata threshold and the directory mtimes to that moment so the only
+        // signal that can trip change detection is the chart file edit below.
+        var enumerationTime = DateTime.Now.AddMinutes(-10);
+        await SetLastEnumerationTimestampAsync(enumerationTime);
+        Directory.SetLastWriteTime(songsRoot, enumerationTime.AddMinutes(-1));
+        Directory.SetLastWriteTime(songFolder, enumerationTime.AddMinutes(-1));
+
+        // Modify the chart 5 minutes after the enumeration (file count unchanged).
+        File.SetLastWriteTime(songPath, enumerationTime.AddMinutes(5));
+
+        // Perform an unrelated database write (bookmark toggle) now. Under the old
+        // DB-mtime-based threshold, this advanced the threshold to ~now, which is
+        // after the chart edit, masking it (the 5-minutes-ago edit would appear
+        // older than the now-1minute threshold).
+        var song = (await _manager.DatabaseService!.GetSongsAsync()).Single();
+        await _manager.DatabaseService.SetBookmarkAsync(song.Id, true);
+
+        var needsEnumeration = await _manager.NeedsEnumerationAsync(new[] { songsRoot });
+
+        Assert.True(needsEnumeration);
     }
 
     [Fact]
@@ -276,7 +818,7 @@ public class SongManagerCoverageTests : IDisposable
         await CreateDtxFileAsync(Path.Combine(firstSongFolder, "first.dtx"), "First Song", "Coverage Bot", "Jazz", 40);
 
         await InitializeAndEnumerateAsync(songsRoot);
-        SetDatabaseLastWriteTime(DateTime.Now.AddMinutes(5));
+        await SetLastEnumerationTimestampAsync(DateTime.Now.AddMinutes(5));
 
         Directory.CreateDirectory(secondSongFolder);
         await CreateDtxFileAsync(Path.Combine(secondSongFolder, "second.dtx"), "Second Song", "Coverage Bot", "Jazz", 55);
@@ -353,7 +895,7 @@ public class SongManagerCoverageTests : IDisposable
 
         ReflectionHelpers.SetPrivateField(_manager, "_currentSearchPaths", new[] { songsRoot });
 
-        var checkTask = ReflectionHelpers.InvokePrivateMethod<Task<bool>>(_manager, "CheckDatabaseFilesStillExist");
+        var checkTask = ReflectionHelpers.InvokePrivateMethod<Task<bool>>(_manager, "CheckDatabaseFilesStillExist", new object[] { new[] { songsRoot } });
         Assert.NotNull(checkTask);
 
         var changeDetected = await checkTask!;
@@ -762,10 +1304,10 @@ public class SongManagerCoverageTests : IDisposable
         File.Delete(chartPath);
         
         ReflectionHelpers.SetPrivateField(_manager, "_currentSearchPaths", new[] { Path.Combine(_testRoot, "NonExistentPath") });
-        
-        var checkTask = ReflectionHelpers.InvokePrivateMethod<Task<bool>>(_manager, "CheckDatabaseFilesStillExist");
+
+        var checkTask = ReflectionHelpers.InvokePrivateMethod<Task<bool>>(_manager, "CheckDatabaseFilesStillExist", new object[] { new[] { songsRoot } });
         Assert.NotNull(checkTask);
-        
+
         var changeDetected = await checkTask!;
         
         Assert.True(changeDetected);
@@ -810,7 +1352,7 @@ public class SongManagerCoverageTests : IDisposable
     [Fact]
     public async Task CheckDatabaseFilesStillExist_WithoutDatabaseService_ShouldReturnFalse()
     {
-        var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(_manager, "CheckDatabaseFilesStillExist");
+        var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(_manager, "CheckDatabaseFilesStillExist", new object[] { new[] { _testRoot } });
 
         Assert.False(result);
     }
@@ -824,7 +1366,7 @@ public class SongManagerCoverageTests : IDisposable
         {
             ReflectionHelpers.SetPrivateField(_manager, "_databaseService", CreateBrokenDatabaseServiceWithDatabasePath("\0invalid"));
 
-            var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(_manager, "CheckDatabaseFilesStillExist");
+            var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(_manager, "CheckDatabaseFilesStillExist", new object[] { new[] { _testRoot } });
 
             Assert.False(result);
         }
@@ -876,8 +1418,8 @@ public class SongManagerCoverageTests : IDisposable
     {
         var songsRoot = Path.Combine(_testRoot, "DirectoryModified");
         Directory.CreateDirectory(songsRoot);
-        var lastEnumerationTime = DateTime.Now.AddMinutes(-5);
-        Directory.SetLastWriteTime(songsRoot, DateTime.Now);
+        var lastEnumerationTime = DateTime.UtcNow.AddMinutes(-5);
+        Directory.SetLastWriteTimeUtc(songsRoot, DateTime.UtcNow);
 
         var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
             _manager,
@@ -896,9 +1438,9 @@ public class SongManagerCoverageTests : IDisposable
         var dtxPath = Path.Combine(songsRoot, "changed.dtx");
         await CreateDtxFileAsync(dtxPath, "Changed Song", "Coverage Bot", "Rock", 40);
 
-        var lastEnumerationTime = DateTime.Now.AddMinutes(-5);
-        Directory.SetLastWriteTime(songsRoot, lastEnumerationTime.AddMinutes(-1));
-        File.SetLastWriteTime(dtxPath, DateTime.Now);
+        var lastEnumerationTime = DateTime.UtcNow.AddMinutes(-5);
+        Directory.SetLastWriteTimeUtc(songsRoot, lastEnumerationTime.AddMinutes(-1));
+        File.SetLastWriteTimeUtc(dtxPath, DateTime.UtcNow);
 
         var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
             _manager,
@@ -917,96 +1459,6 @@ public class SongManagerCoverageTests : IDisposable
             "CheckDirectoryForChangesAsync",
             "\0invalid",
             DateTime.Now);
-
-        Assert.True(result);
-    }
-
-    [Fact]
-    public async Task CheckSubdirectoriesForChangesAsync_WhenMaxDepthReached_ShouldReturnFalse()
-    {
-        var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
-            _manager,
-            "CheckSubdirectoriesForChangesAsync",
-            _testRoot,
-            DateTime.Now,
-            10,
-            10);
-
-        Assert.False(result);
-    }
-
-    [Fact]
-    public async Task CheckSubdirectoriesForChangesAsync_WhenOnlySkippedDirectoriesExist_ShouldReturnFalse()
-    {
-        Directory.CreateDirectory(Path.Combine(_testRoot, "System"));
-        Directory.CreateDirectory(Path.Combine(_testRoot, "Cache"));
-        Directory.CreateDirectory(Path.Combine(_testRoot, ".hidden"));
-
-        var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
-            _manager,
-            "CheckSubdirectoriesForChangesAsync",
-            _testRoot,
-            DateTime.Now,
-            0,
-            10);
-
-        Assert.False(result);
-    }
-
-    [Fact]
-    public async Task CheckSubdirectoriesForChangesAsync_WhenSubdirectoryWasModified_ShouldReturnTrue()
-    {
-        var songsRoot = Path.Combine(_testRoot, "SubdirModified");
-        var subdir = Path.Combine(songsRoot, "Pack");
-        Directory.CreateDirectory(subdir);
-        var lastEnumerationTime = DateTime.Now.AddMinutes(-5);
-        Directory.SetLastWriteTime(subdir, DateTime.Now);
-
-        var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
-            _manager,
-            "CheckSubdirectoriesForChangesAsync",
-            songsRoot,
-            lastEnumerationTime,
-            0,
-            10);
-
-        Assert.True(result);
-    }
-
-    [Fact]
-    public async Task CheckSubdirectoriesForChangesAsync_WhenSubdirectoryDtxWasModified_ShouldReturnTrue()
-    {
-        var songsRoot = Path.Combine(_testRoot, "SubdirFileModified");
-        var subdir = Path.Combine(songsRoot, "Pack");
-        Directory.CreateDirectory(subdir);
-        var dtxPath = Path.Combine(subdir, "changed.dtx");
-        await CreateDtxFileAsync(dtxPath, "Changed Song", "Coverage Bot", "Rock", 40);
-
-        var lastEnumerationTime = DateTime.Now.AddMinutes(-5);
-        Directory.SetLastWriteTime(subdir, lastEnumerationTime.AddMinutes(-1));
-        File.SetLastWriteTime(dtxPath, DateTime.Now);
-
-        var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
-            _manager,
-            "CheckSubdirectoriesForChangesAsync",
-            songsRoot,
-            lastEnumerationTime,
-            0,
-            10);
-
-        Assert.True(result);
-    }
-
-    [Fact]
-    public async Task CheckSubdirectoriesForChangesAsync_WithInvalidPath_ShouldReturnTrue()
-    {
-        var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
-            _manager,
-            "CheckSubdirectoriesForChangesAsync",
-            "\0invalid",
-            DateTime.Now,
-            0,
-            10);
 
         Assert.True(result);
     }
@@ -1063,7 +1515,7 @@ public class SongManagerCoverageTests : IDisposable
     }
 
     [Fact]
-    public async Task EnumerateSongsAsync_WhenRootSongCacheIsUnavailable_ShouldPropagatePublicationFailure()
+    public async Task EnumerateSongsAsync_WhenRootSongCacheIsUnavailable_ShouldReportPostCommitPublicationFailure()
     {
         var songsRoot = Path.Combine(_testRoot, "BrokenRootSongs");
         Directory.CreateDirectory(songsRoot);
@@ -1076,8 +1528,19 @@ public class SongManagerCoverageTests : IDisposable
         {
             ReflectionHelpers.SetPrivateField(_manager, "_rootSongs", null!);
 
-            await Assert.ThrowsAsync<NullReferenceException>(() =>
+            var exception = await Assert.ThrowsAsync<SongEnumerationPostCommitException>(() =>
                 _manager.EnumerateSongsAsync(new[] { songsRoot }));
+
+            Assert.Equal(SongEnumerationPostCommitPhase.Publication, exception.Phase);
+            Assert.True(exception.Batch.IsComplete);
+            Assert.Equal(songsRoot, Assert.Single(exception.Batch.ActiveRoots));
+            Assert.Equal(1, exception.Import.Added);
+            Assert.Single(exception.Import.ChartsByPath);
+            Assert.IsType<NullReferenceException>(exception.InnerException);
+
+            var committedSong = Assert.Single(await _manager.DatabaseService!.GetSongsAsync());
+            Assert.Equal("Broken Root Song", committedSong.Title);
+            Assert.Single(committedSong.Charts);
         }
         finally
         {
@@ -1138,7 +1601,7 @@ public class SongManagerCoverageTests : IDisposable
 
         Directory.CreateDirectory(movedFolder);
         File.Move(originalPath, movedPath);
-        SetDatabaseLastWriteTime(DateTime.Now.AddMinutes(5));
+        await SetLastEnumerationTimestampAsync(DateTime.Now.AddMinutes(5));
 
         var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
             _manager,
@@ -1149,13 +1612,20 @@ public class SongManagerCoverageTests : IDisposable
     }
 
     [Fact]
-    public async Task DetectFilesystemChangesAsync_WhenMissingSearchPathHasDatabaseSongs_ShouldReturnTrue()
+    public async Task DetectFilesystemChangesAsync_WhenSecondaryRootMissing_ShouldNotForceRescan()
     {
+        // Regression: a missing/inaccessible configured root must not be treated
+        // as a filesystem change. The old explicit missing-root check fired
+        // whenever any configured root was absent AND the database had charts
+        // from another root, forcing a full scan on every startup — a scan that
+        // could never make the missing root available. The fix probes roots
+        // once and carries only available roots through every downstream check.
         var existingRoot = Path.Combine(_testRoot, "ExistingSongs");
         var existingFolder = Path.Combine(existingRoot, "Song");
         Directory.CreateDirectory(existingFolder);
         await CreateDtxFileAsync(Path.Combine(existingFolder, "song.dtx"), "Existing Song", "Coverage Bot", "Rock", 35);
         await InitializeAndEnumerateAsync(existingRoot);
+        await SetLastEnumerationTimestampAsync(DateTime.Now.AddMinutes(5));
 
         var missingRoot = Path.Combine(_testRoot, "MissingSongs");
 
@@ -1164,7 +1634,7 @@ public class SongManagerCoverageTests : IDisposable
             "DetectFilesystemChangesAsync",
             (object)new[] { missingRoot, existingRoot });
 
-        Assert.True(result);
+        Assert.False(result);
     }
 
     [Fact]
@@ -1178,7 +1648,7 @@ public class SongManagerCoverageTests : IDisposable
         await CreateDtxFileAsync(songPath, "Changed Song", "Coverage Bot", "Rock", 35);
         await InitializeAndEnumerateAsync(songsRoot);
 
-        SetDatabaseLastWriteTime(DateTime.Now.AddMinutes(-10));
+        await SetLastEnumerationTimestampAsync(DateTime.Now.AddMinutes(-10));
         File.SetLastWriteTime(songPath, DateTime.Now);
 
         var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
@@ -1310,12 +1780,197 @@ public class SongManagerCoverageTests : IDisposable
         Directory.CreateDirectory(songFolder);
         await CreateDtxFileAsync(Path.Combine(songFolder, "song.dtx"), "Stable Song", "Coverage Bot", "Rock", 35);
         await InitializeAndEnumerateAsync(songsRoot);
-        SetDatabaseLastWriteTime(DateTime.Now.AddMinutes(5));
+        await SetLastEnumerationTimestampAsync(DateTime.Now.AddMinutes(5));
 
         var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
             _manager,
             "DetectFilesystemChangesAsync",
             (object)new[] { "", songsRoot });
+
+        Assert.False(result);
+    }
+
+    // Regression: GetActiveChartCountAsync must count charts, not score rows.
+    // One chart can have many SongScore rows (ChartId + Instrument + PlaySpeedPercent).
+    // Counting score rows would permanently exceed the filesystem file count and
+    // force a full rescan on every startup once a player records results at multiple
+    // speeds or instruments.
+    [Fact]
+    public async Task DetectFilesystemChangesAsync_WithMultipleScoreVariantsOnOneChart_ShouldNotTriggerFullScan()
+    {
+        var songsRoot = Path.Combine(_testRoot, "ScoreVariantStability");
+        var songFolder = Path.Combine(songsRoot, "Song");
+        Directory.CreateDirectory(songFolder);
+        await CreateDtxFileAsync(Path.Combine(songFolder, "song.dtx"), "Stable Song", "Coverage Bot", "Rock", 35);
+        await InitializeAndEnumerateAsync(songsRoot);
+
+        // Simulate a player who has recorded results at multiple play speeds.
+        // The import seeded one DRUMS score row at 100%; add two more variants
+        // at canonical speeds (105, 110) so the chart now has 3 score rows.
+        Assert.NotNull(_manager.DatabaseService);
+        using (var context = _manager.DatabaseService!.CreateContext())
+        {
+            var chart = Assert.Single(context.SongCharts.ToList());
+            context.SongScores.Add(new SongScore
+            {
+                ChartId = chart.Id,
+                Instrument = EInstrumentPart.DRUMS,
+                PlaySpeedPercent = 105,
+            });
+            context.SongScores.Add(new SongScore
+            {
+                ChartId = chart.Id,
+                Instrument = EInstrumentPart.DRUMS,
+                PlaySpeedPercent = 110,
+            });
+            await context.SaveChangesAsync();
+        }
+
+        // Set the explicit __EnumerationMetadata enumeration timestamp AFTER all
+        // writes (including the score-row inserts above) so the freshness check
+        // sees a steady-state watermark in the future. The watermark is the
+        // persisted LastSuccessfulEnumerationUtc value, not the database file's
+        // last-write time, so unrelated SaveChangesAsync calls cannot advance it.
+        await SetLastEnumerationTimestampAsync(DateTime.Now.AddMinutes(5));
+
+        // Filesystem still has exactly 1 chart file; database now has 3 score rows
+        // but 1 chart row. The cache-freshness check compares chart counts, so it
+        // must NOT report a mismatch.
+        var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
+            _manager,
+            "DetectFilesystemChangesAsync",
+            (object)new[] { songsRoot });
+
+        Assert.False(result);
+    }
+
+    // Regression: CountDTXFilesAsync must count ALL supported chart extensions,
+    // not just *.dtx. A library containing .gda/.g2d/.bms/.bme/.bml charts would
+    // otherwise have filesystem count 0 (no .dtx files) vs database count > 0,
+    // forcing a full rescan on every startup.
+    [Fact]
+    public async Task CountDTXFilesAsync_WithNonDtxChartFile_ShouldCountIt()
+    {
+        var songsRoot = Path.Combine(_testRoot, "NonDtxCount");
+        var songFolder = Path.Combine(songsRoot, "Song");
+        Directory.CreateDirectory(songFolder);
+        // .gda is in DTXChartParser.SupportedExtensions; no .dtx files present.
+        await File.WriteAllTextAsync(Path.Combine(songFolder, "chart.gda"), """
+#TITLE: GDA Song
+#ARTIST: Coverage Bot
+#BPM: 120
+#DLEVEL: 40
+#00002:11111111
+#00011:01010101
+""");
+
+        var result = await ReflectionHelpers.InvokePrivateMethod<Task<int>>(
+            _manager,
+            "CountDTXFilesAsync",
+            (object)new[] { songsRoot });
+
+        Assert.Equal(1, result);
+    }
+
+    // Regression: CheckDirectoryForChangesAsync must scan ALL supported chart
+    // extensions, not just *.dtx. A modified .bms chart would otherwise be missed
+    // when the total file count is unchanged.
+    [Fact]
+    public async Task CheckDirectoryForChangesAsync_WhenNonDtxChartWasModified_ShouldReturnTrue()
+    {
+        var songsRoot = Path.Combine(_testRoot, "NonDtxModified");
+        var songFolder = Path.Combine(songsRoot, "Song");
+        Directory.CreateDirectory(songFolder);
+        // .bms is in DTXChartParser.SupportedExtensions.
+        var bmsPath = Path.Combine(songFolder, "chart.bms");
+        await File.WriteAllTextAsync(bmsPath, """
+#TITLE: BMS Song
+#ARTIST: Coverage Bot
+#BPM: 120
+#DLEVEL: 40
+#00002:11111111
+#00011:01010101
+""");
+
+        var lastEnumerationTime = DateTime.UtcNow.AddMinutes(-5);
+        Directory.SetLastWriteTimeUtc(songsRoot, lastEnumerationTime.AddMinutes(-1));
+        File.SetLastWriteTimeUtc(bmsPath, DateTime.UtcNow);
+
+        var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
+            _manager,
+            "CheckDirectoryForChangesAsync",
+            songsRoot,
+            lastEnumerationTime);
+
+        Assert.True(result);
+    }
+
+    // Regression: the chart-inventory scanner must count only the charts full
+    // enumeration would import. A set.def directory containing one referenced
+    // chart plus one unreferenced (backup/loose) chart must report a filesystem
+    // count of 1, matching the database count of 1. The previous recursive-glob
+    // counter ignored set.def and counted both files (filesystem count 2 vs
+    // database count 1), forcing a permanent rescan on every startup.
+    [Fact]
+    public async Task CountDTXFilesAsync_WithSetDefAndUnreferencedChart_ShouldCountOnlyReferenced()
+    {
+        var songsRoot = Path.Combine(_testRoot, "SetDefUnreferenced");
+        var setFolder = Path.Combine(songsRoot, "Song");
+        Directory.CreateDirectory(setFolder);
+
+        // set.def references only referenced.dtx; unreferenced.dtx is a loose
+        // chart in the same directory that enumeration must NOT import.
+        await File.WriteAllTextAsync(Path.Combine(setFolder, "set.def"), """
+#TITLE: SetDef Song
+#L1FILE referenced.dtx
+""");
+        await CreateDtxFileAsync(
+            Path.Combine(setFolder, "referenced.dtx"),
+            "SetDef Song", "Coverage Bot", "Rock", 40);
+        await CreateDtxFileAsync(
+            Path.Combine(setFolder, "unreferenced.dtx"),
+            "Unreferenced", "Coverage Bot", "Rock", 40);
+
+        var count = await ReflectionHelpers.InvokePrivateMethod<Task<int>>(
+            _manager,
+            "CountDTXFilesAsync",
+            (object)new[] { songsRoot });
+
+        Assert.Equal(1, count);
+    }
+
+    // Regression: DetectFilesystemChangesAsync must reach steady state (return
+    // false) after enumerating a set.def directory with an unreferenced chart.
+    // The previous recursive-glob counter permanently mismatched (filesystem 2
+    // vs database 1) and forced a rescan on every startup.
+    [Fact]
+    public async Task DetectFilesystemChangesAsync_WithSetDefAndUnreferencedChart_ShouldReachSteadyState()
+    {
+        var songsRoot = Path.Combine(_testRoot, "SetDefSteadyState");
+        var setFolder = Path.Combine(songsRoot, "Song");
+        Directory.CreateDirectory(setFolder);
+
+        await File.WriteAllTextAsync(Path.Combine(setFolder, "set.def"), """
+#TITLE: SetDef Song
+#L1FILE referenced.dtx
+""");
+        await CreateDtxFileAsync(
+            Path.Combine(setFolder, "referenced.dtx"),
+            "SetDef Song", "Coverage Bot", "Rock", 40);
+        await CreateDtxFileAsync(
+            Path.Combine(setFolder, "unreferenced.dtx"),
+            "Unreferenced", "Coverage Bot", "Rock", 40);
+
+        await InitializeAndEnumerateAsync(songsRoot);
+        // Pin the enumeration timestamp to the future so the only signal that can
+        // trip change detection is the count mismatch (or lack of it).
+        await SetLastEnumerationTimestampAsync(DateTime.Now.AddMinutes(5));
+        ClearRootSongs();
+
+        var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
+            _manager,
+            "DetectFilesystemChangesAsync",
+            (object)new[] { songsRoot });
 
         Assert.False(result);
     }
@@ -1524,6 +2179,24 @@ public class SongManagerCoverageTests : IDisposable
 """);
     }
 
+    private static void SetFilesystemTimes(
+        string filePath,
+        DateTime utcTimestamp,
+        bool preserveCreationTime = false)
+    {
+        var directoryPath = Path.GetDirectoryName(filePath)!;
+        var rootPath = Directory.GetParent(directoryPath)!.FullName;
+        File.SetLastWriteTimeUtc(filePath, utcTimestamp);
+        Directory.SetLastWriteTimeUtc(directoryPath, utcTimestamp);
+        Directory.SetLastWriteTimeUtc(rootPath, utcTimestamp);
+        if (!preserveCreationTime)
+        {
+            File.SetCreationTimeUtc(filePath, utcTimestamp);
+            Directory.SetCreationTimeUtc(directoryPath, utcTimestamp);
+            Directory.SetCreationTimeUtc(rootPath, utcTimestamp);
+        }
+    }
+
     private void ClearRootSongs()
     {
         var rootSongs = ReflectionHelpers.GetPrivateField<List<SongListNode>>(_manager, "_rootSongs");
@@ -1531,10 +2204,41 @@ public class SongManagerCoverageTests : IDisposable
         rootSongs!.Clear();
     }
 
-    private void SetDatabaseLastWriteTime(DateTime lastWriteTime)
+    /// <summary>
+    /// Persists an explicit last-successful-enumeration timestamp into the
+    /// __EnumerationMetadata table, mirroring how UpdateEnumerationTimestampAsync
+    /// records it after a real enumeration. The cache-freshness check reads this
+    /// metadata value (not the database file's last-write time), so tests that need
+    /// to control the freshness threshold must write it here. <paramref name="localTimestamp"/>
+    /// is interpreted as a local time and stored as UTC.
+    /// </summary>
+    private async Task SetLastEnumerationTimestampAsync(DateTime localTimestamp)
     {
         Assert.NotNull(_manager.DatabaseService);
-        File.SetLastWriteTime(_manager.DatabaseService!.DatabasePath, lastWriteTime);
+        var utcTimestamp = localTimestamp.ToUniversalTime();
+        await _manager.DatabaseService!.SetLastSuccessfulEnumerationUtcAsync(utcTimestamp);
+
+        var currentRoots = ReflectionHelpers.GetPrivateField<string[]>(
+            _manager,
+            "_currentSearchPaths");
+        if (currentRoots == null)
+            return;
+
+        foreach (var root in currentRoots)
+            await SetRootEnumerationTimestampAsync(root, utcTimestamp);
+    }
+
+    private async Task SetRootEnumerationTimestampAsync(string root, DateTime utcTimestamp)
+    {
+        Assert.NotNull(_manager.DatabaseService);
+        var canonicalRoot = _manager.RootPolicy
+            .Validate(new[] { root })
+            .CanonicalRoots
+            .Single();
+
+        await _manager.DatabaseService!.SetLastSuccessfulEnumerationUtcAsync(
+            new[] { canonicalRoot },
+            utcTimestamp.ToUniversalTime());
     }
 
     private static SongDatabaseService CreateBrokenDatabaseService()

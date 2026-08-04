@@ -1,4 +1,3 @@
-using System.Runtime.Serialization;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Stage;
@@ -11,12 +10,13 @@ using Xunit;
 namespace DTXMania.Test.Stage
 {
     [Trait("Category", "Unit")]
+    [Collection("SongManager")]
     public class SongSelectionStageCxNeonCoverageTests
     {
         [Fact]
         public void DrawTabBar_WithOnlyThemedTabFont_ShouldUseThemeColorsAndMeasureEveryLabel()
         {
-            var stage = CreateUninitializedStage();
+            var stage = SongSelectionStageTestFactory.CreateStage();
             var tabFont = new Mock<IFont>();
             tabFont.Setup(value => value.MeasureString(It.IsAny<string>()))
                 .Returns(new Vector2(40, 16));
@@ -72,7 +72,7 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void Deactivate_WithAllDisplayFontsLoaded_ShouldReleaseAndClearEachReference()
         {
-            var stage = CreateUninitializedStage();
+            var stage = SongSelectionStageTestFactory.CreateStage();
             var bodyFont = new Mock<IFont>();
             var tabFont = new Mock<IFont>();
             var historyFont = new Mock<IFont>();
@@ -90,11 +90,5 @@ namespace DTXMania.Test.Stage
             Assert.Null(ReflectionHelpers.GetPrivateField<IFont>(stage, "_historyFont"));
         }
 
-        private static SongSelectionStage CreateUninitializedStage()
-        {
-#pragma warning disable SYSLIB0050
-            return (SongSelectionStage)FormatterServices.GetUninitializedObject(typeof(SongSelectionStage));
-#pragma warning restore SYSLIB0050
-        }
     }
 }

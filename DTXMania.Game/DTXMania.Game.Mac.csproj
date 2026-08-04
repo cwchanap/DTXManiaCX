@@ -11,6 +11,11 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Icon.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="Platform/Windows/WindowsFolderPickerService.cs" />
+    <Compile Remove="Platform/FolderPickerServiceFactory.Windows.cs" />
+  </ItemGroup>
   
   <ItemGroup>
     <None Remove="Icon.ico" />

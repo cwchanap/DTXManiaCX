@@ -1,9 +1,6 @@
 #nullable enable
 
-using System;
-using Microsoft.Xna.Framework.Graphics;
-using Microsoft.Xna.Framework.Input;
-using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.Stage.Config;
 
 namespace DTXMania.Game.Lib.Stage.KeyAssign
 {
@@ -11,32 +8,7 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
     /// Interface for a key-assignment sub-panel that temporarily takes over
     /// input handling and rendering within ConfigStage.
     /// </summary>
-    public interface IKeyAssignPanel
+    public interface IKeyAssignPanel : IConfigOverlayPanel
     {
-        bool IsActive { get; }
-
-        /// <summary>
-        /// Raised when the panel closes (save or cancel).
-        /// Implementers must raise <see cref="Saved"/> before <see cref="Closed"/> on a save operation,
-        /// because <c>ConfigStage.OnPanelSaved</c> captures the working bindings in the <see cref="Saved"/>
-        /// handler before the panel is torn down.
-        /// <para>See <c>SystemKeyAssignPanel</c> for a reference implementation.</para>
-        /// </summary>
-        event EventHandler Closed;
-
-        /// <summary>
-        /// Raised when the panel commits its changes (save only, not cancel).
-        /// Must be raised before <see cref="Closed"/> so that consumers can read the committed state
-        /// while the panel is still active.
-        /// </summary>
-        event EventHandler Saved;
-
-        void Activate();
-        void Deactivate();
-
-        void Update(double deltaTime, KeyboardState current, KeyboardState previous);
-
-        void Draw(SpriteBatch spriteBatch, IFont? font, IFont? boldFont, Texture2D? whitePixel,
-                  int virtualWidth, int virtualHeight);
     }
 }

@@ -46,8 +46,9 @@ namespace DTXMania.Game.Lib.Song.Components
         private double _displayDelay = 0.0;
         private const double DISPLAY_DELAY_SECONDS = 0.5; // 500ms delay before showing preview
 
-        // Configured songs root path (e.g., DTXFiles or Songs directory)
-        private string _songsRootPath;
+        // Published active song roots, ordered by the library snapshot that supplied
+        // the selected node. This is intentionally a copied collection.
+        private IReadOnlyList<string> _activeSongRootPaths = Array.Empty<string>();
 
         #endregion
 
@@ -79,13 +80,14 @@ namespace DTXMania.Game.Lib.Song.Components
         }
 
         /// <summary>
-        /// Configured songs root path (e.g., DTXFiles or Songs directory)
-        /// Used for resolving relative song directory paths
+        /// Ordered active song roots used only as a fallback for relative chart paths.
+        /// Absolute chart paths remain authoritative.
         /// </summary>
-        public string SongsRootPath
+        public IReadOnlyList<string> ActiveSongRootPaths
         {
-            get => _songsRootPath;
-            set => _songsRootPath = value;
+            get => _activeSongRootPaths;
+            set => _activeSongRootPaths = Array.AsReadOnly(
+                (value ?? Array.Empty<string>()).ToArray());
         }
 
         #endregion
@@ -135,6 +137,18 @@ namespace DTXMania.Game.Lib.Song.Components
                 // Clear preview immediately when not on a song
                 ReleaseCurrentPreviewTexture();
             }
+        }
+
+        /// <summary>
+        /// Clears the selected-song presentation when a library publication removes the
+        /// previous chart. This releases its texture immediately so a stale preimage cannot
+        /// survive while Song Select resets to the replacement list.
+        /// </summary>
+        public void ClearSelectedSong()
+        {
+            _currentSong = null;
+            ResetDisplayDelay();
+            ReleaseCurrentPreviewTexture();
         }
 
         /// <summary>
@@ -463,76 +477,73 @@ namespace DTXMania.Game.Lib.Song.Components
         /// </summary>
         private string ResolveSongDirectoryPath(string songDirectory)
         {
-            // Convert to absolute path if needed - handle both relative and already absolute paths
-            if (!System.IO.Path.IsPathRooted(songDirectory))
+            // An absolute chart path comes from the selected score and must not be
+            // remapped through a potentially newer library-root snapshot.
+            if (System.IO.Path.IsPathRooted(songDirectory))
+                return songDirectory;
+
+            // Relative legacy metadata is resolved against the roots that were active
+            // for this published library, in configured order.
+            try
             {
-                // Try to resolve relative path from current working directory or known song directories
-                try
+                var workingDir = Environment.CurrentDirectory;
+                var possiblePaths = new List<string>();
+                foreach (var activeRoot in _activeSongRootPaths)
                 {
-                    var workingDir = Environment.CurrentDirectory;
-
-                    // Build list of possible paths, including configured songs root
-                    // Note: Path.GetFullPath(songDirectory) already resolves relative to current/working directory
-                    var possiblePaths = new List<string>
+                    if (!string.IsNullOrWhiteSpace(activeRoot))
                     {
-                        System.IO.Path.GetFullPath(songDirectory) // From current/working directory
-                    };
-
-                    // Add configured songs root path if available (e.g., DTXFiles or legacy Songs)
-                    if (!string.IsNullOrEmpty(_songsRootPath))
-                    {
-                        possiblePaths.Add(System.IO.Path.GetFullPath(System.IO.Path.Combine(_songsRootPath, songDirectory)));
-                    }
-
-                    // Add fallback paths for backward compatibility
-                    possiblePaths.Add(System.IO.Path.GetFullPath(System.IO.Path.Combine(workingDir, "DTXFiles", songDirectory))); // From DTXFiles folder
-                    possiblePaths.Add(System.IO.Path.GetFullPath(System.IO.Path.Combine(workingDir, "..", "DTXFiles", songDirectory))); // Parent DTXFiles folder
-                    possiblePaths.Add(System.IO.Path.GetFullPath(System.IO.Path.Combine(workingDir, "Songs", songDirectory))); // Legacy Songs folder
-                    possiblePaths.Add(System.IO.Path.GetFullPath(System.IO.Path.Combine(workingDir, "..", "Songs", songDirectory))); // Parent legacy Songs folder
-
-                    foreach (var testPath in possiblePaths)
-                    {
-                        if (System.IO.Directory.Exists(testPath))
-                        {
-                            songDirectory = testPath;
-                            break;
-                        }
+                        possiblePaths.Add(System.IO.Path.GetFullPath(
+                            System.IO.Path.Combine(activeRoot, songDirectory)));
                     }
                 }
-                catch (Exception ex)
+
+                // Preserve prior convenience fallbacks after the authoritative
+                // published roots have been exhausted.
+                possiblePaths.Add(System.IO.Path.GetFullPath(songDirectory));
+                possiblePaths.Add(System.IO.Path.GetFullPath(System.IO.Path.Combine(workingDir, "DTXFiles", songDirectory)));
+                possiblePaths.Add(System.IO.Path.GetFullPath(System.IO.Path.Combine(workingDir, "..", "DTXFiles", songDirectory)));
+                possiblePaths.Add(System.IO.Path.GetFullPath(System.IO.Path.Combine(workingDir, "Songs", songDirectory)));
+                possiblePaths.Add(System.IO.Path.GetFullPath(System.IO.Path.Combine(workingDir, "..", "Songs", songDirectory)));
+
+                foreach (var testPath in possiblePaths)
                 {
-                    // Working directory can be unavailable (e.g., deleted temp dirs in tests).
-                    // First try configured SongsRootPath, then base-directory anchored resolution.
-                    System.Diagnostics.Debug.WriteLine(
-                        $"PreviewImagePanel: Primary path resolution failed for '{songDirectory}': {ex.Message}");
+                    if (System.IO.Directory.Exists(testPath))
+                    {
+                        return testPath;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // Working directory can be unavailable (e.g., deleted temp dirs in
+                // tests). Preserve a deterministic root-first fallback in that case.
+                System.Diagnostics.Debug.WriteLine(
+                    $"PreviewImagePanel: Path resolution failed for '{songDirectory}': {ex.Message}");
+                foreach (var activeRoot in _activeSongRootPaths)
+                {
                     try
                     {
-                        if (!string.IsNullOrEmpty(_songsRootPath))
-                        {
-                            var fromSongsRoot = System.IO.Path.GetFullPath(System.IO.Path.Combine(_songsRootPath, songDirectory));
-                            if (System.IO.Directory.Exists(fromSongsRoot))
-                            {
-                                songDirectory = fromSongsRoot;
-                                return songDirectory;
-                            }
-                        }
-
-                        songDirectory = System.IO.Path.GetFullPath(songDirectory);
+                        var fromActiveRoot = System.IO.Path.GetFullPath(
+                            System.IO.Path.Combine(activeRoot, songDirectory));
+                        if (System.IO.Directory.Exists(fromActiveRoot))
+                            return fromActiveRoot;
                     }
-                    catch (Exception ex2)
+                    catch (Exception fallbackException)
                     {
                         System.Diagnostics.Debug.WriteLine(
-                            $"PreviewImagePanel: SongsRootPath fallback failed for '{songDirectory}': {ex2.Message}");
-                        try
-                        {
-                            songDirectory = System.IO.Path.GetFullPath(System.IO.Path.Combine(AppContext.BaseDirectory, songDirectory));
-                        }
-                        catch (Exception ex3)
-                        {
-                            System.Diagnostics.Debug.WriteLine(
-                                $"PreviewImagePanel: All resolution attempts failed for '{songDirectory}': {ex3.Message}");
-                        }
+                            $"PreviewImagePanel: Active-root fallback failed for '{songDirectory}': {fallbackException.Message}");
                     }
+                }
+
+                try
+                {
+                    return System.IO.Path.GetFullPath(
+                        System.IO.Path.Combine(AppContext.BaseDirectory, songDirectory));
+                }
+                catch (Exception fallbackException)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"PreviewImagePanel: Base-directory fallback failed for '{songDirectory}': {fallbackException.Message}");
                 }
             }
 

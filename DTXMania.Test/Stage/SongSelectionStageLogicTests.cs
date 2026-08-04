@@ -1428,7 +1428,7 @@ namespace DTXMania.Test.Stage
             Assert.Same(uiFont.Object, playHistoryPanel.ManagedFont);
             Assert.Equal(75, playHistoryPanel.PlaySpeedPercent);
             Assert.True(previewImagePanel!.Visible);
-            Assert.Equal("SongsRoot", GetPrivateField<string>(previewImagePanel, "_songsRootPath"));
+            Assert.Empty(previewImagePanel.ActiveSongRootPaths);
             Assert.Equal(7, mainPanel.Children.Count);
             Assert.Same(titleLabel, mainPanel.Children[0]);
             Assert.Same(breadcrumbLabel, mainPanel.Children[1]);
@@ -2434,6 +2434,26 @@ namespace DTXMania.Test.Stage
                 rootSongs.AddRange(originalSongs);
                 SetPrivateField(songManager, "_isInitialized", originalInitialized);
             }
+        }
+
+        [Fact]
+        public void ApplyLibrarySnapshot_ShouldRetainTheCoherentSnapshotUsedForUiProjection()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            var song = CreateScoreNode("Snapshot Song");
+            var snapshot = new SongLibrarySnapshot(
+                version: 91,
+                rootSongs: new[] { song },
+                activeRoots: new[] { "/library/active" },
+                enumeratedFileCount: 1,
+                discoveredScoreCount: 1);
+
+            AttachCoreUi(stage, display: display);
+            InvokePrivateMethod(stage, "ApplyLibrarySnapshot", snapshot);
+
+            Assert.Same(snapshot, GetPrivateField<SongLibrarySnapshot>(stage, "_appliedLibrarySnapshot"));
+            Assert.Equal(91L, GetPrivateField<long>(stage, "_appliedLibraryPublicationVersion"));
         }
 
         [Fact]

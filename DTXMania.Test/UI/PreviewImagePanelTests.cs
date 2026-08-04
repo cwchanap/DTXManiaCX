@@ -49,6 +49,27 @@ public class PreviewImagePanelTests
     }
 
     [Fact]
+    public void ClearSelectedSong_ShouldReleasePreviewAndResetSelectionDelay()
+    {
+        var panel = new PreviewImagePanel();
+        var song = new SongListNode { Type = NodeType.Score, Title = "Song" };
+        var preview = new Mock<ITexture>();
+        SetField(panel, "_currentSong", song);
+        SetField(panel, "_currentPreviewTexture", preview.Object);
+        SetField(panel, "_displayDelay", 0.5d);
+
+        var clear = typeof(PreviewImagePanel).GetMethod("ClearSelectedSong");
+
+        Assert.NotNull(clear);
+        clear!.Invoke(panel, null);
+
+        Assert.Null(GetField<SongListNode>(panel, "_currentSong"));
+        Assert.Null(GetField<ITexture>(panel, "_currentPreviewTexture"));
+        Assert.Equal(0d, GetField<double>(panel, "_displayDelay"));
+        preview.Verify(texture => texture.RemoveReference(), Times.Once);
+    }
+
+    [Fact]
     public void Update_ShouldIncreaseDelay_AndShouldDisplayPreviewAfterThreshold()
     {
         var panel = new PreviewImagePanel();
@@ -538,7 +559,7 @@ public class PreviewImagePanelTests
     }
 
     [Fact]
-    public void ResolveSongDirectoryPath_WhenRelativeAndSongsRootConfigured_ShouldResolveToExistingDirectory()
+    public void ResolveSongDirectoryPath_WhenRelativeAndActiveRootConfigured_ShouldResolveToExistingDirectory()
     {
         var panel = new PreviewImagePanel();
         var root = Path.Combine(Path.GetTempPath(), "dtx-preview-root", Guid.NewGuid().ToString("N"));
@@ -548,7 +569,7 @@ public class PreviewImagePanelTests
 
         try
         {
-            panel.SongsRootPath = root;
+            panel.ActiveSongRootPaths = [root];
 
             var resolved = InvokePrivate<string>(panel, "ResolveSongDirectoryPath", relative);
 
@@ -564,12 +585,45 @@ public class PreviewImagePanelTests
     }
 
     [Fact]
+    public void ResolveSongDirectoryPath_WhenRelativePathExistsUnderMultipleRoots_ShouldUsePublishedRootOrder()
+    {
+        var panel = new PreviewImagePanel();
+        var parent = Path.Combine(
+            Path.GetTempPath(),
+            "dtx-preview-root-order",
+            Guid.NewGuid().ToString("N"));
+        var firstRoot = Path.Combine(parent, "first");
+        var secondRoot = Path.Combine(parent, "second");
+        var relative = Path.Combine("genre", "song");
+        var firstExpected = Path.Combine(firstRoot, relative);
+        Directory.CreateDirectory(firstExpected);
+        Directory.CreateDirectory(Path.Combine(secondRoot, relative));
+
+        try
+        {
+            panel.ActiveSongRootPaths = [firstRoot, secondRoot];
+
+            var resolved = InvokePrivate<string>(
+                panel,
+                "ResolveSongDirectoryPath",
+                relative);
+
+            Assert.Equal(Path.GetFullPath(firstExpected), resolved);
+        }
+        finally
+        {
+            if (Directory.Exists(parent))
+                Directory.Delete(parent, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ResolveSongDirectoryPath_WhenAllFallbacksReceiveInvalidPath_ShouldReturnOriginalValue()
     {
         var panel = new PreviewImagePanel();
         var invalidPath = "invalid\0preview";
 
-        panel.SongsRootPath = Path.GetTempPath();
+        panel.ActiveSongRootPaths = [Path.GetTempPath()];
 
         var resolved = InvokePrivate<string>(panel, "ResolveSongDirectoryPath", invalidPath);
 
@@ -812,7 +866,7 @@ public class PreviewImagePanelTests
     }
 
     [Fact]
-    public void ResolveSongDirectoryPath_WhenRelativePathExistsUnderSongsRootPath_ShouldResolveToThatPath()
+    public void ResolveSongDirectoryPath_WhenRelativePathExistsUnderActiveRoot_ShouldResolveToThatPath()
     {
         var panel = new PreviewImagePanel();
         var root = Path.Combine(Path.GetTempPath(), "dtx-resolve-root", Guid.NewGuid().ToString("N"));
@@ -822,7 +876,7 @@ public class PreviewImagePanelTests
 
         try
         {
-            panel.SongsRootPath = root;
+            panel.ActiveSongRootPaths = [root];
 
             var result = InvokePrivate<string>(panel, "ResolveSongDirectoryPath", relative);
 
@@ -978,14 +1032,15 @@ public class PreviewImagePanelTests
     }
 
     [Fact]
-    public void SongsRootPath_ShouldGetAndSetValue()
+    public void ActiveSongRootPaths_ShouldCopyCallerCollection()
     {
         var panel = new PreviewImagePanel();
-        var rootPath = "/test/songs";
+        var rootPaths = new List<string> { "/test/songs", "/test/more-songs" };
 
-        panel.SongsRootPath = rootPath;
+        panel.ActiveSongRootPaths = rootPaths;
+        rootPaths.Clear();
 
-        Assert.Equal(rootPath, panel.SongsRootPath);
+        Assert.Equal(["/test/songs", "/test/more-songs"], panel.ActiveSongRootPaths);
     }
 
     private static T InvokePrivate<T>(object target, string methodName, params object[] args)

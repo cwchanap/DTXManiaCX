@@ -818,7 +818,7 @@ namespace DTXMania.Game.Lib.Stage
                     var config = _configManager.Config;
                     if (config != null)
                     {
-                        _songPaths = new[] { config.DTXPath };
+                        _songPaths = config.SongRoots.ToArray();
 
                         // Basic validation - check if config loaded successfully
                         bool isValid = config.ScreenWidth > 0 &&
@@ -993,6 +993,11 @@ namespace DTXMania.Game.Lib.Stage
             _songManager.SetInitialized();
         }
 
+        protected virtual void PublishEmptyLibraryCore()
+        {
+            _songManager.PublishEmptyLibrary();
+        }
+
         private Task InitializeDatabaseServiceAsync()
         {
             long activationGeneration;
@@ -1141,6 +1146,21 @@ namespace DTXMania.Game.Lib.Stage
         {
             try
             {
+                if (_songPaths.Length == 0)
+                {
+                    lock (_activationGate)
+                    {
+                        EnsureCurrentActivation(
+                            activationGeneration,
+                            cancellationToken);
+                    }
+                    // Publish outside the gate so synchronous
+                    // SongLibraryPublished subscribers are not invoked while
+                    // _activationGate is held.
+                    PublishEmptyLibraryCore();
+                    return;
+                }
+
                 Task<bool> needsEnumerationTask;
                 lock (_activationGate)
                 {
@@ -1199,6 +1219,7 @@ namespace DTXMania.Game.Lib.Stage
 
                 var enumerationResult =
                     await enumerationTask.ConfigureAwait(false);
+                var shouldPublishEmptyLibrary = false;
                 lock (_activationGate)
                 {
                     EnsureCurrentActivation(
@@ -1211,6 +1232,23 @@ namespace DTXMania.Game.Lib.Stage
                             "publishing a hierarchy.");
                     }
                     _enumerationResult = enumerationResult;
+                    shouldPublishEmptyLibrary =
+                        enumerationResult.Outcome ==
+                        SongEnumerationOutcome.NoActiveRoots;
+                }
+
+                if (shouldPublishEmptyLibrary)
+                {
+                    lock (_activationGate)
+                    {
+                        EnsureCurrentActivation(
+                            activationGeneration,
+                            cancellationToken);
+                    }
+                    // Publish outside the gate so synchronous
+                    // SongLibraryPublished subscribers are not invoked while
+                    // _activationGate is held.
+                    PublishEmptyLibraryCore();
                 }
             }
             catch (OperationCanceledException)

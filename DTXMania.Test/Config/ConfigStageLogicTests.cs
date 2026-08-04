@@ -36,37 +36,131 @@ public class ConfigStageLogicTests
     }
 
     [Fact]
-    public void SetupConfigItems_ShouldShowConfiguredDtxFolder()
+    public void SetupConfigItems_ShouldShowConfiguredSongFolderCount()
     {
         var (stage, configManager, inputManager) = CreateStage();
         using (inputManager)
         {
-            configManager.Config.DTXPath = "/tmp/custom dtx";
+            configManager.Config.SongRoots.Clear();
+            configManager.Config.SongRoots.Add("/tmp/custom dtx");
+            configManager.Config.SongRoots.Add("/tmp/community charts");
             InitializeStageMenu(stage, includePanels: false);
 
             var categories = ReflectionHelpers.GetPrivateField<List<ConfigCategory>>(stage, "_categories");
-            var item = categories!.SelectMany(c => c.Items).Single(i => i.Name == "DTX Folder");
+            var item = categories!.SelectMany(c => c.Items).Single(i => i.Name == "Song Folders");
 
-            Assert.Equal("DTX Folder: /tmp/custom dtx", item.GetDisplayText());
+            Assert.Equal("Song Folders: 2 folders", item.GetDisplayText());
+            configManager.Config.SongRoots.RemoveAt(1);
+            Assert.Equal("Song Folders: 1 folder", item.GetDisplayText());
         }
     }
 
     [Fact]
-    public void DtxFolderItem_WhenActivated_ShouldNotMutateConfig()
+    public void SetupConfigItems_SongFoldersDescription_ShouldExplainApplyTriggersOneLiveReload()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            var categories = ReflectionHelpers.GetPrivateField<List<ConfigCategory>>(stage, "_categories");
+            var item = categories!.SelectMany(category => category.Items)
+                .Single(item => item.Name == "Song Folders");
+
+            Assert.Equal(
+                "Edit the ordered song folders. Apply saves the list and triggers one live reload.",
+                item.Description);
+        }
+    }
+
+    [Fact]
+    public void DrawItemList_WhenSongFoldersHasMultipleRoots_ShouldRenderCountInValueColumn()
+    {
+        var configManager = new ConfigManager();
+        configManager.Config.SongRoots.Clear();
+        configManager.Config.SongRoots.Add("/tmp/first");
+        configManager.Config.SongRoots.Add("/tmp/second");
+        configManager.Config.SongRoots.Add("/tmp/third");
+        var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice(configManager);
+        using (inputManager)
+        {
+            stage.InitializeDrawingState();
+            ReflectionHelpers.InvokePrivateMethod(stage, "SetupConfigItems");
+            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 0);
+            ReflectionHelpers.SetPrivateField(stage, "_focusOnMenu", false);
+
+            var font = new Mock<IFont>();
+            font.Setup(itemFont => itemFont.MeasureString(It.IsAny<string>()))
+                .Returns(new Vector2(40f, 14f));
+            var draws = new List<(string Text, Vector2 Position)>();
+            font.Setup(itemFont => itemFont.DrawString(
+                    It.IsAny<SpriteBatch>(), It.IsAny<string>(), It.IsAny<Vector2>(), It.IsAny<Color>()))
+                .Callback<SpriteBatch, string, Vector2, Color>((_, text, position, _) =>
+                    draws.Add((text, position)));
+            ReflectionHelpers.SetPrivateField(stage, "_font", font.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_boldFont", font.Object);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "DrawItemList");
+
+            var expectedValueX = ConfigUILayout.ItemListX + ConfigUILayout.ItemValueOffsetX;
+            Assert.Contains(draws, draw =>
+                draw.Text == "3 folders" && Math.Abs(draw.Position.X - expectedValueX) < 0.01f);
+        }
+    }
+
+    [Fact]
+    public void SongFoldersItem_WhenActivated_ShouldOpenOverlayWithoutMutatingConfig()
     {
         var (stage, configManager, inputManager) = CreateStage();
         using (inputManager)
         {
-            configManager.Config.DTXPath = "/tmp/custom dtx";
-            InitializeStageMenu(stage, includePanels: false);
-            SelectItemForEditing(stage, "DTX Folder");
+            configManager.Config.SongRoots.Clear();
+            configManager.Config.SongRoots.Add("/tmp/custom dtx");
+            InitializeStageMenu(stage, includePanels: true);
+            SelectItemForEditing(stage, "Song Folders");
             SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
 
             ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
 
-            // DTX Folder is read-only; Config must be unchanged.
-            Assert.Equal("/tmp/custom dtx", configManager.Config.DTXPath);
+            Assert.IsType<SongFolderPanel>(
+                ReflectionHelpers.GetPrivateField<IConfigOverlayPanel>(stage, "_activePanel"));
+            Assert.Equal(["/tmp/custom dtx"], configManager.Config.SongRoots);
         }
+    }
+
+    [Fact]
+    public void SongFoldersPanel_WhenApplyIsUnchanged_ShouldCloseWithoutStartingReload()
+    {
+        var configuredRoot = Path.GetTempPath();
+        var configData = new ConfigData();
+        configData.SongRoots.Clear();
+        configData.SongRoots.Add(configuredRoot);
+        var configManager = new Mock<IConfigManager>();
+        configManager.SetupGet(manager => manager.Config).Returns(configData);
+
+        using var inputManager = new InputManagerCompat(new ConfigManager(), new TestMidiDeviceBackend());
+        var game = ReflectionHelpers.CreateGame();
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager.Object);
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.InputManager), inputManager);
+        var availability = new FfmpegRuntimeAvailability(true, null, BinaryFolder: null);
+        var picker = new Mock<IFolderPickerService>();
+        var stage = new ConfigStage(game, () => availability, () => picker.Object);
+
+        InitializeStageMenu(stage, includePanels: true);
+        SelectItemForEditing(stage, "Song Folders");
+        SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
+        ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+        var panel = ReflectionHelpers.GetPrivateField<SongFolderPanel>(stage, "_songFolderPanel");
+        Assert.NotNull(panel);
+        for (var index = 0; index < 5; index++)
+            panel!.Update(0, new KeyboardState(Keys.Down), new KeyboardState());
+        panel!.Update(0, new KeyboardState(Keys.Enter), new KeyboardState());
+
+        configManager.Verify(manager => manager.SetSongRoots(
+            It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>()), Times.Never);
+        Assert.Null(ReflectionHelpers.GetPrivateField<IConfigOverlayPanel>(stage, "_activePanel"));
+        Assert.True(string.IsNullOrEmpty(
+            ReflectionHelpers.GetPrivateField<string>(stage, "_songFolderStatus")));
     }
 
     [Fact]
@@ -1043,7 +1137,7 @@ public class ConfigStageLogicTests
                 i => Assert.Equal("Fullscreen", i.Name),
                 i => Assert.Equal("VSync Wait", i.Name),
                 i => Assert.Equal("Audio Latency Offset", i.Name),
-                i => Assert.Equal("DTX Folder", i.Name),
+                i => Assert.Equal("Song Folders", i.Name),
                 i => Assert.Equal("System Key Mapping", i.Name),
                 i => Assert.Equal("Import NX Scores", i.Name));
 
@@ -1538,12 +1632,20 @@ public class ConfigStageLogicTests
         // stays on the white value cell and clear of the description panel (x=800). The
         // per-character mock font makes the overflow deterministic: 8px/char.
         var longPath = "/Users/testuser/Library/Application Support/DTXManiaCX/DTXFiles";
-        var configManager = new ConfigManager { Config = { DTXPath = longPath } };
-        var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice(configManager);
+        var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice();
         using (inputManager)
         {
             stage.InitializeDrawingState();
-            ReflectionHelpers.InvokePrivateMethod(stage, "SetupConfigItems");
+            ReflectionHelpers.SetPrivateField(stage, "_categories", new List<ConfigCategory>
+            {
+                new("System", "Test category", new List<IConfigItem>
+                {
+                    new ReadOnlyConfigItem("Long Value", () => longPath)
+                    {
+                        Description = "Long value rendering test."
+                    }
+                })
+            });
             ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 0);
             ReflectionHelpers.SetPrivateField(stage, "_focusOnMenu", false);
 

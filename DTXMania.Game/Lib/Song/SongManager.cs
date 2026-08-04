@@ -60,6 +60,9 @@ namespace DTXMania.Game.Lib.Song
             // batches (e.g. an incomplete batch) without subclassing.
             BuildEnumerationBatchCoreAsync = (searchPaths, progress, token) =>
                 BuildEnumerationBatchAsync(searchPaths, progress, token);
+            FinalizePendingNodesCore = (batch, chartsByPath) =>
+                FinalizePendingNodes(batch, chartsByPath);
+            PublishEnumerationCore = PublishEnumeration;
         }
 
         #endregion
@@ -71,6 +74,11 @@ namespace DTXMania.Game.Lib.Song
         private CancellationTokenSource? _enumCancellation;
         private SongDatabaseService? _databaseService;
         private string[] _currentSearchPaths = Array.Empty<string>();
+        private string[] _pendingSearchPaths = Array.Empty<string>();
+        private long _publicationVersion;
+
+        internal SongRootPolicy RootPolicy { get; set; } =
+            SongRootPolicy.ForCurrentPlatform();
 
         internal Func<string, Task<(SongEntity song, SongChart chart)>>
             ParseSongEntitiesCoreAsync { get; set; } =
@@ -102,6 +110,14 @@ namespace DTXMania.Game.Lib.Song
             Task<SongEnumerationBatch>> BuildEnumerationBatchCoreAsync
             { get; set; }
 
+        internal Action<
+            SongEnumerationBatch,
+            IReadOnlyDictionary<string, SongChart>> FinalizePendingNodesCore
+            { get; set; }
+
+        internal Action<SongEnumerationBatch> PublishEnumerationCore
+            { get; set; }
+
         internal Func<SongDatabaseService, Task<DatabaseStats?>>
             GetDatabaseStatsCoreAsync { get; set; } =
                 static database => database.GetDatabaseStatsAsync();
@@ -115,6 +131,11 @@ namespace DTXMania.Game.Lib.Song
         private static readonly Regex HashSpacePattern = new Regex(@"#\s+([A-Z]+)\s+(.*)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
         private static readonly Regex SpacedCommandPattern = new Regex(@"#\s*([A-Z\s]+?)\s+(.*)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
         private static readonly Regex ExcessiveSpacesPattern = new Regex(@"\s+", RegexOptions.Compiled);
+
+        // Back off the persisted scan-start watermark to account for filesystems
+        // that round modification times down to a coarse resolution.
+        private static readonly TimeSpan EnumerationWatermarkBackoff =
+            TimeSpan.FromSeconds(5);
 
         #endregion
 
@@ -156,29 +177,25 @@ namespace DTXMania.Game.Lib.Song
             }
         }
 
-        private void SetCurrentSearchPaths(string[] searchPaths)
+        internal void SetCurrentSearchPaths(IReadOnlyList<string> searchPaths)
         {
-            if (searchPaths == null || searchPaths.Length == 0)
-                return;
-
-            // Normalize once, retaining only successful results, then dedupe.
-            var normalized = new List<string>(searchPaths.Length);
-            foreach (var path in searchPaths)
-            {
-                if (SongPathIdentity.TryNormalize(path, out var normalizedPath))
-                    normalized.Add(normalizedPath);
-            }
-
-            var distinct = normalized
-                .Distinct(SongPathIdentity.CanonicalComparer)
+            ArgumentNullException.ThrowIfNull(searchPaths);
+            var distinct = RootPolicy.Validate(searchPaths)
+                .CanonicalRoots
                 .ToArray();
 
-            // Assign under the same lock used by GetCurrentSearchPathsSnapshot,
-            // RefreshSongListFromDatabaseAsync, PublishEnumeration, and Clear so
-            // readers never observe a torn _currentSearchPaths reference.
+            // A non-empty set is input for a future database rebuild, not a partial
+            // publication. Publishing roots without matching hierarchy/count data
+            // would make a snapshot internally inconsistent.
+            if (distinct.Length == 0)
+            {
+                PublishEmptyLibrary();
+                return;
+            }
+
             lock (_lockObject)
             {
-                _currentSearchPaths = distinct;
+                _pendingSearchPaths = distinct;
             }
         }
 
@@ -194,13 +211,17 @@ namespace DTXMania.Game.Lib.Song
         /// </summary>
         public IReadOnlyList<SongListNode> RootSongs
         {
-            get
-            {
-                lock (_lockObject)
-                {
-                    return _rootSongs.AsReadOnly();
-                }
-            }
+            get => GetLibrarySnapshot().RootSongs;
+        }
+
+        /// <summary>
+        /// Gets a stable, versioned view of the currently published library.
+        /// Reading never changes the publication version.
+        /// </summary>
+        public SongLibrarySnapshot GetLibrarySnapshot()
+        {
+            lock (_lockObject)
+                return CreateSnapshotLocked();
         }
 
         /// <summary>
@@ -214,12 +235,43 @@ namespace DTXMania.Game.Lib.Song
             {
                 dbService = _databaseService;
             }
-            
+
             if (dbService == null) return 0;
             try
             {
                 var stats = await dbService.GetDatabaseStatsAsync();
                 return stats.ScoreCount;
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
+        /// <summary>
+        /// Number of chart rows in the database whose files reside under one of
+        /// <paramref name="activeRoots"/>. This is the active-root-scoped
+        /// counterpart to the global chart count: cache freshness checks compare
+        /// it against the filesystem chart-file count, which is also scoped to the
+        /// active roots. Using the global count instead would count retained rows
+        /// belonging to a removed root and force a full rescan on every subsequent
+        /// startup. Counts charts (not score rows) so the database side matches
+        /// the one-file-per-chart filesystem contract.
+        /// </summary>
+        internal async Task<int> GetActiveDatabaseChartCountAsync(
+            IReadOnlyList<string> activeRoots)
+        {
+            // Copy reference under lock to avoid race with Clear()
+            SongDatabaseService? dbService;
+            lock (_lockObject)
+            {
+                dbService = _databaseService;
+            }
+
+            if (dbService == null) return 0;
+            try
+            {
+                return await dbService.GetActiveChartCountAsync(activeRoots);
             }
             catch
             {
@@ -269,6 +321,12 @@ namespace DTXMania.Game.Lib.Song
         /// Fired when enumeration completes
         /// </summary>
         public event EventHandler? EnumerationCompleted;
+
+        /// <summary>
+        /// Fired after a complete library snapshot has been published. Subscribers run
+        /// outside the manager lock and always receive one coherent hierarchy/root view.
+        /// </summary>
+        public event EventHandler<SongLibraryPublishedEventArgs>? SongLibraryPublished;
 
         #endregion
 
@@ -390,7 +448,6 @@ namespace DTXMania.Game.Lib.Song
         {
             try
             {
-                SetCurrentSearchPaths(searchPaths);
                 var db = GetDatabaseServiceSnapshot();
                 if (db == null)
                 {
@@ -452,9 +509,10 @@ namespace DTXMania.Game.Lib.Song
                 cancellationToken,
                 observer: null,
                 linked).ConfigureAwait(false);
-            await UpdateEnumerationTimestampAsync().ConfigureAwait(false);
 
-            return (result.Batch.Candidates.Count, true);
+            return (
+                result.Batch.Candidates.Count,
+                result.Outcome == SongEnumerationOutcome.ImportedAndPublished);
         }
 
         /// <summary>
@@ -525,8 +583,6 @@ namespace DTXMania.Game.Lib.Song
         /// </summary>
         public async Task BuildSongListFromDatabasePublicAsync(string[] searchPaths)
         {
-            SetCurrentSearchPaths(searchPaths);
-
             await BuildHierarchyFromDatabaseOnceAsync(searchPaths).ConfigureAwait(false);
         }
 
@@ -540,7 +596,9 @@ namespace DTXMania.Game.Lib.Song
             string[] searchPaths;
             lock (_lockObject)
             {
-                searchPaths = _currentSearchPaths.ToArray();
+                searchPaths = _pendingSearchPaths.Length > 0
+                    ? _pendingSearchPaths.ToArray()
+                    : _currentSearchPaths.ToArray();
             }
 
             if (searchPaths.Length > 0)
@@ -702,8 +760,7 @@ namespace DTXMania.Game.Lib.Song
             // a concurrent enumeration surfaces as InvalidOperationException.
             if (!TryBeginEnumeration(cancellationToken, out var linked))
             {
-                throw new InvalidOperationException(
-                    "Song enumeration is already in progress.");
+                throw new SongEnumerationBusyException();
             }
             return EnumerateAndImportSongsCoreAsync(
                 searchPaths,
@@ -722,6 +779,17 @@ namespace DTXMania.Game.Lib.Song
         {
             SongEnumerationResult? result = null;
             var outcome = StartupOperationOutcome.Failure;
+
+            // Capture a conservatively backed-off enumeration start as the
+            // freshness watermark. It is persisted only after successful
+            // publication so that any file edit during the (possibly long) scan
+            // remains newer than the watermark and triggers the next refresh.
+            // Using the completion time instead would mask mid-scan edits: a
+            // file parsed early and then modified while other roots are still
+            // scanning would have an mtime older than the completion-time
+            // watermark and be silently ignored.
+            var enumerationStartedUtc = DateTime.UtcNow - EnumerationWatermarkBackoff;
+
             try
             {
                 // The cancellation check and database snapshot must run inside
@@ -744,6 +812,17 @@ namespace DTXMania.Game.Lib.Song
                         "An incomplete enumeration cannot be imported.");
                 }
 
+                if (batch.ActiveRoots.Count == 0)
+                {
+                    result = new SongEnumerationResult(
+                        SongEnumerationOutcome.NoActiveRoots,
+                        batch,
+                        SongBulkImportResult.Empty,
+                        TimeSpan.Zero);
+                    outcome = StartupOperationOutcome.Success;
+                    return result;
+                }
+
                 var import = await ImportSongsCoreAsync(
                     database,
                     new SongBulkImportRequest(
@@ -754,15 +833,62 @@ namespace DTXMania.Game.Lib.Song
                     linked.Token).ConfigureAwait(false);
 
                 var hierarchy = Stopwatch.StartNew();
-                FinalizePendingNodes(batch, import.ChartsByPath);
+                try
+                {
+                    FinalizePendingNodesCore(batch, import.ChartsByPath);
+                }
+                catch (Exception exception)
+                {
+                    hierarchy.Stop();
+                    throw new SongEnumerationPostCommitException(
+                        SongEnumerationPostCommitPhase.Finalization,
+                        batch,
+                        import,
+                        exception);
+                }
+
                 hierarchy.Stop();
-                PublishEnumeration(batch);
+                try
+                {
+                    PublishEnumerationCore(batch);
+                }
+                catch (Exception exception)
+                {
+                    throw new SongEnumerationPostCommitException(
+                        SongEnumerationPostCommitPhase.Publication,
+                        batch,
+                        import,
+                        exception);
+                }
 
                 result = new SongEnumerationResult(
+                    SongEnumerationOutcome.ImportedAndPublished,
                     batch,
                     import,
                     hierarchy.Elapsed);
                 outcome = StartupOperationOutcome.Success;
+
+                // Persist the backed-off START watermark (not the completion time)
+                // so that mid-scan edits remain newer than the watermark and are
+                // detected by the next freshness check. NoActiveRoots and failure
+                // paths do not update the watermark: nothing was enumerated.
+                //
+                // Roots with recoverable (non-root) errors are excluded: a
+                // recoverable error (file parse failure, set.def read failure)
+                // leaves the chart's old database row preserved but unupdated.
+                // Advancing that root's watermark would make the next freshness
+                // check see matching counts and a watermark newer than the file's
+                // mtime, silently accepting stale content. Leaving the watermark
+                // dirty forces a rescan that retries the failed parse.
+                var rootsToAdvance = GetRootsWithoutRecoverableErrors(batch);
+                if (rootsToAdvance.Count > 0)
+                {
+                    await SetEnumerationWatermarkAsync(
+                        rootsToAdvance,
+                        enumerationStartedUtc)
+                        .ConfigureAwait(false);
+                }
+
                 return result;
             }
             catch (OperationCanceledException)
@@ -875,64 +1001,48 @@ namespace DTXMania.Game.Lib.Song
             public List<string> OrderedChartPaths { get; } = new();
         }
 
-        private static SongEnumerationBatchBuilder CreateBatchBuilder(
+        private SongEnumerationBatchBuilder CreateBatchBuilder(
             IEnumerable<string> searchPaths)
         {
             ArgumentNullException.ThrowIfNull(searchPaths);
-            var validRoots = new List<string>();
+            var configuredRoots = searchPaths.ToArray();
+            var validation = RootPolicy.Validate(configuredRoots);
             var errors = new List<SongEnumerationError>();
-            foreach (var path in searchPaths)
+            foreach (var diagnostic in validation.Diagnostics)
             {
-                if (string.IsNullOrWhiteSpace(path))
-                {
-                    var blankError = new SongEnumerationError(
-                        path ?? string.Empty,
-                        "A configured song root is blank.",
-                        IsRootFailure: true);
-                    errors.Add(blankError);
-                    Debug.WriteLine(
-                        $"SongManager: skipping blank song root: {blankError.Message}");
+                if (diagnostic.IsWarning)
                     continue;
-                }
 
-                string normalized;
-                try
-                {
-                    normalized = SongPathIdentity.Normalize(path);
-                }
-                catch (Exception ex) when (
-                    ex is ArgumentException or NotSupportedException
-                        or System.IO.PathTooLongException)
-                {
-                    var normalizeError = new SongEnumerationError(
-                        path,
-                        $"Configured song root path is invalid: {ex.Message}",
-                        IsRootFailure: true);
-                    errors.Add(normalizeError);
-                    Debug.WriteLine(
-                        $"SongManager: skipping invalid song root: {normalizeError.Message}");
-                    continue;
-                }
-
-                if (!Directory.Exists(normalized))
-                {
-                    var missingError = new SongEnumerationError(
-                        normalized,
-                        $"Configured song root does not exist: {normalized}",
-                        IsRootFailure: true);
-                    errors.Add(missingError);
-                    Debug.WriteLine(
-                        $"SongManager: skipping missing song root: {missingError.Message}");
-                    continue;
-                }
-
-                validRoots.Add(normalized);
+                var error = new SongEnumerationError(
+                    diagnostic.Path,
+                    diagnostic.Message,
+                    IsRootFailure: true);
+                errors.Add(error);
+                Debug.WriteLine($"SongManager: skipping song root: {error.Message}");
             }
 
-            var distinctRoots = validRoots
-                .Distinct(SongPathIdentity.CanonicalComparer)
-                .ToArray();
-            return new SongEnumerationBatchBuilder(distinctRoots, errors);
+            var activeRoots = new List<string>();
+            foreach (var normalizedRoot in validation.CanonicalRoots)
+            {
+                var availability = RootPolicy.Probe(normalizedRoot);
+                if (availability == SongRootAvailability.Available)
+                {
+                    activeRoots.Add(normalizedRoot);
+                    continue;
+                }
+
+                var message = availability == SongRootAvailability.Missing
+                    ? $"Configured song root does not exist: {normalizedRoot}"
+                    : $"Configured song root is inaccessible: {normalizedRoot}";
+                var error = new SongEnumerationError(
+                    normalizedRoot,
+                    message,
+                    IsRootFailure: true);
+                errors.Add(error);
+                Debug.WriteLine($"SongManager: skipping song root: {error.Message}");
+            }
+
+            return new SongEnumerationBatchBuilder(activeRoots, errors);
         }
 
         private async Task EnumerateDirectoryIntoBatchAsync(
@@ -1153,6 +1263,7 @@ namespace DTXMania.Game.Lib.Song
             }
 
             var directory = Path.GetDirectoryName(setDefPath) ?? "";
+            var normalizedSetDefDirectory = SongPathIdentity.Normalize(directory);
             var groupKey = SongPathIdentity.ForSetDefinition(setDefPath);
             SongListNode? placeholder = null;
             var orderedPaths = new List<string>();
@@ -1167,11 +1278,42 @@ namespace DTXMania.Game.Lib.Song
                 if (string.IsNullOrWhiteSpace(fileName))
                     continue;
 
+                // Reject absolute set.def chart references outright.
+                // Path.Combine silently overrides the set.def directory when
+                // the second argument is rooted, which would let an absolute
+                // path point anywhere on disk.
+                if (Path.IsPathRooted(fileName))
+                {
+                    Debug.WriteLine(
+                        $"SongManager: Rejecting absolute set.def chart reference: {fileName}");
+                    continue;
+                }
+
                 var path = SongPathIdentity.Normalize(
                     Path.Combine(directory, fileName));
                 if (!DTXChartParser.IsSupportedFile(path) ||
                     !File.Exists(path))
                 {
+                    continue;
+                }
+
+                // Reject set.def chart references that escape the directory
+                // containing the set.def. A reference like
+                // ../Sibling/chart.dtx (still inside the active root) creates a
+                // duplicate placeholder: one under the set.def's directory, one
+                // under the chart's own directory. Both resolve to the single
+                // persisted chart in the freshly published hierarchy, but on a
+                // cached restart the chart is placed only by its physical
+                // path, so the duplicate/misplaced node disappears — an
+                // inconsistency between fresh publish and cached
+                // reconstruction. Valid child paths (e.g. charts/basic.dtx)
+                // are permitted.
+                if (!SongPathIdentity.IsUnderNormalizedRoot(
+                        path,
+                        normalizedSetDefDirectory))
+                {
+                    Debug.WriteLine(
+                        $"SongManager: Rejecting set.def chart reference outside its directory: {path}");
                     continue;
                 }
 
@@ -1454,23 +1596,69 @@ namespace DTXMania.Game.Lib.Song
 
         internal void PublishEnumeration(SongEnumerationBatch batch)
         {
+            ArgumentNullException.ThrowIfNull(batch);
+            SongLibrarySnapshot snapshot;
             lock (_lockObject)
             {
                 _rootSongs.Clear();
                 _rootSongs.AddRange(batch.RootNodes);
-                _currentSearchPaths = batch.ActiveRoots.ToArray();
+                var activeRoots = RootPolicy.Validate(batch.ActiveRoots)
+                    .CanonicalRoots
+                    .ToArray();
+                _currentSearchPaths = activeRoots;
+                _pendingSearchPaths = activeRoots.ToArray();
                 EnumeratedFileCount = batch.DiscoveredChartPaths.Count;
                 // Count discovered difficulty charts, not grouped logical songs:
                 // a multi-difficulty set contributes one PendingSong but one
                 // candidate per chart, and the contract is "number of discovered
                 // scores" (mirroring the legacy per-chart increment).
                 DiscoveredScoreCount = batch.Candidates.Count;
+                _publicationVersion++;
+                snapshot = CreateSnapshotLocked();
             }
 
+            SafeInvoke(
+                SongLibraryPublished,
+                this,
+                new SongLibraryPublishedEventArgs(snapshot),
+                nameof(SongLibraryPublished));
             foreach (var song in FlattenScoreNodes(batch.RootNodes))
                 SafeInvoke(SongDiscovered, this, new SongDiscoveredEventArgs(song), nameof(SongDiscovered));
             SafeInvoke(EnumerationCompleted, this, EventArgs.Empty, nameof(EnumerationCompleted));
         }
+
+        /// <summary>
+        /// Publishes an explicit empty library. Startup uses this to distinguish an
+        /// intentionally empty accepted-root set from a failed or unfinished enumeration.
+        /// </summary>
+        public void PublishEmptyLibrary()
+        {
+            SongLibrarySnapshot snapshot;
+            lock (_lockObject)
+            {
+                _rootSongs.Clear();
+                _currentSearchPaths = Array.Empty<string>();
+                _pendingSearchPaths = Array.Empty<string>();
+                EnumeratedFileCount = 0;
+                DiscoveredScoreCount = 0;
+                _publicationVersion++;
+                snapshot = CreateSnapshotLocked();
+            }
+
+            SafeInvoke(
+                SongLibraryPublished,
+                this,
+                new SongLibraryPublishedEventArgs(snapshot),
+                nameof(SongLibraryPublished));
+        }
+
+        private SongLibrarySnapshot CreateSnapshotLocked() =>
+            new(
+                _publicationVersion,
+                _rootSongs,
+                _currentSearchPaths,
+                EnumeratedFileCount,
+                DiscoveredScoreCount);
 
         // Subscribers run independently so that one throwing handler cannot
         // suppress later handlers, cannot stop EnumerationCompleted, and —
@@ -1560,23 +1748,23 @@ namespace DTXMania.Game.Lib.Song
             {
                 var newRootNodes = new List<SongListNode>();
                 var allSongs = await db.GetSongsAsync().ConfigureAwait(false);
+                var configuredRoots = RootPolicy.Validate(searchPaths)
+                    .CanonicalRoots;
+                var availableRoots = configuredRoots
+                    .Where(root => RootPolicy.Probe(root) == SongRootAvailability.Available)
+                    .ToArray();
 
-                foreach (var searchPath in searchPaths)
+                if (availableRoots.Length == 0)
                 {
-                    if (string.IsNullOrEmpty(searchPath) || !Directory.Exists(searchPath))
-                    {
-                        Debug.WriteLine($"SongManager: Skipping invalid path during database rebuild: {searchPath}");
-                        continue;
-                    }
+                    Debug.WriteLine(
+                        "SongManager: Database hierarchy refresh skipped — no active search roots.");
+                    return;
+                }
 
-                    // Normalize the search-path root once instead of re-normalizing
-                    // it for every chart via IsUnderRoot.
-                    if (!SongPathIdentity.TryNormalize(searchPath, out var normalizedRoot))
-                    {
-                        Debug.WriteLine($"SongManager: Skipping unnormalizable path during database rebuild: {searchPath}");
-                        continue;
-                    }
+                var activeChartCount = 0;
 
+                foreach (var normalizedRoot in availableRoots)
+                {
                     // Get all charts that belong to this search path
                     var relevantCharts = allSongs
                         .SelectMany(song => song.Charts
@@ -1590,22 +1778,47 @@ namespace DTXMania.Game.Lib.Song
                             .Select(chart => (song, chart)))
                         .ToList();
 
+                    activeChartCount += relevantCharts.Count;
+
                     // Build the folder hierarchy structure from file paths
-                    var pathNodes = await BuildHierarchyFromCharts(searchPath, relevantCharts);
+                    var pathNodes = await BuildHierarchyFromCharts(normalizedRoot, relevantCharts);
                     newRootNodes.AddRange(pathNodes);
                 }
 
-                // Update root songs list
-                lock (_lockObject)
-                {
-                    _rootSongs.Clear();
-                    _rootSongs.AddRange(newRootNodes);
-                }
+                PublishDatabaseHierarchy(
+                    newRootNodes,
+                    availableRoots,
+                    activeChartCount);
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"SongManager: Error building song list from database: {ex.Message}");
             }
+        }
+
+        private void PublishDatabaseHierarchy(
+            IReadOnlyList<SongListNode> rootNodes,
+            IReadOnlyList<string> activeRoots,
+            int activeChartCount)
+        {
+            SongLibrarySnapshot snapshot;
+            lock (_lockObject)
+            {
+                _rootSongs.Clear();
+                _rootSongs.AddRange(rootNodes);
+                _currentSearchPaths = activeRoots.ToArray();
+                _pendingSearchPaths = _currentSearchPaths.ToArray();
+                EnumeratedFileCount = activeChartCount;
+                DiscoveredScoreCount = activeChartCount;
+                _publicationVersion++;
+                snapshot = CreateSnapshotLocked();
+            }
+
+            SafeInvoke(
+                SongLibraryPublished,
+                this,
+                new SongLibraryPublishedEventArgs(snapshot),
+                nameof(SongLibraryPublished));
         }
 
         /// <summary>
@@ -3270,7 +3483,6 @@ namespace DTXMania.Game.Lib.Song
         {
             try
             {
-                SetCurrentSearchPaths(searchPaths);
                 if (forceEnumeration)
                 {
                     Debug.WriteLine("SongManager: Force enumeration requested");
@@ -3295,7 +3507,14 @@ namespace DTXMania.Game.Lib.Song
                 Debug.WriteLine($"SongManager: Database contains {stats.SongCount} songs, checking for filesystem changes...");
 
                 // Check for filesystem changes by comparing directory modification times
-                var changeDetected = await DetectFilesystemChangesAsync(searchPaths);
+                // Cache freshness must evaluate the same canonical root set as database
+                // hierarchy rebuilds and filesystem enumeration. Otherwise duplicate or
+                // overlapping configured roots can double-count charts here while the
+                // published library only contains one root identity.
+                var canonicalRoots = RootPolicy.Validate(searchPaths)
+                    .CanonicalRoots
+                    .ToArray();
+                var changeDetected = await DetectFilesystemChangesAsync(canonicalRoots);
                 if (changeDetected)
                 {
                     Debug.WriteLine("SongManager: Filesystem changes detected, enumeration needed");
@@ -3315,42 +3534,47 @@ namespace DTXMania.Game.Lib.Song
 
         /// <summary>
         /// Checks if files in the database still exist at their recorded paths
-        /// This detects when files have been moved or deleted
+        /// This detects when files have been moved or deleted.
+        /// <para>
+        /// Only charts whose <see cref="SongChart.FilePath"/> resides under one of
+        /// <paramref name="activeRoots"/> are checked. Charts belonging to removed
+        /// (retained) roots are intentionally skipped: their files are expected to be
+        /// absent from the active root set, and flagging them as missing would force a
+        /// full rescan on every startup. This mirrors the active-root scoping already
+        /// applied to the filesystem and database chart counts in
+        /// <see cref="DetectFilesystemChangesAsync"/>.
         /// </summary>
-        private async Task<bool> CheckDatabaseFilesStillExist()
+        private async Task<bool> CheckDatabaseFilesStillExist(IReadOnlyList<string> activeRoots)
         {
             try
             {
                 if (_databaseService == null)
                     return false;
 
-                var allSongs = await _databaseService.GetSongsAsync();
+                var charts = await _databaseService.GetActiveChartsAsync(activeRoots);
                 int missingFiles = 0;
                 int updatedFiles = 0;
                 int totalFiles = 0;
 
-                foreach (var song in allSongs.Where(s => s.Charts != null))
+                foreach (var chart in charts)
                 {
-                    foreach (var chart in song.Charts!)
+                    totalFiles++;
+                    if (!string.IsNullOrEmpty(chart.FilePath) && !File.Exists(chart.FilePath))
                     {
-                        totalFiles++;
-                        if (!string.IsNullOrEmpty(chart.FilePath) && !File.Exists(chart.FilePath))
+                        // File is missing from recorded path - try to find it in new location
+                        string? newPath = await FindMovedFileAsync(chart.FilePath);
+
+                        if (!string.IsNullOrEmpty(newPath))
                         {
-                            // File is missing from recorded path - try to find it in new location
-                            string? newPath = await FindMovedFileAsync(chart.FilePath);
-                            
-                            if (!string.IsNullOrEmpty(newPath))
-                            {
-                                // Found the file in a new location - update database
-                                Debug.WriteLine($"SongManager: File moved detected: '{chart.FilePath}' -> '{newPath}'");
-                                await UpdateChartFilePathAsync(chart.Id, newPath);
-                                updatedFiles++;
-                            }
-                            else
-                            {
-                                missingFiles++;
-                                Debug.WriteLine($"SongManager: Missing file detected: {chart.FilePath}");
-                            }
+                            // Found the file in a new location - update database
+                            Debug.WriteLine($"SongManager: File moved detected: '{chart.FilePath}' -> '{newPath}'");
+                            await UpdateChartFilePathAsync(chart.Id, newPath);
+                            updatedFiles++;
+                        }
+                        else
+                        {
+                            missingFiles++;
+                            Debug.WriteLine($"SongManager: Missing file detected: {chart.FilePath}");
                         }
                     }
                 }
@@ -3478,7 +3702,8 @@ namespace DTXMania.Game.Lib.Song
         }
 
         /// <summary>
-        /// Detects filesystem changes in song directories
+        /// Detects filesystem changes in song directories by walking the
+        /// available roots once via the shared chart-inventory scanner.
         /// </summary>
         private async Task<bool> DetectFilesystemChangesAsync(string[] searchPaths)
         {
@@ -3492,64 +3717,81 @@ namespace DTXMania.Game.Lib.Song
                     return true; // First time enumeration
                 }
 
-                Debug.WriteLine($"SongManager: Last enumeration was at {lastEnumerationTime:yyyy-MM-dd HH:mm:ss}");
+                Debug.WriteLine($"SongManager: Last enumeration was at {lastEnumerationTime:yyyy-MM-dd HH:mm:ss} UTC");
 
-                // First, check if file counts have changed - this is a reliable indicator
-                var currentFileCount = await CountDTXFilesAsync(searchPaths);
-                var databaseSongCount = await GetDatabaseScoreCountAsync();
-                
-                Debug.WriteLine($"SongManager: Current DTX files: {currentFileCount}, Database songs: {databaseSongCount}");
-                
-                if (currentFileCount != databaseSongCount)
+                // Probe canonical roots once and carry only currently available
+                // roots through every downstream check. A missing or inaccessible
+                // configured root is a diagnostic condition, NOT a filesystem
+                // change: a full scan cannot make the root available, and
+                // treating its absence as a change whenever another root has
+                // charts forces a perpetual rescan on every startup. When the
+                // root returns (external drive reattached, network share
+                // mounted), its retained watermark is used to detect edits even
+                // when the chart count still matches the retained database rows.
+                var availableRoots = new List<string>(searchPaths.Length);
+                foreach (var searchPath in searchPaths)
                 {
-                    Debug.WriteLine($"SongManager: File count mismatch detected - files: {currentFileCount}, database: {databaseSongCount}");
+                    if (string.IsNullOrEmpty(searchPath))
+                        continue;
+                    if (RootPolicy.Probe(searchPath) == SongRootAvailability.Available)
+                        availableRoots.Add(searchPath);
+                    else
+                        Debug.WriteLine($"SongManager: Configured root unavailable, skipping freshness check: {searchPath}");
+                }
+
+                // Walk the available roots once, mirroring full enumeration's
+                // directory and set.def discovery rules. The inventory yields
+                // exactly the chart files enumeration would import (set.def-
+                // referenced charts only in a set.def directory; case-insensitive
+                // extension matching) plus the set.def and directory mtimes used
+                // by the change check below.
+                var inventory = await ScanChartInventoryAsync(
+                    availableRoots.ToArray(), CancellationToken.None).ConfigureAwait(false);
+
+                // File count mismatch is a reliable indicator of added/removed
+                // charts. Both counts are scoped to the same available root set:
+                // the inventory is restricted to these roots, so the database
+                // count must be too. The global chart count would include
+                // retained rows belonging to a removed or unavailable root,
+                // which can never match the scoped filesystem count and would
+                // force a full rescan on every startup. The database side counts
+                // charts (one row per chart file), not score rows, so it matches
+                // the one-file-per-chart filesystem contract even when a chart
+                // has many score variants.
+                var currentFileCount = inventory.Charts.Count;
+                var databaseChartCount = await GetActiveDatabaseChartCountAsync(availableRoots);
+
+                Debug.WriteLine($"SongManager: Current chart files: {currentFileCount}, Database charts: {databaseChartCount}");
+
+                if (currentFileCount != databaseChartCount)
+                {
+                    Debug.WriteLine($"SongManager: File count mismatch detected - files: {currentFileCount}, database: {databaseChartCount}");
                     return true;
                 }
 
-                // Check if files in database still exist at their recorded paths (detects moves)
-                var filesMovedOrDeleted = await CheckDatabaseFilesStillExist();
+                // Check if files in database still exist at their recorded paths
+                // (detects moves). Scoped to the same available roots as the
+                // file/DB counts above so retained charts belonging to a removed
+                // or unavailable root are not flagged as missing.
+                var filesMovedOrDeleted = await CheckDatabaseFilesStillExist(availableRoots);
                 if (filesMovedOrDeleted)
                 {
                     Debug.WriteLine($"SongManager: Some files have been moved or deleted since last enumeration");
                     return true;
                 }
 
-                // Check each search path for changes
-                foreach (var searchPath in searchPaths)
+                // Check each available root against its own last successful
+                // watermark. A root omitted from a partial scan has no new
+                // watermark, so its return is conservatively treated as a change.
+                var rootWatermarks = await GetRootEnumerationWatermarksAsync(
+                    availableRoots).ConfigureAwait(false);
+                if (InventoryHasChangesSince(
+                        inventory,
+                        availableRoots,
+                        rootWatermarks))
                 {
-                    if (string.IsNullOrEmpty(searchPath))
-                    {
-                        Debug.WriteLine($"SongManager: Search path is null or empty, skipping");
-                        continue;
-                    }
-
-                    var fullPath = Path.GetFullPath(searchPath);
-                    Debug.WriteLine($"SongManager: Checking search path: {fullPath}");
-
-                    if (!Directory.Exists(fullPath))
-                    {
-                        Debug.WriteLine($"SongManager: Search path doesn't exist: {fullPath}");
-                        // If the directory doesn't exist but we have songs in DB, this is a change
-                        var songCount = await GetDatabaseScoreCountAsync();
-                        if (songCount > 0)
-                        {
-                            Debug.WriteLine($"SongManager: Directory missing but database has {songCount} songs - change detected");
-                            return true;
-                        }
-                        continue;
-                    }
-
-                    // Check if directory or its contents have been modified since last enumeration
-                    var hasChanges = await CheckDirectoryForChangesAsync(fullPath, lastEnumerationTime.Value);
-                    if (hasChanges)
-                    {
-                        Debug.WriteLine($"SongManager: Changes detected in {fullPath}");
-                        return true;
-                    }
-                    else
-                    {
-                        Debug.WriteLine($"SongManager: No changes detected in {fullPath}");
-                    }
+                    Debug.WriteLine("SongManager: Changes detected in song directories");
+                    return true;
                 }
 
                 Debug.WriteLine("SongManager: No changes detected in any search path");
@@ -3563,208 +3805,381 @@ namespace DTXMania.Game.Lib.Song
             }
         }
 
+        private async Task<IReadOnlyDictionary<string, DateTime>>
+            GetRootEnumerationWatermarksAsync(
+                IReadOnlyList<string> availableRoots)
+        {
+            var watermarks = new Dictionary<string, DateTime>(
+                SongPathIdentity.CanonicalComparer);
+            var database = GetDatabaseServiceSnapshot();
+            if (database == null)
+                return watermarks;
+
+            foreach (var root in availableRoots)
+            {
+                var watermark = await database
+                    .GetLastSuccessfulEnumerationUtcAsync(root)
+                    .ConfigureAwait(false);
+                if (watermark.HasValue)
+                    watermarks[root] = watermark.Value;
+            }
+
+            // A missing per-root watermark must remain missing. Assigning the
+            // legacy global timestamp to a root that was never successfully
+            // enumerated (or that returned after a partial scan where another
+            // root advanced the global value) would hide stale content: the
+            // root's retained rows and file mtimes would compare clean against
+            // a watermark it never earned, so NeedsEnumerationAsync would
+            // return false and never retry the failed parse. The conservative
+            // behavior — treat a missing watermark as "needs enumeration" —
+            // costs one full scan to initialize per-root metadata on a legacy
+            // database, then never triggers again.
+            return watermarks;
+        }
+
         /// <summary>
-        /// Counts DTX files in all search paths
+        /// Counts the chart files full enumeration would import across the active
+        /// roots by delegating to the shared inventory scanner. Kept as a private
+        /// compatibility seam for existing coverage of the inventory contract.
         /// </summary>
         private async Task<int> CountDTXFilesAsync(string[] searchPaths)
         {
-            int totalCount = 0;
             try
             {
-                foreach (var searchPath in searchPaths.Where(path => !string.IsNullOrEmpty(path) && Directory.Exists(path)))
-                {
-                    // Use async enumeration to avoid blocking
-                    await Task.Run(() =>
-                    {
-                        int pathCount = Directory.EnumerateFiles(searchPath, "*.dtx", SearchOption.AllDirectories).Count();
-                        totalCount += pathCount;
-                        Debug.WriteLine($"SongManager: Found {pathCount} DTX files in {searchPath}");
-                    });
-                }
-                Debug.WriteLine($"SongManager: Total DTX files found: {totalCount}");
-                return totalCount;
+                var inventory = await ScanChartInventoryAsync(
+                    searchPaths, CancellationToken.None).ConfigureAwait(false);
+                Debug.WriteLine($"SongManager: Inventory counted {inventory.Charts.Count} chart files");
+                return inventory.Charts.Count;
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"SongManager: Error counting DTX files: {ex.Message}");
-                return -1; // Return invalid count to trigger enumeration
+                Debug.WriteLine($"SongManager: Error counting chart files: {ex.Message}");
+                return -1;
             }
         }
 
         /// <summary>
-        /// Recursively checks a directory for changes since the last enumeration
+        /// Checks one root against a supplied watermark using the shared inventory
+        /// scanner. Kept as a private compatibility seam for existing coverage of
+        /// the inventory contract; live freshness checks use per-root watermarks.
         /// </summary>
-        private async Task<bool> CheckDirectoryForChangesAsync(string directoryPath, DateTime lastEnumerationTime)
+        private async Task<bool> CheckDirectoryForChangesAsync(
+            string directoryPath,
+            DateTime lastEnumerationTime)
         {
             try
             {
-                var dirInfo = new DirectoryInfo(directoryPath);
-                Debug.WriteLine($"SongManager: Checking directory: {directoryPath}");
-                Debug.WriteLine($"SongManager: Directory last write time: {dirInfo.LastWriteTime:yyyy-MM-dd HH:mm:ss}");
-                Debug.WriteLine($"SongManager: Comparing against: {lastEnumerationTime:yyyy-MM-dd HH:mm:ss}");
-                
-                // Check if the directory itself was modified
-                if (dirInfo.LastWriteTime > lastEnumerationTime)
-                {
-                    Debug.WriteLine($"SongManager: Directory modified: {directoryPath} at {dirInfo.LastWriteTime:yyyy-MM-dd HH:mm:ss} (after {lastEnumerationTime:yyyy-MM-dd HH:mm:ss})");
+                if (string.IsNullOrEmpty(directoryPath) || !Directory.Exists(directoryPath))
                     return true;
-                }
 
-                // Check for new or modified DTX/SET files using async enumeration
-                var dtxExtensions = new[] { "*.dtx", "*.set" };
-                int totalFilesChecked = 0;
-                int modifiedFilesFound = 0;
-
-                foreach (var extension in dtxExtensions)
-                {
-                    Debug.WriteLine($"SongManager: Scanning for {extension} files in {directoryPath}");
-                    
-                    // Use async enumeration to avoid blocking
-                    var hasChanges = await Task.Run(() =>
+                var inventory = await ScanChartInventoryAsync(
+                    new[] { directoryPath }, CancellationToken.None).ConfigureAwait(false);
+                var normalizedRoot = SongPathIdentity.Normalize(directoryPath);
+                return InventoryHasChangesSince(
+                    inventory,
+                    new[] { normalizedRoot },
+                    new Dictionary<string, DateTime>(SongPathIdentity.CanonicalComparer)
                     {
-                        int extensionFileCount = 0;
-                        foreach (var filePath in Directory.EnumerateFiles(directoryPath, extension, SearchOption.AllDirectories))
-                        {
-                            extensionFileCount++;
-                            totalFilesChecked++;
-                            
-                            var fileInfo = new FileInfo(filePath);
-                            var fileIsNew = fileInfo.CreationTime > lastEnumerationTime;
-                            var fileIsModified = fileInfo.LastWriteTime > lastEnumerationTime;
-                            
-                            if (fileIsNew || fileIsModified)
-                            {
-                                modifiedFilesFound++;
-                                var reason = fileIsNew ? "new" : "modified";
-                                var timestamp = fileIsNew ? fileInfo.CreationTime : fileInfo.LastWriteTime;
-                                Debug.WriteLine($"SongManager: {reason.ToUpper()} file detected: {filePath}");
-                                Debug.WriteLine($"SongManager: File timestamp: {timestamp:yyyy-MM-dd HH:mm:ss} vs enumeration: {lastEnumerationTime:yyyy-MM-dd HH:mm:ss}");
-                                return true;
-                            }
-                        }
-                        Debug.WriteLine($"SongManager: Found {extensionFileCount} {extension} files");
-                        return false;
+                        [normalizedRoot] = lastEnumerationTime
                     });
-                    
-                    if (hasChanges) return true;
-                }
-
-                Debug.WriteLine($"SongManager: Checked {totalFilesChecked} files, found {modifiedFilesFound} modified files");
-
-                // Check subdirectories recursively (but limit depth to avoid infinite loops)
-                var subdirChanges = await CheckSubdirectoriesForChangesAsync(directoryPath, lastEnumerationTime, 0, 10);
-                if (subdirChanges) return true;
-
-                Debug.WriteLine($"SongManager: No changes detected in {directoryPath}");
-                return false;
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"SongManager: Error checking directory {directoryPath}: {ex.Message}");
                 Debug.WriteLine($"SongManager: Stack trace: {ex.StackTrace}");
-                return true; // Assume changes on error
+                return true;
             }
         }
 
         /// <summary>
-        /// Recursively checks subdirectories with depth limit
+        /// Walks the active song roots once, mirroring full enumeration's
+        /// directory and set.def discovery rules, and returns the chart inventory
+        /// that would be imported plus the set.def and directory mtimes used by
+        /// the change check. Replaces the previous per-extension recursive globs
+        /// (six walks for counting plus seven for timestamp checking per root)
+        /// with a single walk per root.
+        /// <para>
+        /// Traversal matches <see cref="EnumerateDirectoryIntoBatchAsync"/>: a
+        /// directory containing <c>set.def</c> contributes only the set.def's
+        /// referenced charts (and is not recursed); a directory without one
+        /// contributes its loose supported charts and recurses into all
+        /// subdirectories. Chart paths are deduplicated by normalized path so
+        /// overlapping roots or a set.def referencing one file from two
+        /// difficulties cannot double-count.
+        /// </para>
         /// </summary>
-        private async Task<bool> CheckSubdirectoriesForChangesAsync(string directoryPath, DateTime lastEnumerationTime, int currentDepth, int maxDepth)
+        private Task<ChartInventory> ScanChartInventoryAsync(
+            string[] searchPaths, CancellationToken cancellationToken)
         {
-            if (currentDepth >= maxDepth)
+            return Task.Run(() =>
             {
-                Debug.WriteLine($"SongManager: Maximum depth {maxDepth} reached for {directoryPath}");
-                return false;
-            }
+                var inventory = new ChartInventory();
+                var seenCharts = new HashSet<string>(SongPathIdentity.CanonicalComparer);
+                foreach (var root in searchPaths
+                    .Where(path => !string.IsNullOrEmpty(path) && Directory.Exists(path)))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    ScanChartInventoryDirectory(
+                        root, inventory, seenCharts, cancellationToken);
+                }
+                return inventory;
+            }, cancellationToken);
+        }
 
+        private void ScanChartInventoryDirectory(
+            string directoryPath,
+            ChartInventory inventory,
+            HashSet<string> seenCharts,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            // Wrap this directory's access (DirectoryInfo construction and
+            // file/directory enumeration) so an inaccessible or unreadable
+            // directory skips itself while its siblings continue scanning.
+            // OperationCanceledException is NOT caught here, so cancellation
+            // from ThrowIfCancellationRequested (above and in the loops below)
+            // propagates unchanged.
             try
             {
-                // Use async enumeration for directories
-                var hasChanges = await Task.Run(() =>
-                {
-                    var subdirectoryPaths = Directory.EnumerateDirectories(directoryPath).ToList();
-                    Debug.WriteLine($"SongManager: Checking {subdirectoryPaths.Count} subdirectories in {directoryPath} (depth {currentDepth})");
+                var dirInfo = new DirectoryInfo(directoryPath);
+                inventory.Directories.Add(new ChartInventoryEntry(
+                    SongPathIdentity.Normalize(directoryPath),
+                    dirInfo.LastWriteTimeUtc,
+                    dirInfo.CreationTimeUtc));
 
-                    foreach (var subdirPath in subdirectoryPaths)
+                var setDefPath = Path.Combine(directoryPath, "set.def");
+                if (File.Exists(setDefPath))
+                {
+                    // set.def directory: only referenced charts are imported; loose
+                    // charts and subdirectories are NOT scanned (enumeration returns
+                    // early after ParseSetDefinitionIntoBatchAsync).
+                    var setDefInfo = new FileInfo(setDefPath);
+                    inventory.SetDefinitions.Add(new ChartInventoryEntry(
+                        SongPathIdentity.Normalize(setDefPath),
+                        setDefInfo.LastWriteTimeUtc,
+                        setDefInfo.CreationTimeUtc));
+                    foreach (var chartPath in EnumerateSetDefReferencedCharts(
+                        setDefPath, cancellationToken))
                     {
-                        var subdirInfo = new DirectoryInfo(subdirPath);
-                        
-                        // Skip hidden directories and common non-song directories
-                        if (subdirInfo.Name.StartsWith(".") || 
-                            subdirInfo.Name.Equals("System", StringComparison.OrdinalIgnoreCase) ||
-                            subdirInfo.Name.Equals("Cache", StringComparison.OrdinalIgnoreCase))
-                        {
-                            Debug.WriteLine($"SongManager: Skipping directory: {subdirInfo.Name}");
+                        cancellationToken.ThrowIfCancellationRequested();
+                        if (!seenCharts.Add(chartPath))
                             continue;
-                        }
-
-                        Debug.WriteLine($"SongManager: Checking subdirectory: {subdirPath}");
-                        Debug.WriteLine($"SongManager: Subdirectory last write time: {subdirInfo.LastWriteTime:yyyy-MM-dd HH:mm:ss}");
-
-                        if (subdirInfo.LastWriteTime > lastEnumerationTime)
-                        {
-                            Debug.WriteLine($"SongManager: Subdirectory modified: {subdirPath} at {subdirInfo.LastWriteTime:yyyy-MM-dd HH:mm:ss} (after {lastEnumerationTime:yyyy-MM-dd HH:mm:ss})");
-                            return true;
-                        }
-
-                        // Check for DTX files directly in this subdirectory using enumeration
-                        var dtxFileCount = 0;
-                        foreach (var dtxFilePath in Directory.EnumerateFiles(subdirPath, "*.dtx", SearchOption.TopDirectoryOnly))
-                        {
-                            dtxFileCount++;
-                            var dtxFileInfo = new FileInfo(dtxFilePath);
-                            
-                            if (dtxFileInfo.CreationTime > lastEnumerationTime || dtxFileInfo.LastWriteTime > lastEnumerationTime)
-                            {
-                                var reason = dtxFileInfo.CreationTime > lastEnumerationTime ? "new" : "modified";
-                                var timestamp = dtxFileInfo.CreationTime > lastEnumerationTime ? dtxFileInfo.CreationTime : dtxFileInfo.LastWriteTime;
-                                Debug.WriteLine($"SongManager: {reason.ToUpper()} DTX file in subdirectory: {dtxFilePath}");
-                                Debug.WriteLine($"SongManager: File timestamp: {timestamp:yyyy-MM-dd HH:mm:ss} vs enumeration: {lastEnumerationTime:yyyy-MM-dd HH:mm:ss}");
-                                return true;
-                            }
-                        }
-                        
-                        if (dtxFileCount > 0)
-                        {
-                            Debug.WriteLine($"SongManager: Found {dtxFileCount} DTX files in {subdirPath}");
-                        }
+                        var chartInfo = new FileInfo(chartPath);
+                        inventory.Charts.Add(new ChartInventoryEntry(
+                            chartPath,
+                            chartInfo.LastWriteTimeUtc,
+                            chartInfo.CreationTimeUtc));
                     }
-                    return false;
-                });
-                
-                if (hasChanges) return true;
-
-                // Now recursively check each subdirectory
-                foreach (var subdirPath in Directory.EnumerateDirectories(directoryPath))
-                {
-                    var subdirInfo = new DirectoryInfo(subdirPath);
-                    
-                    // Skip hidden directories and common non-song directories
-                    if (subdirInfo.Name.StartsWith(".") || 
-                        subdirInfo.Name.Equals("System", StringComparison.OrdinalIgnoreCase) ||
-                        subdirInfo.Name.Equals("Cache", StringComparison.OrdinalIgnoreCase))
-                    {
-                        continue;
-                    }
-
-                    // Recursively check subdirectory
-                    var subdirHasChanges = await CheckSubdirectoriesForChangesAsync(subdirPath, lastEnumerationTime, currentDepth + 1, maxDepth);
-                    if (subdirHasChanges) return true;
+                    return;
                 }
 
-                Debug.WriteLine($"SongManager: No changes found in subdirectories of {directoryPath}");
-                return false;
+                // No set.def: collect loose supported charts (case-insensitive via
+                // IsSupportedFile, matching full enumeration) and recurse into all
+                // subdirectories. Boxes are organizational only and do not filter
+                // charts, so they are recursed like any other directory.
+                foreach (var file in EnumerateFilesCore(directoryPath)
+                    .Where(DTXChartParser.IsSupportedFile)
+                    .Select(SongPathIdentity.Normalize)
+                    .OrderBy(path => path, SongPathIdentity.CanonicalComparer))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (!File.Exists(file))
+                        continue;
+                    if (!seenCharts.Add(file))
+                        continue;
+                    var fileInfo = new FileInfo(file);
+                    inventory.Charts.Add(new ChartInventoryEntry(
+                        file,
+                        fileInfo.LastWriteTimeUtc,
+                        fileInfo.CreationTimeUtc));
+                }
+
+                foreach (var subdirectory in EnumerateDirectoriesCore(directoryPath)
+                    .Select(SongPathIdentity.Normalize)
+                    .OrderBy(path => path, SongPathIdentity.CanonicalComparer))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    ScanChartInventoryDirectory(
+                        subdirectory, inventory, seenCharts, cancellationToken);
+                }
             }
-            catch (Exception ex)
+            catch (UnauthorizedAccessException ex)
             {
-                Debug.WriteLine($"SongManager: Error checking subdirectories of {directoryPath}: {ex.Message}");
-                Debug.WriteLine($"SongManager: Stack trace: {ex.StackTrace}");
-                return true; // Assume changes on error
+                Debug.WriteLine(
+                    $"SongManager: Skipping inaccessible directory during inventory scan: {directoryPath}: {ex.Message}");
+            }
+            catch (IOException ex)
+            {
+                Debug.WriteLine(
+                    $"SongManager: Skipping unreadable directory during inventory scan: {directoryPath}: {ex.Message}");
             }
         }
 
         /// <summary>
-        /// Gets the timestamp of the last enumeration from the database
+        /// Resolves the chart file paths a <c>set.def</c> references (and that
+        /// exist on disk, are supported, and remain within the directory
+        /// containing the set.def), mirroring
+        /// <see cref="ParseSetDefinitionIntoBatchAsync"/>. Reuses the shared
+        /// <see cref="ReadSetDefLines"/> encoding chain and
+        /// <see cref="ParseSetDefContent"/> so the inventory never drifts from
+        /// what full enumeration imports. References that escape the set.def's
+        /// directory via <c>../</c> traversal or absolute paths are rejected so
+        /// the inventory count matches the database freshness count and no
+        /// duplicate placeholders are created.
+        /// </summary>
+        private IEnumerable<string> EnumerateSetDefReferencedCharts(
+            string setDefPath,
+            CancellationToken cancellationToken)
+        {
+            var directory = Path.GetDirectoryName(setDefPath) ?? "";
+            var normalizedSetDefDirectory = SongPathIdentity.Normalize(directory);
+            var lines = ReadSetDefLines(setDefPath);
+            if (lines == null)
+                yield break;
+
+            var (_, difficulties) = ParseSetDefContent(lines, cancellationToken);
+            var emitted = new HashSet<string>(SongPathIdentity.CanonicalComparer);
+            foreach (var (_, fileName) in difficulties.Values)
+            {
+                if (string.IsNullOrWhiteSpace(fileName))
+                    continue;
+                if (Path.IsPathRooted(fileName))
+                    continue;
+                var path = SongPathIdentity.Normalize(Path.Combine(directory, fileName));
+                if (DTXChartParser.IsSupportedFile(path) &&
+                    File.Exists(path) &&
+                    SongPathIdentity.IsUnderNormalizedRoot(
+                        path, normalizedSetDefDirectory) &&
+                    emitted.Add(path))
+                {
+                    yield return path;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Returns true if any directory, set.def, or chart in
+        /// <paramref name="inventory"/> was created or modified after the
+        /// watermark for its containing root. Mirrors the per-entry checks
+        /// previously spread across multiple recursive checks, but evaluated over
+        /// a single inventory walk instead of one recursive walk per extension.
+        /// </summary>
+        private static bool InventoryHasChangesSince(
+            ChartInventory inventory,
+            IReadOnlyList<string> activeRoots,
+            IReadOnlyDictionary<string, DateTime> rootWatermarks)
+        {
+            foreach (var root in activeRoots)
+            {
+                if (!rootWatermarks.ContainsKey(root))
+                {
+                    Debug.WriteLine(
+                        $"SongManager: No enumeration watermark found for returning root: {root}");
+                    return true;
+                }
+            }
+
+            foreach (var dir in inventory.Directories)
+            {
+                if (TryGetRootWatermark(
+                        dir.Path,
+                        activeRoots,
+                        rootWatermarks,
+                        out var watermark) &&
+                    dir.LastWriteTimeUtc > watermark)
+                {
+                    Debug.WriteLine($"SongManager: Directory modified: {dir.Path} at {dir.LastWriteTimeUtc:yyyy-MM-dd HH:mm:ss}");
+                    return true;
+                }
+            }
+
+            foreach (var setDef in inventory.SetDefinitions)
+            {
+                if (TryGetRootWatermark(
+                        setDef.Path,
+                        activeRoots,
+                        rootWatermarks,
+                        out var watermark) &&
+                    (setDef.CreationTimeUtc > watermark ||
+                     setDef.LastWriteTimeUtc > watermark))
+                {
+                    Debug.WriteLine($"SongManager: set.def modified: {setDef.Path} at {setDef.LastWriteTimeUtc:yyyy-MM-dd HH:mm:ss}");
+                    return true;
+                }
+            }
+
+            foreach (var chart in inventory.Charts)
+            {
+                if (TryGetRootWatermark(
+                        chart.Path,
+                        activeRoots,
+                        rootWatermarks,
+                        out var watermark) &&
+                    (chart.CreationTimeUtc > watermark ||
+                     chart.LastWriteTimeUtc > watermark))
+                {
+                    var reason = chart.CreationTimeUtc > watermark ? "new" : "modified";
+                    Debug.WriteLine($"SongManager: {reason.ToUpper()} chart detected: {chart.Path} at {chart.LastWriteTimeUtc:yyyy-MM-dd HH:mm:ss}");
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryGetRootWatermark(
+            string path,
+            IReadOnlyList<string> activeRoots,
+            IReadOnlyDictionary<string, DateTime> rootWatermarks,
+            out DateTime watermark)
+        {
+            watermark = default;
+            var containingRoot = FindContainingRoot(path, activeRoots);
+            return containingRoot != null &&
+                rootWatermarks.TryGetValue(containingRoot, out watermark);
+        }
+
+        /// <summary>
+        /// Finds the most specific (longest) normalized active root that
+        /// contains the supplied normalized path, or <c>null</c> if the path is
+        /// not beneath any root. Used to map a recoverable enumeration error
+        /// (file parse failure, set.def read failure) to the root whose
+        /// watermark must NOT advance so the next freshness check retries it.
+        /// </summary>
+        private static string? FindContainingRoot(
+            string normalizedPath,
+            IReadOnlyList<string> normalizedRoots)
+        {
+            string? containingRoot = null;
+            foreach (var root in normalizedRoots)
+            {
+                if (!SongPathIdentity.IsUnderNormalizedRoot(normalizedPath, root) ||
+                    (containingRoot != null && root.Length <= containingRoot.Length))
+                {
+                    continue;
+                }
+                containingRoot = root;
+            }
+            return containingRoot;
+        }
+
+        /// <summary>
+        /// Gets the timestamp of the last successful enumeration from the database.
+        /// <para>
+        /// The timestamp is an explicitly persisted
+        /// <c>LastSuccessfulEnumerationUtc</c> metadata value, NOT the database
+        /// file's last-write time. The file mtime advances on every
+        /// <c>SaveChangesAsync</c> (bookmark toggle, score save), so deriving the
+        /// enumeration time from it would let an unrelated write mask later chart
+        /// edits when the file count is unchanged. A null result means no
+        /// enumeration has been recorded yet and forces a first-time scan.
+        /// </para>
+        /// <para>
+        /// Returns UTC directly. The inventory walker uses
+        /// <c>LastWriteTimeUtc</c>/<c>CreationTimeUtc</c>, so the comparison is
+        /// UTC-vs-UTC — no local-time conversion that would break under DST or
+        /// timezone shifts.
+        /// </para>
         /// </summary>
         private async Task<DateTime?> GetLastEnumerationTimestampAsync()
         {
@@ -3776,35 +4191,15 @@ namespace DTXMania.Game.Lib.Song
                     return null;
                 }
 
-                var dbPath = _databaseService.DatabasePath;
-                Debug.WriteLine($"SongManager: Checking database path: {dbPath}");
-
-                if (!File.Exists(dbPath))
+                var timestamp = await _databaseService.GetLastSuccessfulEnumerationUtcAsync();
+                if (timestamp == null)
                 {
-                    Debug.WriteLine($"SongManager: Database file doesn't exist: {dbPath}");
+                    Debug.WriteLine("SongManager: No last enumeration timestamp recorded - first time enumeration");
                     return null;
                 }
 
-                var dbInfo = new FileInfo(dbPath);
-                var lastWriteTime = dbInfo.LastWriteTime;
-                Debug.WriteLine($"SongManager: Database last write time: {lastWriteTime:yyyy-MM-dd HH:mm:ss}");
-
-                // Check if the database actually has songs
-                var songCount = await GetDatabaseScoreCountAsync();
-                Debug.WriteLine($"SongManager: Database contains {songCount} songs");
-
-                if (songCount == 0)
-                {
-                    Debug.WriteLine("SongManager: Database is empty, treating as no enumeration done");
-                    return null;
-                }
-
-                // Use database modification time, but subtract a small buffer to ensure we catch recent changes
-                // This is important because filesystem timestamps might have slight differences
-                var timestampWithBuffer = lastWriteTime.AddMinutes(-1);
-                Debug.WriteLine($"SongManager: Using enumeration timestamp with 1-minute buffer: {timestampWithBuffer:yyyy-MM-dd HH:mm:ss}");
-                
-                return timestampWithBuffer;
+                Debug.WriteLine($"SongManager: Last successful enumeration at {timestamp.Value:yyyy-MM-dd HH:mm:ss} UTC");
+                return timestamp;
             }
             catch (Exception ex)
             {
@@ -3815,21 +4210,87 @@ namespace DTXMania.Game.Lib.Song
         }
 
         /// <summary>
-        /// Updates the enumeration timestamp in the database
+        /// Returns the subset of <paramref name="batch"/>'s active roots that
+        /// had NO recoverable (non-root) enumeration errors. Roots with
+        /// recoverable errors (file parse failures, set.def read failures) are
+        /// excluded so their watermarks are not advanced, forcing the next
+        /// freshness check to rescan and retry the failed operation rather than
+        /// silently accepting stale content.
         /// </summary>
-        private async Task UpdateEnumerationTimestampAsync()
+        private static IReadOnlyList<string> GetRootsWithoutRecoverableErrors(
+            SongEnumerationBatch batch)
+        {
+            if (batch.Errors.Count == 0)
+                return batch.ActiveRoots;
+
+            var dirtyRoots = new HashSet<string>(SongPathIdentity.CanonicalComparer);
+            foreach (var error in batch.Errors)
+            {
+                if (error.IsRootFailure)
+                    continue;
+                var containingRoot = FindContainingRoot(
+                    error.Path, batch.ActiveRoots);
+                if (containingRoot != null)
+                {
+                    dirtyRoots.Add(containingRoot);
+                    Debug.WriteLine(
+                        $"SongManager: Suppressing watermark advance for root with recoverable error: {containingRoot} ({error.Message})");
+                }
+            }
+
+            if (dirtyRoots.Count == 0)
+                return batch.ActiveRoots;
+
+            return batch.ActiveRoots
+                .Where(root => !dirtyRoots.Contains(root))
+                .ToArray();
+        }
+
+        /// <summary>
+        /// Persists the enumeration watermark after a successful
+        /// <see cref="SongEnumerationOutcome.ImportedAndPublished"/> result.
+        /// The watermark is the backed-off START of filesystem traversal
+        /// (captured in <see cref="EnumerateAndImportSongsCoreAsync"/>), not the
+        /// completion time, so that files edited during the scan remain newer
+        /// than the watermark and trigger the next freshness check. Updated only
+        /// for the roots in the successful batch so a partial multi-root scan
+        /// cannot advance another root's watermark. Unrelated database writes
+        /// (bookmark toggles, score saves) cannot advance either value.
+        /// <para>
+        /// The global and per-root watermarks are written as one atomic database
+        /// transaction. A crash or failure mid-write cannot leave the global
+        /// timestamp committed while per-root rows are absent, which would
+        /// otherwise force a conservative full rescan on every startup until
+        /// the per-root rows catch up.
+        /// </para>
+        /// </summary>
+        private async Task SetEnumerationWatermarkAsync(
+            IReadOnlyList<string> activeRoots,
+            DateTime startUtc)
         {
             try
             {
-                if (_databaseService == null) return;
+                var databaseService = GetDatabaseServiceSnapshot();
+                if (databaseService == null) return;
 
-                // This could be enhanced to store enumeration metadata in a dedicated table
-                // For now, the database modification time serves as the enumeration timestamp
-                Debug.WriteLine($"SongManager: Enumeration timestamp updated to {DateTime.Now}");
+                var success = await databaseService
+                    .SetEnumerationWatermarkAtomicallyAsync(startUtc, activeRoots)
+                    .ConfigureAwait(false);
+                if (success)
+                {
+                    Debug.WriteLine($"SongManager: Enumeration watermark persisted at {startUtc:yyyy-MM-dd HH:mm:ss} UTC (scan start)");
+                }
+                else
+                {
+                    // A failed write leaves the previous watermark in place (or
+                    // none), so the next freshness check remains conservative.
+                    // No partial state is possible because the write is atomic.
+                    Debug.WriteLine($"SongManager: Enumeration watermark write failed; previous watermark retained.");
+                }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"SongManager: Error updating enumeration timestamp: {ex.Message}");
+                Debug.WriteLine($"SongManager: Error updating enumeration watermark: {ex.Message}");
             }
         }
 
@@ -4006,6 +4467,7 @@ namespace DTXMania.Game.Lib.Song
         /// </summary>
         public void Clear()
         {
+            SongLibrarySnapshot snapshot;
             lock (_lockObject)
             {
                 // Cancel any ongoing enumeration first
@@ -4018,6 +4480,10 @@ namespace DTXMania.Game.Lib.Song
                 _databaseService?.Dispose();
                 _databaseService = null;
                 _currentSearchPaths = Array.Empty<string>();
+                _pendingSearchPaths = Array.Empty<string>();
+                EnumeratedFileCount = 0;
+                DiscoveredScoreCount = 0;
+                _publicationVersion++;
                 ParseSongEntitiesCoreAsync =
                     DTXChartParser.ParseSongEntitiesAsync;
                 EnumerateFilesCore = Directory.EnumerateFiles;
@@ -4031,9 +4497,18 @@ namespace DTXMania.Game.Lib.Song
                 BuildEnumerationBatchCoreAsync =
                     (searchPaths, progress, token) =>
                         BuildEnumerationBatchAsync(searchPaths, progress, token);
+                FinalizePendingNodesCore = (batch, chartsByPath) =>
+                    FinalizePendingNodes(batch, chartsByPath);
+                PublishEnumerationCore = PublishEnumeration;
+                RootPolicy = SongRootPolicy.ForCurrentPlatform();
+                snapshot = CreateSnapshotLocked();
             }
-            DiscoveredScoreCount = 0;
-            EnumeratedFileCount = 0;
+
+            SafeInvoke(
+                SongLibraryPublished,
+                this,
+                new SongLibraryPublishedEventArgs(snapshot),
+                nameof(SongLibraryPublished));
         }
 
         /// <summary>

@@ -1899,9 +1899,19 @@ namespace DTXMania.Game.Lib.Song.Entities
             if (roots == null || roots.Count == 0)
                 return Array.Empty<int>();
 
+            // Normalize defensively so blank or malformed roots do not abort the
+            // query. Mirrors the active-root pre-normalization in
+            // GetActiveChartCountAsync.
             var normalizedRoots = roots
-                .Select(SongPathIdentity.Normalize)
+                .Select(root =>
+                {
+                    SongPathIdentity.TryNormalize(root, out var normalized);
+                    return normalized;
+                })
+                .Where(r => !string.IsNullOrEmpty(r))
                 .ToArray();
+            if (normalizedRoots.Length == 0)
+                return Array.Empty<int>();
             using var context = CreateContext();
             var charts = await context.SongCharts
                 .AsNoTracking()
@@ -1918,6 +1928,112 @@ namespace DTXMania.Game.Lib.Song.Entities
                 }
             }
             return activeIds;
+        }
+
+        /// <summary>
+        /// Returns the <see cref="SongChart.Id"/> and <see cref="SongChart.FilePath"/>
+        /// of every chart whose file path resides under one of <paramref name="roots"/>
+        /// (root-containment uses <see cref="SongPathIdentity"/>, mirroring
+        /// SongManager's active-chart rule). Used by the cache-freshness
+        /// file-existence check so charts belonging to removed (retained) roots are
+        /// not flagged as missing on every startup. Returns an empty list for an
+        /// empty root set.
+        /// </summary>
+        public async Task<IReadOnlyList<(int Id, string FilePath)>> GetActiveChartsAsync(
+            IReadOnlyList<string> roots)
+        {
+            if (roots == null || roots.Count == 0)
+                return Array.Empty<(int, string)>();
+
+            // Normalize defensively so blank or malformed roots (which
+            // CountDTXFilesAsync also skips) do not abort the lookup. Mirrors
+            // the active-root pre-normalization in GetActiveChartCountAsync.
+            var normalizedRoots = roots
+                .Select(root =>
+                {
+                    SongPathIdentity.TryNormalize(root, out var normalized);
+                    return normalized;
+                })
+                .Where(r => !string.IsNullOrEmpty(r))
+                .ToArray();
+            if (normalizedRoots.Length == 0)
+                return Array.Empty<(int, string)>();
+            using var context = CreateContext();
+            var charts = await context.SongCharts
+                .AsNoTracking()
+                .Select(chart => new { chart.Id, chart.FilePath })
+                .ToListAsync();
+            var active = new List<(int Id, string FilePath)>(charts.Count);
+            foreach (var chart in charts)
+            {
+                if (!string.IsNullOrEmpty(chart.FilePath) &&
+                    SongPathIdentity.TryNormalize(chart.FilePath, out var normalized) &&
+                    normalizedRoots.Any(root =>
+                        SongPathIdentity.IsUnderRoot(normalized, root)))
+                {
+                    active.Add((chart.Id, chart.FilePath));
+                }
+            }
+            return active;
+        }
+
+        /// <summary>
+        /// Counts <see cref="SongChart"/> rows whose <see cref="SongChart.FilePath"/>
+        /// resides under one of <paramref name="roots"/> (root-containment uses
+        /// <see cref="SongPathIdentity"/>, mirroring SongManager's active-chart
+        /// rule). This is the active-root-scoped chart count compared against the
+        /// filesystem chart-file count by the cache-freshness check.
+        /// <para>
+        /// IMPORTANT: this must count <em>charts</em>, not <see cref="SongScoreEntity"/>
+        /// rows. A single chart has one-to-many <see cref="SongScoreEntity"/> rows
+        /// (uniqueness = ChartId + Instrument + PlaySpeedPercent): import seeds
+        /// DRUMS/GUITAR/BASS rows, and each distinct play speed adds another. Once a
+        /// player records results at multiple speeds or instruments, the score-row
+        /// count permanently exceeds the chart-file count and forces a full rescan
+        /// on every startup. Counting charts keeps the database side of the
+        /// cache-freshness comparison aligned with the filesystem contract (one
+        /// file = one chart).
+        /// </para>
+        /// Returns 0 for an empty root set or when no active charts exist.
+        /// </summary>
+        public async Task<int> GetActiveChartCountAsync(IReadOnlyList<string> roots)
+        {
+            if (roots == null || roots.Count == 0)
+                return 0;
+
+            // Normalize defensively so blank or malformed roots (which
+            // CountDTXFilesAsync also skips) do not abort the count. Mirrors the
+            // active-root pre-normalization in ImportSongsAsync.
+            var normalizedRoots = roots
+                .Select(root =>
+                {
+                    SongPathIdentity.TryNormalize(root, out var normalized);
+                    return normalized;
+                })
+                .Where(r => !string.IsNullOrEmpty(r))
+                .ToArray();
+            if (normalizedRoots.Length == 0)
+                return 0;
+            using var context = CreateContext();
+            var charts = await context.SongCharts
+                .AsNoTracking()
+                .Select(chart => new { chart.Id, chart.FilePath })
+                .ToListAsync();
+            var activeChartIds = new HashSet<int>();
+            foreach (var chart in charts)
+            {
+                if (SongPathIdentity.TryNormalize(chart.FilePath, out var normalized) &&
+                    normalizedRoots.Any(root =>
+                        SongPathIdentity.IsUnderRoot(normalized, root)))
+                {
+                    activeChartIds.Add(chart.Id);
+                }
+            }
+
+            // Count active charts, NOT score rows: one chart file maps to many
+            // SongScore rows across instrument and play-speed variants, so the
+            // score count would never match the filesystem file count.
+            return activeChartIds.Count;
         }
 
         /// <summary>
@@ -2144,6 +2260,15 @@ namespace DTXMania.Game.Lib.Song.Entities
                 // Additive schema upgrade: playback-speed-scoped scores, pitch history,
                 // and durable save receipts.
                 await EnsurePlaybackSpeedScoreScopeAsync(context);
+
+                // Additive schema upgrade: enumeration-freshness metadata. The
+                // cache-freshness check previously derived the last enumeration time
+                // from the database file's last-write time, which any SaveChangesAsync
+                // (bookmark toggle, score save) advances. Persisting an explicit
+                // LastSuccessfulEnumerationUtc value that is updated only after a
+                // successful enumeration avoids later chart edits being masked by an
+                // unrelated database write.
+                await EnsureEnumerationMetadataTableAsync(context);
             }
             finally
             {
@@ -2184,6 +2309,255 @@ namespace DTXMania.Game.Lib.Song.Entities
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Warning - Could not create version table: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Key under which the last successful enumeration timestamp is stored in
+        /// <see cref="__EnumerationMetadata"/>. The value is an ISO 8601 UTC string.
+        /// </summary>
+        private const string LastSuccessfulEnumerationKey = "LastSuccessfulEnumerationUtc";
+
+        /// <summary>
+        /// Key prefix for per-root enumeration watermarks stored in
+        /// <see cref="__EnumerationMetadata"/>. Exposed as internal so tests
+        /// can build the same wildcard delete filter without hardcoding the
+        /// literal. The full key is built by <see cref="BuildRootWatermarkKey"/>.
+        /// </summary>
+        internal const string LastSuccessfulEnumerationRootKeyPrefix =
+            "LastSuccessfulEnumerationUtc:Root:";
+
+        /// <summary>
+        /// Builds the per-root watermark key for a normalized root. Centralized
+        /// so the read/write/atomic-write sites cannot drift from each other.
+        /// </summary>
+        private static string BuildRootWatermarkKey(string normalizedRoot) =>
+            LastSuccessfulEnumerationRootKeyPrefix +
+                SongPathIdentity.GetStableRootKey(normalizedRoot);
+
+        /// <summary>
+        /// Ensures the <c>__EnumerationMetadata</c> key/value table exists. Created
+        /// idempotently for both fresh and pre-existing databases via
+        /// <c>CREATE TABLE IF NOT EXISTS</c> (the table is intentionally not modeled
+        /// on <see cref="SongDbContext"/>, so <c>EnsureCreated</c> does not create
+        /// it). The table stores the <see cref="LastSuccessfulEnumerationKey"/>
+        /// timestamp used by the cache-freshness check instead of the database
+        /// file's last-write time.
+        /// </summary>
+        private async Task EnsureEnumerationMetadataTableAsync(SongDbContext context)
+        {
+            try
+            {
+                await context.Database.ExecuteSqlRawAsync(@"
+                    CREATE TABLE IF NOT EXISTS __EnumerationMetadata (
+                        Key TEXT PRIMARY KEY,
+                        Value TEXT NOT NULL
+                    )");
+            }
+            catch (Exception ex)
+            {
+                // Swallow-only is intentional: a failed metadata table must not abort
+                // initialization. The cache-freshness check treats a missing timestamp
+                // as "first-time enumeration" and rescans, which is always safe.
+                System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Warning - Could not create enumeration metadata table: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Returns the UTC timestamp of the last successful enumeration, or null
+        /// when no enumeration has been recorded (fresh database, missing table, or
+        /// unparseable value). Never throws: any storage error is treated as
+        /// "no enumeration recorded" so the caller falls back to a full scan.
+        /// </summary>
+        public async Task<DateTime?> GetLastSuccessfulEnumerationUtcAsync()
+        {
+            try
+            {
+                using var context = CreateContext();
+                var value = await context.Database.SqlQueryRaw<string>(
+                    "SELECT Value FROM __EnumerationMetadata WHERE Key = {0} LIMIT 1",
+                    LastSuccessfulEnumerationKey).ToListAsync();
+                var raw = value.FirstOrDefault();
+                if (string.IsNullOrEmpty(raw) ||
+                    !DateTime.TryParse(raw, null,
+                        System.Globalization.DateTimeStyles.RoundtripKind,
+                        out var parsed))
+                {
+                    return null;
+                }
+                return parsed.ToUniversalTime();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Warning - Could not read last enumeration timestamp: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Returns the UTC timestamp recorded for a canonical song root, or null
+        /// when that root has not been included in a successful enumeration.
+        /// </summary>
+        public async Task<DateTime?> GetLastSuccessfulEnumerationUtcAsync(
+            string canonicalRoot)
+        {
+            try
+            {
+                if (!SongPathIdentity.TryNormalize(canonicalRoot, out var normalizedRoot))
+                    return null;
+
+                using var context = CreateContext();
+                var value = await context.Database.SqlQueryRaw<string>(
+                    "SELECT Value FROM __EnumerationMetadata WHERE Key = {0} LIMIT 1",
+                    BuildRootWatermarkKey(normalizedRoot))
+                    .ToListAsync();
+                var raw = value.FirstOrDefault();
+                if (string.IsNullOrEmpty(raw) ||
+                    !DateTime.TryParse(
+                        raw,
+                        null,
+                        DateTimeStyles.RoundtripKind,
+                        out var parsed))
+                {
+                    return null;
+                }
+
+                return parsed.ToUniversalTime();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"SongDatabaseService: Warning - Could not read root enumeration timestamp: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Persists the UTC timestamp of the most recent successful enumeration.
+        /// Called only after an <see cref="SongEnumerationOutcome.ImportedAndPublished"/>
+        /// result so unrelated <c>SaveChangesAsync</c> calls (bookmark toggles, score
+        /// saves) cannot advance the recorded enumeration time and mask later chart
+        /// edits.
+        /// </summary>
+        public async Task SetLastSuccessfulEnumerationUtcAsync(DateTime utc)
+        {
+            try
+            {
+                using var context = CreateContext();
+                await context.Database.ExecuteSqlRawAsync(
+                    "INSERT OR REPLACE INTO __EnumerationMetadata (Key, Value) VALUES ({0}, {1})",
+                    LastSuccessfulEnumerationKey,
+                    utc.ToUniversalTime().ToString("o"));
+            }
+            catch (Exception ex)
+            {
+                // Swallow-only: a failed write leaves the previous timestamp in
+                // place (or none), which only makes the next freshness check more
+                // conservative. Never abort the post-enumeration path over metadata.
+                System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Warning - Could not persist last enumeration timestamp: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Persists the same enumeration watermark for each canonical root that
+        /// participated in the successful scan. Roots omitted from the list keep
+        /// their previous watermark, which is required for partial multi-root scans.
+        /// <para>
+        /// Each root key is built with <see cref="SongPathIdentity.GetStableRootKey"/>
+        /// so that a casing-only change in configuration cannot make a root's
+        /// watermark appear absent on case-insensitive platforms (Windows, macOS).
+        /// </para>
+        /// </summary>
+        public async Task SetLastSuccessfulEnumerationUtcAsync(
+            IReadOnlyList<string> canonicalRoots,
+            DateTime utc)
+        {
+            if (canonicalRoots == null || canonicalRoots.Count == 0)
+                return;
+
+            try
+            {
+                using var context = CreateContext();
+                var value = utc.ToUniversalTime().ToString("o");
+                foreach (var canonicalRoot in canonicalRoots)
+                {
+                    if (!SongPathIdentity.TryNormalize(canonicalRoot, out var normalizedRoot))
+                        continue;
+
+                    await context.Database.ExecuteSqlRawAsync(
+                        "INSERT OR REPLACE INTO __EnumerationMetadata (Key, Value) VALUES ({0}, {1})",
+                        BuildRootWatermarkKey(normalizedRoot),
+                        value);
+                }
+            }
+            catch (Exception ex)
+            {
+                // A failed root watermark leaves the previous value in place (or
+                // none), so the next freshness check remains conservative.
+                System.Diagnostics.Debug.WriteLine(
+                    $"SongDatabaseService: Warning - Could not persist root enumeration timestamps: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Atomically persists the global enumeration watermark and every
+        /// active-root watermark in a single database transaction. Either all
+        /// values are written or none are — a crash or failure mid-write cannot
+        /// leave the global timestamp committed while per-root rows are absent.
+        /// <para>
+        /// The read path treats a missing per-root watermark as "needs
+        /// enumeration" (a conservative full rescan). Without atomicity, a
+        /// partial write (global committed, per-root missing) would force that
+        /// conservative rescan on every startup until per-root rows catch up.
+        /// This method eliminates that window by committing both the global key
+        /// and every per-root key together.
+        /// </para>
+        /// <para>
+        /// Returns <c>true</c> on success, <c>false</c> on failure. A failed
+        /// write leaves the previous watermark in place (or none), which only
+        /// makes the next freshness check more conservative — it never creates
+        /// a partial state.
+        /// </para>
+        /// </summary>
+        public async Task<bool> SetEnumerationWatermarkAtomicallyAsync(
+            DateTime utc,
+            IReadOnlyList<string> canonicalRoots)
+        {
+            try
+            {
+                using var context = CreateContext();
+                await using var transaction =
+                    await context.Database.BeginTransactionAsync().ConfigureAwait(false);
+
+                var value = utc.ToUniversalTime().ToString("o");
+
+                await context.Database.ExecuteSqlRawAsync(
+                    "INSERT OR REPLACE INTO __EnumerationMetadata (Key, Value) VALUES ({0}, {1})",
+                    LastSuccessfulEnumerationKey,
+                    value).ConfigureAwait(false);
+
+                if (canonicalRoots != null && canonicalRoots.Count > 0)
+                {
+                    foreach (var canonicalRoot in canonicalRoots)
+                    {
+                        if (!SongPathIdentity.TryNormalize(canonicalRoot, out var normalizedRoot))
+                            continue;
+
+                        await context.Database.ExecuteSqlRawAsync(
+                            "INSERT OR REPLACE INTO __EnumerationMetadata (Key, Value) VALUES ({0}, {1})",
+                            BuildRootWatermarkKey(normalizedRoot),
+                            value).ConfigureAwait(false);
+                    }
+                }
+
+                await transaction.CommitAsync().ConfigureAwait(false);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"SongDatabaseService: Warning - Could not atomically persist enumeration watermark: {ex.Message}");
+                return false;
             }
         }
 

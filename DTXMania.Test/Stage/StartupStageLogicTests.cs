@@ -213,7 +213,7 @@ namespace DTXMania.Test.Stage
             // async phases waited forever on a task that was never started —
             // startup wedged at 0% CPU. The operation must run however late the
             // first update of the phase arrives.
-            var config = new ConfigData { DTXPath = "LateKickoffSongs" };
+            var config = CreateConfigWithSongRoots("LateKickoffSongs");
             var stage = CreateStage(
                 phase: StartupPhase.ConfigValidation,
                 elapsedTime: 5.0,   // far past the old 0.1s window
@@ -260,7 +260,7 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void PerformPhaseOperationSync_WhenElapsedPastThreshold_ShouldStillRun()
         {
-            var stage = CreateStage(configData: new ConfigData { DTXPath = "after" });
+            var stage = CreateStage(configData: CreateConfigWithSongRoots("after"));
             ReflectionHelpers.SetPrivateField(stage, "_songPaths", new[] { "before" });
 
             ReflectionHelpers.InvokePrivateMethod(stage, "PerformPhaseOperationSync", StartupPhase.ConfigValidation, 0.2);
@@ -272,16 +272,17 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void PerformPhaseOperationSync_ConfigValidation_WithValidConfig_ShouldCaptureSongPath()
         {
-            var stage = CreateStage(configData: new ConfigData
-            {
-                DTXPath = "/songs",
-                ScreenWidth = 1280,
-                ScreenHeight = 720
-            });
+            var config = CreateConfigWithSongRoots("/songs", "/more-songs");
+            config.ScreenWidth = 1280;
+            config.ScreenHeight = 720;
+            var stage = CreateStage(configData: config);
 
             ReflectionHelpers.InvokePrivateMethod(stage, "PerformPhaseOperationSync", StartupPhase.ConfigValidation, 0.0);
+            config.SongRoots[0] = "/mutated-after-snapshot";
 
-            Assert.Equal(new[] { "/songs" }, ReflectionHelpers.GetPrivateField<string[]>(stage, "_songPaths"));
+            Assert.Equal(
+                new[] { "/songs", "/more-songs" },
+                ReflectionHelpers.GetPrivateField<string[]>(stage, "_songPaths"));
         }
 
         [Fact]
@@ -964,6 +965,40 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public async Task RunSongLoadAsync_WhenEnumerationHasNoActiveRoots_ShouldPublishEmptyLibrary()
+        {
+            var stage = CreateControlledStage(songPaths: ["MissingRoot"]);
+            stage.NextNeedsEnumerationResult = true;
+            stage.NextEnumerationResult = CreateEnumerationResult(
+                outcome: SongEnumerationOutcome.NoActiveRoots,
+                activeRoots: Array.Empty<string>());
+
+            var task = (Task)ReflectionHelpers.InvokePrivateMethod(
+                stage,
+                "RunSongLoadAsync")!;
+            await task;
+
+            Assert.Equal(1, stage.PublishEmptyLibraryCalls);
+            Assert.Equal(1, stage.EnumerateSongsCalls);
+            Assert.Equal(0, stage.BuildHierarchyCalls);
+        }
+
+        [Fact]
+        public async Task RunSongLoadAsync_WhenNoConfiguredRoots_ShouldPublishEmptyLibraryWithoutEnumeration()
+        {
+            var stage = CreateControlledStage(songPaths: Array.Empty<string>());
+
+            var task = (Task)ReflectionHelpers.InvokePrivateMethod(
+                stage,
+                "RunSongLoadAsync")!;
+            await task;
+
+            Assert.Equal(1, stage.PublishEmptyLibraryCalls);
+            Assert.Equal(0, stage.NeedsEnumerationCalls);
+            Assert.Equal(0, stage.EnumerateSongsCalls);
+        }
+
+        [Fact]
         public async Task RunSongLoadAsync_WhenCacheValid_ShouldBuildDatabaseHierarchyOnce()
         {
             var stage = CreateControlledStage();
@@ -1588,6 +1623,17 @@ namespace DTXMania.Test.Stage
             font.Verify(f => f.DrawString(stage.SpriteBatchStub, "DTXManiaCX v1.0.0 - MonoGame Edition", new Vector2(1070, 2), Color.White), Times.Once);
         }
 
+        private static ConfigData CreateConfigWithSongRoots(params string[] roots)
+        {
+            var config = new ConfigData
+            {
+                DTXPath = roots.FirstOrDefault() ?? string.Empty,
+            };
+            config.SongRoots.Clear();
+            config.SongRoots.AddRange(roots);
+            return config;
+        }
+
         private static StartupStage CreateStage(
             StartupPhase phase = StartupPhase.SystemSounds,
             double elapsedTime = 0.0,
@@ -1834,7 +1880,9 @@ namespace DTXMania.Test.Stage
             TimeSpan? persistenceDuration = null,
             TimeSpan? cleanupDuration = null,
             TimeSpan? hierarchyDuration = null,
-            List<SongListNode>? rootNodes = null)
+            List<SongListNode>? rootNodes = null,
+            SongEnumerationOutcome outcome = SongEnumerationOutcome.ImportedAndPublished,
+            IReadOnlyList<string>? activeRoots = null)
         {
             var paths = Enumerable.Range(1, discoveredCharts)
                 .Select(index => $"/songs/chart-{index}.dtx")
@@ -1869,7 +1917,7 @@ namespace DTXMania.Test.Stage
                 .ToList();
             var batch = new SongEnumerationBatch
             {
-                ActiveRoots = new[] { "/songs" },
+                ActiveRoots = activeRoots ?? new[] { "/songs" },
                 DiscoveredChartPaths = new HashSet<string>(
                     paths,
                     SongPathIdentity.CanonicalComparer),
@@ -1894,6 +1942,7 @@ namespace DTXMania.Test.Stage
                 persistenceDuration ?? TimeSpan.Zero,
                 cleanupDuration ?? TimeSpan.Zero);
             return new SongEnumerationResult(
+                outcome,
                 batch,
                 import,
                 hierarchyDuration ?? TimeSpan.Zero);
@@ -1966,6 +2015,8 @@ namespace DTXMania.Test.Stage
             public int BuildHierarchyCalls { get; private set; }
 
             public int SaveSongsDatabaseCalls { get; private set; }
+
+            public int PublishEmptyLibraryCalls { get; private set; }
 
             public SongListNode? PublishedHierarchy { get; set; }
 
@@ -2114,6 +2165,11 @@ namespace DTXMania.Test.Stage
             protected override void MarkSongManagerInitialized()
             {
                 MarkSongManagerInitializedCalled = true;
+            }
+
+            protected override void PublishEmptyLibraryCore()
+            {
+                PublishEmptyLibraryCalls++;
             }
 
             public Task<bool> InvokeInitializeDatabaseServiceCoreWithObserverAsync(

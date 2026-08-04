@@ -4,6 +4,7 @@ using DTXMania.Game.Lib.Utilities;
 using Microsoft.Extensions.Logging;
 using Microsoft.Xna.Framework.Input;
 using Moq;
+using System.Reflection;
 using System.Text;
 
 namespace DTXMania.Test.Config;
@@ -963,7 +964,7 @@ Key.Bad=abc
     /// the file makes the retry succeed. _pendingSavePath never changes.
     /// </summary>
     [Fact]
-    public void FlushPendingSave_RetriesAfterFailure_WhenFilesystemBecomesWritable()
+    public void FlushPendingSave_ShouldRetryAfterFailure()
     {
         var root = Path.Combine(Path.GetTempPath(), "dtxmania-flush-retry-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -1020,6 +1021,73 @@ Key.Bad=abc
             // clean up both possibilities.
             if (File.Exists(root))
                 File.Delete(root);
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SaveConfig_ShouldClearMatchingPendingPath()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "dtxmania-save-matching-" + Guid.NewGuid().ToString("N"));
+        var previousRoot = Environment.GetEnvironmentVariable("DTXMANIA_APPDATA_ROOT");
+        Directory.CreateDirectory(root);
+        Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", root);
+
+        try
+        {
+            var configFilePath = AppPaths.GetConfigFilePath();
+            var manager = new ConfigManager();
+            manager.LoadConfig(configFilePath);
+            manager.SetNoFail(true);
+
+            // The spelling differs but Path.GetFullPath resolves it to the loaded file.
+            manager.SaveConfig(Path.Combine(root, ".", "Config.ini"));
+
+            // Direct mutation does not mark a deferred save. If SaveConfig cleared the
+            // matching marker, FlushPendingSave must leave the persisted True intact.
+            manager.Config.NoFail = false;
+            manager.FlushPendingSave();
+
+            Assert.Contains("NoFail=True", File.ReadAllText(configFilePath));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", previousRoot);
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SaveConfig_ShouldRetainDifferentPendingPath()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "dtxmania-save-different-" + Guid.NewGuid().ToString("N"));
+        var previousRoot = Environment.GetEnvironmentVariable("DTXMANIA_APPDATA_ROOT");
+        Directory.CreateDirectory(root);
+        Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", root);
+
+        try
+        {
+            var pendingConfigPath = AppPaths.GetConfigFilePath();
+            var explicitConfigPath = Path.Combine(root, "explicit.ini");
+            var manager = new ConfigManager();
+            manager.LoadConfig(pendingConfigPath);
+            manager.SetNoFail(true);
+
+            manager.SaveConfig(explicitConfigPath);
+
+            // The marker still belongs to pendingConfigPath, so the next flush must
+            // persist the changed value there instead of discarding that deferred write.
+            manager.Config.NoFail = false;
+            manager.FlushPendingSave();
+
+            Assert.Contains("NoFail=False", File.ReadAllText(pendingConfigPath));
+            Assert.Contains("NoFail=True", File.ReadAllText(explicitConfigPath));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", previousRoot);
             if (Directory.Exists(root))
                 Directory.Delete(root, recursive: true);
         }
@@ -1371,6 +1439,81 @@ Key.Bad=abc
         finally
         {
             File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void SaveConfig_WhenSongRootsAreEmpty_ShouldNotOverwriteTheLegacyDtxPathMirror()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "dtxmania-empty-roots-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var prev = Environment.GetEnvironmentVariable("DTXMANIA_APPDATA_ROOT");
+        Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", dir);
+        try
+        {
+            var configFile = Path.Combine(dir, "Config.ini");
+            var manager = new ConfigManager();
+            manager.LoadConfig(configFile);
+            // Force the defensive empty-roots branch: LoadConfig always populates at
+            // least one managed default, so clear it to exercise the guard.
+            var preservedDtxPath = "preserved-dtx-path";
+            manager.Config.SongRoots.Clear();
+            manager.Config.DTXPath = preservedDtxPath;
+
+            manager.SaveConfig(configFile);
+
+            // The empty-roots guard must skip reassigning DTXPath from SongRoots[0].
+            Assert.Equal(preservedDtxPath, manager.Config.DTXPath);
+            var contents = File.ReadAllText(configFile);
+            Assert.DoesNotContain("SongRoot.0=", contents, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", prev);
+            if (Directory.Exists(dir))
+                Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SaveConfig_WhenPendingPathCannotBeResolved_ShouldRetainThePendingSaveMarker()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "dtxmania-pending-bad-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var prev = Environment.GetEnvironmentVariable("DTXMANIA_APPDATA_ROOT");
+        Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", dir);
+        try
+        {
+            var loadedConfig = Path.Combine(dir, "Config.ini");
+            var manager = new ConfigManager();
+            manager.LoadConfig(loadedConfig);
+            // Stage a pending save against a path containing an illegal NUL character so
+            // ClearMatchingPendingSavePath's Path.GetFullPath throws and the catch block
+            // retains the marker. SetScrollSpeed stores its configFilePath verbatim; pass
+            // a value that snaps away from the default (100) so MarkDirty actually runs.
+            manager.SetScrollSpeed("bad\0path", 200);
+
+            // Saving to the valid loaded path must not throw and must retain the bad
+            // pending marker (the comparison failure is logged, not fatal).
+            manager.SaveConfig(loadedConfig);
+
+            // FlushPendingSave retries the (bad) pending path and swallows the failure,
+            // so the in-memory edit is still correct even though the bad path never lands.
+            manager.FlushPendingSave();
+            Assert.Equal(200, manager.Config.ScrollSpeed);
+
+            // The invalid pending path must still be recorded so a future flush can
+            // retry it. Verify via reflection that _pendingSavePath was not cleared.
+            var pendingSavePath = typeof(ConfigManager)
+                .GetField("_pendingSavePath", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?.GetValue(manager) as string;
+            Assert.Equal("bad\0path", pendingSavePath);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", prev);
+            if (Directory.Exists(dir))
+                Directory.Delete(dir, recursive: true);
         }
     }
 }

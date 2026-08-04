@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using DTXMania.Game.Lib.Song.Entities;
 
 namespace DTXMania.Game.Lib.Song
@@ -25,6 +26,40 @@ namespace DTXMania.Game.Lib.Song
         string Path,
         string Message,
         bool IsRootFailure);
+
+    /// <summary>
+    /// One filesystem entry (chart file, set.def, or directory) collected by the
+    /// shared chart-inventory scanner, with the timestamps the cache-freshness
+    /// change check compares against the last successful enumeration time.
+    /// </summary>
+    internal sealed record ChartInventoryEntry(
+        string Path,
+        DateTime LastWriteTimeUtc,
+        DateTime CreationTimeUtc);
+
+    /// <summary>
+    /// The result of a single filesystem walk over the active song roots that
+    /// mirrors full enumeration's directory and set.def discovery rules. Used by
+    /// both the chart-file count and the mtime change check so they agree with
+    /// what full enumeration would import (set.def-referenced charts only, no
+    /// unreferenced/backup charts; case-insensitive extension matching) and so
+    /// the active roots are walked once instead of once per extension per pass.
+    /// <para>
+    /// <see cref="Charts"/> holds exactly the chart files full enumeration would
+    /// import (deduplicated by normalized path so overlapping roots or a set.def
+    /// referencing the same file from two difficulties cannot double-count).
+    /// <see cref="SetDefinitions"/> holds every <c>set.def</c> discovered (its
+    /// modification signals a rescan even when referenced charts are unchanged).
+    /// <see cref="Directories"/> holds every directory visited for the directory
+    /// mtime change signal.
+    /// </para>
+    /// </summary>
+    internal sealed class ChartInventory
+    {
+        public List<ChartInventoryEntry> Charts { get; } = new();
+        public List<ChartInventoryEntry> SetDefinitions { get; } = new();
+        public List<ChartInventoryEntry> Directories { get; } = new();
+    }
 
     internal enum SongBulkImportMilestone
     {
@@ -80,10 +115,83 @@ namespace DTXMania.Game.Lib.Song
         int StaleCharts,
         int StaleSongs,
         TimeSpan PersistenceDuration,
-        TimeSpan CleanupDuration);
+        TimeSpan CleanupDuration)
+    {
+        private static readonly IReadOnlyDictionary<string, SongChart> EmptyCharts =
+            new ReadOnlyDictionary<string, SongChart>(
+                new Dictionary<string, SongChart>(StringComparer.Ordinal));
+
+        public static SongBulkImportResult Empty { get; } = new(
+            EmptyCharts,
+            Added: 0,
+            Updated: 0,
+            Preserved: 0,
+            Skipped: 0,
+            Conflicts: 0,
+            StaleCharts: 0,
+            StaleSongs: 0,
+            PersistenceDuration: TimeSpan.Zero,
+            CleanupDuration: TimeSpan.Zero);
+    }
+
+    public enum SongEnumerationOutcome
+    {
+        ImportedAndPublished,
+        NoActiveRoots,
+    }
+
+    /// <summary>
+    /// Identifies the live-library phase that failed after the database import
+    /// had already committed. Callers must not present this as a rollback.
+    /// </summary>
+    public enum SongEnumerationPostCommitPhase
+    {
+        Finalization,
+        Publication,
+    }
+
+    /// <summary>
+    /// Signals an HPA-192 failure after the import transaction committed but
+    /// before its in-memory library publication completed. The captured batch
+    /// lets callers retain accurate root-failure diagnostics while reporting
+    /// the operation as partial success requiring recovery/restart.
+    /// </summary>
+    public sealed class SongEnumerationPostCommitException : Exception
+    {
+        internal SongEnumerationPostCommitException(
+            SongEnumerationPostCommitPhase phase,
+            SongEnumerationBatch batch,
+            SongBulkImportResult import,
+            Exception innerException)
+            : base($"Song enumeration {phase.ToString().ToLowerInvariant()} failed after database commit.",
+                innerException)
+        {
+            Phase = phase;
+            Batch = batch ?? throw new ArgumentNullException(nameof(batch));
+            Import = import ?? throw new ArgumentNullException(nameof(import));
+        }
+
+        public SongEnumerationPostCommitPhase Phase { get; }
+        public SongEnumerationBatch Batch { get; }
+        public SongBulkImportResult Import { get; }
+    }
 
     public sealed record SongEnumerationResult(
+        SongEnumerationOutcome Outcome,
         SongEnumerationBatch Batch,
         SongBulkImportResult Import,
-        TimeSpan HierarchyDuration);
+        TimeSpan HierarchyDuration)
+    {
+        public SongEnumerationResult(
+            SongEnumerationBatch batch,
+            SongBulkImportResult import,
+            TimeSpan hierarchyDuration)
+            : this(
+                SongEnumerationOutcome.ImportedAndPublished,
+                batch,
+                import,
+                hierarchyDuration)
+        {
+        }
+    }
 }
