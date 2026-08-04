@@ -1126,6 +1126,36 @@ namespace DTXMania.Test
         }
 
         [Fact]
+        public void DisposeManagedResources_WhenCallerHasSynchronizationContext_ShouldStartJsonRpcShutdownWithoutCallerContext()
+        {
+            var game = CreateGameForShutdownContext();
+            var host = new Mock<IHost>();
+            host.Setup(value => value.StopAsync(It.IsAny<CancellationToken>()))
+                .Returns(Task.CompletedTask);
+            var cancellation = new CancellationTokenSource();
+            var server = CreateRunningJsonRpcServer(host, cancellation);
+
+            ReflectionHelpers.SetPrivateField(game, "_jsonRpcServer", server);
+            ReflectionHelpers.SetPrivateField(game, "_gameApiCancellation", cancellation);
+
+            var callerContext = new SynchronizationContext();
+            var originalContext = SynchronizationContext.Current;
+            SynchronizationContext.SetSynchronizationContext(callerContext);
+            try
+            {
+                ReflectionHelpers.InvokePrivateMethod(game, "DisposeManagedResources");
+            }
+            finally
+            {
+                SynchronizationContext.SetSynchronizationContext(originalContext);
+            }
+
+            Assert.Equal(1, game.StopJsonRpcServerCallCount);
+            Assert.Null(game.ObservedShutdownContext);
+            host.Verify(value => value.StopAsync(It.IsAny<CancellationToken>()), Times.Once);
+        }
+
+        [Fact]
         public void DisposeManagedResources_WhenServerStopsSuccessfully_ShouldDisposeCollaboratorsAndCancelPendingScreenshot()
         {
             var loggerFactory = new Mock<ILoggerFactory>();
@@ -1319,6 +1349,20 @@ namespace DTXMania.Test
 
             SetCrashDiagnostics(game, diagnostics);
             ReflectionHelpers.SetPrivateField(game, "<ConfigManager>k__BackingField", CreateConfigManager(config ?? new ConfigData()));
+
+            return game;
+        }
+
+        private static ShutdownContextTestableBaseGame CreateGameForShutdownContext()
+        {
+            var game = ReflectionHelpers.CreateUninitialized<ShutdownContextTestableBaseGame>();
+            var diagnostics = new TestGameCrashDiagnostics();
+
+            SetCrashDiagnostics(game, diagnostics);
+            ReflectionHelpers.SetPrivateField(
+                game,
+                "<ConfigManager>k__BackingField",
+                CreateConfigManager(new ConfigData()));
 
             return game;
         }
@@ -2023,6 +2067,27 @@ namespace DTXMania.Test
                 LastStartJsonRpcServerToken = cancellationToken;
                 ReflectionHelpers.SetPrivateField(server, "_isRunning", true);
                 return Task.CompletedTask;
+            }
+        }
+
+        private sealed class ShutdownContextTestableBaseGame : BaseGame
+        {
+            private ShutdownContextTestableBaseGame(
+                StartupTimingTrace startupTimingTrace,
+                IGameCrashDiagnostics crashDiagnostics)
+                : base(startupTimingTrace, crashDiagnostics)
+            {
+            }
+
+            public int StopJsonRpcServerCallCount { get; private set; }
+
+            public SynchronizationContext? ObservedShutdownContext { get; private set; }
+
+            internal override Task StopJsonRpcServerAsync(JsonRpcServer server)
+            {
+                StopJsonRpcServerCallCount++;
+                ObservedShutdownContext = SynchronizationContext.Current;
+                return base.StopJsonRpcServerAsync(server);
             }
         }
 
