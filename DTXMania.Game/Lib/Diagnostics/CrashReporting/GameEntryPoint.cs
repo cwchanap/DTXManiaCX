@@ -50,7 +50,13 @@ internal static class GameEntryPoint
             {
                 try
                 {
+#if DEBUG
+                    DebugCrashInjection.WriteTeardownCheckpoint("game.dispose.before");
+#endif
                     game.Dispose();
+#if DEBUG
+                    DebugCrashInjection.WriteTeardownCheckpoint("game.dispose.after");
+#endif
                 }
                 catch (Exception exception)
                 {
