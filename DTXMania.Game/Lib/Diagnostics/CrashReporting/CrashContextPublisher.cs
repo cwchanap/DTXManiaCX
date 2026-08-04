@@ -88,7 +88,11 @@ internal static class CrashContextPublisher
         ArgumentNullException.ThrowIfNull(config);
 
         var sensitiveData = diagnostics.SensitiveData;
-        RegisterPath(sensitiveData, config.DTXPath);
+        foreach (var songRoot in config.SongRoots)
+        {
+            RegisterPath(sensitiveData, songRoot);
+        }
+
         RegisterPath(sensitiveData, config.SkinPath);
         RegisterComputedPath(sensitiveData, AppPaths.GetAppDataRoot);
         RegisterComputedPath(sensitiveData, AppPaths.GetConfigFilePath);
