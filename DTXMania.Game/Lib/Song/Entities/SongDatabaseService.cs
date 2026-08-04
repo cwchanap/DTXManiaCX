@@ -2375,7 +2375,7 @@ namespace DTXMania.Game.Lib.Song.Entities
                 using var context = CreateContext();
                 var value = await context.Database.SqlQueryRaw<string>(
                     "SELECT Value FROM __EnumerationMetadata WHERE Key = {0} LIMIT 1",
-                    LastSuccessfulEnumerationRootKeyPrefix + normalizedRoot)
+                    LastSuccessfulEnumerationRootKeyPrefix + SongPathIdentity.GetStableRootKey(normalizedRoot))
                     .ToListAsync();
                 var raw = value.FirstOrDefault();
                 if (string.IsNullOrEmpty(raw) ||
@@ -2428,6 +2428,11 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// Persists the same enumeration watermark for each canonical root that
         /// participated in the successful scan. Roots omitted from the list keep
         /// their previous watermark, which is required for partial multi-root scans.
+        /// <para>
+        /// Each root key is built with <see cref="SongPathIdentity.GetStableRootKey"/>
+        /// so that a casing-only change in configuration cannot make a root's
+        /// watermark appear absent on case-insensitive platforms (Windows, macOS).
+        /// </para>
         /// </summary>
         public async Task SetLastSuccessfulEnumerationUtcAsync(
             IReadOnlyList<string> canonicalRoots,
@@ -2447,7 +2452,7 @@ namespace DTXMania.Game.Lib.Song.Entities
 
                     await context.Database.ExecuteSqlRawAsync(
                         "INSERT OR REPLACE INTO __EnumerationMetadata (Key, Value) VALUES ({0}, {1})",
-                        LastSuccessfulEnumerationRootKeyPrefix + normalizedRoot,
+                        LastSuccessfulEnumerationRootKeyPrefix + SongPathIdentity.GetStableRootKey(normalizedRoot),
                         value);
                 }
             }
@@ -2457,6 +2462,68 @@ namespace DTXMania.Game.Lib.Song.Entities
                 // none), so the next freshness check remains conservative.
                 System.Diagnostics.Debug.WriteLine(
                     $"SongDatabaseService: Warning - Could not persist root enumeration timestamps: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Atomically persists the global enumeration watermark and every
+        /// active-root watermark in a single database transaction. Either all
+        /// values are written or none are — a crash or failure mid-write cannot
+        /// leave the global timestamp committed while per-root rows are absent.
+        /// <para>
+        /// The read path's legacy fallback applies the global watermark to every
+        /// root when zero per-root rows are found. Without atomicity, a partial
+        /// write (global committed, per-root missing) would cause that fallback
+        /// to assign another root's newer timestamp to a returning root and hide
+        /// its edits. This method eliminates that window by committing both the
+        /// global key and every per-root key together.
+        /// </para>
+        /// <para>
+        /// Returns <c>true</c> on success, <c>false</c> on failure. A failed
+        /// write leaves the previous watermark in place (or none), which only
+        /// makes the next freshness check more conservative — it never creates
+        /// a partial state.
+        /// </para>
+        /// </summary>
+        public async Task<bool> SetEnumerationWatermarkAtomicallyAsync(
+            DateTime utc,
+            IReadOnlyList<string> canonicalRoots)
+        {
+            try
+            {
+                using var context = CreateContext();
+                await using var transaction =
+                    await context.Database.BeginTransactionAsync().ConfigureAwait(false);
+
+                var value = utc.ToUniversalTime().ToString("o");
+
+                await context.Database.ExecuteSqlRawAsync(
+                    "INSERT OR REPLACE INTO __EnumerationMetadata (Key, Value) VALUES ({0}, {1})",
+                    LastSuccessfulEnumerationKey,
+                    value).ConfigureAwait(false);
+
+                if (canonicalRoots != null && canonicalRoots.Count > 0)
+                {
+                    foreach (var canonicalRoot in canonicalRoots)
+                    {
+                        if (!SongPathIdentity.TryNormalize(canonicalRoot, out var normalizedRoot))
+                            continue;
+
+                        await context.Database.ExecuteSqlRawAsync(
+                            "INSERT OR REPLACE INTO __EnumerationMetadata (Key, Value) VALUES ({0}, {1})",
+                            LastSuccessfulEnumerationRootKeyPrefix + SongPathIdentity.GetStableRootKey(normalizedRoot),
+                            value).ConfigureAwait(false);
+                    }
+                }
+
+                await transaction.CommitAsync().ConfigureAwait(false);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"SongDatabaseService: Warning - Could not atomically persist enumeration watermark: {ex.Message}");
+                return false;
             }
         }
 

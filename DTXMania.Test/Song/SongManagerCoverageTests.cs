@@ -441,6 +441,192 @@ public class SongManagerCoverageTests : IDisposable
     }
 
     [Fact]
+    public async Task SetEnumerationWatermarkAtomicallyAsync_WhenSuccessful_WritesBothGlobalAndPerRoot()
+    {
+        var rootA = Path.Combine(_testRoot, "RootA");
+        var rootB = Path.Combine(_testRoot, "RootB");
+        await CreateDtxFileAsync(
+            Path.Combine(rootA, "Song A", "song.dtx"),
+            "Song A", "Coverage Bot", "Rock", 35);
+        await CreateDtxFileAsync(
+            Path.Combine(rootB, "Song B", "song.dtx"),
+            "Song B", "Coverage Bot", "Rock", 40);
+
+        var initialized = await _manager.InitializeDatabaseServiceAsync(_testDbPath);
+        Assert.True(initialized);
+        Assert.NotNull(_manager.DatabaseService);
+
+        var watermark = DateTime.UtcNow.AddHours(-1);
+        var canonicalA = _manager.RootPolicy
+            .Validate(new[] { rootA }).CanonicalRoots.Single();
+        var canonicalB = _manager.RootPolicy
+            .Validate(new[] { rootB }).CanonicalRoots.Single();
+
+        // A successful atomic write must commit both the global watermark and
+        // every supplied per-root watermark. A partial commit (global only)
+        // would trigger the legacy fallback and assign the global timestamp to
+        // roots that were not in the batch.
+        var success = await _manager.DatabaseService!
+            .SetEnumerationWatermarkAtomicallyAsync(
+                watermark,
+                new[] { canonicalA, canonicalB });
+
+        Assert.True(success);
+        var global = await _manager.DatabaseService!
+            .GetLastSuccessfulEnumerationUtcAsync();
+        Assert.Equal(watermark.ToUniversalTime(), global!.Value.ToUniversalTime());
+        var perRootA = await _manager.DatabaseService!
+            .GetLastSuccessfulEnumerationUtcAsync(canonicalA);
+        Assert.Equal(watermark.ToUniversalTime(), perRootA!.Value.ToUniversalTime());
+        var perRootB = await _manager.DatabaseService!
+            .GetLastSuccessfulEnumerationUtcAsync(canonicalB);
+        Assert.Equal(watermark.ToUniversalTime(), perRootB!.Value.ToUniversalTime());
+    }
+
+    [Fact]
+    public async Task SetEnumerationWatermarkAtomicallyAsync_WhenLegacyDatabaseHasGlobalOnly_WritesBothAtomically()
+    {
+        // Regression: a legacy database has a global watermark but no per-root
+        // rows. The atomic write must add per-root rows alongside the global
+        // update in one transaction, eliminating the window where a crash after
+        // the global write but before the root writes would leave zero per-root
+        // rows and trigger the unsafe legacy fallback.
+        var rootA = Path.Combine(_testRoot, "RootA");
+        await CreateDtxFileAsync(
+            Path.Combine(rootA, "Song A", "song.dtx"),
+            "Song A", "Coverage Bot", "Rock", 35);
+
+        var initialized = await _manager.InitializeDatabaseServiceAsync(_testDbPath);
+        Assert.True(initialized);
+        Assert.NotNull(_manager.DatabaseService);
+
+        // Seed a legacy global-only watermark (no per-root rows).
+        var legacyGlobal = DateTime.UtcNow.AddHours(-3);
+        await _manager.DatabaseService!
+            .SetLastSuccessfulEnumerationUtcAsync(legacyGlobal);
+        Assert.Null(await _manager.DatabaseService!
+            .GetLastSuccessfulEnumerationUtcAsync(rootA));
+
+        var canonicalA = _manager.RootPolicy
+            .Validate(new[] { rootA }).CanonicalRoots.Single();
+        var newWatermark = DateTime.UtcNow.AddHours(-1);
+
+        var success = await _manager.DatabaseService!
+            .SetEnumerationWatermarkAtomicallyAsync(
+                newWatermark,
+                new[] { canonicalA });
+
+        Assert.True(success);
+        // Both global and per-root must be at the new watermark — no partial state.
+        var global = await _manager.DatabaseService!
+            .GetLastSuccessfulEnumerationUtcAsync();
+        Assert.Equal(newWatermark.ToUniversalTime(), global!.Value.ToUniversalTime());
+        var perRootA = await _manager.DatabaseService!
+            .GetLastSuccessfulEnumerationUtcAsync(canonicalA);
+        Assert.Equal(newWatermark.ToUniversalTime(), perRootA!.Value.ToUniversalTime());
+    }
+
+    [Fact]
+    public async Task SetEnumerationWatermarkAtomicallyAsync_WhenWriteFails_LeavesNoPartialState()
+    {
+        // Regression: a failed atomic write must not leave the global watermark
+        // committed while per-root rows are absent. The transaction rolls back
+        // as a unit, so the previous watermark is retained and the next
+        // freshness check remains conservative.
+        var rootA = Path.Combine(_testRoot, "RootA");
+        await CreateDtxFileAsync(
+            Path.Combine(rootA, "Song A", "song.dtx"),
+            "Song A", "Coverage Bot", "Rock", 35);
+
+        var initialized = await _manager.InitializeDatabaseServiceAsync(_testDbPath);
+        Assert.True(initialized);
+        Assert.NotNull(_manager.DatabaseService);
+
+        // Establish a known baseline watermark.
+        var baseline = DateTime.UtcNow.AddHours(-2);
+        var canonicalA = _manager.RootPolicy
+            .Validate(new[] { rootA }).CanonicalRoots.Single();
+        Assert.True(await _manager.DatabaseService!
+            .SetEnumerationWatermarkAtomicallyAsync(baseline, new[] { canonicalA }));
+
+        // Swap in a broken service that cannot create contexts, simulating a
+        // mid-write crash or storage failure. The atomic method must return
+        // false and leave the baseline watermark intact.
+        var originalService = _manager.DatabaseService;
+        var brokenService = CreateBrokenDatabaseService();
+        ReflectionHelpers.SetPrivateField(_manager, "_databaseService", brokenService);
+        try
+        {
+            var newWatermark = DateTime.UtcNow.AddHours(-1);
+            var success = await brokenService
+                .SetEnumerationWatermarkAtomicallyAsync(
+                    newWatermark,
+                    new[] { canonicalA });
+
+            Assert.False(success);
+        }
+        finally
+        {
+            ReflectionHelpers.SetPrivateField(_manager, "_databaseService", originalService);
+        }
+
+        // The real database must still have the baseline watermark — no partial
+        // state was created by the failed write.
+        var global = await originalService!
+            .GetLastSuccessfulEnumerationUtcAsync();
+        Assert.Equal(baseline.ToUniversalTime(), global!.Value.ToUniversalTime());
+        var perRootA = await originalService!
+            .GetLastSuccessfulEnumerationUtcAsync(canonicalA);
+        Assert.Equal(baseline.ToUniversalTime(), perRootA!.Value.ToUniversalTime());
+    }
+
+    [Fact]
+    public async Task NeedsEnumerationAsync_WhenRootCasingChangesOnCaseInsensitivePlatform_WatermarkStillFound()
+    {
+        // Regression: on case-insensitive platforms (Windows, macOS), changing
+        // only the casing of a configured root path must not make its per-root
+        // watermark appear absent. The stable root identity key lowercases the
+        // normalized path so /Songs and /songs produce the same storage key.
+        // Without this, a casing change would zero out the per-root watermark
+        // count and trigger the legacy fallback, potentially masking edits.
+        var rootUpper = Path.Combine(_testRoot, "Songs");
+        var chartPath = Path.Combine(rootUpper, "My Song", "song.dtx");
+        await CreateDtxFileAsync(chartPath, "My Song", "Coverage Bot", "Rock", 35);
+
+        var oldFilesystemTimeUtc = DateTime.UtcNow.AddHours(-3);
+        SetFilesystemTimes(chartPath, oldFilesystemTimeUtc);
+
+        await InitializeAndEnumerateAsync(rootUpper);
+
+        // Age the watermark so the unchanged chart is NOT considered fresh.
+        var watermarkUtc = DateTime.UtcNow.AddHours(-1);
+        await SetLastEnumerationTimestampAsync(watermarkUtc.ToLocalTime());
+        await SetRootEnumerationTimestampAsync(rootUpper, watermarkUtc);
+
+        // On case-insensitive platforms, present the same root with different
+        // casing. The per-root watermark must still be found, so the unchanged
+        // chart is NOT flagged as a change. On case-sensitive platforms (Linux),
+        // different casing is a genuinely different path, so the watermark is
+        // legitimately absent and a rescan is expected.
+        var rootLower = Path.Combine(_testRoot, "songs");
+        var needsEnumeration = await _manager.NeedsEnumerationAsync(new[] { rootLower });
+
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
+        {
+            Assert.False(needsEnumeration,
+                "A casing-only change must not invalidate the per-root watermark " +
+                "on case-insensitive platforms.");
+        }
+        else
+        {
+            // On Linux, /Songs and /songs are different directories; the
+            // watermark is legitimately absent and a rescan is the safe
+            // default.
+            Assert.True(needsEnumeration);
+        }
+    }
+
+    [Fact]
     public async Task NeedsEnumerationAsync_WhenARootIsRemovedAndItsRowsRetained_ShouldStillLoadFromCache()
     {
         // Regression: the filesystem file count is scoped to the active roots,
