@@ -3784,8 +3784,7 @@ namespace DTXMania.Game.Lib.Song
                 // watermark. A root omitted from a partial scan has no new
                 // watermark, so its return is conservatively treated as a change.
                 var rootWatermarks = await GetRootEnumerationWatermarksAsync(
-                    availableRoots,
-                    lastEnumerationTime.Value).ConfigureAwait(false);
+                    availableRoots).ConfigureAwait(false);
                 if (InventoryHasChangesSince(
                         inventory,
                         availableRoots,
@@ -3808,8 +3807,7 @@ namespace DTXMania.Game.Lib.Song
 
         private async Task<IReadOnlyDictionary<string, DateTime>>
             GetRootEnumerationWatermarksAsync(
-                IReadOnlyList<string> availableRoots,
-                DateTime legacyWatermark)
+                IReadOnlyList<string> availableRoots)
         {
             var watermarks = new Dictionary<string, DateTime>(
                 SongPathIdentity.CanonicalComparer);
@@ -3826,16 +3824,16 @@ namespace DTXMania.Game.Lib.Song
                     watermarks[root] = watermark.Value;
             }
 
-            // Databases created before per-root watermarks only have the global
-            // value. Use it as a one-time migration fallback; once any root
-            // watermark exists, an omitted root must remain missing so a return
-            // after a partial scan cannot inherit another root's newer time.
-            if (watermarks.Count == 0)
-            {
-                foreach (var root in availableRoots)
-                    watermarks[root] = legacyWatermark;
-            }
-
+            // A missing per-root watermark must remain missing. Assigning the
+            // legacy global timestamp to a root that was never successfully
+            // enumerated (or that returned after a partial scan where another
+            // root advanced the global value) would hide stale content: the
+            // root's retained rows and file mtimes would compare clean against
+            // a watermark it never earned, so NeedsEnumerationAsync would
+            // return false and never retry the failed parse. The conservative
+            // behavior — treat a missing watermark as "needs enumeration" —
+            // costs one full scan to initialize per-root metadata on a legacy
+            // database, then never triggers again.
             return watermarks;
         }
 
@@ -4254,8 +4252,8 @@ namespace DTXMania.Game.Lib.Song
         /// The global and per-root watermarks are written as one atomic database
         /// transaction. A crash or failure mid-write cannot leave the global
         /// timestamp committed while per-root rows are absent, which would
-        /// otherwise cause the legacy fallback to assign another root's newer
-        /// timestamp to a returning root and hide its edits.
+        /// otherwise force a conservative full rescan on every startup until
+        /// the per-root rows catch up.
         /// </para>
         /// </summary>
         private async Task SetEnumerationWatermarkAsync(

@@ -2471,12 +2471,12 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// values are written or none are — a crash or failure mid-write cannot
         /// leave the global timestamp committed while per-root rows are absent.
         /// <para>
-        /// The read path's legacy fallback applies the global watermark to every
-        /// root when zero per-root rows are found. Without atomicity, a partial
-        /// write (global committed, per-root missing) would cause that fallback
-        /// to assign another root's newer timestamp to a returning root and hide
-        /// its edits. This method eliminates that window by committing both the
-        /// global key and every per-root key together.
+        /// The read path treats a missing per-root watermark as "needs
+        /// enumeration" (a conservative full rescan). Without atomicity, a
+        /// partial write (global committed, per-root missing) would force that
+        /// conservative rescan on every startup until per-root rows catch up.
+        /// This method eliminates that window by committing both the global key
+        /// and every per-root key together.
         /// </para>
         /// <para>
         /// Returns <c>true</c> on success, <c>false</c> on failure. A failed

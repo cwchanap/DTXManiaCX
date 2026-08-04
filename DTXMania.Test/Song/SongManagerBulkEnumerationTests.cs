@@ -1738,6 +1738,118 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
     }
 
     [Fact]
+    public async Task NeedsEnumerationAsync_WhenLegacyGlobalWatermarkOnlyAndRootLacksPerRootWatermark_ShouldReturnTrue()
+    {
+        // Regression (review item 2, migration case): a database created
+        // before per-root watermarks only has the global timestamp. When an
+        // enumeration gives root A a recoverable parse error while root B
+        // succeeds, B receives a per-root watermark and the global timestamp
+        // advances, but A does NOT. On the next startup with B unavailable,
+        // A has no per-root watermark. The legacy fallback (now removed) would
+        // assign B's advanced global timestamp to A, and because A's retained
+        // rows and file mtimes are older than that timestamp,
+        // NeedsEnumerationAsync would return false — never retrying A's failed
+        // parse. A missing per-root watermark must always mean the root needs
+        // enumeration.
+        var rootA = Path.Combine(_testRoot, "LegacyRootA");
+        var rootB = Path.Combine(_testRoot, "LegacyRootB");
+        Directory.CreateDirectory(rootA);
+        Directory.CreateDirectory(rootB);
+        var chartA = Path.Combine(rootA, "song.dtx");
+        var chartB = Path.Combine(rootB, "song.dtx");
+        await File.WriteAllTextAsync(chartA, """
+            #TITLE: Legacy A
+            #ARTIST: Fixture Artist
+            #BPM: 120
+            #DLEVEL: 50
+            """);
+        await File.WriteAllTextAsync(chartB, """
+            #TITLE: Legacy B
+            #ARTIST: Fixture Artist
+            #BPM: 120
+            #DLEVEL: 40
+            """);
+        var oldTime = DateTime.UtcNow.AddMinutes(-30);
+        File.SetLastWriteTimeUtc(chartA, oldTime);
+        File.SetCreationTimeUtc(chartA, oldTime);
+        File.SetLastWriteTimeUtc(chartB, oldTime);
+        File.SetCreationTimeUtc(chartB, oldTime);
+        Directory.SetLastWriteTimeUtc(rootA, oldTime);
+        Directory.SetCreationTimeUtc(rootA, oldTime);
+        Directory.SetLastWriteTimeUtc(rootB, oldTime);
+        Directory.SetCreationTimeUtc(rootB, oldTime);
+
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+
+        // First enumeration: both roots succeed so the database holds rows
+        // for A and B and both per-root watermarks are established.
+        var firstResult = await _manager.EnumerateAndImportSongsAsync(
+            new[] { rootA, rootB }, null, CancellationToken.None);
+        Assert.Equal(2, firstResult.Batch.Candidates.Count);
+
+        // Simulate a legacy/migration database: delete every per-root
+        // watermark so only the global timestamp remains, then age it so the
+        // second enumeration's scan-start watermark is newer.
+        await using (var context = _manager.DatabaseService!.CreateContext())
+        {
+            await context.Database.ExecuteSqlRawAsync(
+                "DELETE FROM __EnumerationMetadata WHERE Key LIKE 'LastSuccessfulEnumerationUtc:Root:%'");
+        }
+        var legacyGlobal = DateTime.UtcNow.AddMinutes(-20);
+        await _manager.DatabaseService!
+            .SetLastSuccessfulEnumerationUtcAsync(legacyGlobal);
+        // Confirm the legacy state: global watermark present, no per-root rows.
+        Assert.NotNull(await _manager.DatabaseService!
+            .GetLastSuccessfulEnumerationUtcAsync());
+        var canonicalA = _manager.RootPolicy
+            .Validate(new[] { rootA }).CanonicalRoots.Single();
+        var canonicalB = _manager.RootPolicy
+            .Validate(new[] { rootB }).CanonicalRoots.Single();
+        Assert.Null(await _manager.DatabaseService!
+            .GetLastSuccessfulEnumerationUtcAsync(canonicalA));
+        Assert.Null(await _manager.DatabaseService!
+            .GetLastSuccessfulEnumerationUtcAsync(canonicalB));
+
+        // Second enumeration: chartA parse fails (recoverable error in A),
+        // chartB succeeds. B receives a per-root watermark and the global
+        // watermark advances; A does NOT receive a per-root watermark.
+        var realParser = _manager.ParseSongEntitiesCoreAsync;
+        _manager.ParseSongEntitiesCoreAsync = path =>
+            SongPathIdentity.CanonicalComparer.Equals(path, SongPathIdentity.Normalize(chartA))
+                ? Task.FromException<(SongEntity, SongChart)>(
+                    new InvalidDataException($"transient parse failure for {path}"))
+                : realParser(path);
+        var secondResult = await _manager.EnumerateAndImportSongsAsync(
+            new[] { rootA, rootB }, null, CancellationToken.None);
+        _manager.ParseSongEntitiesCoreAsync = realParser;
+        Assert.Contains(secondResult.Batch.Errors, error =>
+            error.Path == SongPathIdentity.Normalize(chartA) &&
+            !error.IsRootFailure);
+
+        // B has a per-root watermark now; A still does not.
+        Assert.Null(await _manager.DatabaseService!
+            .GetLastSuccessfulEnumerationUtcAsync(canonicalA));
+        Assert.NotNull(await _manager.DatabaseService!
+            .GetLastSuccessfulEnumerationUtcAsync(canonicalB));
+        // The global watermark advanced past A's file mtime.
+        var advancedGlobal = await _manager.DatabaseService!
+            .GetLastSuccessfulEnumerationUtcAsync();
+        Assert.True(advancedGlobal!.Value > oldTime);
+
+        // Make B unavailable (external drive detached / share unmounted).
+        Directory.Delete(rootB, recursive: true);
+
+        // The freshness check must return true because A has no per-root
+        // watermark. Without the fix, the legacy fallback would assign the
+        // advanced global timestamp to A, and A's matching row count plus
+        // older file mtimes would produce false — never retrying the failed
+        // parse.
+        var needsEnumeration = await _manager.NeedsEnumerationAsync(
+            new[] { rootA, rootB });
+        Assert.True(needsEnumeration);
+    }
+
+    [Fact]
     public async Task EnumerateAndImportSongsAsync_WhenChartParseCancelled_ShouldThrowOperationCanceled()
     {
         await _manager.InitializeDatabaseServiceAsync(_databasePath);

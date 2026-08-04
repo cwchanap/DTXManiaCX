@@ -465,8 +465,8 @@ public class SongManagerCoverageTests : IDisposable
 
         // A successful atomic write must commit both the global watermark and
         // every supplied per-root watermark. A partial commit (global only)
-        // would trigger the legacy fallback and assign the global timestamp to
-        // roots that were not in the batch.
+        // would leave per-root rows absent, forcing a conservative full rescan
+        // on every startup until the per-root rows catch up.
         var success = await _manager.DatabaseService!
             .SetEnumerationWatermarkAtomicallyAsync(
                 watermark,
@@ -491,7 +491,7 @@ public class SongManagerCoverageTests : IDisposable
         // rows. The atomic write must add per-root rows alongside the global
         // update in one transaction, eliminating the window where a crash after
         // the global write but before the root writes would leave zero per-root
-        // rows and trigger the unsafe legacy fallback.
+        // rows and force a conservative full rescan on every subsequent startup.
         var rootA = Path.Combine(_testRoot, "RootA");
         await CreateDtxFileAsync(
             Path.Combine(rootA, "Song A", "song.dtx"),
@@ -590,8 +590,8 @@ public class SongManagerCoverageTests : IDisposable
         // succeeds, then the per-root INSERT is aborted by a SQLite trigger.
         // The transaction must roll back as a unit so the global watermark is
         // NOT left committed while per-root rows are absent — that partial
-        // state would cause the legacy fallback to assign the global timestamp
-        // to every root, hiding edits on returning roots.
+        // state would force a conservative full rescan on every subsequent
+        // startup until the per-root rows are written.
         var rootA = Path.Combine(_testRoot, "RootA");
         await CreateDtxFileAsync(
             Path.Combine(rootA, "Song A", "song.dtx"),
@@ -654,7 +654,7 @@ public class SongManagerCoverageTests : IDisposable
         // watermark appear absent. The stable root identity key lowercases the
         // normalized path so /Songs and /songs produce the same storage key.
         // Without this, a casing change would zero out the per-root watermark
-        // count and trigger the legacy fallback, potentially masking edits.
+        // count and force a needless conservative full rescan.
         var rootUpper = Path.Combine(_testRoot, "Songs");
         var chartPath = Path.Combine(rootUpper, "My Song", "song.dtx");
         await CreateDtxFileAsync(chartPath, "My Song", "Coverage Bot", "Rock", 35);
