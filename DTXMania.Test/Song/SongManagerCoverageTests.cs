@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Test.TestData;
+using Microsoft.EntityFrameworkCore;
 using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 
 namespace DTXMania.Test.Song;
@@ -576,6 +577,71 @@ public class SongManagerCoverageTests : IDisposable
             .GetLastSuccessfulEnumerationUtcAsync();
         Assert.Equal(baseline.ToUniversalTime(), global!.Value.ToUniversalTime());
         var perRootA = await originalService!
+            .GetLastSuccessfulEnumerationUtcAsync(canonicalA);
+        Assert.Equal(baseline.ToUniversalTime(), perRootA!.Value.ToUniversalTime());
+    }
+
+    [Fact]
+    public async Task SetEnumerationWatermarkAtomicallyAsync_WhenPerRootInsertFails_RollsBackGlobalInsert()
+    {
+        // Review item 3: the existing WhenWriteFails test uses a broken service
+        // that fails before the transaction begins (CreateContext throws). This
+        // test exercises a MID-TRANSACTION failure: the global-key INSERT
+        // succeeds, then the per-root INSERT is aborted by a SQLite trigger.
+        // The transaction must roll back as a unit so the global watermark is
+        // NOT left committed while per-root rows are absent — that partial
+        // state would cause the legacy fallback to assign the global timestamp
+        // to every root, hiding edits on returning roots.
+        var rootA = Path.Combine(_testRoot, "RootA");
+        await CreateDtxFileAsync(
+            Path.Combine(rootA, "Song A", "song.dtx"),
+            "Song A", "Coverage Bot", "Rock", 35);
+
+        var initialized = await _manager.InitializeDatabaseServiceAsync(_testDbPath);
+        Assert.True(initialized);
+        Assert.NotNull(_manager.DatabaseService);
+
+        // Establish a known baseline watermark (both global and per-root).
+        var baseline = DateTime.UtcNow.AddHours(-2);
+        var canonicalA = _manager.RootPolicy
+            .Validate(new[] { rootA }).CanonicalRoots.Single();
+        Assert.True(await _manager.DatabaseService!
+            .SetEnumerationWatermarkAtomicallyAsync(baseline, new[] { canonicalA }));
+
+        // Install a SQLite trigger that aborts any INSERT on
+        // __EnumerationMetadata when the key starts with the per-root prefix.
+        // This causes the per-root INSERT OR REPLACE to fail AFTER the global
+        // INSERT OR REPLACE has already executed within the same transaction.
+        await using (var triggerContext = _manager.DatabaseService!.CreateContext())
+        {
+            await triggerContext.Database.ExecuteSqlRawAsync(
+                """
+                CREATE TRIGGER abort_per_root_watermark_insert
+                BEFORE INSERT ON __EnumerationMetadata
+                WHEN NEW.Key LIKE 'LastSuccessfulEnumerationUtc:Root:%'
+                BEGIN
+                    SELECT RAISE(ABORT, 'per-root insert aborted by test trigger');
+                END
+                """);
+        }
+
+        var newWatermark = DateTime.UtcNow.AddHours(-1);
+        var success = await _manager.DatabaseService!
+            .SetEnumerationWatermarkAtomicallyAsync(
+                newWatermark,
+                new[] { canonicalA });
+
+        // The atomic method must return false (the transaction failed).
+        Assert.False(success);
+
+        // The global watermark must still be the baseline — the preceding
+        // global-key INSERT was rolled back, not left committed.
+        var global = await _manager.DatabaseService!
+            .GetLastSuccessfulEnumerationUtcAsync();
+        Assert.Equal(baseline.ToUniversalTime(), global!.Value.ToUniversalTime());
+
+        // The per-root watermark must also still be the baseline.
+        var perRootA = await _manager.DatabaseService!
             .GetLastSuccessfulEnumerationUtcAsync(canonicalA);
         Assert.Equal(baseline.ToUniversalTime(), perRootA!.Value.ToUniversalTime());
     }
