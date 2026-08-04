@@ -398,6 +398,11 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
         return server.StartAsync(cancellationToken);
     }
 
+    internal virtual Task StopJsonRpcServerAsync(JsonRpcServer server)
+    {
+        return server.StopAsync();
+    }
+
     private void ApplySavedSystemKeyBindings()
     {
         if (ConfigManager is ConfigManager concreteConfig)
@@ -938,13 +943,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
         {
             DisposeManagedResources();
         }
-#if DEBUG
-        DebugCrashInjection.WriteTeardownCheckpoint("base.dispose.before");
-#endif
         base.Dispose(disposing);
-#if DEBUG
-        DebugCrashInjection.WriteTeardownCheckpoint("base.dispose.after");
-#endif
     }
 
     private void DisposeManagedResources()
@@ -955,13 +954,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
         // Dispose StageManager first to properly cleanup all stages
         if (StageManager != null)
         {
-#if DEBUG
-            DebugCrashInjection.WriteTeardownCheckpoint("stage-manager.dispose.before");
-#endif
             StageManager.Dispose();
-#if DEBUG
-            DebugCrashInjection.WriteTeardownCheckpoint("stage-manager.dispose.after");
-#endif
             StageManager = null!;
         }
 
@@ -971,47 +964,23 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
             _graphicsManager.SettingsChanged -= OnGraphicsSettingsChanged;
             _graphicsManager.DeviceLost -= OnGraphicsDeviceLost;
             _graphicsManager.DeviceReset -= OnGraphicsDeviceReset;
-#if DEBUG
-            DebugCrashInjection.WriteTeardownCheckpoint("graphics-manager.dispose.before");
-#endif
             _graphicsManager.Dispose();
-#if DEBUG
-            DebugCrashInjection.WriteTeardownCheckpoint("graphics-manager.dispose.after");
-#endif
         }
 
         // Dispose resource manager
-#if DEBUG
-        DebugCrashInjection.WriteTeardownCheckpoint("resource-manager.dispose.before");
-#endif
         ResourceManager?.Dispose();
-#if DEBUG
-        DebugCrashInjection.WriteTeardownCheckpoint("resource-manager.dispose.after");
-#endif
 
         // Stop and dispose game API server
         if (_gameApiCancellation is not null)
         {
-#if DEBUG
-            DebugCrashInjection.WriteTeardownCheckpoint("game-api.cancel.before");
-#endif
             _gameApiCancellation.Cancel();
-#if DEBUG
-            DebugCrashInjection.WriteTeardownCheckpoint("game-api.cancel.after");
-#endif
         }
 
         if (_gameApiStartTask is not null)
         {
             try
             {
-#if DEBUG
-                DebugCrashInjection.WriteTeardownCheckpoint("game-api.start-task-wait.before");
-#endif
                 _gameApiStartTask.GetAwaiter().GetResult();
-#if DEBUG
-                DebugCrashInjection.WriteTeardownCheckpoint("game-api.start-task-wait.after");
-#endif
             }
             catch (Exception ex)
             {
@@ -1025,30 +994,18 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
 
         if (_gameApiCancellation is not null)
         {
-#if DEBUG
-            DebugCrashInjection.WriteTeardownCheckpoint("game-api.cancellation-source.dispose.before");
-#endif
             _gameApiCancellation.Dispose();
-#if DEBUG
-            DebugCrashInjection.WriteTeardownCheckpoint("game-api.cancellation-source.dispose.after");
-#endif
             _gameApiCancellation = null;
         }
 
         if (_jsonRpcServer != null)
         {
+            var jsonRpcServer = _jsonRpcServer;
             try
             {
-                // Use GetAwaiter().GetResult() instead of .Wait() to avoid potential deadlocks
-                // This properly propagates exceptions and is safer in synchronous dispose contexts
-                // Note: StopAsync has a built-in timeout, so we don't need an external CancellationToken
-#if DEBUG
-                DebugCrashInjection.WriteTeardownCheckpoint("json-rpc.stop.before");
-#endif
-                _jsonRpcServer.StopAsync().GetAwaiter().GetResult();
-#if DEBUG
-                DebugCrashInjection.WriteTeardownCheckpoint("json-rpc.stop.after");
-#endif
+                // The first Windows Update runs before MonoGame establishes its WinForms loop.
+                // Start shutdown on a thread-pool context before synchronously waiting for it.
+                Task.Run(() => StopJsonRpcServerAsync(jsonRpcServer)).GetAwaiter().GetResult();
             }
             catch (Exception ex)
             {
@@ -1056,46 +1013,22 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
             }
             finally
             {
-#if DEBUG
-                DebugCrashInjection.WriteTeardownCheckpoint("json-rpc.dispose.before");
-#endif
-                _jsonRpcServer.Dispose();
-#if DEBUG
-                DebugCrashInjection.WriteTeardownCheckpoint("json-rpc.dispose.after");
-#endif
+                jsonRpcServer.Dispose();
                 _jsonRpcServer = null;
             }
         }
 
         // Complete any pending screenshot task to prevent callers from blocking indefinitely
-#if DEBUG
-        DebugCrashInjection.WriteTeardownCheckpoint("pending-screenshot.cleanup.before");
-#endif
         var pendingScreenshot = Interlocked.Exchange(ref _pendingScreenshot, null);
         if (pendingScreenshot != null)
         {
             try { pendingScreenshot.TrySetCanceled(); }
             catch { /* Best effort - task may already be completed */ }
         }
-#if DEBUG
-        DebugCrashInjection.WriteTeardownCheckpoint("pending-screenshot.cleanup.after");
-#endif
 
         // Dispose other resources
-#if DEBUG
-        DebugCrashInjection.WriteTeardownCheckpoint("sprite-batch.dispose.before");
-#endif
         _spriteBatch?.Dispose();
-#if DEBUG
-        DebugCrashInjection.WriteTeardownCheckpoint("sprite-batch.dispose.after");
-#endif
-#if DEBUG
-        DebugCrashInjection.WriteTeardownCheckpoint("render-target.dispose.before");
-#endif
         _renderTarget?.Dispose();
-#if DEBUG
-        DebugCrashInjection.WriteTeardownCheckpoint("render-target.dispose.after");
-#endif
     }
 }
 
