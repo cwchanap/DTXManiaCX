@@ -1382,6 +1382,203 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
     }
 
     [Fact]
+    public async Task EnumerateAndImportSongsAsync_WhenSetDefReferencesSiblingWithinSameRoot_ShouldRejectEscapedChart()
+    {
+        // Regression (review item 1, medium): a set.def #LnFILE that escapes
+        // the set.def's own directory via ../ traversal — but stays within the
+        // same configured root — must be rejected. Without this, the sibling
+        // chart gets a duplicate placeholder: one under the set.def's directory
+        // (from the set.def reference) and one under the sibling's own
+        // directory (from direct file enumeration). Both resolve to the single
+        // persisted chart in the freshly published hierarchy, but on a cached
+        // restart the chart is placed only by its physical path, so the
+        // duplicate/misplaced node disappears — an inconsistency.
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        var setRoot = Path.Combine(_songsRoot, "SongA");
+        Directory.CreateDirectory(setRoot);
+        var siblingDir = Path.Combine(_songsRoot, "SongB");
+        Directory.CreateDirectory(siblingDir);
+        var siblingChartPath = Path.Combine(siblingDir, "sibling.dtx");
+        await File.WriteAllTextAsync(siblingChartPath, """
+            #TITLE: Sibling
+            #ARTIST: Fixture Artist
+            #BPM: 120
+            #DLEVEL: 50
+            """);
+        var insideChartPath = WriteChart(
+            "Songs/SongA/inside.dtx", "Inside A", 30);
+        await File.WriteAllTextAsync(
+            Path.Combine(setRoot, "set.def"),
+            """
+            #TITLE SongA
+            #L1FILE inside.dtx
+            #L2FILE ../SongB/sibling.dtx
+            """);
+
+        var result = await _manager.EnumerateAndImportSongsAsync(
+            new[] { _songsRoot }, null, CancellationToken.None);
+
+        var normalizedSibling = SongPathIdentity.Normalize(siblingChartPath);
+        // The sibling chart must be discovered exactly once (from direct
+        // enumeration of SongB, not from the set.def reference).
+        Assert.Contains(normalizedSibling, result.Batch.DiscoveredChartPaths);
+        Assert.Single(result.Batch.Candidates, c =>
+            SongPathIdentity.CanonicalComparer.Equals(
+                c.NormalizedChartPath, normalizedSibling));
+        // The inside chart must also be imported.
+        Assert.Contains(insideChartPath, result.Batch.DiscoveredChartPaths);
+        // No duplicate: one candidate for inside + one for sibling = 2 total.
+        Assert.Equal(2, result.Batch.Candidates.Count);
+        // The published hierarchy must contain exactly one score node for the
+        // sibling chart (no duplicate/misplaced placeholder from the set.def
+        // reference).
+        var siblingScoreNodes = FlattenScoreNodes(_manager.RootSongs)
+            .Where(node => node.DatabaseChart != null &&
+                SongPathIdentity.CanonicalComparer.Equals(
+                    node.DatabaseChart.FilePath, normalizedSibling))
+            .ToArray();
+        Assert.Single(siblingScoreNodes);
+    }
+
+    [Fact]
+    public async Task EnumerateAndImportSongsAsync_WhenSetDefReferencesAbsolutePathInsideRoot_ShouldRejectEscapedChart()
+    {
+        // Regression (review item 1, medium): a set.def #LnFILE that uses an
+        // absolute path still INSIDE the configured root must be rejected.
+        // Path.Combine with an absolute second argument silently overrides the
+        // set.def directory, which would create a duplicate placeholder for a
+        // chart that is also discovered by direct enumeration of its own
+        // directory.
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        var setRoot = Path.Combine(_songsRoot, "AbsInnerSet");
+        Directory.CreateDirectory(setRoot);
+        var absSiblingDir = Path.Combine(_songsRoot, "AbsInnerSibling");
+        Directory.CreateDirectory(absSiblingDir);
+        var absSiblingChartPath = Path.Combine(absSiblingDir, "abs.dtx");
+        await File.WriteAllTextAsync(absSiblingChartPath, """
+            #TITLE: Abs Sibling
+            #ARTIST: Fixture Artist
+            #BPM: 120
+            #DLEVEL: 55
+            """);
+        var insideChartPath = WriteChart(
+            "Songs/AbsInnerSet/inside.dtx", "Inside Abs Inner", 28);
+        await File.WriteAllTextAsync(
+            Path.Combine(setRoot, "set.def"),
+            $"""
+            #TITLE AbsInnerSet
+            #L1FILE inside.dtx
+            #L2FILE {absSiblingChartPath}
+            """);
+
+        var result = await _manager.EnumerateAndImportSongsAsync(
+            new[] { _songsRoot }, null, CancellationToken.None);
+
+        var normalizedAbsSibling = SongPathIdentity.Normalize(absSiblingChartPath);
+        // The absolute-path-referenced chart must be discovered exactly once
+        // (from direct enumeration, not from the set.def reference).
+        Assert.Contains(normalizedAbsSibling, result.Batch.DiscoveredChartPaths);
+        Assert.Single(result.Batch.Candidates, c =>
+            SongPathIdentity.CanonicalComparer.Equals(
+                c.NormalizedChartPath, normalizedAbsSibling));
+        Assert.Contains(insideChartPath, result.Batch.DiscoveredChartPaths);
+        Assert.Equal(2, result.Batch.Candidates.Count);
+    }
+
+    [Fact]
+    public async Task EnumerateAndImportSongsAsync_WhenSetDefReferencesAnotherConfiguredRoot_ShouldRejectCrossRootChart()
+    {
+        // Regression (review item 1, medium): a set.def #LnFILE that references
+        // a chart in a DIFFERENT configured root must be rejected. Even though
+        // the target chart is beneath an active root, the reference escapes the
+        // set.def's own directory and would create a duplicate/misplaced
+        // placeholder.
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        var rootA = Path.Combine(_testRoot, "RootA");
+        var rootB = Path.Combine(_testRoot, "RootB");
+        Directory.CreateDirectory(rootA);
+        Directory.CreateDirectory(rootB);
+        var setRoot = Path.Combine(rootA, "SetA");
+        Directory.CreateDirectory(setRoot);
+        var crossDir = Path.Combine(rootB, "SetB");
+        Directory.CreateDirectory(crossDir);
+        var crossChartPath = Path.Combine(crossDir, "cross.dtx");
+        await File.WriteAllTextAsync(crossChartPath, """
+            #TITLE: Cross
+            #ARTIST: Fixture Artist
+            #BPM: 120
+            #DLEVEL: 50
+            """);
+        var insideChartPath = Path.Combine(setRoot, "inside.dtx");
+        await File.WriteAllTextAsync(insideChartPath, """
+            #TITLE: Inside A
+            #ARTIST: Fixture Artist
+            #BPM: 120
+            #DLEVEL: 30
+            """);
+        await File.WriteAllTextAsync(
+            Path.Combine(setRoot, "set.def"),
+            """
+            #TITLE SetA
+            #L1FILE inside.dtx
+            #L2FILE ../../RootB/SetB/cross.dtx
+            """);
+
+        var result = await _manager.EnumerateAndImportSongsAsync(
+            new[] { rootA, rootB }, null, CancellationToken.None);
+
+        var normalizedCross = SongPathIdentity.Normalize(crossChartPath);
+        // The cross-root chart must be discovered exactly once (from direct
+        // enumeration of RootB/SetB, not from the set.def reference in RootA).
+        Assert.Contains(normalizedCross, result.Batch.DiscoveredChartPaths);
+        Assert.Single(result.Batch.Candidates, c =>
+            SongPathIdentity.CanonicalComparer.Equals(
+                c.NormalizedChartPath, normalizedCross));
+        var normalizedInside = SongPathIdentity.Normalize(insideChartPath);
+        Assert.Contains(normalizedInside, result.Batch.DiscoveredChartPaths);
+        Assert.Equal(2, result.Batch.Candidates.Count);
+    }
+
+    [Fact]
+    public async Task EnumerateAndImportSongsAsync_WhenSetDefReferencesValidChildPath_ShouldAcceptChart()
+    {
+        // Regression (review item 1, medium): a set.def #LnFILE that references
+        // a chart in a subdirectory of the set.def's own directory (e.g.
+        // charts/basic.dtx) must be ACCEPTED. The directory-local containment
+        // check permits child paths while rejecting ../, absolute, and
+        // cross-root references.
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        var setRoot = Path.Combine(_songsRoot, "ChildSet");
+        Directory.CreateDirectory(setRoot);
+        var chartsDir = Path.Combine(setRoot, "charts");
+        Directory.CreateDirectory(chartsDir);
+        var childChartPath = Path.Combine(chartsDir, "basic.dtx");
+        await File.WriteAllTextAsync(childChartPath, """
+            #TITLE: Basic
+            #ARTIST: Fixture Artist
+            #BPM: 120
+            #DLEVEL: 40
+            """);
+        await File.WriteAllTextAsync(
+            Path.Combine(setRoot, "set.def"),
+            """
+            #TITLE ChildSet
+            #L1FILE charts/basic.dtx
+            """);
+
+        var result = await _manager.EnumerateAndImportSongsAsync(
+            new[] { _songsRoot }, null, CancellationToken.None);
+
+        var normalizedChild = SongPathIdentity.Normalize(childChartPath);
+        Assert.Contains(normalizedChild, result.Batch.DiscoveredChartPaths);
+        Assert.Single(result.Batch.Candidates, c =>
+            SongPathIdentity.CanonicalComparer.Equals(
+                c.NormalizedChartPath, normalizedChild));
+        // The chart must appear in the published hierarchy.
+        Assert.Single(FlattenScoreNodes(_manager.RootSongs));
+    }
+
+    [Fact]
     public async Task NeedsEnumerationAsync_WhenChartParseFails_ShouldReturnTrueToRetryDirtyRoot()
     {
         // Regression (review item 2): a recoverable parse failure leaves the
