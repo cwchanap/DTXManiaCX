@@ -2298,6 +2298,9 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// </summary>
         private const string LastSuccessfulEnumerationKey = "LastSuccessfulEnumerationUtc";
 
+        private const string LastSuccessfulEnumerationRootKeyPrefix =
+            "LastSuccessfulEnumerationUtc:Root:";
+
         /// <summary>
         /// Ensures the <c>__EnumerationMetadata</c> key/value table exists. Created
         /// idempotently for both fresh and pre-existing databases via
@@ -2358,6 +2361,44 @@ namespace DTXMania.Game.Lib.Song.Entities
         }
 
         /// <summary>
+        /// Returns the UTC timestamp recorded for a canonical song root, or null
+        /// when that root has not been included in a successful enumeration.
+        /// </summary>
+        public async Task<DateTime?> GetLastSuccessfulEnumerationUtcAsync(
+            string canonicalRoot)
+        {
+            try
+            {
+                if (!SongPathIdentity.TryNormalize(canonicalRoot, out var normalizedRoot))
+                    return null;
+
+                using var context = CreateContext();
+                var value = await context.Database.SqlQueryRaw<string>(
+                    "SELECT Value FROM __EnumerationMetadata WHERE Key = {0} LIMIT 1",
+                    LastSuccessfulEnumerationRootKeyPrefix + normalizedRoot)
+                    .ToListAsync();
+                var raw = value.FirstOrDefault();
+                if (string.IsNullOrEmpty(raw) ||
+                    !DateTime.TryParse(
+                        raw,
+                        null,
+                        DateTimeStyles.RoundtripKind,
+                        out var parsed))
+                {
+                    return null;
+                }
+
+                return parsed.ToUniversalTime();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"SongDatabaseService: Warning - Could not read root enumeration timestamp: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Persists the UTC timestamp of the most recent successful enumeration.
         /// Called only after an <see cref="SongEnumerationOutcome.ImportedAndPublished"/>
         /// result so unrelated <c>SaveChangesAsync</c> calls (bookmark toggles, score
@@ -2380,6 +2421,42 @@ namespace DTXMania.Game.Lib.Song.Entities
                 // place (or none), which only makes the next freshness check more
                 // conservative. Never abort the post-enumeration path over metadata.
                 System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Warning - Could not persist last enumeration timestamp: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Persists the same enumeration watermark for each canonical root that
+        /// participated in the successful scan. Roots omitted from the list keep
+        /// their previous watermark, which is required for partial multi-root scans.
+        /// </summary>
+        public async Task SetLastSuccessfulEnumerationUtcAsync(
+            IReadOnlyList<string> canonicalRoots,
+            DateTime utc)
+        {
+            if (canonicalRoots == null || canonicalRoots.Count == 0)
+                return;
+
+            try
+            {
+                using var context = CreateContext();
+                var value = utc.ToUniversalTime().ToString("o");
+                foreach (var canonicalRoot in canonicalRoots)
+                {
+                    if (!SongPathIdentity.TryNormalize(canonicalRoot, out var normalizedRoot))
+                        continue;
+
+                    await context.Database.ExecuteSqlRawAsync(
+                        "INSERT OR REPLACE INTO __EnumerationMetadata (Key, Value) VALUES ({0}, {1})",
+                        LastSuccessfulEnumerationRootKeyPrefix + normalizedRoot,
+                        value);
+                }
+            }
+            catch (Exception ex)
+            {
+                // A failed root watermark leaves the previous value in place (or
+                // none), so the next freshness check remains conservative.
+                System.Diagnostics.Debug.WriteLine(
+                    $"SongDatabaseService: Warning - Could not persist root enumeration timestamps: {ex.Message}");
             }
         }
 
