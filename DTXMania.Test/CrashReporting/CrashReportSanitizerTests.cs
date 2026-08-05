@@ -213,4 +213,100 @@ public sealed class CrashReportSanitizerTests
 
         Assert.Throws<ArgumentNullException>(() => sanitizer.SanitizeExceptionChain(null!, out _));
     }
+
+    [Fact]
+    public void Scrub_ShouldRedactRegisteredSecretValues()
+    {
+        const string apiKey = "super-secret-api-key-123456";
+        var sanitizer = new CrashReportSanitizer([], [apiKey]);
+
+        var result = sanitizer.Scrub("Failed to start API with key=" + apiKey + " and more text");
+
+        Assert.DoesNotContain(apiKey, result, StringComparison.Ordinal);
+        Assert.Contains(CrashReportSanitizer.RedactedValue, result, StringComparison.Ordinal);
+        Assert.Contains("Failed to start API with key=", result, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Scrub_ShouldRedactSecretsInsideExceptionMessages()
+    {
+        const string apiKey = "super-secret-api-key-123456";
+        var sanitizer = new CrashReportSanitizer([], [apiKey]);
+
+        var result = sanitizer.SanitizeExceptionChain(
+            new InvalidOperationException("GameApi rejected key " + apiKey),
+            out var truncated);
+
+        Assert.False(truncated);
+        Assert.DoesNotContain(apiKey, result, StringComparison.Ordinal);
+        Assert.Contains(CrashReportSanitizer.RedactedValue, result, StringComparison.Ordinal);
+        Assert.Contains("GameApi rejected key", result, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("https://alice:hunter2@example.com/path", "https://[REDACTED]@example.com/path")]
+    [InlineData("ftp://user:password@example.com", "ftp://[REDACTED]@example.com")]
+    [InlineData("wss://token:secret@host/ws", "wss://[REDACTED]@host/ws")]
+    public void Scrub_ShouldRedactUriUserInfoCredentials(string input, string expected)
+    {
+        var sanitizer = new CrashReportSanitizer([]);
+
+        var result = sanitizer.Scrub(input);
+
+        Assert.Equal(expected, result);
+    }
+
+    [Theory]
+    [InlineData("https://example.com/path?api_key=abc123&other=keep", "api_key=[REDACTED]", "abc123", "other=keep")]
+    [InlineData("https://example.com/?token=secret-value&x=1", "token=[REDACTED]", "secret-value", "x=1")]
+    [InlineData("https://example.com/?password=hunter2", "password=[REDACTED]", "hunter2", null)]
+    [InlineData("https://example.com/?access_token=eyJ0eXAi&keep=yes", "access_token=[REDACTED]", "eyJ0eXAi", "keep=yes")]
+    public void Scrub_ShouldRedactCredentialBearingQueryParameters(
+        string input,
+        string expectedFragment,
+        string leakedSecret,
+        string? preservedFragment)
+    {
+        var sanitizer = new CrashReportSanitizer([]);
+
+        var result = sanitizer.Scrub(input);
+
+        Assert.Contains(expectedFragment, result, StringComparison.Ordinal);
+        Assert.DoesNotContain(leakedSecret, result, StringComparison.Ordinal);
+        if (preservedFragment is not null)
+        {
+            Assert.Contains(preservedFragment, result, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void Scrub_ShouldNotRedactOrdinaryUrlsWithoutCredentials()
+    {
+        var sanitizer = new CrashReportSanitizer([]);
+
+        var result = sanitizer.Scrub("See https://example.com/docs and http://github.com/cwchanap/DTXManiaCX");
+
+        Assert.Contains("https://example.com/docs", result, StringComparison.Ordinal);
+        Assert.Contains("http://github.com/cwchanap/DTXManiaCX", result, StringComparison.Ordinal);
+        Assert.DoesNotContain(CrashReportSanitizer.RedactedValue, result, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Scrub_ShouldIgnoreTriviallyShortSecrets()
+    {
+        // Short values are likely common substrings; the sanitizer must not redact them.
+        var sanitizer = new CrashReportSanitizer([], ["abc", "12"]);
+
+        var result = sanitizer.Scrub("alphabet and 12345 should remain visible");
+
+        Assert.Equal("alphabet and 12345 should remain visible", result);
+    }
+
+    [Fact]
+    public void Constructor_WithNullSecrets_ShouldNotThrow()
+    {
+        var sanitizer = new CrashReportSanitizer([], null);
+
+        Assert.Equal("plain text", sanitizer.Scrub("plain text"));
+    }
 }

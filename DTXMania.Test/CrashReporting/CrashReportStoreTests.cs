@@ -240,6 +240,22 @@ public sealed class CrashReportStoreTests
     }
 
     [Fact]
+    public void Capture_WhenWriterThrowsNonFileSystemException_ShouldLeaveNoTemporaryFile()
+    {
+        using var fixture = CrashStoreFixture.Create();
+        fixture.ArtifactWriter.ThrowInstead = new InvalidOperationException("writer bug");
+        var store = fixture.CreateStore();
+
+        // A non-filesystem failure from the writer is not absorbed by the store; it
+        // propagates so the runtime can record a generic capture failure. The temp file
+        // must still be cleaned up so it cannot linger on disk indefinitely.
+        Assert.Throws<InvalidOperationException>(() => store.Capture(fixture.CreateCapture(0)));
+
+        Assert.Empty(Directory.EnumerateFiles(fixture.RootPath, "*.tmp"));
+        Assert.Empty(Directory.EnumerateFiles(fixture.RootPath, "*.txt"));
+    }
+
+    [Fact]
     public void Capture_WithNullData_ShouldThrow()
     {
         using var fixture = CrashStoreFixture.Create();
@@ -322,7 +338,8 @@ public sealed class CrashReportStoreTests
                         CrashContextStatus.Available,
                         new Dictionary<string, object?> { ["Stage"] = StageType.Title })
                 ],
-                [Path.Combine(RootPath, "songs")]);
+                [Path.Combine(RootPath, "songs")],
+                []);
         }
 
         public void Dispose()
@@ -340,6 +357,8 @@ public sealed class CrashReportStoreTests
 
         internal bool Fail { get; set; }
 
+        internal Exception? ThrowInstead { get; set; }
+
         internal string? LastDestinationPath { get; private set; }
 
         internal string? LastFileName { get; private set; }
@@ -348,6 +367,11 @@ public sealed class CrashReportStoreTests
         {
             LastDestinationPath = (destination as FileStream)?.Name;
             LastFileName = document.Summary.FileName;
+
+            if (ThrowInstead is not null)
+            {
+                throw ThrowInstead;
+            }
 
             if (Fail)
             {

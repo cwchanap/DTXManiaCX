@@ -133,6 +133,29 @@ public sealed class CrashReportTextWriterTests
     }
 
     [Fact]
+    public void Write_ShouldRenderLoggerCategoryWhenPresent()
+    {
+        var document = CreateDocument(logs:
+        [
+            new CrashLogRecord(
+                CapturedAt,
+                LogLevel.Information,
+                CrashLogFieldPolicy.UnclassifiedEventId,
+                CrashLogFieldPolicy.UnclassifiedMessageTemplate,
+                new Dictionary<string, object?>(StringComparer.Ordinal),
+                ExceptionType: null,
+                Category: "DTXMania.Game.Lib.JsonRpc")
+        ]);
+
+        var text = Write(document);
+
+        Assert.Contains(
+            "Information [0] [DTXMania.Game.Lib.JsonRpc] [UNCLASSIFIED MESSAGE OMITTED]",
+            text,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Write_ShouldScrubRegisteredSensitivePaths()
     {
         var songRoot = Path.Combine(Path.GetTempPath(), "dtx-writer", "Some Album");
@@ -254,7 +277,8 @@ public sealed class CrashReportTextWriterTests
         IReadOnlyList<CrashLogRecord>? logs = null,
         IReadOnlyList<CrashBreadcrumb>? breadcrumbs = null,
         IReadOnlyList<CrashContextSnapshot>? context = null,
-        IReadOnlyList<string>? sensitivePaths = null)
+        IReadOnlyList<string>? sensitivePaths = null,
+        IReadOnlyList<string>? sensitiveSecrets = null)
     {
         return new CrashReportDocument(
             new CrashReportSummary(
@@ -270,6 +294,7 @@ public sealed class CrashReportTextWriterTests
             logs ?? [],
             breadcrumbs ?? [],
             context ?? [],
-            sensitivePaths ?? []);
+            sensitivePaths ?? [],
+            sensitiveSecrets ?? []);
     }
 }

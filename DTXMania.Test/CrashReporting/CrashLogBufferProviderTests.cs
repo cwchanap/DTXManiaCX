@@ -26,6 +26,60 @@ public sealed class CrashLogBufferProviderTests
         Assert.Empty(record.Properties);
     }
 
+    [Fact]
+    public void UnclassifiedRecord_ShouldRetainBoundedLoggerCategory()
+    {
+        using var provider = new CrashLogBufferProvider(
+            CrashLogFieldPolicy.Default,
+            TimeProvider.System,
+            capacity: 8);
+        using var factory = LoggerFactory.Create(builder => builder.AddProvider(provider));
+        var logger = factory.CreateLogger("DTXMania.Game.Lib.Graphics.GraphicsManager");
+
+        // Non-structured (interpolated) messages are unclassified, so the category is the
+        // only signal identifying the originating subsystem.
+        logger.LogWarning($"rendered graphics warning");
+
+        var record = Assert.Single(provider.Snapshot());
+        Assert.Equal("[UNCLASSIFIED MESSAGE OMITTED]", record.MessageTemplate);
+        Assert.Equal("DTXMania.Game.Lib.Graphics.GraphicsManager", record.Category);
+    }
+
+    [Fact]
+    public void UnclassifiedRecord_WithOverlongCategory_ShouldBoundToLimit()
+    {
+        using var provider = new CrashLogBufferProvider(
+            CrashLogFieldPolicy.Default,
+            TimeProvider.System,
+            capacity: 8);
+        using var factory = LoggerFactory.Create(builder => builder.AddProvider(provider));
+        var overlongCategory = new string('x', 200);
+        var logger = factory.CreateLogger(overlongCategory);
+
+        logger.LogInformation($"rendered message");
+
+        var record = Assert.Single(provider.Snapshot());
+        Assert.True(record.Category.Length <= 64);
+        Assert.Equal(new string('x', 64), record.Category);
+    }
+
+    [Fact]
+    public void UnclassifiedRecord_WithNewlinesInCategory_ShouldCollapseToSingleLine()
+    {
+        using var provider = new CrashLogBufferProvider(
+            CrashLogFieldPolicy.Default,
+            TimeProvider.System,
+            capacity: 8);
+        using var factory = LoggerFactory.Create(builder => builder.AddProvider(provider));
+        var logger = factory.CreateLogger("DTXMania.Game\nLib.Input");
+
+        logger.LogInformation($"rendered message");
+
+        var record = Assert.Single(provider.Snapshot());
+        Assert.DoesNotContain('\n', record.Category);
+        Assert.Contains("DTXMania.Game Lib.Input", record.Category);
+    }
+
     /// <summary>
     /// Collapses <see cref="CrashLogFieldPolicy.TryNormalizeProperty"/> into a single value so the
     /// allowlist and the scalar-normalization rules can be asserted in one expression.

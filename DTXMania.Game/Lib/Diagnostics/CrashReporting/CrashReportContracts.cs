@@ -58,6 +58,8 @@ public interface ICrashContextSink
 public interface ICrashSensitiveDataSink
 {
     void RegisterPath(string? path);
+
+    void RegisterSecret(string? secret);
 }
 
 public interface IGameCrashDiagnostics
@@ -103,6 +105,10 @@ public sealed class EmptyCrashSensitiveDataSink : ICrashSensitiveDataSink
     }
 
     public void RegisterPath(string? path)
+    {
+    }
+
+    public void RegisterSecret(string? secret)
     {
     }
 }

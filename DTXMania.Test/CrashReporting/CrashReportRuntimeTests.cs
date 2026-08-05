@@ -32,6 +32,35 @@ public sealed class CrashReportRuntimeTests
     }
 
     [Fact]
+    public void CreateBestEffort_ShouldRemoveStaleTemporaryFilesAtStartup()
+    {
+        var reportRoot = CreateReportRoot();
+        Directory.CreateDirectory(reportRoot);
+
+        try
+        {
+            // Simulate a .tmp file left behind by an interrupted previous run (e.g. process
+            // killed mid-write before the finally block could clean it up). Mark it older than
+            // the 24-hour stale threshold so startup cleanup removes it without another crash.
+            var staleTempPath = Path.Combine(reportRoot, ".crash-stale.tmp");
+            File.WriteAllText(staleTempPath, "interrupted");
+            File.SetLastWriteTimeUtc(staleTempPath, DateTime.UtcNow.Subtract(TimeSpan.FromHours(48)));
+
+            using var runtime = CrashReportRuntime.CreateBestEffort(
+                TextWriter.Null,
+                storeFactory: () => CreateStore(reportRoot));
+
+            Assert.True(runtime.IsCaptureEnabled);
+            Assert.False(File.Exists(staleTempPath));
+            Assert.Empty(Directory.EnumerateFiles(reportRoot, "*.tmp"));
+        }
+        finally
+        {
+            DeleteReportRoot(reportRoot);
+        }
+    }
+
+    [Fact]
     public void CreateBestEffort_WhenSetupSucceeds_ShouldEnableCrashBufferAndPreserveLogging()
     {
         var reportRoot = CreateReportRoot();

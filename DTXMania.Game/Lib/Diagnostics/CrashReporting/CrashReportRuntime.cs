@@ -98,6 +98,14 @@ public sealed class CrashReportRuntime : ICrashRuntimeLifetime
                 runtime.GameDiagnostics,
                 processStartedUtc);
             runtime.GameDiagnostics.Breadcrumbs.Record(CrashBreadcrumbEvents.ProcessStarted);
+
+            // Best-effort cleanup of stale temporary files and over-retained reports left by
+            // an interrupted previous run. Cleanup() swallows expected filesystem failures, so
+            // it cannot block startup. This runs once at enabled-runtime creation rather than
+            // only after a successful capture, so a crash that fails before writing cannot leave
+            // a .tmp file indefinitely.
+            reportStore.Cleanup();
+
             return runtime;
         }
         catch (Exception exception) when (IsExpectedBootstrapException(exception))
@@ -135,7 +143,8 @@ public sealed class CrashReportRuntime : ICrashRuntimeLifetime
                 _crashLogBufferProvider!.Snapshot(),
                 _crashBreadcrumbBuffer!.Snapshot(),
                 _crashContextSnapshotStore!.Snapshot(),
-                _crashContextSnapshotStore.SensitivePathSnapshot());
+                _crashContextSnapshotStore.SensitivePathSnapshot(),
+                _crashContextSnapshotStore.SensitiveSecretSnapshot());
             var result = _crashReportStore!.Capture(captureData);
 
             if (result.Report is null)

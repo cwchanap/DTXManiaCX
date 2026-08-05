@@ -141,6 +141,31 @@ public sealed class CrashContextSnapshotStoreTests
     }
 
     [Fact]
+    public void RegisterSecret_ShouldDeduplicateAndPreserveValues()
+    {
+        var store = new CrashContextSnapshotStore();
+        const string apiKey = "api-key-secret-value-123";
+
+        store.RegisterSecret(apiKey);
+        store.RegisterSecret(apiKey);
+        store.RegisterSecret(null);
+        store.RegisterSecret(string.Empty);
+
+        var secrets = store.SensitiveSecretSnapshot();
+
+        Assert.Single(secrets);
+        Assert.Equal(apiKey, secrets[0]);
+    }
+
+    [Fact]
+    public void SensitiveSecretSnapshot_WithEmptyStore_ShouldReturnEmptyArray()
+    {
+        var store = new CrashContextSnapshotStore();
+
+        Assert.Empty(store.SensitiveSecretSnapshot());
+    }
+
+    [Fact]
     public void SetSnapshot_WithProcessContext_ShouldNormalizeProcessFields()
     {
         var store = new CrashContextSnapshotStore();

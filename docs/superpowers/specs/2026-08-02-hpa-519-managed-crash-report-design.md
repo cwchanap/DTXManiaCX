@@ -6,6 +6,42 @@
 **Linear:** HPA-519 — Crash report  
 **Scope:** Capture managed fatal exceptions observed at the executable process boundary, retain a small sanitized diagnostic bundle, and offer a non-blocking GitHub issue handoff on the next launch.
 
+## Schema v2 amendment (2026-08-05) — text-only reports
+
+**Status:** Normative. Supersedes every ZIP-bundle, emergency-text-fallback, `ICrashReportInbox`, and manual-ZIP-attachment statement in this document and in the design-review addendum.
+
+HPA-529 ships a single plain-text report format (`DTXMANIACX-CRASH-REPORT 2`) instead of the originally approved ZIP bundle. The text-only design is a deliberate KISS simplification: one file, one writer, one retention rule, no inbox state. The sections below that describe `.zip` files, `report.json`, `exception.txt`, `logs.ndjson`, `breadcrumbs.json`, `README.txt`, emergency `.txt` fallback, `ICrashReportInbox`, `inbox-state.json`, and manual ZIP attachment are retained for history but **no longer describe the shipped product**.
+
+### What changed
+
+| Area | Original design | Schema v2 (shipped) |
+|---|---|---|
+| Report format | Versioned ZIP bundle with multiple entries | Single `.txt` file with header + sections |
+| Emergency fallback | Minimal `.txt` when ZIP creation fails | Removed — the text writer is the only writer |
+| Inbox | `ICrashReportInbox` + `inbox-state.json` + title-screen notification | Removed from HPA-529 scope; HPA-530 may revisit discovery UX |
+| GitHub handoff | Prefilled issue + manual ZIP attachment | HPA-530 may attach the `.txt` directly; no ZIP exists |
+| Retention | Latest five `.zip` or emergency `.txt` | Latest five `.txt` reports; stale `.tmp` cleaned at runtime start and after each capture |
+
+### Privacy model (shipped)
+
+Reports are written locally and never uploaded automatically. A player may attach a report to a public GitHub issue, so the sanitizer redacts the following everywhere `Scrub` is applied (header metadata, exception messages, stack traces):
+
+- **Registered path prefixes** → `[PATH]` (song roots, skin path, app-data roots, crash-report root).
+- **Home-directory account segments** (`Users/<name>`, `home/<name>`) → `[USER]`.
+- **Registered secret values** → `[REDACTED]`. The `GameApiKey` is registered automatically via `ICrashSensitiveDataSink.RegisterSecret`; other secrets may be registered by future subsystems.
+- **URI credentials** → `[REDACTED]`: `scheme://user:pass@host` userinfo and credential-bearing query parameters (`api_key`, `token`, `secret`, `password`, `access_token`, `auth`).
+
+Exception messages and stack traces are otherwise **preserved verbatim** — they are the whole point of the report. Song names, filenames, and unregistered paths inside exception messages are not redacted; this is intentional so the report remains useful for diagnosis. If a future subsystem embeds additional secrets in exception text, it must register them via `RegisterSecret`.
+
+### HPA-530 implications
+
+HPA-530 (title-screen inbox and GitHub handoff) was originally blocked on the ZIP/inbox contract. Under schema v2, HPA-530 must:
+
+- discover `.txt` reports directly from the crash-report directory (no `inbox-state.json`);
+- attach the `.txt` file (not a ZIP) if manual attachment is offered;
+- render the allowlisted header summary from the text report, not from `report.json`;
+- treat the emergency-text fallback and `ICrashReportInbox` sections of this document and the design-review addendum as obsolete.
+
 ## Summary
 
 DTXManiaCX will add a dedicated crash-reporting subsystem that is available before MonoGame initialization and remains alive for the full process lifetime. When a managed exception escapes game construction, startup, or `Game.Run()` to the executable entry point, the subsystem writes a sanitized local crash bundle. On the next successful visit to the title screen, the player sees a non-blocking notification and may review the report, open a prefilled GitHub issue, open the report folder, dismiss the notification, or delete the report.

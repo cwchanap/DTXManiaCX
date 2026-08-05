@@ -99,6 +99,13 @@ internal static class CrashContextPublisher
         RegisterComputedPath(sensitiveData, AppPaths.GetSongsDatabasePath);
         RegisterComputedPath(sensitiveData, AppPaths.GetPlaybackAudioCacheRoot);
         RegisterComputedPath(sensitiveData, AppPaths.GetCrashReportsRoot);
+
+        // The API key is a secret. Register its value so the sanitizer redacts it anywhere it
+        // appears (exception messages, stack traces, metadata) before a report reaches disk.
+        if (!string.IsNullOrEmpty(config.GameApiKey))
+        {
+            sensitiveData.RegisterSecret(config.GameApiKey);
+        }
     }
 
     internal static void PublishStartupMilestone(
