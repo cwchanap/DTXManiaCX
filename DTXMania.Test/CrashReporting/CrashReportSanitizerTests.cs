@@ -156,4 +156,196 @@ public sealed class CrashReportSanitizerTests
 
         Assert.Equal("[REDACTED]", result);
     }
+
+    [Fact]
+    public void SanitizeStackTrace_WithNull_ShouldReturnEmptyString()
+    {
+        var sanitizer = new CrashReportSanitizer([]);
+
+        Assert.Equal(string.Empty, sanitizer.SanitizeStackTrace(null));
+    }
+
+    [Fact]
+    public void SanitizeExceptionChain_WithDeepNesting_ShouldTruncateAfterMaximumInnerExceptions()
+    {
+        var sanitizer = new CrashReportSanitizer([]);
+        Exception? deepest = new InvalidOperationException("level 0");
+        for (var i = 1; i < 12; i++)
+        {
+            deepest = new InvalidOperationException($"level {i}", deepest);
+        }
+
+        var result = sanitizer.SanitizeExceptionChain(deepest, out var truncated);
+
+        Assert.True(truncated);
+        Assert.Contains("[TRUNCATED]", result, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SanitizeExceptionChain_WithoutTruncation_ShouldSetTruncatedFalse()
+    {
+        var sanitizer = new CrashReportSanitizer([]);
+
+        var result = sanitizer.SanitizeExceptionChain(
+            new InvalidOperationException("top"),
+            out var truncated);
+
+        Assert.False(truncated);
+        Assert.DoesNotContain("[TRUNCATED]", result, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SanitizeExceptionChain_WithoutStackTrace_ShouldOmitStackTraceSection()
+    {
+        var sanitizer = new CrashReportSanitizer([]);
+        var exception = new InvalidOperationException("no stack trace");
+
+        var result = sanitizer.SanitizeExceptionChain(exception);
+
+        Assert.DoesNotContain("StackTrace:", result, StringComparison.Ordinal);
+        Assert.Contains("ExceptionType:", result, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SanitizeExceptionType_WithType_ShouldReturnSanitizedFullName()
+    {
+        var sanitizer = new CrashReportSanitizer([]);
+
+        Assert.Equal(
+            typeof(InvalidOperationException).FullName,
+            sanitizer.SanitizeExceptionType(typeof(InvalidOperationException)));
+    }
+
+    [Fact]
+    public void SanitizeExceptionType_WithNull_ShouldThrow()
+    {
+        var sanitizer = new CrashReportSanitizer([]);
+
+        Assert.Throws<ArgumentNullException>(() => sanitizer.SanitizeExceptionType(null!));
+    }
+
+    [Fact]
+    public void SanitizeTypeName_WithNullOrWhitespace_ShouldReturnUnknown()
+    {
+        var sanitizer = new CrashReportSanitizer([]);
+
+        Assert.Equal("Unknown", sanitizer.SanitizeTypeName(null));
+        Assert.Equal("Unknown", sanitizer.SanitizeTypeName(""));
+        Assert.Equal("Unknown", sanitizer.SanitizeTypeName("   "));
+    }
+
+    [Fact]
+    public void SanitizeTypeName_WithInvalidCharacters_ShouldReturnRedacted()
+    {
+        var sanitizer = new CrashReportSanitizer([]);
+
+        Assert.Equal(CrashReportSanitizer.RedactedValue, sanitizer.SanitizeTypeName("Invalid Type Name!"));
+    }
+
+    [Fact]
+    public void SanitizeTypeName_WithTooLongName_ShouldReturnRedacted()
+    {
+        var sanitizer = new CrashReportSanitizer([]);
+        var longName = new string('A', 300);
+
+        Assert.Equal(CrashReportSanitizer.RedactedValue, sanitizer.SanitizeTypeName(longName));
+    }
+
+    [Fact]
+    public void SanitizeTypeName_WithValidName_ShouldReturnName()
+    {
+        var sanitizer = new CrashReportSanitizer([]);
+
+        Assert.Equal("System.InvalidOperationException", sanitizer.SanitizeTypeName("System.InvalidOperationException"));
+    }
+
+    [Fact]
+    public void SanitizeMetadata_WithNullOrWhitespace_ShouldReturnFallback()
+    {
+        var sanitizer = new CrashReportSanitizer([]);
+
+        Assert.Equal("Unknown", sanitizer.SanitizeMetadata(null));
+        Assert.Equal("Unknown", sanitizer.SanitizeMetadata(""));
+        Assert.Equal("N/A", sanitizer.SanitizeMetadata("  ", "N/A"));
+    }
+
+    [Fact]
+    public void SanitizeMetadata_WithControlCharacters_ShouldReturnFallback()
+    {
+        var sanitizer = new CrashReportSanitizer([]);
+
+        Assert.Equal("Unknown", sanitizer.SanitizeMetadata("line\nbreak"));
+        Assert.Equal("Unknown", sanitizer.SanitizeMetadata("null\0char"));
+    }
+
+    [Fact]
+    public void SanitizeMetadata_WithNormalValue_ShouldReturnLimitedValue()
+    {
+        var sanitizer = new CrashReportSanitizer([]);
+
+        Assert.Equal("macOS", sanitizer.SanitizeMetadata("macOS"));
+    }
+
+    [Fact]
+    public void SanitizeMetadata_WithTooLongValue_ShouldBeLimited()
+    {
+        var sanitizer = new CrashReportSanitizer([]);
+        var longValue = new string('X', 300);
+
+        var result = sanitizer.SanitizeMetadata(longValue);
+
+        Assert.True(result.Length <= 256);
+    }
+
+    [Fact]
+    public void SanitizeStableLabel_WithNullOrWhitespace_ShouldReturnFallback()
+    {
+        var sanitizer = new CrashReportSanitizer([]);
+
+        Assert.Equal("Unknown", sanitizer.SanitizeStableLabel(null));
+        Assert.Equal("Unknown", sanitizer.SanitizeStableLabel(""));
+        Assert.Equal("fallback", sanitizer.SanitizeStableLabel("  ", "fallback"));
+    }
+
+    [Fact]
+    public void SanitizeStableLabel_WithInvalidCharacters_ShouldReturnFallback()
+    {
+        var sanitizer = new CrashReportSanitizer([]);
+
+        Assert.Equal("Unknown", sanitizer.SanitizeStableLabel("has spaces!"));
+    }
+
+    [Fact]
+    public void SanitizeStableLabel_WithValidLabel_ShouldReturnLabel()
+    {
+        var sanitizer = new CrashReportSanitizer([]);
+
+        Assert.Equal("crash-20260802-120000Z-a1b2c3", sanitizer.SanitizeStableLabel("crash-20260802-120000Z-a1b2c3"));
+    }
+
+    [Fact]
+    public void SanitizeExceptionChain_WithNullException_ShouldThrow()
+    {
+        var sanitizer = new CrashReportSanitizer([]);
+
+        Assert.Throws<ArgumentNullException>(() => sanitizer.SanitizeExceptionChain(null!));
+    }
+
+    [Fact]
+    public void Constructor_WithEmptySensitivePaths_ShouldNotFail()
+    {
+        var sanitizer = new CrashReportSanitizer(null);
+
+        Assert.Equal("test", sanitizer.SanitizeMetadata("test"));
+    }
+
+    [Fact]
+    public void Constructor_WithWhitespaceOnlySensitivePath_ShouldSkipIt()
+    {
+        var sanitizer = new CrashReportSanitizer(["   ", ""]);
+
+        var result = sanitizer.SanitizeStackTrace("some text");
+
+        Assert.DoesNotContain("[REDACTED]", result, StringComparison.Ordinal);
+    }
 }

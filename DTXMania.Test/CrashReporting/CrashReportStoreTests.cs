@@ -612,6 +612,223 @@ public sealed class CrashReportStoreTests
         Assert.Equal("capture_io_failure", result.FailureCode);
     }
 
+    [Fact]
+    public void Capture_WhenBothZipAndEmergencyFail_ShouldReturnFailureWithoutThrowing()
+    {
+        using var fixture = CrashStoreFixture.Create();
+        fixture.ArtifactWriter.FailZip = true;
+        fixture.ArtifactWriter.FailEmergency = true;
+        var store = fixture.CreateStore();
+
+        var result = store.Capture(fixture.CreateCapture(0));
+
+        Assert.Null(result.Report);
+        Assert.False(result.UsedEmergencyFallback);
+        Assert.NotNull(result.FailureCode);
+        Assert.Empty(Directory.EnumerateFiles(fixture.RootPath, "*.zip", SearchOption.TopDirectoryOnly));
+        Assert.Empty(Directory.EnumerateFiles(fixture.RootPath, "*.txt", SearchOption.TopDirectoryOnly));
+    }
+
+    [Fact]
+    public void DiscoverCompletedReports_WhenRootDirectoryDoesNotExist_ShouldReturnEmpty()
+    {
+        using var fixture = CrashStoreFixture.Create();
+        var missingRoot = Path.Combine(fixture.RootPath, "does-not-exist");
+        var store = new CrashReportStore(
+            missingRoot,
+            fixture.ArtifactWriter,
+            fixture.Clock,
+            new StringWriter(CultureInfo.InvariantCulture));
+
+        Assert.Empty(store.DiscoverCompletedReports());
+    }
+
+    [Fact]
+    public void Cleanup_WhenRootDirectoryDoesNotExist_ShouldNotThrow()
+    {
+        using var fixture = CrashStoreFixture.Create();
+        var missingRoot = Path.Combine(fixture.RootPath, "does-not-exist");
+        var store = new CrashReportStore(
+            missingRoot,
+            fixture.ArtifactWriter,
+            fixture.Clock,
+            new StringWriter(CultureInfo.InvariantCulture));
+
+        var exception = Record.Exception(() => store.Cleanup());
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void DiscoverCompletedReports_WithValidZipReport_ShouldReturnSanitizedSummary()
+    {
+        using var fixture = CrashStoreFixture.Create();
+        var store = fixture.CreateStore();
+        var captured = Assert.IsType<CrashReportSummary>(store.Capture(fixture.CreateCapture(0)).Report);
+
+        var discovered = Assert.Single(store.DiscoverCompletedReports());
+
+        Assert.Equal(captured.ReportId, discovered.ReportId);
+        Assert.Equal(captured.CapturedAtUtc, discovered.CapturedAtUtc);
+        Assert.Equal(captured.BuildId, discovered.BuildId);
+        Assert.Equal(captured.ProcessArchitecture, discovered.ProcessArchitecture);
+        Assert.Equal(captured.StageOrMilestone, discovered.StageOrMilestone);
+        Assert.Equal(captured.ExceptionType, discovered.ExceptionType);
+        Assert.Equal(CrashReportFormat.ZipBundle, discovered.Format);
+    }
+
+    [Fact]
+    public void DiscoverCompletedReports_WithValidEmergencyReport_ShouldReturnSanitizedSummary()
+    {
+        using var fixture = CrashStoreFixture.Create();
+        fixture.ArtifactWriter.FailZip = true;
+        var store = fixture.CreateStore();
+        var captured = Assert.IsType<CrashReportSummary>(store.Capture(fixture.CreateCapture(0)).Report);
+
+        var discovered = Assert.Single(store.DiscoverCompletedReports());
+
+        Assert.Equal(captured.ReportId, discovered.ReportId);
+        Assert.Equal(captured.CapturedAtUtc, discovered.CapturedAtUtc);
+        Assert.Equal(CrashReportFormat.EmergencyText, discovered.Format);
+    }
+
+    [Fact]
+    public void DiscoverCompletedReports_WithNonMatchingFileNames_ShouldBeIgnored()
+    {
+        using var fixture = CrashStoreFixture.Create();
+        File.WriteAllText(Path.Combine(fixture.RootPath, "not-a-crash-report.txt"), "irrelevant");
+        File.WriteAllText(Path.Combine(fixture.RootPath, "random-file.zip"), "irrelevant");
+        var store = fixture.CreateStore();
+
+        Assert.Empty(store.DiscoverCompletedReports());
+    }
+
+    [Fact]
+    public void Capture_WithStartupMilestoneOnly_ShouldReportMilestoneAsStageOrMilestone()
+    {
+        using var fixture = CrashStoreFixture.Create();
+        var store = fixture.CreateStore();
+        var capture = fixture.CreateCapture(0) with
+        {
+            Context =
+            [
+                new CrashContextSnapshot(
+                    CrashContextKind.Startup,
+                    CrashContextStatus.Available,
+                    new Dictionary<string, object?>
+                    {
+                        ["Milestone"] = StartupCriticalPathMilestone.StartupActivation
+                    })
+            ]
+        };
+
+        var report = Assert.IsType<CrashReportSummary>(store.Capture(capture).Report);
+
+        Assert.Equal(StartupCriticalPathMilestone.StartupActivation.ToString(), report.StageOrMilestone);
+    }
+
+    [Fact]
+    public void Capture_WithNoAvailableContext_ShouldReportUnknownStageOrMilestone()
+    {
+        using var fixture = CrashStoreFixture.Create();
+        var store = fixture.CreateStore();
+        var capture = fixture.CreateCapture(0) with
+        {
+            Context =
+            [
+                new CrashContextSnapshot(
+                    CrashContextKind.Stage,
+                    CrashContextStatus.NotInitialized,
+                    new Dictionary<string, object?>())
+            ]
+        };
+
+        var report = Assert.IsType<CrashReportSummary>(store.Capture(capture).Report);
+
+        Assert.Equal("Unknown", report.StageOrMilestone);
+    }
+
+    [Fact]
+    public void Capture_WithStartupStageOnly_ShouldReportStartupAsString()
+    {
+        using var fixture = CrashStoreFixture.Create();
+        var store = fixture.CreateStore();
+        var capture = fixture.CreateCapture(0) with
+        {
+            Context =
+            [
+                new CrashContextSnapshot(
+                    CrashContextKind.Stage,
+                    CrashContextStatus.Available,
+                    new Dictionary<string, object?>
+                    {
+                        ["Stage"] = StageType.Startup
+                    })
+            ]
+        };
+
+        var report = Assert.IsType<CrashReportSummary>(store.Capture(capture).Report);
+
+        Assert.Equal("Unknown", report.StageOrMilestone);
+    }
+
+    [Fact]
+    public void Constructor_WithNullOrWhiteSpaceRootPath_ShouldThrow()
+    {
+        using var fixture = CrashStoreFixture.Create();
+
+        Assert.Throws<ArgumentException>(() => new CrashReportStore(
+            "",
+            fixture.ArtifactWriter,
+            fixture.Clock,
+            new StringWriter(CultureInfo.InvariantCulture)));
+    }
+
+    [Fact]
+    public void Constructor_WithNullWriter_ShouldThrow()
+    {
+        using var fixture = CrashStoreFixture.Create();
+
+        Assert.Throws<ArgumentNullException>(() => new CrashReportStore(
+            fixture.RootPath,
+            null!,
+            fixture.Clock,
+            new StringWriter(CultureInfo.InvariantCulture)));
+    }
+
+    [Fact]
+    public void Constructor_WithNullTimeProvider_ShouldThrow()
+    {
+        using var fixture = CrashStoreFixture.Create();
+
+        Assert.Throws<ArgumentNullException>(() => new CrashReportStore(
+            fixture.RootPath,
+            fixture.ArtifactWriter,
+            null!,
+            new StringWriter(CultureInfo.InvariantCulture)));
+    }
+
+    [Fact]
+    public void Constructor_WithNullErrorWriter_ShouldThrow()
+    {
+        using var fixture = CrashStoreFixture.Create();
+
+        Assert.Throws<ArgumentNullException>(() => new CrashReportStore(
+            fixture.RootPath,
+            fixture.ArtifactWriter,
+            fixture.Clock,
+            null!));
+    }
+
+    [Fact]
+    public void Capture_WithNullData_ShouldThrow()
+    {
+        using var fixture = CrashStoreFixture.Create();
+        var store = fixture.CreateStore();
+
+        Assert.Throws<ArgumentNullException>(() => store.Capture(null!));
+    }
+
     private static CrashReportDocument CreateArchiveDocument(Exception? exception = null)
     {
         var capturedAt = new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.Zero);
@@ -735,6 +952,7 @@ public sealed class CrashReportStoreTests
         private readonly CrashReportArchiveWriter _inner = new();
 
         internal bool FailZip { get; set; }
+        internal bool FailEmergency { get; set; }
         internal int ZipWriteCount { get; private set; }
         internal int EmergencyWriteCount { get; private set; }
         internal string? LastZipDestinationPath { get; private set; }
@@ -755,6 +973,12 @@ public sealed class CrashReportStoreTests
         public void WriteEmergencyText(Stream destination, CrashReportDocument document)
         {
             EmergencyWriteCount++;
+
+            if (FailEmergency)
+            {
+                throw new IOException("Simulated emergency writer failure.");
+            }
+
             _inner.WriteEmergencyText(destination, document);
         }
     }

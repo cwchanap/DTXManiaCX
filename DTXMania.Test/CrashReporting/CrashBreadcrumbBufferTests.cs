@@ -82,4 +82,77 @@ public sealed class CrashBreadcrumbBufferTests
         Assert.Equal(2, breadcrumb.Properties["MidiDeviceCount"]);
         Assert.False(breadcrumb.Properties.ContainsKey("MidiDeviceName"));
     }
+
+    [Fact]
+    public void Constructor_WithNullTimeProvider_ShouldThrow()
+    {
+        Assert.Throws<ArgumentNullException>(
+            () => new CrashBreadcrumbBuffer(null!, capacity: 2));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void Constructor_WithNonPositiveCapacity_ShouldThrow(int capacity)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new CrashBreadcrumbBuffer(TimeProvider.System, capacity));
+    }
+
+    [Fact]
+    public void Record_WithNullProperties_ShouldRetainEventName()
+    {
+        var buffer = new CrashBreadcrumbBuffer(TimeProvider.System, capacity: 2);
+
+        buffer.Record("stage_transition_completed", null);
+
+        var breadcrumb = Assert.Single(buffer.Snapshot());
+        Assert.Equal("stage_transition_completed", breadcrumb.EventName);
+        Assert.Empty(breadcrumb.Properties);
+    }
+
+    [Fact]
+    public void Record_WithEmptyProperties_ShouldRetainEventName()
+    {
+        var buffer = new CrashBreadcrumbBuffer(TimeProvider.System, capacity: 2);
+
+        buffer.Record("exit_requested", new Dictionary<string, object?>());
+
+        var breadcrumb = Assert.Single(buffer.Snapshot());
+        Assert.Equal("exit_requested", breadcrumb.EventName);
+        Assert.Empty(breadcrumb.Properties);
+    }
+
+    [Fact]
+    public void Capacity_ShouldDropOldestBreadcrumbs()
+    {
+        var buffer = new CrashBreadcrumbBuffer(TimeProvider.System, capacity: 2);
+
+        buffer.Record("process_started");
+        buffer.Record("exit_requested");
+        buffer.Record("graphics_device_lost");
+
+        var breadcrumbs = buffer.Snapshot();
+        Assert.Equal(2, breadcrumbs.Count);
+        Assert.Equal("exit_requested", breadcrumbs[0].EventName);
+        Assert.Equal("graphics_device_lost", breadcrumbs[1].EventName);
+    }
+
+    [Fact]
+    public void Record_WithKnownEventButAllUnsafeProperties_ShouldRetainEventWithEmptyProperties()
+    {
+        var buffer = new CrashBreadcrumbBuffer(TimeProvider.System, capacity: 2);
+
+        buffer.Record(
+            "graphics_settings_changed",
+            new Dictionary<string, object?>
+            {
+                ["SongTitle"] = "Secret Song",
+                ["DeviceName"] = "Secret Device"
+            });
+
+        var breadcrumb = Assert.Single(buffer.Snapshot());
+        Assert.Equal("graphics_settings_changed", breadcrumb.EventName);
+        Assert.Empty(breadcrumb.Properties);
+    }
 }
