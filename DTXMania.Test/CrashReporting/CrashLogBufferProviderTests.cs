@@ -41,7 +41,7 @@ public sealed class CrashLogBufferProviderTests
     public void UnknownStringValue_ShouldBeRedactedByCentralPolicy()
     {
         var normalized = Normalize(
-            propertyName: "Status",
+            propertyName: "Milestone",
             value: "Secret Song");
 
         Assert.Equal("[REDACTED]", normalized);
@@ -57,16 +57,16 @@ public sealed class CrashLogBufferProviderTests
         using var factory = LoggerFactory.Create(builder => builder.AddProvider(provider));
         var logger = factory.CreateLogger("test");
 
-        LogSafeStage(logger, StageType.Startup);
-        LogSafeStage(logger, StageType.Title);
-        LogSafeStage(logger, StageType.Config);
+        LogStageTransition(logger, StageType.Startup);
+        LogStageTransition(logger, StageType.Title);
+        LogStageTransition(logger, StageType.Config);
 
         var records = provider.Snapshot();
 
         Assert.Collection(
             records,
-            record => Assert.Equal(StageType.Title, record.Properties["Stage"]),
-            record => Assert.Equal(StageType.Config, record.Properties["Stage"]));
+            record => Assert.Equal(StageType.Title, record.Properties["TargetStage"]),
+            record => Assert.Equal(StageType.Config, record.Properties["TargetStage"]));
     }
 
     [Fact]
@@ -79,12 +79,12 @@ public sealed class CrashLogBufferProviderTests
         using var factory = LoggerFactory.Create(builder => builder.AddProvider(provider));
         var logger = factory.CreateLogger("test");
 
-        LogSafeStage(logger, StageType.Startup);
+        LogStageTransition(logger, StageType.Startup);
         var snapshot = provider.Snapshot();
-        LogSafeStage(logger, StageType.Title);
+        LogStageTransition(logger, StageType.Title);
 
         var record = Assert.Single(snapshot);
-        Assert.Equal(StageType.Startup, record.Properties["Stage"]);
+        Assert.Equal(StageType.Startup, record.Properties["TargetStage"]);
     }
 
     [Fact]
@@ -93,9 +93,9 @@ public sealed class CrashLogBufferProviderTests
         var policy = CrashLogFieldPolicy.Default;
         var timestamp = new DateTimeOffset(2026, 8, 2, 15, 30, 0, TimeSpan.FromHours(2));
 
-        Assert.Equal(42, Normalize("Count", 42));
-        Assert.Equal(true, Normalize("Enabled", true));
-        Assert.Equal(StageType.Title, Normalize("Stage", StageType.Title));
+        Assert.Equal(42, Normalize("MidiDeviceCount", 42));
+        Assert.Equal(true, Normalize("Fullscreen", true));
+        Assert.Equal(StageType.Title, Normalize("TargetStage", StageType.Title));
 
         var normalizedTimestamp = Assert.IsType<DateTimeOffset>(
             Normalize("Milestone", timestamp));
@@ -114,8 +114,8 @@ public sealed class CrashLogBufferProviderTests
         var logger = factory.CreateLogger("test");
 
         logger.LogInformation(
-            new EventId(5100, "crash_safe_stage"),
-            "Unsafe replacement template {Stage}",
+            CrashLogEvents.StageTransitionCompleted.EventId,
+            "Unsafe replacement template {TargetStage}",
             StageType.Title);
 
         var record = Assert.Single(provider.Snapshot());
@@ -134,8 +134,9 @@ public sealed class CrashLogBufferProviderTests
         var logger = factory.CreateLogger("test");
 
         logger.LogInformation(
-            new EventId(5100, "secret_event_name"),
-            "Crash-safe stage changed to {Stage}",
+            new EventId(CrashLogEvents.StageTransitionCompleted.Id, "secret_event_name"),
+            CrashLogEvents.StageTransitionCompleted.MessageTemplate,
+            StageType.Startup,
             StageType.Title);
 
         var record = Assert.Single(provider.Snapshot());
@@ -177,9 +178,10 @@ public sealed class CrashLogBufferProviderTests
         var exception = new InvalidOperationException("Secret exception message");
 
         logger.LogError(
-            new EventId(5100, "crash_safe_stage"),
+            CrashLogEvents.StageTransitionCompleted.EventId,
             exception,
-            "Crash-safe stage changed to {Stage}",
+            CrashLogEvents.StageTransitionCompleted.MessageTemplate,
+            StageType.Startup,
             StageType.Title);
 
         var record = Assert.Single(provider.Snapshot());
@@ -202,21 +204,21 @@ public sealed class CrashLogBufferProviderTests
 
         logger.Log(
             LogLevel.Information,
-            new EventId(5100, "crash_safe_stage"),
+            CrashLogEvents.StageTransitionCompleted.EventId,
             new Dictionary<string, object?>
             {
-                ["Stage"] = StageType.Title,
-                ["Status"] = "Secret Song",
+                ["TargetStage"] = StageType.Title,
+                ["Milestone"] = "Secret Song",
                 ["SongTitle"] = "Secret Song Name",
-                ["{OriginalFormat}"] = "Crash-safe stage changed to {Stage}"
+                ["{OriginalFormat}"] = CrashLogEvents.StageTransitionCompleted.MessageTemplate
             },
             exception: null,
             static (_, _) => throw new InvalidOperationException("Formatter must not be rendered."));
 
         var record = Assert.Single(provider.Snapshot());
-        Assert.Equal("Crash-safe stage changed to {Stage}", record.MessageTemplate);
-        Assert.Equal(StageType.Title, record.Properties["Stage"]);
-        Assert.Equal("[REDACTED]", record.Properties["Status"]);
+        Assert.Equal(CrashLogEvents.StageTransitionCompleted.MessageTemplate, record.MessageTemplate);
+        Assert.Equal(StageType.Title, record.Properties["TargetStage"]);
+        Assert.Equal("[REDACTED]", record.Properties["Milestone"]);
         Assert.False(record.Properties.ContainsKey("SongTitle"));
     }
 
@@ -278,7 +280,7 @@ public sealed class CrashLogBufferProviderTests
         var logger = factory.CreateLogger("test");
 
         provider.Dispose();
-        LogSafeStage(logger, StageType.Title);
+        LogStageTransition(logger, StageType.Title);
 
         Assert.Empty(provider.Snapshot());
     }
@@ -354,11 +356,12 @@ public sealed class CrashLogBufferProviderTests
         Assert.Equal("[UNCLASSIFIED MESSAGE OMITTED]", record.MessageTemplate);
     }
 
-    private static void LogSafeStage(ILogger logger, StageType stage)
+    private static void LogStageTransition(ILogger logger, StageType stage)
     {
-        logger.LogInformation(
-            new EventId(5100, "crash_safe_stage"),
-            "Crash-safe stage changed to {Stage}",
+        logger.LogCrashEvent(
+            LogLevel.Information,
+            CrashLogEvents.StageTransitionCompleted,
+            StageType.Startup,
             stage);
     }
 }

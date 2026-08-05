@@ -120,7 +120,7 @@ internal static class CrashContextPublisher
             CrashContextKind.Startup,
             CrashContextStatus.Available,
             fields));
-        diagnostics.Breadcrumbs.Record("initialization_milestone_reached", fields);
+        diagnostics.Breadcrumbs.Record(CrashBreadcrumbEvents.InitializationMilestoneReached, fields);
     }
 
     internal static void PublishGraphics(

@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.InteropServices;
 using DTXMania.Game.Lib.Stage;
 using Microsoft.Extensions.Logging;
@@ -20,9 +21,12 @@ internal sealed class CrashLogFieldPolicy
     private const int MaximumReportedCount = 100_000;
     private const int MaximumBufferMilliseconds = 60_000;
 
+    /// <summary>
+    /// Every property name a breadcrumb or log call may carry into a crash report. A name that is
+    /// not here is dropped, so adding a field to a call site is a deliberate two-step act.
+    /// </summary>
     private static readonly HashSet<string> AllowedPropertyNames = new(StringComparer.Ordinal)
     {
-        "Stage",
         "PreviousStage",
         "TargetStage",
         "Milestone",
@@ -31,36 +35,17 @@ internal sealed class CrashLogFieldPolicy
         "Fullscreen",
         "VSync",
         "MidiDeviceCount",
-        "Enabled",
-        "Count",
-        "Status",
         "Reason"
     };
 
-    private readonly IReadOnlyDictionary<int, CrashLogEventDefinition> _events;
+    private readonly IReadOnlyDictionary<int, CrashLogEvent> _events;
 
     internal static EventId UnclassifiedEventId { get; } = default;
 
-    internal static CrashLogFieldPolicy Default { get; } = new(new Dictionary<int, CrashLogEventDefinition>
-    {
-        [5100] = new(5100, "crash_safe_stage", "Crash-safe stage changed to {Stage}"),
-        [5101] = new(5101, "crash_runtime_started", "Crash reporting runtime started"),
-        [5102] = new(5102, "startup_milestone_reached", "Startup milestone reached: {Milestone}"),
-        [5103] = new(5103, "stage_transition_requested", "Stage transition requested: {PreviousStage} -> {TargetStage}"),
-        [5104] = new(5104, "stage_transition_started", "Stage transition started: {PreviousStage} -> {TargetStage}"),
-        [5105] = new(5105, "stage_transition_completed", "Stage transition completed: {PreviousStage} -> {TargetStage}"),
-        [5106] = new(5106, "configuration_screen_changed", "Configuration screen {Status}"),
-        [5107] = new(5107, "graphics_settings_changed", "Graphics settings updated: {Width}x{Height}, fullscreen={Fullscreen}, vsync={VSync}"),
-        [5108] = new(5108, "midi_device_count_changed", "MIDI device count: {MidiDeviceCount}"),
-        [5109] = new(5109, "crash_runtime_disabled", "Crash reporting runtime disabled"),
-        [5110] = new(5110, "exit_requested", "Orderly exit requested"),
-        [5111] = new(5111, "stage_transition_rejected", "Stage transition rejected: {Reason}"),
-        [5112] = new(5112, "graphics_device_lost", "Graphics device lost"),
-        [5113] = new(5113, "graphics_device_reset", "Graphics device reset"),
-        [5114] = new(5114, "graphics_initialized", "Graphics initialized: {Width}x{Height}, fullscreen={Fullscreen}, vsync={VSync}")
-    });
+    internal static CrashLogFieldPolicy Default { get; } =
+        new(CrashLogEvents.All.ToDictionary(static crashEvent => crashEvent.Id));
 
-    private CrashLogFieldPolicy(IReadOnlyDictionary<int, CrashLogEventDefinition> events)
+    private CrashLogFieldPolicy(IReadOnlyDictionary<int, CrashLogEvent> events)
     {
         _events = events;
     }
@@ -155,14 +140,6 @@ internal sealed class CrashLogFieldPolicy
                 {
                     return true;
                 }
-
-                // Preserve the prior in-memory redaction behavior for a legacy diagnostic
-                // field without allowing its original value through the context cache.
-                if (propertyName == "Status")
-                {
-                    normalizedValue = RedactedValue;
-                    return true;
-                }
                 break;
 
             case CrashContextKind.Graphics:
@@ -177,9 +154,6 @@ internal sealed class CrashLogFieldPolicy
                 {
                     return true;
                 }
-                break;
-
-            case CrashContextKind.Audio:
                 break;
         }
 
@@ -382,6 +356,4 @@ internal sealed class CrashLogFieldPolicy
 
         return value;
     }
-
-    private sealed record CrashLogEventDefinition(int Id, string Name, string MessageTemplate);
 }

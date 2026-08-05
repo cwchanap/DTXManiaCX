@@ -81,7 +81,7 @@ public sealed class CrashReportIntegrationTests
 
             runtime.GameDiagnostics.Contexts.SetSnapshot(new CrashContextSnapshot(
                 CrashContextKind.Graphics,
-                CrashContextStatus.CollectionFailed,
+                CrashContextStatus.Unavailable,
                 new Dictionary<string, object?>
                 {
                     ["GameApiKey"] = apiKey,
@@ -90,7 +90,7 @@ public sealed class CrashReportIntegrationTests
                 },
                 FailureCode: "graphics_context_collection_failed"));
             runtime.GameDiagnostics.Breadcrumbs.Record(
-                "midi_device_attached",
+                CrashBreadcrumbEvents.MidiDeviceCountChanged,
                 new Dictionary<string, object?>
                 {
                     ["Status"] = midiStableId,
@@ -106,7 +106,7 @@ public sealed class CrashReportIntegrationTests
 
             var allText = File.ReadAllText(Assert.Single(EnumerateCompletedReportPaths()));
 
-            Assert.Contains("Graphics [CollectionFailed] [REDACTED]", allText, StringComparison.Ordinal);
+            Assert.Contains("Graphics [Unavailable] [REDACTED]", allText, StringComparison.Ordinal);
             Assert.DoesNotContain(apiKey, allText, StringComparison.Ordinal);
             Assert.DoesNotContain("GameApiKey", allText, StringComparison.Ordinal);
             Assert.DoesNotContain(skinPath, allText, StringComparison.OrdinalIgnoreCase);

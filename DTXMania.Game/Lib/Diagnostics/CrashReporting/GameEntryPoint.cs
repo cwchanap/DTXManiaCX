@@ -13,7 +13,12 @@ internal interface IGameApplication : IDisposable
 internal interface ICrashRuntimeLifetime : IDisposable
 {
     void CaptureFatal(Exception exception);
-    void RecordSecondaryFailure(string failureCode, Exception exception);
+
+    /// <summary>
+    /// Notes that crash handling itself failed. Only the code is recorded — by this point the
+    /// report machinery is the thing that broke, so there is nowhere safe to put an exception.
+    /// </summary>
+    void RecordSecondaryFailure(string failureCode);
 }
 
 internal static class GameEntryPoint
@@ -52,13 +57,9 @@ internal static class GameEntryPoint
                 {
                     game.Dispose();
                 }
-                catch (Exception exception)
+                catch (Exception)
                 {
-                    RecordSecondaryFailure(
-                        crashRuntime,
-                        GameDisposeFailureCode,
-                        exception,
-                        errorWriter);
+                    RecordSecondaryFailure(crashRuntime, GameDisposeFailureCode, errorWriter);
                 }
             }
 
@@ -84,25 +85,20 @@ internal static class GameEntryPoint
         {
             crashRuntime.CaptureFatal(originalException);
         }
-        catch (Exception exception)
+        catch (Exception)
         {
-            RecordSecondaryFailure(
-                crashRuntime,
-                CaptureFailureCode,
-                exception,
-                errorWriter);
+            RecordSecondaryFailure(crashRuntime, CaptureFailureCode, errorWriter);
         }
     }
 
     private static void RecordSecondaryFailure(
         ICrashRuntimeLifetime crashRuntime,
         string failureCode,
-        Exception exception,
         TextWriter errorWriter)
     {
         try
         {
-            crashRuntime.RecordSecondaryFailure(failureCode, exception);
+            crashRuntime.RecordSecondaryFailure(failureCode);
         }
         catch (Exception)
         {

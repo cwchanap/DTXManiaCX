@@ -14,15 +14,15 @@ public sealed class CrashBreadcrumbBufferTests
         var buffer = new CrashBreadcrumbBuffer(TimeProvider.System, capacity: 2);
 
         buffer.Record(
-            "stage_transition_requested",
+            CrashBreadcrumbEvents.StageTransitionRequested,
             new Dictionary<string, object?> { ["TargetStage"] = StageType.Title });
         var snapshot = buffer.Snapshot();
         buffer.Record(
-            "stage_transition_completed",
+            CrashBreadcrumbEvents.StageTransitionCompleted,
             new Dictionary<string, object?> { ["TargetStage"] = StageType.Title });
 
         Assert.Single(snapshot);
-        Assert.Equal("stage_transition_requested", snapshot[0].EventName);
+        Assert.Equal(CrashBreadcrumbEvents.StageTransitionRequested, snapshot[0].EventName);
     }
 
     [Fact]
@@ -39,7 +39,7 @@ public sealed class CrashBreadcrumbBufferTests
             });
 
         var breadcrumb = Assert.Single(buffer.Snapshot());
-        Assert.Equal("unknown_event", breadcrumb.EventName);
+        Assert.Equal(CrashBreadcrumbEvents.Unknown, breadcrumb.EventName);
         Assert.Empty(breadcrumb.Properties);
     }
 
@@ -49,17 +49,17 @@ public sealed class CrashBreadcrumbBufferTests
         var buffer = new CrashBreadcrumbBuffer(TimeProvider.System, capacity: 2);
 
         buffer.Record(
-            "stage_transition_requested",
+            CrashBreadcrumbEvents.StageTransitionRequested,
             new Dictionary<string, object?>
             {
                 ["TargetStage"] = StageType.Title,
-                ["Status"] = "Secret Song",
+                ["Milestone"] = "Secret Song",
                 ["SongTitle"] = "Secret Song Name"
             });
 
         var breadcrumb = Assert.Single(buffer.Snapshot());
         Assert.Equal(StageType.Title, breadcrumb.Properties["TargetStage"]);
-        Assert.Equal("[REDACTED]", breadcrumb.Properties["Status"]);
+        Assert.Equal("[REDACTED]", breadcrumb.Properties["Milestone"]);
         Assert.False(breadcrumb.Properties.ContainsKey("SongTitle"));
     }
 
@@ -69,7 +69,7 @@ public sealed class CrashBreadcrumbBufferTests
         var buffer = new CrashBreadcrumbBuffer(TimeProvider.System, capacity: 2);
 
         buffer.Record(
-            "midi_device_count_changed",
+            CrashBreadcrumbEvents.MidiDeviceCountChanged,
             new Dictionary<string, object?>
             {
                 ["MidiDeviceCount"] = 2,
@@ -78,7 +78,7 @@ public sealed class CrashBreadcrumbBufferTests
 
         var breadcrumb = Assert.Single(buffer.Snapshot());
 
-        Assert.Equal("midi_device_count_changed", breadcrumb.EventName);
+        Assert.Equal(CrashBreadcrumbEvents.MidiDeviceCountChanged, breadcrumb.EventName);
         Assert.Equal(2, breadcrumb.Properties["MidiDeviceCount"]);
         Assert.False(breadcrumb.Properties.ContainsKey("MidiDeviceName"));
     }
@@ -104,10 +104,10 @@ public sealed class CrashBreadcrumbBufferTests
     {
         var buffer = new CrashBreadcrumbBuffer(TimeProvider.System, capacity: 2);
 
-        buffer.Record("stage_transition_completed", null);
+        buffer.Record(CrashBreadcrumbEvents.StageTransitionCompleted, null);
 
         var breadcrumb = Assert.Single(buffer.Snapshot());
-        Assert.Equal("stage_transition_completed", breadcrumb.EventName);
+        Assert.Equal(CrashBreadcrumbEvents.StageTransitionCompleted, breadcrumb.EventName);
         Assert.Empty(breadcrumb.Properties);
     }
 
@@ -116,10 +116,10 @@ public sealed class CrashBreadcrumbBufferTests
     {
         var buffer = new CrashBreadcrumbBuffer(TimeProvider.System, capacity: 2);
 
-        buffer.Record("exit_requested", new Dictionary<string, object?>());
+        buffer.Record(CrashBreadcrumbEvents.StageTransitionRejected, new Dictionary<string, object?>());
 
         var breadcrumb = Assert.Single(buffer.Snapshot());
-        Assert.Equal("exit_requested", breadcrumb.EventName);
+        Assert.Equal(CrashBreadcrumbEvents.StageTransitionRejected, breadcrumb.EventName);
         Assert.Empty(breadcrumb.Properties);
     }
 
@@ -128,14 +128,14 @@ public sealed class CrashBreadcrumbBufferTests
     {
         var buffer = new CrashBreadcrumbBuffer(TimeProvider.System, capacity: 2);
 
-        buffer.Record("process_started");
-        buffer.Record("exit_requested");
-        buffer.Record("graphics_device_lost");
+        buffer.Record(CrashBreadcrumbEvents.ProcessStarted);
+        buffer.Record(CrashBreadcrumbEvents.StageTransitionRejected);
+        buffer.Record(CrashBreadcrumbEvents.GraphicsDeviceLost);
 
         var breadcrumbs = buffer.Snapshot();
         Assert.Equal(2, breadcrumbs.Count);
-        Assert.Equal("exit_requested", breadcrumbs[0].EventName);
-        Assert.Equal("graphics_device_lost", breadcrumbs[1].EventName);
+        Assert.Equal(CrashBreadcrumbEvents.StageTransitionRejected, breadcrumbs[0].EventName);
+        Assert.Equal(CrashBreadcrumbEvents.GraphicsDeviceLost, breadcrumbs[1].EventName);
     }
 
     [Fact]
@@ -144,7 +144,7 @@ public sealed class CrashBreadcrumbBufferTests
         var buffer = new CrashBreadcrumbBuffer(TimeProvider.System, capacity: 2);
 
         buffer.Record(
-            "graphics_settings_changed",
+            CrashBreadcrumbEvents.GraphicsSettingsChanged,
             new Dictionary<string, object?>
             {
                 ["SongTitle"] = "Secret Song",
@@ -152,7 +152,7 @@ public sealed class CrashBreadcrumbBufferTests
             });
 
         var breadcrumb = Assert.Single(buffer.Snapshot());
-        Assert.Equal("graphics_settings_changed", breadcrumb.EventName);
+        Assert.Equal(CrashBreadcrumbEvents.GraphicsSettingsChanged, breadcrumb.EventName);
         Assert.Empty(breadcrumb.Properties);
     }
 }

@@ -29,7 +29,7 @@ internal sealed class CrashBreadcrumbBuffer : ICrashBreadcrumbSink
     {
         var breadcrumb = CrashBreadcrumbEvents.IsStableEvent(eventName)
             ? new CrashBreadcrumb(_timeProvider.GetUtcNow(), eventName, NormalizeProperties(properties))
-            : new CrashBreadcrumb(_timeProvider.GetUtcNow(), "unknown_event", EmptyProperties.Instance);
+            : new CrashBreadcrumb(_timeProvider.GetUtcNow(), CrashBreadcrumbEvents.Unknown, ReadOnlyDictionary<string, object?>.Empty);
 
         lock (_gate)
         {
@@ -54,7 +54,7 @@ internal sealed class CrashBreadcrumbBuffer : ICrashBreadcrumbSink
     {
         if (properties is null || properties.Count == 0)
         {
-            return EmptyProperties.Instance;
+            return ReadOnlyDictionary<string, object?>.Empty;
         }
 
         var normalizedProperties = new Dictionary<string, object?>(StringComparer.Ordinal);
@@ -67,13 +67,7 @@ internal sealed class CrashBreadcrumbBuffer : ICrashBreadcrumbSink
         }
 
         return normalizedProperties.Count == 0
-            ? EmptyProperties.Instance
+            ? ReadOnlyDictionary<string, object?>.Empty
             : new ReadOnlyDictionary<string, object?>(normalizedProperties);
-    }
-
-    private static class EmptyProperties
-    {
-        internal static IReadOnlyDictionary<string, object?> Instance { get; } =
-            new ReadOnlyDictionary<string, object?>(new Dictionary<string, object?>());
     }
 }

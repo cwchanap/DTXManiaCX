@@ -186,8 +186,8 @@ public sealed class CrashReportTextWriterTests
             .Select(index => new CrashLogRecord(
                 CapturedAt.AddSeconds(index),
                 LogLevel.Information,
-                new EventId(5101, "crash_runtime_started"),
-                "Crash reporting runtime started",
+                CrashLogEvents.GraphicsDeviceReset.EventId,
+                CrashLogEvents.GraphicsDeviceReset.MessageTemplate,
                 new Dictionary<string, object?>(StringComparer.Ordinal) { ["Count"] = index },
                 null))
             .ToArray();

@@ -105,7 +105,7 @@ internal sealed class CrashLogBufferProvider : ILoggerProvider
             logLevel,
             CrashLogFieldPolicy.UnclassifiedEventId,
             CrashLogFieldPolicy.UnclassifiedMessageTemplate,
-            EmptyProperties.Instance,
+            ReadOnlyDictionary<string, object?>.Empty,
             GetExceptionType(exception));
     }
 
@@ -146,7 +146,7 @@ internal sealed class CrashLogBufferProvider : ILoggerProvider
             {
                 originalFormat = property.Value as string;
             }
-            else if (_policy.TryNormalizeProperty(property.Key, property.Value, out _))
+            else
             {
                 rawProperties.Add(property);
             }
@@ -163,7 +163,7 @@ internal sealed class CrashLogBufferProvider : ILoggerProvider
     private static IReadOnlyDictionary<string, object?> FreezeProperties(Dictionary<string, object?> properties)
     {
         return properties.Count == 0
-            ? EmptyProperties.Instance
+            ? ReadOnlyDictionary<string, object?>.Empty
             : new ReadOnlyDictionary<string, object?>(properties);
     }
 
@@ -209,11 +209,5 @@ internal sealed class CrashLogBufferProvider : ILoggerProvider
         public void Dispose()
         {
         }
-    }
-
-    private static class EmptyProperties
-    {
-        internal static IReadOnlyDictionary<string, object?> Instance { get; } =
-            new ReadOnlyDictionary<string, object?>(new Dictionary<string, object?>());
     }
 }

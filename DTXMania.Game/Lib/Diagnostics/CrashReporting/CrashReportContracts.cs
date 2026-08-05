@@ -21,9 +21,7 @@ public enum CrashContextKind
 public enum CrashContextStatus
 {
     Available,
-    NotInitialized,
-    Unavailable,
-    CollectionFailed
+    Unavailable
 }
 
 public sealed record CrashReportSummary(

@@ -97,7 +97,7 @@ public sealed class CrashReportRuntime : ICrashRuntimeLifetime
             CrashContextPublisher.PublishProcessAndApplication(
                 runtime.GameDiagnostics,
                 processStartedUtc);
-            runtime.GameDiagnostics.Breadcrumbs.Record("process_started");
+            runtime.GameDiagnostics.Breadcrumbs.Record(CrashBreadcrumbEvents.ProcessStarted);
             return runtime;
         }
         catch (Exception exception) when (IsExpectedBootstrapException(exception))
@@ -149,10 +149,8 @@ public sealed class CrashReportRuntime : ICrashRuntimeLifetime
         }
     }
 
-    public void RecordSecondaryFailure(string failureCode, Exception exception)
+    public void RecordSecondaryFailure(string failureCode)
     {
-        ArgumentNullException.ThrowIfNull(exception);
-
         WriteSafeError(
             _errorWriter,
             "crash_reporting_secondary_failure code=" + NormalizeSecondaryFailureCode(failureCode));

@@ -129,7 +129,7 @@ public sealed class CrashReportStoreTests
             [
                 new CrashContextSnapshot(
                     CrashContextKind.Stage,
-                    CrashContextStatus.CollectionFailed,
+                    CrashContextStatus.Unavailable,
                     new Dictionary<string, object?> { ["Stage"] = StageType.SongSelect })
             ]
         };
@@ -304,9 +304,9 @@ public sealed class CrashReportStoreTests
                     new CrashLogRecord(
                         Clock.GetUtcNow(),
                         LogLevel.Information,
-                        new EventId(5100, "crash_safe_stage"),
-                        "Crash-safe stage changed to {Stage}",
-                        new Dictionary<string, object?> { ["Stage"] = StageType.Title },
+                        CrashLogEvents.StageTransitionCompleted.EventId,
+                        CrashLogEvents.StageTransitionCompleted.MessageTemplate,
+                        new Dictionary<string, object?> { ["TargetStage"] = StageType.Title },
                         ExceptionType: null)
                 ],
                 [
