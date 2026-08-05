@@ -62,7 +62,7 @@ public sealed class GameEntryPointTests
             dispose: () => calls.Add("dispose"));
         var runtime = new FakeCrashRuntime(
             capture: _ => throw new IOException("capture failed"),
-            recordSecondaryFailure: (code, _) => calls.Add("secondary:" + code),
+            recordSecondaryFailure: code => calls.Add("secondary:" + code),
             dispose: () => calls.Add("runtime_dispose"));
 
         var exitCode = GameEntryPoint.Run(() => game, runtime, TextWriter.Null);
@@ -85,7 +85,7 @@ public sealed class GameEntryPointTests
                 throw new IOException("game disposal failed");
             });
         var runtime = new FakeCrashRuntime(
-            recordSecondaryFailure: (code, _) => calls.Add("secondary:" + code),
+            recordSecondaryFailure: code => calls.Add("secondary:" + code),
             dispose: () => calls.Add("runtime_dispose"));
 
         var exitCode = GameEntryPoint.Run(() => game, runtime, TextWriter.Null);
@@ -144,20 +144,19 @@ public sealed class GameEntryPointTests
     public void Run_WhenFatalGameAndDisposalBothFail_ShouldPreserveOriginalAndReportSecondaryFailure()
     {
         Exception? captured = null;
-        (string Code, Exception Exception)? secondaryFailure = null;
+        string? secondaryFailureCode = null;
         var game = new FakeGameApplication(
             run: () => throw new InvalidOperationException("fatal"),
             dispose: () => throw new IOException("disposal failed"));
         var runtime = new FakeCrashRuntime(
             capture: exception => captured = exception,
-            recordSecondaryFailure: (code, exception) => secondaryFailure = (code, exception));
+            recordSecondaryFailure: code => secondaryFailureCode = code);
 
         var exitCode = GameEntryPoint.Run(() => game, runtime, TextWriter.Null);
 
         Assert.Equal(1, exitCode);
         Assert.IsType<InvalidOperationException>(captured);
-        Assert.Equal("game_dispose_failed", secondaryFailure?.Code);
-        Assert.IsType<IOException>(secondaryFailure?.Exception);
+        Assert.Equal("game_dispose_failed", secondaryFailureCode);
     }
 
     private sealed class FakeGameApplication : IGameApplication
@@ -185,12 +184,12 @@ public sealed class GameEntryPointTests
     private sealed class FakeCrashRuntime : ICrashRuntimeLifetime
     {
         private readonly Action<Exception>? _capture;
-        private readonly Action<string, Exception>? _recordSecondaryFailure;
+        private readonly Action<string>? _recordSecondaryFailure;
         private readonly Action _dispose;
 
         internal FakeCrashRuntime(
             Action<Exception>? capture = null,
-            Action<string, Exception>? recordSecondaryFailure = null,
+            Action<string>? recordSecondaryFailure = null,
             Action? dispose = null)
         {
             _capture = capture;
@@ -203,9 +202,9 @@ public sealed class GameEntryPointTests
             _capture?.Invoke(exception);
         }
 
-        public void RecordSecondaryFailure(string failureCode, Exception exception)
+        public void RecordSecondaryFailure(string failureCode)
         {
-            _recordSecondaryFailure?.Invoke(failureCode, exception);
+            _recordSecondaryFailure?.Invoke(failureCode);
         }
 
         public void Dispose()

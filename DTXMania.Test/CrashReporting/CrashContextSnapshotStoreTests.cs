@@ -48,12 +48,12 @@ public sealed class CrashContextSnapshotStoreTests
         fields["Stage"] = StageType.Title;
         store.SetSnapshot(new CrashContextSnapshot(
             CrashContextKind.Input,
-            CrashContextStatus.NotInitialized,
+            CrashContextStatus.Unavailable,
             new Dictionary<string, object?>()));
 
         var stage = Assert.Single(snapshot);
         Assert.Equal(StageType.Startup, stage.Fields["Stage"]);
-        Assert.Equal("[REDACTED]", stage.Fields["Status"]);
+        Assert.False(stage.Fields.ContainsKey("Status"));
         Assert.False(stage.Fields.ContainsKey("SongTitle"));
         Assert.Equal("[REDACTED]", stage.FailureCode);
     }
@@ -212,7 +212,7 @@ public sealed class CrashContextSnapshotStoreTests
 
         store.SetSnapshot(new CrashContextSnapshot(
             CrashContextKind.Graphics,
-            CrashContextStatus.CollectionFailed,
+            CrashContextStatus.Unavailable,
             new Dictionary<string, object?>(),
             FailureCode: "graphics_secret_failure"));
 

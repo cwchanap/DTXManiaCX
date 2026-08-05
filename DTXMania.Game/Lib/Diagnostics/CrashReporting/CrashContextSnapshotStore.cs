@@ -100,13 +100,7 @@ internal sealed class CrashContextSnapshotStore : ICrashContextSink, ICrashSensi
         }
 
         return normalizedFields.Count == 0
-            ? EmptyFields.Instance
+            ? ReadOnlyDictionary<string, object?>.Empty
             : new ReadOnlyDictionary<string, object?>(normalizedFields);
-    }
-
-    private static class EmptyFields
-    {
-        internal static IReadOnlyDictionary<string, object?> Instance { get; } =
-            new ReadOnlyDictionary<string, object?>(new Dictionary<string, object?>());
     }
 }

@@ -305,9 +305,9 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
         }
 
         var initializedGraphicsSettings = _graphicsManager.Settings;
-        _logger.LogInformation(
-            new EventId(5114, "graphics_initialized"),
-            "Graphics initialized: {Width}x{Height}, fullscreen={Fullscreen}, vsync={VSync}",
+        _logger.LogCrashEvent(
+            LogLevel.Information,
+            CrashLogEvents.GraphicsInitialized,
             initializedGraphicsSettings.Width,
             initializedGraphicsSettings.Height,
             initializedGraphicsSettings.IsFullscreen,
@@ -806,12 +806,12 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
             ["Fullscreen"] = e.NewSettings.IsFullscreen,
             ["VSync"] = e.NewSettings.VSync
         };
-        _gameCrashDiagnostics.Breadcrumbs.Record("graphics_settings_changed", safeSettingsFields);
+        _gameCrashDiagnostics.Breadcrumbs.Record(CrashBreadcrumbEvents.GraphicsSettingsChanged, safeSettingsFields);
 
         // Log the change
-        _logger.LogInformation(
-            new EventId(5107, "graphics_settings_changed"),
-            "Graphics settings updated: {Width}x{Height}, fullscreen={Fullscreen}, vsync={VSync}",
+        _logger.LogCrashEvent(
+            LogLevel.Information,
+            CrashLogEvents.GraphicsSettingsChanged,
             e.NewSettings.Width,
             e.NewSettings.Height,
             e.NewSettings.IsFullscreen,
@@ -853,10 +853,8 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
             CrashContextPublisher.PublishGraphics(_gameCrashDiagnostics, settings, isDeviceAvailable: false);
         }
 
-        _gameCrashDiagnostics.Breadcrumbs.Record("graphics_device_lost");
-        _logger.LogWarning(
-            new EventId(5112, "graphics_device_lost"),
-            "Graphics device lost");
+        _gameCrashDiagnostics.Breadcrumbs.Record(CrashBreadcrumbEvents.GraphicsDeviceLost);
+        _logger.LogCrashEvent(LogLevel.Warning, CrashLogEvents.GraphicsDeviceLost);
     }
 
     private void OnGameExiting(object? sender, EventArgs e)
@@ -892,10 +890,8 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
                 _graphicsManager.IsDeviceAvailable);
         }
 
-        _gameCrashDiagnostics.Breadcrumbs.Record("graphics_device_reset");
-        _logger.LogInformation(
-            new EventId(5113, "graphics_device_reset"),
-            "Graphics device reset");
+        _gameCrashDiagnostics.Breadcrumbs.Record(CrashBreadcrumbEvents.GraphicsDeviceReset);
+        _logger.LogCrashEvent(LogLevel.Information, CrashLogEvents.GraphicsDeviceReset);
 
         // Ensure our main render target is recreated after device reset
         try
@@ -928,10 +924,10 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
         {
             ["MidiDeviceCount"] = midiDeviceCount
         };
-        _gameCrashDiagnostics.Breadcrumbs.Record("midi_device_count_changed", fields);
-        _logger.LogDebug(
-            new EventId(5108, "midi_device_count_changed"),
-            "MIDI device count: {MidiDeviceCount}",
+        _gameCrashDiagnostics.Breadcrumbs.Record(CrashBreadcrumbEvents.MidiDeviceCountChanged, fields);
+        _logger.LogCrashEvent(
+            LogLevel.Debug,
+            CrashLogEvents.MidiDeviceCountChanged,
             midiDeviceCount);
     }
 

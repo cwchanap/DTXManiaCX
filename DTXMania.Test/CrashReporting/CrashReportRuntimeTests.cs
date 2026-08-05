@@ -43,15 +43,16 @@ public sealed class CrashReportRuntimeTests
                 storeFactory: () => CreateStore(reportRoot));
             var logger = runtime.GameDiagnostics.LoggerFactory.CreateLogger("probe");
 
-            logger.LogInformation(
-                new EventId(5100, "crash_safe_stage"),
-                "Crash-safe stage changed to {Stage}",
+            logger.LogCrashEvent(
+                LogLevel.Information,
+                CrashLogEvents.StageTransitionCompleted,
+                StageType.Startup,
                 StageType.Title);
 
             var provider = Assert.IsType<CrashLogBufferProvider>(runtime.CrashLogBufferProvider);
             var record = Assert.Single(provider.Snapshot());
             Assert.True(runtime.IsCaptureEnabled);
-            Assert.Equal(StageType.Title, record.Properties["Stage"]);
+            Assert.Equal(StageType.Title, record.Properties["TargetStage"]);
             Assert.False(Directory.Exists(reportRoot));
         }
         finally
@@ -209,31 +210,16 @@ public sealed class CrashReportRuntimeTests
             crashReportStore: null,
             errorWriter);
 
-        runtime.RecordSecondaryFailure("crash_capture_failed", new IOException("capture failed"));
-        runtime.RecordSecondaryFailure("game_dispose_failed", new IOException("dispose failed"));
-        runtime.RecordSecondaryFailure("runtime_dispose_failed", new IOException("runtime dispose failed"));
-        runtime.RecordSecondaryFailure("unknown_code", new IOException("unknown"));
+        runtime.RecordSecondaryFailure("crash_capture_failed");
+        runtime.RecordSecondaryFailure("game_dispose_failed");
+        runtime.RecordSecondaryFailure("runtime_dispose_failed");
+        runtime.RecordSecondaryFailure("unknown_code");
 
         var output = errorWriter.ToString();
         Assert.Contains("code=crash_capture_failed", output);
         Assert.Contains("code=game_dispose_failed", output);
         Assert.Contains("code=runtime_dispose_failed", output);
         Assert.Contains("code=secondary_failure", output);
-    }
-
-    [Fact]
-    public void RecordSecondaryFailure_WithNullException_ShouldThrow()
-    {
-        var runtime = new CrashReportRuntime(
-            Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance,
-            crashLogBufferProvider: null,
-            crashBreadcrumbBuffer: null,
-            crashContextSnapshotStore: null,
-            crashReportStore: null,
-            TextWriter.Null);
-
-        Assert.Throws<ArgumentNullException>(
-            () => runtime.RecordSecondaryFailure("code", null!));
     }
 
     [Fact]

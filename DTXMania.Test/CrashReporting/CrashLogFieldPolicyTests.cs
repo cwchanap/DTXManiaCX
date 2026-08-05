@@ -80,87 +80,87 @@ public sealed class CrashLogFieldPolicyTests
     [Fact]
     public void NormalizeProperty_WithByteScalar_ShouldRetain()
     {
-        Assert.Equal((byte)5, Normalize("Count", (byte)5));
+        Assert.Equal((byte)5, Normalize("MidiDeviceCount", (byte)5));
     }
 
     [Fact]
     public void NormalizeProperty_WithSignedByteScalar_ShouldRetain()
     {
-        Assert.Equal((sbyte)-3, Normalize("Count", (sbyte)(-3)));
+        Assert.Equal((sbyte)-3, Normalize("MidiDeviceCount", (sbyte)(-3)));
     }
 
     [Fact]
     public void NormalizeProperty_WithShortScalar_ShouldRetain()
     {
-        Assert.Equal((short)7, Normalize("Count", (short)7));
+        Assert.Equal((short)7, Normalize("MidiDeviceCount", (short)7));
     }
 
     [Fact]
     public void NormalizeProperty_WithUnsignedShortScalar_ShouldRetain()
     {
-        Assert.Equal((ushort)9, Normalize("Count", (ushort)9));
+        Assert.Equal((ushort)9, Normalize("MidiDeviceCount", (ushort)9));
     }
 
     [Fact]
     public void NormalizeProperty_WithUnsignedIntScalar_ShouldRetain()
     {
-        Assert.Equal(42u, Normalize("Count", 42u));
+        Assert.Equal(42u, Normalize("MidiDeviceCount", 42u));
     }
 
     [Fact]
     public void NormalizeProperty_WithLongScalar_ShouldRetain()
     {
-        Assert.Equal(123L, Normalize("Count", 123L));
+        Assert.Equal(123L, Normalize("MidiDeviceCount", 123L));
     }
 
     [Fact]
     public void NormalizeProperty_WithUnsignedLongScalar_ShouldRetain()
     {
-        Assert.Equal(999UL, Normalize("Count", 999UL));
+        Assert.Equal(999UL, Normalize("MidiDeviceCount", 999UL));
     }
 
     [Fact]
     public void NormalizeProperty_WithFloatScalar_ShouldRetain()
     {
-        Assert.Equal(3.14f, Normalize("Count", 3.14f));
+        Assert.Equal(3.14f, Normalize("MidiDeviceCount", 3.14f));
     }
 
     [Fact]
     public void NormalizeProperty_WithDoubleScalar_ShouldRetain()
     {
-        Assert.Equal(2.718, Normalize("Count", 2.718));
+        Assert.Equal(2.718, Normalize("MidiDeviceCount", 2.718));
     }
 
     [Fact]
     public void NormalizeProperty_WithDecimalScalar_ShouldRetain()
     {
-        Assert.Equal(1.5m, Normalize("Count", 1.5m));
+        Assert.Equal(1.5m, Normalize("MidiDeviceCount", 1.5m));
     }
 
     [Fact]
     public void NormalizeProperty_WithStringScalar_ShouldRedact()
     {
-        Assert.Equal(CrashLogFieldPolicy.RedactedValue, Normalize("Count", "Secret Song"));
+        Assert.Equal(CrashLogFieldPolicy.RedactedValue, Normalize("MidiDeviceCount", "Secret Song"));
     }
 
     [Fact]
     public void NormalizeProperty_WithNullScalar_ShouldReturnNull()
     {
-        Assert.Null(Normalize("Count", null));
+        Assert.Null(Normalize("MidiDeviceCount", null));
     }
 
     [Fact]
     public void NormalizeProperty_WithGuid_ShouldRetain()
     {
         var guid = Guid.Parse("9bc2520f-5b38-4e6c-a1c4-5f34e0135da3");
-        Assert.Equal(guid, Normalize("Count", guid));
+        Assert.Equal(guid, Normalize("MidiDeviceCount", guid));
     }
 
     [Fact]
     public void NormalizeProperty_WithDateTimeUnspecifiedKind_ShouldNormalizeToUtc()
     {
         var dateTime = new DateTime(2026, 8, 2, 12, 0, 0, DateTimeKind.Unspecified);
-        var normalized = Assert.IsType<DateTime>(Normalize("Count", dateTime));
+        var normalized = Assert.IsType<DateTime>(Normalize("MidiDeviceCount", dateTime));
 
         Assert.Equal(DateTimeKind.Utc, normalized.Kind);
         Assert.Equal(dateTime, normalized);
@@ -170,7 +170,7 @@ public sealed class CrashLogFieldPolicyTests
     public void NormalizeProperty_WithDateTimeLocalKind_ShouldConvertToUtc()
     {
         var local = new DateTime(2026, 8, 2, 14, 0, 0, DateTimeKind.Local);
-        var normalized = Assert.IsType<DateTime>(Normalize("Count", local));
+        var normalized = Assert.IsType<DateTime>(Normalize("MidiDeviceCount", local));
 
         Assert.Equal(DateTimeKind.Utc, normalized.Kind);
     }
@@ -178,7 +178,7 @@ public sealed class CrashLogFieldPolicyTests
     [Fact]
     public void NormalizeProperty_WithUnsupportedType_ShouldRedact()
     {
-        Assert.Equal(CrashLogFieldPolicy.RedactedValue, Normalize("Count", new object()));
+        Assert.Equal(CrashLogFieldPolicy.RedactedValue, Normalize("MidiDeviceCount", new object()));
     }
 
     [Fact]
@@ -421,14 +421,6 @@ public sealed class CrashLogFieldPolicyTests
     }
 
     [Fact]
-    public void TryNormalizeContextProperty_StageStatus_ShouldRedact()
-    {
-        Assert.True(Policy.TryNormalizeContextProperty(
-            CrashContextKind.Stage, "Status", "secret", out var normalized));
-        Assert.Equal(CrashLogFieldPolicy.RedactedValue, normalized);
-    }
-
-    [Fact]
     public void TryNormalizeContextProperty_StageUnknownField_ShouldReturnFalse()
     {
         Assert.False(Policy.TryNormalizeContextProperty(
@@ -587,15 +579,17 @@ public sealed class CrashLogFieldPolicyTests
     [Fact]
     public void TryClassify_WithMatchingEvent_ShouldReturnTrue()
     {
+        var crashEvent = CrashLogEvents.StageTransitionCompleted;
+
         Assert.True(Policy.TryClassify(
-            new EventId(5100, "crash_safe_stage"),
-            "Crash-safe stage changed to {Stage}",
+            crashEvent.EventId,
+            crashEvent.MessageTemplate,
             out var safeEventId,
             out var safeMessageTemplate));
 
-        Assert.Equal(5100, safeEventId.Id);
-        Assert.Equal("crash_safe_stage", safeEventId.Name);
-        Assert.Equal("Crash-safe stage changed to {Stage}", safeMessageTemplate);
+        Assert.Equal(crashEvent.Id, safeEventId.Id);
+        Assert.Equal(crashEvent.Name, safeEventId.Name);
+        Assert.Equal(crashEvent.MessageTemplate, safeMessageTemplate);
     }
 
     [Fact]

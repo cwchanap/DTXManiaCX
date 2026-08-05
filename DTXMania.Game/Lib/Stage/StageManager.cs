@@ -155,10 +155,10 @@ namespace DTXMania.Game.Lib.Stage
             var safeTransitionFields = CreateTransitionFields(
                 previousStageType,
                 stageType);
-            _breadcrumbs.Record("stage_transition_requested", safeTransitionFields);
-            _logger.LogDebug(
-                new EventId(5103, "stage_transition_requested"),
-                "Stage transition requested: {PreviousStage} -> {TargetStage}",
+            _breadcrumbs.Record(CrashBreadcrumbEvents.StageTransitionRequested, safeTransitionFields);
+            _logger.LogCrashEvent(
+                LogLevel.Debug,
+                CrashLogEvents.StageTransitionRequested,
                 previousStageType,
                 stageType);
 
@@ -182,10 +182,10 @@ namespace DTXMania.Game.Lib.Stage
                     StartupCriticalPathMilestone.TransitionStart);
             }
             _currentTransition.Start();
-            _breadcrumbs.Record("stage_transition_started", safeTransitionFields);
-            _logger.LogDebug(
-                new EventId(5104, "stage_transition_started"),
-                "Stage transition started: {PreviousStage} -> {TargetStage}",
+            _breadcrumbs.Record(CrashBreadcrumbEvents.StageTransitionStarted, safeTransitionFields);
+            _logger.LogCrashEvent(
+                LogLevel.Debug,
+                CrashLogEvents.StageTransitionStarted,
                 previousStageType,
                 stageType);
 
@@ -313,10 +313,10 @@ namespace DTXMania.Game.Lib.Stage
                 previousStageType,
                 _targetStageType);
             CrashContextPublisher.PublishStage(_contexts, _targetStageType, _stages.Count);
-            _breadcrumbs.Record("stage_transition_completed", completedTransitionFields);
-            _logger.LogInformation(
-                new EventId(5105, "stage_transition_completed"),
-                "Stage transition completed: {PreviousStage} -> {TargetStage}",
+            _breadcrumbs.Record(CrashBreadcrumbEvents.StageTransitionCompleted, completedTransitionFields);
+            _logger.LogCrashEvent(
+                LogLevel.Information,
+                CrashLogEvents.StageTransitionCompleted,
                 previousStageType,
                 _targetStageType);
 
@@ -335,13 +335,12 @@ namespace DTXMania.Game.Lib.Stage
             {
                 ["Reason"] = reason
             };
-            _breadcrumbs.Record("stage_transition_rejected", fields);
-            _logger.Log(
+            _breadcrumbs.Record(CrashBreadcrumbEvents.StageTransitionRejected, fields);
+            _logger.LogCrashEvent(
                 reason == StageTransitionRejectionReason.AlreadyTransitioning
                     ? LogLevel.Debug
                     : LogLevel.Warning,
-                new EventId(5111, "stage_transition_rejected"),
-                "Stage transition rejected: {Reason}",
+                CrashLogEvents.StageTransitionRejected,
                 reason);
         }
 
