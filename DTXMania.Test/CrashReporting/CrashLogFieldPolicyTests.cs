@@ -621,9 +621,11 @@ public sealed class CrashLogFieldPolicyTests
     [Fact]
     public void TryClassify_WithMismatchedName_ShouldReturnFalse()
     {
+        var crashEvent = CrashLogEvents.StageTransitionCompleted;
+
         Assert.False(Policy.TryClassify(
-            new EventId(5100, "wrong_name"),
-            "Crash-safe stage changed to {Stage}",
+            new EventId(crashEvent.Id, "wrong_name"),
+            crashEvent.MessageTemplate,
             out _,
             out var safeMessageTemplate));
 
@@ -633,8 +635,10 @@ public sealed class CrashLogFieldPolicyTests
     [Fact]
     public void TryClassify_WithMismatchedTemplate_ShouldReturnFalse()
     {
+        var crashEvent = CrashLogEvents.StageTransitionCompleted;
+
         Assert.False(Policy.TryClassify(
-            new EventId(5100, "crash_safe_stage"),
+            new EventId(crashEvent.Id, crashEvent.Name),
             "wrong template",
             out _,
             out var safeMessageTemplate));

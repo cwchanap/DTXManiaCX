@@ -7,6 +7,7 @@ using System.IO;
 using System.Linq;
 using DTXMania.Game.Lib.Diagnostics.CrashReporting;
 using DTXMania.Game.Lib.Stage;
+using DTXMania.Test.TestData;
 using Microsoft.Extensions.Logging;
 
 namespace DTXMania.Test.CrashReporting;
@@ -355,19 +356,5 @@ public sealed class CrashReportStoreTests
 
             _inner.Write(destination, document);
         }
-    }
-
-    private sealed class ManualTimeProvider : TimeProvider
-    {
-        private DateTimeOffset _utcNow;
-
-        internal ManualTimeProvider(DateTimeOffset utcNow)
-        {
-            _utcNow = utcNow.ToUniversalTime();
-        }
-
-        public override DateTimeOffset GetUtcNow() => _utcNow;
-
-        internal void Advance(TimeSpan amount) => _utcNow = _utcNow.Add(amount);
     }
 }

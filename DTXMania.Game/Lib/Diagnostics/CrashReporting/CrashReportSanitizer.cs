@@ -24,6 +24,7 @@ internal sealed class CrashReportSanitizer
 
     private const int MaximumStackTraceLength = 16 * 1024;
     private const int MaximumExceptionChainLength = 32 * 1024;
+    private const int MaximumExceptionMessageLength = 4 * 1024;
     private const int MaximumMetadataLength = 256;
     private const int MaximumInnerExceptions = 8;
 
@@ -109,7 +110,7 @@ internal sealed class CrashReportSanitizer
             builder.Append("ExceptionType: ")
                 .AppendLine(current.GetType().FullName ?? current.GetType().Name);
             builder.Append("Message: ")
-                .AppendLine(Scrub(current.Message, MaximumMetadataLength));
+                .AppendLine(Scrub(current.Message, MaximumExceptionMessageLength));
 
             var stackTrace = Scrub(current.StackTrace);
             if (!string.IsNullOrEmpty(stackTrace))

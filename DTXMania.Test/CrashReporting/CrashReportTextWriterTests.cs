@@ -176,7 +176,8 @@ public sealed class CrashReportTextWriterTests
 
         Assert.Contains("breadcrumbs=True", text, StringComparison.Ordinal);
         Assert.Contains("Count=149", text, StringComparison.Ordinal);
-        Assert.DoesNotContain("Count=49 ", text, StringComparison.Ordinal);
+        Assert.DoesNotContain(CapturedAt.AddSeconds(49).ToString("O"), text, StringComparison.Ordinal);
+        Assert.Contains(CapturedAt.AddSeconds(50).ToString("O"), text, StringComparison.Ordinal);
     }
 
     [Fact]
