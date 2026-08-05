@@ -39,29 +39,6 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void IStageGame_ShouldExposeOnlyTheNarrowCrashReportInbox()
-        {
-            var iface = typeof(BaseGame).GetInterface(IStageGameFullName)!;
-            var property = iface.GetProperty(nameof(IStageGame.CrashReportInbox));
-
-            Assert.NotNull(property);
-            Assert.Equal(typeof(ICrashReportInbox), property!.PropertyType);
-        }
-
-        [Fact]
-        public void CrashReportInbox_ShouldForwardTheInjectedDiagnosticsFacade()
-        {
-            var game = ReflectionHelpers.CreateGame();
-            var inbox = new Mock<ICrashReportInbox>().Object;
-            var diagnostics = new Mock<IGameCrashDiagnostics>();
-            diagnostics.SetupGet(value => value.Inbox).Returns(inbox);
-
-            ReflectionHelpers.SetPrivateField(game, "_gameCrashDiagnostics", diagnostics.Object);
-
-            Assert.Same(inbox, game.CrashReportInbox);
-        }
-
-        [Fact]
         public void GetTextInputSource_ShouldReturnNull_InHeadlessEnvironment()
         {
             // ReflectionHelpers.CreateGame builds an uninitialized BaseGame with no graphics
@@ -159,7 +136,6 @@ namespace DTXMania.Test.Stage
             public IGraphicsManager GraphicsManager => null!;
             public IResourceManager ResourceManager => null!;
             public ILoggerFactory LoggerFactory => null!;
-            public ICrashReportInbox CrashReportInbox => EmptyCrashReportInbox.Instance;
             public bool CanPerformStageTransition() => false;
             public void MarkStageTransition() { }
             public Point? MapMouseToVirtual(Point windowPoint) => windowPoint;

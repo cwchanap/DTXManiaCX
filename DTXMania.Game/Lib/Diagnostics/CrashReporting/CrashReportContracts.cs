@@ -6,12 +6,6 @@ using Microsoft.Extensions.Logging;
 
 namespace DTXMania.Game.Lib.Diagnostics.CrashReporting;
 
-public enum CrashReportFormat
-{
-    ZipBundle,
-    EmergencyText
-}
-
 public enum CrashContextKind
 {
     Process,
@@ -40,7 +34,6 @@ public sealed record CrashReportSummary(
     string ProcessArchitecture,
     string StageOrMilestone,
     string ExceptionType,
-    CrashReportFormat Format,
     string FileName);
 
 public sealed record CrashContextSnapshot(
@@ -69,20 +62,12 @@ public interface ICrashSensitiveDataSink
     void RegisterPath(string? path);
 }
 
-public interface ICrashReportInbox
-{
-    IReadOnlyList<CrashReportSummary> GetReports();
-    bool TryAcknowledge(string reportId, out string? errorCode);
-    bool TryDelete(string reportId, out string? errorCode);
-}
-
 public interface IGameCrashDiagnostics
 {
     ILoggerFactory LoggerFactory { get; }
     ICrashBreadcrumbSink Breadcrumbs { get; }
     ICrashContextSink Contexts { get; }
     ICrashSensitiveDataSink SensitiveData { get; }
-    ICrashReportInbox Inbox { get; }
 }
 
 public sealed class EmptyCrashBreadcrumbSink : ICrashBreadcrumbSink
@@ -121,33 +106,5 @@ public sealed class EmptyCrashSensitiveDataSink : ICrashSensitiveDataSink
 
     public void RegisterPath(string? path)
     {
-    }
-}
-
-public sealed class EmptyCrashReportInbox : ICrashReportInbox
-{
-    private static readonly IReadOnlyList<CrashReportSummary> EmptyReports = Array.Empty<CrashReportSummary>();
-
-    public static EmptyCrashReportInbox Instance { get; } = new();
-
-    private EmptyCrashReportInbox()
-    {
-    }
-
-    public IReadOnlyList<CrashReportSummary> GetReports()
-    {
-        return EmptyReports;
-    }
-
-    public bool TryAcknowledge(string reportId, out string? errorCode)
-    {
-        errorCode = "report_not_found";
-        return false;
-    }
-
-    public bool TryDelete(string reportId, out string? errorCode)
-    {
-        errorCode = "report_not_found";
-        return false;
     }
 }

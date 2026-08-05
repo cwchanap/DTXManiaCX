@@ -1,6 +1,5 @@
 #nullable enable
 using DTXMania.Game.Lib.Config;
-using DTXMania.Game.Lib.Diagnostics.CrashReporting;
 using DTXMania.Game.Lib.Graphics;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Resources;
@@ -20,7 +19,6 @@ namespace DTXMania.Game.Lib.Stage
         IGraphicsManager GraphicsManager { get; }
         IResourceManager ResourceManager { get; }
         ILoggerFactory LoggerFactory { get; }
-        ICrashReportInbox CrashReportInbox => EmptyCrashReportInbox.Instance;
 
         bool CanPerformStageTransition();
         void MarkStageTransition();

@@ -26,10 +26,21 @@ public sealed class CrashLogBufferProviderTests
         Assert.Empty(record.Properties);
     }
 
+    /// <summary>
+    /// Collapses <see cref="CrashLogFieldPolicy.TryNormalizeProperty"/> into a single value so the
+    /// allowlist and the scalar-normalization rules can be asserted in one expression.
+    /// </summary>
+    private static object? Normalize(string propertyName, object? value)
+    {
+        return CrashLogFieldPolicy.Default.TryNormalizeProperty(propertyName, value, out var normalized)
+            ? normalized
+            : CrashLogFieldPolicy.RedactedValue;
+    }
+
     [Fact]
     public void UnknownStringValue_ShouldBeRedactedByCentralPolicy()
     {
-        var normalized = CrashLogFieldPolicy.Default.NormalizeProperty(
+        var normalized = Normalize(
             propertyName: "Status",
             value: "Secret Song");
 
@@ -82,12 +93,12 @@ public sealed class CrashLogBufferProviderTests
         var policy = CrashLogFieldPolicy.Default;
         var timestamp = new DateTimeOffset(2026, 8, 2, 15, 30, 0, TimeSpan.FromHours(2));
 
-        Assert.Equal(42, policy.NormalizeProperty("Count", 42));
-        Assert.Equal(true, policy.NormalizeProperty("Enabled", true));
-        Assert.Equal(StageType.Title, policy.NormalizeProperty("Stage", StageType.Title));
+        Assert.Equal(42, Normalize("Count", 42));
+        Assert.Equal(true, Normalize("Enabled", true));
+        Assert.Equal(StageType.Title, Normalize("Stage", StageType.Title));
 
         var normalizedTimestamp = Assert.IsType<DateTimeOffset>(
-            policy.NormalizeProperty("Milestone", timestamp));
+            Normalize("Milestone", timestamp));
         Assert.Equal(timestamp.ToUniversalTime(), normalizedTimestamp);
         Assert.Equal(TimeSpan.Zero, normalizedTimestamp.Offset);
     }

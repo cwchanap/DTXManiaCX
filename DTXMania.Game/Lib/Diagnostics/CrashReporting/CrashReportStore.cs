@@ -4,14 +4,11 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
-using System.IO.Compression;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security;
 using System.Security.Cryptography;
-using System.Text;
-using System.Text.Json;
 using System.Text.RegularExpressions;
 using DTXMania.Game.Lib.Stage;
 
@@ -26,15 +23,19 @@ internal sealed record CrashCaptureData(
 
 internal sealed record CrashReportWriteResult(
     CrashReportSummary? Report,
-    bool UsedEmergencyFallback,
     string? FailureCode);
 
 internal sealed class CrashReportStore
 {
-    private const int MaximumCompletedReports = 5;
+    internal const string ReportExtension = ".txt";
+
+    private const int MaximumRetainedReports = 5;
     private static readonly TimeSpan TemporaryFileLifetime = TimeSpan.FromHours(24);
+
+    // crash-<yyyyMMdd>-<HHmmss>Z-<hex>. The leading timestamp makes an ordinal sort
+    // chronological, which is all retention needs — no need to open the files.
     private static readonly Regex ReportFileNameRegex = new(
-        """\A(?<id>crash-(?<date>\d{8})-(?<time>\d{6})Z-(?<suffix>[0-9a-f]{6}))\.(?<extension>zip|txt)\z""",
+        """\Acrash-\d{8}-\d{6}Z-[0-9a-f]{6}\.txt\z""",
         RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
         TimeSpan.FromMilliseconds(100));
 
@@ -72,63 +73,22 @@ internal sealed class CrashReportStore
             return CreateFailure(GetFailureCode(exception));
         }
 
-        var zipSummary = CreateSummary(reportId, capturedAtUtc, CrashReportFormat.ZipBundle, data);
-        var zipDocument = CreateDocument(zipSummary, data);
-        if (TryWriteArtifact(zipDocument, _writer.WriteZip, out var zipFailureCode))
+        var summary = CreateSummary(reportId, capturedAtUtc, data);
+        var document = new CrashReportDocument(
+            summary,
+            data.Exception,
+            data.Logs,
+            data.Breadcrumbs,
+            data.Context,
+            data.SensitivePaths);
+
+        if (!TryWriteReport(document, out var failureCode))
         {
-            Cleanup();
-            return new CrashReportWriteResult(zipSummary, UsedEmergencyFallback: false, FailureCode: null);
+            return CreateFailure(failureCode ?? "capture_io_failure");
         }
 
-        var emergencySummary = CreateSummary(reportId, capturedAtUtc, CrashReportFormat.EmergencyText, data);
-        var emergencyDocument = CreateDocument(emergencySummary, data);
-        if (TryWriteArtifact(emergencyDocument, _writer.WriteEmergencyText, out var emergencyFailureCode))
-        {
-            Cleanup();
-            return new CrashReportWriteResult(emergencySummary, UsedEmergencyFallback: true, FailureCode: null);
-        }
-
-        return CreateFailure(emergencyFailureCode ?? zipFailureCode ?? "capture_io_failure");
-    }
-
-    internal IReadOnlyList<CrashReportSummary> DiscoverCompletedReports()
-    {
-        try
-        {
-            if (!Directory.Exists(_rootPath))
-            {
-                return Array.Empty<CrashReportSummary>();
-            }
-
-            var reports = new List<CrashReportSummary>();
-            foreach (var path in Directory.EnumerateFiles(_rootPath, "*", SearchOption.TopDirectoryOnly))
-            {
-                var fileName = Path.GetFileName(path);
-                if (fileName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (TryReadZipSummary(path, fileName, out var summary))
-                    {
-                        reports.Add(summary);
-                    }
-                }
-                else if (fileName.EndsWith(".txt", StringComparison.OrdinalIgnoreCase)
-                         && TryReadEmergencySummary(path, fileName, out var summary))
-                {
-                    reports.Add(summary);
-                }
-            }
-
-            return reports
-                .OrderByDescending(static report => report.CapturedAtUtc)
-                .ThenByDescending(static report => report.FileName, StringComparer.Ordinal)
-                .ToArray();
-        }
-        catch (Exception exception) when (IsExpectedFileSystemException(exception)
-                                          || exception is FormatException or OverflowException)
-        {
-            WriteSafeError("crash_report_discovery_failed");
-            return Array.Empty<CrashReportSummary>();
-        }
+        Cleanup();
+        return new CrashReportWriteResult(summary, FailureCode: null);
     }
 
     internal void Cleanup()
@@ -149,10 +109,15 @@ internal sealed class CrashReportStore
                 }
             }
 
-            var reports = DiscoverCompletedReports();
-            foreach (var report in reports.Skip(MaximumCompletedReports))
+            var staleReports = Directory
+                .EnumerateFiles(_rootPath, "*", SearchOption.TopDirectoryOnly)
+                .Where(static path => ReportFileNameRegex.IsMatch(Path.GetFileName(path)))
+                .OrderByDescending(Path.GetFileName, StringComparer.OrdinalIgnoreCase)
+                .Skip(MaximumRetainedReports);
+
+            foreach (var path in staleReports)
             {
-                File.Delete(Path.Combine(_rootPath, report.FileName));
+                File.Delete(path);
             }
         }
         catch (Exception exception) when (IsExpectedFileSystemException(exception))
@@ -161,10 +126,7 @@ internal sealed class CrashReportStore
         }
     }
 
-    private bool TryWriteArtifact(
-        CrashReportDocument document,
-        Action<Stream, CrashReportDocument> writeArtifact,
-        out string? failureCode)
+    private bool TryWriteReport(CrashReportDocument document, out string? failureCode)
     {
         var temporaryPath = Path.Combine(_rootPath, "." + document.Summary.FileName + ".tmp");
         var finalPath = Path.Combine(_rootPath, document.Summary.FileName);
@@ -181,7 +143,7 @@ internal sealed class CrashReportStore
                        options: FileOptions.WriteThrough))
             {
                 temporaryFileCreated = true;
-                writeArtifact(stream, document);
+                _writer.Write(stream, document);
                 stream.Flush(flushToDisk: true);
             }
 
@@ -189,8 +151,7 @@ internal sealed class CrashReportStore
             failureCode = null;
             return true;
         }
-        catch (Exception exception) when (IsExpectedFileSystemException(exception)
-                                          || exception is JsonException)
+        catch (Exception exception) when (IsExpectedFileSystemException(exception))
         {
             if (temporaryFileCreated)
             {
@@ -202,168 +163,11 @@ internal sealed class CrashReportStore
         }
     }
 
-    private bool TryReadZipSummary(string path, string fileName, out CrashReportSummary summary)
-    {
-        summary = default!;
-        if (!TryParseReportFileName(fileName, out var fallback))
-        {
-            return false;
-        }
-
-        try
-        {
-            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            using var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: false);
-            var reportEntry = archive.GetEntry("report.json");
-            if (reportEntry is null)
-            {
-                summary = CreateUnknownSummary(fallback, CrashReportFormat.ZipBundle, fileName);
-                return true;
-            }
-
-            using var reportStream = reportEntry.Open();
-            using var document = JsonDocument.Parse(reportStream);
-            var root = document.RootElement;
-
-            if (root.ValueKind != JsonValueKind.Object
-                || !root.TryGetProperty("schemaVersion", out var schemaVersion)
-                || schemaVersion.ValueKind != JsonValueKind.Number
-                || !schemaVersion.TryGetInt32(out var schemaVersionValue)
-                || schemaVersionValue != 1
-                || !TryGetString(root, "reportId", out var reportId)
-                || !TryGetDateTimeOffset(root, "capturedAtUtc", out var capturedAtUtc)
-                || !TryGetString(root, "buildId", out var buildId)
-                || !TryGetString(root, "operatingSystem", out var operatingSystem)
-                || !TryGetString(root, "processArchitecture", out var processArchitecture)
-                || !TryGetString(root, "stageOrMilestone", out var stageOrMilestone)
-                || !TryGetString(root, "exceptionType", out var exceptionType))
-            {
-                summary = CreateUnknownSummary(fallback, CrashReportFormat.ZipBundle, fileName);
-                return true;
-            }
-
-            if (!MatchesFileName(fallback, reportId, capturedAtUtc))
-            {
-                summary = CreateUnknownSummary(fallback, CrashReportFormat.ZipBundle, fileName);
-                return true;
-            }
-
-            summary = SanitizeDiscoveredSummary(
-                reportId,
-                capturedAtUtc,
-                buildId,
-                operatingSystem,
-                processArchitecture,
-                stageOrMilestone,
-                exceptionType,
-                CrashReportFormat.ZipBundle,
-                fileName);
-            return true;
-        }
-        catch (Exception exception) when (exception is InvalidDataException
-                                          or JsonException
-                                          or FormatException
-                                          or OverflowException)
-        {
-            summary = CreateUnknownSummary(fallback, CrashReportFormat.ZipBundle, fileName);
-            return true;
-        }
-        catch (Exception exception) when (IsExpectedFileSystemException(exception))
-        {
-            return false;
-        }
-    }
-
-    private bool TryReadEmergencySummary(string path, string fileName, out CrashReportSummary summary)
-    {
-        summary = default!;
-        if (!TryParseReportFileName(fileName, out var fallback))
-        {
-            return false;
-        }
-
-        try
-        {
-            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
-            if (!string.Equals(reader.ReadLine(), "DTXMANIACX-CRASH-REPORT 1", StringComparison.Ordinal))
-            {
-                summary = CreateUnknownSummary(fallback, CrashReportFormat.EmergencyText, fileName);
-                return true;
-            }
-
-            var fields = new Dictionary<string, string>(StringComparer.Ordinal);
-            var reachedDelimiter = false;
-            for (var lineCount = 0; lineCount < 16; lineCount++)
-            {
-                var line = reader.ReadLine();
-                if (line is null)
-                {
-                    break;
-                }
-
-                if (string.Equals(line, "---", StringComparison.Ordinal))
-                {
-                    reachedDelimiter = true;
-                    break;
-                }
-
-                var separatorIndex = line.IndexOf(": ", StringComparison.Ordinal);
-                if (separatorIndex > 0)
-                {
-                    fields[line[..separatorIndex]] = line[(separatorIndex + 2)..];
-                }
-            }
-
-            if (!reachedDelimiter
-                || !fields.TryGetValue("ReportId", out var reportId)
-                || !fields.TryGetValue("CapturedAtUtc", out var capturedAtText)
-                || !DateTimeOffset.TryParse(
-                    capturedAtText,
-                    CultureInfo.InvariantCulture,
-                    DateTimeStyles.AllowWhiteSpaces,
-                    out var capturedAtUtc)
-                || !fields.TryGetValue("BuildId", out var buildId)
-                || !fields.TryGetValue("OperatingSystem", out var operatingSystem)
-                || !fields.TryGetValue("ProcessArchitecture", out var processArchitecture)
-                || !fields.TryGetValue("StageOrMilestone", out var stageOrMilestone)
-                || !fields.TryGetValue("ExceptionType", out var exceptionType))
-            {
-                summary = CreateUnknownSummary(fallback, CrashReportFormat.EmergencyText, fileName);
-                return true;
-            }
-
-            if (!MatchesFileName(fallback, reportId, capturedAtUtc))
-            {
-                summary = CreateUnknownSummary(fallback, CrashReportFormat.EmergencyText, fileName);
-                return true;
-            }
-
-            summary = SanitizeDiscoveredSummary(
-                reportId,
-                capturedAtUtc,
-                buildId,
-                operatingSystem,
-                processArchitecture,
-                stageOrMilestone,
-                exceptionType,
-                CrashReportFormat.EmergencyText,
-                fileName);
-            return true;
-        }
-        catch (Exception exception) when (IsExpectedFileSystemException(exception))
-        {
-            return false;
-        }
-    }
-
-    private CrashReportSummary CreateSummary(
+    private static CrashReportSummary CreateSummary(
         string reportId,
         DateTimeOffset capturedAtUtc,
-        CrashReportFormat format,
         CrashCaptureData data)
     {
-        var extension = format == CrashReportFormat.ZipBundle ? ".zip" : ".txt";
         return new CrashReportSummary(
             reportId,
             capturedAtUtc,
@@ -371,22 +175,14 @@ internal sealed class CrashReportStore
             RuntimeInformation.OSDescription,
             RuntimeInformation.ProcessArchitecture.ToString(),
             GetStageOrMilestone(data.Context),
-            GetExceptionTypeName(data.Exception),
-            format,
-            reportId + extension);
+            data.Exception.GetType().FullName ?? data.Exception.GetType().Name,
+            reportId + ReportExtension);
     }
 
-    private static CrashReportDocument CreateDocument(CrashReportSummary summary, CrashCaptureData data)
-    {
-        return new CrashReportDocument(
-            summary,
-            data.Exception,
-            data.Logs,
-            data.Breadcrumbs,
-            data.Context,
-            data.SensitivePaths);
-    }
-
+    /// <summary>
+    /// Reports the most specific location the crash can be attributed to: the active stage
+    /// when one exists, otherwise the furthest startup milestone reached.
+    /// </summary>
     private static string GetStageOrMilestone(IReadOnlyList<CrashContextSnapshot> context)
     {
         if (context is null)
@@ -426,136 +222,31 @@ internal sealed class CrashReportStore
         return startupMilestone ?? "Unknown";
     }
 
-    private static string GetExceptionTypeName(Exception exception)
-    {
-        return exception.GetType().FullName ?? exception.GetType().Name;
-    }
-
     private static string GetBuildId()
     {
         var assembly = typeof(CrashReportStore).Assembly;
         var informationalVersion = assembly
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
             ?.InformationalVersion;
-        if (!string.IsNullOrWhiteSpace(informationalVersion))
-        {
-            return informationalVersion;
-        }
 
-        return assembly.GetName().Version?.ToString() ?? "Unknown";
+        return string.IsNullOrWhiteSpace(informationalVersion)
+            ? assembly.GetName().Version?.ToString() ?? "Unknown"
+            : informationalVersion;
     }
 
     private static string CreateReportId(DateTimeOffset capturedAtUtc)
     {
         var suffix = Convert.ToHexString(RandomNumberGenerator.GetBytes(3)).ToLowerInvariant();
-        return "crash-" + capturedAtUtc.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) + "Z-" + suffix;
+        return "crash-"
+            + capturedAtUtc.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture)
+            + "Z-"
+            + suffix;
     }
 
     private CrashReportWriteResult CreateFailure(string failureCode)
     {
         WriteSafeError("crash_report_capture_failed:" + failureCode);
-        return new CrashReportWriteResult(null, UsedEmergencyFallback: false, failureCode);
-    }
-
-    private static CrashReportSummary SanitizeDiscoveredSummary(
-        string reportId,
-        DateTimeOffset capturedAtUtc,
-        string buildId,
-        string operatingSystem,
-        string processArchitecture,
-        string stageOrMilestone,
-        string exceptionType,
-        CrashReportFormat format,
-        string fileName)
-    {
-        var sanitizer = new CrashReportSanitizer([]);
-        return new CrashReportSummary(
-            sanitizer.SanitizeStableLabel(reportId, CrashReportSanitizer.RedactedValue),
-            capturedAtUtc.ToUniversalTime(),
-            sanitizer.SanitizeStableLabel(buildId, CrashReportSanitizer.RedactedValue),
-            sanitizer.SanitizeMetadata(operatingSystem),
-            sanitizer.SanitizeStableLabel(processArchitecture),
-            sanitizer.SanitizeStableLabel(stageOrMilestone),
-            sanitizer.SanitizeTypeName(exceptionType),
-            format,
-            fileName);
-    }
-
-    private static CrashReportSummary CreateUnknownSummary(
-        ParsedReportFileName file,
-        CrashReportFormat format,
-        string fileName)
-    {
-        return new CrashReportSummary(
-            file.ReportId,
-            file.CapturedAtUtc,
-            "Unknown",
-            "Unknown",
-            "Unknown",
-            "Unknown",
-            "Unknown",
-            format,
-            fileName);
-    }
-
-    private static bool MatchesFileName(
-        ParsedReportFileName file,
-        string reportId,
-        DateTimeOffset capturedAtUtc)
-    {
-        return string.Equals(reportId, file.ReportId, StringComparison.Ordinal)
-            && string.Equals(
-                capturedAtUtc.ToUniversalTime().ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture),
-                file.CapturedAtUtc.ToUniversalTime().ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture),
-                StringComparison.Ordinal);
-    }
-
-    private static bool TryParseReportFileName(string fileName, out ParsedReportFileName parsed)
-    {
-        parsed = default;
-        var match = ReportFileNameRegex.Match(fileName);
-        if (!match.Success)
-        {
-            return false;
-        }
-
-        var timestampText = match.Groups["date"].Value + "-" + match.Groups["time"].Value + "Z";
-        if (!DateTimeOffset.TryParseExact(
-                timestampText,
-                "yyyyMMdd-HHmmss'Z'",
-                CultureInfo.InvariantCulture,
-                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
-                out var capturedAtUtc))
-        {
-            return false;
-        }
-
-        parsed = new ParsedReportFileName(match.Groups["id"].Value, capturedAtUtc);
-        return true;
-    }
-
-    private static bool TryGetString(JsonElement root, string name, out string value)
-    {
-        value = string.Empty;
-        if (!root.TryGetProperty(name, out var element) || element.ValueKind != JsonValueKind.String)
-        {
-            return false;
-        }
-
-        value = element.GetString() ?? string.Empty;
-        return true;
-    }
-
-    private static bool TryGetDateTimeOffset(JsonElement root, string name, out DateTimeOffset value)
-    {
-        value = default;
-        return root.TryGetProperty(name, out var element)
-            && element.ValueKind == JsonValueKind.String
-            && DateTimeOffset.TryParse(
-                element.GetString(),
-                CultureInfo.InvariantCulture,
-                DateTimeStyles.AllowWhiteSpaces,
-                out value);
+        return new CrashReportWriteResult(null, failureCode);
     }
 
     private static bool IsExpectedFileSystemException(Exception exception)
@@ -565,8 +256,7 @@ internal sealed class CrashReportStore
             or ArgumentException
             or NotSupportedException
             or PathTooLongException
-            or SecurityException
-            or InvalidDataException;
+            or SecurityException;
     }
 
     private static string GetFailureCode(Exception exception)
@@ -596,13 +286,8 @@ internal sealed class CrashReportStore
         {
             _errorWriter.WriteLine(code);
         }
-        catch (IOException)
-        {
-        }
-        catch (ObjectDisposedException)
+        catch (Exception exception) when (exception is IOException or ObjectDisposedException)
         {
         }
     }
-
-    private readonly record struct ParsedReportFileName(string ReportId, DateTimeOffset CapturedAtUtc);
 }

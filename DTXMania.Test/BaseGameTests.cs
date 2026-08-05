@@ -2366,8 +2366,6 @@ namespace DTXMania.Test
             public ICrashContextSink Contexts => EmptyCrashContextSink.Instance;
 
             public ICrashSensitiveDataSink SensitiveData => EmptyCrashSensitiveDataSink.Instance;
-
-            public ICrashReportInbox Inbox => EmptyCrashReportInbox.Instance;
         }
     }
 }

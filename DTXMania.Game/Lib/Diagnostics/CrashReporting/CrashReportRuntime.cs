@@ -3,7 +3,6 @@
 using System;
 using System.IO;
 using System.Security;
-using System.Text.Json;
 using System.Threading;
 using DTXMania.Game.Lib.Utilities;
 using Microsoft.Extensions.Logging;
@@ -173,7 +172,7 @@ public sealed class CrashReportRuntime : ICrashRuntimeLifetime
     {
         return new CrashReportStore(
             AppPaths.GetCrashReportsRoot(),
-            new CrashReportArchiveWriter(),
+            new CrashReportTextWriter(),
             TimeProvider.System,
             errorWriter);
     }
@@ -205,8 +204,7 @@ public sealed class CrashReportRuntime : ICrashRuntimeLifetime
 
     private static bool IsExpectedCaptureException(Exception exception)
     {
-        return IsExpectedBootstrapException(exception)
-            || exception is InvalidDataException or JsonException;
+        return IsExpectedBootstrapException(exception) || exception is InvalidDataException;
     }
 
     private static void DisposePartialFactory(ILoggerFactory? loggerFactory)
@@ -264,7 +262,6 @@ public sealed class CrashReportRuntime : ICrashRuntimeLifetime
             SensitiveData = contexts is null
                 ? EmptyCrashSensitiveDataSink.Instance
                 : contexts;
-            Inbox = EmptyCrashReportInbox.Instance;
         }
 
         public ILoggerFactory LoggerFactory { get; }
@@ -274,7 +271,5 @@ public sealed class CrashReportRuntime : ICrashRuntimeLifetime
         public ICrashContextSink Contexts { get; }
 
         public ICrashSensitiveDataSink SensitiveData { get; }
-
-        public ICrashReportInbox Inbox { get; }
     }
 }
