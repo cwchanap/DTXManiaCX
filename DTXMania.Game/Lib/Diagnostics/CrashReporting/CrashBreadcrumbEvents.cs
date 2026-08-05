@@ -13,7 +13,7 @@ namespace DTXMania.Game.Lib.Diagnostics.CrashReporting;
 /// </summary>
 internal static class CrashBreadcrumbEvents
 {
-    public static readonly HashSet<string> StableEventNames = new(StringComparer.Ordinal)
+    private static readonly HashSet<string> StableEventNames = new(StringComparer.Ordinal)
     {
         "process_started",
         "initialization_milestone_reached",
