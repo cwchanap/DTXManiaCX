@@ -189,6 +189,7 @@ public sealed class CrashReportStoreTests
     public void WriteZip_ShouldPersistOnlyTheApprovedTaskFiveContextFields()
     {
         const string secret = "Secret song and API key";
+        const string dtxPath = @"C:\Secret\Songs";
         var document = CreateArchiveDocument() with
         {
             Context =
@@ -239,7 +240,7 @@ public sealed class CrashReportStoreTests
                         ["UnboundDrumButtonCount"] = 2,
                         ["MidiVelocityThresholdCount"] = 5,
                         ["GameApiKey"] = secret,
-                        ["DTXPath"] = @"C:\\Secret\\Songs"
+                        ["DTXPath"] = dtxPath
                     }),
                 new CrashContextSnapshot(
                     CrashContextKind.Graphics,
@@ -329,6 +330,7 @@ public sealed class CrashReportStoreTests
         Assert.Equal(CrashContextPublisher.AudioDeviceSummaryUnavailable, audio.GetProperty("failureCode").GetString());
         Assert.Empty(audio.GetProperty("fields").EnumerateObject());
         Assert.DoesNotContain(secret, reportText, StringComparison.Ordinal);
+        Assert.DoesNotContain(dtxPath, reportText, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -749,7 +751,7 @@ public sealed class CrashReportStoreTests
     }
 
     [Fact]
-    public void Capture_WithStartupStageOnly_ShouldReportStartupAsString()
+    public void Capture_WithStartupStageOnly_ShouldReportUnknownStageOrMilestone()
     {
         using var fixture = CrashStoreFixture.Create();
         var store = fixture.CreateStore();

@@ -2369,36 +2369,5 @@ namespace DTXMania.Test
 
             public ICrashReportInbox Inbox => EmptyCrashReportInbox.Instance;
         }
-
-        private sealed class RecordingGameCrashDiagnostics : IGameCrashDiagnostics
-        {
-            public RecordingBreadcrumbSink Breadcrumbs { get; } = new();
-
-            public RecordingContextSink Contexts { get; } = new();
-
-            public RecordingSensitiveDataSink SensitiveData { get; } = new();
-
-            public ILoggerFactory LoggerFactory => Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance;
-
-            ICrashBreadcrumbSink IGameCrashDiagnostics.Breadcrumbs => Breadcrumbs;
-
-            ICrashContextSink IGameCrashDiagnostics.Contexts => Contexts;
-
-            ICrashSensitiveDataSink IGameCrashDiagnostics.SensitiveData => SensitiveData;
-
-            public ICrashReportInbox Inbox => EmptyCrashReportInbox.Instance;
-        }
-
-        private sealed class RecordingSensitiveDataSink : ICrashSensitiveDataSink
-        {
-            private readonly List<string?> _paths = new();
-
-            public IReadOnlyList<string?> Paths => _paths;
-
-            public void RegisterPath(string? path)
-            {
-                _paths.Add(path);
-            }
-        }
     }
 }
