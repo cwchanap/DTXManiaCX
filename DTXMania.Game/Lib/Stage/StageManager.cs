@@ -153,13 +153,13 @@ namespace DTXMania.Game.Lib.Stage
             _isTransitioning = true;
 
             var safeTransitionFields = CreateTransitionFields(
-                previousStageType ?? StageType.Startup,
+                previousStageType,
                 stageType);
             _breadcrumbs.Record("stage_transition_requested", safeTransitionFields);
             _logger.LogDebug(
                 new EventId(5103, "stage_transition_requested"),
                 "Stage transition requested: {PreviousStage} -> {TargetStage}",
-                previousStageType ?? StageType.Startup,
+                previousStageType,
                 stageType);
 
             // Log transition details
@@ -167,9 +167,7 @@ namespace DTXMania.Game.Lib.Stage
             var fadeOutAlpha = _currentTransition.GetFadeOutAlpha();
             var fadeInAlpha = _currentTransition.GetFadeInAlpha();
             var sharedDataCount = sharedData?.Count ?? 0;
-            
-            _logger.LogDebug("Stage transition: {PreviousStage} -> {TargetStage}", 
-                previousStageType ?? StageType.Startup, stageType);
+
             _logger.LogDebug("Transition: {TransitionType} (Duration: {Duration:F3}s, FadeOut: {FadeOutAlpha:F3}, FadeIn: {FadeInAlpha:F3})",
                 transitionTypeName, _currentTransition.Duration, fadeOutAlpha, fadeInAlpha);
             _logger.LogDebug("SharedData: {SharedDataCount} items", sharedDataCount);
@@ -188,7 +186,7 @@ namespace DTXMania.Game.Lib.Stage
             _logger.LogDebug(
                 new EventId(5104, "stage_transition_started"),
                 "Stage transition started: {PreviousStage} -> {TargetStage}",
-                previousStageType ?? StageType.Startup,
+                previousStageType,
                 stageType);
 
             // Notify current stage of transition out
@@ -312,14 +310,14 @@ namespace DTXMania.Game.Lib.Stage
             _currentStage.OnTransitionComplete();
 
             var completedTransitionFields = CreateTransitionFields(
-                previousStageType ?? StageType.Startup,
+                previousStageType,
                 _targetStageType);
             CrashContextPublisher.PublishStage(_contexts, _targetStageType, _stages.Count);
             _breadcrumbs.Record("stage_transition_completed", completedTransitionFields);
             _logger.LogInformation(
                 new EventId(5105, "stage_transition_completed"),
                 "Stage transition completed: {PreviousStage} -> {TargetStage}",
-                previousStageType ?? StageType.Startup,
+                previousStageType,
                 _targetStageType);
 
             // Clean up transition state
@@ -338,14 +336,17 @@ namespace DTXMania.Game.Lib.Stage
                 ["Reason"] = reason
             };
             _breadcrumbs.Record("stage_transition_rejected", fields);
-            _logger.LogWarning(
+            _logger.Log(
+                reason == StageTransitionRejectionReason.AlreadyTransitioning
+                    ? LogLevel.Debug
+                    : LogLevel.Warning,
                 new EventId(5111, "stage_transition_rejected"),
                 "Stage transition rejected: {Reason}",
                 reason);
         }
 
         private static Dictionary<string, object?> CreateTransitionFields(
-            StageType previousStage,
+            StageType? previousStage,
             StageType targetStage)
         {
             return new Dictionary<string, object?>

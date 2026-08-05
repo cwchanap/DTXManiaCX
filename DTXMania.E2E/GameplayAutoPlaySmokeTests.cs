@@ -19,10 +19,7 @@ public sealed class GameplayAutoPlaySmokeTests
         using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(390));
         var repoRoot = FindRepoRoot();
         var runRoot = Path.Combine(Path.GetTempPath(), "dtxmaniacx-e2e-" + Guid.NewGuid().ToString("N"));
-        var projectPath = Environment.GetEnvironmentVariable("DTXMANIA_E2E_GAME_PROJECT")
-            ?? (OperatingSystem.IsWindows()
-                ? "DTXMania.Game/DTXMania.Game.Windows.csproj"
-                : "DTXMania.Game/DTXMania.Game.Mac.csproj");
+        var projectPath = E2EGameProject.ResolveProjectPath();
         var profiles = new[]
         {
             new PlaybackProfile(75, 3, ExpectedBucketPlayCount: 1),

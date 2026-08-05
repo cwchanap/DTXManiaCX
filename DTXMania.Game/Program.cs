@@ -4,7 +4,7 @@ using DTXMania.Game.Lib.Diagnostics.CrashReporting;
 using DTXMania.Game.Lib.Stage;
 
 var startupTrace = StartupTimingTrace.StartProcess();
-var crashRuntime = CrashReportRuntime.CreateBestEffort(startupTrace, Console.Error);
+var crashRuntime = CrashReportRuntime.CreateBestEffort(Console.Error);
 
 return GameEntryPoint.Run(
     () => new Game1(startupTrace, crashRuntime.GameDiagnostics),

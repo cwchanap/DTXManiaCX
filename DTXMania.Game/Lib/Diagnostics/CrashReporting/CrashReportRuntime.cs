@@ -5,7 +5,6 @@ using System.IO;
 using System.Security;
 using System.Text.Json;
 using System.Threading;
-using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.Utilities;
 using Microsoft.Extensions.Logging;
 
@@ -58,22 +57,18 @@ public sealed class CrashReportRuntime : ICrashRuntimeLifetime
     internal CrashLogBufferProvider? CrashLogBufferProvider => _crashLogBufferProvider;
 
     internal static CrashReportRuntime CreateBestEffort(
-        StartupTimingTrace startupTrace,
         TextWriter? errorWriter = null)
     {
         var writer = errorWriter ?? Console.Error;
         return CreateBestEffort(
-            startupTrace,
             writer,
             () => CreateDefaultStore(writer));
     }
 
     internal static CrashReportRuntime CreateBestEffort(
-        StartupTimingTrace startupTrace,
         TextWriter? errorWriter,
         Func<CrashReportStore> storeFactory)
     {
-        ArgumentNullException.ThrowIfNull(startupTrace);
         ArgumentNullException.ThrowIfNull(storeFactory);
 
         var writer = errorWriter ?? Console.Error;

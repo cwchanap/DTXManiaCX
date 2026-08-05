@@ -21,7 +21,7 @@ namespace DTXMania.Test.CrashReporting;
 /// process-wide app-data override.
 /// </summary>
 [Collection("AppPaths")]
-[Trait("Category", "Unit")]
+[Trait("Category", "Integration")]
 public sealed class CrashReportIntegrationTests
 {
     [Fact]
@@ -30,7 +30,6 @@ public sealed class CrashReportIntegrationTests
         RunWithTemporaryAppData(appData =>
         {
             using var runtime = CrashReportRuntime.CreateBestEffort(
-                StartupTimingTrace.Disabled,
                 TextWriter.Null);
             var secretSongPath = Path.Combine(appData.Path, "Secret Song.dtx");
             appData.RegisterSensitiveValues("Secret Song", secretSongPath);
@@ -56,7 +55,6 @@ public sealed class CrashReportIntegrationTests
         RunWithTemporaryAppData(appData =>
         {
             using var runtime = CrashReportRuntime.CreateBestEffort(
-                StartupTimingTrace.Disabled,
                 TextWriter.Null);
             const string apiKeyName = "GameApiKey";
             const string apiKey = "api-key-integration-should-not-persist";
@@ -191,7 +189,6 @@ public sealed class CrashReportIntegrationTests
             {
                 Console.SetOut(consoleWriter);
                 using var runtime = CrashReportRuntime.CreateBestEffort(
-                    StartupTimingTrace.Disabled,
                     errorWriter,
                     storeFactory: () => throw new UnauthorizedAccessException("denied"));
                 var logger = runtime.GameDiagnostics.LoggerFactory.CreateLogger("integration");
@@ -226,7 +223,6 @@ public sealed class CrashReportIntegrationTests
         {
             using var errorWriter = new StringWriter(CultureInfo.InvariantCulture);
             using var runtime = CrashReportRuntime.CreateBestEffort(
-                StartupTimingTrace.Disabled,
                 errorWriter);
             var disposeCalls = 0;
             var game = new FakeGameApplication(
@@ -301,7 +297,6 @@ public sealed class CrashReportIntegrationTests
             try
             {
                 using var runtime = CrashReportRuntime.CreateBestEffort(
-                    StartupTimingTrace.Disabled,
                     TextWriter.Null);
                 runtime.CaptureFatal(new InvalidOperationException("failure artifact verification"));
 

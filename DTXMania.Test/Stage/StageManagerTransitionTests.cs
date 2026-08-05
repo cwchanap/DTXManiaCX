@@ -100,7 +100,7 @@ namespace DTXMania.Test.Stage
             var rejected = Assert.Single(
                 breadcrumbs.Events,
                 item => item.EventName == "stage_transition_rejected");
-            Assert.IsAssignableFrom<Enum>(rejected.Properties["Reason"]);
+            Assert.Equal(StageTransitionRejectionReason.Disposed, rejected.Properties["Reason"]);
         }
 
         [Fact]
@@ -604,33 +604,6 @@ namespace DTXMania.Test.Stage
             public Point? MapMouseToVirtual(Point windowPoint) => null;
             public ITextInputSource? GetTextInputSource() => null;
             public void RequestExit() { }
-        }
-
-        private sealed class RecordingBreadcrumbSink : ICrashBreadcrumbSink
-        {
-            private readonly List<CrashBreadcrumb> _events = new();
-
-            public IReadOnlyList<CrashBreadcrumb> Events => _events;
-
-            public void Record(string eventName, IReadOnlyDictionary<string, object?>? properties = null)
-            {
-                _events.Add(new CrashBreadcrumb(
-                    DateTimeOffset.UtcNow,
-                    eventName,
-                    properties ?? new Dictionary<string, object?>()));
-            }
-        }
-
-        private sealed class RecordingContextSink : ICrashContextSink
-        {
-            private readonly List<CrashContextSnapshot> _snapshots = new();
-
-            public IReadOnlyList<CrashContextSnapshot> Snapshots => _snapshots;
-
-            public void SetSnapshot(CrashContextSnapshot snapshot)
-            {
-                _snapshots.Add(snapshot);
-            }
         }
 
         private sealed class TestStage : IStage

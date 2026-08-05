@@ -51,30 +51,6 @@ internal sealed class CrashReportArchiveWriter : ICrashReportArtifactWriter
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         WriteIndented = false
     };
-    private static readonly HashSet<string> KnownBreadcrumbEvents = new(StringComparer.Ordinal)
-    {
-        "process_started",
-        "initialization_milestone_reached",
-        "stage_transition_requested",
-        "stage_transition_started",
-        "stage_transition_completed",
-        "stage_transition_rejected",
-        "configuration_opened",
-        "configuration_closed",
-        "graphics_settings_changed",
-        "graphics_device_lost",
-        "graphics_device_reset",
-        "audio_device_attached",
-        "audio_device_detached",
-        "audio_device_selected",
-        "midi_device_attached",
-        "midi_device_detached",
-        "midi_device_selected",
-        "midi_device_count_changed",
-        "song_selection_entered",
-        "gameplay_entered",
-        "exit_requested"
-    };
     private static readonly IReadOnlyDictionary<string, object?> EmptyProperties =
         new Dictionary<string, object?>(StringComparer.Ordinal);
 
@@ -242,7 +218,7 @@ internal sealed class CrashReportArchiveWriter : ICrashReportArtifactWriter
         for (var index = firstIncluded; index < breadcrumbs.Count; index++)
         {
             var breadcrumb = breadcrumbs[index];
-            var eventName = KnownBreadcrumbEvents.Contains(breadcrumb.EventName)
+            var eventName = CrashBreadcrumbEvents.IsStableEvent(breadcrumb.EventName)
                 ? breadcrumb.EventName
                 : "unknown_event";
             sanitized.Add(new SerializedBreadcrumb(

@@ -171,7 +171,7 @@ public sealed class CrashReportStoreTests
 
         using var archive = new ZipArchive(destination, ZipArchiveMode.Read, leaveOpen: true);
         using var logsReader = new StreamReader(archive.GetEntry("logs.ndjson")!.Open(), Encoding.UTF8);
-        using var logs = JsonDocument.Parse(logsReader.ReadToEnd());
+        using var logs = JsonDocument.Parse(logsReader.ReadLine()!);
         using var breadcrumbsReader = new StreamReader(archive.GetEntry("breadcrumbs.json")!.Open(), Encoding.UTF8);
         using var breadcrumbs = JsonDocument.Parse(breadcrumbsReader.ReadToEnd());
         using var reportReader = new StreamReader(archive.GetEntry("report.json")!.Open(), Encoding.UTF8);

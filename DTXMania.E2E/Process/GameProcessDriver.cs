@@ -130,7 +130,18 @@ public sealed class GameProcessDriver : IAsyncDisposable
 
             }
 
-            await WaitForExitAsync(TimeSpan.FromSeconds(10), CancellationToken.None);
+            try
+            {
+                await WaitForExitAsync(TimeSpan.FromSeconds(10), CancellationToken.None);
+            }
+            catch (TimeoutException)
+            {
+                // Stdout/stderr draining exceeded the disposal timeout — do not propagate from DisposeAsync.
+            }
+            catch (OperationCanceledException)
+            {
+                // Cancellation during disposal must not propagate to callers.
+            }
         }
         finally
         {

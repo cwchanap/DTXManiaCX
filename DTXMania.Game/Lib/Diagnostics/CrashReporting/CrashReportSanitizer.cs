@@ -232,6 +232,11 @@ internal sealed class CrashReportSanitizer
             return fallback;
         }
 
+        if (value.IndexOfAny(['\r', '\n', '\0']) >= 0)
+        {
+            return fallback;
+        }
+
         var sanitized = SanitizeStackTrace(value);
         return sanitized == RedactedValue ? RedactedValue : Limit(sanitized, MaximumMetadataLength);
     }

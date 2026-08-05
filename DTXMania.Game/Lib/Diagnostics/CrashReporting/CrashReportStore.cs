@@ -166,7 +166,7 @@ internal sealed class CrashReportStore
         Action<Stream, CrashReportDocument> writeArtifact,
         out string? failureCode)
     {
-        var temporaryPath = Path.Combine(_rootPath, "." + document.Summary.ReportId + ".tmp");
+        var temporaryPath = Path.Combine(_rootPath, "." + document.Summary.FileName + ".tmp");
         var finalPath = Path.Combine(_rootPath, document.Summary.FileName);
         var temporaryFileCreated = false;
 
@@ -189,7 +189,8 @@ internal sealed class CrashReportStore
             failureCode = null;
             return true;
         }
-        catch (Exception exception) when (IsExpectedFileSystemException(exception))
+        catch (Exception exception) when (IsExpectedFileSystemException(exception)
+                                          || exception is JsonException)
         {
             if (temporaryFileCreated)
             {
@@ -293,7 +294,7 @@ internal sealed class CrashReportStore
 
             var fields = new Dictionary<string, string>(StringComparer.Ordinal);
             var reachedDelimiter = false;
-            for (var lineCount = 0; lineCount < 8; lineCount++)
+            for (var lineCount = 0; lineCount < 16; lineCount++)
             {
                 var line = reader.ReadLine();
                 if (line is null)
