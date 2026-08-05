@@ -416,6 +416,126 @@ namespace DTXMania.Test
         }
 
         [Fact]
+        public void OnGraphicsDeviceLost_WithGraphicsManager_ShouldPublishGraphicsContextAndBreadcrumb()
+        {
+            var game = CreateGameForLifecycle();
+            var diagnostics = new RecordingGameCrashDiagnostics();
+            SetCrashDiagnostics(game, diagnostics);
+            ReflectionHelpers.SetPrivateField(
+                game,
+                "_graphicsManager",
+                new StubGraphicsManager(isDeviceAvailable: true, CreateFailingRenderTargetManager()));
+
+            var ex = Record.Exception(() =>
+                ReflectionHelpers.InvokePrivateMethod(game, "OnGraphicsDeviceLost", null!, EventArgs.Empty));
+
+            Assert.Null(ex);
+            Assert.Contains(
+                diagnostics.Contexts.Snapshots,
+                item => item.Kind == CrashContextKind.Graphics
+                    && Equals(item.Fields["DeviceAvailable"], false));
+            Assert.Contains(
+                diagnostics.Breadcrumbs.Events,
+                item => item.EventName == "graphics_device_lost");
+        }
+
+        [Fact]
+        public void OnGraphicsDeviceReset_WithGraphicsManager_ShouldPublishGraphicsContextAndBreadcrumb()
+        {
+            var game = CreateGameForLifecycle();
+            var diagnostics = new RecordingGameCrashDiagnostics();
+            SetCrashDiagnostics(game, diagnostics);
+            ReflectionHelpers.SetPrivateField(
+                game,
+                "_graphicsManager",
+                new StubGraphicsManager(isDeviceAvailable: true, CreateFailingRenderTargetManager()));
+            ReflectionHelpers.SetPrivateField(game, "_renderTarget", null);
+
+            var ex = Record.Exception(() =>
+                ReflectionHelpers.InvokePrivateMethod(game, "OnGraphicsDeviceReset", null!, EventArgs.Empty));
+
+            Assert.Null(ex);
+            Assert.Contains(
+                diagnostics.Contexts.Snapshots,
+                item => item.Kind == CrashContextKind.Graphics);
+            Assert.Contains(
+                diagnostics.Breadcrumbs.Events,
+                item => item.EventName == "graphics_device_reset");
+        }
+
+        [Fact]
+        public void ReportStartupFrameRendered_ShouldPublishStartupFirstDrawEndMilestone()
+        {
+            var game = ReflectionHelpers.CreateGame();
+            var diagnostics = new RecordingGameCrashDiagnostics();
+            SetCrashDiagnostics(game, diagnostics);
+
+            game.ReportStartupFrameRendered();
+
+            var startup = Assert.Single(
+                diagnostics.Contexts.Snapshots,
+                item => item.Kind == CrashContextKind.Startup);
+            Assert.Equal(
+                StartupCriticalPathMilestone.StartupFirstDrawEnd,
+                startup.Fields["Milestone"]);
+        }
+
+        [Fact]
+        public void ReportStartupSummaryAndTitleRequested_ShouldPublishSummaryRequestMilestone()
+        {
+            var game = ReflectionHelpers.CreateGame();
+            var diagnostics = new RecordingGameCrashDiagnostics();
+            SetCrashDiagnostics(game, diagnostics);
+
+            game.ReportStartupSummaryAndTitleRequested();
+
+            var startup = Assert.Single(
+                diagnostics.Contexts.Snapshots,
+                item => item.Kind == CrashContextKind.Startup);
+            Assert.Equal(
+                StartupCriticalPathMilestone.SummaryRequest,
+                startup.Fields["Milestone"]);
+        }
+
+        [Fact]
+        public void OnGraphicsSettingsChanged_ShouldPublishConfigurationGraphicsAndBreadcrumb()
+        {
+            var config = new ConfigData { ScreenWidth = 640, ScreenHeight = 480, FullScreen = false, VSyncWait = true };
+            var game = CreateGameForLifecycle(config);
+            var diagnostics = new RecordingGameCrashDiagnostics();
+            SetCrashDiagnostics(game, diagnostics);
+            ReflectionHelpers.SetPrivateField(
+                game,
+                "_graphicsManager",
+                new StubGraphicsManager(isDeviceAvailable: true, CreateFailingRenderTargetManager()));
+            ReflectionHelpers.SetPrivateField(game, "_renderTarget", null);
+
+            var newSettings = new GraphicsSettings
+            {
+                Width = 1920,
+                Height = 1080,
+                IsFullscreen = true,
+                VSync = false
+            };
+
+            ReflectionHelpers.InvokePrivateMethod(
+                game,
+                "OnGraphicsSettingsChanged",
+                null!,
+                new GraphicsSettingsChangedEventArgs(new GraphicsSettings { Width = 640, Height = 480 }, newSettings));
+
+            Assert.Contains(
+                diagnostics.Contexts.Snapshots,
+                item => item.Kind == CrashContextKind.Configuration);
+            Assert.Contains(
+                diagnostics.Contexts.Snapshots,
+                item => item.Kind == CrashContextKind.Graphics);
+            Assert.Contains(
+                diagnostics.Breadcrumbs.Events,
+                item => item.EventName == "graphics_settings_changed");
+        }
+
+        [Fact]
         public void OnGameExiting_WithConcreteConfigManager_ShouldFlushPendingSave()
         {
             // OnGameExiting is a belt-and-suspenders handler that flushes any deferred config

@@ -172,6 +172,112 @@ public sealed class CrashReportRuntimeTests
             storeFactory: () => throw new OutOfMemoryException("fatal allocation failure")));
     }
 
+    [Fact]
+    public void CaptureFatal_WhenCaptureDisabled_ShouldReturnWithoutThrowing()
+    {
+        using var errorWriter = new StringWriter();
+        var runtime = new CrashReportRuntime(
+            Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance,
+            crashLogBufferProvider: null,
+            crashBreadcrumbBuffer: null,
+            crashContextSnapshotStore: null,
+            crashReportStore: null,
+            errorWriter);
+
+        var exception = Record.Exception(
+            () => runtime.CaptureFatal(new InvalidOperationException("fatal")));
+
+        Assert.Null(exception);
+        Assert.False(runtime.IsCaptureEnabled);
+        Assert.DoesNotContain("crash_reporting_capture_failed", errorWriter.ToString());
+    }
+
+    [Fact]
+    public void CaptureFatal_WithNullException_ShouldThrow()
+    {
+        using var runtime = CrashReportRuntime.CreateBestEffort(
+            TextWriter.Null,
+            storeFactory: () => throw new UnauthorizedAccessException("denied"));
+
+        Assert.Throws<ArgumentNullException>(() => runtime.CaptureFatal(null!));
+    }
+
+    [Fact]
+    public void RecordSecondaryFailure_WithKnownCode_ShouldWriteNormalizedCode()
+    {
+        using var errorWriter = new StringWriter();
+        var runtime = new CrashReportRuntime(
+            Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance,
+            crashLogBufferProvider: null,
+            crashBreadcrumbBuffer: null,
+            crashContextSnapshotStore: null,
+            crashReportStore: null,
+            errorWriter);
+
+        runtime.RecordSecondaryFailure("crash_capture_failed", new IOException("capture failed"));
+        runtime.RecordSecondaryFailure("game_dispose_failed", new IOException("dispose failed"));
+        runtime.RecordSecondaryFailure("runtime_dispose_failed", new IOException("runtime dispose failed"));
+        runtime.RecordSecondaryFailure("unknown_code", new IOException("unknown"));
+
+        var output = errorWriter.ToString();
+        Assert.Contains("code=crash_capture_failed", output);
+        Assert.Contains("code=game_dispose_failed", output);
+        Assert.Contains("code=runtime_dispose_failed", output);
+        Assert.Contains("code=secondary_failure", output);
+    }
+
+    [Fact]
+    public void RecordSecondaryFailure_WithNullException_ShouldThrow()
+    {
+        var runtime = new CrashReportRuntime(
+            Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance,
+            crashLogBufferProvider: null,
+            crashBreadcrumbBuffer: null,
+            crashContextSnapshotStore: null,
+            crashReportStore: null,
+            TextWriter.Null);
+
+        Assert.Throws<ArgumentNullException>(
+            () => runtime.RecordSecondaryFailure("code", null!));
+    }
+
+    [Fact]
+    public void GameDiagnostics_ShouldExposeBreadcrumbsContextsAndInbox()
+    {
+        using var runtime = CrashReportRuntime.CreateBestEffort(
+            TextWriter.Null,
+            storeFactory: () => throw new UnauthorizedAccessException("denied"));
+
+        Assert.NotNull(runtime.GameDiagnostics.Breadcrumbs);
+        Assert.NotNull(runtime.GameDiagnostics.Contexts);
+        Assert.Same(EmptyCrashReportInbox.Instance, runtime.GameDiagnostics.Inbox);
+        Assert.NotNull(runtime.GameDiagnostics.LoggerFactory);
+    }
+
+    [Fact]
+    public void Constructor_WithNullLoggerFactory_ShouldThrow()
+    {
+        Assert.Throws<ArgumentNullException>(() => new CrashReportRuntime(
+            null!,
+            crashLogBufferProvider: null,
+            crashBreadcrumbBuffer: null,
+            crashContextSnapshotStore: null,
+            crashReportStore: null,
+            TextWriter.Null));
+    }
+
+    [Fact]
+    public void Constructor_WithNullErrorWriter_ShouldThrow()
+    {
+        Assert.Throws<ArgumentNullException>(() => new CrashReportRuntime(
+            Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance,
+            crashLogBufferProvider: null,
+            crashBreadcrumbBuffer: null,
+            crashContextSnapshotStore: null,
+            crashReportStore: null,
+            errorWriter: null!));
+    }
+
     private static CrashReportStore CreateStore(
         string reportRoot,
         ICrashReportArtifactWriter? writer = null)
