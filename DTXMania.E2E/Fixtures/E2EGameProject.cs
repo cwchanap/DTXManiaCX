@@ -14,8 +14,10 @@ public static class E2EGameProject
 
     public static string ResolveProjectPath()
     {
-        return Environment.GetEnvironmentVariable(GameProjectEnvironmentVariable)
-            ?? (OperatingSystem.IsWindows()
+        var overridePath = Environment.GetEnvironmentVariable(GameProjectEnvironmentVariable);
+        return !string.IsNullOrWhiteSpace(overridePath)
+            ? overridePath
+            : (OperatingSystem.IsWindows()
                 ? WindowsProjectPath
                 : MacProjectPath);
     }
