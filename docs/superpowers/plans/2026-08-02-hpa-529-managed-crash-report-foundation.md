@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Note (2026-08-05):** This plan was written against the original ZIP/emergency-text design. HPA-529 shipped a text-only schema v2 instead. The ZIP, emergency-text, and `ICrashReportInbox` references in this plan are historical; see the canonical design's "Schema v2 amendment" section for the shipped format and privacy model.
+
 **Status:** Ready for implementation after PR review.  
 **Goal:** Add process-boundary managed crash capture that preserves console logging, writes privacy-safe local ZIP or emergency-text reports, keeps the newest five reports, and proves `Update`/`Draw` exceptions reach the executable boundary on WindowsDX and DesktopGL.
 

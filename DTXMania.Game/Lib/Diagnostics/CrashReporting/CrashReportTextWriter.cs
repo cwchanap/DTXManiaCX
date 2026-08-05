@@ -15,7 +15,8 @@ internal sealed record CrashReportDocument(
     IReadOnlyList<CrashLogRecord> Logs,
     IReadOnlyList<CrashBreadcrumb> Breadcrumbs,
     IReadOnlyList<CrashContextSnapshot> Context,
-    IReadOnlyList<string> SensitivePaths);
+    IReadOnlyList<string> SensitivePaths,
+    IReadOnlyList<string> SensitiveSecrets);
 
 internal interface ICrashReportArtifactWriter
 {
@@ -48,7 +49,7 @@ internal sealed class CrashReportTextWriter : ICrashReportArtifactWriter
         ArgumentNullException.ThrowIfNull(destination);
         ArgumentNullException.ThrowIfNull(document);
 
-        var sanitizer = new CrashReportSanitizer(document.SensitivePaths);
+        var sanitizer = new CrashReportSanitizer(document.SensitivePaths, document.SensitiveSecrets);
         var exceptionText = sanitizer.SanitizeExceptionChain(document.Exception, out var exceptionTruncated);
         var logs = SelectLogs(document.Logs, out var logsTruncated);
         var breadcrumbs = SelectBreadcrumbs(document.Breadcrumbs, out var breadcrumbsTruncated);
@@ -125,7 +126,16 @@ internal sealed class CrashReportTextWriter : ICrashReportArtifactWriter
             builder.Append(' ').Append(record.EventId.Name);
         }
 
-        builder.Append("] ").Append(record.MessageTemplate);
+        builder.Append(']');
+
+        // Render the originating logger category when present so unclassified records still
+        // identify their subsystem (graphics, input, JSON-RPC, …) instead of being anonymous.
+        if (!string.IsNullOrEmpty(record.Category))
+        {
+            builder.Append(" [").Append(record.Category).Append(']');
+        }
+
+        builder.Append(' ').Append(record.MessageTemplate);
 
         if (record.ExceptionType is not null)
         {

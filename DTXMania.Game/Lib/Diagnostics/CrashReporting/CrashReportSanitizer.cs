@@ -14,9 +14,17 @@ namespace DTXMania.Game.Lib.Diagnostics.CrashReporting;
 /// Trims crash report text to a sane size and replaces the account name in filesystem
 /// paths so a report can be pasted into a bug report as-is.
 ///
-/// Deliberately minimal: reports are written to the local machine and are never uploaded
-/// automatically, so exception messages and stack traces are preserved verbatim. They are
-/// the whole point of the report.
+/// Reports are written to the local machine and are never uploaded automatically, so
+/// exception messages and stack traces are preserved verbatim — they are the whole point
+/// of the report. Two categories are still scrubbed everywhere <see cref="Scrub"/> is used
+/// (including exception messages and stack traces), because a player may attach a report
+/// to a public GitHub issue:
+/// <list type="bullet">
+/// <item>Registered secret values (e.g. <c>GameApiKey</c>), replaced with <c>[REDACTED]</c>.</item>
+/// <item>URI credentials — <c>scheme://user:pass@host</c> and credential-bearing query
+/// parameters (<c>api_key</c>, <c>token</c>, <c>secret</c>, <c>password</c>, …) — replaced
+/// with <c>[REDACTED]</c>.</item>
+/// </list>
 /// </summary>
 internal sealed class CrashReportSanitizer
 {
@@ -27,15 +35,29 @@ internal sealed class CrashReportSanitizer
     private const int MaximumExceptionMessageLength = 4 * 1024;
     private const int MaximumMetadataLength = 256;
     private const int MaximumInnerExceptions = 8;
+    private const int MinimumSecretLength = 6;
 
     private static readonly Regex HomeSegmentRegex = new(
         """(?<![A-Za-z0-9_])(?:Users|home)[\\/][^\\/\s:;,\]\)}]+""",
         RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
         TimeSpan.FromMilliseconds(100));
 
-    private readonly IReadOnlyList<string> _sensitivePathPrefixes;
+    // scheme://user:pass@host — redact the userinfo so embedded credentials never reach disk.
+    private static readonly Regex UriUserInfoRegex = new(
+        """(?<![A-Za-z0-9_])((?:https?|ftp|wss?)://)[^\s/:@]+:[^\s/@]+@""",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
+        TimeSpan.FromMilliseconds(100));
 
-    internal CrashReportSanitizer(IReadOnlyList<string>? sensitivePaths)
+    // Credential-bearing query parameters: ?api_key=…&token=… — keep the key, redact the value.
+    private static readonly Regex UriCredentialQueryRegex = new(
+        """(?<=[?&])(api[_-]?key|access[_-]?token|token|secret|password|passwd|pwd|auth)=[^&\s#]+""",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
+        TimeSpan.FromMilliseconds(100));
+
+    private readonly IReadOnlyList<string> _sensitivePathPrefixes;
+    private readonly IReadOnlyList<string> _sensitiveSecrets;
+
+    internal CrashReportSanitizer(IReadOnlyList<string>? sensitivePaths, IReadOnlyList<string>? sensitiveSecrets = null)
     {
         try
         {
@@ -48,10 +70,14 @@ internal sealed class CrashReportSanitizer
         {
             _sensitivePathPrefixes = Array.Empty<string>();
         }
+
+        _sensitiveSecrets = NormalizeSecrets(sensitiveSecrets);
     }
 
     /// <summary>
-    /// Replaces known roots with [PATH] and the home-directory account name with [USER].
+    /// Replaces known roots with [PATH], the home-directory account name with [USER],
+    /// registered secret values with [REDACTED], and URI credentials (userinfo and
+    /// credential-bearing query parameters) with [REDACTED].
     /// </summary>
     internal string Scrub(string? value, int maximumLength = MaximumStackTraceLength)
     {
@@ -62,7 +88,14 @@ internal sealed class CrashReportSanitizer
 
         try
         {
-            var scrubbed = value;
+            var scrubbed = UriUserInfoRegex.Replace(value, "$1[REDACTED]@");
+            scrubbed = UriCredentialQueryRegex.Replace(scrubbed, "$1=[REDACTED]");
+
+            foreach (var secret in _sensitiveSecrets)
+            {
+                scrubbed = scrubbed.Replace(secret, RedactedValue, StringComparison.Ordinal);
+            }
+
             foreach (var prefix in _sensitivePathPrefixes)
             {
                 scrubbed = scrubbed.Replace(prefix, "[PATH]", StringComparison.OrdinalIgnoreCase);
@@ -164,6 +197,35 @@ internal sealed class CrashReportSanitizer
         return prefixes
             .OrderByDescending(static path => path.Length)
             .ToArray();
+    }
+
+    private static IReadOnlyList<string> NormalizeSecrets(IReadOnlyList<string>? sensitiveSecrets)
+    {
+        if (sensitiveSecrets is null || sensitiveSecrets.Count == 0)
+        {
+            return Array.Empty<string>();
+        }
+
+        // Longest first so a secret that contains another is replaced first. Deduplicate
+        // case-sensitively (secrets are compared with StringComparison.Ordinal in Scrub).
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var secrets = new List<string>(sensitiveSecrets.Count);
+        foreach (var secret in sensitiveSecrets)
+        {
+            if (secret is null || secret.Length < MinimumSecretLength)
+            {
+                // Skip blanks and trivially short values to avoid redacting common substrings.
+                continue;
+            }
+
+            if (seen.Add(secret))
+            {
+                secrets.Add(secret);
+            }
+        }
+
+        secrets.Sort(static (left, right) => right.Length.CompareTo(left.Length));
+        return secrets.ToArray();
     }
 
     private static string Limit(string value, int maximumLength)

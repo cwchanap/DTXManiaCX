@@ -45,18 +45,26 @@ internal sealed class RecordingContextSink : ICrashContextSink
 
 /// <summary>
 /// Shared recording sensitive-data sink for crash-reporting tests. Captures
-/// every path registered for redaction so assertions can verify the configured
-/// roots were registered.
+/// every path and secret registered for redaction so assertions can verify the
+/// configured roots and secrets were registered.
 /// </summary>
 internal sealed class RecordingSensitiveDataSink : ICrashSensitiveDataSink
 {
     private readonly List<string?> _paths = new();
+    private readonly List<string?> _secrets = new();
 
     public IReadOnlyList<string?> Paths => _paths;
+
+    public IReadOnlyList<string?> Secrets => _secrets;
 
     public void RegisterPath(string? path)
     {
         _paths.Add(path);
+    }
+
+    public void RegisterSecret(string? secret)
+    {
+        _secrets.Add(secret);
     }
 }
 

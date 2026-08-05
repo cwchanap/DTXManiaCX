@@ -5,6 +5,17 @@
 **Canonical design:** [`2026-08-02-hpa-519-managed-crash-report-design.md`](./2026-08-02-hpa-519-managed-crash-report-design.md)  
 **Linear:** HPA-519, with implementation children HPA-529 and HPA-530
 
+## Schema v2 amendment (2026-08-05) — text-only reports
+
+**Status:** Normative. The "Required HPA-530 implementation gates" and "Reviewer focus" sections below still reference ZIP bundles, emergency-text fallback, `ICrashReportInbox`, `inbox-state.json`, and manual ZIP attachment. Those references are **obsolete** under schema v2. See the canonical design's "Schema v2 amendment" section for the shipped text-only format, privacy model, and HPA-530 implications.
+
+In particular, under schema v2:
+
+- HPA-530 gate 2 ("Define emergency-report inbox and review behavior") no longer applies — there is no emergency-text format and no `ICrashReportInbox`. HPA-530 discovers `.txt` reports directly.
+- HPA-530 gate 1 (cross-platform launcher) still applies if GitHub/folder handoff is implemented, but the attachment is a `.txt` file, not a ZIP.
+- The "Privacy and report format" reviewer-focus bullets describing `report.json`, `exception.txt`, `logs.ndjson`, `breadcrumbs.json`, and `README.txt` are obsolete; the shipped report is a single `.txt` with header + sections.
+- The sanitization contract is now: registered path prefixes → `[PATH]`, home segments → `[USER]`, registered secrets (including `GameApiKey`) → `[REDACTED]`, and URI credentials (userinfo + credential-bearing query params) → `[REDACTED]`. Exception messages are otherwise preserved verbatim.
+
 ## Purpose
 
 This document records implementation constraints discovered while reviewing the approved HPA-519 managed crash-reporting design against the current DTXManiaCX codebase.

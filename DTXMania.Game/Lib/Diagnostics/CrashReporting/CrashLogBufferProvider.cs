@@ -13,10 +13,13 @@ internal sealed record CrashLogRecord(
     EventId EventId,
     string MessageTemplate,
     IReadOnlyDictionary<string, object?> Properties,
-    string? ExceptionType);
+    string? ExceptionType,
+    string Category = "");
 
 internal sealed class CrashLogBufferProvider : ILoggerProvider
 {
+    private const int MaximumCategoryLength = 64;
+
     private readonly object _gate = new();
     private readonly CrashLogFieldPolicy _policy;
     private readonly TimeProvider _timeProvider;
@@ -39,7 +42,11 @@ internal sealed class CrashLogBufferProvider : ILoggerProvider
 
     public ILogger CreateLogger(string categoryName)
     {
-        return new CrashLogBufferLogger(this);
+        // Retain a bounded category so unclassified records still identify their originating
+        // subsystem (graphics, input, JSON-RPC, …) instead of all collapsing to the same
+        // anonymous [UNCLASSIFIED MESSAGE OMITTED] entry.
+        var boundedCategory = BoundCategory(categoryName);
+        return new CrashLogBufferLogger(this, boundedCategory);
     }
 
     public void Dispose()
@@ -58,7 +65,7 @@ internal sealed class CrashLogBufferProvider : ILoggerProvider
         }
     }
 
-    private void Record<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception)
+    private void Record<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, string category)
     {
         if (logLevel == LogLevel.None)
         {
@@ -71,7 +78,7 @@ internal sealed class CrashLogBufferProvider : ILoggerProvider
             if (!hasOriginalFormat
                 || !_policy.TryClassify(eventId, originalFormat, out var safeEventId, out var safeMessageTemplate))
             {
-                Append(CreateUnclassifiedRecord(logLevel, exception));
+                Append(CreateUnclassifiedRecord(logLevel, exception, category));
                 return;
             }
 
@@ -90,15 +97,16 @@ internal sealed class CrashLogBufferProvider : ILoggerProvider
                 safeEventId,
                 safeMessageTemplate,
                 FreezeProperties(properties),
-                GetExceptionType(exception)));
+                GetExceptionType(exception),
+                category));
         }
         catch (Exception)
         {
-            Append(CreateUnclassifiedRecord(logLevel, exception));
+            Append(CreateUnclassifiedRecord(logLevel, exception, category));
         }
     }
 
-    private CrashLogRecord CreateUnclassifiedRecord(LogLevel logLevel, Exception? exception)
+    private CrashLogRecord CreateUnclassifiedRecord(LogLevel logLevel, Exception? exception, string category)
     {
         return new CrashLogRecord(
             _timeProvider.GetUtcNow(),
@@ -106,7 +114,22 @@ internal sealed class CrashLogBufferProvider : ILoggerProvider
             CrashLogFieldPolicy.UnclassifiedEventId,
             CrashLogFieldPolicy.UnclassifiedMessageTemplate,
             ReadOnlyDictionary<string, object?>.Empty,
-            GetExceptionType(exception));
+            GetExceptionType(exception),
+            category);
+    }
+
+    private static string BoundCategory(string? categoryName)
+    {
+        if (string.IsNullOrEmpty(categoryName))
+        {
+            return string.Empty;
+        }
+
+        // Collapse newlines so the category cannot break the line-oriented report format.
+        var collapsed = categoryName.ReplaceLineEndings(" ");
+        return collapsed.Length <= MaximumCategoryLength
+            ? collapsed
+            : collapsed[..MaximumCategoryLength];
     }
 
     private void Append(CrashLogRecord record)
@@ -170,10 +193,12 @@ internal sealed class CrashLogBufferProvider : ILoggerProvider
     private sealed class CrashLogBufferLogger : ILogger
     {
         private readonly CrashLogBufferProvider _provider;
+        private readonly string _category;
 
-        internal CrashLogBufferLogger(CrashLogBufferProvider provider)
+        internal CrashLogBufferLogger(CrashLogBufferProvider provider, string category)
         {
             _provider = provider;
+            _category = category;
         }
 
         public IDisposable? BeginScope<TState>(TState state)
@@ -194,7 +219,7 @@ internal sealed class CrashLogBufferProvider : ILoggerProvider
             Exception? exception,
             Func<TState, Exception?, string> formatter)
         {
-            _provider.Record(logLevel, eventId, state, exception);
+            _provider.Record(logLevel, eventId, state, exception, _category);
         }
     }
 

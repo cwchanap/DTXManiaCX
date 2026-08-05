@@ -19,7 +19,8 @@ internal sealed record CrashCaptureData(
     IReadOnlyList<CrashLogRecord> Logs,
     IReadOnlyList<CrashBreadcrumb> Breadcrumbs,
     IReadOnlyList<CrashContextSnapshot> Context,
-    IReadOnlyList<string> SensitivePaths);
+    IReadOnlyList<string> SensitivePaths,
+    IReadOnlyList<string> SensitiveSecrets);
 
 internal sealed record CrashReportWriteResult(
     CrashReportSummary? Report,
@@ -80,7 +81,8 @@ internal sealed class CrashReportStore
             data.Logs,
             data.Breadcrumbs,
             data.Context,
-            data.SensitivePaths);
+            data.SensitivePaths,
+            data.SensitiveSecrets);
 
         if (!TryWriteReport(document, out var failureCode))
         {
@@ -131,6 +133,7 @@ internal sealed class CrashReportStore
         var temporaryPath = Path.Combine(_rootPath, "." + document.Summary.FileName + ".tmp");
         var finalPath = Path.Combine(_rootPath, document.Summary.FileName);
         var temporaryFileCreated = false;
+        var movedToFinal = false;
 
         try
         {
@@ -148,18 +151,25 @@ internal sealed class CrashReportStore
             }
 
             File.Move(temporaryPath, finalPath, overwrite: false);
+            movedToFinal = true;
             failureCode = null;
             return true;
         }
         catch (Exception exception) when (IsExpectedFileSystemException(exception))
         {
-            if (temporaryFileCreated)
+            failureCode = GetFailureCode(exception);
+            return false;
+        }
+        finally
+        {
+            // Delete the temporary file unless it was successfully moved to its final name.
+            // The catch above only handles filesystem exceptions; a non-filesystem failure
+            // from _writer.Write (e.g. InvalidOperationException) propagates, but the
+            // finally block still removes the .tmp file so it cannot linger on disk.
+            if (temporaryFileCreated && !movedToFinal)
             {
                 DeleteTemporaryFile(temporaryPath);
             }
-
-            failureCode = GetFailureCode(exception);
-            return false;
         }
     }
 

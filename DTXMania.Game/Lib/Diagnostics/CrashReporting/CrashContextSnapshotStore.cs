@@ -14,6 +14,7 @@ internal sealed class CrashContextSnapshotStore : ICrashContextSink, ICrashSensi
     private readonly object _gate = new();
     private readonly Dictionary<CrashContextKind, CrashContextSnapshot> _snapshots = new();
     private readonly HashSet<string> _sensitivePaths = new(AppPaths.SkinPathComparer);
+    private readonly HashSet<string> _sensitiveSecrets = new(StringComparer.Ordinal);
 
     public void SetSnapshot(CrashContextSnapshot snapshot)
     {
@@ -57,6 +58,19 @@ internal sealed class CrashContextSnapshotStore : ICrashContextSink, ICrashSensi
         }
     }
 
+    public void RegisterSecret(string? secret)
+    {
+        if (string.IsNullOrEmpty(secret))
+        {
+            return;
+        }
+
+        lock (_gate)
+        {
+            _sensitiveSecrets.Add(secret);
+        }
+    }
+
     internal IReadOnlyList<CrashContextSnapshot> Snapshot()
     {
         lock (_gate)
@@ -79,6 +93,14 @@ internal sealed class CrashContextSnapshotStore : ICrashContextSink, ICrashSensi
         lock (_gate)
         {
             return _sensitivePaths.ToArray();
+        }
+    }
+
+    internal IReadOnlyList<string> SensitiveSecretSnapshot()
+    {
+        lock (_gate)
+        {
+            return _sensitiveSecrets.ToArray();
         }
     }
 
