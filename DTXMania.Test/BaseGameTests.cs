@@ -44,24 +44,26 @@ namespace DTXMania.Test
                 NoFail = true,
                 EnableGameApi = true,
                 GameApiKey = "must-not-appear",
-                DTXPath = @"C:\\Secret\\Songs",
-                SkinPath = @"C:\\Secret\\Skin"
+                DTXPath = @"C:\Secret\Songs",
+                SkinPath = @"C:\Secret\Skin"
             };
             config.KeyBindings["Snare"] = 1;
 
             CrashContextPublisher.PublishConfiguration(diagnostics, config);
+            CrashContextPublisher.RegisterSensitivePrefixes(diagnostics, config);
 
             var snapshot = diagnostics.Contexts.Snapshots.Single(
                 item => item.Kind == CrashContextKind.Configuration);
             Assert.Equal(1920, snapshot.Fields["ScreenWidth"]);
             Assert.Equal(1, snapshot.Fields["KeyBindingCount"]);
             Assert.DoesNotContain(
-                snapshot.Fields,
-                field => field.Key.Contains("Key", StringComparison.Ordinal)
-                    && field.Value?.ToString() == "must-not-appear");
+                snapshot.Fields.Values,
+                value => value?.ToString()?.Contains("must-not-appear", StringComparison.Ordinal) == true);
             Assert.DoesNotContain(
                 snapshot.Fields.Values,
                 value => value?.ToString()?.Contains("Secret", StringComparison.Ordinal) == true);
+            Assert.Contains(diagnostics.SensitiveData.Paths, path => path == config.DTXPath);
+            Assert.Contains(diagnostics.SensitiveData.Paths, path => path == config.SkinPath);
         }
 
         [Fact]
@@ -747,6 +749,9 @@ namespace DTXMania.Test
                 diagnostics.Contexts.Snapshots,
                 item => item.Kind == CrashContextKind.Input);
             Assert.Equal(1, input.Fields["MidiDeviceCount"]);
+            Assert.DoesNotContain(
+                input.Fields.Values,
+                value => value?.ToString()?.Contains("Secret MIDI Device", StringComparison.Ordinal) == true);
             Assert.Contains(
                 diagnostics.Breadcrumbs.Events,
                 item => item.EventName == "midi_device_count_changed"
@@ -1394,6 +1399,8 @@ namespace DTXMania.Test
             ReflectionHelpers.SetPrivateField(game, "<InputManager>k__BackingField", inputManager);
             ReflectionHelpers.SetPrivateField(game, "<StageManager>k__BackingField", stageManager);
             ReflectionHelpers.SetPrivateField(game, "_graphicsManager", graphicsManager);
+
+            SetCrashDiagnostics(game, new TestGameCrashDiagnostics());
 
             return game;
         }
@@ -2260,32 +2267,6 @@ namespace DTXMania.Test
             ICrashSensitiveDataSink IGameCrashDiagnostics.SensitiveData => SensitiveData;
 
             public ICrashReportInbox Inbox => EmptyCrashReportInbox.Instance;
-        }
-
-        private sealed class RecordingBreadcrumbSink : ICrashBreadcrumbSink
-        {
-            private readonly List<(string EventName, IReadOnlyDictionary<string, object?> Properties)> _events = new();
-
-            public IReadOnlyList<(string EventName, IReadOnlyDictionary<string, object?> Properties)> Events => _events;
-
-            public void Record(string eventName, IReadOnlyDictionary<string, object?>? properties = null)
-            {
-                _events.Add((
-                    eventName,
-                    properties ?? new ReadOnlyDictionary<string, object?>(new Dictionary<string, object?>())));
-            }
-        }
-
-        private sealed class RecordingContextSink : ICrashContextSink
-        {
-            private readonly List<CrashContextSnapshot> _snapshots = new();
-
-            public IReadOnlyList<CrashContextSnapshot> Snapshots => _snapshots;
-
-            public void SetSnapshot(CrashContextSnapshot snapshot)
-            {
-                _snapshots.Add(snapshot);
-            }
         }
 
         private sealed class RecordingSensitiveDataSink : ICrashSensitiveDataSink

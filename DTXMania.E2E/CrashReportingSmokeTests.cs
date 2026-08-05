@@ -36,7 +36,7 @@ public sealed class CrashReportingSmokeTests
         {
             process.Start(
                 repoRoot,
-                "DTXMania.Game/DTXMania.Game.Windows.csproj",
+                E2EGameProject.ResolveProjectPath(),
                 fixture,
                 environmentOverrides: new Dictionary<string, string?>
                 {
@@ -175,25 +175,26 @@ public sealed class CrashReportingSmokeTests
         for (var attempt = 0; attempt < maxAttempts; attempt++)
         {
             var listener = new TcpListener(IPAddress.Loopback, 0);
-            listener.Start();
-            var chosen = ((IPEndPoint)listener.LocalEndpoint).Port;
-            listener.Stop();
-
             try
             {
-                var verificationListener = new TcpListener(IPAddress.Loopback, chosen);
-                verificationListener.Start();
-                verificationListener.Stop();
-                return chosen;
+                listener.Start();
+                return ((IPEndPoint)listener.LocalEndpoint).Port;
             }
             catch (SocketException)
             {
+                // Port probe failed — retry the next attempt.
+            }
+            finally
+            {
+                listener.Stop();
             }
         }
 
-        using var fallback = new TcpListener(IPAddress.Loopback, 0);
+        var fallback = new TcpListener(IPAddress.Loopback, 0);
         fallback.Start();
-        return ((IPEndPoint)fallback.LocalEndpoint).Port;
+        var fallbackPort = ((IPEndPoint)fallback.LocalEndpoint).Port;
+        fallback.Stop();
+        return fallbackPort;
     }
 
     private static string FindRepoRoot()

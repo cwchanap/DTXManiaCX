@@ -118,7 +118,7 @@ public sealed class CrashReportSanitizerTests
     {
         var sanitizer = new CrashReportSanitizer([]);
         const string input =
-            @"Windows C:\\Users\\alice\\Desktop\\secret.dtx; Unix /home/bob/Music/secret.dtx; relative Users/carol/Documents";
+            @"Windows C:\Users\alice\Desktop\secret.dtx; Unix /home/bob/Music/secret.dtx; relative Users/carol/Documents";
 
         var result = sanitizer.SanitizeStackTrace(input);
 

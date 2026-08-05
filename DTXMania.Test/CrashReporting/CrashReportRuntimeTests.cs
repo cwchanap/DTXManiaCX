@@ -20,7 +20,6 @@ public sealed class CrashReportRuntimeTests
     {
         using var errorWriter = new StringWriter();
         using var runtime = CrashReportRuntime.CreateBestEffort(
-            StartupTimingTrace.Disabled,
             errorWriter,
             storeFactory: () => throw new UnauthorizedAccessException("denied"));
 
@@ -41,7 +40,6 @@ public sealed class CrashReportRuntimeTests
         try
         {
             using var runtime = CrashReportRuntime.CreateBestEffort(
-                StartupTimingTrace.Disabled,
                 TextWriter.Null,
                 storeFactory: () => CreateStore(reportRoot));
             var logger = runtime.GameDiagnostics.LoggerFactory.CreateLogger("probe");
@@ -72,7 +70,6 @@ public sealed class CrashReportRuntimeTests
         try
         {
             using var runtime = CrashReportRuntime.CreateBestEffort(
-                StartupTimingTrace.Disabled,
                 errorWriter,
                 storeFactory: () => CreateStore(reportRoot, new SerializationFailingArtifactWriter()));
 
@@ -96,7 +93,6 @@ public sealed class CrashReportRuntimeTests
         try
         {
             using var runtime = CrashReportRuntime.CreateBestEffort(
-                StartupTimingTrace.Disabled,
                 TextWriter.Null,
                 storeFactory: () => CreateStore(reportRoot));
 
@@ -151,7 +147,6 @@ public sealed class CrashReportRuntimeTests
         try
         {
             using var runtime = CrashReportRuntime.CreateBestEffort(
-                StartupTimingTrace.Disabled,
                 errorWriter,
                 storeFactory: () =>
                 {
@@ -173,7 +168,6 @@ public sealed class CrashReportRuntimeTests
     public void CreateBestEffort_WhenStoreFactoryThrowsOutOfMemory_ShouldNotDegrade()
     {
         Assert.Throws<OutOfMemoryException>(() => CrashReportRuntime.CreateBestEffort(
-            StartupTimingTrace.Disabled,
             TextWriter.Null,
             storeFactory: () => throw new OutOfMemoryException("fatal allocation failure")));
     }
