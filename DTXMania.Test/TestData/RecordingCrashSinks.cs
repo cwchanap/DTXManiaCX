@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using DTXMania.Game.Lib.Diagnostics.CrashReporting;
+using Microsoft.Extensions.Logging;
 
 namespace DTXMania.Test.TestData;
 
@@ -40,4 +41,46 @@ internal sealed class RecordingContextSink : ICrashContextSink
     {
         _snapshots.Add(snapshot);
     }
+}
+
+/// <summary>
+/// Shared recording sensitive-data sink for crash-reporting tests. Captures
+/// every path registered for redaction so assertions can verify the configured
+/// roots were registered.
+/// </summary>
+internal sealed class RecordingSensitiveDataSink : ICrashSensitiveDataSink
+{
+    private readonly List<string?> _paths = new();
+
+    public IReadOnlyList<string?> Paths => _paths;
+
+    public void RegisterPath(string? path)
+    {
+        _paths.Add(path);
+    }
+}
+
+/// <summary>
+/// Shared recording <see cref="IGameCrashDiagnostics"/> facade for
+/// crash-reporting tests. Wires the recording breadcrumb, context, and
+/// sensitive-data sinks together with a no-op logger factory and inbox.
+/// </summary>
+internal sealed class RecordingGameCrashDiagnostics : IGameCrashDiagnostics
+{
+    public RecordingBreadcrumbSink Breadcrumbs { get; } = new();
+
+    public RecordingContextSink Contexts { get; } = new();
+
+    public RecordingSensitiveDataSink SensitiveData { get; } = new();
+
+    public ILoggerFactory LoggerFactory =>
+        Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance;
+
+    ICrashBreadcrumbSink IGameCrashDiagnostics.Breadcrumbs => Breadcrumbs;
+
+    ICrashContextSink IGameCrashDiagnostics.Contexts => Contexts;
+
+    ICrashSensitiveDataSink IGameCrashDiagnostics.SensitiveData => SensitiveData;
+
+    public ICrashReportInbox Inbox => EmptyCrashReportInbox.Instance;
 }

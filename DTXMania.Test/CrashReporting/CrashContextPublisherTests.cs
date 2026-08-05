@@ -251,15 +251,16 @@ public sealed class CrashContextPublisherTests
         Directory.CreateDirectory(tempRoot);
         try
         {
+            var songsPath = Path.Combine(tempRoot, "songs");
             var config = new ConfigData
             {
                 SkinPath = Path.Combine(tempRoot, "skins", "MySkin")
             };
-            config.SongRoots.Add(Path.Combine(tempRoot, "songs"));
+            config.SongRoots.Add(songsPath);
 
             CrashContextPublisher.RegisterSensitivePrefixes(diagnostics, config);
 
-            Assert.Contains(diagnostics.SensitiveData.Paths, p => p == config.SongRoots[0]);
+            Assert.Contains(songsPath, diagnostics.SensitiveData.Paths);
             Assert.Contains(diagnostics.SensitiveData.Paths, p => p == config.SkinPath);
         }
         finally
@@ -280,32 +281,5 @@ public sealed class CrashContextPublisherTests
     {
         Assert.Throws<ArgumentNullException>(
             () => CrashContextPublisher.RegisterSensitivePrefixes(new RecordingGameCrashDiagnostics(), null!));
-    }
-
-    private sealed class RecordingGameCrashDiagnostics : IGameCrashDiagnostics
-    {
-        public RecordingBreadcrumbSink Breadcrumbs { get; } = new();
-        public RecordingContextSink Contexts { get; } = new();
-        public RecordingSensitiveDataSink SensitiveData { get; } = new();
-
-        public ILoggerFactory LoggerFactory =>
-            Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance;
-
-        ICrashBreadcrumbSink IGameCrashDiagnostics.Breadcrumbs => Breadcrumbs;
-        ICrashContextSink IGameCrashDiagnostics.Contexts => Contexts;
-        ICrashSensitiveDataSink IGameCrashDiagnostics.SensitiveData => SensitiveData;
-        public ICrashReportInbox Inbox => EmptyCrashReportInbox.Instance;
-    }
-
-    private sealed class RecordingSensitiveDataSink : ICrashSensitiveDataSink
-    {
-        private readonly List<string?> _paths = new();
-
-        public IReadOnlyList<string?> Paths => _paths;
-
-        public void RegisterPath(string? path)
-        {
-            _paths.Add(path);
-        }
     }
 }

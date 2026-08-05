@@ -171,13 +171,8 @@ public sealed class CrashLogFieldPolicyTests
     }
 
     [Fact]
-    public void NormalizeExceptionType_WithLongName_ShouldTruncateToLimit()
+    public void NormalizeExceptionType_WithShortName_ShouldPreserveFullName()
     {
-        var longNamespace = new string('A', 200);
-        var typeName = longNamespace + ".MyException";
-        var exceptionType = Type.GetType(typeName) ?? typeof(Exception);
-        // Use a real type with a long full name via reflection is impractical; instead verify
-        // that a normal type name is preserved (LimitText only truncates > 128 chars).
         var result = Policy.NormalizeExceptionType(typeof(InvalidOperationException));
 
         Assert.Equal(typeof(InvalidOperationException).FullName, result);

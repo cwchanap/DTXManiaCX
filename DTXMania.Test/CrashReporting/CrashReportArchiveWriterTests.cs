@@ -43,7 +43,7 @@ public sealed class CrashReportArchiveWriterTests
     }
 
     [Fact]
-    public void WriteEmergencyText_WithNullExceptionTextEnding_ShouldAppendNewline()
+    public void WriteEmergencyText_ShouldEndWithTrailingNewline()
     {
         var writer = new CrashReportArchiveWriter();
         using var destination = new MemoryStream();
