@@ -202,7 +202,7 @@ public sealed class CrashReportRuntime : ICrashRuntimeLifetime
 
     private static bool IsExpectedCaptureException(Exception exception)
     {
-        return IsExpectedBootstrapException(exception) || exception is InvalidDataException;
+        return IsExpectedBootstrapException(exception);
     }
 
     private static void DisposePartialFactory(ILoggerFactory? loggerFactory)

@@ -52,8 +52,9 @@ public sealed class CrashReportingSmokeTests
             Assert.NotEqual(0, exitCode);
 
             var reportRoot = Path.Combine(fixture.AppDataRoot, "CrashReports");
-            var reports = Directory.EnumerateFiles(reportRoot, "crash-*.txt").ToArray();
+            var reports = Directory.EnumerateFiles(reportRoot, "crash-*").ToArray();
             var reportPath = Assert.Single(reports);
+            Assert.EndsWith(".txt", reportPath, StringComparison.OrdinalIgnoreCase);
             Assert.Empty(Directory.EnumerateFiles(reportRoot, "*.tmp"));
 
             var header = ReadCrashHeader(reportPath);
