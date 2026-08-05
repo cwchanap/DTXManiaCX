@@ -67,8 +67,6 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
     /// whose calls are compiled out via <c>[Conditional("DEBUG")]</c>.</summary>
     public ILoggerFactory LoggerFactory => _loggerFactory;
 
-    public ICrashReportInbox CrashReportInbox => _gameCrashDiagnostics.Inbox;
-
 
     // Global stage transition debouncing
     private double _totalGameTime = 0.0;

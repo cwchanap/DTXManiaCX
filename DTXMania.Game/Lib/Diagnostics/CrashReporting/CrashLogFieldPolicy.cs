@@ -65,11 +65,6 @@ internal sealed class CrashLogFieldPolicy
         _events = events;
     }
 
-    internal object? NormalizeProperty(string propertyName, object? value)
-    {
-        return IsAllowedProperty(propertyName) ? NormalizeScalar(value) : RedactedValue;
-    }
-
     internal bool TryNormalizeProperty(string propertyName, object? value, out object? normalizedValue)
     {
         if (!IsAllowedProperty(propertyName))

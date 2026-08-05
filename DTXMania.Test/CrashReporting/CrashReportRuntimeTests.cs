@@ -28,7 +28,6 @@ public sealed class CrashReportRuntimeTests
 
         Assert.Null(exception);
         Assert.False(runtime.IsCaptureEnabled);
-        Assert.Same(EmptyCrashReportInbox.Instance, runtime.GameDiagnostics.Inbox);
         Assert.Contains("crash_reporting_disabled", errorWriter.ToString());
     }
 
@@ -98,21 +97,17 @@ public sealed class CrashReportRuntimeTests
 
             runtime.CaptureFatal(new InvalidOperationException("fatal game failure"));
 
-            var reportPath = Assert.Single(Directory.EnumerateFiles(reportRoot, "*.zip"));
-            using var stream = File.OpenRead(reportPath);
-            using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
-            using var reader = new StreamReader(archive.GetEntry("report.json")!.Open());
-            using var report = JsonDocument.Parse(reader.ReadToEnd());
-            var contexts = report.RootElement.GetProperty("contextStatuses").EnumerateArray().ToArray();
-            var process = Assert.Single(contexts, item => item.GetProperty("kind").GetString() == "Process");
-            var application = Assert.Single(contexts, item => item.GetProperty("kind").GetString() == "Application");
-            var processFields = process.GetProperty("fields");
+            var reportPath = Assert.Single(
+                Directory.EnumerateFiles(reportRoot, "*" + CrashReportStore.ReportExtension));
+            var allText = File.ReadAllText(reportPath);
 
-            Assert.True(processFields.TryGetProperty("RuntimeFramework", out _));
-            Assert.True(processFields.TryGetProperty("OperatingSystem", out _));
-            Assert.True(processFields.TryGetProperty("ProcessArchitecture", out _));
-            Assert.True(processFields.TryGetProperty("ProcessStartUtc", out _));
-            Assert.True(application.GetProperty("fields").TryGetProperty("ApplicationVersion", out _));
+            Assert.Contains("Process [Available]", allText, StringComparison.Ordinal);
+            Assert.Contains("  RuntimeFramework: ", allText, StringComparison.Ordinal);
+            Assert.Contains("  OperatingSystem: ", allText, StringComparison.Ordinal);
+            Assert.Contains("  ProcessArchitecture: ", allText, StringComparison.Ordinal);
+            Assert.Contains("  ProcessStartUtc: ", allText, StringComparison.Ordinal);
+            Assert.Contains("Application [Available]", allText, StringComparison.Ordinal);
+            Assert.Contains("  ApplicationVersion: ", allText, StringComparison.Ordinal);
         }
         finally
         {
@@ -242,7 +237,7 @@ public sealed class CrashReportRuntimeTests
     }
 
     [Fact]
-    public void GameDiagnostics_ShouldExposeBreadcrumbsContextsAndInbox()
+    public void GameDiagnostics_ShouldExposeBreadcrumbsContextsAndLogging()
     {
         using var runtime = CrashReportRuntime.CreateBestEffort(
             TextWriter.Null,
@@ -250,7 +245,7 @@ public sealed class CrashReportRuntimeTests
 
         Assert.NotNull(runtime.GameDiagnostics.Breadcrumbs);
         Assert.NotNull(runtime.GameDiagnostics.Contexts);
-        Assert.Same(EmptyCrashReportInbox.Instance, runtime.GameDiagnostics.Inbox);
+        Assert.NotNull(runtime.GameDiagnostics.SensitiveData);
         Assert.NotNull(runtime.GameDiagnostics.LoggerFactory);
     }
 
@@ -284,7 +279,7 @@ public sealed class CrashReportRuntimeTests
     {
         return new CrashReportStore(
             reportRoot,
-            writer ?? new CrashReportArchiveWriter(),
+            writer ?? new CrashReportTextWriter(),
             TimeProvider.System,
             TextWriter.Null);
     }
@@ -304,14 +299,9 @@ public sealed class CrashReportRuntimeTests
 
     private sealed class SerializationFailingArtifactWriter : ICrashReportArtifactWriter
     {
-        public void WriteZip(Stream destination, CrashReportDocument document)
+        public void Write(Stream destination, CrashReportDocument document)
         {
-            throw new JsonException("serialization failed");
-        }
-
-        public void WriteEmergencyText(Stream destination, CrashReportDocument document)
-        {
-            throw new JsonException("serialization failed");
+            throw new IOException("serialization failed");
         }
     }
 }

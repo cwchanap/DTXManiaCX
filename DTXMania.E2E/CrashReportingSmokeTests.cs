@@ -1,13 +1,9 @@
-using System.Globalization;
-using System.IO.Compression;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
-using System.Text.Json;
 using DTXMania.E2E.Fixtures;
 using DTXMania.E2E.Process;
 using DTXMania.E2E.Support;
-using DTXMania.Game.Lib.Diagnostics.CrashReporting;
 
 namespace DTXMania.E2E;
 
@@ -15,6 +11,13 @@ namespace DTXMania.E2E;
 public sealed class CrashReportingSmokeTests
 {
     private const string ControlledCrashMessage = "DTXMANIA_E2E_CONTROLLED_CRASH";
+
+    // Spelled out rather than referenced from CrashReportTextWriter: this is a black-box check
+    // that the on-disk format is what an external reader expects, so it should fail if the
+    // writer's markers change.
+    private const string ReportHeader = "DTXMANIACX-CRASH-REPORT 2";
+    private const string ExceptionSection = "--- EXCEPTION ---";
+    private const string ContextSection = "--- CONTEXT ---";
 
     [Theory(Timeout = 180_000)]
     [InlineData("update")]
@@ -49,17 +52,15 @@ public sealed class CrashReportingSmokeTests
             Assert.NotEqual(0, exitCode);
 
             var reportRoot = Path.Combine(fixture.AppDataRoot, "CrashReports");
-            var reports = Directory.EnumerateFiles(reportRoot, "crash-*")
-                .Where(path => Path.GetExtension(path) is ".zip" or ".txt")
-                .ToArray();
+            var reports = Directory.EnumerateFiles(reportRoot, "crash-*.txt").ToArray();
             var reportPath = Assert.Single(reports);
             Assert.Empty(Directory.EnumerateFiles(reportRoot, "*.tmp"));
 
-            var summary = ReadCrashSummary(reportPath);
-            Assert.Equal(typeof(InvalidOperationException).FullName, summary.ExceptionType);
+            var header = ReadCrashHeader(reportPath);
+            Assert.Equal(typeof(InvalidOperationException).FullName, header["ExceptionType"]);
             Assert.Equal(
                 1,
-                ReadPrimaryExceptionText(reportPath)
+                ReadExceptionSection(reportPath)
                     .Split(ControlledCrashMessage, StringSplitOptions.None)
                     .Length - 1);
         }
@@ -78,79 +79,39 @@ public sealed class CrashReportingSmokeTests
         }
     }
 
-    private static CrashReportSummary ReadCrashSummary(string reportPath)
+    private static Dictionary<string, string> ReadCrashHeader(string reportPath)
     {
-        if (string.Equals(Path.GetExtension(reportPath), ".zip", StringComparison.OrdinalIgnoreCase))
-        {
-            using var stream = File.OpenRead(reportPath);
-            using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
-            var entry = archive.GetEntry("report.json")
-                ?? throw new InvalidDataException("Crash ZIP does not contain report.json.");
-            using var reader = new StreamReader(entry.Open(), Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
-            using var document = JsonDocument.Parse(reader.ReadToEnd());
-            var root = document.RootElement;
-            return new CrashReportSummary(
-                root.GetProperty("reportId").GetString()!,
-                root.GetProperty("capturedAtUtc").GetDateTimeOffset(),
-                root.GetProperty("buildId").GetString()!,
-                root.GetProperty("operatingSystem").GetString()!,
-                root.GetProperty("processArchitecture").GetString()!,
-                root.GetProperty("stageOrMilestone").GetString()!,
-                root.GetProperty("exceptionType").GetString()!,
-                CrashReportFormat.ZipBundle,
-                Path.GetFileName(reportPath));
-        }
-
-        using var emergencyReader = new StreamReader(reportPath, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
-        if (!string.Equals(emergencyReader.ReadLine(), "DTXMANIACX-CRASH-REPORT 1", StringComparison.Ordinal))
-            throw new InvalidDataException("Crash emergency report has an unrecognized header.");
+        using var reader = new StreamReader(reportPath, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+        if (!string.Equals(reader.ReadLine(), ReportHeader, StringComparison.Ordinal))
+            throw new InvalidDataException("Crash report has an unrecognized header.");
 
         var fields = new Dictionary<string, string>(StringComparer.Ordinal);
-        string? line;
-        while ((line = emergencyReader.ReadLine()) is not null && !string.Equals(line, "---", StringComparison.Ordinal))
+        while (reader.ReadLine() is { } line && line.Length > 0)
         {
             var separatorIndex = line.IndexOf(": ", StringComparison.Ordinal);
             if (separatorIndex <= 0)
-                throw new InvalidDataException("Crash emergency report has a malformed header field.");
+                throw new InvalidDataException("Crash report has a malformed header field: " + line);
 
             fields[line[..separatorIndex]] = line[(separatorIndex + 2)..];
         }
 
-        if (line is null)
-            throw new InvalidDataException("Crash emergency report did not terminate its header.");
-
-        return new CrashReportSummary(
-            fields["ReportId"],
-            DateTimeOffset.Parse(fields["CapturedAtUtc"], CultureInfo.InvariantCulture),
-            fields["BuildId"],
-            fields["OperatingSystem"],
-            fields["ProcessArchitecture"],
-            fields["StageOrMilestone"],
-            fields["ExceptionType"],
-            CrashReportFormat.EmergencyText,
-            Path.GetFileName(reportPath));
+        return fields;
     }
 
-    private static string ReadPrimaryExceptionText(string reportPath)
+    /// <summary>
+    /// Returns the exception section only, so the assertion on how many times the controlled
+    /// crash message appears is not confused by the log or breadcrumb sections.
+    /// </summary>
+    private static string ReadExceptionSection(string reportPath)
     {
-        if (string.Equals(Path.GetExtension(reportPath), ".zip", StringComparison.OrdinalIgnoreCase))
-        {
-            using var stream = File.OpenRead(reportPath);
-            using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
-            var entry = archive.GetEntry("exception.txt")
-                ?? throw new InvalidDataException("Crash ZIP does not contain exception.txt.");
-            using var reader = new StreamReader(entry.Open(), Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
-            return reader.ReadToEnd();
-        }
+        var text = File.ReadAllText(reportPath);
+        var start = text.IndexOf(ExceptionSection, StringComparison.Ordinal);
+        if (start < 0)
+            throw new InvalidDataException("Crash report did not contain an exception section.");
 
-        using var emergencyReader = new StreamReader(reportPath, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
-        while (emergencyReader.ReadLine() is { } line)
-        {
-            if (string.Equals(line, "---", StringComparison.Ordinal))
-                return emergencyReader.ReadToEnd();
-        }
-
-        throw new InvalidDataException("Crash emergency report did not contain an exception body.");
+        start += ExceptionSection.Length;
+        var end = text.IndexOf(ContextSection, start, StringComparison.Ordinal);
+        return end < 0 ? text[start..] : text[start..end];
     }
 
     private static void CopyCrashReports(E2EFixture fixture)

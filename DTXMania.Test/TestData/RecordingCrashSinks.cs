@@ -63,7 +63,7 @@ internal sealed class RecordingSensitiveDataSink : ICrashSensitiveDataSink
 /// <summary>
 /// Shared recording <see cref="IGameCrashDiagnostics"/> facade for
 /// crash-reporting tests. Wires the recording breadcrumb, context, and
-/// sensitive-data sinks together with a no-op logger factory and inbox.
+/// sensitive-data sinks together with a no-op logger factory.
 /// </summary>
 internal sealed class RecordingGameCrashDiagnostics : IGameCrashDiagnostics
 {
@@ -81,6 +81,4 @@ internal sealed class RecordingGameCrashDiagnostics : IGameCrashDiagnostics
     ICrashContextSink IGameCrashDiagnostics.Contexts => Contexts;
 
     ICrashSensitiveDataSink IGameCrashDiagnostics.SensitiveData => SensitiveData;
-
-    public ICrashReportInbox Inbox => EmptyCrashReportInbox.Instance;
 }

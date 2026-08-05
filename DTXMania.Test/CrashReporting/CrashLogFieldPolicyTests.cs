@@ -15,19 +15,30 @@ public sealed class CrashLogFieldPolicyTests
 {
     private static CrashLogFieldPolicy Policy => CrashLogFieldPolicy.Default;
 
-    [Fact]
-    public void NormalizeProperty_WithDisallowedName_ShouldRedact()
+    /// <summary>
+    /// Collapses <see cref="CrashLogFieldPolicy.TryNormalizeProperty"/> into a single value so the
+    /// allowlist and the scalar-normalization rules can be asserted in one expression.
+    /// </summary>
+    private static object? Normalize(string propertyName, object? value)
     {
-        Assert.Equal(CrashLogFieldPolicy.RedactedValue, Policy.NormalizeProperty("SongTitle", "Secret Song"));
+        return Policy.TryNormalizeProperty(propertyName, value, out var normalized)
+            ? normalized
+            : CrashLogFieldPolicy.RedactedValue;
+    }
+
+    [Fact]
+    public void TryNormalizeProperty_WithDisallowedName_ShouldRedactViaHelper()
+    {
+        Assert.Equal(CrashLogFieldPolicy.RedactedValue, Normalize("SongTitle", "Secret Song"));
     }
 
     [Theory]
     [InlineData(null)]
     [InlineData("")]
-    public void NormalizeProperty_WithNullOrdinalName_ShouldRedact(string? propertyName)
+    public void TryNormalizeProperty_WithNullOrdinalName_ShouldRedact(string? propertyName)
     {
         // IsAllowedProperty guards against null; the ordinal comparer rejects empty strings.
-        Assert.Equal(CrashLogFieldPolicy.RedactedValue, Policy.NormalizeProperty(propertyName!, "value"));
+        Assert.Equal(CrashLogFieldPolicy.RedactedValue, Normalize(propertyName!, "value"));
     }
 
     [Fact]
@@ -69,87 +80,87 @@ public sealed class CrashLogFieldPolicyTests
     [Fact]
     public void NormalizeProperty_WithByteScalar_ShouldRetain()
     {
-        Assert.Equal((byte)5, Policy.NormalizeProperty("Count", (byte)5));
+        Assert.Equal((byte)5, Normalize("Count", (byte)5));
     }
 
     [Fact]
     public void NormalizeProperty_WithSignedByteScalar_ShouldRetain()
     {
-        Assert.Equal((sbyte)-3, Policy.NormalizeProperty("Count", (sbyte)(-3)));
+        Assert.Equal((sbyte)-3, Normalize("Count", (sbyte)(-3)));
     }
 
     [Fact]
     public void NormalizeProperty_WithShortScalar_ShouldRetain()
     {
-        Assert.Equal((short)7, Policy.NormalizeProperty("Count", (short)7));
+        Assert.Equal((short)7, Normalize("Count", (short)7));
     }
 
     [Fact]
     public void NormalizeProperty_WithUnsignedShortScalar_ShouldRetain()
     {
-        Assert.Equal((ushort)9, Policy.NormalizeProperty("Count", (ushort)9));
+        Assert.Equal((ushort)9, Normalize("Count", (ushort)9));
     }
 
     [Fact]
     public void NormalizeProperty_WithUnsignedIntScalar_ShouldRetain()
     {
-        Assert.Equal(42u, Policy.NormalizeProperty("Count", 42u));
+        Assert.Equal(42u, Normalize("Count", 42u));
     }
 
     [Fact]
     public void NormalizeProperty_WithLongScalar_ShouldRetain()
     {
-        Assert.Equal(123L, Policy.NormalizeProperty("Count", 123L));
+        Assert.Equal(123L, Normalize("Count", 123L));
     }
 
     [Fact]
     public void NormalizeProperty_WithUnsignedLongScalar_ShouldRetain()
     {
-        Assert.Equal(999UL, Policy.NormalizeProperty("Count", 999UL));
+        Assert.Equal(999UL, Normalize("Count", 999UL));
     }
 
     [Fact]
     public void NormalizeProperty_WithFloatScalar_ShouldRetain()
     {
-        Assert.Equal(3.14f, Policy.NormalizeProperty("Count", 3.14f));
+        Assert.Equal(3.14f, Normalize("Count", 3.14f));
     }
 
     [Fact]
     public void NormalizeProperty_WithDoubleScalar_ShouldRetain()
     {
-        Assert.Equal(2.718, Policy.NormalizeProperty("Count", 2.718));
+        Assert.Equal(2.718, Normalize("Count", 2.718));
     }
 
     [Fact]
     public void NormalizeProperty_WithDecimalScalar_ShouldRetain()
     {
-        Assert.Equal(1.5m, Policy.NormalizeProperty("Count", 1.5m));
+        Assert.Equal(1.5m, Normalize("Count", 1.5m));
     }
 
     [Fact]
     public void NormalizeProperty_WithStringScalar_ShouldRedact()
     {
-        Assert.Equal(CrashLogFieldPolicy.RedactedValue, Policy.NormalizeProperty("Count", "Secret Song"));
+        Assert.Equal(CrashLogFieldPolicy.RedactedValue, Normalize("Count", "Secret Song"));
     }
 
     [Fact]
     public void NormalizeProperty_WithNullScalar_ShouldReturnNull()
     {
-        Assert.Null(Policy.NormalizeProperty("Count", null));
+        Assert.Null(Normalize("Count", null));
     }
 
     [Fact]
     public void NormalizeProperty_WithGuid_ShouldRetain()
     {
         var guid = Guid.Parse("9bc2520f-5b38-4e6c-a1c4-5f34e0135da3");
-        Assert.Equal(guid, Policy.NormalizeProperty("Count", guid));
+        Assert.Equal(guid, Normalize("Count", guid));
     }
 
     [Fact]
     public void NormalizeProperty_WithDateTimeUnspecifiedKind_ShouldNormalizeToUtc()
     {
         var dateTime = new DateTime(2026, 8, 2, 12, 0, 0, DateTimeKind.Unspecified);
-        var normalized = Assert.IsType<DateTime>(Policy.NormalizeProperty("Count", dateTime));
+        var normalized = Assert.IsType<DateTime>(Normalize("Count", dateTime));
 
         Assert.Equal(DateTimeKind.Utc, normalized.Kind);
         Assert.Equal(dateTime, normalized);
@@ -159,7 +170,7 @@ public sealed class CrashLogFieldPolicyTests
     public void NormalizeProperty_WithDateTimeLocalKind_ShouldConvertToUtc()
     {
         var local = new DateTime(2026, 8, 2, 14, 0, 0, DateTimeKind.Local);
-        var normalized = Assert.IsType<DateTime>(Policy.NormalizeProperty("Count", local));
+        var normalized = Assert.IsType<DateTime>(Normalize("Count", local));
 
         Assert.Equal(DateTimeKind.Utc, normalized.Kind);
     }
@@ -167,7 +178,7 @@ public sealed class CrashLogFieldPolicyTests
     [Fact]
     public void NormalizeProperty_WithUnsupportedType_ShouldRedact()
     {
-        Assert.Equal(CrashLogFieldPolicy.RedactedValue, Policy.NormalizeProperty("Count", new object()));
+        Assert.Equal(CrashLogFieldPolicy.RedactedValue, Normalize("Count", new object()));
     }
 
     [Fact]
