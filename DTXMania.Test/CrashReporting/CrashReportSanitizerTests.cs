@@ -292,14 +292,17 @@ public sealed class CrashReportSanitizerTests
     }
 
     [Fact]
-    public void Scrub_ShouldIgnoreTriviallyShortSecrets()
+    public void Scrub_ShouldRedactShortRegisteredSecrets()
     {
-        // Short values are likely common substrings; the sanitizer must not redact them.
+        // Secrets are registered explicitly by callers who have decided they are
+        // sensitive, so every non-empty value is retained regardless of length.
         var sanitizer = new CrashReportSanitizer([], ["abc", "12"]);
 
         var result = sanitizer.Scrub("alphabet and 12345 should remain visible");
 
-        Assert.Equal("alphabet and 12345 should remain visible", result);
+        Assert.DoesNotContain("abc", result, StringComparison.Ordinal);
+        Assert.DoesNotContain("12", result, StringComparison.Ordinal);
+        Assert.Contains(CrashReportSanitizer.RedactedValue, result, StringComparison.Ordinal);
     }
 
     [Fact]

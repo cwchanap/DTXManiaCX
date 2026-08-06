@@ -35,7 +35,6 @@ internal sealed class CrashReportSanitizer
     private const int MaximumExceptionMessageLength = 4 * 1024;
     private const int MaximumMetadataLength = 256;
     private const int MaximumInnerExceptions = 8;
-    private const int MinimumSecretLength = 6;
 
     private static readonly Regex HomeSegmentRegex = new(
         """(?<![A-Za-z0-9_])(?:Users|home)[\\/][^\\/\s:;,\]\)}]+""",
@@ -212,9 +211,8 @@ internal sealed class CrashReportSanitizer
         var secrets = new List<string>(sensitiveSecrets.Count);
         foreach (var secret in sensitiveSecrets)
         {
-            if (secret is null || secret.Length < MinimumSecretLength)
+            if (string.IsNullOrEmpty(secret))
             {
-                // Skip blanks and trivially short values to avoid redacting common substrings.
                 continue;
             }
 
