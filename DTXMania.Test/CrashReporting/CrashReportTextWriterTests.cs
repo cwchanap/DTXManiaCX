@@ -156,6 +156,30 @@ public sealed class CrashReportTextWriterTests
     }
 
     [Fact]
+    public void Write_ShouldRedactRegisteredSecretUsedAsLoggerCategory()
+    {
+        const string secret = "super-secret-api-key-123456";
+        var document = CreateDocument(
+            logs:
+            [
+                new CrashLogRecord(
+                    CapturedAt,
+                    LogLevel.Warning,
+                    CrashLogFieldPolicy.UnclassifiedEventId,
+                    CrashLogFieldPolicy.UnclassifiedMessageTemplate,
+                    new Dictionary<string, object?>(StringComparer.Ordinal),
+                    ExceptionType: null,
+                    Category: secret)
+            ],
+            sensitiveSecrets: [secret]);
+
+        var text = Write(document);
+
+        Assert.DoesNotContain(secret, text, StringComparison.Ordinal);
+        Assert.Contains(CrashReportSanitizer.RedactedValue, text, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Write_ShouldScrubRegisteredSensitivePaths()
     {
         var songRoot = Path.Combine(Path.GetTempPath(), "dtx-writer", "Some Album");
