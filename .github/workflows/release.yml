@@ -1,11 +1,8 @@
 name: Release
 
 on:
-  push:
-    branches:
-      - main
-    tags:
-      - 'v*'
+  schedule:
+    - cron: '0 0 * * 1' # Every Monday at 00:00 UTC.
   workflow_dispatch:
     inputs:
       tag:
@@ -22,16 +19,14 @@ on:
           - minor
           - major
 
-# A push to main creates the next patch release tag at the pushed commit and
-# continues in this same workflow run. Tag pushes and explicit-tag manual runs
-# use the existing tag behavior below. A GITHUB_TOKEN-created tag does not
-# recursively trigger a second workflow run, so the release must continue from
-# this run.
+# The Monday schedule creates the next patch release only when the default
+# branch has advanced since the latest semantic release tag. Manual dispatches
+# can create major/minor releases or rebuild an existing explicit tag.
 
 # One release pipeline per tag at a time. Cancel in-flight runs for the same
 # tag so release creation and asset uploads do not race.
 concurrency:
-  group: release-${{ github.event_name == 'push' && github.ref_type == 'tag' && github.ref_name || github.event_name == 'push' && github.ref == 'refs/heads/main' && format('main-{0}', github.run_number) || github.event.inputs.tag || format('manual-{0}', github.run_number) }}
+  group: release-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || format('{0}-{1}', github.event_name, github.run_number) }}
   cancel-in-progress: false
 
 permissions: {}
@@ -43,6 +38,7 @@ jobs:
     permissions:
       contents: write
     outputs:
+      should_release: ${{ steps.release.outputs.should_release }}
       release_tag: ${{ steps.release.outputs.release_tag }}
       checkout_ref: ${{ steps.release.outputs.checkout_ref }}
       target_sha: ${{ steps.release.outputs.target_sha }}
@@ -55,37 +51,38 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           EVENT_NAME: ${{ github.event_name }}
-          REF: ${{ github.ref }}
-          REF_NAME: ${{ github.ref_name }}
           INPUT_TAG: ${{ github.event.inputs.tag }}
           INPUT_BUMP: ${{ github.event.inputs.bump }}
           COMMIT_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
 
-          latest_version() {
+          should_release=true
+
+          latest_semver_tag() {
             gh api --paginate \
               "repos/${GITHUB_REPOSITORY}/git/matching-refs/tags/v" \
               --jq '.[].ref' |
-              sed -nE 's#^refs/tags/v([0-9]+\.[0-9]+\.[0-9]+)$#\1#p' |
-              sort -V |
-              tail -n1
-          }
-
-          tag_for_commit() {
-            local commit_sha="$1"
-            gh api --paginate \
-              "repos/${GITHUB_REPOSITORY}/git/matching-refs/tags/v" \
-              --jq ".[] | select(.object.sha == \"${commit_sha}\") | .ref" |
               sed -nE 's#^refs/tags/v([0-9]+\.[0-9]+\.[0-9]+)$#v\1#p' |
               sort -V |
               tail -n1
           }
 
+          resolve_tag_sha() {
+            local release_tag="$1"
+            local qualified_tag="tags/${release_tag}"
+            local encoded_ref
+            encoded_ref="$(jq -rn --arg v "$qualified_tag" '$v | @uri')"
+            gh api \
+              -H 'Accept: application/vnd.github.sha' \
+              "repos/${GITHUB_REPOSITORY}/commits/${encoded_ref}"
+          }
+
           next_release_tag() {
             local bump="$1"
             local base_version
-            base_version="$(latest_version)"
+            base_version="$(latest_semver_tag)"
+            base_version="${base_version#v}"
             base_version="${base_version:-0.0.0}"
 
             local major minor patch
@@ -160,31 +157,26 @@ jobs:
             return 1
           }
 
-          if [[ "$EVENT_NAME" == "push" && "$REF" == "refs/heads/main" ]]; then
-            # Re-running the workflow for the same commit must reuse the tag
-            # already created for that commit instead of bumping again.
-            release_tag="$(tag_for_commit "$COMMIT_SHA")"
-            if [[ -z "$release_tag" ]]; then
-              release_tag="$(ensure_next_tag patch)"
-            else
-              echo "Reusing semantic release tag ${release_tag} for ${COMMIT_SHA}."
+          if [[ "$EVENT_NAME" == "schedule" ]]; then
+            latest_tag="$(latest_semver_tag)"
+            if [[ -n "$latest_tag" ]]; then
+              if ! latest_sha="$(resolve_tag_sha "$latest_tag")"; then
+                echo "::error::Could not resolve latest semantic release tag '${latest_tag}' to a commit." >&2
+                exit 1
+              fi
+              if [[ "$latest_sha" == "$COMMIT_SHA" ]]; then
+                should_release=false
+                echo "No new commits since ${latest_tag}; skipping scheduled release."
+              fi
             fi
-            # Checkout the triggering commit directly instead of the generated
-            # tag. The tag is still created above for publishing (release_tag),
-            # but downstream jobs should check out the immutable commit SHA so
-            # a tag moved between this step and checkout can't pull in the
-            # wrong commit.
-            checkout_ref="$COMMIT_SHA"
-            target_sha="$COMMIT_SHA"
-          elif [[ "$EVENT_NAME" == "push" ]]; then
-            release_tag="$REF_NAME"
-            # Tag push: checkout the immutable commit the tag pointed to at
-            # push time (COMMIT_SHA = github.sha), not the tag ref itself.
-            # A tag can be moved between this step and the installer jobs'
-            # checkouts, which would let Windows/macOS build a different
-            # commit from each other and from TARGET_SHA.
-            checkout_ref="$COMMIT_SHA"
-            target_sha="$COMMIT_SHA"
+
+            if [[ "$should_release" == "true" ]]; then
+              release_tag="$(ensure_next_tag patch)"
+              # Scheduled releases build the immutable default-branch commit,
+              # not the moving branch ref.
+              checkout_ref="$COMMIT_SHA"
+              target_sha="$COMMIT_SHA"
+            fi
           elif [[ -n "$INPUT_TAG" ]]; then
             release_tag="$INPUT_TAG"
             # Explicitly requested historical tag. github.sha for a dispatch
@@ -194,16 +186,7 @@ jobs:
             # SHA (not the tag name) and create-release must target it —
             # otherwise a force-moved tag could make Windows and macOS build
             # different commits, and the release could point elsewhere again.
-            # Qualify with tags/ so the commits endpoint resolves the tag ref
-            # unambiguously. A bare short name is also accepted, but when a
-            # branch and tag share the same name Git resolves refs/heads/
-            # before refs/tags/, so the lookup would silently resolve the
-            # branch instead of the tag and defeat the integrity check below.
-            qualified_tag="tags/${INPUT_TAG}"
-            encoded_ref="$(jq -rn --arg v "$qualified_tag" '$v | @uri')"
-            if ! resolved_sha="$(gh api \
-                -H 'Accept: application/vnd.github.sha' \
-                "repos/${GITHUB_REPOSITORY}/commits/${encoded_ref}")"; then
+            if ! resolved_sha="$(resolve_tag_sha "$INPUT_TAG")"; then
               echo "::error::Could not resolve input tag '${INPUT_TAG}' to a commit via the GitHub API." >&2
               exit 1
             fi
@@ -213,7 +196,7 @@ jobs:
           else
             # A manual dispatch without an explicit tag creates a semantic
             # release tag. Use bump=major or bump=minor for x/y releases;
-            # patch is the default and matches a main push.
+            # patch is the default and matches a scheduled release.
             release_tag="$(ensure_next_tag "${INPUT_BUMP:-patch}")"
             # Checkout the immutable dispatch-time commit (COMMIT_SHA =
             # github.sha), not the branch ref. The selected branch can advance
@@ -223,22 +206,26 @@ jobs:
           fi
 
           prerelease=false
-          if [[ "$release_tag" == *-* ]]; then
+          if [[ "${release_tag:-}" == *-* ]]; then
             prerelease=true
           fi
 
           {
-            echo "release_tag=$release_tag"
-            echo "checkout_ref=$checkout_ref"
-            echo "target_sha=$target_sha"
+            echo "should_release=$should_release"
+            echo "release_tag=${release_tag:-}"
+            echo "checkout_ref=${checkout_ref:-}"
+            echo "target_sha=${target_sha:-}"
             echo "prerelease=$prerelease"
           } >> "$GITHUB_OUTPUT"
-          echo "Release tag: $release_tag"
-          echo "Checkout ref: $checkout_ref"
-          echo "Target SHA: $target_sha"
+          if [[ "$should_release" == "true" ]]; then
+            echo "Release tag: $release_tag"
+            echo "Checkout ref: $checkout_ref"
+            echo "Target SHA: $target_sha"
+          fi
 
   windows-installer:
     needs: prepare-release
+    if: needs.prepare-release.outputs.should_release == 'true'
     runs-on: windows-latest
     timeout-minutes: 30
     permissions:
@@ -424,6 +411,7 @@ jobs:
 
   mac-installer:
     needs: prepare-release
+    if: needs.prepare-release.outputs.should_release == 'true'
     # Pin to macos-15 (Apple Silicon / arm64) instead of macos-latest. This
     # job publishes an arm64-only .app bundle and builds FFmpeg from source
     # for the host architecture (./configure passes no --arch flag), so an
@@ -713,6 +701,7 @@ jobs:
       - prepare-release
       - windows-installer
       - mac-installer
+    if: needs.prepare-release.outputs.should_release == 'true'
     permissions:
       contents: write
 
@@ -747,8 +736,8 @@ jobs:
           # a force-push to the tag while the installer jobs were queued can't
           # publish a release whose binaries came from a different commit.
           #
-          # Every path has a tag by this point: main pushes and manual bump
-          # dispatches create one in prepare-release, while tag pushes and
+          # Every release path has a tag by this point: scheduled runs and
+          # manual bump dispatches create one in prepare-release, while
           # explicit-tag dispatches resolve an existing one. A missing tag is
           # therefore an integrity failure, not an expected state. A missing
           # tag is only acceptable when it is an actual HTTP 404; an auth,
