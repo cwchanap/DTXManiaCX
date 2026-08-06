@@ -2,23 +2,26 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Show the currently connected drum-device names on the Drum Mapping page using the existing MIDI lifecycle and hot-plug scan.
+**Goal:** Show the currently connected drum-device status on the Drum Mapping page using the existing MIDI lifecycle, bounded text layout, and platform-appropriate verification.
 
-**Architecture:** Add one read-only UI snapshot to `ModularInputManager`, then format and draw that snapshot from `DrumConfigStage` on every frame. Keep `MidiInputSource` as the sole owner of enumeration and hot-plug state; keep crash diagnostics on device count only.
+**Architecture:** Add one read-only device-name property to `ModularInputManager`, then format and draw a compact snapshot from `DrumConfigStage` on every frame. Keep `MidiInputSource` as the sole owner of enumeration and hot-plug state; reuse `TextHelper.TruncateToWidth`; add no new timer, event bus, device selector, or Windows-specific discovery path.
 
 **Tech Stack:** .NET 8, C#, MonoGame, xUnit, existing DryWetMIDI-backed input subsystem.
 
 ## Global Constraints
 
-- User-facing copy keeps the requested `HDMI device` label; internal APIs remain named `MIDI`.
+- User-facing copy deliberately says `HDMI device`; internal APIs remain named `MIDI`.
 - Exact no-device copy: `HDMI device: None detected (keyboard still works)`.
+- Multiple-device copy: `HDMI devices (N): <first name>, +<N-1> more`.
 - Reuse `MidiInputSource.DeviceNames`; do not enumerate devices from the stage.
 - Reuse the existing three-second hot-plug scan; do not add another refresh mechanism.
-- Device names are UI-only. Telemetry, breadcrumbs, and crash context continue using count only.
+- Reuse `TextHelper.TruncateToWidth`; do not create another truncation helper.
+- Draw the status below the Reset control and bound it to the virtual viewport.
+- Device names are UI-only; telemetry and crash context continue using count only.
 - The status is informational and must not block keyboard or MIDI capture.
 - Do not change drum bindings, velocity thresholds, popup state, or input routing.
-- The Windows-only pad-selection crash is out of scope. Retain its managed crash report and stop if it occurs.
-- Add no new production files, dependencies, timers, event buses, device selectors, or rescan controls.
+- The Windows-only pad-selection crash is out of scope. Capture its managed crash report and stop if it occurs during verification.
+- Add no new production files or dependencies.
 
 ---
 
@@ -27,16 +30,17 @@
 **Modify:**
 
 - `DTXMania.Game/Lib/Input/ModularInputManager.cs`
-  - Exposes connected MIDI display names for UI use.
-  - Clarifies that the existing count property is the diagnostics boundary.
+  - Expose a read-only snapshot of connected MIDI device display names.
+  - Clarify the count-only telemetry/crash-context contract.
 - `DTXMania.Game/Lib/Stage/DrumConfigStage.cs`
-  - Formats and draws the user-facing HDMI device status line.
+  - Format compact HDMI-device copy.
+  - Draw it below Reset and truncate it to the virtual viewport width.
 - `DTXMania.Test/Input/ModularInputManagerTests.cs`
-  - Verifies empty, sorted, and refreshed name snapshots.
+  - Verify empty, sorted, and refreshed snapshots.
 - `DTXMania.Test/Stage/DrumConfig/DrumConfigStageTests.cs`
-  - Verifies exact no-device, singular, and plural copy.
+  - Verify exact zero, singular, and compact plural copy.
 
-No file split is needed. Each production edit belongs to the existing owner of that responsibility.
+No file split is needed. Each change stays with the existing owner of that responsibility.
 
 ---
 
@@ -49,7 +53,7 @@ No file split is needed. Each production edit belongs to the existing owner of t
 **Interfaces:**
 - Consumes: `MidiInputSource.DeviceNames : IReadOnlyList<string>`
 - Produces: `ModularInputManager.ConnectedMidiDeviceNames : IReadOnlyList<string>`
-- Preserves: `ModularInputManager.ConnectedMidiDeviceCount : int` as the telemetry/crash-context value
+- Preserves: `ModularInputManager.ConnectedMidiDeviceCount : int` as the telemetry/crash-context boundary
 
 - [ ] **Step 1: Add the no-device failing test**
 
@@ -105,27 +109,18 @@ public void ConnectedMidiDeviceNames_AfterRefresh_ReturnsUpdatedSnapshot()
 }
 ```
 
-- [ ] **Step 4: Run the focused tests and verify failure**
-
-macOS:
+- [ ] **Step 4: Run the focused macOS test class and verify failure**
 
 ```bash
 dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj \
   --filter "FullyQualifiedName~ModularInputManagerTests"
 ```
 
-Windows:
-
-```powershell
-dotnet test DTXMania.Test/DTXMania.Test.csproj `
-  --filter "FullyQualifiedName~ModularInputManagerTests"
-```
-
 Expected: compilation fails because `ConnectedMidiDeviceNames` does not exist.
 
-- [ ] **Step 5: Update the count-property contract**
+- [ ] **Step 5: Add the pass-through property and clarify the count contract**
 
-Replace the existing `ConnectedMidiDeviceCount` XML documentation with:
+Place next to the existing MIDI availability/count properties:
 
 ```csharp
 /// <summary>
@@ -134,15 +129,7 @@ Replace the existing `ConnectedMidiDeviceCount` XML documentation with:
 /// not be added to crash diagnostics.
 /// </summary>
 public int ConnectedMidiDeviceCount => _midiInputSource?.DeviceCount ?? 0;
-```
 
-Do not change any `Game1` or `CrashContextPublisher.PublishInput` call sites.
-
-- [ ] **Step 6: Add the minimal UI snapshot property**
-
-Place next to `ConnectedMidiDeviceCount`:
-
-```csharp
 /// <summary>
 /// Gets a read-only snapshot of connected MIDI device display names for UI use.
 /// Device names must not be added to telemetry or crash context.
@@ -151,25 +138,29 @@ public IReadOnlyList<string> ConnectedMidiDeviceNames =>
     _midiInputSource?.DeviceNames ?? Array.Empty<string>();
 ```
 
-Do not call `RefreshDevices()` from this getter. `MidiInputSource.DeviceNames` already returns a new sorted list under its lock.
+Do not call `RefreshDevices()` from either getter. `MidiInputSource.DeviceNames` already returns a new sorted list under its lock.
 
-- [ ] **Step 7: Run the focused tests and verify success**
+- [ ] **Step 6: Run the focused macOS test class and verify success**
 
-Run the same focused command for the current platform.
+```bash
+dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj \
+  --filter "FullyQualifiedName~ModularInputManagerTests"
+```
 
-Expected: all `ModularInputManagerTests` pass.
+Expected: PASS.
 
-- [ ] **Step 8: Review the boundary**
+- [ ] **Step 7: Review the boundary**
 
 Confirm:
 
-- No `IMidiInputDevice` instances leave the input subsystem.
-- No stable IDs are exposed.
+- No `IMidiInputDevice` instance leaves the input subsystem.
+- No stable ID is exposed.
 - No mutable internal collection is returned.
 - Reading the property has no side effects.
-- `CrashContextPublisher.PublishInput` still receives only `ConnectedMidiDeviceCount`.
+- `Game1`, `CrashContextPublisher`, breadcrumbs, and crash-field policy are unchanged.
+- The per-frame snapshot allocation is accepted; do not add a stale stage cache without performance evidence.
 
-- [ ] **Step 9: Commit Task 1**
+- [ ] **Step 8: Commit Task 1**
 
 ```bash
 git add \
@@ -180,7 +171,7 @@ git commit -m "feat: expose connected midi device names"
 
 ---
 
-### Task 2: Format and Render HDMI Device Status
+### Task 2: Format and Render a Bounded HDMI Device Status
 
 **Files:**
 - Modify: `DTXMania.Game/Lib/Stage/DrumConfigStage.cs`
@@ -188,13 +179,12 @@ git commit -m "feat: expose connected midi device names"
 
 **Interfaces:**
 - Consumes: `ModularInputManager.ConnectedMidiDeviceNames : IReadOnlyList<string>`
-- Produces: private `DrumConfigStage.FormatHdmiDeviceStatus(IReadOnlyList<string>) : string`
+- Consumes: `TextHelper.TruncateToWidth(string, float, IFont) : string`
+- Produces: `DrumConfigStage.FormatHdmiDeviceStatus(IReadOnlyList<string>) : string`
 
-The formatter remains private to match the existing private-static helper pattern in `DrumConfigStageTests`. Do not widen production visibility solely for testing.
+- [ ] **Step 1: Add the exact no-device formatter test**
 
-- [ ] **Step 1: Add the no-device formatter test**
-
-Use the direct private-static reflection pattern already present in this test file:
+Use the direct private-static reflection pattern already used by `GetResetButtonRect` tests:
 
 ```csharp
 [Fact]
@@ -234,11 +224,11 @@ public void FormatHdmiDeviceStatus_OneDevice_ShowsDeviceName()
 }
 ```
 
-- [ ] **Step 3: Add the multiple-device formatter test**
+- [ ] **Step 3: Add the compact multiple-device formatter test**
 
 ```csharp
 [Fact]
-public void FormatHdmiDeviceStatus_MultipleDevices_ShowsCountAndNames()
+public void FormatHdmiDeviceStatus_MultipleDevices_PreservesFirstAndSummarizesRest()
 {
     var method = typeof(DrumConfigStage).GetMethod(
         "FormatHdmiDeviceStatus",
@@ -247,27 +237,18 @@ public void FormatHdmiDeviceStatus_MultipleDevices_ShowsCountAndNames()
 
     var status = (string)method!.Invoke(
         null,
-        new object[] { new[] { "Alpha Kit", "Zeta Kit" } })!;
+        new object[] { new[] { "Alpha Kit", "Beta Kit", "Zeta Kit" } })!;
 
     Assert.Equal(
-        "HDMI devices (2): Alpha Kit, Zeta Kit",
+        "HDMI devices (3): Alpha Kit, +2 more",
         status);
 }
 ```
 
-- [ ] **Step 4: Run the formatter tests and verify failure**
-
-macOS:
+- [ ] **Step 4: Run the focused stage test class and verify failure**
 
 ```bash
 dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj \
-  --filter "FullyQualifiedName~DrumConfigStageTests"
-```
-
-Windows:
-
-```powershell
-dotnet test DTXMania.Test/DTXMania.Test.csproj `
   --filter "FullyQualifiedName~DrumConfigStageTests"
 ```
 
@@ -275,7 +256,7 @@ Expected: formatter tests fail because `FormatHdmiDeviceStatus` does not exist.
 
 - [ ] **Step 5: Implement the pure formatter**
 
-Add near the existing stage geometry helpers:
+Add near existing stage geometry helpers:
 
 ```csharp
 private static string FormatHdmiDeviceStatus(IReadOnlyList<string> deviceNames)
@@ -286,15 +267,15 @@ private static string FormatHdmiDeviceStatus(IReadOnlyList<string> deviceNames)
     if (deviceNames.Count == 1)
         return $"HDMI device: {deviceNames[0]}";
 
-    return $"HDMI devices ({deviceNames.Count}): {string.Join(", ", deviceNames)}";
+    return $"HDMI devices ({deviceNames.Count}): {deviceNames[0]}, +{deviceNames.Count - 1} more";
 }
 ```
 
-Do not add normalization, truncation, or filtering in this task.
+Do not re-sort in the stage. The source snapshot already supplies its existing ordinal order.
 
-- [ ] **Step 6: Draw the live device status**
+- [ ] **Step 6: Draw below Reset and truncate to the virtual viewport**
 
-In `OnDraw`, replace the existing single-line `_font` condition with:
+In `OnDraw`, keep the heading and add the status in the same `_font != null` block:
 
 ```csharp
 if (_font != null)
@@ -308,21 +289,35 @@ if (_font != null)
     var connectedDeviceNames =
         _input?.ModularInputManager.ConnectedMidiDeviceNames
         ?? Array.Empty<string>();
+    var deviceStatus = FormatHdmiDeviceStatus(connectedDeviceNames);
+    var visibleDeviceStatus = TextHelper.TruncateToWidth(
+        deviceStatus,
+        vw - 40,
+        _font);
+
     _font.DrawString(
         _spriteBatch,
-        FormatHdmiDeviceStatus(connectedDeviceNames),
-        new Vector2(20, 40),
+        visibleDeviceStatus,
+        new Vector2(20, 48),
         DarkText);
 }
 ```
 
-Keep the read inside `OnDraw`. Do not add a stage cache, event subscription, hit rectangle, or focusable control.
+Rationale:
 
-- [ ] **Step 7: Run the focused stage tests and verify success**
+- The Reset control ends at virtual `y = 42`; `y = 48` leaves a visible gap.
+- `vw - 40` preserves a 20-pixel margin on both sides.
+- `TextHelper.TruncateToWidth` protects against a single unusually long device name.
+- Do not add a stage cache, new truncation helper, event subscription, hit rectangle, or focusable control.
 
-Run the same focused command for the current platform.
+- [ ] **Step 7: Run the focused stage test class and verify success**
 
-Expected: all `DrumConfigStageTests` pass.
+```bash
+dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj \
+  --filter "FullyQualifiedName~DrumConfigStageTests"
+```
+
+Expected: PASS.
 
 - [ ] **Step 8: Verify interaction remains unchanged by inspection**
 
@@ -333,9 +328,9 @@ Confirm the diff does not modify:
 - `ProcessPopupCapture`.
 - `ApplyCapture`.
 - MIDI-threshold adjustment.
-- Focus, hover, popup, or reset geometry.
+- Focus, hover, popup, or Reset geometry.
 
-No automated draw-path test is required. `OnDraw` is excluded from coverage, the wiring is a small adjacent read-format-draw block, and Windows hardware verification is the integration gate.
+No automated draw-path or screenshot test is required. The formatter is unit-tested, width bounding reuses the existing tested helper, and visual wiring receives a local smoke check.
 
 - [ ] **Step 9: Commit Task 2**
 
@@ -348,35 +343,68 @@ git commit -m "feat: show connected drum device in mapping page"
 
 ---
 
-### Task 3: Cross-Platform Regression and Windows Hardware Verification
+### Task 3: Local macOS Visual Smoke
+
+**Files:**
+- No planned code changes.
+
+**Interfaces:**
+- Consumes: completed Tasks 1 and 2.
+- Produces: visual evidence that the no-device line is positioned correctly without hardware.
+
+- [ ] **Step 1: Run the macOS game with no MIDI device**
+
+```bash
+dotnet run --project DTXMania.Game/DTXMania.Game.Mac.csproj
+```
+
+- [ ] **Step 2: Navigate to the Drum Mapping page**
+
+Use the normal UI or the existing Game API/MCP navigation tools:
+
+1. Open Config.
+2. Open Drum Mapping.
+3. Leave MIDI hardware disconnected.
+
+- [ ] **Step 3: Capture a screenshot**
+
+Use the Game API/MCP screenshot path when available; otherwise use the OS screenshot tool.
+
+Confirm:
+
+- The exact text is `HDMI device: None detected (keyboard still works)`.
+- The status line is below and clear of Reset.
+- The status line does not clip at the right edge.
+- The heading and drum-kit content remain readable.
+
+Do not invent a runtime device-name injection seam for this task. The current Game API injects input events, not device discovery names. Compact plural copy is covered by the formatter test, and long-name width bounding is delegated to the existing tested `TextHelper`.
+
+- [ ] **Step 4: Record the visual result in the implementation PR**
+
+Add the screenshot or a concise verification note to the implementation PR description. Do not commit generated screenshot artifacts unless repository convention requires it.
+
+---
+
+### Task 4: Regression, CI, and Windows Hardware Verification
 
 **Files:**
 - No planned code changes.
 - Do not fix the Windows-only crash in this branch.
 
 **Interfaces:**
-- Consumes: completed Tasks 1 and 2.
-- Produces: verified connected/disconnected behavior and a retained crash report if the separate crash reproduces.
+- Consumes: completed Tasks 1–3.
+- Produces: green local macOS tests, green PR CI, and Windows hardware verification.
 
-- [ ] **Step 1: Run both focused suites on macOS**
+- [ ] **Step 1: Run the combined focused macOS suites**
 
 ```bash
 dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj \
   --filter "FullyQualifiedName~ModularInputManagerTests|FullyQualifiedName~DrumConfigStageTests"
 ```
 
-Expected: PASS with no hardware dependency.
-
-- [ ] **Step 2: Run both focused suites on Windows**
-
-```powershell
-dotnet test DTXMania.Test/DTXMania.Test.csproj `
-  --filter "FullyQualifiedName~ModularInputManagerTests|FullyQualifiedName~DrumConfigStageTests"
-```
-
 Expected: PASS.
 
-- [ ] **Step 3: Run the exact repository-wide macOS gates**
+- [ ] **Step 2: Run the full local macOS gates**
 
 ```bash
 dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj
@@ -385,45 +413,45 @@ dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj
 
 Expected: both commands pass.
 
-- [ ] **Step 4: Run the exact repository-wide Windows gates**
+- [ ] **Step 3: Push and confirm the PR checks**
 
-```powershell
-dotnet build DTXMania.Game/DTXMania.Game.Windows.csproj
-dotnet test DTXMania.Test/DTXMania.Test.csproj
-```
+Confirm at minimum:
 
-Expected: both commands pass.
+- `build-and-test-windows` is green.
+- `build-and-test-macos` is green.
+- Existing required checks remain green.
 
-No gameplay E2E addition is required for this informational text-only feature.
+Do not require a macOS-only implementation environment to run the Windows full suite locally. The Windows CI job is the authoritative automated Windows gate.
 
-- [ ] **Step 5: Verify disconnected Windows behavior**
+- [ ] **Step 4: Verify disconnected Windows behavior**
 
 With the physical drum device disconnected:
 
 1. Start the Windows game.
 2. Open Config → Drum Mapping.
-3. Confirm the exact text `HDMI device: None detected (keyboard still works)`.
+3. Confirm `HDMI device: None detected (keyboard still works)`.
 4. Open a drum-lane capture popup.
 5. Confirm keyboard capture still works.
 
-- [ ] **Step 6: Verify connection while the page remains open**
+- [ ] **Step 5: Verify connection while the page remains open**
 
-1. Return to the Drum Mapping page if needed.
+1. Return to Drum Mapping if needed.
 2. Connect the physical drum device without restarting the game.
 3. Wait up to `GameConstants.Input.DeviceScanIntervalMs` plus one rendered frame.
-4. Confirm the device name appears.
+4. Confirm its device name appears.
 5. Confirm no page reopen is required.
+6. If multiple ports appear, confirm the first name and `+N more` summary.
 
-If the name remains absent, inspect `ConnectedMidiDeviceNames`. If it is empty, stop and create a separate Windows device-discovery investigation. Do not add a second discovery API here.
+If the name remains absent, inspect `ConnectedMidiDeviceNames`. If empty, stop and create a separate Windows device-discovery investigation. Do not add a second discovery API here.
 
-- [ ] **Step 7: Verify MIDI capture remains unchanged**
+- [ ] **Step 6: Verify MIDI capture remains unchanged**
 
 1. Select a drum lane.
 2. Hit one pad on the connected device.
 3. Confirm the existing `MIDI.<note>` binding is captured.
 4. Confirm existing velocity-threshold controls behave unchanged.
 
-- [ ] **Step 8: Verify disconnect while the page remains open**
+- [ ] **Step 7: Verify disconnect while the page remains open**
 
 1. Disconnect the physical device.
 2. Wait for the existing hot-plug interval.
@@ -431,7 +459,7 @@ If the name remains absent, inspect `ConnectedMidiDeviceNames`. If it is empty, 
 4. Confirm the stage remains responsive.
 5. Confirm keyboard capture still works.
 
-- [ ] **Step 9: Apply the Windows crash stop condition**
+- [ ] **Step 8: Apply the Windows crash stop condition**
 
 If selecting a pad crashes:
 
@@ -441,7 +469,7 @@ If selecting a pad crashes:
 4. Create or update the separate Windows crash issue.
 5. Do not add a broad `try/catch` to `DrumConfigStage` or the input update loop.
 
-- [ ] **Step 10: Review the final diff**
+- [ ] **Step 9: Review the final diff**
 
 ```bash
 git diff main...HEAD -- \
@@ -458,11 +486,15 @@ Confirm there are no changes to diagnostics payloads, input routing, popup behav
 ## Completion Checklist
 
 - [ ] Exact no-device copy is implemented and tested.
+- [ ] Compact plural copy preserves the first device name and summarizes the rest.
+- [ ] Status is drawn below Reset at `(20, 48)`.
+- [ ] Status width is bounded with `TextHelper.TruncateToWidth`.
 - [ ] Count XML documentation clearly identifies the telemetry/crash-context boundary.
 - [ ] Names remain UI-only.
 - [ ] Empty, sorted, and refreshed snapshots are tested.
 - [ ] Singular and plural status formatting is tested.
-- [ ] Focused macOS and Windows tests pass.
-- [ ] Full macOS and Windows build/test commands pass.
+- [ ] Focused and full macOS gates pass locally.
+- [ ] Required PR checks, including Windows build/test CI, are green.
+- [ ] macOS no-device screenshot confirms basic layout.
 - [ ] Real Windows connect, disconnect, keyboard fallback, and MIDI capture are verified.
 - [ ] Any Windows crash or absent backend name is moved to a separate investigation.
