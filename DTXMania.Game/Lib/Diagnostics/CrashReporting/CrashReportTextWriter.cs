@@ -51,7 +51,7 @@ internal sealed class CrashReportTextWriter : ICrashReportArtifactWriter
 
         var sanitizer = new CrashReportSanitizer(document.SensitivePaths, document.SensitiveSecrets);
         var exceptionText = sanitizer.SanitizeExceptionChain(document.Exception, out var exceptionTruncated);
-        var logs = SelectLogs(document.Logs, out var logsTruncated);
+        var logs = SelectLogs(document.Logs, sanitizer, out var logsTruncated);
         var breadcrumbs = SelectBreadcrumbs(document.Breadcrumbs, out var breadcrumbsTruncated);
 
         using var writer = new StreamWriter(destination, Utf8WithoutBom, bufferSize: 4096, leaveOpen: true)
@@ -108,11 +108,11 @@ internal sealed class CrashReportTextWriter : ICrashReportArtifactWriter
         writer.WriteLine(LogSection);
         foreach (var record in logs)
         {
-            writer.WriteLine(FormatLogRecord(record));
+            writer.WriteLine(FormatLogRecord(record, sanitizer));
         }
     }
 
-    private static string FormatLogRecord(CrashLogRecord record)
+    private static string FormatLogRecord(CrashLogRecord record, CrashReportSanitizer sanitizer)
     {
         var builder = new StringBuilder()
             .Append(record.TimestampUtc.ToUniversalTime().ToString("O"))
@@ -130,9 +130,12 @@ internal sealed class CrashReportTextWriter : ICrashReportArtifactWriter
 
         // Render the originating logger category when present so unclassified records still
         // identify their subsystem (graphics, input, JSON-RPC, …) instead of being anonymous.
+        // The category is caller-controlled and never allowlisted, so it must be scrubbed
+        // with the same sanitizer as exception messages — otherwise a registered secret (or
+        // URI credentials) passed as a logger category would leak verbatim into the report.
         if (!string.IsNullOrEmpty(record.Category))
         {
-            builder.Append(" [").Append(record.Category).Append(']');
+            builder.Append(" [").Append(sanitizer.Scrub(record.Category)).Append(']');
         }
 
         builder.Append(' ').Append(record.MessageTemplate);
@@ -181,6 +184,7 @@ internal sealed class CrashReportTextWriter : ICrashReportArtifactWriter
 
     private static IReadOnlyList<CrashLogRecord> SelectLogs(
         IReadOnlyList<CrashLogRecord> records,
+        CrashReportSanitizer sanitizer,
         out bool truncated)
     {
         var selected = new List<CrashLogRecord>();
@@ -188,7 +192,7 @@ internal sealed class CrashReportTextWriter : ICrashReportArtifactWriter
 
         for (var index = records.Count - 1; index >= 0 && selected.Count < MaximumLogRecords; index--)
         {
-            var length = FormatLogRecord(records[index]).Length + 1;
+            var length = FormatLogRecord(records[index], sanitizer).Length + 1;
             if (charactersUsed + length > MaximumLogCharacters)
             {
                 break;
