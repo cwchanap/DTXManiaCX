@@ -14,7 +14,9 @@ This is a small visibility feature. It does not change device discovery, input r
 
 The requested user-facing label is **HDMI device**. This is a deliberate product term, not a description of the transport layer: DTXManiaCX has no HDMI input abstraction, and the connected drum hardware is enumerated by the existing MIDI backend through `MidiInputSource.DeviceNames`.
 
-Internal APIs and types remain named **MIDI**. If the real Windows drum hardware does not appear in `MidiInputSource.DeviceNames`, implementation stops and device discovery moves to a separate Windows investigation. This ticket must not add a second discovery path.
+This terminology may be technically imprecise, but it is retained because the project lead explicitly requested it. The design mitigates the main UX risk by making the disconnected message explain that keyboard assignment still works. Internal APIs and types remain named **MIDI**.
+
+If the real Windows drum hardware does not appear in `MidiInputSource.DeviceNames`, implementation stops and device discovery moves to a separate Windows investigation. This ticket must not add a second discovery path.
 
 Exact copy:
 
