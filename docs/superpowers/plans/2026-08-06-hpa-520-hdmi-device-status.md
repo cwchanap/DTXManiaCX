@@ -25,7 +25,7 @@
 **Modify:**
 
 - `DTXMania.Game/Lib/Input/ModularInputManager.cs`
-  - Exposes an immutable/read-only snapshot of currently connected MIDI device display names.
+  - Exposes a read-only snapshot of currently connected MIDI device display names.
 - `DTXMania.Game/Lib/Stage/DrumConfigStage.cs`
   - Formats and draws the user-facing HDMI device status line.
 - `DTXMania.Test/Input/ModularInputManagerTests.cs`
@@ -49,7 +49,7 @@ No file split is needed. Each production change is a small addition to the exist
 
 - [ ] **Step 1: Add the no-device failing test**
 
-Add this test near the existing `ConnectedMidiDeviceCount_ShouldBeZeroBeforeDevicesAndRefreshToCurrentCount` test:
+Add this test near `ConnectedMidiDeviceCount_ShouldBeZeroBeforeDevicesAndRefreshToCurrentCount`:
 
 ```csharp
 [Fact]
@@ -121,7 +121,7 @@ Expected: compilation fails because `ConnectedMidiDeviceNames` does not exist.
 
 - [ ] **Step 5: Add the minimal pass-through property**
 
-In `ModularInputManager`, place the property next to `ConnectedMidiDeviceCount`:
+Place this property next to `ConnectedMidiDeviceCount`:
 
 ```csharp
 /// <summary>
@@ -142,7 +142,7 @@ Expected: all `ModularInputManagerTests` pass.
 
 - [ ] **Step 7: Review the boundary**
 
-Confirm the implementation exposes only names:
+Confirm:
 
 - No `IMidiInputDevice` instances leave the input subsystem.
 - No stable IDs are exposed.
@@ -172,32 +172,24 @@ git commit -m "feat: expose connected midi device names"
 
 - [ ] **Step 1: Add the disconnected formatter test**
 
-Add this test to `DrumConfigStageTests`:
+Use the direct private-static reflection pattern already used in `DrumConfigStageTests`:
 
 ```csharp
 [Fact]
 public void FormatHdmiDeviceStatus_NoDevices_ShowsNotConnected()
 {
-    var status = ReflectionHelpers.InvokePrivateStaticMethod<string>(
-        typeof(DrumConfigStage),
+    var method = typeof(DrumConfigStage).GetMethod(
         "FormatHdmiDeviceStatus",
-        Array.Empty<string>());
+        BindingFlags.NonPublic | BindingFlags.Static);
+    Assert.NotNull(method);
+
+    var status = (string)method!.Invoke(
+        null,
+        new object[] { Array.Empty<string>() })!;
 
     Assert.Equal("HDMI device: Not connected", status);
 }
 ```
-
-If `ReflectionHelpers` does not expose `InvokePrivateStaticMethod<T>`, use the established direct reflection pattern already present in the test file:
-
-```csharp
-var method = typeof(DrumConfigStage).GetMethod(
-    "FormatHdmiDeviceStatus",
-    BindingFlags.NonPublic | BindingFlags.Static);
-Assert.NotNull(method);
-var status = (string)method!.Invoke(null, new object[] { Array.Empty<string>() })!;
-```
-
-Use one pattern consistently for all three formatter tests.
 
 - [ ] **Step 2: Add the single-device formatter test**
 
@@ -259,7 +251,7 @@ Expected: the formatter tests fail because `FormatHdmiDeviceStatus` does not exi
 
 - [ ] **Step 5: Implement the pure formatter**
 
-Add this private static method near the other stage geometry/formatting helpers:
+Add this method near the existing stage geometry and formatting helpers:
 
 ```csharp
 private static string FormatHdmiDeviceStatus(IReadOnlyList<string> deviceNames)
@@ -274,11 +266,11 @@ private static string FormatHdmiDeviceStatus(IReadOnlyList<string> deviceNames)
 }
 ```
 
-The null guard is a cheap defensive boundary for reflection tests and future callers. Do not add normalization, truncation, or filtering unless the existing font/rendering path requires it during manual verification.
+Do not add normalization, truncation, or filtering in this task.
 
 - [ ] **Step 6: Draw the live device status**
 
-In `OnDraw`, immediately after drawing the existing `DRUM MAPPING` heading, read and render the current snapshot:
+In `OnDraw`, replace the existing single-line `_font` condition with:
 
 ```csharp
 if (_font != null)
@@ -300,7 +292,7 @@ if (_font != null)
 }
 ```
 
-Keep the read inside `OnDraw`. Do not add a stage field for the names and do not populate names in `OnActivate`.
+Keep the read inside `OnDraw`. Do not add a stage field or populate names in `OnActivate`.
 
 - [ ] **Step 7: Run the focused stage tests and verify they pass**
 
@@ -317,7 +309,7 @@ Confirm the change does not modify:
 - `ProcessPopupCapture`.
 - `ApplyCapture`.
 - MIDI threshold adjustment.
-- focus, hover, or reset geometry.
+- Focus, hover, or reset geometry.
 
 The new line must have no hit rectangle or input handling.
 
@@ -335,7 +327,7 @@ git commit -m "feat: show connected drum device in mapping page"
 ### Task 3: Cross-Platform Regression and Windows Hardware Verification
 
 **Files:**
-- Modify only if verification finds a documentation or test expectation mismatch.
+- No planned code changes.
 - Do not fix the Windows-only crash in this branch.
 
 **Interfaces:**
@@ -378,13 +370,12 @@ With the physical drum device disconnected:
 
 - [ ] **Step 5: Verify connection while the page remains open**
 
-1. Return to the Drum Mapping page if needed.
-2. Connect the physical drum device without restarting the game.
-3. Wait up to the existing `GameConstants.Input.DeviceScanIntervalMs` interval plus one rendered frame.
-4. Confirm the device name appears.
-5. Confirm no page reopen is required.
+1. Connect the physical drum device without restarting the game.
+2. Wait up to `GameConstants.Input.DeviceScanIntervalMs` plus one rendered frame.
+3. Confirm the device name appears.
+4. Confirm no page reopen is required.
 
-If the device does not appear, inspect `ConnectedMidiDeviceNames`. If it remains empty, stop this implementation and create a separate Windows device-discovery investigation. Do not add a second discovery API here.
+If the device does not appear, inspect `ConnectedMidiDeviceNames`. If it remains empty, stop and create a separate Windows device-discovery investigation. Do not add a second discovery API here.
 
 - [ ] **Step 6: Verify MIDI capture remains unchanged**
 
@@ -403,7 +394,7 @@ If the device does not appear, inspect `ConnectedMidiDeviceNames`. If it remains
 
 - [ ] **Step 8: Apply the Windows crash stop condition**
 
-If selecting a pad crashes at any point:
+If selecting a pad crashes:
 
 1. Retain the generated managed crash report.
 2. Record the exact reproduction sequence and Windows/device details.
@@ -411,7 +402,7 @@ If selecting a pad crashes at any point:
 4. Create or update the separate Windows crash issue.
 5. Do not add a broad `try/catch` to `DrumConfigStage` or the input update loop.
 
-- [ ] **Step 9: Review the final diff**
+- [ ] **Step 9: Review the final implementation diff**
 
 ```bash
 git diff main...HEAD -- \
@@ -421,7 +412,7 @@ git diff main...HEAD -- \
   DTXMania.Test/Stage/DrumConfig/DrumConfigStageTests.cs
 ```
 
-Confirm the final production diff contains only:
+Confirm the production diff contains only:
 
 - One read-only input property.
 - One pure formatter.
@@ -430,11 +421,11 @@ Confirm the final production diff contains only:
 
 - [ ] **Step 10: Prepare the implementation PR summary**
 
-Use a PR body that states:
+The implementation PR body must state:
 
-- Connected device names are surfaced from the existing MIDI backend.
-- The Drum Mapping page updates through the existing hot-plug scan.
-- No input behavior or device lifecycle was changed.
+- Connected names come from the existing MIDI backend.
+- The page updates through the existing hot-plug scan.
+- No input behavior or device lifecycle changed.
 - Windows hardware verification results.
 - The separate crash status, without claiming it was fixed.
 
