@@ -9,19 +9,29 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag to build (e.g. v1.2.3). Defaults to a unique dev release.'
+        description: 'Existing release tag to rebuild (e.g. v1.2.3). Takes precedence over bump.'
         required: false
         type: string
+      bump:
+        description: 'Version component to bump when generating a release tag.'
+        required: false
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
 
-# A push to main creates a unique CI tag at the pushed commit and continues in
-# this same workflow run. Tag pushes and manual runs use the existing tag/input
-# behavior below. A GITHUB_TOKEN-created tag does not recursively trigger a
-# second workflow run, so the release must continue from this run.
+# A push to main creates the next patch release tag at the pushed commit and
+# continues in this same workflow run. Tag pushes and explicit-tag manual runs
+# use the existing tag behavior below. A GITHUB_TOKEN-created tag does not
+# recursively trigger a second workflow run, so the release must continue from
+# this run.
 
 # One release pipeline per tag at a time. Cancel in-flight runs for the same
 # tag so release creation and asset uploads do not race.
 concurrency:
-  group: release-${{ github.event_name == 'push' && github.ref_type == 'tag' && github.ref_name || github.event_name == 'push' && github.ref == 'refs/heads/main' && format('v0.0.0-main.{0}', github.run_number) || github.event.inputs.tag || format('v0.0.0-dev.{0}', github.run_number) }}
+  group: release-${{ github.event_name == 'push' && github.ref_type == 'tag' && github.ref_name || github.event_name == 'push' && github.ref == 'refs/heads/main' && format('main-{0}', github.run_number) || github.event.inputs.tag || format('manual-{0}', github.run_number) }}
   cancel-in-progress: false
 
 permissions: {}
@@ -37,14 +47,9 @@ jobs:
       checkout_ref: ${{ steps.release.outputs.checkout_ref }}
       target_sha: ${{ steps.release.outputs.target_sha }}
       prerelease: ${{ steps.release.outputs.prerelease }}
-      # Only the no-tag manual dev dispatch reaches create-release without an
-      # existing tag (gh release create makes it at target_sha). Every other
-      # path — main push, tag push, explicit-tag dispatch — has a tag by this
-      # point, so a missing tag there is an error, not an expected state.
-      allow_missing_tag: ${{ steps.release.outputs.allow_missing_tag }}
 
     steps:
-      - name: Create tag for main push
+      - name: Prepare release tag
         id: release
         shell: bash
         env:
@@ -53,19 +58,117 @@ jobs:
           REF: ${{ github.ref }}
           REF_NAME: ${{ github.ref_name }}
           INPUT_TAG: ${{ github.event.inputs.tag }}
+          INPUT_BUMP: ${{ github.event.inputs.bump }}
           COMMIT_SHA: ${{ github.sha }}
-          RUN_NUMBER: ${{ github.run_number }}
         run: |
           set -euo pipefail
 
-          # A tag is expected to already exist for every path except the
-          # no-tag manual dev dispatch, where gh release create makes it at
-          # target_sha. create-release uses this to decide whether a missing
-          # tag is an expected state or an integrity failure.
-          allow_missing_tag=false
+          latest_version() {
+            gh api --paginate \
+              "repos/${GITHUB_REPOSITORY}/git/matching-refs/tags/v" \
+              --jq '.[].ref' |
+              sed -nE 's#^refs/tags/v([0-9]+\.[0-9]+\.[0-9]+)$#\1#p' |
+              sort -V |
+              tail -n1
+          }
+
+          tag_for_commit() {
+            local commit_sha="$1"
+            gh api --paginate \
+              "repos/${GITHUB_REPOSITORY}/git/matching-refs/tags/v" \
+              --jq ".[] | select(.object.sha == \"${commit_sha}\") | .ref" |
+              sed -nE 's#^refs/tags/v([0-9]+\.[0-9]+\.[0-9]+)$#v\1#p' |
+              sort -V |
+              tail -n1
+          }
+
+          next_release_tag() {
+            local bump="$1"
+            local base_version
+            base_version="$(latest_version)"
+            base_version="${base_version:-0.0.0}"
+
+            local major minor patch
+            IFS=. read -r major minor patch <<< "$base_version"
+            major=$((10#$major))
+            minor=$((10#$minor))
+            patch=$((10#$patch))
+
+            case "$bump" in
+              major)
+                major=$((major + 1))
+                minor=0
+                patch=0
+                ;;
+              minor)
+                minor=$((minor + 1))
+                patch=0
+                ;;
+              patch)
+                patch=$((patch + 1))
+                ;;
+              *)
+                echo "::error::Invalid version bump '$bump'; expected patch, minor, or major." >&2
+                return 1
+                ;;
+            esac
+
+            printf 'v%s.%s.%s\n' "$major" "$minor" "$patch"
+          }
+
+          ensure_tag() {
+            local release_tag="$1"
+            local target_sha="$2"
+            local existing_sha
+
+            # Re-runs keep an already-created tag stable. A conflicting tag
+            # means another release raced us; the caller can calculate the
+            # next version and retry.
+            if existing_sha=$(gh api \
+              "repos/${GITHUB_REPOSITORY}/git/ref/tags/${release_tag}" \
+              --jq '.object.sha' 2>/dev/null); then
+              if [[ "$existing_sha" != "$target_sha" ]]; then
+                echo "Tag ${release_tag} already points to ${existing_sha}, expected ${target_sha}." >&2
+                return 1
+              fi
+              echo "Tag ${release_tag} already points to ${target_sha}." >&2
+            else
+              if gh api --method POST \
+                  "repos/${GITHUB_REPOSITORY}/git/refs" \
+                  -f "ref=refs/tags/${release_tag}" \
+                  -f "sha=${target_sha}" >/dev/null; then
+                echo "Created tag ${release_tag} at ${target_sha}." >&2
+              else
+                echo "Could not create tag ${release_tag}; retrying version selection." >&2
+                return 1
+              fi
+            fi
+          }
+
+          ensure_next_tag() {
+            local bump="$1"
+            local attempt release_tag
+            for attempt in 1 2 3 4 5; do
+              release_tag="$(next_release_tag "$bump")"
+              if ensure_tag "$release_tag" "$COMMIT_SHA"; then
+                printf '%s\n' "$release_tag"
+                return 0
+              fi
+              echo "Retrying version bump after tag conflict (attempt $attempt of 5)." >&2
+            done
+            echo "::error::Could not create a unique ${bump} release tag after 5 attempts." >&2
+            return 1
+          }
 
           if [[ "$EVENT_NAME" == "push" && "$REF" == "refs/heads/main" ]]; then
-            release_tag="v0.0.0-main.${RUN_NUMBER}"
+            # Re-running the workflow for the same commit must reuse the tag
+            # already created for that commit instead of bumping again.
+            release_tag="$(tag_for_commit "$COMMIT_SHA")"
+            if [[ -z "$release_tag" ]]; then
+              release_tag="$(ensure_next_tag patch)"
+            else
+              echo "Reusing semantic release tag ${release_tag} for ${COMMIT_SHA}."
+            fi
             # Checkout the triggering commit directly instead of the generated
             # tag. The tag is still created above for publishing (release_tag),
             # but downstream jobs should check out the immutable commit SHA so
@@ -73,24 +176,6 @@ jobs:
             # wrong commit.
             checkout_ref="$COMMIT_SHA"
             target_sha="$COMMIT_SHA"
-
-            # Re-runs keep the original tag stable. Refuse to continue if a
-            # tag with the generated name was moved to another commit.
-            if existing_sha=$(gh api \
-              "repos/${GITHUB_REPOSITORY}/git/ref/tags/${release_tag}" \
-              --jq '.object.sha' 2>/dev/null); then
-              if [[ "$existing_sha" != "$COMMIT_SHA" ]]; then
-                echo "Tag ${release_tag} already points to ${existing_sha}, expected ${COMMIT_SHA}." >&2
-                exit 1
-              fi
-              echo "Tag ${release_tag} already points to ${COMMIT_SHA}."
-            else
-              gh api --method POST \
-                "repos/${GITHUB_REPOSITORY}/git/refs" \
-                -f "ref=refs/tags/${release_tag}" \
-                -f "sha=${COMMIT_SHA}"
-              echo "Created tag ${release_tag} at ${COMMIT_SHA}."
-            fi
           elif [[ "$EVENT_NAME" == "push" ]]; then
             release_tag="$REF_NAME"
             # Tag push: checkout the immutable commit the tag pointed to at
@@ -126,15 +211,15 @@ jobs:
             target_sha="$resolved_sha"
             echo "Resolved tag ${release_tag} to ${resolved_sha}."
           else
-            release_tag="v0.0.0-dev.${RUN_NUMBER}"
-            # No-tag manual dispatch: checkout the immutable dispatch-time
-            # commit (COMMIT_SHA = github.sha), not the branch ref. The
-            # selected branch can advance while installer jobs are queued.
+            # A manual dispatch without an explicit tag creates a semantic
+            # release tag. Use bump=major or bump=minor for x/y releases;
+            # patch is the default and matches a main push.
+            release_tag="$(ensure_next_tag "${INPUT_BUMP:-patch}")"
+            # Checkout the immutable dispatch-time commit (COMMIT_SHA =
+            # github.sha), not the branch ref. The selected branch can advance
+            # while installer jobs are queued.
             checkout_ref="$COMMIT_SHA"
             target_sha="$COMMIT_SHA"
-            # gh release create below creates this tag at target_sha, so it
-            # legitimately does not exist yet when create-release verifies.
-            allow_missing_tag=true
           fi
 
           prerelease=false
@@ -147,7 +232,6 @@ jobs:
             echo "checkout_ref=$checkout_ref"
             echo "target_sha=$target_sha"
             echo "prerelease=$prerelease"
-            echo "allow_missing_tag=$allow_missing_tag"
           } >> "$GITHUB_OUTPUT"
           echo "Release tag: $release_tag"
           echo "Checkout ref: $checkout_ref"
@@ -655,7 +739,6 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ needs.prepare-release.outputs.release_tag }}
           TARGET_SHA: ${{ needs.prepare-release.outputs.target_sha }}
-          ALLOW_MISSING_TAG: ${{ needs.prepare-release.outputs.allow_missing_tag }}
         shell: bash
         run: |
           set -euo pipefail
@@ -664,15 +747,13 @@ jobs:
           # a force-push to the tag while the installer jobs were queued can't
           # publish a release whose binaries came from a different commit.
           #
-          # Only the no-tag manual dev dispatch reaches this step without an
-          # existing tag (gh release create below creates it at TARGET_SHA);
-          # prepare-release signals that via ALLOW_MISSING_TAG=true. Every
-          # other path — main push, tag push, explicit-tag dispatch — has a
-          # tag by now, so a missing tag there is an integrity failure, not
-          # an expected state. And a missing tag is only acceptable when it is
-          # an actual HTTP 404; an auth, rate-limit, network, or server
-          # failure must not be treated as "tag does not exist", or the check
-          # becomes fail-open.
+          # Every path has a tag by this point: main pushes and manual bump
+          # dispatches create one in prepare-release, while tag pushes and
+          # explicit-tag dispatches resolve an existing one. A missing tag is
+          # therefore an integrity failure, not an expected state. A missing
+          # tag is only acceptable when it is an actual HTTP 404; an auth,
+          # rate-limit, network, or server failure must not be treated as "tag
+          # does not exist", or the check becomes fail-open.
           # Qualify with tags/ so the commits endpoint resolves the tag ref
           # unambiguously. A bare short name is also accepted, but when a
           # branch and tag share the same name Git resolves refs/heads/
@@ -710,12 +791,8 @@ jobs:
               echo "Tag $RELEASE_TAG still points at $TARGET_SHA."
               ;;
             404)
-              if [[ "$ALLOW_MISSING_TAG" == "true" ]]; then
-                echo "Tag $RELEASE_TAG does not exist yet; it will be created at $TARGET_SHA."
-              else
-                echo "::error::Tag $RELEASE_TAG does not exist but is required for this release path. Refusing to publish without verifying tag-to-build relationship." >&2
-                exit 1
-              fi
+              echo "::error::Tag $RELEASE_TAG does not exist but is required for this release path. Refusing to publish without verifying tag-to-build relationship." >&2
+              exit 1
               ;;
             *)
               echo "::error::Unable to verify tag $RELEASE_TAG: GitHub API returned HTTP ${status:-<no response>}. Refusing to publish without verifying tag-to-build relationship." >&2
