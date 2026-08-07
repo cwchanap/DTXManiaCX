@@ -490,9 +490,18 @@ namespace DTXMania.Game.Lib.Input
         public bool MidiAvailable => _midiInputSource?.IsAvailable ?? false;
 
         /// <summary>
-        /// Gets the current number of connected MIDI devices without exposing device names or identifiers.
+        /// Gets the current number of connected MIDI devices for telemetry and crash context.
+        /// Display names are available separately through ConnectedMidiDeviceNames and must
+        /// not be added to crash diagnostics.
         /// </summary>
         public int ConnectedMidiDeviceCount => _midiInputSource?.DeviceCount ?? 0;
+
+        /// <summary>
+        /// Gets a read-only snapshot of connected MIDI device display names for UI use.
+        /// Device names must not be added to telemetry or crash context.
+        /// </summary>
+        public IReadOnlyList<string> ConnectedMidiDeviceNames =>
+            _midiInputSource?.DeviceNames ?? Array.Empty<string>();
 
         /// <summary>
         /// Clears all pending injected state: the button queue, injected key states, press events,
