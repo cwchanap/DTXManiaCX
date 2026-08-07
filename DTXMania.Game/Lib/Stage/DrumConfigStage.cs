@@ -419,25 +419,8 @@ namespace DTXMania.Game.Lib.Stage
             }
 
             if (_font != null)
-            {
                 _font.DrawString(_spriteBatch, "DRUM MAPPING  -  click a piece, then hit your input.  Back: save & exit",
                     new Vector2(20, 16), DarkText);
-
-                var connectedDeviceNames =
-                    _input?.ModularInputManager.ConnectedMidiDeviceNames
-                    ?? Array.Empty<string>();
-                var deviceStatus = FormatHdmiDeviceStatus(connectedDeviceNames);
-                var visibleDeviceStatus = TextHelper.TruncateToWidth(
-                    deviceStatus,
-                    vw - 40,
-                    _font);
-
-                _font.DrawString(
-                    _spriteBatch,
-                    visibleDeviceStatus,
-                    new Vector2(20, 48),
-                    DarkText);
-            }
 
             // Only surface the keyboard focus highlight while keyboard navigation is active, and
             // never for the Reset action (it is not a lane). Otherwise the default focus would keep
@@ -456,6 +439,24 @@ namespace DTXMania.Game.Lib.Stage
             _renderer.Draw(_spriteBatch, _input?.ModularInputManager.KeyBindings ?? new KeyBindings(),
                 _font, _whitePixel,
                 vw, vh, in highlights);
+
+            if (_font != null)
+            {
+                var connectedDeviceNames =
+                    _input?.ModularInputManager.ConnectedMidiDeviceNames
+                    ?? Array.Empty<string>();
+                var deviceStatus = FormatHdmiDeviceStatus(connectedDeviceNames);
+                var visibleDeviceStatus = TextHelper.TruncateToWidth(
+                    deviceStatus,
+                    vw - 40,
+                    _font);
+
+                _font.DrawString(
+                    _spriteBatch,
+                    visibleDeviceStatus,
+                    new Vector2(20, 48),
+                    DarkText);
+            }
 
             var resetRect = GetResetButtonRect(vw, vh);
             if (_whitePixel != null)
