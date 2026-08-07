@@ -42,7 +42,7 @@ namespace DTXMania.Test.Stage.DrumConfig
         }
 
         [Fact]
-        public void FormatHdmiDeviceStatus_NoDevices_ShowsKeyboardFallback()
+        public void FormatHdmiDeviceStatus_WhenNoDevices_ShouldShowKeyboardFallback()
         {
             var method = typeof(DrumConfigStage).GetMethod(
                 "FormatHdmiDeviceStatus",
@@ -59,7 +59,7 @@ namespace DTXMania.Test.Stage.DrumConfig
         }
 
         [Fact]
-        public void FormatHdmiDeviceStatus_OneDevice_ShowsDeviceName()
+        public void FormatHdmiDeviceStatus_WhenOneDevice_ShouldShowDeviceName()
         {
             var method = typeof(DrumConfigStage).GetMethod(
                 "FormatHdmiDeviceStatus",
@@ -74,7 +74,7 @@ namespace DTXMania.Test.Stage.DrumConfig
         }
 
         [Fact]
-        public void FormatHdmiDeviceStatus_MultipleDevices_PreservesFirstAndSummarizesRest()
+        public void FormatHdmiDeviceStatus_WhenMultipleDevices_ShouldPreserveFirstAndSummarizeRest()
         {
             var method = typeof(DrumConfigStage).GetMethod(
                 "FormatHdmiDeviceStatus",
