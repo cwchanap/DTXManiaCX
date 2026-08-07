@@ -19,6 +19,8 @@ HPA-529 shipped a deliberately simplified crash-reporting format:
 
 The original HPA-530 ticket predates that schema-v2 amendment and still references ZIP reports, emergency fallback reports, and a separate inbox-state file. Those statements are obsolete for this implementation. HPA-530 must extend the shipped text-only model rather than recreate the removed architecture.
 
+HPA-530 does reintroduce the name `ICrashReportInbox`, but only as a new narrow stage-facing facade for schema-v2 discovery and actions. This does **not** revive the obsolete HPA-519 ZIP/inbox-state design or its old persistence contract.
+
 ## Goals
 
 - Notify the player non-blockingly when retained crash reports have not been acknowledged.
@@ -39,18 +41,20 @@ The original HPA-530 ticket predates that schema-v2 amendment and still referenc
 - A dedicated crash-management stage.
 - Linux external-launch support in this ticket.
 - Native dumps, hang reports, screenshots, or telemetry.
+- A generic modal framework, generic process runner, or configurable GitHub destination.
 
 ## Existing integration points
 
-The implementation should extend the seams already introduced by HPA-529:
+The implementation extends the seams already introduced by HPA-529:
 
 - `CrashReportStore` owns the crash-report root, atomic writes, cleanup, and latest-five retention.
 - `CrashReportSummary` already models the safe fields required by the title UI.
 - `CrashReportTextWriter` writes a fixed schema-v2 header before the free-form report sections.
 - `CrashReportRuntime` is the process-owned diagnostics composition root.
 - `IGameCrashDiagnostics` is injected into `BaseGame` and is the correct route for exposing a narrow inbox service.
-- `IStageGame` is the stage-facing game contract used by `TitleStage`.
+- `IStageGame` is the stage-facing game contract used by `TitleStage` and already uses default interface members for optional diagnostics hooks.
 - `TitleStage` already owns title rendering and keyboard/mouse handling.
+- `AppPaths.GetCrashReportsRoot()` remains the only production path source for crash reports.
 
 No static service locator should be introduced.
 
@@ -58,30 +62,36 @@ No static service locator should be introduced.
 
 ```text
 CrashReportRuntime
-  └─ ICrashReportInbox
+  └─ CrashReportInbox : ICrashReportInbox
        ├─ CrashReportStore
-       │    ├─ discover schema-v2 .txt reports
-       │    ├─ parse safe header summaries
+       │    ├─ discover retained report names
        │    ├─ acknowledge by atomic rename
-       │    └─ delete
+       │    ├─ delete by report ID
+       │    └─ expose internal RootPath for composition
+       ├─ CrashReportSummaryReader
+       │    └─ bounded schema-v2 header parsing
        ├─ GitHubCrashIssueBuilder
        └─ IExternalLauncher
 
 IGameCrashDiagnostics
   └─ CrashReportInbox
 
-BaseGame / IStageGame
-  └─ CrashReportInbox
+BaseGame
+  └─ forwards real inbox
+
+IStageGame
+  └─ CrashReportInbox => EmptyCrashReportInbox.Instance by default
 
 TitleStage
   └─ CrashReportNotification
        ├─ compact banner
-       └─ lightweight review panel
+       ├─ review panel state
+       └─ input ownership via TryHandleInput(...)
 ```
 
 `TitleStage` depends only on `ICrashReportInbox`. It must not receive `CrashReportStore`, `IExternalLauncher`, the crash-report root path, or a parser directly.
 
-## Report acknowledgement without `inbox-state.json`
+## Retained file identity and acknowledgement
 
 Acknowledgement is encoded in the retained report filename.
 
@@ -97,23 +107,39 @@ Acknowledged report:
 crash-20260806-123456Z-a1b2c3.ack.txt
 ```
 
-Rules:
+The retained-name contract is normative and case-insensitive:
 
-1. New reports created by HPA-529 always use the pending form.
-2. Acknowledgement is an atomic same-directory rename to the `.ack.txt` form.
-3. The report ID inside the schema-v2 header never changes.
-4. Both pending and acknowledged reports count toward the single latest-five retention limit.
-5. `CrashReportStore` remains the only owner of retention.
-6. Temporary `.tmp` behavior remains unchanged.
-7. Deleting a report removes whichever physical filename currently represents that report ID.
+```text
+^crash-\d{8}-\d{6}Z-[0-9a-f]{6}(?:\.ack)?\.txt$
+```
 
-This keeps the report itself as the single durable artifact while still preserving acknowledgement across restarts.
+### Identity rules
+
+1. New reports created by HPA-529 always use the pending `.txt` form.
+2. The logical report ID is always derived from the retained filename by stripping `.ack.txt` when present, otherwise `.txt`.
+3. The filename-derived report ID is authoritative for inbox lookup and actions. A header `ReportId` is accepted only when it matches the filename-derived ID; otherwise the filename-derived value wins.
+4. `CrashReportSummary.FileName` returned by discovery is the **current physical basename** (`*.txt` or `*.ack.txt`). The title UI should not display or depend on it.
+5. Acknowledgement is an atomic same-directory rename from pending `.txt` to `.ack.txt`.
+6. Both pending and acknowledged reports participate in the same latest-five retention policy.
+7. `CrashReportStore` remains the only owner of retention and filesystem mutation.
+8. Temporary `.tmp` behavior remains unchanged.
+
+### Duplicate physical variants
+
+A manually altered or interrupted directory may contain both forms for one report ID. Treat them as one logical report, never two inbox items.
+
+- Discovery collapses duplicate variants by report ID and prefers the pending file as canonical.
+- `Cleanup()` removes an acknowledged duplicate when its pending twin exists, then applies latest-five retention to logical report IDs.
+- `Acknowledge(reportId)` resolves the pending form first. If an acknowledged duplicate already exists, remove that duplicate before the pending-to-ack rename; if that cleanup fails, return a bounded acknowledgement-conflict error and preserve the pending file.
+- `Delete(reportId)` removes both approved physical variants for that report ID so a duplicate cannot reappear as a ghost item.
+
+The timestamp portion precedes the acknowledgement suffix, so filename-derived chronological ordering remains cheap; no report body needs to be opened for retention ordering.
 
 ## Report discovery and safe summary parsing
 
 Add one bounded schema-v2 header reader owned by the crash-reporting subsystem.
 
-Discovery recognizes only the two approved filename forms in the crash-report root. It never recursively scans directories and never follows arbitrary paths supplied by the UI.
+Discovery recognizes only the approved pending and acknowledged filename forms in the crash-report root. It never recursively scans directories and never follows arbitrary paths supplied by the UI.
 
 The header reader:
 
@@ -128,7 +154,10 @@ The header reader:
   - `StageOrMilestone`;
   - `ExceptionType`;
 - stops before `--- EXCEPTION ---`;
-- applies a small line/character bound so a malformed file cannot cause unbounded reads;
+- reads at most 32 header lines and 16 KiB of header text;
+- normalizes each string field to at most 256 characters;
+- replaces ASCII control characters with spaces before display or handoff;
+- trims values and maps empty values to `Unknown`;
 - never returns exception text or other report sections to the UI.
 
 If the header is corrupt or incomplete, discovery still returns a usable inbox item:
@@ -138,6 +167,8 @@ If the header is corrupt or incomplete, discovery still returns a usable inbox i
 - set unavailable summary fields to `Unknown`.
 
 A corrupt report remains dismissible, openable in the report folder, and deletable.
+
+The reader is deliberately not a general report parser.
 
 ## Inbox contract
 
@@ -162,11 +193,18 @@ public interface ICrashReportInbox
 }
 ```
 
-The interface intentionally accepts report IDs rather than file paths. The implementation resolves the current retained item internally each time, preventing `TitleStage` from constructing or retaining arbitrary filesystem paths.
+The interface accepts report IDs rather than file paths. The implementation resolves the current retained item internally for every action, preventing `TitleStage` from constructing or retaining arbitrary filesystem paths.
 
-`GetReports()` returns the current retained set newest-first. The set is bounded by the existing latest-five policy.
+`GetReports()` returns at most one item per logical report ID, newest-first, and remains bounded by the existing latest-five policy.
 
-Provide a no-op implementation for the disabled crash runtime so title-screen code requires no feature flag or null checks.
+### Disabled runtime behavior
+
+`EmptyCrashReportInbox` is a silent no-op singleton:
+
+- `GetReports()` returns an empty list;
+- all action methods return `Succeeded = true` without side effects.
+
+The empty inbox never causes a banner because it never returns reports, and accidental calls do not create misleading “crash reporting disabled” UI errors.
 
 ## Acknowledgement semantics
 
@@ -180,10 +218,11 @@ Opening GitHub or the report folder does not delete the report and does not mean
 
 For launcher-backed actions:
 
-1. Resolve and validate the target internally.
-2. Launch the target.
-3. Only after launch succeeds, rename the selected pending report to the acknowledged filename.
-4. Refresh the inbox snapshot.
+1. Resolve the report by ID.
+2. Build and validate the target internally.
+3. Launch the target.
+4. Only after launch succeeds, persist acknowledgement.
+5. Refresh the inbox snapshot.
 
 If launch fails, the report remains pending and the action returns a retryable error.
 
@@ -193,7 +232,7 @@ Dismiss performs acknowledgement without launching anything and closes the revie
 
 ## GitHub issue handoff
 
-`OpenGitHubIssue` constructs one HTTPS URL targeting exactly the DTXManiaCX new-issue path:
+`OpenGitHubIssue` constructs one HTTPS URL targeting exactly:
 
 ```text
 https://github.com/cwchanap/DTXManiaCX/issues/new
@@ -210,6 +249,8 @@ The generated title/body may contain only:
 - report format identifier `DTXMANIACX-CRASH-REPORT 2`;
 - instructions telling the player to inspect and manually attach the selected `.txt` crash report.
 
+Every dynamic query value comes from the bounded normalized summary and is URI-escaped before assembly. Do not concatenate unescaped summary values into the query string.
+
 Do not embed exception messages, stack traces, logs, breadcrumbs, arbitrary report text, full paths, usernames, song identity, configuration content, or report-file contents in the URL.
 
 Before launch, validate that the final URI:
@@ -218,7 +259,7 @@ Before launch, validate that the final URI:
 - has host `github.com`;
 - has path `/cwchanap/DTXManiaCX/issues/new`.
 
-The URL builder and validator should be deterministic and unit-tested independently from process launching.
+The URL builder and validator are deterministic and unit-tested independently from process launching.
 
 ## External launcher
 
@@ -254,7 +295,7 @@ Use `/usr/bin/open` through `ProcessStartInfo` with `UseShellExecute = false` an
 
 A non-zero exit code, process-start exception, or unsupported platform returns a retryable failure.
 
-The directory launch target is always the internally resolved `AppPaths.GetCrashReportsRoot()` value. The stage cannot request another directory.
+The directory launch target is always `CrashReportStore.RootPath`, which is initialized from `AppPaths.GetCrashReportsRoot()` in production. `RootPath` is internal to crash-reporting composition and is never exposed through `IStageGame`.
 
 ## Title-screen UX
 
@@ -273,11 +314,21 @@ Requirements:
 
 - never delays startup;
 - never takes initial focus;
-- does not block normal title-menu navigation while the panel is closed;
+- does not block normal title-menu navigation while closed;
 - one banner summarizes all pending reports;
 - mouse click on the banner or F8 opens the review panel;
-- F8 may also reopen the panel while acknowledged retained reports still exist;
+- F8 may reopen the panel while acknowledged retained reports still exist;
 - if no retained reports exist, F8 is a no-op.
+
+### F8 policy
+
+F8 is a fixed, non-remappable title diagnostic shortcut for this ticket.
+
+- Read raw `Keys.F8` and edge-trigger it from previous/current keyboard state.
+- Do not add a new `InputCommandType` or key-assignment setting.
+- If F8 is also mapped to another command, the crash notification consumes that title-screen frame when it activates/reopens the panel, so the mapped title action does not also execute.
+
+This keeps the diagnostic shortcut explicit without expanding configuration scope.
 
 ### Review panel
 
@@ -307,9 +358,27 @@ After deletion, select the nearest remaining report. If no report remains, close
 
 ### Input ownership
 
-When the panel is closed, existing title-menu behavior remains unchanged except for the dedicated F8 shortcut and banner hit-test.
+`CrashReportNotification` owns all notification interaction state:
 
-When the panel is open, panel input is processed before the normal title-menu input path and the title stage returns without executing menu actions for that frame.
+- open/closed;
+- current selection;
+- action focus;
+- delete confirmation;
+- retryable error text;
+- banner hit-testing;
+- raw F8 activation.
+
+It exposes a focused input seam such as:
+
+```csharp
+bool TryHandleInput(...)
+```
+
+`true` means notification input was consumed and `TitleStage` must not call its normal `HandleInput()` or `HandleMouseInput()` for that frame.
+
+When the panel is closed, `TryHandleInput` returns `true` only when F8 or the banner click opens the panel; otherwise title behavior is unchanged.
+
+When the panel is open, notification input is always handled first and consumed before normal title input.
 
 Use existing remappable commands for panel navigation where practical:
 
@@ -318,9 +387,15 @@ Use existing remappable commands for panel navigation where practical:
 - Activate: execute focused action;
 - Back or Escape: close panel.
 
-Mouse buttons remain clickable through virtual-coordinate hit testing.
+**Back/Escape while the panel is open must close the panel and must never fall through to `TitleStage.RequestExit()`.**
 
 When delete confirmation is visible, only confirmation/cancel input is consumed until the confirmation resolves.
+
+Mouse buttons remain clickable through virtual-coordinate hit testing.
+
+### Layout
+
+Keep banner/panel rectangles and spacing as private constants owned by `CrashReportNotification` for this ticket. Do not create a new layout abstraction unless implementation reveals multiple consumers; there are none today.
 
 ## Error handling
 
@@ -330,6 +405,7 @@ The panel keeps a short visible error message for retryable failures such as:
 
 - report no longer exists;
 - report could not be acknowledged;
+- duplicate acknowledgement state could not be reconciled;
 - report could not be deleted;
 - browser launch failed;
 - file-manager launch failed;
@@ -337,7 +413,7 @@ The panel keeps a short visible error message for retryable failures such as:
 
 A launcher failure leaves the report pending and keeps the panel open.
 
-A corrupt report header does not produce an error panel by itself; it displays `Unknown` summary values and remains actionable.
+A corrupt report header does not produce an error panel by itself; it displays bounded `Unknown` summary values and remains actionable.
 
 The title stage must not catch and expose raw exception messages from filesystem or process APIs.
 
@@ -345,60 +421,77 @@ The title stage must not catch and expose raw exception messages from filesystem
 
 ### Storage and parsing
 
-Unit tests should cover:
+Unit tests cover:
 
-- discovery of pending and acknowledged schema-v2 files;
+- exact retained-name regex for pending and acknowledged forms;
+- filename-derived report ID for both forms;
+- `CrashReportSummary.FileName` tracking the current physical basename;
+- discovery collapsing pending+ack duplicates to one logical inbox item with pending precedence;
+- duplicate cleanup and delete behavior;
 - newest-first ordering;
 - shared latest-five retention across both filename forms;
 - atomic pending-to-acknowledged rename;
 - deletion of pending and acknowledged reports;
 - corrupt/missing headers falling back to filename-derived ID/time plus `Unknown` fields;
-- bounded parsing that never reads or returns the free-form exception section.
+- 32-line / 16-KiB header read bounds;
+- 256-character field bounds and ASCII-control normalization;
+- bounded parsing that never reads or returns the free-form exception section;
+- existing capture still emits only pending `crash-*.txt` names.
 
 ### GitHub handoff and launcher
 
-Unit tests should cover:
+Unit tests cover:
 
 - exact GitHub host/path validation;
 - rejection of HTTP, alternate hosts, alternate repositories, and alternate paths;
 - query content limited to approved summary fields;
+- long and control-character-containing header values cannot produce unbounded or malformed launch URIs;
+- dynamic query values are URI-escaped;
 - Windows `UseShellExecute = true` and no command shell;
 - macOS `/usr/bin/open`, separate `--`, separate target argument, and no shell concatenation;
 - non-zero exit/start failure mapped to retryable errors;
-- directory launch restricted to the internally resolved crash-report root.
+- directory launch restricted to the store-owned crash-report root.
 
 ### Inbox actions
 
-Tests using a temporary real store plus a fake launcher should verify:
+Tests using a temporary real store plus a fake launcher verify:
 
 - successful GitHub launch acknowledges;
 - successful folder launch acknowledges;
 - failed launch leaves the report pending;
 - dismiss acknowledges without deleting;
-- delete removes the selected report;
-- acknowledgement persistence failure is surfaced without deleting the report.
+- delete removes the logical report, including a duplicate physical variant if present;
+- acknowledgement persistence failure is surfaced without deleting the pending report;
+- disabled/empty inbox returns no reports and silent successful no-op actions.
 
 ### Title UI
 
-Stage/component tests should verify:
+Component-first tests verify:
 
 - no reports means no banner and unchanged menu behavior;
 - pending reports produce one summarized banner;
-- F8 and banner click open the panel;
-- panel input does not leak into title-menu actions;
-- Previous/Next navigation works across retained reports;
+- raw edge-triggered F8 and banner click open the panel;
 - acknowledged reports remain reviewable but do not contribute to banner count;
+- notification input consumption prevents title-menu input leakage;
+- Back/Escape while open closes the panel and cannot request game exit;
+- Previous/Next navigation works across retained reports;
 - delete confirmation is required;
-- launcher errors remain visible and retryable;
-- Escape/Back closes the panel.
+- launcher errors remain visible and retryable.
 
-Prefer fake `ICrashReportInbox` implementations for title tests so MonoGame graphics and filesystem setup are not required for the behavioral state machine.
+Keep most behavioral tests on `CrashReportNotification` with a fake `ICrashReportInbox`. Add only a thin `TitleStage` guard test for the consumed-input contract; do not inflate the existing title tests into a graphics-heavy fixture.
 
 ### Platform smoke verification
 
 On supported macOS, manually verify that `/usr/bin/open -- <target>` works for both the GitHub URI and crash-report directory. Record the command shape and observed result in the implementation PR.
 
 Windows behavior is covered by unit tests around `ProcessStartInfo`; no command-shell invocation is permitted.
+
+## Risks and mitigations
+
+1. **Pending/ack filename divergence or duplicate twins** — lock the regex/identity contract in store tests, collapse to one logical item, and reconcile duplicates in `Cleanup()`.
+2. **Panel Back/Escape accidentally exits the game** — make `CrashReportNotification.TryHandleInput` the ownership boundary and verify open-panel Back/Escape never reaches title exit handling.
+3. **Corrupt or hand-edited header creates hostile UI/URI values** — bound header bytes/lines/field lengths, normalize control characters, and URI-escape every dynamic query value.
+4. **F8 conflicts with a remapped input command** — define F8 as a fixed raw title diagnostic shortcut and consume the frame when it opens/reopens the crash panel.
 
 ## Implementation boundaries
 
@@ -412,14 +505,20 @@ The expected implementation remains small enough for one ticket and approximatel
 - Pending reports produce one non-blocking summarized banner.
 - Schema-v2 `.txt` reports are the only supported report format.
 - Acknowledgement persists through the `.ack.txt` filename state; no `inbox-state.json` exists.
+- The exact retained-name contract supports only pending `crash-*.txt` and acknowledged `crash-*.ack.txt` forms.
+- Filename-derived report ID is authoritative; dual pending+ack files collapse to one logical inbox item.
 - Pending and acknowledged reports share the single latest-five `CrashReportStore` retention policy.
-- Title UI displays only allowlisted summary fields and never parses report sections directly.
-- F8 and banner click open the review panel without leaking input into normal title actions.
+- Existing crash capture still creates pending `crash-*.txt`, never `.ack.txt`.
+- Title UI displays only bounded allowlisted summary fields and never parses report sections directly.
+- Raw edge-triggered F8 and banner click open the review panel without leaking input into normal title actions.
+- F8 remains fixed/non-remappable for this ticket; no new `InputCommandType` is added.
+- Back/Escape while the panel is open closes the panel and never requests game exit.
 - Opening GitHub or the report folder acknowledges only after successful process launch and never deletes the report.
 - Dismiss acknowledges without deleting.
-- Delete requires in-panel confirmation.
+- Delete requires in-panel confirmation and removes the logical report without leaving a duplicate variant behind.
+- Disabled/bootstrap crash reporting yields an empty inbox, no banner, and silent no-op inbox actions.
 - Launcher failures remain visible, pending, and retryable.
-- GitHub URLs target only `https://github.com/cwchanap/DTXManiaCX/issues/new` and contain only approved summary fields plus manual `.txt` attachment instructions.
+- GitHub URLs target only `https://github.com/cwchanap/DTXManiaCX/issues/new`, URI-escape all dynamic values, and contain only approved bounded summary fields plus manual `.txt` attachment instructions.
 - Windows launcher uses `UseShellExecute = true` without a command shell.
 - macOS launcher uses `/usr/bin/open` with separate `--` and target arguments and without shell concatenation.
 - Unsupported platforms fail safely in-game.
