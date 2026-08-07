@@ -63,13 +63,13 @@ namespace DTXMania.Test.Input
         }
 
         [Fact]
-        public void ConnectedMidiDeviceNames_NoDevices_ReturnsEmpty()
+        public void ConnectedMidiDeviceNames_WhenNoDevices_ShouldReturnEmpty()
         {
             Assert.Empty(_inputManager.ConnectedMidiDeviceNames);
         }
 
         [Fact]
-        public void ConnectedMidiDeviceNames_WithDevices_ReturnsSortedNames()
+        public void ConnectedMidiDeviceNames_WhenDevicesPresent_ShouldReturnSortedNames()
         {
             _midiBackend.SetDevices(
                 new TestMidiInputDevice("midi-b", "Zeta Kit"),
@@ -83,7 +83,7 @@ namespace DTXMania.Test.Input
         }
 
         [Fact]
-        public void ConnectedMidiDeviceNames_AfterRefresh_ReturnsUpdatedSnapshot()
+        public void ConnectedMidiDeviceNames_AfterRefresh_ShouldReturnUpdatedSnapshot()
         {
             _midiBackend.SetDevices(
                 new TestMidiInputDevice("midi-a", "First Kit"));
