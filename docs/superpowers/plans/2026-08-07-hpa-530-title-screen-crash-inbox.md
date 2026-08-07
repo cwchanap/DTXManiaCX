@@ -4,7 +4,7 @@
 
 **Goal:** Add a non-blocking title-screen crash inbox for retained schema-v2 text reports, with persistent acknowledgement, safe GitHub/file-manager handoff, dismissal, and confirmed deletion.
 
-**Architecture:** Extend the existing HPA-529 crash-reporting subsystem instead of recreating its superseded ZIP/inbox-state design. `CrashReportStore` remains the storage/retention owner, `CrashReportRuntime` composes a narrow `ICrashReportInbox`, `IStageGame` exposes only that facade, and `TitleStage` delegates banner/panel behavior to a focused notification component.
+**Architecture:** Extend the existing HPA-529 crash-reporting subsystem instead of recreating its superseded ZIP/inbox-state design. `CrashReportStore` remains the storage/retention owner, `CrashReportRuntime` composes a narrow `ICrashReportInbox`, `IStageGame` exposes a default empty facade plus the production override from `BaseGame`, and `TitleStage` delegates all crash-notification interaction state to a focused `CrashReportNotification` component.
 
 **Tech Stack:** .NET 8, C#, MonoGame, xUnit, Moq, `System.Diagnostics.Process`, existing DTXManiaCX crash-reporting and stage abstractions.
 
@@ -13,14 +13,23 @@
 - Support only the shipped `DTXMANIACX-CRASH-REPORT 2` plain-text format.
 - Do not add ZIP handling, emergency-report branching, or `inbox-state.json`.
 - Keep one latest-five retention policy owned by `CrashReportStore`.
-- Encode acknowledgement by atomically renaming `*.txt` to `*.ack.txt`.
+- Retained filename regex is case-insensitive: `^crash-\d{8}-\d{6}Z-[0-9a-f]{6}(?:\.ack)?\.txt$`.
+- Filename-derived report ID is authoritative for inbox identity and actions.
+- Encode acknowledgement by atomically renaming pending `*.txt` to `*.ack.txt`.
+- Collapse a pending+ack duplicate pair to one logical inbox item; pending wins until cleanup reconciles the duplicate.
+- `CrashReportSummary.FileName` from discovery is the current physical basename; title UI must not display or depend on it.
+- Header reads are bounded to 32 lines / 16 KiB; string values are normalized to at most 256 characters with ASCII controls replaced by spaces and empty values mapped to `Unknown`.
 - Never expose crash-report paths, parsers, `CrashReportStore`, or `IExternalLauncher` directly to `TitleStage`.
 - The title UI may render only `CrashReportSummary` plus acknowledgement state.
 - GitHub handoff is manual: open the new-issue page and instruct the player to inspect and attach the `.txt` report themselves.
+- URI-escape every dynamic GitHub query value before launch.
 - Never invoke `cmd /c`, PowerShell, `sh -c`, or concatenate dynamic values into shell commands.
 - Windows launcher uses `ProcessStartInfo.UseShellExecute = true`.
 - macOS launcher uses `/usr/bin/open` with separate `--` and target arguments.
 - Linux launcher support is out of scope.
+- F8 is a fixed, raw, non-remappable title diagnostic shortcut for this ticket; do not add a new `InputCommandType`.
+- `CrashReportNotification` owns notification input and returns whether it consumed the frame; consumed input must never reach normal title actions.
+- `EmptyCrashReportInbox` returns no reports and successful no-op action results.
 - All failures are non-fatal and must not block normal title-screen startup.
 
 ---
@@ -29,24 +38,31 @@
 
 Expected new files:
 
-- `DTXMania.Game/Lib/Diagnostics/CrashReporting/CrashReportSummaryReader.cs` — bounded schema-v2 header parsing.
+- `DTXMania.Game/Lib/Diagnostics/CrashReporting/CrashReportSummaryReader.cs` — bounded schema-v2 header parsing and value normalization.
 - `DTXMania.Game/Lib/Diagnostics/CrashReporting/CrashReportInbox.cs` — inbox facade and action orchestration.
 - `DTXMania.Game/Lib/Diagnostics/CrashReporting/ExternalLauncher.cs` — validated Windows/macOS external launch behavior.
 - `DTXMania.Game/Lib/Diagnostics/CrashReporting/GitHubCrashIssueBuilder.cs` — deterministic GitHub URL construction/validation.
-- `DTXMania.Game/Lib/Stage/CrashReportNotification.cs` — title-only banner/panel state and rendering/input coordination.
+- `DTXMania.Game/Lib/Stage/CrashReportNotification.cs` — title-only banner/panel state, hit-testing, input ownership, and rendering coordination.
 - focused tests under `DTXMania.Test/CrashReporting/` and `DTXMania.Test/Stage/`.
 
 Expected modified files:
 
-- `CrashReportContracts.cs` — public inbox contract and no-op implementation.
-- `CrashReportStore.cs` — discovery, acknowledgement, deletion, and retention recognition for `.ack.txt`.
-- `CrashReportRuntime.cs` — compose inbox and expose it through `IGameCrashDiagnostics`.
-- `IStageGame.cs` — expose `ICrashReportInbox`.
-- `Game1.cs` — forward the injected inbox through `BaseGame`.
-- `TitleStage.cs` — instantiate/update/draw the notification component and gate normal input while the panel is open.
+- `DTXMania.Game/Lib/Diagnostics/CrashReporting/CrashReportContracts.cs` — public inbox contract, `IGameCrashDiagnostics.CrashReportInbox`, and no-op implementation.
+- `DTXMania.Game/Lib/Diagnostics/CrashReporting/CrashReportStore.cs` — discovery, filename identity, duplicate reconciliation, acknowledgement, deletion, internal `RootPath`, and retention recognition for `.ack.txt`.
+- `DTXMania.Game/Lib/Diagnostics/CrashReporting/CrashReportRuntime.cs` — compose inbox and expose it through `IGameCrashDiagnostics`.
+- `DTXMania.Game/Lib/Stage/IStageGame.cs` — default `CrashReportInbox => EmptyCrashReportInbox.Instance` property.
+- `DTXMania.Game/Game1.cs` — forward the injected production inbox through `BaseGame`.
+- `DTXMania.Game/Lib/Stage/TitleStage.cs` — instantiate/update/draw the notification component and honor its consumed-input result.
 - existing crash/stage contract tests where required by public interface changes.
 
-Do not create a generic modal framework or a generic process runner beyond the smallest test seam required by this ticket.
+Do not create a generic modal framework, generic process runner, new layout framework, new key-binding configuration, or configurable GitHub destination.
+
+## Risks to keep visible during implementation
+
+1. **Duplicate pending/ack variants** can create ghost items or inconsistent retention if storage methods invent different filename rules. Lock identity behavior in Task 1 before other work.
+2. **Back/Escape leakage** can call `TitleStage.RequestExit()` while the panel is open. Make `CrashReportNotification` the single input-ownership boundary and verify the consumed-frame guard.
+3. **Hand-edited/corrupt headers** can create very large or control-character-containing UI/URI values. Clamp and normalize in the reader, then URI-escape in the builder.
+4. **F8 can also be mapped elsewhere**. Treat raw F8 as the title diagnostic shortcut and consume the frame when it opens/reopens the panel; do not expand the key-binding system.
 
 ---
 
@@ -60,48 +76,103 @@ Do not create a generic modal framework or a generic process runner beyond the s
 - Test: `DTXMania.Test/CrashReporting/CrashReportStoreTests.cs`
 
 **Interfaces:**
-- Produces: `CrashReportInboxItem`, `ICrashReportInbox` contract types used by later tasks.
-- Produces: `CrashReportStore.GetReports()`, `Acknowledge(reportId)`, and `Delete(reportId)`-style internal operations; exact method visibility should follow existing store testability conventions.
-- Consumes: existing `CrashReportSummary`, `CrashReportTextWriter.Header`, and `AppPaths.GetCrashReportsRoot()` behavior.
+- Produces: `CrashReportInboxItem`, `CrashReportActionResult`, `ICrashReportInbox`, and `EmptyCrashReportInbox` used by later tasks.
+- Produces: internal `CrashReportStore.GetReports()`, `Acknowledge(reportId)`, `Delete(reportId)`, and `RootPath` behavior used by Task 2/3.
+- Consumes: existing `CrashReportSummary`, `CrashReportTextWriter.Header`, and the store root configured by HPA-529.
 
-- [ ] **Step 1: Lock the filename/state contract with failing tests**
+- [ ] **Step 1: Lock retained filename and logical identity behavior with failing tests**
 
-Add tests proving the store recognizes both:
+Use these exact valid examples:
 
 ```text
 crash-20260806-123456Z-a1b2c3.txt
 crash-20260806-123456Z-a1b2c3.ack.txt
 ```
 
-The tests must assert that both forms participate in one newest-first retained set and one latest-five retention limit.
-
-- [ ] **Step 2: Add bounded header-reader tests**
-
-Cover a valid schema-v2 header, missing keys, corrupt header version, and a report containing a very large exception section. The reader must stop at `--- EXCEPTION ---` and return only the approved summary fields.
-
-For corrupt headers assert:
+Assert:
 
 ```text
-ReportId            <- filename-derived
-CapturedAtUtc       <- filename timestamp when parseable
-BuildId             <- Unknown
-OperatingSystem     <- Unknown
-ProcessArchitecture <- Unknown
-StageOrMilestone    <- Unknown
-ExceptionType       <- Unknown
+regex: ^crash-\d{8}-\d{6}Z-[0-9a-f]{6}(?:\.ack)?\.txt$
+report id from pending: crash-20260806-123456Z-a1b2c3
+report id from ack:     crash-20260806-123456Z-a1b2c3
 ```
 
-- [ ] **Step 3: Implement the minimal header reader**
+Also assert malformed names and `.tmp` files are ignored.
 
-Parse only the leading schema-v2 header with a small fixed line/character bound. Do not expose a general report parser and do not read report sections after the exception marker.
+- [ ] **Step 2: Lock duplicate-variant recovery behavior**
 
-- [ ] **Step 4: Implement discovery and acknowledgement in `CrashReportStore`**
+Create both physical variants for one report ID and assert:
 
-Update filename recognition so pending and acknowledged forms are both valid retained reports. Acknowledge by same-directory atomic rename from the pending form to `.ack.txt`; treat an already acknowledged report as success/idempotent.
+- discovery returns one logical item, not two;
+- pending is canonical and `IsAcknowledged == false`;
+- `CrashReportSummary.FileName` is the pending basename;
+- `Cleanup()` removes the acknowledged duplicate;
+- `Delete(reportId)` removes both approved variants if both still exist;
+- the duplicate pair counts as one logical report for latest-five retention.
 
-Deletion resolves the current filename by report ID and deletes only files inside the configured crash-report root.
+- [ ] **Step 3: Add bounded header-reader tests**
 
-- [ ] **Step 5: Add the public inbox data contract and no-op implementation**
+Cover:
+
+- valid schema-v2 header;
+- missing keys;
+- corrupt header version;
+- filename/header `ReportId` mismatch;
+- report containing a very large exception section;
+- more than 32 header lines;
+- more than 16 KiB before the exception marker;
+- 10,000-character `BuildId`;
+- control characters in `ExceptionType` and other string fields;
+- empty string fields.
+
+Expected normalization:
+
+```text
+ReportId            <- filename-derived authoritative value
+CapturedAtUtc       <- header when valid, otherwise filename timestamp when parseable
+BuildId             <- bounded normalized value or Unknown
+OperatingSystem     <- bounded normalized value or Unknown
+ProcessArchitecture <- bounded normalized value or Unknown
+StageOrMilestone    <- bounded normalized value or Unknown
+ExceptionType       <- bounded normalized value or Unknown
+FileName            <- current physical basename
+```
+
+The reader must stop before `--- EXCEPTION ---` and never return free-form report content.
+
+- [ ] **Step 4: Implement the minimal `CrashReportSummaryReader`**
+
+Implement only the schema-v2 header contract:
+
+```text
+max header lines: 32
+max header characters: 16 KiB
+max normalized string field: 256 chars
+ASCII controls: replace with spaces
+trimmed empty value: Unknown
+```
+
+Do not add a general crash-report parser.
+
+- [ ] **Step 5: Extend `CrashReportStore` around one filename policy**
+
+Use one retained-name helper/regex for discovery, cleanup, acknowledgement, deletion, and retention.
+
+Required behavior:
+
+- expose `internal string RootPath => _rootPath` for crash-runtime composition;
+- discover pending and acknowledged forms newest-first;
+- group by filename-derived report ID;
+- cleanup acknowledged duplicate when a pending twin exists;
+- acknowledge by same-directory rename;
+- if acknowledgement sees both variants, remove the ack duplicate first; return a bounded conflict error if reconciliation fails rather than deleting the pending canonical file;
+- treat already-acknowledged reports as idempotent success;
+- delete both approved variants for a report ID;
+- apply latest-five retention to logical reports after duplicate reconciliation.
+
+Do not open report bodies for retention ordering; the timestamp prefix is already sortable.
+
+- [ ] **Step 6: Add the public inbox contract and silent empty implementation**
 
 Add:
 
@@ -124,18 +195,31 @@ public interface ICrashReportInbox
 }
 ```
 
-Also add an empty implementation returning no reports and bounded failure/no-op action results suitable for a disabled crash runtime.
-
-- [ ] **Step 6: Run focused tests**
-
-Run the crash-report summary/store tests plus the existing crash-reporting suite. Verify existing HPA-529 capture still writes the pending `.txt` form and retention still caps the combined set at five.
-
-- [ ] **Step 7: Commit**
-
-Commit this slice independently with a message similar to:
+`EmptyCrashReportInbox` behavior is exact:
 
 ```text
-feat: add crash report inbox storage state
+GetReports()                  -> empty
+OpenGitHubIssue(reportId)     -> success, no-op
+OpenReportFolder(reportId)    -> success, no-op
+Dismiss(reportId)             -> success, no-op
+Delete(reportId)              -> success, no-op
+```
+
+- [ ] **Step 7: Run Task 1 verification**
+
+Run:
+
+```bash
+dotnet test DTXMania.Test/DTXMania.Test.csproj --filter "FullyQualifiedName~CrashReporting"
+```
+
+Verify existing HPA-529 capture tests still create pending `crash-*.txt`, never `.ack.txt`, and the combined retained logical set stays capped at five.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add DTXMania.Game/Lib/Diagnostics/CrashReporting DTXMania.Test/CrashReporting
+git commit -m "feat: add crash report inbox storage state"
 ```
 
 ---
@@ -151,9 +235,9 @@ feat: add crash report inbox storage state
 - Test: `DTXMania.Test/CrashReporting/CrashReportInboxTests.cs`
 
 **Interfaces:**
-- Consumes: Task 1 store operations and `ICrashReportInbox` contract.
+- Consumes: Task 1 store operations, `RootPath`, normalized `CrashReportSummary`, and `ICrashReportInbox` contract.
 - Produces: production `CrashReportInbox` used by `CrashReportRuntime` in Task 3.
-- Produces: internal `IExternalLauncher` seam used only by the inbox and tests.
+- Produces: internal `IExternalLauncher` seam used only by inbox composition and tests.
 
 - [ ] **Step 1: Write GitHub URL-builder tests first**
 
@@ -163,13 +247,32 @@ Assert the generated URL targets exactly:
 https://github.com/cwchanap/DTXManiaCX/issues/new
 ```
 
-Allow only report ID, build ID, OS, architecture, stage/milestone, exception type, schema-v2 format identifier, and manual `.txt` attachment instructions in the title/body query values.
+Allow only:
 
-Add rejection tests for HTTP, alternate hosts, alternate repositories, and alternate GitHub paths.
+- report ID;
+- build ID;
+- OS;
+- architecture;
+- stage/milestone;
+- exception type;
+- `DTXMANIACX-CRASH-REPORT 2`;
+- manual `.txt` attachment instructions.
+
+Add tests proving:
+
+- HTTP is rejected;
+- alternate host is rejected;
+- alternate repository/path is rejected;
+- 10,000-character source values are already clamped by the reader/builder boundary;
+- embedded control/newline-style input cannot break query structure;
+- every dynamic query value is URI-escaped;
+- report-body content never appears in the URI.
 
 - [ ] **Step 2: Implement `GitHubCrashIssueBuilder`**
 
-Keep URL construction deterministic and side-effect free. Return a `Uri`; keep validation in the same focused component so callers cannot bypass host/path constraints accidentally.
+Keep it deterministic and side-effect free. Build from the normalized summary, URI-escape dynamic values, return a `Uri`, and validate scheme/host/path in this component before returning a launchable target.
+
+Do not add configuration for the one supported repository.
 
 - [ ] **Step 3: Write external-launcher tests around `ProcessStartInfo`**
 
@@ -190,43 +293,54 @@ macOS assertions:
 FileName = /usr/bin/open
 UseShellExecute = false
 ArgumentList[0] = --
-ArgumentList[1] = <validated URI or internal directory>
+ArgumentList[1] = <validated URI or CrashReportStore.RootPath>
 no sh -c
 ```
 
-Also cover unsupported platform, start exception, and non-zero macOS result as bounded failures.
+Also cover unsupported platform, process-start exception, and non-zero macOS result as bounded failures.
 
 - [ ] **Step 4: Implement `IExternalLauncher`**
 
-Support URI and directory launch only. Directory launch receives the internally resolved crash-report root from composition; do not accept arbitrary stage-supplied paths.
+Support URI and directory launch only. Directory launch receives `CrashReportStore.RootPath` from crash-reporting composition; do not accept arbitrary stage-supplied paths.
 
-- [ ] **Step 5: Write inbox action tests**
+Follow the existing repository pattern of creating testable `ProcessStartInfo` rather than introducing a general process-execution service.
 
-Using a real `CrashReportStore` rooted in a temporary test directory plus a fake launcher, assert:
+- [ ] **Step 5: Write inbox action tests with a real temporary store plus fake launcher**
 
-- successful GitHub launch acknowledges the selected report;
-- successful folder launch acknowledges the selected report;
+Assert:
+
+- successful GitHub launch acknowledges the selected pending report;
+- successful folder launch acknowledges the selected pending report;
 - launcher failure leaves it pending;
 - `Dismiss` acknowledges without deleting;
-- `Delete` deletes whichever filename currently represents the report;
-- launcher success followed by acknowledgement failure returns an acknowledgement error and leaves the report pending.
+- `Delete` removes the logical report;
+- dual pending+ack delete leaves no ghost variant;
+- launcher success followed by acknowledgement failure returns a bounded acknowledgement error and preserves the pending canonical file;
+- missing report returns a bounded stable error rather than a raw exception.
 
 - [ ] **Step 6: Implement `CrashReportInbox` orchestration**
 
-Each public action resolves the report by ID at call time. Never accept a path from the caller. For launcher-backed actions, perform `validate -> launch -> acknowledge` in that order.
+Each public action resolves the report by ID at call time. Never accept a path from the caller.
+
+Launcher-backed order is exact:
+
+```text
+resolve -> build/validate target -> launch -> acknowledge -> refresh
+```
 
 Map raw filesystem/process exceptions to short stable error codes; never surface raw exception messages through the public result.
 
-- [ ] **Step 7: Run focused tests**
+- [ ] **Step 7: Run Task 2 verification**
 
-Run all new crash-inbox/launcher tests plus the existing crash-reporting suite.
+```bash
+dotnet test DTXMania.Test/DTXMania.Test.csproj --filter "FullyQualifiedName~CrashReporting"
+```
 
 - [ ] **Step 8: Commit**
 
-Commit this slice independently with a message similar to:
-
-```text
-feat: add crash report github handoff
+```bash
+git add DTXMania.Game/Lib/Diagnostics/CrashReporting DTXMania.Test/CrashReporting
+git commit -m "feat: add crash report github handoff"
 ```
 
 ---
@@ -244,44 +358,60 @@ feat: add crash report github handoff
 
 **Interfaces:**
 - Consumes: production `CrashReportInbox` from Task 2.
-- Produces: `IGameCrashDiagnostics.CrashReportInbox` and `IStageGame.CrashReportInbox` used by `TitleStage` in Task 4.
+- Produces: `IGameCrashDiagnostics.CrashReportInbox` and production `BaseGame.CrashReportInbox` used by `TitleStage` in Task 4.
+- Keeps test-only/simple `IStageGame` implementations source-compatible through a default empty inbox property.
 
-- [ ] **Step 1: Add contract tests for the new narrow property**
+- [ ] **Step 1: Add contract tests for the narrow diagnostics property**
 
-Extend diagnostics/stage contract tests so `BaseGame` exposes an injected `ICrashReportInbox` without exposing `CrashReportStore`, launcher, or runtime lifetime methods.
-
-- [ ] **Step 2: Extend `IGameCrashDiagnostics`**
-
-Add:
+Assert `IGameCrashDiagnostics` exposes:
 
 ```csharp
 ICrashReportInbox CrashReportInbox { get; }
 ```
 
-The disabled runtime must expose the no-op inbox created in Task 1.
+and does not expose `CrashReportStore`, launcher, parser, root path, or crash-runtime lifetime operations.
+
+- [ ] **Step 2: Extend `IGameCrashDiagnostics` and disabled runtime behavior**
+
+Enabled runtime returns the composed production inbox.
+
+Disabled/bootstrap-degraded runtime returns `EmptyCrashReportInbox.Instance`; verify it produces no reports and never creates title-visible action errors.
 
 - [ ] **Step 3: Compose the production inbox in `CrashReportRuntime`**
 
-Reuse the same `CrashReportStore` instance already owned by the runtime. Compose `GitHubCrashIssueBuilder`, the platform launcher, and the internally resolved crash-report root there.
+Reuse the same `CrashReportStore` instance already owned by the runtime. Construct the summary reader, GitHub builder, external launcher, and inbox there.
+
+Use `CrashReportStore.RootPath` for directory handoff so production and injected test stores cannot diverge from the path opened by the inbox.
 
 Do not create crash-report services from `BaseGame` or `TitleStage`.
 
-- [ ] **Step 4: Forward through `BaseGame` / `IStageGame`**
+- [ ] **Step 4: Add the default `IStageGame` property and production forwarding**
 
-Add a read-only `CrashReportInbox` property to `IStageGame` and forward the injected diagnostics inbox from `BaseGame`.
+Add:
 
-Update test-only `IStageGame` stubs with the no-op inbox; do not add nullable checks throughout stage code.
+```csharp
+ICrashReportInbox CrashReportInbox => EmptyCrashReportInbox.Instance;
+```
 
-- [ ] **Step 5: Run contract/runtime tests**
+to `IStageGame` as a default interface member.
 
-Run the diagnostics runtime, `IStageGame`, and `BaseGame` tests. Verify the crash-disabled bootstrap path still starts successfully with an empty inbox.
+`BaseGame` explicitly forwards the real injected diagnostics inbox.
+
+Do **not** update every test stub solely to satisfy this property; existing minimal implementations should inherit the default behavior.
+
+- [ ] **Step 5: Run Task 3 verification**
+
+```bash
+dotnet test DTXMania.Test/DTXMania.Test.csproj --filter "FullyQualifiedName~CrashReportRuntime|FullyQualifiedName~IStageGameContractTests|FullyQualifiedName~BaseGameTests"
+```
+
+Verify the crash-disabled bootstrap path still starts successfully and stage stubs that do not override `CrashReportInbox` receive the empty singleton.
 
 - [ ] **Step 6: Commit**
 
-Commit this slice independently with a message similar to:
-
-```text
-feat: expose crash inbox to title stage
+```bash
+git add DTXMania.Game/Lib/Diagnostics/CrashReporting/CrashReportContracts.cs DTXMania.Game/Lib/Diagnostics/CrashReporting/CrashReportRuntime.cs DTXMania.Game/Lib/Stage/IStageGame.cs DTXMania.Game/Game1.cs DTXMania.Test
+git commit -m "feat: expose crash inbox to title stage"
 ```
 
 ---
@@ -297,26 +427,39 @@ feat: expose crash inbox to title stage
 **Interfaces:**
 - Consumes: `IStageGame.CrashReportInbox` from Task 3.
 - Produces: final player-facing title-screen recovery UX.
+- Produces: `CrashReportNotification.TryHandleInput(...) -> bool`, where `true` means the normal title input path must not run that frame.
 
 - [ ] **Step 1: Write notification state-machine tests before rendering code**
 
-Use a fake `ICrashReportInbox` and test the component without filesystem or real process launches.
+Use a fake `ICrashReportInbox` and test without filesystem, graphics-device, or real process launches.
 
 Cover:
 
 - zero reports -> hidden banner and closed panel;
 - pending reports -> one banner with pending count;
 - acknowledged-only reports -> no banner but retained reports remain reviewable through F8;
-- open panel -> selected report defaults to newest pending report, otherwise newest retained report;
-- Previous/Next wraps or clamps consistently; choose one behavior and assert it in tests;
+- opening defaults to newest pending report, otherwise newest retained report;
+- Previous/Next clamps at ends;
 - successful dismiss closes the panel and refreshes counts;
 - delete requires confirmation;
 - successful delete selects the nearest remaining report or closes when empty;
-- action failures keep the panel open and expose a retryable error state.
+- action failures keep the panel open and expose a retryable bounded error;
+- private component layout constants produce stable banner/panel hit regions without a new layout abstraction.
 
-Prefer clamp-at-ends navigation unless an existing title UI convention clearly favors wrapping.
+- [ ] **Step 2: Lock raw F8 and consumed-input semantics in tests**
 
-- [ ] **Step 2: Implement `CrashReportNotification` as a title-specific component**
+Assert:
+
+- F8 is detected from raw previous/current `KeyboardState`, edge-triggered once;
+- F8 does not require an `InputCommandType` mapping;
+- F8 with no retained reports is a no-op and does not consume normal title input;
+- F8 opening/reopening the panel returns `true` from `TryHandleInput` and consumes that frame;
+- banner click opening the panel also consumes that frame;
+- when the panel is open, all handled navigation/actions return consumed;
+- Back/Escape while open closes the panel and returns consumed;
+- delete confirmation consumes confirm/cancel input until resolved.
+
+- [ ] **Step 3: Implement `CrashReportNotification` as the sole notification state owner**
 
 Keep it focused on:
 
@@ -326,39 +469,47 @@ Keep it focused on:
 - focused action;
 - delete confirmation state;
 - short visible error code/message;
-- banner/panel geometry and draw helpers.
+- banner hit-testing;
+- raw F8 edge detection;
+- private banner/panel geometry constants;
+- draw helpers.
 
 Do not turn it into a reusable modal framework.
 
-- [ ] **Step 3: Integrate activation and refresh into `TitleStage`**
+- [ ] **Step 4: Integrate activation and refresh into `TitleStage`**
 
-On title activation, create/refresh the notification from `_game.CrashReportInbox` after normal title resources are available. The lookup is bounded to the retained latest-five reports.
+On title activation, create/refresh the notification from `_game.CrashReportInbox` after normal title resources are available. The lookup remains bounded to the latest-five retained logical reports.
 
 On deactivation/disposal, clear stage-owned notification state only; the inbox/runtime remains process-owned.
 
-- [ ] **Step 4: Gate input correctly**
+- [ ] **Step 5: Make input gating one explicit guard**
 
-In `OnUpdate`:
+After updating keyboard/mouse state in `TitleStage.OnUpdate`, call the notification first:
 
-1. update keyboard/mouse states as today;
-2. process F8/banner activation;
-3. if the crash panel is open, route input to it first and skip normal title-menu `HandleInput()` / `HandleMouseInput()` for that frame;
-4. otherwise preserve current title behavior exactly.
+```csharp
+if (_crashReportNotification?.TryHandleInput(/* current input state */) == true)
+{
+    return;
+}
+```
 
-Use existing virtual mouse mapping and existing remappable commands where practical:
+Only if it returns `false` may existing title `HandleInput()` / `HandleMouseInput()` run.
+
+Required behavior:
 
 ```text
 MoveLeft / MoveRight -> previous / next report
 MoveUp / MoveDown    -> action focus
 Activate             -> execute focused action
-Back / Escape        -> close panel
+Back / Escape        -> close panel when open
+raw F8               -> open/reopen crash panel
 ```
 
-When delete confirmation is active, consume only confirm/cancel actions.
+The critical regression case is explicit: **Back/Escape with the panel open closes the panel and must never call `RequestExit()` in the same frame.**
 
-- [ ] **Step 5: Draw the banner and panel after the existing title menu**
+- [ ] **Step 6: Draw the banner and panel after the existing title menu**
 
-Keep drawing inside the existing title `SpriteBatch` flow. Use existing title font/primitive resources where possible instead of introducing new skin assets in this ticket.
+Keep drawing inside the existing title `SpriteBatch` flow. Reuse existing title font/primitive resources; do not add skin assets.
 
 The panel may render only:
 
@@ -373,23 +524,26 @@ Exception type
 Pending / Acknowledged
 ```
 
-Never render report-body content.
+Never render `CrashReportSummary.FileName` or report-body content.
 
-- [ ] **Step 6: Extend `TitleStageTests` for input leakage**
+- [ ] **Step 7: Add one thin `TitleStage` input-isolation regression test**
 
-Add tests around extracted/internal helper seams as needed so:
+Keep the detailed state tests in `CrashReportNotificationTests`. Add only enough `TitleStageTests` coverage to prove:
 
-- F8 opens the crash panel without selecting a title menu item;
-- panel activation input cannot trigger GAME START / CONFIG / EXIT in the same frame;
-- closed-panel behavior still uses the existing title menu path unchanged.
+- notification-consumed input skips GAME START / CONFIG / EXIT handling;
+- open-panel Back/Escape cannot call `RequestExit()`;
+- closed notification with no interaction still reaches the existing menu path.
 
-Avoid constructing real MonoGame graphics devices merely to test state transitions.
+Avoid creating a real MonoGame graphics device merely for state transitions.
 
-- [ ] **Step 7: Run focused and full relevant tests**
+- [ ] **Step 8: Run Task 4 verification**
 
-Run the new stage/component tests, existing `TitleStageTests`, stage contract tests, and crash-reporting tests. Then run the repository's standard unit-test command used by CI.
+```bash
+dotnet test DTXMania.Test/DTXMania.Test.csproj --filter "FullyQualifiedName~DTXMania.Test.Stage"
+dotnet test DTXMania.Test/DTXMania.Test.csproj --filter "FullyQualifiedName~CrashReporting"
+```
 
-- [ ] **Step 8: Perform supported-platform smoke verification**
+- [ ] **Step 9: Perform supported-platform smoke verification**
 
 On macOS, verify the production launcher can open both:
 
@@ -402,12 +556,11 @@ Record OS/runtime details and observed results in the implementation PR. Do not 
 
 On Windows, confirm the unit tests inspect `UseShellExecute = true` and prove no command-shell construction exists.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 10: Commit**
 
-Commit this slice independently with a message similar to:
-
-```text
-feat: add title crash report inbox ui
+```bash
+git add DTXMania.Game/Lib/Stage/CrashReportNotification.cs DTXMania.Game/Lib/Stage/TitleStage.cs DTXMania.Test/Stage
+git commit -m "feat: add title crash report inbox ui"
 ```
 
 ---
@@ -416,15 +569,24 @@ feat: add title crash report inbox ui
 
 Before marking HPA-530 complete:
 
-- [ ] Run the complete crash-reporting test suite.
-- [ ] Run the complete title/stage test suite.
-- [ ] Run the repository's normal Windows/macOS unit-test CI commands locally where available.
-- [ ] Confirm HPA-529 crash capture still creates `crash-*.txt`, never `.ack.txt`, for a newly captured crash.
+- [ ] Run `dotnet test DTXMania.Test/DTXMania.Test.csproj`.
+- [ ] Run the repository's normal Windows/macOS unit-test CI commands where available.
+- [ ] Confirm HPA-529 crash capture still creates pending `crash-*.txt`, never `.ack.txt`, for a newly captured crash.
+- [ ] Confirm the exact retained-name regex rejects arbitrary files and recognizes both pending/ack forms.
+- [ ] Confirm dual pending+ack files for the same ID collapse to one inbox item and cleanup reconciles the duplicate.
+- [ ] Confirm acknowledged and pending logical reports together never exceed the existing latest-five retention limit.
+- [ ] Confirm a 10,000-character or control-character-containing header field cannot become an unbounded/malformed GitHub URI or UI value.
+- [ ] Confirm GitHub dynamic query values are URI-escaped and only approved summary fields are present.
 - [ ] Confirm title activation with no reports is behaviorally unchanged.
+- [ ] Confirm disabled/bootstrap crash reporting produces no banner and silent no-op inbox actions.
 - [ ] Confirm one pending report shows one non-blocking banner.
+- [ ] Confirm raw F8 is edge-triggered, non-remappable, and consumes the frame only when it opens/reopens the crash panel.
+- [ ] Confirm Back/Escape with the panel open closes the panel and does **not** call `RequestExit()`.
+- [ ] Confirm panel activation/navigation input cannot leak into GAME START / CONFIG / EXIT in the same frame.
 - [ ] Confirm successful GitHub/folder launch acknowledges but does not delete.
 - [ ] Confirm launcher failure keeps the report pending and retryable.
 - [ ] Confirm dismiss persists acknowledgement across restart.
-- [ ] Confirm confirmed delete removes the report and refreshes the count.
-- [ ] Confirm acknowledged and pending reports together never exceed the existing latest-five retention limit.
-- [ ] Confirm no `inbox-state.json`, ZIP support, shell command construction, automatic upload, or Linux launcher code was introduced.
+- [ ] Confirm confirmed delete removes the logical report without leaving a duplicate physical variant.
+- [ ] Confirm macOS uses `/usr/bin/open`, separate `--`, and separate target argument.
+- [ ] Confirm Windows uses `UseShellExecute = true` without a command shell.
+- [ ] Confirm no `inbox-state.json`, ZIP support, shell command construction, automatic upload, generic modal/process framework, new key-binding setting, or Linux launcher code was introduced.
