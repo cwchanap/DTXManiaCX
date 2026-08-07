@@ -63,6 +63,46 @@ namespace DTXMania.Test.Input
         }
 
         [Fact]
+        public void ConnectedMidiDeviceNames_NoDevices_ReturnsEmpty()
+        {
+            Assert.Empty(_inputManager.ConnectedMidiDeviceNames);
+        }
+
+        [Fact]
+        public void ConnectedMidiDeviceNames_WithDevices_ReturnsSortedNames()
+        {
+            _midiBackend.SetDevices(
+                new TestMidiInputDevice("midi-b", "Zeta Kit"),
+                new TestMidiInputDevice("midi-a", "Alpha Kit"));
+
+            _inputManager.Update(GameConstants.Input.DeviceScanIntervalMs / 1000.0);
+
+            Assert.Equal(
+                new[] { "Alpha Kit", "Zeta Kit" },
+                _inputManager.ConnectedMidiDeviceNames);
+        }
+
+        [Fact]
+        public void ConnectedMidiDeviceNames_AfterRefresh_ReturnsUpdatedSnapshot()
+        {
+            _midiBackend.SetDevices(
+                new TestMidiInputDevice("midi-a", "First Kit"));
+            _inputManager.Update(GameConstants.Input.DeviceScanIntervalMs / 1000.0);
+
+            Assert.Equal(
+                new[] { "First Kit" },
+                _inputManager.ConnectedMidiDeviceNames);
+
+            _midiBackend.SetDevices(
+                new TestMidiInputDevice("midi-b", "Replacement Kit"));
+            _inputManager.Update(GameConstants.Input.DeviceScanIntervalMs / 1000.0);
+
+            Assert.Equal(
+                new[] { "Replacement Kit" },
+                _inputManager.ConnectedMidiDeviceNames);
+        }
+
+        [Fact]
         public void Constructor_NullConfigManager_ThrowsArgumentNullException()
         {
             // Act & Assert
