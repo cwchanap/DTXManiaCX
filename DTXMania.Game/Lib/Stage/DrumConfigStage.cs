@@ -359,6 +359,17 @@ namespace DTXMania.Game.Lib.Stage
             new Rectangle(virtualWidth - ResetButtonRightInset, ResetButtonTopInset,
                           ResetButtonWidth, ResetButtonHeight);
 
+        private static string FormatHdmiDeviceStatus(IReadOnlyList<string> deviceNames)
+        {
+            if (deviceNames == null || deviceNames.Count == 0)
+                return "HDMI device: None detected (keyboard still works)";
+
+            if (deviceNames.Count == 1)
+                return $"HDMI device: {deviceNames[0]}";
+
+            return $"HDMI devices ({deviceNames.Count}): {deviceNames[0]}, +{deviceNames.Count - 1} more";
+        }
+
         [ExcludeFromCodeCoverage]
         protected override void OnDraw(double deltaTime)
         {
@@ -408,8 +419,25 @@ namespace DTXMania.Game.Lib.Stage
             }
 
             if (_font != null)
+            {
                 _font.DrawString(_spriteBatch, "DRUM MAPPING  -  click a piece, then hit your input.  Back: save & exit",
                     new Vector2(20, 16), DarkText);
+
+                var connectedDeviceNames =
+                    _input?.ModularInputManager.ConnectedMidiDeviceNames
+                    ?? Array.Empty<string>();
+                var deviceStatus = FormatHdmiDeviceStatus(connectedDeviceNames);
+                var visibleDeviceStatus = TextHelper.TruncateToWidth(
+                    deviceStatus,
+                    vw - 40,
+                    _font);
+
+                _font.DrawString(
+                    _spriteBatch,
+                    visibleDeviceStatus,
+                    new Vector2(20, 48),
+                    DarkText);
+            }
 
             // Only surface the keyboard focus highlight while keyboard navigation is active, and
             // never for the Reset action (it is not a lane). Otherwise the default focus would keep

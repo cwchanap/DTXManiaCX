@@ -41,6 +41,55 @@ namespace DTXMania.Test.Stage.DrumConfig
             Assert.Equal(30, rect.Height);
         }
 
+        [Fact]
+        public void FormatHdmiDeviceStatus_NoDevices_ShowsKeyboardFallback()
+        {
+            var method = typeof(DrumConfigStage).GetMethod(
+                "FormatHdmiDeviceStatus",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(method);
+
+            var status = (string)method!.Invoke(
+                null,
+                new object[] { Array.Empty<string>() })!;
+
+            Assert.Equal(
+                "HDMI device: None detected (keyboard still works)",
+                status);
+        }
+
+        [Fact]
+        public void FormatHdmiDeviceStatus_OneDevice_ShowsDeviceName()
+        {
+            var method = typeof(DrumConfigStage).GetMethod(
+                "FormatHdmiDeviceStatus",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(method);
+
+            var status = (string)method!.Invoke(
+                null,
+                new object[] { new[] { "Roland TD-17" } })!;
+
+            Assert.Equal("HDMI device: Roland TD-17", status);
+        }
+
+        [Fact]
+        public void FormatHdmiDeviceStatus_MultipleDevices_PreservesFirstAndSummarizesRest()
+        {
+            var method = typeof(DrumConfigStage).GetMethod(
+                "FormatHdmiDeviceStatus",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(method);
+
+            var status = (string)method!.Invoke(
+                null,
+                new object[] { new[] { "Alpha Kit", "Beta Kit", "Zeta Kit" } })!;
+
+            Assert.Equal(
+                "HDMI devices (3): Alpha Kit, +2 more",
+                status);
+        }
+
         // ---- Edit helpers (persist-on-edit: edits mutate Config via the live-apply setters) ----
 
         [Fact]
