@@ -53,6 +53,20 @@ namespace DTXMania.Game.Lib.Stage
         // dark UI text stays readable instead of going dark-on-dark.
         private static readonly Color FallbackBackgroundColor = new(220, 222, 230);
 
+        // ---- HDMI device status line ----
+        // The status sits at (20, 48) in the 1280×720 virtual space — the same space the drum-kit
+        // zones occupy. The left crash cymbal (lane 0) renders into approximately x=258..402,
+        // y=20..164, so a long device name can overlap that skin-controlled artwork. A translucent
+        // dark backing panel (mirroring DrumKitRenderer.DrawZoneLabel's LabelBackdrop pill) gives
+        // white text guaranteed contrast over any art, and a bounded max width keeps the line in
+        // the upper-left instead of stretching across the kit.
+        private static readonly Color StatusBackdrop = new(0, 0, 0, 165);
+        private const int StatusX = 20;
+        private const int StatusY = 48;
+        private const int StatusPadX = 8;
+        private const int StatusPadY = 4;
+        private const float StatusMaxWidth = 500f;
+
         private int _focusIndex;
         // Keyboard focus is only *shown* once the user navigates with arrows/Tab, and is hidden
         // again as soon as they move the mouse. Without this the default focus (lane 0) would
@@ -446,16 +460,43 @@ namespace DTXMania.Game.Lib.Stage
                     _input?.ModularInputManager.ConnectedMidiDeviceNames
                     ?? Array.Empty<string>();
                 var deviceStatus = FormatHdmiDeviceStatus(connectedDeviceNames);
-                var visibleDeviceStatus = TextHelper.TruncateToWidth(
-                    deviceStatus,
-                    vw - 40,
-                    _font);
 
-                _font.DrawString(
-                    _spriteBatch,
-                    visibleDeviceStatus,
-                    new Vector2(20, 48),
-                    DarkText);
+                if (_whitePixel != null)
+                {
+                    // Truncate to the dedicated status rectangle (not the full viewport) so long
+                    // device names stay in the upper-left. A translucent dark backing panel gives
+                    // white text guaranteed contrast over the skin-controlled cymbal artwork that
+                    // shares this y-band (lane 0 box ≈ x=258..402, y=20..164).
+                    var visibleDeviceStatus = TextHelper.TruncateToWidth(
+                        deviceStatus,
+                        StatusMaxWidth - (StatusPadX * 2),
+                        _font);
+                    var statusSize = _font.MeasureString(visibleDeviceStatus);
+                    var statusRect = new Rectangle(
+                        StatusX, StatusY,
+                        (int)statusSize.X + (StatusPadX * 2),
+                        (int)statusSize.Y + (StatusPadY * 2));
+                    _spriteBatch.Draw(_whitePixel, statusRect, StatusBackdrop);
+                    _font.DrawString(
+                        _spriteBatch,
+                        visibleDeviceStatus,
+                        new Vector2(StatusX + StatusPadX, StatusY + StatusPadY),
+                        Color.White);
+                }
+                else
+                {
+                    // Fallback when the white pixel is unavailable: unbounded DarkText on the
+                    // light scrim, matching the pre-existing title-row behaviour.
+                    var visibleDeviceStatus = TextHelper.TruncateToWidth(
+                        deviceStatus,
+                        vw - 40,
+                        _font);
+                    _font.DrawString(
+                        _spriteBatch,
+                        visibleDeviceStatus,
+                        new Vector2(StatusX, StatusY),
+                        DarkText);
+                }
             }
 
             var resetRect = GetResetButtonRect(vw, vh);
