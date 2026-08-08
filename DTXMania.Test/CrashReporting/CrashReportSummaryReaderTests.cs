@@ -425,6 +425,27 @@ public sealed class CrashReportSummaryReaderTests
         Assert.Equal("Unknown", summary.BuildId);
     }
 
+    [Fact]
+    public void Read_WithMissingExceptionMarkerAndBodyContainingAllowlistedKey_ShouldStopAtFirstBlankLine()
+    {
+        // The exception marker is corrupted/missing, so the blank line that the normal writer
+        // emits between metadata and the body is the only reliable header boundary. Body
+        // content containing an allowlisted key (e.g. another "BuildId: ...") must NOT
+        // overwrite the genuine header value and subsequently appear in the title UI or the
+        // prefilled GitHub issue.
+        var content = CrashReportTextWriter.Header + "\n"
+            + "BuildId: legitimate\n"
+            + "\n"
+            + "BROKEN-EXCEPTION-MARKER\n"
+            + "BuildId: body-secret\n";
+
+        using var file = CrashReportFile.Write(LogicalId + ".txt", content);
+
+        var summary = new CrashReportSummaryReader().Read(file.FilePath);
+
+        Assert.Equal("legitimate", summary.BuildId);
+    }
+
     private static string Header(params string[] fields)
     {
         return HeaderLines(fields) + "\n" + CrashReportTextWriter.ExceptionSection + "\n";
