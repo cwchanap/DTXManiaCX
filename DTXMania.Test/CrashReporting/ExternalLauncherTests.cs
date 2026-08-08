@@ -236,4 +236,102 @@ public sealed class ExternalLauncherTests
 
         Assert.Throws<ArgumentNullException>(() => launcher.LaunchUri(null!));
     }
+
+    [Fact]
+    public void LaunchFolder_WithNullPath_ShouldThrow()
+    {
+        var launcher = new ExternalLauncher(
+            platform: () => LauncherPlatform.Mac,
+            starter: _ => new ExternalLaunchAttempt(true, 0));
+
+        Assert.Throws<ArgumentNullException>(() => launcher.LaunchFolder(null!));
+    }
+
+    [Fact]
+    public void ParameterlessConstructor_ShouldNotThrow()
+    {
+        var exception = Record.Exception(() => new ExternalLauncher());
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void LaunchUri_OnWindowsWithNonZeroExit_ShouldStillSucceed()
+    {
+        // Windows UseShellExecute launches the registered handler and must not block on it,
+        // so its exit code is never consulted — even a non-zero exit is a success.
+        var launcher = new ExternalLauncher(
+            platform: () => LauncherPlatform.Windows,
+            starter: _ => new ExternalLaunchAttempt(true, 1));
+
+        var result = launcher.LaunchUri(new Uri(GitHubTarget));
+
+        Assert.True(result.Succeeded);
+        Assert.Null(result.ErrorCode);
+    }
+
+    [Fact]
+    public void LaunchFolder_OnWindows_ShouldSucceed()
+    {
+        var launcher = new ExternalLauncher(
+            platform: () => LauncherPlatform.Windows,
+            starter: _ => new ExternalLaunchAttempt(true, 0));
+
+        var result = launcher.LaunchFolder("/tmp/crash-root");
+
+        Assert.True(result.Succeeded);
+        Assert.Null(result.ErrorCode);
+    }
+
+    [Fact]
+    public void LaunchUri_WhenStarterThrowsWin32Exception_ShouldReturnStartFailedCode()
+    {
+        var launcher = new ExternalLauncher(
+            platform: () => LauncherPlatform.Windows,
+            starter: _ => throw new System.ComponentModel.Win32Exception(2));
+
+        var result = launcher.LaunchUri(new Uri(GitHubTarget));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("launch_start_failed", result.ErrorCode);
+    }
+
+    [Fact]
+    public void LaunchUri_WhenStarterThrowsFileNotFoundException_ShouldReturnStartFailedCode()
+    {
+        var launcher = new ExternalLauncher(
+            platform: () => LauncherPlatform.Mac,
+            starter: _ => throw new System.IO.FileNotFoundException("not found"));
+
+        var result = launcher.LaunchUri(new Uri(GitHubTarget));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("launch_start_failed", result.ErrorCode);
+    }
+
+    [Fact]
+    public void LaunchFolder_OnMacWithNonZeroExit_ShouldReturnNonZeroExitCode()
+    {
+        var launcher = new ExternalLauncher(
+            platform: () => LauncherPlatform.Mac,
+            starter: _ => new ExternalLaunchAttempt(true, 42));
+
+        var result = launcher.LaunchFolder("/tmp/crash-root");
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("launch_nonzero_exit", result.ErrorCode);
+    }
+
+    [Fact]
+    public void LaunchFolder_OnUnsupportedPlatform_ShouldReturnPlatformUnsupportedCode()
+    {
+        var launcher = new ExternalLauncher(
+            platform: () => LauncherPlatform.Unsupported,
+            starter: _ => new ExternalLaunchAttempt(true, 0));
+
+        var result = launcher.LaunchFolder("/tmp/crash-root");
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("launch_platform_unsupported", result.ErrorCode);
+    }
 }

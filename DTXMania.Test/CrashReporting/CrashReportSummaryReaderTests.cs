@@ -239,6 +239,192 @@ public sealed class CrashReportSummaryReaderTests
         Assert.Equal("1.2.3", summary.BuildId);
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Read_WithBlankPath_ShouldThrow(string path)
+    {
+        Assert.Throws<ArgumentException>(() => new CrashReportSummaryReader().Read(path));
+    }
+
+    [Fact]
+    public void Read_WhenFileDoesNotExist_ShouldReturnFilenameDerivedDefaults()
+    {
+        var reader = new CrashReportSummaryReader();
+
+        var summary = reader.Read(Path.Combine(Path.GetTempPath(), "crash-20260806-123456Z-a1b2c3.txt"));
+
+        Assert.Equal(LogicalId, summary.ReportId);
+        Assert.Equal(CapturedAt, summary.CapturedAtUtc);
+        Assert.Equal("Unknown", summary.BuildId);
+    }
+
+    [Theory]
+    [InlineData("crash-20260806-123456Z-a1b2c3.ack.txt", "crash-20260806-123456Z-a1b2c3")]
+    [InlineData("crash-20260806-123456Z-a1b2c3.txt", "crash-20260806-123456Z-a1b2c3")]
+    [InlineData("crash-20260806-123456Z-a1b2c3.log", "crash-20260806-123456Z-a1b2c3")]
+    [InlineData("report", "report")]
+    public void GetLogicalReportId_ShouldStripKnownSuffixesOrReturnFileNameWithoutExtension(
+        string fileName, string expected)
+    {
+        Assert.Equal(expected, CrashReportSummaryReader.GetLogicalReportId(fileName));
+    }
+
+    [Fact]
+    public void Read_WithFieldMissingColon_ShouldSkipThatLine()
+    {
+        // A line with no colon (or colon at position 0) should be silently skipped.
+        using var file = CrashReportFile.Write(
+            LogicalId + ".txt",
+            HeaderLines(
+                "CapturedAtUtc: " + CapturedAt.ToString("O", CultureInfo.InvariantCulture),
+                "NoColonHere",
+                ": startsWithColon",
+                "BuildId: 1.2.3")
+            + "\n" + CrashReportTextWriter.ExceptionSection + "\n");
+
+        var summary = new CrashReportSummaryReader().Read(file.FilePath);
+
+        Assert.Equal("1.2.3", summary.BuildId);
+    }
+
+    [Fact]
+    public void Read_WithFieldValueContainingColon_ShouldSplitOnlyOnFirstColon()
+    {
+        using var file = CrashReportFile.Write(
+            LogicalId + ".txt",
+            Header(
+                "CapturedAtUtc: " + CapturedAt.ToString("O", CultureInfo.InvariantCulture),
+                "BuildId: 1.2:3:4"));
+
+        var summary = new CrashReportSummaryReader().Read(file.FilePath);
+
+        Assert.Equal("1.2:3:4", summary.BuildId);
+    }
+
+    [Fact]
+    public void Read_WithFieldValueContainingOnlyControlChars_ShouldFallBackToUnknown()
+    {
+        // After replacing control chars with spaces and trimming, the value is empty -> Unknown.
+        using var file = CrashReportFile.Write(
+            LogicalId + ".txt",
+            Header("BuildId: \u0001\u0002\u0003"));
+
+        var summary = new CrashReportSummaryReader().Read(file.FilePath);
+
+        Assert.Equal("Unknown", summary.BuildId);
+    }
+
+    [Fact]
+    public void Read_WithDelCharacter_ShouldReplaceWithSpace()
+    {
+        // 0x7F (DEL) should be replaced with a space.
+        using var file = CrashReportFile.Write(
+            LogicalId + ".txt",
+            Header("BuildId: a\u007fb"));
+
+        var summary = new CrashReportSummaryReader().Read(file.FilePath);
+
+        Assert.Equal("a b", summary.BuildId);
+    }
+
+    [Fact]
+    public void Read_WithNoCapturedAtAndUnparseableFilenameTimestamp_ShouldFallBackToEpoch()
+    {
+        // A filename that doesn't match the "crash-" prefix pattern: the timestamp fallback
+        // fails, so the summary falls back to Unix epoch (0).
+        using var file = CrashReportFile.Write(
+            "report.txt",
+            Header("BuildId: 1.2.3"));
+
+        var summary = new CrashReportSummaryReader().Read(file.FilePath);
+
+        Assert.Equal(0, summary.CapturedAtUtc.ToUnixTimeSeconds());
+        Assert.Equal("1.2.3", summary.BuildId);
+    }
+
+    [Fact]
+    public void Read_WithFilenameMissingZDesignator_ShouldFallBackToEpoch()
+    {
+        // The timestamp parser requires a 'z' at position 15; a filename without it fails.
+        using var file = CrashReportFile.Write(
+            "crash-20260806-123456X-a1b2c3.txt",
+            Header("BuildId: 1.2.3"));
+
+        var summary = new CrashReportSummaryReader().Read(file.FilePath);
+
+        Assert.Equal(0, summary.CapturedAtUtc.ToUnixTimeSeconds());
+    }
+
+    [Fact]
+    public void Read_WithFilenameHavingWrongStampLength_ShouldFallBackToEpoch()
+    {
+        // The stamp (before 'z') must be exactly 15 chars with a dash at position 8.
+        using var file = CrashReportFile.Write(
+            "crash-20260806-12345Z-a1b2c3.txt",
+            Header("BuildId: 1.2.3"));
+
+        var summary = new CrashReportSummaryReader().Read(file.FilePath);
+
+        Assert.Equal(0, summary.CapturedAtUtc.ToUnixTimeSeconds());
+    }
+
+    [Fact]
+    public void Read_WithFilenameMissingDashInStamp_ShouldFallBackToEpoch()
+    {
+        // The stamp must have a dash at position 8; without it, parsing fails.
+        using var file = CrashReportFile.Write(
+            "crash-20260806123456Z-a1b2c3.txt",
+            Header("BuildId: 1.2.3"));
+
+        var summary = new CrashReportSummaryReader().Read(file.FilePath);
+
+        Assert.Equal(0, summary.CapturedAtUtc.ToUnixTimeSeconds());
+    }
+
+    [Fact]
+    public void Read_WithFilenameHavingInvalidDateDigits_ShouldFallBackToEpoch()
+    {
+        // The stamp has valid structure but invalid date values (month 13).
+        using var file = CrashReportFile.Write(
+            "crash-20261306-123456Z-a1b2c3.txt",
+            Header("BuildId: 1.2.3"));
+
+        var summary = new CrashReportSummaryReader().Read(file.FilePath);
+
+        Assert.Equal(0, summary.CapturedAtUtc.ToUnixTimeSeconds());
+    }
+
+    [Fact]
+    public void Read_WithBlankLineBeforeExceptionMarker_ShouldSkipIt()
+    {
+        using var file = CrashReportFile.Write(
+            LogicalId + ".txt",
+            HeaderLines(
+                "CapturedAtUtc: " + CapturedAt.ToString("O", CultureInfo.InvariantCulture),
+                "BuildId: 1.2.3")
+            + "\n\n\n" + CrashReportTextWriter.ExceptionSection + "\n");
+
+        var summary = new CrashReportSummaryReader().Read(file.FilePath);
+
+        Assert.Equal("1.2.3", summary.BuildId);
+    }
+
+    [Fact]
+    public void Read_WithNoExceptionMarkerAndNoFieldLines_ShouldReturnDefaults()
+    {
+        // Just the header line followed by EOF (no exception marker, no fields).
+        using var file = CrashReportFile.Write(
+            LogicalId + ".txt",
+            CrashReportTextWriter.Header + "\n");
+
+        var summary = new CrashReportSummaryReader().Read(file.FilePath);
+
+        Assert.Equal(LogicalId, summary.ReportId);
+        Assert.Equal(CapturedAt, summary.CapturedAtUtc);
+        Assert.Equal("Unknown", summary.BuildId);
+    }
+
     private static string Header(params string[] fields)
     {
         return HeaderLines(fields) + "\n" + CrashReportTextWriter.ExceptionSection + "\n";

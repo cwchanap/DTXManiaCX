@@ -483,6 +483,260 @@ public sealed class CrashReportNotificationTests
     }
 
     // ---------------------------------------------------------------------------------------------
+    // Constructor guard
+    // ---------------------------------------------------------------------------------------------
+
+    [Fact]
+    public void Constructor_WithNullInbox_ShouldThrow()
+    {
+        Assert.Throws<ArgumentNullException>(() => new CrashReportNotification(null!));
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // F8 while open, folder action, mouse-click actions, error code mapping
+    // ---------------------------------------------------------------------------------------------
+
+    [Fact]
+    public void F8_WhilePanelOpen_ShouldRefreshSnapshotAndResetSelection()
+    {
+        var inbox = new FakeInbox(Pending("old", capturedUtc: T(1)));
+        var notification = new CrashReportNotification(inbox);
+        notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
+        Assert.True(notification.IsOpen);
+
+        // A new report appears between frames; F8 while open refreshes and selects the newest pending.
+        inbox.SetReports(Pending("old", capturedUtc: T(1)), Pending("new", capturedUtc: T(2)));
+        var consumed = notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
+
+        Assert.True(consumed);
+        Assert.True(notification.IsOpen);
+        Assert.Equal(2, notification.Reports.Count);
+        Assert.Equal("new", notification.Reports[notification.SelectedIndex].Summary.ReportId);
+    }
+
+    [Fact]
+    public void OpenReportFolder_WhenLaunchSucceeds_ShouldAcknowledgeAndKeepPanelOpen()
+    {
+        var inbox = new FakeInbox(Pending("report-1", capturedUtc: T(1)));
+        inbox.FolderResult = new CrashReportActionResult(Succeeded: true);
+        inbox.OnGetReportsAfterFolder = () => new[]
+        {
+            AcknowledgedItem("report-1", capturedUtc: T(1))
+        };
+        var notification = new CrashReportNotification(inbox);
+        notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
+        FocusAction(notification, actionIndex: 1); // Open report folder
+
+        var consumed = Activate(notification);
+
+        Assert.True(consumed);
+        Assert.True(notification.IsOpen); // stays open for review
+        Assert.True(notification.Reports[0].IsAcknowledged);
+        Assert.True(string.IsNullOrEmpty(notification.ErrorText));
+    }
+
+    [Fact]
+    public void OpenReportFolder_WhenLaunchFails_ShouldKeepPanelOpenAndExposeError()
+    {
+        var inbox = new FakeInbox(Pending("report-1", capturedUtc: T(1)));
+        inbox.FolderResult = new CrashReportActionResult(Succeeded: false, ErrorCode: "launch_platform_unsupported");
+        var notification = new CrashReportNotification(inbox);
+        notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
+        FocusAction(notification, actionIndex: 1);
+
+        var consumed = Activate(notification);
+
+        Assert.True(consumed);
+        Assert.True(notification.IsOpen);
+        Assert.False(notification.Reports[0].IsAcknowledged);
+        Assert.Equal("Cannot open on this platform.", notification.ErrorText);
+    }
+
+    [Fact]
+    public void Dismiss_WhenInboxFails_ShouldKeepPanelOpenAndExposeError()
+    {
+        var inbox = new FakeInbox(Pending("report-1", capturedUtc: T(1)));
+        inbox.DismissResult = new CrashReportActionResult(Succeeded: false, ErrorCode: "acknowledge_io_failure");
+        var notification = new CrashReportNotification(inbox);
+        notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
+        FocusAction(notification, actionIndex: 2); // Dismiss
+
+        var consumed = Activate(notification);
+
+        Assert.True(consumed);
+        Assert.True(notification.IsOpen);
+        Assert.Equal("Could not save acknowledgement.", notification.ErrorText);
+    }
+
+    [Fact]
+    public void MouseClick_OnActionButton_ShouldFocusAndInvokeInOneMotion()
+    {
+        var inbox = new FakeInbox(Pending("report-1", capturedUtc: T(1)));
+        inbox.GitHubResult = new CrashReportActionResult(Succeeded: true);
+        inbox.OnGetReportsAfterGitHub = () => new[]
+        {
+            AcknowledgedItem("report-1", capturedUtc: T(1))
+        };
+        var notification = new CrashReportNotification(inbox);
+        notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
+
+        // Click the first action button (GitHub) at its centre.
+        var actionCenter = ActionButtonCenter(actionIndex: 0);
+        var consumed = notification.HandleInput(
+            NoKeys, NoKeys, inputManager: null, virtualMouse: actionCenter, leftMouseClick: true);
+
+        Assert.True(consumed);
+        Assert.Equal(0, notification.ActionFocus);
+        Assert.True(notification.Reports[0].IsAcknowledged);
+    }
+
+    [Fact]
+    public void MouseClick_OffActionButtons_ShouldConsumeButNotInvoke()
+    {
+        var inbox = new FakeInbox(Pending("report-1", capturedUtc: T(1)));
+        var notification = new CrashReportNotification(inbox);
+        notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
+
+        // Click somewhere inside the panel but not on any action button.
+        var consumed = notification.HandleInput(
+            NoKeys, NoKeys, inputManager: null, virtualMouse: new Point(200, 200), leftMouseClick: true);
+
+        Assert.True(consumed); // panel still owns input
+        Assert.True(notification.IsOpen);
+        Assert.False(notification.Reports[0].IsAcknowledged); // nothing invoked
+    }
+
+    [Theory]
+    [InlineData("report_not_found", "Report no longer available.")]
+    [InlineData("launch_platform_unsupported", "Cannot open on this platform.")]
+    [InlineData("launch_start_failed", "Could not open the external handler.")]
+    [InlineData("launch_process_null", "Could not open the external handler.")]
+    [InlineData("launch_nonzero_exit", "Could not open the external handler.")]
+    [InlineData("launch_timeout", "Could not open the external handler.")]
+    [InlineData("acknowledge_io_failure", "Could not save acknowledgement.")]
+    [InlineData("delete_io_failure", "Could not delete the report file.")]
+    [InlineData("inbox_unexpected_failure", "Unexpected inbox error.")]
+    [InlineData(null, "Action failed.")]
+    [InlineData("", "Action failed.")]
+    public void SetError_WithKnownCode_ShouldMapToShortMessage(string? code, string expected)
+    {
+        var inbox = new FakeInbox(Pending("report-1", capturedUtc: T(1)));
+        inbox.GitHubResult = new CrashReportActionResult(Succeeded: false, ErrorCode: code);
+        var notification = new CrashReportNotification(inbox);
+        notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
+        FocusAction(notification, actionIndex: 0);
+
+        Activate(notification);
+
+        Assert.Equal(expected, notification.ErrorText);
+    }
+
+    [Fact]
+    public void SetError_WithUnknownCode_ShouldTrimToEightyCharacters()
+    {
+        var longCode = new string('x', 120);
+        var inbox = new FakeInbox(Pending("report-1", capturedUtc: T(1)));
+        inbox.GitHubResult = new CrashReportActionResult(Succeeded: false, ErrorCode: longCode);
+        var notification = new CrashReportNotification(inbox);
+        notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
+        FocusAction(notification, actionIndex: 0);
+
+        Activate(notification);
+
+        Assert.Equal(80, notification.ErrorText!.Length);
+        Assert.Equal(new string('x', 80), notification.ErrorText);
+    }
+
+    [Fact]
+    public void Constructor_WhenInboxThrowsOnGetReports_ShouldStartWithEmptySnapshot()
+    {
+        var inbox = new FakeInbox(Pending("report-1", capturedUtc: T(1)))
+        {
+            GetReportsException = new InvalidOperationException("inbox unavailable")
+        };
+
+        var notification = new CrashReportNotification(inbox);
+
+        Assert.False(notification.IsOpen);
+        Assert.Empty(notification.Reports);
+        Assert.False(notification.IsBannerVisible);
+    }
+
+    [Fact]
+    public void Constructor_WhenInboxReturnsNull_ShouldStartWithEmptySnapshot()
+    {
+        var inbox = new NullReturningInbox();
+        var notification = new CrashReportNotification(inbox);
+
+        Assert.Empty(notification.Reports);
+        Assert.False(notification.IsBannerVisible);
+    }
+
+    [Fact]
+    public void RefreshAfterAction_WhenSelectedReportIsGone_ShouldDefaultToNewestPending()
+    {
+        var inbox = new FakeInbox(
+            Pending("a", capturedUtc: T(1)),
+            Pending("b", capturedUtc: T(2)));
+        var notification = new CrashReportNotification(inbox);
+        notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
+        // Default selection = newest pending = "b" at index 1.
+        Assert.Equal("b", notification.Reports[notification.SelectedIndex].Summary.ReportId);
+
+        // GitHub succeeds and the snapshot drops "b" entirely (e.g. deleted externally).
+        inbox.GitHubResult = new CrashReportActionResult(Succeeded: true);
+        inbox.OnGetReportsAfterGitHub = () => new[]
+        {
+            PendingItem("a", capturedUtc: T(1)),
+            PendingItem("c", capturedUtc: T(3))
+        };
+        FocusAction(notification, actionIndex: 0);
+        Activate(notification);
+
+        // "b" is gone -> selection falls back to the newest pending ("c").
+        Assert.Equal("c", notification.Reports[notification.SelectedIndex].Summary.ReportId);
+    }
+
+    [Fact]
+    public void RefreshAfterAction_WhenNoSelection_ShouldDefaultToNewestPending()
+    {
+        var inbox = new FakeInbox(Pending("a", capturedUtc: T(1)));
+        var notification = new CrashReportNotification(inbox);
+        notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
+
+        // GitHub succeeds and the snapshot replaces the single report with a new pending one.
+        inbox.GitHubResult = new CrashReportActionResult(Succeeded: true);
+        inbox.OnGetReportsAfterGitHub = () => new[]
+        {
+            PendingItem("b", capturedUtc: T(2))
+        };
+        FocusAction(notification, actionIndex: 0);
+        Activate(notification);
+
+        // The previously selected id "a" is gone; the refresh falls back to the newest pending.
+        Assert.Equal("b", notification.Reports[notification.SelectedIndex].Summary.ReportId);
+    }
+
+    [Fact]
+    public void MoveSelection_WithNoReports_ShouldBeNoOp()
+    {
+        var inbox = new FakeInbox();
+        // Open with F8 needs at least one report, so construct with one then empty the inbox.
+        inbox.SetReports(Pending("temp", capturedUtc: T(1)));
+        var notification = new CrashReportNotification(inbox);
+        notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
+        // Simulate the inbox becoming empty while the panel is open (external deletion).
+        inbox.SetReports();
+
+        // MoveLeft with zero reports should not throw and should not change selection.
+        var consumed = notification.HandleInput(
+            NoKeys, NoKeys, new FakeInput { Commands = { InputCommandType.MoveLeft } }, null, false);
+
+        Assert.True(consumed);
+        Assert.True(notification.IsOpen);
+    }
+
+    // ---------------------------------------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------------------------------------
 
@@ -509,6 +763,25 @@ public sealed class CrashReportNotificationTests
 
     private static DateTimeOffset T(int seconds) =>
         new DateTimeOffset(2026, 1, 1, 0, 0, second: seconds, TimeSpan.Zero);
+
+    /// <summary>
+    /// Computes the centre of the action button at the given index, matching the private
+    /// <c>GetActionRects</c> geometry (buttonWidth=220, buttonHeight=32, gap=12, centred in the
+    /// 960-wide panel at x=160).
+    /// </summary>
+    private static Point ActionButtonCenter(int actionIndex)
+    {
+        const int buttonWidth = 220;
+        const int buttonHeight = 32;
+        const int gap = 12;
+        const int panelX = 160;
+        const int panelWidth = 960;
+        const int panelBottom = 90 + 540;
+        int totalWidth = 4 * buttonWidth + 3 * gap;
+        int startX = panelX + (panelWidth - totalWidth) / 2;
+        int y = panelBottom - buttonHeight - 24;
+        return new Point(startX + actionIndex * (buttonWidth + gap) + buttonWidth / 2, y + buttonHeight / 2);
+    }
 
     private static CrashReportInboxItem Pending(string id, DateTimeOffset capturedUtc) =>
         PendingItem(id, capturedUtc);
@@ -552,12 +825,24 @@ public sealed class CrashReportNotificationTests
         public CrashReportActionResult DeleteResult { get; set; } = new(Succeeded: true);
 
         public Func<IEnumerable<CrashReportInboxItem>>? OnGetReportsAfterGitHub { get; set; }
+        public Func<IEnumerable<CrashReportInboxItem>>? OnGetReportsAfterFolder { get; set; }
         public Func<IEnumerable<CrashReportInboxItem>>? OnGetReportsAfterDismiss { get; set; }
         public Func<IEnumerable<CrashReportInboxItem>>? OnGetReportsAfterDelete { get; set; }
 
+        /// <summary>When set, <see cref="GetReports"/> throws to exercise the snapshot guard.</summary>
+        public Exception? GetReportsException { get; set; }
+
         public void SetReports(params CrashReportInboxItem[] reports) => _reports = reports;
 
-        public IReadOnlyList<CrashReportInboxItem> GetReports() => _reports;
+        public IReadOnlyList<CrashReportInboxItem> GetReports()
+        {
+            if (GetReportsException is { } ex)
+            {
+                throw ex;
+            }
+
+            return _reports;
+        }
 
         public CrashReportActionResult OpenGitHubIssue(string reportId)
         {
@@ -571,6 +856,11 @@ public sealed class CrashReportNotificationTests
 
         public CrashReportActionResult OpenReportFolder(string reportId)
         {
+            if (OnGetReportsAfterFolder is { } next)
+            {
+                _reports = next().ToList();
+            }
+
             return FolderResult;
         }
 
@@ -615,5 +905,17 @@ public sealed class CrashReportNotificationTests
         public bool IsKeyTriggered(int keyCode) => false;
         public void Update(double deltaTime) { }
         public void Dispose() { }
+    }
+
+    /// <summary>
+    /// Inbox that returns <c>null</c> from <see cref="GetReports"/> to exercise the null guard.
+    /// </summary>
+    private sealed class NullReturningInbox : ICrashReportInbox
+    {
+        public IReadOnlyList<CrashReportInboxItem> GetReports() => null!;
+        public CrashReportActionResult OpenGitHubIssue(string reportId) => new(Succeeded: true);
+        public CrashReportActionResult OpenReportFolder(string reportId) => new(Succeeded: true);
+        public CrashReportActionResult Dismiss(string reportId) => new(Succeeded: true);
+        public CrashReportActionResult Delete(string reportId) => new(Succeeded: true);
     }
 }
