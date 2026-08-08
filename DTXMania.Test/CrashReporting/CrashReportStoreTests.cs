@@ -286,6 +286,203 @@ public sealed class CrashReportStoreTests
             "root", new CrashReportTextWriter(), TimeProvider.System, null!));
     }
 
+    [Theory]
+    [InlineData("crash-20260806-123456Z-a1b2c3.txt", "crash-20260806-123456Z-a1b2c3")]
+    [InlineData("crash-20260806-123456Z-a1b2c3.ack.txt", "crash-20260806-123456Z-a1b2c3")]
+    [InlineData("CRASH-20260806-123456Z-A1B2C3.ACK.TXT", "CRASH-20260806-123456Z-A1B2C3")]
+    public void GetLogicalReportId_ShouldStripAckAndTxtSuffixes(string fileName, string expected)
+    {
+        Assert.Equal(expected, CrashReportSummaryReader.GetLogicalReportId(fileName));
+    }
+
+    [Theory]
+    [InlineData("crash-20260806-123456Z-a1b2c3.txt", true)]
+    [InlineData("crash-20260806-123456Z-a1b2c3.ack.txt", true)]
+    [InlineData("crash-20260806-123456Z-A1B2C3.ACK.TXT", true)]
+    [InlineData("crash-20260806-123456Z-a1b2c3.tmp", false)]
+    [InlineData(".crash-20260806-123456Z-a1b2c3.txt.tmp", false)]
+    [InlineData("crash-20260806-123456Z-a1b2c3.txt.bak", false)]
+    [InlineData("crash-2026086-123456Z-a1b2c3.txt", false)]
+    [InlineData("notes.txt", false)]
+    public void IsRetainedReport_ShouldAcceptPendingAndAckVariantsOnly(string fileName, bool expected)
+    {
+        Assert.Equal(expected, CrashReportStore.IsRetainedReport(fileName));
+    }
+
+    [Fact]
+    public void RootPath_ShouldExposeTheConfiguredRootForComposition()
+    {
+        using var fixture = CrashStoreFixture.Create();
+
+        Assert.Equal(fixture.RootPath, fixture.CreateStore().RootPath);
+    }
+
+    [Fact]
+    public void DiscoverReports_WhenRootIsEmpty_ShouldReturnAnEmptyList()
+    {
+        using var fixture = CrashStoreFixture.Create();
+
+        Assert.Empty(fixture.CreateStore().DiscoverReports());
+    }
+
+    [Fact]
+    public void DiscoverReports_ShouldReturnNewestFirstByLogicalId()
+    {
+        using var fixture = CrashStoreFixture.Create();
+        var store = fixture.CreateStore();
+
+        var ids = new List<string>();
+        for (var index = 0; index < 3; index++)
+        {
+            ids.Add(store.Capture(fixture.CreateCapture(index)).Report!.ReportId);
+            fixture.Clock.Advance(TimeSpan.FromMinutes(1));
+        }
+
+        var discovered = store.DiscoverReports();
+
+        Assert.Equal(3, discovered.Count);
+        Assert.Equal(ids[2], discovered[0].Summary.ReportId);
+        Assert.Equal(ids[1], discovered[1].Summary.ReportId);
+        Assert.Equal(ids[0], discovered[2].Summary.ReportId);
+        Assert.False(discovered[0].IsAcknowledged);
+    }
+
+    [Fact]
+    public void DiscoverReports_WithBothVariants_ShouldReturnOneLogicalItemWithPendingWinning()
+    {
+        using var fixture = CrashStoreFixture.Create();
+        var store = fixture.CreateStore();
+        var captured = store.Capture(fixture.CreateCapture(0)).Report!;
+        var reportId = captured.ReportId;
+        var pendingPath = Path.Combine(fixture.RootPath, captured.FileName);
+        var ackPath = AckPath(fixture.RootPath, reportId);
+        File.Copy(pendingPath, ackPath);
+
+        var items = store.DiscoverReports();
+
+        var item = Assert.Single(items);
+        Assert.False(item.IsAcknowledged);
+        Assert.Equal(captured.FileName, item.Summary.FileName);
+        Assert.Equal(reportId, item.Summary.ReportId);
+    }
+
+    [Fact]
+    public void DiscoverReports_WithOnlyAckVariant_ShouldReportAcknowledged()
+    {
+        using var fixture = CrashStoreFixture.Create();
+        var store = fixture.CreateStore();
+        var captured = store.Capture(fixture.CreateCapture(0)).Report!;
+        var reportId = captured.ReportId;
+        File.Move(Path.Combine(fixture.RootPath, captured.FileName), AckPath(fixture.RootPath, reportId));
+
+        var items = store.DiscoverReports();
+
+        var item = Assert.Single(items);
+        Assert.True(item.IsAcknowledged);
+        Assert.Equal(reportId + ".ack" + CrashReportStore.ReportExtension, item.Summary.FileName);
+    }
+
+    [Fact]
+    public void Acknowledge_WithStaleAckTwin_ShouldOverwriteAndLeaveOneAcknowledgedArtifact()
+    {
+        using var fixture = CrashStoreFixture.Create();
+        var store = fixture.CreateStore();
+        var captured = store.Capture(fixture.CreateCapture(0)).Report!;
+        var reportId = captured.ReportId;
+        var pendingPath = Path.Combine(fixture.RootPath, captured.FileName);
+        var ackPath = AckPath(fixture.RootPath, reportId);
+        File.Copy(pendingPath, ackPath);
+
+        var result = store.Acknowledge(reportId);
+
+        Assert.True(result.Succeeded);
+        Assert.Null(result.ErrorCode);
+        Assert.False(File.Exists(pendingPath));
+        Assert.True(File.Exists(ackPath));
+        var item = Assert.Single(store.DiscoverReports());
+        Assert.True(item.IsAcknowledged);
+    }
+
+    [Fact]
+    public void Acknowledge_WhenAlreadyAcknowledged_ShouldBeIdempotentSuccess()
+    {
+        using var fixture = CrashStoreFixture.Create();
+        var store = fixture.CreateStore();
+        var reportId = store.Capture(fixture.CreateCapture(0)).Report!.ReportId;
+
+        var first = store.Acknowledge(reportId);
+        var second = store.Acknowledge(reportId);
+
+        Assert.True(first.Succeeded);
+        Assert.True(second.Succeeded);
+        Assert.True(File.Exists(AckPath(fixture.RootPath, reportId)));
+    }
+
+    [Fact]
+    public void Acknowledge_WhenNoVariantExists_ShouldBeIdempotentSuccess()
+    {
+        using var fixture = CrashStoreFixture.Create();
+
+        var result = fixture.CreateStore().Acknowledge("crash-20260806-123456Z-deadbe");
+
+        Assert.True(result.Succeeded);
+    }
+
+    [Fact]
+    public void Delete_WithBothVariants_ShouldRemoveBothArtifacts()
+    {
+        using var fixture = CrashStoreFixture.Create();
+        var store = fixture.CreateStore();
+        var captured = store.Capture(fixture.CreateCapture(0)).Report!;
+        var reportId = captured.ReportId;
+        var pendingPath = Path.Combine(fixture.RootPath, captured.FileName);
+        var ackPath = AckPath(fixture.RootPath, reportId);
+        File.Copy(pendingPath, ackPath);
+
+        var result = store.DeleteReport(reportId);
+
+        Assert.True(result.Succeeded);
+        Assert.False(File.Exists(pendingPath));
+        Assert.False(File.Exists(ackPath));
+        Assert.Empty(store.DiscoverReports());
+    }
+
+    [Fact]
+    public void Cleanup_WithPendingAckPair_ShouldCountThePairAsOneLogicalReport()
+    {
+        using var fixture = CrashStoreFixture.Create();
+        var store = fixture.CreateStore();
+
+        var ids = new List<string>();
+        for (var index = 0; index < 6; index++)
+        {
+            ids.Add(store.Capture(fixture.CreateCapture(index)).Report!.ReportId);
+            fixture.Clock.Advance(TimeSpan.FromMinutes(1));
+        }
+
+        // The newest report receives an ack twin -> 7 physical files, 6 logical reports.
+        var newestPending = Path.Combine(fixture.RootPath, ids[5] + CrashReportStore.ReportExtension);
+        var newestAck = AckPath(fixture.RootPath, ids[5]);
+        File.Copy(newestPending, newestAck);
+
+        store.Cleanup();
+
+        var discovered = store.DiscoverReports();
+        Assert.Equal(5, discovered.Count);
+        // Physical retention (the old policy) would have deleted ids[1] because the ack twin
+        // sorts before its pending sibling. Logical retention keeps it.
+        Assert.False(discovered.Any(item => item.Summary.ReportId == ids[0]));
+        Assert.True(discovered.Any(item => item.Summary.ReportId == ids[1]));
+        Assert.True(discovered.Any(item => item.Summary.ReportId == ids[5]));
+        Assert.True(File.Exists(newestPending));
+        Assert.True(File.Exists(newestAck));
+    }
+
+    private static string AckPath(string rootPath, string reportId)
+    {
+        return Path.Combine(rootPath, reportId + ".ack" + CrashReportStore.ReportExtension);
+    }
+
     private sealed class CrashStoreFixture : IDisposable
     {
         private CrashStoreFixture()
