@@ -4,7 +4,6 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
-using System.Security;
 using System.Text;
 
 namespace DTXMania.Game.Lib.Diagnostics.CrashReporting;
@@ -136,7 +135,7 @@ internal sealed class CrashReportSummaryReader
                 }
             }
         }
-        catch (Exception exception) when (IsExpectedFileSystemException(exception))
+        catch (Exception exception) when (CrashReportFileErrors.IsExpectedFileSystemException(exception))
         {
             return new Dictionary<string, string>(StringComparer.Ordinal);
         }
@@ -234,13 +233,4 @@ internal sealed class CrashReportSummaryReader
         return true;
     }
 
-    private static bool IsExpectedFileSystemException(Exception exception)
-    {
-        return exception is IOException
-            or UnauthorizedAccessException
-            or ArgumentException
-            or NotSupportedException
-            or PathTooLongException
-            or SecurityException;
-    }
 }

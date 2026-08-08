@@ -114,17 +114,18 @@ public sealed class GitHubCrashIssueBuilderTests
     }
 
     [Theory]
-    [InlineData("http://github.com/cwchanap/DTXManiaCX/issues/new", false)]
-    [InlineData("https://gitlab.com/cwchanap/DTXManiaCX/issues/new", false)]
-    [InlineData("https://github.com/cwchanap/DTXManiaCX/issues", false)]
-    [InlineData("https://github.com/cwchanap/DTXManiaCX/issues/new/edit", false)]
-    [InlineData("https://github.com/cwchanap/DTXManiaCX/pulls", false)]
-    [InlineData("https://github.com/other/DTXManiaCX/issues/new", false)]
-    [InlineData("https://github.com/cwchanap/OtherRepo/issues/new", false)]
-    [InlineData("https://github.com:8443/cwchanap/DTXManiaCX/issues/new", false)]
-    public void IsTargetAllowed_WithOffTargetUri_ShouldReject(string uriString, bool expected)
+    [InlineData("http://github.com/cwchanap/DTXManiaCX/issues/new")]
+    [InlineData("https://gitlab.com/cwchanap/DTXManiaCX/issues/new")]
+    [InlineData("https://github.com/cwchanap/DTXManiaCX/issues")]
+    [InlineData("https://github.com/cwchanap/DTXManiaCX/issues/new/edit")]
+    [InlineData("https://github.com/cwchanap/DTXManiaCX/pulls")]
+    [InlineData("https://github.com/other/DTXManiaCX/issues/new")]
+    [InlineData("https://github.com/cwchanap/OtherRepo/issues/new")]
+    [InlineData("https://github.com:8443/cwchanap/DTXManiaCX/issues/new")]
+    [InlineData("https://github.com/cwchanap/DTXManiaCX/issues/new/")]
+    public void IsTargetAllowed_WithOffTargetUri_ShouldReject(string uriString)
     {
-        Assert.Equal(expected, GitHubCrashIssueBuilder.IsTargetAllowed(new Uri(uriString)));
+        Assert.False(GitHubCrashIssueBuilder.IsTargetAllowed(new Uri(uriString)));
     }
 
     [Fact]

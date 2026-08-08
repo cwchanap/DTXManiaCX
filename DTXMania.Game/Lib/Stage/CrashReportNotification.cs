@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Linq;
+using System.Threading.Tasks;
 using DTXMania.Game.Lib.Diagnostics.CrashReporting;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Resources;
@@ -30,6 +31,19 @@ namespace DTXMania.Game.Lib.Stage
     {
         private const int ActionCount = 4;
 
+        /// <summary>
+        /// The four review actions, addressed by name rather than bare index. <see cref="ActionCount"/>
+        /// is preserved for iteration/bounds; the enum values are contiguous from 0 so they cast to
+        /// and from the int focus index used by keyboard navigation and hit-testing.
+        /// </summary>
+        private enum CrashAction
+        {
+            OpenGitHubIssue = 0,
+            OpenReportFolder = 1,
+            Dismiss = 2,
+            Delete = 3
+        }
+
         private static readonly Keys F8Key = Keys.F8;
 
         // The component owns its layout privately (no skin assets, no layout framework). The virtual
@@ -40,6 +54,11 @@ namespace DTXMania.Game.Lib.Stage
         private static readonly Rectangle BannerRegion = new(940, 16, 324, 56);
         private static readonly Rectangle PanelRegion = new(160, 90, 960, 540);
 
+        // Action-button geometry is pure constant arithmetic; compute once and reuse for both
+        // drawing and hit-testing so neither path allocates per call.
+        private static readonly Rectangle[] ActionRects = BuildActionRects();
+        private static readonly Rectangle ActionRowRegion = Rectangle.Union(ActionRects[0], ActionRects[^1]);
+
         private readonly ICrashReportInbox _inbox;
 
         private IReadOnlyList<CrashReportInboxItem> _reports;
@@ -48,6 +67,12 @@ namespace DTXMania.Game.Lib.Stage
         private int _actionFocus;
         private bool _deleteConfirming;
         private string? _errorText;
+
+        // A launch-backed action (Open GitHub issue / Open report folder) runs OFF the game thread
+        // so the bounded macOS `open` wait cannot freeze the title update loop. The task is polled
+        // each frame from HandleInput; while it is in flight the panel consumes input but starts no
+        // new action. Dismiss/Delete are fast filesystem ops and stay synchronous.
+        private Task<CrashReportActionResult>? _pendingLaunch;
 
         public CrashReportNotification(ICrashReportInbox inbox)
         {
@@ -64,6 +89,34 @@ namespace DTXMania.Game.Lib.Stage
         internal string? ErrorText => _errorText;
         internal IReadOnlyList<CrashReportInboxItem> Reports => _reports;
         internal bool IsBannerVisible => !_isOpen && AnyPending(_reports);
+        internal bool IsLaunchPending => _pendingLaunch is not null;
+
+        /// <summary>
+        /// Test seam: blocks until the in-flight launch task completes and resolves its result on
+        /// the calling (test) thread. Production resolves pending launches via <see cref="PollPendingLaunch"/>
+        /// polled from <see cref="HandleInput"/> across frames; tests call this for determinism so a
+        /// synchronous fake inbox need not be polled over real frames.
+        /// </summary>
+        internal void WaitForLaunchAndResolve()
+        {
+            if (_pendingLaunch is not { } task)
+            {
+                return;
+            }
+
+            _pendingLaunch = null;
+            CrashReportActionResult result;
+            try
+            {
+                result = task.GetAwaiter().GetResult();
+            }
+            catch (Exception)
+            {
+                result = new CrashReportActionResult(Succeeded: false, ErrorCode: "inbox_unexpected_failure");
+            }
+
+            ApplyLaunchResult(result);
+        }
 
         /// <summary>
         /// The single notification input-ownership seam. Returns true when the notification consumes
@@ -139,6 +192,15 @@ namespace DTXMania.Game.Lib.Stage
             Point? virtualMouse,
             bool leftMouseClick)
         {
+            // Resolve any launch that completed since the last frame before accepting new input.
+            // While a launch is in flight the panel consumes input but starts no new action, so the
+            // bounded macOS `open` wait never blocks the title update loop.
+            PollPendingLaunch();
+            if (_pendingLaunch is not null)
+            {
+                return;
+            }
+
             // F8 reopens/refreshes even while already open (resets selection to the newest pending).
             if (f8Edge)
             {
@@ -159,6 +221,26 @@ namespace DTXMania.Game.Lib.Stage
                 if (inputManager?.IsCommandPressed(InputCommandType.Activate) == true)
                 {
                     PerformDelete();
+                    return;
+                }
+
+                // Mouse: a click on the Delete button confirms; a click outside the action row
+                // cancels. The hit-test reuses the same cached button/row bounds as the normal
+                // mouse path. Clicks inside the row but off Delete are consumed but ignored.
+                if (leftMouseClick && virtualMouse is { } confirmPoint)
+                {
+                    if (HitTestAction(confirmPoint) == CrashAction.Delete)
+                    {
+                        PerformDelete();
+                        return;
+                    }
+
+                    if (!ActionRowRegion.Contains(confirmPoint))
+                    {
+                        _deleteConfirming = false;
+                    }
+
+                    return;
                 }
 
                 return;
@@ -199,10 +281,9 @@ namespace DTXMania.Game.Lib.Stage
             // Mouse: clicking an action button focuses and invokes it in one motion.
             if (leftMouseClick && virtualMouse is { } point)
             {
-                var hit = HitTestAction(point);
-                if (hit >= 0)
+                if (HitTestAction(point) is { } hit)
                 {
-                    _actionFocus = hit;
+                    _actionFocus = (int)hit;
                     ClearError();
                     InvokeFocusedAction();
                     return;
@@ -256,18 +337,18 @@ namespace DTXMania.Game.Lib.Stage
 
         private void InvokeFocusedAction()
         {
-            switch (_actionFocus)
+            switch ((CrashAction)_actionFocus)
             {
-                case 0:
+                case CrashAction.OpenGitHubIssue:
                     InvokeLaunch(openFolder: false);
                     break;
-                case 1:
+                case CrashAction.OpenReportFolder:
                     InvokeLaunch(openFolder: true);
                     break;
-                case 2:
+                case CrashAction.Dismiss:
                     InvokeDismiss();
                     break;
-                case 3:
+                case CrashAction.Delete:
                     // Delete is gated behind a confirmation; the first Activate only arms it.
                     _deleteConfirming = true;
                     break;
@@ -276,15 +357,47 @@ namespace DTXMania.Game.Lib.Stage
 
         private void InvokeLaunch(bool openFolder)
         {
+            // Ignore re-entry while a launch is already in flight.
+            if (_pendingLaunch is not null)
+            {
+                return;
+            }
+
             if (!TryGetSelectedSummary(out var summary))
             {
                 return;
             }
 
-            var result = openFolder
-                ? _inbox.OpenReportFolder(summary.ReportId)
-                : _inbox.OpenGitHubIssue(summary.ReportId);
+            var reportId = summary.ReportId;
+            // Run the launch-backed action off the game thread so the bounded macOS `open` wait
+            // cannot block HandleInput or title-frame updates. The result is marshalled back on
+            // the game thread by PollPendingLaunch (polled each frame from HandleInput).
+            _pendingLaunch = Task.Run(() => openFolder
+                ? _inbox.OpenReportFolder(reportId)
+                : _inbox.OpenGitHubIssue(reportId));
+        }
 
+        private void PollPendingLaunch()
+        {
+            if (_pendingLaunch is not { } task)
+            {
+                return;
+            }
+
+            if (!task.IsCompleted)
+            {
+                return;
+            }
+
+            _pendingLaunch = null;
+            var result = task.IsCompletedSuccessfully
+                ? task.Result
+                : new CrashReportActionResult(Succeeded: false, ErrorCode: "inbox_unexpected_failure");
+            ApplyLaunchResult(result);
+        }
+
+        private void ApplyLaunchResult(CrashReportActionResult result)
+        {
             if (result.Succeeded)
             {
                 // A successful launch acknowledges (never deletes); refresh the snapshot so the
@@ -428,6 +541,7 @@ namespace DTXMania.Game.Lib.Stage
             {
                 "report_not_found" => "Report no longer available.",
                 "launch_platform_unsupported" => "Cannot open on this platform.",
+                "launch_target_rejected" => "Cannot open on this platform.",
                 "launch_start_failed" or "launch_process_null" or "launch_nonzero_exit"
                     or "launch_timeout" =>
                     "Could not open the external handler.",
@@ -597,7 +711,7 @@ namespace DTXMania.Game.Lib.Stage
                 "Delete"
             };
 
-            var actionRects = GetActionRects();
+            var actionRects = ActionRects;
             var color = new Color(40, 46, 78, 230);
             var focusedColor = new Color(90, 80, 160, 240);
             var confirmColor = new Color(150, 40, 40, 240);
@@ -605,7 +719,7 @@ namespace DTXMania.Game.Lib.Stage
             for (int i = 0; i < actionRects.Length; i++)
             {
                 var rect = actionRects[i];
-                var fill = _deleteConfirming && i == 3
+                var fill = _deleteConfirming && i == (int)CrashAction.Delete
                     ? confirmColor
                     : (i == _actionFocus ? focusedColor : color);
                 spriteBatch.Draw(whitePixel, rect, fill);
@@ -637,7 +751,7 @@ namespace DTXMania.Game.Lib.Stage
             spriteBatch.Draw(whitePixel, new Rectangle(rect.Right - 1, rect.Y, 1, rect.Height), color);
         }
 
-        private static Rectangle[] GetActionRects()
+        private static Rectangle[] BuildActionRects()
         {
             const int buttonWidth = 220;
             const int buttonHeight = 32;
@@ -655,18 +769,17 @@ namespace DTXMania.Game.Lib.Stage
             return rects;
         }
 
-        private int HitTestAction(Point point)
+        private CrashAction? HitTestAction(Point point)
         {
-            var rects = GetActionRects();
-            for (int i = 0; i < rects.Length; i++)
+            for (int i = 0; i < ActionRects.Length; i++)
             {
-                if (rects[i].Contains(point))
+                if (ActionRects[i].Contains(point))
                 {
-                    return i;
+                    return (CrashAction)i;
                 }
             }
 
-            return -1;
+            return null;
         }
 
         private static int CountPending(IReadOnlyList<CrashReportInboxItem> reports)

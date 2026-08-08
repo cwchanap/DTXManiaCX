@@ -72,7 +72,8 @@ internal enum StartupCriticalPathAggregate
     TitleCursorSound,
     TitleDecideSound,
     TitleGameStartSound,
-    TitleGameStartFallback
+    TitleGameStartFallback,
+    TitleCrashInbox
 }
 
 internal sealed class StartupCriticalPathTrace : IStartupSongLoadTimingObserver
@@ -166,6 +167,7 @@ internal sealed class StartupCriticalPathTrace : IStartupSongLoadTimingObserver
         "title_game_start_fallback_ran",
         "title_game_start_fallback_ms",
         "title_sound_load_count",
+        "title_crash_inbox_ms",
         "title_activation_unattributed_ms",
         "title_backbuffer_published"
     };
@@ -991,7 +993,8 @@ internal sealed class StartupCriticalPathTrace : IStartupSongLoadTimingObserver
                 Duration(durations, StartupCriticalPathAggregate.TitleCursorSound) -
                 Duration(durations, StartupCriticalPathAggregate.TitleDecideSound) -
                 Duration(durations, StartupCriticalPathAggregate.TitleGameStartSound) -
-                Duration(durations, StartupCriticalPathAggregate.TitleGameStartFallback);
+                Duration(durations, StartupCriticalPathAggregate.TitleGameStartFallback) -
+                Duration(durations, StartupCriticalPathAggregate.TitleCrashInbox);
 
             var summaryToTitleUnattributed =
                 Origin(origins, StartupCriticalPathMilestone.TitleBackbufferBlitEnd) -
@@ -1281,6 +1284,7 @@ internal sealed class StartupCriticalPathTrace : IStartupSongLoadTimingObserver
         AppendField(builder, "title_game_start_fallback_ran", snapshot.TitleGameStartFallbackRan ? 1 : 0);
         AppendDuration(builder, durations, StartupCriticalPathAggregate.TitleGameStartFallback, "title_game_start_fallback_ms");
         AppendField(builder, "title_sound_load_count", snapshot.TitleSoundLoadCount);
+        AppendDuration(builder, durations, StartupCriticalPathAggregate.TitleCrashInbox, "title_crash_inbox_ms");
         AppendField(builder, "title_activation_unattributed_ms", titleActivationUnattributed);
         AppendField(builder, "title_backbuffer_published", 1);
         return builder.ToString();

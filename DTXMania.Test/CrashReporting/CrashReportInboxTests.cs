@@ -215,6 +215,8 @@ public sealed class CrashReportInboxTests
 
         Assert.False(result.Succeeded);
         Assert.Equal("inbox_unexpected_failure", result.ErrorCode);
+        var item = Assert.Single(fixture.Store.DiscoverReports());
+        Assert.False(item.IsAcknowledged); // unexpected failure never acknowledges
     }
 
     [Fact]
@@ -231,6 +233,8 @@ public sealed class CrashReportInboxTests
 
         Assert.False(result.Succeeded);
         Assert.Equal("inbox_unexpected_failure", result.ErrorCode);
+        var item = Assert.Single(fixture.Store.DiscoverReports());
+        Assert.False(item.IsAcknowledged); // unexpected failure never acknowledges
     }
 
     private static CrashReportActionResult Success() => new(Succeeded: true);

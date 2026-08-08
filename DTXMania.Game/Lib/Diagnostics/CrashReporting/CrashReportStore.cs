@@ -79,7 +79,7 @@ internal sealed class CrashReportStore
         {
             Directory.CreateDirectory(_rootPath);
         }
-        catch (Exception exception) when (IsExpectedFileSystemException(exception))
+        catch (Exception exception) when (CrashReportFileErrors.IsExpectedFileSystemException(exception))
         {
             return CreateFailure(GetFailureCode(exception));
         }
@@ -151,7 +151,7 @@ internal sealed class CrashReportStore
                 }
             }
         }
-        catch (Exception exception) when (IsExpectedFileSystemException(exception))
+        catch (Exception exception) when (CrashReportFileErrors.IsExpectedFileSystemException(exception))
         {
             WriteSafeError("crash_report_cleanup_failed");
         }
@@ -168,7 +168,7 @@ internal sealed class CrashReportStore
                 return results;
             }
         }
-        catch (Exception exception) when (IsExpectedFileSystemException(exception))
+        catch (Exception exception) when (CrashReportFileErrors.IsExpectedFileSystemException(exception))
         {
             return results;
         }
@@ -185,7 +185,7 @@ internal sealed class CrashReportStore
                 {
                     fileName = Path.GetFileName(path);
                 }
-                catch (Exception exception) when (IsExpectedFileSystemException(exception))
+                catch (Exception exception) when (CrashReportFileErrors.IsExpectedFileSystemException(exception))
                 {
                     continue;
                 }
@@ -217,14 +217,18 @@ internal sealed class CrashReportStore
                 }
             }
         }
-        catch (Exception exception) when (IsExpectedFileSystemException(exception))
+        catch (Exception exception) when (CrashReportFileErrors.IsExpectedFileSystemException(exception))
         {
             return results;
         }
 
         // Order by logical id (filename), newest first — never by reading the report body.
         // Case-insensitive so the ordering agrees with the case-insensitive grouping above.
-        foreach (var group in groups.Values.OrderByDescending(static group => group.LogicalId, StringComparer.OrdinalIgnoreCase))
+        // Bound the summaries read to the retention limit: even if more variants linger on
+        // disk (a failed/missed cleanup), the inbox never reads more than the retained count.
+        foreach (var group in groups.Values
+            .OrderByDescending(static group => group.LogicalId, StringComparer.OrdinalIgnoreCase)
+            .Take(MaximumRetainedReports))
         {
             var physicalPath = group.PendingPath ?? group.AcknowledgedPath;
             if (physicalPath is null)
@@ -240,7 +244,7 @@ internal sealed class CrashReportStore
             {
                 summary = _summaryReader.Read(physicalPath);
             }
-            catch (Exception exception) when (IsExpectedFileSystemException(exception))
+            catch (Exception exception) when (CrashReportFileErrors.IsExpectedFileSystemException(exception))
             {
                 continue;
             }
@@ -300,7 +304,7 @@ internal sealed class CrashReportStore
             File.Move(pendingPath, destination, overwrite: true);
             return new CrashReportActionResult(Succeeded: true);
         }
-        catch (Exception exception) when (IsExpectedFileSystemException(exception))
+        catch (Exception exception) when (CrashReportFileErrors.IsExpectedFileSystemException(exception))
         {
             WriteSafeError("crash_report_acknowledge_failed");
             return new CrashReportActionResult(Succeeded: false, ErrorCode: "acknowledge_io_failure");
@@ -319,15 +323,18 @@ internal sealed class CrashReportStore
             }
 
             // Delete every physical variant whose logical id matches, regardless of on-disk
-            // casing (a pending/ack pair for one logical id is removed together).
-            foreach (var path in EnumerateRetainedVariants(reportId))
+            // casing (a pending/ack pair for one logical id is removed together). Materialize
+            // the lazy enumeration before deleting: EnumerateRetainedVariants walks the directory
+            // lazily, and mutating it mid-enumeration can surface collection-changed failures.
+            var paths = EnumerateRetainedVariants(reportId).ToList();
+            foreach (var path in paths)
             {
                 File.Delete(path);
             }
 
             return new CrashReportActionResult(Succeeded: true);
         }
-        catch (Exception exception) when (IsExpectedFileSystemException(exception))
+        catch (Exception exception) when (CrashReportFileErrors.IsExpectedFileSystemException(exception))
         {
             WriteSafeError("crash_report_delete_failed");
             return new CrashReportActionResult(Succeeded: false, ErrorCode: "delete_io_failure");
@@ -348,7 +355,7 @@ internal sealed class CrashReportStore
             {
                 fileName = Path.GetFileName(path);
             }
-            catch (Exception exception) when (IsExpectedFileSystemException(exception))
+            catch (Exception exception) when (CrashReportFileErrors.IsExpectedFileSystemException(exception))
             {
                 continue;
             }
@@ -395,7 +402,7 @@ internal sealed class CrashReportStore
             failureCode = null;
             return true;
         }
-        catch (Exception exception) when (IsExpectedFileSystemException(exception))
+        catch (Exception exception) when (CrashReportFileErrors.IsExpectedFileSystemException(exception))
         {
             failureCode = GetFailureCode(exception);
             return false;
@@ -499,16 +506,6 @@ internal sealed class CrashReportStore
         return new CrashReportWriteResult(null, failureCode);
     }
 
-    private static bool IsExpectedFileSystemException(Exception exception)
-    {
-        return exception is IOException
-            or UnauthorizedAccessException
-            or ArgumentException
-            or NotSupportedException
-            or PathTooLongException
-            or SecurityException;
-    }
-
     private static string GetFailureCode(Exception exception)
     {
         return exception switch
@@ -525,7 +522,7 @@ internal sealed class CrashReportStore
         {
             File.Delete(path);
         }
-        catch (Exception exception) when (IsExpectedFileSystemException(exception))
+        catch (Exception exception) when (CrashReportFileErrors.IsExpectedFileSystemException(exception))
         {
         }
     }

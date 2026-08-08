@@ -187,7 +187,6 @@ public sealed class ExternalLauncherTests
     [Fact]
     public void LaunchUri_OnWindows_ShouldSucceedWithoutWaitingForExit()
     {
-        var waitCalled = false;
         var launcher = new ExternalLauncher(
             platform: () => LauncherPlatform.Windows,
             starter: _ => new ExternalLaunchAttempt(true, 0));
@@ -196,7 +195,28 @@ public sealed class ExternalLauncherTests
 
         Assert.True(result.Succeeded);
         Assert.Null(result.ErrorCode);
-        Assert.False(waitCalled);
+    }
+
+    [Theory]
+    [InlineData("http://github.com/cwchanap/DTXManiaCX/issues/new")]
+    [InlineData("ftp://github.com/cwchanap/DTXManiaCX/issues/new")]
+    [InlineData("https/github.com/cwchanap/DTXManiaCX/issues/new")]
+    public void LaunchUri_WithNonAbsoluteHttpsTarget_ShouldRejectBeforeLaunching(string uriString)
+    {
+        var started = false;
+        var launcher = new ExternalLauncher(
+            platform: () => LauncherPlatform.Windows,
+            starter: _ =>
+            {
+                started = true;
+                return new ExternalLaunchAttempt(true, 0);
+            });
+
+        var result = launcher.LaunchUri(new Uri(uriString, UriKind.RelativeOrAbsolute));
+
+        Assert.False(started); // never reached the starter
+        Assert.False(result.Succeeded);
+        Assert.Equal("launch_target_rejected", result.ErrorCode);
     }
 
     [Fact]
