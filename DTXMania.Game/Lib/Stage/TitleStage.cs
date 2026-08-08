@@ -151,8 +151,23 @@ namespace DTXMania.Game.Lib.Stage
 
             // Create the crash-report notification after title resources are available. The inbox
             // itself is process-owned (forwarded by the game); the component holds only a snapshot
-            // and stage-owned UI state.
-            _crashReportNotification = new CrashReportNotification(_game.CrashReportInbox);
+            // and stage-owned UI state. The construction performs a bounded filesystem snapshot, so
+            // it is attributed to its own critical-path aggregate rather than showing as unattributed
+            // title-activation time.
+            var crashInboxTrace = ResolveCriticalPathTrace();
+            TryBeginAggregate(
+                crashInboxTrace,
+                StartupCriticalPathAggregate.TitleCrashInbox);
+            try
+            {
+                _crashReportNotification = new CrashReportNotification(_game.CrashReportInbox);
+            }
+            finally
+            {
+                TryEndAggregate(
+                    crashInboxTrace,
+                    StartupCriticalPathAggregate.TitleCrashInbox);
+            }
 
             System.Diagnostics.Debug.WriteLine("Title Stage activated successfully");
         }

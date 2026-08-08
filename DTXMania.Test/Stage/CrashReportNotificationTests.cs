@@ -468,6 +468,75 @@ public sealed class CrashReportNotificationTests
     }
 
     [Fact]
+    public void DeleteConfirmation_MouseClickOnDelete_ShouldConfirmDelete()
+    {
+        var inbox = new FakeInbox(Pending("r", capturedUtc: T(1)));
+        inbox.DeleteResult = new CrashReportActionResult(Succeeded: true);
+        inbox.OnGetReportsAfterDelete = () => Array.Empty<CrashReportInboxItem>();
+        var notification = new CrashReportNotification(inbox);
+        notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
+        FocusAction(notification, actionIndex: 3);
+        Activate(notification); // arms confirmation
+        Assert.True(notification.IsDeleteConfirming);
+
+        // A mouse click on the Delete button confirms (same as Activate).
+        var deleteCenter = ActionButtonCenter(actionIndex: 3);
+        var consumed = notification.HandleInput(
+            NoKeys, NoKeys, inputManager: null, virtualMouse: deleteCenter, leftMouseClick: true);
+
+        Assert.True(consumed);
+        Assert.False(notification.IsDeleteConfirming); // resolved
+        Assert.False(notification.IsOpen); // empty after delete -> closed
+    }
+
+    [Fact]
+    public void DeleteConfirmation_MouseClickOutsideActionRow_ShouldCancelConfirmation()
+    {
+        var inbox = new FakeInbox(Pending("r", capturedUtc: T(1)));
+        var notification = new CrashReportNotification(inbox);
+        notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
+        FocusAction(notification, actionIndex: 3);
+        Activate(notification); // arms confirmation
+        Assert.True(notification.IsDeleteConfirming);
+
+        // A click inside the panel but outside the action row cancels the confirmation.
+        var consumed = notification.HandleInput(
+            NoKeys, NoKeys, inputManager: null, virtualMouse: new Point(200, 200), leftMouseClick: true);
+
+        Assert.True(consumed);
+        Assert.False(notification.IsDeleteConfirming);
+        Assert.True(notification.IsOpen); // still open, report retained
+        Assert.Single(notification.Reports);
+    }
+
+    [Fact]
+    public void LaunchAction_ShouldRunAsynchronouslyAndResolveOnTheGameThread()
+    {
+        var inbox = new FakeInbox(Pending("report-1", capturedUtc: T(1)));
+        inbox.GitHubResult = new CrashReportActionResult(Succeeded: true);
+        inbox.OnGetReportsAfterGitHub = () => new[]
+        {
+            AcknowledgedItem("report-1", capturedUtc: T(1))
+        };
+        var notification = new CrashReportNotification(inbox);
+        notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
+        FocusAction(notification, actionIndex: 0);
+
+        // Start the launch WITHOUT the Activate helper's auto-resolve so the pending task is
+        // observable: the launch-backed action runs off the game thread so the bounded macOS wait
+        // cannot block HandleInput.
+        notification.HandleInput(
+            NoKeys, NoKeys, new FakeInput { Commands = { InputCommandType.Activate } }, null, false);
+        Assert.True(notification.IsLaunchPending);
+
+        notification.WaitForLaunchAndResolve();
+
+        Assert.False(notification.IsLaunchPending);
+        Assert.True(notification.Reports[0].IsAcknowledged);
+        Assert.True(string.IsNullOrEmpty(notification.ErrorText));
+    }
+
+    [Fact]
     public void OpenPanel_RefreshesSnapshotFromInbox()
     {
         // A report captured after construction must appear when the panel is opened (F8 refreshes).
@@ -584,6 +653,7 @@ public sealed class CrashReportNotificationTests
         var actionCenter = ActionButtonCenter(actionIndex: 0);
         var consumed = notification.HandleInput(
             NoKeys, NoKeys, inputManager: null, virtualMouse: actionCenter, leftMouseClick: true);
+        notification.WaitForLaunchAndResolve();
 
         Assert.True(consumed);
         Assert.Equal(0, notification.ActionFocus);
@@ -609,6 +679,7 @@ public sealed class CrashReportNotificationTests
     [Theory]
     [InlineData("report_not_found", "Report no longer available.")]
     [InlineData("launch_platform_unsupported", "Cannot open on this platform.")]
+    [InlineData("launch_target_rejected", "Cannot open on this platform.")]
     [InlineData("launch_start_failed", "Could not open the external handler.")]
     [InlineData("launch_process_null", "Could not open the external handler.")]
     [InlineData("launch_nonzero_exit", "Could not open the external handler.")]
@@ -742,8 +813,12 @@ public sealed class CrashReportNotificationTests
 
     private static bool Activate(CrashReportNotification notification)
     {
-        return notification.HandleInput(
+        var consumed = notification.HandleInput(
             NoKeys, NoKeys, new FakeInput { Commands = { InputCommandType.Activate } }, null, false);
+        // Launch-backed actions run off the game thread; resolve the result deterministically so
+        // tests can assert the post-action state. A no-op for Dismiss/Delete (no pending task).
+        notification.WaitForLaunchAndResolve();
+        return consumed;
     }
 
     private static void FocusAction(CrashReportNotification notification, int actionIndex)

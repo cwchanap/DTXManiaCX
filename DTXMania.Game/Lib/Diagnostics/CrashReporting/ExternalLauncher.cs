@@ -79,12 +79,21 @@ internal sealed class ExternalLauncher : IExternalLauncher
         TimeSpan? macLaunchTimeout = null)
     {
         _platform = platform ?? DefaultPlatform;
-        _starter = starter ?? CreateDefaultStarter(macLaunchTimeout ?? DefaultMacLaunchTimeout);
+        _starter = starter ?? CreateDefaultStarter(_platform, macLaunchTimeout ?? DefaultMacLaunchTimeout);
     }
 
     public CrashReportActionResult LaunchUri(Uri target)
     {
         ArgumentNullException.ThrowIfNull(target);
+        // Defense in depth: the only URI handed to LaunchUri is the builder-produced GitHub
+        // issue URL (always absolute HTTPS). Reject anything else before it can reach a shell
+        // handler, so a malformed/build-regressed target can never be launched.
+        if (!target.IsAbsoluteUri
+            || !string.Equals(target.Scheme, "https", StringComparison.OrdinalIgnoreCase))
+        {
+            return Failure("launch_target_rejected");
+        }
+
         return LaunchCore(target.ToString());
     }
 
@@ -180,7 +189,9 @@ internal sealed class ExternalLauncher : IExternalLauncher
         return LauncherPlatform.Unsupported;
     }
 
-    private static ExternalLaunchStarter CreateDefaultStarter(TimeSpan macLaunchTimeout)
+    private static ExternalLaunchStarter CreateDefaultStarter(
+        LauncherPlatformResolver platform,
+        TimeSpan macLaunchTimeout)
     {
         return info =>
         {
@@ -197,8 +208,10 @@ internal sealed class ExternalLauncher : IExternalLauncher
                 // invocation cannot freeze the game thread indefinitely; a timeout becomes a
                 // stable "launch_timeout" failure rather than an unbounded block. Windows
                 // UseShellExecute launches the registered handler and must not block on it, so
-                // its exit code is not consulted.
-                if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+                // its exit code is not consulted. The platform is resolved through the SAME
+                // resolver LaunchCore uses, so an injected resolver controls both the command
+                // construction and the bounded wait (rather than each querying the OS independently).
+                if (platform() == LauncherPlatform.Mac)
                 {
                     var timeoutMilliseconds = (int)Math.Min(macLaunchTimeout.TotalMilliseconds, int.MaxValue);
                     var exited = process.WaitForExit(timeoutMilliseconds);
