@@ -265,6 +265,88 @@ public sealed class CrashReportRuntimeTests
     }
 
     [Fact]
+    public void GameDiagnostics_WhenCaptureEnabled_ShouldExposeProductionCrashReportInbox()
+    {
+        // An enabled runtime composes the production inbox over the runtime-owned store and
+        // exposes it through the single IGameCrashDiagnostics.CrashReportInbox seam. The store,
+        // launcher, parser, and root path must stay unexposed: only the inbox contract is.
+        var reportRoot = CreateReportRoot();
+
+        try
+        {
+            using var runtime = CrashReportRuntime.CreateBestEffort(
+                TextWriter.Null,
+                storeFactory: () => CreateStore(reportRoot));
+
+            Assert.True(runtime.IsCaptureEnabled);
+            var inbox = runtime.GameDiagnostics.CrashReportInbox;
+            Assert.NotSame(EmptyCrashReportInbox.Instance, inbox);
+            Assert.IsType<CrashReportInbox>(inbox);
+        }
+        finally
+        {
+            DeleteReportRoot(reportRoot);
+        }
+    }
+
+    [Fact]
+    public void CrashReportInbox_WhenCaptureEnabled_ShouldReflectReportsCapturedThroughTheRuntime()
+    {
+        // The composed inbox must reuse the runtime-owned CrashReportStore: a report captured via
+        // the runtime appears in the inbox without any re-wiring, proving the two share one store
+        // (and that store.RootPath drives the folder handoff rather than a divergent path).
+        var reportRoot = CreateReportRoot();
+
+        try
+        {
+            using var runtime = CrashReportRuntime.CreateBestEffort(
+                TextWriter.Null,
+                storeFactory: () => CreateStore(reportRoot));
+
+            runtime.CaptureFatal(new InvalidOperationException("title-stage crash"));
+
+            var reports = runtime.GameDiagnostics.CrashReportInbox.GetReports();
+            var item = Assert.Single(reports);
+            Assert.StartsWith("crash-", item.Summary.ReportId, StringComparison.Ordinal);
+            Assert.False(item.IsAcknowledged);
+        }
+        finally
+        {
+            DeleteReportRoot(reportRoot);
+        }
+    }
+
+    [Fact]
+    public void GameDiagnostics_WhenBootstrapFails_ShouldExposeEmptyCrashReportInboxFacade()
+    {
+        // A bootstrap-degraded runtime has no store and must fall back to the null-object inbox
+        // facade so the title stage never observes a null inbox or a half-built production one.
+        using var runtime = CrashReportRuntime.CreateBestEffort(
+            new StringWriter(),
+            storeFactory: () => throw new UnauthorizedAccessException("denied"));
+
+        Assert.False(runtime.IsCaptureEnabled);
+        Assert.Same(EmptyCrashReportInbox.Instance, runtime.GameDiagnostics.CrashReportInbox);
+    }
+
+    [Fact]
+    public void GameDiagnostics_WhenConstructedDirectlyWithoutStore_ShouldExposeEmptyCrashReportInboxFacade()
+    {
+        // The internal constructor path used by tests/disabled construction also exposes the
+        // facade whenever no store is wired, matching the bootstrap-degraded behavior.
+        using var runtime = new CrashReportRuntime(
+            Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance,
+            crashLogBufferProvider: null,
+            crashBreadcrumbBuffer: null,
+            crashContextSnapshotStore: null,
+            crashReportStore: null,
+            new StringWriter());
+
+        Assert.False(runtime.IsCaptureEnabled);
+        Assert.Same(EmptyCrashReportInbox.Instance, runtime.GameDiagnostics.CrashReportInbox);
+    }
+
+    [Fact]
     public void Constructor_WithNullLoggerFactory_ShouldThrow()
     {
         Assert.Throws<ArgumentNullException>(() => new CrashReportRuntime(

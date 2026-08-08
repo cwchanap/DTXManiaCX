@@ -39,10 +39,22 @@ public sealed class CrashReportRuntime : ICrashRuntimeLifetime
         _crashContextSnapshotStore = crashContextSnapshotStore;
         _crashReportStore = crashReportStore;
         _errorWriter = errorWriter ?? throw new ArgumentNullException(nameof(errorWriter));
+
+        // Compose the production crash-report inbox HERE ONLY: it binds the runtime-owned store
+        // (so the open-directory handoff target is store.RootPath and cannot diverge) to the
+        // deterministic GitHub issue builder and the cross-platform external launcher. The
+        // bootstrap-degraded path (no store) exposes the null-object facade. Only the
+        // ICrashReportInbox contract leaves the runtime — never the store, launcher, parser,
+        // root path, or lifetime.
+        ICrashReportInbox crashReportInbox = _crashReportStore is null
+            ? EmptyCrashReportInbox.Instance
+            : new CrashReportInbox(_crashReportStore, new ExternalLauncher());
+
         _gameDiagnostics = new GameCrashDiagnostics(
             _loggerFactory,
             _crashBreadcrumbBuffer,
-            _crashContextSnapshotStore);
+            _crashContextSnapshotStore,
+            crashReportInbox);
         IsCaptureEnabled = _crashLogBufferProvider is not null
             && _crashBreadcrumbBuffer is not null
             && _crashContextSnapshotStore is not null
@@ -257,7 +269,8 @@ public sealed class CrashReportRuntime : ICrashRuntimeLifetime
         internal GameCrashDiagnostics(
             ILoggerFactory loggerFactory,
             CrashBreadcrumbBuffer? breadcrumbs,
-            CrashContextSnapshotStore? contexts)
+            CrashContextSnapshotStore? contexts,
+            ICrashReportInbox crashReportInbox)
         {
             LoggerFactory = loggerFactory;
             Breadcrumbs = breadcrumbs is null
@@ -269,6 +282,7 @@ public sealed class CrashReportRuntime : ICrashRuntimeLifetime
             SensitiveData = contexts is null
                 ? EmptyCrashSensitiveDataSink.Instance
                 : contexts;
+            CrashReportInbox = crashReportInbox ?? throw new ArgumentNullException(nameof(crashReportInbox));
         }
 
         public ILoggerFactory LoggerFactory { get; }
@@ -278,5 +292,9 @@ public sealed class CrashReportRuntime : ICrashRuntimeLifetime
         public ICrashContextSink Contexts { get; }
 
         public ICrashSensitiveDataSink SensitiveData { get; }
+
+        // Overrides the IGameCrashDiagnostics default facade with the runtime-composed inbox
+        // (production when capture is enabled, EmptyCrashReportInbox when bootstrap-degraded).
+        public ICrashReportInbox CrashReportInbox { get; }
     }
 }

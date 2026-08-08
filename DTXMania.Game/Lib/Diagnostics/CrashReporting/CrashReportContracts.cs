@@ -108,6 +108,16 @@ public interface IGameCrashDiagnostics
     ICrashBreadcrumbSink Breadcrumbs { get; }
     ICrashContextSink Contexts { get; }
     ICrashSensitiveDataSink SensitiveData { get; }
+
+    /// <summary>
+    /// The crash-report inbox the title stage surfaces to the player. Exposes only the
+    /// <see cref="ICrashReportInbox"/> contract: never the store, launcher, parser, root path,
+    /// or runtime lifetime. The default facade is the null-object inbox so diagnostics stubs
+    /// that do not override this member remain valid; the production runtime overrides it with
+    /// the composed inbox when crash capture is enabled, and falls back to the facade when
+    /// bootstrap-degraded.
+    /// </summary>
+    ICrashReportInbox CrashReportInbox => EmptyCrashReportInbox.Instance;
 }
 
 public sealed class EmptyCrashBreadcrumbSink : ICrashBreadcrumbSink
