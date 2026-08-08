@@ -122,9 +122,14 @@ internal sealed class CrashReportSummaryReader
                         break;
                     }
 
+                    // The normal writer emits a blank line immediately after the metadata
+                    // block and before --- EXCEPTION ---. Treat that first blank line as the
+                    // header boundary so a missing/corrupted exception marker cannot let body
+                    // content (e.g. another "BuildId: ..." line) overwrite the genuine header
+                    // value and subsequently leak into the title UI or prefilled GitHub issue.
                     if (line.Length == 0)
                     {
-                        continue;
+                        break;
                     }
 
                     ParseField(line, fields);
