@@ -33,10 +33,12 @@ internal sealed class CrashReportStore
     private const int MaximumRetainedReports = 5;
     private static readonly TimeSpan TemporaryFileLifetime = TimeSpan.FromHours(24);
 
-    // crash-<yyyyMMdd>-<HHmmss>Z-<hex>. The leading timestamp makes an ordinal sort
-    // chronological, which is all retention needs — no need to open the files.
-    private static readonly Regex ReportFileNameRegex = new(
-        """\Acrash-\d{8}-\d{6}Z-[0-9a-f]{6}\.txt\z""",
+    // One retained-name policy shared by discovery, retention, acknowledgement, and delete.
+    // Accepts both the pending "crash-<date>-<time>Z-<hex>.txt" name and its acknowledged
+    // "crash-<date>-<time>Z-<hex>.ack.txt" twin. The leading timestamp makes an ordinal
+    // sort chronological, which is all retention/discovery ordering needs — no body reads.
+    internal static readonly Regex RetainedReportFileNameRegex = new(
+        """\Acrash-\d{8}-\d{6}Z-[0-9a-f]{6}(?:\.ack)?\.txt\z""",
         RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
         TimeSpan.FromMilliseconds(100));
 
@@ -44,6 +46,14 @@ internal sealed class CrashReportStore
     private readonly ICrashReportArtifactWriter _writer;
     private readonly TimeProvider _timeProvider;
     private readonly TextWriter _errorWriter;
+    private readonly CrashReportSummaryReader _summaryReader = new();
+
+    internal string RootPath => _rootPath;
+
+    internal static bool IsRetainedReport(string fileName)
+    {
+        return RetainedReportFileNameRegex.IsMatch(Path.GetFileName(fileName));
+    }
 
     internal CrashReportStore(
         string rootPath,
@@ -111,20 +121,182 @@ internal sealed class CrashReportStore
                 }
             }
 
-            var staleReports = Directory
+            // Latest-five retention operates on LOGICAL report ids: a pending/ack pair for
+            // one id counts as a single report, and stale ids have all of their variants deleted.
+            var retained = Directory
                 .EnumerateFiles(_rootPath, "*", SearchOption.TopDirectoryOnly)
-                .Where(static path => ReportFileNameRegex.IsMatch(Path.GetFileName(path)))
-                .OrderByDescending(Path.GetFileName, StringComparer.OrdinalIgnoreCase)
-                .Skip(MaximumRetainedReports);
+                .Where(static path => RetainedReportFileNameRegex.IsMatch(Path.GetFileName(path)))
+                .Select(static path =>
+                    new RetainedEntry(path, CrashReportSummaryReader.GetLogicalReportId(Path.GetFileName(path))))
+                .ToList();
 
-            foreach (var path in staleReports)
+            if (retained.Count <= MaximumRetainedReports)
             {
-                File.Delete(path);
+                return;
+            }
+
+            var staleIds = retained
+                .Select(static entry => entry.LogicalId)
+                .Distinct(StringComparer.Ordinal)
+                .OrderByDescending(static id => id, StringComparer.Ordinal)
+                .Skip(MaximumRetainedReports)
+                .ToHashSet(StringComparer.Ordinal);
+
+            foreach (var entry in retained)
+            {
+                if (staleIds.Contains(entry.LogicalId))
+                {
+                    File.Delete(entry.Path);
+                }
             }
         }
         catch (Exception exception) when (IsExpectedFileSystemException(exception))
         {
             WriteSafeError("crash_report_cleanup_failed");
+        }
+    }
+
+    internal IReadOnlyList<CrashReportInboxItem> DiscoverReports()
+    {
+        var results = new List<CrashReportInboxItem>();
+
+        try
+        {
+            if (!Directory.Exists(_rootPath))
+            {
+                return results;
+            }
+        }
+        catch (Exception exception) when (IsExpectedFileSystemException(exception))
+        {
+            return results;
+        }
+
+        var groups = new Dictionary<string, LogicalReportGroup>(StringComparer.Ordinal);
+        try
+        {
+            foreach (var path in Directory.EnumerateFiles(_rootPath, "*", SearchOption.TopDirectoryOnly))
+            {
+                string fileName;
+                try
+                {
+                    fileName = Path.GetFileName(path);
+                }
+                catch (Exception exception) when (IsExpectedFileSystemException(exception))
+                {
+                    continue;
+                }
+
+                if (!RetainedReportFileNameRegex.IsMatch(fileName))
+                {
+                    continue;
+                }
+
+                var logicalId = CrashReportSummaryReader.GetLogicalReportId(fileName);
+                if (string.IsNullOrEmpty(logicalId))
+                {
+                    continue;
+                }
+
+                if (!groups.TryGetValue(logicalId, out var group))
+                {
+                    group = new LogicalReportGroup(logicalId);
+                    groups[logicalId] = group;
+                }
+
+                if (fileName.EndsWith(".ack" + ReportExtension, StringComparison.OrdinalIgnoreCase))
+                {
+                    group.AcknowledgedPath ??= path;
+                }
+                else
+                {
+                    group.PendingPath ??= path;
+                }
+            }
+        }
+        catch (Exception exception) when (IsExpectedFileSystemException(exception))
+        {
+            return results;
+        }
+
+        // Order by logical id (filename), newest first — never by reading the report body.
+        foreach (var group in groups.Values.OrderByDescending(static group => group.LogicalId, StringComparer.Ordinal))
+        {
+            var physicalPath = group.PendingPath ?? group.AcknowledgedPath;
+            if (physicalPath is null)
+            {
+                continue;
+            }
+
+            // Pending wins while both variants exist.
+            var isAcknowledged = group.PendingPath is null;
+
+            CrashReportSummary summary;
+            try
+            {
+                summary = _summaryReader.Read(physicalPath);
+            }
+            catch (Exception exception) when (IsExpectedFileSystemException(exception))
+            {
+                continue;
+            }
+
+            results.Add(new CrashReportInboxItem(summary, isAcknowledged));
+        }
+
+        return results;
+    }
+
+    internal CrashReportActionResult Acknowledge(string reportId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(reportId);
+
+        try
+        {
+            var pendingPath = Path.Combine(_rootPath, reportId + ReportExtension);
+            var acknowledgedPath = Path.Combine(_rootPath, reportId + ".ack" + ReportExtension);
+
+            // Already-acknowledged (or never captured) reports are an idempotent success.
+            if (!File.Exists(pendingPath))
+            {
+                return new CrashReportActionResult(Succeeded: true);
+            }
+
+            File.Move(pendingPath, acknowledgedPath, overwrite: true);
+            return new CrashReportActionResult(Succeeded: true);
+        }
+        catch (Exception exception) when (IsExpectedFileSystemException(exception))
+        {
+            WriteSafeError("crash_report_acknowledge_failed");
+            return new CrashReportActionResult(Succeeded: false, ErrorCode: "acknowledge_io_failure");
+        }
+    }
+
+    internal CrashReportActionResult DeleteReport(string reportId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(reportId);
+
+        try
+        {
+            var pendingPath = Path.Combine(_rootPath, reportId + ReportExtension);
+            var acknowledgedPath = Path.Combine(_rootPath, reportId + ".ack" + ReportExtension);
+
+            if (File.Exists(pendingPath))
+            {
+                File.Delete(pendingPath);
+            }
+
+            if (File.Exists(acknowledgedPath))
+            {
+                File.Delete(acknowledgedPath);
+            }
+
+            return new CrashReportActionResult(Succeeded: true);
+        }
+        catch (Exception exception) when (IsExpectedFileSystemException(exception))
+        {
+            WriteSafeError("crash_report_delete_failed");
+            return new CrashReportActionResult(Succeeded: false, ErrorCode: "delete_io_failure");
         }
     }
 
@@ -300,4 +472,18 @@ internal sealed class CrashReportStore
         {
         }
     }
+
+    private sealed class LogicalReportGroup
+    {
+        internal string LogicalId { get; }
+        internal string? PendingPath { get; set; }
+        internal string? AcknowledgedPath { get; set; }
+
+        internal LogicalReportGroup(string logicalId)
+        {
+            LogicalId = logicalId;
+        }
+    }
+
+    private readonly record struct RetainedEntry(string Path, string LogicalId);
 }

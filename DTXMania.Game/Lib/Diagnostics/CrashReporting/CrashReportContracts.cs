@@ -34,6 +34,46 @@ public sealed record CrashReportSummary(
     string ExceptionType,
     string FileName);
 
+public sealed record CrashReportInboxItem(
+    CrashReportSummary Summary,
+    bool IsAcknowledged);
+
+public readonly record struct CrashReportActionResult(
+    bool Succeeded,
+    string? ErrorCode = null);
+
+public interface ICrashReportInbox
+{
+    IReadOnlyList<CrashReportInboxItem> GetReports();
+
+    CrashReportActionResult OpenGitHubIssue(string reportId);
+
+    CrashReportActionResult OpenReportFolder(string reportId);
+
+    CrashReportActionResult Dismiss(string reportId);
+
+    CrashReportActionResult Delete(string reportId);
+}
+
+public sealed class EmptyCrashReportInbox : ICrashReportInbox
+{
+    public static EmptyCrashReportInbox Instance { get; } = new();
+
+    private EmptyCrashReportInbox()
+    {
+    }
+
+    public IReadOnlyList<CrashReportInboxItem> GetReports() => Array.Empty<CrashReportInboxItem>();
+
+    public CrashReportActionResult OpenGitHubIssue(string reportId) => new(Succeeded: true);
+
+    public CrashReportActionResult OpenReportFolder(string reportId) => new(Succeeded: true);
+
+    public CrashReportActionResult Dismiss(string reportId) => new(Succeeded: true);
+
+    public CrashReportActionResult Delete(string reportId) => new(Succeeded: true);
+}
+
 public sealed record CrashContextSnapshot(
     CrashContextKind Kind,
     CrashContextStatus Status,
