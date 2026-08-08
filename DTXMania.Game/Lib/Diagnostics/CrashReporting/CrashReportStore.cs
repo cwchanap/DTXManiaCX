@@ -123,6 +123,7 @@ internal sealed class CrashReportStore
 
             // Latest-five retention operates on LOGICAL report ids: a pending/ack pair for
             // one id counts as a single report, and stale ids have all of their variants deleted.
+            // Comparison is case-insensitive to match the case-insensitive retained-name regex.
             var retained = Directory
                 .EnumerateFiles(_rootPath, "*", SearchOption.TopDirectoryOnly)
                 .Where(static path => RetainedReportFileNameRegex.IsMatch(Path.GetFileName(path)))
@@ -137,10 +138,10 @@ internal sealed class CrashReportStore
 
             var staleIds = retained
                 .Select(static entry => entry.LogicalId)
-                .Distinct(StringComparer.Ordinal)
-                .OrderByDescending(static id => id, StringComparer.Ordinal)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderByDescending(static id => id, StringComparer.OrdinalIgnoreCase)
                 .Skip(MaximumRetainedReports)
-                .ToHashSet(StringComparer.Ordinal);
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
             foreach (var entry in retained)
             {
@@ -172,7 +173,9 @@ internal sealed class CrashReportStore
             return results;
         }
 
-        var groups = new Dictionary<string, LogicalReportGroup>(StringComparer.Ordinal);
+        // Keyed case-insensitively so mixed-case variants of one logical id collapse into a
+        // single group, matching the case-insensitive retained-name regex.
+        var groups = new Dictionary<string, LogicalReportGroup>(StringComparer.OrdinalIgnoreCase);
         try
         {
             foreach (var path in Directory.EnumerateFiles(_rootPath, "*", SearchOption.TopDirectoryOnly))
@@ -220,7 +223,8 @@ internal sealed class CrashReportStore
         }
 
         // Order by logical id (filename), newest first — never by reading the report body.
-        foreach (var group in groups.Values.OrderByDescending(static group => group.LogicalId, StringComparer.Ordinal))
+        // Case-insensitive so the ordering agrees with the case-insensitive grouping above.
+        foreach (var group in groups.Values.OrderByDescending(static group => group.LogicalId, StringComparer.OrdinalIgnoreCase))
         {
             var physicalPath = group.PendingPath ?? group.AcknowledgedPath;
             if (physicalPath is null)
@@ -253,16 +257,47 @@ internal sealed class CrashReportStore
 
         try
         {
-            var pendingPath = Path.Combine(_rootPath, reportId + ReportExtension);
-            var acknowledgedPath = Path.Combine(_rootPath, reportId + ".ack" + ReportExtension);
+            // Resolve the ACTUAL physical variants on disk rather than reconstructing a path
+            // from the report id: on a case-sensitive volume the on-disk name may not share
+            // the caller's casing, so enumerate and match by logical id (case-insensitively,
+            // like the retained-name regex). On-disk names are left whatever they are.
+            string? pendingPath = null;
+            string? acknowledgedPath = null;
+
+            if (Directory.Exists(_rootPath))
+            {
+                foreach (var path in EnumerateRetainedVariants(reportId))
+                {
+                    var fileName = Path.GetFileName(path);
+                    if (fileName.EndsWith(".ack" + ReportExtension, StringComparison.OrdinalIgnoreCase))
+                    {
+                        acknowledgedPath ??= path;
+                    }
+                    else
+                    {
+                        pendingPath ??= path;
+                    }
+                }
+            }
 
             // Already-acknowledged (or never captured) reports are an idempotent success.
-            if (!File.Exists(pendingPath))
+            if (pendingPath is null)
             {
                 return new CrashReportActionResult(Succeeded: true);
             }
 
-            File.Move(pendingPath, acknowledgedPath, overwrite: true);
+            // Derive the ack twin from the pending file's actual on-disk name so its casing is
+            // preserved (insert ".ack" before the final extension).
+            var pendingName = Path.GetFileName(pendingPath);
+            var lastDot = pendingName.LastIndexOf('.');
+            var destination = acknowledgedPath
+                ?? Path.Combine(
+                    _rootPath,
+                    lastDot >= 0
+                        ? pendingName[..lastDot] + ".ack" + pendingName[lastDot..]
+                        : pendingName + ".ack" + ReportExtension);
+
+            File.Move(pendingPath, destination, overwrite: true);
             return new CrashReportActionResult(Succeeded: true);
         }
         catch (Exception exception) when (IsExpectedFileSystemException(exception))
@@ -278,17 +313,16 @@ internal sealed class CrashReportStore
 
         try
         {
-            var pendingPath = Path.Combine(_rootPath, reportId + ReportExtension);
-            var acknowledgedPath = Path.Combine(_rootPath, reportId + ".ack" + ReportExtension);
-
-            if (File.Exists(pendingPath))
+            if (!Directory.Exists(_rootPath))
             {
-                File.Delete(pendingPath);
+                return new CrashReportActionResult(Succeeded: true);
             }
 
-            if (File.Exists(acknowledgedPath))
+            // Delete every physical variant whose logical id matches, regardless of on-disk
+            // casing (a pending/ack pair for one logical id is removed together).
+            foreach (var path in EnumerateRetainedVariants(reportId))
             {
-                File.Delete(acknowledgedPath);
+                File.Delete(path);
             }
 
             return new CrashReportActionResult(Succeeded: true);
@@ -297,6 +331,40 @@ internal sealed class CrashReportStore
         {
             WriteSafeError("crash_report_delete_failed");
             return new CrashReportActionResult(Succeeded: false, ErrorCode: "delete_io_failure");
+        }
+    }
+
+    /// <summary>
+    /// Enumerates retained report files whose logical id matches <paramref name="reportId"/>
+    /// using case-insensitive comparison, so physical variants are found regardless of on-disk
+    /// casing (correct on case-sensitive as well as case-insensitive volumes).
+    /// </summary>
+    private IEnumerable<string> EnumerateRetainedVariants(string reportId)
+    {
+        foreach (var path in Directory.EnumerateFiles(_rootPath, "*", SearchOption.TopDirectoryOnly))
+        {
+            string fileName;
+            try
+            {
+                fileName = Path.GetFileName(path);
+            }
+            catch (Exception exception) when (IsExpectedFileSystemException(exception))
+            {
+                continue;
+            }
+
+            if (!RetainedReportFileNameRegex.IsMatch(fileName))
+            {
+                continue;
+            }
+
+            if (string.Equals(
+                    CrashReportSummaryReader.GetLogicalReportId(fileName),
+                    reportId,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                yield return path;
+            }
         }
     }
 

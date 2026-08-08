@@ -385,7 +385,9 @@ namespace DTXMania.Game.Lib.Stage
         {
             for (int i = 0; i < reports.Count; i++)
             {
-                if (string.Equals(reports[i].Summary.ReportId, reportId, StringComparison.Ordinal))
+                // Case-insensitive: a refreshed snapshot's id casing follows the on-disk name,
+                // which need not match the previously selected id on a case-sensitive volume.
+                if (string.Equals(reports[i].Summary.ReportId, reportId, StringComparison.OrdinalIgnoreCase))
                 {
                     return i;
                 }
@@ -465,10 +467,11 @@ namespace DTXMania.Game.Lib.Stage
             }
 
             // Deterministic ascending order by capture time then id, so "newest" is always the last
-            // element regardless of how the store enumerates the directory.
+            // element regardless of how the store enumerates the directory. The id tiebreaker is
+            // case-insensitive to match the case-insensitive retained-name contract.
             return raw
                 .OrderBy(item => item.Summary.CapturedAtUtc)
-                .ThenBy(item => item.Summary.ReportId, StringComparer.Ordinal)
+                .ThenBy(item => item.Summary.ReportId, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
         }
 

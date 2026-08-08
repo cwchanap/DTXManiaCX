@@ -105,7 +105,9 @@ internal sealed class CrashReportInbox : ICrashReportInbox
         ArgumentException.ThrowIfNullOrWhiteSpace(reportId);
         foreach (var item in _store.DiscoverReports())
         {
-            if (string.Equals(item.Summary.ReportId, reportId, StringComparison.Ordinal))
+            // Case-insensitive so the caller's id casing need not match the on-disk name;
+            // matches the case-insensitive retained-name contract.
+            if (string.Equals(item.Summary.ReportId, reportId, StringComparison.OrdinalIgnoreCase))
             {
                 return item.Summary;
             }

@@ -483,6 +483,108 @@ public sealed class CrashReportStoreTests
         return Path.Combine(rootPath, reportId + ".ack" + CrashReportStore.ReportExtension);
     }
 
+    // Writes a minimal valid crash-report file under an arbitrary (possibly mixed-case) name, so
+    // the case-insensitive contract can be exercised directly. On a case-insensitive volume two
+    // names that differ only by extension coexist; the logical layer must still treat variants
+    // of one logical id as a single report.
+    private static string WriteReport(string rootPath, string fileName)
+    {
+        var path = Path.Combine(rootPath, fileName);
+        File.WriteAllText(path, MinimalReportBody());
+        return path;
+    }
+
+    private static string MinimalReportBody()
+    {
+        // Valid header so the summary reader populates the filename-derived id and timestamp;
+        // no named fields, so everything else falls back to "Unknown".
+        return CrashReportTextWriter.Header + "\n\n" + CrashReportTextWriter.ExceptionSection + "\n";
+    }
+
+    [Fact]
+    public void DiscoverReports_WithMixedCasePendingAndAckTwins_ShouldGroupAsOneLogicalReport()
+    {
+        using var fixture = CrashStoreFixture.Create();
+        // A mixed-case pending twin and a lowercase ack twin whose logical ids are equal only
+        // under case-insensitive comparison: they must collapse into ONE logical report, with
+        // the pending variant winning.
+        WriteReport(fixture.RootPath, "CRASH-20260806-123456Z-A1B2C3.TXT");
+        WriteReport(fixture.RootPath, "crash-20260806-123456z-a1b2c3.ack.txt");
+
+        var items = fixture.CreateStore().DiscoverReports();
+
+        var item = Assert.Single(items);
+        Assert.False(item.IsAcknowledged);
+    }
+
+    [Fact]
+    public void Acknowledge_WithMixedCaseOnDiskName_ShouldResolveByLogicalIdAndPreserveCase()
+    {
+        using var fixture = CrashStoreFixture.Create();
+        var pendingPath = WriteReport(fixture.RootPath, "CRASH-20260806-123456Z-A1B2C3.TXT");
+
+        // Pass a logical id whose casing differs from the on-disk name; resolution must be
+        // case-insensitive (enumerate + match), not a case-sensitive path reconstruction.
+        var result = fixture.CreateStore().Acknowledge("crash-20260806-123456z-a1b2c3");
+
+        Assert.True(result.Succeeded);
+        Assert.Null(result.ErrorCode);
+        Assert.False(File.Exists(pendingPath));
+        // The ack twin is derived from the pending file's actual on-disk name (".ack" inserted
+        // before the final extension), so its casing is preserved rather than reconstructed.
+        var ackFiles = Directory.EnumerateFiles(fixture.RootPath)
+            .Where(static p => Path.GetFileName(p)
+                .EndsWith(".ack" + CrashReportStore.ReportExtension, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        var ackFile = Assert.Single(ackFiles);
+        Assert.Equal("CRASH-20260806-123456Z-A1B2C3.ack.TXT", Path.GetFileName(ackFile));
+    }
+
+    [Fact]
+    public void DeleteReport_WithMixedCaseOnDiskNames_ShouldRemoveEveryPhysicalVariant()
+    {
+        using var fixture = CrashStoreFixture.Create();
+        var pendingPath = WriteReport(fixture.RootPath, "CRASH-20260806-123456Z-A1B2C3.TXT");
+        WriteReport(fixture.RootPath, "crash-20260806-123456z-a1b2c3.ack.txt");
+
+        var result = fixture.CreateStore().DeleteReport("crash-20260806-123456z-a1b2c3");
+
+        Assert.True(result.Succeeded);
+        Assert.False(File.Exists(pendingPath));
+        Assert.Empty(Directory.EnumerateFiles(fixture.RootPath));
+    }
+
+    [Fact]
+    public void Cleanup_WithMixedCasePendingAckPair_ShouldCountAsOneLogicalReport()
+    {
+        using var fixture = CrashStoreFixture.Create();
+        var store = fixture.CreateStore();
+
+        var ids = new List<string>();
+        for (var index = 0; index < 6; index++)
+        {
+            ids.Add(store.Capture(fixture.CreateCapture(index)).Report!.ReportId);
+            fixture.Clock.Advance(TimeSpan.FromMinutes(1));
+        }
+
+        // A mixed-case ack twin for the newest logical id (case-insensitively equal to its
+        // pending sibling): 7 physical files, still only 6 logical reports.
+        WriteReport(fixture.RootPath, ids[5].ToUpperInvariant() + ".ACK.TXT");
+
+        store.Cleanup();
+
+        var discovered = store.DiscoverReports();
+        Assert.Equal(5, discovered.Count);
+        // Oldest logical id is pruned; the mixed-case pair counts as ONE so the second-oldest
+        // survives (a case-sensitive count would have pruned two logical ids instead).
+        Assert.False(discovered.Any(item => string.Equals(
+            item.Summary.ReportId, ids[0], StringComparison.OrdinalIgnoreCase)));
+        Assert.True(discovered.Any(item => string.Equals(
+            item.Summary.ReportId, ids[1], StringComparison.OrdinalIgnoreCase)));
+        Assert.True(discovered.Any(item => string.Equals(
+            item.Summary.ReportId, ids[5], StringComparison.OrdinalIgnoreCase)));
+    }
+
     private sealed class CrashStoreFixture : IDisposable
     {
         private CrashStoreFixture()
