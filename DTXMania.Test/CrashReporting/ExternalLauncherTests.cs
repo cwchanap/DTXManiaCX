@@ -143,6 +143,35 @@ public sealed class ExternalLauncherTests
     }
 
     [Fact]
+    public void LaunchUri_OnMacWhenProcessDoesNotExitWithinTheBoundedWait_ShouldReturnStableTimeoutCode()
+    {
+        // The starter is the launcher test seam: simulate a macOS `open` that does not return
+        // within the bounded wait by reporting a timed-out attempt. No real process is spun up,
+        // so the test stays fast and platform-independent.
+        var launcher = new ExternalLauncher(
+            platform: () => LauncherPlatform.Mac,
+            starter: _ => new ExternalLaunchAttempt(Started: true, ExitCode: 0, TimedOut: true));
+
+        var result = launcher.LaunchUri(new Uri(GitHubTarget));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("launch_timeout", result.ErrorCode);
+    }
+
+    [Fact]
+    public void LaunchFolder_OnMacWhenTimedOut_ShouldReturnStableTimeoutCode()
+    {
+        var launcher = new ExternalLauncher(
+            platform: () => LauncherPlatform.Mac,
+            starter: _ => new ExternalLaunchAttempt(true, 0, TimedOut: true));
+
+        var result = launcher.LaunchFolder("/tmp/crash-root");
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("launch_timeout", result.ErrorCode);
+    }
+
+    [Fact]
     public void LaunchUri_OnMacWithZeroExit_ShouldSucceed()
     {
         var launcher = new ExternalLauncher(

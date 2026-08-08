@@ -428,7 +428,8 @@ namespace DTXMania.Game.Lib.Stage
             {
                 "report_not_found" => "Report no longer available.",
                 "launch_platform_unsupported" => "Cannot open on this platform.",
-                "launch_start_failed" or "launch_process_null" or "launch_nonzero_exit" =>
+                "launch_start_failed" or "launch_process_null" or "launch_nonzero_exit"
+                    or "launch_timeout" =>
                     "Could not open the external handler.",
                 "acknowledge_io_failure" => "Could not save acknowledgement.",
                 "delete_io_failure" => "Could not delete the report file.",
