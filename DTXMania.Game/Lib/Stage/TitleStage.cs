@@ -59,6 +59,11 @@ namespace DTXMania.Game.Lib.Stage
         private bool _isMovingUp = false;
         private bool _isMovingDown = false;
 
+        // Crash-report inbox notification. Stage-owned state (component); the inbox/runtime it
+        // references is process-owned, so only this field reference is dropped on deactivation/
+        // disposal. Created on activate after resources are available.
+        private CrashReportNotification _crashReportNotification;
+
         #endregion
 
         #region Properties
@@ -144,6 +149,26 @@ namespace DTXMania.Game.Lib.Stage
             _previousMouseState = Mouse.GetState();
             _currentMouseState = Mouse.GetState();
 
+            // Create the crash-report notification after title resources are available. The inbox
+            // itself is process-owned (forwarded by the game); the component holds only a snapshot
+            // and stage-owned UI state. The construction performs a bounded filesystem snapshot, so
+            // it is attributed to its own critical-path aggregate rather than showing as unattributed
+            // title-activation time.
+            var crashInboxTrace = ResolveCriticalPathTrace();
+            TryBeginAggregate(
+                crashInboxTrace,
+                StartupCriticalPathAggregate.TitleCrashInbox);
+            try
+            {
+                _crashReportNotification = new CrashReportNotification(_game.CrashReportInbox);
+            }
+            finally
+            {
+                TryEndAggregate(
+                    crashInboxTrace,
+                    StartupCriticalPathAggregate.TitleCrashInbox);
+            }
+
             System.Diagnostics.Debug.WriteLine("Title Stage activated successfully");
         }
 
@@ -169,6 +194,20 @@ namespace DTXMania.Game.Lib.Stage
             // Handle input
             if (_titlePhase == TitlePhase.Normal && _currentPhase == StagePhase.Normal)
             {
+                // The crash-report notification owns input for the frame when its panel is open or
+                // it just opened (F8/banner click). This MUST run before the title's HandleInput(),
+                // whose Back-action path calls RequestExit(): an open panel's Back/Escape must close
+                // the panel and must never reach RequestExit() in the same frame.
+                if (_crashReportNotification?.HandleInput(
+                        _currentKeyboardState,
+                        _previousKeyboardState,
+                        _game.InputManager,
+                        _game.MapMouseToVirtual(_currentMouseState.Position),
+                        IsMouseButtonPressed(MouseButton.Left)) == true)
+                {
+                    return;
+                }
+
                 HandleInput();
                 HandleMouseInput();
             }
@@ -199,6 +238,10 @@ namespace DTXMania.Game.Lib.Stage
             // Draw menu
             DrawMenu();
 
+            // Draw the crash-report notification (banner/panel) after the menu, reusing the title's
+            // SpriteBatch/font/white-pixel. The component owns its own geometry.
+            _crashReportNotification?.Draw(_spriteBatch, _versionFont, _whitePixel);
+
             _spriteBatch.End();
         }
 
@@ -217,6 +260,10 @@ namespace DTXMania.Game.Lib.Stage
             _previousMouseState = default;
             _currentMouseState = default;
             _hoveredMenuIndex = -1;
+
+            // Drop only the stage-owned notification reference; the runtime/inbox it forwards is
+            // process-owned and must survive title deactivation.
+            _crashReportNotification = null;
         }
 
         protected override void OnTransitionInStarted(IStageTransition transition)
@@ -271,6 +318,10 @@ namespace DTXMania.Game.Lib.Stage
                 _cursorMoveSound = null;
                 _selectSound = null;
                 _gameStartSound = null;
+
+                // Drop only the stage-owned notification reference; the inbox/runtime it forwards is
+                // process-owned and must outlive this stage instance.
+                _crashReportNotification = null;
             }
 
             base.Dispose(disposing);

@@ -1,5 +1,6 @@
 #nullable enable
 using DTXMania.Game.Lib.Config;
+using DTXMania.Game.Lib.Diagnostics.CrashReporting;
 using DTXMania.Game.Lib.Graphics;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Resources;
@@ -58,5 +59,14 @@ namespace DTXMania.Game.Lib.Stage
         /// a best-effort no-op.
         /// </summary>
         void ReportStartupSummaryAndTitleRequested() { }
+
+        /// <summary>
+        /// The crash-report inbox the title stage surfaces to the player. The default
+        /// implementation is the null-object facade so existing <see cref="IStageGame"/>
+        /// implementations and test stubs remain valid without modification; the concrete
+        /// <see cref="Game"/> (<c>BaseGame</c>) overrides this to forward the inbox wired into
+        /// its <see cref="IGameCrashDiagnostics"/>.
+        /// </summary>
+        ICrashReportInbox CrashReportInbox => EmptyCrashReportInbox.Instance;
     }
 }

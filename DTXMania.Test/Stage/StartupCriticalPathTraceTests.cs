@@ -50,10 +50,10 @@ public class StartupCriticalPathTraceTests
         "title_menu_ms=1 title_font_ms=1 title_cursor_sound_ms=1 title_decide_sound_ms=1 " +
         "title_game_start_sound_ms=1 title_game_start_fallback_ran=0 " +
         "title_game_start_fallback_ms=0 title_sound_load_count=3 " +
-        "title_activation_unattributed_ms=11 title_backbuffer_published=1";
+        "title_crash_inbox_ms=1 title_activation_unattributed_ms=10 title_backbuffer_published=1";
 
     [Fact]
-    public void Publish_WhenComplete_ShouldWriteExactEightyOneFieldLineAndFlushOnce()
+    public void Publish_WhenComplete_ShouldWriteExactEightyTwoFieldLineAndFlushOnce()
     {
         var fixture = CreateFixture();
         CompleteValidTrace(fixture);
@@ -65,7 +65,7 @@ public class StartupCriticalPathTraceTests
         Assert.Equal(ExpectedSuccessLine + "\n", writer.ToString());
         Assert.Equal(1, writer.FlushCount);
         var tokens = ExpectedSuccessLine.Split(' ');
-        Assert.Equal(82, tokens.Length);
+        Assert.Equal(83, tokens.Length);
         var parsedNames = tokens.Skip(1).Select(token => token[..token.IndexOf('=')]).ToArray();
         Assert.Equal(StartupCriticalPathTrace.SuccessFieldNames, parsedNames);
     }
@@ -572,6 +572,7 @@ public class StartupCriticalPathTraceTests
         Aggregate(fixture, StartupCriticalPathAggregate.TitleDecideSound, 97, 98);
         fixture.Trace.IncrementTitleSoundLoad();
         Aggregate(fixture, StartupCriticalPathAggregate.TitleGameStartSound, 98, 99);
+        Aggregate(fixture, StartupCriticalPathAggregate.TitleCrashInbox, 99, 100);
         ExactlyOnce(StartupCriticalPathMilestone.TitleActivateEnd, 110);
         FirstPair(
             StartupCriticalPathMilestone.TitleFirstUpdateBegin,
