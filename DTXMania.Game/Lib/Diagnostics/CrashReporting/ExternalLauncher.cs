@@ -174,7 +174,7 @@ internal sealed class ExternalLauncher : IExternalLauncher
         return new CrashReportActionResult(Succeeded: true);
     }
 
-    private static LauncherPlatform DefaultPlatform()
+    internal static LauncherPlatform DefaultPlatform()
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
@@ -189,7 +189,7 @@ internal sealed class ExternalLauncher : IExternalLauncher
         return LauncherPlatform.Unsupported;
     }
 
-    private static ExternalLaunchStarter CreateDefaultStarter(
+    internal static ExternalLaunchStarter CreateDefaultStarter(
         LauncherPlatformResolver platform,
         TimeSpan macLaunchTimeout)
     {
@@ -229,7 +229,7 @@ internal sealed class ExternalLauncher : IExternalLauncher
         };
     }
 
-    private static void BestEffortKill(Process process)
+    internal static void BestEffortKill(Process process)
     {
         // Best-effort cleanup of a timed-out process so it cannot linger; the launch has already
         // been reported as a timeout failure. Swallow the expected failures (process exited
@@ -243,7 +243,7 @@ internal sealed class ExternalLauncher : IExternalLauncher
         }
     }
 
-    private static bool IsLaunchException(Exception exception)
+    internal static bool IsLaunchException(Exception exception)
     {
         return exception is InvalidOperationException
             or Win32Exception

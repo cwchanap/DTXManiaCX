@@ -809,6 +809,178 @@ public sealed class CrashReportNotificationTests
     }
 
     // ---------------------------------------------------------------------------------------------
+    // PollPendingLaunch (production resolve path, not WaitForLaunchAndResolve)
+    // ---------------------------------------------------------------------------------------------
+
+    [Fact]
+    public void PollPendingLaunch_WhenTaskCompletesBetweenFrames_ShouldResolveOnNextHandleInput()
+    {
+        var (inboxMock, reports) = CreateInboxMock(Pending("report-1", capturedUtc: T(1)));
+        inboxMock.Setup(x => x.OpenGitHubIssue(It.IsAny<string>()))
+            .Returns(new CrashReportActionResult(Succeeded: true))
+            .Callback<string>(_ => SetReports(reports, AcknowledgedItem("report-1", capturedUtc: T(1))));
+        var notification = new CrashReportNotification(inboxMock.Object);
+        notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
+        FocusAction(notification, actionIndex: 0);
+
+        // Start the launch WITHOUT WaitForLaunchAndResolve so the pending task is observable.
+        notification.HandleInput(NoKeys, NoKeys, CreateInput(InputCommandType.Activate), null, false);
+        Assert.True(notification.IsLaunchPending);
+
+        // Spin-wait until the Task.Run has completed (the fake inbox is synchronous, but the
+        // thread-pool scheduling means it may not have executed yet).
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (notification.IsLaunchPending && DateTime.UtcNow < deadline)
+        {
+            // PollPendingLaunch is called at the start of HandleOpenInput; calling HandleInput
+            // while the panel is open exercises the poll path. Once the task completes, the
+            // poll resolves it.
+            notification.HandleInput(NoKeys, NoKeys, CreateInput(), null, false);
+        }
+
+        Assert.False(notification.IsLaunchPending);
+        Assert.True(notification.Reports[0].IsAcknowledged);
+        Assert.True(string.IsNullOrEmpty(notification.ErrorText));
+    }
+
+    [Fact]
+    public void PollPendingLaunch_WhenTaskNotYetCompleted_ShouldConsumeInputWithoutResolving()
+    {
+        var (inboxMock, reports) = CreateInboxMock(Pending("report-1", capturedUtc: T(1)));
+        // A slow inbox action that blocks long enough for the poll to see it as not-yet-completed.
+        inboxMock.Setup(x => x.OpenGitHubIssue(It.IsAny<string>()))
+            .Callback<string>(_ => System.Threading.Thread.Sleep(500))
+            .Returns(new CrashReportActionResult(Succeeded: true));
+        var notification = new CrashReportNotification(inboxMock.Object);
+        notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
+        FocusAction(notification, actionIndex: 0);
+
+        // Start the launch — the Task.Run offload means the action is in flight.
+        notification.HandleInput(NoKeys, NoKeys, CreateInput(InputCommandType.Activate), null, false);
+        Assert.True(notification.IsLaunchPending);
+
+        // While the launch is in flight, HandleInput must consume (panel owns input) but must
+        // NOT start a new action and must NOT resolve the pending task.
+        var consumed = notification.HandleInput(
+            NoKeys, NoKeys, CreateInput(InputCommandType.Activate), null, false);
+
+        Assert.True(consumed);
+        Assert.True(notification.IsLaunchPending); // still in flight
+
+        // Clean up: resolve the pending task so the test does not leave a dangling background thread.
+        notification.WaitForLaunchAndResolve();
+        Assert.False(notification.IsLaunchPending);
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // WaitForLaunchAndResolve exception path
+    // ---------------------------------------------------------------------------------------------
+
+    [Fact]
+    public void WaitForLaunchAndResolve_WhenTaskThrows_ShouldMapToUnexpectedFailure()
+    {
+        var (inboxMock, reports) = CreateInboxMock(Pending("report-1", capturedUtc: T(1)));
+        inboxMock.Setup(x => x.OpenGitHubIssue(It.IsAny<string>()))
+            .Throws(new InvalidOperationException("inbox bug"));
+        var notification = new CrashReportNotification(inboxMock.Object);
+        notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
+        FocusAction(notification, actionIndex: 0);
+
+        // Start the launch — the Task.Run will fault because the inbox throws.
+        notification.HandleInput(NoKeys, NoKeys, CreateInput(InputCommandType.Activate), null, false);
+        Assert.True(notification.IsLaunchPending);
+
+        // WaitForLaunchAndResolve catches the faulted task and maps it to the stable code.
+        notification.WaitForLaunchAndResolve();
+
+        Assert.False(notification.IsLaunchPending);
+        Assert.Equal("Unexpected inbox error.", notification.ErrorText);
+        Assert.False(notification.Reports[0].IsAcknowledged);
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // InvokeLaunch re-entry guard
+    // ---------------------------------------------------------------------------------------------
+
+    [Fact]
+    public void InvokeLaunch_WhileLaunchInFlight_ShouldIgnoreReEntry()
+    {
+        var (inboxMock, reports) = CreateInboxMock(Pending("report-1", capturedUtc: T(1)));
+        var callCount = 0;
+        inboxMock.Setup(x => x.OpenGitHubIssue(It.IsAny<string>()))
+            .Callback<string>(_ =>
+            {
+                callCount++;
+                System.Threading.Thread.Sleep(300);
+            })
+            .Returns(new CrashReportActionResult(Succeeded: true));
+        var notification = new CrashReportNotification(inboxMock.Object);
+        notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
+        FocusAction(notification, actionIndex: 0);
+
+        // First Activate starts the launch.
+        notification.HandleInput(NoKeys, NoKeys, CreateInput(InputCommandType.Activate), null, false);
+        Assert.True(notification.IsLaunchPending);
+
+        // Second Activate while in flight must be consumed but NOT start a second launch.
+        notification.HandleInput(NoKeys, NoKeys, CreateInput(InputCommandType.Activate), null, false);
+        Assert.True(notification.IsLaunchPending);
+
+        notification.WaitForLaunchAndResolve();
+        Assert.Equal(1, callCount); // only one inbox call, re-entry was ignored
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // RefreshSnapshotPreservingSelection — selected report still present after refresh
+    // ---------------------------------------------------------------------------------------------
+
+    [Fact]
+    public void RefreshAfterAction_WhenSelectedReportStillPresent_ShouldKeepSelectionOnIt()
+    {
+        var (inboxMock, reports) = CreateInboxMock(
+            Pending("a", capturedUtc: T(1)),
+            Pending("b", capturedUtc: T(2)));
+        var notification = new CrashReportNotification(inboxMock.Object);
+        notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
+        // Default selection = newest pending = "b" at index 1.
+        Assert.Equal("b", notification.Reports[notification.SelectedIndex].Summary.ReportId);
+
+        // GitHub succeeds and the snapshot keeps both reports but "b" is now acknowledged.
+        inboxMock.Setup(x => x.OpenGitHubIssue(It.IsAny<string>()))
+            .Returns(new CrashReportActionResult(Succeeded: true))
+            .Callback<string>(_ => SetReports(reports,
+                AcknowledgedItem("a", capturedUtc: T(1)),
+                AcknowledgedItem("b", capturedUtc: T(2))));
+        FocusAction(notification, actionIndex: 0);
+        Activate(notification);
+
+        // Selection stays on "b" (it is still present, now acknowledged).
+        Assert.Equal("b", notification.Reports[notification.SelectedIndex].Summary.ReportId);
+        Assert.True(notification.Reports[notification.SelectedIndex].IsAcknowledged);
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // SetError with a short unknown code (Trim does not truncate)
+    // ---------------------------------------------------------------------------------------------
+
+    [Fact]
+    public void SetError_WithShortUnknownCode_ShouldUseCodeVerbatim()
+    {
+        const string shortCode = "custom_error";
+        var (inboxMock, reports) = CreateInboxMock(Pending("report-1", capturedUtc: T(1)));
+        inboxMock.Setup(x => x.OpenGitHubIssue(It.IsAny<string>()))
+            .Returns(new CrashReportActionResult(Succeeded: false, ErrorCode: shortCode));
+        var notification = new CrashReportNotification(inboxMock.Object);
+        notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
+        FocusAction(notification, actionIndex: 0);
+
+        Activate(notification);
+
+        // A short unknown code is used verbatim (no trimming, no mapping).
+        Assert.Equal(shortCode, notification.ErrorText);
+    }
+
+    // ---------------------------------------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------------------------------------
 

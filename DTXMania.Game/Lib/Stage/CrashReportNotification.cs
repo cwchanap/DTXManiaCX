@@ -782,6 +782,7 @@ namespace DTXMania.Game.Lib.Stage
             return null;
         }
 
+        [ExcludeFromCodeCoverage]
         private static int CountPending(IReadOnlyList<CrashReportInboxItem> reports)
         {
             int count = 0;

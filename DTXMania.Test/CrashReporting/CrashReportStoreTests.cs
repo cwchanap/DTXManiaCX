@@ -851,6 +851,158 @@ public sealed class CrashReportStoreTests
             item.Summary.ReportId, ids[5], StringComparison.OrdinalIgnoreCase)));
     }
 
+    // ---------------------------------------------------------------------------------------------
+    // Acknowledge / DeleteReport / DiscoverReports filesystem-failure paths
+    // ---------------------------------------------------------------------------------------------
+
+    [Fact]
+    public void Acknowledge_WhenRootDirectoryDoesNotExist_ShouldBeIdempotentSuccess()
+    {
+        using var fixture = CrashStoreFixture.Create();
+        Directory.Delete(fixture.RootPath, recursive: true);
+
+        var result = fixture.CreateStore().Acknowledge("crash-20260806-123456Z-deadbe");
+
+        Assert.True(result.Succeeded);
+        Assert.Null(result.ErrorCode);
+    }
+
+    [Fact]
+    public void DeleteReport_WhenFileDeletionFails_ShouldReturnDeleteIoFailure()
+    {
+        // The read-only-root mechanism uses Unix file modes (chmod), which compile on Windows but
+        // throw at runtime. Skip on Windows (and when running as root, which bypasses permissions).
+        if (OperatingSystem.IsWindows() || RunningAsRoot())
+        {
+            return;
+        }
+
+        using var fixture = CrashStoreFixture.Create();
+        var store = fixture.CreateStore();
+        var reportId = store.Capture(fixture.CreateCapture(0)).Report!.ReportId;
+        MakeRootReadOnly(fixture.RootPath);
+
+        var result = store.DeleteReport(reportId);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("delete_io_failure", result.ErrorCode);
+    }
+
+    [Fact]
+    public void Acknowledge_WhenFileMoveFails_ShouldReturnAcknowledgeIoFailure()
+    {
+        if (OperatingSystem.IsWindows() || RunningAsRoot())
+        {
+            return;
+        }
+
+        using var fixture = CrashStoreFixture.Create();
+        var store = fixture.CreateStore();
+        var reportId = store.Capture(fixture.CreateCapture(0)).Report!.ReportId;
+        MakeRootReadOnly(fixture.RootPath);
+
+        var result = store.Acknowledge(reportId);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("acknowledge_io_failure", result.ErrorCode);
+    }
+
+    [Fact]
+    public void DiscoverReports_WhenSummaryReaderFails_ShouldSkipTheReport()
+    {
+        // A retained-name file whose content is empty (no header) causes the reader to return
+        // defaults rather than throwing, so it is still discovered. To exercise the catch block
+        // for a filesystem exception during read, create a file that matches the regex but is
+        // actually a directory (File.Open on a directory throws UnauthorizedAccessException).
+        using var fixture = CrashStoreFixture.Create();
+        var dirPath = Path.Combine(fixture.RootPath, "crash-20260806-123456Z-a1b2c3.txt");
+        Directory.CreateDirectory(dirPath);
+
+        var items = fixture.CreateStore().DiscoverReports();
+
+        // The directory-as-file is skipped (the read throws and is caught).
+        Assert.Empty(items);
+    }
+
+    [Fact]
+    public void Cleanup_WhenEnumeratingFilesFails_ShouldNotThrow()
+    {
+        if (OperatingSystem.IsWindows() || RunningAsRoot())
+        {
+            return;
+        }
+
+        using var fixture = CrashStoreFixture.Create();
+        // Create a retained report, then make the root unreadable so enumeration fails.
+        fixture.CreateStore().Capture(fixture.CreateCapture(0));
+        MakeRootReadOnly(fixture.RootPath);
+
+        var exception = Record.Exception(() => fixture.CreateStore().Cleanup());
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void Capture_WhenErrorWriterThrows_ShouldNotPropagate()
+    {
+        // The WriteSafeError helper swallows IOException/ObjectDisposedException from the error
+        // writer. A capture that fails (e.g. blocked root) writes an error line; if that write
+        // also throws, the capture must still not propagate the writer exception.
+        using var fixture = CrashStoreFixture.Create();
+        var blockedRoot = Path.Combine(fixture.RootPath, "blocked");
+        File.WriteAllText(blockedRoot, "not a directory");
+        var throwingWriter = new ThrowingTextWriter();
+        var store = new CrashReportStore(
+            blockedRoot,
+            fixture.ArtifactWriter,
+            fixture.Clock,
+            throwingWriter);
+
+        var exception = Record.Exception(() => store.Capture(fixture.CreateCapture(0)));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void DiscoverReports_WhenMoreThanFiveLogicalIdsLinger_ShouldBoundToFive()
+    {
+        // Even if cleanup missed some reports (e.g. it failed), DiscoverReports bounds the
+        // summaries read to the retention limit via .Take(MaximumRetainedReports).
+        using var fixture = CrashStoreFixture.Create();
+        for (var index = 0; index < 7; index++)
+        {
+            WriteReport(fixture.RootPath,
+                "crash-2026080" + index + "-120000Z-a1b2c" + index + ".txt");
+        }
+
+        var items = fixture.CreateStore().DiscoverReports();
+
+        Assert.Equal(5, items.Count);
+    }
+
+    private static bool RunningAsRoot()
+    {
+        return Environment.UserName == "root"
+            || Environment.GetEnvironmentVariable("USER") == "root";
+    }
+
+    private static void MakeRootReadOnly(string rootPath)
+    {
+        File.SetUnixFileMode(rootPath,
+            UnixFileMode.OtherRead | UnixFileMode.OtherExecute
+            | UnixFileMode.GroupRead | UnixFileMode.GroupExecute
+            | UnixFileMode.UserRead | UnixFileMode.UserExecute);
+    }
+
+    private sealed class ThrowingTextWriter : TextWriter
+    {
+        public override System.Text.Encoding Encoding => System.Text.Encoding.UTF8;
+
+        public override void Write(char value) => throw new ObjectDisposedException("writer");
+
+        public override void WriteLine(string? value) => throw new ObjectDisposedException("writer");
+    }
+
     private sealed class CrashStoreFixture : IDisposable
     {
         private CrashStoreFixture()
@@ -920,7 +1072,28 @@ public sealed class CrashReportStoreTests
         {
             if (Directory.Exists(RootPath))
             {
-                Directory.Delete(RootPath, recursive: true);
+                // Restore write permissions in case a test made the root read-only.
+                if (!OperatingSystem.IsWindows())
+                {
+                    try
+                    {
+                        File.SetUnixFileMode(RootPath,
+                            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
+                            | UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute
+                            | UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute);
+                    }
+                    catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+                    {
+                    }
+                }
+
+                try
+                {
+                    Directory.Delete(RootPath, recursive: true);
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+                {
+                }
             }
         }
     }

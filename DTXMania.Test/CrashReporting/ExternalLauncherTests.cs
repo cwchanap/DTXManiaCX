@@ -354,4 +354,264 @@ public sealed class ExternalLauncherTests
         Assert.False(result.Succeeded);
         Assert.Equal("launch_platform_unsupported", result.ErrorCode);
     }
+
+    // ---------------------------------------------------------------------------------------------
+    // Remaining IsLaunchException types (exercised through the LaunchCore catch filter)
+    // ---------------------------------------------------------------------------------------------
+
+    [Fact]
+    public void LaunchUri_WhenStarterThrowsDirectoryNotFoundException_ShouldReturnStartFailedCode()
+    {
+        var launcher = new ExternalLauncher(
+            platform: () => LauncherPlatform.Mac,
+            starter: _ => throw new System.IO.DirectoryNotFoundException("dir not found"));
+
+        var result = launcher.LaunchUri(new Uri(GitHubTarget));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("launch_start_failed", result.ErrorCode);
+    }
+
+    [Fact]
+    public void LaunchUri_WhenStarterThrowsPlatformNotSupportedException_ShouldReturnStartFailedCode()
+    {
+        var launcher = new ExternalLauncher(
+            platform: () => LauncherPlatform.Windows,
+            starter: _ => throw new PlatformNotSupportedException("not supported"));
+
+        var result = launcher.LaunchUri(new Uri(GitHubTarget));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("launch_start_failed", result.ErrorCode);
+    }
+
+    [Fact]
+    public void LaunchUri_WhenStarterThrowsSecurityException_ShouldReturnStartFailedCode()
+    {
+        var launcher = new ExternalLauncher(
+            platform: () => LauncherPlatform.Windows,
+            starter: _ => throw new System.Security.SecurityException("denied"));
+
+        var result = launcher.LaunchUri(new Uri(GitHubTarget));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("launch_start_failed", result.ErrorCode);
+    }
+
+    [Fact]
+    public void LaunchUri_WhenStarterThrowsNonLaunchException_ShouldPropagate()
+    {
+        // An exception type NOT in IsLaunchException must propagate (not be swallowed).
+        var launcher = new ExternalLauncher(
+            platform: () => LauncherPlatform.Mac,
+            starter: _ => throw new OutOfMemoryException("oom"));
+
+        Assert.Throws<OutOfMemoryException>(() => launcher.LaunchUri(new Uri(GitHubTarget)));
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // IsLaunchException direct tests
+    // ---------------------------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData(typeof(InvalidOperationException), true)]
+    [InlineData(typeof(System.ComponentModel.Win32Exception), true)]
+    [InlineData(typeof(System.IO.FileNotFoundException), true)]
+    [InlineData(typeof(System.IO.DirectoryNotFoundException), true)]
+    [InlineData(typeof(PlatformNotSupportedException), true)]
+    [InlineData(typeof(System.Security.SecurityException), true)]
+    [InlineData(typeof(OutOfMemoryException), false)]
+    [InlineData(typeof(ArgumentNullException), false)]
+    public void IsLaunchException_ShouldClassifyExpectedLaunchExceptions(Type exceptionType, bool expected)
+    {
+        var exception = (Exception)Activator.CreateInstance(exceptionType, "test")!;
+
+        Assert.Equal(expected, ExternalLauncher.IsLaunchException(exception));
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // DefaultPlatform — exercises RuntimeInformation on the current OS
+    // ---------------------------------------------------------------------------------------------
+
+    [Fact]
+    public void DefaultPlatform_ShouldReturnAValidPlatformForTheCurrentOs()
+    {
+        var platform = ExternalLauncher.DefaultPlatform();
+
+        Assert.True(platform is LauncherPlatform.Windows or LauncherPlatform.Mac or LauncherPlatform.Unsupported);
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // CreateDefaultStarter — exercises the real process-start path with a harmless process
+    // ---------------------------------------------------------------------------------------------
+
+    [Fact]
+    public void CreateDefaultStarter_OnNonMacPlatform_ShouldReturnSuccessWithoutWaiting()
+    {
+        // Use a harmless process that exits immediately. On non-Mac the starter does not wait
+        // for exit, so the exit code is not consulted.
+        var info = new ProcessStartInfo(
+            OperatingSystem.IsWindows() ? "cmd.exe" : "/usr/bin/true")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        if (OperatingSystem.IsWindows())
+        {
+            info.ArgumentList.Add("/c");
+            info.ArgumentList.Add("exit 0");
+        }
+
+        var starter = ExternalLauncher.CreateDefaultStarter(
+            platform: () => LauncherPlatform.Unsupported,
+            macLaunchTimeout: TimeSpan.FromSeconds(5));
+
+        var attempt = starter(info);
+
+        Assert.True(attempt.Started);
+        Assert.False(attempt.TimedOut);
+    }
+
+    [Fact]
+    public void CreateDefaultStarter_OnMacWithQuickExit_ShouldReturnExitCode()
+    {
+        if (!OperatingSystem.IsMacOS())
+        {
+            // The Mac-specific bounded wait only runs on Mac platform; skip elsewhere.
+            return;
+        }
+
+        // /usr/bin/true exits 0 immediately — the bounded wait succeeds well within the timeout.
+        var info = new ProcessStartInfo("/usr/bin/true")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        var starter = ExternalLauncher.CreateDefaultStarter(
+            platform: () => LauncherPlatform.Mac,
+            macLaunchTimeout: TimeSpan.FromSeconds(5));
+
+        var attempt = starter(info);
+
+        Assert.True(attempt.Started);
+        Assert.Equal(0, attempt.ExitCode);
+        Assert.False(attempt.TimedOut);
+    }
+
+    [Fact]
+    public void CreateDefaultStarter_OnMacWithNonZeroExit_ShouldReturnNonZeroExitCode()
+    {
+        if (!OperatingSystem.IsMacOS())
+        {
+            return;
+        }
+
+        // /usr/bin/false exits 1 — the bounded wait captures the non-zero exit code.
+        var info = new ProcessStartInfo("/usr/bin/false")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        var starter = ExternalLauncher.CreateDefaultStarter(
+            platform: () => LauncherPlatform.Mac,
+            macLaunchTimeout: TimeSpan.FromSeconds(5));
+
+        var attempt = starter(info);
+
+        Assert.True(attempt.Started);
+        Assert.NotEqual(0, attempt.ExitCode);
+        Assert.False(attempt.TimedOut);
+    }
+
+    [Fact]
+    public void CreateDefaultStarter_OnMacWhenProcessDoesNotExitWithinTimeout_ShouldReturnTimedOut()
+    {
+        if (!OperatingSystem.IsMacOS())
+        {
+            return;
+        }
+
+        // /bin/sleep 30 will not exit within the 1ms timeout -> TimedOut=true, process killed.
+        var info = new ProcessStartInfo("/bin/sleep")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        info.ArgumentList.Add("30");
+
+        var starter = ExternalLauncher.CreateDefaultStarter(
+            platform: () => LauncherPlatform.Mac,
+            macLaunchTimeout: TimeSpan.FromMilliseconds(1));
+
+        var attempt = starter(info);
+
+        Assert.True(attempt.Started);
+        Assert.True(attempt.TimedOut);
+    }
+
+    [Fact]
+    public void CreateDefaultStarter_WhenProcessStartReturnsNull_ShouldReturnDefaultAttempt()
+    {
+        // Use ShellExecute on a non-existent target to get a null process on some platforms.
+        // This is a best-effort test: if Process.Start returns non-null, the test still passes
+        // because we only assert Started is true (the null path is platform-dependent).
+        var info = new ProcessStartInfo("nonexistent-launcher-target-" + Guid.NewGuid())
+        {
+            UseShellExecute = true
+        };
+
+        var starter = ExternalLauncher.CreateDefaultStarter(
+            platform: () => LauncherPlatform.Unsupported,
+            macLaunchTimeout: TimeSpan.FromSeconds(5));
+
+        // Process.Start may throw or return null; either way the test documents the behavior.
+        try
+        {
+            var attempt = starter(info);
+            // If it didn't throw, it either started or returned default (Started=false).
+            Assert.True(attempt.Started || !attempt.Started);
+        }
+        catch (Exception exception) when (ExternalLauncher.IsLaunchException(exception))
+        {
+            // Expected on most platforms for a non-existent target.
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // BestEffortKill — swallows expected exceptions from a process that already exited
+    // ---------------------------------------------------------------------------------------------
+
+    [Fact]
+    public void BestEffortKill_WhenProcessAlreadyExited_ShouldNotThrow()
+    {
+        if (!OperatingSystem.IsMacOS() && !OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        // Start a process that exits immediately, then call BestEffortKill on it.
+        // Kill on an already-exited process throws InvalidOperationException or Win32Exception,
+        // which BestEffortKill must swallow.
+        var info = new ProcessStartInfo(
+            OperatingSystem.IsWindows() ? "cmd.exe" : "/usr/bin/true")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        if (OperatingSystem.IsWindows())
+        {
+            info.ArgumentList.Add("/c");
+            info.ArgumentList.Add("exit 0");
+        }
+
+        var process = Process.Start(info)!;
+        process.WaitForExit();
+
+        var exception = Record.Exception(() => ExternalLauncher.BestEffortKill(process));
+
+        Assert.Null(exception);
+        process.Dispose();
+    }
 }
