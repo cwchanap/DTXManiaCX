@@ -197,14 +197,18 @@ internal sealed class CrashReportSummaryReader
     private static bool TryParseTimestampFromId(string reportId, out DateTimeOffset value)
     {
         value = default;
+        // The retained-name policy is matched case-insensitively, so the corrupt-header
+        // fallback must accept the same casing it accepts: normalize the id before looking
+        // for the lowercase "crash-" prefix and lowercase "z" UTC designator.
+        var normalized = reportId.ToLowerInvariant();
         const string prefix = "crash-";
-        if (!reportId.StartsWith(prefix, StringComparison.Ordinal))
+        if (!normalized.StartsWith(prefix, StringComparison.Ordinal))
         {
             return false;
         }
 
-        var rest = reportId[prefix.Length..];
-        var zIndex = rest.IndexOf('Z');
+        var rest = normalized[prefix.Length..];
+        var zIndex = rest.IndexOf('z');
         if (zIndex != 15 || rest.Length <= zIndex)
         {
             return false;
