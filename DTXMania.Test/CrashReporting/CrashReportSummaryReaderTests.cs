@@ -446,6 +446,63 @@ public sealed class CrashReportSummaryReaderTests
         Assert.Equal("legitimate", summary.BuildId);
     }
 
+    [Fact]
+    public void Read_WithCrlfLineEndings_ShouldStripCarriageReturnsAndParseFields()
+    {
+        // The reader reads character-by-character and strips a trailing '\r' before '\n' so
+        // CRLF-encoded files are handled the same as LF-encoded ones.
+        var content = CrashReportTextWriter.Header + "\r\n"
+            + "CapturedAtUtc: " + CapturedAt.ToString("O", CultureInfo.InvariantCulture) + "\r\n"
+            + "BuildId: 1.2.3\r\n"
+            + "\r\n" + CrashReportTextWriter.ExceptionSection + "\r\n";
+
+        using var file = CrashReportFile.Write(LogicalId + ".txt", content);
+
+        var summary = new CrashReportSummaryReader().Read(file.FilePath);
+
+        Assert.Equal(CapturedAt, summary.CapturedAtUtc);
+        Assert.Equal("1.2.3", summary.BuildId);
+    }
+
+    [Fact]
+    public void Read_WithFieldValueHavingNoSpaceAfterColon_ShouldParseValueWithoutStripping()
+    {
+        // The parser strips a single leading space after the colon; without one, the value
+        // starts immediately after the colon.
+        using var file = CrashReportFile.Write(
+            LogicalId + ".txt",
+            Header(
+                "CapturedAtUtc: " + CapturedAt.ToString("O", CultureInfo.InvariantCulture),
+                "BuildId:no-space"));
+
+        var summary = new CrashReportSummaryReader().Read(file.FilePath);
+
+        Assert.Equal("no-space", summary.BuildId);
+    }
+
+    [Fact]
+    public void Read_WithFilenameHavingZAtPositionFifteenButNoSuffix_ShouldFallBackToEpoch()
+    {
+        // The timestamp parser requires 'z' at position 15 of the rest (after "crash-"). A
+        // filename where 'z' is at position 15 but nothing follows it exercises the guard.
+        // "crash-20260806-123456Xz" -> rest = "20260806-123456xz", zIndex = 15, rest.Length = 17
+        // This actually has a suffix, so let's use a name where the z is exactly at position 15
+        // and the stamp structure is valid: "crash-20260806-123456z" has rest of length 15,
+        // z at position 14 -> falls through zIndex != 15. To get zIndex == 15, we need 16+
+        // chars in rest with z at index 15. "crash-20260806-123456Az" -> rest = "20260806-123456Az"
+        // z at position 15, rest.Length = 17 > 15, so it proceeds to stamp parsing.
+        // The stamp is "20260806-123456A" which has 'A' at position 14 (not a digit) -> parse fails.
+        using var file = CrashReportFile.Write(
+            "crash-20260806-123456Az.txt",
+            Header("BuildId: 1.2.3"));
+
+        var summary = new CrashReportSummaryReader().Read(file.FilePath);
+
+        // The stamp has a non-digit 'A' where a digit is expected, so parsing fails -> epoch.
+        Assert.Equal(0, summary.CapturedAtUtc.ToUnixTimeSeconds());
+        Assert.Equal("1.2.3", summary.BuildId);
+    }
+
     private static string Header(params string[] fields)
     {
         return HeaderLines(fields) + "\n" + CrashReportTextWriter.ExceptionSection + "\n";

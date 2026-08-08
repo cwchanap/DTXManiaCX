@@ -237,7 +237,97 @@ public sealed class CrashReportInboxTests
         Assert.False(item.IsAcknowledged); // unexpected failure never acknowledges
     }
 
+    [Fact]
+    public void GetReports_WhenStoreThrows_ShouldReturnEmptyList()
+    {
+        // GetReports wraps DiscoverReports in a try/catch so a throwing store never leaks an
+        // exception to the UI caller. We corrupt the store's summary reader via reflection so
+        // DiscoverReports throws a NullReferenceException (not a filesystem exception), which
+        // propagates through the store's own catch and is then caught by GetReports.
+        using var fixture = InboxFixture.Create();
+        fixture.CaptureReport();
+        CorruptSummaryReader(fixture.Store);
+        var inbox = new CrashReportInbox(fixture.Store, new FakeExternalLauncher());
+
+        var reports = inbox.GetReports();
+
+        Assert.Empty(reports);
+    }
+
+    [Fact]
+    public void OpenReportFolder_WhenLaunchSucceedsButAcknowledgeFails_ShouldReturnAcknowledgeError()
+    {
+        if (OperatingSystem.IsWindows() || RunningAsRoot())
+        {
+            return;
+        }
+
+        using var fixture = InboxFixture.Create();
+        var reportId = fixture.CaptureReport();
+        var launcher = new FakeExternalLauncher { FolderResult = Success() };
+        fixture.MakeRootReadOnly();
+
+        var result = new CrashReportInbox(fixture.Store, launcher).OpenReportFolder(reportId);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("acknowledge_io_failure", result.ErrorCode);
+        Assert.Equal(fixture.Store.RootPath, launcher.LaunchedFolder);
+        fixture.RestoreRootWritable();
+        var item = Assert.Single(fixture.Store.DiscoverReports());
+        Assert.False(item.IsAcknowledged);
+    }
+
+    [Fact]
+    public void Dismiss_WhenAcknowledgeFails_ShouldReturnAcknowledgeError()
+    {
+        if (OperatingSystem.IsWindows() || RunningAsRoot())
+        {
+            return;
+        }
+
+        using var fixture = InboxFixture.Create();
+        var reportId = fixture.CaptureReport();
+        fixture.MakeRootReadOnly();
+
+        var result = new CrashReportInbox(fixture.Store, new FakeExternalLauncher()).Dismiss(reportId);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("acknowledge_io_failure", result.ErrorCode);
+    }
+
+    [Fact]
+    public void Delete_WhenDeleteFails_ShouldReturnDeleteError()
+    {
+        if (OperatingSystem.IsWindows() || RunningAsRoot())
+        {
+            return;
+        }
+
+        using var fixture = InboxFixture.Create();
+        var reportId = fixture.CaptureReport();
+        fixture.MakeRootReadOnly();
+
+        var result = new CrashReportInbox(fixture.Store, new FakeExternalLauncher()).Delete(reportId);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("delete_io_failure", result.ErrorCode);
+    }
+
     private static CrashReportActionResult Success() => new(Succeeded: true);
+
+    /// <summary>
+    /// Uses reflection to null out the store's internal <c>_summaryReader</c> field so
+    /// <see cref="CrashReportStore.DiscoverReports"/> throws a NullReferenceException (which is
+    /// NOT a filesystem exception and so propagates through the store's own catch blocks). This
+    /// lets the inbox's defensive catch blocks be exercised without a concrete subclass.
+    /// </summary>
+    private static void CorruptSummaryReader(CrashReportStore store)
+    {
+        var field = typeof(CrashReportStore).GetField(
+            "_summaryReader",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        field!.SetValue(store, null);
+    }
 
     private static bool RunningAsRoot()
     {
