@@ -780,20 +780,32 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void MoveSelection_WithNoReports_ShouldBeNoOp()
     {
-        var (inboxMock, reports) = CreateInboxMock();
-        // Open with F8 needs at least one report, so construct with one then empty the inbox.
-        SetReports(reports, Pending("temp", capturedUtc: T(1)));
+        // The notification owns its own snapshot, captured at OpenPanel time. The only flow that
+        // refreshes the snapshot AND leaves the panel open is a successful launch
+        // (ApplyLaunchResult -> RefreshSnapshotPreservingSelection), so drive the empty-while-open
+        // state by emptying the inbox from inside the launch callback. The Delete path closes the
+        // panel when it empties, so it cannot reach this state.
+        var (inboxMock, reports) = CreateInboxMock(Pending("a", capturedUtc: T(1)));
+        inboxMock.Setup(x => x.OpenGitHubIssue(It.IsAny<string>()))
+            .Returns(new CrashReportActionResult(Succeeded: true))
+            .Callback<string>(_ => SetReports(reports));
         var notification = new CrashReportNotification(inboxMock.Object);
         notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
-        // Simulate the inbox becoming empty while the panel is open (external deletion).
-        SetReports(reports);
+        // Default action focus is OpenGitHubIssue (index 0); Activate fires the launch, then the
+        // resolve refreshes the snapshot to empty while keeping the panel open.
+        Activate(notification);
 
-        // MoveLeft with zero reports should not throw and should not change selection.
+        // Confirm the snapshot is genuinely empty before exercising the guard.
+        Assert.Empty(notification.Reports);
+        Assert.True(notification.IsOpen);
+
+        // MoveLeft with zero reports should not throw and should not change state.
         var consumed = notification.HandleInput(
             NoKeys, NoKeys, CreateInput(InputCommandType.MoveLeft), null, false);
 
         Assert.True(consumed);
         Assert.True(notification.IsOpen);
+        Assert.Empty(notification.Reports);
     }
 
     // ---------------------------------------------------------------------------------------------
