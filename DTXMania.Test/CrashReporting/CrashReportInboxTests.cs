@@ -201,6 +201,38 @@ public sealed class CrashReportInboxTests
         Assert.Empty(inbox.GetReports());
     }
 
+    [Fact]
+    public void OpenGitHubIssue_WhenLauncherThrowsUnexpectedException_ShouldReturnUnexpectedFailureCode()
+    {
+        using var fixture = InboxFixture.Create();
+        var reportId = fixture.CaptureReport();
+        var launcher = new FakeExternalLauncher
+        {
+            ThrowOnLaunchUri = new InvalidOperationException("unexpected launcher bug")
+        };
+
+        var result = new CrashReportInbox(fixture.Store, launcher).OpenGitHubIssue(reportId);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("inbox_unexpected_failure", result.ErrorCode);
+    }
+
+    [Fact]
+    public void OpenReportFolder_WhenLauncherThrowsUnexpectedException_ShouldReturnUnexpectedFailureCode()
+    {
+        using var fixture = InboxFixture.Create();
+        var reportId = fixture.CaptureReport();
+        var launcher = new FakeExternalLauncher
+        {
+            ThrowOnLaunchFolder = new InvalidOperationException("unexpected launcher bug")
+        };
+
+        var result = new CrashReportInbox(fixture.Store, launcher).OpenReportFolder(reportId);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("inbox_unexpected_failure", result.ErrorCode);
+    }
+
     private static CrashReportActionResult Success() => new(Succeeded: true);
 
     private static bool RunningAsRoot()
@@ -335,14 +367,28 @@ public sealed class CrashReportInboxTests
 
         internal CrashReportActionResult FolderResult { get; set; } = new(Succeeded: true);
 
+        internal Exception? ThrowOnLaunchUri { get; set; }
+
+        internal Exception? ThrowOnLaunchFolder { get; set; }
+
         public CrashReportActionResult LaunchUri(Uri target)
         {
+            if (ThrowOnLaunchUri is { } ex)
+            {
+                throw ex;
+            }
+
             LaunchedUri = target;
             return UriResult;
         }
 
         public CrashReportActionResult LaunchFolder(string path)
         {
+            if (ThrowOnLaunchFolder is { } ex)
+            {
+                throw ex;
+            }
+
             LaunchedFolder = path;
             return FolderResult;
         }
