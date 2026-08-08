@@ -498,6 +498,24 @@ namespace DTXMania.Test
         }
 
         [Fact]
+        public void CrashReportInbox_ShouldForwardTheDiagnosticsInboxThroughTheIStageGameSeam()
+        {
+            // BaseGame overrides the IStageGame.CrashReportInbox default facade so the title
+            // stage reaches the inbox wired into its injected IGameCrashDiagnostics through the
+            // single IStageGame seam — never the store/launcher/parser/path. The forwarded value
+            // must be exactly the diagnostics' inbox instance (production or facade).
+            var game = ReflectionHelpers.CreateGame();
+            var inboxSentinel = new Mock<ICrashReportInbox>().Object;
+            var diagnostics = new Mock<IGameCrashDiagnostics>();
+            diagnostics.SetupGet(d => d.CrashReportInbox).Returns(inboxSentinel);
+            ReflectionHelpers.SetPrivateField(game, "_gameCrashDiagnostics", diagnostics.Object);
+
+            var forwarded = ((IStageGame)game).CrashReportInbox;
+
+            Assert.Same(inboxSentinel, forwarded);
+        }
+
+        [Fact]
         public void OnGraphicsSettingsChanged_ShouldPublishConfigurationGraphicsAndBreadcrumb()
         {
             var config = new ConfigData { ScreenWidth = 640, ScreenHeight = 480, FullScreen = false, VSyncWait = true };

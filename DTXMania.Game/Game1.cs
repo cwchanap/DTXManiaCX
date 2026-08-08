@@ -147,6 +147,13 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
     }
 
     /// <summary>
+    /// Overrides the <see cref="IStageGame.CrashReportInbox"/> default facade to forward the
+    /// real inbox wired into the injected <see cref="IGameCrashDiagnostics"/>. The title stage
+    /// reaches the crash inbox through this single seam; no store/launcher/parser/path is exposed.
+    /// </summary>
+    public ICrashReportInbox CrashReportInbox => _gameCrashDiagnostics.CrashReportInbox;
+
+    /// <summary>
     /// Builds a <see cref="WindowTextInputSource"/> from the OS window for text input,
     /// or returns null when no window is available (headless/test environments).
     /// Implements <see cref="IStageGame.GetTextInputSource"/>.

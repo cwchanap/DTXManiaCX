@@ -123,6 +123,18 @@ namespace DTXMania.Test.Stage
             Assert.Null(exception);
         }
 
+        [Fact]
+        public void IStageGame_CrashReportInbox_ShouldReturnEmptyFacade_WhenImplementationDoesNotOverrideIt()
+        {
+            // CrashReportInbox is a default interface member whose body returns the null-object
+            // facade. An IStageGame stub that does NOT override it (like MinimalStageGameStub
+            // below) must compile and observe the facade without modification — this is what
+            // keeps the existing test stubs valid for the new property.
+            IStageGame stageGame = new MinimalStageGameStub();
+
+            Assert.Same(EmptyCrashReportInbox.Instance, stageGame.CrashReportInbox);
+        }
+
         /// <summary>
         /// Minimal <see cref="IStageGame"/> implementation that leaves the three startup-report
         /// default interface methods unoverridden, so the DIM bodies can be exercised.
