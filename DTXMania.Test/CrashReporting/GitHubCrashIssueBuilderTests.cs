@@ -95,6 +95,10 @@ public sealed class GitHubCrashIssueBuilderTests
         // Manual .txt attachment instructions must be present.
         Assert.Contains(".txt", decoded, StringComparison.Ordinal);
         Assert.Contains(summary.FileName, decoded, StringComparison.Ordinal);
+
+        // The allow-list is closed: the capture timestamp is NOT permitted in the body (it is
+        // already encoded in the report id). Guard the boundary so it cannot slip back in.
+        Assert.DoesNotContain("Captured", decoded, StringComparison.Ordinal);
     }
 
     [Fact]

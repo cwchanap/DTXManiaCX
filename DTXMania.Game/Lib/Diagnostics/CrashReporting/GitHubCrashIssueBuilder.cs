@@ -1,7 +1,6 @@
 #nullable enable
 
 using System;
-using System.Globalization;
 using System.Text;
 
 namespace DTXMania.Game.Lib.Diagnostics.CrashReporting;
@@ -80,7 +79,6 @@ internal static class GitHubCrashIssueBuilder
         builder.AppendLine();
         builder.AppendLine("## Report");
         builder.AppendLine("- Report ID: " + summary.ReportId);
-        builder.AppendLine("- Captured (UTC): " + summary.CapturedAtUtc.ToString("O", CultureInfo.InvariantCulture));
         builder.AppendLine("- Build ID: " + summary.BuildId);
         builder.AppendLine("- Operating system: " + summary.OperatingSystem);
         builder.AppendLine("- Architecture: " + summary.ProcessArchitecture);
