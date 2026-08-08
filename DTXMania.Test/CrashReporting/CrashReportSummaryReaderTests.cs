@@ -75,56 +75,72 @@ public sealed class CrashReportSummaryReaderTests
     }
 
     [Fact]
-    public void Read_WithMoreThanThirtyTwoHeaderLines_ShouldStopBoundedlyAndKeepParsedFields()
+    public void Read_WithMoreThanThirtyTwoHeaderLines_ShouldStopAtTheThirtySecondLine()
     {
+        // Header (line 1) + CapturedAtUtc (2) + BuildId (3) + 28 padding lines (4..31)
+        // places ExceptionType on line 32 (the last line within the 32-line budget) and
+        // StageOrMilestone on line 33 (the first line beyond it, which must NOT be parsed).
+        // The whole document is ~700 chars, so the 16 KiB budget never binds here — only the
+        // 32-line guard does. If that guard were removed or raised, StageOrMilestone would be
+        // parsed and the final assertion would fail.
         var padding = new StringBuilder();
-        for (var index = 0; index < 48; index++)
+        for (var index = 0; index < 28; index++)
         {
-            padding.Append("Padding").Append(index.ToString(CultureInfo.InvariantCulture))
+            padding.Append("Padding").Append(index.ToString(CultureInfo.InvariantCulture).PadLeft(2, '0'))
                 .Append(": value\n");
         }
 
-        using var file = CrashReportFile.Write(
-            LogicalId + ".txt",
-            Header(
+        var content = HeaderLines(
                 "CapturedAtUtc: " + CapturedAt.ToString("O", CultureInfo.InvariantCulture),
                 "BuildId: 1.2.3")
             + padding
-            + "\n--- EXCEPTION ---\n");
+            + "ExceptionType: WithinThirtyTwoLineBudget\n"
+            + "StageOrMilestone: BeyondThirtyTwoLineBudget\n"
+            + "\n--- EXCEPTION ---\n";
+
+        using var file = CrashReportFile.Write(LogicalId + ".txt", content);
 
         var summary = new CrashReportSummaryReader().Read(file.FilePath);
 
-        Assert.Equal(LogicalId, summary.ReportId);
         Assert.Equal(CapturedAt, summary.CapturedAtUtc);
         Assert.Equal("1.2.3", summary.BuildId);
+        Assert.Equal("WithinThirtyTwoLineBudget", summary.ExceptionType);
+        Assert.Equal("Unknown", summary.StageOrMilestone);
     }
 
     [Fact]
-    public void Read_WithMoreThanSixteenKibBeforeExceptionMarker_ShouldStopBoundedly()
+    public void Read_WithMoreThanSixteenKibBeforeExceptionMarker_ShouldStopAtTheCharacterBudget()
     {
+        // 20 padding lines of ~1011 chars each (~20 KiB) sit between the named fields and the
+        // exception marker, so the cumulative char budget (>16 KiB) is exceeded BEFORE the
+        // marker is reached. Each padding line is individually well under 16 KiB, so this
+        // exercises the cumulative budget across many lines — complementing
+        // Read_WithOneSingleLineLargerThanSixteenKib, which exercises a single overlong line.
+        // The 32-line guard never binds here (line count stays at ~23). If the char-budget
+        // guard were removed, StageOrMilestone would be parsed and the final assertion fail.
         var padding = new StringBuilder();
-        for (var index = 0; index < 1000; index++)
+        for (var index = 0; index < 20; index++)
         {
-            padding.Append("Padding")
-                .Append(index.ToString(CultureInfo.InvariantCulture).PadLeft(4, '0'))
+            padding.Append("Padding").Append(index.ToString(CultureInfo.InvariantCulture).PadLeft(2, '0'))
                 .Append(':')
-                .Append(new string('p', 24))
+                .Append(new string('p', 1000))
                 .Append('\n');
         }
 
-        using var file = CrashReportFile.Write(
-            LogicalId + ".txt",
-            Header(
+        var content = HeaderLines(
                 "CapturedAtUtc: " + CapturedAt.ToString("O", CultureInfo.InvariantCulture),
                 "BuildId: 1.2.3")
             + padding
-            + "\n--- EXCEPTION ---\n");
+            + "StageOrMilestone: BeyondSixteenKibBudget\n"
+            + "\n--- EXCEPTION ---\n";
+
+        using var file = CrashReportFile.Write(LogicalId + ".txt", content);
 
         var summary = new CrashReportSummaryReader().Read(file.FilePath);
 
-        Assert.Equal(LogicalId, summary.ReportId);
         Assert.Equal(CapturedAt, summary.CapturedAtUtc);
         Assert.Equal("1.2.3", summary.BuildId);
+        Assert.Equal("Unknown", summary.StageOrMilestone);
     }
 
     [Fact]
