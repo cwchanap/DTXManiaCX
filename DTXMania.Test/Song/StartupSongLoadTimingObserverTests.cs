@@ -356,6 +356,11 @@ public class StartupSongLoadTimingObserverTests
             StartupCriticalPathAggregate.TitleGameStartSound,
             98,
             99);
+        Aggregate(
+            fixture,
+            StartupCriticalPathAggregate.TitleCrashInbox,
+            99,
+            100);
         ExactlyOnce(StartupCriticalPathMilestone.TitleActivateEnd, 110);
         FirstPair(
             StartupCriticalPathMilestone.TitleFirstUpdateBegin,
