@@ -1183,7 +1183,8 @@ internal sealed class StartupCriticalPathTrace : IStartupSongLoadTimingObserver
                Count(StartupCriticalPathAggregate.TitleFont) == 1 &&
                Count(StartupCriticalPathAggregate.TitleCursorSound) == 1 &&
                Count(StartupCriticalPathAggregate.TitleDecideSound) == 1 &&
-               Count(StartupCriticalPathAggregate.TitleGameStartSound) == 1;
+               Count(StartupCriticalPathAggregate.TitleGameStartSound) == 1 &&
+               Count(StartupCriticalPathAggregate.TitleCrashInbox) == 1;
     }
 
     private string FormatSuccessLine(

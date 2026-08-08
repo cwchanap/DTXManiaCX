@@ -8,6 +8,7 @@ using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Stage;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Input;
+using Moq;
 using Xunit;
 
 namespace DTXMania.Test.Stage;
@@ -31,7 +32,7 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void ZeroReports_InitialState_ShouldBeClosedAndHidden()
     {
-        var notification = new CrashReportNotification(new FakeInbox());
+        var notification = new CrashReportNotification(CreateInbox());
 
         Assert.False(notification.IsOpen);
         Assert.False(notification.IsBannerVisible);
@@ -41,7 +42,7 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void PendingReports_InitialState_ShouldShowBannerButStayClosed()
     {
-        var notification = new CrashReportNotification(new FakeInbox(
+        var notification = new CrashReportNotification(CreateInbox(
             Pending("report-1", capturedUtc: T(1))));
 
         Assert.False(notification.IsOpen);
@@ -51,8 +52,7 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void AcknowledgedOnly_InitialState_ShouldNotShowBannerButF8CanReviewRetained()
     {
-        var inbox = new FakeInbox(Acknowledged("report-1", capturedUtc: T(1)));
-        var notification = new CrashReportNotification(inbox);
+        var notification = new CrashReportNotification(CreateInbox(Acknowledged("report-1", capturedUtc: T(1))));
 
         // No pending -> no banner...
         Assert.False(notification.IsBannerVisible);
@@ -68,11 +68,10 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void OpenPanel_WhenPendingReportsExist_ShouldDefaultToNewestPending()
     {
-        var inbox = new FakeInbox(
+        var notification = new CrashReportNotification(CreateInbox(
             Pending("old-pending", capturedUtc: T(1)),
             Acknowledged("middle-ack", capturedUtc: T(2)),
-            Pending("new-pending", capturedUtc: T(3)));
-        var notification = new CrashReportNotification(inbox);
+            Pending("new-pending", capturedUtc: T(3))));
 
         notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
 
@@ -83,10 +82,9 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void OpenPanel_WhenNoPending_ShouldDefaultToNewestRetained()
     {
-        var inbox = new FakeInbox(
+        var notification = new CrashReportNotification(CreateInbox(
             Acknowledged("old-ack", capturedUtc: T(1)),
-            Acknowledged("new-ack", capturedUtc: T(2)));
-        var notification = new CrashReportNotification(inbox);
+            Acknowledged("new-ack", capturedUtc: T(2))));
 
         notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
 
@@ -97,11 +95,10 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void MoveLeft_AtStart_ShouldClamp()
     {
-        var inbox = new FakeInbox(
+        var notification = new CrashReportNotification(CreateInbox(
             Pending("a", capturedUtc: T(1)),
-            Pending("b", capturedUtc: T(2)));
-        var notification = new CrashReportNotification(inbox);
-        var input = new FakeInput { Commands = { InputCommandType.MoveLeft } };
+            Pending("b", capturedUtc: T(2))));
+        var input = CreateInput(InputCommandType.MoveLeft);
 
         notification.HandleInput(F8Down, NoKeys, input, null, false); // open -> newest (index 1)
         Assert.Equal(1, notification.SelectedIndex);
@@ -116,11 +113,10 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void MoveRight_AtEnd_ShouldClamp()
     {
-        var inbox = new FakeInbox(
+        var notification = new CrashReportNotification(CreateInbox(
             Pending("a", capturedUtc: T(1)),
-            Pending("b", capturedUtc: T(2)));
-        var notification = new CrashReportNotification(inbox);
-        var input = new FakeInput { Commands = { InputCommandType.MoveRight } };
+            Pending("b", capturedUtc: T(2))));
+        var input = CreateInput(InputCommandType.MoveRight);
 
         notification.HandleInput(F8Down, NoKeys, input, null, false); // open at newest (index 1)
 
@@ -131,14 +127,12 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void SuccessfulDismiss_ShouldClosePanelAndRefreshSnapshot()
     {
-        var inbox = new FakeInbox(Pending("report-1", capturedUtc: T(1)));
+        var (inboxMock, reports) = CreateInboxMock(Pending("report-1", capturedUtc: T(1)));
         // Dismiss success -> the inbox marks the report acknowledged on refresh.
-        inbox.DismissResult = new CrashReportActionResult(Succeeded: true);
-        inbox.OnGetReportsAfterDismiss = () => new[]
-        {
-            AcknowledgedItem("report-1", capturedUtc: T(1))
-        };
-        var notification = new CrashReportNotification(inbox);
+        inboxMock.Setup(x => x.Dismiss(It.IsAny<string>()))
+            .Returns(new CrashReportActionResult(Succeeded: true))
+            .Callback<string>(_ => SetReports(reports, AcknowledgedItem("report-1", capturedUtc: T(1))));
+        var notification = new CrashReportNotification(inboxMock.Object);
 
         notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
         // Focus Dismiss (third action) then Activate.
@@ -155,9 +149,9 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void Delete_RequiresConfirmationBeforeRemoving()
     {
-        var inbox = new FakeInbox(Pending("report-1", capturedUtc: T(1)));
-        inbox.DeleteResult = new CrashReportActionResult(Succeeded: true);
-        var notification = new CrashReportNotification(inbox);
+        var (inboxMock, reports) = CreateInboxMock(Pending("report-1", capturedUtc: T(1)));
+        inboxMock.Setup(x => x.Delete(It.IsAny<string>())).Returns(new CrashReportActionResult(Succeeded: true));
+        var notification = new CrashReportNotification(inboxMock.Object);
 
         notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
         FocusAction(notification, actionIndex: 3); // Delete
@@ -172,18 +166,17 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void DeleteConfirm_WhenOthersRemain_ShouldSelectNearestAndClearConfirmation()
     {
-        var inbox = new FakeInbox(
+        var (inboxMock, reports) = CreateInboxMock(
             Pending("a", capturedUtc: T(1)),
             Pending("b", capturedUtc: T(2)),
             Pending("c", capturedUtc: T(3)));
-        inbox.DeleteResult = new CrashReportActionResult(Succeeded: true);
         // After deleting "c" (the selected newest), the snapshot drops it.
-        inbox.OnGetReportsAfterDelete = () => new[]
-        {
-            PendingItem("a", capturedUtc: T(1)),
-            PendingItem("b", capturedUtc: T(2))
-        };
-        var notification = new CrashReportNotification(inbox);
+        inboxMock.Setup(x => x.Delete(It.IsAny<string>()))
+            .Returns(new CrashReportActionResult(Succeeded: true))
+            .Callback<string>(_ => SetReports(reports,
+                PendingItem("a", capturedUtc: T(1)),
+                PendingItem("b", capturedUtc: T(2))));
+        var notification = new CrashReportNotification(inboxMock.Object);
 
         notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
         // newest pending = "c" at index 2.
@@ -205,10 +198,11 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void DeleteConfirm_WhenEmpty_ShouldClosePanel()
     {
-        var inbox = new FakeInbox(Pending("only", capturedUtc: T(1)));
-        inbox.DeleteResult = new CrashReportActionResult(Succeeded: true);
-        inbox.OnGetReportsAfterDelete = () => Array.Empty<CrashReportInboxItem>();
-        var notification = new CrashReportNotification(inbox);
+        var (inboxMock, reports) = CreateInboxMock(Pending("only", capturedUtc: T(1)));
+        inboxMock.Setup(x => x.Delete(It.IsAny<string>()))
+            .Returns(new CrashReportActionResult(Succeeded: true))
+            .Callback<string>(_ => SetReports(reports));
+        var notification = new CrashReportNotification(inboxMock.Object);
 
         notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
         FocusAction(notification, actionIndex: 3);
@@ -224,16 +218,16 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void DeleteConfirm_Back_ShouldCancelConfirmationWithoutClosingPanel()
     {
-        var inbox = new FakeInbox(Pending("report-1", capturedUtc: T(1)));
-        inbox.DeleteResult = new CrashReportActionResult(Succeeded: true);
-        var notification = new CrashReportNotification(inbox);
+        var (inboxMock, reports) = CreateInboxMock(Pending("report-1", capturedUtc: T(1)));
+        inboxMock.Setup(x => x.Delete(It.IsAny<string>())).Returns(new CrashReportActionResult(Succeeded: true));
+        var notification = new CrashReportNotification(inboxMock.Object);
 
         notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
         FocusAction(notification, actionIndex: 3);
         Activate(notification); // enter confirmation
         Assert.True(notification.IsDeleteConfirming);
 
-        var input = new FakeInput { BackTriggered = true };
+        var input = CreateBackInput();
         var consumed = notification.HandleInput(NoKeys, NoKeys, input, null, false);
 
         Assert.True(consumed);
@@ -245,9 +239,10 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void ActionFailure_ShouldKeepPanelOpenAndExposeRetryableError()
     {
-        var inbox = new FakeInbox(Pending("report-1", capturedUtc: T(1)));
-        inbox.GitHubResult = new CrashReportActionResult(Succeeded: false, ErrorCode: "launch_nonzero_exit");
-        var notification = new CrashReportNotification(inbox);
+        var (inboxMock, reports) = CreateInboxMock(Pending("report-1", capturedUtc: T(1)));
+        inboxMock.Setup(x => x.OpenGitHubIssue(It.IsAny<string>()))
+            .Returns(new CrashReportActionResult(Succeeded: false, ErrorCode: "launch_nonzero_exit"));
+        var notification = new CrashReportNotification(inboxMock.Object);
 
         notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
         FocusAction(notification, actionIndex: 0); // GitHub
@@ -262,9 +257,10 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void ActionSuccess_AfterPriorFailure_ShouldClearError()
     {
-        var inbox = new FakeInbox(Pending("report-1", capturedUtc: T(1)));
-        inbox.GitHubResult = new CrashReportActionResult(Succeeded: false, ErrorCode: "launch_nonzero_exit");
-        var notification = new CrashReportNotification(inbox);
+        var (inboxMock, reports) = CreateInboxMock(Pending("report-1", capturedUtc: T(1)));
+        inboxMock.Setup(x => x.OpenGitHubIssue(It.IsAny<string>()))
+            .Returns(new CrashReportActionResult(Succeeded: false, ErrorCode: "launch_nonzero_exit"));
+        var notification = new CrashReportNotification(inboxMock.Object);
 
         notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
         FocusAction(notification, actionIndex: 0); // GitHub fails
@@ -272,11 +268,9 @@ public sealed class CrashReportNotificationTests
         Assert.False(string.IsNullOrEmpty(notification.ErrorText));
 
         // Now make the next GitHub attempt succeed and acknowledge.
-        inbox.GitHubResult = new CrashReportActionResult(Succeeded: true);
-        inbox.OnGetReportsAfterGitHub = () => new[]
-        {
-            AcknowledgedItem("report-1", capturedUtc: T(1))
-        };
+        inboxMock.Setup(x => x.OpenGitHubIssue(It.IsAny<string>()))
+            .Returns(new CrashReportActionResult(Succeeded: true))
+            .Callback<string>(_ => SetReports(reports, AcknowledgedItem("report-1", capturedUtc: T(1))));
         FocusAction(notification, actionIndex: 0);
         var consumed = Activate(notification);
 
@@ -287,9 +281,10 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void DeleteFailure_ShouldKeepReportAndExposeError()
     {
-        var inbox = new FakeInbox(Pending("report-1", capturedUtc: T(1)));
-        inbox.DeleteResult = new CrashReportActionResult(Succeeded: false, ErrorCode: "delete_io_failure");
-        var notification = new CrashReportNotification(inbox);
+        var (inboxMock, reports) = CreateInboxMock(Pending("report-1", capturedUtc: T(1)));
+        inboxMock.Setup(x => x.Delete(It.IsAny<string>()))
+            .Returns(new CrashReportActionResult(Succeeded: false, ErrorCode: "delete_io_failure"));
+        var notification = new CrashReportNotification(inboxMock.Object);
 
         notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
         FocusAction(notification, actionIndex: 3);
@@ -310,17 +305,17 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void F8_IsEdgeTriggeredFromKeyboardSnapshotsAndNonRemappable()
     {
-        var notification = new CrashReportNotification(new FakeInbox(Pending("r", capturedUtc: T(1))));
+        var notification = new CrashReportNotification(CreateInbox(Pending("r", capturedUtc: T(1))));
         // InputManager reports NO commands (F8 is not an InputCommandType) -> F8 must still work
         // because it is read raw from the keyboard snapshots.
-        var input = new FakeInput();
+        var input = CreateInput();
 
         // Edge: current F8 down, previous not down -> consumed (opens).
         Assert.True(notification.HandleInput(F8Down, NoKeys, input, null, false));
         Assert.True(notification.IsOpen);
 
         // Close it so we can re-test the edge.
-        notification.HandleInput(NoKeys, NoKeys, new FakeInput { BackTriggered = true }, null, false);
+        notification.HandleInput(NoKeys, NoKeys, CreateBackInput(), null, false);
         Assert.False(notification.IsOpen);
 
         // Held (previous also down) -> NOT edge, NOT consumed.
@@ -332,7 +327,7 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void F8_WithNoReports_ShouldReturnNotConsumed()
     {
-        var notification = new CrashReportNotification(new FakeInbox());
+        var notification = new CrashReportNotification(CreateInbox());
 
         var consumed = notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
 
@@ -343,7 +338,7 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void F8_OpensPanelAndReturnsConsumed()
     {
-        var notification = new CrashReportNotification(new FakeInbox(Pending("r", capturedUtc: T(1))));
+        var notification = new CrashReportNotification(CreateInbox(Pending("r", capturedUtc: T(1))));
 
         var consumed = notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
 
@@ -354,7 +349,7 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void BannerClick_OnBannerRegion_ShouldOpenAndConsume()
     {
-        var notification = new CrashReportNotification(new FakeInbox(Pending("r", capturedUtc: T(1))));
+        var notification = new CrashReportNotification(CreateInbox(Pending("r", capturedUtc: T(1))));
 
         var consumed = notification.HandleInput(NoKeys, NoKeys, inputManager: null, virtualMouse: BannerClickPoint, leftMouseClick: true);
 
@@ -365,7 +360,7 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void BannerClick_OutsideBanner_ShouldReturnNotConsumed()
     {
-        var notification = new CrashReportNotification(new FakeInbox(Pending("r", capturedUtc: T(1))));
+        var notification = new CrashReportNotification(CreateInbox(Pending("r", capturedUtc: T(1))));
 
         var consumed = notification.HandleInput(NoKeys, NoKeys, inputManager: null, virtualMouse: OffBannerPoint, leftMouseClick: true);
 
@@ -376,9 +371,9 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void Closed_WithNoF8AndNoClick_ShouldReturnNotConsumed()
     {
-        var notification = new CrashReportNotification(new FakeInbox(Pending("r", capturedUtc: T(1))));
+        var notification = new CrashReportNotification(CreateInbox(Pending("r", capturedUtc: T(1))));
 
-        var consumed = notification.HandleInput(NoKeys, NoKeys, new FakeInput(), virtualMouse: null, leftMouseClick: false);
+        var consumed = notification.HandleInput(NoKeys, NoKeys, CreateInput(), virtualMouse: null, leftMouseClick: false);
 
         Assert.False(consumed);
     }
@@ -386,12 +381,12 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void WhileOpen_AnyInputIsConsumed()
     {
-        var notification = new CrashReportNotification(new FakeInbox(Pending("r", capturedUtc: T(1))));
+        var notification = new CrashReportNotification(CreateInbox(Pending("r", capturedUtc: T(1))));
         notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
         Assert.True(notification.IsOpen);
 
         // No meaningful input at all while open -> still consumed (panel owns input).
-        var consumed = notification.HandleInput(NoKeys, NoKeys, new FakeInput(), virtualMouse: null, leftMouseClick: false);
+        var consumed = notification.HandleInput(NoKeys, NoKeys, CreateInput(), virtualMouse: null, leftMouseClick: false);
 
         Assert.True(consumed);
         Assert.True(notification.IsOpen);
@@ -400,14 +395,13 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void WhileOpen_MoveLeftConsumesAndAdvancesSelection()
     {
-        var inbox = new FakeInbox(
+        var notification = new CrashReportNotification(CreateInbox(
             Pending("a", capturedUtc: T(1)),
-            Pending("b", capturedUtc: T(2)));
-        var notification = new CrashReportNotification(inbox);
+            Pending("b", capturedUtc: T(2))));
         notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
         Assert.Equal(1, notification.SelectedIndex);
 
-        var consumed = notification.HandleInput(NoKeys, NoKeys, new FakeInput { Commands = { InputCommandType.MoveLeft } }, null, false);
+        var consumed = notification.HandleInput(NoKeys, NoKeys, CreateInput(InputCommandType.MoveLeft), null, false);
 
         Assert.True(consumed);
         Assert.Equal(0, notification.SelectedIndex);
@@ -416,28 +410,28 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void WhileOpen_MoveUpDownCyclesActionFocus()
     {
-        var notification = new CrashReportNotification(new FakeInbox(Pending("r", capturedUtc: T(1))));
+        var notification = new CrashReportNotification(CreateInbox(Pending("r", capturedUtc: T(1))));
         notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
         var initialFocus = notification.ActionFocus;
 
-        notification.HandleInput(NoKeys, NoKeys, new FakeInput { Commands = { InputCommandType.MoveDown } }, null, false);
+        notification.HandleInput(NoKeys, NoKeys, CreateInput(InputCommandType.MoveDown), null, false);
         var nextFocus = notification.ActionFocus;
 
         Assert.NotEqual(initialFocus, nextFocus);
 
         // MoveUp returns toward the first action (cycle).
-        notification.HandleInput(NoKeys, NoKeys, new FakeInput { Commands = { InputCommandType.MoveUp } }, null, false);
+        notification.HandleInput(NoKeys, NoKeys, CreateInput(InputCommandType.MoveUp), null, false);
         Assert.Equal(initialFocus, notification.ActionFocus);
     }
 
     [Fact]
     public void WhileOpen_BackClosesPanelAndConsumes()
     {
-        var notification = new CrashReportNotification(new FakeInbox(Pending("r", capturedUtc: T(1))));
+        var notification = new CrashReportNotification(CreateInbox(Pending("r", capturedUtc: T(1))));
         notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
         Assert.True(notification.IsOpen);
 
-        var consumed = notification.HandleInput(NoKeys, NoKeys, new FakeInput { BackTriggered = true }, null, false);
+        var consumed = notification.HandleInput(NoKeys, NoKeys, CreateBackInput(), null, false);
 
         Assert.True(consumed);
         Assert.False(notification.IsOpen);
@@ -446,17 +440,18 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void DeleteConfirmation_ConsumesActivateUntilResolved()
     {
-        var inbox = new FakeInbox(Pending("r", capturedUtc: T(1)));
-        inbox.DeleteResult = new CrashReportActionResult(Succeeded: true);
-        inbox.OnGetReportsAfterDelete = () => Array.Empty<CrashReportInboxItem>();
-        var notification = new CrashReportNotification(inbox);
+        var (inboxMock, reports) = CreateInboxMock(Pending("r", capturedUtc: T(1)));
+        inboxMock.Setup(x => x.Delete(It.IsAny<string>()))
+            .Returns(new CrashReportActionResult(Succeeded: true))
+            .Callback<string>(_ => SetReports(reports));
+        var notification = new CrashReportNotification(inboxMock.Object);
         notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
         FocusAction(notification, actionIndex: 3);
         Activate(notification); // enter confirmation
 
         // Navigation inputs while confirming are still consumed but do not move selection.
         var navConsumed = notification.HandleInput(
-            NoKeys, NoKeys, new FakeInput { Commands = { InputCommandType.MoveLeft } }, null, false);
+            NoKeys, NoKeys, CreateInput(InputCommandType.MoveLeft), null, false);
 
         Assert.True(navConsumed);
         Assert.True(notification.IsDeleteConfirming);
@@ -470,10 +465,11 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void DeleteConfirmation_MouseClickOnDelete_ShouldConfirmDelete()
     {
-        var inbox = new FakeInbox(Pending("r", capturedUtc: T(1)));
-        inbox.DeleteResult = new CrashReportActionResult(Succeeded: true);
-        inbox.OnGetReportsAfterDelete = () => Array.Empty<CrashReportInboxItem>();
-        var notification = new CrashReportNotification(inbox);
+        var (inboxMock, reports) = CreateInboxMock(Pending("r", capturedUtc: T(1)));
+        inboxMock.Setup(x => x.Delete(It.IsAny<string>()))
+            .Returns(new CrashReportActionResult(Succeeded: true))
+            .Callback<string>(_ => SetReports(reports));
+        var notification = new CrashReportNotification(inboxMock.Object);
         notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
         FocusAction(notification, actionIndex: 3);
         Activate(notification); // arms confirmation
@@ -492,8 +488,7 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void DeleteConfirmation_MouseClickOutsideActionRow_ShouldCancelConfirmation()
     {
-        var inbox = new FakeInbox(Pending("r", capturedUtc: T(1)));
-        var notification = new CrashReportNotification(inbox);
+        var notification = new CrashReportNotification(CreateInbox(Pending("r", capturedUtc: T(1))));
         notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
         FocusAction(notification, actionIndex: 3);
         Activate(notification); // arms confirmation
@@ -512,13 +507,11 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void LaunchAction_ShouldRunAsynchronouslyAndResolveOnTheGameThread()
     {
-        var inbox = new FakeInbox(Pending("report-1", capturedUtc: T(1)));
-        inbox.GitHubResult = new CrashReportActionResult(Succeeded: true);
-        inbox.OnGetReportsAfterGitHub = () => new[]
-        {
-            AcknowledgedItem("report-1", capturedUtc: T(1))
-        };
-        var notification = new CrashReportNotification(inbox);
+        var (inboxMock, reports) = CreateInboxMock(Pending("report-1", capturedUtc: T(1)));
+        inboxMock.Setup(x => x.OpenGitHubIssue(It.IsAny<string>()))
+            .Returns(new CrashReportActionResult(Succeeded: true))
+            .Callback<string>(_ => SetReports(reports, AcknowledgedItem("report-1", capturedUtc: T(1))));
+        var notification = new CrashReportNotification(inboxMock.Object);
         notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
         FocusAction(notification, actionIndex: 0);
 
@@ -526,7 +519,7 @@ public sealed class CrashReportNotificationTests
         // observable: the launch-backed action runs off the game thread so the bounded macOS wait
         // cannot block HandleInput.
         notification.HandleInput(
-            NoKeys, NoKeys, new FakeInput { Commands = { InputCommandType.Activate } }, null, false);
+            NoKeys, NoKeys, CreateInput(InputCommandType.Activate), null, false);
         Assert.True(notification.IsLaunchPending);
 
         notification.WaitForLaunchAndResolve();
@@ -540,11 +533,11 @@ public sealed class CrashReportNotificationTests
     public void OpenPanel_RefreshesSnapshotFromInbox()
     {
         // A report captured after construction must appear when the panel is opened (F8 refreshes).
-        var inbox = new FakeInbox(Pending("first", capturedUtc: T(1)));
-        var notification = new CrashReportNotification(inbox);
+        var (inboxMock, reports) = CreateInboxMock(Pending("first", capturedUtc: T(1)));
+        var notification = new CrashReportNotification(inboxMock.Object);
         Assert.Single(notification.Reports);
 
-        inbox.SetReports(Pending("first", capturedUtc: T(1)), Pending("second", capturedUtc: T(2)));
+        SetReports(reports, Pending("first", capturedUtc: T(1)), Pending("second", capturedUtc: T(2)));
 
         notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
 
@@ -568,13 +561,13 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void F8_WhilePanelOpen_ShouldRefreshSnapshotAndResetSelection()
     {
-        var inbox = new FakeInbox(Pending("old", capturedUtc: T(1)));
-        var notification = new CrashReportNotification(inbox);
+        var (inboxMock, reports) = CreateInboxMock(Pending("old", capturedUtc: T(1)));
+        var notification = new CrashReportNotification(inboxMock.Object);
         notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
         Assert.True(notification.IsOpen);
 
         // A new report appears between frames; F8 while open refreshes and selects the newest pending.
-        inbox.SetReports(Pending("old", capturedUtc: T(1)), Pending("new", capturedUtc: T(2)));
+        SetReports(reports, Pending("old", capturedUtc: T(1)), Pending("new", capturedUtc: T(2)));
         var consumed = notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
 
         Assert.True(consumed);
@@ -586,13 +579,11 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void OpenReportFolder_WhenLaunchSucceeds_ShouldAcknowledgeAndKeepPanelOpen()
     {
-        var inbox = new FakeInbox(Pending("report-1", capturedUtc: T(1)));
-        inbox.FolderResult = new CrashReportActionResult(Succeeded: true);
-        inbox.OnGetReportsAfterFolder = () => new[]
-        {
-            AcknowledgedItem("report-1", capturedUtc: T(1))
-        };
-        var notification = new CrashReportNotification(inbox);
+        var (inboxMock, reports) = CreateInboxMock(Pending("report-1", capturedUtc: T(1)));
+        inboxMock.Setup(x => x.OpenReportFolder(It.IsAny<string>()))
+            .Returns(new CrashReportActionResult(Succeeded: true))
+            .Callback<string>(_ => SetReports(reports, AcknowledgedItem("report-1", capturedUtc: T(1))));
+        var notification = new CrashReportNotification(inboxMock.Object);
         notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
         FocusAction(notification, actionIndex: 1); // Open report folder
 
@@ -607,9 +598,10 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void OpenReportFolder_WhenLaunchFails_ShouldKeepPanelOpenAndExposeError()
     {
-        var inbox = new FakeInbox(Pending("report-1", capturedUtc: T(1)));
-        inbox.FolderResult = new CrashReportActionResult(Succeeded: false, ErrorCode: "launch_platform_unsupported");
-        var notification = new CrashReportNotification(inbox);
+        var (inboxMock, reports) = CreateInboxMock(Pending("report-1", capturedUtc: T(1)));
+        inboxMock.Setup(x => x.OpenReportFolder(It.IsAny<string>()))
+            .Returns(new CrashReportActionResult(Succeeded: false, ErrorCode: "launch_platform_unsupported"));
+        var notification = new CrashReportNotification(inboxMock.Object);
         notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
         FocusAction(notification, actionIndex: 1);
 
@@ -624,9 +616,10 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void Dismiss_WhenInboxFails_ShouldKeepPanelOpenAndExposeError()
     {
-        var inbox = new FakeInbox(Pending("report-1", capturedUtc: T(1)));
-        inbox.DismissResult = new CrashReportActionResult(Succeeded: false, ErrorCode: "acknowledge_io_failure");
-        var notification = new CrashReportNotification(inbox);
+        var (inboxMock, reports) = CreateInboxMock(Pending("report-1", capturedUtc: T(1)));
+        inboxMock.Setup(x => x.Dismiss(It.IsAny<string>()))
+            .Returns(new CrashReportActionResult(Succeeded: false, ErrorCode: "acknowledge_io_failure"));
+        var notification = new CrashReportNotification(inboxMock.Object);
         notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
         FocusAction(notification, actionIndex: 2); // Dismiss
 
@@ -640,13 +633,11 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void MouseClick_OnActionButton_ShouldFocusAndInvokeInOneMotion()
     {
-        var inbox = new FakeInbox(Pending("report-1", capturedUtc: T(1)));
-        inbox.GitHubResult = new CrashReportActionResult(Succeeded: true);
-        inbox.OnGetReportsAfterGitHub = () => new[]
-        {
-            AcknowledgedItem("report-1", capturedUtc: T(1))
-        };
-        var notification = new CrashReportNotification(inbox);
+        var (inboxMock, reports) = CreateInboxMock(Pending("report-1", capturedUtc: T(1)));
+        inboxMock.Setup(x => x.OpenGitHubIssue(It.IsAny<string>()))
+            .Returns(new CrashReportActionResult(Succeeded: true))
+            .Callback<string>(_ => SetReports(reports, AcknowledgedItem("report-1", capturedUtc: T(1))));
+        var notification = new CrashReportNotification(inboxMock.Object);
         notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
 
         // Click the first action button (GitHub) at its centre.
@@ -663,8 +654,7 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void MouseClick_OffActionButtons_ShouldConsumeButNotInvoke()
     {
-        var inbox = new FakeInbox(Pending("report-1", capturedUtc: T(1)));
-        var notification = new CrashReportNotification(inbox);
+        var notification = new CrashReportNotification(CreateInbox(Pending("report-1", capturedUtc: T(1))));
         notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
 
         // Click somewhere inside the panel but not on any action button.
@@ -691,9 +681,10 @@ public sealed class CrashReportNotificationTests
     [InlineData("", "Action failed.")]
     public void SetError_WithKnownCode_ShouldMapToShortMessage(string? code, string expected)
     {
-        var inbox = new FakeInbox(Pending("report-1", capturedUtc: T(1)));
-        inbox.GitHubResult = new CrashReportActionResult(Succeeded: false, ErrorCode: code);
-        var notification = new CrashReportNotification(inbox);
+        var (inboxMock, reports) = CreateInboxMock(Pending("report-1", capturedUtc: T(1)));
+        inboxMock.Setup(x => x.OpenGitHubIssue(It.IsAny<string>()))
+            .Returns(new CrashReportActionResult(Succeeded: false, ErrorCode: code));
+        var notification = new CrashReportNotification(inboxMock.Object);
         notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
         FocusAction(notification, actionIndex: 0);
 
@@ -706,9 +697,10 @@ public sealed class CrashReportNotificationTests
     public void SetError_WithUnknownCode_ShouldTrimToEightyCharacters()
     {
         var longCode = new string('x', 120);
-        var inbox = new FakeInbox(Pending("report-1", capturedUtc: T(1)));
-        inbox.GitHubResult = new CrashReportActionResult(Succeeded: false, ErrorCode: longCode);
-        var notification = new CrashReportNotification(inbox);
+        var (inboxMock, reports) = CreateInboxMock(Pending("report-1", capturedUtc: T(1)));
+        inboxMock.Setup(x => x.OpenGitHubIssue(It.IsAny<string>()))
+            .Returns(new CrashReportActionResult(Succeeded: false, ErrorCode: longCode));
+        var notification = new CrashReportNotification(inboxMock.Object);
         notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
         FocusAction(notification, actionIndex: 0);
 
@@ -721,12 +713,10 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void Constructor_WhenInboxThrowsOnGetReports_ShouldStartWithEmptySnapshot()
     {
-        var inbox = new FakeInbox(Pending("report-1", capturedUtc: T(1)))
-        {
-            GetReportsException = new InvalidOperationException("inbox unavailable")
-        };
+        var inboxMock = new Mock<ICrashReportInbox>(MockBehavior.Loose);
+        inboxMock.Setup(x => x.GetReports()).Throws(new InvalidOperationException("inbox unavailable"));
 
-        var notification = new CrashReportNotification(inbox);
+        var notification = new CrashReportNotification(inboxMock.Object);
 
         Assert.False(notification.IsOpen);
         Assert.Empty(notification.Reports);
@@ -736,8 +726,10 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void Constructor_WhenInboxReturnsNull_ShouldStartWithEmptySnapshot()
     {
-        var inbox = new NullReturningInbox();
-        var notification = new CrashReportNotification(inbox);
+        var inboxMock = new Mock<ICrashReportInbox>(MockBehavior.Loose);
+        inboxMock.Setup(x => x.GetReports()).Returns((IReadOnlyList<CrashReportInboxItem>)null!);
+
+        var notification = new CrashReportNotification(inboxMock.Object);
 
         Assert.Empty(notification.Reports);
         Assert.False(notification.IsBannerVisible);
@@ -746,21 +738,20 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void RefreshAfterAction_WhenSelectedReportIsGone_ShouldDefaultToNewestPending()
     {
-        var inbox = new FakeInbox(
+        var (inboxMock, reports) = CreateInboxMock(
             Pending("a", capturedUtc: T(1)),
             Pending("b", capturedUtc: T(2)));
-        var notification = new CrashReportNotification(inbox);
+        var notification = new CrashReportNotification(inboxMock.Object);
         notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
         // Default selection = newest pending = "b" at index 1.
         Assert.Equal("b", notification.Reports[notification.SelectedIndex].Summary.ReportId);
 
         // GitHub succeeds and the snapshot drops "b" entirely (e.g. deleted externally).
-        inbox.GitHubResult = new CrashReportActionResult(Succeeded: true);
-        inbox.OnGetReportsAfterGitHub = () => new[]
-        {
-            PendingItem("a", capturedUtc: T(1)),
-            PendingItem("c", capturedUtc: T(3))
-        };
+        inboxMock.Setup(x => x.OpenGitHubIssue(It.IsAny<string>()))
+            .Returns(new CrashReportActionResult(Succeeded: true))
+            .Callback<string>(_ => SetReports(reports,
+                PendingItem("a", capturedUtc: T(1)),
+                PendingItem("c", capturedUtc: T(3))));
         FocusAction(notification, actionIndex: 0);
         Activate(notification);
 
@@ -771,16 +762,14 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void RefreshAfterAction_WhenNoSelection_ShouldDefaultToNewestPending()
     {
-        var inbox = new FakeInbox(Pending("a", capturedUtc: T(1)));
-        var notification = new CrashReportNotification(inbox);
+        var (inboxMock, reports) = CreateInboxMock(Pending("a", capturedUtc: T(1)));
+        var notification = new CrashReportNotification(inboxMock.Object);
         notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
 
         // GitHub succeeds and the snapshot replaces the single report with a new pending one.
-        inbox.GitHubResult = new CrashReportActionResult(Succeeded: true);
-        inbox.OnGetReportsAfterGitHub = () => new[]
-        {
-            PendingItem("b", capturedUtc: T(2))
-        };
+        inboxMock.Setup(x => x.OpenGitHubIssue(It.IsAny<string>()))
+            .Returns(new CrashReportActionResult(Succeeded: true))
+            .Callback<string>(_ => SetReports(reports, PendingItem("b", capturedUtc: T(2))));
         FocusAction(notification, actionIndex: 0);
         Activate(notification);
 
@@ -791,17 +780,17 @@ public sealed class CrashReportNotificationTests
     [Fact]
     public void MoveSelection_WithNoReports_ShouldBeNoOp()
     {
-        var inbox = new FakeInbox();
+        var (inboxMock, reports) = CreateInboxMock();
         // Open with F8 needs at least one report, so construct with one then empty the inbox.
-        inbox.SetReports(Pending("temp", capturedUtc: T(1)));
-        var notification = new CrashReportNotification(inbox);
+        SetReports(reports, Pending("temp", capturedUtc: T(1)));
+        var notification = new CrashReportNotification(inboxMock.Object);
         notification.HandleInput(F8Down, NoKeys, inputManager: null, virtualMouse: null, leftMouseClick: false);
         // Simulate the inbox becoming empty while the panel is open (external deletion).
-        inbox.SetReports();
+        SetReports(reports);
 
         // MoveLeft with zero reports should not throw and should not change selection.
         var consumed = notification.HandleInput(
-            NoKeys, NoKeys, new FakeInput { Commands = { InputCommandType.MoveLeft } }, null, false);
+            NoKeys, NoKeys, CreateInput(InputCommandType.MoveLeft), null, false);
 
         Assert.True(consumed);
         Assert.True(notification.IsOpen);
@@ -814,7 +803,7 @@ public sealed class CrashReportNotificationTests
     private static bool Activate(CrashReportNotification notification)
     {
         var consumed = notification.HandleInput(
-            NoKeys, NoKeys, new FakeInput { Commands = { InputCommandType.Activate } }, null, false);
+            NoKeys, NoKeys, CreateInput(InputCommandType.Activate), null, false);
         // Launch-backed actions run off the game thread; resolve the result deterministically so
         // tests can assert the post-action state. A no-op for Dismiss/Delete (no pending task).
         notification.WaitForLaunchAndResolve();
@@ -830,7 +819,7 @@ public sealed class CrashReportNotificationTests
         for (int i = 0; i < moves; i++)
         {
             notification.HandleInput(
-                NoKeys, NoKeys, new FakeInput { Commands = { InputCommandType.MoveDown } }, null, false);
+                NoKeys, NoKeys, CreateInput(InputCommandType.MoveDown), null, false);
         }
 
         Assert.Equal(actionIndex, notification.ActionFocus);
@@ -882,115 +871,61 @@ public sealed class CrashReportNotificationTests
             FileName: id + ".txt");
 
     /// <summary>
-    /// Pure fake inbox: no filesystem, no process. Returns controlled snapshots and records which
-    /// actions were invoked so the component can be exercised deterministically.
+    /// Creates a loose <see cref="Mock{ICrashReportInbox}"/> with all action methods defaulting
+    /// to <c>Succeeded: true</c> and <see cref="GetReports"/> returning a mutable list. Tests that
+    /// need to change action results or post-action report snapshots re-setup the relevant method
+    /// with <c>.Returns(...).Callback(...)</c>; tests that need to replace the report set call
+    /// <see cref="SetReports"/> on the returned list.
     /// </summary>
-    private sealed class FakeInbox : ICrashReportInbox
+    private static (Mock<ICrashReportInbox> mock, List<CrashReportInboxItem> reports) CreateInboxMock(
+        params CrashReportInboxItem[] initialReports)
     {
-        private IReadOnlyList<CrashReportInboxItem> _reports;
-
-        public FakeInbox(params CrashReportInboxItem[] reports)
-        {
-            _reports = reports ?? Array.Empty<CrashReportInboxItem>();
-        }
-
-        public CrashReportActionResult GitHubResult { get; set; } = new(Succeeded: true);
-        public CrashReportActionResult FolderResult { get; set; } = new(Succeeded: true);
-        public CrashReportActionResult DismissResult { get; set; } = new(Succeeded: true);
-        public CrashReportActionResult DeleteResult { get; set; } = new(Succeeded: true);
-
-        public Func<IEnumerable<CrashReportInboxItem>>? OnGetReportsAfterGitHub { get; set; }
-        public Func<IEnumerable<CrashReportInboxItem>>? OnGetReportsAfterFolder { get; set; }
-        public Func<IEnumerable<CrashReportInboxItem>>? OnGetReportsAfterDismiss { get; set; }
-        public Func<IEnumerable<CrashReportInboxItem>>? OnGetReportsAfterDelete { get; set; }
-
-        /// <summary>When set, <see cref="GetReports"/> throws to exercise the snapshot guard.</summary>
-        public Exception? GetReportsException { get; set; }
-
-        public void SetReports(params CrashReportInboxItem[] reports) => _reports = reports;
-
-        public IReadOnlyList<CrashReportInboxItem> GetReports()
-        {
-            if (GetReportsException is { } ex)
-            {
-                throw ex;
-            }
-
-            return _reports;
-        }
-
-        public CrashReportActionResult OpenGitHubIssue(string reportId)
-        {
-            if (OnGetReportsAfterGitHub is { } next)
-            {
-                _reports = next().ToList();
-            }
-
-            return GitHubResult;
-        }
-
-        public CrashReportActionResult OpenReportFolder(string reportId)
-        {
-            if (OnGetReportsAfterFolder is { } next)
-            {
-                _reports = next().ToList();
-            }
-
-            return FolderResult;
-        }
-
-        public CrashReportActionResult Dismiss(string reportId)
-        {
-            if (OnGetReportsAfterDismiss is { } next)
-            {
-                _reports = next().ToList();
-            }
-
-            return DismissResult;
-        }
-
-        public CrashReportActionResult Delete(string reportId)
-        {
-            if (OnGetReportsAfterDelete is { } next)
-            {
-                _reports = next().ToList();
-            }
-
-            return DeleteResult;
-        }
+        var reports = initialReports.ToList();
+        var mock = new Mock<ICrashReportInbox>(MockBehavior.Loose);
+        mock.Setup(x => x.GetReports()).Returns(reports);
+        mock.Setup(x => x.OpenGitHubIssue(It.IsAny<string>())).Returns(new CrashReportActionResult(Succeeded: true));
+        mock.Setup(x => x.OpenReportFolder(It.IsAny<string>())).Returns(new CrashReportActionResult(Succeeded: true));
+        mock.Setup(x => x.Dismiss(It.IsAny<string>())).Returns(new CrashReportActionResult(Succeeded: true));
+        mock.Setup(x => x.Delete(It.IsAny<string>())).Returns(new CrashReportActionResult(Succeeded: true));
+        return (mock, reports);
     }
 
     /// <summary>
-    /// Minimal <see cref="IInputManager"/> fake: reports a triggered Back and/or a set of pressed
-    /// (edge-triggered) commands. Does not touch hardware.
+    /// Convenience wrapper for tests that only need the inbox object and never modify state.
     /// </summary>
-    private sealed class FakeInput : IInputManager
+    private static ICrashReportInbox CreateInbox(params CrashReportInboxItem[] reports) =>
+        CreateInboxMock(reports).mock.Object;
+
+    /// <summary>
+    /// Replaces the contents of a shared report list in place so the mock's <see cref="GetReports"/>
+    /// setup observes the new snapshot on the next call.
+    /// </summary>
+    private static void SetReports(List<CrashReportInboxItem> reports, params CrashReportInboxItem[] newReports)
     {
-        public HashSet<InputCommandType> Commands { get; } = new();
-
-        public bool BackTriggered { get; set; }
-
-        public bool HasPendingCommands => false;
-        public InputCommand? GetNextCommand() => null;
-        public bool IsBackActionTriggered() => BackTriggered;
-        public bool IsCommandPressed(InputCommandType commandType) => Commands.Contains(commandType);
-        public bool IsKeyDown(int keyCode) => false;
-        public bool IsKeyPressed(int keyCode) => false;
-        public bool IsKeyReleased(int keyCode) => false;
-        public bool IsKeyTriggered(int keyCode) => false;
-        public void Update(double deltaTime) { }
-        public void Dispose() { }
+        reports.Clear();
+        reports.AddRange(newReports);
     }
 
     /// <summary>
-    /// Inbox that returns <c>null</c> from <see cref="GetReports"/> to exercise the null guard.
+    /// Creates a loose <see cref="Mock{IInputManager}"/> with the given commands configured as
+    /// pressed. All other members return their default values (false / null), matching the
+    /// behaviour of the former hand-rolled fake.
     /// </summary>
-    private sealed class NullReturningInbox : ICrashReportInbox
+    private static IInputManager CreateInput(params InputCommandType[] commands)
     {
-        public IReadOnlyList<CrashReportInboxItem> GetReports() => null!;
-        public CrashReportActionResult OpenGitHubIssue(string reportId) => new(Succeeded: true);
-        public CrashReportActionResult OpenReportFolder(string reportId) => new(Succeeded: true);
-        public CrashReportActionResult Dismiss(string reportId) => new(Succeeded: true);
-        public CrashReportActionResult Delete(string reportId) => new(Succeeded: true);
+        var mock = new Mock<IInputManager>(MockBehavior.Loose);
+        foreach (var command in commands)
+            mock.Setup(x => x.IsCommandPressed(command)).Returns(true);
+        return mock.Object;
+    }
+
+    /// <summary>
+    /// Creates a loose <see cref="Mock{IInputManager}"/> with the back action triggered.
+    /// </summary>
+    private static IInputManager CreateBackInput()
+    {
+        var mock = new Mock<IInputManager>(MockBehavior.Loose);
+        mock.Setup(x => x.IsBackActionTriggered()).Returns(true);
+        return mock.Object;
     }
 }

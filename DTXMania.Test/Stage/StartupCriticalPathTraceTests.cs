@@ -241,6 +241,21 @@ public class StartupCriticalPathTraceTests
     }
 
     [Fact]
+    public void Publish_WhenTitleCrashInboxCountIsZero_ShouldWriteFailureOnly()
+    {
+        var fixture = CreateFixture();
+        CompleteValidTrace(
+            fixture,
+            omitAggregate: StartupCriticalPathAggregate.TitleCrashInbox);
+        using var writer = new TrackingWriter();
+
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.StartsWith("HPA192_CRITICAL_PATH_FAILURE ", writer.ToString());
+        Assert.Contains("error=invalid_aggregate_count", writer.ToString());
+        Assert.DoesNotContain("HPA192_CRITICAL_PATH outcome=", writer.ToString());
+    }
+
+    [Fact]
     public void Terminal_WhenFailureWins_ShouldIgnoreLateWorkerCompletion()
     {
         var fixture = CreateFixture();
@@ -456,7 +471,8 @@ public class StartupCriticalPathTraceTests
         int invalidRecoverySpans = 0,
         StartupCriticalPathMilestone? omitMilestone = null,
         StartupCriticalPathMilestone? secondOmittedMilestone = null,
-        IReadOnlyDictionary<StartupCriticalPathMilestone, long>? timestampOverrides = null)
+        IReadOnlyDictionary<StartupCriticalPathMilestone, long>? timestampOverrides = null,
+        StartupCriticalPathAggregate? omitAggregate = null)
     {
         void ExactlyOnce(StartupCriticalPathMilestone milestone, long timestamp)
         {
@@ -525,15 +541,25 @@ public class StartupCriticalPathTraceTests
             StartupCriticalPathMilestone.StartupFirstDrawEnd));
         fixture.Trace.IncrementCompletedStartupDraw();
 
+        void MaybeAggregate(
+            StartupCriticalPathAggregate aggregate,
+            long begin,
+            long end)
+        {
+            if (omitAggregate == aggregate)
+                return;
+            Aggregate(fixture, aggregate, begin, end);
+        }
+
         ExactlyOnce(StartupCriticalPathMilestone.DatabaseInvoke, 40);
-        Aggregate(fixture, StartupCriticalPathAggregate.DatabaseServiceSetup, 40, 41);
-        Aggregate(fixture, StartupCriticalPathAggregate.DatabaseCorruptionProbe, 41, 42);
+        MaybeAggregate(StartupCriticalPathAggregate.DatabaseServiceSetup, 40, 41);
+        MaybeAggregate(StartupCriticalPathAggregate.DatabaseCorruptionProbe, 41, 42);
         for (var index = 0; index < invalidRecoverySpans; index++)
-            Aggregate(fixture, StartupCriticalPathAggregate.DatabaseInvalidRecovery, 42, 43);
-        Aggregate(fixture, StartupCriticalPathAggregate.DatabaseEnsureCreated, 42, 43);
-        Aggregate(fixture, StartupCriticalPathAggregate.DatabaseEncodingPragmas, 43, 44);
-        Aggregate(fixture, StartupCriticalPathAggregate.DatabaseVersionWork, 44, 45);
-        Aggregate(fixture, StartupCriticalPathAggregate.DatabaseSchemaEnsures, 45, 46);
+            MaybeAggregate(StartupCriticalPathAggregate.DatabaseInvalidRecovery, 42, 43);
+        MaybeAggregate(StartupCriticalPathAggregate.DatabaseEnsureCreated, 42, 43);
+        MaybeAggregate(StartupCriticalPathAggregate.DatabaseEncodingPragmas, 43, 44);
+        MaybeAggregate(StartupCriticalPathAggregate.DatabaseVersionWork, 44, 45);
+        MaybeAggregate(StartupCriticalPathAggregate.DatabaseSchemaEnsures, 45, 46);
         At(fixture, 41, () => fixture.Trace.RecordDatabaseTaskReturned(wasTerminal: false));
         ExactlyOnce(StartupCriticalPathMilestone.DatabaseTerminal, 50);
         FirstPair(
@@ -562,17 +588,17 @@ public class StartupCriticalPathTraceTests
         ExactlyOnce(StartupCriticalPathMilestone.StartupDeactivateEnd, 91);
         fixture.Trace.RecordTitleCompletionLookup(cacheHit: true);
         ExactlyOnce(StartupCriticalPathMilestone.TitleActivateBegin, 92);
-        Aggregate(fixture, StartupCriticalPathAggregate.TitleGpuSetup, 92, 93);
-        Aggregate(fixture, StartupCriticalPathAggregate.TitleBackground, 93, 94);
-        Aggregate(fixture, StartupCriticalPathAggregate.TitleMenu, 94, 95);
-        Aggregate(fixture, StartupCriticalPathAggregate.TitleFont, 95, 96);
+        MaybeAggregate(StartupCriticalPathAggregate.TitleGpuSetup, 92, 93);
+        MaybeAggregate(StartupCriticalPathAggregate.TitleBackground, 93, 94);
+        MaybeAggregate(StartupCriticalPathAggregate.TitleMenu, 94, 95);
+        MaybeAggregate(StartupCriticalPathAggregate.TitleFont, 95, 96);
         fixture.Trace.IncrementTitleSoundLoad();
-        Aggregate(fixture, StartupCriticalPathAggregate.TitleCursorSound, 96, 97);
+        MaybeAggregate(StartupCriticalPathAggregate.TitleCursorSound, 96, 97);
         fixture.Trace.IncrementTitleSoundLoad();
-        Aggregate(fixture, StartupCriticalPathAggregate.TitleDecideSound, 97, 98);
+        MaybeAggregate(StartupCriticalPathAggregate.TitleDecideSound, 97, 98);
         fixture.Trace.IncrementTitleSoundLoad();
-        Aggregate(fixture, StartupCriticalPathAggregate.TitleGameStartSound, 98, 99);
-        Aggregate(fixture, StartupCriticalPathAggregate.TitleCrashInbox, 99, 100);
+        MaybeAggregate(StartupCriticalPathAggregate.TitleGameStartSound, 98, 99);
+        MaybeAggregate(StartupCriticalPathAggregate.TitleCrashInbox, 99, 100);
         ExactlyOnce(StartupCriticalPathMilestone.TitleActivateEnd, 110);
         FirstPair(
             StartupCriticalPathMilestone.TitleFirstUpdateBegin,
