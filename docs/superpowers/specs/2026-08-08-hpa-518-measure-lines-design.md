@@ -2,7 +2,7 @@
 
 **Issue:** [HPA-518](https://linear.app/cwchanap/issue/HPA-518/measure-line-in-game-play-stage)  
 **Date:** 2026-08-08  
-**Status:** Draft for review
+**Status:** Revised after design review
 
 ## Context
 
@@ -101,7 +101,7 @@ Add a focused `ChartTimeCalculator` under
 ```csharp
 internal static class ChartTimeCalculator
 {
-    internal const int TicksPerMeasure = 192;
+    private const int TicksPerMeasure = 192;
 
     internal static double CalculateTimeMs(int bar, int tick, double bpm);
 }
@@ -112,6 +112,10 @@ generation delegate to this helper. Moving the current formula must be
 behavior-preserving; existing note and BGM timing tests remain parity guards.
 The helper name deliberately avoids claiming support for a complete DTX tempo
 map.
+
+`DTXChartParser` keeps its existing private parse-grid constant and remains
+unchanged. It already calls `ParsedChart.FinalizeChart()` after parsing. This
+feature neither reads raw discarded channels nor expands parser semantics.
 
 ### Measure-line model and generation
 
@@ -158,8 +162,14 @@ the judgement line. `NoteRenderer` exposes the existing 20-pixel drop grace as
 milliseconds (`DropGracePeriod / ScrollPixelsPerMs`), and `PerformanceStage`
 passes that speed-derived value into this query. This keeps the below-line
 distance stable at every scroll speed instead of applying an arbitrary fixed
-time window. Negative input grace is clamped to zero. The list is sorted and
-queried without mutating note iteration state.
+time window. If `ScrollPixelsPerMs` is zero or negative, the exposed grace is
+zero; negative query input is also clamped to zero.
+
+`GetActiveMeasureLines(...)` performs binary search against `_measureLines`
+only. It must not call the note-only `FindStartIndex(...)`, reuse
+`_lastActiveIndex`, or introduce one cursor shared by both collections. A line
+query therefore cannot change the result of a later note query, including a
+note query that moves backward in time.
 
 ### Layout and rendering
 
@@ -168,7 +178,9 @@ Add `PerformanceUILayout.MeasureLine` constants/helpers:
 - destination `X`: `HitBar.Bounds.X` (`295`)
 - destination width: `HitBar.Bounds.Width` (`558`)
 - destination height: `2`
+- source `X`: `0`
 - source `Y`: `769`
+- source width: `min(texture.Width, HitBar.Bounds.Width)`
 - source height: `2`
 - layer depth: `0.75f`, between lane backgrounds (`0.8f`) and notes (`0.7f`)
 
@@ -180,10 +192,19 @@ missing, disposed, narrower than one pixel, or shorter than source row `770`,
 it draws the same destination rectangle with the renderer's existing white
 texture. If neither texture is available, drawing is a no-op.
 
-The renderer applies the same top-of-screen culling and 20-pixel
-below-judgement grace used by scrolling notes. It exposes the corresponding
-time-domain grace through a read-only property for the stage query; callers do
-not duplicate the conversion.
+The source rectangle is therefore
+`(0, 769, min(texture.Width, 558), 2)`, while the destination remains
+`(295, centeredY, 558, 2)`. A source narrower than the lane panel is stretched
+across the full destination width. A texture height below `771` cannot contain
+both source rows and selects the solid fallback.
+
+The renderer applies top-of-screen culling and a measure-line-specific
+20-pixel below-judgement grace. Current stage note queries start at
+`songTimeMs`, so they do not actually supply past notes to `DrawNote`; this
+line grace is intentional visibility behavior for the two-pixel strip, not a
+claim of note-query parity. `NoteRenderer` exposes the corresponding
+time-domain grace through a read-only property for the stage query so callers
+do not duplicate the conversion.
 
 Measure-line drawing must not change the ready state for playable notes and
 must share the existing texture reload/disposal lifecycle. Invalid or null
@@ -192,8 +213,12 @@ inputs remain safe no-ops, matching existing `NoteRenderer` draw methods.
 ### Performance-stage integration
 
 `PerformanceStage.OnDraw(...)` calls `DrawMeasureLines()` after
-`DrawLaneBackgrounds()` and before `DrawPads()` / `DrawNotes()`. The stage
-method uses the same values as note rendering:
+`DrawLaneBackgrounds()` and before `DrawNotes()`. Its call order relative to
+`DrawPads()` is not a layering contract because `SpriteSortMode.BackToFront`
+uses depth: measure lines remain at `0.75f`, while current pads intentionally
+render at `0.1f`. The implementation updates the stale `OnDraw` depth comment
+but does not change `PadRenderer.BaseDepth` or pad behavior. The stage method
+uses the same values as note rendering:
 
 1. Read `currentTimeMs` from `SongTimer`.
 2. Read look-ahead from `NoteRenderer.EffectiveLookAheadMs`.
@@ -227,10 +252,16 @@ DTXChartParser
 - A BGM-only chart produces boundaries from its occupied measures.
 - Unsupported DTX tempo and measure-length channels keep their current CX
   behavior; HPA-518 neither worsens nor silently claims to fix that limitation.
+- The highest occupied measure comes only from the current gameplay model's
+  `Notes` and `BGMEvents`; discarded raw DTX channels do not extend the list.
 - Custom skins with an NX-compatible `7_chips_drums.png` retain authored line
   appearance. Short or missing custom textures receive the solid fallback.
 - The default and CX Neon assets are reused unchanged.
 - No configuration or persisted-data migration is required.
+- Existing `TimeMs == 0` recalculation gates in `AddNote` and `ChartManager`
+  remain unchanged. Measure-line generation always calls
+  `ChartTimeCalculator.CalculateTimeMs(...)` directly, including bar `0`, and
+  does not copy that sentinel pattern.
 
 ## Testing
 
@@ -256,16 +287,21 @@ Extend `ChartManagerTests` to verify:
 - the active query includes future lines inside look-ahead;
 - the supplied grace window retains a just-passed line;
 - lines outside both bounds are excluded;
-- note-query state remains unaffected.
+- note-query state remains unaffected;
+- querying measure lines at a later time and then notes at an earlier time
+  returns the same notes as a fresh `ChartManager`, proving the line query
+  cannot poison `_lastActiveIndex`.
 
 ### Rendering and stage tests
 
 Extend `PerformanceUILayoutMoreTests` and `NoteRendererLogicTests` to verify:
 
 - destination geometry is `x=295`, width `558`, height `2`;
-- source geometry is `y=769`, height `2`;
+- source geometry is
+  `x=0`, `y=769`, width `min(texture.Width, 558)`, height `2`;
 - line Y uses the same calculation as a note at the same `TimeMs`;
 - the time-domain grace corresponds to 20 pixels at multiple scroll speeds;
+- zero or negative scroll pixels produce zero past-grace milliseconds;
 - line depth stays between lane and note depths;
 - offscreen and null inputs are safe;
 - short/missing textures select the solid fallback.
@@ -304,10 +340,10 @@ remains the authoritative graphics and gameplay-E2E platform gate.
 - `DTXMania.Game/Lib/Song/Components/BGMEvent.cs`
 - `DTXMania.Game/Lib/Song/Components/ParsedChart.cs`
 - `DTXMania.Game/Lib/Song/Components/ChartManager.cs`
-- `DTXMania.Game/Lib/Song/DTXChartParser.cs`
 - `DTXMania.Game/Lib/UI/Layout/PerformanceUILayout.cs`
 - `DTXMania.Game/Lib/Stage/Performance/NoteRenderer.cs`
-- `DTXMania.Game/Lib/Stage/PerformanceStage.cs`
+- `DTXMania.Game/Lib/Stage/PerformanceStage.cs` — add measure-line wiring and
+  correct the stale depth-order comment without changing pad depth
 - existing focused test files under `DTXMania.Test/Song/`,
   `DTXMania.Test/UI/`, and `DTXMania.Test/Stage/Performance/`
 
