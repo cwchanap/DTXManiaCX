@@ -130,8 +130,10 @@ public sealed class MeasureLine
 `FinalizeChart()` it determines the highest occupied measure across both
 `Notes` and `BGMEvents`:
 
-- Clear `MeasureLines` before generation so repeated finalization is
-  idempotent and cannot duplicate boundaries.
+- Clear `MeasureLines` before generation so a repeated finalization cannot
+  duplicate boundaries. This makes measure-line generation repeat-safe; it
+  does not change the existing behavior where `FinalizeChart()` adds the
+  duration buffer on every call.
 - If neither collection has an event, `MeasureLines` stays empty.
 - Otherwise, generate bars `0` through `highestOccupiedBar + 1`, inclusive.
 - Every line uses tick `0` and `ChartTimeCalculator.CalculateTimeMs(...)`.
@@ -175,7 +177,7 @@ time.
 
 ### Layout and rendering
 
-Add `PerformanceUILayout.MeasureLine` constants:
+Add `PerformanceUILayout.MeasureLine` constants and a pure destination helper:
 
 - destination `X`: `HitBar.Bounds.X` (`295`)
 - destination width: `HitBar.Bounds.Width` (`558`)
@@ -183,6 +185,8 @@ Add `PerformanceUILayout.MeasureLine` constants:
 - color: neutral gray `new Color(169, 169, 169)`, matching the upper row of
   NX's bundled strip while remaining visible in both bundled skins
 - layer depth: `0.78f`
+- `GetDestinationRect(double centerY)`: floor `centerY - 1` for the top edge
+  and return the full-width two-pixel destination rectangle
 
 `NoteRenderer` gains an `[ExcludeFromCodeCoverage]` thin draw loop named
 `DrawMeasureLines(...)`. It uses
@@ -279,7 +283,8 @@ Extend `ParsedChartTests` with:
 - events in measures `0` and `2` produce lines for bars `0`, `1`, `2`, and `3`;
 - a BGM-only chart generates boundaries;
 - an empty chart generates none;
-- calling `FinalizeChart()` twice does not duplicate boundaries;
+- calling `FinalizeChart()` twice does not duplicate boundaries, without
+  changing the method's existing duration-buffer behavior;
 - line times use the fixed current clock;
 - terminal lines do not extend `DurationMs`.
 
