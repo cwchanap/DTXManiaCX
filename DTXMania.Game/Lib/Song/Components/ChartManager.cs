@@ -13,6 +13,7 @@ namespace DTXMania.Game.Lib.Song.Components
         #region Private Fields
 
         private readonly List<Note> _notes;
+        private readonly List<MeasureLine> _measureLines;
         private readonly double _bpm;
         private int _lastActiveIndex = 0; // Optimization for sequential access
 
@@ -40,6 +41,11 @@ namespace DTXMania.Game.Lib.Song.Components
         /// </summary>
         public IReadOnlyList<Note> AllNotes => _notes.AsReadOnly();
 
+        /// <summary>
+        /// All measure lines in the chart (read-only)
+        /// </summary>
+        public IReadOnlyList<MeasureLine> AllMeasureLines => _measureLines.AsReadOnly();
+
         #endregion
 
         #region Constructors
@@ -55,6 +61,7 @@ namespace DTXMania.Game.Lib.Song.Components
 
             _bpm = parsedChart.Bpm;
             _notes = new List<Note>(parsedChart.Notes);
+            _measureLines = new List<MeasureLine>(parsedChart.MeasureLines);
             DurationMs = parsedChart.DurationMs;
 
             // Ensure all notes have calculated timing
@@ -105,6 +112,33 @@ namespace DTXMania.Game.Lib.Song.Components
                 {
                     yield return note;
                 }
+            }
+        }
+
+        /// <summary>
+        /// Gets measure lines within the active time window.
+        /// </summary>
+        /// <param name="songTimeMs">Current song time in milliseconds</param>
+        /// <param name="lookAheadMs">How far ahead to look for measure lines (in milliseconds)</param>
+        /// <param name="gracePeriodMs">How far into the past to include measure lines (in milliseconds)</param>
+        /// <returns>Measure lines in the active time window</returns>
+        public IEnumerable<MeasureLine> GetActiveMeasureLines(
+            double songTimeMs,
+            double lookAheadMs,
+            double gracePeriodMs)
+        {
+            var clampedGraceMs = Math.Max(0.0, gracePeriodMs);
+            var startTime = songTimeMs - clampedGraceMs;
+            var endTime = songTimeMs + lookAheadMs;
+
+            foreach (var line in _measureLines)
+            {
+                if (line.TimeMs < startTime)
+                    continue;
+                if (line.TimeMs > endTime)
+                    yield break;
+
+                yield return line;
             }
         }
 
