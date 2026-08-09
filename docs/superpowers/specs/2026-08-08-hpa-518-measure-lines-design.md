@@ -2,7 +2,7 @@
 
 **Issue:** [HPA-518](https://linear.app/cwchanap/issue/HPA-518/measure-line-in-game-play-stage)  
 **Date:** 2026-08-08  
-**Status:** Revised after design review
+**Status:** Revised after asset and reuse review
 
 ## Context
 
@@ -12,8 +12,8 @@ DTXManiaNX.
 
 NX represents measure and beat lines as timeline chips. It synthesizes a bar
 line at each measure boundary, scrolls that chip with the same distance model
-as playable chips, and draws a two-pixel strip from the drum-chip texture
-across the lane panel. NX also supports beat lines, measure-number text,
+as playable chips, and draws a two-pixel strip across the lane panel. NX also
+supports beat lines, measure-number text,
 metronome sounds, reverse mode, and lane-visibility settings; those adjacent
 features are not implied by the singular measure-line request.
 
@@ -23,9 +23,8 @@ DTXManiaCX already has the relevant visual seams:
 - `NoteRenderer.SetScrollSpeed(...)` owns scroll speed and visible look-ahead.
 - `PerformanceUILayout.HitBar.Bounds` defines the full lane-panel width at
   `x=295`, width `558`.
-- `TexturePath.DrumChips` resolves the active skin's
-  `Graphics/7_chips_drums.png`; the bundled skins retain NX's bar-line strip at
-  source `y=769`, height `2`.
+- `NoteRenderer` already owns a one-pixel white texture for solid rectangle
+  rendering.
 - `PerformanceStage.OnDraw(...)` already draws lane backgrounds before notes,
   leaving a stable layer for measure lines between them.
 
@@ -42,10 +41,8 @@ drum notes.
 - Preserve empty measures between occupied measures.
 - Keep line motion exactly aligned with note motion at every configured scroll
   speed, play speed, pause state, and frame time.
-- Match the NX drum-lane geometry and use the active skin's NX-compatible line
-  strip when it is available.
-- Degrade safely to a solid two-pixel line when a custom skin lacks the
-  expected source strip.
+- Match the NX drum-lane geometry with a visible neutral-gray two-pixel line
+  in both bundled skins.
 - Keep parsing, model, rendering, and stage wiring independently testable in
   the Mac-safe unit suite.
 
@@ -133,6 +130,8 @@ public sealed class MeasureLine
 `FinalizeChart()` it determines the highest occupied measure across both
 `Notes` and `BGMEvents`:
 
+- Clear `MeasureLines` before generation so repeated finalization is
+  idempotent and cannot duplicate boundaries.
 - If neither collection has an event, `MeasureLines` stays empty.
 - Otherwise, generate bars `0` through `highestOccupiedBar + 1`, inclusive.
 - Every line uses tick `0` and `ChartTimeCalculator.CalculateTimeMs(...)`.
@@ -165,38 +164,39 @@ distance stable at every scroll speed instead of applying an arbitrary fixed
 time window. If `ScrollPixelsPerMs` is zero or negative, the exposed grace is
 zero; negative query input is also clamped to zero.
 
-`GetActiveMeasureLines(...)` performs binary search against `_measureLines`
-only. It must not call the note-only `FindStartIndex(...)`, reuse
-`_lastActiveIndex`, or introduce one cursor shared by both collections. A line
-query therefore cannot change the result of a later note query, including a
-note query that moves backward in time.
+`GetActiveMeasureLines(...)` performs a plain ordered scan of `_measureLines`,
+skipping entries before the lower bound and stopping after the upper bound.
+The expected collection is only a few hundred entries, so a second custom
+binary-search implementation is unnecessary. The method must not call the
+note-only `FindStartIndex(...)`, reuse `_lastActiveIndex`, or introduce one
+cursor shared by both collections. A line query therefore cannot change the
+result of a later note query, including a note query that moves backward in
+time.
 
 ### Layout and rendering
 
-Add `PerformanceUILayout.MeasureLine` constants/helpers:
+Add `PerformanceUILayout.MeasureLine` constants:
 
 - destination `X`: `HitBar.Bounds.X` (`295`)
 - destination width: `HitBar.Bounds.Width` (`558`)
 - destination height: `2`
-- source `X`: `0`
-- source `Y`: `769`
-- source width: `min(texture.Width, HitBar.Bounds.Width)`
-- source height: `2`
-- layer depth: `0.75f`, between lane backgrounds (`0.8f`) and notes (`0.7f`)
+- color: neutral gray `new Color(169, 169, 169)`, matching the upper row of
+  NX's bundled strip while remaining visible in both bundled skins
+- layer depth: `0.78f`
 
-`NoteRenderer` gains `DrawMeasureLines(...)`. It uses
+`NoteRenderer` gains an `[ExcludeFromCodeCoverage]` thin draw loop named
+`DrawMeasureLines(...)`. It uses
 `GetNoteScreenY(line.TimeMs, currentSongTimeMs)` and centers the two-pixel
-destination on that Y position. The renderer draws the active skin's drum-chip
-source strip when the underlying texture is large enough. If the texture is
-missing, disposed, narrower than one pixel, or shorter than source row `770`,
-it draws the same destination rectangle with the renderer's existing white
-texture. If neither texture is available, drawing is a no-op.
+destination on that Y position. It draws destination
+`(295, centeredY, 558, 2)` from the renderer's existing `_whiteTexture` with
+the layout color and no source rectangle. If `_whiteTexture` is unavailable,
+drawing is a no-op.
 
-The source rectangle is therefore
-`(0, 769, min(texture.Width, 558), 2)`, while the destination remains
-`(295, centeredY, 558, 2)`. A source narrower than the lane panel is stretched
-across the full destination width. A texture height below `771` cannot contain
-both source rows and selects the solid fallback.
+This asset-independent path is required by the shipped files: the default
+System texture has visible pixels at source rows `769`–`770`, but the same
+rows are fully transparent in both the CX Neon texture and its skin-generator
+source. A dimension-only texture guard would therefore accept CX Neon's
+`718x776` image and still draw an invisible line.
 
 The renderer applies top-of-screen culling and a measure-line-specific
 20-pixel below-judgement grace. Current stage note queries start at
@@ -206,18 +206,21 @@ claim of note-query parity. `NoteRenderer` exposes the corresponding
 time-domain grace through a read-only property for the stage query so callers
 do not duplicate the conversion.
 
-Measure-line drawing must not change the ready state for playable notes and
-must share the existing texture reload/disposal lifecycle. Invalid or null
-inputs remain safe no-ops, matching existing `NoteRenderer` draw methods.
+Measure-line drawing must not change the ready state for playable notes.
+Invalid or null inputs remain safe no-ops, matching existing `NoteRenderer`
+draw methods.
 
 ### Performance-stage integration
 
 `PerformanceStage.OnDraw(...)` calls `DrawMeasureLines()` after
 `DrawLaneBackgrounds()` and before `DrawNotes()`. Its call order relative to
 `DrawPads()` is not a layering contract because `SpriteSortMode.BackToFront`
-uses depth: measure lines remain at `0.75f`, while current pads intentionally
-render at `0.1f`. The implementation updates the stale `OnDraw` depth comment
-but does not change `PadRenderer.BaseDepth` or pad behavior. The stage method
+uses depth. Measure lines render at `0.78f`: numerically below lane backgrounds
+at `0.8f` and above the note depths actually in use (`0.70f` for rectangle
+fallbacks and `0.05f` for sprites), the judgement line at `0.6f`, and pads at
+`0.1f`. The distinct value also avoids reusing the stale `0.75f` pad depth in
+the current stage comment. The implementation corrects that comment but does
+not change `PadRenderer.BaseDepth` or pad behavior. The stage method
 uses the same values as note rendering:
 
 1. Read `currentTimeMs` from `SongTimer`.
@@ -242,7 +245,7 @@ DTXChartParser
   -> ChartManager copied runtime collections
   -> PerformanceStage current time + visible window
   -> NoteRenderer shared time-to-Y mapping
-  -> active-skin NX strip or solid fallback
+  -> solid neutral-gray two-pixel line
 ```
 
 ## Error and Compatibility Behavior
@@ -254,9 +257,9 @@ DTXChartParser
   behavior; HPA-518 neither worsens nor silently claims to fix that limitation.
 - The highest occupied measure comes only from the current gameplay model's
   `Notes` and `BGMEvents`; discarded raw DTX channels do not extend the list.
-- Custom skins with an NX-compatible `7_chips_drums.png` retain authored line
-  appearance. Short or missing custom textures receive the solid fallback.
-- The default and CX Neon assets are reused unchanged.
+- Measure-line visibility does not depend on drum-chip texture dimensions or
+  alpha content; custom and bundled skins use the same layout-defined color.
+- The default and CX Neon assets remain unchanged.
 - No configuration or persisted-data migration is required.
 - Existing `TimeMs == 0` recalculation gates in `AddNote` and `ChartManager`
   remain unchanged. Measure-line generation always calls
@@ -276,8 +279,14 @@ Extend `ParsedChartTests` with:
 - events in measures `0` and `2` produce lines for bars `0`, `1`, `2`, and `3`;
 - a BGM-only chart generates boundaries;
 - an empty chart generates none;
+- calling `FinalizeChart()` twice does not duplicate boundaries;
 - line times use the fixed current clock;
 - terminal lines do not extend `DurationMs`.
+
+Tests that hand-build a `ParsedChart` for measure-line behavior call
+`FinalizeChart()` before constructing `ChartManager`, matching the production
+parser path. Generation remains in `ParsedChart` because the collection is
+derived chart state and is the intended seam for a future timing map.
 
 ### Runtime query tests
 
@@ -297,14 +306,14 @@ Extend `ChartManagerTests` to verify:
 Extend `PerformanceUILayoutMoreTests` and `NoteRendererLogicTests` to verify:
 
 - destination geometry is `x=295`, width `558`, height `2`;
-- source geometry is
-  `x=0`, `y=769`, width `min(texture.Width, 558)`, height `2`;
+- layout constants expose the neutral-gray color and `0.78f` depth;
 - line Y uses the same calculation as a note at the same `TimeMs`;
 - the time-domain grace corresponds to 20 pixels at multiple scroll speeds;
 - zero or negative scroll pixels produce zero past-grace milliseconds;
-- line depth stays between lane and note depths;
-- offscreen and null inputs are safe;
-- short/missing textures select the solid fallback.
+- depth constants satisfy `0.8f > MeasureLine.Depth > 0.70f`, placing the line
+  visually in front of lane backgrounds and behind every note, judgement, and
+  pad depth currently in use under `BackToFront` sorting;
+- offscreen and null inputs are safe.
 
 Extend `PerformanceStageDeterministicTests` to verify the stage supplies the
 current song time, renderer look-ahead, and active chart lines without drawing
@@ -312,10 +321,11 @@ when required collaborators are absent.
 
 ### End-to-end and visual verification
 
-Use the existing generated gameplay E2E fixture with a sparse multi-measure
-note pattern. The automated smoke remains behavioral rather than pixel-based:
-it must still reach Result successfully. Capture a gameplay screenshot during
-manual verification and confirm:
+Leave the generated gameplay E2E fixture unchanged. It already contains events
+in bars `000` and `001`, which generate boundaries at bars `0`, `1`, and `2`;
+the automated smoke remains behavioral rather than pixel-based and must still
+reach Result successfully. Capture a gameplay screenshot during manual
+verification and confirm:
 
 - the measure line spans the full drum panel;
 - it is behind notes and above lane backgrounds;
@@ -358,9 +368,9 @@ graphics-dependent tests.
 - Empty measures between occupied measures retain their boundaries.
 - The line uses the same time-to-Y mapping and visible look-ahead as notes.
 - The line spans the current `HitBar.Bounds` width and renders below notes.
-- Default and CX Neon skins use the NX bar-line source strip; incompatible
-  custom skins receive a safe solid fallback.
-- Empty/malformed chart state and missing texture resources do not crash.
+- Default, CX Neon, and custom skins render a visible solid measure line
+  without depending on drum-chip texture content.
+- Empty/malformed chart state and missing renderer resources do not crash.
 - Measure lines do not affect chart duration, judgement, audio, scoring, or
   persistence.
 - Focused model, runtime-query, layout, renderer, and stage tests pass on macOS.
