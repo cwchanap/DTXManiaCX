@@ -2804,6 +2804,98 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void DrawMeasureLines_WhenRequiredCollaboratorIsMissing_ShouldNotThrow()
+    {
+        var stage = CreateStage();
+
+        var exception = Record.Exception(
+            () => ReflectionHelpers.InvokePrivateMethod(stage, "DrawMeasureLines"));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void DrawMeasureLines_WhenTimerIsPlaying_ShouldQueryAndCullSafely()
+    {
+        var stage = CreateStage();
+        var renderer = CreateNoteRenderer();
+        var parsedChart = new ParsedChart("draw-measure-lines.dtx") { Bpm = 120.0 };
+        parsedChart.AddNote(new Note(0, 1, 0, 0x11, "01"));
+        parsedChart.FinalizeChart();
+
+        ReflectionHelpers.SetPrivateField(renderer, "_scrollPixelsPerMs", 5.0);
+        ReflectionHelpers.SetPrivateField(
+            renderer,
+            "<EffectiveLookAheadMs>k__BackingField",
+            3000.0);
+        ReflectionHelpers.SetPrivateField(stage, "_noteRenderer", renderer);
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_chartManager",
+            new ChartManager(parsedChart));
+        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreatePlayingSongTimer());
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_currentGameTime",
+            new GameTime(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(0.016)));
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_spriteBatch",
+            CreateSpriteBatchStub(new Viewport(0, 0, 1280, 720)));
+
+        var exception = Record.Exception(
+            () => ReflectionHelpers.InvokePrivateMethod(stage, "DrawMeasureLines"));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void DrawMeasureLines_WhenTimerIsPaused_ShouldUseFrozenLogicalTime()
+    {
+        var stage = CreateStage();
+        var renderer = CreateNoteRenderer();
+        var parsedChart = new ParsedChart("draw-paused-measure-lines.dtx")
+        {
+            Bpm = 120.0
+        };
+        parsedChart.AddNote(new Note(0, 1, 0, 0x11, "01"));
+        parsedChart.FinalizeChart();
+        var timer = new SongTimer(150);
+        timer.Play(new GameTime(TimeSpan.Zero, TimeSpan.Zero));
+        timer.Pause(new GameTime(TimeSpan.FromMilliseconds(1000), TimeSpan.Zero));
+
+        ReflectionHelpers.SetPrivateField(renderer, "_scrollPixelsPerMs", 5.0);
+        ReflectionHelpers.SetPrivateField(
+            renderer,
+            "<EffectiveLookAheadMs>k__BackingField",
+            3000.0);
+        ReflectionHelpers.SetPrivateField(stage, "_noteRenderer", renderer);
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_chartManager",
+            new ChartManager(parsedChart));
+        ReflectionHelpers.SetPrivateField(stage, "_songTimer", timer);
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_currentGameTime",
+            new GameTime(TimeSpan.FromMilliseconds(5000), TimeSpan.FromSeconds(0.016)));
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_spriteBatch",
+            CreateSpriteBatchStub(new Viewport(0, 0, 1280, 720)));
+
+        var exception = Record.Exception(
+            () => ReflectionHelpers.InvokePrivateMethod(stage, "DrawMeasureLines"));
+
+        Assert.Null(exception);
+        Assert.Equal(
+            1500.0,
+            timer.GetCurrentMs(new GameTime(
+                TimeSpan.FromMilliseconds(5000),
+                TimeSpan.Zero)));
+    }
+
+    [Fact]
     public void DrawNoteOverlays_WhenRendererIsReadyAndActiveNoteIsOffscreen_ShouldCompleteWithoutThrowing()
     {
         var stage = CreateStage();
