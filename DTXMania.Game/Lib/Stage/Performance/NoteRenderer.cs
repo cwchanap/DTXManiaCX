@@ -102,6 +102,14 @@ namespace DTXMania.Game.Lib.Stage.Performance
         public double ScrollPixelsPerMs => _scrollPixelsPerMs;
 
         /// <summary>
+        /// Grace period below the judgement line for measure lines, in milliseconds.
+        /// </summary>
+        public double MeasureLinePastGraceMs =>
+            _scrollPixelsPerMs > 0
+                ? DropGracePeriod / _scrollPixelsPerMs
+                : 0.0;
+
+        /// <summary>
         /// Current effective look-ahead time in milliseconds (for GetActiveNotes consistency)
         /// </summary>
         public double EffectiveLookAheadMs { get; private set; }
@@ -216,6 +224,44 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
             // Draw lane flash effects on top of everything
             DrawLaneFlashEffects(spriteBatch);
+        }
+
+        /// <summary>
+        /// Renders scrolling measure lines on the gameplay lane panel.
+        /// </summary>
+        /// <param name="spriteBatch">SpriteBatch for drawing</param>
+        /// <param name="measureLines">Measure lines currently visible on screen</param>
+        /// <param name="currentSongTimeMs">Current song time in milliseconds</param>
+        [ExcludeFromCodeCoverage]
+        public void DrawMeasureLines(
+            SpriteBatch spriteBatch,
+            IEnumerable<MeasureLine> measureLines,
+            double currentSongTimeMs)
+        {
+            if (!IsReady || spriteBatch == null || measureLines == null)
+                return;
+
+            foreach (var line in measureLines)
+            {
+                var lineY = GetNoteScreenY(line.TimeMs, currentSongTimeMs);
+                var destination =
+                    PerformanceUILayout.MeasureLine.GetDestinationRect(lineY);
+                if (destination.Bottom <= 0 ||
+                    lineY > JudgementY + DropGracePeriod)
+                {
+                    continue;
+                }
+
+                spriteBatch.Draw(
+                    _whiteTexture,
+                    destination,
+                    null,
+                    PerformanceUILayout.MeasureLine.Color,
+                    0f,
+                    Vector2.Zero,
+                    SpriteEffects.None,
+                    PerformanceUILayout.MeasureLine.Depth);
+            }
         }
 
         /// <summary>
