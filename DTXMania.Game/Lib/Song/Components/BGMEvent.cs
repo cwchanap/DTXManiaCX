@@ -72,13 +72,7 @@ namespace DTXMania.Game.Lib.Song.Components
         /// <param name="bpm">Base BPM of the song</param>
         public void CalculateTimeMs(double bpm)
         {
-            if (bpm <= 0)
-                throw new ArgumentException("BPM must be greater than 0", nameof(bpm));
-
-            // Formula: (((bar*192)+tick)/192) * (60000/BPM) * 4 (4 beats per measure in 4/4 time)
-            var totalTicks = (Bar * 192) + Tick;
-            var measures = totalTicks / 192.0;  // 192 ticks = 1 measure
-            TimeMs = measures * (60000.0 / bpm) * 4.0;  // 4 beats per measure
+            TimeMs = ChartTimeCalculator.CalculateTimeMs(Bar, Tick, bpm);
         }
 
         /// <summary>
