@@ -326,8 +326,10 @@ namespace DTXMania.Game.Lib.Stage
                 return;
 
 
-            // Draw components in proper Z-order (BackToFront sorting):
-            // Background (1.0f) → Lanes (0.8f) → Pads (0.75f) → Notes (0.7f) → JudgementLine (0.6f) → JudgementTexts (0.5f)
+            // BackToFront depth order:
+            // Background (1.0f) → Lanes (0.8f) → Measure lines (0.78f) →
+            // fallback notes (0.70f) → JudgementLine (0.6f) →
+            // Pads (0.1f) → sprite notes (0.05f).
 
             // Base pass: Background → Lanes → Pads → Notes → Judgement Line → Judgement Texts
             _spriteBatch.Begin(SpriteSortMode.BackToFront, BlendState.AlphaBlend);
@@ -337,6 +339,9 @@ namespace DTXMania.Game.Lib.Stage
 
             // Draw lane backgrounds
             DrawLaneBackgrounds();
+
+            // Draw scrolling measure boundaries above lanes and behind gameplay objects
+            DrawMeasureLines();
 
             // Draw pad indicators (above lane backgrounds, below notes)
             DrawPads();
@@ -1009,6 +1014,34 @@ namespace DTXMania.Game.Lib.Stage
                     }
                 }
             }
+        }
+
+        private void DrawMeasureLines()
+        {
+            if (_noteRenderer == null ||
+                _chartManager == null ||
+                _songTimer == null ||
+                _currentGameTime == null)
+            {
+                return;
+            }
+
+            if (!_songTimer.IsPlaying && !_songTimer.IsPaused)
+                return;
+
+            var currentTimeMs = _songTimer.GetCurrentMs(_currentGameTime);
+            var lookAheadMs = _noteRenderer.EffectiveLookAheadMs > 0
+                ? _noteRenderer.EffectiveLookAheadMs
+                : PerformanceUILayout.NoteDefaultLookAheadMs;
+            var activeLines = _chartManager.GetActiveMeasureLines(
+                currentTimeMs,
+                lookAheadMs,
+                _noteRenderer.MeasureLinePastGraceMs);
+
+            _noteRenderer.DrawMeasureLines(
+                _spriteBatch,
+                activeLines,
+                currentTimeMs);
         }
 
         /// <summary>
