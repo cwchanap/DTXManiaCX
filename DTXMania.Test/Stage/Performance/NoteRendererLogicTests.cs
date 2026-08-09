@@ -97,6 +97,31 @@ public class NoteRendererLogicTests
         Assert.True(renderer.ShouldDropNote(note, 1200.0));
     }
 
+    [Theory]
+    [InlineData(0.5, 40.0)]
+    [InlineData(0.25, 80.0)]
+    public void MeasureLinePastGraceMs_PositiveScroll_ShouldKeepTwentyPixels(
+        double pixelsPerMs,
+        double expectedMs)
+    {
+        var renderer = CreateRenderer();
+        ReflectionHelpers.SetPrivateField(renderer, "_scrollPixelsPerMs", pixelsPerMs);
+
+        Assert.Equal(expectedMs, renderer.MeasureLinePastGraceMs, precision: 3);
+    }
+
+    [Theory]
+    [InlineData(0.0)]
+    [InlineData(-0.5)]
+    public void MeasureLinePastGraceMs_NonPositiveScroll_ShouldReturnZero(
+        double pixelsPerMs)
+    {
+        var renderer = CreateRenderer();
+        ReflectionHelpers.SetPrivateField(renderer, "_scrollPixelsPerMs", pixelsPerMs);
+
+        Assert.Equal(0.0, renderer.MeasureLinePastGraceMs);
+    }
+
     [Fact]
     public void Update_ShouldAdvanceAnimationAndDecayFlashAlpha()
     {
@@ -143,6 +168,53 @@ public class NoteRendererLogicTests
 
         var exception = Record.Exception(() =>
             renderer.DrawNotes((SpriteBatch)RuntimeHelpers.GetUninitializedObject(typeof(SpriteBatch)), new[] { new Note() }, 1000.0));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void DrawMeasureLines_WhenRendererIsNotReady_ShouldReturnWithoutThrowing()
+    {
+        var renderer = CreateRenderer();
+
+        var exception = Record.Exception(() => renderer.DrawMeasureLines(
+            (SpriteBatch)RuntimeHelpers.GetUninitializedObject(typeof(SpriteBatch)),
+            new[] { new MeasureLine { Bar = 0, TimeMs = 0.0 } },
+            0.0));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void DrawMeasureLines_WhenInputIsNull_ShouldReturnWithoutThrowing()
+    {
+        var renderer = CreateReadyRenderer();
+        var spriteBatch =
+            (SpriteBatch)RuntimeHelpers.GetUninitializedObject(typeof(SpriteBatch));
+
+        var exception = Record.Exception(() =>
+        {
+            renderer.DrawMeasureLines(null!, Array.Empty<MeasureLine>(), 0.0);
+            renderer.DrawMeasureLines(spriteBatch, null!, 0.0);
+        });
+
+        Assert.Null(exception);
+    }
+
+    [Theory]
+    [InlineData(-10000.0)]
+    [InlineData(10000.0)]
+    public void DrawMeasureLines_WhenLineIsOffscreen_ShouldReturnWithoutThrowing(
+        double currentSongTimeMs)
+    {
+        var renderer = CreateReadyRenderer();
+        var spriteBatch =
+            (SpriteBatch)RuntimeHelpers.GetUninitializedObject(typeof(SpriteBatch));
+
+        var exception = Record.Exception(() => renderer.DrawMeasureLines(
+            spriteBatch,
+            new[] { new MeasureLine { Bar = 0, TimeMs = 0.0 } },
+            currentSongTimeMs));
 
         Assert.Null(exception);
     }

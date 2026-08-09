@@ -360,6 +360,20 @@ namespace DTXMania.Test.UI
             Assert.Equal(PerformanceUILayout.JudgelineY, PerformanceUILayout.HitBar.Position.Y);
         }
 
+        [Fact]
+        public void MeasureLine_Layout_ShouldMatchLanePanelAndRealDepthOrder()
+        {
+            var destination = PerformanceUILayout.MeasureLine.GetDestinationRect(601.25);
+
+            Assert.Equal(PerformanceUILayout.HitBar.Bounds.X, destination.X);
+            Assert.Equal(600, destination.Y);
+            Assert.Equal(PerformanceUILayout.HitBar.Bounds.Width, destination.Width);
+            Assert.Equal(2, destination.Height);
+            Assert.Equal(new Color(169, 169, 169), PerformanceUILayout.MeasureLine.Color);
+            Assert.True(0.8f > PerformanceUILayout.MeasureLine.Depth);
+            Assert.True(PerformanceUILayout.MeasureLine.Depth > 0.70f);
+        }
+
         #endregion
 
         #region SpriteJudgementTextAssets Tests

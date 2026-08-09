@@ -778,6 +778,26 @@ namespace DTXMania.Game.Lib.UI.Layout
         }
 
         /// <summary>
+        /// Gameplay measure-line configuration.
+        /// </summary>
+        public static class MeasureLine
+        {
+            public const int Height = 2;
+            public const float Depth = 0.78f;
+            public static readonly Color Color = new Color(169, 169, 169);
+
+            public static Rectangle GetDestinationRect(double centerY)
+            {
+                var top = (int)Math.Floor(centerY - (Height / 2.0));
+                return new Rectangle(
+                    HitBar.Bounds.X,
+                    top,
+                    HitBar.Bounds.Width,
+                    Height);
+            }
+        }
+
+        /// <summary>
         /// NX drum pad row destinations for the 4x3 7_pads.png sprite sheet.
         /// </summary>
         public static class DrumPads
