@@ -9,6 +9,7 @@ namespace DTXMania.Test.Song
     /// Unit tests for ChartManager
     /// Tests runtime note management functionality for Phase 2 implementation
     /// </summary>
+    [Trait("Category", "Unit")]
     public class ChartManagerTests
     {
         [Fact]
