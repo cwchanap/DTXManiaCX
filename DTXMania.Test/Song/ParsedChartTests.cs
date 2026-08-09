@@ -335,6 +335,71 @@ namespace DTXMania.Test.Song
             Assert.Equal(3000.0, chart.BGMEvents[1].TimeMs);
         }
 
+        [Fact]
+        public void FinalizeChart_SparseNotes_ShouldGenerateEveryBoundaryThroughTerminal()
+        {
+            var chart = new ParsedChart { Bpm = 120.0 };
+            chart.AddNote(new Note(0, 0, 0, 0x11, "01"));
+            chart.AddNote(new Note(0, 2, 0, 0x11, "01"));
+
+            chart.FinalizeChart();
+
+            Assert.Equal(new[] { 0, 1, 2, 3 },
+                chart.MeasureLines.Select(line => line.Bar));
+            Assert.Equal(new[] { 0.0, 2000.0, 4000.0, 6000.0 },
+                chart.MeasureLines.Select(line => line.TimeMs));
+        }
+
+        [Fact]
+        public void FinalizeChart_BgmOnly_ShouldGenerateMeasureBoundaries()
+        {
+            var chart = new ParsedChart { Bpm = 120.0 };
+            chart.AddBGMEvent(new BGMEvent(1, 0, "01"));
+
+            chart.FinalizeChart();
+
+            Assert.Equal(new[] { 0, 1, 2 },
+                chart.MeasureLines.Select(line => line.Bar));
+        }
+
+        [Fact]
+        public void FinalizeChart_EmptyChart_ShouldGenerateNoMeasureBoundaries()
+        {
+            var chart = new ParsedChart();
+
+            chart.FinalizeChart();
+
+            Assert.Empty(chart.MeasureLines);
+        }
+
+        [Fact]
+        public void FinalizeChart_WhenCalledTwice_ShouldNotDuplicateMeasureBoundaries()
+        {
+            var chart = new ParsedChart { Bpm = 120.0 };
+            chart.AddNote(new Note(0, 1, 0, 0x11, "01"));
+            chart.FinalizeChart();
+            var firstBoundaries = chart.MeasureLines
+                .Select(line => (line.Bar, line.TimeMs))
+                .ToArray();
+
+            chart.FinalizeChart();
+
+            Assert.Equal(firstBoundaries,
+                chart.MeasureLines.Select(line => (line.Bar, line.TimeMs)).ToArray());
+        }
+
+        [Fact]
+        public void FinalizeChart_TerminalBoundary_ShouldNotExtendDuration()
+        {
+            var chart = new ParsedChart { Bpm = 120.0 };
+            chart.AddNote(new Note(0, 2, 0, 0x11, "01"));
+
+            chart.FinalizeChart();
+
+            Assert.Equal(4500.0, chart.DurationMs, precision: 3);
+            Assert.Equal(6000.0, chart.MeasureLines[^1].TimeMs, precision: 3);
+        }
+
         #endregion
 
         #region GetNotesInTimeRange Tests

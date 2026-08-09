@@ -33,6 +33,11 @@ namespace DTXMania.Game.Lib.Song.Components
         public List<BGMEvent> BGMEvents { get; } = new List<BGMEvent>();
 
         /// <summary>
+        /// Ordered measure boundaries generated from retained chart events.
+        /// </summary>
+        public List<MeasureLine> MeasureLines { get; } = new List<MeasureLine>();
+
+        /// <summary>
         /// Resolved WAV id → absolute audio file path. Populated by DTXChartParser
         /// during parse from #WAVxx definitions. Used by ChipSoundCache to preload
         /// per-note drum chip sounds. Empty when the chart has no #WAVxx lines.
@@ -235,6 +240,25 @@ namespace DTXMania.Game.Lib.Song.Components
 
             // Sort BGM events by time for efficient playback scheduling
             BGMEvents.Sort((a, b) => a.TimeMs.CompareTo(b.TimeMs));
+
+            MeasureLines.Clear();
+
+            var highestOccupiedBar = -1;
+            if (Notes.Count > 0)
+                highestOccupiedBar = Math.Max(highestOccupiedBar, Notes.Max(note => note.Bar));
+            if (BGMEvents.Count > 0)
+                highestOccupiedBar = Math.Max(
+                    highestOccupiedBar,
+                    BGMEvents.Max(bgmEvent => bgmEvent.Bar));
+
+            for (var bar = 0; highestOccupiedBar >= 0 && bar <= highestOccupiedBar + 1; bar++)
+            {
+                MeasureLines.Add(new MeasureLine
+                {
+                    Bar = bar,
+                    TimeMs = ChartTimeCalculator.CalculateTimeMs(bar, 0, Bpm)
+                });
+            }
 
             // Debug: Report parsing summary
 #if DEBUG
