@@ -34,6 +34,74 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
+        public void Constructor_FinalizedChart_ShouldCopyMeasureLines()
+        {
+            var parsedChart = CreateTestChart();
+            var manager = new ChartManager(parsedChart);
+            var expectedBars = parsedChart.MeasureLines.Select(line => line.Bar).ToArray();
+
+            parsedChart.MeasureLines.Clear();
+
+            Assert.Equal(expectedBars, manager.AllMeasureLines.Select(line => line.Bar));
+        }
+
+        [Fact]
+        public void GetActiveMeasureLines_ShouldIncludeLookAheadAndPastGrace()
+        {
+            var manager = new ChartManager(CreateTestChart());
+
+            var active = manager
+                .GetActiveMeasureLines(2100.0, 2000.0, 100.0)
+                .Select(line => line.Bar)
+                .ToArray();
+
+            Assert.Equal(new[] { 1, 2 }, active);
+        }
+
+        [Fact]
+        public void GetActiveMeasureLines_NegativeGrace_ShouldClampToZero()
+        {
+            var manager = new ChartManager(CreateTestChart());
+
+            var active = manager
+                .GetActiveMeasureLines(2000.0, 0.0, -500.0)
+                .Select(line => line.Bar)
+                .ToArray();
+
+            Assert.Equal(new[] { 1 }, active);
+        }
+
+        [Fact]
+        public void GetActiveMeasureLines_ShouldExcludeLinesOutsideWindow()
+        {
+            var manager = new ChartManager(CreateTestChart());
+
+            var active = manager
+                .GetActiveMeasureLines(2100.0, 1000.0, 50.0)
+                .ToArray();
+
+            Assert.Empty(active);
+        }
+
+        [Fact]
+        public void GetActiveMeasureLines_LaterQuery_ShouldNotAffectEarlierNoteQuery()
+        {
+            var parsedChart = CreateTestChart();
+            var manager = new ChartManager(parsedChart);
+            var freshManager = new ChartManager(parsedChart);
+
+            manager.GetActiveMeasureLines(4000.0, 2000.0, 0.0).ToArray();
+            var actual = manager.GetActiveNotes(500.0, 1000.0)
+                .Select(note => note.TimeMs)
+                .ToArray();
+            var expected = freshManager.GetActiveNotes(500.0, 1000.0)
+                .Select(note => note.TimeMs)
+                .ToArray();
+
+            Assert.Equal(expected, actual);
+        }
+
+        [Fact]
         public void GetActiveNotes_ReturnsNotesInTimeRange()
         {
             // Arrange
