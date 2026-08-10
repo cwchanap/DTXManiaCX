@@ -32,15 +32,24 @@ namespace DTXMania.Game.Lib.Song.Components
                 return;
 
             _measureLengths[bar] = multiplier;
+            InvalidateAnchors();
         }
 
         internal void SetTempoChange(int bar, int tick, double bpm)
         {
-            if (bar < 0 || tick < 0 || tick >= TicksPerMeasure ||
+            if (bar < 0 || tick < 0 ||
                 !double.IsFinite(bpm) || !(bpm > 0))
                 return;
 
-            _tempoChanges[(bar, tick)] = bpm;
+            var (normalizedBar, normalizedTick) = NormalizePosition(bar, tick);
+            _tempoChanges[(normalizedBar, normalizedTick)] = bpm;
+            InvalidateAnchors();
+        }
+
+        private void InvalidateAnchors()
+        {
+            _anchors.Clear();
+            _throughBar = -1;
         }
 
         internal void Rebuild(double baseBpm, int throughBar)

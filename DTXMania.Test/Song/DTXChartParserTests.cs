@@ -411,7 +411,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task ParseAsync_ShortMeasureLength_ShiftsFollowingBar()
+        public async Task ParseAsync_ShortMeasureLength_ShouldShiftFollowingBar()
         {
             var chart = await ParseTimingFixtureAsync(
                 "#BPM: 120\n" +
@@ -423,7 +423,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task ParseAsync_ExtendedMeasureLength_ShiftsFollowingBar()
+        public async Task ParseAsync_ExtendedMeasureLength_ShouldShiftFollowingBar()
         {
             var chart = await ParseTimingFixtureAsync(
                 "#BPM: 120\n" +
@@ -435,7 +435,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task ParseAsync_DirectTempoChange_ResolvesAtPairTick()
+        public async Task ParseAsync_DirectTempoChange_ShouldResolveAtPairTick()
         {
             var chart = await ParseTimingFixtureAsync(
                 "#BPM: 120\n" +
@@ -447,7 +447,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task ParseAsync_ReferencedTempoDefinitionBeforeTimeline_Resolves()
+        public async Task ParseAsync_ReferencedTempoDefinitionBeforeTimeline_ShouldResolve()
         {
             const double referencedBpm = 180.5;
             var chart = await ParseTimingFixtureAsync(
@@ -461,7 +461,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task ParseAsync_ReferencedTempoDefinitionAfterTimeline_Resolves()
+        public async Task ParseAsync_ReferencedTempoDefinitionAfterTimeline_ShouldResolve()
         {
             const double referencedBpm = 180.5;
             var chart = await ParseTimingFixtureAsync(
@@ -475,7 +475,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task ParseAsync_ReferencedTempoOpaqueId_Resolves()
+        public async Task ParseAsync_ReferencedTempoOpaqueId_ShouldResolve()
         {
             const double referencedBpm = 210.25;
             var chart = await ParseTimingFixtureAsync(
@@ -489,7 +489,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task ParseAsync_TempoDirectivesSamePosition_LastSourceRowWins()
+        public async Task ParseAsync_TempoDirectivesSamePosition_ShouldLetLastSourceRowWin()
         {
             const double referencedBpm = 180.5;
             var referencedAfterDirect = await ParseTimingFixtureAsync(
@@ -514,7 +514,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task ParseAsync_TempoChange_AlignsNotesBgmAndMeasureLines()
+        public async Task ParseAsync_TempoChange_ShouldAlignNotesBgmAndMeasureLines()
         {
             var chart = await ParseTimingFixtureAsync(
                 "#BPM: 120\n" +
@@ -532,7 +532,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task ParseAsync_MalformedTimingSyntax_FallsBackToBaseTiming()
+        public async Task ParseAsync_MalformedTimingSyntax_ShouldFallBackToBaseTiming()
         {
             var chart = await ParseTimingFixtureAsync(
                 "#BPM: 120\n" +
@@ -552,7 +552,7 @@ namespace DTXMania.Test.Song
         [Theory]
         [InlineData("Infinity")]
         [InlineData("1e9999")]
-        public async Task ParseAsync_NonFiniteExtendedTimingValues_FallBackToBaseTiming(
+        public async Task ParseAsync_NonFiniteExtendedTimingValues_ShouldFallBackToBaseTiming(
             string malformedValue)
         {
             var chart = await ParseTimingFixtureAsync(
@@ -571,7 +571,7 @@ namespace DTXMania.Test.Song
         [Theory]
         [InlineData("Infinity")]
         [InlineData("1e9999")]
-        public async Task ParseAsync_NonFiniteBaseBpm_UsesDefaultBaseTiming(
+        public async Task ParseAsync_NonFiniteBaseBpm_ShouldUseDefaultBaseTiming(
             string malformedValue)
         {
             var chart = await ParseTimingFixtureAsync(

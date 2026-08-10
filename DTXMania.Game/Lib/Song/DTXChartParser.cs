@@ -586,6 +586,11 @@ namespace DTXMania.Game.Lib.Song
 
         }
 
+        private static int CalculatePairTick(int pairIndex, int pairCount)
+        {
+            return (int)((double)pairIndex / pairCount * TicksPerMeasure);
+        }
+
         private static void ParseTempoDirectives(
             string noteData,
             int measure,
@@ -612,7 +617,7 @@ namespace DTXMania.Game.Lib.Song
                 if (pair == "00")
                     continue;
 
-                var tick = (int)((double)i / pairCount * TicksPerMeasure);
+                var tick = CalculatePairTick(i, pairCount);
                 if (channel == 0x03)
                 {
                     if (int.TryParse(pair, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var directBpm) &&
@@ -697,7 +702,7 @@ namespace DTXMania.Game.Lib.Song
                     continue;
 
                 // Calculate tick position within the measure
-                var tick = (int)((double)i / pairCount * TicksPerMeasure);
+                var tick = CalculatePairTick(i, pairCount);
 
                 // Create BGM event
                 var bgmEvent = new BGMEvent(measure, tick, pair);
@@ -734,7 +739,7 @@ namespace DTXMania.Game.Lib.Song
 
                 // Calculate tick position within the measure
                 // Fixed: Use i (pair index) and pairCount for proper positioning
-                var tick = (int)((double)i / pairCount * TicksPerMeasure);
+                var tick = CalculatePairTick(i, pairCount);
 
                 // Debug logging for timing validation
 #if DEBUG
