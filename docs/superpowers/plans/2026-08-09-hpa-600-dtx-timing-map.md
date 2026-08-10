@@ -2,45 +2,49 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Parse DTX timing channels `02`, `03`, and `08` and resolve notes, BGM events, measure lines, and gameplay chart duration from one compiled timing map.
+**Goal:** Parse DTX timing channels `02`, `03`, and `08` and resolve notes, BGM events, measure lines, and gameplay duration from one compiled timing map.
 
-**Architecture:** Introduce `ChartTimingMap` as the only `(bar, tick) -> TimeMs` authority. Make `ParsedChart.FinalizeChart()` the only production absolute-time pass, migrate tests away from pre-seeded `TimeMs`, then extend `DTXChartParser` to collect timing syntax and resolve `03`/`08` tempo directives after the complete file is known. Runtime gameplay systems keep consuming finalized `TimeMs` and do not receive timing-map dependencies.
+**Architecture:** Replace the temporary fixed `ChartTimeCalculator` with an internal `ChartTimingMap`. Make `ParsedChart.FinalizeChart()` the only production absolute-time pass, including normalization of oversized non-negative ticks and rebuild-horizon calculation. Migrate affected fixtures to canonical bar/tick positions, then extend `DTXChartParser` to collect timing syntax and resolve ordered `03`/`08` directives after the complete file is known.
 
 **Tech Stack:** .NET 8, C#, MonoGame 3.8, xUnit, existing DTX parser and Mac-safe test projects.
 
 ## Global Constraints
 
 - Source of truth: [`2026-08-09-hpa-600-dtx-timing-map-design.md`](../specs/2026-08-09-hpa-600-dtx-timing-map-design.md).
-- Channel `02` is a positive decimal measure-length multiplier; it affects only its own measure and defaults to `1.0`.
+- Channel `02` is a positive decimal per-measure length multiplier; it affects only its own measure and defaults to `1.0`.
 - Channel `03` uses non-`00` hexadecimal BPM pairs.
-- Channel `08` uses opaque uppercase two-character object IDs resolved through positive numeric `#BPMxx` definitions; do not parse IDs such as `AA` as hex BPM.
+- Channel `08` uses opaque uppercase two-character object IDs resolved through positive numeric `#BPMxx` definitions; do not parse IDs such as `AA` as hexadecimal BPM values.
 - `#BPMxx` definitions must resolve even when they appear after the timeline row that references them.
-- Channel `03` and `08` directives at the same `(bar, tick)` use later **source-file order**, independent of channel type.
-- Preserve the existing normalized `192` ticks per measure; channel `02` scales musical duration, not the stored coordinate grid.
+- Channel `03` and `08` at the same position use later **source-list insertion order**, independent of channel type.
+- Keep the parser's canonical `192` ticks per measure.
+- Timing lookup accepts non-negative ticks `>= 192` by normalizing them into later bars; negative positions are rejected.
+- `ParsedChart.FinalizeChart()` derives its rebuild horizon from normalized note/BGM positions so every lookup is covered.
 - `ParsedChart.FinalizeChart()` is the only production pass that assigns `Note.TimeMs`, `BGMEvent.TimeMs`, `MeasureLine.TimeMs`, and gameplay `DurationMs`.
 - Finalization always overwrites pre-existing `TimeMs`; zero is a valid finalized timestamp, never an uncalculated sentinel.
 - Gameplay `DurationMs` is `max(finalized note/BGM time) + 500 ms` when at least one retained event exists; measure lines never extend duration.
 - `ParsedChart.Bpm` and `ChartManager.Bpm` remain the base exact `#BPM` value.
 - `SongChart.Duration` / `CalculateDurationAsync` remain the existing base-BPM approximation. Do not expand HPA-600 into metadata timing-map parsing.
+- Ignored malformed timing syntax must emit `Debug.WriteLine` diagnostics; normal `00` no-op pairs do not log.
+- `ChartTimingMap` is `internal`; do not expose it as a public runtime API.
 - Do not add `#BASEBPM`, `#BPM00`, STOP support, beat lines, runtime re-clocking, renderer/stage production changes, project-file changes, skins, workflows, or legacy DTXManiaNX changes.
 - Delete the fixed `ChartTimeCalculator` once production callers move to `ChartTimingMap`; do not keep two timing authorities.
-- Any hand-built `ParsedChart` that calls `FinalizeChart()` must author event position using `Bar`/`Tick`. Never rely on seeded `TimeMs` surviving finalization.
-- Use the production-style fixture lifecycle already used by chart helpers: build bar/tick positions -> `FinalizeChart()` -> `ChartManager`.
+- Any hand-built `ParsedChart` that calls `FinalizeChart()` treats `TimeMs` as output. Prefer canonical `Bar`/`Tick` with `0 <= Tick < 192`.
+- Existing oversized-tick test helpers touched by this ticket must be migrated to canonical bar/tick authoring even though `ChartTimingMap` defensively normalizes oversized ticks.
 - Prefix repository shell commands with `rtk`, matching existing implementation plans.
-- Use xUnit names in `Scenario_ShouldExpect` form where touching tests and preserve current Mac-safe exclusions.
-- Follow RED -> focused GREEN -> task review -> commit for every task.
+- Preserve current Mac-safe exclusions.
+- Follow RED -> focused GREEN -> review -> commit for every task.
 
 ## File Responsibility Map
 
 ### Production
 
-- Create `DTXMania.Game/Lib/Song/Components/ChartTimingMap.cs`: retain timing configuration, compile anchors, calculate absolute milliseconds.
-- Modify `DTXMania.Game/Lib/Song/Components/ParsedChart.cs`: own `TimingMap`; make finalization authoritative and duration idempotent.
+- Create `DTXMania.Game/Lib/Song/Components/ChartTimingMap.cs`: internal timing configuration, normalization, compiled anchors, absolute-time lookup.
+- Modify `DTXMania.Game/Lib/Song/Components/ParsedChart.cs`: own `TimingMap`; normalize positions for rebuild horizon; make finalization authoritative and duration idempotent.
 - Modify `DTXMania.Game/Lib/Song/Components/Note.cs`: remove fixed-clock timing method and stale formula comments.
 - Modify `DTXMania.Game/Lib/Song/Components/BGMEvent.cs`: remove fixed-clock timing method and stale formula comments.
 - Modify `DTXMania.Game/Lib/Song/Components/ChartManager.cs`: remove `TimeMs == 0` fallback calculation.
 - Delete `DTXMania.Game/Lib/Song/Components/ChartTimeCalculator.cs`.
-- Modify `DTXMania.Game/Lib/Song/DTXChartParser.cs`: parse channel `02`, collect ordered `03`/`08` directives, recognize `#BPMxx` anywhere, resolve tempo directives after full parse.
+- Modify `DTXMania.Game/Lib/Song/DTXChartParser.cs`: parse channel `02`, collect ordered `03`/`08` directives, recognize `#BPMxx` anywhere, resolve tempo directives after full parse, diagnose ignored timing syntax.
 
 ### Core tests
 
@@ -54,43 +58,48 @@
 
 ### Known fixture migration surface
 
-The implementation-time scan is authoritative, but review already identified these files:
+The implementation-time scans are authoritative. Review already identified at least:
 
+- `DTXMania.Test/Helpers/MockGameplayComponents.cs`
 - `DTXMania.Test/Stage/Performance/TimingVerificationTest.cs`
 - `DTXMania.Test/Stage/Performance/AutomatedPlaySimulationTests.cs`
 - `DTXMania.Test/Stage/Performance/PerformanceStageDeterministicTests.cs`
 
-Other test files returned by the required `FinalizeChart` / `TimeMs` scan may also need fixture-only changes. Do not change Performance production code for those failures.
+Other test files returned by the mandatory scans may need fixture-only changes. Do not change Performance production code for fixture failures.
+
+The `DTXMania.E2E` tree was checked during planning and does not directly construct `ParsedChart` or call the timing helpers/finalizer. Its generated fixture is DTX text, so no E2E fixture migration is planned.
 
 ---
 
-## Task 1: Build the Compiled `ChartTimingMap`
+## Task 1: Build the Internal Compiled `ChartTimingMap`
 
 **Files:**
 
 - Create: `DTXMania.Game/Lib/Song/Components/ChartTimingMap.cs`
 - Create: `DTXMania.Test/Song/ChartTimingMapTests.cs`
 
-**Interfaces:**
+**Interfaces produced:**
 
 ```csharp
-public sealed class ChartTimingMap
+internal sealed class ChartTimingMap
 {
-    public const int TicksPerMeasure = 192;
+    internal const int TicksPerMeasure = 192;
 
+    internal static (int Bar, int Tick) NormalizePosition(int bar, int tick);
     internal void SetMeasureLength(int bar, double multiplier);
     internal void SetTempoChange(int bar, int tick, double bpm);
     internal void Rebuild(double baseBpm, int throughBar);
-
-    public double CalculateTimeMs(int bar, int tick);
+    internal double CalculateTimeMs(int bar, int tick);
 }
 ```
 
-`SetTempoChange` must replace an existing value for the same `(bar, tick)`. Parser source-order semantics in Task 3 rely on calls being applied in source order.
+The test assemblies can access this internal type through the existing `InternalsVisibleTo("DTXMania.Test")` and `InternalsVisibleTo("DTXMania.Test.Mac")` declarations.
 
-### Step 1: Add direct map tests
+### Step 1: Write direct map tests
 
-- [ ] Create `ChartTimingMapTests.cs` with the following contracts before production implementation:
+- [ ] Create `ChartTimingMapTests.cs` before production implementation.
+
+Required base-clock parity:
 
 ```csharp
 [Fact]
@@ -100,11 +109,16 @@ public void CalculateTimeMs_BaseBpmOnly_ShouldMatchOldClock()
     map.Rebuild(120.0, throughBar: 2);
 
     Assert.Equal(0.0, map.CalculateTimeMs(0, 0), 3);
+    Assert.Equal(500.0, map.CalculateTimeMs(0, 48), 3);
     Assert.Equal(1000.0, map.CalculateTimeMs(0, 96), 3);
     Assert.Equal(2000.0, map.CalculateTimeMs(1, 0), 3);
     Assert.Equal(5000.0, map.CalculateTimeMs(2, 96), 3);
 }
+```
 
+Required measure-length tests:
+
+```csharp
 [Fact]
 public void CalculateTimeMs_ShortMeasure_ShouldShiftFollowingBar()
 {
@@ -126,6 +140,21 @@ public void CalculateTimeMs_ExtendedMeasure_ShouldShiftFollowingBar()
 }
 
 [Fact]
+public void CalculateTimeMs_MeasureLengthOnBarOne_ShouldNotAffectBarZero()
+{
+    var map = new ChartTimingMap();
+    map.SetMeasureLength(1, 0.5);
+    map.Rebuild(120.0, 2);
+
+    Assert.Equal(2000.0, map.CalculateTimeMs(1, 0), 3);
+    Assert.Equal(3000.0, map.CalculateTimeMs(2, 0), 3);
+}
+```
+
+Required tempo tests:
+
+```csharp
+[Fact]
 public void CalculateTimeMs_HalfwayTempoChange_ShouldIntegrateSegments()
 {
     var map = new ChartTimingMap();
@@ -135,18 +164,6 @@ public void CalculateTimeMs_HalfwayTempoChange_ShouldIntegrateSegments()
     Assert.Equal(1000.0, map.CalculateTimeMs(0, 96), 3);
     Assert.Equal(1500.0, map.CalculateTimeMs(1, 0), 3);
     Assert.Equal(2000.0, map.CalculateTimeMs(1, 96), 3);
-}
-
-[Fact]
-public void CalculateTimeMs_MeasureLengthAndTempoChange_ShouldCompose()
-{
-    var map = new ChartTimingMap();
-    map.SetMeasureLength(0, 0.5);
-    map.SetTempoChange(0, 96, 240.0);
-    map.Rebuild(120.0, 1);
-
-    Assert.Equal(500.0, map.CalculateTimeMs(0, 96), 3);
-    Assert.Equal(750.0, map.CalculateTimeMs(1, 0), 3);
 }
 
 [Fact]
@@ -170,7 +187,48 @@ public void SetTempoChange_SamePosition_ShouldUseLastValue()
 
     Assert.Equal(1500.0, map.CalculateTimeMs(1, 0), 3);
 }
+```
 
+Required composition and normalization tests:
+
+```csharp
+[Fact]
+public void CalculateTimeMs_MeasureLengthAndTempoChange_ShouldCompose()
+{
+    var map = new ChartTimingMap();
+    map.SetMeasureLength(0, 0.5);
+    map.SetTempoChange(0, 96, 240.0);
+    map.Rebuild(120.0, 1);
+
+    Assert.Equal(500.0, map.CalculateTimeMs(0, 96), 3);
+    Assert.Equal(750.0, map.CalculateTimeMs(1, 0), 3);
+}
+
+[Fact]
+public void NormalizePosition_OversizedTick_ShouldFoldIntoLaterBar()
+{
+    Assert.Equal((1, 0), ChartTimingMap.NormalizePosition(0, 192));
+    Assert.Equal((3, 48), ChartTimingMap.NormalizePosition(2, 240));
+    Assert.Equal((5, 0), ChartTimingMap.NormalizePosition(0, 960));
+}
+
+[Fact]
+public void CalculateTimeMs_OversizedTick_ShouldUseEachCrossedMeasureLength()
+{
+    var map = new ChartTimingMap();
+    map.SetMeasureLength(0, 0.5); // 1000 ms
+    map.SetMeasureLength(1, 1.5); // 3000 ms
+    map.Rebuild(120.0, 2);
+
+    // (0, 384) canonicalizes to (2, 0), so both measures contribute.
+    Assert.Equal(4000.0, map.CalculateTimeMs(0, 384), 3);
+    Assert.Equal(4000.0, map.CalculateTimeMs(2, 0), 3);
+}
+```
+
+Required validation/idempotence:
+
+```csharp
 [Fact]
 public void Rebuild_Repeated_ShouldBeDeterministic()
 {
@@ -193,51 +251,61 @@ public void Rebuild_NonPositiveBaseBpm_ShouldThrow(double bpm)
     var map = new ChartTimingMap();
     Assert.Throws<ArgumentException>(() => map.Rebuild(bpm, 1));
 }
+
+[Fact]
+public void NormalizePosition_NegativeTick_ShouldThrow()
+{
+    Assert.Throws<ArgumentOutOfRangeException>(
+        () => ChartTimingMap.NormalizePosition(0, -1));
+}
 ```
 
 - [ ] Run RED:
 
 ```bash
-rtk dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter 'FullyQualifiedName~ChartTimingMapTests'
+rtk dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj \
+  --filter 'FullyQualifiedName~ChartTimingMapTests'
 ```
 
 Expected: compile failure because `ChartTimingMap` does not exist.
 
-### Step 2: Implement the retained configuration
+### Step 2: Implement normalization and retained configuration
 
-- [ ] Create `ChartTimingMap.cs` with:
+- [ ] Create `ChartTimingMap.cs` as `internal sealed class`.
+
+Use:
 
 ```csharp
+internal const int TicksPerMeasure = 192;
+
 private readonly Dictionary<int, double> _measureLengths = new();
 private readonly Dictionary<(int Bar, int Tick), double> _tempoChanges = new();
 private readonly List<TimingAnchor> _anchors = new();
 ```
 
-Validation contract:
+Implement normalization exactly as:
 
 ```csharp
-internal void SetMeasureLength(int bar, double multiplier)
+internal static (int Bar, int Tick) NormalizePosition(int bar, int tick)
 {
-    if (bar < 0 || multiplier <= 0)
-        return;
+    if (bar < 0)
+        throw new ArgumentOutOfRangeException(nameof(bar));
+    if (tick < 0)
+        throw new ArgumentOutOfRangeException(nameof(tick));
 
-    _measureLengths[bar] = multiplier;
-}
-
-internal void SetTempoChange(int bar, int tick, double bpm)
-{
-    if (bar < 0 || tick < 0 || tick >= TicksPerMeasure || bpm <= 0)
-        return;
-
-    _tempoChanges[(bar, tick)] = bpm;
+    return (
+        bar + (tick / TicksPerMeasure),
+        tick % TicksPerMeasure);
 }
 ```
 
-Do not expose dictionaries publicly.
+`SetMeasureLength` keeps positive values for non-negative bars and ignores invalid values.
+
+`SetTempoChange` accepts only canonical positions: `bar >= 0`, `0 <= tick < 192`, positive BPM. It replaces an existing value at the same key.
 
 ### Step 3: Implement rebuild and lookup
 
-- [ ] Use a private immutable anchor with:
+- [ ] Use a private anchor containing:
 
 ```text
 Bar
@@ -251,15 +319,15 @@ MeasureLengthMultiplier
 
 1. reject non-positive base BPM;
 2. reject negative `throughBar`;
-3. clear compiled anchors but retain configured measure/tempo directives;
-4. sort configured tempo changes by bar/tick;
-5. walk bars `0..throughBar` sequentially;
+3. clear compiled anchors but retain configured directives;
+4. sort tempo changes by canonical bar/tick;
+5. walk bars `0..throughBar`;
 6. add a measure-start anchor;
 7. integrate intervals before each tempo change;
-8. replace the effective anchor at the same position for tick-zero changes;
+8. replace the effective anchor at tick-zero changes;
 9. carry final BPM into the next bar.
 
-Use exactly this interval formula:
+Use exactly:
 
 ```csharp
 private static double CalculateIntervalMs(
@@ -276,22 +344,29 @@ private static double CalculateIntervalMs(
 }
 ```
 
-- [ ] `CalculateTimeMs(bar, tick)` must binary-search the ordered anchors for the last anchor at or before `(bar, tick)`. Reject requests outside the compiled bar range rather than silently using a different measure.
+- [ ] `CalculateTimeMs(bar, tick)` must:
 
-Do not add a second cache or public anchor API.
+1. call `NormalizePosition`;
+2. reject a normalized bar beyond the compiled `throughBar`;
+3. binary-search the ordered anchors for the last anchor at or before the normalized position;
+4. integrate only the remainder from that anchor to normalized tick.
+
+Do not clamp, extrapolate using the original bar's multiplier, or add another cache.
 
 ### Step 4: Verify and commit Task 1
 
 - [ ] Run:
 
 ```bash
-rtk dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter 'FullyQualifiedName~ChartTimingMapTests'
+rtk dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj \
+  --filter 'FullyQualifiedName~ChartTimingMapTests'
 rtk git diff --check
+rtk git status --short
 ```
 
-Expected: map tests pass.
+Expected: all map tests pass and only Task 1 files are modified.
 
-- [ ] Review only Task 1 files, then commit:
+- [ ] Stage explicitly:
 
 ```bash
 rtk git add \
@@ -302,7 +377,7 @@ rtk git commit -m "feat: add compiled chart timing map"
 
 ---
 
-## Task 2: Make Finalization the Only Timing Authority and Migrate Fixtures
+## Task 2: Make Finalization Authoritative and Migrate Fixtures
 
 **Files:**
 
@@ -322,43 +397,48 @@ Core tests:
 - Modify: `DTXMania.Test/Song/ChartManagerTests.cs`
 - Delete: `DTXMania.Test/Song/ChartTimeCalculatorTests.cs`
 
-Fixture migration, at minimum:
+Known fixture migration:
 
+- Modify: `DTXMania.Test/Helpers/MockGameplayComponents.cs`
 - Modify: `DTXMania.Test/Stage/Performance/TimingVerificationTest.cs`
 - Modify: `DTXMania.Test/Stage/Performance/AutomatedPlaySimulationTests.cs`
 - Modify: `DTXMania.Test/Stage/Performance/PerformanceStageDeterministicTests.cs`
-- Modify any additional test helper discovered by the mandatory scan below.
+- Modify any additional test file discovered by Step 1.
 
-**Interfaces produced:**
+**Interface consumed:** `ChartTimingMap` from Task 1.
 
-```csharp
-internal ChartTimingMap TimingMap { get; }
-```
+### Step 1: Inventory the full migration surface before editing
 
-`ParsedChart.FinalizeChart()` becomes the only production assignment point for all absolute timing.
-
-### Step 1: Inventory the migration surface before editing
-
-- [ ] Run all three searches and keep the results visible while implementing Task 2:
+- [ ] Run:
 
 ```bash
 rtk rg -n 'CalculateTimeMs\(' DTXMania.Game DTXMania.Test
 rtk rg -n 'FinalizeChart\(\)' DTXMania.Test
 rtk rg -n 'TimeMs\s*=' DTXMania.Test
+rtk rg -n '(Tick\s*=|tick\s*=|new Note\()' DTXMania.Test
 ```
 
 Classify hits as:
 
 1. production fixed-clock path to remove;
-2. timing unit test to move to `ChartTimingMap` / finalization;
-3. finalized chart fixture that incorrectly seeds `TimeMs`;
-4. pure already-finalized runtime object that intentionally does not call `FinalizeChart()`.
+2. timing test to move to `ChartTimingMap` / finalization;
+3. finalized fixture that incorrectly seeds `TimeMs`;
+4. chart fixture that computes/assigns ticks that may exceed `191`;
+5. runtime-only note setup that intentionally does not pass through `FinalizeChart()`.
 
-Do not treat the known-file list as exhaustive.
+The fourth scan is mandatory. The first three do not detect helpers that already use `Bar`/`Tick` but encode `bar=0` with an unbounded tick.
 
-### Step 2: Add failing finalization tests
+- [ ] Reconfirm the E2E scope once:
 
-- [ ] Update `ParsedChartTests` first to establish the new lifecycle:
+```bash
+rtk rg -n 'CalculateTimeMs\(|FinalizeChart\(|new ParsedChart|TimeMs\s*=' DTXMania.E2E
+```
+
+Expected: no direct timing fixture requiring migration; generated DTX text remains parser-driven.
+
+### Step 2: Write finalization lifecycle tests
+
+- [ ] Add tests in `ParsedChartTests` that establish deferred timing:
 
 ```csharp
 [Fact]
@@ -384,9 +464,13 @@ public void AddBGMEvent_ShouldDeferTimeAndDurationUntilFinalize()
     Assert.Equal(0.0, bgm.TimeMs);
     Assert.Equal(0.0, chart.DurationMs);
 }
+```
 
+- [ ] Add overwrite and idempotence coverage:
+
+```csharp
 [Fact]
-public void FinalizeChart_ShouldOverwriteSeededTimeFromBarAndTick()
+public void FinalizeChart_ShouldOverwriteSeededTimeFromAuthoredPosition()
 {
     var chart = new ParsedChart { Bpm = 120.0 };
     var note = new Note(0, 1, 0, 0x11, "01") { TimeMs = 12345.0 };
@@ -398,35 +482,54 @@ public void FinalizeChart_ShouldOverwriteSeededTimeFromBarAndTick()
 }
 
 [Fact]
-public void FinalizeChart_TimeZeroOnlyEvent_ShouldStillAddDurationBuffer()
+public void FinalizeChart_Repeated_ShouldKeepDurationStable()
+{
+    var chart = new ParsedChart { Bpm = 120.0 };
+    chart.AddNote(new Note(0, 1, 0, 0x11, "01"));
+
+    chart.FinalizeChart();
+    var first = chart.DurationMs;
+    chart.FinalizeChart();
+
+    Assert.Equal(first, chart.DurationMs, 3);
+}
+
+[Fact]
+public void FinalizeChart_TimeZeroNote_ShouldStillReceiveEndBuffer()
 {
     var chart = new ParsedChart { Bpm = 120.0 };
     chart.AddNote(new Note(0, 0, 0, 0x11, "01"));
 
     chart.FinalizeChart();
 
+    Assert.Equal(0.0, chart.Notes[0].TimeMs, 3);
     Assert.Equal(500.0, chart.DurationMs, 3);
-}
-
-[Fact]
-public void FinalizeChart_Repeated_ShouldKeepDurationIdempotent()
-{
-    var chart = new ParsedChart { Bpm = 120.0 };
-    chart.AddNote(new Note(0, 1, 0, 0x11, "01"));
-    chart.FinalizeChart();
-    var first = chart.DurationMs;
-
-    chart.FinalizeChart();
-
-    Assert.Equal(first, chart.DurationMs, 3);
 }
 ```
 
-Also retain/update sparse measure-line, BGM-only, sorting, and terminal-boundary tests so they assert map-driven values.
+- [ ] Add the normalization-horizon regression:
 
-- [ ] Run RED against `ParsedChartTests`.
+```csharp
+[Fact]
+public void FinalizeChart_OversizedTick_ShouldBuildThroughNormalizedBar()
+{
+    var chart = new ParsedChart { Bpm = 120.0 };
+    chart.AddNote(new Note(0, 0, 960, 0x11, "01"));
 
-### Step 3: Move `ParsedChart` to the timing map
+    chart.FinalizeChart();
+
+    Assert.Equal(10000.0, chart.Notes[0].TimeMs, 3);
+    Assert.Equal(10500.0, chart.DurationMs, 3);
+    Assert.Equal(6, chart.MeasureLines[^1].Bar);
+    Assert.Equal(12000.0, chart.MeasureLines[^1].TimeMs, 3);
+}
+```
+
+At base 120, `(0, 960)` normalizes to bar `5`, tick `0`; terminal measure line is therefore bar `6`.
+
+- [ ] Run RED on `ParsedChartTests` before production changes.
+
+### Step 3: Make `ParsedChart.FinalizeChart()` authoritative
 
 - [ ] Add one chart-owned map:
 
@@ -436,7 +539,7 @@ internal ChartTimingMap TimingMap { get; } = new ChartTimingMap();
 
 - [ ] Simplify `AddNote`:
 
-- ignore null;
+- null -> no-op;
 - add note;
 - update `NotesPerLane` only;
 - do not assign `TimeMs`;
@@ -444,91 +547,151 @@ internal ChartTimingMap TimingMap { get; } = new ChartTimingMap();
 
 - [ ] Simplify `AddBGMEvent`:
 
-- ignore null;
+- null -> no-op;
 - add event only;
-- do not assign time/duration.
+- do not assign time or duration.
 
 - [ ] Rewrite `FinalizeChart()` in this order:
 
 1. clear `MeasureLines`;
 2. reset `DurationMs = 0`;
-3. determine highest occupied bar across notes/BGM;
-4. if none, sort/return with no lines and zero duration;
-5. `TimingMap.Rebuild(Bpm, highestOccupiedBar + 1)`;
-6. overwrite every `Note.TimeMs` from `TimingMap.CalculateTimeMs(note.Bar, note.Tick)`;
-7. overwrite every `BGMEvent.TimeMs` the same way;
-8. regenerate measure lines for bars `0..highestOccupiedBar + 1` from tick `0`;
-9. sort notes and BGM by recalculated time;
-10. set `DurationMs = max(note/BGM finalized time) + 500.0`.
+3. for every note/BGM, call `ChartTimingMap.NormalizePosition(Bar, Tick)` only to determine its normalized occupied bar;
+4. set `highestOccupiedBar` from those normalized bars;
+5. if no retained event exists, keep lines empty and duration zero;
+6. `TimingMap.Rebuild(Bpm, highestOccupiedBar + 1)`;
+7. overwrite every note `TimeMs = TimingMap.CalculateTimeMs(note.Bar, note.Tick)`;
+8. overwrite every BGM event the same way;
+9. regenerate measure lines for canonical bars `0..highestOccupiedBar + 1` at tick `0`;
+10. sort notes and BGM by recalculated `TimeMs`;
+11. set `DurationMs = max(note/BGM finalized time) + 500.0`.
 
-Do not derive duration from measure lines.
+Do not derive duration from measure lines. Do not preserve non-zero seeded times.
 
 ### Step 4: Remove old fixed-clock escape paths
 
 - [ ] Remove `Note.CalculateTimeMs(double bpm)`.
 - [ ] Remove `BGMEvent.CalculateTimeMs(double bpm)`.
-- [ ] Remove stale fixed-formula XML comments from both models.
+- [ ] Remove stale fixed-formula XML comments.
 - [ ] Remove `ChartManager` constructor's `TimeMs == 0` recalculation loop.
 - [ ] Delete `ChartTimeCalculator.cs` and `ChartTimeCalculatorTests.cs`.
-- [ ] Remove/rewrite direct timing tests in `NoteTests`, `BGMEventTests`, and `TimingVerificationTest` so timing math is tested through `ChartTimingMap` or finalized charts.
+- [ ] Rewrite/remove direct timing tests in `NoteTests`, `BGMEventTests`, and `TimingVerificationTest`; map math belongs in `ChartTimingMapTests`, lifecycle timing belongs in finalized-chart tests.
 
-Do **not** add a replacement per-note helper.
+Do **not** add a compatibility helper that recreates fixed base-BPM timing per note.
 
-### Step 5: Migrate hand-built fixtures
+### Step 5: Migrate `MockGameplayComponents` to canonical positions
 
-Mandatory fixture policy:
+Current helpers convert time to a growing tick while keeping `bar = 0`, and one comment says `96 ticks = 500 ms` at 120 BPM. Correct 120-BPM 4/4 values are:
 
-> If a test calls `FinalizeChart()`, `Bar`/`Tick` are the authored inputs and `TimeMs` is an output.
+```text
+192 ticks = 2000 ms
+96 ticks  = 1000 ms
+48 ticks  = 500 ms
+```
 
-- [ ] `TimingVerificationTest.cs`: remove the direct `note.CalculateTimeMs(120)` path. Keep lifecycle coverage by adding note bar/tick -> `ParsedChart.FinalizeChart()` -> `ChartManager` assertions, or remove redundant math coverage now owned by `ChartTimingMapTests`.
+- [ ] Add/reuse one test-helper-only conversion that returns canonical coordinates:
 
-- [ ] `AutomatedPlaySimulationTests.cs`: its helper currently computes every note with `note.CalculateTimeMs(bpm)`. Replace the helper with a small `ParsedChart`, add bar/tick-authored notes, finalize once, then return/copy the finalized notes required by the simulation.
+```csharp
+private static (int Bar, int Tick) ToPositionAt120Bpm(double timeMs)
+{
+    const double measureMs = 2000.0;
+    var totalTicks = (int)Math.Round(
+        timeMs * ChartTimingMap.TicksPerMeasure / measureMs);
 
-- [ ] `PerformanceStageDeterministicTests.cs`: convert any chart that both seeds `TimeMs` and calls `FinalizeChart()` to meaningful bar/tick coordinates. Example: a desired `4000 ms` note at 120 BPM should use `Bar = 2`, `Tick = 0`, not `{ TimeMs = 4000 }` before finalization.
+    return (
+        totalTicks / ChartTimingMap.TicksPerMeasure,
+        totalTicks % ChartTimingMap.TicksPerMeasure);
+}
+```
 
-- [ ] Inspect every additional hit from Step 1. Apply the same rule. If a test truly models an already-finalized runtime note list and never needs chart derivation, it may keep explicit `TimeMs` **only if it does not pass through `FinalizeChart()`**.
+If exact rounding expectations differ in an existing timing-window test, preserve that test's intended timestamp using explicit bar/tick data rather than restoring the incorrect `96 ticks = 500 ms` formula.
 
-Do not weaken finalization to preserve old fixtures.
+- [ ] Use the helper in `CreateSingleNoteChart`, `CreateMultipleNotesChart`, `AddSyntheticNote` when the synthetic note becomes chart input, and any scenario builders discovered by the scan that can exceed tick `191`.
 
-### Step 6: Verify the Task 2 migration surface
+- [ ] Fix misleading tick/time comments while touching those lines.
 
-- [ ] Re-run source scans:
+Normalization in production is a defensive contract, not a reason to keep non-canonical fixture authoring.
+
+### Step 6: Migrate the remaining known fixtures
+
+- [ ] `TimingVerificationTest.cs`: remove direct `note.CalculateTimeMs(120)` coverage. Use a finalized chart or delete redundant math assertions now covered by `ChartTimingMapTests`.
+
+- [ ] `AutomatedPlaySimulationTests.cs`: replace direct per-note timing calls with a `ParsedChart` that receives bar/tick-authored notes and is finalized once before the simulation consumes resolved notes.
+
+- [ ] `PerformanceStageDeterministicTests.cs`: any chart that both seeds `TimeMs` and calls `FinalizeChart()` must instead encode the intended position. Example: `4000 ms` at 120 BPM -> `Bar = 2`, `Tick = 0`.
+
+- [ ] Apply the same rule to every additional Step 1 hit.
+
+Runtime-only notes may still seed `TimeMs` if they never pass through `FinalizeChart()` and the test is explicitly about a post-finalization runtime component.
+
+### Step 7: Verify the complete Task 2 migration surface
+
+- [ ] Re-run all four test scans:
 
 ```bash
 rtk rg -n 'CalculateTimeMs\(' DTXMania.Game DTXMania.Test
 rtk rg -n 'FinalizeChart\(\)' DTXMania.Test
 rtk rg -n 'TimeMs\s*=' DTXMania.Test
+rtk rg -n '(Tick\s*=|tick\s*=|new Note\()' DTXMania.Test
 ```
 
 Expected:
 
-- no production or test call to deleted `Note/BGMEvent.CalculateTimeMs`;
-- any remaining seeded `TimeMs` is either expected assertion/setup after finalization or belongs to a runtime-only object that does not get finalized;
-- finalized charts are bar/tick authored.
+- no call to deleted `Note/BGMEvent.CalculateTimeMs`;
+- seeded `TimeMs` is not passed through finalization;
+- finalized chart fixtures are authored with meaningful positions;
+- dynamic tick conversions that can exceed `191` have been canonicalized or are intentionally runtime-only.
 
-- [ ] Run focused Song + Performance regression coverage:
+- [ ] Run Song + Performance regressions:
 
 ```bash
 rtk dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj \
   --filter 'FullyQualifiedName~DTXMania.Test.Song|FullyQualifiedName~DTXMania.Test.Stage.Performance'
 ```
 
-If the current test runner/filter syntax rejects that expression, run the two namespaces separately. Do not skip Performance coverage because the production change is in Song code; the fixture migration is part of Task 2.
+If filter syntax rejects the combined expression, run the namespaces separately. Performance coverage is mandatory because Task 2 changes fixture contracts used by those tests.
 
-- [ ] Run:
+- [ ] Run repository checks:
 
 ```bash
 rtk git diff --check
+rtk git status --short
 ```
 
-### Step 7: Review and commit Task 2
+### Step 8: Review and commit Task 2 safely
 
-- [ ] Review that production changes are limited to Song components; Performance changes are tests/helpers only.
+- [ ] Review `git status --short` and the full diff. Production changes must remain limited to Song components; Performance changes must be tests/helpers only.
 - [ ] Confirm no non-zero `TimeMs` preservation branch or new sentinel exists.
-- [ ] Commit all Task 2 production and fixture migrations together because deleting the API without migrating compile/runtime consumers is not independently green:
+- [ ] Stage the known files explicitly:
 
 ```bash
-rtk git add -A
+rtk git add \
+  DTXMania.Game/Lib/Song/Components/ChartTimingMap.cs \
+  DTXMania.Game/Lib/Song/Components/ParsedChart.cs \
+  DTXMania.Game/Lib/Song/Components/Note.cs \
+  DTXMania.Game/Lib/Song/Components/BGMEvent.cs \
+  DTXMania.Game/Lib/Song/Components/ChartManager.cs \
+  DTXMania.Game/Lib/Song/Components/ChartTimeCalculator.cs \
+  DTXMania.Test/Song/ChartTimingMapTests.cs \
+  DTXMania.Test/Song/ChartTimeCalculatorTests.cs \
+  DTXMania.Test/Song/ParsedChartTests.cs \
+  DTXMania.Test/Song/NoteTests.cs \
+  DTXMania.Test/Song/BGMEventTests.cs \
+  DTXMania.Test/Song/ChartManagerTests.cs \
+  DTXMania.Test/Helpers/MockGameplayComponents.cs \
+  DTXMania.Test/Stage/Performance/TimingVerificationTest.cs \
+  DTXMania.Test/Stage/Performance/AutomatedPlaySimulationTests.cs \
+  DTXMania.Test/Stage/Performance/PerformanceStageDeterministicTests.cs
+```
+
+`git add` accepts deleted paths, so the two deleted calculator files can be listed explicitly.
+
+- [ ] If Step 1 discovered additional Task 2 fixture files, inspect each one and add each exact path explicitly after checking `git status --short`.
+
+Do **not** use `git add -A`.
+
+- [ ] Commit:
+
+```bash
 rtk git commit -m "refactor: finalize chart timing from timing map"
 ```
 
@@ -552,9 +715,9 @@ No timing-map dependency should escape parser/finalization into gameplay runtime
 
 ### Step 1: Add parser integration tests before parser code
 
-Use temporary files following the existing parser-test pattern. Each fixture must contain at least one retained note/BGM event so `FinalizeChart()` builds a gameplay timeline.
+Use temporary files following the existing parser-test pattern. Every fixture must retain at least one note/BGM event so finalization builds a gameplay timeline.
 
-- [ ] **Short measure:** base 120, bar 0 channel `02 = 0.5`, note at bar 1 start -> `1000 ms`.
+- [ ] **Short measure:** base 120, bar 0 `02 = 0.5`, note at bar 1 start -> `1000 ms`.
 
 ```text
 #BPM: 120
@@ -562,9 +725,9 @@ Use temporary files following the existing parser-test pattern. Each fixture mus
 #00111:01
 ```
 
-- [ ] **Extended measure:** base 120, bar 0 channel `02 = 1.5`, note at bar 1 start -> `3000 ms`.
+- [ ] **Extended measure:** base 120, bar 0 `02 = 1.5`, note at bar 1 start -> `3000 ms`.
 
-- [ ] **Direct channel 03:** base 120, tempo changes to hex `F0` (=240) halfway through bar 0; bar 1 start -> `1500 ms`.
+- [ ] **Direct 03:** base 120, tempo -> hex `F0` (=240) halfway through bar 0; bar 1 start -> `1500 ms`.
 
 ```text
 #BPM: 120
@@ -572,11 +735,9 @@ Use temporary files following the existing parser-test pattern. Each fixture mus
 #00111:01
 ```
 
-- [ ] **Referenced channel 08, definition first:** `#BPM01:180.5` and channel `08` reference `01` at a known tick; assert expected note time.
+- [ ] **Referenced 08, definition first:** `#BPM01:180.5`, channel `08` reference `01`, assert expected timing.
 
-- [ ] **Referenced channel 08, definition late:** channel `08` row appears first, then `#BPM01:180.5` later in the source file, then/around other timeline rows. The final note must still use `180.5`.
-
-Example order that specifically proves the current `inDataSection` limitation is fixed:
+- [ ] **Referenced 08, definition late:**
 
 ```text
 #BPM: 120
@@ -585,46 +746,30 @@ Example order that specifically proves the current `inDataSection` limitation is
 #BPM01:180.5
 ```
 
-The test must resolve the reference despite `#BPM01` appearing after timeline data has begun.
+The reference must resolve although `#BPM01` appears after timeline data begins.
 
-- [ ] **Opaque object ID:** use `#BPMAA:210.25` and channel `08` pair `AA`; assert it resolves. This prevents accidental hex parsing of channel `08` IDs.
+- [ ] **Opaque ID:** use `#BPMAA:210.25` and channel `08` pair `AA`; assert it resolves.
 
-- [ ] **Cross-channel same-position source order:** create a chart where channel `03` and `08` both target the same tick. The later source row must win. Prefer two tests with reversed source order if concise:
+- [ ] **Cross-channel same-position source order:** use different direct/referenced BPMs and two fixtures with reversed row order. The later row wins in each fixture.
 
-```text
-#00003:00B4
-#00008:0001
-```
+- [ ] **Alignment:** chart containing a note, BGM event, and generated measure boundary around a tempo change; all must use the same timeline.
 
-versus:
-
-```text
-#00008:0001
-#00003:00B4
-```
-
-Use a `#BPM01` value different from direct hex `B4` so the winning tempo is observable.
-
-- [ ] **Alignment:** one chart containing a note, BGM event, and measure boundaries across a tempo change; assert all use the same map-derived timeline.
-
-- [ ] **Malformed fallback:** invalid/zero measure multiplier, bad/missing BPM reference, and `00` pairs do not crash and retain base/default behavior.
+- [ ] **Malformed fallback:** invalid/zero `02`, invalid non-`00` `03`, invalid `#BPMxx`, missing `08` reference, and `00` no-op pairs do not crash and retain fallback behavior.
 
 Run parser tests and observe RED before implementation.
 
 ### Step 2: Add per-encoding parser state
 
-- [ ] In `ParseAsync`, create fresh state inside each encoding attempt alongside WAV dictionaries:
+- [ ] In `ParseAsync`, create fresh state inside each encoding attempt:
 
 ```csharp
-Dictionary<string, double> bpmDefinitions;
-List<PendingTempoDirective> pendingTempoDirectives;
+var bpmDefinitions = new Dictionary<string, double>();
+var pendingTempoDirectives = new List<PendingTempoDirective>();
 ```
 
-Initialize both anew for every attempt. Do not share them across retries.
+Do not share either collection across encoding retries.
 
-- [ ] Add a parser-private sequence number, either stored in each directive as list insertion index or an explicit `Sequence` integer. The order must be stable across channel `03` and `08` rows.
-
-A minimal private model is enough:
+- [ ] Add only parser-private syntax types:
 
 ```csharp
 private enum PendingTempoKind
@@ -635,7 +780,6 @@ private enum PendingTempoKind
 
 private sealed class PendingTempoDirective
 {
-    public int Sequence { get; init; }
     public int Bar { get; init; }
     public int Tick { get; init; }
     public PendingTempoKind Kind { get; init; }
@@ -644,49 +788,47 @@ private sealed class PendingTempoDirective
 }
 ```
 
-Do not make this public or move it into `Components`; it is DTX syntax state only.
+There is intentionally **no `Sequence` field**. The list is appended during one forward scan, so insertion order already is source order.
 
-### Step 3: Recognize `#BPMxx` definitions anywhere in the file
+### Step 3: Recognize `#BPMxx` definitions anywhere
 
-- [ ] Add a focused helper called before the existing `inDataSection` routing on every non-comment line:
+- [ ] Add a focused pre-routing helper:
 
 ```csharp
-private static bool TryParseExtendedBpmDefinition(
+private static bool TryHandleExtendedBpmDefinition(
     string line,
     IDictionary<string, double> bpmDefinitions)
 ```
 
 Required behavior:
 
-- return `false` for exact `#BPM:...` so existing base BPM parsing remains unchanged;
-- recognize only `#BPMxx:value` with a non-empty two-character suffix;
-- uppercase the suffix;
-- parse value using invariant-culture positive `double`;
-- valid duplicate definition -> replace previous dictionary value;
-- malformed/non-positive definition -> consume/ignore or return handled consistently, but must not accidentally become timeline/header data;
-- work before and after timeline data has begun.
+- exact `#BPM:...` -> return `false` so base BPM remains on the existing header path;
+- valid `#BPMxx:value` -> uppercase the two-character suffix, parse invariant positive `double`, store/replace, return `true`;
+- malformed/non-positive `#BPMxx` -> emit `Debug.WriteLine` and return `true` so the line is consumed rather than misrouted;
+- work before or after timeline data begins.
 
-`ParseFileContentAsync` flow should conceptually become:
+Conceptual loop:
 
 ```csharp
 line = line.Trim();
-if (skip comment/empty) continue;
+if (skip comment/empty)
+    continue;
 
-if (TryParseExtendedBpmDefinition(line, bpmDefinitions))
+if (TryHandleExtendedBpmDefinition(line, bpmDefinitions))
     continue;
 
 if (line starts timeline/data marker)
     inDataSection = true;
 
 if (!inDataSection)
-    ParseHeaderCommand(...); // exact #BPM still here
+    ParseHeaderCommand(...);
 else
     ParseMeasureData(..., pendingTempoDirectives);
 ```
 
 Do not generalize all late header commands.
 
-### Step 4: Parse channel 02 into the timing map
+### Step 4: Parse channel `02`
 
 - [ ] In `ParseMeasureData`, after extracting measure/channel and before channel `01`/drum routing:
 
@@ -694,41 +836,47 @@ Do not generalize all late header commands.
 if (channel == 0x02)
 {
     if (TryParseDouble(noteData, out var multiplier) && multiplier > 0)
+    {
         chart.TimingMap.SetMeasureLength(measure, multiplier);
+    }
+    else
+    {
+        Debug.WriteLine(
+            $"DTXChartParser: Ignoring invalid measure length at bar {measure}: '{noteData}'");
+    }
+
     return;
 }
 ```
 
-Use the project's invariant numeric helper. Duplicate valid rows naturally use last parsed value through dictionary assignment.
+Reuse the project's invariant numeric helper. Duplicate valid rows naturally use last parsed value.
 
-### Step 5: Collect channel 03 and 08 directives without resolving them
+### Step 5: Collect channel `03` and `08` directives in list order
 
-- [ ] Reuse one pair-loop helper/tick formula rather than duplicating note-grid math:
+- [ ] Reuse the existing pair-grid tick formula:
 
 ```text
 pairCount = data.Length / 2
 tick = (int)((double)i / pairCount * ChartTimingMap.TicksPerMeasure)
 ```
 
+- [ ] If a timing row has malformed/incomplete pair data that is being ignored, emit `Debug.WriteLine` with bar/channel context.
+
 - [ ] Channel `03`:
 
-- skip `00`;
-- parse pair as hexadecimal integer BPM;
-- require positive value;
-- append `PendingTempoDirective { Kind = DirectBpm, DirectBpm = value, ... }`.
+- `00` -> no-op, no log;
+- valid positive hexadecimal pair -> append `PendingTempoDirective { Kind = DirectBpm, ... }`;
+- invalid/non-positive non-`00` pair -> `Debug.WriteLine` and ignore.
 
 - [ ] Channel `08`:
 
-- skip `00`;
-- uppercase the two-character pair;
-- do not convert it to an integer;
-- append `PendingTempoDirective { Kind = ReferencedBpm, ReferenceId = pair, ... }`.
+- `00` -> no-op, no log;
+- otherwise uppercase the pair and append `PendingTempoDirective { Kind = ReferencedBpm, ReferenceId = pair, ... }`;
+- do not convert the ID to an integer.
 
-- [ ] Both channels increment/share one source sequence in parse order. Do not call `TimingMap.SetTempoChange` yet.
+Do not call `TimingMap.SetTempoChange` yet. Do not add a sequence counter.
 
-This deferred handling is required both for late definitions and correct same-position source-order precedence.
-
-### Step 6: Resolve pending tempo directives after successful full-file scan
+### Step 6: Resolve pending tempo directives after successful full scan
 
 - [ ] Add:
 
@@ -736,26 +884,38 @@ This deferred handling is required both for late definitions and correct same-po
 private static void ResolvePendingTempoDirectives(
     ParsedChart chart,
     IReadOnlyDictionary<string, double> bpmDefinitions,
-    IEnumerable<PendingTempoDirective> directives)
+    IReadOnlyList<PendingTempoDirective> directives)
 ```
 
-Implementation contract:
+- [ ] Iterate the list **directly**:
 
 ```text
-for directives ordered by Sequence:
+foreach directive in directives:
     DirectBpm -> bpm = DirectBpm
     ReferencedBpm -> bpmDefinitions.TryGetValue(ReferenceId)
-    invalid/unresolved -> continue
-    chart.TimingMap.SetTempoChange(Bar, Tick, bpm)
+    unresolved reference -> Debug.WriteLine and continue
+    valid -> chart.TimingMap.SetTempoChange(Bar, Tick, bpm)
 ```
 
-Because `SetTempoChange` replaces the same position, applying valid directives in source order makes the later source row win across channels.
+Do not call `OrderBy`, do not add `Sequence`, and do not group by channel. `SetTempoChange` replacement plus insertion-order iteration is the cross-channel last-source-line-wins contract.
 
 - [ ] Call resolution only after the encoding attempt has read the complete file successfully and before `chart.FinalizeChart()`.
 
-Keep resolution within the successful attempt's state lifetime. Failed-attempt dictionaries/directives must be discarded with that attempt.
+### Step 7: Inspect required diagnostics
 
-### Step 7: Run focused parser + timing regressions
+- [ ] Before GREEN, inspect the parser diff and confirm `Debug.WriteLine` exists for every ignored malformed timing path:
+
+- invalid/non-positive channel `02`;
+- invalid/non-positive non-`00` channel `03` pair;
+- invalid/non-positive `#BPMxx`;
+- unresolved channel `08` reference;
+- malformed/incomplete timing body/pair that is intentionally ignored.
+
+Do not log normal `00` no-op pairs.
+
+Tests should verify fallback behavior, not exact debug strings.
+
+### Step 8: Run focused parser + timing regressions
 
 - [ ] Run:
 
@@ -764,11 +924,11 @@ rtk dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj \
   --filter 'FullyQualifiedName~ChartTimingMapTests|FullyQualifiedName~ParsedChartTests|FullyQualifiedName~DTXChartParserTests|FullyQualifiedName~ChartManagerTests'
 ```
 
-Expected: all new timing/parser behavior passes.
+- [ ] Re-run Performance coverage from Task 2.
 
-- [ ] Re-run the Task 2 Performance filter to ensure parser integration did not alter fixture behavior unexpectedly.
+Expected: all timing, parser, and fixture regressions pass.
 
-### Step 8: Full validation
+### Step 9: Full validation
 
 - [ ] Build the Mac game project:
 
@@ -776,7 +936,7 @@ Expected: all new timing/parser behavior passes.
 rtk dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj --no-restore
 ```
 
-- [ ] Run the complete Mac-safe test suite:
+- [ ] Run the complete Mac-safe suite:
 
 ```bash
 rtk dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --no-restore
@@ -791,19 +951,23 @@ rtk git status --short
 
 - [ ] Confirm by inspection:
 
-- no `ChartTimeCalculator` production/test file remains;
+- no `ChartTimeCalculator` file remains;
+- `ChartTimingMap` is internal;
 - no `Note.CalculateTimeMs` / `BGMEvent.CalculateTimeMs` caller remains;
-- finalized test charts use bar/tick-authored positions;
+- finalized test charts treat `TimeMs` as output;
+- touched helpers use canonical bar/tick authoring;
+- oversized lookup ticks normalize correctly and finalization's rebuild horizon uses normalized bars;
 - `#BPMxx` is recognized before and after timeline rows;
-- both `03` and `08` are resolved through the ordered pending-directive path;
-- `SongChart.Duration` / metadata duration code was not expanded;
-- renderer/stage **production** files are unchanged;
+- both `03` and `08` resolve through one insertion-ordered pending list;
+- ignored malformed timing syntax emits debug diagnostics;
+- `SongChart.Duration` / metadata duration code is unchanged;
+- renderer/stage production files are unchanged;
 - no STOP/beat-line/unrelated timing feature was added.
 
-### Step 9: Review and commit Task 3
+### Step 10: Review and commit Task 3
 
 - [ ] Review parser diff for syntax-only responsibilities and no gameplay coupling.
-- [ ] Commit:
+- [ ] Stage exactly:
 
 ```bash
 rtk git add \
@@ -818,53 +982,58 @@ rtk git commit -m "feat: parse DTX tempo and measure timing"
 
 ### Risk 1: Test fixture blast radius
 
-Removing `Note/BGMEvent.CalculateTimeMs` is a compile-wide change even when a filtered xUnit run is requested. More importantly, finalized tests that seed `TimeMs` may still compile but silently change behavior.
+Removing event-level timing methods is compile-wide, and finalized fixtures that seed `TimeMs` may still compile while silently changing behavior.
 
-**Gate:** Task 2 cannot commit until direct-call and `TimeMs`/`FinalizeChart` scans are reviewed and Song + Performance test coverage is green.
+**Gate:** Task 2 cannot commit until direct-call, finalization, seeded-time, and tick-authoring scans are reviewed and Song + Performance coverage is green.
 
-### Risk 2: Late `#BPMxx` definitions
+### Risk 2: Oversized tick positions
 
-The current parser stops normal header routing after the first timeline row. Resolving channel `08` immediately would drop references whose definitions are later in the file.
+Current helpers can produce `bar = 0`, `tick >= 192`. Linear extrapolation from bar 0 is wrong once later measures have different channel `02` values; clamping is also wrong.
 
-**Gate:** parser test with timeline row first and `#BPM01` later must pass.
+**Gate:** `ChartTimingMap` normalization test plus `ParsedChart` normalized-horizon test must pass, and touched fixture helpers must convert desired times to canonical bar/tick positions.
 
-### Risk 3: Cross-channel duplicate ordering
+### Risk 3: Late `#BPMxx` definitions
 
-If channel `03` is applied immediately but `08` is replayed later, `08` would always win same-position collisions regardless of source order.
+The current parser stops normal header routing after timeline data begins. Resolving channel `08` immediately drops references whose definitions are later in the file.
 
-**Gate:** collect both channel types in one ordered pending list and test reversed source order.
+**Gate:** parser test with timeline/reference first and `#BPM01` later must pass.
 
-### Risk 4: Two duration concepts remain
+### Risk 4: Cross-channel duplicate ordering
 
-Gameplay `ParsedChart.DurationMs` becomes timing-map accurate, while metadata `SongChart.Duration` remains approximate.
+If channel `03` is applied immediately while `08` is replayed later, `08` always wins same-position collisions regardless of source order.
 
-**Gate:** keep this divergence explicit in code/design review; do not opportunistically build a second metadata timing parser in HPA-600.
+**Gate:** collect both channel types in one insertion-ordered list and test reversed source row order.
 
-### Risk 5: Accidentally retaining two clocks
+### Risk 5: Silent timing syntax failure
 
-Keeping non-zero seeded `TimeMs`, retaining `ChartTimeCalculator`, or adding a replacement event-level timing method recreates the original problem.
+Ignoring malformed timing data without diagnostics produces chart/audio drift that looks like runtime latency.
 
-**Gate:** final source scan and diff review must show one timing authority.
+**Gate:** parser review confirms every malformed/ignored timing branch emits `Debug.WriteLine`, except normal `00` no-op pairs.
 
----
+### Risk 6: Two duration concepts remain
+
+Gameplay `ParsedChart.DurationMs` becomes timing-map accurate while metadata `SongChart.Duration` remains approximate.
+
+**Gate:** metadata duration code remains unchanged and the PR/release notes state this limitation explicitly.
 
 ## Completion Checklist
 
-- [ ] `ChartTimingMap` passes base, measure-length, mid-measure tempo, tick-zero, duplicate, and rebuild tests.
-- [ ] `ParsedChart.FinalizeChart()` always recalculates all retained event times.
-- [ ] Finalization duration is idempotent and handles a lone time-zero event as `500 ms` duration.
-- [ ] `ChartManager` no longer treats zero time as uncalculated.
-- [ ] `ChartTimeCalculator` and event-level fixed-clock APIs are removed.
-- [ ] Known and scan-discovered finalized test fixtures use authored bar/tick positions.
-- [ ] Channel `02` supports shortened and extended measures.
-- [ ] Channel `03` supports direct hex BPM changes.
-- [ ] Channel `08` supports fractional/extended `#BPMxx` values.
-- [ ] Late `#BPMxx` definition resolves after timeline data has begun.
-- [ ] `AA` object ID resolves through channel `08` without hex conversion.
-- [ ] Same-position `03`/`08` uses later source-file order.
-- [ ] Notes, BGM, and measure lines remain aligned on the same map.
-- [ ] `SongChart.Duration` remains an explicitly deferred approximate metadata path.
-- [ ] No renderer/stage production, audio scheduling, judgement, scoring, persistence, skin, project, workflow, or legacy changes.
-- [ ] Focused Song/Performance regressions pass.
-- [ ] Full Mac-safe suite passes.
-- [ ] Mac game build passes.
+Before marking HPA-600 implementation complete:
+
+- [ ] one internal `ChartTimingMap` owns chart-position timing;
+- [ ] fixed `ChartTimeCalculator` and event-level fixed timing methods are deleted;
+- [ ] lookup normalizes non-negative oversized ticks;
+- [ ] finalization rebuild horizon uses normalized event positions;
+- [ ] notes, BGM, measure lines, and gameplay duration all resolve from the same map;
+- [ ] `02`, `03`, `08`, late `#BPMxx`, opaque `AA`, and source-order collision tests pass;
+- [ ] non-zero-bar measure-length test passes;
+- [ ] tick-zero tempo test passes;
+- [ ] malformed timing syntax has debug diagnostics;
+- [ ] fixture scans are clean and touched helpers use canonical positions;
+- [ ] no `git add -A` was used for the migration commit;
+- [ ] focused Song + Performance tests pass;
+- [ ] full Mac-safe suite passes;
+- [ ] Mac game build passes;
+- [ ] E2E fixture path remains parser-driven and unchanged;
+- [ ] metadata duration remains explicitly deferred;
+- [ ] no unrelated runtime/UI/timing extension entered scope.
