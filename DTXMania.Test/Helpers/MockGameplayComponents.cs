@@ -407,7 +407,7 @@ namespace DTXMania.Test.Helpers
             var (bar, tick) = ToPositionAt120Bpm(timeMs);
             var channel = 0x11 + lane;
 
-            var note = new Note(noteId, bar, tick, channel, "01");
+            var note = new Note(lane, bar, tick, channel, "01") { Id = noteId };
             _syntheticNotes.Add(note);
 
             // Add to the actual chart (this is tricky with the existing implementation)

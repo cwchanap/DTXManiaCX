@@ -6,6 +6,7 @@ namespace DTXMania.Test.Song
     /// <summary>
     /// Tests for BGMEvent (Background Music Event)
     /// </summary>
+    [Trait("Category", "Song")]
     public class BGMEventTests
     {
         #region Constructor Tests
