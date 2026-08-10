@@ -2,70 +2,73 @@
 
 **Issue:** [HPA-600](https://linear.app/cwchanap/issue/HPA-600/full-dtx-tempo-and-measure-length-timing-map-channels-020308)  
 **Date:** 2026-08-09  
-**Status:** Proposed for implementation
+**Status:** Revised after design review
 
 ## Context
 
-HPA-518 added gameplay measure lines while intentionally preserving the timing model already used by notes and BGM events. That model now lives behind `ChartTimeCalculator.CalculateTimeMs(bar, tick, bpm)` and assumes every measure is four quarter-note beats at one constant base BPM.
+HPA-518 added gameplay measure lines while deliberately preserving CX's existing fixed timing model. That temporary model now lives behind `ChartTimeCalculator.CalculateTimeMs(bar, tick, bpm)` and assumes every measure is four quarter-note beats at one constant base BPM.
 
-That assumption is not sufficient for DTX/BMS timing data. The parser currently retains channel `01` BGM events and playable drum channels, but discards timing channels that change how `(bar, tick)` maps to elapsed time:
+HPA-600 replaces that seam with the DTX timing behavior needed by gameplay:
 
-- channel `02`: measure-length multiplier for one measure, such as `0.75` for a measure that is 75% of the normal four-beat length;
-- channel `03`: direct BPM changes whose two-character values are hexadecimal BPM integers;
-- channel `08`: BPM-table references whose two-character values resolve through `#BPMxx` definitions, allowing fractional BPM values and values beyond channel `03`'s byte range.
+- channel `02`: per-measure length multiplier;
+- channel `03`: direct hexadecimal BPM changes;
+- channel `08`: BPM-table references through `#BPMxx` definitions.
 
-The HPA-518 review correctly identified that changing only measure-line timing would be wrong: notes, BGM events, measure boundaries, duration, and every runtime consumer must share one timeline.
+The change must move notes, BGM events, measure lines, and gameplay chart duration together. Fixing only one collection would create multiple incompatible clocks.
+
+The current parser also has two migration constraints that the first design revision under-scoped:
+
+1. `ParseFileContentAsync` permanently switches from header parsing to measure-data parsing after the first timeline row, so a `#BPMxx` definition that appears later in the file is currently invisible to header parsing.
+2. Several tests either call `Note.CalculateTimeMs(...)` directly or seed `TimeMs` and then call `FinalizeChart()`. Once finalization always recomputes time, those fixtures must migrate to authored `Bar`/`Tick` positions.
 
 ## Goals
 
-- Parse DTX timing channels `02`, `03`, and `08` into retained chart timing state.
-- Resolve `#BPMxx` definitions used by channel `08`.
-- Make one chart-owned timing map the source of truth for converting `(bar, tick)` to absolute milliseconds.
-- Recalculate every `Note.TimeMs`, `BGMEvent.TimeMs`, and `MeasureLine.TimeMs` from that map in one finalization pass.
-- Preserve the existing `192`-tick normalized position within a measure so note/BGM parsing and render positions do not need a new coordinate system.
-- Recompute `DurationMs` from the finalized timeline rather than from provisional times assigned while parsing.
-- Keep gameplay/rendering/audio consumers unchanged: they should continue to consume already-resolved absolute `TimeMs` values.
-- Keep the implementation small enough for one focused migration task and straightforward for agentic workers to review.
+- Parse channels `02`, `03`, and `08` into one retained chart timing configuration.
+- Support `#BPMxx` definitions whether they appear before or after the channel `08` row that references them.
+- Preserve source-line ordering when channel `03` and channel `08` define tempo changes at the same `(bar, tick)`; the later source directive wins.
+- Make one chart-owned `ChartTimingMap` the only `(bar, tick) -> TimeMs` authority.
+- Recalculate every `Note.TimeMs`, `BGMEvent.TimeMs`, and `MeasureLine.TimeMs` from that map in one `ParsedChart.FinalizeChart()` pass.
+- Recompute gameplay `ParsedChart.DurationMs` from finalized event times and make repeated finalization idempotent.
+- Preserve CX's normalized `192` ticks per measure representation.
+- Keep gameplay/rendering/audio consumers on resolved absolute `TimeMs`; do not introduce runtime timing-map dependencies.
+- Migrate hand-built tests to the same bar/tick + finalization lifecycle used by production parsing.
 
 ## Non-goals
 
+- STOP events or other BMS/DTX timing extensions outside channels `02`, `03`, and `08`.
 - Beat-line rendering, metronome behavior, or other HPA-518-adjacent UI work.
-- DTX timing directives other than channels `02`, `03`, and `08`.
-- STOP events or other BMS extensions not already requested by HPA-600.
-- Changing judgement windows, scroll math, play-speed behavior, audio-device scheduling, scoring, or persistence.
-- Computing min/max/average BPM metadata for song selection UI. `ParsedChart.Bpm` and `ChartManager.Bpm` continue to represent the chart's base `#BPM` value.
-- Rewriting the general DTX parser or porting DTXManiaNX parser architecture.
-- Adding a second runtime clock or recalculating timing during gameplay.
-- Preserving the current `Note.CalculateTimeMs(double)` / `BGMEvent.CalculateTimeMs(double)` fixed-clock API if it conflicts with the new single-source timing model.
+- Judgement-window, scroll, play-speed, audio-device scheduling, scoring, persistence, or skin changes.
+- Runtime re-clocking or a second timing event bus.
+- Porting DTXManiaNX parser architecture.
+- Min/max/average BPM metadata for song selection.
+- `#BASEBPM` support; CX has no existing use of that directive.
+- `#BPM00` compatibility alias. Base BPM remains the existing exact `#BPM` directive for this ticket.
+- Making `SongChart.Duration` timing-map accurate. `ParseSongEntitiesAsync` / `CalculateDurationAsync` retain their existing base-BPM approximation in HPA-600. This is an explicit known limitation of the metadata/song-library path, not a second gameplay clock. If song-select duration parity becomes important, handle it in a separate ticket rather than expanding this parser/playback migration.
 
-## Format Semantics Used by This Design
+## DTX Timing Semantics
 
 ### Normalized chart position
 
-CX already represents timeline positions as:
+CX stores timeline events as `(bar, tick)` with `tick` normalized to `0..191`. Keep that representation.
 
-```text
-(bar, tick)
-```
-
-where `tick` is normalized to `0..191` by the parser. Keep that representation. A tick remains a fraction of the current measure; channel `02` changes how much musical time the full 192-tick measure represents, not the number of normalized ticks stored on notes.
+Channel `02` changes the musical duration represented by the full `192` ticks; it does not change the stored tick coordinate system.
 
 ### Channel 02: measure-length multiplier
 
-For `#mmm02:value`, `value` is a positive decimal multiplier of the standard four-beat measure.
+For `#mmm02:value`, `value` is a positive invariant-culture decimal multiplier of the standard four-beat measure.
 
-Examples at 120 BPM:
+At 120 BPM:
 
-- `1.0` -> four beats -> `2000 ms`;
-- `0.5` -> two beats -> `1000 ms`;
-- `0.75` -> three beats -> `1500 ms`;
-- `1.5` -> six beats -> `3000 ms`.
+- `1.0` -> 4 beats -> `2000 ms`;
+- `0.5` -> 2 beats -> `1000 ms`;
+- `0.75` -> 3 beats -> `1500 ms`;
+- `1.5` -> 6 beats -> `3000 ms`.
 
-This is intentionally modeled as a multiplier, not as a numerator/denominator pair. Measures without channel `02` use `1.0`.
+A multiplier affects only its own measure. Missing or invalid values use `1.0`.
 
 ### Channel 03: direct BPM
 
-Channel `03` uses the normal two-character timeline grid. Each non-`00` pair is parsed as a hexadecimal integer BPM.
+Channel `03` uses the standard pair grid. Each non-`00` pair is parsed as a hexadecimal integer BPM.
 
 Example:
 
@@ -73,62 +76,63 @@ Example:
 #00003:00F0
 ```
 
-has two positions in measure 0 and changes the BPM to hexadecimal `F0` = decimal `240` at tick `96`.
+The second pair is at normalized tick `96` and changes tempo to hexadecimal `F0` = decimal `240` BPM.
 
 ### Channel 08: BPM-table reference
 
-Header definitions such as:
+Definitions such as:
 
 ```text
 #BPM01:180.5
+#BPMAA:210.25
 ```
 
-are retained in a parser-local BPM definition table. A non-`00` pair in channel `08` resolves that exact uppercase identifier and inserts the resolved numeric BPM at the pair's normalized tick.
+map an opaque, uppercase two-character object code to a positive numeric BPM. Object codes are retained as strings; do not parse channel `08` IDs as hexadecimal numbers.
+
+A non-`00` pair in channel `08` references that definition.
 
 Example:
 
 ```text
-#BPM01:180.5
 #00108:0001
+#BPM01:180.5
 ```
 
-changes to `180.5 BPM` halfway through measure 1.
+must resolve successfully even though the definition appears after the timeline row.
 
-The normalized timing map stores the resolved BPM value, not the original `#BPMxx` identifier. That keeps DTX syntax concerns in `DTXChartParser` and leaves timing math format-agnostic.
+### Duplicate tempo positions
+
+When multiple channel `03` / `08` directives target the same `(bar, tick)`, the directive appearing later in the source file wins.
+
+This rule applies across channel types, not separately per channel. Therefore parser resolution must preserve source order rather than applying all channel `08` references after all direct channel `03` changes without ordering information.
 
 ## Approaches Considered
 
-### Compiled chart-owned timing map (selected)
+### Compiled chart-owned timing map — selected
 
-Add one `ChartTimingMap` owned by `ParsedChart`. The parser records measure multipliers and normalized tempo changes into it. `ParsedChart.FinalizeChart()` compiles the map through the terminal measure, then resolves every retained chart event from that compiled timeline.
+Add one `ChartTimingMap` owned by `ParsedChart`. The parser records measure multipliers and resolved tempo changes. `ParsedChart.FinalizeChart()` compiles the timing map through the terminal gameplay measure and resolves all retained event times.
 
-The compiled map stores a small ordered set of timing anchors: every measure start plus every tempo-change position. Each anchor knows its `(bar, tick)`, absolute `TimeMs`, active BPM, and the current measure-length multiplier. Looking up an event finds the last anchor at or before that position and advances only the remaining fraction of that measure.
+The compiled representation stores a small ordered set of timing anchors at measure starts and tempo-change positions. Repeated lookups are then cheap and deterministic.
 
-**Why selected:** one source of truth, deterministic finalization, fast repeated lookups, no gameplay-time work, and a clear replacement for HPA-518's temporary fixed-clock calculator.
+This keeps parsing syntax-specific, timing math format-agnostic, and gameplay runtime unchanged.
 
-### Walk raw timing directives for every event
+### Walk directives from bar zero for every event — rejected
 
-Keep `ChartTimeCalculator` static and pass all measure/BPM directives into each call, integrating from bar 0 every time a note, BGM event, or measure line asks for `TimeMs`.
+This is conceptually simple but repeats cumulative timing work for every note, BGM event, and measure line. It also grows the temporary `ChartTimeCalculator` instead of replacing it with the intended long-term seam.
 
-**Rejected:** simple initially but repeats the same cumulative work for every event. Song loading already performs enough per-chart work that intentionally making timing resolution O(events x bars/tempo-changes) is not a good long-term seam.
+### Assign absolute time while parsing — rejected
 
-### Assign absolute time while parsing each line
-
-Maintain a mutable parser clock and calculate `TimeMs` as timeline rows are read.
-
-**Rejected:** DTX timeline semantics should not depend on source-file line order. It also makes channel `02`, `03`, and `08` interact with playable channels inside parser control flow and makes later recalculation difficult. Finalization is already the natural point where the complete chart is available.
+Correct timing must not depend on source-file line order. A channel `08` reference may appear before its `#BPMxx` definition, and playable rows may appear before timing rows for the same measure. Finalization is the correct point to resolve absolute time after the full chart is known.
 
 ## Chosen Architecture
 
-### 1. Replace the temporary fixed-clock calculator with `ChartTimingMap`
+### 1. `ChartTimingMap` replaces `ChartTimeCalculator`
 
 Create:
 
 ```text
 DTXMania.Game/Lib/Song/Components/ChartTimingMap.cs
 ```
-
-`ChartTimingMap` owns only chart-position timing concerns. Its public surface should stay small; parser mutation methods remain `internal`.
 
 Conceptual interface:
 
@@ -145,253 +149,349 @@ public sealed class ChartTimingMap
 }
 ```
 
-`SetTempoChange` stores one resolved BPM per exact `(bar, tick)`. If the source defines more than one tempo change at the same position, the last parsed definition wins. This keeps behavior deterministic without introducing a second event-order abstraction.
+Responsibilities:
 
-`Rebuild(...)` replaces previously compiled anchors so repeated `ParsedChart.FinalizeChart()` calls remain deterministic.
+- retain valid per-bar measure multipliers;
+- retain one resolved BPM per exact `(bar, tick)`;
+- use last `SetTempoChange` call for duplicate positions;
+- compile measure-start and tempo-change anchors in `Rebuild`;
+- calculate absolute milliseconds from compiled anchors;
+- replace compiled anchors on every rebuild.
 
-Delete `ChartTimeCalculator.cs` once all callers move to `ChartTimingMap`. HPA-518 introduced that static helper specifically as a temporary seam before a complete timing map existed; retaining both abstractions after HPA-600 would duplicate responsibility.
+Delete `ChartTimeCalculator.cs` once all production callers migrate. Do not keep two timing authorities.
 
-### 2. Timing-map compilation algorithm
-
-Compilation is sequential and bounded by the highest measure needed by the finalized chart.
+### 2. Timing-map compilation
 
 Inputs:
 
 - base BPM from `ParsedChart.Bpm`;
-- per-bar measure-length multipliers, default `1.0`;
-- tempo changes keyed by `(bar, tick)`;
-- `throughBar`, inclusive, which must include the terminal measure-line bar.
+- per-bar measure multiplier, default `1.0`;
+- resolved tempo changes keyed by `(bar, tick)`;
+- inclusive `throughBar` covering the terminal measure-line bar.
 
-For each bar from `0` through `throughBar`:
+For each measure from `0` through `throughBar`:
 
-1. Read that bar's multiplier or `1.0`.
-2. Add a measure-start anchor at `(bar, 0)` with the current absolute time and BPM.
-3. Walk the bar's tempo changes in ascending tick order.
-4. Before each change, advance time by the fraction of the measure between the previous tick and the change tick using the BPM active over that interval.
-5. Update the current BPM at the change position and add/replace an anchor at that position.
-6. Advance the remaining ticks to `192` to obtain the next measure's start time.
+1. Select the measure multiplier.
+2. Add a measure-start anchor at `(bar, 0)` using the current absolute time and current BPM.
+3. Walk tempo changes in ascending tick order.
+4. Advance from the previous tick to the change tick using the BPM active over that interval.
+5. Apply the new BPM at the change position and add/replace the anchor there.
+6. Advance the remaining ticks to `192` to obtain the next measure start.
 7. Carry the final BPM into the next measure.
 
-For an interval inside one measure:
+Interval math:
 
 ```text
-beats = ((endTick - startTick) / 192.0) * 4.0 * measureLengthMultiplier
+beats = (tickDelta / 192.0) * 4.0 * measureLengthMultiplier
 milliseconds = beats * (60000.0 / bpm)
 ```
 
-A lookup for `(bar, tick)` finds the last compiled anchor in that same bar at or before `tick`, then applies the same interval formula from the anchor tick to the requested tick.
+Because every measure has a start anchor, `CalculateTimeMs(bar, tick)` only needs the last anchor in that same measure at or before the requested tick.
 
-Because compilation adds every measure start, a lookup never needs to integrate across multiple measures.
+A tempo change at tick `0` replaces the effective BPM of the measure-start anchor for all subsequent ticks in that measure.
 
-### 3. Parser changes remain syntax-focused
+### 3. Parser syntax collection and late `#BPMxx` support
 
-Extend `DTXChartParser` without changing playable-note parsing.
+The parser should not resolve channel `08` while reading the row.
 
-#### Header parsing
+For each encoding attempt, create fresh parser-local state alongside the existing WAV/volume/pan dictionaries:
 
-Keep the existing exact `#BPM` handling for the base BPM. Before falling through to WAV/volume/pan parsing, recognize `#BPMxx` definitions where the identifier suffix is non-empty and store positive numeric values in a case-normalized dictionary for the current encoding attempt.
+```text
+bpmDefinitions: Dictionary<string, double>
+pendingTempoDirectives: List<PendingTempoDirective>
+sourceSequence: increasing integer
+```
 
-Like WAV/volume/pan parser state, the BPM-definition dictionary must be recreated for each encoding attempt so a failed attempt cannot leak state into the next attempt.
+`PendingTempoDirective` is parser-private and contains only what is needed to preserve source order:
 
-#### Measure-data parsing
+```text
+Sequence
+Bar
+Tick
+Kind: DirectBpm | ReferencedBpm
+DirectBpm or ReferenceId
+```
 
-After `measure` and `channel` are decoded but before the current BGM/drum-lane branches:
+#### Extended BPM definitions are recognized anywhere
 
-- channel `0x02`: parse the whole row body as an invariant-culture positive `double` and call `TimingMap.SetMeasureLength(measure, multiplier)`;
-- channel `0x03`: parse the row as two-character pairs, skip `00`, parse each pair as hexadecimal BPM, normalize its tick exactly as note/BGM parsing does, and call `TimingMap.SetTempoChange(...)` for positive values;
-- channel `0x08`: parse pairs the same way, skip `00`, resolve each uppercase pair against the per-attempt `#BPMxx` table, and call `TimingMap.SetTempoChange(...)` with the resolved positive BPM.
+Before the current `inDataSection` header-vs-measure routing, attempt to recognize a valid `#BPMxx:value` definition on every non-comment line.
 
-Then return from the timing-channel branch so timing data never reaches drum-lane lookup.
+If recognized:
 
-No separate raw `TempoChange` collection on `ParsedChart` is required; `ChartTimingMap` is the retained structured representation.
+- normalize the two-character suffix to uppercase;
+- parse a positive invariant-culture `double`;
+- store/replace it in `bpmDefinitions`;
+- consume the line and continue.
 
-### 4. `ParsedChart.FinalizeChart()` becomes the only absolute-time resolution pass
+This narrow pre-routing check is required because the existing parser stops calling `ParseHeaderCommand` after the first timeline row. Do not generalize all header commands to late-header support in this ticket.
 
-Today `AddNote` and `AddBGMEvent` calculate timing immediately when `TimeMs == 0`, which means parsing assigns absolute time before all chart timing directives have been processed. Remove that responsibility.
+Exact `#BPM:value` remains handled by the existing base-BPM header path and must not be consumed as an extended definition.
 
-After HPA-600:
+#### Channel 02
 
-- `AddNote(...)` adds the note and updates lane counts only;
+After measure/channel parsing and before BGM/drum routing:
+
+- parse the whole row body as a positive invariant-culture `double`;
+- call `TimingMap.SetMeasureLength(measure, multiplier)`;
+- return from measure-data parsing.
+
+Duplicate channel `02` rows for one measure use the last parsed valid multiplier.
+
+#### Channels 03 and 08
+
+Parse pair positions using the same normalized tick formula already used by notes/BGM events.
+
+For each non-`00` pair:
+
+- channel `03`: parse the pair as a positive hexadecimal integer BPM and append a `DirectBpm` pending directive with the current source sequence;
+- channel `08`: normalize the pair as an uppercase object-code string and append a `ReferencedBpm` pending directive with the current source sequence.
+
+Do **not** call `TimingMap.SetTempoChange` from either channel while scanning the file.
+
+After `ParseFileContentAsync` completes successfully for the encoding attempt, resolve pending tempo directives in ascending `Sequence` order:
+
+- direct BPM -> use its stored numeric BPM;
+- referenced BPM -> look up the final `bpmDefinitions` table;
+- unresolved/invalid references -> ignore;
+- valid directive -> call `TimingMap.SetTempoChange(bar, tick, bpm)`.
+
+Applying both channel types in original source order preserves the cross-channel last-source-line-wins rule while still allowing channel `08` references to definitions that occur later in the file.
+
+Like WAV dictionaries, both BPM parser collections are recreated for each encoding attempt so failed-attempt state cannot leak.
+
+### 4. `ParsedChart.FinalizeChart()` is the only absolute-time pass
+
+Today `AddNote` / `AddBGMEvent` assign absolute time before the complete timing configuration is known. HPA-600 removes that responsibility.
+
+After the migration:
+
+- `AddNote(...)` adds the note and updates lane statistics only;
 - `AddBGMEvent(...)` adds the event only;
 - neither method updates `DurationMs`;
-- `FinalizeChart()` determines the highest occupied bar across notes and BGM events;
-- if the chart has retained events, rebuild `TimingMap` through `highestOccupiedBar + 1` so the terminal measure boundary is calculable;
-- recalculate every note and BGM event from `TimingMap.CalculateTimeMs(bar, tick)` regardless of their previous `TimeMs` value;
-- regenerate all measure lines from bar `0` through `highestOccupiedBar + 1` using tick `0` on the same map;
-- sort notes and BGM events by recalculated `TimeMs`;
-- recompute `DurationMs` from the maximum finalized note/BGM event time plus the existing `500 ms` end buffer.
+- `ParsedChart` owns one `TimingMap`;
+- `FinalizeChart()` finds the highest occupied bar across notes and BGM events;
+- if there are retained events, rebuild through `highestOccupiedBar + 1`;
+- overwrite every note and BGM event `TimeMs` from `TimingMap.CalculateTimeMs(...)`, regardless of any pre-existing value;
+- clear/regenerate measure lines for bars `0..highestOccupiedBar + 1` using the same map;
+- sort notes and BGM events by finalized time;
+- reset and recompute `DurationMs` from the latest finalized note/BGM event plus the existing `500 ms` buffer.
 
-If no note or BGM event exists, keep `MeasureLines` empty and `DurationMs = 0`. Timing directives alone do not create gameplay duration.
+For an event at bar `0`, tick `0`, finalized time is legitimately `0`. Zero is never an "uncalculated" sentinel.
 
-This intentionally makes chart finalization idempotent for timing and duration. Repeated finalization produces the same `TimeMs`, measure lines, ordering, and duration instead of adding the duration buffer again.
+If no note or BGM event exists:
+
+- `MeasureLines` stays empty;
+- `DurationMs` is `0`;
+- timing directives alone do not create gameplay duration.
+
+Repeated finalization produces the same event times, measure lines, ordering, and duration.
 
 ### 5. `Note` and `BGMEvent` become position/data models
 
-Remove their fixed-clock `CalculateTimeMs(double bpm)` methods, or otherwise remove all production use of them. They should retain:
+Remove their fixed-clock `CalculateTimeMs(double bpm)` production API and stale formula comments.
 
-- raw chart position (`Bar`, `Tick`);
-- channel/value data;
-- resolved `TimeMs` populated by `ParsedChart.FinalizeChart()`.
+They retain:
 
-This keeps musical timeline logic out of individual event models and prevents future callers from accidentally bypassing the timing map with only a base BPM.
+- `Bar` / `Tick` authored position;
+- lane/channel/value or WAV data;
+- finalized `TimeMs` populated by `ParsedChart.FinalizeChart()`.
 
-Update XML comments that still describe the old fixed formula.
+Tests that need timing should exercise `ChartTimingMap` directly or finalize a `ParsedChart`; they should not recreate a per-event fixed clock.
 
-### 6. `ChartManager` consumes only finalized chart state
+### 6. `ChartManager` consumes finalized state only
 
-Remove the constructor fallback that recalculates any note whose `TimeMs == 0` using the base BPM. A real event at bar `0`, tick `0` legitimately has `TimeMs == 0`, so zero is not a valid "not calculated" sentinel once finalization is authoritative.
+Remove the constructor fallback that recalculates notes when `TimeMs == 0`.
 
-Production parsing already calls `ParsedChart.FinalizeChart()` before constructing runtime state. Unit tests that manually build `ParsedChart` objects should follow that production lifecycle.
+Production already calls `FinalizeChart()` before constructing `ChartManager`. Tests must follow the same lifecycle when they are modeling a parsed chart.
 
-`ChartManager.Bpm` remains the base BPM for existing statistics/display purposes. No current runtime query needs a `ChartTimingMap` reference after finalization.
+`ChartManager.Bpm` remains the base `#BPM` value for existing display/statistics use. Runtime queries do not receive `ChartTimingMap`.
+
+## Test Fixture Migration Contract
+
+This migration intentionally invalidates tests that use `TimeMs` as authored chart input and then call `FinalizeChart()`.
+
+Mandatory rule:
+
+> Any hand-built `ParsedChart` that is finalized must author note/BGM positions with `Bar` and `Tick`. `FinalizeChart()` owns `TimeMs` and may overwrite every pre-seeded value.
+
+Use the existing production-style helper pattern where charts are populated with bar/tick positions, finalized, and only then passed to `ChartManager`.
+
+For pure runtime simulations that currently call `Note.CalculateTimeMs(...)`, either:
+
+- build/finalize a small `ParsedChart` and take its resolved notes; or
+- test `ChartTimingMap` directly when the subject is timing math.
+
+Do not preserve non-zero pre-seeded `TimeMs` through finalization. That would restore dual timing authorities and make real time-zero events ambiguous again.
+
+The implementation plan must scan the full test tree for both direct timing-method calls and `TimeMs`-seeded finalized charts before Task 2 is considered green.
+
+Known affected files include:
+
+- `DTXMania.Test/Stage/Performance/TimingVerificationTest.cs`;
+- `DTXMania.Test/Stage/Performance/AutomatedPlaySimulationTests.cs`;
+- `DTXMania.Test/Stage/Performance/PerformanceStageDeterministicTests.cs`.
+
+The scan, not this list, is authoritative because other chart helpers may use the same pattern.
 
 ## Data Flow
 
 ```text
 DTX text
   -> DTXChartParser
-       -> ParsedChart.Bpm                    (#BPM)
-       -> parser-local BPM definitions       (#BPMxx)
+       -> ParsedChart.Bpm                         (#BPM)
+       -> parser-local bpmDefinitions            (#BPMxx anywhere)
+       -> parser-local pending tempo directives  (03 / 08 + source order)
        -> ParsedChart.TimingMap
-            -> measure multiplier by bar     (channel 02)
-            -> resolved BPM by bar/tick      (channel 03 / 08)
+            -> measure multiplier by bar         (02)
        -> Notes / BGMEvents with bar + tick
+  -> successful end-of-file parse
+       -> resolve pending 03/08 directives in source order
+       -> TimingMap.SetTempoChange(...)
   -> ParsedChart.FinalizeChart
        -> TimingMap.Rebuild(baseBpm, terminalBar)
        -> resolve Note.TimeMs
        -> resolve BGMEvent.TimeMs
        -> regenerate MeasureLine.TimeMs
        -> sort events
-       -> recompute DurationMs
+       -> recompute gameplay DurationMs
   -> ChartManager / PerformanceStage / audio scheduling
-       -> consume resolved TimeMs only
+       -> consume finalized TimeMs only
 ```
 
 ## Validation and Error Behavior
 
-Keep malformed timing handling narrow and predictable:
+- Non-positive base BPM retains the existing failure behavior when the map is rebuilt.
+- Invalid/non-positive channel `02` values are ignored; that bar uses multiplier `1.0`.
+- Channel `03` pair `00` means no change; malformed/non-positive direct BPM pairs are ignored.
+- Invalid/non-positive `#BPMxx` definitions are not added.
+- Channel `08` pair `00` means no change.
+- Missing channel `08` references are ignored after the complete file has been scanned.
+- `#BPMxx` object IDs are case-normalized opaque two-character strings; IDs such as `AA` must work and must not be treated as hex BPM values.
+- Tempo changes persist until another tempo change.
+- Channel `02` affects only its own measure.
+- Duplicate tempo positions resolve by source order across channels `03` and `08`.
+- No new production exceptions are introduced for malformed optional timing rows/references.
 
-- non-positive base BPM retains the current failure behavior when finalization attempts to build a timeline;
-- channel `02` values that are missing, non-numeric, zero, or negative are ignored and the measure falls back to multiplier `1.0`;
-- channel `03` pair `00` means no change; malformed/non-positive pairs are ignored;
-- invalid/non-positive `#BPMxx` definitions are not added to the definition table;
-- channel `08` references missing from the definition table are ignored;
-- tempo changes at the same `(bar, tick)` use last-parsed-wins semantics;
-- a tempo change persists into later measures until another change replaces it;
-- channel `02` affects only its own measure and does not persist;
-- no new exceptions are introduced for ordinary unsupported/missing timing references.
+Debug-only diagnostics for ignored timing syntax are acceptable but not required.
 
-Debug-only diagnostics may be added for ignored timing values if useful, but production logging infrastructure is out of scope.
+## Performance
 
-## Performance Characteristics
+For `B` compiled measures and `T` tempo changes:
 
-The map is compiled once per finalization. For a chart with `B` relevant bars and `T` tempo changes, compilation is O(B + T) after grouping/sorting tempo changes. Each note/BGM/measure-line lookup should be O(log A) or O(log T_bar) depending on the internal anchor representation, where `A` is the small compiled-anchor count.
+- rebuild: `O(B + T log T)` or equivalent small ordered processing;
+- lookup: binary search over compiled anchors, `O(log A)`, where `A` is the anchor count.
 
-Do not add caching beyond the compiled anchors. The chart is static after parsing, and the expected event counts do not justify a more complex indexing layer.
+The chart is static after parsing. Do not add a second cache/index beyond compiled anchors.
 
 ## Testing Strategy
 
 ### `ChartTimingMapTests`
 
-Add focused math tests independent of parsing:
+Cover:
 
-- base BPM only reproduces current 4/4 results;
-- shortened measure (`0.5`) changes the following measure start correctly;
-- extended measure (`1.5`) changes the following measure start correctly;
-- direct BPM change halfway through a measure integrates the two tempo segments correctly;
-- tempo change persists into the next measure;
-- measure multiplier and tempo change combine correctly in the same measure;
-- repeated `Rebuild(...)` produces the same results;
-- invalid base BPM is rejected;
-- duplicate tempo changes at one position use the last value.
+- base-BPM-only parity with the old fixed 4/4 clock;
+- shortened measure (`0.5`);
+- extended measure (`1.5`);
+- halfway tempo change;
+- tempo persistence across measures;
+- measure multiplier + tempo change in one measure;
+- tempo change at tick `0`;
+- duplicate position uses last value;
+- repeated `Rebuild(...)` is deterministic;
+- invalid base BPM fails.
 
 Representative combined case at base 120 BPM:
 
 ```text
 measure 0 multiplier = 0.5
-measure 0 tempo changes to 240 BPM at tick 96
+measure 0 changes to 240 BPM at tick 96
 
 0 -> 96: 1 beat at 120 BPM = 500 ms
 96 -> 192: 1 beat at 240 BPM = 250 ms
 bar 1 start = 750 ms
 ```
 
-### `DTXChartParserTests`
-
-Use temporary inline DTX files, matching the current parser-test style, to prove syntax integration:
-
-- channel `02` parses a decimal multiplier and shifts note/BGM/measure-line times;
-- channel `03` parses hexadecimal direct BPM at the correct pair-derived tick;
-- `#BPMxx` + channel `08` resolves a fractional BPM value;
-- unresolved channel `08` references do not crash and do not change tempo;
-- a sparse chart with timing changes in an otherwise empty measure still applies those changes to later notes;
-- notes, BGM events, and measure lines at the same chart position resolve to identical `TimeMs`.
-
 ### `ParsedChartTests`
 
-Update current tests to reflect deferred final timing:
+Cover:
 
-- `AddNote` / `AddBGMEvent` no longer calculate `TimeMs` or duration;
-- `FinalizeChart` recalculates all event times from the timing map even if a test pre-populated an incorrect `TimeMs`;
-- `FinalizeChart` recomputes duration after tempo/measure changes;
-- `FinalizeChart` is idempotent for `DurationMs` and measure lines;
-- terminal measure lines still do not extend duration.
+- `AddNote` / `AddBGMEvent` do not assign time or duration;
+- finalization overwrites stale pre-seeded `TimeMs` from bar/tick;
+- notes, BGM events, and measure lines use one map;
+- duration is max finalized note/BGM time + `500 ms`, including a lone event at time zero;
+- repeated finalization does not add another buffer;
+- sorting occurs after recalculation;
+- empty chart stays zero-duration with no measure lines.
 
-### `NoteTests`, `BGMEventTests`, and `ChartTimeCalculatorTests`
+### `DTXChartParserTests`
 
-Remove or rewrite tests that directly exercise the fixed base-BPM formula. Replace `ChartTimeCalculatorTests` with `ChartTimingMapTests`. Keep model tests for construction, lane names, string formatting, and other non-timing responsibilities.
+Use temporary inline files to cover:
 
-### `ChartManagerTests`
+- channel `02` shortened measure;
+- channel `02` extended measure;
+- channel `03` direct BPM change;
+- channel `08` with definition before the row;
+- channel `08` with `#BPMxx` definition **after** the row;
+- `#BPMAA` referenced by `AA`, proving the ID path is not hex-only;
+- channel `03` and `08` targeting the same `(bar, tick)`, proving later source directive wins;
+- note + BGM + measure-line alignment across a tempo-changing chart;
+- malformed/missing timing values retain safe fallback behavior.
 
-Ensure every helper chart calls `FinalizeChart()`. Add one guard test proving a finalized chart containing a real time-zero note is copied without any constructor-side recalculation.
+### Fixture/regression tests
 
-No renderer/stage test changes are expected because those layers already operate on absolute `TimeMs` and are intentionally outside this migration.
+Before completing the finalization migration, scan the full test tree for:
 
-## Expected File Changes
+```bash
+rg -n 'CalculateTimeMs\(' DTXMania.Test
+rg -n 'FinalizeChart\(\)' DTXMania.Test
+rg -n 'TimeMs\s*=' DTXMania.Test
+```
 
-**Create:**
+Inspect every finalized-chart fixture that seeds `TimeMs`. Convert it to authored bar/tick positions or remove finalization only when the test intentionally models already-finalized runtime data.
+
+At minimum, migrate the known Performance timing/simulation/deterministic helpers surfaced during review.
+
+## Expected Files
+
+Create:
 
 - `DTXMania.Game/Lib/Song/Components/ChartTimingMap.cs`
 - `DTXMania.Test/Song/ChartTimingMapTests.cs`
 
-**Delete:**
+Modify:
 
-- `DTXMania.Game/Lib/Song/Components/ChartTimeCalculator.cs`
-- `DTXMania.Test/Song/ChartTimeCalculatorTests.cs`
-
-**Modify:**
-
-- `DTXMania.Game/Lib/Song/DTXChartParser.cs`
 - `DTXMania.Game/Lib/Song/Components/ParsedChart.cs`
 - `DTXMania.Game/Lib/Song/Components/Note.cs`
 - `DTXMania.Game/Lib/Song/Components/BGMEvent.cs`
 - `DTXMania.Game/Lib/Song/Components/ChartManager.cs`
-- `DTXMania.Test/Song/DTXChartParserTests.cs`
+- `DTXMania.Game/Lib/Song/DTXChartParser.cs`
 - `DTXMania.Test/Song/ParsedChartTests.cs`
 - `DTXMania.Test/Song/NoteTests.cs`
 - `DTXMania.Test/Song/BGMEventTests.cs`
 - `DTXMania.Test/Song/ChartManagerTests.cs`
+- `DTXMania.Test/Song/DTXChartParserTests.cs`
+- affected test helpers discovered by the fixture migration scan, including the known Performance files.
 
-No project-file, renderer, stage, layout, skin, E2E fixture, or legacy `DTXManiaNX` change is expected.
+Delete:
+
+- `DTXMania.Game/Lib/Song/Components/ChartTimeCalculator.cs`
+- `DTXMania.Test/Song/ChartTimeCalculatorTests.cs`
+
+No renderer, stage production, project, skin, workflow, or DTXManiaNX file change is expected.
 
 ## Acceptance Criteria
 
-- Channel `02` measure-length multipliers affect note, BGM, and measure-line timing in the target measure and all later absolute times.
-- Channel `03` direct BPM changes take effect at their authored in-measure position and persist until replaced.
-- Channel `08` resolves `#BPMxx` definitions, including fractional BPM values, and takes effect at the authored position.
-- Notes, BGM events, and measure lines use exactly the same timing map and remain aligned across tempo and measure-length changes.
-- Timing changes in otherwise empty measures still affect later events.
-- `DurationMs` reflects finalized map-driven event timing plus the existing 500 ms buffer and is stable across repeated finalization.
-- `ChartManager` performs no base-BPM fallback timing calculation.
-- Existing constant-4/4 charts retain their current timing within floating-point tolerance.
-- Focused song tests, the complete Mac-safe test suite, and the Mac game build pass.
-
-## References
-
-- HPA-600 issue: <https://linear.app/cwchanap/issue/HPA-600/full-dtx-tempo-and-measure-length-timing-map-channels-020308>
-- HPA-518 design: `docs/superpowers/specs/2026-08-08-hpa-518-measure-lines-design.md`
-- HPA-518 implementation plan: `docs/superpowers/plans/2026-08-08-hpa-518-gameplay-measure-lines.md`
-- Current parser: `DTXMania.Game/Lib/Song/DTXChartParser.cs`
-- Current fixed calculator: `DTXMania.Game/Lib/Song/Components/ChartTimeCalculator.cs`
-- BMS measure-length example (`#00102:0.75`): <https://bmson-spec-fork.readthedocs.io/en/latest/doc/index.html>
-- Extended BPM syntax overview for channels `03` and `08`: <https://fileformats.fandom.com/wiki/Be-Music_Script>
+- A chart using only base `#BPM` retains current note/BGM/measure timing.
+- Channel `02` correctly shifts event and later measure times for shortened and extended measures.
+- Channel `03` correctly changes tempo within a measure and persists afterward.
+- Channel `08` resolves positive fractional/extended BPM values from `#BPMxx`.
+- A channel `08` reference resolves when its definition appears later in the source file.
+- IDs such as `AA` work as channel `08` object codes.
+- Same-position `03`/`08` changes use later source order, independent of channel type.
+- Notes, BGM events, and measure lines at the same authored position resolve to the same `TimeMs`.
+- `ParsedChart.FinalizeChart()` always recalculates event times and produces deterministic duration on repeated calls.
+- `ChartManager` never uses `TimeMs == 0` as an uncalculated sentinel.
+- Production and hand-built finalized charts use the same bar/tick-authored lifecycle.
+- Gameplay production renderer/stage/audio scheduling code does not require timing-map changes.
+- `SongChart.Duration` remains explicitly documented as approximate base-BPM metadata behavior outside this ticket.
+- Focused timing/parser tests, affected Song + Performance regressions, the full Mac-safe test suite, and Mac game build pass before implementation is considered complete.
