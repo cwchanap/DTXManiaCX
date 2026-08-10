@@ -301,26 +301,26 @@ namespace DTXMania.Test.Helpers
                 Bpm = 120.0 // Standard BPM for predictable timing
             };
 
-            // Add a basic pattern of notes across multiple lanes
-            // At 120 BPM: 96 ticks = 500ms, so each tick ≈ 5.208ms
-            var notes = new List<(int lane, int tick, double timeMs)>
+            // Add a basic pattern of notes across multiple lanes.
+            var notes = new List<(int lane, double timeMs)>
             {
-                (0, 96, 1000.0),   // Lane 0 (A key) at 1000ms
-                (1, 144, 1500.0),  // Lane 1 (S key) at 1500ms  
-                (2, 192, 2000.0),  // Lane 2 (D key) at 2000ms
-                (3, 240, 2500.0),  // Lane 3 (F key) at 2500ms
-                (4, 288, 3000.0),  // Lane 4 (Space) at 3000ms
-                (5, 336, 3500.0),  // Lane 5 (J key) at 3500ms
-                (6, 384, 4000.0),  // Lane 6 (K key) at 4000ms
-                (7, 432, 4500.0),  // Lane 7 (L key) at 4500ms
-                (8, 480, 5000.0),  // Lane 8 (; key) at 5000ms
+                (0, 1000.0),   // Lane 0 (A key) at 1000ms
+                (1, 1500.0),   // Lane 1 (S key) at 1500ms
+                (2, 2000.0),   // Lane 2 (D key) at 2000ms
+                (3, 2500.0),   // Lane 3 (F key) at 2500ms
+                (4, 3000.0),   // Lane 4 (Space) at 3000ms
+                (5, 3500.0),   // Lane 5 (J key) at 3500ms
+                (6, 4000.0),   // Lane 6 (K key) at 4000ms
+                (7, 4500.0),   // Lane 7 (L key) at 4500ms
+                (8, 5000.0),   // Lane 8 (; key) at 5000ms
             };
 
             for (int i = 0; i < notes.Count; i++)
             {
-                var (lane, tick, timeMs) = notes[i];
+                var (lane, timeMs) = notes[i];
+                var (bar, tick) = ToPositionAt120Bpm(timeMs);
                 var channel = 0x11 + lane; // DTX channels 0x11-0x19
-                chart.AddNote(new Note(i, 0, tick, channel, "01"));
+                chart.AddNote(new Note(lane, bar, tick, channel, "01"));
             }
 
             chart.FinalizeChart();
@@ -345,7 +345,9 @@ namespace DTXMania.Test.Helpers
                     // Sequence of notes for combo testing
                     for (int i = 0; i < 10; i++)
                     {
-                        chart.AddNote(new Note(i, 0, 96 + i * 10, 0x11, "01")); // Every ~52ms
+                        var (bar, tick) = ToPositionAt120Bpm(
+                            1000.0 + i * (2000.0 / ChartTimingMap.TicksPerMeasure * 10));
+                        chart.AddNote(new Note(i, bar, tick, 0x11, "01")); // Every ~104ms
                     }
                     break;
 
@@ -355,7 +357,9 @@ namespace DTXMania.Test.Helpers
                     {
                         var lane = i % 9;
                         var channel = 0x11 + lane;
-                        chart.AddNote(new Note(i, 0, 96 + i * 5, channel, "01")); // Every ~26ms
+                        var (bar, tick) = ToPositionAt120Bpm(
+                            1000.0 + i * (2000.0 / ChartTimingMap.TicksPerMeasure * 5));
+                        chart.AddNote(new Note(lane, bar, tick, channel, "01")); // Every ~52ms
                     }
                     break;
 
@@ -363,7 +367,9 @@ namespace DTXMania.Test.Helpers
                     // Pattern designed to test gauge management
                     for (int i = 0; i < 50; i++)
                     {
-                        chart.AddNote(new Note(i, 0, 96 + i * 20, 0x11, "01")); // Every ~104ms
+                        var (bar, tick) = ToPositionAt120Bpm(
+                            1000.0 + i * (2000.0 / ChartTimingMap.TicksPerMeasure * 20));
+                        chart.AddNote(new Note(i, bar, tick, 0x11, "01")); // Every ~208ms
                     }
                     break;
 
@@ -398,12 +404,10 @@ namespace DTXMania.Test.Helpers
             if (noteId == -1)
                 noteId = _syntheticNotes.Count;
 
-            // Convert time to ticks (approximate)
-            // At 120 BPM: 96 ticks = 500ms
-            int tick = (int)((timeMs / 500.0) * 96);
+            var (bar, tick) = ToPositionAt120Bpm(timeMs);
             var channel = 0x11 + lane;
 
-            var note = new Note(noteId, 0, tick, channel, "01");
+            var note = new Note(noteId, bar, tick, channel, "01");
             _syntheticNotes.Add(note);
 
             // Add to the actual chart (this is tricky with the existing implementation)
@@ -416,11 +420,11 @@ namespace DTXMania.Test.Helpers
         public static MockChartManager CreateSingleNoteChart(int lane = 0, double timeMs = 1000.0)
         {
             var chart = new ParsedChart("single-note.dtx") { Bpm = 120.0 };
-            
-            int tick = (int)((timeMs / 500.0) * 96);
+
+            var (bar, tick) = ToPositionAt120Bpm(timeMs);
             var channel = 0x11 + lane;
-            chart.AddNote(new Note(0, 0, tick, channel, "01"));
-            
+            chart.AddNote(new Note(lane, bar, tick, channel, "01"));
+
             chart.FinalizeChart();
             return new MockChartManager(chart);
         }
@@ -431,16 +435,27 @@ namespace DTXMania.Test.Helpers
         public static MockChartManager CreateMultipleNotesChart(int lane = 0, params double[] timesMs)
         {
             var chart = new ParsedChart("multiple-notes.dtx") { Bpm = 120.0 };
-            
+
             for (int i = 0; i < timesMs.Length; i++)
             {
-                int tick = (int)((timesMs[i] / 500.0) * 96);
+                var (bar, tick) = ToPositionAt120Bpm(timesMs[i]);
                 var channel = 0x11 + lane;
-                chart.AddNote(new Note(i, 0, tick, channel, "01"));
+                chart.AddNote(new Note(lane, bar, tick, channel, "01"));
             }
-            
+
             chart.FinalizeChart();
             return new MockChartManager(chart);
+        }
+
+        private static (int Bar, int Tick) ToPositionAt120Bpm(double timeMs)
+        {
+            const double measureMs = 2000.0;
+            var totalTicks = (int)Math.Round(
+                timeMs * ChartTimingMap.TicksPerMeasure / measureMs);
+
+            return (
+                totalTicks / ChartTimingMap.TicksPerMeasure,
+                totalTicks % ChartTimingMap.TicksPerMeasure);
         }
 
         /// <summary>
