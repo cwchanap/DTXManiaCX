@@ -134,10 +134,39 @@ namespace DTXMania.Test.Song
         [Theory]
         [InlineData(0.0)]
         [InlineData(-120.0)]
-        public void Rebuild_NonPositiveBaseBpm_ShouldThrow(double bpm)
+        [InlineData(double.NaN)]
+        [InlineData(double.PositiveInfinity)]
+        [InlineData(double.NegativeInfinity)]
+        public void Rebuild_InvalidBaseBpm_ShouldThrow(double bpm)
         {
             var map = new ChartTimingMap();
             Assert.Throws<ArgumentException>(() => map.Rebuild(bpm, 1));
+        }
+
+        [Theory]
+        [InlineData(double.NaN)]
+        [InlineData(double.PositiveInfinity)]
+        [InlineData(double.NegativeInfinity)]
+        public void SetMeasureLength_NonFiniteMultiplier_ShouldIgnore(double multiplier)
+        {
+            var map = new ChartTimingMap();
+            map.SetMeasureLength(0, multiplier);
+            map.Rebuild(120.0, 1);
+
+            Assert.Equal(2000.0, map.CalculateTimeMs(1, 0), 3);
+        }
+
+        [Theory]
+        [InlineData(double.NaN)]
+        [InlineData(double.PositiveInfinity)]
+        [InlineData(double.NegativeInfinity)]
+        public void SetTempoChange_NonFiniteBpm_ShouldIgnore(double bpm)
+        {
+            var map = new ChartTimingMap();
+            map.SetTempoChange(0, 96, bpm);
+            map.Rebuild(120.0, 1);
+
+            Assert.Equal(2000.0, map.CalculateTimeMs(1, 0), 3);
         }
 
         [Fact]

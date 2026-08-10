@@ -549,6 +549,43 @@ namespace DTXMania.Test.Song
             Assert.Equal(2000.0, note.TimeMs, precision: 3);
         }
 
+        [Theory]
+        [InlineData("Infinity")]
+        [InlineData("1e9999")]
+        public async Task ParseAsync_NonFiniteExtendedTimingValues_FallBackToBaseTiming(
+            string malformedValue)
+        {
+            var chart = await ParseTimingFixtureAsync(
+                "#BPM: 120\n" +
+                $"#BPM01:{malformedValue}\n" +
+                $"#00002:{malformedValue}\n" +
+                "#00008:0001\n" +
+                "#00111:01\n");
+
+            var note = Assert.Single(chart.Notes);
+            Assert.Equal(2000.0, note.TimeMs, precision: 3);
+            Assert.True(double.IsFinite(note.TimeMs));
+            Assert.True(double.IsFinite(chart.DurationMs));
+        }
+
+        [Theory]
+        [InlineData("Infinity")]
+        [InlineData("1e9999")]
+        public async Task ParseAsync_NonFiniteBaseBpm_UsesDefaultBaseTiming(
+            string malformedValue)
+        {
+            var chart = await ParseTimingFixtureAsync(
+                $"#BPM:{malformedValue}\n" +
+                "#00111:01\n" +
+                "#00211:01\n");
+
+            Assert.Equal(120.0, chart.Bpm);
+            var note = chart.Notes.OrderBy(candidate => candidate.Bar).Last();
+            Assert.Equal(4000.0, note.TimeMs, precision: 3);
+            Assert.True(double.IsFinite(note.TimeMs));
+            Assert.True(double.IsFinite(chart.DurationMs));
+        }
+
         private static async Task<ParsedChart> ParseTimingFixtureAsync(string contents)
         {
             var tempDirectory = Path.Combine(Path.GetTempPath(), $"dtx-timing-{Guid.NewGuid():N}");

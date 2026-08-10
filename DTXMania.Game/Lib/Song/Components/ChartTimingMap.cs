@@ -28,7 +28,7 @@ namespace DTXMania.Game.Lib.Song.Components
 
         internal void SetMeasureLength(int bar, double multiplier)
         {
-            if (bar < 0 || !(multiplier > 0))
+            if (bar < 0 || !double.IsFinite(multiplier) || !(multiplier > 0))
                 return;
 
             _measureLengths[bar] = multiplier;
@@ -36,7 +36,8 @@ namespace DTXMania.Game.Lib.Song.Components
 
         internal void SetTempoChange(int bar, int tick, double bpm)
         {
-            if (bar < 0 || tick < 0 || tick >= TicksPerMeasure || !(bpm > 0))
+            if (bar < 0 || tick < 0 || tick >= TicksPerMeasure ||
+                !double.IsFinite(bpm) || !(bpm > 0))
                 return;
 
             _tempoChanges[(bar, tick)] = bpm;
@@ -44,7 +45,7 @@ namespace DTXMania.Game.Lib.Song.Components
 
         internal void Rebuild(double baseBpm, int throughBar)
         {
-            if (!(baseBpm > 0))
+            if (!double.IsFinite(baseBpm) || !(baseBpm > 0))
                 throw new ArgumentException(
                     "BPM must be greater than 0",
                     nameof(baseBpm));
