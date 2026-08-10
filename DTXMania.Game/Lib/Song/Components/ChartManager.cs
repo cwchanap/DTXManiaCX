@@ -64,15 +64,6 @@ namespace DTXMania.Game.Lib.Song.Components
             _measureLines = new List<MeasureLine>(parsedChart.MeasureLines);
             DurationMs = parsedChart.DurationMs;
 
-            // Ensure all notes have calculated timing
-            foreach (var note in _notes)
-            {
-                if (note.TimeMs == 0)
-                {
-                    note.CalculateTimeMs(_bpm);
-                }
-            }
-
             // Sort notes by time for efficient access
             _notes.Sort((a, b) => a.TimeMs.CompareTo(b.TimeMs));
             AssignNoteIds();

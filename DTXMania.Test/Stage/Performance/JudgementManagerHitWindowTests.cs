@@ -225,11 +225,9 @@ namespace DTXMania.Test.Stage.Performance
                 Bpm = 120.0
             };
 
-            // Calculate tick position for the given time
-            // At 120 BPM: 192 ticks = 2000ms (one measure), so tick = (timeMs / 2000.0) * 192
-            int tickPosition = (int)Math.Round((noteTimeMs / 2000.0) * 192, MidpointRounding.AwayFromZero);
+            var (bar, tick) = ToPositionAt120Bpm(noteTimeMs);
 
-            parsedChart.AddNote(new Note(0, 0, tickPosition, 0x11, "01")); // Lane 0
+            parsedChart.AddNote(new Note(0, bar, tick, 0x11, "01")); // Lane 0
             parsedChart.FinalizeChart();
             
             return new ChartManager(parsedChart);
@@ -242,14 +240,27 @@ namespace DTXMania.Test.Stage.Performance
                 Bpm = 120.0
             };
 
-            // Add two notes 50ms apart in the same lane
-            // At 120 BPM: 192 ticks = 2000ms (one measure), so tick = (timeMs / 2000.0) * 192
-            // For exact 1050ms: tick = (1050 / 2000) * 192 = 100.8, round to 101 for 1052.08ms
-            parsedChart.AddNote(new Note(0, 0, (int)((1000.0 / 2000.0) * 192), 0x11, "01"));      // At 1000ms (tick 96)
-            parsedChart.AddNote(new Note(0, 0, 101, 0x11, "01"));                                 // At ~1052ms (tick 101)
+            // Add two notes 50ms apart in the same lane. The authored positions
+            // round to ticks 96 and 101, resolving to 1000ms and ~1052ms.
+            var (firstBar, firstTick) = ToPositionAt120Bpm(1000.0);
+            var (secondBar, secondTick) = ToPositionAt120Bpm(1050.0);
+            parsedChart.AddNote(new Note(0, firstBar, firstTick, 0x11, "01"));
+            parsedChart.AddNote(new Note(0, secondBar, secondTick, 0x11, "01"));
             
             parsedChart.FinalizeChart();
             return new ChartManager(parsedChart);
+        }
+
+        private static (int Bar, int Tick) ToPositionAt120Bpm(double timeMs)
+        {
+            const double measureMs = 2000.0;
+            var totalTicks = (int)Math.Round(
+                timeMs * ChartTimingMap.TicksPerMeasure / measureMs,
+                MidpointRounding.AwayFromZero);
+
+            return (
+                totalTicks / ChartTimingMap.TicksPerMeasure,
+                totalTicks % ChartTimingMap.TicksPerMeasure);
         }
 
         #endregion

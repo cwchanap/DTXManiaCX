@@ -47,6 +47,18 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
+        public void Constructor_UnfinalizedChart_ShouldNotRecalculateNoteTiming()
+        {
+            var parsedChart = new ParsedChart { Bpm = 120.0 };
+            parsedChart.AddNote(new Note(0, 1, 0, 0x11, "01"));
+
+            var manager = new ChartManager(parsedChart);
+
+            Assert.Equal(0.0, manager.AllNotes[0].TimeMs);
+            Assert.Equal(0.0, manager.DurationMs);
+        }
+
+        [Fact]
         public void GetActiveMeasureLines_ShouldIncludeLookAheadAndPastGrace()
         {
             var manager = new ChartManager(CreateTestChart());

@@ -1016,7 +1016,7 @@ public class PerformanceStageDeterministicTests
         var stage = CreateStage();
         var chartManager = BuildChartManager(new[]
         {
-            new Note(laneIndex: 3, bar: 0, tick: 0, channel: 0x12, value: "07") { TimeMs = 100.0 },
+            new Note(laneIndex: 3, bar: 0, tick: 10, channel: 0x12, value: "07"),
         });
 
         var soundMock = new Mock<ISound>();
@@ -1036,7 +1036,7 @@ public class PerformanceStageDeterministicTests
             ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", true);
             ReflectionHelpers.SetPrivateField(stage, "_autoPlayNoteIndex", 0);
 
-            ReflectionHelpers.InvokePrivateMethod(stage, "ProcessAutoPlay", 100.0);
+            ReflectionHelpers.InvokePrivateMethod(stage, "ProcessAutoPlay", 110.0);
 
             soundMock.Verify(s => s.Play(), Times.Once);
         }
@@ -1052,7 +1052,7 @@ public class PerformanceStageDeterministicTests
         var stage = CreateStage();
         var chartManager = BuildChartManager(new[]
         {
-            new Note(laneIndex: 3, bar: 0, tick: 0, channel: 0x12, value: "07") { TimeMs = 100.0 },
+            new Note(laneIndex: 3, bar: 0, tick: 10, channel: 0x12, value: "07"),
         });
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
         ReflectionHelpers.SetPrivateField(stage, "_chipSoundCache", null);
@@ -1112,9 +1112,9 @@ public class PerformanceStageDeterministicTests
         var stage = CreateStage();
         var chartManager = BuildChartManager(new[]
         {
-            new Note(laneIndex: 0, bar: 0, tick: 0, channel: 0x11, value: "01") { TimeMs = 100.0 },
-            new Note(laneIndex: 1, bar: 0, tick: 0, channel: 0x12, value: "01") { TimeMs = 200.0 },
-            new Note(laneIndex: 2, bar: 0, tick: 0, channel: 0x13, value: "01") { TimeMs = 300.0 },
+            new Note(laneIndex: 0, bar: 0, tick: 10, channel: 0x11, value: "01"),
+            new Note(laneIndex: 1, bar: 0, tick: 19, channel: 0x12, value: "01"),
+            new Note(laneIndex: 2, bar: 0, tick: 29, channel: 0x13, value: "01"),
         });
         var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
         var padRenderer = CreatePadRenderer();
@@ -1138,7 +1138,7 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", true);
 
         // Seed a hittable note on lane 0 so PlayChipForNote would have something to play
-        var note = new Note(laneIndex: 0, bar: 0, tick: 0, channel: 0x12, value: "07") { TimeMs = 1000.0 };
+        var note = new Note(laneIndex: 0, bar: 0, tick: 96, channel: 0x12, value: "07");
         var chartManager = BuildChartManager(new[] { note });
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
 
@@ -1185,7 +1185,7 @@ public class PerformanceStageDeterministicTests
         var stage = CreateStage();
         ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", false);
 
-        var note = new Note(laneIndex: 3, bar: 0, tick: 0, channel: 0x12, value: "07") { TimeMs = 1000.0 };
+        var note = new Note(laneIndex: 3, bar: 0, tick: 96, channel: 0x12, value: "07");
         var chartManager = BuildChartManager(new[] { note });
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
 
@@ -1227,7 +1227,7 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", false);
 
         // Note exists but is far away — outside the ±200ms window
-        var note = new Note(laneIndex: 3, bar: 0, tick: 0, channel: 0x12, value: "07") { TimeMs = 5000.0 };
+        var note = new Note(laneIndex: 3, bar: 2, tick: 96, channel: 0x12, value: "07");
         var chartManager = BuildChartManager(new[] { note });
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
 
@@ -1276,7 +1276,7 @@ public class PerformanceStageDeterministicTests
 
         // Note at 1000ms on lane 3. With 200ms latency offset, raw clock 1200ms
         // should map to compensated 1000ms — within the Poor window (150ms).
-        var note = new Note(laneIndex: 3, bar: 0, tick: 0, channel: 0x12, value: "07") { TimeMs = 1000.0 };
+        var note = new Note(laneIndex: 3, bar: 0, tick: 96, channel: 0x12, value: "07");
         var chartManager = BuildChartManager(new[] { note });
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
 
@@ -1319,7 +1319,7 @@ public class PerformanceStageDeterministicTests
         var stage = CreateStage();
         ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", false);
 
-        var note = new Note(laneIndex: 3, bar: 0, tick: 0, channel: 0x12, value: "07") { TimeMs = 10.0 };
+        var note = new Note(laneIndex: 3, bar: 0, tick: 1, channel: 0x12, value: "07");
         var chartManager = BuildChartManager(new[] { note });
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
 
@@ -2786,7 +2786,12 @@ public class PerformanceStageDeterministicTests
         var stage = CreateStage();
         var noteRenderer = CreateNoteRenderer();
         var parsedChart = new ParsedChart("draw-notes-active-note.dtx") { Bpm = 120.0 };
-        parsedChart.AddNote(new Note { LaneIndex = 0, Channel = 0x13, TimeMs = 4000.0, Value = "01" });
+        parsedChart.AddNote(new Note(
+            laneIndex: 0,
+            bar: 2,
+            tick: 0,
+            channel: 0x13,
+            value: "01"));
         parsedChart.FinalizeChart();
 
         Assert.True(noteRenderer.IsReady);
@@ -2901,7 +2906,12 @@ public class PerformanceStageDeterministicTests
         var stage = CreateStage();
         var noteRenderer = CreateNoteRenderer();
         var parsedChart = new ParsedChart("draw-note-overlays-active-note.dtx") { Bpm = 120.0 };
-        parsedChart.AddNote(new Note { LaneIndex = 0, Channel = 0x13, TimeMs = 4000.0, Value = "01" });
+        parsedChart.AddNote(new Note(
+            laneIndex: 0,
+            bar: 2,
+            tick: 0,
+            channel: 0x13,
+            value: "01"));
         parsedChart.FinalizeChart();
 
         Assert.True(noteRenderer.IsReady);
@@ -2927,8 +2937,9 @@ public class PerformanceStageDeterministicTests
         parsedChart.AddNote(new Note
         {
             LaneIndex = 0,
+            Bar = 2,
+            Tick = 0,
             Channel = 0x13,
-            TimeMs = 4000.0,
             Value = "01"
         });
         parsedChart.FinalizeChart();
@@ -3743,7 +3754,7 @@ public class PerformanceStageDeterministicTests
     public void FindNearestNoteForChip_WhenNoteInDifferentLane_ShouldReturnNull()
     {
         var stage = CreateStage();
-        var note = new Note(laneIndex: 3, bar: 0, tick: 0, channel: 0x12, value: "01") { TimeMs = 1000.0 };
+        var note = new Note(laneIndex: 3, bar: 0, tick: 96, channel: 0x12, value: "01");
         var chartManager = BuildChartManager(new[] { note });
         var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
@@ -3758,7 +3769,7 @@ public class PerformanceStageDeterministicTests
     public void FindNearestNoteForChip_WhenNoteAlreadyHit_ShouldSkipAndReturnNull()
     {
         var stage = CreateStage();
-        var note = new Note(laneIndex: 3, bar: 0, tick: 0, channel: 0x12, value: "01") { TimeMs = 1000.0 };
+        var note = new Note(laneIndex: 3, bar: 0, tick: 96, channel: 0x12, value: "01");
         var chartManager = BuildChartManager(new[] { note });
         var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
         judgementManager.EnqueueLaneHit(3, "Test");
@@ -3775,7 +3786,7 @@ public class PerformanceStageDeterministicTests
     public void FindNearestNoteForChip_WhenNoteIsWithinWindow_ShouldReturnNearestNote()
     {
         var stage = CreateStage();
-        var note = new Note(laneIndex: 3, bar: 0, tick: 0, channel: 0x12, value: "01") { TimeMs = 1000.0 };
+        var note = new Note(laneIndex: 3, bar: 0, tick: 96, channel: 0x12, value: "01");
         var chartManager = BuildChartManager(new[] { note });
         var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
@@ -3793,7 +3804,7 @@ public class PerformanceStageDeterministicTests
         var stage = CreateStage();
         // Note at 1000ms; querying at 1180ms gives 180ms delta — within the 200ms hit
         // detection window but classified as Miss (151-200ms). Chip playback should skip it.
-        var note = new Note(laneIndex: 3, bar: 0, tick: 0, channel: 0x12, value: "01") { TimeMs = 1000.0 };
+        var note = new Note(laneIndex: 3, bar: 0, tick: 96, channel: 0x12, value: "01");
         var chartManager = BuildChartManager(new[] { note });
         var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);

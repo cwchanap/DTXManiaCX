@@ -197,7 +197,7 @@ namespace DTXMania.Test.Stage.Performance
             // Add notes at 1000ms, 1500ms, and 2000ms intervals
             parsedChart.AddNote(new Note(0, 0, 96, 0x11, "01"));   // ~1000ms
             parsedChart.AddNote(new Note(1, 0, 144, 0x11, "01"));  // ~1500ms
-            parsedChart.AddNote(new Note(2, 0, 192, 0x11, "01"));  // ~2000ms
+            parsedChart.AddNote(new Note(2, 1, 0, 0x11, "01"));    // 2000ms
 
             parsedChart.FinalizeChart();
             return new ChartManager(parsedChart);

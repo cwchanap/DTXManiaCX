@@ -1,5 +1,3 @@
-using System;
-
 namespace DTXMania.Game.Lib.Song.Components
 {
     /// <summary>
@@ -28,13 +26,14 @@ namespace DTXMania.Game.Lib.Song.Components
         public int Bar { get; set; }
 
         /// <summary>
-        /// Tick position within the bar (0-191, 192 ticks per measure)
+        /// Authored tick position within the bar. Canonical positions are 0-191;
+        /// oversized values are normalized during chart finalization.
         /// </summary>
         public int Tick { get; set; }
 
         /// <summary>
-        /// Absolute time in milliseconds when this note should be hit
-        /// Calculated using: (((bar*192)+tick)/192) * (60000/BPM) * 4
+        /// Absolute time in milliseconds when this note should be hit.
+        /// Assigned by <see cref="ParsedChart.FinalizeChart"/>.
         /// </summary>
         public double TimeMs { get; set; }
 
@@ -80,15 +79,6 @@ namespace DTXMania.Game.Lib.Song.Components
         #endregion
 
         #region Methods
-
-        /// <summary>
-        /// Calculates the absolute time in milliseconds for this note
-        /// </summary>
-        /// <param name="bpm">Base BPM of the song</param>
-        public void CalculateTimeMs(double bpm)
-        {
-            TimeMs = ChartTimeCalculator.CalculateTimeMs(Bar, Tick, bpm);
-        }
 
         /// <summary>
         /// Gets the lane name for display purposes

@@ -1,4 +1,3 @@
-using System;
 using DTXMania.Game.Lib.Song.Components;
 using Xunit;
 
@@ -6,7 +5,7 @@ namespace DTXMania.Test.Song
 {
     /// <summary>
     /// Unit tests for the Note class
-    /// Tests constructors, time calculation, lane naming, and string representation
+    /// Tests constructors, authored positions, lane naming, and string representation
     /// </summary>
     [Trait("Category", "Song")]
     public class NoteTests
@@ -47,56 +46,19 @@ namespace DTXMania.Test.Song
 
         #endregion
 
-        #region CalculateTimeMs Tests
-
-        [Theory]
-        [InlineData(120.0, 0, 0, 0.0)]        // Bar 0, Tick 0 → 0ms
-        [InlineData(120.0, 1, 0, 2000.0)]     // Bar 1, Tick 0 at 120 BPM → 2000ms
-        [InlineData(120.0, 2, 0, 4000.0)]     // Bar 2, Tick 0 at 120 BPM → 4000ms
-        [InlineData(120.0, 1, 96, 3000.0)]    // Bar 1, Tick 96 (half-measure) at 120 BPM → 3000ms
-        [InlineData(60.0, 1, 0, 4000.0)]      // Bar 1, Tick 0 at 60 BPM → 4000ms
-        [InlineData(240.0, 1, 0, 1000.0)]     // Bar 1, Tick 0 at 240 BPM → 1000ms
-        public void CalculateTimeMs_ValidBpm_ShouldComputeCorrectTime(double bpm, int bar, int tick, double expectedMs)
-        {
-            var note = new Note(0, bar, tick, 0, "01");
-
-            note.CalculateTimeMs(bpm);
-
-            Assert.Equal(expectedMs, note.TimeMs, precision: 3);
-        }
-
-        [Theory]
-        [InlineData(0.0)]
-        [InlineData(-1.0)]
-        [InlineData(-120.0)]
-        public void CalculateTimeMs_InvalidBpm_ShouldThrowArgumentException(double bpm)
-        {
-            var note = new Note(0, 1, 0, 0, "01");
-
-            Assert.Throws<ArgumentException>(() => note.CalculateTimeMs(bpm));
-        }
+        #region Authored Position Tests
 
         [Fact]
-        public void CalculateTimeMs_HalfMeasureTick_ShouldReturnHalfMeasureDuration()
+        public void AuthoredPosition_ShouldResolveWhenContainingChartIsFinalized()
         {
-            // Half measure = tick 96 out of 192 at 120 BPM
-            var note = new Note(0, 0, 96, 0, "01");
-
-            note.CalculateTimeMs(120.0);
-
-            // Half of 2000ms = 1000ms
-            Assert.Equal(1000.0, note.TimeMs, precision: 3);
-        }
-
-        [Fact]
-        public void CalculateTimeMs_ShouldUpdateTimeMsProperty()
-        {
-            var note = new Note(0, 1, 0, 0, "01");
+            var chart = new ParsedChart { Bpm = 120.0 };
+            var note = new Note(0, 1, 96, 0, "01");
             Assert.Equal(0.0, note.TimeMs);
 
-            note.CalculateTimeMs(120.0);
+            chart.AddNote(note);
+            chart.FinalizeChart();
 
-            Assert.NotEqual(0.0, note.TimeMs);
+            Assert.Equal(3000.0, note.TimeMs, precision: 3);
         }
 
         #endregion

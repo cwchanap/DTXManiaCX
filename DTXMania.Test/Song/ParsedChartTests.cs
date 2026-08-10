@@ -182,7 +182,6 @@ namespace DTXMania.Test.Song
         {
             var chart = new ParsedChart();
             var note = new Note(laneIndex: 3, bar: 0, tick: 0, channel: 0x14, value: "01");
-            note.TimeMs = 500.0;
 
             chart.AddNote(note);
 
@@ -191,25 +190,31 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void AddNote_ShouldUpdateDuration()
+        public void AddNote_ShouldLeaveDurationUntilFinalize()
         {
-            var chart = new ParsedChart();
-            var note = new Note(3, 1, 0, 0x14, "01") { TimeMs = 2000.0 };
+            var chart = new ParsedChart { Bpm = 120.0 };
+            var note = new Note(3, 1, 0, 0x14, "01");
 
             chart.AddNote(note);
 
-            Assert.Equal(2000.0, chart.DurationMs);
+            Assert.Equal(0.0, chart.DurationMs);
+
+            chart.FinalizeChart();
+
+            Assert.Equal(2500.0, chart.DurationMs, precision: 3);
         }
 
         [Fact]
         public void AddNote_MultipleNotes_ShouldTrackMaxDuration()
         {
-            var chart = new ParsedChart();
-            chart.AddNote(new Note(0, 0, 0, 0x1A, "01") { TimeMs = 1000.0 });
-            chart.AddNote(new Note(1, 2, 0, 0x18, "01") { TimeMs = 3000.0 });
-            chart.AddNote(new Note(2, 1, 0, 0x1B, "01") { TimeMs = 2000.0 });
+            var chart = new ParsedChart { Bpm = 120.0 };
+            chart.AddNote(new Note(0, 0, 96, 0x1A, "01"));
+            chart.AddNote(new Note(1, 1, 0, 0x18, "01"));
+            chart.AddNote(new Note(2, 2, 0, 0x1B, "01"));
 
-            Assert.Equal(3000.0, chart.DurationMs);
+            chart.FinalizeChart();
+
+            Assert.Equal(4500.0, chart.DurationMs);
             Assert.Equal(3, chart.TotalNotes);
         }
 
@@ -217,7 +222,7 @@ namespace DTXMania.Test.Song
         public void AddNote_OutOfRangeLane_ShouldNotUpdateLaneStats()
         {
             var chart = new ParsedChart();
-            var note = new Note(-1, 0, 0, 0, "01") { TimeMs = 500.0 };
+            var note = new Note(-1, 0, 0, 0, "01");
 
             chart.AddNote(note);
 
@@ -226,15 +231,29 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void AddNote_WithZeroTimeMs_ShouldCalculateFromBpm()
+        public void AddNote_WithZeroTimeMs_ShouldResolveOnFinalize()
         {
             var chart = new ParsedChart { Bpm = 120.0 };
             var note = new Note(3, 1, 0, 0x14, "01") { TimeMs = 0.0 };
 
             chart.AddNote(note);
+            Assert.Equal(0.0, note.TimeMs);
 
-            // Bar 1 at 120 BPM = 2000ms
+            chart.FinalizeChart();
+
             Assert.Equal(2000.0, note.TimeMs, precision: 3);
+        }
+
+        [Fact]
+        public void AddNote_ShouldDeferTimeAndDurationUntilFinalize()
+        {
+            var chart = new ParsedChart { Bpm = 120.0 };
+            var note = new Note(3, 1, 0, 0x12, "01");
+
+            chart.AddNote(note);
+
+            Assert.Equal(0.0, note.TimeMs);
+            Assert.Equal(0.0, chart.DurationMs);
         }
 
         #endregion
@@ -261,26 +280,44 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void AddBGMEvent_ShouldUpdateDurationIfLater()
+        public void AddBGMEvent_ShouldLeaveDurationUntilFinalize()
         {
-            var chart = new ParsedChart();
-            var bgmEvent = new BGMEvent(5, 0, "01") { TimeMs = 10000.0 };
+            var chart = new ParsedChart { Bpm = 120.0 };
+            var bgmEvent = new BGMEvent(5, 0, "01");
 
             chart.AddBGMEvent(bgmEvent);
 
-            Assert.Equal(10000.0, chart.DurationMs);
+            Assert.Equal(0.0, chart.DurationMs);
+
+            chart.FinalizeChart();
+
+            Assert.Equal(10500.0, chart.DurationMs, precision: 3);
         }
 
         [Fact]
-        public void AddBGMEvent_WithZeroTimeMs_ShouldCalculateFromBpm()
+        public void AddBGMEvent_WithZeroTimeMs_ShouldResolveOnFinalize()
         {
             var chart = new ParsedChart { Bpm = 120.0 };
             var bgmEvent = new BGMEvent(bar: 2, tick: 0, wavId: "01") { TimeMs = 0.0 };
 
             chart.AddBGMEvent(bgmEvent);
+            Assert.Equal(0.0, bgmEvent.TimeMs);
 
-            // 2 bars at 120 BPM = 4000ms
+            chart.FinalizeChart();
+
             Assert.Equal(4000.0, bgmEvent.TimeMs, precision: 3);
+        }
+
+        [Fact]
+        public void AddBGMEvent_ShouldDeferTimeAndDurationUntilFinalize()
+        {
+            var chart = new ParsedChart { Bpm = 120.0 };
+            var bgm = new BGMEvent(1, 0, "01");
+
+            chart.AddBGMEvent(bgm);
+
+            Assert.Equal(0.0, bgm.TimeMs);
+            Assert.Equal(0.0, chart.DurationMs);
         }
 
         #endregion
@@ -290,8 +327,8 @@ namespace DTXMania.Test.Song
         [Fact]
         public void FinalizeChart_WithNotes_ShouldAddDurationBuffer()
         {
-            var chart = new ParsedChart();
-            chart.AddNote(new Note(3, 1, 0, 0x14, "01") { TimeMs = 2000.0 });
+            var chart = new ParsedChart { Bpm = 120.0 };
+            chart.AddNote(new Note(3, 1, 0, 0x14, "01"));
 
             chart.FinalizeChart();
 
@@ -310,29 +347,29 @@ namespace DTXMania.Test.Song
         [Fact]
         public void FinalizeChart_ShouldSortNotesByTime()
         {
-            var chart = new ParsedChart();
-            chart.Notes.Add(new Note(0, 2, 0, 0, "01") { TimeMs = 3000.0 });
-            chart.Notes.Add(new Note(0, 0, 0, 0, "01") { TimeMs = 500.0 });
-            chart.Notes.Add(new Note(0, 1, 0, 0, "01") { TimeMs = 1500.0 });
+            var chart = new ParsedChart { Bpm = 120.0 };
+            chart.Notes.Add(new Note(0, 1, 96, 0, "01"));
+            chart.Notes.Add(new Note(0, 0, 48, 0, "01"));
+            chart.Notes.Add(new Note(0, 0, 144, 0, "01"));
 
             chart.FinalizeChart();
 
-            Assert.Equal(500.0, chart.Notes[0].TimeMs);
-            Assert.Equal(1500.0, chart.Notes[1].TimeMs);
-            Assert.Equal(3000.0, chart.Notes[2].TimeMs);
+            Assert.Equal(500.0, chart.Notes[0].TimeMs, precision: 3);
+            Assert.Equal(1500.0, chart.Notes[1].TimeMs, precision: 3);
+            Assert.Equal(3000.0, chart.Notes[2].TimeMs, precision: 3);
         }
 
         [Fact]
         public void FinalizeChart_ShouldSortBGMEventsByTime()
         {
-            var chart = new ParsedChart();
-            chart.BGMEvents.Add(new BGMEvent(2, 0, "02") { TimeMs = 3000.0 });
-            chart.BGMEvents.Add(new BGMEvent(0, 0, "01") { TimeMs = 500.0 });
+            var chart = new ParsedChart { Bpm = 120.0 };
+            chart.BGMEvents.Add(new BGMEvent(1, 96, "02"));
+            chart.BGMEvents.Add(new BGMEvent(0, 48, "01"));
 
             chart.FinalizeChart();
 
-            Assert.Equal(500.0, chart.BGMEvents[0].TimeMs);
-            Assert.Equal(3000.0, chart.BGMEvents[1].TimeMs);
+            Assert.Equal(500.0, chart.BGMEvents[0].TimeMs, precision: 3);
+            Assert.Equal(3000.0, chart.BGMEvents[1].TimeMs, precision: 3);
         }
 
         [Fact]
@@ -398,6 +435,57 @@ namespace DTXMania.Test.Song
 
             Assert.Equal(4500.0, chart.DurationMs, precision: 3);
             Assert.Equal(6000.0, chart.MeasureLines[^1].TimeMs, precision: 3);
+        }
+
+        [Fact]
+        public void FinalizeChart_ShouldOverwriteSeededTimeFromAuthoredPosition()
+        {
+            var chart = new ParsedChart { Bpm = 120.0 };
+            var note = new Note(0, 1, 0, 0x11, "01") { TimeMs = 12345.0 };
+            chart.AddNote(note);
+
+            chart.FinalizeChart();
+
+            Assert.Equal(2000.0, note.TimeMs, 3);
+        }
+
+        [Fact]
+        public void FinalizeChart_Repeated_ShouldKeepDurationStable()
+        {
+            var chart = new ParsedChart { Bpm = 120.0 };
+            chart.AddNote(new Note(0, 1, 0, 0x11, "01"));
+
+            chart.FinalizeChart();
+            var first = chart.DurationMs;
+            chart.FinalizeChart();
+
+            Assert.Equal(first, chart.DurationMs, 3);
+        }
+
+        [Fact]
+        public void FinalizeChart_TimeZeroNote_ShouldStillReceiveEndBuffer()
+        {
+            var chart = new ParsedChart { Bpm = 120.0 };
+            chart.AddNote(new Note(0, 0, 0, 0x11, "01"));
+
+            chart.FinalizeChart();
+
+            Assert.Equal(0.0, chart.Notes[0].TimeMs, 3);
+            Assert.Equal(500.0, chart.DurationMs, 3);
+        }
+
+        [Fact]
+        public void FinalizeChart_OversizedTick_ShouldBuildThroughNormalizedBar()
+        {
+            var chart = new ParsedChart { Bpm = 120.0 };
+            chart.AddNote(new Note(0, 0, 960, 0x11, "01"));
+
+            chart.FinalizeChart();
+
+            Assert.Equal(10000.0, chart.Notes[0].TimeMs, 3);
+            Assert.Equal(10500.0, chart.DurationMs, 3);
+            Assert.Equal(6, chart.MeasureLines[^1].Bar);
+            Assert.Equal(12000.0, chart.MeasureLines[^1].TimeMs, 3);
         }
 
         #endregion

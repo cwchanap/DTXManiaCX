@@ -187,25 +187,6 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void Note_CalculateTimeMs_CalculatesCorrectly()
-        {
-            // Arrange
-            var note = new Note(0, 1, 96, 0x13, "01"); // Bar 1, tick 96 (half measure), channel 13
-
-            // Act
-            note.CalculateTimeMs(120.0); // 120 BPM
-
-            // Assert
-            // At 120 BPM: 1 measure = 2000ms, half measure = 1000ms
-            // Bar 1 + half measure = 2000ms + 1000ms = 3000ms
-            // Formula: (((bar*192)+tick)/192) * (60000/BPM) * 4
-            // So: (((1*192)+96)/192) * (60000/120) * 4 = (288/192) * 500 * 4 = 1.5 * 500 * 4 = 3000ms
-            var expectedTime = 3000.0;
-            Assert.True(Math.Abs(note.TimeMs - expectedTime) < 1.0,
-                $"Expected {expectedTime}ms, got {note.TimeMs}ms");
-        }
-
-        [Fact]
         public void Note_GetLaneName_ReturnsCorrectNames()
         {
             // Test all 10 lane names (matching gameplay order: LC, HH, LP, SN, HT, DB, LT, FT, CY, RD)

@@ -239,16 +239,24 @@ namespace DTXMania.Test.Stage.Performance
             for (int lane = 0; lane < 9; lane++)
             {
                 int channel = channelsForLanes[lane];
-                // Calculate tick for time: 1000 + lane * 100 ms
-                // Formula: tick = (timeMs / (60000/BPM * 4)) * 192  
-                // At 120 BPM: tick = (timeMs / 2000) * 192
                 double targetTimeMs = 1000.0 + lane * 100.0;
-                int tick = (int)((targetTimeMs / 2000.0) * 192);
-                parsedChart.AddNote(new Note(lane, 0, tick, channel, "01"));
+                var (bar, tick) = ToPositionAt120Bpm(targetTimeMs);
+                parsedChart.AddNote(new Note(lane, bar, tick, channel, "01"));
             }
 
             parsedChart.FinalizeChart();
             return new ChartManager(parsedChart);
+        }
+
+        private static (int Bar, int Tick) ToPositionAt120Bpm(double timeMs)
+        {
+            const double measureMs = 2000.0;
+            var totalTicks = (int)Math.Round(
+                timeMs * ChartTimingMap.TicksPerMeasure / measureMs);
+
+            return (
+                totalTicks / ChartTimingMap.TicksPerMeasure,
+                totalTicks % ChartTimingMap.TicksPerMeasure);
         }
 
         /// <summary>

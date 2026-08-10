@@ -18,10 +18,21 @@ namespace DTXMania.Test.Stage.Performance
         private static ChartManager CreateTestChart(double noteTimeMs = 1000.0)
         {
             var chart = new ParsedChart("test.dtx") { Bpm = 120.0 };
-            var tick = (int)((noteTimeMs / 2000.0) * 192);
-            chart.AddNote(new Note(0, 0, tick, 0x11, "01"));
+            var (bar, tick) = ToPositionAt120Bpm(noteTimeMs);
+            chart.AddNote(new Note(0, bar, tick, 0x11, "01"));
             chart.FinalizeChart();
             return new ChartManager(chart);
+        }
+
+        private static (int Bar, int Tick) ToPositionAt120Bpm(double timeMs)
+        {
+            const double measureMs = 2000.0;
+            var totalTicks = (int)Math.Round(
+                timeMs * ChartTimingMap.TicksPerMeasure / measureMs);
+
+            return (
+                totalTicks / ChartTimingMap.TicksPerMeasure,
+                totalTicks % ChartTimingMap.TicksPerMeasure);
         }
 
         private static ChartManager CreateMultiNoteChart()

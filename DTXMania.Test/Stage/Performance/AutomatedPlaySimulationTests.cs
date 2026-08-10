@@ -371,9 +371,7 @@ namespace DTXMania.Test.Stage.Performance
         /// </summary>
         private List<Note> CreateTestChart(int totalNotes)
         {
-            var notes = new List<Note>();
-            var random = new Random(999); // Fixed seed for reproducible charts
-            const double bpm = 120.0; // Standard BPM for timing calculations
+            var chart = new ParsedChart { Bpm = 120.0 };
 
             for (int i = 0; i < totalNotes; i++)
             {
@@ -385,12 +383,11 @@ namespace DTXMania.Test.Stage.Performance
                     value: "01"
                 );
 
-                // Calculate timing
-                note.CalculateTimeMs(bpm);
-                notes.Add(note);
+                chart.AddNote(note);
             }
 
-            return notes.OrderBy(n => n.TimeMs).ToList();
+            chart.FinalizeChart();
+            return chart.Notes.OrderBy(n => n.TimeMs).ToList();
         }
 
         /// <summary>

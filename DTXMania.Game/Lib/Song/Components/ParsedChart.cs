@@ -22,12 +22,12 @@ namespace DTXMania.Game.Lib.Song.Components
         #region Properties
 
         /// <summary>
-        /// List of all notes in the chart, sorted by time
+        /// List of all notes in the chart. FinalizeChart sorts the list by resolved time.
         /// </summary>
         public List<Note> Notes { get; } = new List<Note>();
 
         /// <summary>
-        /// List of all BGM events in the chart, sorted by time
+        /// List of all BGM events in the chart. FinalizeChart sorts the list by resolved time.
         /// BGM events indicate when background music should start playing
         /// </summary>
         public List<BGMEvent> BGMEvents { get; } = new List<BGMEvent>();
@@ -36,6 +36,11 @@ namespace DTXMania.Game.Lib.Song.Components
         /// Ordered measure boundaries generated from retained chart events.
         /// </summary>
         public List<MeasureLine> MeasureLines { get; } = new List<MeasureLine>();
+
+        /// <summary>
+        /// Compiled timing map used to resolve authored chart positions during finalization.
+        /// </summary>
+        internal ChartTimingMap TimingMap { get; } = new ChartTimingMap();
 
         /// <summary>
         /// Resolved WAV id → absolute audio file path. Populated by DTXChartParser
@@ -143,8 +148,8 @@ namespace DTXMania.Game.Lib.Song.Components
         public string FilePath { get; set; } = "";
 
         /// <summary>
-        /// Total duration of the chart in milliseconds
-        /// Calculated from the last note's timing
+        /// Total duration of the chart in milliseconds, including the final-event buffer.
+        /// Assigned by FinalizeChart; remains zero until a chart with events is finalized.
         /// </summary>
         public double DurationMs { get; set; }
 
@@ -191,12 +196,6 @@ namespace DTXMania.Game.Lib.Song.Components
             if (note == null)
                 return;
 
-            // Calculate timing if not already set
-            if (note.TimeMs == 0)
-            {
-                note.CalculateTimeMs(Bpm);
-            }
-
             Notes.Add(note);
 
             // Update lane statistics
@@ -205,8 +204,6 @@ namespace DTXMania.Game.Lib.Song.Components
                 NotesPerLane[note.LaneIndex]++;
             }
 
-            // Update duration
-            DurationMs = Math.Max(DurationMs, note.TimeMs);
         }
 
         /// <summary>
@@ -218,16 +215,7 @@ namespace DTXMania.Game.Lib.Song.Components
             if (bgmEvent == null)
                 return;
 
-            // Calculate timing if not already set
-            if (bgmEvent.TimeMs == 0)
-            {
-                bgmEvent.CalculateTimeMs(Bpm);
-            }
-
             BGMEvents.Add(bgmEvent);
-
-            // Update duration (BGM events can also affect total duration)
-            DurationMs = Math.Max(DurationMs, bgmEvent.TimeMs);
         }
 
         /// <summary>
@@ -235,45 +223,65 @@ namespace DTXMania.Game.Lib.Song.Components
         /// </summary>
         public void FinalizeChart()
         {
-            // Sort notes by time for efficient rendering
-            Notes.Sort((a, b) => a.TimeMs.CompareTo(b.TimeMs));
-
-            // Sort BGM events by time for efficient playback scheduling
-            BGMEvents.Sort((a, b) => a.TimeMs.CompareTo(b.TimeMs));
-
             MeasureLines.Clear();
+            DurationMs = 0.0;
 
             var highestOccupiedBar = -1;
-            if (Notes.Count > 0)
-                highestOccupiedBar = Math.Max(highestOccupiedBar, Notes.Max(note => note.Bar));
-            if (BGMEvents.Count > 0)
-                highestOccupiedBar = Math.Max(
-                    highestOccupiedBar,
-                    BGMEvents.Max(bgmEvent => bgmEvent.Bar));
+            foreach (var note in Notes)
+            {
+                var normalized = ChartTimingMap.NormalizePosition(note.Bar, note.Tick);
+                highestOccupiedBar = Math.Max(highestOccupiedBar, normalized.Bar);
+            }
+
+            foreach (var bgmEvent in BGMEvents)
+            {
+                var normalized = ChartTimingMap.NormalizePosition(bgmEvent.Bar, bgmEvent.Tick);
+                highestOccupiedBar = Math.Max(highestOccupiedBar, normalized.Bar);
+            }
+
+            if (highestOccupiedBar < 0)
+                return;
+
+            TimingMap.Rebuild(Bpm, highestOccupiedBar + 1);
+
+            foreach (var note in Notes)
+                note.TimeMs = TimingMap.CalculateTimeMs(note.Bar, note.Tick);
+
+            foreach (var bgmEvent in BGMEvents)
+                bgmEvent.TimeMs = TimingMap.CalculateTimeMs(bgmEvent.Bar, bgmEvent.Tick);
 
             for (var bar = 0; highestOccupiedBar >= 0 && bar <= highestOccupiedBar + 1; bar++)
             {
                 MeasureLines.Add(new MeasureLine
                 {
                     Bar = bar,
-                    TimeMs = ChartTimeCalculator.CalculateTimeMs(bar, 0, Bpm)
+                    TimeMs = TimingMap.CalculateTimeMs(bar, 0)
                 });
             }
 
+            // Sort notes by time for efficient rendering
+            Notes.Sort((a, b) => a.TimeMs.CompareTo(b.TimeMs));
+
+            // Sort BGM events by time for efficient playback scheduling
+            BGMEvents.Sort((a, b) => a.TimeMs.CompareTo(b.TimeMs));
+
             // Debug: Report parsing summary
 #if DEBUG
-            var maxMeasure = Notes.Count > 0 ? Notes.Max(n => n.Bar) : 0;
+            var maxMeasure = highestOccupiedBar;
             var totalNotes = Notes.Count;
             var totalBGMEvents = BGMEvents.Count;
             var lastNoteTime = Notes.Count > 0 ? Notes.Max(n => n.TimeMs) : 0;
             System.Diagnostics.Debug.WriteLine($"ParsedChart.FinalizeChart: {totalNotes} notes, {totalBGMEvents} BGM events, max measure: {maxMeasure}, last note time: {lastNoteTime:F1}ms, BPM: {Bpm}");
 #endif
 
-            // Add small buffer to duration for final note to ring out
-            if (DurationMs > 0)
-            {
-                DurationMs += DurationEndBufferMs;
-            }
+            var maxEventTimeMs = 0.0;
+            if (Notes.Count > 0)
+                maxEventTimeMs = Math.Max(maxEventTimeMs, Notes.Max(note => note.TimeMs));
+            if (BGMEvents.Count > 0)
+                maxEventTimeMs = Math.Max(maxEventTimeMs, BGMEvents.Max(bgmEvent => bgmEvent.TimeMs));
+
+            // Add small buffer to duration for final note/event to ring out
+            DurationMs = maxEventTimeMs + DurationEndBufferMs;
         }
 
         /// <summary>

@@ -19,22 +19,6 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void VerifyNoteTimingCalculation()
-        {
-            // Test timing calculation directly
-            var note = new Note(0, 0, 48, 0x11, "01"); // 48 ticks, should be 500ms at 120 BPM
-            
-            _output.WriteLine($"Before timing calculation: TimeMs = {note.TimeMs}");
-            
-            note.CalculateTimeMs(120.0);
-            
-            _output.WriteLine($"After timing calculation: TimeMs = {note.TimeMs}");
-            
-            // 48 ticks = 48/192 = 0.25 measures = 0.25 * (60000/120) * 4 = 0.25 * 500 * 4 = 500ms
-            Assert.Equal(500.0, note.TimeMs, 1);
-        }
-
-        [Fact]
         public void VerifyChartManagerProcessesTimingCorrectly()
         {
             // Create chart and verify timing is processed
