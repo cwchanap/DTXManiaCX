@@ -1065,7 +1065,7 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_autoPlayNoteIndex", 0);
 
         var ex = Record.Exception(() =>
-            ReflectionHelpers.InvokePrivateMethod(stage, "ProcessAutoPlay", 100.0));
+            ReflectionHelpers.InvokePrivateMethod(stage, "ProcessAutoPlay", 110.0));
 
         Assert.Null(ex);
     }
