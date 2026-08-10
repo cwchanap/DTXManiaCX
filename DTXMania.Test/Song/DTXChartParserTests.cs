@@ -409,5 +409,162 @@ namespace DTXMania.Test.Song
                 if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true);
             }
         }
+
+        [Fact]
+        public async Task ParseAsync_ShortMeasureLength_ShiftsFollowingBar()
+        {
+            var chart = await ParseTimingFixtureAsync(
+                "#BPM: 120\n" +
+                "#00002:0.5\n" +
+                "#00111:01\n");
+
+            var note = Assert.Single(chart.Notes);
+            Assert.Equal(1000.0, note.TimeMs, precision: 3);
+        }
+
+        [Fact]
+        public async Task ParseAsync_ExtendedMeasureLength_ShiftsFollowingBar()
+        {
+            var chart = await ParseTimingFixtureAsync(
+                "#BPM: 120\n" +
+                "#00002:1.5\n" +
+                "#00111:01\n");
+
+            var note = Assert.Single(chart.Notes);
+            Assert.Equal(3000.0, note.TimeMs, precision: 3);
+        }
+
+        [Fact]
+        public async Task ParseAsync_DirectTempoChange_ResolvesAtPairTick()
+        {
+            var chart = await ParseTimingFixtureAsync(
+                "#BPM: 120\n" +
+                "#00003:00F0\n" +
+                "#00111:01\n");
+
+            var note = Assert.Single(chart.Notes);
+            Assert.Equal(1500.0, note.TimeMs, precision: 3);
+        }
+
+        [Fact]
+        public async Task ParseAsync_ReferencedTempoDefinitionBeforeTimeline_Resolves()
+        {
+            const double referencedBpm = 180.5;
+            var chart = await ParseTimingFixtureAsync(
+                "#BPM: 120\n" +
+                "#BPM01:180.5\n" +
+                "#00008:0001\n" +
+                "#00111:01\n");
+
+            var note = Assert.Single(chart.Notes);
+            Assert.Equal(1000.0 + 120000.0 / referencedBpm, note.TimeMs, precision: 3);
+        }
+
+        [Fact]
+        public async Task ParseAsync_ReferencedTempoDefinitionAfterTimeline_Resolves()
+        {
+            const double referencedBpm = 180.5;
+            var chart = await ParseTimingFixtureAsync(
+                "#BPM: 120\n" +
+                "#00008:0001\n" +
+                "#00111:01\n" +
+                "#BPM01:180.5\n");
+
+            var note = Assert.Single(chart.Notes);
+            Assert.Equal(1000.0 + 120000.0 / referencedBpm, note.TimeMs, precision: 3);
+        }
+
+        [Fact]
+        public async Task ParseAsync_ReferencedTempoOpaqueId_Resolves()
+        {
+            const double referencedBpm = 210.25;
+            var chart = await ParseTimingFixtureAsync(
+                "#BPM: 120\n" +
+                "#BPMAA:210.25\n" +
+                "#00008:00AA\n" +
+                "#00111:01\n");
+
+            var note = Assert.Single(chart.Notes);
+            Assert.Equal(1000.0 + 120000.0 / referencedBpm, note.TimeMs, precision: 3);
+        }
+
+        [Fact]
+        public async Task ParseAsync_TempoDirectivesSamePosition_LastSourceRowWins()
+        {
+            const double referencedBpm = 180.5;
+            var referencedAfterDirect = await ParseTimingFixtureAsync(
+                "#BPM: 120\n" +
+                "#BPM01:180.5\n" +
+                "#00003:00F0\n" +
+                "#00008:0001\n" +
+                "#00111:01\n");
+            var directAfterReferenced = await ParseTimingFixtureAsync(
+                "#BPM: 120\n" +
+                "#BPM01:180.5\n" +
+                "#00008:0001\n" +
+                "#00003:00F0\n" +
+                "#00111:01\n");
+
+            Assert.Equal(1000.0 + 120000.0 / referencedBpm,
+                Assert.Single(referencedAfterDirect.Notes).TimeMs,
+                precision: 3);
+            Assert.Equal(1500.0,
+                Assert.Single(directAfterReferenced.Notes).TimeMs,
+                precision: 3);
+        }
+
+        [Fact]
+        public async Task ParseAsync_TempoChange_AlignsNotesBgmAndMeasureLines()
+        {
+            var chart = await ParseTimingFixtureAsync(
+                "#BPM: 120\n" +
+                "#00003:00F0\n" +
+                "#00001:0001\n" +
+                "#00111:01\n");
+
+            var bgm = Assert.Single(chart.BGMEvents);
+            var note = Assert.Single(chart.Notes);
+            var barOne = Assert.Single(chart.MeasureLines.Where(line => line.Bar == 1));
+
+            Assert.Equal(1000.0, bgm.TimeMs, precision: 3);
+            Assert.Equal(1500.0, note.TimeMs, precision: 3);
+            Assert.Equal(note.TimeMs, barOne.TimeMs, precision: 3);
+        }
+
+        [Fact]
+        public async Task ParseAsync_MalformedTimingSyntax_FallsBackToBaseTiming()
+        {
+            var chart = await ParseTimingFixtureAsync(
+                "#BPM: 120\n" +
+                "#BPMZZ:0\n" +
+                "#00002:0\n" +
+                "#00003:00ZZ\n" +
+                "#00003:0\n" +
+                "#00008:0002\n" +
+                "#00008:0\n" +
+                "#00008:0000\n" +
+                "#00111:01\n");
+
+            var note = Assert.Single(chart.Notes);
+            Assert.Equal(2000.0, note.TimeMs, precision: 3);
+        }
+
+        private static async Task<ParsedChart> ParseTimingFixtureAsync(string contents)
+        {
+            var tempDirectory = Path.Combine(Path.GetTempPath(), $"dtx-timing-{Guid.NewGuid():N}");
+            Directory.CreateDirectory(tempDirectory);
+            var dtxPath = Path.Combine(tempDirectory, "fixture.dtx");
+
+            try
+            {
+                File.WriteAllText(dtxPath, contents);
+                return await DTXChartParser.ParseAsync(dtxPath);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDirectory))
+                    Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
     }
 }

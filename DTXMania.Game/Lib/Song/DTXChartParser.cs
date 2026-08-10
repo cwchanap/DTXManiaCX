@@ -75,6 +75,20 @@ namespace DTXMania.Game.Lib.Song
         /// </summary>
         private const int TicksPerMeasure = 192;
 
+        private enum PendingTempoKind
+        {
+            DirectBpm,
+            ReferencedBpm
+        }
+
+        private sealed class PendingTempoDirective
+        {
+            public int Bar { get; init; }
+            public int Tick { get; init; }
+            public PendingTempoKind Kind { get; init; }
+            public double DirectBpm { get; init; }
+            public string ReferenceId { get; init; } = "";
+        }
 
 
         #endregion
@@ -173,10 +187,22 @@ namespace DTXMania.Game.Lib.Song
 
                 try
                 {
+                    var bpmDefinitions = new Dictionary<string, double>();
+                    var pendingTempoDirectives = new List<PendingTempoDirective>();
+
                     using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
                     using var reader = new StreamReader(stream, encoding);
 
-                    await ParseFileContentAsync(reader, chart, wavDefinitions, wavVolumes, wavPans);
+                    await ParseFileContentWithTimingAsync(
+                        reader,
+                        chart,
+                        wavDefinitions,
+                        wavVolumes,
+                        wavPans,
+                        bpmDefinitions,
+                        pendingTempoDirectives);
+
+                    ResolvePendingTempoDirectives(chart, bpmDefinitions, pendingTempoDirectives);
 
                     // Full parse completed without exception — this attempt succeeded.
                     parsed = true;
@@ -297,7 +323,39 @@ namespace DTXMania.Game.Lib.Song
         /// <summary>
         /// Parses the content of a DTX file
         /// </summary>
-        private static async Task ParseFileContentAsync(StreamReader reader, ParsedChart chart, Dictionary<string, string> wavDefinitions, Dictionary<string, int> wavVolumes, Dictionary<string, int> wavPans)
+        // Kept as a narrow compatibility seam for existing parser diagnostics/tests that
+        // invoke this private method reflectively. Public parsing uses the stateful overload
+        // below so each encoding attempt owns fresh timing syntax state.
+        private static async Task ParseFileContentAsync(
+            StreamReader reader,
+            ParsedChart chart,
+            Dictionary<string, string> wavDefinitions,
+            Dictionary<string, int> wavVolumes,
+            Dictionary<string, int> wavPans)
+        {
+            var bpmDefinitions = new Dictionary<string, double>();
+            var pendingTempoDirectives = new List<PendingTempoDirective>();
+
+            await ParseFileContentWithTimingAsync(
+                reader,
+                chart,
+                wavDefinitions,
+                wavVolumes,
+                wavPans,
+                bpmDefinitions,
+                pendingTempoDirectives);
+
+            ResolvePendingTempoDirectives(chart, bpmDefinitions, pendingTempoDirectives);
+        }
+
+        private static async Task ParseFileContentWithTimingAsync(
+            StreamReader reader,
+            ParsedChart chart,
+            Dictionary<string, string> wavDefinitions,
+            Dictionary<string, int> wavVolumes,
+            Dictionary<string, int> wavPans,
+            IDictionary<string, double> bpmDefinitions,
+            IList<PendingTempoDirective> pendingTempoDirectives)
         {
             string line;
             bool inDataSection = false;
@@ -308,6 +366,9 @@ namespace DTXMania.Game.Lib.Song
 
                 // Skip empty lines and comments
                 if (string.IsNullOrWhiteSpace(line) || line.StartsWith("//"))
+                    continue;
+
+                if (TryHandleExtendedBpmDefinition(line, bpmDefinitions))
                     continue;
 
                 // Check if we've reached the data section
@@ -324,9 +385,49 @@ namespace DTXMania.Game.Lib.Song
                 else
                 {
                     // Parse measure data
-                    ParseMeasureData(line, chart);
+                    ParseMeasureData(line, chart, pendingTempoDirectives);
                 }
             }
+        }
+
+        private static bool TryHandleExtendedBpmDefinition(
+            string line,
+            IDictionary<string, double> bpmDefinitions)
+        {
+            line = line.Trim();
+            if (!line.StartsWith("#BPM", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            var colonIndex = line.IndexOf(':');
+            var command = colonIndex >= 0
+                ? line.Substring(0, colonIndex).Trim()
+                : line;
+
+            if (command.Equals("#BPM", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            if (!command.StartsWith("#BPM", StringComparison.OrdinalIgnoreCase) ||
+                command.Length != 6)
+            {
+                Debug.WriteLine($"DTXChartParser: Ignoring malformed BPM definition '{line}'");
+                return true;
+            }
+
+            var referenceId = command.Substring(4).ToUpperInvariant();
+            var value = colonIndex >= 0
+                ? line.Substring(colonIndex + 1).Trim()
+                : "";
+
+            if (TryParseDouble(value, out var bpm) && bpm > 0)
+            {
+                bpmDefinitions[referenceId] = bpm;
+            }
+            else
+            {
+                Debug.WriteLine($"DTXChartParser: Ignoring invalid BPM definition '{line}'");
+            }
+
+            return true;
         }
 
         /// <summary>
@@ -416,10 +517,19 @@ namespace DTXMania.Game.Lib.Song
         /// <summary>
         /// Parses measure data lines for note information
         /// </summary>
-        private static void ParseMeasureData(string line, ParsedChart chart)
+        private static void ParseMeasureData(
+            string line,
+            ParsedChart chart,
+            IList<PendingTempoDirective> pendingTempoDirectives)
         {
-            if (!IsTimelineData(line) || !line.Contains(':'))
+            if (!IsTimelineData(line))
                 return;
+
+            if (!line.Contains(':'))
+            {
+                Debug.WriteLine($"DTXChartParser: Ignoring malformed timeline row '{line}'");
+                return;
+            }
 
             var colonIndex = line.IndexOf(':');
             var measureChannelPart = line.Substring(1, colonIndex - 1); // Remove # or *
@@ -428,6 +538,27 @@ namespace DTXMania.Game.Lib.Song
             // Parse measure and channel
             if (!TryParseMeasureAndChannel(measureChannelPart, out int measure, out int channel))
                 return;
+
+            if (channel == 0x02)
+            {
+                if (TryParseDouble(noteData, out var multiplier) && multiplier > 0)
+                {
+                    chart.TimingMap.SetMeasureLength(measure, multiplier);
+                }
+                else
+                {
+                    Debug.WriteLine(
+                        $"DTXChartParser: Ignoring invalid measure length at bar {measure}: '{noteData}'");
+                }
+
+                return;
+            }
+
+            if (channel == 0x03 || channel == 0x08)
+            {
+                ParseTempoDirectives(noteData, measure, channel, pendingTempoDirectives);
+                return;
+            }
 
             // Check if this is BGM channel (01)
             if (channel == 0x01)
@@ -450,6 +581,89 @@ namespace DTXMania.Game.Lib.Song
             ParseNotesFromData(noteData, measure, channel, laneIndex, chart);
             var notesAdded = chart.Notes.Count - notesBefore;
 
+        }
+
+        private static void ParseTempoDirectives(
+            string noteData,
+            int measure,
+            int channel,
+            IList<PendingTempoDirective> pendingTempoDirectives)
+        {
+            var pairCount = noteData.Length / 2;
+            if (pairCount == 0)
+            {
+                Debug.WriteLine(
+                    $"DTXChartParser: Ignoring malformed timing row at bar {measure}, channel {channel:X2}: '{noteData}'");
+                return;
+            }
+
+            if (noteData.Length % 2 != 0)
+            {
+                Debug.WriteLine(
+                    $"DTXChartParser: Ignoring incomplete timing pair at bar {measure}, channel {channel:X2}: '{noteData}'");
+            }
+
+            for (var i = 0; i < pairCount; i++)
+            {
+                var pair = noteData.Substring(i * 2, 2).ToUpperInvariant();
+                if (pair == "00")
+                    continue;
+
+                var tick = (int)((double)i / pairCount * TicksPerMeasure);
+                if (channel == 0x03)
+                {
+                    if (int.TryParse(pair, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var directBpm) &&
+                        directBpm > 0)
+                    {
+                        pendingTempoDirectives.Add(new PendingTempoDirective
+                        {
+                            Bar = measure,
+                            Tick = tick,
+                            Kind = PendingTempoKind.DirectBpm,
+                            DirectBpm = directBpm
+                        });
+                    }
+                    else
+                    {
+                        Debug.WriteLine(
+                            $"DTXChartParser: Ignoring invalid tempo pair at bar {measure}, channel {channel:X2}, tick {tick}: '{pair}'");
+                    }
+                }
+                else
+                {
+                    pendingTempoDirectives.Add(new PendingTempoDirective
+                    {
+                        Bar = measure,
+                        Tick = tick,
+                        Kind = PendingTempoKind.ReferencedBpm,
+                        ReferenceId = pair
+                    });
+                }
+            }
+        }
+
+        private static void ResolvePendingTempoDirectives(
+            ParsedChart chart,
+            IReadOnlyDictionary<string, double> bpmDefinitions,
+            IReadOnlyList<PendingTempoDirective> directives)
+        {
+            foreach (var directive in directives)
+            {
+                double bpm;
+                if (directive.Kind == PendingTempoKind.DirectBpm)
+                {
+                    bpm = directive.DirectBpm;
+                }
+                else if (!bpmDefinitions.TryGetValue(directive.ReferenceId, out bpm))
+                {
+                    Debug.WriteLine(
+                        $"DTXChartParser: Ignoring unresolved BPM reference at bar {directive.Bar}, tick {directive.Tick}: '{directive.ReferenceId}'");
+                    continue;
+                }
+
+                if (bpm > 0)
+                    chart.TimingMap.SetTempoChange(directive.Bar, directive.Tick, bpm);
+            }
         }
 
         /// <summary>
