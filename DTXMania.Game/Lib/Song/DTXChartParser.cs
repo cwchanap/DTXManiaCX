@@ -418,7 +418,8 @@ namespace DTXMania.Game.Lib.Song
                 ? line.Substring(colonIndex + 1).Trim()
                 : "";
 
-            if (TryParseDouble(value, out var bpm) && bpm > 0)
+            if (TryParseDouble(value, out var bpm) &&
+                double.IsFinite(bpm) && bpm > 0)
             {
                 bpmDefinitions[referenceId] = bpm;
             }
@@ -454,7 +455,8 @@ namespace DTXMania.Game.Lib.Song
             switch (command)
             {
                 case "#BPM":
-                    if (TryParseDouble(value, out var bpm))
+                    if (TryParseDouble(value, out var bpm) &&
+                        double.IsFinite(bpm) && bpm > 0)
                         chart.Bpm = bpm;
                     break;
 
@@ -541,7 +543,8 @@ namespace DTXMania.Game.Lib.Song
 
             if (channel == 0x02)
             {
-                if (TryParseDouble(noteData, out var multiplier) && multiplier > 0)
+                if (TryParseDouble(noteData, out var multiplier) &&
+                    double.IsFinite(multiplier) && multiplier > 0)
                 {
                     chart.TimingMap.SetMeasureLength(measure, multiplier);
                 }
@@ -661,7 +664,7 @@ namespace DTXMania.Game.Lib.Song
                     continue;
                 }
 
-                if (bpm > 0)
+                if (double.IsFinite(bpm) && bpm > 0)
                     chart.TimingMap.SetTempoChange(directive.Bar, directive.Tick, bpm);
             }
         }
@@ -1108,7 +1111,8 @@ namespace DTXMania.Game.Lib.Song
 
                 // Chart-level metadata (file-specific)
                 case "#BPM":
-                    if (TryParseDouble(value, out var bpm))
+                    if (TryParseDouble(value, out var bpm) &&
+                        double.IsFinite(bpm) && bpm > 0)
                         chart.Bpm = bpm;
                     break;
 
