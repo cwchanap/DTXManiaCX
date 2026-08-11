@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using DTXMania.Automation.JsonRpc;
 using DTXMania.Automation.Process;
 
 namespace DTXMania.E2E.Fixtures;
@@ -27,6 +28,13 @@ public static class E2EGameLaunch
         throw new InvalidOperationException("Could not locate repository root from current directory.");
     }
 
+    /// <summary>
+    /// Resolves a free localhost port for the game API server. The port is obtained
+    /// from the OS ephemeral range by binding a temporary listener and immediately
+    /// releasing it; the game then binds the same port on startup. An inherent
+    /// (low-probability) race window exists between release and the game's bind —
+    /// callers that detect an address-in-use failure should retry with a new port.
+    /// </summary>
     public static int ResolveApiPort()
     {
         var raw = Environment.GetEnvironmentVariable(ApiPortEnvironmentVariable);
@@ -35,33 +43,31 @@ public static class E2EGameLaunch
 
         for (var attempt = 0; attempt < MaxPortAttempts; attempt++)
         {
-            TcpListener? listener = null;
             try
             {
-                listener = new TcpListener(IPAddress.Loopback, 0);
+                using var listener = new TcpListener(IPAddress.Loopback, 0);
                 listener.Start();
-                var chosen = ((IPEndPoint)listener.LocalEndpoint).Port;
-                listener.Stop();
-                listener = null;
-
-                using var verify = new TcpListener(IPAddress.Loopback, chosen);
-                verify.Start();
-                verify.Stop();
-                return chosen;
+                return ((IPEndPoint)listener.LocalEndpoint).Port;
             }
-            catch (SocketException)
+            catch (SocketException) when (attempt < MaxPortAttempts - 1)
             {
                 // Retry when a port probe races another process.
             }
-            finally
-            {
-                listener?.Stop();
-            }
         }
 
-        using var fallback = new TcpListener(IPAddress.Loopback, 0);
-        fallback.Start();
-        return ((IPEndPoint)fallback.LocalEndpoint).Port;
+        throw new InvalidOperationException(
+            "Failed to resolve an available API port after " + MaxPortAttempts + " attempts.");
+    }
+
+    /// <summary>
+    /// Creates the shared driver + HTTP client + JSON-RPC client bundle used by
+    /// every E2E test, preserving the no-cookie SocketsHttpHandler, 5-second
+    /// timeout, and fixture API credentials.
+    /// </summary>
+    public static E2EClientBundle CreateClientBundle(E2EFixture fixture)
+    {
+        ArgumentNullException.ThrowIfNull(fixture);
+        return new E2EClientBundle(fixture);
     }
 
     public static GameProcessStartOptions CreateOptions(
@@ -98,5 +104,38 @@ public static class E2EGameLaunch
             fixture.AppDataRoot,
             Guid.NewGuid().ToString("N"),
             environment);
+    }
+}
+
+/// <summary>
+/// Bundles the <see cref="GameProcessDriver"/>, <see cref="HttpClient"/>, and
+/// <see cref="JsonRpcGameClient"/> that every E2E test constructs, so the
+/// boilerplate (no-cookie SocketsHttpHandler, 5-second timeout, fixture API
+/// credentials) lives in one place. Dispose via <see cref="DisposeAsync"/> to
+/// tear down both the process and the HTTP client.
+/// </summary>
+public sealed class E2EClientBundle : IAsyncDisposable
+{
+    public GameProcessDriver Process { get; }
+    public HttpClient HttpClient { get; }
+    public JsonRpcGameClient Client { get; }
+
+    public E2EClientBundle(E2EFixture fixture)
+    {
+        ArgumentNullException.ThrowIfNull(fixture);
+        Process = new GameProcessDriver();
+        HttpClient = new HttpClient(new SocketsHttpHandler { UseCookies = false })
+        {
+            Timeout = TimeSpan.FromSeconds(5)
+        };
+        Client = new JsonRpcGameClient(
+            HttpClient,
+            new GameApiConnectionOptions(fixture.ApiBaseUri, fixture.ApiKey));
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await Process.DisposeAsync().ConfigureAwait(false);
+        HttpClient.Dispose();
     }
 }

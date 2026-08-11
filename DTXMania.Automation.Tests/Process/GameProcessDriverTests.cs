@@ -161,10 +161,11 @@ public sealed class GameProcessDriverTests
     public async Task WaitForStartup_WhenOwnedProcessExitsEarly_ShouldReportExitAndCapturedOutput()
     {
         using var fixture = CreateChildFixture();
+        BuildChild(fixture);
         await using var process = new GameProcessDriver();
         process.Start(CreateOptions(
             fixture,
-            GameLaunchTarget.Project(fixture.ProjectPath),
+            GameLaunchTarget.Executable(GetBuiltAppHostPath(fixture.Root)),
             new Dictionary<string, string?> { ["DTX_AUTOMATION_CHILD_MODE"] = "exit-early" }));
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => process.WaitForStartupAsync(
@@ -451,13 +452,33 @@ public sealed class GameProcessDriverTests
 
     private sealed class ChildFixture(string root, string projectPath) : IDisposable
     {
+        private const int MaxDeleteAttempts = 5;
+        private static readonly TimeSpan DeleteRetryDelay = TimeSpan.FromMilliseconds(100);
+
         public string Root { get; } = root;
         public string ProjectPath { get; } = projectPath;
 
         public void Dispose()
         {
-            if (Directory.Exists(Root))
-                Directory.Delete(Root, recursive: true);
+            if (!Directory.Exists(Root))
+                return;
+
+            for (var attempt = 0; attempt < MaxDeleteAttempts; attempt++)
+            {
+                try
+                {
+                    Directory.Delete(Root, recursive: true);
+                    return;
+                }
+                catch (IOException) when (attempt < MaxDeleteAttempts - 1)
+                {
+                    Thread.Sleep(DeleteRetryDelay);
+                }
+                catch (UnauthorizedAccessException) when (attempt < MaxDeleteAttempts - 1)
+                {
+                    Thread.Sleep(DeleteRetryDelay);
+                }
+            }
         }
     }
 }

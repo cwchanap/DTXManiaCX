@@ -29,15 +29,9 @@ public sealed class DrumMappingStageSmokeTests
         var runRoot = Path.Combine(Path.GetTempPath(), "dtxmaniacx-e2e-drum-" + Guid.NewGuid().ToString("N"));
         var apiPort = E2EGameLaunch.ResolveApiPort();
         var fixture = E2EFixtureBuilder.Build(runRoot, repoRoot, apiPort);
-        await using var process = new GameProcessDriver();
-
-        using var httpClient = new HttpClient(new SocketsHttpHandler { UseCookies = false })
-        {
-            Timeout = TimeSpan.FromSeconds(5)
-        };
-        var client = new JsonRpcGameClient(
-            httpClient,
-            new GameApiConnectionOptions(fixture.ApiBaseUri, fixture.ApiKey));
+        await using var bundle = E2EGameLaunch.CreateClientBundle(fixture);
+        var process = bundle.Process;
+        var client = bundle.Client;
 
         try
         {
@@ -121,15 +115,9 @@ public sealed class DrumMappingStageSmokeTests
         var runRoot = Path.Combine(Path.GetTempPath(), "dtxmaniacx-e2e-reset-" + Guid.NewGuid().ToString("N"));
         var apiPort = E2EGameLaunch.ResolveApiPort();
         var fixture = E2EFixtureBuilder.Build(runRoot, repoRoot, apiPort);
-        await using var process = new GameProcessDriver();
-
-        using var httpClient = new HttpClient(new SocketsHttpHandler { UseCookies = false })
-        {
-            Timeout = TimeSpan.FromSeconds(5)
-        };
-        var client = new JsonRpcGameClient(
-            httpClient,
-            new GameApiConnectionOptions(fixture.ApiBaseUri, fixture.ApiKey));
+        await using var bundle = E2EGameLaunch.CreateClientBundle(fixture);
+        var process = bundle.Process;
+        var client = bundle.Client;
 
         try
         {

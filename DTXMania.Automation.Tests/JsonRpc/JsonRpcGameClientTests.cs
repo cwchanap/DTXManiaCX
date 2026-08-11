@@ -100,7 +100,7 @@ public sealed class JsonRpcGameClientTests
     [Fact]
     public async Task SendKeyAsync_ShouldSendPressAndReleaseWireValues()
     {
-        using var handler = new FakeHandler(_ => Task.FromResult(JsonRpcResponse("{\"success\":true}")));
+        using var handler = new FakeHandler(req => EchoJsonRpcResponseAsync(req, "{\"success\":true}"));
         using var httpClient = CreateHttpClient(handler);
         var client = CreateClient(httpClient);
 
@@ -113,9 +113,25 @@ public sealed class JsonRpcGameClientTests
     }
 
     [Fact]
+    public async Task SendKeyAsync_WhenHoldDelayIsCanceled_ShouldStillSendReleaseAndRethrowCancellation()
+    {
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+        using var handler = new FakeHandler(req => Task.FromResult(EchoJsonRpcResponse(req)));
+        using var httpClient = CreateHttpClient(handler);
+        var client = CreateClient(httpClient);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            client.SendKeyAsync("Enter", TimeSpan.FromSeconds(30), cancellation.Token));
+
+        Assert.Equal(2, handler.Requests.Count);
+        Assert.Equal(2, ReadInputType(handler.RequestBodies[0]));
+        Assert.Equal(3, ReadInputType(handler.RequestBodies[1]));
+    }
+
+    [Fact]
     public async Task SendMidiNoteAsync_ShouldSendNoteOnAndNoteOffWireValues()
     {
-        using var handler = new FakeHandler(_ => Task.FromResult(JsonRpcResponse("{\"success\":true}")));
+        using var handler = new FakeHandler(req => EchoJsonRpcResponseAsync(req, "{\"success\":true}"));
         using var httpClient = CreateHttpClient(handler);
         var client = CreateClient(httpClient);
 
@@ -126,6 +142,22 @@ public sealed class JsonRpcGameClientTests
         Assert.Equal(5, ReadInputType(handler.RequestBodies[1]));
         Assert.Contains("\"noteNumber\":36", handler.RequestBodies[0], StringComparison.Ordinal);
         Assert.Contains("\"velocity\":100", handler.RequestBodies[0], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SendMidiNoteAsync_WhenHoldDelayIsCanceled_ShouldStillSendReleaseAndRethrowCancellation()
+    {
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+        using var handler = new FakeHandler(req => Task.FromResult(EchoJsonRpcResponse(req)));
+        using var httpClient = CreateHttpClient(handler);
+        var client = CreateClient(httpClient);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            client.SendMidiNoteAsync(36, 100, TimeSpan.FromSeconds(30), cancellation.Token));
+
+        Assert.Equal(2, handler.Requests.Count);
+        Assert.Equal(4, ReadInputType(handler.RequestBodies[0]));
+        Assert.Equal(5, ReadInputType(handler.RequestBodies[1]));
     }
 
     [Fact]
@@ -188,6 +220,35 @@ public sealed class JsonRpcGameClientTests
     }
 
     [Fact]
+    public async Task SendAsync_WhenResponseIdMismatchesRequestId_ShouldReject()
+    {
+        const string body = "{\"jsonrpc\":\"2.0\",\"id\":999,\"result\":{\"ok\":true}}";
+        using var handler = new FakeHandler(_ => Task.FromResult(JsonResponse(body)));
+        using var httpClient = CreateHttpClient(handler);
+        var client = CreateClient(httpClient);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            client.ChangeStageAsync("Title", CancellationToken.None));
+
+        Assert.Contains("does not match", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("999", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SendAsync_WhenResponseOmitsId_ShouldReject()
+    {
+        const string body = "{\"jsonrpc\":\"2.0\",\"result\":{\"ok\":true}}";
+        using var handler = new FakeHandler(_ => Task.FromResult(JsonResponse(body)));
+        using var httpClient = CreateHttpClient(handler);
+        var client = CreateClient(httpClient);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            client.ChangeStageAsync("Title", CancellationToken.None));
+
+        Assert.Contains("did not include an id", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task GetGameStateAsync_MalformedJsonRpc_ShouldIncludeMethodAndBody()
     {
         const string body = "not-json";
@@ -245,6 +306,32 @@ public sealed class JsonRpcGameClientTests
 
     private static HttpResponseMessage JsonRpcResponse(string resultJson) =>
         JsonResponse($"{{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{resultJson}}}");
+
+    private static HttpResponseMessage EchoJsonRpcResponse(HttpRequestMessage request)
+    {
+        var id = ReadRequestId(request);
+        return JsonResponse($"{{\"jsonrpc\":\"2.0\",\"id\":{id},\"result\":{{\"success\":true}}}}");
+    }
+
+    private static async Task<HttpResponseMessage> EchoJsonRpcResponseAsync(
+        HttpRequestMessage request,
+        string resultJson)
+    {
+        var id = await ReadRequestIdAsync(request).ConfigureAwait(false);
+        return JsonResponse($"{{\"jsonrpc\":\"2.0\",\"id\":{id},\"result\":{resultJson}}}");
+    }
+
+    private static int ReadRequestId(HttpRequestMessage request) =>
+        ReadRequestIdAsync(request).GetAwaiter().GetResult();
+
+    private static async Task<int> ReadRequestIdAsync(HttpRequestMessage request)
+    {
+        var body = request.Content is null
+            ? string.Empty
+            : await request.Content!.ReadAsStringAsync().ConfigureAwait(false);
+        using var document = JsonDocument.Parse(body);
+        return document.RootElement.GetProperty("id").GetInt32();
+    }
 
     private static HttpResponseMessage JsonResponse(string body) =>
         new(HttpStatusCode.OK)

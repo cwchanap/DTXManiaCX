@@ -12,6 +12,8 @@ public sealed class JsonRpcGameClient
         PropertyNameCaseInsensitive = true
     };
 
+    private static readonly TimeSpan CleanupTimeout = TimeSpan.FromSeconds(5);
+
     private readonly HttpClient _httpClient;
     private readonly GameApiConnectionOptions _connection;
     private int _nextId;
@@ -62,8 +64,20 @@ public sealed class JsonRpcGameClient
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
 
         await SendInputAsync(GameApiInputType.KeyPress, key, cancellationToken).ConfigureAwait(false);
+
         if (holdDuration > TimeSpan.Zero)
-            await Task.Delay(holdDuration, cancellationToken).ConfigureAwait(false);
+        {
+            try
+            {
+                await Task.Delay(holdDuration, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                await SendReleaseOnCleanupPath(GameApiInputType.KeyRelease, key).ConfigureAwait(false);
+                throw;
+            }
+        }
+
         await SendInputAsync(GameApiInputType.KeyRelease, key, cancellationToken).ConfigureAwait(false);
     }
 
@@ -81,8 +95,20 @@ public sealed class JsonRpcGameClient
 
         var data = new { noteNumber, velocity };
         await SendInputAsync(GameApiInputType.MidiNoteOn, data, cancellationToken).ConfigureAwait(false);
+
         if (holdDuration > TimeSpan.Zero)
-            await Task.Delay(holdDuration, cancellationToken).ConfigureAwait(false);
+        {
+            try
+            {
+                await Task.Delay(holdDuration, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                await SendReleaseOnCleanupPath(GameApiInputType.MidiNoteOff, data).ConfigureAwait(false);
+                throw;
+            }
+        }
+
         await SendInputAsync(GameApiInputType.MidiNoteOff, data, cancellationToken).ConfigureAwait(false);
     }
 
@@ -119,15 +145,30 @@ public sealed class JsonRpcGameClient
         }
     }
 
+    private async Task SendReleaseOnCleanupPath(GameApiInputType type, object data)
+    {
+        using var cleanupCancellation = new CancellationTokenSource(CleanupTimeout);
+        try
+        {
+            await SendInputAsync(type, data, cleanupCancellation.Token).ConfigureAwait(false);
+        }
+        catch
+        {
+            // The caller already observed cancellation; the cleanup release is best-effort
+            // so the original cancellation exception remains the actionable error.
+        }
+    }
+
     private async Task<JsonElement> SendAsync(
         string method,
         object? parameters,
         CancellationToken cancellationToken)
     {
+        var requestId = Interlocked.Increment(ref _nextId);
         var request = new
         {
             jsonrpc = "2.0",
-            id = Interlocked.Increment(ref _nextId),
+            id = requestId,
             method,
             @params = parameters
         };
@@ -167,6 +208,20 @@ public sealed class JsonRpcGameClient
             {
                 throw new InvalidOperationException(
                     $"JSON-RPC {method} returned a non-object response: {body}");
+            }
+
+            if (!root.TryGetProperty("id", out var responseIdElement))
+            {
+                throw new InvalidOperationException(
+                    $"JSON-RPC {method} response did not include an id: {body}");
+            }
+
+            if (responseIdElement.ValueKind != JsonValueKind.Number
+                || !responseIdElement.TryGetInt32(out var responseId)
+                || responseId != requestId)
+            {
+                throw new InvalidOperationException(
+                    $"JSON-RPC {method} response id does not match request id {requestId}: {body}");
             }
 
             if (root.TryGetProperty("error", out var error)
