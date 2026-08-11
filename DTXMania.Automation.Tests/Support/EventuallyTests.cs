@@ -89,6 +89,8 @@ public sealed class EventuallyTests
             TaskCreationOptions.RunContinuationsAsynchronously);
         var timeout = TimeSpan.FromMilliseconds(150);
         var interval = TimeSpan.FromMilliseconds(10);
+        // Matches the observation window in ObserveProbeCompletionAsync.
+        var observationWindow = TimeSpan.FromSeconds(1);
 
         var stopwatch = Stopwatch.StartNew();
         await Assert.ThrowsAsync<TimeoutException>(() =>
@@ -108,16 +110,76 @@ public sealed class EventuallyTests
                 CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5)));
         stopwatch.Stop();
 
-        // The deadline must actually bound the probe — it should fire well under
-        // the safety WaitAsync window and not dramatically exceed the configured
-        // timeout.
+        // UntilAsync must NOT await the probe observation — it should complete
+        // before the additional observation window would have elapsed, proving
+        // the observation is fire-and-forget.
         Assert.True(
-            stopwatch.Elapsed < TimeSpan.FromSeconds(2),
-            $"Expected the deadline to bound the never-completing probe near {timeout}, but waited {stopwatch.Elapsed}.");
+            stopwatch.Elapsed < observationWindow,
+            $"Expected UntilAsync to complete before the {observationWindow} observation window, but waited {stopwatch.Elapsed}.");
 
-        // The probe must be canceled (not left running unbounded) once the
-        // deadline fires.
+        // The probe cancellation is recorded separately — it happens in the
+        // background after UntilAsync has already returned. Verify it propagates
+        // without affecting the timing assertion above.
+        try
+        {
+            await neverCompletingSource.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected — the probe was canceled by the linked token source.
+        }
         Assert.True(neverCompletingSource.Task.IsCanceled);
+    }
+
+    [Fact]
+    public async Task UntilAsync_ProbeCanceledWithForeignToken_ShouldRetryUntilDeadline()
+    {
+        // A probe that throws OperationCanceledException using a token that is
+        // NOT the caller's cancellationToken must be treated as a transient
+        // failure and retried, not propagated as caller cancellation. This
+        // proves the OCE filter (when cancellationToken.IsCancellationRequested)
+        // lets foreign-token cancellations continue through the retry path.
+        using var foreignTokenSource = new CancellationTokenSource();
+        var attempt = 0;
+
+        var exception = await Assert.ThrowsAsync<TimeoutException>(() => Eventually.UntilAsync<int>(
+            _ =>
+            {
+                attempt++;
+                throw new OperationCanceledException(foreignTokenSource.Token);
+            },
+            _ => false,
+            TimeSpan.FromMilliseconds(50),
+            TimeSpan.FromMilliseconds(5),
+            "probe canceled with foreign token",
+            CancellationToken.None));
+
+        Assert.Contains("probe canceled with foreign token", exception.Message, StringComparison.Ordinal);
+        Assert.True(attempt > 1, $"Expected multiple retries despite foreign cancellation, got {attempt}.");
+    }
+
+    [Fact]
+    public async Task UntilAsync_NegativeTimeout_ShouldThrowArgumentOutOfRangeException()
+    {
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => Eventually.UntilAsync(
+            _ => Task.FromResult(0),
+            _ => true,
+            TimeSpan.FromMilliseconds(-1),
+            TimeSpan.FromMilliseconds(1),
+            "negative timeout",
+            CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task UntilAsync_NonPositiveInterval_ShouldThrowArgumentOutOfRangeException()
+    {
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => Eventually.UntilAsync(
+            _ => Task.FromResult(0),
+            _ => true,
+            TimeSpan.FromSeconds(1),
+            TimeSpan.Zero,
+            "zero interval",
+            CancellationToken.None));
     }
 
     [Fact]
