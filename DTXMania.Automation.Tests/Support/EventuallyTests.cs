@@ -119,4 +119,57 @@ public sealed class EventuallyTests
         // deadline fires.
         Assert.True(neverCompletingSource.Task.IsCanceled);
     }
+
+    [Fact]
+    public async Task UntilAsync_ProbeThrowsTimeoutException_ShouldRetryUntilSucceeding()
+    {
+        // A probe that faults with its own TimeoutException (e.g. an HTTP client
+        // timeout) must be treated as a transient failure and retried, not
+        // confused with the wrapper deadline expiring. This probe throws once
+        // then succeeds on the next attempt, proving recovery.
+        var attempt = 0;
+
+        var result = await Eventually.UntilAsync(
+            _ =>
+            {
+                attempt++;
+                if (attempt == 1)
+                    throw new TimeoutException("probe-side timeout");
+                return Task.FromResult(42);
+            },
+            value => value == 42,
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromMilliseconds(1),
+            "probe recovers from its own timeout",
+            CancellationToken.None);
+
+        Assert.Equal(42, result);
+        Assert.True(attempt >= 2);
+    }
+
+    [Fact]
+    public async Task UntilAsync_ProbeThrowsTimeoutException_ShouldRetryUntilDeadline()
+    {
+        // A probe that keeps faulting with TimeoutException must keep retrying
+        // until the overall deadline elapses, then surface a TimeoutException
+        // that carries the probe's last error — the same behavior as any other
+        // transient probe failure.
+        var attempt = 0;
+
+        var exception = await Assert.ThrowsAsync<TimeoutException>(() => Eventually.UntilAsync<int>(
+            _ =>
+            {
+                attempt++;
+                throw new TimeoutException("persistent probe-side timeout");
+            },
+            _ => false,
+            TimeSpan.FromMilliseconds(20),
+            TimeSpan.FromMilliseconds(1),
+            "probe always times out",
+            CancellationToken.None));
+
+        Assert.Contains("persistent probe-side timeout", exception.Message, StringComparison.Ordinal);
+        Assert.IsType<TimeoutException>(exception.InnerException);
+        Assert.True(attempt > 1, $"Expected multiple retries, got {attempt}.");
+    }
 }
