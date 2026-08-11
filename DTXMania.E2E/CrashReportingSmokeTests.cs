@@ -1,8 +1,6 @@
-using System.Net;
-using System.Net.Sockets;
 using System.Text;
+using DTXMania.Automation.Process;
 using DTXMania.E2E.Fixtures;
-using DTXMania.E2E.Process;
 using DTXMania.E2E.Support;
 
 namespace DTXMania.E2E;
@@ -25,26 +23,25 @@ public sealed class CrashReportingSmokeTests
     public async Task ControlledCallbackCrash_ShouldReachProgramBoundaryExactlyOnce(
         string injectionPoint)
     {
-        var repoRoot = FindRepoRoot();
+        var repoRoot = E2EGameLaunch.ResolveRepoRoot();
+        var apiPort = E2EGameLaunch.ResolveApiPort();
         var runRoot = Path.Combine(
             Path.GetTempPath(),
             "dtx-crash-e2e-" + Guid.NewGuid().ToString("N"));
         var fixture = E2EFixtureBuilder.Build(
             runRoot,
             repoRoot,
-            GetAvailablePort());
+            apiPort);
         await using var process = new GameProcessDriver();
 
         try
         {
-            process.Start(
-                repoRoot,
-                E2EGameProject.ResolveProjectPath(),
+            process.Start(E2EGameLaunch.CreateOptions(
                 fixture,
-                environmentOverrides: new Dictionary<string, string?>
+                extraEnvironment: new Dictionary<string, string?>
                 {
                     ["DTXMANIA_E2E_CRASH_INJECTION"] = injectionPoint
-                });
+                }));
 
             var exitCode = await process.WaitForExitAsync(
                 TimeSpan.FromSeconds(120),
@@ -131,45 +128,4 @@ public sealed class CrashReportingSmokeTests
         }
     }
 
-    private static int GetAvailablePort()
-    {
-        const int maxAttempts = 5;
-        for (var attempt = 0; attempt < maxAttempts; attempt++)
-        {
-            var listener = new TcpListener(IPAddress.Loopback, 0);
-            try
-            {
-                listener.Start();
-                return ((IPEndPoint)listener.LocalEndpoint).Port;
-            }
-            catch (SocketException)
-            {
-                // Port probe failed — retry the next attempt.
-            }
-            finally
-            {
-                listener.Stop();
-            }
-        }
-
-        var fallback = new TcpListener(IPAddress.Loopback, 0);
-        fallback.Start();
-        var fallbackPort = ((IPEndPoint)fallback.LocalEndpoint).Port;
-        fallback.Stop();
-        return fallbackPort;
-    }
-
-    private static string FindRepoRoot()
-    {
-        var current = new DirectoryInfo(Directory.GetCurrentDirectory());
-        while (current is not null)
-        {
-            if (File.Exists(Path.Combine(current.FullName, "DTXMania.sln")))
-                return current.FullName;
-
-            current = current.Parent;
-        }
-
-        throw new InvalidOperationException("Could not locate repository root from current directory.");
-    }
 }
