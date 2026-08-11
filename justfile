@@ -6,6 +6,7 @@ windows_project := "DTXMania.Game/DTXMania.Game.Windows.csproj"
 mac_test        := "DTXMania.Test/DTXMania.Test.Mac.csproj"
 windows_test    := "DTXMania.Test/DTXMania.Test.csproj"
 e2e_project     := "DTXMania.E2E/DTXMania.E2E.csproj"
+automation_test := "DTXMania.Automation.Tests/DTXMania.Automation.Tests.csproj"
 mcp_project     := "MCP/MCP.csproj"
 
 # List available recipes (default)
@@ -123,6 +124,10 @@ test-cov:
     dotnet test {{ mac_test }} --collect:"XPlat Code Coverage" --settings coverlet.runsettings --results-directory ./TestResults
 
 # ── E2E (the E2E project targets net8.0-windows7.0, so Windows-only) ──
+
+# Cross-platform automation library tests (no gameplay launch)
+automation-test:
+    dotnet test {{ automation_test }}
 
 # E2E support tests (in-process harness, no game launch)
 e2e-support:
