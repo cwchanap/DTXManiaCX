@@ -169,7 +169,7 @@ public sealed class AutomationContractTests
             AudioPreparationTotal = 2,
             AudioPreparationCacheHits = 1,
             PreparedAudioBytes = 4096,
-            AutoPlayEnabled = false,
+            AutoPlayEnabled = true,
             CurrentSongTimeMs = 1234.5,
             Score = 95000,
             MaxCombo = 88,
@@ -182,7 +182,7 @@ public sealed class AutomationContractTests
             StageCompleted = true,
             CompletionReason = "Cleared",
             ScoreSaveStatus = "Saved",
-            ScoreSaveError = null,
+            ScoreSaveError = "synthetic-save-error",
             PerfectCount = 180,
             GreatCount = 15,
             GoodCount = 3,
@@ -218,7 +218,7 @@ public sealed class AutomationContractTests
         Assert.Equal(2, state.AudioPreparationTotal);
         Assert.Equal(1, state.AudioPreparationCacheHits);
         Assert.Equal(4096L, state.PreparedAudioBytes);
-        Assert.False(state.AutoPlayEnabled);
+        Assert.True(state.AutoPlayEnabled);
         Assert.Equal(1234.5, state.CurrentSongTimeMs);
         Assert.Equal(95000, state.Score);
         Assert.Equal(88, state.MaxCombo);
@@ -231,7 +231,7 @@ public sealed class AutomationContractTests
         Assert.True(state.StageCompleted);
         Assert.Equal("Cleared", state.CompletionReason);
         Assert.Equal("Saved", state.ScoreSaveStatus);
-        Assert.Null(state.ScoreSaveError);
+        Assert.Equal("synthetic-save-error", state.ScoreSaveError);
         Assert.Equal(200, state.TotalJudgements);
     }
 
