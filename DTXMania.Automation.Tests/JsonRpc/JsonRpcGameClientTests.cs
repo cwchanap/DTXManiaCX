@@ -161,6 +161,97 @@ public sealed class JsonRpcGameClientTests
     }
 
     [Fact]
+    public async Task SendKeyAsync_WhenCancellationLandsDuringRelease_ShouldStillSendReleaseOnCleanupPath()
+    {
+        // Reproduces the post-press race: the press succeeds, then cancellation
+        // lands before the normal release request reaches the game. The normal
+        // release uses the already-canceled caller token and would never reach
+        // the game; the cleanup release must still fire on a bounded,
+        // cancellation-independent token.
+        using var cancellation = new CancellationTokenSource();
+        var releaseRequests = 0;
+        using var handler = new FakeHandler(async (req, token) =>
+        {
+            var body = req.Content is null
+                ? string.Empty
+                : await req.Content!.ReadAsStringAsync(CancellationToken.None).ConfigureAwait(false);
+            var inputType = ReadInputType(body);
+
+            if (inputType == (int)GameApiInputType.KeyPress)
+            {
+                return EchoJsonRpcResponse(req);
+            }
+
+            // KeyRelease
+            var attempt = Interlocked.Increment(ref releaseRequests);
+            if (attempt == 1)
+            {
+                // The release request has been received; now cancel the caller
+                // token and block on it so the normal release observes a canceled
+                // token mid-request (the post-press race window).
+                cancellation.Cancel();
+                await Task.Delay(Timeout.InfiniteTimeSpan, token).ConfigureAwait(false);
+                throw new InvalidOperationException("unreachable: token should have canceled");
+            }
+
+            // Cleanup release path: independent bounded token, succeeds.
+            return EchoJsonRpcResponse(req);
+        });
+        using var httpClient = CreateHttpClient(handler);
+        var client = CreateClient(httpClient);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            client.SendKeyAsync("Enter", TimeSpan.Zero, cancellation.Token));
+
+        Assert.Equal(3, handler.Requests.Count);
+        Assert.Equal(2, ReadInputType(handler.RequestBodies[0])); // KeyPress
+        Assert.Equal(3, ReadInputType(handler.RequestBodies[1])); // canceled normal KeyRelease
+        Assert.Equal(3, ReadInputType(handler.RequestBodies[2])); // cleanup KeyRelease
+        Assert.Equal(2, releaseRequests);
+    }
+
+    [Fact]
+    public async Task SendMidiNoteAsync_WhenCancellationLandsDuringRelease_ShouldStillSendReleaseOnCleanupPath()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var releaseRequests = 0;
+        using var handler = new FakeHandler(async (req, token) =>
+        {
+            var body = req.Content is null
+                ? string.Empty
+                : await req.Content!.ReadAsStringAsync(CancellationToken.None).ConfigureAwait(false);
+            var inputType = ReadInputType(body);
+
+            if (inputType == (int)GameApiInputType.MidiNoteOn)
+            {
+                return EchoJsonRpcResponse(req);
+            }
+
+            // MidiNoteOff
+            var attempt = Interlocked.Increment(ref releaseRequests);
+            if (attempt == 1)
+            {
+                cancellation.Cancel();
+                await Task.Delay(Timeout.InfiniteTimeSpan, token).ConfigureAwait(false);
+                throw new InvalidOperationException("unreachable: token should have canceled");
+            }
+
+            return EchoJsonRpcResponse(req);
+        });
+        using var httpClient = CreateHttpClient(handler);
+        var client = CreateClient(httpClient);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            client.SendMidiNoteAsync(36, 100, TimeSpan.Zero, cancellation.Token));
+
+        Assert.Equal(3, handler.Requests.Count);
+        Assert.Equal(4, ReadInputType(handler.RequestBodies[0])); // MidiNoteOn
+        Assert.Equal(5, ReadInputType(handler.RequestBodies[1])); // canceled normal MidiNoteOff
+        Assert.Equal(5, ReadInputType(handler.RequestBodies[2])); // cleanup MidiNoteOff
+        Assert.Equal(2, releaseRequests);
+    }
+
+    [Fact]
     public async Task GetGameStateAsync_ShouldDeserializeTelemetrySnapshot()
     {
         const string result = """
@@ -339,12 +430,24 @@ public sealed class JsonRpcGameClientTests
             Content = new StringContent(body, Encoding.UTF8, "application/json")
         };
 
-    private sealed class FakeHandler(
-        Func<HttpRequestMessage, Task<HttpResponseMessage>> responseFactory) : HttpMessageHandler
+    private sealed class FakeHandler : HttpMessageHandler
     {
         public List<HttpRequestMessage> Requests { get; } = [];
 
         public List<string> RequestBodies { get; } = [];
+
+        private readonly Func<HttpRequestMessage, Task<HttpResponseMessage>>? _responseFactory;
+        private readonly Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>>? _responseFactoryWithToken;
+
+        public FakeHandler(Func<HttpRequestMessage, Task<HttpResponseMessage>> responseFactory)
+        {
+            _responseFactory = responseFactory;
+        }
+
+        public FakeHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> responseFactory)
+        {
+            _responseFactoryWithToken = responseFactory;
+        }
 
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
@@ -354,7 +457,11 @@ public sealed class JsonRpcGameClientTests
             RequestBodies.Add(request.Content is null
                 ? string.Empty
                 : await request.Content.ReadAsStringAsync(cancellationToken));
-            return await responseFactory(request);
+            if (_responseFactoryWithToken is not null)
+            {
+                return await _responseFactoryWithToken(request, cancellationToken);
+            }
+            return await _responseFactory!(request);
         }
     }
 }

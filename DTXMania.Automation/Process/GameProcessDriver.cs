@@ -185,6 +185,14 @@ public sealed class GameProcessDriver : IAsyncDisposable
                         && health.ProcessId == _process!.Id);
                 if (matchesReadinessRule && deadline.Elapsed < timeout)
                 {
+                    // Re-check the owned process before accepting the matching
+                    // health. If the owned process answered /health and exited
+                    // immediately before this continuation runs, we must report
+                    // the exit rather than declaring startup successful. This
+                    // honors the "before and after each health probe" rule and
+                    // closes the TOCTOU window between the probe response and the
+                    // successful return.
+                    await ThrowIfOwnedProcessExitedAsync().ConfigureAwait(false);
                     return;
                 }
             }

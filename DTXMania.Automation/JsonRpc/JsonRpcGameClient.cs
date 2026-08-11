@@ -65,20 +65,33 @@ public sealed class JsonRpcGameClient
 
         await SendInputAsync(GameApiInputType.KeyPress, key, cancellationToken).ConfigureAwait(false);
 
-        if (holdDuration > TimeSpan.Zero)
+        // Once the press has reached the game, guarantee one bounded
+        // cancellation-independent release. The Game API translates press/release
+        // into persistent injected button state, so a press without a matching
+        // release leaves the input stuck. Cancellation can land in the window
+        // after Task.Delay completes (or when holdDuration == 0) but before the
+        // normal release request completes; in that case the normal release uses
+        // the already-canceled caller token and may never reach the game. The
+        // try/finally below ensures a cleanup release runs unless the normal
+        // release has already completed.
+        var released = false;
+        try
         {
-            try
+            if (holdDuration > TimeSpan.Zero)
             {
                 await Task.Delay(holdDuration, cancellationToken).ConfigureAwait(false);
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+
+            await SendInputAsync(GameApiInputType.KeyRelease, key, cancellationToken).ConfigureAwait(false);
+            released = true;
+        }
+        finally
+        {
+            if (!released)
             {
                 await SendReleaseOnCleanupPath(GameApiInputType.KeyRelease, key).ConfigureAwait(false);
-                throw;
             }
         }
-
-        await SendInputAsync(GameApiInputType.KeyRelease, key, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task SendMidiNoteAsync(
@@ -96,20 +109,27 @@ public sealed class JsonRpcGameClient
         var data = new { noteNumber, velocity };
         await SendInputAsync(GameApiInputType.MidiNoteOn, data, cancellationToken).ConfigureAwait(false);
 
-        if (holdDuration > TimeSpan.Zero)
+        // See SendKeyAsync: once the note-on reaches the game, guarantee one
+        // bounded cancellation-independent note-off unless the normal note-off
+        // has already completed.
+        var released = false;
+        try
         {
-            try
+            if (holdDuration > TimeSpan.Zero)
             {
                 await Task.Delay(holdDuration, cancellationToken).ConfigureAwait(false);
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+
+            await SendInputAsync(GameApiInputType.MidiNoteOff, data, cancellationToken).ConfigureAwait(false);
+            released = true;
+        }
+        finally
+        {
+            if (!released)
             {
                 await SendReleaseOnCleanupPath(GameApiInputType.MidiNoteOff, data).ConfigureAwait(false);
-                throw;
             }
         }
-
-        await SendInputAsync(GameApiInputType.MidiNoteOff, data, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task ChangeStageAsync(string stageName, CancellationToken cancellationToken)
