@@ -2,74 +2,79 @@
 
 **Issue:** [HPA-501](https://linear.app/cwchanap/issue/HPA-501/extract-minimal-reusable-cx-process-and-json-rpc-helpers)  
 **Date:** 2026-08-10  
-**Status:** Revised after design review
+**Status:** Revised after second design review
 
 ## Context
 
 HPA-500's recorder roadmap starts by reusing process and Game API support already proven by `DTXMania.E2E`. HPA-501 is an unblocked prerequisite for HPA-503.
 
-The current behavior is useful but owned by the Windows-targeted E2E assembly:
+The useful behavior already exists, but ownership is wrong for recorder reuse:
 
 - `DTXMania.E2E/Process/GameProcessDriver.cs` owns `dotnet run`, environment setup, stdout/stderr capture, exit waiting, and process-tree cleanup, but accepts `E2EFixture` directly.
-- `DTXMania.E2E/JsonRpc/JsonRpcGameClient.cs` handles health, `getGameState`, screenshots, key/MIDI input, stage change, and JSON-RPC errors, but references the game assembly's `InputType` and E2E telemetry DTO.
+- `DTXMania.E2E/JsonRpc/JsonRpcGameClient.cs` handles health, `getGameState`, screenshots, key/MIDI input, stage change, and JSON-RPC errors, but references the game assembly's `InputType` and the E2E telemetry DTO.
 - `DTXMania.E2E/Telemetry/E2EGameState.cs` is the consumer-side telemetry projection.
 - `DTXMania.E2E/Support/Eventually.cs` already provides bounded polling.
-- `DTXMania.E2E/Fixtures/E2EGameProject.cs` contains the platform project-selection policy, while two smoke tests duplicate that selection instead of calling it.
-- `DTXMania.E2E.csproj` targets `net8.0-windows7.0` and conditionally references a MonoGame platform project.
+- E2E smoke files duplicate repository-root discovery, API-port selection, project selection, and simulated-MIDI launch policy.
+- `DTXMania.E2E.csproj` targets `net8.0-windows7.0`, so recorder production code must not depend on it.
 
-There is one additional proven behavior outside E2E that HPA-501 should reuse: `MCP/Server/GameInteractionService.cs` does not accept any successful `/health` response as readiness. It parses `processId` and `launchToken` from `/health` and waits until the response identifies the process it just launched. This prevents a stale CX process already bound to the same endpoint from satisfying startup.
+There is also a proven stale-process protection in `MCP/Server/GameInteractionService.cs`: `/health` exposes `launchToken` and `processId`, and MCP checks that readiness belongs to the launch it initiated. HPA-501 should reuse that behavior without referencing MCP.
 
-HPA-501 should extract these proven primitives and identity semantics, not redesign automation.
+One important correction is required when porting that rule. Project launch uses `dotnet run --project`; the `Process` owned by the launcher is not a reliable identity for the final game process reported by `Environment.ProcessId`. Therefore:
+
+- **Project launch readiness is gated by launch-token equality.**
+- **Executable launch may additionally use PID equality as a fallback.**
+
+HPA-501 should extract these proven primitives, remove the known E2E policy duplication, and stop there.
 
 ## Goals
 
 - Add a small `DTXMania.Automation` library targeting plain `net8.0`.
-- Keep the library free of references to `DTXMania.E2E`, `DTXMania.Game.Windows`, `DTXMania.Game.Mac`, and MCP.
-- Support explicit Windows and macOS launch identities without pretending the library selects a RID or architecture.
-- Support either `dotnet run --project <csproj>` or a caller-supplied executable path; do not guess publish/RID/configuration paths.
+- Keep Automation free of references to `DTXMania.E2E`, MonoGame platform projects, and MCP.
+- Support project launch through the current Windows/Mac project paths and caller-supplied executable launch without RID/publish-path inference.
 - Preserve owned-process stdout/stderr capture, duplicate-start rejection, bounded exit waiting, and process-tree cleanup.
-- Preserve the launch token in `GameProcessStartOptions` and use `/health` `launchToken`/`processId` identity during startup readiness, following the existing MCP behavior.
-- Fail startup immediately when the owned process exits before becoming ready.
-- Preserve the current narrow Game API client behavior: health, `getGameState`, screenshot, key/MIDI input, stage change, and private JSON-RPC request transport.
-- Make Game API endpoint/key explicit connection inputs rather than relying on caller-configured `HttpClient.BaseAddress`.
-- Keep wire contracts independent from game assembly types while retaining E2E producer/consumer contract tests.
-- Move reusable support tests into a platform-neutral `DTXMania.Automation.Tests` project and run them on Windows and macOS CI.
-- Migrate existing E2E smoke tests to consume the extracted helpers without changing gameplay behavior or artifact contracts.
-- Centralize E2E-only launch environment policy so simulated MIDI is always explicitly enabled or removed instead of depending on parent-process inheritance.
+- Preserve `DTXMANIA_APPDATA_ROOT` and `DTXMANIA_LAUNCH_TOKEN` as driver-owned environment values.
+- Make project startup require a matching `/health` launch token; allow PID fallback only for direct executable launch.
+- Preserve the last observed health identity and include it in startup-timeout diagnostics.
+- Fail immediately when the owned launcher/executable exits before readiness.
+- Preserve narrow Game API behavior: `/health`, `getGameState`, screenshot, key/MIDI input, stage change, and private JSON-RPC transport.
+- Make API endpoint/key explicit connection inputs.
+- Keep input/telemetry wire models independent from game assembly types while retaining E2E producer/consumer contract tests.
+- Move pure reusable support tests into a plain `net8.0` `DTXMania.Automation.Tests` project and run it on Windows and macOS CI.
+- Preserve the current E2E gameplay behavior/artifacts while migrating smoke tests to Automation.
+- Make one E2E-local owner responsible for repo-root discovery, API-port selection, game-project selection, and simulated-MIDI environment policy.
 
 ## Non-goals
 
-- OBS, FFmpeg, recording sandbox, recorder CLI, output publishing, or video validation.
-- Prepared-chart, preview-control, or Song Select commands from HPA-510.
-- A game-wide automation session, capture session, workflow state machine, service container, or dependency-injection layer.
-- A generic process runner or generic HTTP/JSON-RPC framework.
-- Depending on `MCP/Server/JsonRpcClient.cs` or any MCP project type.
-- Retargeting all of `DTXMania.E2E` to plain `net8.0`; E2E still directly tests game producer types and Windows gameplay flows.
-- Removing the E2E fixture builder, artifact writer, persistence checks, or test-specific game-project policy.
-- Changing Game API server contracts or numeric `InputType` wire values.
-- Adding macOS gameplay E2E. HPA-501 only makes reusable support build/test cross-platform.
+- OBS, FFmpeg, recording sandbox, recorder CLI, output publication, or video validation.
+- Prepared-chart/preview commands from HPA-510.
+- `AutomationSession`, workflow/capture-session state machines, DI, generic process runners, or generic JSON-RPC transports.
+- Depending on MCP project types or `MCP/Server/JsonRpcClient.cs`.
+- Retargeting all of `DTXMania.E2E` to plain `net8.0`.
+- Adding macOS gameplay E2E. The reusable Automation suite is cross-platform; the existing gameplay-E2E project remains Windows-targeted.
+- Changing Game API server contracts or `InputType` numeric values.
 - Backward-compatible wrappers for old E2E helper namespaces.
-- API-key diagnostic sanitization. The Game API is loopback/local for this workflow and the client does not put the key in request bodies; HPA-503 remains responsible for not writing keys into its own diagnostics.
+- API-key diagnostic sanitization. HPA-503 remains responsible for not persisting secrets in recorder diagnostics.
+- Migrating MCP to consume `DTXMania.Automation` in this ticket. **Follow-up:** once HPA-501 lands, converge MCP readiness parsing onto Automation so the launch-identity rule does not remain duplicated long term.
 
 ## Approaches Considered
 
-### 1. Extract proven primitives and reuse MCP health identity — selected
+### Extract proven primitives and narrow launch policy — selected
 
-Move the existing process driver, JSON-RPC client, telemetry projection, and polling helper into `DTXMania.Automation`. Replace only test/game-specific dependencies with small automation-owned contracts. Port MCP's `/health` identity comparison into the reusable client/startup path without adding an MCP dependency.
+Move the existing process/JSON-RPC/telemetry/polling behavior into Automation, port the useful MCP launch-token semantics, and centralize E2E-only launch helpers.
 
-This gives HPA-503 a production-safe dependency while keeping ownership obvious.
+This gives HPA-503 a production-safe dependency with minimal new architecture.
 
-### 2. Add an `AutomationSession` facade — rejected
+### Add an `AutomationSession` facade — rejected
 
-A process+HTTP facade would make HPA-501 own lifecycle orchestration that belongs to HPA-503's recorder workflow. It would introduce a second lifecycle owner before the recorder has proven that abstraction is useful.
+HPA-503 owns recorder lifecycle. Combining process, HTTP, and polling here would create a second lifecycle owner before the recorder proves that abstraction useful.
 
-### 3. Multi-target or source-link E2E — rejected
+### Multi-target or source-link E2E — rejected
 
-Keeping reusable code inside the test project preserves confusing ownership and still couples the recorder to E2E project structure.
+Keeping reusable code inside the test project preserves the wrong ownership and still makes HPA-503 depend on test structure.
 
 ## Chosen Architecture
 
-### 1. Plain automation library and tests
+### 1. Plain Automation library and test project
 
 Create:
 
@@ -78,11 +83,11 @@ DTXMania.Automation/DTXMania.Automation.csproj
 DTXMania.Automation.Tests/DTXMania.Automation.Tests.csproj
 ```
 
-Both target plain `net8.0` with nullable reference types and implicit usings enabled.
+Both target plain `net8.0`.
 
-`DTXMania.Automation` has no project references to game, E2E, or MCP assemblies.
+`DTXMania.Automation` has no game/E2E/MCP project reference.
 
-`DTXMania.Automation.Tests` references only `DTXMania.Automation` plus the same test packages already used by `DTXMania.E2E` on current `main`:
+`DTXMania.Automation.Tests` references Automation plus the repository-current E2E/main-test package versions:
 
 ```text
 Microsoft.NET.Test.Sdk       18.8.1
@@ -90,21 +95,40 @@ xunit                        2.9.3
 xunit.runner.visualstudio    3.1.5
 ```
 
-Add both projects to `DTXMania.sln`.
+Current `DTXMania.Test.Mac.csproj` intentionally still has older test-runner/Test SDK versions; HPA-501 does not normalize unrelated project packages. Automation.Tests proves its own package combination on both Windows and macOS CI.
 
-`DTXMania.E2E` keeps `net8.0-windows7.0` and its game-project reference because unrelated tests still consume game/EF/producer types. It adds a reference to `DTXMania.Automation`.
+Because process tests spawn real child processes, add:
 
-### 2. Explicit launch target and start options
+```csharp
+[assembly: CollectionBehavior(DisableTestParallelization = true)]
+```
 
-Use names that describe what HPA-501 actually selects. The project path itself is architecture-agnostic; this ticket does not select a RID.
+in `DTXMania.Automation.Tests/AssemblyInfo.cs`, mirroring the safety policy already used by E2E. Mark real process tests with `Trait("Category", "Automation-Process")` so they can be isolated when diagnosing CI/runtime cost.
+
+### 2. Launch target stores only launch behavior and path
+
+`GamePlatform` was dead data on the target: command construction uses only launch kind/path, and executable launch must not infer architecture or RID. Remove it from `GameLaunchTarget`.
+
+Keep project constants reusable:
 
 ```csharp
 namespace DTXMania.Automation.Process;
 
-public enum GamePlatform
+public static class GameProjectPaths
 {
-    Windows,
-    Mac
+    public const string Windows = "DTXMania.Game/DTXMania.Game.Windows.csproj";
+    public const string Mac = "DTXMania.Game/DTXMania.Game.Mac.csproj";
+
+    public static string Current
+    {
+        get
+        {
+            if (OperatingSystem.IsWindows()) return Windows;
+            if (OperatingSystem.IsMacOS()) return Mac;
+            throw new PlatformNotSupportedException(
+                "DTXManiaCX automation project launch supports Windows and macOS only.");
+        }
+    }
 }
 
 public enum GameLaunchKind
@@ -113,20 +137,27 @@ public enum GameLaunchKind
     Executable
 }
 
-public sealed record GameLaunchTarget(
-    GamePlatform Platform,
-    GameLaunchKind Kind,
-    string Path)
+public sealed record GameLaunchTarget(GameLaunchKind Kind, string Path)
 {
-    public static GameLaunchTarget Project(
-        GamePlatform platform,
-        string? projectPathOverride = null);
-
-    public static GameLaunchTarget Executable(
-        GamePlatform platform,
-        string executablePath);
+    public static GameLaunchTarget Project(string? projectPathOverride = null);
+    public static GameLaunchTarget Executable(string executablePath);
 }
+```
 
+`Project(...)` uses a non-blank override exactly; otherwise it uses `GameProjectPaths.Current`.
+
+`Executable(...)` requires an exact non-blank caller path.
+
+Commands remain:
+
+```text
+Project    -> dotnet run --project <Target.Path>
+Executable -> <Target.Path>
+```
+
+No shell and no publish/RID/configuration inference.
+
+```csharp
 public sealed record GameProcessStartOptions(
     string WorkingDirectory,
     GameLaunchTarget Target,
@@ -135,32 +166,16 @@ public sealed record GameProcessStartOptions(
     IReadOnlyDictionary<string, string?>? EnvironmentOverrides = null);
 ```
 
-Default project mappings:
+### 3. `GameProcessDriver` owns one process and readiness identity
 
-```text
-Windows -> DTXMania.Game/DTXMania.Game.Windows.csproj
-Mac     -> DTXMania.Game/DTXMania.Game.Mac.csproj
-```
+Move/adapt the current driver to `DTXMania.Automation/Process/GameProcessDriver.cs`.
 
-`Project(...)` accepts an override so E2E can continue honoring `DTXMANIA_E2E_GAME_PROJECT` without putting that test-only environment variable in Automation.
+Define a small transport-neutral health identity beside the process types:
 
-`Executable(...)` uses the exact caller path. It does not infer a RID, architecture, publish layout, app bundle, or configuration.
-
-Commands are derived only from launch kind:
-
-```text
-Project    -> dotnet run --project <Target.Path>
-Executable -> <Target.Path>
-```
-
-No shell is used.
-
-### 3. `GameProcessDriver` stays a single-owned-process primitive
-
-Move/adapt the current driver into:
-
-```text
-DTXMania.Automation/Process/GameProcessDriver.cs
+```csharp
+public sealed record GameHealthSnapshot(
+    int? ProcessId,
+    string? LaunchToken);
 ```
 
 Public surface:
@@ -176,7 +191,7 @@ public sealed class GameProcessDriver : IAsyncDisposable
     public void Start(GameProcessStartOptions options);
 
     public Task WaitForStartupAsync(
-        Func<string, int?, CancellationToken, Task<bool>> launchHealthProbe,
+        Func<CancellationToken, Task<GameHealthSnapshot?>> healthProbe,
         TimeSpan timeout,
         TimeSpan interval,
         CancellationToken cancellationToken);
@@ -189,89 +204,70 @@ public sealed class GameProcessDriver : IAsyncDisposable
 }
 ```
 
-The driver stores the non-blank `LaunchToken` from the successful `Start` call. `WaitForStartupAsync` passes the expected launch token and owned process ID into the supplied probe. This keeps the process layer independent from HTTP/JSON-RPC types while ensuring callers do not reconstruct launch identity themselves:
+The driver remembers the successful start's `Target.Kind` and launch token.
 
-```csharp
-await process.WaitForStartupAsync(
-    client.IsHealthyForLaunchAsync,
-    timeout,
-    interval,
-    cancellationToken);
+#### Readiness rule
+
+For each successful health observation:
+
+```text
+Project launch:
+    ready only when health.LaunchToken == expected launch token
+
+Executable launch:
+    ready when launch token matches
+    OR, as a fallback, health.ProcessId == owned executable PID
 ```
 
-Before each probe and after any false/transient result, the driver checks whether its process exited. Early exit throws immediately with the exit code and captured stdout/stderr. Timeout remains `TimeoutException`; caller cancellation remains `OperationCanceledException`.
+Do not use the PID from `dotnet run` as project readiness evidence.
 
-#### Environment contract
+Before and after each health probe, check whether the owned launcher/executable exited. Early exit throws immediately with exit code and captured stdout/stderr.
 
-The driver owns:
+Keep the **last non-null `GameHealthSnapshot`**. If the deadline expires, throw `TimeoutException` containing:
+
+- launch kind;
+- owned process ID;
+- whether a matching token was required;
+- last observed health `ProcessId` and `LaunchToken`, or an explicit "no parseable health identity observed" marker.
+
+This replaces MCP's logger-only observed-vs-expected diagnostics with useful exception context without adding logging infrastructure.
+
+#### Environment and cleanup
+
+The driver owns and protects:
 
 ```text
 DTXMANIA_APPDATA_ROOT
 DTXMANIA_LAUNCH_TOKEN
 ```
 
-It writes both from `GameProcessStartOptions` and rejects generic overrides for either name.
+Generic overrides keep current semantics: non-null sets/replaces; null explicitly removes inherited state.
 
-All other environment overrides retain current semantics:
+Simulated MIDI is E2E policy, not a production-driver flag.
 
-- non-null -> set/replace inherited value;
-- null -> explicitly remove inherited value.
+Preserve current process-tree kill, terminal stdout/stderr drain, exit-race handling, and idempotent disposal. Never discover/kill unrelated CX processes.
 
-Simulated MIDI is not a production-driver boolean after extraction.
-
-#### Cleanup contract
-
-Preserve existing behavior:
-
-- one `Start` per driver instance;
-- asynchronous stdout/stderr capture and final drain;
-- kill the owned process tree when still running;
-- tolerate process-exit races;
-- idempotent cleanup;
-- never discover or kill unrelated CX processes.
-
-### 4. Reuse `/health` identity semantics in `JsonRpcGameClient`
-
-The game server already returns:
-
-```json
-{
-  "status": "ok",
-  "processId": 1234,
-  "launchToken": "..."
-}
-```
-
-MCP already protects against stale-process readiness by accepting health only when `launchToken` matches the expected launch token or `processId` matches the launched process.
-
-Port that behavior into Automation; do not reference MCP.
+### 4. `JsonRpcGameClient` exposes health observation, not duplicate readiness policy
 
 Create:
 
 ```text
 DTXMania.Automation/JsonRpc/GameApiConnectionOptions.cs
-DTXMania.Automation/JsonRpc/GameApiHealthSnapshot.cs
 DTXMania.Automation/JsonRpc/GameApiInputType.cs
 DTXMania.Automation/JsonRpc/JsonRpcGameClient.cs
+DTXMania.Automation/Telemetry/GameStateSnapshot.cs
 ```
+
+Connection:
 
 ```csharp
 public sealed record GameApiConnectionOptions(Uri BaseUri, string ApiKey);
-
-public sealed record GameApiHealthSnapshot(
-    int? ProcessId,
-    string? LaunchToken);
 ```
 
 Client surface:
 
 ```csharp
-Task<bool> IsHealthyAsync(CancellationToken cancellationToken);
-Task<GameApiHealthSnapshot?> GetHealthAsync(CancellationToken cancellationToken);
-Task<bool> IsHealthyForLaunchAsync(
-    string expectedLaunchToken,
-    int? expectedProcessId,
-    CancellationToken cancellationToken);
+Task<GameHealthSnapshot?> GetHealthAsync(CancellationToken cancellationToken);
 Task<GameStateSnapshot> GetGameStateAsync(CancellationToken cancellationToken);
 Task SendKeyAsync(string key, TimeSpan holdDuration, CancellationToken cancellationToken);
 Task SendMidiNoteAsync(int noteNumber, int velocity, TimeSpan holdDuration, CancellationToken cancellationToken);
@@ -279,24 +275,23 @@ Task ChangeStageAsync(string stageName, CancellationToken cancellationToken);
 Task<string?> TakeScreenshotBase64Async(CancellationToken cancellationToken);
 ```
 
-`IsHealthyForLaunchAsync` follows the proven MCP rule:
+Do **not** keep `IsHealthyAsync` or `IsHealthyForLaunchAsync`:
 
-1. Read `/health`.
-2. Return false for connection failure, non-success response, malformed/missing identity, or mismatched identity.
-3. Return true when the non-blank expected launch token equals `health.LaunchToken`.
-4. Otherwise return true when expected process ID exists and equals `health.ProcessId`.
+- `GetHealthAsync() != null` already represents a parseable successful health response;
+- readiness identity belongs in the driver because it knows launch kind, expected token, and whether PID fallback is valid.
 
-The basic `IsHealthyAsync` may remain for callers that genuinely need endpoint liveness, but startup uses `IsHealthyForLaunchAsync`.
+`GetHealthAsync` ports MCP's tolerant parsing:
 
-Connection base URI is explicit in `GameApiConnectionOptions`; callers do not need `HttpClient.BaseAddress`.
+- success response only;
+- `processId` may be JSON number or numeric string;
+- `launchToken` may be a string;
+- transient HTTP/per-request timeout/malformed JSON returns null unless caller cancellation itself was requested.
 
-Keep generic JSON-RPC send private.
-
-HTTP/JSON-RPC failures may include status and response body for useful local diagnostics. Do not add a general redaction/logging framework in HPA-501.
+Keep generic JSON-RPC send private. Use explicit base URI from `GameApiConnectionOptions`. Do not add redaction/logging infrastructure.
 
 ### 5. Automation-owned input and telemetry wire models
 
-Do not reference `DTXMania.Game.Lib.InputType` from Automation.
+Keep stable protocol values locally:
 
 ```csharp
 public enum GameApiInputType
@@ -310,83 +305,79 @@ public enum GameApiInputType
 }
 ```
 
-Extract/rename `E2EGameState` to `GameStateSnapshot` without pruning the current telemetry accessors. It remains tolerant of missing/null telemetry.
+Extract/rename `E2EGameState` to `GameStateSnapshot` without pruning fields/default behavior.
 
-Pure JSON behavior belongs in `DTXMania.Automation.Tests`.
+Automation.Tests covers raw JSON behavior only. E2E keeps the producer contract tests because it can see both Automation and game types:
 
-E2E retains producer/consumer contract tests that:
+- `GameApiInputType` integers match `DTXMania.Game.Lib.InputType`;
+- game `GameTelemetrySnapshot` camel-case JSON deserializes into `GameStateSnapshot`.
 
-- compare `GameApiInputType` integer values to `DTXMania.Game.Lib.InputType`;
-- serialize game `GameTelemetrySnapshot` with server-style camel-case JSON and deserialize into `GameStateSnapshot`.
+### 6. Move `Eventually` unchanged except namespace
 
-This catches wire drift without giving Automation a game reference.
+Create `DTXMania.Automation/Support/Eventually.cs` and preserve bounded timeout, caller cancellation, transient-probe exception retention, and last-value return. Do not add retry packages/backoff policy.
 
-### 6. Move `Eventually` with behavior unchanged
+### 7. One E2E launch-policy owner
 
-Create:
-
-```text
-DTXMania.Automation/Support/Eventually.cs
-```
-
-Preserve bounded timeout, caller cancellation, transient probe exception retention, and last-value return. Do not add retry packages/backoff policy.
-
-### 7. One E2E-local launch adapter owns fixture/environment policy
-
-The reusable driver should not know what simulated MIDI means, but that policy must not become duplicated dictionaries at every smoke-test call site.
-
-Keep `E2EGameProject` as the only E2E C# reader of `DTXMANIA_E2E_GAME_PROJECT`:
-
-```csharp
-public static GameLaunchTarget ResolveLaunchTarget();
-```
-
-It chooses `GamePlatform.Windows` on Windows and `GamePlatform.Mac` otherwise, then applies the existing project-path override if present.
-
-Add one E2E-local adapter:
+Create/expand:
 
 ```text
 DTXMania.E2E/Fixtures/E2EGameLaunch.cs
 ```
 
+It owns the launch policy duplicated across the four smoke suites:
+
 ```csharp
 public static class E2EGameLaunch
 {
+    public static string ResolveRepoRoot();
+    public static int ResolveApiPort();
+
     public static GameProcessStartOptions CreateOptions(
-        string repoRoot,
         E2EFixture fixture,
         bool enableSimulatedMidi = false,
         IReadOnlyDictionary<string, string?>? extraEnvironment = null);
 }
 ```
 
+`ResolveRepoRoot` contains the existing `DTXMania.sln` upward search once.
+
+`ResolveApiPort`:
+
+- honors `DTXMANIA_E2E_API_PORT` only when it parses to `1..65535`;
+- otherwise chooses an ephemeral loopback port using the existing bounded retry/rebind behavior;
+- stays E2E-local; HPA-501 does not add a general free-port helper to Automation.
+
+`E2EGameProject` remains the only E2E C# reader of `DTXMANIA_E2E_GAME_PROJECT` and returns:
+
+```csharp
+GameLaunchTarget.Project(overridePath)
+```
+
+so default platform selection stays in `GameProjectPaths.Current`.
+
 `CreateOptions`:
 
-- calls `E2EGameProject.ResolveLaunchTarget()`;
-- uses `repoRoot`, `fixture.AppDataRoot`, and a fresh launch token;
-- always includes `DTXMANIA_ENABLE_SIMULATED_MIDI` as either `"1"` or `null`, so parent inheritance is never accidental;
-- merges caller extras used by scenarios such as controlled crash injection;
-- rejects `extraEnvironment` attempting to override `DTXMANIA_ENABLE_SIMULATED_MIDI` so the boolean remains the single E2E policy owner.
+- resolves the repo root itself;
+- uses `fixture.AppDataRoot` and a fresh launch token;
+- always sets `DTXMANIA_ENABLE_SIMULATED_MIDI` to `"1"` or explicitly removes it with null;
+- merges scenario extras;
+- rejects extras attempting to override the MIDI policy key.
 
-Every smoke suite uses this adapter. Midi and DrumMapping therefore stop duplicating project-path selection, and CrashReporting stops building a one-off environment dictionary without the explicit MIDI removal.
+Every smoke suite uses `ResolveRepoRoot`, `ResolveApiPort`, and `CreateOptions` rather than private copies.
 
-After migration, this source scan must return only `E2EGameProject.cs`:
+Post-migration scans must show:
 
-```bash
-rg -n "DTXMANIA_E2E_GAME_PROJECT" DTXMania.E2E --glob '*.cs'
+```text
+DTXMANIA_E2E_GAME_PROJECT      -> E2EGameProject.cs only
+DTXMANIA_ENABLE_SIMULATED_MIDI -> E2EGameLaunch.cs only
+FindRepoRoot                   -> no smoke-test copies
+GetAvailablePort               -> no smoke-test copies
+GetPortFromEnvironmentOrDefault -> no smoke-test copies
 ```
 
-And this scan must return only `E2EGameLaunch.cs`:
+### 8. E2E consumes Automation and old helpers are deleted
 
-```bash
-rg -n "DTXMANIA_ENABLE_SIMULATED_MIDI" DTXMania.E2E --glob '*.cs'
-```
-
-Repository scripts/workflows may continue setting `DTXMANIA_E2E_GAME_PROJECT`; the restriction is about C# policy ownership.
-
-### 8. E2E consumes Automation; old copies are deleted
-
-Delete after call sites compile against Automation:
+Delete after migration:
 
 ```text
 DTXMania.E2E/Process/GameProcessDriver.cs
@@ -395,81 +386,118 @@ DTXMania.E2E/Telemetry/E2EGameState.cs
 DTXMania.E2E/Support/Eventually.cs
 ```
 
-Move pure support tests into `DTXMania.Automation.Tests`.
+Move pure helper tests into Automation.Tests. Keep E2E fixtures, artifact handling, persistence verification, launch policy, and producer contracts in E2E.
 
-Keep E2E-owned concerns in E2E: fixtures, artifact writing, persistence verification, port selection, launch-env policy, and producer contract tests.
+All gameplay startup gates become:
 
-### 9. Cross-platform support-test contract
-
-Add a `justfile` recipe for the new platform-neutral test project and update `e2e-support` to include it.
-
-Both Windows and macOS CI jobs run:
-
-```text
-dotnet test DTXMania.Automation.Tests/DTXMania.Automation.Tests.csproj
+```csharp
+process.Start(startOptions);
+await process.WaitForStartupAsync(
+    client.GetHealthAsync,
+    TimeSpan.FromSeconds(60),
+    TimeSpan.FromMilliseconds(500),
+    cancellationToken);
 ```
 
-The existing Windows gameplay E2E job remains Windows-only. Do not add macOS gameplay E2E in HPA-501.
+### 9. Validation contract
+
+`DTXMania.Automation.Tests` runs on both Windows and macOS CI.
+
+The existing gameplay-E2E project remains Windows-targeted. HPA-501 does not claim macOS gameplay-E2E support. The migration's live behavioral gate is therefore the existing Windows gameplay E2E:
+
+```text
+Category=E2E
+```
+
+Task 4 is not considered behaviorally verified until that Windows live smoke passes. `Category=E2E-Support` alone is insufficient because it does not launch the game or exercise launch-token readiness.
 
 ## Error Handling
 
-- Blank working directory, app-data root, launch token, target path, or API base URI -> argument exception before launch/request.
+- Blank working directory, app-data root, launch token, executable path, or API base URI -> argument exception before launch/request.
+- Unsupported project-launch host -> `PlatformNotSupportedException`.
 - Duplicate `Start` -> `InvalidOperationException`.
-- Reserved process environment override -> `ArgumentException`.
-- Process cannot be created -> launch failure preserving useful underlying detail.
-- `/health` responds from another process/token -> keep polling; do not report ready.
-- Owned process exits before matching health identity -> fail immediately with exit code and captured output.
-- Startup timeout -> `TimeoutException`.
+- Reserved app-data/launch-token generic override -> `ArgumentException`.
+- Process cannot start -> launch exception preserving useful underlying detail.
+- Project `/health` token mismatch -> keep polling regardless of PID.
+- Executable `/health` token mismatch -> PID may satisfy fallback if it matches the owned executable.
+- Owned launcher/executable exits before readiness -> immediate failure with exit code/stdout/stderr.
+- Startup timeout -> `TimeoutException` containing the last observed health identity.
 - Caller cancellation -> `OperationCanceledException`.
-- JSON-RPC HTTP/protocol failure -> useful exception with method/status/body as appropriate.
+- JSON-RPC HTTP/protocol failure -> method/status/body detail as appropriate.
 - Cleanup after natural exit or prior cleanup -> succeeds without surfacing benign exit races.
 
 ## Testing Strategy
 
-### `DTXMania.Automation.Tests`
+### Automation.Tests
 
 Use process/HTTP seams only; never launch MonoGame.
 
 Required coverage:
 
-- Windows/Mac default project target and explicit override;
-- caller-supplied executable target without RID/path guessing;
-- command and environment construction;
+- Windows/Mac project constants and current-host project selection;
+- exact project override and executable path;
+- unsupported host behavior where practical;
+- command/environment construction;
 - duplicate start rejection;
-- stdout/stderr terminal drain;
-- startup succeeds only for matching launch token or owned PID;
-- wrong-token/wrong-PID health remains not-ready;
-- malformed health identity remains not-ready;
-- startup early process exit includes exit/output detail;
-- startup timeout and caller cancellation;
-- idempotent process-tree cleanup;
-- JSON-RPC success/error parsing;
-- input numeric payloads;
-- game-state/screenshot parsing;
-- `Eventually` success, timeout, transient failure, cancellation;
-- telemetry missing/null default behavior.
+- terminal stdout/stderr drain;
+- **Project:** matching token succeeds; same PID with wrong/missing token does not satisfy readiness;
+- **Executable:** matching token succeeds; matching executable PID may satisfy fallback;
+- mismatched health times out and timeout message includes the last observed health snapshot;
+- malformed/no health identity remains not-ready;
+- early process exit, timeout, cancellation, idempotent cleanup;
+- JSON-RPC health parsing plus normal command success/error parsing;
+- stable input numeric payloads;
+- telemetry missing/null defaults;
+- `Eventually` success/timeout/transient failure/cancellation.
 
-### `DTXMania.E2E`
+Process tests are serialized assembly-wide and tagged `Category=Automation-Process`.
 
-Retain game-coupled contract tests for input enum and telemetry JSON compatibility.
+### E2E
 
-Migrate all smoke launches through `E2EGameLaunch.CreateOptions`. Preserve current artifacts and gameplay assertions.
+- producer/consumer wire-contract tests remain game-coupled;
+- all smoke launch policy goes through `E2EGameLaunch`/`E2EGameProject`;
+- existing gameplay assertions and artifacts stay unchanged;
+- the Windows live `Category=E2E` suite is required after the migration.
+
+## Risks
+
+### Readiness semantics become stricter
+
+A successful `/health` response no longer means the launched game is ready. Project launch requires the exact launch token. A broken environment propagation could otherwise look like a generic 60-second hang, so timeout diagnostics must include the last observed health identity and the Windows gameplay smoke is a required gate.
+
+### Process tests add CI work
+
+Automation process tests create real child processes and some invoke `dotnet run`. They run on both Windows and macOS. Serialize them to avoid process contention, tag them for filtering, keep fixtures minimal, and do not turn them into MonoGame integration tests. Expect a modest CI-time increase; if it becomes material, optimize the fixture/build reuse later rather than adding a benchmark framework now.
+
+### E2E remains Windows-targeted
+
+Automation is cross-platform, but `DTXMania.E2E` remains `net8.0-windows7.0`. Do not use a macOS E2E command as evidence for HPA-501 unless that project is separately retargeted in a future issue.
+
+### MCP temporarily keeps its own readiness implementation
+
+HPA-501 copies the proven semantics, not the MCP dependency. This creates temporary duplication. Record MCP-to-Automation convergence as a follow-up; do not expand this ticket by rewriting MCP's generic client/lifecycle.
 
 ## Acceptance Criteria
 
-- `DTXMania.Automation` builds as plain `net8.0` on Windows and macOS.
-- `DTXMania.Automation` and its tests have no game, E2E, or MCP project reference.
-- Startup readiness cannot be satisfied by a stale CX process on the endpoint; matching launch token or owned PID is required.
-- Existing E2E health, telemetry, screenshot, input, stdout/stderr, and cleanup behavior runs through Automation.
-- E2E C# game-project env selection is centralized in `E2EGameProject`; simulated-MIDI launch policy is centralized in `E2EGameLaunch`.
-- No production project references `DTXMania.E2E`.
-- HPA-503 can launch and control one owned CX process by referencing `DTXMania.Automation` only.
+- `DTXMania.Automation` and Automation.Tests target plain `net8.0` and have no game/E2E/MCP project references.
+- Automation.Tests run on Windows and macOS CI with process tests serialized.
+- Project startup accepts only a matching `/health` launch token.
+- Executable startup accepts matching token or matching owned executable PID.
+- Startup timeout reports the last observed health identity.
+- Existing E2E health, telemetry, screenshot, input, stdout/stderr, and cleanup behavior flows through Automation.
+- E2E repo-root, API-port, project-selection, and simulated-MIDI policy each have one C# owner rather than smoke-test copies.
+- Old E2E helper copies are deleted with no shims.
+- The Windows live gameplay E2E passes after migration.
+- No production project references E2E or MCP.
+- HPA-503 can launch/control one owned CX process by referencing Automation only.
 
 ## Self-review
 
-- No `AutomationSession`, DI container, generic subprocess abstraction, OBS/FFmpeg, recorder workflow, or HPA-510 behavior was introduced.
-- MCP behavior is reused semantically, but Automation has no MCP dependency.
-- Launch platform naming no longer claims RID selection that the project path does not perform.
-- Existing repository test package versions are copied exactly; no package upgrade is part of this ticket.
-- API-key sanitization was removed as unnecessary local-only hardening; recorder diagnostics remain responsible for never persisting secrets.
-- E2E environment/project policy has one owner instead of moving from one duplication pattern to another.
+- No lifecycle/session facade, DI container, generic subprocess/transport abstraction, recorder workflow, OBS/FFmpeg, or HPA-510 behavior was added.
+- `GamePlatform` is not dead state on `GameLaunchTarget`.
+- `IsHealthyAsync`/`IsHealthyForLaunchAsync` are not redundant public APIs; `GetHealthAsync` is the single health transport method and the driver owns readiness semantics.
+- Project launch does not pretend its `dotnet run` PID is the game PID.
+- E2E launch-policy duplication is reduced rather than merely moved.
+- Current E2E/main test package versions are preserved; no unrelated package normalization is included.
+- API-key sanitization remains out of scope.
+- Risks cover the behavior change and CI cost, not just scope purity.
