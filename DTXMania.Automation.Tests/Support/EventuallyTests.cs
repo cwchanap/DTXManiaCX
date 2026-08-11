@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using DTXMania.Automation.Support;
 
 namespace DTXMania.Automation.Tests.Support;
@@ -76,5 +77,46 @@ public sealed class EventuallyTests
             TimeSpan.FromMilliseconds(1),
             "cancelled operation",
             cancellation.Token));
+    }
+
+    [Fact]
+    public async Task UntilAsync_WhenProbeNeverCompletes_ShouldHonorDeadlineInsteadOfHanging()
+    {
+        // A probe that never completes and ignores its token would, without a
+        // per-probe deadline, hang the method indefinitely and ignore the
+        // advertised timeout. The deadline must bound the probe.
+        var neverCompletingSource = new TaskCompletionSource<int>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var timeout = TimeSpan.FromMilliseconds(150);
+        var interval = TimeSpan.FromMilliseconds(10);
+
+        var stopwatch = Stopwatch.StartNew();
+        await Assert.ThrowsAsync<TimeoutException>(() =>
+            Eventually.UntilAsync(
+                token =>
+                {
+                    // Make the probe token-aware so we can assert it was canceled
+                    // when the deadline fired, proving the probe was not left
+                    // running unbounded.
+                    token.Register(() => neverCompletingSource.TrySetCanceled(token));
+                    return neverCompletingSource.Task;
+                },
+                _ => false,
+                timeout,
+                interval,
+                "never-completing probe",
+                CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5)));
+        stopwatch.Stop();
+
+        // The deadline must actually bound the probe — it should fire well under
+        // the safety WaitAsync window and not dramatically exceed the configured
+        // timeout.
+        Assert.True(
+            stopwatch.Elapsed < TimeSpan.FromSeconds(2),
+            $"Expected the deadline to bound the never-completing probe near {timeout}, but waited {stopwatch.Elapsed}.");
+
+        // The probe must be canceled (not left running unbounded) once the
+        // deadline fires.
+        Assert.True(neverCompletingSource.Task.IsCanceled);
     }
 }

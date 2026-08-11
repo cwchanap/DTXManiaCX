@@ -304,6 +304,55 @@ public sealed class GameProcessDriverTests
     }
 
     [Fact(Timeout = 60_000)]
+    public async Task WaitForStartup_WhenOwnedProcessExitsAfterMatchingHealth_ShouldReportExitInsteadOfReturningSuccess()
+    {
+        using var fixture = CreateChildFixture();
+        await using var process = new GameProcessDriver();
+        var options = CreateOptions(
+            fixture,
+            GameLaunchTarget.Project(fixture.ProjectPath),
+            new Dictionary<string, string?> { ["DTX_AUTOMATION_CHILD_MODE"] = "wait" });
+        process.Start(options);
+        var ownedPid = process.ProcessId!.Value;
+
+        var killed = false;
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => process.WaitForStartupAsync(
+            _ =>
+            {
+                // Simulate the TOCTOU race: the owned process answers /health
+                // with a matching identity, then exits immediately before the
+                // continuation runs. The driver must report the exit rather than
+                // declare startup successful.
+                if (!killed)
+                {
+                    killed = true;
+                    try
+                    {
+                        using var owned = System.Diagnostics.Process.GetProcessById(ownedPid);
+                        owned.Kill(entireProcessTree: true);
+                        owned.WaitForExit();
+                    }
+                    catch (ArgumentException)
+                    {
+                        // Process already exited.
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        // Process already exited.
+                    }
+                }
+                return Task.FromResult<GameHealthSnapshot?>(
+                    new(ownedPid, options.LaunchToken));
+            },
+            TimeSpan.FromSeconds(5),
+            TimeSpan.FromMilliseconds(10),
+            CancellationToken.None));
+
+        Assert.Contains("exited before startup", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(ownedPid.ToString(), exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact(Timeout = 60_000)]
     public async Task WaitForStartup_WhenMatchingHealthArrivesAfterDeadline_ShouldTimeout()
     {
         using var fixture = CreateChildFixture();
