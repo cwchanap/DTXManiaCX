@@ -25,15 +25,9 @@ public sealed class MidiGameplaySmokeTests
         var apiPort = E2EGameLaunch.ResolveApiPort();
         var fixture = E2EFixtureBuilder.Build(runRoot, repoRoot, apiPort);
         ConfigureMidiGameplayFixture(fixture);
-        await using var process = new GameProcessDriver();
-
-        using var httpClient = new HttpClient(new SocketsHttpHandler { UseCookies = false })
-        {
-            Timeout = TimeSpan.FromSeconds(5)
-        };
-        var client = new JsonRpcGameClient(
-            httpClient,
-            new GameApiConnectionOptions(fixture.ApiBaseUri, fixture.ApiKey));
+        await using var bundle = E2EGameLaunch.CreateClientBundle(fixture);
+        var process = bundle.Process;
+        var client = bundle.Client;
 
         try
         {

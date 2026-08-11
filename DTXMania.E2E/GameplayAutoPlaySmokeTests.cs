@@ -17,7 +17,6 @@ public sealed class GameplayAutoPlaySmokeTests
     {
         using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(390));
         var repoRoot = E2EGameLaunch.ResolveRepoRoot();
-        var apiPort = E2EGameLaunch.ResolveApiPort();
         var runRoot = Path.Combine(Path.GetTempPath(), "dtxmaniacx-e2e-" + Guid.NewGuid().ToString("N"));
         var profiles = new[]
         {
@@ -32,9 +31,7 @@ public sealed class GameplayAutoPlaySmokeTests
             for (var profileIndex = 0; profileIndex < profiles.Length; profileIndex++)
             {
                 var profile = profiles[profileIndex];
-                var profileApiPort = profileIndex == 0
-                    ? apiPort
-                    : E2EGameLaunch.ResolveApiPort();
+                var profileApiPort = E2EGameLaunch.ResolveApiPort();
                 var fixture = E2EFixtureBuilder.Build(
                     runRoot,
                     repoRoot,
@@ -97,14 +94,9 @@ public sealed class GameplayAutoPlaySmokeTests
             fixture,
             $"config-{artifactSuffix}.ini",
             await File.ReadAllTextAsync(fixture.ConfigPath, cancellationToken));
-        await using var process = new GameProcessDriver();
-        using var httpClient = new HttpClient(new SocketsHttpHandler { UseCookies = false })
-        {
-            Timeout = TimeSpan.FromSeconds(5)
-        };
-        var client = new JsonRpcGameClient(
-            httpClient,
-            new GameApiConnectionOptions(fixture.ApiBaseUri, fixture.ApiKey));
+        await using var bundle = E2EGameLaunch.CreateClientBundle(fixture);
+        var process = bundle.Process;
+        var client = bundle.Client;
 
         try
         {

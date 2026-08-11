@@ -159,14 +159,16 @@ public sealed class GameProcessDriver : IAsyncDisposable
                 break;
 
             GameHealthSnapshot? health;
+            Task<GameHealthSnapshot?> probeTask = Task.FromResult<GameHealthSnapshot?>(null);
             try
             {
-                var probeTask = healthProbe(probeCancellation.Token);
+                probeTask = healthProbe(probeCancellation.Token);
                 health = await probeTask.WaitAsync(remaining, cancellationToken).ConfigureAwait(false);
             }
             catch (TimeoutException)
             {
                 probeCancellation.Cancel();
+                await ObserveProbeCompletionAsync(probeTask).ConfigureAwait(false);
                 break;
             }
 
@@ -259,6 +261,8 @@ public sealed class GameProcessDriver : IAsyncDisposable
         {
             process.Dispose();
             _process = null;
+            _launchKind = null;
+            _launchToken = null;
         }
     }
 
@@ -302,6 +306,21 @@ public sealed class GameProcessDriver : IAsyncDisposable
     {
         return _process
             ?? throw new InvalidOperationException("Game process has not been started.");
+    }
+
+    private static async Task ObserveProbeCompletionAsync(Task<GameHealthSnapshot?> probeTask)
+    {
+        try
+        {
+            await probeTask.WaitAsync(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
+        }
+        catch
+        {
+            // Best-effort observation: the probe was canceled, timed out, or faulted
+            // after the startup timeout fired. If it still hasn't completed within the
+            // observation window, it will be left to the GC — acceptable since the
+            // startup timeout has already fired and the caller has given up waiting.
+        }
     }
 
     private void AppendOutput(
