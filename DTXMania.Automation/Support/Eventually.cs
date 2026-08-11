@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace DTXMania.Automation.Support;
 
 public static class Eventually
@@ -12,8 +14,12 @@ public static class Eventually
     {
         ArgumentNullException.ThrowIfNull(probe);
         ArgumentNullException.ThrowIfNull(predicate);
+        if (timeout < TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(timeout), timeout, "Timeout must be non-negative.");
+        if (interval <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(interval), interval, "Interval must be positive.");
 
-        var deadline = DateTimeOffset.UtcNow + timeout;
+        var stopwatch = Stopwatch.StartNew();
         T last = default!;
         Exception? lastException = null;
 
@@ -21,7 +27,7 @@ public static class Eventually
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var remaining = deadline - DateTimeOffset.UtcNow;
+            var remaining = timeout - stopwatch.Elapsed;
             if (remaining <= TimeSpan.Zero)
                 break;
 
@@ -40,7 +46,7 @@ public static class Eventually
             {
                 probeTask = probe(probeCancellation.Token);
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 throw;
             }
@@ -49,7 +55,7 @@ public static class Eventually
                 // Synchronous probe failure (HTTP error, timeout, JSON-RPC
                 // error) — treat as "predicate not yet satisfied" and retry.
                 lastException = ex;
-                await Task.Delay(interval, cancellationToken).ConfigureAwait(false);
+                await DelayCappedAsync(interval, timeout - stopwatch.Elapsed, cancellationToken).ConfigureAwait(false);
                 continue;
             }
 
@@ -58,7 +64,7 @@ public static class Eventually
                 last = await probeTask.WaitAsync(remaining, cancellationToken).ConfigureAwait(false);
                 lastException = null;
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 throw;
             }
@@ -76,12 +82,15 @@ public static class Eventually
                 if (probeTask.IsFaulted)
                 {
                     lastException = ex;
-                    await Task.Delay(interval, cancellationToken).ConfigureAwait(false);
+                    await DelayCappedAsync(interval, timeout - stopwatch.Elapsed, cancellationToken).ConfigureAwait(false);
                     continue;
                 }
 
+                // Fire-and-forget: the caller has already exceeded the deadline,
+                // so do not wait for the probe to observe its cancellation. The
+                // best-effort observer runs in the background.
                 probeCancellation.Cancel();
-                await ObserveProbeCompletionAsync(probeTask).ConfigureAwait(false);
+                _ = ObserveProbeCompletionAsync(probeTask);
                 break;
             }
             catch (Exception ex)
@@ -89,20 +98,35 @@ public static class Eventually
                 // Transient probe failure (HTTP error, timeout, JSON-RPC error) —
                 // treat as "predicate not yet satisfied" and retry.
                 lastException = ex;
-                await Task.Delay(interval, cancellationToken).ConfigureAwait(false);
+                await DelayCappedAsync(interval, timeout - stopwatch.Elapsed, cancellationToken).ConfigureAwait(false);
                 continue;
             }
 
             if (predicate(last))
                 return last;
 
-            await Task.Delay(interval, cancellationToken).ConfigureAwait(false);
+            await DelayCappedAsync(interval, timeout - stopwatch.Elapsed, cancellationToken).ConfigureAwait(false);
         }
 
         var baseMessage = $"Timed out waiting for {description}. Last value: {last}";
         throw lastException is not null
             ? new TimeoutException($"{baseMessage}. Last error: {lastException.Message}", lastException)
             : new TimeoutException(baseMessage);
+    }
+
+    private static async Task DelayCappedAsync(TimeSpan interval, TimeSpan remaining, CancellationToken cancellationToken)
+    {
+        // Cap the delay at the remaining deadline so no retry interval can push
+        // the method past the advertised timeout. Timeout.InfiniteTimeSpan is
+        // handled defensively (validation already rejects it) so no delay can
+        // wait indefinitely unless cancellation is requested.
+        var delay = remaining <= TimeSpan.Zero
+            ? TimeSpan.Zero
+            : interval == Timeout.InfiniteTimeSpan || interval > remaining
+                ? remaining
+                : interval;
+        if (delay > TimeSpan.Zero)
+            await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task ObserveProbeCompletionAsync(Task task)
