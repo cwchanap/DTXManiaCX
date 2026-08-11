@@ -147,21 +147,41 @@ public sealed class GameProcessDriver : IAsyncDisposable
         EnsureStarted();
         GameHealthSnapshot? lastObserved = null;
         var deadline = Stopwatch.StartNew();
+        using var probeCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
         while (deadline.Elapsed < timeout)
         {
             cancellationToken.ThrowIfCancellationRequested();
             await ThrowIfOwnedProcessExitedAsync().ConfigureAwait(false);
 
-            var health = await healthProbe(cancellationToken).ConfigureAwait(false);
+            var remaining = timeout - deadline.Elapsed;
+            if (remaining <= TimeSpan.Zero)
+                break;
+
+            GameHealthSnapshot? health;
+            try
+            {
+                var probeTask = healthProbe(probeCancellation.Token);
+                health = await probeTask.WaitAsync(remaining, cancellationToken).ConfigureAwait(false);
+            }
+            catch (TimeoutException)
+            {
+                probeCancellation.Cancel();
+                break;
+            }
+
             if (health is not null)
             {
                 lastObserved = health;
 
-                if (string.Equals(health.LaunchToken, _launchToken, StringComparison.Ordinal)
+                var matchesReadinessRule = string.Equals(
+                        health.LaunchToken,
+                        _launchToken,
+                        StringComparison.Ordinal)
                     || (_launchKind == GameLaunchKind.Executable
                         && health.ProcessId.HasValue
-                        && health.ProcessId == _process!.Id))
+                        && health.ProcessId == _process!.Id);
+                if (matchesReadinessRule && deadline.Elapsed < timeout)
                 {
                     return;
                 }
@@ -169,7 +189,7 @@ public sealed class GameProcessDriver : IAsyncDisposable
 
             await ThrowIfOwnedProcessExitedAsync().ConfigureAwait(false);
 
-            var remaining = timeout - deadline.Elapsed;
+            remaining = timeout - deadline.Elapsed;
             if (remaining <= TimeSpan.Zero)
                 break;
 

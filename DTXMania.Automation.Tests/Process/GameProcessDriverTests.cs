@@ -263,6 +263,101 @@ public sealed class GameProcessDriverTests
         Assert.Contains(process.ProcessId!.Value.ToString(), exception.Message, StringComparison.Ordinal);
     }
 
+    [Fact(Timeout = 60_000)]
+    public async Task WaitForStartup_WhenHealthProbeNeverCompletes_ShouldHonorStartupTimeout()
+    {
+        using var fixture = CreateChildFixture();
+        await using var process = new GameProcessDriver();
+        var options = CreateOptions(
+            fixture,
+            GameLaunchTarget.Project(fixture.ProjectPath),
+            new Dictionary<string, string?> { ["DTX_AUTOMATION_CHILD_MODE"] = "wait" });
+        process.Start(options);
+
+        var neverCompletingProbe = new TaskCompletionSource<GameHealthSnapshot?>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var startup = process.WaitForStartupAsync(
+            _ => neverCompletingProbe.Task,
+            TimeSpan.FromMilliseconds(100),
+            TimeSpan.FromMilliseconds(10),
+            CancellationToken.None);
+
+        try
+        {
+            var completed = await Task.WhenAny(startup, Task.Delay(TimeSpan.FromSeconds(2)));
+            Assert.Same(startup, completed);
+            await Assert.ThrowsAsync<TimeoutException>(() => startup);
+        }
+        finally
+        {
+            neverCompletingProbe.TrySetResult(null);
+            try
+            {
+                await startup;
+            }
+            catch (Exception)
+            {
+                // The assertion above owns the expected startup result.
+            }
+        }
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task WaitForStartup_WhenMatchingHealthArrivesAfterDeadline_ShouldTimeout()
+    {
+        using var fixture = CreateChildFixture();
+        await using var process = new GameProcessDriver();
+        var options = CreateOptions(
+            fixture,
+            GameLaunchTarget.Project(fixture.ProjectPath),
+            new Dictionary<string, string?> { ["DTX_AUTOMATION_CHILD_MODE"] = "wait" });
+        process.Start(options);
+
+        var lateHealthProbe = new TaskCompletionSource<GameHealthSnapshot?>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var startup = process.WaitForStartupAsync(
+            _ => lateHealthProbe.Task,
+            TimeSpan.FromMilliseconds(100),
+            TimeSpan.FromMilliseconds(10),
+            CancellationToken.None);
+        var lateHealthCompletion = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(200));
+            lateHealthProbe.TrySetResult(new(process.ProcessId, options.LaunchToken));
+        });
+        var completionGuard = Task.Delay(TimeSpan.FromMilliseconds(500));
+
+        try
+        {
+            var completedLateHealth = await Task.WhenAny(lateHealthCompletion, completionGuard);
+            Assert.Same(lateHealthCompletion, completedLateHealth);
+
+            var completedStartup = await Task.WhenAny(startup, completionGuard);
+            Assert.Same(startup, completedStartup);
+            await Assert.ThrowsAsync<TimeoutException>(() => startup);
+        }
+        finally
+        {
+            lateHealthProbe.TrySetResult(null);
+            try
+            {
+                await lateHealthCompletion;
+            }
+            catch (Exception)
+            {
+                // The assertion above owns the expected scheduled completion.
+            }
+            try
+            {
+                await startup;
+            }
+            catch (Exception)
+            {
+                // The assertion above owns the expected startup result.
+            }
+        }
+    }
+
     private static GameProcessStartOptions CreateOptions(
         ChildFixture fixture,
         GameLaunchTarget target,
