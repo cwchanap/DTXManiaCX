@@ -1,11 +1,10 @@
-using System.Net;
-using System.Net.Sockets;
 using System.Text;
+using DTXMania.Automation.JsonRpc;
+using DTXMania.Automation.Process;
+using DTXMania.Automation.Support;
+using DTXMania.Automation.Telemetry;
 using DTXMania.E2E.Fixtures;
-using DTXMania.E2E.JsonRpc;
-using DTXMania.E2E.Process;
 using DTXMania.E2E.Support;
-using DTXMania.E2E.Telemetry;
 
 namespace DTXMania.E2E;
 
@@ -21,35 +20,29 @@ public sealed class MidiGameplaySmokeTests
     public async Task SimulatedMidiNote_ShouldRegisterGameplayJudgement()
     {
         using var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(3));
-        var repoRoot = FindRepoRoot();
+        var repoRoot = E2EGameLaunch.ResolveRepoRoot();
         var runRoot = Path.Combine(Path.GetTempPath(), "dtxmaniacx-e2e-midi-" + Guid.NewGuid().ToString("N"));
-        var apiPort = GetPortFromEnvironmentOrDefault();
+        var apiPort = E2EGameLaunch.ResolveApiPort();
         var fixture = E2EFixtureBuilder.Build(runRoot, repoRoot, apiPort);
         ConfigureMidiGameplayFixture(fixture);
         await using var process = new GameProcessDriver();
 
         using var httpClient = new HttpClient(new SocketsHttpHandler { UseCookies = false })
         {
-            BaseAddress = fixture.ApiBaseUri,
             Timeout = TimeSpan.FromSeconds(5)
         };
-        var client = new JsonRpcGameClient(httpClient, fixture.ApiKey);
+        var client = new JsonRpcGameClient(
+            httpClient,
+            new GameApiConnectionOptions(fixture.ApiBaseUri, fixture.ApiKey));
 
         try
         {
-            var projectPath = Environment.GetEnvironmentVariable("DTXMANIA_E2E_GAME_PROJECT")
-                ?? (OperatingSystem.IsWindows()
-                    ? "DTXMania.Game/DTXMania.Game.Windows.csproj"
-                    : "DTXMania.Game/DTXMania.Game.Mac.csproj");
-
-            process.Start(repoRoot, projectPath, fixture, enableSimulatedMidi: true);
-
-            await Eventually.UntilAsync(
-                _ => client.IsHealthyAsync(cancellation.Token),
-                healthy => healthy,
+            var startOptions = E2EGameLaunch.CreateOptions(fixture, enableSimulatedMidi: true);
+            process.Start(startOptions);
+            await process.WaitForStartupAsync(
+                client.GetHealthAsync,
                 TimeSpan.FromSeconds(60),
                 TimeSpan.FromMilliseconds(500),
-                "JSON-RPC health",
                 cancellation.Token);
 
             await WaitForStageAsync(client, "Title", TimeSpan.FromSeconds(45), cancellation.Token);
@@ -149,7 +142,7 @@ public sealed class MidiGameplaySmokeTests
         });
     }
 
-    private static async Task<E2EGameState> WaitForStageAsync(
+    private static async Task<GameStateSnapshot> WaitForStageAsync(
         JsonRpcGameClient client,
         string expectedStageType,
         TimeSpan timeout,
@@ -164,7 +157,7 @@ public sealed class MidiGameplaySmokeTests
             cancellationToken);
     }
 
-    private static async Task<E2EGameState> WaitForPerformanceReadyAsync(
+    private static async Task<GameStateSnapshot> WaitForPerformanceReadyAsync(
         JsonRpcGameClient client,
         TimeSpan timeout,
         CancellationToken cancellationToken)
@@ -181,7 +174,7 @@ public sealed class MidiGameplaySmokeTests
             cancellationToken);
     }
 
-    private static async Task<E2EGameState> WaitForSongClockAsync(
+    private static async Task<GameStateSnapshot> WaitForSongClockAsync(
         JsonRpcGameClient client,
         TimeSpan timeout,
         CancellationToken cancellationToken)
@@ -224,55 +217,4 @@ public sealed class MidiGameplaySmokeTests
         await client.SendMidiNoteAsync(MidiNote, velocity: 100, TimeSpan.FromMilliseconds(20), cancellationToken);
     }
 
-    private static int GetPortFromEnvironmentOrDefault()
-    {
-        var raw = Environment.GetEnvironmentVariable("DTXMANIA_E2E_API_PORT");
-        // Only honor the override when it parses to a valid TCP port (1-65535); otherwise fall
-        // through to an ephemeral OS-assigned port so a misconfigured value can't break the run.
-        const int minValidTcpPort = 1;
-        const int maxValidTcpPort = 65535;
-        if (int.TryParse(raw, out var port) &&
-            port >= minValidTcpPort && port <= maxValidTcpPort)
-        {
-            return port;
-        }
-
-        const int maxAttempts = 5;
-        for (int attempt = 0; attempt < maxAttempts; attempt++)
-        {
-            var listener = new TcpListener(IPAddress.Loopback, 0);
-            listener.Start();
-            var chosen = ((IPEndPoint)listener.LocalEndpoint).Port;
-            listener.Stop();
-
-            try
-            {
-                var verify = new TcpListener(IPAddress.Loopback, chosen);
-                verify.Start();
-                verify.Stop();
-                return chosen;
-            }
-            catch (SocketException)
-            {
-            }
-        }
-
-        using var fallback = new TcpListener(IPAddress.Loopback, 0);
-        fallback.Start();
-        return ((IPEndPoint)fallback.LocalEndpoint).Port;
-    }
-
-    private static string FindRepoRoot()
-    {
-        var current = new DirectoryInfo(Directory.GetCurrentDirectory());
-        while (current != null)
-        {
-            if (File.Exists(Path.Combine(current.FullName, "DTXMania.sln")))
-                return current.FullName;
-
-            current = current.Parent;
-        }
-
-        throw new InvalidOperationException("Could not locate repository root from current directory.");
-    }
 }

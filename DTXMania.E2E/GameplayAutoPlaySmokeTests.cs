@@ -1,10 +1,9 @@
-using System.Net;
-using System.Net.Sockets;
+using DTXMania.Automation.JsonRpc;
+using DTXMania.Automation.Process;
+using DTXMania.Automation.Support;
+using DTXMania.Automation.Telemetry;
 using DTXMania.E2E.Fixtures;
-using DTXMania.E2E.JsonRpc;
-using DTXMania.E2E.Process;
 using DTXMania.E2E.Support;
-using DTXMania.E2E.Telemetry;
 using DTXMania.Game.Lib.Song.Entities;
 using Microsoft.EntityFrameworkCore;
 
@@ -17,9 +16,9 @@ public sealed class GameplayAutoPlaySmokeTests
     public async Task AutoPlaySmoke_ShouldPersistIndependentSpeedBucketsAndReuseBucketAcrossPitches()
     {
         using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(390));
-        var repoRoot = FindRepoRoot();
+        var repoRoot = E2EGameLaunch.ResolveRepoRoot();
+        var apiPort = E2EGameLaunch.ResolveApiPort();
         var runRoot = Path.Combine(Path.GetTempPath(), "dtxmaniacx-e2e-" + Guid.NewGuid().ToString("N"));
-        var projectPath = E2EGameProject.ResolveProjectPath();
         var profiles = new[]
         {
             new PlaybackProfile(75, 3, ExpectedBucketPlayCount: 1),
@@ -33,20 +32,18 @@ public sealed class GameplayAutoPlaySmokeTests
             for (var profileIndex = 0; profileIndex < profiles.Length; profileIndex++)
             {
                 var profile = profiles[profileIndex];
-                var apiPort = profileIndex == 0
-                    ? GetPortFromEnvironmentOrDefault()
-                    : GetAvailablePort();
+                var profileApiPort = profileIndex == 0
+                    ? apiPort
+                    : E2EGameLaunch.ResolveApiPort();
                 var fixture = E2EFixtureBuilder.Build(
                     runRoot,
                     repoRoot,
-                    apiPort,
+                    profileApiPort,
                     profile.PlaySpeedPercent,
                     profile.PitchSemitones);
                 lastFixture = fixture;
 
                 await RunProfileAsync(
-                    repoRoot,
-                    projectPath,
                     fixture,
                     profile,
                     profileIndex,
@@ -89,8 +86,6 @@ public sealed class GameplayAutoPlaySmokeTests
     }
 
     private static async Task RunProfileAsync(
-        string repoRoot,
-        string projectPath,
         E2EFixture fixture,
         PlaybackProfile profile,
         int profileIndex,
@@ -105,21 +100,20 @@ public sealed class GameplayAutoPlaySmokeTests
         await using var process = new GameProcessDriver();
         using var httpClient = new HttpClient(new SocketsHttpHandler { UseCookies = false })
         {
-            BaseAddress = fixture.ApiBaseUri,
             Timeout = TimeSpan.FromSeconds(5)
         };
-        var client = new JsonRpcGameClient(httpClient, fixture.ApiKey);
+        var client = new JsonRpcGameClient(
+            httpClient,
+            new GameApiConnectionOptions(fixture.ApiBaseUri, fixture.ApiKey));
 
         try
         {
-            process.Start(repoRoot, projectPath, fixture);
-
-            await Eventually.UntilAsync(
-                _ => client.IsHealthyAsync(cancellationToken),
-                healthy => healthy,
+            var startOptions = E2EGameLaunch.CreateOptions(fixture);
+            process.Start(startOptions);
+            await process.WaitForStartupAsync(
+                client.GetHealthAsync,
                 TimeSpan.FromSeconds(60),
                 TimeSpan.FromMilliseconds(500),
-                "JSON-RPC health",
                 cancellationToken);
 
             await WaitForStageAsync(client, "Title", TimeSpan.FromSeconds(45), cancellationToken);
@@ -296,7 +290,7 @@ public sealed class GameplayAutoPlaySmokeTests
         int PitchSemitones,
         string HistoryLine);
 
-    private static async Task<E2EGameState> WaitForStageAsync(
+    private static async Task<GameStateSnapshot> WaitForStageAsync(
         JsonRpcGameClient client,
         string expectedStageType,
         TimeSpan timeout,
@@ -346,58 +340,4 @@ public sealed class GameplayAutoPlaySmokeTests
         }
     }
 
-    private static int GetPortFromEnvironmentOrDefault()
-    {
-        var raw = Environment.GetEnvironmentVariable("DTXMANIA_E2E_API_PORT");
-        if (int.TryParse(raw, out var port))
-            return port;
-
-        return GetAvailablePort();
-    }
-
-    private static int GetAvailablePort()
-    {
-        // Bind an ephemeral port and verify it is usable to avoid TOCTOU races
-        const int maxAttempts = 5;
-        for (int attempt = 0; attempt < maxAttempts; attempt++)
-        {
-            var listener = new TcpListener(IPAddress.Loopback, 0);
-            listener.Start();
-            var chosen = ((IPEndPoint)listener.LocalEndpoint).Port;
-
-            // Quick bind check: release and immediately re-bind to confirm availability
-            listener.Stop();
-
-            try
-            {
-                var verify = new TcpListener(IPAddress.Loopback, chosen);
-                verify.Start();
-                verify.Stop();
-                return chosen;
-            }
-            catch (SocketException)
-            {
-                // Port was snatched up; try again
-            }
-        }
-
-        // Fallback: just return a fresh ephemeral port
-        using var fallback = new TcpListener(IPAddress.Loopback, 0);
-        fallback.Start();
-        return ((IPEndPoint)fallback.LocalEndpoint).Port;
-    }
-
-    private static string FindRepoRoot()
-    {
-        var current = new DirectoryInfo(Directory.GetCurrentDirectory());
-        while (current != null)
-        {
-            if (File.Exists(Path.Combine(current.FullName, "DTXMania.sln")))
-                return current.FullName;
-
-            current = current.Parent;
-        }
-
-        throw new InvalidOperationException("Could not locate repository root from current directory.");
-    }
 }

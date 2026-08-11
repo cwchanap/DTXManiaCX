@@ -1,10 +1,9 @@
-using System.Net;
-using System.Net.Sockets;
+using DTXMania.Automation.JsonRpc;
+using DTXMania.Automation.Process;
+using DTXMania.Automation.Support;
+using DTXMania.Automation.Telemetry;
 using DTXMania.E2E.Fixtures;
-using DTXMania.E2E.JsonRpc;
-using DTXMania.E2E.Process;
 using DTXMania.E2E.Support;
-using DTXMania.E2E.Telemetry;
 
 namespace DTXMania.E2E;
 
@@ -26,34 +25,28 @@ public sealed class DrumMappingStageSmokeTests
     public async Task DrumMapping_BindKeyThenBack_PersistsBindingToConfig()
     {
         using var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(3));
-        var repoRoot = FindRepoRoot();
+        var repoRoot = E2EGameLaunch.ResolveRepoRoot();
         var runRoot = Path.Combine(Path.GetTempPath(), "dtxmaniacx-e2e-drum-" + Guid.NewGuid().ToString("N"));
-        var apiPort = GetPortFromEnvironmentOrDefault();
+        var apiPort = E2EGameLaunch.ResolveApiPort();
         var fixture = E2EFixtureBuilder.Build(runRoot, repoRoot, apiPort);
         await using var process = new GameProcessDriver();
 
         using var httpClient = new HttpClient(new SocketsHttpHandler { UseCookies = false })
         {
-            BaseAddress = fixture.ApiBaseUri,
             Timeout = TimeSpan.FromSeconds(5)
         };
-        var client = new JsonRpcGameClient(httpClient, fixture.ApiKey);
+        var client = new JsonRpcGameClient(
+            httpClient,
+            new GameApiConnectionOptions(fixture.ApiBaseUri, fixture.ApiKey));
 
         try
         {
-            var projectPath = Environment.GetEnvironmentVariable("DTXMANIA_E2E_GAME_PROJECT")
-                ?? (OperatingSystem.IsWindows()
-                    ? "DTXMania.Game/DTXMania.Game.Windows.csproj"
-                    : "DTXMania.Game/DTXMania.Game.Mac.csproj");
-
-            process.Start(repoRoot, projectPath, fixture);
-
-            await Eventually.UntilAsync(
-                _ => client.IsHealthyAsync(cancellation.Token),
-                healthy => healthy,
+            var startOptions = E2EGameLaunch.CreateOptions(fixture);
+            process.Start(startOptions);
+            await process.WaitForStartupAsync(
+                client.GetHealthAsync,
                 TimeSpan.FromSeconds(60),
                 TimeSpan.FromMilliseconds(500),
-                "JSON-RPC health",
                 cancellation.Token);
 
             // Let the game boot fully before jumping stages.
@@ -124,34 +117,28 @@ public sealed class DrumMappingStageSmokeTests
     public async Task DrumMapping_ResetViaKeyboard_WipesCustomBindingOnSave()
     {
         using var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(3));
-        var repoRoot = FindRepoRoot();
+        var repoRoot = E2EGameLaunch.ResolveRepoRoot();
         var runRoot = Path.Combine(Path.GetTempPath(), "dtxmaniacx-e2e-reset-" + Guid.NewGuid().ToString("N"));
-        var apiPort = GetPortFromEnvironmentOrDefault();
+        var apiPort = E2EGameLaunch.ResolveApiPort();
         var fixture = E2EFixtureBuilder.Build(runRoot, repoRoot, apiPort);
         await using var process = new GameProcessDriver();
 
         using var httpClient = new HttpClient(new SocketsHttpHandler { UseCookies = false })
         {
-            BaseAddress = fixture.ApiBaseUri,
             Timeout = TimeSpan.FromSeconds(5)
         };
-        var client = new JsonRpcGameClient(httpClient, fixture.ApiKey);
+        var client = new JsonRpcGameClient(
+            httpClient,
+            new GameApiConnectionOptions(fixture.ApiBaseUri, fixture.ApiKey));
 
         try
         {
-            var projectPath = Environment.GetEnvironmentVariable("DTXMANIA_E2E_GAME_PROJECT")
-                ?? (OperatingSystem.IsWindows()
-                    ? "DTXMania.Game/DTXMania.Game.Windows.csproj"
-                    : "DTXMania.Game/DTXMania.Game.Mac.csproj");
-
-            process.Start(repoRoot, projectPath, fixture);
-
-            await Eventually.UntilAsync(
-                _ => client.IsHealthyAsync(cancellation.Token),
-                healthy => healthy,
+            var startOptions = E2EGameLaunch.CreateOptions(fixture);
+            process.Start(startOptions);
+            await process.WaitForStartupAsync(
+                client.GetHealthAsync,
                 TimeSpan.FromSeconds(60),
                 TimeSpan.FromMilliseconds(500),
-                "JSON-RPC health",
                 cancellation.Token);
 
             await WaitForStageAsync(client, "Title", TimeSpan.FromSeconds(45), cancellation.Token);
@@ -208,7 +195,7 @@ public sealed class DrumMappingStageSmokeTests
         }
     }
 
-    private static async Task<E2EGameState> WaitForStageAsync(
+    private static async Task<GameStateSnapshot> WaitForStageAsync(
         JsonRpcGameClient client,
         string expectedStageType,
         TimeSpan timeout,
@@ -242,53 +229,4 @@ public sealed class DrumMappingStageSmokeTests
         }
     }
 
-    private static int GetPortFromEnvironmentOrDefault()
-    {
-        var raw = Environment.GetEnvironmentVariable("DTXMANIA_E2E_API_PORT");
-        if (int.TryParse(raw, out var port))
-            return port;
-
-        // Bind an ephemeral port and verify it is usable to avoid TOCTOU races.
-        const int maxAttempts = 5;
-        for (int attempt = 0; attempt < maxAttempts; attempt++)
-        {
-            var listener = new TcpListener(IPAddress.Loopback, 0);
-            listener.Start();
-            var chosen = ((IPEndPoint)listener.LocalEndpoint).Port;
-
-            // Quick bind check: release and immediately re-bind to confirm availability.
-            listener.Stop();
-
-            try
-            {
-                var verify = new TcpListener(IPAddress.Loopback, chosen);
-                verify.Start();
-                verify.Stop();
-                return chosen;
-            }
-            catch (SocketException)
-            {
-                // Port was snatched up; try again.
-            }
-        }
-
-        // Fallback: just return a fresh ephemeral port.
-        using var fallback = new TcpListener(IPAddress.Loopback, 0);
-        fallback.Start();
-        return ((IPEndPoint)fallback.LocalEndpoint).Port;
-    }
-
-    private static string FindRepoRoot()
-    {
-        var current = new DirectoryInfo(Directory.GetCurrentDirectory());
-        while (current != null)
-        {
-            if (File.Exists(Path.Combine(current.FullName, "DTXMania.sln")))
-                return current.FullName;
-
-            current = current.Parent;
-        }
-
-        throw new InvalidOperationException("Could not locate repository root from current directory.");
-    }
 }

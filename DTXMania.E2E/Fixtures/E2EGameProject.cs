@@ -1,24 +1,19 @@
+using DTXMania.Automation.Process;
+
 namespace DTXMania.E2E.Fixtures;
 
 /// <summary>
-/// Resolves the platform-selected game project path for out-of-process E2E launches.
-/// Honors the <c>DTXMANIA_E2E_GAME_PROJECT</c> override; otherwise selects the Windows
-/// or Mac game csproj based on the current operating system so non-Windows runs never
-/// attempt to launch the Windows game project.
+/// Resolves the game project target for out-of-process E2E launches.
+/// The environment override is intentionally owned here; platform defaults are provided by
+/// <see cref="GameProjectPaths.Current"/> in the reusable Automation project.
 /// </summary>
 public static class E2EGameProject
 {
     public const string GameProjectEnvironmentVariable = "DTXMANIA_E2E_GAME_PROJECT";
-    public const string WindowsProjectPath = "DTXMania.Game/DTXMania.Game.Windows.csproj";
-    public const string MacProjectPath = "DTXMania.Game/DTXMania.Game.Mac.csproj";
 
-    public static string ResolveProjectPath()
+    public static GameLaunchTarget ResolveLaunchTarget()
     {
         var overridePath = Environment.GetEnvironmentVariable(GameProjectEnvironmentVariable);
-        return !string.IsNullOrWhiteSpace(overridePath)
-            ? overridePath
-            : (OperatingSystem.IsWindows()
-                ? WindowsProjectPath
-                : MacProjectPath);
+        return GameLaunchTarget.Project(overridePath);
     }
 }
