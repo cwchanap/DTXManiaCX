@@ -2,13 +2,13 @@
 
 **Issue:** [HPA-510](https://linear.app/cwchanap/issue/HPA-510/add-minimal-prepared-chart-recording-commands-in-song-select)  
 **Date:** 2026-08-11  
-**Status:** Revised after implementation review
+**Status:** Revised after second implementation review
 
 ## Context
 
-HPA-501 has landed on `main`, so the reusable `DTXMania.Automation` process and JSON-RPC foundation is available. HPA-510 is now the only code prerequisite blocking HPA-503, the Windows recording vertical slice.
+HPA-501 has landed on `main`, so the reusable `DTXMania.Automation` process and JSON-RPC foundation is available. HPA-510 is the remaining CX-side prerequisite for HPA-503's Windows recording vertical slice.
 
-The recorder does not need general remote control of the game. It needs four narrow operations while Song Select is active:
+The recorder needs exactly four Song Select operations:
 
 ```text
 prepareVideoChart(chartPath)
@@ -17,83 +17,60 @@ activatePreparedChart()
 cancelPreparedChart()
 ```
 
-The implementation should make one exact indexed chart visible through the normal Song Select UI, hold its declared preview audio ready but stopped, play that preview under explicit recorder control, and then activate the chart through the same path a player uses.
+The implementation must prepare one exact indexed chart through normal Song Select state, hold its declared preview audio stopped, play it only on command, and activate it through the same Song Select -> SongTransition path used by a player.
 
-This design deliberately keeps recording preparation inside `SongSelectionStage`. It does not add a game-wide capture session, generic mutation API, recorder state machine, database query layer, or synthetic input navigation.
+Prepared state remains owned by `SongSelectionStage`. Do not add a recorder session, generic mutation endpoint, database query path, or synthetic-input navigation.
 
 ## Goals
 
-- Resolve one caller-supplied **absolute chart path** to the exact chart already present in the active Song Select library.
-- Support root-level charts, nested BOX hierarchy, multi-chart/SET-defined rows, ordinary single-file multi-instrument rows, and duplicate titles.
-- Project the resolved chart through the existing Song Select presentation path so status, preview image, play history, selected row, difficulty, and breadcrumb are normal UI state.
-- Load the preview declared by the **resolved chart**, not merely the node's primary chart.
-- Keep the prepared preview stopped until explicitly started.
-- Reuse the existing preview sound resource, volume, looping, and BGM fade behavior.
-- Keep all stage mutations on the game update thread.
-- Activate through the existing Song Select transition construction and report a real success/failure result when the global transition debounce rejects activation.
-- Expose only the prepared identity/state/elapsed telemetry required by HPA-503.
-- Lock the game-to-Automation telemetry contract to the existing camelCase JSON wire format.
-- Extend `DTXMania.Automation` with the four explicit client calls so HPA-503 never needs access to the private generic JSON-RPC transport.
+- Resolve one caller-supplied absolute chart path against the currently applied `SongLibrarySnapshot`.
+- Support root-level charts, nested BOX hierarchy, SET/multi-chart rows, ordinary one-file multi-instrument rows, and duplicate titles.
+- Project the exact row + difficulty through normal Song Select UI state.
+- Load preview audio from the resolved `SongChart`, not merely the row's primary `DatabaseChart`.
+- Keep preview loaded but stopped until `startPreparedPreview`.
+- Reuse current preview volume, loop, BGM fade, sound resource, and cleanup behavior.
+- Keep every stage mutation on the game update thread and await the real command outcome.
+- Reuse the normal `SelectSong` transition construction while surfacing transition-debounce rejection.
+- Expose exactly `PreparedChartIdentity`, `PreparedPreviewState`, and `PreparedPreviewElapsedMs` to HPA-503.
+- Lock the camelCase game -> Automation telemetry contract.
+- Validate the command path once against a live game using the existing E2E fixture/CI machinery.
 
 ## Non-goals
 
-- A general Song Select remote-navigation API.
-- A generic command dispatcher or arbitrary main-thread mutation endpoint.
-- A game-wide recording/capture coordinator or immutable recording session ID.
-- A separate render-generation/readiness state machine. Screenshot completion remains the presentation barrier.
-- OBS, process launch, app-data sandboxing, Result hold timing, or video artifact handling.
-- Changing the normal interactive preview delay or primary-chart preview behavior when no prepared chart is active.
-- Restoring a pre-command filter/tab/breadcrumb after cancellation. The recorder runs in disposable app data; snapshot/restore machinery is unnecessary for MVP.
-- Waiting inside the game for the stage-transition debounce window. A blocked activation returns `success=false`; the preparation remains available for a bounded caller retry.
+- General Song Select remote navigation.
+- Generic game-thread dispatch or arbitrary mutation APIs.
+- A capture/recording session object or state machine.
+- A second song repository/query layer.
+- A new render-readiness state machine; screenshot completion remains the presentation barrier.
+- OBS, process launch, sandbox construction, video finalization, or Result timing.
+- Restoring the pre-command tab/filter/breadcrumb after cancel; HPA-503 uses disposable app data.
+- Changing normal interactive preview behavior when no prepared chart exists.
+- Waiting inside the game for transition debounce to expire.
 - Direct transition to Performance.
 
-## Current Reuse Survey
+## Verified reuse seams
 
-The required building blocks already exist:
+Use the existing code rather than parallel abstractions:
 
-- `SongSelectionStage` owns selection, BOX navigation, status/history/preview UI, preview sound lifecycle, BGM fading, and the player activation path.
-- `SongSelectionStage` already retains the coherent applied `SongLibrarySnapshot`, including `RootSongs` and canonical `ActiveRoots`.
-- `SongSelectionStage.GetNodeChartPaths` already understands that a visible row can represent the primary `DatabaseChart` plus additional `DatabaseSong.Charts`.
-- `SongPathIdentity` already owns path normalization and root-containment primitives.
-- `SongListNode.Scores` carries difficulty slots; persisted multi-chart rows carry `SongScore.ChartId`.
-- `SongListNode.CreateSongNode` can legitimately assign the same `SongChart.Id` to DRUMS, GUITAR, and BASS score slots for one physical DTX file, so `ChartId` alone is not always a unique slot identity.
-- `SongChartHelper.GetCurrentDifficultyChart` is the existing runtime fallback from a visible difficulty slot to its chart and is useful for legacy/SET rows where a direct `ChartId` match is unavailable.
-- `SongListDisplay` already owns row index, difficulty, selection events, scroll target, and normal Song Select presentation updates.
-- `SongSelectionStage.LoadPreviewSound` / `TryLoadPreviewSoundFile`, `CreatePreviewSoundInstance`, `StopCurrentPreview`, and `StartBGMFade` already implement the preview resource and playback behavior.
-- `SongSelectionStage.SelectSong` owns the normal transition data but silently returns while `_game.CanPerformStageTransition()` is false, so prepared activation must surface that gate rather than clearing state first.
-- `IGameContext.QueueMainThreadAction` is the existing mutation seam used by the Game API. `BaseGame.CaptureScreenshotAsync` demonstrates the existing `TaskCompletionSource(...RunContinuationsAsynchronously)` pattern for an awaited game-thread result.
-- `JsonRpcServer` already authenticates every JSON-RPC request and serializes public DTOs with camelCase property names.
-- `GameTelemetrySnapshot` plus `IStageTelemetryProvider` is the existing producer telemetry seam.
-- `DTXMania.Automation.JsonRpc.JsonRpcGameClient` owns the consumer JSON-RPC transport and keeps `SendAsync` private.
-- `DTXMania.E2E/AutomationContractTests.cs` already performs the producer-to-`GameStateSnapshot` camelCase contract round trip and is the required place to lock the three new telemetry fields.
+- `_appliedLibrarySnapshot`, `GetNodeChartPaths`, and `SongPathIdentity` for exact active-library path resolution.
+- `RestoreNavigationPaths(paths, snapshot)` for rebuilding `_navigationStack`, `_currentSongList`, and `_currentBreadcrumb` without repopulating at every BOX level.
+- `RefreshSongListForActiveTab()` for one final list projection after navigation state is rebuilt.
+- `SongListDisplay` for the final row/difficulty UI selection.
+- `SongListNode.Scores[].ChartId` plus `SongChartHelper.GetCurrentDifficultyChart` for difficulty mapping.
+- `TryLoadPreviewSoundFile`, `CreatePreviewSoundInstance`, `StopCurrentPreview`, and `StartBGMFade` for preview lifecycle.
+- `IGameContext.QueueMainThreadAction` plus `TaskCompletionSource(...RunContinuationsAsynchronously)` for awaited game-thread commands.
+- `SelectSong` for normal SongTransition shared-data construction.
+- `JsonRpcServer`'s existing authenticated method switch and `JsonRpcGameClient.SendAsync` for transport.
+- `DTXMania.E2E/AutomationContractTests.cs` for game -> camelCase -> Automation telemetry contract coverage.
+- `E2EFixtureBuilder`, `E2EGameLaunch`, `Eventually`, and the existing Windows `Category=E2E` CI job for one live validation.
 
-The design should extend these seams rather than create parallel infrastructure.
+`GetStableSelectionIdentity` is **not** the prepared-chart telemetry identity seam. It is a row-selection identity: it prefers `song:<DatabaseSongId>` when present and only falls back to the first chart path. HPA-510 must identify the exact resolved chart/difficulty, not merely its row.
 
-## Approaches Considered
+## Chosen architecture
 
-### 1. Stage-owned prepared state plus four explicit commands — selected
+### 1. Minimal stage-owned prepared state
 
-Add a small amount of state and four command methods to `SongSelectionStage`, expose them through explicit Game API / JSON-RPC handlers, and add matching methods to `DTXMania.Automation`.
-
-This gives HPA-503 exactly what it needs while preserving the normal Song Select and transition paths.
-
-### 2. Recorder drives Song Select with repeated key input — rejected
-
-This is already the failure mode HPA-510 exists to remove. It is slow, fragile with nested boxes/filter state, and cannot safely disambiguate duplicate titles.
-
-### 3. Add a general game automation/session coordinator — rejected
-
-HPA-503 owns orchestration. A second lifecycle/session abstraction inside the game would duplicate ownership before a second use case proves it useful.
-
-### 4. Resolve chart paths through a new database repository/service — rejected
-
-The active `SongLibrarySnapshot` is already the authoritative, coherent view used by Song Select. A second DB query path could disagree with the rendered hierarchy and would add unnecessary synchronization.
-
-## Chosen Architecture
-
-### 1. Prepared state is update-thread-owned by `SongSelectionStage`
-
-Keep a minimal stage-local record for the current preparation, for example:
+Keep one update-thread-owned record:
 
 ```text
 PreparedChartSelection
@@ -103,7 +80,7 @@ PreparedChartSelection
 - string telemetryIdentity
 ```
 
-Keep only the additional runtime fields needed for preview control:
+Additional fields:
 
 ```text
 PreparedPreviewState: None | Prepared | Playing | Failed
@@ -111,165 +88,169 @@ PreparedPreviewElapsedMs: double
 _isProjectingPreparedSelection: bool
 ```
 
-No lock is required for this state because every command mutation and elapsed-time update runs on the game update thread. Game telemetry reads the same fields through the existing stage telemetry provider.
+No lock, session ID, generation object, or separate state machine is required.
 
-A preparation is cleared by:
+Prepared state is cleared by:
 
-- `cancelPreparedChart`;
-- preparing a replacement chart;
-- normal interactive row navigation away from the prepared row;
-- normal interactive difficulty navigation away from the prepared slot;
-- successful activation after the transition gate has accepted the request;
+- cancel;
+- replacement prepare;
+- real user row navigation away;
+- real user difficulty navigation away;
+- successful activation after transition eligibility is confirmed;
 - stage deactivation.
 
-`_isProjectingPreparedSelection` suppresses invalidation while `prepareVideoChart` itself projects the target row/difficulty. It also suppresses the normal automatic preview load during that projection; the exact resolved chart preview is loaded explicitly afterward.
+The projection suppression flag is scoped to the **entire prepare projection**, not only the final row selection.
 
-Cleanup remains idempotent. `StopCurrentPreview` already nulls disposed resources, so repeated cleanup must never stop/dispose one instance twice.
+### 2. Exact path resolver over the applied snapshot
 
-### 2. Exact chart resolution uses the applied library snapshot
-
-`prepareVideoChart` accepts only a non-empty, fully-qualified path.
+`prepareVideoChart` accepts only a non-blank fully-qualified chart path.
 
 On the update thread:
 
-1. Require Song Select to have an applied `SongLibrarySnapshot`.
-2. Normalize the requested chart path with `SongPathIdentity`.
-3. Require it to be under one of `snapshot.ActiveRoots`.
+1. Require `_appliedLibrarySnapshot`.
+2. Normalize the requested path with `SongPathIdentity`.
+3. Require containment under one of `snapshot.ActiveRoots`.
 4. Recursively walk `snapshot.RootSongs` and BOX children.
-5. For each Score node, inspect the node's primary `DatabaseChart` and every chart in `DatabaseSong.Charts`.
-6. Match by normalized path using the existing platform path-identity semantics. Never use title/artist text.
-7. Require exactly one visible node/chart match.
-8. Resolve the visible difficulty slot using the following precedence:
-   - collect non-null score slots whose non-zero `SongScore.ChartId` equals the resolved `SongChart.Id`;
-   - if exactly one slot matches, use it;
-   - if multiple slots share that ChartId, use the **unique DRUMS slot** when exactly one candidate has `Instrument == EInstrumentPart.DRUMS`; this is the normal one-file multi-instrument case and matches CX's drum-gameplay path;
-   - if ChartId did not establish a slot, scan valid score slots and reuse `SongChartHelper.GetCurrentDifficultyChart(node, i)`, matching that chart's normalized `FilePath` to the requested path;
-   - use the fallback only when it yields one slot; fail rather than guess if ambiguity remains.
-9. Retain the ancestor BOX chain needed to reproduce the normal browse context.
+5. For Score nodes, inspect `DatabaseChart` plus `DatabaseSong.Charts`.
+6. Match normalized chart path only; never title/artist.
+7. Require one exact node/chart match.
+8. Resolve the visible difficulty slot:
+   - collect non-null score slots with matching non-zero `ChartId`;
+   - if exactly one matches, use it;
+   - when several slots share the same ChartId, use the unique DRUMS slot if exactly one candidate is DRUMS;
+   - otherwise scan valid slots through `GetCurrentDifficultyChart(node, index)` and compare the returned chart path to the resolved path;
+   - fail if no unique slot remains.
+9. Return the node, resolved chart, difficulty index, and ancestor BOX paths.
 
-The DRUMS tie-break is required because one physical DTX file can legitimately populate DRUMS/GUITAR/BASS slots with the same `SongChart.Id`. Requiring ChartId uniqueness would reject normal indexed content.
+The DRUMS tie-break is required because a single physical DTX can populate DRUMS/GUITAR/BASS slots with the same `SongChart.Id`.
 
-This handles duplicate titles naturally because title never participates in identity. It also reuses the current SET/multi-chart mapping instead of introducing a second difficulty-order algorithm.
+### 3. Projection uses one existing navigation rebuild and one UI refresh
 
-### 3. Reuse normal browse navigation, but do not synthesize input
+Do **not** call `NavigateIntoBox` once per ancestor. It calls `PopulateSongList()` on each level; `SongListDisplay.CurrentList` resets selection to index 0 and raises `SelectionChanged`, which would repeatedly stop/load the wrong preview during prepare.
 
-Preparation must leave Song Select in a normal browse context with the target row visible.
-
-Use existing stage behavior:
-
-1. Switch to the All Songs projection and clear the active search/filter projection for this recorder operation.
-2. Return to the root browse list and clear the navigation stack.
-3. Reuse `NavigateIntoBox` for each resolved ancestor BOX so the normal breadcrumb/current-list state is rebuilt.
-4. Select the target row and difficulty through `SongListDisplay`.
-
-Add one narrow programmatic selection method to `SongListDisplay`, such as:
+Instead, run the whole projection inside:
 
 ```text
-SetSelection(index, difficulty)
+_isProjectingPreparedSelection = true
+try
+    reset recorder-owned tab/filter projection
+    RestoreNavigationPaths(ancestorPaths, snapshot)
+    RefreshSongListForActiveTab() exactly once
+    SetSelection(targetIndex, difficultyIndex)
+finally
+    _isProjectingPreparedSelection = false
 ```
 
-It should atomically set row + difficulty, reset the scroll target consistently, and raise the existing `SelectionChanged` path once. This avoids the current property-order problem where `CurrentList` can temporarily select row 0 and load the wrong preview before the final index is applied.
+Add one narrow `SongListDisplay.SetSelection(index, difficulty)` method that applies row + difficulty atomically, updates scroll state coherently, and raises the normal selection path once.
 
-This is an internal UI convenience, not a remote navigation API.
+During the suppression scope, normal status/history/image/breadcrumb presentation may update, but prepared-state invalidation and normal automatic preview loading must not run.
 
-During prepare projection, `_isProjectingPreparedSelection` lets normal status/history/image/breadcrumb presentation update while skipping prepared-state invalidation and automatic preview loading. The flag is cleared in `finally` so a projection failure cannot leave normal Song Select behavior suppressed.
+This is an internal UI seam, not a remote navigation API.
 
-### 4. Prepared preview uses the resolved `SongChart`
+### 4. Prepared preview loads the exact resolved chart
 
-This is the one place where blindly reusing current interactive preview loading is incorrect: `LoadPreviewSound(SongListNode)` reads `selectedNode.DatabaseChart`, which is the row's primary chart and may not be the chart selected by the recorder.
-
-Extract/reuse the existing path/load primitives so prepared loading can accept the exact resolved `SongChart`:
+Current `LoadPreviewSound(SongListNode)` hardcodes `selectedNode.DatabaseChart`. Prepared mode must instead resolve:
 
 ```text
-SongChart.FilePath directory
-+ SongChart.PreviewFile
+resolvedChart.FilePath directory
++ resolvedChart.PreviewFile
 -> absolute preview path
--> existing TryLoadPreviewSoundFile
+-> TryLoadPreviewSoundFile
 ```
 
-Prepare fails clearly when:
+Prepare fails for missing declaration, missing file, unreadable/unsupported load, or null sound resource.
 
-- `PreviewFile` is absent;
-- the resolved preview file does not exist;
-- the resource manager reports a load failure or unsupported asset.
+One important existing side effect must be overridden explicitly: successful `TryLoadPreviewSoundFile` sets:
 
-After successful load:
+```text
+_previewPlayDelay = 0
+_isPreviewDelayActive = true
+```
 
-- `_previewSound` is retained exactly as today;
-- automatic preview delay is disabled while a prepared chart exists;
-- no preview instance is created;
-- preview state becomes `Prepared`;
-- elapsed time is zero.
+After the prepared load succeeds, immediately force:
 
-Normal interactive preview behavior remains unchanged when no preparation exists.
+```text
+_previewPlayDelay = 0
+_isPreviewDelayActive = false
+```
 
-### 5. Explicit start owns exactly one looped preview instance
+so the normal one-second timer cannot auto-start the prepared preview.
 
-`startPreparedPreview` requires a prepared chart and loaded preview resource.
+Successful prepare leaves `_previewSound` retained, `_previewSoundInstance == null`, state `Prepared`, and elapsed `0`.
 
-Reuse `CreatePreviewSoundInstance`, `SongSelectionUILayout.Audio.PreviewSoundVolume`, looping, `Play()`, and `StartBGMFade(true)`.
+### 5. Explicit preview start and elapsed telemetry
 
-Behavior:
+`startPreparedPreview`:
 
-- first successful start creates one instance, sets volume/looping, plays, resets elapsed to zero, and reports `Playing`;
-- a repeated start while already playing is idempotent success and does not create another instance;
-- creation/playback failure disposes any partial instance, reports `Failed`, and never substitutes Song Select BGM or full-song audio.
+- requires a prepared chart/resource;
+- creates one instance with the existing helper;
+- applies existing preview volume and `IsLooped = true`;
+- calls `Play()` once;
+- starts the existing BGM fade-out;
+- sets state `Playing` and elapsed `0`;
+- returns idempotent success when already playing without creating a second instance.
 
-In `SongSelectionStage.OnUpdate`, increment `PreparedPreviewElapsedMs` from `GameTime.ElapsedGameTime` only when prepared state is `Playing` **and** the sound instance currently reports `SoundState.Playing`.
+On each Song Select update, increment `PreparedPreviewElapsedMs` only while state is `Playing` **and** the sound instance reports `SoundState.Playing`.
 
-If an explicitly-started instance unexpectedly stops, mark the prepared preview `Failed` rather than silently starting another source. HPA-503 will observe the state/elapsed telemetry and fail its bounded wait.
+If the explicitly-started instance unexpectedly stops, set state `Failed`; do not auto-restart or substitute Song Select BGM/full-song audio.
 
-### 6. Navigation invalidation returns cleanly to interactive preview behavior
+`PreparedPreviewElapsedMs` stays in scope because both HPA-510 and HPA-503 explicitly require CX-reported actual playback time, and HPA-503 polls `>= 10_000`. Caller wall-clock time is not the accepted contract.
 
-Prepared state must not survive when the visible selection no longer represents the prepared chart.
+### 6. User navigation exits prepared mode cleanly
 
 `OnSongSelectionChanged`:
 
-- while `_isProjectingPreparedSelection` is true, do not invalidate preparation and skip its normal automatic preview load;
-- otherwise, when the selected row differs from the prepared row, clear the prepared state first, then continue the handler's existing row-selection behavior; the normal `LoadPreviewSound(e.SelectedSong)` path therefore resumes the ordinary delayed primary-chart preview.
+- while `_isProjectingPreparedSelection`, do not invalidate prepared state and skip normal automatic preview loading;
+- otherwise, if the row moves away from the prepared row, clear prepared state first and continue today's normal row-selection preview path.
 
 `OnDifficultyChanged`:
 
-- while `_isProjectingPreparedSelection` is true, do not invalidate preparation;
-- otherwise, when `e.NewDifficulty` differs from the prepared slot on the same row, clear the prepared state;
-- after clearing, explicitly call the existing `LoadPreviewSound(e.Song)` path so the row returns to the same primary-chart delayed preview behavior normal Song Select uses after a row selection.
+- while `_isProjectingPreparedSelection`, do not invalidate;
+- otherwise, if difficulty moves away from the prepared slot, clear prepared state;
+- after this prepared-mode exit, reload the row through the existing `LoadPreviewSound(e.Song)` path so normal delayed primary-chart preview behavior resumes;
+- leave ordinary difficulty changes unchanged when there is no preparation.
 
-The difficulty-change reload is only an exit from prepared mode. Normal interactive difficulty changes when no prepared chart exists remain unchanged.
+Cleanup remains idempotent.
 
-### 7. Activation observes the debounce gate before consuming preparation
+### 7. Activation separates eligibility from transition start
 
-Current `SelectSong` silently returns when `_game.CanPerformStageTransition()` is false. Prepared activation cannot clear state first and then call that method because the API could report success while no transition started.
+Current `SelectSong` silently returns if `_game.CanPerformStageTransition()` is false. Prepared activation must observe this rather than reporting success after a no-op.
 
-Keep one shared transition path, but separate **eligibility** from **transition start** inside `SongSelectionStage`:
+Factor the existing method into one small eligibility gate and one shared start body, e.g.:
 
 ```text
 CanStartSongSelection(node)
-- valid Score node
-- StageManager available
-- _game.CanPerformStageTransition() == true
-
 StartSongSelection(node)
-- _game.MarkStageTransition()
-- build selectedSong / selectedDifficulty / songId shared data
-- StageManager.ChangeStage(SongTransition, ...)
 ```
 
-The existing player `SelectSong` path calls these two helpers and may ignore the returned bool.
+Eligibility checks:
+
+- valid Score node;
+- `StageManager` available;
+- `_game.CanPerformStageTransition()`.
+
+The start body remains the sole owner of:
+
+```text
+_game.MarkStageTransition()
+selectedSong / selectedDifficulty / songId
+StageManager.ChangeStage(StageType.SongTransition, ...)
+```
 
 `activatePreparedChart`:
 
-1. Require a current preparation.
-2. Require `_selectedSong` / `_currentDifficulty` still match it.
-3. Evaluate the same transition-eligibility gate.
-4. If debounce or stage-manager availability blocks the transition, return `success=false` and **leave the preparation and preview intact**.
-5. Once eligibility succeeds, stop/dispose the prepared preview and clear prepared state.
-6. Immediately call the shared transition-start body on the same update-thread action.
+1. Require the prepared row/difficulty still match current selection.
+2. Check the shared transition eligibility.
+3. If blocked, return `success=false` and leave prepared state/preview intact.
+4. If eligible, stop/dispose the preview and clear prepared state.
+5. Immediately execute the shared transition-start body on the same update-thread action.
+6. Return success only after the normal stage change has been invoked.
 
-Do not wait 0.5 seconds inside the game and do not duplicate the transition shared-data construction. A successful result means the normal `SongTransitionStage` change was actually started.
+Do not wait 0.5 seconds inside the game.
 
-### 8. Game API commands queue and await the update-thread result
+### 8. Result contract stays narrow and intentionally untyped
 
-Extend `IGameApi` / `GameApiImplementation` with four explicit methods. Keep the result contract narrow, for example:
+Use:
 
 ```text
 PreparedChartCommandResult
@@ -277,52 +258,38 @@ PreparedChartCommandResult
 - string? Error
 ```
 
-`GameApiImplementation` should use one private helper that:
+Do **not** add a cross-assembly error-code enum in HPA-510. The only planned consumer, HPA-503, treats any command failure as a failed recording run. Its activation occurs only after at least 10 seconds of prepared preview playback, far beyond the 0.5-second global transition debounce, so it has no required retry branch that needs to distinguish `TransitionBlocked` from fatal prepare errors.
 
-- creates a `TaskCompletionSource` with `TaskCreationOptions.RunContinuationsAsynchronously`;
-- queues an action through `IGameContext.QueueMainThreadAction`;
-- inside the queued action, verifies the current stage is `SongSelectionStage` and executes the requested stage command;
-- completes the task with the command result.
+Keeping preparation intact on a blocked activation is local correctness and preserves diagnostics/manual retry capability; it is not a new recorder retry protocol. Add structured error codes only when a real caller needs programmatic recovery.
 
-The caller therefore receives the actual prepare/start/cancel/activate result, not merely "action queued". Do not copy `ChangeStageAsync`'s fire-and-forget semantics and do not add a general main-thread dispatcher abstraction.
+### 9. Game API and JSON-RPC queue and await real results
 
-### 9. JSON-RPC stays explicit and authenticated
+Add four explicit `IGameApi` methods and one private `GameApiImplementation` queue helper:
 
-Add four cases/handlers to `JsonRpcServer`:
+- create `TaskCompletionSource` with asynchronous continuations;
+- queue through `IGameContext.QueueMainThreadAction`;
+- verify current stage is `SongSelectionStage` inside the queued action;
+- execute the stage command;
+- complete with its actual result.
+
+Do not copy `ChangeStageAsync`'s fire-and-forget semantics and do not create a generic dispatcher.
+
+`JsonRpcServer` adds only:
 
 ```text
-prepareVideoChart   params: { chartPath: string }
+prepareVideoChart { chartPath }
 startPreparedPreview
 activatePreparedChart
 cancelPreparedChart
 ```
 
-The existing server-level API-key check already protects them.
+Existing API-key authentication protects them. Domain failures return `{ success:false, error:"..." }` without a new JSON-RPC error taxonomy.
 
-Validate JSON shape in the server. Stage/domain failures may be returned as a normal command result (`success=false`, sanitized `error`) so callers receive useful failure text without adding a new JSON-RPC error taxonomy.
+`DTXMania.Automation.JsonRpcGameClient` adds four public wrappers over private `SendAsync`; `success=false` throws `InvalidOperationException` with the safe server message.
 
-Do not expose any method that accepts arbitrary stage/action names or mutation payloads.
+### 10. Telemetry keeps all three accepted fields
 
-### 10. Automation exposes the same four narrow operations
-
-Extend `DTXMania.Automation/JsonRpc/JsonRpcGameClient.cs` with public methods for the four commands. Reuse its private `SendAsync` transport and one small command-result parser.
-
-HPA-503 should be able to call:
-
-```text
-PrepareVideoChartAsync(path)
-StartPreparedPreviewAsync()
-ActivatePreparedChartAsync()
-CancelPreparedChartAsync()
-```
-
-without accessing generic JSON-RPC.
-
-A `success=false` result becomes a clear `InvalidOperationException` containing the server-provided safe error message. In particular, a debounce-blocked activation is an observable failed command rather than a silent no-op.
-
-### 11. Telemetry adds only recorder-required fields and locks the wire names
-
-Extend `GameTelemetrySnapshot` with:
+Producer fields:
 
 ```text
 PreparedChartIdentity
@@ -330,7 +297,7 @@ PreparedPreviewState
 PreparedPreviewElapsedMs
 ```
 
-Because `JsonRpcServer` serializes DTOs with `JsonNamingPolicy.CamelCase`, the wire contract is exactly:
+Wire names are exactly:
 
 ```text
 preparedChartIdentity
@@ -338,94 +305,78 @@ preparedPreviewState
 preparedPreviewElapsedMs
 ```
 
-`SongSelectionStage.PopulateTelemetry` supplies the producer values from stage-owned prepared state.
+Identity policy remains exact-chart-specific and non-absolute:
 
-Identity policy:
+- `chart:<SongChart.Id>` when the resolved chart has a stable non-zero database ID;
+- otherwise a normalized root-relative chart path.
 
-- prefer `chart:<SongChart.Id>` when the indexed chart has a stable non-zero database ID;
-- otherwise use a root-relative normalized path, never the absolute song-root prefix.
+Do not use `GetStableSelectionIdentity`: it often returns `song:<id>` and therefore cannot identify which chart/difficulty inside a multi-chart row was prepared. Do not expose the absolute requested path; HPA-510 explicitly requires a stable database/chart identity or redacted root-relative path.
 
-Extend `DTXMania.Automation.Telemetry.GameStateSnapshot` with read-only accessors for those exact camelCase keys.
+Extend `GameStateSnapshot` with accessors for all three keys, and extend `AutomationContractTests.GameTelemetrySnapshot_CamelCaseRoundTrip_ShouldExposeAllConsumedFields` with non-default producer values and assertions for all three consumer accessors.
 
-The existing `DTXMania.E2E/AutomationContractTests.GameTelemetrySnapshot_CamelCaseRoundTrip_ShouldExposeAllConsumedFields` test **must** be extended with all three producer values and assertions against all three Automation accessors. This is a required producer/consumer contract gate, not an optional extra test.
+### 11. Validation uses the existing E2E harness, not a manual checklist
 
-Screenshot remains the render barrier: after prepare returns, HPA-503 calls the existing screenshot operation and successful image completion proves Song Select completed a Draw pass.
+Retain focused unit/contract tests, then add one live `Category=E2E` prepared-chart smoke using existing `E2EFixtureBuilder`, `E2EGameLaunch`, `JsonRpcGameClient`, and `Eventually`.
 
-## Failure Semantics
+Minimal fixture change: add a `#PREVIEW` line referencing the already-generated `autoplay-tone.wav`.
 
-Preparation fails without leaving active prepared state for:
+Live flow:
 
-- blank or non-absolute path;
+1. Launch the existing isolated fixture and enter Song Select.
+2. `prepareVideoChart(fixture.ChartPath)`.
+3. Take a screenshot as the render barrier.
+4. Wait past the normal automatic preview delay and assert prepared state remains `Prepared` with elapsed `0`.
+5. `startPreparedPreview()`.
+6. Poll until state is `Playing` and `PreparedPreviewElapsedMs >= 10_000`.
+7. `activatePreparedChart()`.
+8. Assert SongTransition is observed before Performance.
+
+This reuses the existing Windows E2E job; it does not add an E2E framework, fake OBS server, or recorder harness.
+
+## Failure semantics
+
+Preparation returns failure and leaves no prepared state for:
+
+- blank/non-absolute path;
 - library not ready;
-- path outside every active root;
-- no exact indexed chart match;
-- ambiguous indexed match;
-- no unique visible difficulty slot after the DRUMS tie-break and existing path-helper fallback;
+- path outside active roots;
+- unindexed path;
+- ambiguous node/chart match;
+- unresolved/ambiguous difficulty slot;
 - missing preview declaration/file;
-- unreadable or unsupported preview resource.
+- preview load failure.
 
-Start fails for no prepared chart/resource or playback creation failure.
+Start fails for missing preparation/resource or sound-instance/playback failure.
 
-Activation fails if preparation is absent, the prepared selection is no longer active, the stage manager is unavailable, or the global transition debounce is active. Debounce/stage-manager failure leaves the preparation intact for retry.
+Activation fails if preparation is absent, current row/difficulty no longer matches it, or transition eligibility is blocked. A blocked transition preserves the preparation.
 
-Cancellation is idempotent success.
+Cancel is idempotent success.
 
-Errors should describe the category without publishing an absolute path into telemetry/log snapshots intended for recorder diagnostics.
+## Risks and mitigations
 
-## Testing Strategy
+### Projection side effects — primary risk
 
-Add focused tests rather than a second end-to-end framework.
+Repeated `NavigateIntoBox -> PopulateSongList -> CurrentList` would repeatedly select row 0 and trigger preview/BGM side effects during prepare. Mitigate by using `RestoreNavigationPaths`, one `RefreshSongListForActiveTab`, one atomic `SetSelection`, and one suppression scope around the entire projection.
 
-### Song Select
+### Exact-chart vs row identity
 
-Cover:
+Existing row identity can collapse a multi-chart row to `song:<id>`. Keep resolver/telemetry identity tied to the resolved `SongChart` instead.
 
-- root-level exact path resolution;
-- nested BOX resolution and browse context;
-- multi-chart/SET row resolves the exact requested chart and correct difficulty slot;
-- ordinary one-file multi-instrument row where DRUMS/GUITAR/BASS slots share one ChartId resolves the unique DRUMS slot;
-- duplicate titles resolve by path;
-- outside-root and unindexed failures;
-- resolved chart preview is used even when it differs from the node's primary chart preview;
-- missing/unreadable/unsupported preview failure;
-- prepare leaves preview loaded but stopped and suppresses automatic timer playback;
-- prepare projection does not invalidate itself through `SelectionChanged`/`DifficultyChanged`;
-- repeated start creates only one instance;
-- elapsed time advances only while the instance reports Playing;
-- row navigation away clears prepared state and resumes normal row preview behavior;
-- difficulty navigation away clears prepared state and resumes the normal primary-chart delayed preview;
-- cancel, replacement, user navigation, and Deactivate clean up exactly once;
-- activation while debounce is blocked returns failure, starts no transition, and preserves prepared state/preview;
-- activation after the gate is available clears preview and reuses the existing transition data path;
-- normal interactive preview delay/loop/BGM behavior remains unchanged with no prepared chart.
+### Preview auto-start leakage
 
-### Game API / JSON-RPC
+`TryLoadPreviewSoundFile` activates the normal delay timer on successful load. Prepared load must explicitly clear `_isPreviewDelayActive` before returning success.
 
-Cover:
+### Activation no-op
 
-- command action is queued to the main thread and the returned task completes after execution;
-- command rejects non-SongSelect current stage;
-- `prepareVideoChart` parameter validation;
-- authenticated JSON-RPC routing and success/failure result shape;
-- debounce-blocked activation propagates `success=false` instead of returning a queued-success result.
+Global transition debounce currently fails silently in `SelectSong`. Surface the eligibility result before consuming preparation.
 
-### Automation contract
+## Expected scope
 
-Cover:
+Still one implementation PR, approximately 2–3 engineer days:
 
-- each new public client method sends the expected method/params;
-- command failure text is propagated;
-- `AutomationContractTests.GameTelemetrySnapshot_CamelCaseRoundTrip_ShouldExposeAllConsumedFields` includes `preparedChartIdentity`, `preparedPreviewState`, and `preparedPreviewElapsedMs` and proves the Automation accessors read them.
+1. exact resolver + side-effect-free browse projection;
+2. prepared preview lifecycle + activation + telemetry;
+3. explicit Game API/JSON-RPC/Automation wiring + contract tests;
+4. focused regression tests + one existing-harness live E2E smoke.
 
-Use existing unit-test seams and mocks. No real MonoGame window, OBS server, or recorder CLI is required for HPA-510 unit coverage.
-
-## Expected Scope
-
-This remains one implementation PR, approximately 2–3 engineer days:
-
-- exact resolver + browse projection;
-- prepared preview lifecycle + navigation/debounce-safe activation + telemetry;
-- explicit Game API/JSON-RPC/Automation wiring;
-- focused regression/contract tests.
-
-If implementation starts producing a generic automation framework, recorder session object, or alternate Song Select data model, reduce scope back to the stage-owned four-command contract above.
+If implementation starts producing a session framework, database repository, generic mutation dispatcher, alternate navigation model, or separate preview abstraction, reduce scope back to the four-command stage-owned design.
