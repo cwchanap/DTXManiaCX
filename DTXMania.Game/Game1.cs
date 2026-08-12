@@ -952,6 +952,11 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
         // Unsubscribe from Game.Exiting to avoid double-flush during normal shutdown
         Exiting -= OnGameExiting;
 
+        // Cancel and complete any prepared-chart commands before stage resources begin
+        // disposing. Queued update delegates observe the same lifecycle token and become
+        // no-ops if they are drained after shutdown starts.
+        _gameApiImplementation?.Dispose();
+
         // Dispose StageManager first to properly cleanup all stages
         if (StageManager != null)
         {

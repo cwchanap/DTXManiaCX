@@ -7,6 +7,7 @@ using System.IO;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Xunit;
 
@@ -334,13 +335,13 @@ namespace DTXMania.Test.JsonRpc
         {
             var chartPath = Path.GetFullPath(Path.Combine("safe", "chart.dtx"));
             Assert.True(Path.IsPathFullyQualified(chartPath));
-            _mockGameApi.Setup(api => api.PrepareVideoChartAsync(chartPath))
+            _mockGameApi.Setup(api => api.PrepareVideoChartAsync(chartPath, It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new PreparedChartCommandResult(true, null));
-            _mockGameApi.Setup(api => api.StartPreparedPreviewAsync())
+            _mockGameApi.Setup(api => api.StartPreparedPreviewAsync(It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new PreparedChartCommandResult(false, "No prepared chart preview is available."));
-            _mockGameApi.Setup(api => api.ActivatePreparedChartAsync())
+            _mockGameApi.Setup(api => api.ActivatePreparedChartAsync(It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new PreparedChartCommandResult(true, null));
-            _mockGameApi.Setup(api => api.CancelPreparedChartAsync())
+            _mockGameApi.Setup(api => api.CancelPreparedChartAsync(It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new PreparedChartCommandResult(true, null));
             using var client = await StartServerAsync(NextPort());
 
@@ -361,10 +362,10 @@ namespace DTXMania.Test.JsonRpc
                 Assert.Contains("\"error\":", body);
             }
 
-            _mockGameApi.Verify(api => api.PrepareVideoChartAsync(chartPath), Times.Once);
-            _mockGameApi.Verify(api => api.StartPreparedPreviewAsync(), Times.Once);
-            _mockGameApi.Verify(api => api.ActivatePreparedChartAsync(), Times.Once);
-            _mockGameApi.Verify(api => api.CancelPreparedChartAsync(), Times.Once);
+            _mockGameApi.Verify(api => api.PrepareVideoChartAsync(chartPath, It.IsAny<CancellationToken>()), Times.Once);
+            _mockGameApi.Verify(api => api.StartPreparedPreviewAsync(It.IsAny<CancellationToken>()), Times.Once);
+            _mockGameApi.Verify(api => api.ActivatePreparedChartAsync(It.IsAny<CancellationToken>()), Times.Once);
+            _mockGameApi.Verify(api => api.CancelPreparedChartAsync(It.IsAny<CancellationToken>()), Times.Once);
         }
 
         [Fact]

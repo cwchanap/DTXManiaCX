@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace DTXMania.Game.Lib;
@@ -45,20 +46,33 @@ public interface IGameApi
     /// </summary>
     Task<PreparedChartCommandResult> PrepareVideoChartAsync(string chartPath);
 
+    Task<PreparedChartCommandResult> PrepareVideoChartAsync(
+        string chartPath,
+        CancellationToken cancellationToken);
+
     /// <summary>
     /// Starts the prepared chart preview on the Song Select update thread.
     /// </summary>
     Task<PreparedChartCommandResult> StartPreparedPreviewAsync();
+
+    Task<PreparedChartCommandResult> StartPreparedPreviewAsync(
+        CancellationToken cancellationToken);
 
     /// <summary>
     /// Activates the prepared chart on the Song Select update thread.
     /// </summary>
     Task<PreparedChartCommandResult> ActivatePreparedChartAsync();
 
+    Task<PreparedChartCommandResult> ActivatePreparedChartAsync(
+        CancellationToken cancellationToken);
+
     /// <summary>
     /// Cancels the prepared chart preview on the Song Select update thread.
     /// </summary>
     Task<PreparedChartCommandResult> CancelPreparedChartAsync();
+
+    Task<PreparedChartCommandResult> CancelPreparedChartAsync(
+        CancellationToken cancellationToken);
 
     /// <summary>
     /// Check if game is running

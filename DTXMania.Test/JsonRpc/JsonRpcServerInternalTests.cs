@@ -191,6 +191,34 @@ public class JsonRpcServerInternalTests
         gameApi.Verify(api => api.PrepareVideoChartAsync(chartPath), Times.Once);
     }
 
+    [Fact]
+    public async Task HandlePrepareVideoChart_WithRequestCancellation_ForwardsCancellationToken()
+    {
+        var chartPath = Path.GetFullPath(Path.Combine("safe", "chart.dtx"));
+        using var cancellation = new CancellationTokenSource();
+        var gameApi = CreateGameApi();
+        gameApi
+            .Setup(api => api.PrepareVideoChartAsync(chartPath, cancellation.Token))
+            .ReturnsAsync(new PreparedChartCommandResult(false, "The prepared chart command was canceled."));
+        var server = new JsonRpcServer(gameApi.Object);
+        using var paramsDocument = JsonDocument.Parse(
+            JsonSerializer.Serialize(new { chartPath }));
+
+        var response = await ReflectionHelpers.InvokePrivateMethodAsync<JsonRpcResponse>(
+            server,
+            "HandlePrepareVideoChartWithCancellation",
+            new JsonRpcRequest
+            {
+                Id = 24,
+                Method = "prepareVideoChart",
+                Params = paramsDocument.RootElement.Clone()
+            },
+            cancellation.Token);
+
+        Assert.Null(response!.Error);
+        gameApi.Verify(api => api.PrepareVideoChartAsync(chartPath, cancellation.Token), Times.Once);
+    }
+
     [Theory]
     [InlineData("startPreparedPreview")]
     [InlineData("activatePreparedChart")]

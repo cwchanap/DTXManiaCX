@@ -2,6 +2,8 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Xna.Framework;
@@ -36,11 +38,16 @@ public interface IGameContext
 /// <summary>
 /// Implementation of IGameApi for the DTXMania game
 /// </summary>
-public class GameApiImplementation : IGameApi
+public class GameApiImplementation : IGameApi, IDisposable
 {
     private readonly IGameContext _game;
     private readonly object _lock = new object();
     private readonly ILogger<GameApiImplementation>? _logger;
+    private readonly CancellationTokenSource _lifecycleCancellation = new();
+    private readonly HashSet<PendingPreparedChartCommand> _pendingPreparedCommands = new();
+    private bool _disposed;
+
+    private const string PreparedCommandCanceledError = "The prepared chart command was canceled.";
 
     public GameApiImplementation(IGameContext game, ILogger<GameApiImplementation>? logger = null)
     {
@@ -48,7 +55,14 @@ public class GameApiImplementation : IGameApi
         _logger = logger;
     }
 
-    public bool IsRunning => true; // Game is running if this instance exists
+    public bool IsRunning
+    {
+        get
+        {
+            lock (_lock)
+                return !_disposed;
+        }
+    }
 
     public async Task<GameState> GetGameStateAsync()
     {
@@ -329,69 +343,267 @@ public class GameApiImplementation : IGameApi
 
     public Task<PreparedChartCommandResult> PrepareVideoChartAsync(string chartPath)
     {
-        return QueuePreparedChartCommandAsync(stage => stage.PrepareVideoChart(chartPath));
+        return PrepareVideoChartAsync(chartPath, CancellationToken.None);
+    }
+
+    public Task<PreparedChartCommandResult> PrepareVideoChartAsync(
+        string chartPath,
+        CancellationToken cancellationToken)
+    {
+        return QueuePreparedChartCommandAsync(
+            stage => stage.PrepareVideoChart(chartPath),
+            cancellationToken);
     }
 
     public Task<PreparedChartCommandResult> StartPreparedPreviewAsync()
     {
-        return QueuePreparedChartCommandAsync(stage => stage.StartPreparedPreview());
+        return StartPreparedPreviewAsync(CancellationToken.None);
+    }
+
+    public Task<PreparedChartCommandResult> StartPreparedPreviewAsync(
+        CancellationToken cancellationToken)
+    {
+        return QueuePreparedChartCommandAsync(
+            stage => stage.StartPreparedPreview(),
+            cancellationToken);
     }
 
     public Task<PreparedChartCommandResult> ActivatePreparedChartAsync()
     {
-        return QueuePreparedChartCommandAsync(stage => stage.ActivatePreparedChart());
+        return ActivatePreparedChartAsync(CancellationToken.None);
+    }
+
+    public Task<PreparedChartCommandResult> ActivatePreparedChartAsync(
+        CancellationToken cancellationToken)
+    {
+        return QueuePreparedChartCommandAsync(
+            stage => stage.ActivatePreparedChart(),
+            cancellationToken);
     }
 
     public Task<PreparedChartCommandResult> CancelPreparedChartAsync()
     {
-        return QueuePreparedChartCommandAsync(stage => stage.CancelPreparedChart());
+        return CancelPreparedChartAsync(CancellationToken.None);
+    }
+
+    public Task<PreparedChartCommandResult> CancelPreparedChartAsync(
+        CancellationToken cancellationToken)
+    {
+        return QueuePreparedChartCommandAsync(
+            stage => stage.CancelPreparedChart(),
+            cancellationToken);
     }
 
     private Task<PreparedChartCommandResult> QueuePreparedChartCommandAsync(
-        Func<SongSelectionStage, (bool Success, string? Error)> command)
+        Func<SongSelectionStage, (bool Success, string? Error)> command,
+        CancellationToken requestCancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
 
-        var completion = new TaskCompletionSource<PreparedChartCommandResult>(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-
-        void CompleteFailure(Exception exception, string logMessage)
+        PendingPreparedChartCommand pending;
+        lock (_lock)
         {
-            _logger?.LogError(exception, logMessage);
-            completion.TrySetResult(new PreparedChartCommandResult(
-                false,
-                "The prepared chart command could not be completed."));
+            if (_disposed)
+            {
+                return Task.FromResult(new PreparedChartCommandResult(
+                    false,
+                    PreparedCommandCanceledError));
+            }
+
+            var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                requestCancellationToken,
+                _lifecycleCancellation.Token);
+            pending = new PendingPreparedChartCommand(linkedCancellation);
+            _pendingPreparedCommands.Add(pending);
+        }
+
+        pending.SetCancellationRegistration(
+            pending.CancellationToken.Register(() =>
+                CompletePreparedCommand(
+                    pending,
+                    new PreparedChartCommandResult(false, PreparedCommandCanceledError))));
+
+        if (pending.CancellationToken.IsCancellationRequested)
+        {
+            CompletePreparedCommand(
+                pending,
+                new PreparedChartCommandResult(false, PreparedCommandCanceledError));
+            return pending.Completion.Task;
         }
 
         try
         {
             _game.QueueMainThreadAction(() =>
             {
-                try
-                {
-                    if (_game.StageManager?.CurrentStage is not SongSelectionStage songSelectionStage)
-                    {
-                        completion.TrySetResult(new PreparedChartCommandResult(
-                            false,
-                            "Prepared chart commands require the Song Select stage."));
-                        return;
-                    }
+                if (!pending.TryBeginExecution())
+                    return;
 
-                    var result = command(songSelectionStage);
-                    completion.TrySetResult(new PreparedChartCommandResult(result.Success, result.Error));
-                }
-                catch (Exception exception)
+                PreparedChartCommandResult result;
+                if (pending.CancellationToken.IsCancellationRequested)
                 {
-                    CompleteFailure(exception, "Game API: Prepared chart command failed on the update thread");
+                    result = new PreparedChartCommandResult(
+                        false,
+                        PreparedCommandCanceledError);
                 }
+                else
+                {
+                    try
+                    {
+                        if (_game.StageManager?.CurrentStage is not SongSelectionStage songSelectionStage)
+                        {
+                            result = new PreparedChartCommandResult(
+                                false,
+                                "Prepared chart commands require the Song Select stage.");
+                        }
+                        else
+                        {
+                            var commandResult = command(songSelectionStage);
+                            result = new PreparedChartCommandResult(
+                                commandResult.Success,
+                                commandResult.Error);
+                        }
+                    }
+                    catch (Exception exception)
+                    {
+                        _logger?.LogError(
+                            exception,
+                            "Game API: Prepared chart command failed on the update thread");
+                        result = new PreparedChartCommandResult(
+                            false,
+                            "The prepared chart command could not be completed.");
+                    }
+                }
+
+                pending.TryComplete(result);
+                RemovePreparedCommand(pending);
             });
         }
         catch (Exception exception)
         {
-            CompleteFailure(exception, "Game API: Could not queue prepared chart command");
+            _logger?.LogError(exception, "Game API: Could not queue prepared chart command");
+            CompletePreparedCommand(
+                pending,
+                new PreparedChartCommandResult(
+                    false,
+                    "The prepared chart command could not be completed."));
         }
 
-        return completion.Task;
+        return pending.Completion.Task;
+    }
+
+    private void CompletePreparedCommand(
+        PendingPreparedChartCommand pending,
+        PreparedChartCommandResult result)
+    {
+        pending.TryComplete(result);
+        RemovePreparedCommand(pending);
+    }
+
+    private void RemovePreparedCommand(PendingPreparedChartCommand pending)
+    {
+        lock (_lock)
+            _pendingPreparedCommands.Remove(pending);
+
+        pending.DisposeCancellation();
+    }
+
+    public void Dispose()
+    {
+        PendingPreparedChartCommand[] pendingCommands;
+        lock (_lock)
+        {
+            if (_disposed)
+                return;
+
+            _disposed = true;
+            pendingCommands = _pendingPreparedCommands.ToArray();
+        }
+
+        try
+        {
+            _lifecycleCancellation.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+
+        foreach (var pending in pendingCommands)
+        {
+            CompletePreparedCommand(
+                pending,
+                new PreparedChartCommandResult(false, PreparedCommandCanceledError));
+        }
+
+        _lifecycleCancellation.Dispose();
+    }
+
+    private sealed class PendingPreparedChartCommand
+    {
+        private int _completed;
+        private int _executionStarted;
+        private int _registrationReady;
+        private int _disposeRequested;
+        private int _resourcesDisposed;
+        private CancellationTokenRegistration _cancellationRegistration;
+
+        public PendingPreparedChartCommand(CancellationTokenSource cancellationSource)
+        {
+            CancellationSource = cancellationSource;
+            CancellationToken = cancellationSource.Token;
+            Completion = new TaskCompletionSource<PreparedChartCommandResult>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+        }
+
+        public TaskCompletionSource<PreparedChartCommandResult> Completion { get; }
+        public CancellationTokenSource CancellationSource { get; }
+        public CancellationToken CancellationToken { get; }
+        public bool IsCompleted => Volatile.Read(ref _completed) != 0;
+
+        public bool TryBeginExecution()
+        {
+            if (IsCompleted
+                || Interlocked.CompareExchange(ref _executionStarted, 1, 0) != 0)
+            {
+                return false;
+            }
+
+            return !IsCompleted;
+        }
+
+        public bool TryComplete(PreparedChartCommandResult result)
+        {
+            if (Interlocked.Exchange(ref _completed, 1) != 0)
+                return false;
+
+            Completion.TrySetResult(result);
+            return true;
+        }
+
+        public void SetCancellationRegistration(CancellationTokenRegistration registration)
+        {
+            _cancellationRegistration = registration;
+            Volatile.Write(ref _registrationReady, 1);
+            DisposeCancellationIfRequested();
+        }
+
+        public void DisposeCancellation()
+        {
+            Volatile.Write(ref _disposeRequested, 1);
+            DisposeCancellationIfRequested();
+        }
+
+        private void DisposeCancellationIfRequested()
+        {
+            if (Volatile.Read(ref _disposeRequested) == 0
+                || Volatile.Read(ref _registrationReady) == 0
+                || Interlocked.Exchange(ref _resourcesDisposed, 1) != 0)
+            {
+                return;
+            }
+
+            _cancellationRegistration.Dispose();
+            CancellationSource.Dispose();
+        }
     }
 
     private GameWindowInfo GetWindowInfoSafe()

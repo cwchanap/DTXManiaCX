@@ -1557,10 +1557,16 @@ namespace DTXMania.Game.Lib.Stage
             // state. The projection itself suppresses the intermediate selection events so
             // they cannot stop or replace this exact-chart preview.
             if (!ProjectPreparedChartSelection(resolution))
+            {
+                ResumeOrdinaryPreviewAfterPrepareFailure(resolution.Node);
                 return PreparedFailure("The requested chart could not be selected.");
+            }
 
             if (_resourceManager == null || !TryLoadPreviewSoundFile(previewPath))
+            {
+                ResumeOrdinaryPreviewAfterPrepareFailure(resolution.Node);
                 return PreparedFailure("The requested chart preview could not be loaded.");
+            }
 
             // TryLoadPreviewSoundFile intentionally arms the ordinary delayed preview path.
             // Prepared playback must remain stopped until StartPreparedPreview is called.
@@ -1674,6 +1680,13 @@ namespace DTXMania.Game.Lib.Stage
                 return;
 
             ClearPreparedPreviewState();
+        }
+
+        private void ResumeOrdinaryPreviewAfterPrepareFailure(SongListNode fallbackNode)
+        {
+            var selectedNode = _selectedSong ?? _songListDisplay?.SelectedSong ?? fallbackNode;
+            if (selectedNode?.Type == NodeType.Score)
+                LoadPreviewSound(selectedNode);
         }
 
         private static bool TryGetChartPreviewPath(SongChart chart, out string previewPath)
@@ -2212,6 +2225,12 @@ namespace DTXMania.Game.Lib.Stage
             if (StageManager == null)
             {
                 error = "The song transition manager is unavailable.";
+                return false;
+            }
+
+            if (StageManager.IsTransitioning)
+            {
+                error = "The song transition is currently blocked.";
                 return false;
             }
 
