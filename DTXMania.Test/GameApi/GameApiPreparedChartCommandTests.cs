@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using DTXMania.Game;
@@ -135,7 +134,7 @@ public sealed class GameApiPreparedChartCommandTests
     }
 
     [Fact]
-    public async Task Dispose_CompletesPendingPreparedCommand_AndQueuedDelegateBecomesNoOp()
+    public async Task         Dispose_ShouldCompletePendingPreparedCommandAndLeaveQueuedDelegateAsNoOp()
     {
         var stage = SongSelectionStageTestFactory.CreateStage();
         var stageManager = new Mock<IStageManager>();
@@ -152,11 +151,7 @@ public sealed class GameApiPreparedChartCommandTests
         Assert.False(commandTask.IsCompleted);
         Assert.Single(queuedActions);
 
-        var dispose = typeof(GameApiImplementation).GetMethod(
-            nameof(IDisposable.Dispose),
-            BindingFlags.Instance | BindingFlags.Public);
-        Assert.NotNull(dispose);
-        dispose!.Invoke(api, null);
+        api.Dispose();
 
         var result = await commandTask.WaitAsync(TimeSpan.FromSeconds(1));
         Assert.False(result.Success);
@@ -173,7 +168,7 @@ public sealed class GameApiPreparedChartCommandTests
     }
 
     [Fact]
-    public async Task PreparedCommand_WhenRequestCancellationIsSignaled_CompletesAndQueuedDelegateBecomesNoOp()
+    public async Task         PreparedCommand_WhenRequestCancellationIsSignaled_ShouldCompleteAndLeaveQueuedDelegateAsNoOp()
     {
         var stage = SongSelectionStageTestFactory.CreateStage();
         var stageManager = new Mock<IStageManager>();
@@ -187,16 +182,7 @@ public sealed class GameApiPreparedChartCommandTests
         var api = new GameApiImplementation(context.Object);
 
         using var requestCancellation = new CancellationTokenSource();
-        var commandMethod = typeof(GameApiImplementation).GetMethod(
-            nameof(GameApiImplementation.StartPreparedPreviewAsync),
-            BindingFlags.Instance | BindingFlags.Public,
-            binder: null,
-            types: new[] { typeof(CancellationToken) },
-            modifiers: null);
-        Assert.NotNull(commandMethod);
-        var commandTask = (Task<PreparedChartCommandResult>)commandMethod!.Invoke(
-            api,
-            new object[] { requestCancellation.Token })!;
+        var commandTask = api.StartPreparedPreviewAsync(requestCancellation.Token);
 
         requestCancellation.Cancel();
 

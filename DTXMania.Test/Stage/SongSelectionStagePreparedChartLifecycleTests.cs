@@ -22,7 +22,7 @@ namespace DTXMania.Test.Stage;
 public sealed class SongSelectionStagePreparedChartLifecycleTests
 {
     [Fact]
-    public void PrepareVideoChart_UsesResolvedChartPreviewAndLeavesPreviewStopped()
+    public void PrepareVideoChart_ShouldUseResolvedChartPreviewAndLeavePreviewStopped()
     {
         var root = Path.Combine(Path.GetTempPath(), "hpa510-lifecycle-exact");
         Directory.CreateDirectory(root);
@@ -72,7 +72,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
     }
 
     [Fact]
-    public void PrepareVideoChart_WhenReplacingPlayingInteractivePreview_StopsOldInstanceBeforePublishingPrepared()
+    public void PrepareVideoChart_WhenReplacingPlayingInteractivePreview_ShouldStopOldInstanceBeforePublishingPrepared()
     {
         var root = Path.Combine(Path.GetTempPath(), "hpa510-lifecycle-replace-interactive");
         Directory.CreateDirectory(root);
@@ -112,7 +112,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
     }
 
     [Fact]
-    public void PrepareVideoChart_WhenDeclarationFileOrLoadIsInvalid_ClearsPreparation()
+    public void PrepareVideoChart_WhenDeclarationFileOrLoadIsInvalid_ShouldClearPreparation()
     {
         var root = Path.Combine(Path.GetTempPath(), "hpa510-lifecycle-failures");
         Directory.CreateDirectory(root);
@@ -155,7 +155,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
     }
 
     [Fact]
-    public void PrepareVideoChart_WhenRequestedPreviewLoadFails_RestoresPrimaryDelayedPreviewWithoutPreparation()
+    public void PrepareVideoChart_WhenRequestedPreviewLoadFails_ShouldRestorePrimaryDelayedPreviewWithoutPreparation()
     {
         var root = Path.Combine(Path.GetTempPath(), "hpa510-lifecycle-fallback-primary");
         Directory.CreateDirectory(root);
@@ -208,7 +208,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
     }
 
     [Fact]
-    public void PreparedPreview_DoesNotAutoStartAfterNormalDelay()
+    public void PreparedPreview_ShouldNotAutoStartAfterNormalDelay()
     {
         var root = Path.Combine(Path.GetTempPath(), "hpa510-lifecycle-delay");
         Directory.CreateDirectory(root);
@@ -238,7 +238,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
     }
 
     [Fact]
-    public void StartPreparedPreview_WhenAlreadyPlaying_IsIdempotent()
+    public void StartPreparedPreview_WhenAlreadyPlaying_ShouldBeIdempotent()
     {
         var stage = CreateStage();
         var sound = new Mock<ISound>();
@@ -258,7 +258,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
     }
 
     [Fact]
-    public void StartPreparedPreview_WhenInstanceCannotBeCreated_MarksPreviewFailed()
+    public void StartPreparedPreview_WhenInstanceCannotBeCreated_ShouldMarkPreviewFailed()
     {
         var stage = CreateStage();
         var sound = new Mock<ISound>();
@@ -277,7 +277,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
     }
 
     [Fact]
-    public void UpdatePreparedPreview_WhenPlaying_AccumulatesOnlyActualPlaybackAndFailsOnStop()
+    public void UpdatePreparedPreview_WhenPlaying_ShouldAccumulateOnlyActualPlaybackAndFailOnStop()
     {
         var stage = CreateStage();
         var instance = new Mock<ISoundInstance>();
@@ -298,7 +298,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
     }
 
     [Fact]
-    public void CancelPreparedChart_IsIdempotentAndReleasesPreviewExactlyOnce()
+    public void CancelPreparedChart_ShouldBeIdempotentAndReleasePreviewExactlyOnce()
     {
         var stage = CreateStage();
         var sound = new Mock<ISound>();
@@ -323,7 +323,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
     }
 
     [Fact]
-    public void CancelPreparedChart_WhenNoPreparationPreservesInteractivePreview()
+    public void CancelPreparedChart_WhenNoPreparation_ShouldPreserveInteractivePreview()
     {
         var stage = CreateStage();
         var sound = new Mock<ISound>();
@@ -351,7 +351,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
     }
 
     [Fact]
-    public void PrepareVideoChart_WhenInvalidAndNoPreparationPreservesInteractivePreview()
+    public void PrepareVideoChart_WhenInvalidAndNoPreparation_ShouldPreserveInteractivePreview()
     {
         var stage = CreateStage();
         var sound = new Mock<ISound>();
@@ -379,7 +379,32 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
     }
 
     [Fact]
-    public void Deactivate_CleansPreparedPreviewExactlyOnceAcrossRepeatedCalls()
+    public void PrepareVideoChart_WhenInvalidAndPreparationExists_ShouldPreserveExistingPreparation()
+    {
+        var stage = CreateStage();
+        var preparedSound = new Mock<ISound>();
+        var preparedInstance = new Mock<ISoundInstance>();
+        preparedInstance.SetupGet(x => x.State).Returns(SoundState.Playing);
+        SetPrivateField(stage, "_previewSound", preparedSound.Object);
+        SetPrivateField(stage, "_previewSoundInstance", preparedInstance.Object);
+        var node = CreateNode("prepared", Path.Combine(Path.GetTempPath(), "prepared-existing.dtx"));
+        var existingSelection = MakePreparedSelection(node, 0);
+        SetPrivateField(stage, "_preparedChartSelection", existingSelection);
+        SetPreparedState(stage, "Playing");
+        SetPrivateField(stage, "_preparedPreviewElapsedMs", 750d);
+
+        var result = InvokeCommand(stage, "PrepareVideoChart", " ");
+
+        Assert.False(result.Success);
+        Assert.Same(existingSelection, GetPrivateField<object>(stage, "_preparedChartSelection"));
+        Assert.Equal("Playing", GetPrivateField<object>(stage, "_preparedPreviewState")?.ToString());
+        Assert.Same(preparedSound.Object, GetPrivateField<ISound>(stage, "_previewSound"));
+        Assert.Same(preparedInstance.Object, GetPrivateField<ISoundInstance>(stage, "_previewSoundInstance"));
+        Assert.Equal(750d, GetPrivateField<double>(stage, "_preparedPreviewElapsedMs"));
+    }
+
+    [Fact]
+    public void Deactivate_ShouldCleanPreparedPreviewExactlyOnceAcrossRepeatedCalls()
     {
         var stage = CreateStage();
         var sound = new Mock<ISound>();
@@ -402,7 +427,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
     }
 
     [Fact]
-    public void OnSongSelectionChanged_WhenLeavingPreparedRow_ClearsPreparation()
+    public void OnSongSelectionChanged_WhenLeavingPreparedRow_ShouldClearPreparation()
     {
         var stage = CreateStage();
         var prepared = CreateNode("prepared", Path.Combine(Path.GetTempPath(), "prepared.dtx"));
@@ -425,7 +450,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
     }
 
     [Fact]
-    public void OnSongSelectionChanged_WhenProjectingPreparedSelection_PreservesPreparation()
+    public void OnSongSelectionChanged_WhenProjectingPreparedSelection_ShouldPreservePreparation()
     {
         var stage = CreateStage();
         var prepared = CreateNode("prepared", Path.Combine(Path.GetTempPath(), "prepared-projecting.dtx"));
@@ -448,7 +473,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
     }
 
     [Fact]
-    public void OnDifficultyChanged_WhenLeavingPreparedDifficulty_ClearsAndLoadsNormalPreview()
+    public void OnDifficultyChanged_WhenLeavingPreparedDifficulty_ShouldClearAndLoadNormalPreview()
     {
         var root = Path.Combine(Path.GetTempPath(), "hpa510-lifecycle-difficulty");
         Directory.CreateDirectory(root);
@@ -484,7 +509,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
     }
 
     [Fact]
-    public void ActivatePreparedChart_WhenTransitionBlocked_PreservesPreparation()
+    public void ActivatePreparedChart_WhenTransitionBlocked_ShouldPreservePreparation()
     {
         var game = CreateGame(totalGameTime: 0.1, lastStageTransitionTime: 0d);
         var stage = CreateStage(game);
@@ -504,7 +529,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
     }
 
     [Fact]
-    public void ActivatePreparedChart_WhenStageManagerIsTransitioning_PreservesPreparation()
+    public void ActivatePreparedChart_WhenStageManagerIsTransitioning_ShouldPreservePreparation()
     {
         var game = CreateGame(totalGameTime: 2d, lastStageTransitionTime: 0d);
         var stage = CreateStage(game);
@@ -526,7 +551,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
     }
 
     [Fact]
-    public void ActivatePreparedChart_WhenEligible_CleansPreparationAndUsesSongTransition()
+    public void ActivatePreparedChart_WhenEligible_ShouldCleanPreparationAndUseSongTransition()
     {
         var game = CreateGame(totalGameTime: 2d, lastStageTransitionTime: 0d);
         var stage = CreateStage(game);
@@ -554,7 +579,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
     }
 
     [Fact]
-    public void PopulateTelemetry_ReportsPreparedIdentityStateAndElapsedWithoutAbsolutePath()
+    public void PopulateTelemetry_ShouldReportPreparedIdentityStateAndElapsedWithoutAbsolutePath()
     {
         var root = Path.Combine(Path.GetTempPath(), "hpa510-telemetry");
         var chartPath = Path.Combine(root, "telemetry.dtx");

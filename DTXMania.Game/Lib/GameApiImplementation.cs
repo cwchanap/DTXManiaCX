@@ -341,53 +341,33 @@ public class GameApiImplementation : IGameApi, IDisposable
         return Task.FromResult(true);
     }
 
-    public Task<PreparedChartCommandResult> PrepareVideoChartAsync(string chartPath)
-    {
-        return PrepareVideoChartAsync(chartPath, CancellationToken.None);
-    }
-
     public Task<PreparedChartCommandResult> PrepareVideoChartAsync(
         string chartPath,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken = default)
     {
         return QueuePreparedChartCommandAsync(
             stage => stage.PrepareVideoChart(chartPath),
             cancellationToken);
     }
 
-    public Task<PreparedChartCommandResult> StartPreparedPreviewAsync()
-    {
-        return StartPreparedPreviewAsync(CancellationToken.None);
-    }
-
     public Task<PreparedChartCommandResult> StartPreparedPreviewAsync(
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken = default)
     {
         return QueuePreparedChartCommandAsync(
             stage => stage.StartPreparedPreview(),
             cancellationToken);
     }
 
-    public Task<PreparedChartCommandResult> ActivatePreparedChartAsync()
-    {
-        return ActivatePreparedChartAsync(CancellationToken.None);
-    }
-
     public Task<PreparedChartCommandResult> ActivatePreparedChartAsync(
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken = default)
     {
         return QueuePreparedChartCommandAsync(
             stage => stage.ActivatePreparedChart(),
             cancellationToken);
     }
 
-    public Task<PreparedChartCommandResult> CancelPreparedChartAsync()
-    {
-        return CancelPreparedChartAsync(CancellationToken.None);
-    }
-
     public Task<PreparedChartCommandResult> CancelPreparedChartAsync(
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken = default)
     {
         return QueuePreparedChartCommandAsync(
             stage => stage.CancelPreparedChart(),

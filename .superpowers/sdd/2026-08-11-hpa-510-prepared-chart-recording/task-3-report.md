@@ -74,20 +74,20 @@ Changed only the two JSON-RPC test files. The production handler already enforce
 Focused verification:
 
 ```text
-rtk dotnet test DTXmania.Test/DTXmania.Test.Mac.csproj --filter "FullyQualifiedName~JsonRpcServerInternalTests.HandlePrepareVideoChart" --no-restore
+rtk dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~JsonRpcServerInternalTests.HandlePrepareVideoChart" --no-restore
   2 tests passed, 0 warnings
 
-rtk dotnet test DTXmania.Test/DTXmania.Test.Mac.csproj --filter "FullyQualifiedName~JsonRpcServerInternalTests.RouteMethodCall_PreparedChartCommands" --no-restore
+rtk dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~JsonRpcServerInternalTests.RouteMethodCall_PreparedChartCommands" --no-restore
   3 tests passed, 0 warnings
 
-rtk dotnet test DTXmania.Test/DTXmania.Test.Mac.csproj --filter "FullyQualifiedName~JsonRpcServerValidationTests.PreparedChart" --no-restore
+rtk dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~JsonRpcServerValidationTests.PreparedChart" --no-restore
   2 tests passed, 0 warnings
 
-rtk dotnet test DTXmania.Test/DTXmania.Test.Mac.csproj --filter "FullyQualifiedName~JsonRpcServerValidationTests.PrepareVideoChart_InvalidParams" --no-restore
+rtk dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~JsonRpcServerValidationTests.PrepareVideoChart_InvalidParams" --no-restore
   4 tests passed, 0 warnings
 
 Total exact JSON-RPC focus: 11 tests passed, 0 warnings.
-rtk dotnet test DTXmania.Test/DTXmania.Test.Mac.csproj --no-restore --no-build
+rtk dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --no-restore --no-build
   8,203 tests passed, 0 warnings
 ```
 
