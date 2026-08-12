@@ -8,7 +8,6 @@ public static class E2EFixtureBuilder
     public const string ApiKey = "e2e-autoplay-smoke-key";
     public const string SongTitle = "E2E AutoPlay Smoke";
     public const string AudioFileName = "autoplay-tone.wav";
-    public const string PreviewAudioFileName = "preview-tone.wav";
     public const string ArtifactRootEnvironmentVariable = "DTXMANIA_E2E_ARTIFACT_ROOT";
 
     // Minimal valid 8x32 white PNG shipped into the sandbox skin so it mirrors the
@@ -49,11 +48,7 @@ public static class E2EFixtureBuilder
             Encoding.UTF8);
         File.WriteAllText(paths.ChartPath, BuildChart(), Encoding.UTF8);
         var audioPath = Path.Combine(paths.SongDirectory, AudioFileName);
-        WriteDeterministicWave(audioPath, durationSeconds: 1.0);
-        var previewAudioPath = Path.Combine(paths.SongDirectory, PreviewAudioFileName);
-        // The prepared-chart recording smoke verifies ten seconds of continuous preview.
-        // Keep that preview long without changing the short gameplay tone used by other E2E cases.
-        WriteDeterministicWave(previewAudioPath, durationSeconds: 12.0);
+        WriteDeterministicWave(audioPath);
         // Ship hit_fx.png so the sandbox skin matches the bundled System skin.
         File.WriteAllBytes(
             Path.Combine(paths.SkinRoot, "Graphics", "hit_fx.png"),
@@ -150,7 +145,7 @@ public static class E2EFixtureBuilder
             "#BPM: 120",
             "#DLEVEL: 10",
             $"#WAV01: {AudioFileName}",
-            $"#PREVIEW: {PreviewAudioFileName}",
+            $"#PREVIEW: {AudioFileName}",
             string.Empty,
             "; Short deterministic AutoPlay pattern with generated local audio.",
             "#00001: 0100000000000000",
@@ -164,12 +159,13 @@ public static class E2EFixtureBuilder
         });
     }
 
-    private static void WriteDeterministicWave(string path, double durationSeconds)
+    private static void WriteDeterministicWave(string path)
     {
         const int sampleRate = 44_100;
         const short channelCount = 1;
         const short bitsPerSample = 16;
         const double frequencyHz = 440.0;
+        const double durationSeconds = 1.0;
         var sampleCount = (int)(sampleRate * durationSeconds);
         var bytesPerSample = bitsPerSample / 8;
         var dataLength = sampleCount * channelCount * bytesPerSample;
