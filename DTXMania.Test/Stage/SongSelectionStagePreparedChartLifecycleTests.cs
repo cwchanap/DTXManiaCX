@@ -72,6 +72,46 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
     }
 
     [Fact]
+    public void PrepareVideoChart_WhenReplacingPlayingInteractivePreview_StopsOldInstanceBeforePublishingPrepared()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "hpa510-lifecycle-replace-interactive");
+        Directory.CreateDirectory(root);
+        var chartPath = Path.Combine(root, "chart.dtx");
+        var previewPath = Path.Combine(root, "prepared.wav");
+        File.WriteAllText(chartPath, "chart");
+        File.WriteAllText(previewPath, "preview");
+
+        try
+        {
+            var node = CreateNode("prepared", chartPath, previewFile: "prepared.wav");
+            var resourceManager = new Mock<IResourceManager>();
+            var preparedSound = new Mock<ISound>();
+            resourceManager.Setup(x => x.LoadSound(previewPath)).Returns(preparedSound.Object);
+            var stage = CreatePreparedStage(root, node, resourceManager.Object);
+            var interactiveSound = new Mock<ISound>();
+            var interactiveInstance = new Mock<ISoundInstance>();
+            interactiveInstance.SetupGet(x => x.State).Returns(SoundState.Playing);
+            SetPrivateField(stage, "_previewSound", interactiveSound.Object);
+            SetPrivateField(stage, "_previewSoundInstance", interactiveInstance.Object);
+
+            var result = InvokeCommand(stage, "PrepareVideoChart", chartPath);
+
+            Assert.True(result.Success);
+            interactiveInstance.Verify(x => x.Stop(), Times.Once);
+            interactiveInstance.Verify(x => x.Dispose(), Times.Once);
+            interactiveSound.Verify(x => x.RemoveReference(), Times.Once);
+            Assert.Same(preparedSound.Object, GetPrivateField<ISound>(stage, "_previewSound"));
+            Assert.Null(GetPrivateField<ISoundInstance>(stage, "_previewSoundInstance"));
+            Assert.Equal("Prepared", GetPrivateField<object>(stage, "_preparedPreviewState")?.ToString());
+            preparedSound.Verify(x => x.CreateInstance(), Times.Never);
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
     public void PrepareVideoChart_WhenDeclarationFileOrLoadIsInvalid_ClearsPreparation()
     {
         var root = Path.Combine(Path.GetTempPath(), "hpa510-lifecycle-failures");
