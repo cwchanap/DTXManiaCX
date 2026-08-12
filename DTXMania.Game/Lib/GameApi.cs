@@ -44,35 +44,32 @@ public interface IGameApi
     /// <summary>
     /// Prepares a chart preview on the Song Select update thread.
     /// </summary>
-    Task<PreparedChartCommandResult> PrepareVideoChartAsync(string chartPath);
-
+    /// <param name="chartPath">Fully qualified path to the chart file.</param>
+    /// <param name="cancellationToken">Optional token to cancel the queued command.</param>
     Task<PreparedChartCommandResult> PrepareVideoChartAsync(
         string chartPath,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Starts the prepared chart preview on the Song Select update thread.
     /// </summary>
-    Task<PreparedChartCommandResult> StartPreparedPreviewAsync();
-
+    /// <param name="cancellationToken">Optional token to cancel the queued command.</param>
     Task<PreparedChartCommandResult> StartPreparedPreviewAsync(
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Activates the prepared chart on the Song Select update thread.
     /// </summary>
-    Task<PreparedChartCommandResult> ActivatePreparedChartAsync();
-
+    /// <param name="cancellationToken">Optional token to cancel the queued command.</param>
     Task<PreparedChartCommandResult> ActivatePreparedChartAsync(
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Cancels the prepared chart preview on the Song Select update thread.
     /// </summary>
-    Task<PreparedChartCommandResult> CancelPreparedChartAsync();
-
+    /// <param name="cancellationToken">Optional token to cancel the queued command.</param>
     Task<PreparedChartCommandResult> CancelPreparedChartAsync(
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Check if game is running

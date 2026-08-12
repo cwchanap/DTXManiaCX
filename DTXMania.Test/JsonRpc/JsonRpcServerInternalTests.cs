@@ -169,7 +169,7 @@ public class JsonRpcServerInternalTests
         Assert.True(Path.IsPathFullyQualified(chartPath));
         var gameApi = CreateGameApi();
         gameApi
-            .Setup(api => api.PrepareVideoChartAsync(chartPath))
+            .Setup(api => api.PrepareVideoChartAsync(chartPath, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new PreparedChartCommandResult(false, "The requested chart preview file was not found."));
         var server = new JsonRpcServer(gameApi.Object);
         using var paramsDocument = JsonDocument.Parse(
@@ -188,7 +188,7 @@ public class JsonRpcServerInternalTests
         Assert.Null(response!.Error);
         Assert.Contains("\"success\":false", JsonSerializer.Serialize(response.Result));
         Assert.Contains("The requested chart preview file was not found.", JsonSerializer.Serialize(response.Result));
-        gameApi.Verify(api => api.PrepareVideoChartAsync(chartPath), Times.Once);
+        gameApi.Verify(api => api.PrepareVideoChartAsync(chartPath, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -226,11 +226,11 @@ public class JsonRpcServerInternalTests
     public async Task RouteMethodCall_PreparedChartCommands_ShouldUseExplicitRoutes(string method)
     {
         var gameApi = CreateGameApi();
-        gameApi.Setup(api => api.StartPreparedPreviewAsync())
+        gameApi.Setup(api => api.StartPreparedPreviewAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new PreparedChartCommandResult(true, null));
-        gameApi.Setup(api => api.ActivatePreparedChartAsync())
+        gameApi.Setup(api => api.ActivatePreparedChartAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new PreparedChartCommandResult(true, null));
-        gameApi.Setup(api => api.CancelPreparedChartAsync())
+        gameApi.Setup(api => api.CancelPreparedChartAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new PreparedChartCommandResult(true, null));
         var server = new JsonRpcServer(gameApi.Object);
 
@@ -244,13 +244,13 @@ public class JsonRpcServerInternalTests
         switch (method)
         {
             case "startPreparedPreview":
-                gameApi.Verify(api => api.StartPreparedPreviewAsync(), Times.Once);
+                gameApi.Verify(api => api.StartPreparedPreviewAsync(It.IsAny<CancellationToken>()), Times.Once);
                 break;
             case "activatePreparedChart":
-                gameApi.Verify(api => api.ActivatePreparedChartAsync(), Times.Once);
+                gameApi.Verify(api => api.ActivatePreparedChartAsync(It.IsAny<CancellationToken>()), Times.Once);
                 break;
             case "cancelPreparedChart":
-                gameApi.Verify(api => api.CancelPreparedChartAsync(), Times.Once);
+                gameApi.Verify(api => api.CancelPreparedChartAsync(It.IsAny<CancellationToken>()), Times.Once);
                 break;
         }
     }

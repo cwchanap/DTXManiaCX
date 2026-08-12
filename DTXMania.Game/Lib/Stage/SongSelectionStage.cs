@@ -1503,6 +1503,14 @@ namespace DTXMania.Game.Lib.Stage
             if (resolution == null || _appliedLibrarySnapshot == null || _songListDisplay == null)
                 return false;
 
+            var previousTab = _activeTab;
+            var previousFilterCriteria = _filterCriteria;
+            var previousFilteredView = _filteredView;
+            var previousShowEmptyFilterMessage = _showEmptyFilterMessage;
+            var previousSongList = _currentSongList;
+            var previousBreadcrumb = _currentBreadcrumb;
+            var previousNavigation = new List<SongListNode>(_navigationStack);
+
             _isProjectingPreparedSelection = true;
             try
             {
@@ -1517,7 +1525,17 @@ namespace DTXMania.Game.Lib.Stage
                 var targetIndex = _songListDisplay.CurrentList.FindIndex(node =>
                     ReferenceEquals(node, resolution.Node));
                 if (targetIndex < 0)
+                {
+                    RestoreBrowseState(
+                        previousTab,
+                        previousFilterCriteria,
+                        previousFilteredView,
+                        previousShowEmptyFilterMessage,
+                        previousSongList,
+                        previousBreadcrumb,
+                        previousNavigation);
                     return false;
+                }
 
                 _songListDisplay.SetSelection(targetIndex, resolution.DifficultyIndex);
                 UpdateBreadcrumb();
@@ -1530,10 +1548,31 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
 
+        private void RestoreBrowseState(
+            SongSelectionTab tab,
+            SongFilterCriteria filterCriteria,
+            System.Collections.Generic.IReadOnlyList<FilteredSongResult>? filteredView,
+            bool showEmptyFilterMessage,
+            List<SongListNode> songList,
+            string breadcrumb,
+            List<SongListNode> navigation)
+        {
+            _activeTab = tab;
+            _filterCriteria = filterCriteria;
+            _filteredView = filteredView;
+            _showEmptyFilterMessage = showEmptyFilterMessage;
+            _currentSongList = songList;
+            _currentBreadcrumb = breadcrumb;
+
+            _navigationStack.Clear();
+            for (var i = navigation.Count - 1; i >= 0; i--)
+                _navigationStack.Push(navigation[i]);
+
+            RefreshSongListForActiveTab();
+        }
+
         internal (bool Success, string Error) PrepareVideoChart(string chartPath)
         {
-            ClearPreparedPreviewStateIfOwned();
-
             if (string.IsNullOrWhiteSpace(chartPath))
                 return PreparedFailure("A chart path is required.");
 
@@ -1547,9 +1586,10 @@ namespace DTXMania.Game.Lib.Stage
             if (!File.Exists(previewPath))
                 return PreparedFailure("The requested chart preview file was not found.");
 
-            // The ordinary preview path is not owned by prepared state on a first prepare.
-            // Tear it down only after chart/path validation succeeds and before replacing its
-            // sound resource, so invalid commands preserve interactive preview ownership.
+            // Tear down any existing prepared state and the ordinary interactive preview only
+            // after all validation succeeds, so a rejected request preserves the current
+            // prepared selection and loaded preview.
+            ClearPreparedPreviewStateIfOwned();
             if (_previewSound != null || _previewSoundInstance != null)
                 StopCurrentPreview();
 

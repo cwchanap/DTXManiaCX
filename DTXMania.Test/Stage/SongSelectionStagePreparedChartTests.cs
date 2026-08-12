@@ -5,6 +5,7 @@ using System.Linq;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Entities;
+using DTXMania.Game.Lib.Song.Filtering;
 using DTXMania.Game.Lib.Stage;
 using static DTXMania.Test.Stage.SongSelectionStageTestFactory;
 using static DTXMania.Test.TestData.ReflectionHelpers;
@@ -17,7 +18,7 @@ namespace DTXMania.Test.Stage;
 public sealed class SongSelectionStagePreparedChartTests
 {
     [Fact]
-    public void ResolvePreparedChart_RootLevelChart_ReturnsExactNodeChartAndDifficulty()
+    public void ResolvePreparedChart_ForRootLevelChart_ShouldReturnExactNodeChartAndDifficulty()
     {
         var root = Path.Combine(Path.GetTempPath(), "hpa510-root");
         var chartPath = Path.Combine(root, "root.dtx");
@@ -34,7 +35,7 @@ public sealed class SongSelectionStagePreparedChartTests
     }
 
     [Fact]
-    public void ResolvePreparedChart_NestedBox_ReturnsAncestorPathsInOrder()
+    public void ResolvePreparedChart_ForNestedBox_ShouldReturnAncestorPathsInOrder()
     {
         var root = Path.Combine(Path.GetTempPath(), "hpa510-nested");
         var outerPath = Path.Combine(root, "outer");
@@ -55,7 +56,7 @@ public sealed class SongSelectionStagePreparedChartTests
     }
 
     [Fact]
-    public void ResolvePreparedChart_WhenRequestedChartIsNotDatabaseChart_UsesSongChartsByPath()
+    public void ResolvePreparedChart_WhenRequestedChartIsNotDatabaseChart_ShouldUseSongChartsByPath()
     {
         var root = Path.Combine(Path.GetTempPath(), "hpa510-set");
         var primaryPath = Path.Combine(root, "primary.dtx");
@@ -83,7 +84,7 @@ public sealed class SongSelectionStagePreparedChartTests
     }
 
     [Fact]
-    public void ResolvePreparedChart_DuplicateTitlesAtDifferentPaths_UsesOnlyRequestedPath()
+    public void ResolvePreparedChart_WithDuplicateTitlesAtDifferentPaths_ShouldUseOnlyRequestedPath()
     {
         var root = Path.Combine(Path.GetTempPath(), "hpa510-duplicates");
         var first = CreateNode("duplicate", Path.Combine(root, "one", "chart.dtx"), 31, EInstrumentPart.DRUMS);
@@ -98,7 +99,7 @@ public sealed class SongSelectionStagePreparedChartTests
     }
 
     [Fact]
-    public void ResolvePreparedChart_OutsideActiveRoot_ReturnsNull()
+    public void ResolvePreparedChart_WhenOutsideActiveRoot_ShouldReturnNull()
     {
         var root = Path.Combine(Path.GetTempPath(), "hpa510-active");
         var outsidePath = Path.Combine(Path.GetTempPath(), "hpa510-outside", "chart.dtx");
@@ -109,7 +110,7 @@ public sealed class SongSelectionStagePreparedChartTests
     }
 
     [Fact]
-    public void ResolvePreparedChart_ActiveRootButUnindexedPath_ReturnsNull()
+    public void ResolvePreparedChart_WhenActiveRootButUnindexedPath_ShouldReturnNull()
     {
         var root = Path.Combine(Path.GetTempPath(), "hpa510-unindexed");
         var requestedPath = Path.Combine(root, "not-indexed.dtx");
@@ -120,7 +121,7 @@ public sealed class SongSelectionStagePreparedChartTests
     }
 
     [Fact]
-    public void ResolvePreparedChart_OrdinaryMultiInstrumentRowWithSharedChartId_PrefersDrumsSlot()
+    public void ResolvePreparedChart_ForOrdinaryMultiInstrumentRowWithSharedChartId_ShouldPreferDrumsSlot()
     {
         var root = Path.Combine(Path.GetTempPath(), "hpa510-shared-id");
         var chartPath = Path.Combine(root, "shared.dtx");
@@ -142,7 +143,7 @@ public sealed class SongSelectionStagePreparedChartTests
     }
 
     [Fact]
-    public void ResolvePreparedChart_WhenDifficultyCannotBeDisambiguated_ReturnsNull()
+    public void ResolvePreparedChart_WhenDifficultyCannotBeDisambiguated_ShouldReturnNull()
     {
         var root = Path.Combine(Path.GetTempPath(), "hpa510-ambiguous");
         var chartPath = Path.Combine(root, "ambiguous.dtx");
@@ -160,7 +161,7 @@ public sealed class SongSelectionStagePreparedChartTests
     }
 
     [Fact]
-    public void ResolvePreparedChart_BlankOrRelativePath_ReturnsNull()
+    public void ResolvePreparedChart_ForBlankOrRelativePath_ShouldReturnNull()
     {
         var root = Path.Combine(Path.GetTempPath(), "hpa510-validation");
         var node = CreateNode("song", Path.Combine(root, "song.dtx"), 81, EInstrumentPart.DRUMS);
@@ -171,7 +172,7 @@ public sealed class SongSelectionStagePreparedChartTests
     }
 
     [Fact]
-    public void ProjectPreparedChartSelection_RebuildsHierarchyOnceAndSelectsResolvedRow()
+    public void ProjectPreparedChartSelection_ShouldRebuildHierarchyOnceAndSelectResolvedRow()
     {
         var root = Path.Combine(Path.GetTempPath(), "hpa510-projection");
         var boxPath = Path.Combine(root, "box");
@@ -203,7 +204,49 @@ public sealed class SongSelectionStagePreparedChartTests
     }
 
     [Fact]
-    public void SetSelection_AppliesRowDifficultyAndRaisesOneSelectionEvent()
+    public void ProjectPreparedChartSelection_WhenTargetNodeIsNotFound_ShouldRestorePreviousBrowseState()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "hpa510-projection-restore");
+        var boxPath = Path.Combine(root, "box");
+        var chartPath = Path.Combine(boxPath, "visible.dtx");
+        var visibleNode = CreateNode("visible", chartPath, 91, EInstrumentPart.DRUMS);
+        var box = Box("box", boxPath, visibleNode);
+        var stage = CreateStageWithSnapshot(root, box);
+        var display = new SongListDisplay();
+        AttachCoreUi(stage, display: display);
+
+        var previousSongList = new List<SongListNode> { visibleNode };
+        SetPrivateField(stage, "_currentSongList", previousSongList);
+        var previousBreadcrumb = "root > box";
+        SetPrivateField(stage, "_currentBreadcrumb", previousBreadcrumb);
+        var navStack = new Stack<SongListNode>();
+        navStack.Push(new SongListNode { Title = "root", Children = new List<SongListNode> { box } });
+        SetPrivateField(stage, "_navigationStack", navStack);
+        var previousFilter = new SongFilterCriteria(
+            "test", null, null, PlayedStatus.All, SongSortCriteria.Title, false);
+        SetPrivateField(stage, "_filterCriteria", previousFilter);
+        var previousFilteredView = new List<FilteredSongResult> { new(visibleNode, "root > box") };
+        SetPrivateField(stage, "_filteredView", previousFilteredView);
+
+        var resolutionType = Resolve(stage, chartPath)!.GetType();
+        var orphanNode = CreateNode("orphan", Path.Combine(root, "orphan.dtx"), 99, EInstrumentPart.DRUMS);
+        var orphanResolution = Activator.CreateInstance(
+            resolutionType, orphanNode, orphanNode.DatabaseChart, 0, Array.Empty<string>())!;
+
+        var projected = InvokePrivateMethod<bool>(stage, "ProjectPreparedChartSelection", orphanResolution);
+
+        Assert.False(projected);
+        Assert.Same(previousSongList, GetPrivateField<List<SongListNode>>(stage, "_currentSongList"));
+        Assert.Equal(previousBreadcrumb, GetPrivateField<string>(stage, "_currentBreadcrumb"));
+        Assert.Equal(previousFilter, GetPrivateField<SongFilterCriteria>(stage, "_filterCriteria"));
+        Assert.Same(previousFilteredView, GetPrivateField<object>(stage, "_filteredView"));
+        var restoredNav = GetPrivateField<Stack<SongListNode>>(stage, "_navigationStack")!;
+        Assert.Single(restoredNav);
+        Assert.False(GetPrivateField<bool>(stage, "_isProjectingPreparedSelection"));
+    }
+
+    [Fact]
+    public void SetSelection_ShouldApplyRowDifficultyAndRaiseOneSelectionEvent()
     {
         var first = new SongListNode { Type = NodeType.Score, Title = "first" };
         var second = new SongListNode { Type = NodeType.Score, Title = "second" };
@@ -232,7 +275,7 @@ public sealed class SongSelectionStagePreparedChartTests
     }
 
     [Fact]
-    public void SetSelection_InvalidIndex_DoesNotChangeSelectionOrRaiseEvent()
+    public void SetSelection_WhenInvalidIndex_ShouldNotChangeSelectionOrRaiseEvent()
     {
         var first = new SongListNode { Type = NodeType.Score, Title = "first" };
         var display = new SongListDisplay { CurrentList = new List<SongListNode> { first } };

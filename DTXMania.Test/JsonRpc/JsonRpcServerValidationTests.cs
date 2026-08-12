@@ -327,7 +327,7 @@ namespace DTXMania.Test.JsonRpc
             var body = await response.Content.ReadAsStringAsync();
 
             Assert.Contains("-32602", body);
-            _mockGameApi.Verify(api => api.PrepareVideoChartAsync(It.IsAny<string>()), Times.Never);
+            _mockGameApi.Verify(api => api.PrepareVideoChartAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
         }
 
         [Fact]
@@ -377,7 +377,7 @@ namespace DTXMania.Test.JsonRpc
             using var response = await client.PostAsync("/jsonrpc", RawRpcBody(requestJson));
 
             Assert.Equal(401, (int)response.StatusCode);
-            _mockGameApi.Verify(api => api.StartPreparedPreviewAsync(), Times.Never);
+            _mockGameApi.Verify(api => api.StartPreparedPreviewAsync(It.IsAny<CancellationToken>()), Times.Never);
         }
 
         #endregion
