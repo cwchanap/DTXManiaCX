@@ -54,145 +54,103 @@ public sealed class PreparedChartRecordingSmokeTests
 
             await client.PrepareVideoChartAsync(fixture.ChartPath, cancellation.Token);
 
+            var screenshotBase64 = await client.TakeScreenshotBase64Async(cancellation.Token);
+            Assert.False(
+                string.IsNullOrWhiteSpace(screenshotBase64),
+                "Prepared SongSelect screenshot should contain image data.");
+            var screenshotBytes = Convert.FromBase64String(screenshotBase64!);
+            Assert.NotEmpty(screenshotBytes);
+            Directory.CreateDirectory(fixture.ArtifactRoot);
+            await File.WriteAllBytesAsync(
+                Path.Combine(fixture.ArtifactRoot, "prepared-song-select.png"),
+                screenshotBytes,
+                cancellation.Token);
+
+            // The generated fixture uses the normal one-second automatic preview delay.
+            // Waiting past it proves preparation does not arm the interactive auto-start path.
+            await Task.Delay(TimeSpan.FromSeconds(2), cancellation.Token);
             var prepared = await Eventually.UntilAsync(
                 token => client.GetGameStateAsync(token),
-                state => !string.IsNullOrWhiteSpace(state.PreparedChartIdentity)
+                state => string.Equals(state.StageType, "SongSelect", StringComparison.Ordinal)
                     && string.Equals(state.PreparedPreviewState, "Prepared", StringComparison.Ordinal)
                     && state.PreparedPreviewElapsedMs == 0.0,
-                TimeSpan.FromSeconds(20),
-                TimeSpan.FromMilliseconds(100),
-                "prepared chart state",
+                TimeSpan.FromSeconds(10),
+                TimeSpan.FromMilliseconds(250),
+                "prepared preview remains stopped",
                 cancellation.Token);
-            await SaveStateAsync(
-                Path.Combine(fixture.ArtifactRoot, "prepared-state.json"),
-                prepared,
-                cancellation.Token);
-
-            await client.CaptureScreenshotAsync(
-                Path.Combine(fixture.ArtifactRoot, "prepared-song-select.png"),
-                cancellation.Token);
-            Assert.True(new FileInfo(Path.Combine(fixture.ArtifactRoot, "prepared-song-select.png")).Length > 0);
-
-            await Task.Delay(TimeSpan.FromSeconds(2), cancellation.Token);
-            var stillPrepared = await client.GetGameStateAsync(cancellation.Token);
-            Assert.Equal("Prepared", stillPrepared.PreparedPreviewState);
-            Assert.Equal(0.0, stillPrepared.PreparedPreviewElapsedMs);
+            Assert.Equal("Prepared", prepared.PreparedPreviewState);
+            Assert.Equal(0.0, prepared.PreparedPreviewElapsedMs);
+            Assert.False(string.IsNullOrWhiteSpace(prepared.PreparedChartIdentity));
+            Assert.DoesNotContain(
+                Path.GetFullPath(fixture.ChartPath),
+                prepared.PreparedChartIdentity,
+                StringComparison.OrdinalIgnoreCase);
+            await E2EArtifactWriter.WriteJsonAsync(fixture, "prepared-state.json", prepared);
 
             await client.StartPreparedPreviewAsync(cancellation.Token);
-
             var playing = await Eventually.UntilAsync(
                 token => client.GetGameStateAsync(token),
-                state => string.Equals(state.PreparedPreviewState, "Playing", StringComparison.Ordinal)
+                state => string.Equals(state.StageType, "SongSelect", StringComparison.Ordinal)
+                    && string.Equals(state.PreparedPreviewState, "Playing", StringComparison.Ordinal)
                     && state.PreparedPreviewElapsedMs >= 10_000.0,
                 TimeSpan.FromSeconds(30),
-                TimeSpan.FromMilliseconds(100),
+                TimeSpan.FromMilliseconds(250),
                 "prepared preview reaches ten seconds",
                 cancellation.Token);
-            await SaveStateAsync(
-                Path.Combine(fixture.ArtifactRoot, "playing-state.json"),
-                playing,
-                cancellation.Token);
+            Assert.Equal("Playing", playing.PreparedPreviewState);
+            Assert.True(playing.PreparedPreviewElapsedMs >= 10_000.0);
+            await E2EArtifactWriter.WriteJsonAsync(fixture, "playing-state.json", playing);
 
             await client.ActivatePreparedChartAsync(cancellation.Token);
+            var transition = await WaitForStageAsync(
+                client,
+                "SongTransition",
+                TimeSpan.FromSeconds(5),
+                cancellation.Token);
+            Assert.Equal("SongTransition", transition.StageType);
+            await E2EArtifactWriter.WriteJsonAsync(fixture, "song-transition-state.json", transition);
 
-            var transition = await Eventually.UntilAsync(
-                token => client.GetGameStateAsync(token),
-                state => string.Equals(state.StageType, "SongTransition", StringComparison.Ordinal),
-                TimeSpan.FromSeconds(20),
-                TimeSpan.FromMilliseconds(100),
-                "SongTransition after prepared activation",
+            var performance = await WaitForStageAsync(
+                client,
+                "Performance",
+                TimeSpan.FromSeconds(15),
                 cancellation.Token);
-            await SaveStateAsync(
-                Path.Combine(fixture.ArtifactRoot, "song-transition-state.json"),
-                transition,
-                cancellation.Token);
-
-            var performance = await Eventually.UntilAsync(
-                token => client.GetGameStateAsync(token),
-                state => string.Equals(state.StageType, "Performance", StringComparison.Ordinal),
-                TimeSpan.FromSeconds(45),
-                TimeSpan.FromMilliseconds(250),
-                "Performance after prepared activation",
-                cancellation.Token);
-            await SaveStateAsync(
-                Path.Combine(fixture.ArtifactRoot, "performance-state.json"),
-                performance,
-                cancellation.Token);
+            Assert.Equal("Performance", performance.StageType);
+            await E2EArtifactWriter.WriteJsonAsync(fixture, "performance-state.json", performance);
         }
-        catch (Exception ex)
+        catch (Exception exception)
         {
-            await E2EArtifactWriter.WriteTextAsync(
-                Path.Combine(fixture.ArtifactRoot, "failure.txt"),
-                ex.ToString(),
-                cancellation.Token);
-
+            await E2EArtifactWriter.WriteTextAsync(fixture, "failure.txt", exception.ToString());
             try
             {
-                var failureState = await client.GetGameStateAsync(cancellation.Token);
-                await SaveStateAsync(
-                    Path.Combine(fixture.ArtifactRoot, "failure-state.json"),
-                    failureState,
-                    cancellation.Token);
+                var failureState = await client.GetGameStateAsync(CancellationToken.None);
+                await E2EArtifactWriter.WriteJsonAsync(fixture, "failure-state.json", failureState);
             }
             catch
             {
-                // Preserve the primary failure when telemetry is no longer available.
+                // Preserve the original failure if the game has already exited.
             }
 
             throw;
         }
         finally
         {
-            try
-            {
-                await process.StopAsync(TimeSpan.FromSeconds(5), CancellationToken.None);
-            }
-            finally
-            {
-                await E2EArtifactWriter.CopyIfExistsAsync(
-                    fixture.ConfigPath,
-                    Path.Combine(fixture.ArtifactRoot, "config.ini"),
-                    CancellationToken.None);
-                await E2EArtifactWriter.CopyIfExistsAsync(
-                    fixture.ChartPath,
-                    Path.Combine(fixture.ArtifactRoot, "autoplay-smoke.dtx"),
-                    CancellationToken.None);
-                await E2EArtifactWriter.CopyIfExistsAsync(
-                    fixture.AudioPath,
-                    Path.Combine(fixture.ArtifactRoot, E2EFixtureBuilder.AudioFileName),
-                    CancellationToken.None);
-                await E2EArtifactWriter.CopyIfExistsAsync(
-                    process.StandardOutputPath,
-                    Path.Combine(fixture.ArtifactRoot, "game-stdout.log"),
-                    CancellationToken.None);
-                await E2EArtifactWriter.CopyIfExistsAsync(
-                    process.StandardErrorPath,
-                    Path.Combine(fixture.ArtifactRoot, "game-stderr.log"),
-                    CancellationToken.None);
-            }
+            E2EArtifactWriter.CopyFixtureFiles(fixture);
+            await E2EArtifactWriter.WriteTextAsync(fixture, "game-stdout.log", process.StandardOutput);
+            await E2EArtifactWriter.WriteTextAsync(fixture, "game-stderr.log", process.StandardError);
         }
     }
 
     private static Task<GameStateSnapshot> WaitForStageAsync(
         JsonRpcGameClient client,
-        string stageType,
+        string expectedStageType,
         TimeSpan timeout,
-        CancellationToken cancellationToken)
-    {
-        return Eventually.UntilAsync(
+        CancellationToken cancellationToken) =>
+        Eventually.UntilAsync(
             token => client.GetGameStateAsync(token),
-            state => string.Equals(state.StageType, stageType, StringComparison.Ordinal),
+            state => string.Equals(state.StageType, expectedStageType, StringComparison.Ordinal),
             timeout,
-            TimeSpan.FromMilliseconds(250),
-            $"stage {stageType}",
+            TimeSpan.FromMilliseconds(100),
+            expectedStageType,
             cancellationToken);
-    }
-
-    private static Task SaveStateAsync(
-        string path,
-        GameStateSnapshot state,
-        CancellationToken cancellationToken)
-    {
-        return E2EArtifactWriter.WriteJsonAsync(path, state, cancellationToken);
-    }
 }
