@@ -276,6 +276,80 @@ public sealed class JsonRpcGameClientTests
     }
 
     [Fact]
+    public async Task PrepareVideoChartAsync_ShouldSendExactMethodAndChartPath()
+    {
+        using var handler = new FakeHandler(req => EchoJsonRpcResponseAsync(req, "{\"success\":true}"));
+        using var httpClient = CreateHttpClient(handler);
+        var client = CreateClient(httpClient);
+
+        await client.PrepareVideoChartAsync("/safe/chart.dtx", CancellationToken.None);
+
+        using var request = JsonDocument.Parse(handler.RequestBodies.Single());
+        var root = request.RootElement;
+        Assert.Equal("prepareVideoChart", root.GetProperty("method").GetString());
+        Assert.Equal("/safe/chart.dtx", root.GetProperty("params").GetProperty("chartPath").GetString());
+    }
+
+    [Theory]
+    [InlineData("startPreparedPreview")]
+    [InlineData("activatePreparedChart")]
+    [InlineData("cancelPreparedChart")]
+    public async Task PreparedChartCommandAsync_ShouldSendExactMethodWithoutParameters(string method)
+    {
+        using var handler = new FakeHandler(req => EchoJsonRpcResponseAsync(req, "{\"success\":true}"));
+        using var httpClient = CreateHttpClient(handler);
+        var client = CreateClient(httpClient);
+
+        switch (method)
+        {
+            case "startPreparedPreview":
+                await client.StartPreparedPreviewAsync(CancellationToken.None);
+                break;
+            case "activatePreparedChart":
+                await client.ActivatePreparedChartAsync(CancellationToken.None);
+                break;
+            case "cancelPreparedChart":
+                await client.CancelPreparedChartAsync(CancellationToken.None);
+                break;
+        }
+
+        using var request = JsonDocument.Parse(handler.RequestBodies.Single());
+        var root = request.RootElement;
+        Assert.Equal(method, root.GetProperty("method").GetString());
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("params").ValueKind);
+    }
+
+    [Theory]
+    [InlineData("prepareVideoChart")]
+    [InlineData("startPreparedPreview")]
+    [InlineData("activatePreparedChart")]
+    [InlineData("cancelPreparedChart")]
+    public async Task PreparedChartCommandAsync_WhenServerRejects_ShouldThrowSafeErrorText(string method)
+    {
+        const string safeError = "The prepared chart preview could not be started.";
+        using var handler = new FakeHandler(req => EchoJsonRpcResponseAsync(
+            req,
+            $"{{\"success\":false,\"error\":{JsonSerializer.Serialize(safeError)}}}"));
+        using var httpClient = CreateHttpClient(handler);
+        var client = CreateClient(httpClient);
+
+        var exception = method switch
+        {
+            "prepareVideoChart" => await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                client.PrepareVideoChartAsync("/safe/chart.dtx", CancellationToken.None)),
+            "startPreparedPreview" => await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                client.StartPreparedPreviewAsync(CancellationToken.None)),
+            "activatePreparedChart" => await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                client.ActivatePreparedChartAsync(CancellationToken.None)),
+            "cancelPreparedChart" => await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                client.CancelPreparedChartAsync(CancellationToken.None)),
+            _ => throw new InvalidOperationException("unreachable")
+        };
+
+        Assert.Equal(safeError, exception.Message);
+    }
+
+    [Fact]
     public async Task ChangeStageAsync_HttpFailure_ShouldIncludeMethodStatusAndBody()
     {
         using var handler = new FakeHandler(_ => Task.FromResult(

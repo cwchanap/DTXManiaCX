@@ -297,6 +297,18 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
                 case "changeStage":
                     return await HandleChangeStage(request);
 
+                case "prepareVideoChart":
+                    return await HandlePrepareVideoChart(request);
+
+                case "startPreparedPreview":
+                    return await HandleStartPreparedPreview(request);
+
+                case "activatePreparedChart":
+                    return await HandleActivatePreparedChart(request);
+
+                case "cancelPreparedChart":
+                    return await HandleCancelPreparedChart(request);
+
                 case "ping":
                     return CreateSuccessResponse(request.Id, new { pong = true, timestamp = DateTime.UtcNow });
 
@@ -484,6 +496,107 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
         }
 
         return CreateSuccessResponse(request.Id, new { success = true, stageName });
+    }
+
+    private async Task<JsonRpcResponse> HandlePrepareVideoChart(JsonRpcRequest request)
+    {
+        if (!_gameApi.IsRunning)
+        {
+            return CreateErrorResponse(request.Id, JsonRpcErrorCodes.GameNotRunning,
+                "Game is not running");
+        }
+
+        if (request.Params is not JsonElement paramsElement)
+        {
+            return CreateErrorResponse(request.Id, JsonRpcErrorCodes.InvalidParams,
+                "chartPath parameter is required");
+        }
+
+        if (paramsElement.ValueKind != JsonValueKind.Object)
+        {
+            return CreateErrorResponse(request.Id, JsonRpcErrorCodes.InvalidParams,
+                "params must be an object");
+        }
+
+        if (!paramsElement.TryGetProperty("chartPath", out var chartPathElement))
+        {
+            return CreateErrorResponse(request.Id, JsonRpcErrorCodes.InvalidParams,
+                "chartPath must be a non-empty string");
+        }
+
+        if (chartPathElement.ValueKind != JsonValueKind.String)
+        {
+            return CreateErrorResponse(request.Id, JsonRpcErrorCodes.InvalidParams,
+                "chartPath must be a string");
+        }
+
+        var chartPath = chartPathElement.GetString();
+        if (string.IsNullOrWhiteSpace(chartPath))
+        {
+            return CreateErrorResponse(request.Id, JsonRpcErrorCodes.InvalidParams,
+                "chartPath must be a non-empty string");
+        }
+
+        if (!Path.IsPathFullyQualified(chartPath))
+        {
+            return CreateErrorResponse(request.Id, JsonRpcErrorCodes.InvalidParams,
+                "chartPath must be a fully-qualified path");
+        }
+
+        var commandResult = await _gameApi.PrepareVideoChartAsync(chartPath);
+        return CreateSuccessResponse(request.Id, new
+        {
+            success = commandResult.Success,
+            error = commandResult.Error
+        });
+    }
+
+    private async Task<JsonRpcResponse> HandleStartPreparedPreview(JsonRpcRequest request)
+    {
+        if (!_gameApi.IsRunning)
+        {
+            return CreateErrorResponse(request.Id, JsonRpcErrorCodes.GameNotRunning,
+                "Game is not running");
+        }
+
+        var commandResult = await _gameApi.StartPreparedPreviewAsync();
+        return CreateSuccessResponse(request.Id, new
+        {
+            success = commandResult.Success,
+            error = commandResult.Error
+        });
+    }
+
+    private async Task<JsonRpcResponse> HandleActivatePreparedChart(JsonRpcRequest request)
+    {
+        if (!_gameApi.IsRunning)
+        {
+            return CreateErrorResponse(request.Id, JsonRpcErrorCodes.GameNotRunning,
+                "Game is not running");
+        }
+
+        var commandResult = await _gameApi.ActivatePreparedChartAsync();
+        return CreateSuccessResponse(request.Id, new
+        {
+            success = commandResult.Success,
+            error = commandResult.Error
+        });
+    }
+
+    private async Task<JsonRpcResponse> HandleCancelPreparedChart(JsonRpcRequest request)
+    {
+        if (!_gameApi.IsRunning)
+        {
+            return CreateErrorResponse(request.Id, JsonRpcErrorCodes.GameNotRunning,
+                "Game is not running");
+        }
+
+        var commandResult = await _gameApi.CancelPreparedChartAsync();
+        return CreateSuccessResponse(request.Id, new
+        {
+            success = commandResult.Success,
+            error = commandResult.Error
+        });
     }
 
     /// <summary>
