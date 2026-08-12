@@ -166,6 +166,9 @@ namespace DTXMania.Game.Lib.Stage
         private Stack<SongListNode> _navigationStack;
         private string _currentBreadcrumb = "";
         private bool _isProjectingPreparedSelection;
+        private PreparedChartSelection _preparedChartSelection;
+        private PreparedPreviewState _preparedPreviewState = PreparedPreviewState.None;
+        private double _preparedPreviewElapsedMs;
 
         // Status panel navigation state
         private bool _isInStatusPanel = false;
@@ -248,6 +251,20 @@ namespace DTXMania.Game.Lib.Stage
             long Generation,
             SongLibrarySnapshot? Snapshot,
             IReadOnlyList<SongListNode> SongList);
+
+        private sealed record PreparedChartSelection(
+            SongListNode Node,
+            SongChart Chart,
+            int DifficultyIndex,
+            string TelemetryIdentity);
+
+        private enum PreparedPreviewState
+        {
+            None,
+            Prepared,
+            Playing,
+            Failed
+        }
 
         private sealed record PreparedChartResolution(
             SongListNode Node,
@@ -528,7 +545,7 @@ namespace DTXMania.Game.Lib.Stage
             _footerPanelTexture?.RemoveReference();
 
             // Clean up preview sound resources
-            StopCurrentPreview();
+            ClearPreparedPreviewState();
             _backgroundMusicInstance?.Dispose();
             _backgroundMusicInstance = null;
             _backgroundMusic?.RemoveReference();
@@ -1513,6 +1530,190 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
 
+        internal (bool Success, string Error) PrepareVideoChart(string chartPath)
+        {
+            ClearPreparedPreviewState();
+
+            if (string.IsNullOrWhiteSpace(chartPath))
+                return PreparedFailure("A chart path is required.");
+
+            var resolution = ResolvePreparedChart(chartPath);
+            if (resolution == null)
+                return PreparedFailure("The requested chart is not available in the active song library.");
+
+            if (!TryGetChartPreviewPath(resolution.Chart, out var previewPath))
+                return PreparedFailure("The requested chart does not declare a preview file.");
+
+            if (!File.Exists(previewPath))
+                return PreparedFailure("The requested chart preview file was not found.");
+
+            // Project through the normal Song Select hierarchy before publishing prepared
+            // state. The projection itself suppresses the intermediate selection events so
+            // they cannot stop or replace this exact-chart preview.
+            if (!ProjectPreparedChartSelection(resolution))
+                return PreparedFailure("The requested chart could not be selected.");
+
+            if (_resourceManager == null || !TryLoadPreviewSoundFile(previewPath))
+                return PreparedFailure("The requested chart preview could not be loaded.");
+
+            // TryLoadPreviewSoundFile intentionally arms the ordinary delayed preview path.
+            // Prepared playback must remain stopped until StartPreparedPreview is called.
+            _previewPlayDelay = 0.0;
+            _isPreviewDelayActive = false;
+
+            _preparedChartSelection = new PreparedChartSelection(
+                resolution.Node,
+                resolution.Chart,
+                resolution.DifficultyIndex,
+                BuildPreparedChartTelemetryIdentity(resolution.Chart));
+            _preparedPreviewState = PreparedPreviewState.Prepared;
+            _preparedPreviewElapsedMs = 0.0;
+            return PreparedSuccess();
+        }
+
+        internal (bool Success, string Error) StartPreparedPreview()
+        {
+            if (_preparedChartSelection == null || _previewSound == null)
+                return PreparedFailure("No prepared chart preview is available.");
+
+            if (_preparedPreviewState == PreparedPreviewState.Playing)
+            {
+                if (_previewSoundInstance?.State == SoundState.Playing)
+                    return PreparedSuccess();
+
+                _preparedPreviewState = PreparedPreviewState.Failed;
+                return PreparedFailure("The prepared preview stopped unexpectedly.");
+            }
+
+            if (_preparedPreviewState != PreparedPreviewState.Prepared)
+                return PreparedFailure("The prepared chart preview is not ready to play.");
+
+            try
+            {
+                if (_previewSoundInstance != null)
+                    DisposePreviewInstance();
+
+                _previewSoundInstance = CreatePreviewSoundInstance(_previewSound);
+                if (_previewSoundInstance == null)
+                    return MarkPreparedPreviewFailed("The prepared chart preview instance could not be created.");
+
+                _previewSoundInstance.Volume = SongSelectionUILayout.Audio.PreviewSoundVolume;
+                _previewSoundInstance.IsLooped = true;
+                _previewSoundInstance.Play();
+                StartBGMFade(true);
+                _preparedPreviewElapsedMs = 0.0;
+                _preparedPreviewState = PreparedPreviewState.Playing;
+                return PreparedSuccess();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"SongSelectionStage: Failed to start prepared preview: {ex.Message}");
+                DisposePreviewInstance();
+                return MarkPreparedPreviewFailed("The prepared chart preview could not be started.");
+            }
+        }
+
+        internal (bool Success, string Error) CancelPreparedChart()
+        {
+            ClearPreparedPreviewState();
+            return PreparedSuccess();
+        }
+
+        internal (bool Success, string Error) ActivatePreparedChart()
+        {
+            var prepared = _preparedChartSelection;
+            if (prepared == null)
+                return PreparedFailure("No prepared chart is available.");
+
+            var selectedSong = _selectedSong ?? _songListDisplay?.SelectedSong;
+            if (!ReferenceEquals(selectedSong, prepared.Node)
+                || _currentDifficulty != prepared.DifficultyIndex)
+            {
+                return PreparedFailure("The prepared chart is no longer selected.");
+            }
+
+            if (!CanStartSongSelection(prepared.Node, out var eligibilityError))
+                return PreparedFailure(eligibilityError);
+
+            // Eligibility is checked before cleanup so a debounce-blocked activation can be
+            // retried without losing the stopped/playing prepared preview.
+            ClearPreparedPreviewState();
+            StartSongSelection(prepared.Node);
+            return PreparedSuccess();
+        }
+
+        private static (bool Success, string Error) PreparedSuccess() => (true, null);
+
+        private static (bool Success, string Error) PreparedFailure(string error) =>
+            (false, error);
+
+        private (bool Success, string Error) MarkPreparedPreviewFailed(string error)
+        {
+            _preparedPreviewState = PreparedPreviewState.Failed;
+            return PreparedFailure(error);
+        }
+
+        private void ClearPreparedPreviewState()
+        {
+            StopCurrentPreview();
+            _preparedChartSelection = null;
+            _preparedPreviewState = PreparedPreviewState.None;
+            _preparedPreviewElapsedMs = 0.0;
+        }
+
+        private static bool TryGetChartPreviewPath(SongChart chart, out string previewPath)
+        {
+            previewPath = null;
+            if (chart == null
+                || string.IsNullOrWhiteSpace(chart.FilePath)
+                || string.IsNullOrWhiteSpace(chart.PreviewFile))
+            {
+                return false;
+            }
+
+            try
+            {
+                var chartDirectory = Path.GetDirectoryName(chart.FilePath);
+                if (string.IsNullOrWhiteSpace(chartDirectory))
+                    return false;
+
+                previewPath = Path.GetFullPath(Path.Combine(chartDirectory, chart.PreviewFile));
+                return true;
+            }
+            catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException)
+            {
+                previewPath = null;
+                return false;
+            }
+        }
+
+        private string BuildPreparedChartTelemetryIdentity(SongChart chart)
+        {
+            if (chart.Id != 0)
+                return $"chart:{chart.Id}";
+
+            if (!SongPathIdentity.TryNormalize(chart.FilePath, out var normalizedChartPath)
+                || _appliedLibrarySnapshot == null)
+            {
+                return "";
+            }
+
+            foreach (var activeRoot in _appliedLibrarySnapshot.ActiveRoots)
+            {
+                if (!SongPathIdentity.TryNormalize(activeRoot, out var normalizedRoot)
+                    || !SongPathIdentity.IsUnderNormalizedRoot(normalizedChartPath, normalizedRoot))
+                {
+                    continue;
+                }
+
+                var relativePath = Path.GetRelativePath(normalizedRoot, normalizedChartPath);
+                return relativePath.Replace(Path.DirectorySeparatorChar, '/');
+            }
+
+            return "";
+        }
+
         private SongListNode? FindVisibleSongByIdentity(string? identity)
         {
             if (string.IsNullOrEmpty(identity))
@@ -1801,6 +2002,9 @@ namespace DTXMania.Game.Lib.Stage
         private void OnSongSelectionChanged(object sender, SongSelectionChangedEventArgs e)
         {
             int playSpeedPercent = SynchronizeActivePlaySpeed();
+            var preparedSelection = _preparedChartSelection;
+            var leavingPreparedRow = preparedSelection != null
+                && !ReferenceEquals(preparedSelection.Node, e.SelectedSong);
             _selectedSong = e.SelectedSong;
             _currentDifficulty = e.CurrentDifficulty;
             _playHistoryPanel?.UpdateSongInfo(
@@ -1811,7 +2015,16 @@ namespace DTXMania.Game.Lib.Stage
             // Prepared projection raises the normal selection event while the row is
             // being rebuilt. Keep presentation updates, but suppress preview teardown
             // and automatic loading until the entire projection has completed.
-            if (!_isProjectingPreparedSelection)
+            var clearedPreparedPreview = false;
+            if (!_isProjectingPreparedSelection && leavingPreparedRow)
+            {
+                ClearPreparedPreviewState();
+                clearedPreparedPreview = true;
+            }
+
+            if (!_isProjectingPreparedSelection
+                && !clearedPreparedPreview
+                && (preparedSelection == null || leavingPreparedRow))
                 StopCurrentPreview();
 
             // Auto-manage status panel visibility and navigation mode based on selected item type
@@ -1829,7 +2042,7 @@ namespace DTXMania.Game.Lib.Stage
                 // Start preview sound loading - load immediately but delay playback.
                 // The prepared projection owns its preview resource and must not be
                 // replaced by the normal primary-chart preview path.
-                if (!_isProjectingPreparedSelection)
+                if (!_isProjectingPreparedSelection && (preparedSelection == null || leavingPreparedRow))
                     LoadPreviewSound(e.SelectedSong);
             }
             else
@@ -1895,6 +2108,17 @@ namespace DTXMania.Game.Lib.Stage
             _currentDifficulty = e.NewDifficulty;
             int playSpeedPercent = SynchronizeActivePlaySpeed();
 
+            var preparedSelection = _preparedChartSelection;
+            var leavingPreparedDifficulty = preparedSelection != null
+                && (!ReferenceEquals(preparedSelection.Node, e.Song)
+                    || preparedSelection.DifficultyIndex != e.NewDifficulty);
+            if (!_isProjectingPreparedSelection && leavingPreparedDifficulty)
+            {
+                ClearPreparedPreviewState();
+                if (e.Song?.Type == NodeType.Score)
+                    LoadPreviewSound(e.Song);
+            }
+
             // Update status panel
             _statusPanel.UpdateSongInfo(e.Song, e.NewDifficulty, playSpeedPercent);
             _playHistoryPanel?.UpdateSongInfo(e.Song, e.NewDifficulty, playSpeedPercent);
@@ -1957,13 +2181,39 @@ namespace DTXMania.Game.Lib.Stage
 
         private void SelectSong(SongListNode songNode)
         {
-            if (songNode == null || songNode.Type != NodeType.Score)
-                return;
-            
-            // Debounce stage transitions to prevent accidental double selections
-            if (!_game.CanPerformStageTransition())
+            if (!CanStartSongSelection(songNode, out _))
                 return;
 
+            StartSongSelection(songNode);
+        }
+
+        private bool CanStartSongSelection(SongListNode songNode, out string error)
+        {
+            if (songNode == null || songNode.Type != NodeType.Score)
+            {
+                error = "The selected item is not a playable song.";
+                return false;
+            }
+
+            if (StageManager == null)
+            {
+                error = "The song transition manager is unavailable.";
+                return false;
+            }
+
+            // Debounce stage transitions to prevent accidental double selections.
+            if (!_game.CanPerformStageTransition())
+            {
+                error = "The song transition is currently blocked.";
+                return false;
+            }
+
+            error = null;
+            return true;
+        }
+
+        private void StartSongSelection(SongListNode songNode)
+        {
             _game.MarkStageTransition();
             
             // Create shared data to pass song information to the transition stage
@@ -1975,7 +2225,7 @@ namespace DTXMania.Game.Lib.Stage
             };
             
             // Transition immediately to SongTransitionStage
-            StageManager?.ChangeStage(StageType.SongTransition, new InstantTransition(), sharedData);
+            StageManager.ChangeStage(StageType.SongTransition, new InstantTransition(), sharedData);
         }
 
         private void SelectRandomSong()
@@ -2958,8 +3208,23 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void UpdatePreviewSoundTimers(double deltaTime)
         {
+            if (_preparedPreviewState == PreparedPreviewState.Playing)
+            {
+                if (_previewSoundInstance?.State == SoundState.Playing)
+                {
+                    _preparedPreviewElapsedMs += Math.Max(0.0, deltaTime) * 1000.0;
+                }
+                else
+                {
+                    // Explicitly-started prepared previews never restart themselves or fall
+                    // back to the ordinary delayed primary-chart preview after an unexpected
+                    // stop. Keep the prepared identity available for diagnostics/retry.
+                    _preparedPreviewState = PreparedPreviewState.Failed;
+                }
+            }
+
             // Update preview play delay timer
-            if (_isPreviewDelayActive)
+            if (_preparedChartSelection == null && _isPreviewDelayActive)
             {
                 _previewPlayDelay += deltaTime;
                 
@@ -3180,8 +3445,7 @@ namespace DTXMania.Game.Lib.Stage
                 }
                 finally
                 {
-                    _previewSoundInstance.Dispose();
-                    _previewSoundInstance = null;
+                    DisposePreviewInstance();
                 }
             }
 
@@ -3194,6 +3458,26 @@ namespace DTXMania.Game.Lib.Stage
             
             // Start BGM fade in
             StartBGMFade(false);
+        }
+
+        private void DisposePreviewInstance()
+        {
+            if (_previewSoundInstance == null)
+                return;
+
+            try
+            {
+                _previewSoundInstance.Dispose();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"SongSelectionStage: Error disposing preview sound: {ex.Message}");
+            }
+            finally
+            {
+                _previewSoundInstance = null;
+            }
         }
 
         private static void ReleaseManagedSound(ref ISound sound)
@@ -3719,6 +4003,9 @@ namespace DTXMania.Game.Lib.Stage
             telemetry.PitchSemitones = PitchRange.SnapAndClamp(
                 config?.PitchSemitones ?? PitchRange.Default);
             telemetry.PlaybackProfileFrozen = false;
+            telemetry.PreparedChartIdentity = _preparedChartSelection?.TelemetryIdentity;
+            telemetry.PreparedPreviewState = _preparedPreviewState.ToString();
+            telemetry.PreparedPreviewElapsedMs = _preparedPreviewElapsedMs;
         }
 
         #endregion

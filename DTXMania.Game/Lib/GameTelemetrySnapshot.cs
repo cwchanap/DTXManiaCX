@@ -25,6 +25,9 @@ public sealed class GameTelemetrySnapshot
     public int? AudioPreparationTotal { get; set; }
     public int? AudioPreparationCacheHits { get; set; }
     public long? PreparedAudioBytes { get; set; }
+    public string? PreparedChartIdentity { get; set; }
+    public string? PreparedPreviewState { get; set; }
+    public double? PreparedPreviewElapsedMs { get; set; }
     public bool? AutoPlayEnabled { get; set; }
     public bool? StageCompleted { get; set; }
     public double? CurrentSongTimeMs { get; set; }
