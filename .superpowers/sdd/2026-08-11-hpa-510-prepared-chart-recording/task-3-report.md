@@ -66,3 +66,29 @@ The final full Mac-safe suite passed after all test additions: `8,203 tests pass
 ## Concerns
 
 Unexpected exceptions in queueing or stage execution resolve to the deliberately generic safe message `The prepared chart command could not be completed.`; no structured error taxonomy was introduced because this ticket has no branching caller.
+
+## Fix Round 1 — cross-platform JSON-RPC test paths
+
+Changed only the two JSON-RPC test files. The production handler already enforces the intended fully-qualified-path contract, so the Windows-only failure could not be reproduced honestly on this macOS host. Each valid-path fixture now uses one `Path.GetFullPath(Path.Combine("safe", "chart.dtx"))` value for mock setup, serialized request, and verification, with an explicit `Path.IsPathFullyQualified` assertion.
+
+Focused verification:
+
+```text
+rtk dotnet test DTXmania.Test/DTXmania.Test.Mac.csproj --filter "FullyQualifiedName~JsonRpcServerInternalTests.HandlePrepareVideoChart" --no-restore
+  2 tests passed, 0 warnings
+
+rtk dotnet test DTXmania.Test/DTXmania.Test.Mac.csproj --filter "FullyQualifiedName~JsonRpcServerInternalTests.RouteMethodCall_PreparedChartCommands" --no-restore
+  3 tests passed, 0 warnings
+
+rtk dotnet test DTXmania.Test/DTXmania.Test.Mac.csproj --filter "FullyQualifiedName~JsonRpcServerValidationTests.PreparedChart" --no-restore
+  2 tests passed, 0 warnings
+
+rtk dotnet test DTXmania.Test/DTXmania.Test.Mac.csproj --filter "FullyQualifiedName~JsonRpcServerValidationTests.PrepareVideoChart_InvalidParams" --no-restore
+  4 tests passed, 0 warnings
+
+Total exact JSON-RPC focus: 11 tests passed, 0 warnings.
+rtk dotnet test DTXmania.Test/DTXmania.Test.Mac.csproj --no-restore --no-build
+  8,203 tests passed, 0 warnings
+```
+
+No production files changed in this fix round; the platform-qualified fixture now reaches the mocked API on both Unix and Windows path implementations.
