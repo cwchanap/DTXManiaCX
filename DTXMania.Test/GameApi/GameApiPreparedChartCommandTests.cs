@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
+using System.Threading;
 using System.Threading.Tasks;
 using DTXMania.Game;
 using DTXMania.Game.Lib;
@@ -130,6 +132,85 @@ public sealed class GameApiPreparedChartCommandTests
 
         Assert.False(result.Success);
         Assert.Equal("Prepared chart commands require the Song Select stage.", result.Error);
+    }
+
+    [Fact]
+    public async Task Dispose_CompletesPendingPreparedCommand_AndQueuedDelegateBecomesNoOp()
+    {
+        var stage = SongSelectionStageTestFactory.CreateStage();
+        var stageManager = new Mock<IStageManager>();
+        stageManager.SetupGet(manager => manager.CurrentStage).Returns(stage);
+        var queuedActions = new List<Action>();
+        var context = new Mock<IGameContext>();
+        context.SetupGet(game => game.StageManager).Returns(stageManager.Object);
+        context
+            .Setup(game => game.QueueMainThreadAction(It.IsAny<Action>()))
+            .Callback<Action>(queuedActions.Add);
+        var api = new GameApiImplementation(context.Object);
+
+        var commandTask = api.StartPreparedPreviewAsync();
+        Assert.False(commandTask.IsCompleted);
+        Assert.Single(queuedActions);
+
+        var dispose = typeof(GameApiImplementation).GetMethod(
+            nameof(IDisposable.Dispose),
+            BindingFlags.Instance | BindingFlags.Public);
+        Assert.NotNull(dispose);
+        dispose!.Invoke(api, null);
+
+        var result = await commandTask.WaitAsync(TimeSpan.FromSeconds(1));
+        Assert.False(result.Success);
+        Assert.Equal("The prepared chart command was canceled.", result.Error);
+
+        queuedActions[0]();
+        Assert.Equal("The prepared chart command was canceled.", result.Error);
+        stageManager.Verify(
+            manager => manager.ChangeStage(
+                It.IsAny<StageType>(),
+                It.IsAny<IStageTransition>(),
+                It.IsAny<Dictionary<string, object>>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task PreparedCommand_WhenRequestCancellationIsSignaled_CompletesAndQueuedDelegateBecomesNoOp()
+    {
+        var stage = SongSelectionStageTestFactory.CreateStage();
+        var stageManager = new Mock<IStageManager>();
+        stageManager.SetupGet(manager => manager.CurrentStage).Returns(stage);
+        var queuedActions = new List<Action>();
+        var context = new Mock<IGameContext>();
+        context.SetupGet(game => game.StageManager).Returns(stageManager.Object);
+        context
+            .Setup(game => game.QueueMainThreadAction(It.IsAny<Action>()))
+            .Callback<Action>(queuedActions.Add);
+        var api = new GameApiImplementation(context.Object);
+
+        using var requestCancellation = new CancellationTokenSource();
+        var commandMethod = typeof(GameApiImplementation).GetMethod(
+            nameof(GameApiImplementation.StartPreparedPreviewAsync),
+            BindingFlags.Instance | BindingFlags.Public,
+            binder: null,
+            types: new[] { typeof(CancellationToken) },
+            modifiers: null);
+        Assert.NotNull(commandMethod);
+        var commandTask = (Task<PreparedChartCommandResult>)commandMethod!.Invoke(
+            api,
+            new object[] { requestCancellation.Token })!;
+
+        requestCancellation.Cancel();
+
+        var result = await commandTask.WaitAsync(TimeSpan.FromSeconds(1));
+        Assert.False(result.Success);
+        Assert.Equal("The prepared chart command was canceled.", result.Error);
+
+        queuedActions[0]();
+        stageManager.Verify(
+            manager => manager.ChangeStage(
+                It.IsAny<StageType>(),
+                It.IsAny<IStageTransition>(),
+                It.IsAny<Dictionary<string, object>>()),
+            Times.Never);
     }
 
     private static BlockedActivationFixture CreateBlockedActivationFixture()

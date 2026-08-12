@@ -249,7 +249,7 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
             }
 
             // Route the method call
-            response = await RouteMethodCall(request);
+            response = await RouteMethodCallWithCancellation(request, context.RequestAborted);
 
             // Don't send response for notifications
             if (!request.IsNotification)
@@ -276,7 +276,17 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
     /// <summary>
     /// Route method calls to appropriate handlers
     /// </summary>
-    private async Task<JsonRpcResponse> RouteMethodCall(JsonRpcRequest request)
+    private Task<JsonRpcResponse> RouteMethodCall(JsonRpcRequest request)
+        => RouteMethodCallCore(request, null);
+
+    private Task<JsonRpcResponse> RouteMethodCallWithCancellation(
+        JsonRpcRequest request,
+        CancellationToken cancellationToken)
+        => RouteMethodCallCore(request, cancellationToken);
+
+    private async Task<JsonRpcResponse> RouteMethodCallCore(
+        JsonRpcRequest request,
+        CancellationToken? cancellationToken)
     {
         try
         {
@@ -298,16 +308,24 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
                     return await HandleChangeStage(request);
 
                 case "prepareVideoChart":
-                    return await HandlePrepareVideoChart(request);
+                    return cancellationToken.HasValue
+                        ? await HandlePrepareVideoChartWithCancellation(request, cancellationToken.Value)
+                        : await HandlePrepareVideoChart(request);
 
                 case "startPreparedPreview":
-                    return await HandleStartPreparedPreview(request);
+                    return cancellationToken.HasValue
+                        ? await HandleStartPreparedPreviewWithCancellation(request, cancellationToken.Value)
+                        : await HandleStartPreparedPreview(request);
 
                 case "activatePreparedChart":
-                    return await HandleActivatePreparedChart(request);
+                    return cancellationToken.HasValue
+                        ? await HandleActivatePreparedChartWithCancellation(request, cancellationToken.Value)
+                        : await HandleActivatePreparedChart(request);
 
                 case "cancelPreparedChart":
-                    return await HandleCancelPreparedChart(request);
+                    return cancellationToken.HasValue
+                        ? await HandleCancelPreparedChartWithCancellation(request, cancellationToken.Value)
+                        : await HandleCancelPreparedChart(request);
 
                 case "ping":
                     return CreateSuccessResponse(request.Id, new { pong = true, timestamp = DateTime.UtcNow });
@@ -498,7 +516,17 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
         return CreateSuccessResponse(request.Id, new { success = true, stageName });
     }
 
-    private async Task<JsonRpcResponse> HandlePrepareVideoChart(JsonRpcRequest request)
+    private Task<JsonRpcResponse> HandlePrepareVideoChart(JsonRpcRequest request)
+        => HandlePrepareVideoChartCore(request, null);
+
+    private Task<JsonRpcResponse> HandlePrepareVideoChartWithCancellation(
+        JsonRpcRequest request,
+        CancellationToken cancellationToken)
+        => HandlePrepareVideoChartCore(request, cancellationToken);
+
+    private async Task<JsonRpcResponse> HandlePrepareVideoChartCore(
+        JsonRpcRequest request,
+        CancellationToken? cancellationToken)
     {
         if (!_gameApi.IsRunning)
         {
@@ -543,7 +571,9 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
                 "chartPath must be a fully-qualified path");
         }
 
-        var commandResult = await _gameApi.PrepareVideoChartAsync(chartPath);
+        var commandResult = cancellationToken.HasValue
+            ? await _gameApi.PrepareVideoChartAsync(chartPath, cancellationToken.Value)
+            : await _gameApi.PrepareVideoChartAsync(chartPath);
         return CreateSuccessResponse(request.Id, new
         {
             success = commandResult.Success,
@@ -551,7 +581,17 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
         });
     }
 
-    private async Task<JsonRpcResponse> HandleStartPreparedPreview(JsonRpcRequest request)
+    private Task<JsonRpcResponse> HandleStartPreparedPreview(JsonRpcRequest request)
+        => HandleStartPreparedPreviewCore(request, null);
+
+    private Task<JsonRpcResponse> HandleStartPreparedPreviewWithCancellation(
+        JsonRpcRequest request,
+        CancellationToken cancellationToken)
+        => HandleStartPreparedPreviewCore(request, cancellationToken);
+
+    private async Task<JsonRpcResponse> HandleStartPreparedPreviewCore(
+        JsonRpcRequest request,
+        CancellationToken? cancellationToken)
     {
         if (!_gameApi.IsRunning)
         {
@@ -559,7 +599,9 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
                 "Game is not running");
         }
 
-        var commandResult = await _gameApi.StartPreparedPreviewAsync();
+        var commandResult = cancellationToken.HasValue
+            ? await _gameApi.StartPreparedPreviewAsync(cancellationToken.Value)
+            : await _gameApi.StartPreparedPreviewAsync();
         return CreateSuccessResponse(request.Id, new
         {
             success = commandResult.Success,
@@ -567,7 +609,17 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
         });
     }
 
-    private async Task<JsonRpcResponse> HandleActivatePreparedChart(JsonRpcRequest request)
+    private Task<JsonRpcResponse> HandleActivatePreparedChart(JsonRpcRequest request)
+        => HandleActivatePreparedChartCore(request, null);
+
+    private Task<JsonRpcResponse> HandleActivatePreparedChartWithCancellation(
+        JsonRpcRequest request,
+        CancellationToken cancellationToken)
+        => HandleActivatePreparedChartCore(request, cancellationToken);
+
+    private async Task<JsonRpcResponse> HandleActivatePreparedChartCore(
+        JsonRpcRequest request,
+        CancellationToken? cancellationToken)
     {
         if (!_gameApi.IsRunning)
         {
@@ -575,7 +627,9 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
                 "Game is not running");
         }
 
-        var commandResult = await _gameApi.ActivatePreparedChartAsync();
+        var commandResult = cancellationToken.HasValue
+            ? await _gameApi.ActivatePreparedChartAsync(cancellationToken.Value)
+            : await _gameApi.ActivatePreparedChartAsync();
         return CreateSuccessResponse(request.Id, new
         {
             success = commandResult.Success,
@@ -583,7 +637,17 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
         });
     }
 
-    private async Task<JsonRpcResponse> HandleCancelPreparedChart(JsonRpcRequest request)
+    private Task<JsonRpcResponse> HandleCancelPreparedChart(JsonRpcRequest request)
+        => HandleCancelPreparedChartCore(request, null);
+
+    private Task<JsonRpcResponse> HandleCancelPreparedChartWithCancellation(
+        JsonRpcRequest request,
+        CancellationToken cancellationToken)
+        => HandleCancelPreparedChartCore(request, cancellationToken);
+
+    private async Task<JsonRpcResponse> HandleCancelPreparedChartCore(
+        JsonRpcRequest request,
+        CancellationToken? cancellationToken)
     {
         if (!_gameApi.IsRunning)
         {
@@ -591,7 +655,9 @@ public class JsonRpcServer : IDisposable, IAsyncDisposable
                 "Game is not running");
         }
 
-        var commandResult = await _gameApi.CancelPreparedChartAsync();
+        var commandResult = cancellationToken.HasValue
+            ? await _gameApi.CancelPreparedChartAsync(cancellationToken.Value)
+            : await _gameApi.CancelPreparedChartAsync();
         return CreateSuccessResponse(request.Id, new
         {
             success = commandResult.Success,

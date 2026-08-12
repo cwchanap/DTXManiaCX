@@ -155,6 +155,59 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
     }
 
     [Fact]
+    public void PrepareVideoChart_WhenRequestedPreviewLoadFails_RestoresPrimaryDelayedPreviewWithoutPreparation()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "hpa510-lifecycle-fallback-primary");
+        Directory.CreateDirectory(root);
+        var primaryPath = Path.Combine(root, "primary.dtx");
+        var requestedPath = Path.Combine(root, "requested.dtx");
+        var primaryPreviewPath = Path.Combine(root, "primary.wav");
+        var requestedPreviewPath = Path.Combine(root, "requested.wav");
+        File.WriteAllText(primaryPath, "chart");
+        File.WriteAllText(requestedPath, "chart");
+        File.WriteAllText(primaryPreviewPath, "preview");
+        File.WriteAllText(requestedPreviewPath, "preview");
+
+        try
+        {
+            var primary = new SongChart { Id = 601, FilePath = primaryPath, PreviewFile = "primary.wav" };
+            var requested = new SongChart { Id = 602, FilePath = requestedPath, PreviewFile = "requested.wav" };
+            var song = new SongEntity { Id = 601, Title = "multi-chart", Charts = new List<SongChart> { primary, requested } };
+            primary.Song = song;
+            requested.Song = song;
+            var node = new SongListNode
+            {
+                Type = NodeType.Score,
+                Title = song.Title,
+                DatabaseSong = song,
+                DatabaseSongId = song.Id,
+                DatabaseChart = primary,
+                Scores = new[] { new SongScore { ChartId = requested.Id, Instrument = EInstrumentPart.DRUMS } }
+            };
+            var resourceManager = new Mock<IResourceManager>();
+            var primarySound = new Mock<ISound>();
+            resourceManager.Setup(x => x.LoadSound(requestedPreviewPath))
+                .Throws(new InvalidDataException("requested preview is invalid"));
+            resourceManager.Setup(x => x.LoadSound(primaryPreviewPath)).Returns(primarySound.Object);
+            var stage = CreatePreparedStage(root, node, resourceManager.Object);
+
+            var result = InvokeCommand(stage, "PrepareVideoChart", requestedPath);
+
+            Assert.False(result.Success);
+            resourceManager.Verify(x => x.LoadSound(requestedPreviewPath), Times.Once);
+            resourceManager.Verify(x => x.LoadSound(primaryPreviewPath), Times.Once);
+            Assert.Same(primarySound.Object, GetPrivateField<ISound>(stage, "_previewSound"));
+            Assert.True(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
+            Assert.Null(GetPrivateField<object>(stage, "_preparedChartSelection"));
+            Assert.Equal("None", GetPrivateField<object>(stage, "_preparedPreviewState")?.ToString());
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
+    [Fact]
     public void PreparedPreview_DoesNotAutoStartAfterNormalDelay()
     {
         var root = Path.Combine(Path.GetTempPath(), "hpa510-lifecycle-delay");
@@ -447,6 +500,28 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
 
         Assert.False(result.Success);
         Assert.NotNull(GetPrivateField<object>(stage, "_preparedChartSelection"));
+        stageManager.Verify(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()), Times.Never);
+    }
+
+    [Fact]
+    public void ActivatePreparedChart_WhenStageManagerIsTransitioning_PreservesPreparation()
+    {
+        var game = CreateGame(totalGameTime: 2d, lastStageTransitionTime: 0d);
+        var stage = CreateStage(game);
+        var stageManager = new Mock<IStageManager>();
+        stageManager.SetupGet(manager => manager.IsTransitioning).Returns(true);
+        var node = CreateNode("prepared", Path.Combine(Path.GetTempPath(), "prepared-activation-transitioning.dtx"));
+        stage.StageManager = stageManager.Object;
+        SetPrivateField(stage, "_selectedSong", node);
+        SetPrivateField(stage, "_currentDifficulty", 0);
+        SetPrivateField(stage, "_preparedChartSelection", MakePreparedSelection(node, 0));
+        SetPreparedState(stage, "Prepared");
+
+        var result = InvokeCommand(stage, "ActivatePreparedChart");
+
+        Assert.False(result.Success);
+        Assert.NotNull(GetPrivateField<object>(stage, "_preparedChartSelection"));
+        Assert.Equal("Prepared", GetPrivateField<object>(stage, "_preparedPreviewState")?.ToString());
         stageManager.Verify(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()), Times.Never);
     }
 
