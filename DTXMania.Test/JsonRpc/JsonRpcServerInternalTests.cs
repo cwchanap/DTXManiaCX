@@ -255,6 +255,134 @@ public class JsonRpcServerInternalTests
         }
     }
 
+    [Theory]
+    [InlineData("HandleStartPreparedPreviewWithCancellation", "startPreparedPreview")]
+    [InlineData("HandleActivatePreparedChartWithCancellation", "activatePreparedChart")]
+    [InlineData("HandleCancelPreparedChartWithCancellation", "cancelPreparedChart")]
+    public async Task PreparedChartCancellationHandlers_ShouldForwardCancellationToken(string handlerMethod, string apiMethod)
+    {
+        using var cancellation = new CancellationTokenSource();
+        var gameApi = CreateGameApi();
+        var expectedResult = new PreparedChartCommandResult(true, null);
+        if (apiMethod == "startPreparedPreview")
+            gameApi.Setup(api => api.StartPreparedPreviewAsync(cancellation.Token)).ReturnsAsync(expectedResult);
+        else if (apiMethod == "activatePreparedChart")
+            gameApi.Setup(api => api.ActivatePreparedChartAsync(cancellation.Token)).ReturnsAsync(expectedResult);
+        else
+            gameApi.Setup(api => api.CancelPreparedChartAsync(cancellation.Token)).ReturnsAsync(expectedResult);
+        var server = new JsonRpcServer(gameApi.Object);
+
+        var response = await ReflectionHelpers.InvokePrivateMethodAsync<JsonRpcResponse>(
+            server,
+            handlerMethod,
+            new JsonRpcRequest { Id = 30, Method = apiMethod },
+            cancellation.Token);
+
+        Assert.Null(response!.Error);
+        Assert.Contains("\"success\":true", JsonSerializer.Serialize(response.Result));
+    }
+
+    [Theory]
+    [InlineData("HandleStartPreparedPreview")]
+    [InlineData("HandleActivatePreparedChart")]
+    [InlineData("HandleCancelPreparedChart")]
+    [InlineData("HandlePrepareVideoChart")]
+    public async Task PreparedChartHandlers_WhenGameNotRunning_ShouldReturnGameNotRunningError(string handlerMethod)
+    {
+        var gameApi = new Mock<IGameApi>();
+        gameApi.SetupGet(api => api.IsRunning).Returns(false);
+        var server = new JsonRpcServer(gameApi.Object);
+
+        var response = await ReflectionHelpers.InvokePrivateMethodAsync<JsonRpcResponse>(
+            server,
+            handlerMethod,
+            new JsonRpcRequest { Id = 31, Method = "test" });
+
+        Assert.Equal(JsonRpcErrorCodes.GameNotRunning, response!.Error!.Code);
+        Assert.Contains("Game is not running", response.Error.Message);
+    }
+
+    [Fact]
+    public async Task HandlePrepareVideoChart_WhenParamsIsNotObject_ShouldReturnInvalidParams()
+    {
+        var server = new JsonRpcServer(CreateGameApi().Object);
+        using var paramsDocument = JsonDocument.Parse("\"just-a-string\"");
+
+        var response = await ReflectionHelpers.InvokePrivateMethodAsync<JsonRpcResponse>(
+            server,
+            "HandlePrepareVideoChart",
+            new JsonRpcRequest
+            {
+                Id = 32,
+                Method = "prepareVideoChart",
+                Params = paramsDocument.RootElement.Clone()
+            });
+
+        Assert.Equal(JsonRpcErrorCodes.InvalidParams, response!.Error!.Code);
+        Assert.Equal("params must be an object", response.Error.Message);
+    }
+
+    [Fact]
+    public async Task HandlePrepareVideoChart_WhenChartPathIsRelative_ShouldReturnInvalidParams()
+    {
+        var server = new JsonRpcServer(CreateGameApi().Object);
+        using var paramsDocument = JsonDocument.Parse(
+            JsonSerializer.Serialize(new { chartPath = "relative/chart.dtx" }));
+
+        var response = await ReflectionHelpers.InvokePrivateMethodAsync<JsonRpcResponse>(
+            server,
+            "HandlePrepareVideoChart",
+            new JsonRpcRequest
+            {
+                Id = 33,
+                Method = "prepareVideoChart",
+                Params = paramsDocument.RootElement.Clone()
+            });
+
+        Assert.Equal(JsonRpcErrorCodes.InvalidParams, response!.Error!.Code);
+        Assert.Equal("chartPath must be a fully-qualified path", response.Error.Message);
+    }
+
+    [Fact]
+    public async Task HandlePrepareVideoChart_WhenParamsIsNumber_ShouldReturnInvalidParams()
+    {
+        var server = new JsonRpcServer(CreateGameApi().Object);
+        using var paramsDocument = JsonDocument.Parse("42");
+
+        var response = await ReflectionHelpers.InvokePrivateMethodAsync<JsonRpcResponse>(
+            server,
+            "HandlePrepareVideoChart",
+            new JsonRpcRequest
+            {
+                Id = 34,
+                Method = "prepareVideoChart",
+                Params = paramsDocument.RootElement.Clone()
+            });
+
+        Assert.Equal(JsonRpcErrorCodes.InvalidParams, response!.Error!.Code);
+        Assert.Equal("params must be an object", response.Error.Message);
+    }
+
+    [Fact]
+    public async Task HandlePrepareVideoChart_WhenChartPathIsNotString_ShouldReturnInvalidParams()
+    {
+        var server = new JsonRpcServer(CreateGameApi().Object);
+        using var paramsDocument = JsonDocument.Parse("{\"chartPath\":true}");
+
+        var response = await ReflectionHelpers.InvokePrivateMethodAsync<JsonRpcResponse>(
+            server,
+            "HandlePrepareVideoChart",
+            new JsonRpcRequest
+            {
+                Id = 35,
+                Method = "prepareVideoChart",
+                Params = paramsDocument.RootElement.Clone()
+            });
+
+        Assert.Equal(JsonRpcErrorCodes.InvalidParams, response!.Error!.Code);
+        Assert.Equal("chartPath must be a string", response.Error.Message);
+    }
+
     [Fact]
     public async Task RouteMethodCall_WhenMethodIsPing_ShouldReturnPong()
     {
