@@ -475,8 +475,11 @@ public class GameApiImplementation : IGameApi, IDisposable
         PendingPreparedChartCommand pending,
         PreparedChartCommandResult result)
     {
-        pending.TryComplete(result);
-        RemovePreparedCommand(pending);
+        // Cancellation/lifecycle completion may only win while the command is
+        // still Queued. If execution has already started, the main-thread
+        // execution path owns completion and this is a no-op.
+        if (pending.TryCompleteFromCancellation(result))
+            RemovePreparedCommand(pending);
     }
 
     private void RemovePreparedCommand(PendingPreparedChartCommand pending)
@@ -519,8 +522,16 @@ public class GameApiImplementation : IGameApi, IDisposable
 
     private sealed class PendingPreparedChartCommand
     {
-        private int _completed;
-        private int _executionStarted;
+        // Single atomic lifecycle: Queued → Executing → Completed.
+        // Cancellation may only complete the command while still Queued; once the
+        // main thread claims Executing, that execution owns completion. This
+        // prevents a cancellation callback from reporting failure after the
+        // command has already begun mutating game state.
+        private const int StateQueued = 0;
+        private const int StateExecuting = 1;
+        private const int StateCompleted = 2;
+
+        private int _state = StateQueued;
         private int _registrationReady;
         private int _disposeRequested;
         private int _resourcesDisposed;
@@ -537,22 +548,38 @@ public class GameApiImplementation : IGameApi, IDisposable
         public TaskCompletionSource<PreparedChartCommandResult> Completion { get; }
         public CancellationTokenSource CancellationSource { get; }
         public CancellationToken CancellationToken { get; }
-        public bool IsCompleted => Volatile.Read(ref _completed) != 0;
+        public bool IsCompleted => Volatile.Read(ref _state) == StateCompleted;
 
+        /// <summary>
+        /// Atomically transitions from Queued to Executing. Returns false if the
+        /// command was already canceled (Queued → Completed) or already claimed.
+        /// </summary>
         public bool TryBeginExecution()
         {
-            if (IsCompleted
-                || Interlocked.CompareExchange(ref _executionStarted, 1, 0) != 0)
-            {
-                return false;
-            }
-
-            return !IsCompleted;
+            return Interlocked.CompareExchange(ref _state, StateExecuting, StateQueued) == StateQueued;
         }
 
+        /// <summary>
+        /// Execution-path completion: transitions from Executing to Completed.
+        /// The main thread owns completion once it has claimed Executing.
+        /// </summary>
         public bool TryComplete(PreparedChartCommandResult result)
         {
-            if (Interlocked.Exchange(ref _completed, 1) != 0)
+            if (Interlocked.CompareExchange(ref _state, StateCompleted, StateExecuting) != StateExecuting)
+                return false;
+
+            Completion.TrySetResult(result);
+            return true;
+        }
+
+        /// <summary>
+        /// Cancellation/lifecycle completion: may only win while still Queued.
+        /// Once execution has started (Executing), the execution path owns
+        /// completion and this returns false.
+        /// </summary>
+        public bool TryCompleteFromCancellation(PreparedChartCommandResult result)
+        {
+            if (Interlocked.CompareExchange(ref _state, StateCompleted, StateQueued) != StateQueued)
                 return false;
 
             Completion.TrySetResult(result);
