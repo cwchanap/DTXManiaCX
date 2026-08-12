@@ -70,6 +70,7 @@ public sealed class E2EFixtureBuilderTests
             Assert.Contains("#TITLE: E2E AutoPlay Smoke", chart);
             Assert.Contains("#BPM: 120", chart);
             Assert.Contains($"#WAV01: {E2EFixtureBuilder.AudioFileName}", chart);
+            Assert.Contains($"#PREVIEW: {E2EFixtureBuilder.AudioFileName}", chart);
             Assert.Contains("#00001:", chart);
             Assert.Contains("#00011:", chart);
 
