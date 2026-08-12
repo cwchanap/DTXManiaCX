@@ -16,9 +16,6 @@ public sealed class E2EFixtureBuilderTests
         try
         {
             var fixture = E2EFixtureBuilder.Build(root, repoRoot, apiPort: 18080);
-            var previewAudioPath = Path.Combine(
-                fixture.SongDirectory,
-                E2EFixtureBuilder.PreviewAudioFileName);
 
             Assert.Equal(Path.GetFullPath(root), fixture.RunRoot);
             Assert.Equal(Path.Combine(fixture.RunRoot, "appdata"), fixture.AppDataRoot);
@@ -42,7 +39,6 @@ public sealed class E2EFixtureBuilderTests
             Assert.True(File.Exists(fixture.ConfigPath));
             Assert.True(File.Exists(fixture.ChartPath));
             Assert.True(File.Exists(fixture.AudioPath));
-            Assert.True(File.Exists(previewAudioPath));
 
             // The sandbox skin must ship a valid hit_fx.png so it mirrors the bundled
             // System skin (validated by DefaultSkinAssetsTests).
@@ -74,7 +70,7 @@ public sealed class E2EFixtureBuilderTests
             Assert.Contains("#TITLE: E2E AutoPlay Smoke", chart);
             Assert.Contains("#BPM: 120", chart);
             Assert.Contains($"#WAV01: {E2EFixtureBuilder.AudioFileName}", chart);
-            Assert.Contains($"#PREVIEW: {E2EFixtureBuilder.PreviewAudioFileName}", chart);
+            Assert.Contains($"#PREVIEW: {E2EFixtureBuilder.AudioFileName}", chart);
             Assert.Contains("#00001:", chart);
             Assert.Contains("#00011:", chart);
 
@@ -82,11 +78,6 @@ public sealed class E2EFixtureBuilderTests
             Assert.True(audioBytes.Length > 44);
             Assert.Equal("RIFF", System.Text.Encoding.ASCII.GetString(audioBytes, 0, 4));
             Assert.Equal("WAVE", System.Text.Encoding.ASCII.GetString(audioBytes, 8, 4));
-
-            var previewAudioBytes = File.ReadAllBytes(previewAudioPath);
-            Assert.True(previewAudioBytes.Length > audioBytes.Length);
-            Assert.Equal("RIFF", System.Text.Encoding.ASCII.GetString(previewAudioBytes, 0, 4));
-            Assert.Equal("WAVE", System.Text.Encoding.ASCII.GetString(previewAudioBytes, 8, 4));
 
             var configManager = new ConfigManager();
             configManager.LoadConfig(fixture.ConfigPath);
