@@ -3,6 +3,7 @@ using DTXMania.Game.Lib.JsonRpc;
 using Moq;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
@@ -331,7 +332,9 @@ namespace DTXMania.Test.JsonRpc
         [Fact]
         public async Task PreparedChartCommandRoutes_ShouldReturnSuccessAndErrorFields()
         {
-            _mockGameApi.Setup(api => api.PrepareVideoChartAsync("/safe/chart.dtx"))
+            var chartPath = Path.GetFullPath(Path.Combine("safe", "chart.dtx"));
+            Assert.True(Path.IsPathFullyQualified(chartPath));
+            _mockGameApi.Setup(api => api.PrepareVideoChartAsync(chartPath))
                 .ReturnsAsync(new PreparedChartCommandResult(true, null));
             _mockGameApi.Setup(api => api.StartPreparedPreviewAsync())
                 .ReturnsAsync(new PreparedChartCommandResult(false, "No prepared chart preview is available."));
@@ -343,7 +346,7 @@ namespace DTXMania.Test.JsonRpc
 
             var requests = new[]
             {
-                "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"prepareVideoChart\",\"params\":{\"chartPath\":\"/safe/chart.dtx\"}}",
+                $"{{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"prepareVideoChart\",\"params\":{{\"chartPath\":{JsonSerializer.Serialize(chartPath)}}}}}",
                 "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"startPreparedPreview\"}",
                 "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"activatePreparedChart\"}",
                 "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"cancelPreparedChart\"}",
@@ -358,7 +361,7 @@ namespace DTXMania.Test.JsonRpc
                 Assert.Contains("\"error\":", body);
             }
 
-            _mockGameApi.Verify(api => api.PrepareVideoChartAsync("/safe/chart.dtx"), Times.Once);
+            _mockGameApi.Verify(api => api.PrepareVideoChartAsync(chartPath), Times.Once);
             _mockGameApi.Verify(api => api.StartPreparedPreviewAsync(), Times.Once);
             _mockGameApi.Verify(api => api.ActivatePreparedChartAsync(), Times.Once);
             _mockGameApi.Verify(api => api.CancelPreparedChartAsync(), Times.Once);

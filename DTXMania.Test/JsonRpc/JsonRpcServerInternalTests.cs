@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Reflection;
 using System.Text.Json;
 using System.Threading;
@@ -164,12 +165,15 @@ public class JsonRpcServerInternalTests
     [Fact]
     public async Task HandlePrepareVideoChart_WithValidParams_ShouldReturnCommandResult()
     {
+        var chartPath = Path.GetFullPath(Path.Combine("safe", "chart.dtx"));
+        Assert.True(Path.IsPathFullyQualified(chartPath));
         var gameApi = CreateGameApi();
         gameApi
-            .Setup(api => api.PrepareVideoChartAsync("/safe/chart.dtx"))
+            .Setup(api => api.PrepareVideoChartAsync(chartPath))
             .ReturnsAsync(new PreparedChartCommandResult(false, "The requested chart preview file was not found."));
         var server = new JsonRpcServer(gameApi.Object);
-        using var paramsDocument = JsonDocument.Parse("{\"chartPath\":\"/safe/chart.dtx\"}");
+        using var paramsDocument = JsonDocument.Parse(
+            JsonSerializer.Serialize(new { chartPath }));
 
         var response = await ReflectionHelpers.InvokePrivateMethodAsync<JsonRpcResponse>(
             server,
@@ -184,7 +188,7 @@ public class JsonRpcServerInternalTests
         Assert.Null(response!.Error);
         Assert.Contains("\"success\":false", JsonSerializer.Serialize(response.Result));
         Assert.Contains("The requested chart preview file was not found.", JsonSerializer.Serialize(response.Result));
-        gameApi.Verify(api => api.PrepareVideoChartAsync("/safe/chart.dtx"), Times.Once);
+        gameApi.Verify(api => api.PrepareVideoChartAsync(chartPath), Times.Once);
     }
 
     [Theory]
