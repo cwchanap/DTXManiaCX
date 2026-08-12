@@ -17,6 +17,7 @@ using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.UI.Components;
 using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Game.Lib.Song;
+using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Song.Filtering;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Config;
@@ -164,6 +165,7 @@ namespace DTXMania.Game.Lib.Stage
         // Navigation state
         private Stack<SongListNode> _navigationStack;
         private string _currentBreadcrumb = "";
+        private bool _isProjectingPreparedSelection;
 
         // Status panel navigation state
         private bool _isInStatusPanel = false;
@@ -246,6 +248,12 @@ namespace DTXMania.Game.Lib.Stage
             long Generation,
             SongLibrarySnapshot? Snapshot,
             IReadOnlyList<SongListNode> SongList);
+
+        private sealed record PreparedChartResolution(
+            SongListNode Node,
+            SongChart Chart,
+            int DifficultyIndex,
+            IReadOnlyList<string> AncestorBoxPaths);
 
         #endregion
 
@@ -1313,6 +1321,198 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
 
+        private PreparedChartResolution? ResolvePreparedChart(string requestedChartPath)
+        {
+            if (string.IsNullOrWhiteSpace(requestedChartPath)
+                || !Path.IsPathFullyQualified(requestedChartPath)
+                || _appliedLibrarySnapshot == null
+                || !SongPathIdentity.TryNormalize(requestedChartPath, out var normalizedRequestedPath))
+            {
+                return null;
+            }
+
+            var normalizedActiveRoots = new List<string>();
+            foreach (var activeRoot in _appliedLibrarySnapshot.ActiveRoots)
+            {
+                if (SongPathIdentity.TryNormalize(activeRoot, out var normalizedRoot))
+                    normalizedActiveRoots.Add(normalizedRoot);
+            }
+
+            if (!normalizedActiveRoots.Any(root =>
+                    SongPathIdentity.IsUnderNormalizedRoot(normalizedRequestedPath, root)))
+            {
+                return null;
+            }
+
+            var matches = new List<(SongListNode Node, SongChart Chart, IReadOnlyList<string> AncestorBoxPaths)>();
+            VisitPreparedChartNodes(
+                _appliedLibrarySnapshot.RootSongs,
+                Array.Empty<string>(),
+                normalizedRequestedPath,
+                matches);
+
+            if (matches.Count != 1)
+                return null;
+
+            var match = matches[0];
+            if (!TryResolvePreparedDifficulty(
+                    match.Node,
+                    match.Chart,
+                    normalizedRequestedPath,
+                    out var difficultyIndex))
+            {
+                return null;
+            }
+
+            return new PreparedChartResolution(
+                match.Node,
+                match.Chart,
+                difficultyIndex,
+                match.AncestorBoxPaths);
+        }
+
+        private static void VisitPreparedChartNodes(
+            IEnumerable<SongListNode> nodes,
+            IReadOnlyList<string> ancestorBoxPaths,
+            string normalizedRequestedPath,
+            List<(SongListNode Node, SongChart Chart, IReadOnlyList<string> AncestorBoxPaths)> matches)
+        {
+            foreach (var node in nodes ?? Enumerable.Empty<SongListNode>())
+            {
+                if (node == null)
+                    continue;
+
+                if (node.Type == NodeType.Score)
+                {
+                    foreach (var chart in EnumerateNodeCharts(node))
+                    {
+                        if (!SongPathIdentity.TryNormalize(chart.FilePath, out var normalizedChartPath)
+                            || !StringComparer.Ordinal.Equals(normalizedChartPath, normalizedRequestedPath))
+                        {
+                            continue;
+                        }
+
+                        matches.Add((node, chart, ancestorBoxPaths));
+                    }
+                }
+
+                if (node.Type != NodeType.Box || node.Children == null)
+                    continue;
+
+                var boxPath = GetStableBoxPath(node);
+                if (boxPath == null)
+                    continue;
+
+                VisitPreparedChartNodes(
+                    node.Children,
+                    ancestorBoxPaths.Concat(new[] { boxPath }).ToArray(),
+                    normalizedRequestedPath,
+                    matches);
+            }
+        }
+
+        private static IEnumerable<SongChart> EnumerateNodeCharts(SongListNode node)
+        {
+            var seen = new HashSet<SongChart>();
+            if (node.DatabaseChart != null && seen.Add(node.DatabaseChart))
+                yield return node.DatabaseChart;
+
+            foreach (var chart in node.DatabaseSong?.Charts ?? Enumerable.Empty<SongChart>())
+            {
+                if (chart != null && seen.Add(chart))
+                    yield return chart;
+            }
+        }
+
+        private static bool TryResolvePreparedDifficulty(
+            SongListNode node,
+            SongChart chart,
+            string normalizedChartPath,
+            out int difficultyIndex)
+        {
+            difficultyIndex = -1;
+            var scores = node.Scores ?? Array.Empty<SongScore>();
+            var matchingChartIdSlots = chart.Id != 0
+                ? scores
+                    .Select((score, index) => (score, index))
+                    .Where(value => value.score != null
+                        && value.score.ChartId != 0
+                        && value.score.ChartId == chart.Id)
+                    .ToList()
+                : new List<(SongScore score, int index)>();
+
+            if (matchingChartIdSlots.Count == 1)
+            {
+                difficultyIndex = matchingChartIdSlots[0].index;
+                return true;
+            }
+
+            if (matchingChartIdSlots.Count > 1)
+            {
+                var drumSlots = matchingChartIdSlots
+                    .Where(value => value.score.Instrument == EInstrumentPart.DRUMS)
+                    .ToList();
+                if (drumSlots.Count == 1)
+                {
+                    difficultyIndex = drumSlots[0].index;
+                    return true;
+                }
+            }
+
+            var exactFallbackSlots = scores
+                .Select((score, index) => (score, index))
+                .Where(value => value.score != null)
+                .Where(value =>
+                {
+                    var fallbackChart = node.GetCurrentDifficultyChart(value.index);
+                    return fallbackChart != null
+                        && SongPathIdentity.TryNormalize(fallbackChart.FilePath, out var fallbackPath)
+                        && StringComparer.Ordinal.Equals(fallbackPath, normalizedChartPath);
+                })
+                .Select(value => value.index)
+                .ToList();
+
+            if (exactFallbackSlots.Count == 1)
+            {
+                difficultyIndex = exactFallbackSlots[0];
+                return true;
+            }
+
+            return false;
+        }
+
+        private bool ProjectPreparedChartSelection(PreparedChartResolution resolution)
+        {
+            if (resolution == null || _appliedLibrarySnapshot == null || _songListDisplay == null)
+                return false;
+
+            _isProjectingPreparedSelection = true;
+            try
+            {
+                _activeTab = SongSelectionTab.AllSongs;
+                _filterCriteria = SongFilterCriteria.Default;
+                _filteredView = null;
+                _showEmptyFilterMessage = false;
+
+                RestoreNavigationPaths(resolution.AncestorBoxPaths, _appliedLibrarySnapshot);
+                RefreshSongListForActiveTab();
+
+                var targetIndex = _songListDisplay.CurrentList.FindIndex(node =>
+                    ReferenceEquals(node, resolution.Node));
+                if (targetIndex < 0)
+                    return false;
+
+                _songListDisplay.SetSelection(targetIndex, resolution.DifficultyIndex);
+                UpdateBreadcrumb();
+                UpdateStatusPanelFolderHint();
+                return true;
+            }
+            finally
+            {
+                _isProjectingPreparedSelection = false;
+            }
+        }
+
         private SongListNode? FindVisibleSongByIdentity(string? identity)
         {
             if (string.IsNullOrEmpty(identity))
@@ -1608,8 +1808,11 @@ namespace DTXMania.Game.Lib.Stage
                 e.CurrentDifficulty,
                 playSpeedPercent);
 
-            // Handle preview sound on selection change
-            StopCurrentPreview();
+            // Prepared projection raises the normal selection event while the row is
+            // being rebuilt. Keep presentation updates, but suppress preview teardown
+            // and automatic loading until the entire projection has completed.
+            if (!_isProjectingPreparedSelection)
+                StopCurrentPreview();
 
             // Auto-manage status panel visibility and navigation mode based on selected item type
             if (e.SelectedSong != null && e.SelectedSong.Type == NodeType.Score)
@@ -1623,9 +1826,11 @@ namespace DTXMania.Game.Lib.Stage
                 // Update preview image panel immediately for songs so it knows about the new song
                 _previewImagePanel?.UpdateSelectedSong(e.SelectedSong);
 
-                // Start preview sound loading - load immediately but delay playback
-                // Always load the preview sound - the delay timer will handle when to play it
-                LoadPreviewSound(e.SelectedSong);
+                // Start preview sound loading - load immediately but delay playback.
+                // The prepared projection owns its preview resource and must not be
+                // replaced by the normal primary-chart preview path.
+                if (!_isProjectingPreparedSelection)
+                    LoadPreviewSound(e.SelectedSong);
             }
             else
             {

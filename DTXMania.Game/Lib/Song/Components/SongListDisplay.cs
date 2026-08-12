@@ -362,6 +362,32 @@ namespace DTXMania.Game.Lib.Song.Components
         }
 
         /// <summary>
+        /// Applies a validated row and difficulty selection as one UI operation.
+        /// Prepared-chart projection uses this instead of setting the two values
+        /// independently, which would briefly expose an intermediate selection.
+        /// </summary>
+        internal void SetSelection(int index, int difficulty)
+        {
+            if (_currentList == null
+                || _currentList.Count == 0
+                || index < 0
+                || index >= _currentList.Count)
+            {
+                return;
+            }
+
+            _selectedIndex = index;
+            _currentDifficulty = Math.Clamp(difficulty, 0, 4);
+
+            // The projection is already at its final row, so keep the current and
+            // target counters aligned and report a scroll-complete selection event.
+            _targetScrollCounter = index * SCROLL_UNIT;
+            _currentScrollCounter = _targetScrollCounter;
+
+            UpdateSelectionCore(forceSelectionEvent: true);
+        }
+
+        /// <summary>
         /// Cycle through available difficulties
         /// </summary>
         public void CycleDifficulty()
@@ -1381,6 +1407,11 @@ namespace DTXMania.Game.Lib.Song.Components
 
         private void UpdateSelection()
         {
+            UpdateSelectionCore(forceSelectionEvent: false);
+        }
+
+        private void UpdateSelectionCore(bool forceSelectionEvent)
+        {
             var previousSong = SelectedSong;
 
             // Update logical selection with infinite looping support
@@ -1406,6 +1437,10 @@ namespace DTXMania.Game.Lib.Song.Components
                 // Pre-generate textures for adjacent songs (±5 from current selection - increased per senior engineer feedback)
                 PreGenerateAdjacentSongTextures();
 
+            }
+
+            if (SelectedSong != previousSong || forceSelectionEvent)
+            {
                 SelectionChanged?.Invoke(this, new SongSelectionChangedEventArgs(SelectedSong, _currentDifficulty, IsScrollComplete));
             }
         }        /// <summary>
