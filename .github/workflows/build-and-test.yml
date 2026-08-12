@@ -163,6 +163,13 @@ jobs:
     - name: Run Automation tests on macOS
       run: dotnet test DTXMania.Automation.Tests/DTXMania.Automation.Tests.csproj --configuration Debug --verbosity normal --logger trx --results-directory ./TestResults/Automation
 
+    - name: Run prepared-chart audio E2E on macOS
+      env:
+        ALSOFT_DRIVERS: 'null'
+        DTXMANIA_E2E_GAME_PROJECT: DTXMania.Game/DTXMania.Game.Mac.csproj
+        DTXMANIA_E2E_ARTIFACT_ROOT: TestResults/e2e-audio
+      run: dotnet test DTXMania.E2E/DTXMania.E2E.csproj --configuration Debug --verbosity normal --logger trx --results-directory ./TestResults/e2e-audio --filter "Category=AudioE2E"
+
     - name: Locate coverage report on macOS
       if: always()
       shell: bash
