@@ -409,6 +409,84 @@ public sealed class GameApiPreparedChartCommandTests
         }
     }
 
+    [Fact]
+    public async Task ActivatePreparedChartAsync_WhenRequestCancelsMidExecution_ShouldLetExecutionOwnCompletion()
+    {
+        // Reproduces the race in [P2]: cancellation fires after TryBeginExecution
+        // succeeds but before the command finishes. The execution path must own
+        // completion — the caller should see the command's real result, not
+        // "canceled", and the stage transition must have happened.
+        var game = ReflectionHelpers.CreateGame(totalGameTime: 1.0, lastStageTransitionTime: 0d);
+        var stage = SongSelectionStageTestFactory.CreateStage(game);
+        var node = CreateNode();
+        var stageManager = new Mock<IStageManager>();
+        stage.StageManager = stageManager.Object;
+        stageManager.SetupGet(manager => manager.CurrentStage).Returns(stage);
+        stageManager.SetupGet(manager => manager.IsTransitioning).Returns(false);
+        ReflectionHelpers.SetPrivateField(stage, "_selectedSong", node);
+        ReflectionHelpers.SetPrivateField(stage, "_currentDifficulty", 0);
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_preparedChartSelection",
+            CreatePreparedSelection(stage, node));
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_preparedPreviewState",
+            Enum.Parse(
+                ReflectionHelpers.GetField(typeof(SongSelectionStage), "_preparedPreviewState")!.FieldType,
+                "Prepared"));
+
+        var enteredChangeStage = new ManualResetEventSlim(initialState: false);
+        var releaseChangeStage = new ManualResetEventSlim(initialState: false);
+        stageManager.Setup(
+                manager => manager.ChangeStage(
+                    It.IsAny<StageType>(),
+                    It.IsAny<IStageTransition>(),
+                    It.IsAny<Dictionary<string, object>>()))
+            .Callback<StageType, IStageTransition, Dictionary<string, object>>((_, _, _) =>
+            {
+                enteredChangeStage.Set();
+                releaseChangeStage.Wait(TimeSpan.FromSeconds(5));
+            });
+
+        var queuedActions = new List<Action>();
+        var context = new Mock<IGameContext>();
+        context.SetupGet(gameContext => gameContext.StageManager).Returns(stageManager.Object);
+        context
+            .Setup(game => game.QueueMainThreadAction(It.IsAny<Action>()))
+            .Callback<Action>(queuedActions.Add);
+        var api = new GameApiImplementation(context.Object);
+
+        using var requestCancellation = new CancellationTokenSource();
+        var commandTask = api.ActivatePreparedChartAsync(requestCancellation.Token);
+        Assert.Single(queuedActions);
+
+        // Run the queued action on a background thread so we can cancel while
+        // the command is blocked inside StageManager.ChangeStage.
+        var executionTask = Task.Run(queuedActions[0]);
+
+        Assert.True(enteredChangeStage.Wait(TimeSpan.FromSeconds(5)),
+            "ChangeStage was not entered within the timeout.");
+
+        // Cancellation fires while the command is executing (state == Executing).
+        requestCancellation.Cancel();
+
+        // Let the command finish. The execution path should own completion.
+        releaseChangeStage.Set();
+        var result = await commandTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await executionTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(result.Success);
+        Assert.Null(result.Error);
+        stageManager.Verify(
+            manager => manager.ChangeStage(
+                It.Is<StageType>(t => t == StageType.SongTransition),
+                It.IsAny<IStageTransition>(),
+                It.IsAny<Dictionary<string, object>>()),
+            Times.Once);
+    }
+
     private static BlockedActivationFixture CreateBlockedActivationFixture()
     {
         var game = ReflectionHelpers.CreateGame(totalGameTime: 0.1, lastStageTransitionTime: 0d);
