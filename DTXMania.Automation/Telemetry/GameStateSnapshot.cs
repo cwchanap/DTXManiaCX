@@ -60,6 +60,12 @@ public sealed class GameStateSnapshot
 
     public long PreparedAudioBytes => GetTelemetryLong("preparedAudioBytes") ?? 0L;
 
+    public string? PreparedChartIdentity => GetTelemetryString("preparedChartIdentity");
+
+    public string? PreparedPreviewState => GetTelemetryString("preparedPreviewState");
+
+    public double PreparedPreviewElapsedMs => GetTelemetryDouble("preparedPreviewElapsedMs") ?? 0.0;
+
     public bool AutoPlayEnabled => GetTelemetryBool("autoPlayEnabled") ?? false;
 
     public double CurrentSongTimeMs => GetTelemetryDouble("currentSongTimeMs") ?? 0.0;

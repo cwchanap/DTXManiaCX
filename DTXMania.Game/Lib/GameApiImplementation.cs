@@ -327,6 +327,73 @@ public class GameApiImplementation : IGameApi
         return Task.FromResult(true);
     }
 
+    public Task<PreparedChartCommandResult> PrepareVideoChartAsync(string chartPath)
+    {
+        return QueuePreparedChartCommandAsync(stage => stage.PrepareVideoChart(chartPath));
+    }
+
+    public Task<PreparedChartCommandResult> StartPreparedPreviewAsync()
+    {
+        return QueuePreparedChartCommandAsync(stage => stage.StartPreparedPreview());
+    }
+
+    public Task<PreparedChartCommandResult> ActivatePreparedChartAsync()
+    {
+        return QueuePreparedChartCommandAsync(stage => stage.ActivatePreparedChart());
+    }
+
+    public Task<PreparedChartCommandResult> CancelPreparedChartAsync()
+    {
+        return QueuePreparedChartCommandAsync(stage => stage.CancelPreparedChart());
+    }
+
+    private Task<PreparedChartCommandResult> QueuePreparedChartCommandAsync(
+        Func<SongSelectionStage, (bool Success, string? Error)> command)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+
+        var completion = new TaskCompletionSource<PreparedChartCommandResult>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        void CompleteFailure(Exception exception, string logMessage)
+        {
+            _logger?.LogError(exception, logMessage);
+            completion.TrySetResult(new PreparedChartCommandResult(
+                false,
+                "The prepared chart command could not be completed."));
+        }
+
+        try
+        {
+            _game.QueueMainThreadAction(() =>
+            {
+                try
+                {
+                    if (_game.StageManager?.CurrentStage is not SongSelectionStage songSelectionStage)
+                    {
+                        completion.TrySetResult(new PreparedChartCommandResult(
+                            false,
+                            "Prepared chart commands require the Song Select stage."));
+                        return;
+                    }
+
+                    var result = command(songSelectionStage);
+                    completion.TrySetResult(new PreparedChartCommandResult(result.Success, result.Error));
+                }
+                catch (Exception exception)
+                {
+                    CompleteFailure(exception, "Game API: Prepared chart command failed on the update thread");
+                }
+            });
+        }
+        catch (Exception exception)
+        {
+            CompleteFailure(exception, "Game API: Could not queue prepared chart command");
+        }
+
+        return completion.Task;
+    }
+
     private GameWindowInfo GetWindowInfoSafe()
     {
         lock (_lock)

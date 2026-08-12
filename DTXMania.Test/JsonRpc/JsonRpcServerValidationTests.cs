@@ -310,6 +310,74 @@ namespace DTXMania.Test.JsonRpc
 
         #endregion
 
+        #region Prepared Chart Command Routes
+
+        [Theory]
+        [InlineData("null")]
+        [InlineData("{}")]
+        [InlineData("{\"chartPath\":\"   \"}")]
+        [InlineData("{\"chartPath\":123}")]
+        public async Task PrepareVideoChart_InvalidParams_ShouldReturnInvalidParams(string paramsJson)
+        {
+            using var client = await StartServerAsync(NextPort());
+            var requestJson = $"{{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"prepareVideoChart\",\"params\":{paramsJson}}}";
+            using var response = await client.PostAsync("/jsonrpc", RawRpcBody(requestJson));
+            var body = await response.Content.ReadAsStringAsync();
+
+            Assert.Contains("-32602", body);
+            _mockGameApi.Verify(api => api.PrepareVideoChartAsync(It.IsAny<string>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task PreparedChartCommandRoutes_ShouldReturnSuccessAndErrorFields()
+        {
+            _mockGameApi.Setup(api => api.PrepareVideoChartAsync("/safe/chart.dtx"))
+                .ReturnsAsync(new PreparedChartCommandResult(true, null));
+            _mockGameApi.Setup(api => api.StartPreparedPreviewAsync())
+                .ReturnsAsync(new PreparedChartCommandResult(false, "No prepared chart preview is available."));
+            _mockGameApi.Setup(api => api.ActivatePreparedChartAsync())
+                .ReturnsAsync(new PreparedChartCommandResult(true, null));
+            _mockGameApi.Setup(api => api.CancelPreparedChartAsync())
+                .ReturnsAsync(new PreparedChartCommandResult(true, null));
+            using var client = await StartServerAsync(NextPort());
+
+            var requests = new[]
+            {
+                "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"prepareVideoChart\",\"params\":{\"chartPath\":\"/safe/chart.dtx\"}}",
+                "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"startPreparedPreview\"}",
+                "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"activatePreparedChart\"}",
+                "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"cancelPreparedChart\"}",
+            };
+
+            foreach (var requestJson in requests)
+            {
+                using var response = await client.PostAsync("/jsonrpc", RawRpcBody(requestJson));
+                var body = await response.Content.ReadAsStringAsync();
+                Assert.True(response.IsSuccessStatusCode);
+                Assert.Contains("\"success\":", body);
+                Assert.Contains("\"error\":", body);
+            }
+
+            _mockGameApi.Verify(api => api.PrepareVideoChartAsync("/safe/chart.dtx"), Times.Once);
+            _mockGameApi.Verify(api => api.StartPreparedPreviewAsync(), Times.Once);
+            _mockGameApi.Verify(api => api.ActivatePreparedChartAsync(), Times.Once);
+            _mockGameApi.Verify(api => api.CancelPreparedChartAsync(), Times.Once);
+        }
+
+        [Fact]
+        public async Task PreparedChartRoutes_WithApiKeyConfigured_ShouldRequireAuthentication()
+        {
+            using var client = await StartServerAsync(NextPort(), apiKey: "secret");
+            var requestJson = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"startPreparedPreview\"}";
+
+            using var response = await client.PostAsync("/jsonrpc", RawRpcBody(requestJson));
+
+            Assert.Equal(401, (int)response.StatusCode);
+            _mockGameApi.Verify(api => api.StartPreparedPreviewAsync(), Times.Never);
+        }
+
+        #endregion
+
         #region GetWindowInfo Game Not Running
 
         [Fact]

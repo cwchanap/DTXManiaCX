@@ -148,6 +148,82 @@ public class JsonRpcServerInternalTests
     }
 
     [Fact]
+    public async Task HandlePrepareVideoChart_WhenParamsAreMissing_ShouldReturnInvalidParams()
+    {
+        var server = new JsonRpcServer(CreateGameApi().Object);
+
+        var response = await ReflectionHelpers.InvokePrivateMethodAsync<JsonRpcResponse>(
+            server,
+            "HandlePrepareVideoChart",
+            new JsonRpcRequest { Id = 21, Method = "prepareVideoChart" });
+
+        Assert.Equal(JsonRpcErrorCodes.InvalidParams, response!.Error!.Code);
+        Assert.Equal("chartPath parameter is required", response.Error.Message);
+    }
+
+    [Fact]
+    public async Task HandlePrepareVideoChart_WithValidParams_ShouldReturnCommandResult()
+    {
+        var gameApi = CreateGameApi();
+        gameApi
+            .Setup(api => api.PrepareVideoChartAsync("/safe/chart.dtx"))
+            .ReturnsAsync(new PreparedChartCommandResult(false, "The requested chart preview file was not found."));
+        var server = new JsonRpcServer(gameApi.Object);
+        using var paramsDocument = JsonDocument.Parse("{\"chartPath\":\"/safe/chart.dtx\"}");
+
+        var response = await ReflectionHelpers.InvokePrivateMethodAsync<JsonRpcResponse>(
+            server,
+            "HandlePrepareVideoChart",
+            new JsonRpcRequest
+            {
+                Id = 22,
+                Method = "prepareVideoChart",
+                Params = paramsDocument.RootElement.Clone()
+            });
+
+        Assert.Null(response!.Error);
+        Assert.Contains("\"success\":false", JsonSerializer.Serialize(response.Result));
+        Assert.Contains("The requested chart preview file was not found.", JsonSerializer.Serialize(response.Result));
+        gameApi.Verify(api => api.PrepareVideoChartAsync("/safe/chart.dtx"), Times.Once);
+    }
+
+    [Theory]
+    [InlineData("startPreparedPreview")]
+    [InlineData("activatePreparedChart")]
+    [InlineData("cancelPreparedChart")]
+    public async Task RouteMethodCall_PreparedChartCommands_ShouldUseExplicitRoutes(string method)
+    {
+        var gameApi = CreateGameApi();
+        gameApi.Setup(api => api.StartPreparedPreviewAsync())
+            .ReturnsAsync(new PreparedChartCommandResult(true, null));
+        gameApi.Setup(api => api.ActivatePreparedChartAsync())
+            .ReturnsAsync(new PreparedChartCommandResult(true, null));
+        gameApi.Setup(api => api.CancelPreparedChartAsync())
+            .ReturnsAsync(new PreparedChartCommandResult(true, null));
+        var server = new JsonRpcServer(gameApi.Object);
+
+        var response = await ReflectionHelpers.InvokePrivateMethodAsync<JsonRpcResponse>(
+            server,
+            "RouteMethodCall",
+            new JsonRpcRequest { Id = 23, Method = method });
+
+        Assert.Null(response!.Error);
+        Assert.Contains("\"success\":true", JsonSerializer.Serialize(response.Result));
+        switch (method)
+        {
+            case "startPreparedPreview":
+                gameApi.Verify(api => api.StartPreparedPreviewAsync(), Times.Once);
+                break;
+            case "activatePreparedChart":
+                gameApi.Verify(api => api.ActivatePreparedChartAsync(), Times.Once);
+                break;
+            case "cancelPreparedChart":
+                gameApi.Verify(api => api.CancelPreparedChartAsync(), Times.Once);
+                break;
+        }
+    }
+
+    [Fact]
     public async Task RouteMethodCall_WhenMethodIsPing_ShouldReturnPong()
     {
         var server = new JsonRpcServer(CreateGameApi().Object);

@@ -138,6 +138,34 @@ public sealed class JsonRpcGameClient
         await SendAsync("changeStage", new { stageName }, cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task PrepareVideoChartAsync(string chartPath, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(chartPath);
+        var result = await SendAsync(
+            "prepareVideoChart",
+            new { chartPath },
+            cancellationToken).ConfigureAwait(false);
+        EnsurePreparedChartCommandSucceeded("prepareVideoChart", result);
+    }
+
+    public async Task StartPreparedPreviewAsync(CancellationToken cancellationToken = default)
+    {
+        var result = await SendAsync("startPreparedPreview", null, cancellationToken).ConfigureAwait(false);
+        EnsurePreparedChartCommandSucceeded("startPreparedPreview", result);
+    }
+
+    public async Task ActivatePreparedChartAsync(CancellationToken cancellationToken = default)
+    {
+        var result = await SendAsync("activatePreparedChart", null, cancellationToken).ConfigureAwait(false);
+        EnsurePreparedChartCommandSucceeded("activatePreparedChart", result);
+    }
+
+    public async Task CancelPreparedChartAsync(CancellationToken cancellationToken = default)
+    {
+        var result = await SendAsync("cancelPreparedChart", null, cancellationToken).ConfigureAwait(false);
+        EnsurePreparedChartCommandSucceeded("cancelPreparedChart", result);
+    }
+
     public async Task<string?> TakeScreenshotBase64Async(CancellationToken cancellationToken)
     {
         var result = await SendAsync("takeScreenshot", null, cancellationToken).ConfigureAwait(false);
@@ -163,6 +191,23 @@ public sealed class JsonRpcGameClient
             throw new InvalidOperationException(
                 $"sendInput type {(int)type} was not accepted by the game.");
         }
+    }
+
+    private static void EnsurePreparedChartCommandSucceeded(string method, JsonElement result)
+    {
+        if (result.TryGetProperty("success", out var success)
+            && success.ValueKind == JsonValueKind.True)
+        {
+            return;
+        }
+
+        var error = result.TryGetProperty("error", out var errorElement)
+            && errorElement.ValueKind == JsonValueKind.String
+            ? errorElement.GetString()
+            : null;
+
+        throw new InvalidOperationException(
+            error ?? $"JSON-RPC {method} command failed.");
     }
 
     private async Task SendReleaseOnCleanupPath(GameApiInputType type, object data)

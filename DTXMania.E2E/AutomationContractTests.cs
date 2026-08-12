@@ -169,6 +169,9 @@ public sealed class AutomationContractTests
             AudioPreparationTotal = 2,
             AudioPreparationCacheHits = 1,
             PreparedAudioBytes = 4096,
+            PreparedChartIdentity = "chart:510",
+            PreparedPreviewState = "Playing",
+            PreparedPreviewElapsedMs = 4321.5,
             AutoPlayEnabled = true,
             CurrentSongTimeMs = 1234.5,
             Score = 95000,
@@ -218,6 +221,9 @@ public sealed class AutomationContractTests
         Assert.Equal(2, state.AudioPreparationTotal);
         Assert.Equal(1, state.AudioPreparationCacheHits);
         Assert.Equal(4096L, state.PreparedAudioBytes);
+        Assert.Equal("chart:510", state.PreparedChartIdentity);
+        Assert.Equal("Playing", state.PreparedPreviewState);
+        Assert.Equal(4321.5, state.PreparedPreviewElapsedMs);
         Assert.True(state.AutoPlayEnabled);
         Assert.Equal(1234.5, state.CurrentSongTimeMs);
         Assert.Equal(95000, state.Score);

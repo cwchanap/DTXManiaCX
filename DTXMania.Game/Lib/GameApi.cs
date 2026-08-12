@@ -41,10 +41,35 @@ public interface IGameApi
     Task<bool> ChangeStageAsync(string stageName);
 
     /// <summary>
+    /// Prepares a chart preview on the Song Select update thread.
+    /// </summary>
+    Task<PreparedChartCommandResult> PrepareVideoChartAsync(string chartPath);
+
+    /// <summary>
+    /// Starts the prepared chart preview on the Song Select update thread.
+    /// </summary>
+    Task<PreparedChartCommandResult> StartPreparedPreviewAsync();
+
+    /// <summary>
+    /// Activates the prepared chart on the Song Select update thread.
+    /// </summary>
+    Task<PreparedChartCommandResult> ActivatePreparedChartAsync();
+
+    /// <summary>
+    /// Cancels the prepared chart preview on the Song Select update thread.
+    /// </summary>
+    Task<PreparedChartCommandResult> CancelPreparedChartAsync();
+
+    /// <summary>
     /// Check if game is running
     /// </summary>
     bool IsRunning { get; }
 }
+
+/// <summary>
+/// Result returned by an explicit prepared-chart command.
+/// </summary>
+public readonly record struct PreparedChartCommandResult(bool Success, string? Error);
 
 /// <summary>
 /// Represents the current state of the game
