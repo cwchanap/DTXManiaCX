@@ -58,3 +58,37 @@ After the minimal stage and telemetry implementation (and the final three lifecy
 - Verification ran on the macOS-safe .NET test project. Windows build and out-of-process E2E execution remain for the stacked branch's integration verification.
 - A successful real MonoGame `SoundEffectInstance` start cannot be fully unit-tested without an audio device because the underlying type is sealed; tests cover instance-creation failure, idempotent existing playback, cleanup, elapsed-state transitions, and the full normal-path state machine. Task 3/native E2E should provide the real-audio acceptance evidence.
 - The focused rebuild still surfaces the repository's existing 539 compiler/analyzer warnings; the clean no-build focused, regression, and full-suite evidence is warning-free, and no Task 2 warning was introduced.
+
+## Fix Round 1 — preserve ordinary preview ownership on no-op commands
+
+### What changed
+
+- Added `ClearPreparedPreviewStateIfOwned`, keyed by the non-null prepared selection identity. `CancelPreparedChart` now succeeds as an idempotent no-op when Song Select has only its ordinary primary-chart preview, and invalid `PrepareVideoChart` input no longer tears down that ordinary preview before validation.
+- Prepared replacement still uses the existing cleanup path when a prepared selection is actually owned. Deactivation and navigation retain their existing regular preview teardown behavior.
+
+### Tests
+
+- Updated `DTXMania.Test/Stage/SongSelectionStagePreparedChartLifecycleTests.cs` with focused tests proving cancel-without-preparation and invalid-prepare-without-preparation preserve the preview sound, instance, delay timer, fade state, and disposal/reference counts.
+- Changed production code only in `DTXMania.Game/Lib/Stage/SongSelectionStage.cs`; this report was appended as required.
+
+### TDD RED
+
+After adding the two tests before the production guard:
+
+`rtk dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~SongSelectionStagePreparedChartLifecycleTests" --no-restore -v:minimal`
+
+Result: **14 passed, 2 failed**. Both new tests observed `_previewSound` cleared (`Expected: Mock<ISound>.Object; Actual: null`), demonstrating the unconditional cleanup defect. The rebuild emitted **539 repository-pre-existing warnings**; no warning referenced the new tests or guard.
+
+### TDD GREEN
+
+After the ownership guard:
+
+`rtk dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~SongSelectionStagePreparedChartLifecycleTests" --no-build --no-restore -v:minimal`
+
+Result: **16 tests passed, 0 warnings**.
+
+`rtk dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~SongSelectionStage|FullyQualifiedName~SongListDisplay" --no-build --no-restore -v:minimal`
+
+Result: **668 tests passed, 0 warnings**.
+
+The only warning-bearing command was the required rebuild above; its 539 warnings match the pre-existing repository warning inventory from the Task 2 baseline and none point to this fix.

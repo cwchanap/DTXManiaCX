@@ -1532,7 +1532,7 @@ namespace DTXMania.Game.Lib.Stage
 
         internal (bool Success, string Error) PrepareVideoChart(string chartPath)
         {
-            ClearPreparedPreviewState();
+            ClearPreparedPreviewStateIfOwned();
 
             if (string.IsNullOrWhiteSpace(chartPath))
                 return PreparedFailure("A chart path is required.");
@@ -1616,7 +1616,7 @@ namespace DTXMania.Game.Lib.Stage
 
         internal (bool Success, string Error) CancelPreparedChart()
         {
-            ClearPreparedPreviewState();
+            ClearPreparedPreviewStateIfOwned();
             return PreparedSuccess();
         }
 
@@ -1660,6 +1660,14 @@ namespace DTXMania.Game.Lib.Stage
             _preparedChartSelection = null;
             _preparedPreviewState = PreparedPreviewState.None;
             _preparedPreviewElapsedMs = 0.0;
+        }
+
+        private void ClearPreparedPreviewStateIfOwned()
+        {
+            if (_preparedChartSelection == null)
+                return;
+
+            ClearPreparedPreviewState();
         }
 
         private static bool TryGetChartPreviewPath(SongChart chart, out string previewPath)

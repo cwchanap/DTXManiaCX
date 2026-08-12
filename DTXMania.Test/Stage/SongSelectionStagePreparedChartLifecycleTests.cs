@@ -230,6 +230,62 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
     }
 
     [Fact]
+    public void CancelPreparedChart_WhenNoPreparationPreservesInteractivePreview()
+    {
+        var stage = CreateStage();
+        var sound = new Mock<ISound>();
+        var instance = new Mock<ISoundInstance>();
+        instance.SetupGet(x => x.State).Returns(SoundState.Playing);
+        SetPrivateField(stage, "_previewSound", sound.Object);
+        SetPrivateField(stage, "_previewSoundInstance", instance.Object);
+        SetPrivateField(stage, "_previewPlayDelay", 1.5d);
+        SetPrivateField(stage, "_isPreviewDelayActive", true);
+        SetPrivateField(stage, "_isBgmFadingOut", true);
+        SetPrivateField(stage, "_isBgmFadingIn", false);
+
+        var result = InvokeCommand(stage, "CancelPreparedChart");
+
+        Assert.True(result.Success);
+        Assert.Same(sound.Object, GetPrivateField<ISound>(stage, "_previewSound"));
+        Assert.Same(instance.Object, GetPrivateField<ISoundInstance>(stage, "_previewSoundInstance"));
+        Assert.Equal(1.5d, GetPrivateField<double>(stage, "_previewPlayDelay"));
+        Assert.True(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
+        Assert.True(GetPrivateField<bool>(stage, "_isBgmFadingOut"));
+        Assert.False(GetPrivateField<bool>(stage, "_isBgmFadingIn"));
+        sound.Verify(x => x.RemoveReference(), Times.Never);
+        instance.Verify(x => x.Stop(), Times.Never);
+        instance.Verify(x => x.Dispose(), Times.Never);
+    }
+
+    [Fact]
+    public void PrepareVideoChart_WhenInvalidAndNoPreparationPreservesInteractivePreview()
+    {
+        var stage = CreateStage();
+        var sound = new Mock<ISound>();
+        var instance = new Mock<ISoundInstance>();
+        instance.SetupGet(x => x.State).Returns(SoundState.Playing);
+        SetPrivateField(stage, "_previewSound", sound.Object);
+        SetPrivateField(stage, "_previewSoundInstance", instance.Object);
+        SetPrivateField(stage, "_previewPlayDelay", 2.5d);
+        SetPrivateField(stage, "_isPreviewDelayActive", true);
+        SetPrivateField(stage, "_isBgmFadingOut", true);
+        SetPrivateField(stage, "_isBgmFadingIn", false);
+
+        var result = InvokeCommand(stage, "PrepareVideoChart", " ");
+
+        Assert.False(result.Success);
+        Assert.Same(sound.Object, GetPrivateField<ISound>(stage, "_previewSound"));
+        Assert.Same(instance.Object, GetPrivateField<ISoundInstance>(stage, "_previewSoundInstance"));
+        Assert.Equal(2.5d, GetPrivateField<double>(stage, "_previewPlayDelay"));
+        Assert.True(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
+        Assert.True(GetPrivateField<bool>(stage, "_isBgmFadingOut"));
+        Assert.False(GetPrivateField<bool>(stage, "_isBgmFadingIn"));
+        sound.Verify(x => x.RemoveReference(), Times.Never);
+        instance.Verify(x => x.Stop(), Times.Never);
+        instance.Verify(x => x.Dispose(), Times.Never);
+    }
+
+    [Fact]
     public void Deactivate_CleansPreparedPreviewExactlyOnceAcrossRepeatedCalls()
     {
         var stage = CreateStage();
