@@ -145,6 +145,7 @@ public static class E2EFixtureBuilder
             "#BPM: 120",
             "#DLEVEL: 10",
             $"#WAV01: {AudioFileName}",
+            $"#PREVIEW: {AudioFileName}",
             string.Empty,
             "; Short deterministic AutoPlay pattern with generated local audio.",
             "#00001: 0100000000000000",
