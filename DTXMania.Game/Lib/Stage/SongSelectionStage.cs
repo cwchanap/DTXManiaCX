@@ -1547,6 +1547,12 @@ namespace DTXMania.Game.Lib.Stage
             if (!File.Exists(previewPath))
                 return PreparedFailure("The requested chart preview file was not found.");
 
+            // The ordinary preview path is not owned by prepared state on a first prepare.
+            // Tear it down only after chart/path validation succeeds and before replacing its
+            // sound resource, so invalid commands preserve interactive preview ownership.
+            if (_previewSound != null || _previewSoundInstance != null)
+                StopCurrentPreview();
+
             // Project through the normal Song Select hierarchy before publishing prepared
             // state. The projection itself suppresses the intermediate selection events so
             // they cannot stop or replace this exact-chart preview.

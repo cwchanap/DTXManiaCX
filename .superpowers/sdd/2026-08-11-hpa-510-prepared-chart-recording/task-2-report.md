@@ -92,3 +92,41 @@ Result: **16 tests passed, 0 warnings**.
 Result: **668 tests passed, 0 warnings**.
 
 The only warning-bearing command was the required rebuild above; its 539 warnings match the pre-existing repository warning inventory from the Task 2 baseline and none point to this fix.
+
+## Fix Round 2 — stop ordinary preview before validated prepared replacement
+
+### What changed
+
+- Added a focused first-time prepare test that starts with an ordinary interactive preview sound and playing instance, then verifies the old instance is stopped/disposed exactly once, the old sound reference is released, and the newly prepared sound remains stopped in `Prepared` state.
+- After chart resolution, preview declaration/path validation, and file existence checks succeed, `PrepareVideoChart` now tears down any ordinary preview resource/instance before projection and `TryLoadPreviewSoundFile` can replace the sound. Invalid input still returns before teardown and preserves ordinary preview ownership.
+
+### Tests
+
+- Updated `DTXMania.Test/Stage/SongSelectionStagePreparedChartLifecycleTests.cs` with `PrepareVideoChart_WhenReplacingPlayingInteractivePreview_StopsOldInstanceBeforePublishingPrepared`.
+- Changed production code only in `DTXMania.Game/Lib/Stage/SongSelectionStage.cs`; this report was appended as required.
+
+### TDD RED
+
+After adding the valid first-prepare test before the ordering fix:
+
+`rtk dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~SongSelectionStagePreparedChartLifecycleTests" --no-restore -v:minimal`
+
+Result: **16 passed, 1 failed**. The new test observed zero calls to the ordinary instance's `Stop()` (`Expected invocation once ... x => x.Stop(); Performed invocations: none`), proving the first valid prepare left the prior preview playing. This rebuild printed **539 pre-existing warnings**; no warning referenced the new test or changed production lines.
+
+### TDD GREEN
+
+After moving ordinary-preview teardown after successful chart/path validation and before projection/sound replacement:
+
+`rtk dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~SongSelectionStagePreparedChartLifecycleTests" --no-restore -v:minimal`
+
+Result: **17 tests passed, 139 warnings**. The warning inventory is unchanged repository noise and contains no changed Task 2 lines: `CS8632=54`, `CS8625=52`, `EF1002=6`, `CS8603=9`, `CS8618=7`, `CS8602=8`, `CS8524=1`, `CS8601=1`, `CS8604=1` (139 total).
+
+Clean GREEN evidence:
+
+`rtk dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~SongSelectionStagePreparedChartLifecycleTests" --no-build --no-restore -v:minimal`
+
+Result: **17 tests passed, 0 warnings**.
+
+`rtk dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~SongSelectionStage|FullyQualifiedName~SongListDisplay" --no-build --no-restore -v:minimal`
+
+Result: **669 tests passed, 0 warnings**.
