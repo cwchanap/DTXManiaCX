@@ -2,72 +2,67 @@
 
 **Issue:** [HPA-503](https://linear.app/cwchanap/issue/HPA-503/build-the-windows-recorder-vertical-slice-and-produce-the-first-video)  
 **Date:** 2026-08-12  
-**Status:** Revised after planning review
+**Status:** Revised after second planning review
 
-## Why this is the next task
+## Context
 
-HPA-503 was blocked by HPA-501 and HPA-510. Both prerequisites are now complete:
+HPA-501 and HPA-510 are complete, so HPA-503 is the next unblocked Windows-first slice of the HPA-500 recording epic.
 
-- HPA-501 supplied the plain `net8.0` `DTXMania.Automation` process, JSON-RPC, polling, and telemetry foundation.
-- HPA-510 supplied exact-chart preparation, controlled preview playback, prepared-preview elapsed telemetry, normal Song Select activation, and screenshot render barriers.
-
-That makes the Windows recorder vertical slice the highest-priority unblocked child of the HPA-500 recording epic. HPA-513 depends on its first real recording. Apple Silicon work remains intentionally after the Windows proof.
-
-HPA-503 already absorbed the former sandbox and shared-OBS subtasks. Do not split those abstractions back out unless implementation evidence proves the combined slice cannot stay within roughly 2–3 engineer days.
-
-## Goal
-
-Deliver one local Windows command that launches CX from a disposable app-data sandbox and records this exact normal game journey for one indexed chart:
+The goal is one local command that records one exact indexed chart through the normal CX journey:
 
 ```text
-Title
--> normal GAME START input
--> Song Select
--> 10 seconds of chart preview
+Title -> GAME START -> Song Select
+-> 10 seconds of prepared preview
 -> Song Transition
 -> full AutoPlay Performance
 -> rendered Result
 -> 5-second Result hold
 ```
 
-OBS starts only after Song Select is prepared and rendered, so Title and the GAME START transition are setup work and are not part of the captured video.
+Only Song Select onward is captured. Title is traversed before OBS starts.
 
-The command must leave the user's normal CX app data and score database unchanged, stop only the OBS recording it started, terminate only the CX process it launched, publish a non-empty MP4, and retain useful sanitized diagnostics.
+HPA-503 already absorbed the former sandbox and shared-OBS subtasks. Keep the implementation to one small external executable rather than rebuilding those abstractions as frameworks.
+
+## Goals
+
+- Add one plain `net8.0` `DTXMania.VideoRecorder` executable plus tests.
+- Reference `DTXMania.Automation` as the only CX project dependency.
+- Preserve the user's presentation/song configuration without touching the user's live database.
+- Launch and own exactly one CX process.
+- Start/stop only the OBS recording owned by this run.
+- Drive the already-proven HPA-510 prepared-chart path through normal Title/Song Select behavior.
+- Publish one non-empty Hybrid MP4 plus compact sanitized diagnostics.
+- Produce one real Windows proof recording before broader hardening.
 
 ## Non-goals
 
 - Apple Silicon live capture.
-- A reusable capture framework or platform-adapter hierarchy.
-- A generic OBS client, source enumeration, scene creation, screenshots, volume meters, reconnect ownership recovery, or arbitrary request forwarding.
-- A second process/JSON-RPC abstraction beside `DTXMania.Automation`.
-- A new CX recording/session state machine.
-- Copying or snapshotting the user's live `songs.db`.
-- MKV fallback, remux, re-encoding, strict duration/FPS validation, YouTube upload, editing, overlays, or batch queues.
-- Automatic OBS source/audio acceptance. HPA-513 owns formal visual/audio acceptance and setup documentation.
-- A new generic stage-wait helper in Automation. Reuse `Eventually.UntilAsync` directly.
-- `ChangeStageAsync` for recorder navigation. The recorder enters Song Select through the normal Title GAME START input.
+- Batch recording or recorder-cache optimization.
+- A persistent recorder database/app-data lifecycle.
+- DI, a workflow engine, recorder session state machine, platform-adapter hierarchy, or generic process/media framework.
+- Generic OBS APIs, source/scene enumeration, source screenshots, volume meters, automatic scene creation, or capture-quality acceptance.
+- Copying the live `songs.db`, WAL files, caches, scores, or history.
+- MKV fallback, remux, re-encoding, codec/FPS/duration policy, editing, overlays, upload, or queueing.
+- Formal OBS visual/audio acceptance or reproducible setup documentation; HPA-513 owns that pass.
 
-## Considered approaches
+## Review decisions
 
-### A. One recorder executable with narrow internal components — chosen
+The second planning review found several useful corrections. The adopted decisions are:
 
-Add a plain `net8.0` `DTXMania.VideoRecorder` executable plus a plain test project. The executable references only `DTXMania.Automation`; sandbox, OBS, diagnostics, media checks, and the thin workflow-test adapter stay private to the recorder.
+1. **Wait for the Song Select library, not merely the stage.** `SongSelectionStage` becomes active while its library initializer is still running. `PrepareVideoChart` cannot resolve anything while `_appliedLibrarySnapshot` is null. Reuse the existing prepared-chart E2E readiness pattern before the one-shot prepare call.
+2. **Require a CX-normalized source config.** Game-written config paths are normalized before `SaveConfig`. Preserve `SkinPath=Default`; accept already-absolute filesystem paths; reject relative/legacy hand edits rather than partially reimplementing `AppPaths.ResolvePath`.
+3. **Make OBS protocol logic testable.** Split pure obs-websocket message/auth/response mapping into `ObsProtocol`; keep socket lifetime/request correlation in `ObsWebSocketRecorder` and prove that live path with `doctor` before implementing the full workflow.
+4. **Keep one owner for raw-path trust.** `IObsRecorder.StopRecordAsync` returns OBS's raw path. `RecordingArtifactVerifier` alone validates containment/existence/media before publishing.
+5. **Collapse operational knobs.** Use four recorder-owned timeout classes and one `run.json` plus CX stdout/stderr instead of many near-identical constants/artifacts.
+6. **State the manual OBS prerequisite explicitly.** `doctor` reminds the operator what must already be configured without attempting to inspect or repair scene/source setup.
 
-This keeps ownership obvious and matches the consolidated HPA-503 scope without creating architecture that only one consumer needs.
+Three suggestions are intentionally deferred/rejected for this slice:
 
-### B. Separate sandbox, OBS, media, and workflow libraries
+- **Persistent recorder app data:** useful for future bulk recording, but it conflicts with HPA-503's unique disposable-run contract and would retain recorder-generated AutoPlay score/history state between videos. Optimize after the first proof if cold enumeration is a demonstrated workflow problem.
+- **Post-start OBS scene screenshot:** this requires extra OBS scene/source APIs and image-quality heuristics. That is capture acceptance, which remains HPA-513 scope.
+- **FFMpegCore/MMTools in the recorder:** those dependencies currently belong to the game project. Pulling them into the external recorder would add runtime/package surface to replace a tiny optional `ffprobe` invocation even though HPA-503 explicitly makes probing conditional on availability.
 
-This gives stronger theoretical reuse, but HPA-503 currently has one consumer and the former sandbox/OBS tickets were intentionally merged into the vertical slice. Splitting them again would add project boundaries, public APIs, and coordination work before reuse is proven.
-
-Rejected for YAGNI.
-
-### C. Put recording orchestration in `DTXMania.E2E` or `DTXMania.Game`
-
-E2E already has similar disposable-fixture concepts, while the game owns configuration types. Reusing those assemblies directly would make the shipping tool depend on test code or MonoGame/game internals and would blur the external-tool boundary established by HPA-501.
-
-Rejected. Reuse behavior and conventions, not those assemblies.
-
-## Chosen architecture
+## Architecture
 
 ### 1. Project boundary
 
@@ -78,32 +73,34 @@ DTXMania.VideoRecorder/
 DTXMania.VideoRecorder.Tests/
 ```
 
-`DTXMania.VideoRecorder` targets plain `net8.0` and has one project reference:
+`DTXMania.VideoRecorder` targets plain `net8.0` and references only:
 
 ```text
 DTXMania.Automation
 ```
 
-It must not reference `DTXMania.Game`, `DTXMania.E2E`, or MCP.
+No `DTXMania.Game`, `DTXMania.E2E`, or MCP project reference.
 
-Do not add a DI container. `Program` constructs the few concrete collaborators directly and passes them to `RecordWorkflow`.
+Production implementation types remain internal. Expose internals only to the sibling test project:
 
-The executable exposes only:
+```csharp
+[assembly: InternalsVisibleTo("DTXMania.VideoRecorder.Tests")]
+```
+
+`Program` constructs the small set of concrete collaborators directly. No DI container.
+
+Commands:
 
 ```text
 dtx-video doctor
 dtx-video record --chart <absolute-dtx-path> --output <directory>
 ```
 
-A small hand-written parser is sufficient for two verbs and two required record options. Do not add a command-framework dependency for this MVP.
+A hand-written parser is sufficient.
 
-Recorder implementation types remain internal. Add one assembly-level `InternalsVisibleTo("DTXMania.VideoRecorder.Tests")` declaration so the sibling test project can exercise the narrow OBS/workflow/sandbox seams without making them public product API.
+### 2. Environment contract
 
-### 2. Environment configuration
-
-Keep secrets and machine-local OBS settings out of CLI arguments and diagnostics.
-
-Use a narrow environment seam:
+Machine-local OBS configuration stays outside CLI arguments:
 
 ```text
 DTXMANIA_VIDEO_OBS_URL
@@ -111,44 +108,48 @@ DTXMANIA_VIDEO_OBS_PASSWORD
 DTXMANIA_VIDEO_OBS_OUTPUT_DIR
 ```
 
-Defaults/requirements:
+Rules:
 
-- URL defaults to `ws://127.0.0.1:4455`.
-- Password may be blank only when the user's OBS WebSocket server is configured without authentication.
-- OBS output directory is required for `record`; it defines the trusted raw-artifact scope used by path verification.
+- URL defaults to `ws://127.0.0.1:4455` and must be loopback.
+- Password may be blank only when OBS WebSocket authentication is disabled.
+- OBS output directory is required for `record` and is the trusted raw-output scope.
+- `--output` is a separate published destination.
+- Never write the OBS password or generated CX API key to diagnostics.
 
-The requested `--output` directory is the recorder's published destination and is intentionally separate from the raw OBS output directory.
+### 3. Disposable app-data sandbox
 
-Never persist the OBS password or generated CX Game API key in diagnostics.
-
-### 3. Disposable CX app-data sandbox
-
-Each record invocation creates a unique temporary run root such as:
+Each `record` call creates a unique temporary root:
 
 ```text
 %TEMP%/DTXManiaCX-video/<run-id>/appdata
 ```
 
-Source app data comes from `DTXMANIA_APPDATA_ROOT` when explicitly set; otherwise use the Windows CX default under local application data.
+Source app data comes from `DTXMANIA_APPDATA_ROOT` when set; otherwise use the normal Windows local-app-data CX root.
 
-Require the source `Config.ini` to exist. Copy it into the sandbox, then patch the copy rather than constructing a second configuration model.
+Require a source `Config.ini`, copy only that file, and patch the copy.
 
-Path rewriting must preserve the live config contract. `ConfigManager.DefaultSkinPathToken` is the logical `Default` token and resolves at runtime to the bundled System skin; it is not a filesystem-relative path.
+#### Source-config contract
 
-Apply this exact rewrite policy before relocating the file:
+HPA-503 consumes a current CX-written config rather than becoming another compatibility parser.
 
-| Config value | Sandbox action |
-| --- | --- |
-| `SkinPath=Default` in any case | Leave the token unchanged. |
-| Absolute `SkinPath`, `SystemSkinRoot`, `DTXPath`, or `SongRoot.<n>` | Leave unchanged. |
-| Relative filesystem value for those path keys | Replace with `Path.GetFullPath(Path.Combine(sourceAppDataRoot, value))`. |
-| `LastUsedSkin` | Never rewrite. |
+Accept:
 
-This preserves the user's actual selected/bundled skin semantics while preventing genuinely relative filesystem paths from being reinterpreted against the temporary app-data root.
+- `SkinPath=Default` in any case; preserve the token unchanged.
+- fully-qualified `DTXPath`.
+- at least one fully-qualified `SongRoot.<n>`.
+- fully-qualified `SystemSkinRoot`.
+- a custom `SkinPath` only when it is fully qualified.
+- `LastUsedSkin` verbatim.
 
-Preserve all other existing configuration, including visible gameplay preferences such as scroll speed, play speed, pitch, volumes, and `LastUsedSkin`.
+Reject relative/legacy filesystem values or missing required normalized path keys with an actionable error such as:
 
-Patch only recording-owned values:
+```text
+Source Config.ini is not normalized. Open CX once and exit normally, then retry dtx-video.
+```
+
+Do not duplicate `~`, macOS `Library/...`, legacy `Songs`, or other `AppPaths.ResolvePath` compatibility behavior in the recorder.
+
+Patch only recorder-owned values:
 
 ```text
 EnableGameApi=True
@@ -161,265 +162,292 @@ ScreenHeight=720
 FullScreen=False
 ```
 
-Do not copy `songs.db`, WAL files, caches, crash reports, or score/history data. CX builds a fresh `songs.db` in the sandbox from the preserved song roots.
+Preserve all unrelated config lines and visible preferences.
 
-The INI patcher is an internal text utility, not a replacement configuration system. It only needs to replace/add the keys above while preserving unrelated lines. Follow the existing section-agnostic key behavior rather than requiring a specific section placement.
+Never copy `songs.db`, WAL files, caches, crash reports, or score/history data. The sandbox intentionally builds its own database for this first vertical slice.
 
-Cleanup policy:
+Cleanup:
 
-- success: delete the sandbox after diagnostics and published artifact are safely written;
-- failure/cancellation: retain the run root and record its path in diagnostics;
-- cleanup must be safe if called more than once.
+- success: delete the run root after publication/diagnostics are safely written;
+- failure/cancellation: retain it and record its path;
+- cleanup is idempotent.
 
-### 4. CX launch and control reuse
+### 4. CX process and library readiness
 
-Use `DTXMania.Automation.Process.GameProcessDriver` as the sole CX process owner.
+Use `GameProcessDriver` as the only CX process owner and `JsonRpcGameClient` for the existing API.
 
-For HPA-503 live execution:
+Keep the small repo-root/ephemeral-port policy local to the recorder; HPA-501 intentionally left that policy outside Automation.
 
-- require Windows;
-- resolve the repository root and `GameProjectPaths.Windows` locally in the recorder; do not move E2E-specific repository/port policy into Automation;
-- launch the Windows game project through `GameProcessDriver` with the sandbox app-data root, per-run launch token, and repository working directory;
-- create `JsonRpcGameClient` with the sandbox API URL/key;
-- set its `HttpClient.Timeout` to `Timeout.InfiniteTimeSpan` so the E2E harness's five-second transport timeout is not inherited by a real cold library/preview load;
-- bound every workflow operation with recorder-owned cancellation/time limits instead;
-- use `WaitForStartupAsync` for bounded launch identity/readiness;
-- use `Eventually.UntilAsync` plus `GetGameStateAsync` for stage/telemetry waits;
-- use the existing HPA-510 `PrepareVideoChartAsync`, `StartPreparedPreviewAsync`, `ActivatePreparedChartAsync`, screenshot, and telemetry methods directly;
-- let `GameProcessDriver.DisposeAsync` own process-tree termination and stdout/stderr capture.
+Construct the recorder `HttpClient` with:
 
-Do not add executable/RID inference, publish discovery, `WaitForStageAsync` to Automation, or a second process wrapper in this ticket.
-
-### 5. Minimal OBS seam
-
-Define one recorder-facing interface:
-
-```text
-IObsRecorder
-- ConnectAsync
-- GetRecordStatusAsync
-- StartRecordAsync
-- StopRecordAsync -> raw output path
+```csharp
+Timeout = Timeout.InfiniteTimeSpan
 ```
 
-The production implementation uses only built-in `ClientWebSocket` and `System.Text.Json` and implements the minimum obs-websocket 5.x handshake/authentication plus the requests required by these four operations.
+Workflow cancellation/timeouts, not `HttpClient.Timeout`, own the bound.
 
-Required ownership rules:
-
-- connect only to the configured loopback endpoint for MVP;
-- reject the workflow if OBS is already recording before this run starts;
-- after `StartRecordAsync`, confirm OBS reports recording active;
-- set local ownership only after this run successfully starts recording;
-- `StopRecordAsync` is legal only when this instance owns the recording;
-- after stop, return the raw OBS output path;
-- validate the returned raw path is fully qualified and inside `DTXMANIA_VIDEO_OBS_OUTPUT_DIR` before publishing it.
-
-No fake WebSocket server is required for tests. Keep protocol parsing/authentication/request-response correlation as small pure/internal units where useful, and test those units directly.
-
-The first real obs-websocket handshake is a Task-2 completion gate: after implementing `doctor`, run it manually against the dedicated Windows OBS profile before building `RecordWorkflow`. Do not defer authentication/Identify/path verification until the full recording proof, and do not add live OBS CI.
-
-### 6. One imperative `RecordWorkflow`
-
-`RecordWorkflow` is the sole orchestration owner. Do not introduce a generic workflow engine or capture state machine.
-
-Track only a diagnostic step enum:
+Startup prefix:
 
 ```text
-Starting
-PreparingChart
-StartingRecording
-Previewing
-Playing
-ShowingResult
-StoppingRecording
-Completed
+GameProcessDriver.Start
+-> WaitForStartupAsync
+-> poll StageType == Title
+-> SendKeyAsync("Enter", 50ms)
+-> poll StageType == SongSelect AND SelectedSongTitle is non-empty
+-> PrepareVideoChartAsync once
 ```
 
-Required sequence:
+The non-empty selected song is the existing live-smoke proxy that the applied library has been projected. It avoids retrying an RPC whose "chart not available" error is also the correct permanent error for an unindexed chart.
 
-1. Validate the absolute chart path, output directory, Windows platform, source config, and OBS configuration.
-2. Create and patch the disposable app-data sandbox.
-3. Launch the owned CX Windows process through Automation.
-4. Call `WaitForStartupAsync` with a cold-start-sized timeout.
-5. Poll until `StageType == "Title"`.
-6. Call `SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), ...)` once to choose the normal default GAME START item.
-7. Poll until `StageType == "SongSelect"`.
-8. Call `PrepareVideoChartAsync` for the exact chart path.
-9. Call `TakeScreenshotBase64Async` and require non-empty image data as the Song Select render barrier.
-10. Connect to OBS and reject an already-active recording.
-11. Start OBS and confirm active status.
-12. Call `StartPreparedPreviewAsync`.
-13. Poll until `PreparedPreviewState == "Playing"` and `PreparedPreviewElapsedMs >= 10_000`.
-14. Call `ActivatePreparedChartAsync`.
-15. Observe `SongTransition -> Performance -> Result` in that order with bounded waits.
-16. During Performance require `PerformanceReady`, `AutoPlayEnabled`, and `TotalNotes > 0`.
-17. At Result require complete judgements (`TotalJudgements == TotalNotes`), `StageCompleted`, `ClearFlag`, and `CompletionReason == "SongComplete"`.
-18. Call `TakeScreenshotBase64Async` again as the rendered Result barrier.
-19. Hold Result for five seconds without sending input.
-20. Stop the OBS recording owned by this run and capture its raw path.
-21. Verify/publish the artifact.
-22. Write final diagnostics, terminate the owned CX process, and apply sandbox cleanup policy.
+Do not add library-ready telemetry or a new Automation stage-wait API for this ticket.
 
-The Title `Enter` is intentional normal menu activation, not synthetic Song Select navigation. Keep the ban on `ChangeStageAsync` and do not send input after entering Song Select.
+### 5. Narrow OBS client
 
-### 7. Timeout ownership
+Keep the recorder-facing seam at exactly four operations:
 
-Do not copy E2E fixture timeout literals. The recorder launches against the user's active song roots while its sandbox has no `songs.db`, so first-run discovery can legitimately take minutes. Preview loading can also execute through the game-thread command path.
+```csharp
+internal interface IObsRecorder : IAsyncDisposable
+{
+    Task ConnectAsync(CancellationToken cancellationToken);
+    Task<ObsRecordStatus> GetRecordStatusAsync(CancellationToken cancellationToken);
+    Task StartRecordAsync(CancellationToken cancellationToken);
+    Task<string> StopRecordAsync(CancellationToken cancellationToken);
+}
+```
 
-Keep timeout policy as named internal recorder constants, not new CLI/environment settings:
+Split implementation responsibilities:
 
 ```text
-StartupTimeout = 5 minutes
-TitleTimeout = 5 minutes
-SongSelectTimeout = 2 minutes
-PrepareChartTimeout = 5 minutes
-PreviewTimeout = 2 minutes
-SongTransitionTimeout = 30 seconds
-PerformanceReadyTimeout = 2 minutes
-PerformanceCompletionTimeout = 20 minutes
-ResultTimeout = 1 minute
-ObsOperationTimeout = 15 seconds
-CleanupTimeout = 15 seconds
+ObsProtocol
+- compute auth response
+- build/parse the small v5 messages used by the recorder
+- map GetRecordStatus / StartRecord / StopRecord responses
+- require a stop output path
+
+ObsWebSocketRecorder
+- ClientWebSocket lifetime
+- Hello -> Identify handshake
+- request IDs
+- one-outstanding-request correlation
+- the four IObsRecorder operations
 ```
 
-`HttpClient.Timeout` remains infinite; the workflow supplies cancellation tokens derived from the applicable named limit.
+`ObsProtocol` is pure/internal and directly unit tested. Do not build a fake WebSocket server.
 
-The only intentionally exact product-duration waits remain:
+The live socket/correlation path is proven by running `dtx-video doctor` against the dedicated Windows OBS profile before `RecordWorkflow` is considered ready for full proof.
 
-- CX-reported prepared preview playback of at least 10 seconds;
-- Result wall-clock hold of exactly five seconds with no input.
+Ownership:
 
-The chosen Windows proof chart must have a duration comfortably below `PerformanceCompletionTimeout`; use a short chart for HPA-503 rather than turning timeout configurability into product scope.
+- fail if OBS is already recording;
+- acquire local ownership only after StartRecord succeeds and active status is confirmed;
+- stop only when this run owns the recording;
+- `StopRecordAsync` returns OBS's raw path without deciding whether that path is trusted.
 
-Use .NET 8 `TimeProvider` only if a suitable fake is already available without adding a package. Otherwise use one tiny internal delay seam local to `RecordWorkflow`; do not add `TimeProvider.Testing` or a clock framework solely for this task.
+### 6. RecordWorkflow
 
-### 8. Failure and cleanup behavior
+`RecordWorkflow` is the sole orchestrator. A small `RecordingStep` enum is diagnostic metadata only.
 
-Run the whole owned-resource lifetime through one `try/finally` cleanup path, including Ctrl+C cancellation.
-
-Cleanup order is conservative:
-
-1. if this run owns an active OBS recording, attempt bounded stop and retain any returned raw path;
-2. terminate/dispose the owned CX process;
-3. write final diagnostics with the cleanup outcome;
-4. delete the sandbox only on success.
-
-Cleanup exceptions must be recorded without hiding the primary failure. Calling cleanup again must not restart/stall OBS or throw because CX already exited.
-
-Never stop a recording that was active before this run.
-
-### 9. Diagnostics
-
-Create a compact diagnostics directory under the requested published output, for example:
+Sequence:
 
 ```text
-<output>/diagnostics/<run-id>/
+validate inputs/environment/source config
+-> create disposable sandbox
+-> launch owned CX
+-> startup -> Title -> Enter -> populated SongSelect
+-> PrepareVideoChartAsync
+-> CX screenshot barrier
+-> OBS connect/status; reject pre-existing recording
+-> OBS start; acquire ownership
+-> StartPreparedPreviewAsync
+-> wait PreparedPreviewState == Playing
+   and PreparedPreviewElapsedMs >= 10_000
+-> ActivatePreparedChartAsync
+-> observe SongTransition
+-> PerformanceReady + AutoPlayEnabled + TotalNotes > 0
+-> wait Result with complete successful telemetry
+-> Result CX screenshot barrier
+-> 5-second no-input hold
+-> stop owned OBS recording
+-> verify and copy-publish raw artifact
+-> final diagnostics and cleanup
 ```
 
-Retain:
+Result requires:
 
-- sanitized invocation/job summary;
-- `RecordingStep` timeline with timestamps;
-- selected CX telemetry snapshots at major boundaries/failure;
-- CX stdout/stderr;
-- OBS connect/start/stop status without credentials;
-- raw and published artifact paths;
-- failure classification, message, and last completed step;
+```text
+StageType == Result
+StageCompleted == true
+ClearFlag == true
+CompletionReason == SongComplete
+TotalNotes > 0
+TotalJudgements == TotalNotes
+```
+
+Do not use `ChangeStageAsync`.
+
+### 7. Timeout policy
+
+Keep only four meaningful recorder-owned bounds:
+
+```text
+SetupTimeout = 5 minutes
+StageTimeout = 2 minutes
+PerformanceTimeout = 20 minutes
+ExternalIoTimeout = 15 seconds
+```
+
+Use them as follows:
+
+- `SetupTimeout`: startup, Title, populated Song Select, prepare.
+- `StageTimeout`: prepared-preview gate, SongTransition, Performance-ready, Result post-completion gates.
+- `PerformanceTimeout`: Performance -> completed Result journey; proof chart must be comfortably shorter.
+- `ExternalIoTimeout`: OBS operations, `ffprobe`, and bounded cleanup.
+
+The exact product waits remain:
+
+- CX-reported prepared preview elapsed >= 10 seconds;
+- Result wall-clock hold of exactly 5 seconds.
+
+Use a tiny internal delay seam for the 5-second hold if needed by tests; do not add a clock/testing package solely for this task.
+
+### 8. Diagnostics
+
+Write only:
+
+```text
+<output>/diagnostics/<run-id>/run.json
+<output>/diagnostics/<run-id>/cx-stdout.log
+<output>/diagnostics/<run-id>/cx-stderr.log
+```
+
+`run.json` owns:
+
+- sanitized command/run summary;
+- step timeline;
+- selected telemetry snapshots;
+- OBS connect/start/stop outcomes;
+- raw/published paths;
+- verifier warning/result;
+- failure classification/message and last completed step;
 - retained sandbox path on failure.
 
-Do not dump the copied `Config.ini` because it contains the per-run API key and may contain other user-specific settings. If configuration evidence is needed, write only an allowlisted summary of non-secret fields used by the run.
+Do not copy sandbox `Config.ini`.
 
-### 10. Basic media verification and publishing
+Use one focused test proving known OBS/API secrets are absent from `run.json` and recorder-owned error text. Do not build a broad redaction subsystem.
 
-MVP verification is deliberately shallow:
+### 9. Artifact verification and publishing
 
-1. raw path is inside the configured OBS output directory;
-2. file exists;
-3. file length is greater than zero;
-4. when `ffprobe` is available on `PATH`, require at least one readable video stream and one audio stream;
-5. when `ffprobe` is unavailable, record a diagnostic warning and continue because the Linear contract explicitly makes probing conditional on availability.
+`RecordingArtifactVerifier` is the single owner of raw-artifact trust:
 
-Do not parse codecs, frame rates, duration tolerances, or remux.
+1. returned path is fully qualified;
+2. path is inside configured `DTXMANIA_VIDEO_OBS_OUTPUT_DIR` using Windows path semantics;
+3. file exists and is non-empty;
+4. if `ffprobe` is on `PATH`, invoke it with a local `ProcessStartInfo` and require at least one readable video stream and one audio stream;
+5. if `ffprobe` is unavailable, record a warning and continue;
+6. copy the raw file into `--output` without deleting the raw file;
+7. fail on destination collision rather than overwrite.
 
-Publish by copying the raw file into `--output` without deleting the OBS raw artifact. Preserve the OBS file name; fail clearly rather than silently overwrite an existing destination.
+Do not duplicate containment checks in `ObsWebSocketRecorder`.
 
-### 11. `doctor`
+Do not add FFMpegCore/MMTools packages to the recorder in HPA-503.
 
-`doctor` is a read-only preflight for the same narrow dependencies:
+### 10. `doctor` and manual OBS prerequisite
+
+`doctor` is read-only. It checks/reports:
 
 - Windows platform;
-- repository root and Windows game project exist;
-- source CX `Config.ini` exists;
-- OBS URL/output directory configuration is valid;
-- OBS WebSocket connection/authentication succeeds;
-- current OBS record status can be read;
-- report whether OBS is already recording;
-- report whether `ffprobe` is available.
+- repo root and Windows game project;
+- normalized source `Config.ini` contract;
+- loopback OBS URL and configured output directory;
+- OBS authentication and current record status;
+- `ffprobe` availability.
 
-Also print an informational note that `record` uses a fresh sandbox database and the first run may spend several minutes rebuilding the active song library before reaching Song Select. `doctor` does not attempt that import itself.
+It also prints the HPA-503 prerequisite that the operator must already have selected/configured a dedicated OBS profile/collection/scene with:
 
-`doctor` does not create a sandbox, mutate OBS, launch CX, inspect OBS sources/scenes, or validate capture/audio quality.
+```text
+- CX window/program capture
+- CX application audio
+- Hybrid MP4 recording
+- WebSocket enabled
+- output directory matching DTXMANIA_VIDEO_OBS_OUTPUT_DIR
+```
 
-## Testing strategy
+`doctor` does not enumerate/inspect those OBS sources or judge visual/audio quality. HPA-513 documents and formally accepts that configuration.
 
-Create plain `net8.0` `DTXMania.VideoRecorder.Tests`, mirroring the dependency-light Automation tests. Internal production types are visible to this test assembly only through `InternalsVisibleTo`.
+It should also note that HPA-503 intentionally uses a fresh sandbox database, so first-run library enumeration can take several minutes.
 
-Focus on behavior that can run without MonoGame or OBS.
+## Testing
 
-### Sandbox/config tests
+### Sandbox/config
 
-- `SkinPath=Default` survives unchanged, including case-insensitive token recognition;
-- relative filesystem song/skin paths become absolute against source app data;
-- already-absolute path values remain unchanged;
-- indexed `SongRoot.N` values are preserved;
-- `LastUsedSkin` is never rewritten;
-- visible preferences remain unchanged;
-- only recording-owned keys are overridden;
-- live `songs.db` is never copied;
-- generated API key is not exposed through diagnostics;
-- success deletes sandbox; failure retains it.
+- `SkinPath=Default` survives unchanged, case-insensitively.
+- absolute path settings survive unchanged.
+- relative/legacy path values fail with the normalize-config instruction.
+- missing required normalized song/system path data fails clearly.
+- unrelated visible preferences and `LastUsedSkin` survive.
+- only recorder-owned keys are overridden.
+- live DB/WAL/cache/crash data is never copied.
+- success deletes the run root; failure retains it.
 
-### OBS unit tests
+### OBS
 
-- authentication calculation/handshake parsing where applicable;
-- record-status response mapping;
-- start/stop success and failure response mapping;
-- raw output path outside configured OBS output directory is rejected;
-- no general fake obs-websocket server.
+Unit test `ObsProtocol` directly for:
 
-### Workflow tests
+- authenticated/unauthenticated handshake data;
+- record-status mapping;
+- start/stop failure mapping;
+- missing stop output path;
+- malformed/unsupported responses;
+- no secret formatting.
 
-Use fake `IObsRecorder`, fake/controlled delay, and a narrow fake `IGameRecordingControl` around the already-tested Automation behavior. Cover:
+No fake WebSocket server. The Task-2 `doctor` run proves live Hello/Identify/request correlation.
 
-- happy sequence and exact ordering, including `WaitForStartup -> Title -> Enter(50ms) -> SongSelect` before preparation;
-- no `ChangeStageAsync` path;
-- OBS already recording;
-- OBS start/stop failure;
-- cold startup/prepare/preview/Performance/Result timeout classification using named limits;
+### Workflow
+
+Use fake `IGameRecordingControl`, fake `IObsRecorder`, and controlled delay. Cover:
+
+- exact Title -> Enter -> populated Song Select -> prepare ordering;
+- OBS already active;
+- start/stop failure and ownership;
+- preview/stage/performance timeout classes;
 - unexpected stage order;
-- AutoPlay disabled;
-- zero notes, incomplete judgements, or unsuccessful completion;
-- cancellation during preview, gameplay, and Result hold;
-- cleanup ownership and idempotency;
-- secret redaction;
-- missing/empty raw output.
+- AutoPlay disabled, zero notes, incomplete judgements, unsuccessful completion;
+- cancellation during preview/gameplay/Result hold;
+- idempotent cleanup.
 
 Do not duplicate Automation transport/process tests.
 
-### CI and live proof
+### Diagnostics/media
 
-Run `DTXMania.VideoRecorder.Tests` on both Windows and macOS CI because the project is platform-neutral even though live recording is Windows-only. Do not add live OBS CI.
+- one secret-absence test;
+- path containment belongs only to verifier;
+- missing/empty raw artifact;
+- optional ffprobe video/audio result;
+- collision fails closed;
+- copy preserves raw artifact.
 
-Live validation is intentionally split:
+### CI and proof
 
-1. At the end of OBS Task 2, manually run `dtx-video doctor` against the dedicated Windows OBS profile and prove connection/authentication/status/output-directory handling before the workflow exists.
-2. Before completing HPA-503, manually run one full Windows `record` command against a short indexed chart and retain the initial MP4 plus sanitized diagnostics.
+Run the plain recorder tests on Windows and macOS CI. Do not add live OBS CI.
 
-That full proof establishes the vertical slice. HPA-513 remains responsible for formal visual/audio acceptance and reproducible OBS setup documentation.
+Before HPA-503 completes:
 
-## Expected file shape
+1. run `doctor` against the dedicated Windows OBS profile;
+2. run one short indexed chart with a valid preview;
+3. retain published MP4, raw MP4, and diagnostics;
+4. manually open the MP4 only to confirm the proof is plausibly the intended capture;
+5. confirm the source CX app data/database were untouched.
 
-Keep the implementation small and responsibility-oriented. Exact names may adjust to repository conventions, but the intended ownership is:
+HPA-513 performs the formal visual/audio/setup acceptance pass next.
+
+## Risks
+
+- **Cold library cost:** every HPA-503 run intentionally uses a fresh DB and may re-enumerate the active library. This is accepted for the first proof; persistent recorder caching is a later optimization if usage proves it worthwhile.
+- **Manual OBS misconfiguration:** the narrow four-op client cannot detect a wrong capture/audio source, so a black/silent file can pass structural checks. The HPA-503 proof includes a manual open; HPA-513 owns systematic acceptance/setup documentation.
+- **Source config not normalized:** legacy/hand-edited relative paths are rejected rather than guessed. Running CX once normalizes the supported source configuration.
+- **Very long charts:** the proof chart must fit comfortably inside the fixed Performance timeout. Timeout customization is deferred until a real use case needs it.
+
+## Expected implementation shape
 
 ```text
 DTXMania.VideoRecorder/
@@ -430,6 +458,7 @@ DTXMania.VideoRecorder/
   Configuration/RecorderEnvironment.cs
   Sandbox/RecordingSandbox.cs
   Obs/IObsRecorder.cs
+  Obs/ObsProtocol.cs
   Obs/ObsWebSocketRecorder.cs
   Workflow/IGameRecordingControl.cs
   Workflow/AutomationGameRecordingControl.cs
@@ -441,38 +470,25 @@ DTXMania.VideoRecorder/
 DTXMania.VideoRecorder.Tests/
   DTXMania.VideoRecorder.Tests.csproj
   Sandbox/RecordingSandboxTests.cs
-  Obs/ObsWebSocketRecorderTests.cs
+  Obs/ObsProtocolTests.cs
   Workflow/RecordWorkflowTests.cs
   Diagnostics/RecorderDiagnosticsTests.cs
   Media/RecordingArtifactVerifierTests.cs
 ```
 
-Do not create repositories, factories, managers, registries, platform adapters, or generic protocol/process frameworks around these files.
-
-## Implementation sizing
-
-This remains one implementation PR:
-
-1. recorder project, CLI/environment, token-safe disposable config sandbox, and test visibility;
-2. narrow OBS client plus a real `doctor` handshake completion gate;
-3. normal Title -> Song Select setup plus imperative recording workflow, diagnostics, media verification, bounded timeouts, and cleanup;
-4. portable CI coverage and one full Windows proof run.
-
-Target: roughly 2–3 engineer days. If implementation evidence shows the live OBS protocol work alone exceeds that budget, split only the live protocol portion while keeping its four-operation interface unchanged; do not pre-emptively decompose the task.
+No repositories, managers, registries, platform adapters, or general capture/protocol frameworks.
 
 ## Acceptance mapping
 
-HPA-503 is complete when all of the following are demonstrated:
+HPA-503 is complete when one Windows command demonstrates the required journey while:
 
-- one Windows command launches through Title, enters Song Select through normal GAME START input, and records the exact prepared-chart journey from rendered Song Select onward;
-- the user's normal CX app-data root and score database are untouched;
-- `SkinPath=Default` retains bundled-default semantics inside the sandbox;
-- recorder-owned overrides exist only in disposable app data;
-- cold-library and long gameplay operations are bounded by recorder-owned minute-scale limits rather than E2E's five-second HTTP timeout;
-- the run never stops a pre-existing OBS recording;
-- the owned CX process is always terminated;
-- a non-empty Hybrid MP4 is preserved raw and published to the requested directory;
-- optional `ffprobe` validation proves video+audio streams when the tool is available;
-- sanitized diagnostics identify the last completed step and retain useful failure evidence;
-- the real OBS handshake is proven via `doctor` before the full workflow proof;
-- the design remains a small external-tool layer on `DTXMania.Automation`, ready for later macOS reuse without introducing a platform framework now.
+- using a unique disposable app-data root and never copying/touching the live DB;
+- entering Song Select through normal Title GAME START and waiting for the library before prepare;
+- preserving `SkinPath=Default` and requiring normalized absolute filesystem config paths;
+- starting/stopping only its owned OBS recording;
+- terminating only its owned CX process;
+- preserving raw output and publishing a non-empty MP4;
+- structurally validating video/audio with `ffprobe` when available;
+- writing compact secret-free diagnostics;
+- passing recorder tests on both OS CI jobs;
+- retaining one Windows proof for HPA-513.
