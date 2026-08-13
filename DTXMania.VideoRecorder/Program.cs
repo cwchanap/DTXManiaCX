@@ -80,26 +80,29 @@ internal static class Program
                 var recordingGame = game ?? throw new InvalidOperationException(
                     "Recorder game control was not initialized.");
                 var artifact = await RecordFinalization.CompleteAsync(
-                        token => verifier.VerifyAndPublishAsync(
-                            rawOutputPath,
-                            environment.ObsOutputDirectory,
-                            command.OutputDirectory!,
-                            token),
-                        cancellation.Token,
-                        verifiedArtifact =>
+                        new FinalizationCallbacks
                         {
-                            diagnostics.SetRawOutputPath(verifiedArtifact.RawPath);
-                            diagnostics.SetPublishedPath(verifiedArtifact.PublishedPath);
-                            diagnostics.SetVerifierWarning(verifiedArtifact.Warning);
-                            diagnostics.RecordStep("ArtifactVerified");
-                            diagnostics.RecordStep("Completed");
+                            VerifyAndPublish = token => verifier.VerifyAndPublishAsync(
+                                rawOutputPath,
+                                environment.ObsOutputDirectory,
+                                command.OutputDirectory!,
+                                token),
+                            RecordArtifact = verifiedArtifact =>
+                            {
+                                diagnostics.SetRawOutputPath(verifiedArtifact.RawPath);
+                                diagnostics.SetPublishedPath(verifiedArtifact.PublishedPath);
+                                diagnostics.SetVerifierWarning(verifiedArtifact.Warning);
+                                diagnostics.RecordStep("ArtifactVerified");
+                                diagnostics.RecordStep("Completed");
+                            },
+                            MarkCompleted = diagnostics.MarkCompleted,
+                            WriteDiagnostics = () => diagnostics.WriteAsync(
+                                recordingGame.StandardOutput,
+                                recordingGame.StandardError,
+                                CancellationToken.None),
+                            DeleteSandbox = sandbox.DeleteOnSuccessAsync
                         },
-                        diagnostics.MarkCompleted,
-                        () => diagnostics.WriteAsync(
-                            recordingGame.StandardOutput,
-                            recordingGame.StandardError,
-                            CancellationToken.None),
-                        sandbox.DeleteOnSuccessAsync)
+                        cancellation.Token)
                     .ConfigureAwait(false);
                 Console.WriteLine($"OBS raw output: '{artifact.RawPath}'.");
                 Console.WriteLine($"Published output: '{artifact.PublishedPath}'.");

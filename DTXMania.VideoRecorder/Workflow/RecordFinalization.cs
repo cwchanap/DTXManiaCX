@@ -10,27 +10,38 @@ namespace DTXMania.VideoRecorder.Workflow;
 internal static class RecordFinalization
 {
     internal static async Task<RecordingArtifactVerification> CompleteAsync(
-        Func<CancellationToken, Task<RecordingArtifactVerification>> verifyAndPublish,
-        CancellationToken cancellationToken,
-        Action<RecordingArtifactVerification> recordArtifact,
-        Action markCompleted,
-        Func<Task> writeDiagnostics,
-        Func<Task> deleteSandbox)
+        FinalizationCallbacks callbacks,
+        CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(verifyAndPublish);
-        ArgumentNullException.ThrowIfNull(recordArtifact);
-        ArgumentNullException.ThrowIfNull(markCompleted);
-        ArgumentNullException.ThrowIfNull(writeDiagnostics);
-        ArgumentNullException.ThrowIfNull(deleteSandbox);
+        ArgumentNullException.ThrowIfNull(callbacks);
+        ArgumentNullException.ThrowIfNull(callbacks.VerifyAndPublish);
+        ArgumentNullException.ThrowIfNull(callbacks.RecordArtifact);
+        ArgumentNullException.ThrowIfNull(callbacks.MarkCompleted);
+        ArgumentNullException.ThrowIfNull(callbacks.WriteDiagnostics);
+        ArgumentNullException.ThrowIfNull(callbacks.DeleteSandbox);
 
-        var artifact = await verifyAndPublish(cancellationToken).ConfigureAwait(false);
+        var artifact = await callbacks.VerifyAndPublish(cancellationToken).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
 
-        recordArtifact(artifact);
+        callbacks.RecordArtifact(artifact);
         cancellationToken.ThrowIfCancellationRequested();
-        markCompleted();
-        await writeDiagnostics().ConfigureAwait(false);
-        await deleteSandbox().ConfigureAwait(false);
+        callbacks.MarkCompleted();
+        await callbacks.WriteDiagnostics().ConfigureAwait(false);
+        await callbacks.DeleteSandbox().ConfigureAwait(false);
         return artifact;
     }
+}
+
+/// <summary>
+/// The finalization callbacks invoked by <see cref="RecordFinalization.CompleteAsync"/>
+/// in a fixed order: verifyAndPublish -> recordArtifact -> markCompleted ->
+/// writeDiagnostics -> deleteSandbox.
+/// </summary>
+internal sealed record FinalizationCallbacks
+{
+    public required Func<CancellationToken, Task<RecordingArtifactVerification>> VerifyAndPublish { get; init; }
+    public required Action<RecordingArtifactVerification> RecordArtifact { get; init; }
+    public required Action MarkCompleted { get; init; }
+    public required Func<Task> WriteDiagnostics { get; init; }
+    public required Func<Task> DeleteSandbox { get; init; }
 }

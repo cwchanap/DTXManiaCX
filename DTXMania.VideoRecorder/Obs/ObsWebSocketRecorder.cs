@@ -7,7 +7,6 @@ namespace DTXMania.VideoRecorder.Obs;
 
 internal sealed class ObsWebSocketRecorder : IObsRecorder
 {
-    private const int EventOpCode = 5;
     private static readonly TimeSpan StartConfirmationCompensationTimeout =
         TimeSpan.FromSeconds(15);
 
@@ -17,7 +16,7 @@ internal sealed class ObsWebSocketRecorder : IObsRecorder
     private readonly SemaphoreSlim _requestGate = new(1, 1);
     private ClientWebSocket? _socket;
     private int _nextRequestId;
-    private bool _disposed;
+    private int _disposed;
 
     internal ObsWebSocketRecorder(Uri url, string password)
     {
@@ -45,7 +44,7 @@ internal sealed class ObsWebSocketRecorder : IObsRecorder
 
                 var hello = await ReceiveUntilAsync(
                     socket,
-                    expectedOpCode: 0,
+                    expectedOpCode: ObsProtocol.HelloOpCode,
                     expectedKind: "Hello",
                     token).ConfigureAwait(false);
                 var helloDetails = ObsProtocol.ParseHello(hello);
@@ -57,7 +56,7 @@ internal sealed class ObsWebSocketRecorder : IObsRecorder
                 await SendTextAsync(socket, identify, token).ConfigureAwait(false);
                 var identified = await ReceiveUntilAsync(
                     socket,
-                    expectedOpCode: 2,
+                    expectedOpCode: ObsProtocol.IdentifiedOpCode,
                     expectedKind: "Identified",
                     token).ConfigureAwait(false);
                 ObsProtocol.EnsureIdentified(identified);
@@ -135,18 +134,50 @@ internal sealed class ObsWebSocketRecorder : IObsRecorder
         ObsProtocol.EnsureRequestSucceeded(response, "StopRecord");
     }
 
-    public ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
-        if (!_disposed)
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            return;
+
+        // Serialize teardown with any in-flight request so a receive cannot
+        // target a disposed socket or semaphore.
+        await _requestGate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+        try
         {
-            _disposed = true;
-            _socket?.Dispose();
+            var socket = _socket;
             _socket = null;
-            _requestGate.Dispose();
-            _connectGate.Dispose();
+            if (socket is not null)
+            {
+                try
+                {
+                    if (socket.State == WebSocketState.Open)
+                    {
+                        using var closeTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                        await socket.CloseAsync(
+                            WebSocketCloseStatus.NormalClosure,
+                            "Recorder shutting down.",
+                            closeTimeout.Token).ConfigureAwait(false);
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    // Best-effort close handshake; teardown must still complete.
+                }
+                catch (WebSocketException)
+                {
+                    // The peer may have closed first; ignore and dispose.
+                }
+
+                socket.Dispose();
+            }
+        }
+        finally
+        {
+            _requestGate.Release();
         }
 
-        return ValueTask.CompletedTask;
+        _requestGate.Dispose();
+        _connectGate.Dispose();
     }
 
     private async Task<string> SendRequestAsync(
@@ -173,9 +204,9 @@ internal sealed class ObsWebSocketRecorder : IObsRecorder
                         "OBS sent a malformed message while waiting for a request response.");
                 }
 
-                if (opCode == EventOpCode)
+                if (opCode == ObsProtocol.EventOpCode)
                     continue;
-                if (opCode != 7)
+                if (opCode != ObsProtocol.RequestResponseOpCode)
                 {
                     throw new InvalidOperationException(
                         $"OBS sent unexpected message op {opCode} while waiting for {requestType}.");
@@ -226,7 +257,7 @@ internal sealed class ObsWebSocketRecorder : IObsRecorder
                     $"OBS sent a malformed message while waiting for {expectedKind}.");
             }
 
-            if (opCode == EventOpCode)
+            if (opCode == ObsProtocol.EventOpCode)
                 continue;
             if (opCode != expectedOpCode)
             {
@@ -289,6 +320,7 @@ internal sealed class ObsWebSocketRecorder : IObsRecorder
 
     private void ThrowIfDisposed()
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (Volatile.Read(ref _disposed) != 0)
+            throw new ObjectDisposedException(nameof(ObsWebSocketRecorder));
     }
 }

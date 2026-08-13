@@ -16,19 +16,12 @@ public sealed class ObsWebSocketRecorderTests
         await using var recorder = new ObsWebSocketRecorder(server.Url, password: string.Empty);
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
 
-        try
-        {
-            await recorder.ConnectAsync(timeout.Token);
+        await recorder.ConnectAsync(timeout.Token);
 
-            await Assert.ThrowsAsync<InvalidOperationException>(
-                () => recorder.StartRecordAsync(timeout.Token));
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => recorder.StartRecordAsync(timeout.Token));
 
-            await server.StopReceived.Task.WaitAsync(TimeSpan.FromSeconds(2));
-        }
-        finally
-        {
-            await recorder.DisposeAsync();
-        }
+        await server.StopReceived.Task.WaitAsync(TimeSpan.FromSeconds(2));
     }
 
     private sealed class ObsTestServer : IAsyncDisposable
@@ -67,8 +60,10 @@ public sealed class ObsWebSocketRecorderTests
             {
                 await _runTask.WaitAsync(TimeSpan.FromSeconds(1));
             }
-            catch (Exception) when (_runTask.IsCompletedSuccessfully || _runTask.IsCanceled)
+            catch (Exception)
             {
+                // Teardown is best-effort: a slow, faulted, or canceled run task
+                // must not escape disposal.
             }
         }
 
@@ -79,9 +74,11 @@ public sealed class ObsWebSocketRecorderTests
                 using var client = await _listener.AcceptTcpClientAsync();
                 await using var stream = client.GetStream();
                 var headers = await ReadHttpHeadersAsync(stream);
-                var key = headers["Sec-WebSocket-Key"];
-                var accept = Convert.ToBase64String(
-                    SHA1.HashData(Encoding.ASCII.GetBytes(key + WebSocketGuid)));
+            var key = headers["Sec-WebSocket-Key"];
+            // SHA-1 is mandated by RFC 6455 for the Sec-WebSocket-Accept handshake;
+            // do not replace it with a stronger hash algorithm.
+            var accept = Convert.ToBase64String(
+                SHA1.HashData(Encoding.ASCII.GetBytes(key + WebSocketGuid)));
                 await WriteHttpResponseAsync(
                     stream,
                     $"HTTP/1.1 101 Switching Protocols\r\n" +
@@ -141,8 +138,12 @@ public sealed class ObsWebSocketRecorderTests
                 if (read == 0)
                     throw new EndOfStreamException("WebSocket handshake ended early.");
                 bytes.AddRange(buffer.AsSpan(0, read).ToArray());
-                if (bytes.Count >= 4 && bytes[^4..].SequenceEqual("\r\n\r\n"u8.ToArray()))
+                if (bytes.Count >= 4 &&
+                    bytes[^4] == (byte)'\r' && bytes[^3] == (byte)'\n' &&
+                    bytes[^2] == (byte)'\r' && bytes[^1] == (byte)'\n')
+                {
                     break;
+                }
             }
 
             var request = Encoding.ASCII.GetString(bytes.ToArray());

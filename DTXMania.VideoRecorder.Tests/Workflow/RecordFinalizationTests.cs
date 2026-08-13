@@ -20,28 +20,76 @@ public sealed class RecordFinalizationTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
             RecordFinalization.CompleteAsync(
-                _ =>
+                new FinalizationCallbacks
                 {
-                    cancellation.Cancel();
-                    return Task.FromResult(artifact);
+                    VerifyAndPublish = _ =>
+                    {
+                        cancellation.Cancel();
+                        return Task.FromResult(artifact);
+                    },
+                    RecordArtifact = _ => recorded = true,
+                    MarkCompleted = () => completed = true,
+                    WriteDiagnostics = () =>
+                    {
+                        diagnosticsWritten = true;
+                        return Task.CompletedTask;
+                    },
+                    DeleteSandbox = () =>
+                    {
+                        sandboxDeleted = true;
+                        return Task.CompletedTask;
+                    }
                 },
-                cancellation.Token,
-                _ => recorded = true,
-                () => completed = true,
-                () =>
-                {
-                    diagnosticsWritten = true;
-                    return Task.CompletedTask;
-                },
-                () =>
-                {
-                    sandboxDeleted = true;
-                    return Task.CompletedTask;
-                }));
+                cancellation.Token));
 
         Assert.False(recorded);
         Assert.False(completed);
         Assert.False(diagnosticsWritten);
         Assert.False(sandboxDeleted);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_WhenNotCanceled_ShouldRunCallbacksInOrder()
+    {
+        var order = new List<string>();
+        var artifact = new RecordingArtifactVerification(
+            "raw.mp4",
+            "published.mp4",
+            Warning: null);
+
+        var result = await RecordFinalization.CompleteAsync(
+            new FinalizationCallbacks
+            {
+                VerifyAndPublish = _ =>
+                {
+                    order.Add("verifyAndPublish");
+                    return Task.FromResult(artifact);
+                },
+                RecordArtifact = _ => order.Add("recordArtifact"),
+                MarkCompleted = () => order.Add("markCompleted"),
+                WriteDiagnostics = () =>
+                {
+                    order.Add("writeDiagnostics");
+                    return Task.CompletedTask;
+                },
+                DeleteSandbox = () =>
+                {
+                    order.Add("deleteSandbox");
+                    return Task.CompletedTask;
+                }
+            },
+            CancellationToken.None);
+
+        Assert.Same(artifact, result);
+        Assert.Equal(
+            new[]
+            {
+                "verifyAndPublish",
+                "recordArtifact",
+                "markCompleted",
+                "writeDiagnostics",
+                "deleteSandbox"
+            },
+            order);
     }
 }
