@@ -24,31 +24,58 @@ public sealed class ObsWebSocketRecorderTests
         await server.StopReceived.Task.WaitAsync(TimeSpan.FromSeconds(2));
     }
 
+    [Fact]
+    public async Task StartRecordAsync_WhenStartResponseIsDropped_ShouldCompensateWithStop()
+    {
+        // The server receives StartRecord but never replies. The recorder must
+        // treat ownership as ambiguous (StartRecord was sent) and send
+        // StopRecord as compensation despite the start failure.
+        await using var server = await ObsTestServer.StartAsync(dropStartRecordResponse: true);
+        await using var recorder = new ObsWebSocketRecorder(server.Url, password: string.Empty);
+        using var connectTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await recorder.ConnectAsync(connectTimeout.Token);
+
+        using var startTimeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => recorder.StartRecordAsync(startTimeout.Token));
+
+        // Proves the server actually saw StartRecord (send happened before drop).
+        await server.StartRecordReceived.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        // Proves compensation ran: StopRecord reached OBS after the dropped start.
+        await server.StopReceived.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    }
+
     private sealed class ObsTestServer : IAsyncDisposable
     {
         private const string WebSocketGuid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
         private readonly TcpListener _listener;
         private readonly Task _runTask;
+        private readonly TaskCompletionSource<object?> _startRecordReceived =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource<object?> _stopReceived =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly bool _dropStartRecordResponse;
 
-        private ObsTestServer(TcpListener listener)
+        private ObsTestServer(TcpListener listener, bool dropStartRecordResponse)
         {
             _listener = listener;
+            _dropStartRecordResponse = dropStartRecordResponse;
             Url = new Uri($"ws://127.0.0.1:{((IPEndPoint)listener.LocalEndpoint).Port}/");
             _runTask = RunAsync();
         }
 
         public Uri Url { get; }
 
+        public TaskCompletionSource<object?> StartRecordReceived => _startRecordReceived;
+
         public TaskCompletionSource<object?> StopReceived => _stopReceived;
 
-        public static async Task<ObsTestServer> StartAsync()
+        public static async Task<ObsTestServer> StartAsync(bool dropStartRecordResponse = false)
         {
             var listener = new TcpListener(IPAddress.Loopback, port: 0);
             listener.Start();
-            var server = new ObsTestServer(listener);
+            var server = new ObsTestServer(listener, dropStartRecordResponse);
             await Task.Yield();
             return server;
         }
@@ -71,60 +98,89 @@ public sealed class ObsWebSocketRecorderTests
         {
             try
             {
-                using var client = await _listener.AcceptTcpClientAsync();
-                await using var stream = client.GetStream();
-                var headers = await ReadHttpHeadersAsync(stream);
-            var key = headers["Sec-WebSocket-Key"];
-            // SHA-1 is mandated by RFC 6455 for the Sec-WebSocket-Accept handshake;
-            // do not replace it with a stronger hash algorithm.
-            var accept = Convert.ToBase64String(
-                SHA1.HashData(Encoding.ASCII.GetBytes(key + WebSocketGuid)));
-                await WriteHttpResponseAsync(
-                    stream,
-                    $"HTTP/1.1 101 Switching Protocols\r\n" +
-                    "Upgrade: websocket\r\n" +
-                    "Connection: Upgrade\r\n" +
-                    $"Sec-WebSocket-Accept: {accept}\r\n\r\n");
-
-                await SendTextAsync(stream, "{\"op\":0,\"d\":{\"rpcVersion\":1,\"authentication\":{\"salt\":\"salt\",\"challenge\":\"challenge\"}}}");
-                _ = await ReceiveTextAsync(stream);
-                await SendTextAsync(stream, "{\"op\":2,\"d\":{\"negotiatedRpcVersion\":1}}");
-
-                while (true)
+                // Accept reconnects until StopRecord has been observed. A
+                // cancelled receive aborts the recorder's ClientWebSocket, so
+                // compensation reconnects on a fresh connection that this loop
+                // must accept rather than treating the dropped connection as
+                // fatal.
+                while (!_stopReceived.Task.IsCompleted)
                 {
-                    using var document = JsonDocument.Parse(await ReceiveTextAsync(stream));
-                    var root = document.RootElement;
-                    var data = root.GetProperty("d");
-                    var requestType = data.GetProperty("requestType").GetString();
-                    var requestId = data.GetProperty("requestId").GetString();
-                    switch (requestType)
+                    try
                     {
-                        case "StartRecord":
-                            await SendTextAsync(
-                                stream,
-                                $"{{\"op\":7,\"d\":{{\"requestType\":\"StartRecord\",\"requestId\":\"{requestId}\",\"requestStatus\":{{\"result\":true,\"code\":100}}}}}}");
-                            break;
-                        case "GetRecordStatus":
-                            // The StartRecord acknowledgement was successful, but
-                            // confirmation is malformed. The client must compensate.
-                            await SendTextAsync(
-                                stream,
-                                $"{{\"op\":7,\"d\":{{\"requestType\":\"GetRecordStatus\",\"requestId\":\"{requestId}\",\"requestStatus\":{{\"result\":true,\"code\":100}}}}}}");
-                            break;
-                        case "StopRecord":
-                            _stopReceived.TrySetResult(null);
-                            await SendTextAsync(
-                                stream,
-                                $"{{\"op\":7,\"d\":{{\"requestType\":\"StopRecord\",\"requestId\":\"{requestId}\",\"requestStatus\":{{\"result\":true,\"code\":100}},\"responseData\":{{\"outputPath\":\"C:\\\\recordings\\\\capture.mp4\"}}}}}}");
-                            return;
-                        default:
-                            throw new InvalidOperationException($"Unexpected request '{requestType}'.");
+                        using var client = await _listener.AcceptTcpClientAsync();
+                        await using var stream = client.GetStream();
+                        await HandleConnectionAsync(stream);
+                    }
+                    catch (Exception)
+                    {
+                        // A connection dropped mid-session (e.g. the recorder
+                        // aborted after a cancelled StartRecord receive). Loop
+                        // to accept the compensation reconnect unless StopRecord
+                        // has already been observed.
                     }
                 }
             }
             catch (Exception exception)
             {
                 _stopReceived.TrySetException(exception);
+            }
+        }
+
+        private async Task HandleConnectionAsync(NetworkStream stream)
+        {
+            var headers = await ReadHttpHeadersAsync(stream);
+            var key = headers["Sec-WebSocket-Key"];
+            // SHA-1 is mandated by RFC 6455 for the Sec-WebSocket-Accept handshake;
+            // do not replace it with a stronger hash algorithm.
+            var accept = Convert.ToBase64String(
+                SHA1.HashData(Encoding.ASCII.GetBytes(key + WebSocketGuid)));
+            await WriteHttpResponseAsync(
+                stream,
+                $"HTTP/1.1 101 Switching Protocols\r\n" +
+                "Upgrade: websocket\r\n" +
+                "Connection: Upgrade\r\n" +
+                $"Sec-WebSocket-Accept: {accept}\r\n\r\n");
+
+            await SendTextAsync(stream, "{\"op\":0,\"d\":{\"rpcVersion\":1,\"authentication\":{\"salt\":\"salt\",\"challenge\":\"challenge\"}}}");
+            _ = await ReceiveTextAsync(stream);
+            await SendTextAsync(stream, "{\"op\":2,\"d\":{\"negotiatedRpcVersion\":1}}");
+
+            while (true)
+            {
+                using var document = JsonDocument.Parse(await ReceiveTextAsync(stream));
+                var root = document.RootElement;
+                var data = root.GetProperty("d");
+                var requestType = data.GetProperty("requestType").GetString();
+                var requestId = data.GetProperty("requestId").GetString();
+                switch (requestType)
+                {
+                    case "StartRecord":
+                        _startRecordReceived.TrySetResult(null);
+                        if (!_dropStartRecordResponse)
+                        {
+                            await SendTextAsync(
+                                stream,
+                                $"{{\"op\":7,\"d\":{{\"requestType\":\"StartRecord\",\"requestId\":\"{requestId}\",\"requestStatus\":{{\"result\":true,\"code\":100}}}}}}");
+                        }
+                        // When dropping, the recorder must time out and then
+                        // compensate with StopRecord, handled by the case below.
+                        break;
+                    case "GetRecordStatus":
+                        // The StartRecord acknowledgement was successful, but
+                        // confirmation is malformed. The client must compensate.
+                        await SendTextAsync(
+                            stream,
+                            $"{{\"op\":7,\"d\":{{\"requestType\":\"GetRecordStatus\",\"requestId\":\"{requestId}\",\"requestStatus\":{{\"result\":true,\"code\":100}}}}}}");
+                        break;
+                    case "StopRecord":
+                        _stopReceived.TrySetResult(null);
+                        await SendTextAsync(
+                            stream,
+                            $"{{\"op\":7,\"d\":{{\"requestType\":\"StopRecord\",\"requestId\":\"{requestId}\",\"requestStatus\":{{\"result\":true,\"code\":100}},\"responseData\":{{\"outputPath\":\"C:\\\\recordings\\\\capture.mp4\"}}}}}}");
+                        return;
+                    default:
+                        throw new InvalidOperationException($"Unexpected request '{requestType}'.");
+                }
             }
         }
 
@@ -160,10 +216,24 @@ public sealed class ObsWebSocketRecorderTests
         private static async Task SendTextAsync(NetworkStream stream, string message)
         {
             var payload = Encoding.UTF8.GetBytes(message);
-            if (payload.Length > byte.MaxValue)
-                throw new InvalidOperationException("Test payload unexpectedly exceeds one-byte frame size.");
+            // Server-to-client frames are unmasked per RFC 6455. Lengths of 126+
+            // must use the extended length form, otherwise the high bit of the
+            // length byte collides with the mask bit and the client rejects the
+            // frame as "masked" — which previously corrupted the StopRecord
+            // response (≈154 bytes) and silently broke compensation.
+            var header = new List<byte> { 0x81 }; // FIN + text opcode
+            if (payload.Length <= 125)
+            {
+                header.Add((byte)payload.Length);
+            }
+            else
+            {
+                header.Add(126);
+                header.Add((byte)(payload.Length >> 8));
+                header.Add((byte)(payload.Length & 0xff));
+            }
 
-            await stream.WriteAsync(new[] { (byte)0x81, (byte)payload.Length });
+            await stream.WriteAsync(header.ToArray());
             await stream.WriteAsync(payload);
         }
 
