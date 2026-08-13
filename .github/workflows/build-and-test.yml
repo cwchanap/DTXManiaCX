@@ -47,6 +47,9 @@ jobs:
     - name: Run Automation tests on Windows
       run: dotnet test DTXMania.Automation.Tests/DTXMania.Automation.Tests.csproj --configuration Debug --verbosity normal --logger trx --results-directory ./TestResults/Automation
 
+    - name: Run Video recorder tests on Windows
+      run: dotnet test DTXMania.VideoRecorder.Tests/DTXMania.VideoRecorder.Tests.csproj --configuration Debug --verbosity normal --logger trx --results-directory ./TestResults/VideoRecorder
+
     - name: Upload test results
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
       if: always()
@@ -162,6 +165,9 @@ jobs:
 
     - name: Run Automation tests on macOS
       run: dotnet test DTXMania.Automation.Tests/DTXMania.Automation.Tests.csproj --configuration Debug --verbosity normal --logger trx --results-directory ./TestResults/Automation
+
+    - name: Run Video recorder tests on macOS
+      run: dotnet test DTXMania.VideoRecorder.Tests/DTXMania.VideoRecorder.Tests.csproj --configuration Debug --verbosity normal --logger trx --results-directory ./TestResults/VideoRecorder
 
     - name: Run prepared-chart audio E2E on macOS
       env:
