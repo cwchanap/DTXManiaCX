@@ -2,6 +2,7 @@ using System.Runtime.ExceptionServices;
 using DTXMania.Automation.Process;
 using DTXMania.Automation.Support;
 using DTXMania.Automation.Telemetry;
+using DTXMania.VideoRecorder.Diagnostics;
 using DTXMania.VideoRecorder.Obs;
 
 namespace DTXMania.VideoRecorder.Workflow;
@@ -21,13 +22,15 @@ internal sealed class RecordWorkflow
     private readonly string _chartPath;
     private readonly GameProcessStartOptions _startOptions;
     private readonly RecordWorkflowOptions _options;
+    private readonly RecorderDiagnostics? _diagnostics;
 
     public RecordWorkflow(
         IGameRecordingControl game,
         IObsRecorder obs,
         string chartPath,
         GameProcessStartOptions startOptions,
-        RecordWorkflowOptions? options = null)
+        RecordWorkflowOptions? options = null,
+        RecorderDiagnostics? diagnostics = null)
     {
         _game = game ?? throw new ArgumentNullException(nameof(game));
         _obs = obs ?? throw new ArgumentNullException(nameof(obs));
@@ -36,12 +39,13 @@ internal sealed class RecordWorkflow
         _startOptions = startOptions ?? throw new ArgumentNullException(nameof(startOptions));
         _options = options ?? new RecordWorkflowOptions();
         _options.Validate();
+        _diagnostics = diagnostics;
     }
 
     /// <summary>
     /// Runs the journey and returns the raw OBS output path when StopRecord
-    /// succeeds. Artifact verification and publication are deliberately left to
-    /// the next recorder task.
+    /// succeeds. The caller owns verifier publication and final diagnostics
+    /// writing after this method has completed its ownership cleanup.
     /// </summary>
     public async Task<string?> RunAsync(CancellationToken cancellationToken)
     {
@@ -53,24 +57,29 @@ internal sealed class RecordWorkflow
         try
         {
             _game.Start(_startOptions);
+            RecordStep("Started");
 
             await _game.WaitForStartupAsync(_options.SetupTimeout, cancellationToken)
                 .ConfigureAwait(false);
-            await WaitForStateAsync(
+            RecordStep("StartupReady");
+
+            var title = await WaitForStateAsync(
                     state => string.Equals(state.StageType, "Title", StringComparison.Ordinal),
                     _options.SetupTimeout,
                     "Title",
                     cancellationToken)
                 .ConfigureAwait(false);
+            RecordStep("TitleReady", title);
 
             await _game.SendKeyAsync("Enter", EnterHold, cancellationToken).ConfigureAwait(false);
-            await WaitForStateAsync(
+            var songSelect = await WaitForStateAsync(
                     state => string.Equals(state.StageType, "SongSelect", StringComparison.Ordinal)
                         && !string.IsNullOrWhiteSpace(state.SelectedSongTitle),
                     _options.SetupTimeout,
                     "populated Song Select",
                     cancellationToken)
                 .ConfigureAwait(false);
+            RecordStep("SongSelectReady", songSelect);
 
             // Preparation is intentionally one-shot. Retrying a permanent
             // chart/library failure for the full setup timeout obscures the
@@ -82,33 +91,74 @@ internal sealed class RecordWorkflow
                 await _game.PrepareVideoChartAsync(_chartPath, prepareTimeout.Token)
                     .ConfigureAwait(false);
             }
+            RecordStep("ChartPrepared");
             await EnsureScreenshotAsync(cancellationToken).ConfigureAwait(false);
+            RecordStep("ScreenshotBeforeRecording");
 
-            await RunExternalAsync(
-                    token => _obs.ConnectAsync(token),
-                    cancellationToken)
-                .ConfigureAwait(false);
-            var status = await RunExternalAsync(
-                    token => _obs.GetRecordStatusAsync(token),
-                    cancellationToken)
-                .ConfigureAwait(false);
+            try
+            {
+                await RunExternalAsync(
+                        token => _obs.ConnectAsync(token),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                _diagnostics?.RecordObsOutcome("Connect", succeeded: true);
+                RecordStep("ObsConnected");
+            }
+            catch (Exception exception)
+            {
+                _diagnostics?.RecordObsOutcome("Connect", succeeded: false, exception.Message);
+                throw;
+            }
+
+            ObsRecordStatus status;
+            try
+            {
+                status = await RunExternalAsync(
+                        token => _obs.GetRecordStatusAsync(token),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                _diagnostics?.RecordObsOutcome(
+                    "Status",
+                    succeeded: true,
+                    status.IsRecording ? "active" : "inactive");
+                RecordStep("ObsStatusChecked");
+            }
+            catch (Exception exception)
+            {
+                _diagnostics?.RecordObsOutcome("Status", succeeded: false, exception.Message);
+                throw;
+            }
             if (status.IsRecording)
             {
+                _diagnostics?.RecordObsOutcome(
+                    "Start",
+                    succeeded: false,
+                    "already recording");
                 throw new InvalidOperationException(
                     "OBS is already recording; stop the existing recording before starting dtx-video.");
             }
 
-            await RunExternalAsync(
-                    token => _obs.StartRecordAsync(token),
-                    cancellationToken)
-                .ConfigureAwait(false);
+            try
+            {
+                await RunExternalAsync(
+                        token => _obs.StartRecordAsync(token),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                _diagnostics?.RecordObsOutcome("Start", succeeded: true);
+                RecordStep("ObsStarted");
+            }
+            catch (Exception exception)
+            {
+                _diagnostics?.RecordObsOutcome("Start", succeeded: false, exception.Message);
+                throw;
+            }
             obsOwned = true;
 
             await RunStageOperationAsync(
                     token => _game.StartPreparedPreviewAsync(token),
                     cancellationToken)
                 .ConfigureAwait(false);
-            await WaitForStateAsync(
+            var preview = await WaitForStateAsync(
                     state => string.Equals(state.StageType, "SongSelect", StringComparison.Ordinal)
                         && string.Equals(state.PreparedPreviewState, "Playing", StringComparison.Ordinal)
                         && state.PreparedPreviewElapsedMs >= PreviewMinimum.TotalMilliseconds,
@@ -116,18 +166,20 @@ internal sealed class RecordWorkflow
                     "prepared preview playing for ten seconds",
                     cancellationToken)
                 .ConfigureAwait(false);
+            RecordStep("PreviewReady", preview);
 
             await RunStageOperationAsync(
                     token => _game.ActivatePreparedChartAsync(token),
                     cancellationToken)
                 .ConfigureAwait(false);
-            await WaitForStateAsync(
+            var transition = await WaitForStateAsync(
                     state => string.Equals(state.StageType, "SongTransition", StringComparison.Ordinal),
                     _options.StageTimeout,
                     "SongTransition",
                     cancellationToken)
                 .ConfigureAwait(false);
-            await WaitForStateAsync(
+            RecordStep("SongTransition", transition);
+            var performance = await WaitForStateAsync(
                     state => string.Equals(state.StageType, "Performance", StringComparison.Ordinal)
                         && state.PerformanceReady
                         && state.AutoPlayEnabled
@@ -136,8 +188,9 @@ internal sealed class RecordWorkflow
                     "ready AutoPlay Performance",
                     cancellationToken)
                 .ConfigureAwait(false);
+            RecordStep("PerformanceReady", performance);
 
-            await WaitForStateAsync(
+            var result = await WaitForStateAsync(
                     state => string.Equals(state.StageType, "Result", StringComparison.Ordinal)
                         && state.StageCompleted
                         && state.ClearFlag
@@ -151,15 +204,19 @@ internal sealed class RecordWorkflow
                     "completed cleared Result",
                     cancellationToken)
                 .ConfigureAwait(false);
+            RecordStep("ResultCompleted", result);
 
             await EnsureScreenshotAsync(cancellationToken).ConfigureAwait(false);
+            RecordStep("ScreenshotAfterResult");
             // This is a deliberate no-input hold. Do not send a key to advance
             // Result; the captured frame must remain visible for five seconds.
             await _options.DelayAsync(ResultHold, cancellationToken).ConfigureAwait(false);
+            RecordStep("ResultHold");
         }
         catch (Exception exception)
         {
             primaryFailure = exception;
+            _diagnostics?.MarkFailure(exception);
             throw;
         }
         finally
@@ -171,9 +228,13 @@ internal sealed class RecordWorkflow
                 {
                     rawOutputPath = await StopOwnedObsAsync().ConfigureAwait(false);
                     obsStopped = true;
+                    _diagnostics?.SetRawOutputPath(rawOutputPath);
+                    _diagnostics?.RecordObsOutcome("Stop", succeeded: true);
+                    RecordStep("ObsStopped");
                 }
                 catch (Exception exception)
                 {
+                    _diagnostics?.RecordObsOutcome("Stop", succeeded: false, exception.Message);
                     cleanupFailure = exception;
                 }
             }
@@ -205,6 +266,9 @@ internal sealed class RecordWorkflow
 
         return rawOutputPath;
     }
+
+    private void RecordStep(string name, GameStateSnapshot? snapshot = null)
+        => _diagnostics?.RecordStep(name, snapshot);
 
     private async Task<GameStateSnapshot> WaitForStateAsync(
         Func<GameStateSnapshot, bool> predicate,
