@@ -277,16 +277,56 @@ internal sealed class RecordingArtifactVerifier
         if (string.IsNullOrWhiteSpace(path))
             return null;
 
+        // Probe extensions in precedence order: the bare name first (preserving
+        // the original dotless-binary behavior), then Windows executable
+        // extensions. On Windows, PATHEXT governs the searchable extensions
+        // (e.g. .EXE;.CMD;.BAT); when it is unset we fall back to the common
+        // set so the default resolver can still reach the batch handling in
+        // CreateFfprobeStartInfo for ffprobe.cmd/ffprobe.bat shims.
+        var extensions = GetExecutableExtensions();
         foreach (var directory in path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
         {
-            var candidate = Path.Combine(directory, "ffprobe");
-            if (File.Exists(candidate))
-                return candidate;
-            if (OperatingSystem.IsWindows() && File.Exists(candidate + ".exe"))
-                return candidate + ".exe";
+            foreach (var extension in extensions)
+            {
+                var candidate = Path.Combine(directory, "ffprobe" + extension);
+                if (File.Exists(candidate))
+                    return candidate;
+            }
         }
 
         return null;
+    }
+
+    private static IReadOnlyList<string> GetExecutableExtensions()
+    {
+        // The bare name is always probed first to preserve the original
+        // behavior for non-Windows platforms and for Windows directories that
+        // ship a dotless ffprobe binary.
+        var extensions = new List<string> { string.Empty };
+        if (OperatingSystem.IsWindows())
+        {
+            var pathExt = Environment.GetEnvironmentVariable("PATHEXT");
+            if (string.IsNullOrWhiteSpace(pathExt))
+            {
+                extensions.Add(".exe");
+                extensions.Add(".cmd");
+                extensions.Add(".bat");
+            }
+            else
+            {
+                foreach (var ext in pathExt.Split(';', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var trimmed = ext.Trim();
+                    if (trimmed.Length > 0 &&
+                        !extensions.Contains(trimmed, StringComparer.OrdinalIgnoreCase))
+                    {
+                        extensions.Add(trimmed);
+                    }
+                }
+            }
+        }
+
+        return extensions;
     }
 
     private static void TryKill(Process process)
