@@ -8,6 +8,8 @@ namespace DTXMania.VideoRecorder.Obs;
 internal sealed class ObsWebSocketRecorder : IObsRecorder
 {
     private const int EventOpCode = 5;
+    private static readonly TimeSpan StartConfirmationCompensationTimeout =
+        TimeSpan.FromSeconds(15);
 
     private readonly Uri _url;
     private readonly string _password;
@@ -86,11 +88,36 @@ internal sealed class ObsWebSocketRecorder : IObsRecorder
             .ConfigureAwait(false);
         ObsProtocol.EnsureRequestSucceeded(response, "StartRecord");
 
-        var status = await GetRecordStatusAsync(token).ConfigureAwait(false);
-        if (!status.IsRecording)
+        try
         {
-            throw new InvalidOperationException(
-                "OBS StartRecord succeeded but GetRecordStatus reported recording inactive.");
+            var status = await GetRecordStatusAsync(token).ConfigureAwait(false);
+            if (!status.IsRecording)
+            {
+                throw new InvalidOperationException(
+                    "OBS StartRecord succeeded but GetRecordStatus reported recording inactive.");
+            }
+        }
+        catch (Exception confirmationFailure)
+        {
+            try
+            {
+                // StartRecord has already been acknowledged at this point. Do
+                // not reuse the caller token: a timeout/cancellation which
+                // caused confirmation to fail must not skip compensation.
+                using var compensationTimeout = new CancellationTokenSource(
+                    StartConfirmationCompensationTimeout);
+                await StopRecordForCompensationAsync(compensationTimeout.Token)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception compensationFailure)
+            {
+                throw new InvalidOperationException(
+                    "OBS StartRecord succeeded, but status confirmation failed " +
+                    "and StopRecord compensation also failed.",
+                    new AggregateException(confirmationFailure, compensationFailure));
+            }
+
+            throw;
         }
     }
 
@@ -99,6 +126,13 @@ internal sealed class ObsWebSocketRecorder : IObsRecorder
         var response = await SendRequestAsync("StopRecord", requestData: null, token)
             .ConfigureAwait(false);
         return ObsProtocol.ParseStopRecordOutputPath(response);
+    }
+
+    private async Task StopRecordForCompensationAsync(CancellationToken token)
+    {
+        var response = await SendRequestAsync("StopRecord", requestData: null, token)
+            .ConfigureAwait(false);
+        ObsProtocol.EnsureRequestSucceeded(response, "StopRecord");
     }
 
     public ValueTask DisposeAsync()
