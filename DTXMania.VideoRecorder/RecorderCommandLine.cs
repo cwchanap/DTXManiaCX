@@ -111,7 +111,10 @@ internal static class RecorderCommandLine
         {
             ValidateSource(environment.SourceAppDataRoot);
             if (!string.IsNullOrWhiteSpace(environment.ObsOutputDirectory))
-                ValidateExistingDirectory(environment.ObsOutputDirectory, "OBS output directory");
+                ValidateExistingDirectory(
+                    environment.ObsOutputDirectory,
+                    "OBS output directory",
+                    probeWritable: false);
             return;
         }
 
@@ -219,7 +222,10 @@ internal static class RecorderCommandLine
         ProbeWritable(parent, "publish output directory");
     }
 
-    private static void ValidateExistingDirectory(string path, string description)
+    private static void ValidateExistingDirectory(
+        string path,
+        string description,
+        bool probeWritable = true)
     {
         if (string.IsNullOrWhiteSpace(path) || !Path.IsPathFullyQualified(path))
         {
@@ -233,7 +239,8 @@ internal static class RecorderCommandLine
                 $"{description} '{path}' does not exist or is not a directory.");
         }
 
-        ProbeWritable(path, description);
+        if (probeWritable)
+            ProbeWritable(path, description);
     }
 
     private static void ValidateSource(string sourceAppDataRoot)
