@@ -54,9 +54,76 @@ public sealed class RecordWorkflowTests
                 "screenshot",
                 "delay:00:00:05",
                 "obs:stop",
-                "dispose"
+                "dispose",
+                "obs:dispose"
             },
             game.Events);
+        Assert.Equal(1, obs.DisposeCallCount);
+    }
+
+    [Fact]
+    public async Task RunAsync_ShouldWaitForPopulatedSongSelectBeforePreparing()
+    {
+        var game = new FakeGame(
+            Title(),
+            SongSelect(),
+            SongSelect("indexed chart"),
+            Preview(),
+            Transition(),
+            Performance(),
+            Result());
+        var obs = new FakeObs();
+        var workflow = new RecordWorkflow(
+            game,
+            obs,
+            "chart.dtx",
+            CreateStartOptions(),
+            FastOptions(game.Events));
+
+        await workflow.RunAsync(CancellationToken.None);
+
+        Assert.Equal(
+            new string?[] { null, "indexed chart" },
+            game.ObservedSongSelectTitles.Take(2));
+        Assert.Equal(1, game.PrepareCount);
+        Assert.Equal("indexed chart", game.PrepareSelectedSongTitle);
+    }
+
+    [Fact]
+    public async Task RunAsync_UnexpectedStageOrder_ShouldFailBeforePerformanceAndStopOwnedObs()
+    {
+        var game = new FakeGame(
+            Title(),
+            SongSelect("indexed chart"),
+            Preview(),
+            Performance());
+        var obs = new FakeObs();
+        var workflow = new RecordWorkflow(
+            game,
+            obs,
+            "chart.dtx",
+            CreateStartOptions(),
+            FastOptions(game.Events) with
+            {
+                StageTimeout = TimeSpan.FromMilliseconds(25)
+            });
+
+        await Assert.ThrowsAsync<TimeoutException>(
+            () => workflow.RunAsync(CancellationToken.None));
+
+        Assert.Contains("activate", game.Events);
+        Assert.DoesNotContain("state:Result", game.Events);
+        Assert.Equal(1, obs.StopCallCount);
+        Assert.Equal(1, obs.DisposeCallCount);
+    }
+
+    [Fact]
+    public async Task AutomationGameRecordingControl_DisposeAsync_ShouldBeIdempotent()
+    {
+        var game = new AutomationGameRecordingControl(12345, "api-key");
+
+        await game.DisposeAsync();
+        await game.DisposeAsync();
     }
 
     [Fact]
@@ -282,6 +349,8 @@ public sealed class RecordWorkflowTests
     private static GameStateSnapshot SongSelect(string title) =>
         Snapshot("SongSelect", $"\"selectedSongTitle\":{JsonSerializer.Serialize(title)}");
 
+    private static GameStateSnapshot SongSelect() => Snapshot("SongSelect");
+
     private static GameStateSnapshot Preview() =>
         Snapshot(
             "SongSelect",
@@ -316,7 +385,10 @@ public sealed class RecordWorkflowTests
         private readonly Queue<GameStateSnapshot> _states;
         public FakeGame(params GameStateSnapshot[] states) => _states = new(states);
         public List<string> Events { get; } = new();
+        public List<string?> ObservedSongSelectTitles { get; } = new();
         public int PrepareCount { get; private set; }
+        public string? PrepareSelectedSongTitle { get; private set; }
+        private string? LastSelectedSongTitle { get; set; }
         public string? CancelAt { get; init; }
         public CancellationTokenSource? Cancellation { get; init; }
         public string StandardOutput => "stdout";
@@ -334,6 +406,9 @@ public sealed class RecordWorkflowTests
         {
             var state = _states.Count > 0 ? _states.Dequeue() : new GameStateSnapshot();
             Events.Add($"state:{state.StageType}");
+            LastSelectedSongTitle = state.SelectedSongTitle;
+            if (string.Equals(state.StageType, "SongSelect", StringComparison.Ordinal))
+                ObservedSongSelectTitles.Add(state.SelectedSongTitle);
             if (CancelAt == state.StageType)
                 Cancellation?.Cancel();
             return Task.FromResult(state);
@@ -348,6 +423,7 @@ public sealed class RecordWorkflowTests
         public Task PrepareVideoChartAsync(string chartPath, CancellationToken token)
         {
             PrepareCount++;
+            PrepareSelectedSongTitle = LastSelectedSongTitle;
             Events.Add("prepare");
             return Task.CompletedTask;
         }
@@ -394,6 +470,8 @@ public sealed class RecordWorkflowTests
         public List<string> Events { get; }
         public bool IsRecording { get; init; }
         public bool ThrowOnStart { get; init; }
+        public int StopCallCount { get; private set; }
+        public int DisposeCallCount { get; private set; }
 
         public Task ConnectAsync(CancellationToken token)
         {
@@ -417,10 +495,16 @@ public sealed class RecordWorkflowTests
 
         public Task<string> StopRecordAsync(CancellationToken token)
         {
+            StopCallCount++;
             Events.Add("obs:stop");
             return Task.FromResult("raw-output.mp4");
         }
 
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        public ValueTask DisposeAsync()
+        {
+            DisposeCallCount++;
+            Events.Add("obs:dispose");
+            return ValueTask.CompletedTask;
+        }
     }
 }
