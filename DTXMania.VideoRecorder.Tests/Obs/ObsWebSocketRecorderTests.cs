@@ -56,6 +56,11 @@ public sealed class ObsWebSocketRecorderTests
         private readonly TaskCompletionSource<object?> _stopReceived =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly bool _dropStartRecordResponse;
+        // Explicit disposal signal: set before the listener is stopped so the
+        // accept loop can distinguish a disposal-induced listener stop from a
+        // mid-session connection drop and exit instead of busy-looping on a
+        // stopped listener.
+        private readonly CancellationTokenSource _disposeSignal = new();
 
         private ObsTestServer(TcpListener listener, bool dropStartRecordResponse)
         {
@@ -82,6 +87,11 @@ public sealed class ObsWebSocketRecorderTests
 
         public async ValueTask DisposeAsync()
         {
+            // Signal the accept loop to exit before stopping the listener. The
+            // loop checks this signal in its catch block so a disposal-induced
+            // listener stop is not mistaken for a recoverable connection drop
+            // (which would otherwise busy-loop on the stopped listener).
+            _disposeSignal.Cancel();
             _listener.Stop();
             try
             {
@@ -92,18 +102,23 @@ public sealed class ObsWebSocketRecorderTests
                 // Teardown is best-effort: a slow, faulted, or canceled run task
                 // must not escape disposal.
             }
+            finally
+            {
+                _disposeSignal.Dispose();
+            }
         }
 
         private async Task RunAsync()
         {
             try
             {
-                // Accept reconnects until StopRecord has been observed. A
-                // cancelled receive aborts the recorder's ClientWebSocket, so
-                // compensation reconnects on a fresh connection that this loop
-                // must accept rather than treating the dropped connection as
-                // fatal.
-                while (!_stopReceived.Task.IsCompleted)
+                // Accept reconnects until StopRecord has been observed or
+                // disposal signals shutdown. A cancelled receive aborts the
+                // recorder's ClientWebSocket, so compensation reconnects on a
+                // fresh connection that this loop must accept rather than
+                // treating the dropped connection as fatal.
+                while (!_disposeSignal.IsCancellationRequested &&
+                       !_stopReceived.Task.IsCompleted)
                 {
                     try
                     {
@@ -113,6 +128,12 @@ public sealed class ObsWebSocketRecorderTests
                     }
                     catch (Exception)
                     {
+                        if (_disposeSignal.IsCancellationRequested)
+                        {
+                            // Disposal stopped the listener mid-accept; exit
+                            // cleanly instead of retrying on a stopped listener.
+                            break;
+                        }
                         // A connection dropped mid-session (e.g. the recorder
                         // aborted after a cancelled StartRecord receive). Loop
                         // to accept the compensation reconnect unless StopRecord
