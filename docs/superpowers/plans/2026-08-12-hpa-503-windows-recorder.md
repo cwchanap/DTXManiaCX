@@ -423,9 +423,9 @@ git commit -m "feat: finalize recorder artifacts"
 
 ---
 
-### Task 5: CI and first Windows proof
+### Task 5: CI, portable verification, and HPA-513 handoff
 
-**Files:** `.github/workflows/build-and-test.yml`; optional `docs/verification/hpa-503-windows-recorder-proof.md`.
+**Files:** `.github/workflows/build-and-test.yml`.
 
 - [ ] **Step 1: Add recorder tests after Automation tests in both normal OS jobs.**
 
@@ -437,56 +437,48 @@ dotnet test DTXMania.VideoRecorder.Tests/DTXMania.VideoRecorder.Tests.csproj \
 
 No OBS CI.
 
-- [ ] **Step 2: Run authoritative Windows local verification.**
+- [ ] **Step 2: Run portable verification.**
 
 ```bash
-dotnet build DTXMania.Game/DTXMania.Game.Windows.csproj
 dotnet build DTXMania.VideoRecorder/DTXMania.VideoRecorder.csproj
 dotnet test DTXMania.VideoRecorder.Tests/DTXMania.VideoRecorder.Tests.csproj
 dotnet test DTXMania.Automation.Tests/DTXMania.Automation.Tests.csproj
-dotnet test DTXMania.Test/DTXMania.Test.csproj
+dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj
+dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj
+dotnet build DTXMania.Game/DTXMania.Game.Windows.csproj
 ```
 
-- [ ] **Step 3: Re-run `doctor` with the dedicated OBS profile selected.**
+- [ ] **Step 3: Record the native gate status honestly.**
 
-Confirm auth/status/raw-output-dir, OBS inactive, manual profile requirements printed, and ffprobe status accurate. Do not add scene/source introspection.
+Run `doctor`. When the dedicated Windows OBS environment is available, confirm auth/status/raw-output-dir, OBS inactive, manual profile requirements, and ffprobe status. Otherwise record the Windows/OBS gates as unverified; do not add a fake server, hosted OBS CI, scene/source introspection, or false proof artifact.
 
-- [ ] **Step 4: Produce one real proof.**
+- [ ] **Step 4: Hand off native acceptance to HPA-513.**
 
-Choose a short chart under an active song root with a valid preview and duration comfortably below 20 minutes.
+HPA-513 owns the first native proof:
 
 ```text
 dtx-video record --chart <absolute-dtx-path> --output <proof-output-directory>
 ```
 
-Retain evidence for: populated Song Select before prepare, >=10s Playing preview, SongTransition, valid Performance, complete SongComplete Result, 5s hold, raw MP4, published MP4, Completed run.json.
+It must retain populated Song Select before prepare, >=10s Playing preview, SongTransition, valid Performance, complete SongComplete Result, 5s hold, raw/published MP4, Completed run.json, and source Config.ini/database/WAL isolation evidence. HPA-503 does not require those live artifacts to complete.
 
-Open the MP4 manually only for plausibility; HPA-513 owns formal capture/audio quality and setup acceptance.
-
-- [ ] **Step 5: Confirm live-data isolation.**
-
-Verify source Config.ini and source songs.db/WAL were not modified by the recorder; the sandbox owns its own DB. Successful run sandbox is deleted only after finalized output/diagnostics. Raw OBS artifact remains.
-
-- [ ] **Step 6: Final scope review.**
+- [ ] **Step 5: Final scope review.**
 
 Reject any accidental persistent recorder cache, OBS scene/source screenshot API, FFMpegCore/MMTools recorder dependency, ChangeStage navigation, new Automation stage/library helper, batch/framework abstraction, or live DB copying.
 
-- [ ] **Step 7: Commit and prepare implementation PR.**
+- [ ] **Step 6: Commit and prepare implementation PR.**
 
 ```bash
-git add .github/workflows/build-and-test.yml docs/verification/hpa-503-windows-recorder-proof.md
+git add .github/workflows/build-and-test.yml
 git commit -m "test: validate recorder vertical slice"
 ```
 
-If no verification note is created, stage only the workflow file.
-
-PR description: HPA-503 link, automated results, doctor result, proof artifact/diagnostic locations without secrets, raw+published MP4 existence, live-data isolation, and explicit HPA-513 follow-up.
+PR description: HPA-503 link, automated results, doctor/native-gate status without secrets, and explicit HPA-513 first-proof/final-acceptance follow-up.
 
 ---
 
 ## Definition of done
 
-- live doctor proves the narrow Windows OBS socket/status path when the required environment is available;
 - record enters Title -> 50ms GAME START -> populated Song Select before one-shot prepare;
 - unique sandbox never touches/copies live DB state and accepts only current normalized config semantics;
 - preview uses CX Playing + elapsed>=10s; SongTransition/Performance/Result are observed and validated in order;
@@ -494,4 +486,5 @@ PR description: HPA-503 link, automated results, doctor result, proof artifact/d
 - verifier alone owns raw-path containment, optional ffprobe, collision, and copy-publish behavior;
 - diagnostics are one run.json plus CX logs and contain no Config.ini/secrets;
 - recorder tests run on both OS CI jobs;
-- one real Windows proof remains for HPA-513.
+- portable recorder, Automation, macOS-safe game, and macOS/Windows-target build verification passes;
+- HPA-513 owns the successful native Windows doctor, first real recording, MP4/diagnostics evidence, live-data isolation proof, and final visual/audio acceptance.
