@@ -334,10 +334,18 @@ public sealed class GameApiPreparedChartCommandTests
     [Fact]
     public async Task PreparedCommand_WhenCommandThrowsOnUpdateThread_ShouldReturnSafeError()
     {
-        var stage = SongSelectionStageTestFactory.CreateStage();
+        // QueuePreparedChartCommandAsync wraps the update-thread command in a
+        // try/catch so an unexpected exception surfaces as a safe error result
+        // instead of propagating to the caller. The previous fixture relied on
+        // BuildPreparedChartTelemetryIdentity throwing on a null DatabaseChart,
+        // but that path is fully defensive (Try-pattern + catch-all) and never
+        // actually threw — the command succeeded and the loose assertion hid it.
+        // We now force the throw deterministically by having StageManager.CurrentStage
+        // raise on access, which is the first dereference inside the inner try.
         var stageManager = new Mock<IStageManager>();
-        stageManager.SetupGet(manager => manager.CurrentStage).Returns(stage);
-        stage.StageManager = stageManager.Object;
+        stageManager
+            .SetupGet(manager => manager.CurrentStage)
+            .Throws(new InvalidOperationException("Stage access failed on the update thread."));
         var queuedActions = new List<Action>();
         var context = new Mock<IGameContext>();
         context.SetupGet(game => game.StageManager).Returns(stageManager.Object);
@@ -346,67 +354,14 @@ public sealed class GameApiPreparedChartCommandTests
             .Callback<Action>(queuedActions.Add);
         var api = new GameApiImplementation(context.Object);
 
-        // Set up a prepared selection with a node whose DatabaseChart is null, causing
-        // BuildPreparedChartTelemetryIdentity to throw NullReferenceException when
-        // PrepareVideoChart tries to build the telemetry identity after a successful
-        // resolution. This exercises the catch block in QueuePreparedChartCommandAsync.
-        var root = Path.Combine(Path.GetTempPath(), "hpa510-command-throws");
-        Directory.CreateDirectory(root);
-        var chartPath = Path.Combine(root, "chart.dtx");
-        var previewPath = Path.Combine(root, "preview.wav");
-        File.WriteAllText(chartPath, "chart");
-        File.WriteAllText(previewPath, "preview");
+        var commandTask = api.PrepareVideoChartAsync(
+            Path.Combine(Path.GetTempPath(), "hpa510-throw.dtx"));
+        Assert.Single(queuedActions);
+        queuedActions[0]();
 
-        try
-        {
-            var chart = new SongChart
-            {
-                Id = 0,
-                FilePath = chartPath,
-                PreviewFile = "preview.wav",
-                HasDrumChart = true,
-                DrumLevel = 5
-            };
-            var song = new SongEntity { Id = 0, Title = "throws", Charts = new List<SongChart> { chart } };
-            chart.Song = song;
-            chart.SongId = 0;
-            var node = new SongListNode
-            {
-                Type = NodeType.Score,
-                Title = "throws",
-                DatabaseSongId = 0,
-                DatabaseSong = song,
-                DatabaseChart = chart,
-                Scores = new[] { new SongScore { ChartId = 0, Instrument = EInstrumentPart.DRUMS } }
-            };
-            var resourceManager = new Mock<IResourceManager>();
-            var loadedSound = new Mock<ISound>();
-            resourceManager.Setup(x => x.LoadSound(previewPath)).Returns(loadedSound.Object);
-            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
-            ReflectionHelpers.SetPrivateField(stage, "_appliedLibrarySnapshot", new SongLibrarySnapshot(
-                version: 1,
-                rootSongs: new[] { node },
-                activeRoots: new[] { Path.GetFullPath(root) },
-                enumeratedFileCount: 1,
-                discoveredScoreCount: 1));
-            var display = new SongListDisplay { CurrentList = new List<SongListNode> { node } };
-            ReflectionHelpers.SetPrivateField(stage, "_songListDisplay", display);
-            ReflectionHelpers.SetPrivateField(stage, "_currentSongList", new List<SongListNode> { node });
-
-            var commandTask = api.PrepareVideoChartAsync(chartPath);
-            Assert.Single(queuedActions);
-            queuedActions[0]();
-
-            var result = await commandTask;
-            // The command should either succeed (if BuildPreparedChartTelemetryIdentity handles
-            // the null chart gracefully) or return a safe error (if it throws and is caught).
-            // Either way, it must not throw to the caller.
-            Assert.True(result.Success || result.Error != null);
-        }
-        finally
-        {
-            try { Directory.Delete(root, recursive: true); } catch { }
-        }
+        var result = await commandTask;
+        Assert.False(result.Success);
+        Assert.Equal("The prepared chart command could not be completed.", result.Error);
     }
 
     [Fact]
@@ -453,7 +408,7 @@ public sealed class GameApiPreparedChartCommandTests
         var context = new Mock<IGameContext>();
         context.SetupGet(gameContext => gameContext.StageManager).Returns(stageManager.Object);
         context
-            .Setup(game => game.QueueMainThreadAction(It.IsAny<Action>()))
+            .Setup(gameContext => gameContext.QueueMainThreadAction(It.IsAny<Action>()))
             .Callback<Action>(queuedActions.Add);
         var api = new GameApiImplementation(context.Object);
 
