@@ -112,10 +112,10 @@ public sealed class RecordingArtifactVerifierTests
             var obsRoot = Directory.CreateDirectory(Path.Combine(root, "obs")).FullName;
             var raw = Path.Combine(obsRoot, "capture.mp4");
             await File.WriteAllTextAsync(raw, "raw");
-            var ffprobe = CreateExecutable(
+            var ffprobe = CreateFfprobeFixture(
                 root,
-                "ffprobe",
-                "#!/bin/sh\nprintf '%s' '{\"streams\":[{\"codec_type\":\"video\"}]}'\n");
+                "video-only",
+                "{\"streams\":[{\"codec_type\":\"video\"}]}");
             var verifier = new RecordingArtifactVerifier(TimeSpan.FromSeconds(2), () => ffprobe);
 
             var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
@@ -140,10 +140,10 @@ public sealed class RecordingArtifactVerifierTests
             var publishRoot = Directory.CreateDirectory(Path.Combine(root, "published")).FullName;
             var raw = Path.Combine(obsRoot, "capture.mp4");
             await File.WriteAllTextAsync(raw, "raw");
-            var ffprobe = CreateExecutable(
+            var ffprobe = CreateFfprobeFixture(
                 root,
-                "ffprobe",
-                "#!/bin/sh\nprintf '%s' '{\"streams\":[{\"codec_type\":\"video\"},{\"codec_type\":\"audio\"}]}'\n");
+                "audio-video",
+                "{\"streams\":[{\"codec_type\":\"video\"},{\"codec_type\":\"audio\"}]}");
             var verifier = new RecordingArtifactVerifier(TimeSpan.FromSeconds(2), () => ffprobe);
 
             var result = await verifier.VerifyAndPublishAsync(raw, obsRoot, publishRoot);
@@ -157,10 +157,19 @@ public sealed class RecordingArtifactVerifierTests
         }
     }
 
-    private static string CreateExecutable(string root, string name, string contents)
+    private static string CreateFfprobeFixture(string root, string name, string json)
     {
+        if (OperatingSystem.IsWindows())
+        {
+            var windowsPath = Path.Combine(root, name + ".cmd");
+            File.WriteAllText(
+                windowsPath,
+                $"@echo off{Environment.NewLine}echo {json}{Environment.NewLine}");
+            return windowsPath;
+        }
+
         var path = Path.Combine(root, name);
-        File.WriteAllText(path, contents);
+        File.WriteAllText(path, $"#!/bin/sh{Environment.NewLine}printf '%s' '{json}'{Environment.NewLine}");
         if (!OperatingSystem.IsWindows())
             File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         return path;
