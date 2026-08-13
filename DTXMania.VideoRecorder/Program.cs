@@ -1,6 +1,7 @@
 using DTXMania.VideoRecorder.Configuration;
 using DTXMania.VideoRecorder.Obs;
 using DTXMania.VideoRecorder.Sandbox;
+using DTXMania.VideoRecorder.Workflow;
 
 namespace DTXMania.VideoRecorder;
 
@@ -18,11 +19,48 @@ internal static class Program
                 return await RunDoctorAsync(environment).ConfigureAwait(false);
 
             RecorderCommandLine.Validate(command, environment);
+            return await RunRecordAsync(command, environment).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            Console.Error.WriteLine($"Error: {exception.Message}");
+            return 2;
+        }
+    }
+
+    private static async Task<int> RunRecordAsync(
+        RecorderCommand command,
+        RecorderEnvironment environment)
+    {
+        using var cancellation = new CancellationTokenSource();
+        ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
+        {
+            eventArgs.Cancel = true;
+            cancellation.Cancel();
+        };
+        Console.CancelKeyPress += cancelHandler;
+
+        try
+        {
             var sandbox = RecordingSandbox.Create(environment.SourceAppDataRoot);
             try
             {
                 Console.WriteLine($"Recorder sandbox ready at '{sandbox.RunRoot}'.");
-                Console.WriteLine("Recorder workflow is not yet configured.");
+                var startOptions = RecorderGameLaunchPolicy.CreateOptions(sandbox);
+                await using var game = new AutomationGameRecordingControl(
+                    sandbox.ApiPort,
+                    sandbox.ApiKey);
+                await using var obs = new ObsWebSocketRecorder(
+                    environment.ObsUrl,
+                    environment.ObsPassword);
+                var workflow = new RecordWorkflow(
+                    game,
+                    obs,
+                    command.ChartPath!,
+                    startOptions);
+                var rawOutputPath = await workflow.RunAsync(cancellation.Token)
+                    .ConfigureAwait(false);
+                Console.WriteLine($"OBS raw output: '{rawOutputPath}'.");
                 await sandbox.DeleteOnSuccessAsync().ConfigureAwait(false);
                 return 0;
             }
@@ -32,10 +70,9 @@ internal static class Program
                 throw;
             }
         }
-        catch (Exception exception)
+        finally
         {
-            Console.Error.WriteLine($"Error: {exception.Message}");
-            return 2;
+            Console.CancelKeyPress -= cancelHandler;
         }
     }
 
