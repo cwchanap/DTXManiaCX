@@ -1,6 +1,6 @@
 # HPA-503 Windows Recorder Vertical Slice Design
 
-**Issue:** [HPA-503](https://linear.app/cwchanap/issue/HPA-503/build-the-windows-recorder-vertical-slice-and-produce-the-first-video)  
+**Issue:** [HPA-503](https://linear.app/cwchanap/issue/HPA-503/build-the-windows-recorder-vertical-slice)  
 **Date:** 2026-08-12  
 **Status:** Revised after second planning review
 
@@ -18,7 +18,7 @@ Title -> GAME START -> Song Select
 
 Title is traversed before OBS starts, so captured content begins at Song Select.
 
-HPA-503 remains one 2–3 engineer-day vertical slice. HPA-513 owns formal OBS visual/audio acceptance and setup documentation.
+HPA-503 remains one 2–3 engineer-day implementation slice. HPA-513 owns the first native Windows recording, final OBS visual/audio acceptance, and setup documentation.
 
 ## Boundaries
 
@@ -153,7 +153,7 @@ ObsWebSocketRecorder
   four IObsRecorder operations
 ```
 
-Unit-test `ObsProtocol` directly. Do not build a fake WebSocket server. Prove the live socket/correlation path with `dtx-video doctor` against the dedicated Windows OBS profile before the full record proof.
+Unit-test `ObsProtocol` directly. Do not build a fake WebSocket server. `dtx-video doctor` is the live socket/correlation gate; when a dedicated Windows OBS environment is unavailable during HPA-503, record that gate as unverified and complete it in HPA-513.
 
 The workflow fails when OBS is already recording and acquires ownership only after its own StartRecord succeeds.
 
@@ -232,7 +232,7 @@ WebSocket enabled
 raw output directory matches DTXMANIA_VIDEO_OBS_OUTPUT_DIR
 ```
 
-It does not inspect or repair those sources. The first HPA-503 proof manually opens the MP4 for a plausibility check; HPA-513 owns formal quality/setup acceptance.
+It does not inspect or repair those sources. HPA-513 owns producing and manually inspecting the first native Windows MP4 plus formal quality/setup acceptance.
 
 `doctor` also warns that the intentionally fresh sandbox database may require several minutes for first-run library enumeration.
 
@@ -250,21 +250,17 @@ Automated tests cover:
 
 Run recorder tests on Windows and macOS CI. No live OBS CI.
 
-Before completing HPA-503:
+Before completing HPA-503, run the portable recorder and Automation suites, the macOS-safe game suite, both normal OS CI definitions, and macOS/Windows-target builds. Record any unavailable native Windows/OBS gate honestly rather than substituting a fake server or hosted OBS CI.
 
-1. run `doctor` against the dedicated Windows OBS profile;
-2. record one short indexed chart with a valid preview;
-3. retain raw MP4, published MP4, and diagnostics;
-4. manually open the video only to confirm it is plausibly the intended capture;
-5. confirm source CX app data/database were untouched.
+HPA-513 completes the deferred native acceptance: successful Windows `doctor`, one short indexed-chart recording, raw/published MP4 and diagnostics, manual plausibility/quality inspection, and source CX app-data/database isolation evidence.
 
 ## Risks
 
-- **Cold library enumeration:** accepted for the first proof; persistent recorder caching is a follow-up only if real usage needs it.
-- **Manual OBS misconfiguration:** structural MP4 checks cannot prove correct window/audio capture; manual proof + HPA-513 cover this.
+- **Cold library enumeration:** accepted for the first native proof in HPA-513; persistent recorder caching is a follow-up only if real usage needs it.
+- **Manual OBS misconfiguration:** structural MP4 checks cannot prove correct window/audio capture; HPA-513 owns the manual proof.
 - **Legacy/hand-edited config:** relative paths are rejected rather than guessed; running CX once normalizes the supported source config.
 - **Very long charts:** proof chart must fit comfortably inside the fixed Performance timeout; configurable timing is deferred.
 
 ## Acceptance
 
-HPA-503 is complete when one Windows command proves the required journey while using a unique disposable sandbox, waiting for the actual Song Select library before prepare, preserving normalized config semantics, owning only its CX/OBS resources, preserving raw output, publishing a non-empty MP4, conditionally verifying video+audio streams, writing compact secret-free diagnostics, passing recorder tests on both OS CI jobs, and leaving one proof recording for HPA-513.
+HPA-503 is complete when the recorder implementation enforces the required journey in portable tests; uses a unique disposable sandbox; waits for the actual Song Select library before prepare; preserves normalized config semantics; owns only its CX/OBS resources; implements raw preservation, publication, conditional video/audio probing, and compact secret-free diagnostics; and runs recorder tests in both normal OS CI jobs. HPA-513 owns the first native Windows MP4 and final acceptance.
