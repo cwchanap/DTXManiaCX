@@ -48,6 +48,19 @@ internal sealed class RecordingSandbox
     public string ApiKey { get; }
 
     public static RecordingSandbox Create(string sourceAppDataRoot)
+        => CreateCore(sourceAppDataRoot, afterRunRootCreated: null);
+
+    internal static RecordingSandbox CreateForTests(
+        string sourceAppDataRoot,
+        Action<string> afterRunRootCreated)
+    {
+        ArgumentNullException.ThrowIfNull(afterRunRootCreated);
+        return CreateCore(sourceAppDataRoot, afterRunRootCreated);
+    }
+
+    private static RecordingSandbox CreateCore(
+        string sourceAppDataRoot,
+        Action<string>? afterRunRootCreated)
     {
         var sourceRoot = NormalizeSourceRoot(sourceAppDataRoot);
         var sourceConfigPath = Path.Combine(sourceRoot, ConfigFileName);
@@ -68,25 +81,18 @@ internal sealed class RecordingSandbox
         var appDataRoot = Path.Combine(runRoot, "appdata");
         var configPath = Path.Combine(appDataRoot, ConfigFileName);
 
-        try
-        {
-            Directory.CreateDirectory(appDataRoot);
+        Directory.CreateDirectory(appDataRoot);
+        afterRunRootCreated?.Invoke(runRoot);
 
-            var apiPort = FindEphemeralApiPort();
-            var apiKey = GenerateApiKey();
-            normalizedConfig = PatchOwnedConfigValues(
-                normalizedConfig,
-                apiPort,
-                apiKey);
-            File.WriteAllText(configPath, normalizedConfig, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        var apiPort = FindEphemeralApiPort();
+        var apiKey = GenerateApiKey();
+        normalizedConfig = PatchOwnedConfigValues(
+            normalizedConfig,
+            apiPort,
+            apiKey);
+        File.WriteAllText(configPath, normalizedConfig, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
-            return new RecordingSandbox(runRoot, appDataRoot, configPath, apiPort, apiKey);
-        }
-        catch
-        {
-            TryDeleteRunRoot(runRoot);
-            throw;
-        }
+        return new RecordingSandbox(runRoot, appDataRoot, configPath, apiPort, apiKey);
     }
 
     /// <summary>
@@ -144,8 +150,11 @@ internal sealed class RecordingSandbox
         if (usesTrailingNewline && lines.Count > 0)
             lines.RemoveAt(lines.Count - 1);
 
-        var dtxPath = FindValue(lines, "DTXPath");
-        RequireAbsolute("DTXPath", dtxPath ?? string.Empty);
+        var dtxPaths = FindValues(lines, "DTXPath");
+        if (dtxPaths.Count == 0)
+            RequireAbsolute("DTXPath", string.Empty);
+        foreach (var dtxPath in dtxPaths)
+            RequireAbsolute("DTXPath", dtxPath);
 
         var songRootKeys = new List<(string Key, string Value)>();
         foreach (var line in lines)
@@ -167,19 +176,25 @@ internal sealed class RecordingSandbox
         foreach (var songRoot in songRootKeys)
             RequireAbsolute(songRoot.Key, songRoot.Value);
 
-        var systemSkinRoot = FindValue(lines, "SystemSkinRoot");
-        RequireAbsolute("SystemSkinRoot", systemSkinRoot ?? string.Empty);
+        var systemSkinRoots = FindValues(lines, "SystemSkinRoot");
+        if (systemSkinRoots.Count == 0)
+            RequireAbsolute("SystemSkinRoot", string.Empty);
+        foreach (var systemSkinRoot in systemSkinRoots)
+            RequireAbsolute("SystemSkinRoot", systemSkinRoot);
 
-        var skinPath = FindValue(lines, "SkinPath");
-        if (skinPath is not null && string.IsNullOrWhiteSpace(skinPath))
+        var skinPaths = FindValues(lines, "SkinPath");
+        foreach (var skinPath in skinPaths)
         {
-            throw new InvalidOperationException(
-                "Source Config.ini key 'SkinPath' is not normalized. " +
-                NormalizationHint);
-        }
+            if (string.IsNullOrWhiteSpace(skinPath))
+            {
+                throw new InvalidOperationException(
+                    "Source Config.ini key 'SkinPath' is not normalized. " +
+                    NormalizationHint);
+            }
 
-        if (skinPath is not null && !IsDefaultSkin(skinPath))
-            RequireAbsolute("SkinPath", skinPath);
+            if (!IsDefaultSkin(skinPath))
+                RequireAbsolute("SkinPath", skinPath);
+        }
 
         normalizedConfig = string.Join(newline, lines);
         if (usesTrailingNewline)
@@ -232,16 +247,17 @@ internal sealed class RecordingSandbox
         return patched;
     }
 
-    private static string? FindValue(IEnumerable<string> lines, string expectedKey)
+    private static List<string> FindValues(IEnumerable<string> lines, string expectedKey)
     {
+        var values = new List<string>();
         foreach (var line in lines)
         {
             if (TryReadAssignment(line, out var key, out var value) &&
                 key.Equals(expectedKey, StringComparison.Ordinal))
-                return value;
+                values.Add(value);
         }
 
-        return null;
+        return values;
     }
 
     private static bool TryReadAssignment(string line, out string key, out string value)
