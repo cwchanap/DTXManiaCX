@@ -196,6 +196,7 @@ internal static class Program
         }
 
         Console.WriteLine($"OBS URL: {environment.ObsUrl}");
+        var obsUrlValid = RecorderCommandLine.IsObsUrlValid(environment.ObsUrl);
         if (string.IsNullOrWhiteSpace(environment.ObsOutputDirectory))
         {
             passed = false;
@@ -222,23 +223,34 @@ internal static class Program
         else
             Console.WriteLine($"ffprobe: available ({ffprobe})");
 
-        await using (var recorder = new ObsWebSocketRecorder(environment.ObsUrl, environment.ObsPassword))
+        if (obsUrlValid)
         {
-            try
+            await using (var recorder = new ObsWebSocketRecorder(environment.ObsUrl, environment.ObsPassword))
             {
-                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-                await recorder.ConnectAsync(timeout.Token).ConfigureAwait(false);
-                var status = await recorder.GetRecordStatusAsync(timeout.Token).ConfigureAwait(false);
-                Console.WriteLine("OBS auth/status: Hello + Identify succeeded");
-                Console.WriteLine($"OBS recording status: {(status.IsRecording ? "ACTIVE (stop it before record)" : "inactive")}");
-                if (status.IsRecording)
+                try
+                {
+                    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                    await recorder.ConnectAsync(timeout.Token).ConfigureAwait(false);
+                    var status = await recorder.GetRecordStatusAsync(timeout.Token).ConfigureAwait(false);
+                    Console.WriteLine("OBS auth/status: Hello + Identify succeeded");
+                    Console.WriteLine($"OBS recording status: {(status.IsRecording ? "ACTIVE (stop it before record)" : "inactive")}");
+                    if (status.IsRecording)
+                        passed = false;
+                }
+                catch (Exception exception)
+                {
                     passed = false;
+                    Console.WriteLine($"OBS auth/status: FAILED ({exception.Message})");
+                }
             }
-            catch (Exception exception)
-            {
-                passed = false;
-                Console.WriteLine($"OBS auth/status: FAILED ({exception.Message})");
-            }
+        }
+        else
+        {
+            // The OBS URL failed the loopback-only contract. doctor reports the
+            // gate failure above but must never contact a URL it specifically
+            // prohibits, so the live probe is skipped.
+            passed = false;
+            Console.WriteLine("OBS auth/status: skipped (OBS URL failed loopback validation)");
         }
 
         Console.WriteLine("OBS state mutation: none (doctor only performs Hello/Identify/GetRecordStatus)");

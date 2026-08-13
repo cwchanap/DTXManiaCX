@@ -5,6 +5,26 @@ namespace DTXMania.VideoRecorder.Tests.Media;
 public sealed class RecordingArtifactVerifierTests
 {
     [Fact]
+    public async Task VerifyAndPublishAsync_ShouldRejectRelativeRawPath()
+    {
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            var obsRoot = Directory.CreateDirectory(Path.Combine(root, "obs")).FullName;
+            var verifier = new RecordingArtifactVerifier(TimeSpan.FromSeconds(1), () => null);
+
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                verifier.VerifyAndPublishAsync("recordings\\capture.mp4", obsRoot, Path.Combine(root, "published")));
+
+            Assert.Contains("fully qualified", exception.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            DeleteDirectory(root);
+        }
+    }
+
+    [Fact]
     public async Task VerifyAndPublishAsync_ShouldRejectRawPathOutsideObsRoot()
     {
         var root = CreateTemporaryDirectory();

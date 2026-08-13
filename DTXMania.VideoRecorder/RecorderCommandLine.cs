@@ -170,6 +170,17 @@ internal static class RecorderCommandLine
         }
     }
 
+    /// <summary>
+    /// Reports whether <paramref name="uri"/> satisfies the loopback-only OBS
+    /// contract without throwing. Used by <c>doctor</c> to decide whether the
+    /// live OBS probe is permitted at all.
+    /// </summary>
+    internal static bool IsObsUrlValid(Uri uri)
+    {
+        ArgumentNullException.ThrowIfNull(uri);
+        return IsLoopback(uri);
+    }
+
     private static bool IsLoopback(Uri uri)
     {
         if (uri.Scheme != Uri.UriSchemeWs && uri.Scheme != Uri.UriSchemeWss)

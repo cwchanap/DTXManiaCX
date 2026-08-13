@@ -83,10 +83,36 @@ internal sealed class ObsWebSocketRecorder : IObsRecorder
 
     public async Task StartRecordAsync(CancellationToken token)
     {
-        var response = await SendRequestAsync("StartRecord", requestData: null, token)
-            .ConfigureAwait(false);
+        // Phase 1: send StartRecord and await its response. Once the bytes
+        // leave the socket, OBS may begin recording whether or not we ever see
+        // the reply, so a failure here is ambiguous and must compensate.
+        var startSent = false;
+        string response;
+        try
+        {
+            response = await SendRequestAsync(
+                    "StartRecord",
+                    requestData: null,
+                    onRequestSent: () => startSent = true,
+                    token)
+                .ConfigureAwait(false);
+        }
+        catch (Exception sendOrReceiveFailure) when (startSent)
+        {
+            // StartRecord was sent but no reply was confirmed. Ownership is
+            // ambiguous; compensate with an independent token so the
+            // cancellation/timeout that caused this failure does not skip
+            // cleanup.
+            await CompensateStopAsync(sendOrReceiveFailure).ConfigureAwait(false);
+            throw;
+        }
+
+        // Phase 2: OBS returned a definitive StartRecord response. If it
+        // reports failure, OBS is not recording and no compensation is owed.
         ObsProtocol.EnsureRequestSucceeded(response, "StartRecord");
 
+        // Phase 3: confirm OBS is actually recording. A failure here, after a
+        // successful StartRecord acknowledgement, must compensate.
         try
         {
             var status = await GetRecordStatusAsync(token).ConfigureAwait(false);
@@ -98,25 +124,38 @@ internal sealed class ObsWebSocketRecorder : IObsRecorder
         }
         catch (Exception confirmationFailure)
         {
-            try
+            await CompensateStopAsync(confirmationFailure).ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    private async Task CompensateStopAsync(Exception primaryFailure)
+    {
+        // Do not reuse the caller token: a timeout/cancellation which caused
+        // the failure being compensated must not skip the StopRecord attempt.
+        using var compensationTimeout = new CancellationTokenSource(
+            StartConfirmationCompensationTimeout);
+        var token = compensationTimeout.Token;
+        try
+        {
+            // The cancellation/timeout that aborted the in-flight receive can
+            // leave the WebSocket unusable (ClientWebSocket aborts on a cancelled
+            // receive). OBS recording state is server-side and survives a
+            // reconnect, so re-establish the session before attempting the
+            // compensating StopRecord.
+            if (_socket is null || _socket.State != WebSocketState.Open)
             {
-                // StartRecord has already been acknowledged at this point. Do
-                // not reuse the caller token: a timeout/cancellation which
-                // caused confirmation to fail must not skip compensation.
-                using var compensationTimeout = new CancellationTokenSource(
-                    StartConfirmationCompensationTimeout);
-                await StopRecordForCompensationAsync(compensationTimeout.Token)
-                    .ConfigureAwait(false);
-            }
-            catch (Exception compensationFailure)
-            {
-                throw new InvalidOperationException(
-                    "OBS StartRecord succeeded, but status confirmation failed " +
-                    "and StopRecord compensation also failed.",
-                    new AggregateException(confirmationFailure, compensationFailure));
+                await ConnectAsync(token).ConfigureAwait(false);
             }
 
-            throw;
+            await StopRecordForCompensationAsync(token).ConfigureAwait(false);
+        }
+        catch (Exception compensationFailure)
+        {
+            throw new InvalidOperationException(
+                "OBS StartRecord was sent but its recording state could not be confirmed, " +
+                "and StopRecord compensation also failed.",
+                new AggregateException(primaryFailure, compensationFailure));
         }
     }
 
@@ -184,6 +223,14 @@ internal sealed class ObsWebSocketRecorder : IObsRecorder
         string requestType,
         object? requestData,
         CancellationToken token)
+        => await SendRequestAsync(requestType, requestData, onRequestSent: null, token)
+            .ConfigureAwait(false);
+
+    private async Task<string> SendRequestAsync(
+        string requestType,
+        object? requestData,
+        Action? onRequestSent,
+        CancellationToken token)
     {
         ThrowIfDisposed();
         await _requestGate.WaitAsync(token).ConfigureAwait(false);
@@ -194,6 +241,10 @@ internal sealed class ObsWebSocketRecorder : IObsRecorder
                 .ToString(CultureInfo.InvariantCulture);
             var request = ObsProtocol.BuildRequest(requestType, requestId, requestData);
             await SendTextAsync(socket, request, token).ConfigureAwait(false);
+            // Signal that the request bytes have left the socket. Callers such
+            // as StartRecord treat this as the point past which OBS may have
+            // acted, so any later failure must trigger compensation.
+            onRequestSent?.Invoke();
 
             while (true)
             {

@@ -245,6 +245,17 @@ internal sealed class RecordingArtifactVerifier
 
     private static string EnsureContained(string rawPath, string obsRoot)
     {
+        // The verifier is the sole trust boundary for raw OBS paths and the
+        // design requires OBS to return a fully qualified path. Reject a
+        // relative path before normalization: GetFullPath would silently fold
+        // it against the recorder working directory, which could then pass or
+        // fail containment based on where the recorder happened to run.
+        if (!Path.IsPathFullyQualified(rawPath))
+        {
+            throw new InvalidOperationException(
+                $"Raw OBS output path '{rawPath}' must be a fully qualified path.");
+        }
+
         var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(obsRoot));
         var raw = Path.GetFullPath(rawPath);
         var relative = Path.GetRelativePath(root, raw);
