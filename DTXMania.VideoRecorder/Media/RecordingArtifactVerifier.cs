@@ -279,10 +279,11 @@ internal sealed class RecordingArtifactVerifier
 
         // Probe extensions in precedence order: the bare name first (preserving
         // the original dotless-binary behavior), then Windows executable
-        // extensions. On Windows, PATHEXT governs the searchable extensions
-        // (e.g. .EXE;.CMD;.BAT); when it is unset we fall back to the common
-        // set so the default resolver can still reach the batch handling in
-        // CreateFfprobeStartInfo for ffprobe.cmd/ffprobe.bat shims.
+        // extensions. On Windows, PATHEXT is filtered down to the extensions
+        // CreateFfprobeStartInfo can actually launch (see
+        // FilterSupportedWindowsExtensions); when it is unset we fall back to
+        // .exe/.cmd/.bat so the default resolver can still reach the batch
+        // handling in CreateFfprobeStartInfo for ffprobe.cmd/ffprobe.bat shims.
         var extensions = GetExecutableExtensions();
         foreach (var directory in path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
         {
@@ -297,6 +298,16 @@ internal sealed class RecordingArtifactVerifier
         return null;
     }
 
+    // The only extensions CreateFfprobeStartInfo can actually launch on
+    // Windows: native executables (launched directly with UseShellExecute=false)
+    // and .cmd/.bat shims (launched through cmd.exe). PATHEXT on a stock
+    // Windows install also lists .vbs/.js/.wsf/.msc and Python installers add
+    // .py/.pyw, but UseShellExecute=false does not consult file associations,
+    // so selecting any of those would resolve a file that Process.Start cannot
+    // launch. Keep this set aligned with the invocation paths in
+    // CreateFfprobeStartInfo.
+    private static readonly string[] SupportedWindowsExtensions = { ".exe", ".cmd", ".bat" };
+
     private static IReadOnlyList<string> GetExecutableExtensions()
     {
         // The bare name is always probed first to preserve the original
@@ -306,27 +317,39 @@ internal sealed class RecordingArtifactVerifier
         if (OperatingSystem.IsWindows())
         {
             var pathExt = Environment.GetEnvironmentVariable("PATHEXT");
-            if (string.IsNullOrWhiteSpace(pathExt))
-            {
-                extensions.Add(".exe");
-                extensions.Add(".cmd");
-                extensions.Add(".bat");
-            }
-            else
-            {
-                foreach (var ext in pathExt.Split(';', StringSplitOptions.RemoveEmptyEntries))
-                {
-                    var trimmed = ext.Trim();
-                    if (trimmed.Length > 0 &&
-                        !extensions.Contains(trimmed, StringComparer.OrdinalIgnoreCase))
-                    {
-                        extensions.Add(trimmed);
-                    }
-                }
-            }
+            extensions.AddRange(FilterSupportedWindowsExtensions(pathExt));
         }
 
         return extensions;
+    }
+
+    // Pure projection of PATHEXT onto the extensions CreateFfprobeStartInfo can
+    // actually launch. Exposed as internal for direct unit testing without env
+    // var mutation (xUnit runs test classes in parallel). Returns the supported
+    // extensions in their PATHEXT precedence order, deduplicated case-
+    // insensitively. When PATHEXT is null/blank, falls back to the canonical
+    // .exe/.cmd/.bat order so the default resolver can still reach the batch
+    // handling in CreateFfprobeStartInfo for ffprobe.cmd/ffprobe.bat shims.
+    internal static IReadOnlyList<string> FilterSupportedWindowsExtensions(string? pathExt)
+    {
+        if (string.IsNullOrWhiteSpace(pathExt))
+            return SupportedWindowsExtensions;
+
+        var filtered = new List<string>(capacity: SupportedWindowsExtensions.Length);
+        foreach (var ext in pathExt.Split(';', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var trimmed = ext.Trim();
+            if (trimmed.Length == 0)
+                continue;
+
+            if (!SupportedWindowsExtensions.Contains(trimmed, StringComparer.OrdinalIgnoreCase))
+                continue;
+
+            if (!filtered.Contains(trimmed, StringComparer.OrdinalIgnoreCase))
+                filtered.Add(trimmed);
+        }
+
+        return filtered;
     }
 
     private static void TryKill(Process process)

@@ -225,6 +225,52 @@ public sealed class RecordingArtifactVerifierTests
         }
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void FilterSupportedWindowsExtensions_WhenPathExtMissing_ShouldFallBackToCanonicalOrder(
+        string? pathExt)
+    {
+        var extensions = RecordingArtifactVerifier.FilterSupportedWindowsExtensions(pathExt);
+
+        Assert.Equal(new[] { ".exe", ".cmd", ".bat" }, extensions);
+    }
+
+    [Fact]
+    public void FilterSupportedWindowsExtensions_ShouldExcludeUnsupportedScriptExtensions()
+    {
+        // Stock Windows PATHEXT plus Python installer entries; only .exe/.cmd/.bat
+        // can be launched by CreateFfprobeStartInfo with UseShellExecute=false.
+        var pathExt = ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.PY;.PYW";
+
+        var extensions = RecordingArtifactVerifier.FilterSupportedWindowsExtensions(pathExt);
+
+        Assert.Equal(new[] { ".EXE", ".BAT", ".CMD" }, extensions);
+    }
+
+    [Fact]
+    public void FilterSupportedWindowsExtensions_ShouldPreservePathExtPrecedenceAndDeduplicateCaseInsensitively()
+    {
+        // A user who reordered PATHEXT to prefer .cmd shims should get that order;
+        // the duplicate .CMD later in the list must be dropped.
+        var pathExt = ".CMD;.exe;.bat;.CMD";
+
+        var extensions = RecordingArtifactVerifier.FilterSupportedWindowsExtensions(pathExt);
+
+        Assert.Equal(new[] { ".CMD", ".exe", ".bat" }, extensions);
+    }
+
+    [Fact]
+    public void FilterSupportedWindowsExtensions_ShouldReturnEmptyWhenPathExtHasNoSupportedEntries()
+    {
+        var pathExt = ".VBS;.JS;.PY";
+
+        var extensions = RecordingArtifactVerifier.FilterSupportedWindowsExtensions(pathExt);
+
+        Assert.Empty(extensions);
+    }
+
     private static string CreateFfprobeFixture(string root, string name, string json)
     {
         if (OperatingSystem.IsWindows())
