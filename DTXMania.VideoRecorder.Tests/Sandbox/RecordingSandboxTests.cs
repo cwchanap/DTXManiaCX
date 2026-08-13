@@ -10,17 +10,19 @@ public sealed class RecordingSandboxTests
     [InlineData(" DEFAULT ")]
     public void Create_DefaultSkinToken_ShouldSurviveUnchanged(string skinPath)
     {
+        RecordingSandbox? sandbox = null;
         var sourceRoot = CreateSourceRoot(BuildConfig($"SkinPath={skinPath}"));
 
         try
         {
-            var sandbox = RecordingSandbox.Create(sourceRoot);
+            sandbox = RecordingSandbox.Create(sourceRoot);
 
             Assert.Contains($"SkinPath={skinPath}", File.ReadAllText(sandbox.ConfigPath));
-            Delete(sandbox.RunRoot);
         }
         finally
         {
+            if (sandbox is not null)
+                Delete(sandbox.RunRoot);
             Delete(sourceRoot);
         }
     }
@@ -40,9 +42,10 @@ public sealed class RecordingSandboxTests
             $"SystemSkinRoot={systemSkinRoot}",
             $"SkinPath={customSkinPath}"), root);
 
+        RecordingSandbox? sandbox = null;
         try
         {
-            var sandbox = RecordingSandbox.Create(sourceRoot);
+            sandbox = RecordingSandbox.Create(sourceRoot);
             var config = File.ReadAllText(sandbox.ConfigPath);
 
             Assert.Contains($"DTXPath={dtxPath}", config);
@@ -50,10 +53,11 @@ public sealed class RecordingSandboxTests
             Assert.Contains($"SongRoot.1={songRoot1}", config);
             Assert.Contains($"SystemSkinRoot={systemSkinRoot}", config);
             Assert.Contains($"SkinPath={customSkinPath}", config);
-            Delete(sandbox.RunRoot);
         }
         finally
         {
+            if (sandbox is not null)
+                Delete(sandbox.RunRoot);
             Delete(sourceRoot);
         }
     }
@@ -118,9 +122,10 @@ public sealed class RecordingSandboxTests
             "VSyncWait=True",
             "UnrelatedSetting=keep-this"));
 
+        RecordingSandbox? sandbox = null;
         try
         {
-            var sandbox = RecordingSandbox.Create(sourceRoot);
+            sandbox = RecordingSandbox.Create(sourceRoot);
             var config = File.ReadAllText(sandbox.ConfigPath);
 
             Assert.Contains("LastUsedSkin=My Custom Skin", config);
@@ -132,10 +137,11 @@ public sealed class RecordingSandboxTests
             Assert.Contains("SEVolume=44", config);
             Assert.Contains("VSyncWait=True", config);
             Assert.Contains("UnrelatedSetting=keep-this", config);
-            Delete(sandbox.RunRoot);
         }
         finally
         {
+            if (sandbox is not null)
+                Delete(sandbox.RunRoot);
             Delete(sourceRoot);
         }
     }
@@ -153,9 +159,10 @@ public sealed class RecordingSandboxTests
             "ScreenHeight=480",
             "FullScreen=True"));
 
+        RecordingSandbox? sandbox = null;
         try
         {
-            var sandbox = RecordingSandbox.Create(sourceRoot);
+            sandbox = RecordingSandbox.Create(sourceRoot);
             var config = File.ReadAllText(sandbox.ConfigPath);
 
             Assert.Contains("EnableGameApi=True", config);
@@ -168,10 +175,11 @@ public sealed class RecordingSandboxTests
             Assert.Contains("FullScreen=False", config);
             Assert.DoesNotContain("GameApiPort=1", config);
             Assert.DoesNotContain("GameApiKey=source-key", config);
-            Delete(sandbox.RunRoot);
         }
         finally
         {
+            if (sandbox is not null)
+                Delete(sandbox.RunRoot);
             Delete(sourceRoot);
         }
     }
@@ -185,9 +193,10 @@ public sealed class RecordingSandboxTests
         Directory.CreateDirectory(Path.Combine(sourceRoot, "Cache"));
         Directory.CreateDirectory(Path.Combine(sourceRoot, "CrashReports"));
 
+        RecordingSandbox? sandbox = null;
         try
         {
-            var sandbox = RecordingSandbox.Create(sourceRoot);
+            sandbox = RecordingSandbox.Create(sourceRoot);
             var files = Directory.GetFiles(sandbox.AppDataRoot, "*", SearchOption.AllDirectories)
                 .Select(path => Path.GetRelativePath(sandbox.AppDataRoot, path))
                 .ToArray();
@@ -195,10 +204,11 @@ public sealed class RecordingSandboxTests
             Assert.Equal(new[] { "Config.ini" }, files);
             Assert.True(File.Exists(Path.Combine(sourceRoot, "songs.db")));
             Assert.True(Directory.Exists(Path.Combine(sourceRoot, "Cache")));
-            Delete(sandbox.RunRoot);
         }
         finally
         {
+            if (sandbox is not null)
+                Delete(sandbox.RunRoot);
             Delete(sourceRoot);
         }
     }

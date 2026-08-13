@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using DTXMania.VideoRecorder.Obs;
 
@@ -10,16 +8,15 @@ public sealed class ObsProtocolTests
     [Fact]
     public void ComputeAuthentication_ShouldMatchObsV5Formula()
     {
-        const string password = "correct horse battery staple";
-        const string salt = "obs-salt";
-        const string challenge = "obs-challenge";
+        // Known-good value produced by the OBS WebSocket 5.x authentication
+        // handshake for these credentials:
+        // base64(SHA256(base64(SHA256(password + salt)) + challenge)).
+        const string expected = "5XCDnjkMTsOrmZMJmgMHaKFcC4oL8MRi3LFci+f2lCg=";
 
-        var secret = Convert.ToBase64String(
-            SHA256.HashData(Encoding.UTF8.GetBytes(password + salt)));
-        var expected = Convert.ToBase64String(
-            SHA256.HashData(Encoding.UTF8.GetBytes(secret + challenge)));
-
-        var actual = ObsProtocol.ComputeAuthentication(password, salt, challenge);
+        var actual = ObsProtocol.ComputeAuthentication(
+            "correct horse battery staple",
+            "obs-salt",
+            "obs-challenge");
 
         Assert.Equal(expected, actual);
     }
@@ -109,6 +106,13 @@ public sealed class ObsProtocolTests
             $"{{\"op\":{op},\"d\":{{\"requestType\":\"{requestType}\",\"requestId\":\"1\",\"requestStatus\":{{\"result\":true,\"code\":100}}}}}}";
 
         Assert.Throws<InvalidOperationException>(() => ObsProtocol.ParseRecordStatus(response));
+        Assert.Throws<InvalidOperationException>(() => ObsProtocol.ParseStopRecordOutputPath(response));
+    }
+
+    [Fact]
+    public void Parsers_ShouldRejectMalformedJson()
+    {
+        Assert.Throws<InvalidOperationException>(() => ObsProtocol.ParseRecordStatus("not-json"));
         Assert.Throws<InvalidOperationException>(() => ObsProtocol.ParseStopRecordOutputPath("not-json"));
     }
 
