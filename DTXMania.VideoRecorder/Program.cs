@@ -77,24 +77,30 @@ internal static class Program
                 }
 
                 var verifier = new RecordingArtifactVerifier();
-                var artifact = await verifier.VerifyAndPublishAsync(
-                        rawOutputPath,
-                        environment.ObsOutputDirectory,
-                        command.OutputDirectory!,
-                        cancellation.Token)
+                var recordingGame = game ?? throw new InvalidOperationException(
+                    "Recorder game control was not initialized.");
+                var artifact = await RecordFinalization.CompleteAsync(
+                        token => verifier.VerifyAndPublishAsync(
+                            rawOutputPath,
+                            environment.ObsOutputDirectory,
+                            command.OutputDirectory!,
+                            token),
+                        cancellation.Token,
+                        verifiedArtifact =>
+                        {
+                            diagnostics.SetRawOutputPath(verifiedArtifact.RawPath);
+                            diagnostics.SetPublishedPath(verifiedArtifact.PublishedPath);
+                            diagnostics.SetVerifierWarning(verifiedArtifact.Warning);
+                            diagnostics.RecordStep("ArtifactVerified");
+                            diagnostics.RecordStep("Completed");
+                        },
+                        diagnostics.MarkCompleted,
+                        () => diagnostics.WriteAsync(
+                            recordingGame.StandardOutput,
+                            recordingGame.StandardError,
+                            CancellationToken.None),
+                        sandbox.DeleteOnSuccessAsync)
                     .ConfigureAwait(false);
-                diagnostics.SetRawOutputPath(artifact.RawPath);
-                diagnostics.SetPublishedPath(artifact.PublishedPath);
-                diagnostics.SetVerifierWarning(artifact.Warning);
-                diagnostics.RecordStep("ArtifactVerified");
-                diagnostics.RecordStep("Completed");
-                diagnostics.MarkCompleted();
-                await diagnostics.WriteAsync(
-                        game.StandardOutput,
-                        game.StandardError,
-                        CancellationToken.None)
-                    .ConfigureAwait(false);
-                await sandbox.DeleteOnSuccessAsync().ConfigureAwait(false);
                 Console.WriteLine($"OBS raw output: '{artifact.RawPath}'.");
                 Console.WriteLine($"Published output: '{artifact.PublishedPath}'.");
                 return 0;

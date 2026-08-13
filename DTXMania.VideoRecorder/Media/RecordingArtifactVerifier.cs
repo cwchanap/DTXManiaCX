@@ -113,21 +113,7 @@ internal sealed class RecordingArtifactVerifier
             return "ffprobe unavailable on PATH; media stream validation skipped.";
         }
 
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = ffprobePath,
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true
-        };
-        startInfo.ArgumentList.Add("-v");
-        startInfo.ArgumentList.Add("error");
-        startInfo.ArgumentList.Add("-show_entries");
-        startInfo.ArgumentList.Add("stream=codec_type");
-        startInfo.ArgumentList.Add("-of");
-        startInfo.ArgumentList.Add("json");
-        startInfo.ArgumentList.Add(rawPath);
+        var startInfo = CreateFfprobeStartInfo(ffprobePath, rawPath);
 
         using var process = new Process { StartInfo = startInfo };
         try
@@ -207,6 +193,50 @@ internal sealed class RecordingArtifactVerifier
             return false;
         }
     }
+
+    private static ProcessStartInfo CreateFfprobeStartInfo(string ffprobePath, string rawPath)
+    {
+        var arguments = new[]
+        {
+            "-v",
+            "error",
+            "-show_entries",
+            "stream=codec_type",
+            "-of",
+            "json",
+            rawPath
+        };
+
+        var startInfo = new ProcessStartInfo
+        {
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+        var extension = Path.GetExtension(ffprobePath);
+        var isWindowsBatch = OperatingSystem.IsWindows() &&
+            (extension.Equals(".cmd", StringComparison.OrdinalIgnoreCase) ||
+             extension.Equals(".bat", StringComparison.OrdinalIgnoreCase));
+
+        if (isWindowsBatch)
+        {
+            var command = string.Join(
+                " ",
+                new[] { ffprobePath }.Concat(arguments).Select(QuoteCommandArgument));
+            startInfo.FileName = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe";
+            startInfo.Arguments = $"/d /s /c call {command}";
+            return startInfo;
+        }
+
+        startInfo.FileName = ffprobePath;
+        foreach (var argument in arguments)
+            startInfo.ArgumentList.Add(argument);
+        return startInfo;
+    }
+
+    private static string QuoteCommandArgument(string value) =>
+        "\"" + value.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"";
 
     private static string EnsureContained(string rawPath, string obsRoot)
     {
