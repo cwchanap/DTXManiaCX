@@ -1,4 +1,6 @@
 using DTXMania.VideoRecorder.Configuration;
+using DTXMania.VideoRecorder.Diagnostics;
+using DTXMania.VideoRecorder.Media;
 using DTXMania.VideoRecorder.Obs;
 using DTXMania.VideoRecorder.Sandbox;
 using DTXMania.VideoRecorder.Workflow;
@@ -43,31 +45,88 @@ internal static class Program
         try
         {
             var sandbox = RecordingSandbox.Create(environment.SourceAppDataRoot);
+            var diagnostics = new RecorderDiagnostics(
+                command.OutputDirectory!,
+                Path.GetFileName(sandbox.RunRoot),
+                sandbox.ApiKey,
+                environment.ObsPassword);
+            AutomationGameRecordingControl? game = null;
+            ObsWebSocketRecorder? obs = null;
             try
             {
                 Console.WriteLine($"Recorder sandbox ready at '{sandbox.RunRoot}'.");
                 var startOptions = RecorderGameLaunchPolicy.CreateOptions(sandbox);
-                await using var game = new AutomationGameRecordingControl(
+                game = new AutomationGameRecordingControl(
                     sandbox.ApiPort,
                     sandbox.ApiKey);
-                await using var obs = new ObsWebSocketRecorder(
+                obs = new ObsWebSocketRecorder(
                     environment.ObsUrl,
                     environment.ObsPassword);
                 var workflow = new RecordWorkflow(
                     game,
                     obs,
                     command.ChartPath!,
-                    startOptions);
+                    startOptions,
+                    diagnostics: diagnostics);
                 var rawOutputPath = await workflow.RunAsync(cancellation.Token)
                     .ConfigureAwait(false);
-                Console.WriteLine($"OBS raw output: '{rawOutputPath}'.");
+                if (string.IsNullOrWhiteSpace(rawOutputPath))
+                {
+                    throw new InvalidOperationException(
+                        "OBS did not return a raw output path after recording.");
+                }
+
+                var verifier = new RecordingArtifactVerifier();
+                var artifact = await verifier.VerifyAndPublishAsync(
+                        rawOutputPath,
+                        environment.ObsOutputDirectory,
+                        command.OutputDirectory!,
+                        cancellation.Token)
+                    .ConfigureAwait(false);
+                diagnostics.SetRawOutputPath(artifact.RawPath);
+                diagnostics.SetPublishedPath(artifact.PublishedPath);
+                diagnostics.SetVerifierWarning(artifact.Warning);
+                diagnostics.RecordStep("ArtifactVerified");
+                diagnostics.RecordStep("Completed");
+                diagnostics.MarkCompleted();
+                await diagnostics.WriteAsync(
+                        game.StandardOutput,
+                        game.StandardError,
+                        CancellationToken.None)
+                    .ConfigureAwait(false);
                 await sandbox.DeleteOnSuccessAsync().ConfigureAwait(false);
+                Console.WriteLine($"OBS raw output: '{artifact.RawPath}'.");
+                Console.WriteLine($"Published output: '{artifact.PublishedPath}'.");
                 return 0;
             }
-            catch
+            catch (Exception exception)
             {
+                diagnostics.MarkFailure(exception, sandbox.RunRoot);
+                try
+                {
+                    await diagnostics.WriteAsync(
+                            game?.StandardOutput,
+                            game?.StandardError,
+                            CancellationToken.None)
+                        .ConfigureAwait(false);
+                }
+                catch (Exception diagnosticsException)
+                {
+                    // Diagnostics are secondary evidence; preserve the primary
+                    // recording failure and make the write problem visible.
+                    Console.Error.WriteLine(
+                        $"Warning: recorder diagnostics could not be written: {diagnosticsException.Message}");
+                }
+
                 // Keep the sandbox for diagnostics when a record run fails.
                 throw;
+            }
+            finally
+            {
+                if (game is not null)
+                    await game.DisposeAsync().ConfigureAwait(false);
+                if (obs is not null)
+                    await obs.DisposeAsync().ConfigureAwait(false);
             }
         }
         finally
