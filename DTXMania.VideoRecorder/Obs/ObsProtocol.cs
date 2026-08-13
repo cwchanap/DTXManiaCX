@@ -20,11 +20,12 @@ internal sealed record ObsRequestResponse(
 /// </summary>
 internal static class ObsProtocol
 {
-    private const int HelloOpCode = 0;
     private const int IdentifyOpCode = 1;
-    private const int IdentifiedOpCode = 2;
     private const int RequestOpCode = 6;
-    private const int RequestResponseOpCode = 7;
+    internal const int HelloOpCode = 0;
+    internal const int IdentifiedOpCode = 2;
+    internal const int EventOpCode = 5;
+    internal const int RequestResponseOpCode = 7;
 
     internal static string ComputeAuthentication(string password, string salt, string challenge)
     {

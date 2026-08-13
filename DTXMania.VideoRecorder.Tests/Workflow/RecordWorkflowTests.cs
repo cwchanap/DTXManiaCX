@@ -318,7 +318,16 @@ public sealed class RecordWorkflowTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             () => workflow.RunAsync(cancellation.Token));
 
-        Assert.DoesNotContain("key:", game.Events);
+        // Enter is expected during Title (before Result); cancellation during the
+        // Result hold must not emit any further key input.
+        var resultIndex = game.Events.IndexOf("state:Result");
+        Assert.True(resultIndex >= 0, "Expected to reach the Result stage before cancellation.");
+        Assert.Contains(
+            game.Events.Take(resultIndex),
+            e => e.StartsWith("key:Enter", StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            game.Events.Skip(resultIndex + 1),
+            e => e.StartsWith("key:", StringComparison.Ordinal));
         Assert.Contains("obs:stop", obs.Events);
     }
 

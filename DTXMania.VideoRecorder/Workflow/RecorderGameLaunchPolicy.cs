@@ -7,8 +7,20 @@ namespace DTXMania.VideoRecorder.Workflow;
 /// Recorder-local launch policy. Automation deliberately does not know how a
 /// disposable recorder sandbox maps to the repository's Windows game project.
 /// </summary>
+/// <remarks>
+/// <b>Repository-root contract:</b> <c>dtx-video</c> must be invoked with the
+/// repository checkout as its working directory. <see cref="CreateOptions"/>
+/// treats <see cref="Directory.GetCurrentDirectory"/> as the declared root
+/// source and walks upward from it to locate the solution, so the Windows game
+/// project (<c>DTXMania.Game/DTXMania.Game.Windows.csproj</c>) is always
+/// resolved relative to that single declared root.
+/// </remarks>
 internal static class RecorderGameLaunchPolicy
 {
+    /// <summary>
+    /// Builds the launch options for the Windows game project rooted at the
+    /// repository root declared via the current working directory.
+    /// </summary>
     public static GameProcessStartOptions CreateOptions(RecordingSandbox sandbox)
     {
         ArgumentNullException.ThrowIfNull(sandbox);

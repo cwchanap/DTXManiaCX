@@ -47,14 +47,6 @@ internal sealed class RecordingArtifactVerifier
         ArgumentNullException.ThrowIfNull(ffprobePathResolver);
     }
 
-    public RecordingArtifactVerification VerifyAndPublish(
-        string rawPath,
-        string obsRoot,
-        string publishDirectory)
-        => VerifyAndPublishAsync(rawPath, obsRoot, publishDirectory)
-            .GetAwaiter()
-            .GetResult();
-
     public async Task<RecordingArtifactVerification> VerifyAndPublishAsync(
         string rawPath,
         string obsRoot,
@@ -140,10 +132,11 @@ internal sealed class RecordingArtifactVerifier
             }
 
             var output = await standardOutput.ConfigureAwait(false);
+            var error = await standardError.ConfigureAwait(false);
             if (process.ExitCode != 0)
             {
                 throw new InvalidOperationException(
-                    $"ffprobe failed while validating '{rawPath}' (exit code {process.ExitCode}).");
+                    $"ffprobe failed while validating '{rawPath}' (exit code {process.ExitCode}): {error}");
             }
 
             if (!ContainsAudioAndVideo(output))
@@ -221,9 +214,21 @@ internal sealed class RecordingArtifactVerifier
 
         if (isWindowsBatch)
         {
+            var batchArguments = new[] { ffprobePath }.Concat(arguments);
+            foreach (var argument in batchArguments)
+            {
+                if (argument.Contains('%'))
+                {
+                    throw new InvalidOperationException(
+                        $"Refusing to pass an argument containing a percent sign to the Windows " +
+                        $"batch invocation of ffprobe ('{argument}'). Batch variable expansion via " +
+                        $"ComSpec is unsafe for recorder-controlled paths such as capture%NAME%.mp4.");
+                }
+            }
+
             var command = string.Join(
                 " ",
-                new[] { ffprobePath }.Concat(arguments).Select(QuoteCommandArgument));
+                batchArguments.Select(QuoteCommandArgument));
             startInfo.FileName = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe";
             startInfo.Arguments = $"/d /s /c call {command}";
             return startInfo;

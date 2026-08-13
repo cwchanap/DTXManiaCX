@@ -157,6 +157,54 @@ public sealed class RecordingArtifactVerifierTests
         }
     }
 
+    [Fact]
+    public async Task VerifyAndPublishAsync_WhenFfprobeHangs_ShouldFailWithTimeout()
+    {
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            var obsRoot = Directory.CreateDirectory(Path.Combine(root, "obs")).FullName;
+            var raw = Path.Combine(obsRoot, "capture.mp4");
+            await File.WriteAllTextAsync(raw, "raw");
+            var ffprobe = CreateSleepingFfprobeFixture(root, "sleeping");
+            var verifier = new RecordingArtifactVerifier(TimeSpan.FromMilliseconds(200), () => ffprobe);
+
+            var exception = await Assert.ThrowsAsync<TimeoutException>(() =>
+                verifier.VerifyAndPublishAsync(raw, obsRoot, Path.Combine(root, "published")));
+
+            Assert.Contains("ffprobe", exception.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            DeleteDirectory(root);
+        }
+    }
+
+    [Fact]
+    public async Task VerifyAndPublishAsync_WhenFfprobeExitsNonZero_ShouldFailWithExitCodeAndStdError()
+    {
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            var obsRoot = Directory.CreateDirectory(Path.Combine(root, "obs")).FullName;
+            var raw = Path.Combine(obsRoot, "capture.mp4");
+            await File.WriteAllTextAsync(raw, "raw");
+            var ffprobe = CreateFailingFfprobeFixture(root, "failing", "no such file or stream");
+            var verifier = new RecordingArtifactVerifier(TimeSpan.FromSeconds(2), () => ffprobe);
+
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                verifier.VerifyAndPublishAsync(raw, obsRoot, Path.Combine(root, "published")));
+
+            Assert.Contains("ffprobe failed", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("exit code 1", exception.Message, StringComparison.Ordinal);
+            Assert.Contains("no such file or stream", exception.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            DeleteDirectory(root);
+        }
+    }
+
     private static string CreateFfprobeFixture(string root, string name, string json)
     {
         if (OperatingSystem.IsWindows())
@@ -172,6 +220,43 @@ public sealed class RecordingArtifactVerifierTests
         File.WriteAllText(path, $"#!/bin/sh{Environment.NewLine}printf '%s' '{json}'{Environment.NewLine}");
         if (!OperatingSystem.IsWindows())
             File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        return path;
+    }
+
+    private static string CreateSleepingFfprobeFixture(string root, string name)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            var windowsPath = Path.Combine(root, name + ".cmd");
+            // ping is used as a portable sleep that works under cmd with redirected streams.
+            File.WriteAllText(
+                windowsPath,
+                $"@echo off{Environment.NewLine}ping 127.0.0.1 -n 30 >nul{Environment.NewLine}");
+            return windowsPath;
+        }
+
+        var path = Path.Combine(root, name);
+        File.WriteAllText(path, $"#!/bin/sh{Environment.NewLine}sleep 30{Environment.NewLine}");
+        File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        return path;
+    }
+
+    private static string CreateFailingFfprobeFixture(string root, string name, string stderr)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            var windowsPath = Path.Combine(root, name + ".cmd");
+            File.WriteAllText(
+                windowsPath,
+                $"@echo off{Environment.NewLine}echo {stderr} 1>&2{Environment.NewLine}exit /b 1{Environment.NewLine}");
+            return windowsPath;
+        }
+
+        var path = Path.Combine(root, name);
+        File.WriteAllText(
+            path,
+            $"#!/bin/sh{Environment.NewLine}echo '{stderr}' >&2{Environment.NewLine}exit 1{Environment.NewLine}");
+        File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         return path;
     }
 
