@@ -84,7 +84,12 @@ public sealed class RecordingSandboxTests
     public void Create_WithoutIndexedSongRoot_ShouldReject()
     {
         var sourceRoot = CreateSourceRoot(
-            BuildConfig().Replace("SongRoot.0=/absolute/Songs\n", string.Empty, StringComparison.Ordinal));
+            string.Join(
+                    '\n',
+                    BuildConfig()
+                        .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                        .Where(line => !line.StartsWith("SongRoot.0=", StringComparison.Ordinal))) +
+                "\n");
 
         try
         {
@@ -218,23 +223,52 @@ public sealed class RecordingSandboxTests
     }
 
     [Fact]
-    public void UnhandledRunFailure_ShouldLeaveRunRootForDiagnostics()
+    public void Create_WhenFailureOccursAfterRunRootCreation_ShouldLeaveRunRootForDiagnostics()
     {
         var sourceRoot = CreateSourceRoot(BuildConfig());
         string? runRoot = null;
 
         try
         {
-            var sandbox = RecordingSandbox.Create(sourceRoot);
-            runRoot = sandbox.RunRoot;
+            var exception = Assert.Throws<InvalidOperationException>(() =>
+                RecordingSandbox.CreateForTests(
+                    sourceRoot,
+                    createdRunRoot =>
+                    {
+                        runRoot = createdRunRoot;
+                        throw new InvalidOperationException("injected post-create failure");
+                    }));
 
-            Assert.True(Directory.Exists(sandbox.RunRoot));
-            Assert.True(File.Exists(sandbox.ConfigPath));
+            Assert.Equal("injected post-create failure", exception.Message);
+            Assert.NotNull(runRoot);
+            Assert.True(Directory.Exists(runRoot));
+            Assert.True(Directory.Exists(Path.Combine(runRoot!, "appdata")));
         }
         finally
         {
             if (runRoot is not null)
                 Delete(runRoot);
+            Delete(sourceRoot);
+        }
+    }
+
+    [Theory]
+    [InlineData("DTXPath=relative/duplicate")]
+    [InlineData("SystemSkinRoot=relative/duplicate")]
+    [InlineData("SkinPath=relative/duplicate")]
+    public void Create_WhenScalarPathHasRelativeDuplicate_ShouldReject(string duplicateLine)
+    {
+        var sourceRoot = CreateSourceRoot(BuildConfig() + duplicateLine + "\n");
+
+        try
+        {
+            var exception = Assert.Throws<InvalidOperationException>(() => RecordingSandbox.Create(sourceRoot));
+
+            Assert.Contains("not normalized", exception.Message);
+            Assert.Contains("Open CX once and exit normally, then retry dtx-video.", exception.Message);
+        }
+        finally
+        {
             Delete(sourceRoot);
         }
     }
@@ -249,12 +283,15 @@ public sealed class RecordingSandboxTests
 
     private static string BuildConfig(params string[] overrides)
     {
+        var fixtureRoot = Path.Combine(Path.GetTempPath(), "dtx-video-config-fixture");
+        var fixtureSongs = Path.Combine(fixtureRoot, "Songs");
+        var fixtureSystem = Path.Combine(fixtureRoot, "System");
         var values = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["SkinPath"] = "Default",
-            ["DTXPath"] = "/absolute/Songs",
-            ["SongRoot.0"] = "/absolute/Songs",
-            ["SystemSkinRoot"] = "/absolute/System",
+            ["DTXPath"] = fixtureSongs,
+            ["SongRoot.0"] = fixtureSongs,
+            ["SystemSkinRoot"] = fixtureSystem,
             ["LastUsedSkin"] = "Default",
             ["ScreenWidth"] = "1920",
             ["ScreenHeight"] = "1080",
