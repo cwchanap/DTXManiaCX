@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make normal CX Mac build/run/publish output carry a verified native Apple Silicon `ffmpeg`/`ffprobe` runtime so MP3 preview and non-default playback variants work without Rosetta or user-installed FFmpeg.
+**Goal:** Make normal CX Mac build/run/test/publish output carry a verified native Apple Silicon `ffmpeg`/`ffprobe` runtime so MP3 preview and non-default playback variants work without Rosetta or user-installed FFmpeg.
 
-**Architecture:** Extract the already-proven FFmpeg 7.0.2 arm64 source build from `release.yml` into one reusable shell builder with a versioned user cache. `DTXMania.Game.Mac.csproj` owns copying that runtime into build and publish outputs; existing `FfmpegRuntime` remains the runtime resolver. Native `macos-15` CI validates the real files and focused audio paths, and release reuses the same project-owned output.
+**Architecture:** Extract the already-proven FFmpeg 7.0.2 arm64 source build from `release.yml` into one reusable shell builder with a versioned user cache. `DTXMania.Game.Mac.csproj` stages the generated files under `obj` before MSBuild resolves output-copy items, then declares them as normal build/publish content so they propagate through `ProjectReference` into Mac tests. Existing `FfmpegRuntime` remains the runtime resolver. Native `macos-15` CI validates the real files and focused audio paths, and release reuses the same project-owned output.
 
 **Tech Stack:** .NET 8, MonoGame DesktopGL, FFMpegCore 5.4.0, FFmpeg 7.0.2 source build, Bash/MSBuild, xUnit, GitHub Actions `macos-15`.
 
@@ -35,11 +35,12 @@ Create:
 
 Modify:
   DTXMania.Game/DTXMania.Game.Mac.csproj
+  DTXMania.Test/DTXMania.Test.Mac.csproj
   DTXMania.Test/Resources/FfmpegRuntimeCoverageTests.cs
   .github/workflows/build-and-test.yml
   .github/workflows/release.yml
 
-Only modify if the packaged-app verification exposes a real permission-copy bug:
+Only modify if packaged-app verification exposes a real permission-copy bug:
   installer/macos/build-dmg.sh
   installer/macos/test-build-dmg.sh
 ```
@@ -90,11 +91,15 @@ Fail before download/build unless:
 [[ "$(uname -m)" == "arm64" ]]
 ```
 
-Error text must identify native Apple Silicon as the supported Mac build rather than suggesting Rosetta.
+Use this failure meaning:
+
+```text
+Native CX macOS runtime requires Apple Silicon (arm64); Intel/Rosetta is not supported.
+```
 
 - [ ] **Step 2: Preserve the existing minimal feature set and make dependency/license behavior deterministic.**
 
-Start from the current release configure list and add explicit fail-closed flags:
+Start from the current release configure list and add:
 
 ```text
 --disable-autodetect
@@ -102,7 +107,20 @@ Start from the current release configure list and add explicit fail-closed flags
 --disable-nonfree
 ```
 
-Keep the current required decoders/demuxers/parsers/protocols/encoder/muxer/filters exactly as documented in the design spec. Do not add Homebrew codecs or external libraries.
+Keep exactly these CX requirements:
+
+```text
+decoders: mp3float, vorbis, pcm_s16le, pcm_s24le, pcm_f32le, pcm_u8,
+          pcm_alaw, pcm_mulaw, adpcm_ima_wav, adpcm_ms
+demuxers: mp3, wav, ogg, pcm_s16le
+parsers:  mpegaudio, vorbis
+protocols: file, pipe
+encoder:   pcm_s16le
+muxer:     pcm_s16le
+filters:   aformat, anull, aresample, atempo, apad, atrim
+```
+
+Do not add Homebrew/external codecs.
 
 - [ ] **Step 3: Make the versioned cache copy-only on a valid hit.**
 
@@ -115,9 +133,9 @@ cached COPYING.LGPLv2.1 exists
 cached source.sha256 contains the exact pinned tarball hash
 ```
 
-On a miss, build into a temporary directory, validate it, then replace the versioned cache. Do not add cross-process locking; CI/local build concurrency does not justify it here.
+On a miss, build into a temporary directory, validate it, then replace the versioned cache. Do not add cross-process locking.
 
-- [ ] **Step 4: Keep all native verification inside the builder.**
+- [ ] **Step 4: Keep native verification inside the builder.**
 
 For both binaries independently require:
 
@@ -125,7 +143,7 @@ For both binaries independently require:
 file -b "$bin" | grep -qi 'arm64'
 ```
 
-Require the same feature checks currently embedded in `release.yml`:
+Require:
 
 ```text
 filters:  atempo apad atrim aformat aresample
@@ -137,22 +155,24 @@ muxer:    s16le
 
 Run `ffmpeg -version` and `ffprobe -version` successfully before caching.
 
-- [ ] **Step 5: Copy license and provenance documentation.**
+- [ ] **Step 5: Copy license and document provenance/update.**
 
 Copy `COPYING.LGPLv2.1` from the verified source tree/cache to `FFmpeg-LGPL-2.1.txt` in the caller's license output directory.
 
-Document in `README.md`:
+`README.md` must record:
 
 ```text
-version + source URL + source SHA-256
-why the minimal configure set exists
-cache location and DTXMANIA_FFMPEG_CACHE_ROOT override
-rm -rf cache command for a clean rebuild
-version-update procedure
-local build/verify commands
+version
+source URL
+source SHA-256
+minimal configure rationale
+cache location + DTXMANIA_FFMPEG_CACHE_ROOT override
+clean-cache command
+version/checksum update steps
+cold/warm local verification commands
 ```
 
-- [ ] **Step 6: Validate a cold build and a warm-cache copy.**
+- [ ] **Step 6: Validate cold build and warm-cache copy.**
 
 Run on Apple Silicon:
 
@@ -174,7 +194,7 @@ time bash tools/ffmpeg/macos-arm64/build-runtime.sh \
   /tmp/dtx-ffmpeg-licenses
 ```
 
-Expected: first command builds from source; second command reuses the cache and only verifies/copies.
+Expected: first command builds from source; second reuses cache and verifies/copies only.
 
 - [ ] **Step 7: Commit checkpoint.**
 
@@ -185,7 +205,7 @@ git commit -m "build: extract native Apple Silicon ffmpeg runtime"
 
 ---
 
-### Task 2: Make the Mac project own build/run/publish runtime placement
+### Task 2: Make the Mac project expose native runtime as normal content
 
 **Files:**
 - Modify `DTXMania.Game/DTXMania.Game.Mac.csproj`
@@ -193,17 +213,16 @@ git commit -m "build: extract native Apple Silicon ffmpeg runtime"
 
 **Consumes:** `tools/ffmpeg/macos-arm64/build-runtime.sh <runtime-dir> <license-dir>` from Task 1.
 
-**Produces:** normal Mac build and publish outputs containing the native runtime and license.
+**Produces:** one transitive build/test/publish content contract for native FFmpeg.
 
-- [ ] **Step 1: Tighten the existing resolver contract test before project wiring.**
+- [ ] **Step 1: Tighten the resolver preference test first.**
 
-Change `GetFFmpegBinaryFolder_ShouldPreferFirstCompleteCandidate` so the complete preferred candidate is:
+Change `GetFFmpegBinaryFolder_ShouldPreferFirstCompleteCandidate` so both of these are complete:
 
 ```text
 <assembly>/runtimes/osx-arm64/MMTools
+<assembly>/runtimes/osx-x64/MMTools
 ```
-
-and a complete `osx-x64/MMTools` candidate also exists.
 
 Expected assertion:
 
@@ -211,55 +230,64 @@ Expected assertion:
 Assert.Equal(arm64, result);
 ```
 
-Keep the split-folder and PATH tests unchanged.
+Keep split-folder and PATH tests unchanged.
 
-- [ ] **Step 2: Remove only the obsolete x64 runtime package.**
+- [ ] **Step 2: Remove only the obsolete x64 package.**
 
-Delete from `DTXMania.Game.Mac.csproj`:
+Delete:
 
 ```xml
 <PackageReference Include="MMTools.Executables.MacOS.X64" Version="1.0.6" />
 ```
 
-Do not change `FFMpegCore` or the Windows project.
+Keep `FFMpegCore` and the Windows project unchanged.
 
-- [ ] **Step 3: Add Mac-only MSBuild targets for normal build and publish.**
+- [ ] **Step 3: Define one intermediate staging root in the Mac project.**
 
-Keep the target local to `DTXMania.Game.Mac.csproj`.
-
-After a successful `Build` on macOS, invoke:
+Use project-local intermediate paths under `$(BaseIntermediateOutputPath)`:
 
 ```text
-bash tools/ffmpeg/macos-arm64/build-runtime.sh
-  $(TargetDir)/runtimes/osx-arm64/MMTools
-  $(TargetDir)/Licenses
+ffmpeg-runtime/runtimes/osx-arm64/MMTools/ffmpeg
+ffmpeg-runtime/runtimes/osx-arm64/MMTools/ffprobe
+ffmpeg-runtime/Licenses/FFmpeg-LGPL-2.1.txt
 ```
 
-After `Publish`, invoke the same script for:
+Add a macOS-only target before `PrepareForBuild` that invokes the builder with the runtime and license staging directories. Resolve the script relative to `$(MSBuildProjectDirectory)` so the command does not depend on shell working directory.
+
+The builder's user cache makes this target cheap on warm builds.
+
+- [ ] **Step 4: Declare staged files as normal output + publish items.**
+
+In `DTXMania.Game.Mac.csproj`, declare the exact staged files with links:
 
 ```text
-$(PublishDir)/runtimes/osx-arm64/MMTools
-$(PublishDir)/Licenses
+runtimes/osx-arm64/MMTools/ffmpeg
+runtimes/osx-arm64/MMTools/ffprobe
+Licenses/FFmpeg-LGPL-2.1.txt
 ```
 
-Use a repository-root-relative script path based on `$(MSBuildProjectDirectory)`, not the shell working directory.
+and:
 
-Do not add shared `.props`/`.targets` files for this single platform project.
+```text
+CopyToOutputDirectory=PreserveNewest
+CopyToPublishDirectory=PreserveNewest
+```
 
-- [ ] **Step 4: Prove normal `dotnet build` and `dotnet run` output is self-contained.**
+Do not post-copy directly into `bin`/publish. The declared items are intentional so `ProjectReference` can propagate them to `DTXMania.Test.Mac`.
 
-Run on Apple Silicon:
+- [ ] **Step 5: Prove normal game build output.**
 
 ```bash
 dotnet restore DTXMania.Game/DTXMania.Game.Mac.csproj
 dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj -c Debug
 
-test -x DTXMania.Game/bin/Debug/net8.0/runtimes/osx-arm64/MMTools/ffmpeg
-test -x DTXMania.Game/bin/Debug/net8.0/runtimes/osx-arm64/MMTools/ffprobe
+runtime="DTXMania.Game/bin/Debug/net8.0/runtimes/osx-arm64/MMTools"
+test -x "$runtime/ffmpeg"
+test -x "$runtime/ffprobe"
 test -f DTXMania.Game/bin/Debug/net8.0/Licenses/FFmpeg-LGPL-2.1.txt
 ```
 
-Launch once with the normal project command and confirm the process itself starts as arm64:
+Launch once through the normal supported command:
 
 ```bash
 dotnet run --project DTXMania.Game/DTXMania.Game.Mac.csproj
@@ -267,7 +295,20 @@ dotnet run --project DTXMania.Game/DTXMania.Game.Mac.csproj
 
 No PATH FFmpeg installation is part of the success path.
 
-- [ ] **Step 5: Prove self-contained publish output.**
+- [ ] **Step 6: Prove project-reference propagation to Mac test output.**
+
+```bash
+dotnet build DTXMania.Test/DTXMania.Test.Mac.csproj -c Debug
+
+test_runtime="DTXMania.Test/bin/Debug/net8.0/runtimes/osx-arm64/MMTools"
+test -x "$test_runtime/ffmpeg"
+test -x "$test_runtime/ffprobe"
+test -f DTXMania.Test/bin/Debug/net8.0/Licenses/FFmpeg-LGPL-2.1.txt
+```
+
+If this fails, fix the Game project item metadata; do not add a second FFmpeg copy target to the test project.
+
+- [ ] **Step 7: Prove self-contained publish output.**
 
 ```bash
 rm -rf /tmp/dtx-publish-arm64
@@ -281,7 +322,7 @@ test -x /tmp/dtx-publish-arm64/runtimes/osx-arm64/MMTools/ffprobe
 test -f /tmp/dtx-publish-arm64/Licenses/FFmpeg-LGPL-2.1.txt
 ```
 
-- [ ] **Step 6: Run focused resolver tests and commit checkpoint.**
+- [ ] **Step 8: Run focused resolver tests and commit checkpoint.**
 
 ```bash
 dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj \
@@ -300,15 +341,15 @@ git commit -m "build: bundle native ffmpeg in Mac outputs"
 **Files:**
 - Create `DTXMania.Test/TestData/Audio/ffmpeg-tone.mp3`
 - Create `DTXMania.Test/Resources/FfmpegNativeRuntimeIntegrationTests.cs`
-- Modify `DTXMania.Test/DTXMania.Test.Mac.csproj` only if the existing test-data include does not copy the new fixture
+- Modify `DTXMania.Test/DTXMania.Test.Mac.csproj`
 
-**Consumes:** bundled runtime produced by the Mac project.
+**Consumes:** native runtime propagated into the Mac test output by Task 2.
 
-**Produces:** two native integration gates: real MP3 `ManagedSound` load and one real non-default `FfmpegAudioVariantProcessor` transform.
+**Produces:** real bundled-runtime gates for MP3 `ManagedSound` and one non-default variant transform.
 
 - [ ] **Step 1: Generate one project-owned MP3 fixture.**
 
-On a development Mac with a full FFmpeg installed for test-fixture generation only:
+Use a full development FFmpeg once to create the committed test asset:
 
 ```bash
 mkdir -p DTXMania.Test/TestData/Audio
@@ -318,56 +359,74 @@ ffmpeg -hide_banner -loglevel error \
   -y DTXMania.Test/TestData/Audio/ffmpeg-tone.mp3
 ```
 
-The committed tone contains no third-party media. Do not make fixture generation part of production build.
+The tone is generated project test data, not third-party media. Fixture generation is not part of production build.
 
-- [ ] **Step 2: Add one arm64-only runtime-location/process smoke.**
+- [ ] **Step 2: Copy the audio fixture into the Mac test output.**
 
-In `FfmpegNativeRuntimeIntegrationTests`, return without asserting native behavior when the host is not `OperatingSystem.IsMacOS()` + `Architecture.Arm64`; Windows remains covered by normal tests.
+Extend `DTXMania.Test.Mac.csproj` with the same shape already used for `TestData/NxScores`:
 
-On native Mac require:
+```xml
+<None Include="TestData/Audio/**/*">
+  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+</None>
+```
+
+- [ ] **Step 3: Add the arm64-only bundled-runtime smoke.**
+
+In `FfmpegNativeRuntimeIntegrationTests`, immediately return on hosts other than macOS arm64. On native Mac assert:
 
 ```text
 FfmpegRuntime.EnsureConfigured().IsAvailable == true
-BinaryFolder ends with runtimes/osx-arm64/MMTools
-ffmpeg and ffprobe exist and are executable
-process execution of ffmpeg -version succeeds
-process execution of ffprobe -version succeeds
+BinaryFolder == test assembly/runtimes/osx-arm64/MMTools
+ffmpeg exists + Unix execute bit
+ffprobe exists + Unix execute bit
+ffmpeg -version exits 0
+ffprobe -version exits 0
 ```
 
-Do not create a reusable process-runner abstraction for two smoke commands.
+Use `ProcessStartInfo` directly in this test class. Do not create a reusable process-runner abstraction for two commands.
 
-- [ ] **Step 3: Add the real MP3 `ManagedSound` smoke.**
+- [ ] **Step 4: Add the real MP3 `ManagedSound` smoke.**
 
-With `ALSOFT_DRIVERS=null` in the test process/CI environment:
+Resolve the copied fixture from `AppContext.BaseDirectory` and run with `ALSOFT_DRIVERS=null`:
 
 ```csharp
-using var sound = new ManagedSound(mp3Fixture);
+var mp3Path = Path.Combine(
+    AppContext.BaseDirectory,
+    "TestData",
+    "Audio",
+    "ffmpeg-tone.mp3");
+using var sound = new ManagedSound(mp3Path);
 Assert.True(sound.Duration > TimeSpan.Zero);
 ```
 
-This must exercise the packaged runtime through `FfmpegRuntime`; do not configure FFMpegCore to PATH inside the test.
+Do not configure FFMpegCore to PATH in the test.
 
-- [ ] **Step 4: Add one real variant transform smoke.**
+- [ ] **Step 5: Add one real non-default variant smoke.**
 
-Generate a small PCM WAV in the test temporary directory and run the public default processor:
+Write a deterministic 44.1 kHz mono 16-bit PCM WAV to a temporary path in the test, then use the public production processor exactly as follows:
 
 ```csharp
 var processor = new FfmpegAudioVariantProcessor();
 var artifact = await processor.PrepareAsync(
     wavPath,
-    new PlaybackModifiers(/* use the existing non-default play-speed factory/constructor */),
+    new PlaybackModifiers(125, 0),
     cancellationToken);
+
+Assert.True(artifact.PcmByteLength > 0);
+Assert.Equal(44_100, artifact.SampleRate);
+Assert.Equal(1, artifact.ChannelCount);
 ```
 
-Use the repository's actual `PlaybackModifiers` API and one supported non-default speed already covered by unit tests. Assert a non-empty prepared artifact, then dispose/delete via the existing artifact ownership contract.
+`125` is a valid non-default `PlaySpeedRange` value and exercises `atempo`; pitch remains default.
 
-This test must use the real backend; do not pass the internal fake backend used by unit tests.
+Clean only the source WAV/temp test directory in `finally`. `PreparedAudioArtifact` is in-memory and does not need disposal.
 
-- [ ] **Step 5: Keep existing cancellation/timeout tests as the cleanup gate.**
+- [ ] **Step 6: Keep existing cancellation/timeout tests as the cleanup gate.**
 
-Do not duplicate cancellation machinery in the native integration class. Run the existing `FfmpegAudioVariantProcessorTests` together with the two new native smokes.
+Do not duplicate cancellation machinery in the integration class. Run existing `FfmpegAudioVariantProcessorTests` together with the new native tests.
 
-- [ ] **Step 6: Run focused native tests.**
+- [ ] **Step 7: Run focused native tests.**
 
 ```bash
 ALSOFT_DRIVERS=null dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj \
@@ -376,9 +435,9 @@ ALSOFT_DRIVERS=null dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj \
   --verbosity normal
 ```
 
-Expected: native runtime, MP3 load, real variant transform, and existing cancellation/timeout coverage all pass.
+Expected: bundled runtime location/process smoke, MP3 load, real 1.25x variant transform, and existing cancellation/timeout coverage pass.
 
-- [ ] **Step 7: Commit checkpoint.**
+- [ ] **Step 8: Commit checkpoint.**
 
 ```bash
 git add DTXMania.Test/TestData/Audio/ffmpeg-tone.mp3 \
@@ -394,47 +453,40 @@ git commit -m "test: verify native Mac ffmpeg audio paths"
 **Files:**
 - Modify `.github/workflows/build-and-test.yml`
 - Modify `.github/workflows/release.yml`
-- Modify `installer/macos/build-dmg.sh` / `test-build-dmg.sh` only if verification proves execute bits are lost
+- Modify `installer/macos/build-dmg.sh` / `installer/macos/test-build-dmg.sh` only if verification proves execute bits are lost
 
-**Consumes:** project-owned build/publish runtime from Tasks 1–3.
+**Consumes:** project-owned staged/copied runtime from Tasks 1–3.
 
-**Produces:** one native CI path and one release path using the same runtime source of truth.
+**Produces:** one native CI path and one release path using the same FFmpeg source of truth.
 
-- [ ] **Step 1: Pin regular Mac CI to a native Apple Silicon runner.**
+- [ ] **Step 1: Pin regular Mac CI to native Apple Silicon.**
 
-Change:
-
-```yaml
-runs-on: macos-latest
-```
-
-to:
+Change `build-and-test-macos`:
 
 ```yaml
 runs-on: macos-15
 ```
 
-for `build-and-test-macos`.
-
-This makes the regular Mac build/test result actual arm64 evidence, matching the existing release runner.
+This matches the existing native release runner.
 
 - [ ] **Step 2: Cache the source-built runtime for PR speed.**
 
-Before the Mac build, add `actions/cache` for:
+Before the Mac build, cache:
 
 ```text
 ~/Library/Caches/DTXManiaCX/ffmpeg
 ```
 
-Key it with OS/architecture plus:
+with a key containing:
 
 ```text
+macos-arm64
 hashFiles('tools/ffmpeg/macos-arm64/build-runtime.sh')
 ```
 
-Do not cache build/publish outputs.
+Do not cache `bin`, `obj`, or publish output.
 
-- [ ] **Step 3: Verify the actual game build output before tests.**
+- [ ] **Step 3: Verify the actual Game build output.**
 
 Immediately after `dotnet build`:
 
@@ -448,13 +500,20 @@ file -b "$runtime/ffprobe" | grep -qi arm64
 "$runtime/ffprobe" -version
 ```
 
-Set `ALSOFT_DRIVERS=null` when running the focused/native audio tests.
+- [ ] **Step 4: Run the focused native audio gate before the full Mac suite.**
 
-Keep the full Mac unit suite, Automation suite, and prepared-chart AudioE2E afterward.
+```bash
+ALSOFT_DRIVERS=null dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj \
+  --configuration Debug \
+  --verbosity normal \
+  --filter "FullyQualifiedName~FfmpegNativeRuntimeIntegrationTests|FullyQualifiedName~FfmpegAudioVariantProcessorTests"
+```
 
-- [ ] **Step 4: Delete the duplicated FFmpeg source-build body from `release.yml`.**
+Then retain the existing full Mac unit suite, Automation suite, and prepared-chart `AudioE2E`.
 
-The `dotnet publish` step now produces:
+- [ ] **Step 5: Delete the duplicated source-build body from `release.yml`.**
+
+`dotnet publish` must now produce:
 
 ```text
 publish/mac/runtimes/osx-arm64/MMTools/ffmpeg
@@ -462,7 +521,7 @@ publish/mac/runtimes/osx-arm64/MMTools/ffprobe
 publish/mac/Licenses/FFmpeg-LGPL-2.1.txt
 ```
 
-Replace the existing long `Build native arm64 ffmpeg` step with a short publish-artifact verification:
+Replace the current long native FFmpeg build step with a short artifact verification:
 
 ```bash
 runtime="publish/mac/runtimes/osx-arm64/MMTools"
@@ -473,11 +532,11 @@ file -b "$runtime/ffmpeg" | grep -qi arm64
 file -b "$runtime/ffprobe" | grep -qi arm64
 ```
 
-The feature-set verification remains in `build-runtime.sh`; do not duplicate it in YAML.
+Feature verification stays in `build-runtime.sh`; do not duplicate it in YAML.
 
-- [ ] **Step 5: Verify the packaged `.app` after `build-dmg.sh`.**
+- [ ] **Step 6: Verify the packaged `.app`.**
 
-After bundle creation, require:
+After `build-dmg.sh`:
 
 ```bash
 app_runtime="output/DTXMania.app/Contents/MacOS/runtimes/osx-arm64/MMTools"
@@ -488,9 +547,9 @@ file -b "$app_runtime/ffprobe" | grep -qi arm64
 test -f output/DTXMania.app/Contents/MacOS/Licenses/FFmpeg-LGPL-2.1.txt
 ```
 
-If this passes, do not touch `build-dmg.sh`. If execute bits are actually lost, fix only its existing `cp -R` staging behavior and extend `test-build-dmg.sh` for that exact regression.
+If this passes, do not touch `build-dmg.sh`. If execute bits are actually lost, fix only its existing publish-output copy and extend `test-build-dmg.sh` for that regression.
 
-- [ ] **Step 6: Run the final local blast radius.**
+- [ ] **Step 7: Run final blast radius.**
 
 On Apple Silicon:
 
@@ -500,6 +559,8 @@ ALSOFT_DRIVERS=null dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj -c Debug 
 dotnet test DTXMania.Automation.Tests/DTXMania.Automation.Tests.csproj -c Debug --verbosity normal
 ```
 
+Run the existing prepared-chart `AudioE2E` command from the workflow on `macos-15`.
+
 On Windows/Windows CI:
 
 ```powershell
@@ -507,19 +568,15 @@ dotnet build DTXMania.Game/DTXMania.Game.Windows.csproj -c Debug
 dotnet test DTXMania.Test/DTXMania.Test.csproj -c Debug --verbosity normal
 ```
 
-Also run the Mac prepared-chart AudioE2E on the native runner using the existing workflow command.
-
-- [ ] **Step 7: Commit checkpoint.**
+- [ ] **Step 8: Commit checkpoint.**
 
 ```bash
-git add .github/workflows/build-and-test.yml \
-        .github/workflows/release.yml \
-        installer/macos/build-dmg.sh \
-        installer/macos/test-build-dmg.sh
+git add .github/workflows/build-and-test.yml .github/workflows/release.yml
+git add installer/macos/build-dmg.sh installer/macos/test-build-dmg.sh 2>/dev/null || true
 git commit -m "ci: validate bundled Apple Silicon ffmpeg"
 ```
 
-Stage only installer files if they actually changed.
+Only installer files with real changes should be staged in the final commit.
 
 ---
 
@@ -527,17 +584,18 @@ Stage only installer files if they actually changed.
 
 - [ ] `MMTools.Executables.MacOS.X64` is absent from the Mac project.
 - [ ] Normal Apple Silicon `dotnet build` output contains executable arm64 `ffmpeg` and `ffprobe`.
-- [ ] Normal `dotnet run` resolves the bundled arm64 runtime without PATH/Rosetta.
+- [ ] Mac test output receives the same runtime through the Game `ProjectReference` copy contract.
+- [ ] Normal `dotnet run` resolves bundled arm64 runtime without PATH/Rosetta.
 - [ ] `dotnet publish -r osx-arm64` contains the same runtime and FFmpeg LGPL license.
 - [ ] `FfmpegRuntime` preference test proves `osx-arm64` wins over an available x64 candidate.
-- [ ] Real packaged-runtime `ffmpeg -version` and `ffprobe -version` smoke passes.
-- [ ] MP3 preview load through `ManagedSound` passes with the bundled runtime.
-- [ ] One real non-default `FfmpegAudioVariantProcessor` transform passes.
+- [ ] Bundled `ffmpeg -version` and `ffprobe -version` smoke passes.
+- [ ] MP3 load through `ManagedSound` passes with the bundled runtime.
+- [ ] Real `FfmpegAudioVariantProcessor` transform with `new PlaybackModifiers(125, 0)` passes.
 - [ ] Existing cancellation/timeout cleanup tests remain green.
 - [ ] Regular Mac CI is pinned to `macos-15` and caches the source-built runtime.
 - [ ] Release YAML no longer owns a duplicate FFmpeg configure/build recipe.
-- [ ] `.app` bundle retains both runtime files, arm64 architecture, execute bits, and license.
-- [ ] Windows build/tests are unchanged and green.
+- [ ] `.app` bundle retains runtime files, arm64 architecture, execute bits, and license.
+- [ ] Windows build/tests remain unchanged and green.
 
 ## Handoff
 
