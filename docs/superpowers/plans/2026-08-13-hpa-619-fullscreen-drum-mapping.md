@@ -2,202 +2,88 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Eliminate the Windows fullscreen squeeze/hang path and make drum hover, keyboard focus, and popup lane selection match the rendered drum image in both fullscreen and windowed modes.
+**Goal:** Stabilize Windows fullscreen restore and make drum hover, keyboard focus, and popup lane selection match the rendered drum image in windowed and fullscreen modes.
 
-**Architecture:** Keep the existing fixed 1280×720 virtual render target. On Windows, use MonoGame soft/borderless fullscreen and keep logical windowed configuration separate from the physical fullscreen backbuffer size. Repair an out-of-sync presentation when the game regains focus. Normalize WinForms client mouse coordinates into backbuffer coordinates before applying the existing inverse letterbox transform. Keep drum keyboard focus as a visual-zone index and convert explicitly between zone indices and lane IDs.
+**Architecture:** Keep the existing fixed 1280×720 virtual render target and letterbox transform. Task 1 makes the smallest native-window change by disabling MonoGame's Windows hardware mode switch; Task 2 keeps client-to-backbuffer normalization separate from the existing backbuffer-to-virtual mapping; Task 3 keeps keyboard focus in authored visual-zone order and converts explicitly to lane IDs. No task changes `GraphicsManager`, the windowed configuration, the render target, or the drum content contract.
 
-**Tech Stack:** .NET 8, MonoGame WindowsDX 3.8.x, xUnit, existing `GraphicsManager`, `BaseGame`, and drum-configuration components.
-
-**Linear:** [HPA-619](https://linear.app/cwchanap/issue/HPA-619/fix-windows-fullscreen-restore-squeeze-and-drum-pad-hitfocus-mapping)
+**Tech Stack:** .NET 8, MonoGame 3.8.x, xUnit, existing `BaseGame`, `DrumKitLayout`, and drum-configuration components.
 
 ## Global Constraints
 
-- Do not introduce a window-mode manager, display service, input-coordinate service, or second drum layout model.
-- Do not add an exclusive-versus-borderless user setting. Existing `FullScreen` remains the only persisted mode flag.
-- Preserve `ConfigData.ScreenWidth` and `ScreenHeight` as the windowed size. Desktop-sized fullscreen backbuffers must not overwrite those values.
-- Preserve the fixed 1280×720 render target and the existing `CalculateLetterboxDestination` behavior.
-- Preserve `DrumKitLayout.Zones` order and geometry. Correct identity conversion instead of reordering data to match lane numbers.
-- Keep the change cross-platform compilable. Windows-specific behavior should use the existing .NET platform check rather than a new project split.
-- Do not add permanent per-frame logging. One low-volume repair log when an actual presentation mismatch is detected is acceptable.
-- Unit-test pure state and coordinate logic headlessly. Win+D, Alt+Tab, minimize/restore, and Windows DPI behavior remain manual Windows verification.
-- Do not modify drum bindings, MIDI capture, velocity thresholds, popup content, or skin assets.
+- Keep the fixed 1280×720 render target and the existing `CalculateLetterboxDestination`/`WindowToVirtualCoordinates` letterbox behavior.
+- Preserve the configured windowed size in `ConfigData.ScreenWidth` and `ConfigData.ScreenHeight`; fullscreen must not overwrite those values.
+- Do not modify `DTXMania.Game/Lib/Graphics/GraphicsManager.cs`, graphics settings ownership, or any graphics event/reapply path in this plan.
+- Do not add a window-mode manager, display service, input-coordinate service, second drum layout model, or other broad abstraction. The two explicitly requested static coordinate/lane helpers remain narrow, pure helpers.
+- Preserve existing drum bindings, MIDI capture, velocity thresholds, popup content, hover/selected lane IDs, and skin assets.
+- Keep the three tasks independently reviewable. Each task has its own focused verification and conventional commit.
+- Windows-focused and full unit-test commands use `DTXMania.Test/DTXMania.Test.csproj`. The macOS-safe test project remains `DTXMania.Test/DTXMania.Test.Mac.csproj`.
 
 ## Root-Cause Contract
 
-The implementation must address all three defects rather than treating the drum click as an independent native-window action:
+The implementation separates two confirmed managed-code defects from the native fullscreen diagnosis:
 
-1. WindowsDX currently uses MonoGame's default hardware mode switch. Exclusive fullscreen can be torn down during focus loss, while the game caches only the requested logical settings.
-2. `Mouse.GetState()` reports WinForms client coordinates, while `BaseGame.MapMouseToVirtual()` currently treats them as backbuffer coordinates.
-3. `DrumConfigStage._focusIndex` is a visual-zone index, but several call sites use it as a lane ID. The authored visual lane order is `5, 0, 9, 7, 8, 4, 1, 6, 2, 3`, not `0..9`.
+1. **Primary native diagnosis under test:** Windows exclusive fullscreen restore instability is caused by MonoGame's default `HardwareModeSwitch` behavior. Task 1 changes only that property. A Windows manual smoke is required to confirm that soft fullscreen resolves every squeeze, deactivation, and hang sequence before any native scope is expanded.
+2. **Confirmed coordinate defect:** `Mouse.GetState()` supplies WinForms client coordinates, while `BaseGame.MapMouseToVirtual()` currently sends them directly to a backbuffer viewport transform. Task 2 normalizes client pixels first.
+3. **Confirmed zone/lane defect:** `DrumConfigStage` stores keyboard focus as a visual-zone index, but current activation and rendering call sites treat that index as a lane ID. Task 3 converts explicitly without changing authored zone order.
+
+If the Task 1 manual symptoms persist, capture `Window.ClientBounds`, backbuffer dimensions, viewport bounds, fullscreen state, and hardware-mode state before proposing any additional native or graphics changes. Record the MonoGame package version resolved by restore with the manual evidence.
 
 ---
 
-## Task 1: Make Windows Fullscreen Borderless and Repair Presentation Drift
+## Task 1: Disable Windows Hardware Mode Switching for Fullscreen Restore
 
 **Files:**
 
 - Modify: `DTXMania.Game/Game1.cs`
-- Modify: `DTXMania.Game/Lib/Graphics/GraphicsManager.cs`
-- Modify: `DTXMania.Test/Graphics/GraphicsManagerLogicTests.cs`
-- Modify: `DTXMania.Test/BaseGameTests.cs`
 
-### Step 1: Add failing physical-backbuffer policy tests
+**Interfaces:**
 
-- [ ] Add pure-policy tests to `GraphicsManagerLogicTests`:
+- Consumes: the existing `GraphicsDeviceManager` construction in the `BaseGame` constructor.
+- Produces: a Windows-only `HardwareModeSwitch = false` setting that is in place before any later graphics initialization or settings application.
 
-```csharp
-ResolveBackBufferSize_WindowedUsesLogicalSize()
-ResolveBackBufferSize_BorderlessFullscreenUsesCurrentDisplaySize()
-ResolveBackBufferSize_InvalidDisplaySizeFallsBackToLogicalSize()
-```
+### Step 1: Set the Windows-only hardware-mode flag
 
-Use representative values such as logical `1280×720` and display `2560×1440`. The helper contract is:
+- [ ] In the `BaseGame` constructor, immediately after constructing `GraphicsDeviceManager`, add exactly this guarded assignment:
 
 ```csharp
-internal static Point ResolveBackBufferSize(
-    GraphicsSettings settings,
-    Point currentDisplaySize,
-    bool useDesktopSizedFullscreen)
-```
-
-Expected behavior:
-
-- Windowed mode always returns the logical width and height.
-- Borderless fullscreen returns the current display size when both dimensions are positive.
-- An unavailable or invalid display size falls back to the logical width and height.
-
-### Step 2: Add failing presentation-reconciliation tests
-
-- [ ] Extend the existing testable `GraphicsManager` seam so tests can choose whether the actual presentation is synchronized.
-- [ ] Add these tests:
-
-```csharp
-ApplySettings_WhenLogicalAndPresentationStateMatch_SkipsDeviceApply()
-ApplySettings_WhenLogicalSettingsMatchButPresentationDiffers_ReappliesDeviceState()
-ApplySettings_WhenRepairingPresentation_DoesNotRaiseLogicalSettingsChanged()
-ApplySettings_WhenPresentationRepairFails_KeepsLogicalSettingsSnapshot()
-```
-
-The important contract is that `_currentSettings` remains logical configuration. A physical-only repair must call `ApplyChanges()` but must not emit `SettingsChanged`, because that event writes logical settings back to `ConfigData`.
-
-### Step 3: Add a failing activation test
-
-- [ ] In `BaseGameTests`, add:
-
-```csharp
-OnGameActivated_ReappliesCurrentLogicalGraphicsSettings()
-```
-
-Use a recording `IGraphicsManager` test double. Inject it into `BaseGame`, invoke `OnGameActivated`, and assert that `ApplySettings` receives the current `Settings` snapshot exactly once.
-
-### Step 4: Run the focused tests and confirm they fail
-
-- [ ] Run:
-
-```bash
-dotnet test DTXMania.Test/DTXMania.Test.Windows.csproj \
-  --filter "FullyQualifiedName~GraphicsManagerLogicTests|FullyQualifiedName~BaseGameTests"
-```
-
-Expected: the new policy, reconciliation, and activation tests fail because the production seams do not exist yet.
-
-### Step 5: Configure soft fullscreen before the first device apply
-
-- [ ] In the `BaseGame` constructor, immediately after creating `GraphicsDeviceManager`, set:
-
-```csharp
+_graphicsDeviceManager = new GraphicsDeviceManager(this);
 if (OperatingSystem.IsWindows())
+{
     _graphicsDeviceManager.HardwareModeSwitch = false;
+}
 ```
 
-Do not change this property during later toggles. MonoGame should consistently interpret the existing fullscreen flag as borderless/soft fullscreen.
+- [ ] Leave the rest of `Game1.cs` unchanged. Do not expand this task with graphics lifecycle logic, alternate sizing policy, logging, or a unit-test seam for this native property.
 
-### Step 6: Separate logical settings from the physical backbuffer
+### Step 2: Build both game targets
 
-- [ ] Add the pure `ResolveBackBufferSize` helper to `GraphicsManager`.
-- [ ] Add two narrow overridable seams for headless tests:
-
-```csharp
-protected virtual Point GetCurrentDisplaySize()
-protected virtual bool UseDesktopSizedBorderlessFullscreen()
-```
-
-Production behavior:
-
-- `GetCurrentDisplaySize()` reads the current graphics adapter's display mode when available and falls back to `GraphicsAdapter.DefaultAdapter.CurrentDisplayMode` before device creation.
-- `UseDesktopSizedBorderlessFullscreen()` returns true only on Windows when `HardwareModeSwitch` is false.
-- Do not add WinForms monitor enumeration or multi-monitor selection in this ticket.
-
-- [ ] Update `SetDeviceManagerSettings(GraphicsSettings settings)` so `PreferredBackBufferWidth` and `PreferredBackBufferHeight` receive the resolved physical dimensions, while `_currentSettings` continues storing the original logical `GraphicsSettings`.
-
-Conceptually:
-
-```csharp
-var physicalSize = ResolveBackBufferSize(
-    settings,
-    GetCurrentDisplaySize(),
-    UseDesktopSizedBorderlessFullscreen());
-
-_deviceManager.PreferredBackBufferWidth = physicalSize.X;
-_deviceManager.PreferredBackBufferHeight = physicalSize.Y;
-_deviceManager.IsFullScreen = settings.IsFullscreen;
-_deviceManager.SynchronizeWithVerticalRetrace = settings.VSync;
-```
-
-Do not modify `GraphicsExtensions.ToGraphicsSettings` or `UpdateFromGraphicsSettings`; their logical configuration contract remains correct.
-
-### Step 7: Reconcile actual presentation state
-
-- [ ] Add:
-
-```csharp
-protected virtual bool IsPresentationSynchronized(GraphicsSettings settings)
-```
-
-When a live device exists, compare the expected physical dimensions and fullscreen mode against the current presentation parameters. Also verify the viewport dimensions when available, because drawing and mouse mapping both consume that viewport. Treat an unavailable graphics device as synchronized so pre-initialization/headless calls retain the existing no-op behavior.
-
-- [ ] Refactor `ApplySettings` around two booleans:
-
-```csharp
-bool logicalChanged = !settings.Equals(_currentSettings);
-bool presentationChanged = !IsPresentationSynchronized(settings);
-```
-
-Required flow:
-
-1. Return immediately only when neither value changed.
-2. Apply device-manager settings when either value changed.
-3. Update `_currentSettings` and emit `SettingsChanged` only when `logicalChanged` is true.
-4. Log one information message when repairing presentation drift without a logical change.
-5. If a physical-only repair fails, keep the existing logical snapshot and return false. Do not retry the same failing state through the logical revert path.
-6. Preserve the existing revert behavior for a failed real logical change.
-
-### Step 8: Repair on activation and clean up the event subscription
-
-- [ ] Subscribe `Activated += OnGameActivated` after `_graphicsManager` is created and its device events are wired.
-- [ ] Implement `OnGameActivated` as a null-safe call to `_graphicsManager.ApplySettings(_graphicsManager.Settings)`. Log a warning only if the repair call returns false.
-- [ ] Unsubscribe `Activated -= OnGameActivated` in `DisposeManagedResources` alongside the existing `Exiting` and graphics-event cleanup.
-
-Do not perform an unconditional reset. `GraphicsManager.IsPresentationSynchronized` is the gate that keeps ordinary Alt+Tab returns cheap.
-
-### Step 9: Run tests and commit
-
-- [ ] Run the focused command from Step 4.
-- [ ] Run the whole Windows unit project:
+- [ ] Run the Windows build:
 
 ```bash
-dotnet test DTXMania.Test/DTXMania.Test.Windows.csproj
+dotnet build DTXMania.Game/DTXMania.Game.Windows.csproj
 ```
 
-- [ ] Commit:
+- [ ] Run the macOS build to prove the platform guard remains cross-platform compilable:
 
 ```bash
-git add DTXMania.Game/Game1.cs \
-        DTXMania.Game/Lib/Graphics/GraphicsManager.cs \
-        DTXMania.Test/Graphics/GraphicsManagerLogicTests.cs \
-        DTXMania.Test/BaseGameTests.cs
-git commit -m "fix: stabilize Windows fullscreen presentation"
+dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj
 ```
+
+There is no RED/GREEN unit-test cycle for this task; a test-only seam would not exercise the native fullscreen behavior.
+
+### Step 3: Commit the isolated native change
+
+- [ ] Commit only `Game1.cs`:
+
+```bash
+git add DTXMania.Game/Game1.cs
+git commit -m "fix: disable Windows hardware fullscreen switching"
+```
+
+### Step 4: Use the Windows focus-loss smoke as the confirmation gate
+
+- [ ] On Windows, launch the game in windowed mode, toggle fullscreen with Alt+Enter, and repeat Win+D, Alt+Tab, minimize, and restore sequences. Confirm that the 16:9 virtual scene remains unsqueezed, the game remains active, and no deactivation or hang sequence occurs.
+- [ ] If all sequences pass, keep Task 1 limited to the constructor assignment. If any sequence fails, capture the diagnostic fields named in the Root-Cause Contract before expanding scope; do not add graphics-manager or backbuffer policy changes to this task.
 
 ---
 
@@ -208,97 +94,148 @@ git commit -m "fix: stabilize Windows fullscreen presentation"
 - Modify: `DTXMania.Game/Game1.cs`
 - Modify: `DTXMania.Test/BaseGameTests.cs`
 
-### Step 1: Add failing coordinate-normalization tests
+**Interfaces:**
 
-- [ ] Add pure-helper tests:
+- Produces: `internal static Point? ClientToBackBufferCoordinates(Point clientPoint, Point clientSize, Rectangle backBufferViewport)`.
+- Produces: `[ExcludeFromCodeCoverage] protected virtual Point? TryGetClientSize()` in `BaseGame`.
+- Consumes: the existing `GetGameWindow()`, `TryGetViewportBounds()`, and `WindowToVirtualCoordinates()` seams.
+
+### Step 1: Add RED tests for the pure coordinate helper
+
+- [ ] In `BaseGameTests`, add these tests for `ClientToBackBufferCoordinates`:
 
 ```csharp
 ClientToBackBufferCoordinates_SameSizeIsIdentity()
-ClientToBackBufferCoordinates_ScalesClientIntoBackBuffer()
-ClientToBackBufferCoordinates_OutsideClientReturnsNull()
-ClientToBackBufferCoordinates_InvalidBoundsReturnNull()
+ClientToBackBufferCoordinates_ScalesClientIntoViewport()
+ClientToBackBufferCoordinates_PointOutsideClientReturnsNull()
+ClientToBackBufferCoordinates_NonPositiveClientOrViewportReturnsNull()
 ```
 
-Use a contract shaped as:
+- [ ] Use a viewport with a non-zero origin in at least one case. Assert that equal client/viewport sizes preserve the point, a 1920×1080 client scales into a 1280×720 viewport, negative or right/bottom-edge client points return `null`, and any non-positive client or viewport dimension returns `null`.
+- [ ] Include a non-16:9 integration case proving normalization happens before existing black-bar rejection:
+
+```csharp
+MapMouseToVirtual_Non16By9ClientNormalizesBeforeBlackBarRejection()
+```
+
+- [ ] Keep the existing raw fallback coverage and add the explicit regression:
+
+```csharp
+MapMouseToVirtual_WithoutGraphicsManager_ShouldReturnPointAsIs()
+MapMouseToVirtual_WithGraphicsManagerButNoViewport_ShouldReturnPointAsIs()
+MapMouseToVirtual_WithViewportButNoClientSize_PreservesExistingViewportMapping()
+```
+
+`MapMouseToVirtual_WithViewportButNoClientSize_PreservesExistingViewportMapping` must configure a viewport but make `TryGetClientSize()` return `null`; the raw point is then treated as already in backbuffer space and still passed through `WindowToVirtualCoordinates`.
+
+- [ ] Add a client/backbuffer mismatch integration test:
+
+```csharp
+MapMouseToVirtual_WhenClientAndBackBufferSizesDiffer_NormalizesBeforeLetterboxMapping()
+```
+
+For a 1920×1080 client and 1280×720 backbuffer, assert that client center `(960, 540)` maps to virtual `(640, 360)` rather than being interpreted as a direct backbuffer coordinate. Add a case where a real client size has non-positive dimensions and assert that the result is `null`.
+
+### Step 2: Run the RED BaseGame tests
+
+- [ ] Run:
+
+```bash
+dotnet test DTXMania.Test/DTXMania.Test.csproj --filter "FullyQualifiedName~BaseGameTests"
+```
+
+Expected result: the new helper, client-size seam, and normalization assertions fail because they are not implemented yet; the pre-existing raw fallback tests continue to describe the current behavior.
+
+### Step 3: Implement the pure client-to-backbuffer helper
+
+- [ ] Add this internal helper to `Game1`:
 
 ```csharp
 internal static Point? ClientToBackBufferCoordinates(
     Point clientPoint,
     Point clientSize,
     Rectangle backBufferViewport)
+{
+    if (clientSize.X <= 0 || clientSize.Y <= 0 ||
+        backBufferViewport.Width <= 0 || backBufferViewport.Height <= 0)
+        return null;
+
+    if (clientPoint.X < 0 || clientPoint.Y < 0 ||
+        clientPoint.X >= clientSize.X || clientPoint.Y >= clientSize.Y)
+        return null;
+
+    int backBufferX = backBufferViewport.X +
+        (int)Math.Round(clientPoint.X * backBufferViewport.Width / (double)clientSize.X);
+    int backBufferY = backBufferViewport.Y +
+        (int)Math.Round(clientPoint.Y * backBufferViewport.Height / (double)clientSize.Y);
+
+    if (backBufferX >= backBufferViewport.Right)
+        backBufferX = backBufferViewport.Right - 1;
+    if (backBufferY >= backBufferViewport.Bottom)
+        backBufferY = backBufferViewport.Bottom - 1;
+
+    return new Point(backBufferX, backBufferY);
+}
 ```
 
-The helper must:
+The helper must include the viewport origin and clamp rounding at the final right/bottom pixel. It must not perform the virtual-resolution or letterbox transform.
 
-- Reject non-positive client or viewport dimensions.
-- Reject negative points and points at or beyond the client right/bottom edge.
-- Scale into the viewport, including its origin.
-- Clamp rounding at the final right/bottom pixel to the viewport bounds.
-
-- [ ] Add an integration-level mapping test using the existing `BaseGame` test subclass:
-
-```csharp
-MapMouseToVirtual_WhenClientAndBackBufferSizesDiffer_NormalizesBeforeLetterboxMapping()
-```
-
-Example: a `1920×1080` client and a `1280×720` backbuffer should map the client center to virtual `(640, 360)` rather than treating `(960, 540)` as a direct backbuffer point.
-
-- [ ] Add a non-16:9 case proving that client normalization happens before the existing black-bar rejection.
-
-### Step 2: Run the focused tests and confirm they fail
-
-- [ ] Run:
-
-```bash
-dotnet test DTXMania.Test/DTXMania.Test.Windows.csproj \
-  --filter "FullyQualifiedName~BaseGameTests"
-```
-
-Expected: the new helper and client-size seam do not exist yet.
-
-### Step 3: Add the client-size seam
+### Step 4: Add the client-size seam and preserve mapping fallbacks
 
 - [ ] Add:
 
 ```csharp
 [ExcludeFromCodeCoverage]
 protected virtual Point? TryGetClientSize()
+{
+    var window = GetGameWindow();
+    if (window == null)
+        return null;
+
+    return new Point(window.ClientBounds.Width, window.ClientBounds.Height);
+}
 ```
 
-Use the existing `GetGameWindow()` seam and return only `ClientBounds.Width` and `ClientBounds.Height`. Return null when no window is available. Do not expose WinForms types or add a platform-specific input class.
-
-### Step 4: Normalize inside `MapMouseToVirtual`
-
-- [ ] Implement `ClientToBackBufferCoordinates` as a pure helper.
 - [ ] Update `MapMouseToVirtual` in this order:
 
-1. Preserve the current raw-point fallback when graphics/window information is unavailable in headless or pre-initialization contexts.
-2. Read both the current client size and backbuffer viewport.
-3. Convert the raw client point to a backbuffer point.
-4. Return null when normalization rejects the point or either dimension is invalid.
-5. Pass the normalized point into the existing `WindowToVirtualCoordinates` helper.
+1. If `_graphicsManager` is unavailable, return the raw point exactly as today.
+2. Read `TryGetViewportBounds()`. If no viewport is available, return the raw point exactly as today.
+3. Read `TryGetClientSize()`.
+4. If a real client size is present with a non-positive width or height, return `null`.
+5. If the client size is present and positive, call `ClientToBackBufferCoordinates`; return `null` when that helper rejects the point.
+6. If the client size is unavailable (`null`), treat the input as already in backbuffer space without scaling.
+7. In both client-size branches, pass the resulting backbuffer point through the existing `WindowToVirtualCoordinates` helper and return its result.
 
-Do not combine the two transforms into one new abstraction. Keeping client-to-backbuffer scaling separate from backbuffer-to-virtual letterboxing makes each contract independently testable.
+Do not fold the two transforms into a new abstraction, and do not alter the existing letterbox calculation.
 
-### Step 5: Run tests and commit
+### Step 5: Run GREEN tests and the full Windows unit project
 
-- [ ] Run the focused BaseGame tests.
-- [ ] Run:
+- [ ] Re-run the focused tests:
 
 ```bash
-dotnet test DTXMania.Test/DTXMania.Test.Windows.csproj
+dotnet test DTXMania.Test/DTXMania.Test.csproj --filter "FullyQualifiedName~BaseGameTests"
 ```
 
-- [ ] Commit:
+Expected result: all BaseGame coordinate, fallback, invalid-size, and non-16:9 tests pass.
+
+- [ ] Run the full Windows unit project:
+
+```bash
+dotnet test DTXMania.Test/DTXMania.Test.csproj
+```
+
+### Step 6: Commit the coordinate-only change
+
+- [ ] Commit only the two Task 2 files:
 
 ```bash
 git add DTXMania.Game/Game1.cs DTXMania.Test/BaseGameTests.cs
-git commit -m "fix: normalize mouse coordinates for fullscreen"
+git commit -m "fix: normalize client mouse coordinates"
 ```
 
 ---
 
-## Task 3: Keep Drum Focus as a Zone Index and Resolve Lane IDs Explicitly
+## Task 3: Keep Drum Focus as an Element Index and Resolve Lane IDs Explicitly
 
 **Files:**
 
@@ -307,9 +244,15 @@ git commit -m "fix: normalize mouse coordinates for fullscreen"
 - Modify: `DTXMania.Test/Stage/DrumConfig/DrumKitLayoutTests.cs`
 - Modify: `DTXMania.Test/Stage/DrumConfig/DrumConfigStageTests.cs`
 
-### Step 1: Add failing zone/lane identity tests
+**Interfaces:**
 
-- [ ] Add these pure layout tests:
+- Produces: `internal static int GetLaneForZoneIndex(int zoneIndex)`.
+- Produces: `internal static int FindZoneIndexByLane(int lane)`.
+- Preserves: `_focusedElementIndex` as the stage's private focus field, with `0..ZoneCount-1` meaning authored zones and `ResetActionIndex` meaning Reset.
+
+### Step 1: Add RED layout conversion tests
+
+- [ ] In `DrumKitLayoutTests`, add:
 
 ```csharp
 GetLaneForZoneIndex_ReturnsEachAuthoredZoneLane()
@@ -318,121 +261,158 @@ GetLaneForZoneIndex_ResetAndInvalidIndicesReturnMinusOne()
 FindZoneIndexByLane_InvalidLaneReturnsMinusOne()
 ```
 
-Add two small helpers to the layout contract:
-
-```csharp
-public static int GetLaneForZoneIndex(int zoneIndex)
-public static int FindZoneIndexByLane(int lane)
-```
-
-Both return `-1` for invalid input. The Reset action is not a lane.
-
-### Step 2: Strengthen stage regression tests with non-identity mappings
-
-- [ ] Rename reflection references from `_focusIndex` to `_focusedZoneIndex` in existing tests.
-- [ ] Change `ActivateFocusedElement_WhenZoneFocused_OpensPopupForThatLane` to use visual zone index `0` and assert popup lane `5`. Do not use an index whose numeric value happens to equal its lane.
-- [ ] Update the snare click test to assert:
+- [ ] Assert the non-identity mappings directly:
 
 ```text
-clicked lane = 4
-focused zone index = 5
-popup lane = 4
+GetLaneForZoneIndex(0) == 5
+GetLaneForZoneIndex(2) == 9
+FindZoneIndexByLane(4) == 5
 ```
 
-- [ ] Add a representative mouse-click test for another non-identity zone, such as visual index `2` / ride lane `9`.
-- [ ] Keep existing keyboard advance tests asserting zone indices, including Reset at `DrumKitLayout.ResetActionIndex`.
+- [ ] Keep Reset outside the lane mapping: `GetLaneForZoneIndex(DrumKitLayout.ResetActionIndex)` returns `-1`, and negative or out-of-range arguments return `-1`.
 
-### Step 3: Run the focused tests and confirm they fail
+### Step 2: Add RED stage regression tests
+
+- [ ] Rename every reflection-based `_focusIndex` reference in `DrumConfigStageTests` to `_focusedElementIndex` and assert the field's element-index contract.
+- [ ] Update `ActivateFocusedElement_WhenZoneFocused_OpensPopupForThatLane` to focus visual zone `0` and assert popup lane `5`; do not use an identity-valued index.
+- [ ] Add a second activation or mouse-click regression for visual zone `2` and assert popup lane `9`.
+- [ ] Update the snare case to assert clicked lane `4`, focused element index `5`, and popup lane `4`.
+- [ ] Add an invalid-lane `OpenPopup` test that snapshots `_selectedLane`, `_focusedElementIndex`, popup-open state, and `_skipCaptureThisFrame`, calls `OpenPopup` with an invalid lane, and asserts that every value is unchanged.
+- [ ] Keep existing navigation assertions for authored element indices `0..ZoneCount-1` and `ResetActionIndex`; navigation must not be rewritten in lane-ID terms.
+
+### Step 3: Run the RED drum tests
 
 - [ ] Run:
 
 ```bash
-dotnet test DTXMania.Test/DTXMania.Test.Windows.csproj \
-  --filter "FullyQualifiedName~DrumKitLayoutTests|FullyQualifiedName~DrumConfigStageTests"
+dotnet test DTXMania.Test/DTXMania.Test.csproj --filter "FullyQualifiedName~DrumKitLayoutTests|FullyQualifiedName~DrumConfigStageTests"
 ```
 
-Expected: the non-identity activation and click assertions expose the current index/lane confusion.
+Expected result: the non-identity activation/click assertions and the renamed field references fail against the current index/lane conflation.
 
-### Step 4: Implement explicit conversion helpers
+### Step 4: Implement the explicit layout conversions
 
-- [ ] Implement `GetLaneForZoneIndex` using bounds checking and `Zones[zoneIndex].Lane`.
-- [ ] Implement `FindZoneIndexByLane` as one small loop over `Zones`.
+- [ ] Add these methods to `DrumKitLayout`:
 
-Do not add dictionaries, cached lookup tables, or reorder `Zones`; there are only ten entries and this code is not performance-sensitive.
+```csharp
+internal static int GetLaneForZoneIndex(int zoneIndex)
+{
+    if (zoneIndex < 0 || zoneIndex >= Zones.Count)
+        return -1;
 
-### Step 5: Correct `DrumConfigStage` state ownership
+    return Zones[zoneIndex].Lane;
+}
 
-- [ ] Rename `_focusIndex` to `_focusedZoneIndex` throughout the stage.
-- [ ] Keep arrow/Tab navigation and Reset logic operating only on `_focusedZoneIndex`.
-- [ ] Update `OpenPopup(int lane)` so it:
+internal static int FindZoneIndexByLane(int lane)
+{
+    for (int i = 0; i < Zones.Count; i++)
+    {
+        if (Zones[i].Lane == lane)
+            return i;
+    }
 
-1. Stores `_selectedLane = lane`.
-2. Resolves `FindZoneIndexByLane(lane)` and updates `_focusedZoneIndex` only when a matching zone exists.
-3. Opens the popup with the original lane ID.
+    return -1;
+}
+```
 
-- [ ] Update `ActivateFocusedElement()` so a non-Reset focus resolves `GetLaneForZoneIndex(_focusedZoneIndex)` and opens only a valid lane.
-- [ ] Update `OnDraw()` so `LaneHighlights.FocusedLane` receives the resolved lane, never the zone index.
-- [ ] Keep `_hoveredLane` and `_selectedLane` as lane IDs. Their current names and renderer contract are already correct.
+Do not reorder `Zones`, add a dictionary, or cache a second lane table.
 
-### Step 6: Run tests and commit
+### Step 5: Correct stage state ownership and popup dispatch
 
-- [ ] Run the focused drum tests.
-- [ ] Run the whole Windows unit project.
-- [ ] Commit:
+- [ ] Rename the private field in `DrumConfigStage` to:
+
+```csharp
+private int _focusedElementIndex;
+```
+
+Use it only as an element index: `0..ZoneCount-1` for zones and `DrumKitLayout.ResetActionIndex` for Reset. Update arrow/Tab navigation, reset-button focus, reset detection, and tests to use this contract.
+
+- [ ] Implement `OpenPopup(int lane)` with the conversion before any mutation:
+
+```csharp
+private void OpenPopup(int lane)
+{
+    int zoneIndex = DrumKitLayout.FindZoneIndexByLane(lane);
+    if (zoneIndex < 0)
+        return;
+
+    _selectedLane = lane;
+    _focusedElementIndex = zoneIndex;
+    _popup!.Open(lane);
+    _skipCaptureThisFrame = true;
+}
+```
+
+An invalid lane must return before changing selected lane, focus, popup state, or the skip flag. For a valid lane, preserve the lane ID in `_selectedLane` and in the popup call while storing the visual zone index in `_focusedElementIndex`.
+
+- [ ] Update `ActivateFocusedElement()` so Reset still calls `ResetDrumBindingsToDefault()`, while a zone resolves `GetLaneForZoneIndex(_focusedElementIndex)` and calls `OpenPopup` only for a non-negative lane.
+- [ ] Update `OnDraw()` so `LaneHighlights.FocusedLane` receives the resolved lane ID from `GetLaneForZoneIndex`, or `-1` for Reset/inactive keyboard focus. Keep `_hoveredLane` and `_selectedLane` as lane IDs because hit-testing and renderer highlights already use those IDs.
+
+### Step 6: Run GREEN drum tests and the full Windows unit project
+
+- [ ] Re-run the focused tests:
+
+```bash
+dotnet test DTXMania.Test/DTXMania.Test.csproj --filter "FullyQualifiedName~DrumKitLayoutTests|FullyQualifiedName~DrumConfigStageTests"
+```
+
+Expected result: all authored-order, non-identity, invalid-lane, Reset, hover, and popup assertions pass.
+
+- [ ] Run the full Windows unit project:
+
+```bash
+dotnet test DTXMania.Test/DTXMania.Test.csproj
+```
+
+### Step 7: Commit the isolated drum mapping change
+
+- [ ] Commit the four Task 3 files:
 
 ```bash
 git add DTXMania.Game/Lib/Stage/DrumConfig/DrumKitLayout.cs \
         DTXMania.Game/Lib/Stage/DrumConfigStage.cs \
         DTXMania.Test/Stage/DrumConfig/DrumKitLayoutTests.cs \
         DTXMania.Test/Stage/DrumConfig/DrumConfigStageTests.cs
-git commit -m "fix: map drum focus zones to lane identities"
+git commit -m "fix: map drum focus elements to lane IDs"
 ```
 
 ---
 
 ## Final Automated Verification
 
-- [ ] Run Windows build and tests:
+- [ ] Build the Windows target and run its full unit suite:
 
 ```bash
 dotnet build DTXMania.Game/DTXMania.Game.Windows.csproj
-dotnet test DTXMania.Test/DTXMania.Test.Windows.csproj
+dotnet test DTXMania.Test/DTXMania.Test.csproj
 ```
 
-- [ ] Run macOS compile/test regression checks where the environment supports them:
+- [ ] Build the macOS target and run the Mac-safe unit suite:
 
 ```bash
 dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj
 dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj
 ```
 
-- [ ] Confirm the diff does not modify `GraphicsExtensions`, `IGraphicsManager`, drum binding behavior, assets, or configuration schema unless a failing compiler/test proves one of those edits is unavoidable.
-- [ ] Confirm no new analyzer warnings and no skipped or weakened existing tests.
+- [ ] Confirm the diff does not modify `GraphicsManager`, `GraphicsExtensions`, `IGraphicsManager`, configuration schema, drum binding behavior, MIDI/velocity behavior, popup content, or assets.
+- [ ] Confirm no analyzer warnings, skipped tests, weakened assertions, or unresolved plan placeholders remain.
 
-## Manual Windows Verification
+## Manual Windows Verification and Handoff Evidence
 
-Record the machine resolution, Windows display-scaling percentage, MonoGame package version resolved by restore, and results in the implementation PR.
+- [ ] Restore the Windows game target and record the MonoGame package version resolved by restore:
 
-- [ ] Launch windowed and confirm the configured `ScreenWidth×ScreenHeight` size is retained.
-- [ ] Toggle fullscreen with Alt+Enter and confirm borderless fullscreen fills the active display without stretching the 16:9 virtual scene.
-- [ ] Repeat Win+D, Alt+Tab, minimize, and restore at least five times each. Confirm there is no half-height centered viewport, desktop switch loop, black padded squeeze, or hang.
+```bash
+dotnet restore DTXMania.Game/DTXMania.Game.Windows.csproj
+dotnet list DTXMania.Game/DTXMania.Game.Windows.csproj package --include-transitive | rg -i "MonoGame"
+```
+
+- [ ] Record the display resolution and Windows scaling percentage used for the smoke run.
+- [ ] Launch windowed and confirm the configured `ScreenWidth×ScreenHeight` size remains the windowed size.
+- [ ] Toggle fullscreen with Alt+Enter and confirm soft/borderless fullscreen fills the active display without stretching or squeezing the 16:9 virtual scene.
+- [ ] Repeat Win+D, Alt+Tab, minimize, and restore at least five times each. Confirm no half-height centered viewport, desktop switch loop, black padded squeeze, deactivation hang, or restore hang occurs. This is the required Task 1 confirmation gate.
 - [ ] Return to windowed mode and confirm the original configured windowed size is restored.
-- [ ] On Config → Drum Mapping, hover and click all ten drum images. Confirm the highlight and opened popup name/lane match each image and the game remains active.
-- [ ] Cycle all ten zones plus Reset with arrows/Tab. Confirm focus follows authored visual order and Enter opens the focused image's lane.
-- [ ] Repeat the drum checks in both windowed and fullscreen modes.
-- [ ] Repeat at 100% and one greater-than-100% Windows display-scaling setting when available.
+- [ ] On Config → Drum Mapping, hover and click all ten rendered drum images. Confirm each highlight and popup lane/name matches the authored image and the game remains active.
+- [ ] Cycle all ten visual zones plus Reset with arrows and Tab. Confirm focus follows authored order and Enter opens the lane for the focused image.
+- [ ] Repeat drum hover, click, and keyboard checks in both windowed and fullscreen modes, including one display-scaling setting above 100% when available.
 
-## Implementation PR Evidence
-
-The implementation PR description must include:
-
-- The resolved Windows and MonoGame version.
-- Automated build/test commands and results.
-- The manual focus-loss matrix with pass/fail results.
-- The display resolution and scaling values used.
-- Confirmation that `Config.ini` retains the configured windowed width/height after fullscreen toggles.
-- Confirmation that every visual drum zone maps to the expected popup lane.
-
-## Scope Estimate
-
-Two engineer days. Each task is independently reviewable, and no task requires a new subsystem or data migration.
+If any fullscreen squeeze, deactivation, or hang sequence remains, stop and capture these values before changing scope: `Window.ClientBounds`, backbuffer width/height, `GraphicsDevice.Viewport.Bounds`, fullscreen state, and `HardwareModeSwitch` state. Include the resolved MonoGame version, automated build/test results, display resolution/scaling, and the per-sequence manual results in the implementation handoff.
