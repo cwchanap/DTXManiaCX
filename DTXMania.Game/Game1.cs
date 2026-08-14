@@ -742,6 +742,32 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
         return new Point(vx, vy);
     }
 
+    internal static Point? ClientToBackBufferCoordinates(
+        Point clientPoint,
+        Point clientSize,
+        Rectangle backBufferViewport)
+    {
+        if (clientSize.X <= 0 || clientSize.Y <= 0 ||
+            backBufferViewport.Width <= 0 || backBufferViewport.Height <= 0)
+            return null;
+
+        if (clientPoint.X < 0 || clientPoint.Y < 0 ||
+            clientPoint.X >= clientSize.X || clientPoint.Y >= clientSize.Y)
+            return null;
+
+        int backBufferX = backBufferViewport.X +
+            (int)Math.Round(clientPoint.X * backBufferViewport.Width / (double)clientSize.X);
+        int backBufferY = backBufferViewport.Y +
+            (int)Math.Round(clientPoint.Y * backBufferViewport.Height / (double)clientSize.Y);
+
+        if (backBufferX >= backBufferViewport.Right)
+            backBufferX = backBufferViewport.Right - 1;
+        if (backBufferY >= backBufferViewport.Bottom)
+            backBufferY = backBufferViewport.Bottom - 1;
+
+        return new Point(backBufferX, backBufferY);
+    }
+
     /// <summary>
     /// Instance wrapper around <see cref="WindowToVirtualCoordinates"/> using the current
     /// <see cref="GraphicsDevice.Viewport"/> (the back buffer during Update) and the fixed
@@ -759,7 +785,25 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
         var viewport = TryGetViewportBounds();
         if (viewport == null)
             return windowPoint;
-        return WindowToVirtualCoordinates(windowPoint, viewport.Value,
+
+        var clientSize = TryGetClientSize();
+        var backBufferPoint = windowPoint;
+        if (clientSize is Point actualClientSize)
+        {
+            if (actualClientSize.X <= 0 || actualClientSize.Y <= 0)
+                return null;
+
+            var normalizedPoint = ClientToBackBufferCoordinates(
+                windowPoint,
+                actualClientSize,
+                viewport.Value);
+            if (normalizedPoint == null)
+                return null;
+
+            backBufferPoint = normalizedPoint.Value;
+        }
+
+        return WindowToVirtualCoordinates(backBufferPoint, viewport.Value,
             GameConstants.Display.VirtualWidth, GameConstants.Display.VirtualHeight);
     }
 
@@ -782,6 +826,16 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
     {
         var graphicsDevice = GraphicsDevice;
         return graphicsDevice == null ? null : graphicsDevice.Viewport.Bounds;
+    }
+
+    [ExcludeFromCodeCoverage]
+    protected virtual Point? TryGetClientSize()
+    {
+        var window = GetGameWindow();
+        if (window == null)
+            return null;
+
+        return new Point(window.ClientBounds.Width, window.ClientBounds.Height);
     }
 
     [ExcludeFromCodeCoverage]

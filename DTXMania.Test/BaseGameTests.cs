@@ -1839,6 +1839,66 @@ namespace DTXMania.Test
         }
 
         [Fact]
+        public void ClientToBackBufferCoordinates_SameSizeIsIdentity()
+        {
+            var mapped = BaseGame.ClientToBackBufferCoordinates(
+                new Point(640, 360),
+                new Point(1280, 720),
+                new Rectangle(0, 0, 1280, 720));
+
+            Assert.Equal(new Point(640, 360), mapped);
+        }
+
+        [Fact]
+        public void ClientToBackBufferCoordinates_ScalesClientIntoViewport()
+        {
+            var mapped = BaseGame.ClientToBackBufferCoordinates(
+                new Point(960, 540),
+                new Point(1920, 1080),
+                new Rectangle(100, 40, 1280, 720));
+
+            Assert.Equal(new Point(740, 400), mapped);
+        }
+
+        [Theory]
+        [InlineData(-1, 0)]
+        [InlineData(0, -1)]
+        [InlineData(1920, 0)]
+        [InlineData(0, 1080)]
+        public void ClientToBackBufferCoordinates_PointOutsideClientReturnsNull(int x, int y)
+        {
+            var mapped = BaseGame.ClientToBackBufferCoordinates(
+                new Point(x, y),
+                new Point(1920, 1080),
+                new Rectangle(0, 0, 1280, 720));
+
+            Assert.Null(mapped);
+        }
+
+        [Theory]
+        [InlineData(0, 1080, 1280, 720)]
+        [InlineData(1920, 0, 1280, 720)]
+        [InlineData(1920, 1080, 0, 720)]
+        [InlineData(1920, 1080, 1280, 0)]
+        [InlineData(-1, 1080, 1280, 720)]
+        [InlineData(1920, -1, 1280, 720)]
+        [InlineData(1920, 1080, -1, 720)]
+        [InlineData(1920, 1080, 1280, -1)]
+        public void ClientToBackBufferCoordinates_NonPositiveClientOrViewportReturnsNull(
+            int clientWidth,
+            int clientHeight,
+            int viewportWidth,
+            int viewportHeight)
+        {
+            var mapped = BaseGame.ClientToBackBufferCoordinates(
+                new Point(0, 0),
+                new Point(clientWidth, clientHeight),
+                new Rectangle(0, 0, viewportWidth, viewportHeight));
+
+            Assert.Null(mapped);
+        }
+
+        [Fact]
         public void MapMouseToVirtual_WithoutGraphicsManager_ShouldReturnPointAsIs()
         {
             // Headless / pre-Initialize: no GraphicsManager means a 1:1 identity mapping so
@@ -1881,6 +1941,48 @@ namespace DTXMania.Test
 
             // Center of 1920x1080 -> center of 1280x720.
             Assert.Equal(new Point(640, 360), result);
+        }
+
+        [Fact]
+        public void MapMouseToVirtual_WithViewportButNoClientSize_PreservesExistingViewportMapping()
+        {
+            var game = CreateViewportSpyGame();
+            game.SetViewportBounds(new Rectangle(0, 0, 1920, 1080));
+            game.SetClientSize(null);
+
+            var result = game.MapMouseToVirtual(new Point(960, 540));
+
+            Assert.Equal(new Point(640, 360), result);
+        }
+
+        [Fact]
+        public void MapMouseToVirtual_Non16By9ClientNormalizesBeforeBlackBarRejection()
+        {
+            var game = CreateViewportSpyGame();
+            game.SetViewportBounds(new Rectangle(50, 20, 1920, 720));
+            game.SetClientSize(new Point(1280, 800));
+
+            // The raw client x=213 would be in the viewport's left pillarbox, but normalizing
+            // the 16:10 client into the back buffer puts it on the drawable destination edge.
+            var result = game.MapMouseToVirtual(new Point(213, 400));
+
+            Assert.Equal(new Point(0, 360), result);
+        }
+
+        [Fact]
+        public void MapMouseToVirtual_WhenClientAndBackBufferSizesDiffer_NormalizesBeforeLetterboxMapping()
+        {
+            var game = CreateViewportSpyGame();
+            game.SetViewportBounds(new Rectangle(0, 0, 1280, 720));
+            game.SetClientSize(new Point(1920, 1080));
+
+            var center = game.MapMouseToVirtual(new Point(960, 540));
+
+            Assert.Equal(new Point(640, 360), center);
+
+            game.SetClientSize(new Point(0, 1080));
+
+            Assert.Null(game.MapMouseToVirtual(new Point(0, 0)));
         }
 
         [Fact]
@@ -2367,7 +2469,16 @@ namespace DTXMania.Test
                 new StubGraphicsManager(isDeviceAvailable: true, CreateFailingRenderTargetManager()));
             }
 
+            public void SetClientSize(Point? size)
+            {
+                _clientSize = size;
+            }
+
+            private Point? _clientSize;
+
             protected override Rectangle? TryGetViewportBounds() => _viewportBounds;
+
+            protected override Point? TryGetClientSize() => _clientSize;
         }
 
         private sealed class TestGameCrashDiagnostics : IGameCrashDiagnostics
