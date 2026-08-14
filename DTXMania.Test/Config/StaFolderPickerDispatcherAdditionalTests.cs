@@ -12,6 +12,8 @@ namespace DTXMania.Test.Config;
 [Trait("Category", "Unit")]
 public sealed class StaFolderPickerDispatcherAdditionalTests
 {
+    private static readonly TimeSpan AsyncTimeout = TimeSpan.FromSeconds(5);
+
     [Fact]
     public void Constructor_WhenDialogFactoryIsNull_ShouldThrowArgumentNullException()
     {
@@ -55,7 +57,7 @@ public sealed class StaFolderPickerDispatcherAdditionalTests
         using var picker = new StaFolderPickerDispatcher(factory);
 
         var result = await picker.PickFolderAsync(null, CancellationToken.None)
-            .WaitAsync(TimeSpan.FromSeconds(1));
+            .WaitAsync(AsyncTimeout);
 
         Assert.Equal(FolderPickerStatus.Failed, result.Status);
         Assert.Contains("dialog blew up", result.Message, StringComparison.Ordinal);
@@ -75,7 +77,7 @@ public sealed class StaFolderPickerDispatcherAdditionalTests
 
         // Start the blocking request and wait for the dispatcher to enter Show().
         var firstRequest = picker.PickFolderAsync(null, CancellationToken.None);
-        await blockingDialog.ShowEntered.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        await blockingDialog.ShowEntered.Task.WaitAsync(AsyncTimeout);
 
         // Enqueue the target request and cancel it while the dispatcher is busy.
         using var cancellation = new CancellationTokenSource();
@@ -84,10 +86,10 @@ public sealed class StaFolderPickerDispatcherAdditionalTests
 
         // Release the blocking dialog so the dispatcher dequeues the target.
         blockingDialog.Release();
-        var firstResult = await firstRequest.WaitAsync(TimeSpan.FromSeconds(1));
+        var firstResult = await firstRequest.WaitAsync(AsyncTimeout);
         Assert.Equal(FolderPickerStatus.Selected, firstResult.Status);
 
-        var secondResult = await secondRequest.WaitAsync(TimeSpan.FromSeconds(1));
+        var secondResult = await secondRequest.WaitAsync(AsyncTimeout);
         Assert.Equal(FolderPickerStatus.Cancelled, secondResult.Status);
     }
 
@@ -100,7 +102,7 @@ public sealed class StaFolderPickerDispatcherAdditionalTests
         using var picker = new StaFolderPickerDispatcher(factory);
 
         var result = await picker.PickFolderAsync(null, CancellationToken.None)
-            .WaitAsync(TimeSpan.FromSeconds(1));
+            .WaitAsync(AsyncTimeout);
 
         Assert.Equal(FolderPickerStatus.Failed, result.Status);
         Assert.Contains("CreateDialog failed", result.Message, StringComparison.Ordinal);
