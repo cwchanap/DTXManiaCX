@@ -209,6 +209,10 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
 
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
         _graphicsDeviceManager = new GraphicsDeviceManager(this);
+        if (OperatingSystem.IsWindows())
+        {
+            _graphicsDeviceManager.HardwareModeSwitch = false;
+        }
         Content.RootDirectory = "Content";
         IsMouseVisible = true;
 
