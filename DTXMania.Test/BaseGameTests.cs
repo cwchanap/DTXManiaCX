@@ -1899,6 +1899,36 @@ namespace DTXMania.Test
         }
 
         [Fact]
+        public void ClientToBackBufferCoordinates_RoundingClampsToViewportEdge()
+        {
+            // When the client-to-viewport scale rounds a near-edge client coordinate up to the
+            // viewport's Right/Bottom, the clamp branches must pull it back inside the viewport
+            // (backBufferX = Right - 1, backBufferY = Bottom - 1) so the downstream letterbox
+            // math never receives an out-of-bounds back-buffer point.
+            // clientSize=(3,3), viewport=(0,0,1,1), point=(2,2): 2*1/3 = 0.667 rounds to 1 = Right.
+            var mapped = BaseGame.ClientToBackBufferCoordinates(
+                new Point(2, 2),
+                new Point(3, 3),
+                new Rectangle(0, 0, 1, 1));
+
+            Assert.Equal(new Point(0, 0), mapped);
+        }
+
+        [Fact]
+        public void MapMouseToVirtual_WhenClientPointOutsideClient_ReturnsNull()
+        {
+            // With a client size set, a point outside the client bounds is rejected by
+            // ClientToBackBufferCoordinates (returns null) and MapMouseToVirtual propagates the
+            // null so callers treat the click as "no hit" rather than mapping it to a stale
+            // back-buffer coordinate.
+            var game = CreateViewportSpyGame();
+            game.SetViewportBounds(new Rectangle(0, 0, 1920, 1080));
+            game.SetClientSize(new Point(100, 100));
+
+            Assert.Null(game.MapMouseToVirtual(new Point(200, 50)));
+        }
+
+        [Fact]
         public void MapMouseToVirtual_WithoutGraphicsManager_ShouldReturnPointAsIs()
         {
             // Headless / pre-Initialize: no GraphicsManager means a 1:1 identity mapping so

@@ -338,6 +338,25 @@ namespace DTXMania.Test.Stage.DrumConfig
             Assert.Equal(9, popup.Lane);
         }
 
+        [Fact]
+        public void ActivateFocusedElement_WhenFocusedElementIndexOutOfRange_DoesNotOpenPopup()
+        {
+            // Defensive guard: if _focusedElementIndex is somehow out of range (not a zone, not
+            // Reset), GetLaneForZoneIndex returns -1 and ActivateFocusedElement must not open a
+            // popup for an invalid lane. This state can't arise through normal AdvanceFocus flow
+            // but the guard prevents a crash if the field is corrupted.
+            var game = CreateGameWithViewport(1280, 720);
+            var stage = new DrumConfigStage(game);
+            var drum = new Dictionary<string, int>();
+            var popup = new DrumCapturePopup(() => drum, () => new Dictionary<Keys, InputCommandType>());
+            ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
+            ReflectionHelpers.SetPrivateField(stage, "_focusedElementIndex", -1);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "ActivateFocusedElement");
+
+            Assert.False(popup.IsOpen);
+        }
+
         // ---- OnUpdate / UpdateSelection / UpdatePopup routing (headless, via graphics stub) ----
 
         private static BaseGame CreateGameWithViewport(int width, int height)

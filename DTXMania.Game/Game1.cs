@@ -209,10 +209,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
 
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
         _graphicsDeviceManager = new GraphicsDeviceManager(this);
-        if (OperatingSystem.IsWindows())
-        {
-            _graphicsDeviceManager.HardwareModeSwitch = false;
-        }
+        ApplyPlatformGraphicsDefaults(_graphicsDeviceManager);
         Content.RootDirectory = "Content";
         IsMouseVisible = true;
 
@@ -836,6 +833,20 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
             return null;
 
         return new Point(window.ClientBounds.Width, window.ClientBounds.Height);
+    }
+
+    /// <summary>
+    /// Applies platform-specific defaults to the graphics device manager. On Windows the
+    /// hardware fullscreen mode switch is disabled (borderless windowed fullscreen) to avoid
+    /// the exclusive-mode display takeover that broke drum-config mouse mapping. The
+    /// constructor calls this seam so headless tests don't need to exercise the platform
+    /// guard — the constructor itself can't run without booting MonoGame/SDL.
+    /// </summary>
+    [ExcludeFromCodeCoverage]
+    internal virtual void ApplyPlatformGraphicsDefaults(GraphicsDeviceManager manager)
+    {
+        if (OperatingSystem.IsWindows())
+            manager.HardwareModeSwitch = false;
     }
 
     [ExcludeFromCodeCoverage]
