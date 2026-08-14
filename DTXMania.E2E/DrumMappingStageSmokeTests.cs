@@ -16,8 +16,9 @@ namespace DTXMania.E2E;
 [Trait("Category", "E2E")]
 public sealed class DrumMappingStageSmokeTests
 {
-    // Lane 0 (Splash/Crash) defaults to "Key.A"; we append "Key.Z", a key not otherwise bound
+    // Authored visual zone 0 is the Hi-Hat (lane 5). We append "Key.Z", a key not otherwise bound
     // and not reserved for navigation, so the capture is accepted (append model).
+    private const int DefaultFocusedLane = 5;
     private const string BindKey = "Z";
     private const string ExpectedBindingId = "Key.Z";
 
@@ -54,12 +55,12 @@ public sealed class DrumMappingStageSmokeTests
             // the fade transition + OnActivate (popup/focus/skip-flag init) before we send input.
             await Task.Delay(500, cancellation.Token);
 
-            // Activate the focused lane (lane 0) to open its capture popup.
+            // Activate authored visual zone 0 (Hi-Hat / lane 5) to open its capture popup.
             await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
             // Let the popup open and the one-frame capture-skip clear before sending the bind key.
             await Task.Delay(700, cancellation.Token);
 
-            // Hit the key to bind — captured and appended to lane 0.
+            // Hit the key to bind — captured and appended to the focused lane.
             await client.SendKeyAsync(BindKey, TimeSpan.FromMilliseconds(50), cancellation.Token);
             // Let the capture register before closing the popup.
             await Task.Delay(700, cancellation.Token);
@@ -83,7 +84,7 @@ public sealed class DrumMappingStageSmokeTests
 
             // [KeyBindings] serializes entries as "<buttonId>=<lane>"; assert the lane too so an
             // unbound-button entry that merely contains the id can't pass.
-            Assert.Contains($"{ExpectedBindingId}=0", configText);
+            Assert.Contains($"{ExpectedBindingId}={DefaultFocusedLane}", configText);
         }
         catch (Exception ex)
         {
@@ -101,10 +102,10 @@ public sealed class DrumMappingStageSmokeTests
 
     /// <summary>
     /// Black-box smoke for the keyboard-reachable Reset-to-defaults flow on the drum-mapping
-    /// stage: bind a non-default key to lane 0, advance keyboard focus onto the Reset action,
-    /// Activate to reset Config back to defaults (live-applied), then Back (= flush &amp; exit)
-    /// and assert the custom binding was NOT persisted (i.e. Reset overwrote it before the
-    /// flush). Exercises the live focus + Activate-dispatch + reset + flush round-trip the
+    /// stage: bind a non-default key to the default focused zone, advance keyboard focus onto the
+    /// Reset action, Activate to reset Config back to defaults (live-applied), then Back (= flush
+    /// &amp; exit), and assert the custom binding was NOT persisted (i.e. Reset overwrote it before
+    /// the flush). Exercises the live focus + Activate-dispatch + reset + flush round-trip the
     /// headless unit suite cannot reach.
     /// </summary>
     [Fact(Timeout = 180_000)]
@@ -137,19 +138,19 @@ public sealed class DrumMappingStageSmokeTests
             // Settle past the fade + OnActivate (focus/skip-flag init) before sending input.
             await Task.Delay(500, cancellation.Token);
 
-            // Focus starts on lane 0. Open its capture popup and bind the non-default key.
+            // Focus starts on authored visual zone 0 (Hi-Hat / lane 5). Open its capture popup
+            // and bind the non-default key.
             await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
             await Task.Delay(700, cancellation.Token);
             await client.SendKeyAsync(BindKey, TimeSpan.FromMilliseconds(50), cancellation.Token);
             await Task.Delay(700, cancellation.Token);
-            // First Back closes the popup (acts as "Done"); focus stays on lane 0.
+            // First Back closes the popup (acts as "Done"); focus stays on visual zone 0.
             await client.SendKeyAsync("Escape", TimeSpan.FromMilliseconds(50), cancellation.Token);
             await Task.Delay(700, cancellation.Token);
 
-            // Advance focus from lane 0 through every zone onto the Reset action (index 10):
-            // lane 0 -> 1 -> ... -> 9 -> Reset. Tab is read via ConsumePressedButtons, which
-            // records every injected press event regardless of a same-frame release, and parses
-            // server-side via Enum.TryParse<Keys> ("Tab").
+            // Advance focus through all ten authored visual zones onto the Reset action (index 10).
+            // Tab is read via ConsumePressedButtons, which records every injected press event
+            // regardless of a same-frame release, and parses server-side via Enum.TryParse<Keys>.
             for (int i = 0; i < 10; i++)
             {
                 await client.SendKeyAsync("Tab", TimeSpan.FromMilliseconds(40), cancellation.Token);
@@ -167,7 +168,7 @@ public sealed class DrumMappingStageSmokeTests
             // Reset overwrote the custom binding in Config before the flush, so it must not be on disk.
             var configText = await File.ReadAllTextAsync(fixture.ConfigPath, cancellation.Token);
             await E2EArtifactWriter.WriteTextAsync(fixture, "drum-reset-config.ini", configText);
-            Assert.DoesNotContain($"{ExpectedBindingId}=0", configText);
+            Assert.DoesNotContain($"{ExpectedBindingId}={DefaultFocusedLane}", configText);
         }
         catch (Exception ex)
         {
