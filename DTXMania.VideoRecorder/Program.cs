@@ -152,7 +152,7 @@ internal static class Program
             ? null
             : Path.Combine(repoRoot, "DTXMania.Game", "DTXMania.Game.Windows.csproj");
         var sourceConfig = Path.Combine(environment.SourceAppDataRoot, "Config.ini");
-        var ffprobe = FindOnPath("ffprobe");
+        var ffprobe = RecordingArtifactVerifier.FindFfprobeOnPath();
 
         Console.WriteLine("dtx-video doctor");
         try
@@ -280,23 +280,5 @@ internal static class Program
                 return null;
             candidate = parent.FullName;
         }
-    }
-
-    private static string? FindOnPath(string executable)
-    {
-        var path = Environment.GetEnvironmentVariable("PATH");
-        if (string.IsNullOrWhiteSpace(path))
-            return null;
-
-        foreach (var directory in path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
-        {
-            var candidate = Path.Combine(directory, executable);
-            if (File.Exists(candidate))
-                return candidate;
-            if (OperatingSystem.IsWindows() && File.Exists(candidate + ".exe"))
-                return candidate + ".exe";
-        }
-
-        return null;
     }
 }

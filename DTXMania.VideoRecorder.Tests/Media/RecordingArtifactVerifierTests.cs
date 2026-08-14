@@ -234,19 +234,20 @@ public sealed class RecordingArtifactVerifierTests
     {
         var extensions = RecordingArtifactVerifier.FilterSupportedWindowsExtensions(pathExt);
 
-        Assert.Equal(new[] { ".exe", ".cmd", ".bat" }, extensions);
+        Assert.Equal(new[] { ".com", ".exe", ".cmd", ".bat" }, extensions);
     }
 
     [Fact]
     public void FilterSupportedWindowsExtensions_ShouldExcludeUnsupportedScriptExtensions()
     {
-        // Stock Windows PATHEXT plus Python installer entries; only .exe/.cmd/.bat
-        // can be launched by CreateFfprobeStartInfo with UseShellExecute=false.
+        // Stock Windows PATHEXT plus Python installer entries; only
+        // .com/.exe/.cmd/.bat can be launched by CreateFfprobeStartInfo with
+        // UseShellExecute=false (.com/.exe directly, .cmd/.bat via cmd.exe).
         var pathExt = ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.PY;.PYW";
 
         var extensions = RecordingArtifactVerifier.FilterSupportedWindowsExtensions(pathExt);
 
-        Assert.Equal(new[] { ".EXE", ".BAT", ".CMD" }, extensions);
+        Assert.Equal(new[] { ".COM", ".EXE", ".BAT", ".CMD" }, extensions);
     }
 
     [Fact]
