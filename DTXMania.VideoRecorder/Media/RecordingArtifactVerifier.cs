@@ -24,7 +24,7 @@ internal sealed class RecordingArtifactVerifier
     private readonly Func<string?> _ffprobePathResolver;
 
     public RecordingArtifactVerifier()
-        : this(DefaultExternalIoTimeout, FindOnPath)
+        : this(DefaultExternalIoTimeout, FindFfprobeOnPath)
     {
     }
 
@@ -36,7 +36,7 @@ internal sealed class RecordingArtifactVerifier
             throw new ArgumentOutOfRangeException(nameof(externalIoTimeout));
 
         _externalIoTimeout = externalIoTimeout;
-        _ffprobePathResolver = ffprobePathResolver ?? FindOnPath;
+        _ffprobePathResolver = ffprobePathResolver ?? FindFfprobeOnPath;
     }
 
     internal RecordingArtifactVerifier(
@@ -271,7 +271,23 @@ internal sealed class RecordingArtifactVerifier
         return raw;
     }
 
-    private static string? FindOnPath()
+    // The only extensions CreateFfprobeStartInfo can actually launch on
+    // Windows: native executables (.com/.exe, launched directly with
+    // UseShellExecute=false) and .cmd/.bat shims (launched through cmd.exe).
+    // PATHEXT on a stock Windows install also lists .vbs/.js/.wsf/.msc and
+    // Python installers add .py/.pyw, but UseShellExecute=false does not
+    // consult file associations, so selecting any of those would resolve a
+    // file that Process.Start cannot launch. Keep this set aligned with the
+    // invocation paths in CreateFfprobeStartInfo. Order matches stock Windows
+    // PATHEXT precedence (.COM;.EXE;.BAT;.CMD) so the unset-PATHEXT fallback
+    // resolves the same shim a stock install would.
+    private static readonly string[] SupportedWindowsExtensions = { ".com", ".exe", ".cmd", ".bat" };
+
+    // The single ffprobe PATH resolver used by both the verifier (during
+    // recording) and the doctor command. Exposed as internal so doctor does
+    // not maintain a second, narrower PATH-lookup policy that would report
+    // .cmd/.bat shims as unavailable here while record actually invokes them.
+    internal static string? FindFfprobeOnPath()
     {
         var path = Environment.GetEnvironmentVariable("PATH");
         if (string.IsNullOrWhiteSpace(path))
@@ -282,7 +298,7 @@ internal sealed class RecordingArtifactVerifier
         // extensions. On Windows, PATHEXT is filtered down to the extensions
         // CreateFfprobeStartInfo can actually launch (see
         // FilterSupportedWindowsExtensions); when it is unset we fall back to
-        // .exe/.cmd/.bat so the default resolver can still reach the batch
+        // .com/.exe/.cmd/.bat so the default resolver can still reach the batch
         // handling in CreateFfprobeStartInfo for ffprobe.cmd/ffprobe.bat shims.
         var extensions = GetExecutableExtensions();
         foreach (var directory in path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
@@ -297,16 +313,6 @@ internal sealed class RecordingArtifactVerifier
 
         return null;
     }
-
-    // The only extensions CreateFfprobeStartInfo can actually launch on
-    // Windows: native executables (launched directly with UseShellExecute=false)
-    // and .cmd/.bat shims (launched through cmd.exe). PATHEXT on a stock
-    // Windows install also lists .vbs/.js/.wsf/.msc and Python installers add
-    // .py/.pyw, but UseShellExecute=false does not consult file associations,
-    // so selecting any of those would resolve a file that Process.Start cannot
-    // launch. Keep this set aligned with the invocation paths in
-    // CreateFfprobeStartInfo.
-    private static readonly string[] SupportedWindowsExtensions = { ".exe", ".cmd", ".bat" };
 
     private static IReadOnlyList<string> GetExecutableExtensions()
     {
@@ -328,8 +334,9 @@ internal sealed class RecordingArtifactVerifier
     // var mutation (xUnit runs test classes in parallel). Returns the supported
     // extensions in their PATHEXT precedence order, deduplicated case-
     // insensitively. When PATHEXT is null/blank, falls back to the canonical
-    // .exe/.cmd/.bat order so the default resolver can still reach the batch
-    // handling in CreateFfprobeStartInfo for ffprobe.cmd/ffprobe.bat shims.
+    // .com/.exe/.cmd/.bat order so the default resolver can still reach the
+    // batch handling in CreateFfprobeStartInfo for ffprobe.cmd/ffprobe.bat
+    // shims.
     internal static IReadOnlyList<string> FilterSupportedWindowsExtensions(string? pathExt)
     {
         if (string.IsNullOrWhiteSpace(pathExt))
