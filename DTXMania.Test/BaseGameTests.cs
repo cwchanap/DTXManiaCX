@@ -1839,7 +1839,7 @@ namespace DTXMania.Test
         }
 
         [Fact]
-        public void ClientToBackBufferCoordinates_SameSizeIsIdentity()
+        public void ClientToBackBufferCoordinates_SameSize_ShouldBeIdentity()
         {
             var mapped = BaseGame.ClientToBackBufferCoordinates(
                 new Point(640, 360),
@@ -1850,7 +1850,7 @@ namespace DTXMania.Test
         }
 
         [Fact]
-        public void ClientToBackBufferCoordinates_ScalesClientIntoViewport()
+        public void ClientToBackBufferCoordinates_ShouldScaleClientIntoViewport()
         {
             var mapped = BaseGame.ClientToBackBufferCoordinates(
                 new Point(960, 540),
@@ -1865,7 +1865,7 @@ namespace DTXMania.Test
         [InlineData(0, -1)]
         [InlineData(1920, 0)]
         [InlineData(0, 1080)]
-        public void ClientToBackBufferCoordinates_PointOutsideClientReturnsNull(int x, int y)
+        public void ClientToBackBufferCoordinates_PointOutsideClient_ShouldReturnNull(int x, int y)
         {
             var mapped = BaseGame.ClientToBackBufferCoordinates(
                 new Point(x, y),
@@ -1884,7 +1884,7 @@ namespace DTXMania.Test
         [InlineData(1920, -1, 1280, 720)]
         [InlineData(1920, 1080, -1, 720)]
         [InlineData(1920, 1080, 1280, -1)]
-        public void ClientToBackBufferCoordinates_NonPositiveClientOrViewportReturnsNull(
+        public void ClientToBackBufferCoordinates_NonPositiveClientOrViewport_ShouldReturnNull(
             int clientWidth,
             int clientHeight,
             int viewportWidth,
@@ -1899,7 +1899,7 @@ namespace DTXMania.Test
         }
 
         [Fact]
-        public void ClientToBackBufferCoordinates_RoundingClampsToViewportEdge()
+        public void ClientToBackBufferCoordinates_Rounding_ShouldClampToViewportEdge()
         {
             // When the client-to-viewport scale rounds a near-edge client coordinate up to the
             // viewport's Right/Bottom, the clamp branches must pull it back inside the viewport
@@ -1915,7 +1915,7 @@ namespace DTXMania.Test
         }
 
         [Fact]
-        public void MapMouseToVirtual_WhenClientPointOutsideClient_ReturnsNull()
+        public void MapMouseToVirtual_WhenClientPointOutsideClient_ShouldReturnNull()
         {
             // With a client size set, a point outside the client bounds is rejected by
             // ClientToBackBufferCoordinates (returns null) and MapMouseToVirtual propagates the
@@ -1974,7 +1974,7 @@ namespace DTXMania.Test
         }
 
         [Fact]
-        public void MapMouseToVirtual_WithViewportButNoClientSize_PreservesExistingViewportMapping()
+        public void MapMouseToVirtual_WithViewportButNoClientSize_ShouldPreserveExistingViewportMapping()
         {
             var game = CreateViewportSpyGame();
             game.SetViewportBounds(new Rectangle(0, 0, 1920, 1080));
@@ -1986,7 +1986,7 @@ namespace DTXMania.Test
         }
 
         [Fact]
-        public void MapMouseToVirtual_Non16By9ClientNormalizesBeforeBlackBarRejection()
+        public void MapMouseToVirtual_Non16By9Client_ShouldNormalizeBeforeBlackBarRejection()
         {
             var game = CreateViewportSpyGame();
             game.SetViewportBounds(new Rectangle(50, 20, 1920, 720));
@@ -2000,7 +2000,7 @@ namespace DTXMania.Test
         }
 
         [Fact]
-        public void MapMouseToVirtual_WhenClientAndBackBufferSizesDiffer_NormalizesBeforeLetterboxMapping()
+        public void MapMouseToVirtual_WhenClientAndBackBufferSizesDiffer_ShouldNormalizeBeforeLetterboxMapping()
         {
             var game = CreateViewportSpyGame();
             game.SetViewportBounds(new Rectangle(0, 0, 1280, 720));

@@ -25,7 +25,7 @@ namespace DTXMania.Test.Stage.DrumConfig
         }
 
         [Fact]
-        public void GetLaneForZoneIndex_ReturnsEachAuthoredZoneLane()
+        public void GetLaneForZoneIndex_ShouldReturnEachAuthoredZoneLane()
         {
             var expectedLanes = DrumKitLayout.Zones.Select(zone => zone.Lane).ToArray();
 
@@ -37,7 +37,7 @@ namespace DTXMania.Test.Stage.DrumConfig
         }
 
         [Fact]
-        public void FindZoneIndexByLane_RoundTripsEveryAuthoredZone()
+        public void FindZoneIndexByLane_ShouldRoundTripEveryAuthoredZone()
         {
             for (int zoneIndex = 0; zoneIndex < DrumKitLayout.ZoneCount; zoneIndex++)
             {
@@ -49,7 +49,7 @@ namespace DTXMania.Test.Stage.DrumConfig
         }
 
         [Fact]
-        public void GetLaneForZoneIndex_ResetAndInvalidIndicesReturnMinusOne()
+        public void GetLaneForZoneIndex_ResetAndInvalidIndices_ShouldReturnMinusOne()
         {
             Assert.Equal(-1, DrumKitLayout.GetLaneForZoneIndex(DrumKitLayout.ResetActionIndex));
             Assert.Equal(-1, DrumKitLayout.GetLaneForZoneIndex(-1));
@@ -57,7 +57,7 @@ namespace DTXMania.Test.Stage.DrumConfig
         }
 
         [Fact]
-        public void FindZoneIndexByLane_InvalidLaneReturnsMinusOne()
+        public void FindZoneIndexByLane_InvalidLane_ShouldReturnMinusOne()
         {
             Assert.Equal(-1, DrumKitLayout.FindZoneIndexByLane(-1));
             Assert.Equal(-1, DrumKitLayout.FindZoneIndexByLane(10));
