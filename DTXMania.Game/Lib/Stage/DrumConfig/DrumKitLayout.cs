@@ -75,6 +75,25 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             new DrumZone(3, KeyBindings.GetLaneName(3), DrumZoneShape.Pedal,      560f, 600f, 52f, 36f, flipHorizontal: true), // Left Pedal
         };
 
+        internal static int GetLaneForZoneIndex(int zoneIndex)
+        {
+            if (zoneIndex < 0 || zoneIndex >= Zones.Count)
+                return -1;
+
+            return Zones[zoneIndex].Lane;
+        }
+
+        internal static int FindZoneIndexByLane(int lane)
+        {
+            for (int i = 0; i < Zones.Count; i++)
+            {
+                if (Zones[i].Lane == lane)
+                    return i;
+            }
+
+            return -1;
+        }
+
         /// <summary>Returns the lane of the first zone containing the design-space point, or -1.</summary>
         public static int HitTest(float x, float y)
         {

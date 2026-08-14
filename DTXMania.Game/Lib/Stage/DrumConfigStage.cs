@@ -67,7 +67,9 @@ namespace DTXMania.Game.Lib.Stage
         private const int StatusPadY = 4;
         private const float StatusMaxWidth = 500f;
 
-        private int _focusIndex;
+        // Authored focus element: 0..ZoneCount-1 for visual zones, ResetActionIndex for Reset.
+        // Resolve to a lane ID only when dispatching a popup or rendering lane highlights.
+        private int _focusedElementIndex;
         // Keyboard focus is only *shown* once the user navigates with arrows/Tab, and is hidden
         // again as soon as they move the mouse. Without this the default focus (lane 0) would
         // light up permanently on stage entry even though no one is using the keyboard.
@@ -124,7 +126,7 @@ namespace DTXMania.Game.Lib.Stage
                 () => _input!.GetKeyMappingSnapshot(),                        // system map (= Config)
                 note => _configManager.GetMidiVelocityThreshold(note));        // MIDI thresholds (= Config)
 
-            _focusIndex = 0;
+            _focusedElementIndex = 0;
             _keyboardFocusActive = false;
             _selectedLane = -1;
             _hoveredLane = -1;
@@ -297,7 +299,7 @@ namespace DTXMania.Game.Lib.Stage
 
             if (focusDelta != 0)
             {
-                _focusIndex = DrumKitLayout.AdvanceFocus(_focusIndex, focusDelta);
+                _focusedElementIndex = DrumKitLayout.AdvanceFocus(_focusedElementIndex, focusDelta);
                 _keyboardFocusActive = true; // user is now navigating by keyboard: show the focus ring
             }
 
@@ -307,7 +309,7 @@ namespace DTXMania.Game.Lib.Stage
             if (tabPressCount > 0)
             {
                 for (int i = 0; i < tabPressCount; i++)
-                    _focusIndex = DrumKitLayout.AdvanceFocus(_focusIndex, 1);
+                    _focusedElementIndex = DrumKitLayout.AdvanceFocus(_focusedElementIndex, 1);
                 _keyboardFocusActive = true;
             }
 
@@ -327,7 +329,7 @@ namespace DTXMania.Game.Lib.Stage
             if (leftClick && virtualMouse is { } vmClick
                 && GetResetButtonRect(rVw, rVh).Contains(vmClick.X, vmClick.Y))
             {
-                _focusIndex = DrumKitLayout.ResetActionIndex;
+                _focusedElementIndex = DrumKitLayout.ResetActionIndex;
                 ResetDrumBindingsToDefault();
                 return;
             }
@@ -341,8 +343,12 @@ namespace DTXMania.Game.Lib.Stage
 
         private void OpenPopup(int lane)
         {
+            int zoneIndex = DrumKitLayout.FindZoneIndexByLane(lane);
+            if (zoneIndex < 0)
+                return;
+
             _selectedLane = lane;
-            _focusIndex = lane;
+            _focusedElementIndex = zoneIndex;
             _popup!.Open(lane);
             _skipCaptureThisFrame = true;
         }
@@ -354,10 +360,14 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void ActivateFocusedElement()
         {
-            if (DrumKitLayout.IsResetAction(_focusIndex))
+            if (DrumKitLayout.IsResetAction(_focusedElementIndex))
                 ResetDrumBindingsToDefault();
             else
-                OpenPopup(_focusIndex);
+            {
+                int lane = DrumKitLayout.GetLaneForZoneIndex(_focusedElementIndex);
+                if (lane >= 0)
+                    OpenPopup(lane);
+            }
         }
 
         // "Reset to defaults" button, top-right of the screen in virtual space. Named rather than
@@ -440,7 +450,7 @@ namespace DTXMania.Game.Lib.Stage
             // never for the Reset action (it is not a lane). Otherwise the default focus would keep
             // a zone lit even when the user is only using the mouse.
             int focusedLaneForRender =
-                (_keyboardFocusActive && !DrumKitLayout.IsResetAction(_focusIndex)) ? _focusIndex : -1;
+                _keyboardFocusActive ? DrumKitLayout.GetLaneForZoneIndex(_focusedElementIndex) : -1;
             // Named initializer (not positional args) so the three highlight lanes can't be swapped
             // silently at the call site — the transposition hazard LaneHighlights exists to remove.
             var highlights = new LaneHighlights
@@ -504,7 +514,7 @@ namespace DTXMania.Game.Lib.Stage
             {
                 // Focus ring first (yellow, inflated) so the fill sits inside it, mirroring the
                 // zone focus highlight and giving keyboard users a visible "Reset is focused" cue.
-                if (_keyboardFocusActive && DrumKitLayout.IsResetAction(_focusIndex))
+                if (_keyboardFocusActive && DrumKitLayout.IsResetAction(_focusedElementIndex))
                 {
                     var ring = resetRect;
                     ring.Inflate(4, 4);
