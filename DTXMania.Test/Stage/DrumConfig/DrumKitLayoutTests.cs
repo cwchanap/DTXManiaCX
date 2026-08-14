@@ -25,6 +25,45 @@ namespace DTXMania.Test.Stage.DrumConfig
         }
 
         [Fact]
+        public void GetLaneForZoneIndex_ReturnsEachAuthoredZoneLane()
+        {
+            var expectedLanes = DrumKitLayout.Zones.Select(zone => zone.Lane).ToArray();
+
+            for (int zoneIndex = 0; zoneIndex < expectedLanes.Length; zoneIndex++)
+                Assert.Equal(expectedLanes[zoneIndex], DrumKitLayout.GetLaneForZoneIndex(zoneIndex));
+
+            Assert.Equal(5, DrumKitLayout.GetLaneForZoneIndex(0));
+            Assert.Equal(9, DrumKitLayout.GetLaneForZoneIndex(2));
+        }
+
+        [Fact]
+        public void FindZoneIndexByLane_RoundTripsEveryAuthoredZone()
+        {
+            for (int zoneIndex = 0; zoneIndex < DrumKitLayout.ZoneCount; zoneIndex++)
+            {
+                var lane = DrumKitLayout.GetLaneForZoneIndex(zoneIndex);
+                Assert.Equal(zoneIndex, DrumKitLayout.FindZoneIndexByLane(lane));
+            }
+
+            Assert.Equal(5, DrumKitLayout.FindZoneIndexByLane(4));
+        }
+
+        [Fact]
+        public void GetLaneForZoneIndex_ResetAndInvalidIndicesReturnMinusOne()
+        {
+            Assert.Equal(-1, DrumKitLayout.GetLaneForZoneIndex(DrumKitLayout.ResetActionIndex));
+            Assert.Equal(-1, DrumKitLayout.GetLaneForZoneIndex(-1));
+            Assert.Equal(-1, DrumKitLayout.GetLaneForZoneIndex(DrumKitLayout.ZoneCount));
+        }
+
+        [Fact]
+        public void FindZoneIndexByLane_InvalidLaneReturnsMinusOne()
+        {
+            Assert.Equal(-1, DrumKitLayout.FindZoneIndexByLane(-1));
+            Assert.Equal(-1, DrumKitLayout.FindZoneIndexByLane(10));
+        }
+
+        [Fact]
         public void Zone_NameMatchesKeyBindingsLaneName()
         {
             var snare = DrumKitLayout.Zones.Single(z => z.Lane == 4);

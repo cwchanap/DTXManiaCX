@@ -298,7 +298,7 @@ namespace DTXMania.Test.Stage.DrumConfig
             // exercises the dispatch headlessly without OnActivate.
             var (stage, cm, _) = CreateWiredStage();
             ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "Key.Z", 3); // non-default
-            ReflectionHelpers.SetPrivateField(stage, "_focusIndex", DrumKitLayout.ResetActionIndex);
+            ReflectionHelpers.SetPrivateField(stage, "_focusedElementIndex", DrumKitLayout.ResetActionIndex);
 
             ReflectionHelpers.InvokePrivateMethod(stage, "ActivateFocusedElement");
 
@@ -314,12 +314,28 @@ namespace DTXMania.Test.Stage.DrumConfig
             var drum = new Dictionary<string, int>();
             var popup = new DrumCapturePopup(() => drum, () => new Dictionary<Keys, InputCommandType>());
             ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
-            ReflectionHelpers.SetPrivateField(stage, "_focusIndex", 4); // Snare Drum
+            ReflectionHelpers.SetPrivateField(stage, "_focusedElementIndex", 0); // Hi-Hat visual zone
 
             ReflectionHelpers.InvokePrivateMethod(stage, "ActivateFocusedElement");
 
             Assert.True(popup.IsOpen);
-            Assert.Equal(4, popup.Lane);
+            Assert.Equal(5, popup.Lane);
+        }
+
+        [Fact]
+        public void ActivateFocusedElement_WhenRideVisualZoneFocused_OpensPopupForLane9()
+        {
+            var game = CreateGameWithViewport(1280, 720);
+            var stage = new DrumConfigStage(game);
+            var drum = new Dictionary<string, int>();
+            var popup = new DrumCapturePopup(() => drum, () => new Dictionary<Keys, InputCommandType>());
+            ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
+            ReflectionHelpers.SetPrivateField(stage, "_focusedElementIndex", 2); // Ride visual zone
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "ActivateFocusedElement");
+
+            Assert.True(popup.IsOpen);
+            Assert.Equal(9, popup.Lane);
         }
 
         // ---- OnUpdate / UpdateSelection / UpdatePopup routing (headless, via graphics stub) ----
@@ -422,8 +438,8 @@ namespace DTXMania.Test.Stage.DrumConfig
             ReflectionHelpers.InvokePrivateMethod(stage, "UpdateSelection", MouseAt(380, 430, true), true);
 
             Assert.True(popup.IsOpen);
-            Assert.Equal(4, popup.Lane);
-            Assert.Equal(4, ReflectionHelpers.GetPrivateField<int>(stage, "_focusIndex"));
+            Assert.Equal(4, popup.Lane); // clicked snare lane ID
+            Assert.Equal(5, ReflectionHelpers.GetPrivateField<int>(stage, "_focusedElementIndex"));
         }
 
         [Fact]
@@ -437,7 +453,7 @@ namespace DTXMania.Test.Stage.DrumConfig
             // Reset button rect = (1070, 12, 190, 30); click its center.
             ReflectionHelpers.InvokePrivateMethod(stage, "UpdateSelection", MouseAt(1165, 27, true), true);
 
-            Assert.Equal(DrumKitLayout.ResetActionIndex, ReflectionHelpers.GetPrivateField<int>(stage, "_focusIndex"));
+            Assert.Equal(DrumKitLayout.ResetActionIndex, ReflectionHelpers.GetPrivateField<int>(stage, "_focusedElementIndex"));
             Assert.False(cm.Config.KeyBindings.ContainsKey("Key.Z")); // non-default binding cleared
             Assert.False(ReflectionHelpers.GetPrivateField<DrumCapturePopup>(stage, "_popup")!.IsOpen);
         }
@@ -449,12 +465,12 @@ namespace DTXMania.Test.Stage.DrumConfig
             var stage = new DrumConfigStage(game);
             using var input = new FakeInput(new ConfigManager()) { ActiveCommand = InputCommandType.MoveRight };
             ReflectionHelpers.SetPrivateField(stage, "_input", input);
-            ReflectionHelpers.SetPrivateField(stage, "_focusIndex", 0);
+            ReflectionHelpers.SetPrivateField(stage, "_focusedElementIndex", 0);
             ReflectionHelpers.SetPrivateField(stage, "_previousMouse", MouseAt(5, 5, false));
 
             ReflectionHelpers.InvokePrivateMethod(stage, "UpdateSelection", MouseAt(5, 5, false), false);
 
-            Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_focusIndex"));
+            Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_focusedElementIndex"));
             Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_keyboardFocusActive"));
         }
 
@@ -467,12 +483,12 @@ namespace DTXMania.Test.Stage.DrumConfig
             var stage = new DrumConfigStage(game);
             using var input = new FakeInput(new ConfigManager()) { ActiveCommand = InputCommandType.MoveDown };
             ReflectionHelpers.SetPrivateField(stage, "_input", input);
-            ReflectionHelpers.SetPrivateField(stage, "_focusIndex", 3);
+            ReflectionHelpers.SetPrivateField(stage, "_focusedElementIndex", 3);
             ReflectionHelpers.SetPrivateField(stage, "_previousMouse", MouseAt(5, 5, false));
 
             ReflectionHelpers.InvokePrivateMethod(stage, "UpdateSelection", MouseAt(5, 5, false), false);
 
-            Assert.Equal(4, ReflectionHelpers.GetPrivateField<int>(stage, "_focusIndex"));
+            Assert.Equal(4, ReflectionHelpers.GetPrivateField<int>(stage, "_focusedElementIndex"));
             Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_keyboardFocusActive"));
         }
 
@@ -484,12 +500,12 @@ namespace DTXMania.Test.Stage.DrumConfig
             var stage = new DrumConfigStage(game);
             using var input = new FakeInput(new ConfigManager()) { ActiveCommand = InputCommandType.MoveUp };
             ReflectionHelpers.SetPrivateField(stage, "_input", input);
-            ReflectionHelpers.SetPrivateField(stage, "_focusIndex", 3);
+            ReflectionHelpers.SetPrivateField(stage, "_focusedElementIndex", 3);
             ReflectionHelpers.SetPrivateField(stage, "_previousMouse", MouseAt(5, 5, false));
 
             ReflectionHelpers.InvokePrivateMethod(stage, "UpdateSelection", MouseAt(5, 5, false), false);
 
-            Assert.Equal(2, ReflectionHelpers.GetPrivateField<int>(stage, "_focusIndex"));
+            Assert.Equal(2, ReflectionHelpers.GetPrivateField<int>(stage, "_focusedElementIndex"));
             Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_keyboardFocusActive"));
         }
 
@@ -504,12 +520,12 @@ namespace DTXMania.Test.Stage.DrumConfig
             input.ModularInputManager.InjectButton("Key.Tab", isPressed: true);
             input.ModularInputManager.Update();
             ReflectionHelpers.SetPrivateField(stage, "_input", input);
-            ReflectionHelpers.SetPrivateField(stage, "_focusIndex", 0);
+            ReflectionHelpers.SetPrivateField(stage, "_focusedElementIndex", 0);
             ReflectionHelpers.SetPrivateField(stage, "_previousMouse", MouseAt(5, 5, false));
 
             ReflectionHelpers.InvokePrivateMethod(stage, "UpdateSelection", MouseAt(5, 5, false), false);
 
-            Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_focusIndex"));
+            Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_focusedElementIndex"));
         }
 
         [Fact]
@@ -528,12 +544,12 @@ namespace DTXMania.Test.Stage.DrumConfig
             input.ModularInputManager.InjectButton("Key.Tab", isPressed: false);
             input.ModularInputManager.Update(); // both drain inside one ProcessInjectedInputs
             ReflectionHelpers.SetPrivateField(stage, "_input", input);
-            ReflectionHelpers.SetPrivateField(stage, "_focusIndex", 0);
+            ReflectionHelpers.SetPrivateField(stage, "_focusedElementIndex", 0);
             ReflectionHelpers.SetPrivateField(stage, "_previousMouse", MouseAt(5, 5, false));
 
             ReflectionHelpers.InvokePrivateMethod(stage, "UpdateSelection", MouseAt(5, 5, false), false);
 
-            Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_focusIndex"));
+            Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_focusedElementIndex"));
         }
 
         [Fact]
@@ -557,12 +573,12 @@ namespace DTXMania.Test.Stage.DrumConfig
             }
             input.ModularInputManager.Update();
             ReflectionHelpers.SetPrivateField(stage, "_input", input);
-            ReflectionHelpers.SetPrivateField(stage, "_focusIndex", 0);
+            ReflectionHelpers.SetPrivateField(stage, "_focusedElementIndex", 0);
             ReflectionHelpers.SetPrivateField(stage, "_previousMouse", MouseAt(5, 5, false));
 
             ReflectionHelpers.InvokePrivateMethod(stage, "UpdateSelection", MouseAt(5, 5, false), false);
 
-            Assert.Equal(10, ReflectionHelpers.GetPrivateField<int>(stage, "_focusIndex"));
+            Assert.Equal(10, ReflectionHelpers.GetPrivateField<int>(stage, "_focusedElementIndex"));
         }
 
         [Fact]
@@ -592,13 +608,14 @@ namespace DTXMania.Test.Stage.DrumConfig
             var popup = new DrumCapturePopup(() => drum, () => new Dictionary<Keys, InputCommandType>());
             ReflectionHelpers.SetPrivateField(stage, "_input", input);
             ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
-            ReflectionHelpers.SetPrivateField(stage, "_focusIndex", 4); // Snare zone focused
+            ReflectionHelpers.SetPrivateField(stage, "_focusedElementIndex", 5); // Snare zone focused
             ReflectionHelpers.SetPrivateField(stage, "_previousMouse", MouseAt(5, 5, false));
 
             ReflectionHelpers.InvokePrivateMethod(stage, "UpdateSelection", MouseAt(5, 5, false), false);
 
             Assert.True(popup.IsOpen);
             Assert.Equal(4, popup.Lane);
+            Assert.Equal(5, ReflectionHelpers.GetPrivateField<int>(stage, "_focusedElementIndex"));
         }
 
         [Fact]
@@ -807,8 +824,38 @@ namespace DTXMania.Test.Stage.DrumConfig
             Assert.True(popup.IsOpen);
             Assert.Equal(5, popup.Lane);
             Assert.Equal(5, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedLane"));
-            Assert.Equal(5, ReflectionHelpers.GetPrivateField<int>(stage, "_focusIndex"));
+            Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_focusedElementIndex"));
             Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_skipCaptureThisFrame"));
+        }
+
+        [Fact]
+        public void OpenPopup_WhenLaneInvalid_LeavesSelectionFocusPopupAndSkipStateUnchanged()
+        {
+            var game = ReflectionHelpers.CreateGame();
+            ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), new StubConfigManager());
+            var stage = new DrumConfigStage(game);
+            var drum = new Dictionary<string, int>();
+            var popup = new DrumCapturePopup(() => drum, () => new Dictionary<Keys, InputCommandType>());
+            popup.Open(5);
+            ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
+            ReflectionHelpers.SetPrivateField(stage, "_selectedLane", 5);
+            ReflectionHelpers.SetPrivateField(stage, "_focusedElementIndex", 0);
+            ReflectionHelpers.SetPrivateField(stage, "_skipCaptureThisFrame", true);
+
+            var selectedLaneBefore = ReflectionHelpers.GetPrivateField<int>(stage, "_selectedLane");
+            var focusedElementIndexBefore =
+                ReflectionHelpers.GetPrivateField<int>(stage, "_focusedElementIndex");
+            var popupOpenBefore = popup.IsOpen;
+            var skipCaptureBefore = ReflectionHelpers.GetPrivateField<bool>(stage, "_skipCaptureThisFrame");
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "OpenPopup", 42);
+
+            Assert.Equal(selectedLaneBefore, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedLane"));
+            Assert.Equal(focusedElementIndexBefore,
+                ReflectionHelpers.GetPrivateField<int>(stage, "_focusedElementIndex"));
+            Assert.Equal(popupOpenBefore, popup.IsOpen);
+            Assert.Equal(skipCaptureBefore,
+                ReflectionHelpers.GetPrivateField<bool>(stage, "_skipCaptureThisFrame"));
         }
 
         [Fact]
