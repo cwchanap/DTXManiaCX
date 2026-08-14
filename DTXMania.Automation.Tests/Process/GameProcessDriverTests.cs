@@ -366,46 +366,18 @@ public sealed class GameProcessDriverTests
         var lateHealthProbe = new TaskCompletionSource<GameHealthSnapshot?>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var startup = process.WaitForStartupAsync(
-            _ => lateHealthProbe.Task,
+            probeCancellation =>
+            {
+                probeCancellation.Register(() =>
+                    lateHealthProbe.TrySetResult(
+                        new(process.ProcessId, options.LaunchToken)));
+                return lateHealthProbe.Task;
+            },
             TimeSpan.FromMilliseconds(100),
             TimeSpan.FromMilliseconds(10),
             CancellationToken.None);
-        var lateHealthCompletion = Task.Run(async () =>
-        {
-            await Task.Delay(TimeSpan.FromMilliseconds(200));
-            lateHealthProbe.TrySetResult(new(process.ProcessId, options.LaunchToken));
-        });
-        var completionGuard = Task.Delay(TimeSpan.FromMilliseconds(500));
 
-        try
-        {
-            var completedLateHealth = await Task.WhenAny(lateHealthCompletion, completionGuard);
-            Assert.Same(lateHealthCompletion, completedLateHealth);
-
-            var completedStartup = await Task.WhenAny(startup, completionGuard);
-            Assert.Same(startup, completedStartup);
-            await Assert.ThrowsAsync<TimeoutException>(() => startup);
-        }
-        finally
-        {
-            lateHealthProbe.TrySetResult(null);
-            try
-            {
-                await lateHealthCompletion;
-            }
-            catch (Exception)
-            {
-                // The assertion above owns the expected scheduled completion.
-            }
-            try
-            {
-                await startup;
-            }
-            catch (Exception)
-            {
-                // The assertion above owns the expected startup result.
-            }
-        }
+        await Assert.ThrowsAsync<TimeoutException>(() => startup);
     }
 
     private static GameProcessStartOptions CreateOptions(
