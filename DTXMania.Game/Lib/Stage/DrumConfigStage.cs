@@ -71,8 +71,8 @@ namespace DTXMania.Game.Lib.Stage
         // Resolve to a lane ID only when dispatching a popup or rendering lane highlights.
         private int _focusedElementIndex;
         // Keyboard focus is only *shown* once the user navigates with arrows/Tab, and is hidden
-        // again as soon as they move the mouse. Without this the default focus (lane 0) would
-        // light up permanently on stage entry even though no one is using the keyboard.
+        // again as soon as they move the mouse. Without this the default visual zone 0 (lane 5)
+        // would light up permanently on stage entry even though no one is using the keyboard.
         private bool _keyboardFocusActive;
         private int _hoveredLane = -1;
         private int _selectedLane = -1;
