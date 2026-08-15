@@ -8,6 +8,7 @@ using Xunit;
 
 namespace DTXMania.Test.Resources
 {
+    [Collection("FfmpegRuntimeState")]
     [Trait("Category", "Unit")]
     public class FfmpegRuntimeTests
     {
