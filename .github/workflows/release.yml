@@ -471,12 +471,29 @@ jobs:
 
       - name: Verify bundled arm64 FFmpeg runtime
         run: |
-          runtime="publish/mac/runtimes/osx-arm64/MMTools"
-          test -x "$runtime/ffmpeg"
-          test -x "$runtime/ffprobe"
-          file -b "$runtime/ffmpeg" | grep -qi arm64
-          file -b "$runtime/ffprobe" | grep -qi arm64
-          test -f publish/mac/Licenses/FFmpeg-LGPL-2.1.txt
+          verify_bundled_ffmpeg() {
+            local runtime="$1"
+            local license="$2"
+            local bin
+            for bin in ffmpeg ffprobe; do
+              if [ ! -x "$runtime/$bin" ]; then
+                echo "::error::Bundled $bin is missing or not executable: $runtime/$bin" >&2
+                return 1
+              fi
+              if ! file -b "$runtime/$bin" | grep -qi arm64; then
+                echo "::error::Bundled $bin is not an arm64 executable: $runtime/$bin" >&2
+                file "$runtime/$bin" >&2
+                return 1
+              fi
+            done
+            if [ ! -f "$license" ]; then
+              echo "::error::Bundled FFmpeg LGPL license file is missing: $license" >&2
+              return 1
+            fi
+          }
+          verify_bundled_ffmpeg \
+            "publish/mac/runtimes/osx-arm64/MMTools" \
+            "publish/mac/Licenses/FFmpeg-LGPL-2.1.txt"
 
       - name: Verify OFL font license files in publish output
         run: |
@@ -568,12 +585,29 @@ jobs:
 
       - name: Verify bundled FFmpeg runtime in .app
         run: |
-          runtime="output/DTXMania.app/Contents/MacOS/runtimes/osx-arm64/MMTools"
-          test -x "$runtime/ffmpeg"
-          test -x "$runtime/ffprobe"
-          file -b "$runtime/ffmpeg" | grep -qi arm64
-          file -b "$runtime/ffprobe" | grep -qi arm64
-          test -f output/DTXMania.app/Contents/MacOS/Licenses/FFmpeg-LGPL-2.1.txt
+          verify_bundled_ffmpeg() {
+            local runtime="$1"
+            local license="$2"
+            local bin
+            for bin in ffmpeg ffprobe; do
+              if [ ! -x "$runtime/$bin" ]; then
+                echo "::error::Bundled $bin is missing or not executable: $runtime/$bin" >&2
+                return 1
+              fi
+              if ! file -b "$runtime/$bin" | grep -qi arm64; then
+                echo "::error::Bundled $bin is not an arm64 executable: $runtime/$bin" >&2
+                file "$runtime/$bin" >&2
+                return 1
+              fi
+            done
+            if [ ! -f "$license" ]; then
+              echo "::error::Bundled FFmpeg LGPL license file is missing: $license" >&2
+              return 1
+            fi
+          }
+          verify_bundled_ffmpeg \
+            "output/DTXMania.app/Contents/MacOS/runtimes/osx-arm64/MMTools" \
+            "output/DTXMania.app/Contents/MacOS/Licenses/FFmpeg-LGPL-2.1.txt"
 
       - name: Upload DMG artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -745,7 +779,43 @@ jobs:
 
           # The source archive is used without patching. Refuse to publish a
           # provenance claim if the builder ever grows a source-patch command.
-          if grep -Eq '(^|[[:space:];])(patch|git[[:space:]]+apply)([[:space:]]|$)' "$builder_script"; then
+          # The awk check skips comment lines and only flags commands at command
+          # positions (start of line or after ;, &&, ||, |, {, or the keywords
+          # then/do/else), so a comment or string argument mentioning "patch"
+          # or "sed" does not trigger a false positive.
+          if ! awk '
+            BEGIN { bad = 0 }
+            /^[[:space:]]*#/ { next }
+            {
+              s = $0
+              gsub(/;|&&|\|\||\|/, "\n", s)
+              gsub(/[{]/, "\n", s)
+              gsub(/[[:space:]]then[[:space:]]/, "\n", s)
+              gsub(/[[:space:]]do[[:space:]]/, "\n", s)
+              gsub(/[[:space:]]else[[:space:]]/, "\n", s)
+              n = split(s, parts, "\n")
+              for (i = 1; i <= n; i++) {
+                seg = parts[i]
+                sub(/^[[:space:]]+/, "", seg)
+                sub(/[[:space:]]+$/, "", seg)
+                if (seg == "") continue
+                first = seg
+                sub(/[[:space:]].*/, "", first)
+                if (first == "patch" || first == "applypatch") { bad = 1; exit }
+                if (first == "git") {
+                  rest = seg
+                  sub(/^git[[:space:]]+/, "", rest)
+                  second = rest
+                  sub(/[[:space:]].*/, "", second)
+                  if (second == "apply" || second == "am") { bad = 1; exit }
+                }
+                if (first == "sed") {
+                  if (seg ~ /(^|[[:space:]])-i/ || seg ~ /--in-place/) { bad = 1; exit }
+                }
+              }
+            }
+            END { exit (bad ? 1 : 0) }
+          ' "$builder_script"; then
             echo "::error::The FFmpeg builder contains a source-patch command; release provenance requires an unpatched upstream archive." >&2
             exit 1
           fi
@@ -781,7 +851,7 @@ jobs:
           Builder script: $builder_script
           Builder script asset: $builder_asset
           Builder script SHA-256: $builder_sha256
-          Source patch status: none (the builder contains no patch or git apply command)
+          Source patch status: none (the builder contains no source-patching command: patch, git apply, git am, sed -i, or applypatch)
           Build/configure surface: see the exact builder script asset above; it contains the complete configure and make commands used for the bundled runtime.
           EOF
 

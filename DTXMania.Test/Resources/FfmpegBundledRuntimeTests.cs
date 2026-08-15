@@ -41,11 +41,8 @@ namespace DTXMania.Test.Resources
         {
             Assert.True(File.Exists(path), $"Missing bundled executable: {path}");
 
-            var executeBits = UnixFileMode.UserExecute |
-                UnixFileMode.GroupExecute |
-                UnixFileMode.OtherExecute;
             Assert.True(
-                (File.GetUnixFileMode(path) & executeBits) != 0,
+                (File.GetUnixFileMode(path) & UnixFileMode.UserExecute) != 0,
                 $"Bundled executable has no Unix execute bit: {path}");
         }
     }

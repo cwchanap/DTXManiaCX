@@ -113,7 +113,7 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
-        public void Constructor_WithCommittedMp3File_CreatesSuccessfully()
+        public void Constructor_WithCommittedMp3File_ShouldCreateSuccessfully()
         {
             var mp3Path = Path.Combine(
                 AppContext.BaseDirectory,
@@ -257,7 +257,7 @@ namespace DTXMania.Test.Resources
                 {
                     // MP3 files should fail with FFmpeg-related error
                     _output.WriteLine($"MP3 loading failed as expected: {ex.Message}");
-                    Assert.Contains("Failed to load sound from", ex.Message);
+                    Assert.Contains("Failed to convert MP3 file using bundled FFMpeg", ex.Message);
                 }
                 else
                 {
@@ -273,7 +273,7 @@ namespace DTXMania.Test.Resources
             // Act & Assert
             var exception = Assert.Throws<SoundLoadException>(() => new ManagedSound(_fixture.EmptyMp3File));
             Assert.Equal(_fixture.EmptyMp3File, exception.SoundPath);
-            Assert.Contains("Failed to load sound from", exception.Message);
+            Assert.Contains("Failed to convert MP3 file using bundled FFMpeg", exception.Message);
         }
 
         [Fact]
@@ -282,7 +282,7 @@ namespace DTXMania.Test.Resources
             // Act & Assert
             var exception = Assert.Throws<SoundLoadException>(() => new ManagedSound(_fixture.InvalidMp3File));
             Assert.Equal(_fixture.InvalidMp3File, exception.SoundPath);
-            Assert.Contains("Failed to load sound from", exception.Message);
+            Assert.Contains("Failed to convert MP3 file using bundled FFMpeg", exception.Message);
         }
 
         /// <summary>
