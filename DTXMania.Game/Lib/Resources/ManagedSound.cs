@@ -49,6 +49,10 @@ namespace DTXMania.Game.Lib.Resources
             {
                 LoadSoundFromFile(filePath);
             }
+            catch (SoundLoadException)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 throw new SoundLoadException(_sourcePath, $"Failed to load sound from {filePath}", ex);
@@ -235,7 +239,10 @@ namespace DTXMania.Game.Lib.Resources
                 var runtime = FfmpegRuntime.EnsureConfigured();
                 if (!runtime.IsAvailable)
                 {
-                    throw new InvalidOperationException(runtime.DiagnosticReason);
+                    throw new SoundLoadException(_sourcePath,
+                        $"Bundled FFmpeg runtime is not available: {runtime.DiagnosticReason} " +
+                        $"Rebuild or reinstall CX to restore it.\n" +
+                        $"Alternatively, convert {Path.GetFileName(filePath)} to WAV or OGG format.");
                 }
 
                 // First, probe the file to get audio information
@@ -281,6 +288,10 @@ namespace DTXMania.Game.Lib.Resources
                 var audioChannels = targetChannels == 1 ? AudioChannels.Mono : AudioChannels.Stereo;
                 
                 _soundEffect = new SoundEffect(pcmData, sampleRate, audioChannels);
+            }
+            catch (SoundLoadException)
+            {
+                throw;
             }
             catch (FileNotFoundException ex) when (ex.Message.Contains("ffmpeg"))
             {

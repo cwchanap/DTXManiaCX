@@ -33,13 +33,38 @@ esac
 
 work_root=""
 
+cache_lock="$cache_root/.build-lock"
+cache_lock_held=false
+
 cleanup() {
   if [[ -n "$work_root" && -d "$work_root" ]]; then
     rm -rf "$work_root"
   fi
+  if [[ "$cache_lock_held" == true ]]; then
+    rmdir "$cache_lock" 2>/dev/null || true
+  fi
 }
 
 trap cleanup EXIT
+
+acquire_cache_lock() {
+  mkdir -p "$cache_root"
+  local attempt=0
+  while (( attempt < 300 )); do
+    if mkdir "$cache_lock" 2>/dev/null; then
+      return 0
+    fi
+    attempt=$((attempt + 1))
+    sleep 1
+  done
+  echo "Timed out waiting for FFmpeg cache lock: $cache_lock" >&2
+  return 1
+}
+
+release_cache_lock() {
+  rmdir "$cache_lock" 2>/dev/null || true
+  cache_lock_held=false
+}
 
 cache_metadata_valid() {
   local root="$1"
@@ -134,6 +159,8 @@ validate_runtime() {
 }
 
 cache_ready=false
+acquire_cache_lock || exit 1
+cache_lock_held=true
 if cache_metadata_valid "$cache_dir"; then
   # Revalidate the full capability surface on every cache hit so a runtime
   # built before a capability amendment (such as the unix protocol) cannot
@@ -145,6 +172,7 @@ if cache_metadata_valid "$cache_dir"; then
     echo "Cached FFmpeg runtime failed validation; rebuilding." >&2
   fi
 fi
+release_cache_lock
 
 if [[ "$cache_ready" != true ]]; then
   work_root="$(mktemp -d "${TMPDIR:-/tmp}/dtx-ffmpeg.XXXXXX")"
@@ -192,6 +220,10 @@ if [[ "$cache_ready" != true ]]; then
   install -m 644 "$source_dir/COPYING.LGPLv2.1" "$cache_stage/COPYING.LGPLv2.1"
 
   # Validate the staged output before it can replace a previously valid cache.
+  # Hold the cache lock through validation and cache replacement so concurrent
+  # builds cannot race on the shared cache directory.
+  acquire_cache_lock || exit 1
+  cache_lock_held=true
   validate_runtime "$cache_stage"
 
   # The provenance marker is written only after the freshly built runtime has
@@ -202,6 +234,7 @@ if [[ "$cache_ready" != true ]]; then
   mkdir -p "$(dirname "$cache_dir")"
   rm -rf "$cache_dir"
   mv "$cache_stage" "$cache_dir"
+  release_cache_lock
   cache_ready=true
   echo "Cached validated FFmpeg runtime at: $cache_dir"
 fi

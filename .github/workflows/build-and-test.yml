@@ -341,7 +341,14 @@ jobs:
       uses: actions/setup-dotnet@v6
       with:
         dotnet-version: '8.0.x'
-    
+
+    - name: Cache native FFmpeg runtime (macOS)
+      if: runner.os == 'macOS'
+      uses: actions/cache@v6
+      with:
+        path: ~/Library/Caches/DTXManiaCX/ffmpeg
+        key: macos-arm64-ffmpeg-${{ hashFiles('tools/ffmpeg/macos-arm64/build-runtime.sh') }}
+
     - name: Restore dependencies
       run: dotnet restore ${{ matrix.project }}
     
