@@ -677,14 +677,129 @@ jobs:
               ;;
           esac
 
+      - name: Checkout immutable release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+          ref: ${{ needs.prepare-release.outputs.target_sha }}
+
+      - name: Prepare FFmpeg source and provenance assets
+        env:
+          TARGET_SHA: ${{ needs.prepare-release.outputs.target_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          builder_script="tools/ffmpeg/macos-arm64/build-runtime.sh"
+          if [ ! -f "$builder_script" ]; then
+            echo "::error::Missing FFmpeg builder script: $builder_script" >&2
+            exit 1
+          fi
+
+          extract_builder_assignment() {
+            local key="$1"
+            local value
+            if ! value="$(awk -v key="$key" '
+              index($0, key "=\"") == 1 && substr($0, length($0), 1) == "\"" {
+                candidate=substr($0, length(key) + 3, length($0) - length(key) - 3)
+                count++
+                value=candidate
+              }
+              END {
+                if (count != 1 || value == "") {
+                  exit 1
+                }
+                print value
+              }
+            ' "$builder_script")"; then
+              echo "::error::Expected exactly one non-empty ${key}=\"...\" assignment in $builder_script." >&2
+              exit 1
+            fi
+            printf '%s\n' "$value"
+          }
+
+          ffmpeg_version="$(extract_builder_assignment FFMPEG_VERSION)"
+          ffmpeg_source_sha256="$(extract_builder_assignment FFMPEG_TARBALL_SHA256)"
+          ffmpeg_source_url_template="$(extract_builder_assignment FFMPEG_URL)"
+          ffmpeg_source_url="${ffmpeg_source_url_template//\$\{FFMPEG_VERSION\}/$ffmpeg_version}"
+
+          if [[ ! "$ffmpeg_version" =~ ^[0-9]+([.][0-9]+)+$ ]]; then
+            echo "::error::Invalid FFmpeg version parsed from $builder_script: $ffmpeg_version" >&2
+            exit 1
+          fi
+          if [[ ! "$ffmpeg_source_sha256" =~ ^[[:xdigit:]]{64}$ ]]; then
+            echo "::error::Invalid FFmpeg source SHA-256 parsed from $builder_script." >&2
+            exit 1
+          fi
+
+          source_archive="${ffmpeg_source_url##*/}"
+          expected_archive="ffmpeg-${ffmpeg_version}.tar.xz"
+          if [ -z "$ffmpeg_version" ] || [ "$source_archive" != "$expected_archive" ]; then
+            echo "::error::FFmpeg source URL basename '$source_archive' does not match parsed version '$ffmpeg_version'." >&2
+            exit 1
+          fi
+          if [ "$ffmpeg_source_url" != "https://ffmpeg.org/releases/$source_archive" ]; then
+            echo "::error::FFmpeg source URL is not the expected immutable ffmpeg.org release archive: $ffmpeg_source_url" >&2
+            exit 1
+          fi
+
+          # The source archive is used without patching. Refuse to publish a
+          # provenance claim if the builder ever grows a source-patch command.
+          if grep -Eq '(^|[[:space:];])(patch|git[[:space:]]+apply)([[:space:]]|$)' "$builder_script"; then
+            echo "::error::The FFmpeg builder contains a source-patch command; release provenance requires an unpatched upstream archive." >&2
+            exit 1
+          fi
+
+          source_asset="release-assets/$source_archive"
+          echo "Downloading FFmpeg source archive from $ffmpeg_source_url"
+          curl -fsSL --retry 3 --retry-delay 2 "$ffmpeg_source_url" -o "$source_asset"
+          printf '%s  %s\n' "$ffmpeg_source_sha256" "$source_asset" | shasum -a 256 -c -
+
+          source_root="ffmpeg-${ffmpeg_version}"
+          archive_roots="$(tar -tJf "$source_asset" | awk -F/ 'NF { print $1 }' | sort -u)"
+          if [ "$archive_roots" != "$source_root" ]; then
+            echo "::error::Unexpected FFmpeg source archive tree (expected only $source_root, got: $archive_roots)." >&2
+            exit 1
+          fi
+          tar -tJf "$source_asset" "$source_root/COPYING.LGPLv2.1" >/dev/null
+
+          source_stem="${source_archive%.tar.xz}"
+          provenance_asset="${source_stem}-provenance.txt"
+          builder_asset="${source_stem}-build-runtime.sh"
+          builder_sha256="$(shasum -a 256 "$builder_script" | awk '{print $1}')"
+          cp "$builder_script" "release-assets/$builder_asset"
+          printf '%s  %s\n' "$builder_sha256" "release-assets/$builder_asset" | shasum -a 256 -c -
+
+          cat > "release-assets/$provenance_asset" <<EOF
+          FFmpeg source provenance
+          ========================
+          FFmpeg version: $ffmpeg_version
+          Source archive: $source_archive
+          Source URL: $ffmpeg_source_url
+          Source SHA-256: $ffmpeg_source_sha256
+          Release target commit: $TARGET_SHA
+          Builder script: $builder_script
+          Builder script asset: $builder_asset
+          Builder script SHA-256: $builder_sha256
+          Source patch status: none (the builder contains no patch or git apply command)
+          Build/configure surface: see the exact builder script asset above; it contains the complete configure and make commands used for the bundled runtime.
+          EOF
+
+          {
+            echo "FFMPEG_VERSION=$ffmpeg_version"
+            echo "FFMPEG_SOURCE_ARCHIVE=$source_archive"
+            echo "FFMPEG_PROVENANCE_ASSET=$provenance_asset"
+            echo "FFMPEG_BUILDER_ASSET=$builder_asset"
+          } >> "$GITHUB_ENV"
+
       - name: Create GitHub release with build assets
         env:
           GH_TOKEN: ${{ github.token }}
-          # This job does not check out the repository, so there is no local
-          # git remote for `gh` to resolve the repository from. GH_TOKEN only
-          # authenticates; it does not select a repository. Set GH_REPO so the
-          # gh release view/upload/create commands below target this repository
-          # instead of failing with "could not determine repository".
+          # GH_TOKEN authenticates but does not select a repository for the
+          # `gh` release view/upload/create commands below. Set GH_REPO
+          # explicitly even though this job checked out the immutable source
+          # commit for provenance preparation.
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ needs.prepare-release.outputs.release_tag }}
           PRERELEASE: ${{ needs.prepare-release.outputs.prerelease }}
@@ -723,4 +838,45 @@ jobs:
               --generate-notes \
               "${prerelease_args[@]}" \
               "${assets[@]}"
+          fi
+
+          notice_start='<!-- DTXMANIACX_FFMPEG_SOURCE_NOTICE_START -->'
+          notice_end='<!-- DTXMANIACX_FFMPEG_SOURCE_NOTICE_END -->'
+          source_base_url="https://github.com/${GH_REPO}/releases/download/${RELEASE_TAG}"
+          body_file="$(mktemp)"
+          notice_file="$(mktemp)"
+          updated_body_file="$(mktemp)"
+          trap 'rm -f "$body_file" "$notice_file" "$updated_body_file"' EXIT
+
+          gh release view "$RELEASE_TAG" --json body --jq '.body // ""' > "$body_file"
+          cat > "$notice_file" <<EOF
+          $notice_start
+          FFmpeg/LGPL source notice: this release bundles FFmpeg ${FFMPEG_VERSION} under LGPL-2.1 for the native macOS runtime. The exact upstream source archive is [${FFMPEG_SOURCE_ARCHIVE}](${source_base_url}/${FFMPEG_SOURCE_ARCHIVE}); build provenance is [${FFMPEG_PROVENANCE_ASSET}](${source_base_url}/${FFMPEG_PROVENANCE_ASSET}), including the exact builder/configure script [${FFMPEG_BUILDER_ASSET}](${source_base_url}/${FFMPEG_BUILDER_ASSET}).
+          $notice_end
+          EOF
+
+          python3 - "$body_file" "$notice_file" "$updated_body_file" "$notice_start" "$notice_end" <<'PY'
+          import sys
+          from pathlib import Path
+
+          body_path, notice_path, updated_path, start, end = sys.argv[1:]
+          body = Path(body_path).read_text()
+          notice = Path(notice_path).read_text()
+          start_count = body.count(start)
+          end_count = body.count(end)
+
+          if start_count == 0:
+              updated = notice + ("\n" if body else "") + body
+          elif start_count == 1 and end_count == 1:
+              start_index = body.index(start)
+              end_index = body.index(end, start_index) + len(end)
+              updated = body[:start_index] + notice.rstrip("\n") + body[end_index:]
+          else:
+              raise SystemExit("Malformed or duplicated FFmpeg source notice markers in the existing release body.")
+
+          Path(updated_path).write_text(updated)
+          PY
+
+          if ! cmp -s "$body_file" "$updated_body_file"; then
+            gh release edit "$RELEASE_TAG" --notes-file "$updated_body_file"
           fi
