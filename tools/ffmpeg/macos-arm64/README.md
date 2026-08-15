@@ -94,12 +94,21 @@ then pass the same architecture, capability (including `file`, `pipe`, and
 `unix` protocols), version, and dynamic dependency checks as a fresh build;
 an invalid cache is rebuilt. This revalidation rejects a cache created before
 the `unix` protocol was added even though its pinned source hash is unchanged.
+The cache root has a directory lock. The lock remains held through cache
+validation, replacement, and copying the runtime/license to the requested
+output directories, so a waiting invocation revalidates and reuses the cache
+created by the invocation ahead of it. Run the deterministic shell regression
+check with:
+
+```bash
+bash tools/ffmpeg/macos-arm64/test-cache-lock.sh
+```
 
 On a cold cache, the script creates a `mktemp -d` work root, downloads,
 verifies, configures, compiles, and installs into that temporary root. It
 validates the staged runtime before replacing the exact versioned cache leaf,
 then writes `source.sha256`. A warm cache copies the validated binaries and
-license without downloading or compiling FFmpeg. No cache locking is used.
+license without downloading or compiling FFmpeg.
 
 The clean-cache command targets only this builder's exact version and
 architecture directory:
