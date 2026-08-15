@@ -2,7 +2,7 @@
 
 **Issue:** HPA-512 — Package native Apple Silicon FFmpeg for CX gameplay audio  
 **Date:** 2026-08-14  
-**Status:** Proposed for review
+**Status:** Revised after planning review
 
 ## Goal
 
@@ -20,56 +20,54 @@ Keep the task to one 2–3 engineer-day implementation PR. This is packaging/bui
 
 ## Why this is the next slice
 
-HPA-513 is the next Windows acceptance milestone, but its HPA-503 implementation is still stacked behind the open HPA-503 planning PR before it reaches `main`.
+HPA-513 is the next Windows acceptance milestone, but the HPA-503 implementation is still stacked behind the open HPA-503 planning PR before it reaches `main`.
 
 HPA-512 is high priority, unblocked, and independently blocks HPA-515 Apple Silicon recording parity.
 
 ## Current state
 
-The repository is already close to the desired design:
+The repository already contains most runtime behavior needed by HPA-512:
 
-- `DTXMania.Game.Mac.csproj` references `FFMpegCore` plus `MMTools.Executables.MacOS.X64`.
-- `FfmpegRuntime` already prefers `runtimes/osx-arm64/MMTools` before the x64/Windows/Linux candidates and requires both binaries to be runnable.
-- `FfmpegAudioVariantProcessor` and `ManagedSound` already share `FfmpegRuntime`.
-- the release workflow already builds a minimal native arm64 FFmpeg 7.0.2 from the official source tarball, pins its SHA-256, copies `ffmpeg`/`ffprobe` to the exact expected runtime folder, and validates architecture plus required codecs/filters.
-- that native runtime is created only after `dotnet publish`, so ordinary Mac build/run/test output still depends on the x64 package or PATH.
+- `DTXMania.Game.Mac.csproj` references `FFMpegCore` plus the x64-only `MMTools.Executables.MacOS.X64` package.
+- `FfmpegRuntime` already looks for `runtimes/osx-arm64/MMTools` before `osx-x64` and requires both `ffmpeg` and `ffprobe` to be runnable.
+- `ManagedSound` and `FfmpegAudioVariantProcessor` already share `FfmpegRuntime`; no second runtime resolver is needed.
+- `release.yml` already builds a native arm64 FFmpeg 7.0.2 from the official tarball, pins SHA-256 `8646515b638a3ad303e23af6a3587734447cb8fc0a0c064ecdb8e95c4fd8b389`, and validates the minimal codecs/filters CX actually uses.
+- that native runtime is created only after `dotnet publish`, so ordinary build/test output still resolves the x64 package or PATH.
 
-The missing work is to turn the proven release-only recipe into a normal Mac project build input and remove duplicate ownership from `release.yml`.
+Two existing behaviors materially affect the design:
+
+1. `FfmpegAudioVariantProcessorTests.PrepareAsync_EncodedAudio_ShouldNormalizeToRawPcm` is already the strongest real variant test. It runs real `FfmpegRuntime`, real `FfmpegAudioVariantProcessor`, and `new PlaybackModifiers(50, 12)` over WAV/MP3/OGG. Today its MP3/OGG rows first encode fixtures with `libmp3lame` / `libvorbis` through the configured FFmpeg. The shipping minimal arm64 runtime intentionally has only the `pcm_s16le` encoder, so replacing the x64 full build without repairing this test would make Mac Audio tests fail before the product path is exercised.
+2. Mac CI currently builds only the Game project and then runs `DTXMania.Test.Mac` with `--no-build`. A generated runtime must therefore propagate through the Game `ProjectReference`, and the test project must be built explicitly before its `--no-build` suite.
+
+Also, `DTXMania.Test.csproj` references `DTXMania.Game.Mac.csproj` on Windows. Any native bootstrap target in the Mac project must be explicitly macOS-only.
 
 ## Approaches considered
 
-### A. Extract the existing official source build and expose it as normal Mac project content — chosen
+### A. Extract the proven source build, make the Mac project own one generated-content copy contract, and repair existing real-audio tests — chosen
 
-Create one small build script from the already-proven release recipe. Before normal output-copy resolution, the Mac project asks that script to populate an intermediate staging directory. The generated runtime/license files are declared as ordinary MSBuild items with `CopyToOutputDirectory` and `CopyToPublishDirectory`, so they also flow through `ProjectReference` into the Mac test output.
-
-A versioned user cache makes repeated builds copy-only after the first successful native compile.
+Reuse the current release recipe, add one cached builder, generate the native runtime before MSBuild resolves copy items, and keep the existing audio test as the real variant gate using committed encoded fixtures.
 
 **Pros**
 
-- reuses known working configure flags and checksum;
-- no new package/provider/supply chain;
-- exact existing `FfmpegRuntime` layout;
-- one MSBuild content path covers run, tests, and publish;
-- no Rosetta dependency;
-- minimal release-workflow code after consolidation;
-- license/features remain under project control.
+- one upstream source/version/checksum;
+- no new binary publisher or package layout;
+- one runtime resolver and one runtime path;
+- one build/test/publish copy contract;
+- preserves the existing stricter `PlaybackModifiers(50, 12)` test instead of adding weaker duplicate coverage;
+- Windows behavior stays unchanged.
 
 **Cons**
 
-- first native Mac build compiles FFmpeg once;
-- requires normal Apple developer command-line build tools.
+- first Apple Silicon build compiles FFmpeg once;
+- generated MSBuild content and Unix execute bits need explicit verification.
 
-This is the smallest long-term shape because the repository already owns the same source build in CI.
+### B. Add a third-party arm64 FFmpeg NuGet/binary provider — rejected
 
-### B. Replace MMTools with a third-party arm64 binary/NuGet package — rejected
+This reduces first-build time but adds another supplier, update cadence, license/provenance surface, and layout adaptation. The repository already has a working upstream-source recipe.
 
-This shortens first-build time but adds another binary publisher, package layout, update cadence, and license/provenance surface. It also requires adapting that package back into the existing `runtimes/osx-arm64/MMTools` contract.
+### C. Expand the bundled runtime with MP3/OGG encoders only to preserve test fixture generation — rejected
 
-Do not add that dependency while a working upstream-source recipe already exists.
-
-### C. Commit `ffmpeg` and `ffprobe` binaries to the repository — rejected
-
-This makes builds fast but turns large generated binaries into source-controlled artifacts and makes updates/review/provenance worse. It is unnecessary for this project.
+Production does not need `libmp3lame` or `libvorbis` encoding. Adding external encoder dependencies solely because tests generate their own inputs increases the runtime and licensing/dependency surface. Commit tiny project-owned MP3/OGG fixtures instead.
 
 ## Chosen design
 
@@ -82,25 +80,18 @@ tools/ffmpeg/macos-arm64/build-runtime.sh
 tools/ffmpeg/macos-arm64/README.md
 ```
 
-Move the current native build recipe out of `.github/workflows/release.yml` into `build-runtime.sh`.
-
-Keep the currently proven source version for this ticket:
+Extract the currently shipping configure recipe from `release.yml` first, unchanged:
 
 ```text
 FFmpeg 7.0.2
-source: official ffmpeg.org release tarball
+source: https://ffmpeg.org/releases/ffmpeg-7.0.2.tar.xz
 SHA-256: 8646515b638a3ad303e23af6a3587734447cb8fc0a0c064ecdb8e95c4fd8b389
-```
 
-HPA-512 is not an FFmpeg-version upgrade. A later version bump is one isolated script/documentation change plus validation.
-
-Retain the current minimal feature set required by CX and make dependency/license intent explicit:
-
-```text
-static executables; no shared dylib deployment
-disable docs / ffplay / everything by default
-disable autodetect
-disable GPL and nonfree features
+--enable-static --disable-shared
+--disable-doc --disable-htmlpages --disable-manpages
+--disable-podpages --disable-txtpages
+--disable-ffplay
+--disable-everything
 
 decoders:
   mp3float
@@ -120,36 +111,39 @@ filters:
   aformat / anull / aresample / atempo / apad / atrim
 ```
 
-`--disable-autodetect`, `--disable-gpl`, and `--disable-nonfree` make the build fail closed instead of accidentally changing dependency/redistribution behavior based on what happens to be installed on a developer or runner machine.
+`--disable-autodetect`, `--disable-gpl`, and `--disable-nonfree` are sensible hardening but are **not** part of the proven recipe today. Do not make extraction depend on them. After a cold baseline build passes all existing architecture/capability checks, the implementation may add those three flags in the same PR only if another clean cold build remains green. Otherwise retain the proven flags and record the decision in the README.
 
 The script must:
 
-1. reject non-macOS/non-arm64 hosts with an actionable message;
-2. download the exact source tarball when the cache is missing;
-3. verify SHA-256 before extraction;
+1. reject non-macOS/non-arm64 hosts with `Native CX macOS runtime requires Apple Silicon (arm64); Intel/Rosetta is not supported.`;
+2. download the exact source tarball on a cache miss;
+3. verify the pinned SHA-256 before extraction;
 4. configure/build/install the minimal runtime;
-5. verify both outputs are executable arm64 Mach-O binaries;
-6. verify the required filters, decoders, demuxers, encoder, and muxer;
-7. cache the validated pair under a versioned user cache;
-8. copy `ffmpeg`, `ffprobe`, and the upstream LGPL license into staging destinations supplied by the caller.
+5. independently verify `ffmpeg` and `ffprobe` are executable arm64 Mach-O binaries;
+6. verify the required filters, decoders, demuxers, encoder, and muxer already checked by `release.yml`;
+7. run `ffmpeg -version` and `ffprobe -version` successfully;
+8. cache the validated runtime under a versioned user cache;
+9. copy `ffmpeg`, `ffprobe`, and `COPYING.LGPLv2.1` to caller-provided destinations.
 
-Use a simple cache:
+Use:
 
 ```text
-~/Library/Caches/DTXManiaCX/ffmpeg/7.0.2/osx-arm64/
+${DTXMANIA_FFMPEG_CACHE_ROOT:-~/Library/Caches/DTXManiaCX/ffmpeg}/7.0.2/osx-arm64/
 ```
 
-The cache is an optimization only. Deleting it forces a clean verified rebuild.
+The cache is only an optimization. Deleting it forces a verified rebuild. Do not add a package-builder project, download service, lock daemon, or generic dependency bootstrap framework.
 
-Do not create a package-builder project, runtime manifest schema, download service, lock daemon, or generic cross-platform FFmpeg installer.
+### 2. The Mac project owns a generated MSBuild copy contract
 
-### 2. Mac project owns one transitive output/publish path
+Remove only:
 
-Update `DTXMania.Game/DTXMania.Game.Mac.csproj`:
+```xml
+<PackageReference Include="MMTools.Executables.MacOS.X64" Version="1.0.6" />
+```
 
-- remove `MMTools.Executables.MacOS.X64`;
-- keep `FFMpegCore` unchanged;
-- define an intermediate staging root under the existing project `obj` tree, for example:
+Keep `FFMpegCore` and the Windows project unchanged.
+
+Stage generated files under a project-local intermediate root, for example:
 
 ```text
 $(BaseIntermediateOutputPath)ffmpeg-runtime/
@@ -158,8 +152,22 @@ $(BaseIntermediateOutputPath)ffmpeg-runtime/
   Licenses/FFmpeg-LGPL-2.1.txt
 ```
 
-- add one macOS-only target early enough to populate that staging directory before MSBuild resolves files copied to build/reference outputs;
-- declare the staged files as normal `None`/content items with target links:
+The target must be explicit because these files do not exist during normal project evaluation and must also be visible when a referencing project asks for copy-to-output items:
+
+```xml
+<Target Name="PrepareNativeFfmpegRuntime"
+        Condition="$([MSBuild]::IsOSPlatform('OSX'))"
+        BeforeTargets="BeforeBuild;AssignTargetPaths;GetCopyToOutputDirectoryItems">
+  <Exec Command="bash .../tools/ffmpeg/macos-arm64/build-runtime.sh ..." />
+  <ItemGroup>
+    <!-- Add generated None items here, after generation. -->
+    <!-- Each item sets TargetPath, CopyToOutputDirectory=PreserveNewest, -->
+    <!-- and CopyToPublishDirectory=PreserveNewest. -->
+  </ItemGroup>
+</Target>
+```
+
+Required target paths:
 
 ```text
 runtimes/osx-arm64/MMTools/ffmpeg
@@ -167,180 +175,188 @@ runtimes/osx-arm64/MMTools/ffprobe
 Licenses/FFmpeg-LGPL-2.1.txt
 ```
 
-and both:
+This one target must satisfy:
 
 ```text
-CopyToOutputDirectory=PreserveNewest
-CopyToPublishDirectory=PreserveNewest
+Game bin output
+-> ProjectReference copy into DTXMania.Test.Mac bin
+-> publish output
+-> .app bundle via existing cp -R
 ```
 
-This matters because `DTXMania.Test.Mac.csproj` references the game project. Generated files that are merely copied into `DTXMania.Game/bin` after the build are not a reliable project-reference contract; declared copy items are.
+Do not add a second copy target to the test project.
 
-The builder's user cache keeps the early target cheap after the first compile: each normal build stages from cache, then MSBuild handles output/test/publish copying consistently.
+Unix execute bits are part of the contract because `FfmpegRuntime.IsRunnableFile` intentionally rejects non-executable bundled binaries. Verify `test -x` in Game, Test.Mac, publish, and `.app` output. If MSBuild copy is proven to lose execute bits, add the smallest macOS-only post-copy `chmod +x` hook needed to the existing project flow; do not weaken `IsRunnableFile`.
 
-The Mac project is already the platform boundary, so do not introduce shared cross-platform MSBuild props/targets for one Apple-Silicon-only dependency.
+The macOS condition is mandatory. Windows CI builds `DTXMania.Test.csproj`, which references the Mac game project; that build must not invoke `build-runtime.sh`.
 
-Intel macOS remains out of scope. A Mac x64 host should fail the native bootstrap instead of silently selecting Rosetta.
+### 3. Repair the existing real-FFmpeg tests instead of duplicating them
 
-### 3. Keep runtime code stable
-
-Do not redesign `FfmpegRuntime`.
-
-Its current contract is already correct for HPA-512:
+Add two tiny project-owned fixtures:
 
 ```text
-bundled osx-arm64
--> bundled osx-x64
--> Windows/Linux candidates
--> PATH diagnostic fallback
+DTXMania.Test/TestData/Audio/ffmpeg-tone.mp3
+DTXMania.Test/TestData/Audio/ffmpeg-tone.ogg
 ```
 
-Once the x64 package is removed, the supported Mac project only supplies the arm64 folder. PATH remains a development diagnostic fallback, not the supported runtime source.
+Generate them once from the same deterministic sine tone using a full developer FFmpeg, then commit them. They are test inputs, not production runtime assets.
 
-Only tighten focused tests so the first complete arm64 folder demonstrably beats an otherwise-complete x64 folder.
+Update both test project files to copy `TestData/Audio/**/*` to test output.
 
-Do not add architecture registries, RID providers, process wrappers, or a second availability service.
+Modify `PrepareAsync_EncodedAudio_ShouldNormalizeToRawPcm`:
 
-### 4. Native audio validation
+- keep the WAV row generated by the existing tone/WAV helper;
+- use the committed MP3 fixture for the MP3 row;
+- use the committed OGG fixture for the OGG row;
+- delete the test-time `libmp3lame` / `libvorbis` encoding step;
+- keep `new PlaybackModifiers(50, 12)` and all current duration/frequency assertions.
 
-Use the existing seams instead of creating a parallel audio harness.
+Do **not** add a second `PlaybackModifiers(125, 0)` variant smoke. The existing test is stricter and already exercises the real product processor.
 
-Add one small generated/committed test tone under `DTXMania.Test/TestData/Audio/` for the real MP3 decode path. The test asset is project-generated, not third-party media. Add that test-data folder to the existing Mac test output-copy rules.
+Add only missing product gates:
 
-On native Apple Silicon verify from the **test assembly output**:
+1. a native Apple Silicon check in the existing `FfmpegRuntimeTests` that `EnsureConfigured().BinaryFolder` is the test assembly's `runtimes/osx-arm64/MMTools` directory and both files exist with Unix execute bits;
+2. one successful valid-MP3 load in `ManagedSoundTests` using `ffmpeg-tone.mp3` and asserting non-zero duration.
 
-1. `RuntimeInformation.ProcessArchitecture == Arm64`;
-2. `FfmpegRuntime.EnsureConfigured()` reports the bundled `osx-arm64/MMTools` directory next to the test/game assembly;
-3. both binaries execute normally;
-4. `new ManagedSound(mp3Fixture)` succeeds with a non-zero duration;
-5. `new FfmpegAudioVariantProcessor().PrepareAsync(wav, new PlaybackModifiers(125, 0), token)` produces non-empty PCM;
-6. cancellation/timeout coverage already owned by `FfmpegAudioVariantProcessorTests` remains green.
+Leave `ManagedSoundFFmpegPathTests` unchanged. It already proves a complete arm64 candidate wins over a complete x64 candidate. Leave the separate `FfmpegRuntimeCoverageTests` first-complete-candidate test unchanged as well.
 
-The test-output location is intentional: it proves the project-reference propagation that HPA-512 needs for normal Mac tests, rather than only proving files exist in `DTXMania.Game/bin`.
+Update the stale `ManagedSound.LoadMp3File` missing-binary diagnostic so it no longer tells macOS users to install `MMTools.Executables.MacOS.X64`. Use one generic bundled-runtime message; this is copy correction, not resolver redesign.
 
-Do not broaden this into a codec matrix. MP3 preview plus one real non-default variant path are the product gates named by HPA-512.
+### 4. Native CI makes the copy contract observable
 
-### 5. CI and release consolidation
+Change regular Mac CI to:
 
-Pin the regular macOS build/test job to the same native Apple Silicon class already used by release (`macos-15`) so it is real arm64 evidence rather than an ambiguous `macos-latest` alias.
+```yaml
+runs-on: macos-15
+```
 
-Add an Actions cache for the versioned FFmpeg user cache keyed by the builder script. A cache miss compiles; a hit keeps routine PR builds fast.
-
-After the Mac project build, verify the actual game output:
+Add an Actions cache for:
 
 ```text
-test -x .../runtimes/osx-arm64/MMTools/ffmpeg
-test -x .../runtimes/osx-arm64/MMTools/ffprobe
-file -b each binary contains arm64
+~/Library/Caches/DTXManiaCX/ffmpeg
 ```
 
-Then run focused native runtime/MP3/variant tests from `DTXMania.Test.Mac` before the normal full Mac suite and prepared-chart AudioE2E.
+keyed by Apple Silicon plus `hashFiles('tools/ffmpeg/macos-arm64/build-runtime.sh')`.
 
-In `release.yml` delete the large inline source-build step. `dotnet publish` now carries the declared runtime content itself. Keep a short fail-closed artifact check before `build-dmg.sh`.
+Make build order explicit rather than relying on a focused `dotnet test` side effect:
 
-After `build-dmg.sh`, also verify the copied app bundle still contains executable arm64 binaries and the license at:
+```text
+restore DTXMania.Test.Mac.csproj
+build DTXMania.Game.Mac.csproj --no-restore
+verify Game bin ffmpeg/ffprobe: test -x + file -b arm64
+build DTXMania.Test.Mac.csproj --no-restore
+verify Test.Mac bin ffmpeg/ffprobe: test -x + file -b arm64
+run focused existing Audio tests + new runtime/MP3 checks with --no-build
+run the existing full Mac suite with --no-build
+run Automation / VideoRecorder / prepared-chart AudioE2E as today
+```
+
+This makes ProjectReference propagation a named build gate, not an accidental prerequisite of another test step.
+
+Windows validation must continue to build/test `DTXMania.Test.csproj`; success proves the Mac project reference does not execute the native bootstrap on Windows.
+
+### 5. Release consumes project-owned publish output
+
+Delete the long inline FFmpeg source-build body from `release.yml` after `dotnet publish` owns runtime placement.
+
+Keep short fail-closed checks for:
+
+```text
+publish/mac/runtimes/osx-arm64/MMTools/{ffmpeg,ffprobe}
+publish/mac/Licenses/FFmpeg-LGPL-2.1.txt
+```
+
+Require `test -x` and `file -b ... | grep -qi arm64` for both binaries.
+
+After `build-dmg.sh`, verify the same files under:
 
 ```text
 output/DTXMania.app/Contents/MacOS/runtimes/osx-arm64/MMTools/
 output/DTXMania.app/Contents/MacOS/Licenses/FFmpeg-LGPL-2.1.txt
 ```
 
-`build-dmg.sh` already copies publish output recursively; no installer change is needed unless this verification exposes a real permission-loss bug.
+`build-dmg.sh` already uses `cp -R` for publish output. Do not modify it unless this check proves a real execute-bit regression.
 
-### 6. Provenance and update procedure
+### 6. Provenance and diagnostics
 
-`tools/ffmpeg/macos-arm64/README.md` is the human-maintained provenance/update document. Record:
+`tools/ffmpeg/macos-arm64/README.md` records:
 
-- FFmpeg version;
-- exact official source URL;
+- FFmpeg version and exact official source URL;
 - source SHA-256;
-- why the selected configure features exist;
-- license mode/constraints;
-- cache location;
-- how to force a clean rebuild;
-- how to update version + checksum;
-- local validation commands.
+- actual final configure flags;
+- why the minimal codec/filter set exists;
+- LGPL source/license handling;
+- cache location and override;
+- clean-cache / version-update procedure;
+- cold/warm verification commands.
 
-Ship the exact `COPYING.LGPLv2.1` from the verified source tarball as:
+Ship upstream `COPYING.LGPLv2.1` as:
 
 ```text
 Licenses/FFmpeg-LGPL-2.1.txt
 ```
 
-Do not add a general third-party-license generator for one dependency.
+Update the stale MP3 error message to say the bundled platform FFmpeg runtime is missing/unusable and recommend rebuilding/reinstalling CX, rather than naming the removed Mac x64 NuGet package.
 
-## Error handling
+## Risks and mitigations
 
-Keep failures early and actionable:
+### Existing Audio tests depend on encoders the minimal runtime intentionally omits
 
-```text
-wrong host/architecture
--> "Native CX macOS runtime requires Apple Silicon (arm64)."
+**Risk:** MP3/OGG rows fail during fixture generation before the actual variant processor is tested.
 
-download/checksum/configure/build failure
--> fail the Mac build; never fall back to the x64 NuGet runtime
+**Mitigation:** commit deterministic encoded fixtures and keep the existing stricter `PlaybackModifiers(50, 12)` product test unchanged after input setup.
 
-missing/non-executable/wrong-architecture staging output
--> fail the builder or CI/release verification
+### Generated content may not propagate through ProjectReference or may lose execute bits
 
-runtime unexpectedly unavailable after a successful build
--> existing FfmpegRuntime diagnostic + focused test failure
-```
+**Risk:** Game output works but `DTXMania.Test.Mac` lacks the runtime, or copied binaries become non-executable and `FfmpegRuntime` falls through to PATH.
 
-Do not silently install Homebrew FFmpeg or use PATH as production recovery.
+**Mitigation:** generate/add items before `AssignTargetPaths` and `GetCopyToOutputDirectoryItems`; explicitly build Test.Mac; assert `test -x` in Game/Test/publish/app output; add a narrow chmod hook only if copying proves lossy.
 
-## Testing strategy
+### Windows evaluates the Mac project through DTXMania.Test.csproj
 
-### Fast/unit
+**Risk:** Windows CI attempts to execute the Bash Apple Silicon builder.
 
-- update `FfmpegRuntimeCoverageTests` so a complete `osx-arm64` candidate is preferred over complete `osx-x64`;
-- keep missing/split candidate and PATH tests unchanged;
-- keep existing audio-variant unit/cancellation tests unchanged.
+**Mitigation:** target condition is `$([MSBuild]::IsOSPlatform('OSX'))`; retain Windows full build/test as a required regression gate.
 
-### Native integration
+### Configure hardening differs from the currently shipping recipe
 
-On `macos-15`:
+**Risk:** adding `--disable-autodetect/--disable-gpl/--disable-nonfree` during extraction causes a cold-build regression unrelated to HPA-512.
 
-- normal Mac `dotnet build` contains executable arm64 runtime files;
-- the Mac test output also contains them through `ProjectReference` copy-item propagation;
-- focused MP3 `ManagedSound` smoke passes;
-- focused real `FfmpegAudioVariantProcessor` smoke with `new PlaybackModifiers(125, 0)` passes;
-- `dotnet publish -r osx-arm64` contains the same runtime + license;
-- `.app` bundle preserves both binaries and execute bits.
-
-### Regression
-
-- Windows build/tests remain unchanged and must stay green;
-- existing macOS full test suite and prepared-chart audio E2E remain green.
+**Mitigation:** prove the extracted shipping recipe first; retain the hardening flags only after a second clean build passes the same capability gates.
 
 ## Scope boundaries
 
 In scope:
 
-- native FFmpeg/ffprobe source bootstrap for the supported Mac project;
-- one transitive Mac build/test/publish copy contract;
+- extract/cache the existing native FFmpeg source build;
+- Mac build/test/publish generated-content integration;
 - x64 MMTools package removal from the Mac project;
-- provenance/license material;
-- native Apple Silicon verification and release deduplication.
+- repair existing real-FFmpeg Audio tests to use committed encoded fixtures;
+- one bundled-runtime filesystem/execute-bit gate;
+- one successful ManagedSound MP3 test;
+- stale Mac x64 diagnostic cleanup;
+- native Apple Silicon CI and release deduplication;
+- provenance/license material.
 
 Out of scope:
 
-- FFmpeg 8.x upgrade;
-- Intel macOS/Rosetta support;
+- FFmpeg version upgrade;
+- Intel macOS or Rosetta fallback;
 - Windows runtime changes;
+- new audio engine, runtime resolver, or codec matrix;
+- adding production MP3/OGG encoders solely for tests;
 - recorder MP4 validation/remux;
 - OBS/ScreenCaptureKit work;
-- code signing/notarization redesign;
-- general codec expansion;
+- signing/notarization redesign;
 - generic dependency/bootstrap framework.
 
 ## Implementation shape
 
 Keep one implementation PR with four reviewer-sized checkpoints:
 
-1. extract and verify the reproducible native FFmpeg builder + provenance;
-2. wire the Mac project staging/copy contract and remove x64 MMTools;
-3. add native runtime/MP3/variant validation from the test output;
-4. pin/cache CI and collapse release duplication.
+1. extract/cache/document the current release FFmpeg recipe and prove cold/warm builds;
+2. add the macOS-only generated MSBuild copy contract, remove x64 MMTools, and prove Game/Test/publish propagation;
+3. repair existing Audio fixtures/tests, add bundled-path/execute-bit + valid MP3 checks, and fix the stale diagnostic;
+4. pin/cache native CI, explicitly build Test.Mac, and collapse release duplication to publish/.app verification.
 
-This gives HPA-515 one clear prerequisite: the ordinary supported Mac build already carries the audio runtime it needs.
+This gives HPA-515 one clear prerequisite: the ordinary supported Mac build and its tests already carry the exact native audio runtime the packaged app will use.
