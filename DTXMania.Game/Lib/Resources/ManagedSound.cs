@@ -4,7 +4,6 @@ using System.IO;
 using System.Threading;
 using NVorbis;
 using FFMpegCore;
-using FFMpegCore.Pipes;
 
 namespace DTXMania.Game.Lib.Resources
 {
@@ -251,44 +250,56 @@ namespace DTXMania.Game.Lib.Resources
                 var originalChannels = audioStream.Channels;
                 var targetChannels = originalChannels > 0 ? originalChannels : 2; // Default to stereo if unknown
                 
-                // Use FFMpegCore to convert MP3 to raw PCM data
-                using var outputStream = new MemoryStream();
-                
-                // Convert MP3 to raw PCM data (no WAV header, just samples)
-                // Preserve original channel count instead of forcing stereo output
-                // Note: MonoGame only supports Mono/Stereo, so 3+ channels will be downmixed to stereo
-                FFMpegArguments
-                    .FromFileInput(filePath)
-                    .OutputToPipe(new StreamPipeSink(outputStream), options => options
-                        .WithAudioCodec("pcm_s16le") // 16-bit signed little-endian PCM
-                        .WithAudioSamplingRate(44100) // Standard sample rate
-                        .WithCustomArgument($"-ac {targetChannels}") // Preserve original channel count
-                        .ForceFormat("s16le")) // Raw 16-bit little-endian format (no container)
-                    .ProcessSynchronously();
-
-                // Validate output stream
-                if (outputStream.Length == 0)
+                // Use FFMpegCore to convert MP3 to raw PCM data. A temporary
+                // file keeps the bundled runtime on its supported file
+                // protocol instead of requiring a platform-specific named
+                // pipe protocol.
+                var rawPcmPath = Path.Combine(
+                    Path.GetTempPath(),
+                    $"dtxmania-mp3-{Guid.NewGuid():N}.s16le");
+                try
                 {
-                    throw new InvalidOperationException("FFMpeg produced empty output stream");
-                }
-                
-                // Get the raw PCM data
-                var pcmData = outputStream.ToArray();
+                    // Convert MP3 to raw PCM data (no WAV header, just samples)
+                    // Preserve original channel count instead of forcing stereo output
+                    // Note: MonoGame only supports Mono/Stereo, so 3+ channels will be downmixed to stereo
+                    FFMpegArguments
+                        .FromFileInput(filePath)
+                        .OutputToFile(rawPcmPath, overwrite: false, options => options
+                            .WithAudioCodec("pcm_s16le") // 16-bit signed little-endian PCM
+                            .WithAudioSamplingRate(44100) // Standard sample rate
+                            .WithCustomArgument($"-ac {targetChannels}") // Preserve original channel count
+                            .ForceFormat("s16le")) // Raw 16-bit little-endian format (no container)
+                        .ProcessSynchronously();
 
-                // Create SoundEffect with appropriate channel configuration
-                const int sampleRate = 44100;
-                // Map channel count to MonoGame's AudioChannels enum (only supports Mono/Stereo)
-                var audioChannels = targetChannels == 1 ? AudioChannels.Mono : AudioChannels.Stereo;
-                
-                _soundEffect = new SoundEffect(pcmData, sampleRate, audioChannels);
+                    var pcmData = File.ReadAllBytes(rawPcmPath);
+                    if (pcmData.Length == 0)
+                    {
+                        throw new InvalidOperationException("FFMpeg produced empty output stream");
+                    }
+
+                    // Create SoundEffect with appropriate channel configuration
+                    const int sampleRate = 44100;
+                    // Map channel count to MonoGame's AudioChannels enum (only supports Mono/Stereo)
+                    var audioChannels = targetChannels == 1 ? AudioChannels.Mono : AudioChannels.Stereo;
+
+                    _soundEffect = new SoundEffect(pcmData, sampleRate, audioChannels);
+                }
+                finally
+                {
+                    try
+                    {
+                        if (File.Exists(rawPcmPath))
+                            File.Delete(rawPcmPath);
+                    }
+                    catch (IOException) { }
+                    catch (UnauthorizedAccessException) { }
+                }
             }
             catch (FileNotFoundException ex) when (ex.Message.Contains("ffmpeg"))
             {
                 throw new SoundLoadException(_sourcePath, 
-                    $"FFMpeg binary not found. MP3 support requires bundled ffmpeg binaries from MMTools packages.\n" +
-                    $"Ensure the appropriate MMTools.Executables package is installed for your platform:\n" +
-                    $"  macOS: MMTools.Executables.MacOS.X64\n" +
-                    $"  Windows: MMTools.Executables.Windows.X64\n" +
+                    $"FFMpeg binary not found. The bundled platform FFmpeg runtime is missing or unusable. " +
+                    $"Rebuild or reinstall CX to restore it.\n" +
                     $"Alternatively, convert {Path.GetFileName(filePath)} to WAV or OGG format.", ex);
             }
             catch (Exception ex)
