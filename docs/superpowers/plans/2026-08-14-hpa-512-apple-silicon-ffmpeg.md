@@ -43,6 +43,7 @@ Do not fold HPA-623 into the HPA-512 implementation PR.
 Create:
   tools/ffmpeg/macos-arm64/build-runtime.sh
   tools/ffmpeg/macos-arm64/README.md
+  tools/ffmpeg/macos-arm64/test-cache-lock.sh
   DTXMania.Test/TestData/Audio/ffmpeg-tone.mp3
   DTXMania.Test/TestData/Audio/ffmpeg-tone.ogg
   DTXMania.Test/Resources/FfmpegBundledRuntimeTests.cs
@@ -76,6 +77,7 @@ Keep the four HPA-512 tasks in one implementation PR after HPA-623 is merged.
 **Files:**
 - Create `tools/ffmpeg/macos-arm64/build-runtime.sh`
 - Create `tools/ffmpeg/macos-arm64/README.md`
+- Create `tools/ffmpeg/macos-arm64/test-cache-lock.sh`
 
 **Produces:**
 
@@ -142,7 +144,7 @@ Required configure surface:
   --enable-demuxer=mp3 \
   --enable-demuxer=wav,ogg,pcm_s16le \
   --enable-parser=mpegaudio,vorbis \
-  --enable-protocol=file,pipe \
+  --enable-protocol=file,pipe,unix \
   --enable-muxer=pcm_s16le \
   --enable-encoder=pcm_s16le \
   --enable-filter=aformat,anull,aresample,atempo,apad,atrim
@@ -171,7 +173,7 @@ On cache miss:
 6. replace the cache only after validation succeeds;
 7. write `source.sha256` only after successful validation.
 
-Use a cleanup `trap`; do not add cache locking.
+Use a cleanup `trap`. Add a `mkdir`-based cache lock (`$cache_root/.build-lock`) held through cache validation, possible replacement, and output copies so concurrent invocations (e.g. parallel `dotnet build` and `dotnet publish`) cannot corrupt the cache or race on staging. A waiting invocation must revalidate after acquiring the lock so it can reuse a runtime produced by the previous invocation. Add `tools/ffmpeg/macos-arm64/test-cache-lock.sh` to verify the lock prevents concurrent cache replacement.
 
 - [ ] **Step 4: Add architecture, capability, and portability validation.**
 
@@ -189,11 +191,16 @@ For FFmpeg require:
 filters:  atempo apad atrim aformat aresample
 decoders: mp3float vorbis pcm_s16le adpcm_ima_wav adpcm_ms
 demuxers: mp3 wav ogg s16le
+protocols: file pipe unix
 encoder:  pcm_s16le
 muxer:    s16le
 ```
 
 The two ADPCM decoders are load-bearing for non-default playback of ADPCM WAV sources and must be checked explicitly.
+
+The `unix` protocol is required by FFMpegCore's pipe-based invocation on macOS; without it the bundled runtime cannot decode encoded audio.
+
+Revalidate the full capability surface on every cache hit (not just on cache miss) so a runtime built before a capability amendment (such as adding `unix`) cannot remain accepted solely because its source hash is still current.
 
 Also validate dynamic dependencies for **both** executables:
 
@@ -247,6 +254,16 @@ The builder itself must already have failed if capability or `otool -L` checks f
 
 Repeat the builder without deleting the cache. Expected: no source compile; validated cached files are copied.
 
+- [ ] **Step 7b: Prove the cache lock prevents concurrent corruption.**
+
+Run the cache lock regression test:
+
+```bash
+bash tools/ffmpeg/macos-arm64/test-cache-lock.sh
+```
+
+Expected: `PASS: cache lock held through output copy; replacement waited for complete copy`. This verifies that a second invocation cannot replace the cache until the first has finished copying all output files.
+
 - [ ] **Step 8: Document provenance and support boundary.**
 
 README must include:
@@ -255,12 +272,13 @@ README must include:
 FFmpeg 7.0.2
 official source URL
 pinned SHA-256
-exact configure command including --disable-autodetect
+exact configure command including --disable-autodetect and --enable-protocol=file,pipe,unix
 why --disable-gpl / --disable-nonfree are omitted
-required codec/filter surface including ADPCM decoders
+required codec/filter/protocol surface including ADPCM decoders and unix protocol
 system-dylib-only otool policy
 COPYING.LGPLv2.1 handling
 cache path and override
+cache lock behavior (mkdir-based .build-lock, held through validation/replacement/copy)
 clean-cache command
 first-build compile behavior
 Intel Mac build unsupported/hard-fail behavior
@@ -321,21 +339,27 @@ Use this shape:
 ```xml
 <Target Name="PrepareNativeFfmpegRuntime"
         Condition="$([MSBuild]::IsOSPlatform('OSX'))"
-        BeforeTargets="BeforeBuild;AssignTargetPaths;GetCopyToOutputDirectoryItems">
-
+        BeforeTargets="BeforeBuild;AssignTargetPaths;GetCopyToOutputDirectoryItems"
+        Inputs="$(MSBuildProjectDirectory)/../tools/ffmpeg/macos-arm64/build-runtime.sh"
+        Outputs="$(NativeFfmpegRuntimeDir)/ffmpeg;$(NativeFfmpegRuntimeDir)/ffprobe;$(NativeFfmpegLicenseDir)/FFmpeg-LGPL-2.1.txt">
   <Exec
-    Condition="!Exists('$(NativeFfmpegRuntimeDir)/ffmpeg') Or !Exists('$(NativeFfmpegRuntimeDir)/ffprobe')"
     Command="bash &quot;$(MSBuildProjectDirectory)/../tools/ffmpeg/macos-arm64/build-runtime.sh&quot; &quot;$(NativeFfmpegRuntimeDir)&quot; &quot;$(NativeFfmpegLicenseDir)&quot;" />
+</Target>
 
+<Target Name="DeclareNativeFfmpegRuntimeItems"
+        Condition="$([MSBuild]::IsOSPlatform('OSX'))"
+        AfterTargets="PrepareNativeFfmpegRuntime"
+        BeforeTargets="AssignTargetPaths;GetCopyToOutputDirectoryItems">
   <ItemGroup>
-    <!-- Generated None items are unconditional with respect to the Exec condition. -->
     <!-- Set TargetPath, CopyToOutputDirectory=PreserveNewest, -->
     <!-- and CopyToPublishDirectory=PreserveNewest for ffmpeg, ffprobe, and license. -->
   </ItemGroup>
 </Target>
 ```
 
-The `Exec` is conditional on staged files being absent; the `ItemGroup` is not. Items must be declared whenever the target participates, even on warm/staged builds.
+The `PrepareNativeFfmpegRuntime` target uses `Inputs`/`Outputs` so that any change to `build-runtime.sh` (version, checksum, configure flags, protocols) forces re-staging even when the old staged binaries still exist. Without this, editing the builder and clearing only the FFmpeg cache would silently reuse stale staged binaries.
+
+The `DeclareNativeFfmpegRuntimeItems` target is split out so the `None` items are declared on every build, even when `PrepareNativeFfmpegRuntime` is skipped by incremental build. If the items were inside the incremental target, a warm build would skip the target body and the files would never be copied to output.
 
 Do not add a Test.Mac-specific FFmpeg copy target.
 
@@ -363,7 +387,7 @@ file -b "$runtime/ffprobe" | grep -qi arm64
 test -f DTXMania.Game/bin/Debug/net8.0/Licenses/FFmpeg-LGPL-2.1.txt
 ```
 
-Run a second `dotnet build` with staging intact and confirm the builder does not perform another source build/revalidation path.
+Run a second `dotnet build` with staging intact and confirm the `PrepareNativeFfmpegRuntime` target is skipped by incremental build (all outputs up-to-date with respect to `build-runtime.sh`). Then `touch tools/ffmpeg/macos-arm64/build-runtime.sh` and rebuild to confirm the target re-runs and re-stages from the validated cache.
 
 - [ ] **Step 6: Prove ProjectReference propagation.**
 
@@ -712,10 +736,16 @@ git commit -m "ci: validate bundled Apple Silicon ffmpeg"
 - [ ] HPA-623 is merged first and Mac CI already executes a real Test.Mac suite with fail-closed coverage.
 - [ ] `MMTools.Executables.MacOS.X64` is absent from the Mac project.
 - [ ] Builder uses FFmpeg 7.0.2 + pinned source SHA + `--disable-autodetect`.
+- [ ] Builder configure surface enables `--enable-protocol=file,pipe,unix` (not just `file,pipe`).
+- [ ] Builder validates `file`, `pipe`, and `unix` protocols on every invocation, including cache hits.
+- [ ] Builder revalidates the full capability surface on every cache hit so a stale cached runtime built before a capability amendment cannot remain accepted.
+- [ ] Builder holds a `mkdir`-based cache lock through cache validation, replacement, and output copies; `test-cache-lock.sh` verifies the lock prevents concurrent cache corruption.
 - [ ] Builder explicitly verifies `adpcm_ima_wav` and `adpcm_ms` in addition to existing decoders.
 - [ ] `otool -L` proves both shipped executables depend only on macOS system libraries.
 - [ ] Normal Apple Silicon Game output contains executable arm64 `ffmpeg` and `ffprobe`.
-- [ ] Warm/staged builds do not rerun the builder `Exec` unnecessarily.
+- [ ] Warm/staged builds skip the `PrepareNativeFfmpegRuntime` target by incremental build (Inputs/Outputs), not by file-existence condition.
+- [ ] Editing `build-runtime.sh` and rebuilding re-stages the runtime even when staged binaries already exist.
+- [ ] `DeclareNativeFfmpegRuntimeItems` runs on every macOS build so `None` items are always declared, even when the staging target is skipped.
 - [ ] Test.Mac receives the same runtime through the Game `ProjectReference` copy contract.
 - [ ] Windows evaluates/builds the Mac project without invoking the native builder.
 - [ ] Publish and `.app` output contain the same runtime and LGPL license.
@@ -738,6 +768,9 @@ git commit -m "ci: validate bundled Apple Silicon ffmpeg"
 4. **Unix execute bits** — any lost bit makes `IsRunnableFile` reject the bundle; fail/fix copying rather than weakening the resolver.
 5. **PATH masking** — `IsAvailable == true` is insufficient; `BinaryFolder != null` and exact bundled path are required.
 6. **Intel support** — the Mac project intentionally hard-fails outside native arm64.
+7. **Stale staging after builder changes** — the MSBuild staging target must use `Inputs`/`Outputs` keyed on `build-runtime.sh` so editing the builder (version, checksum, configure flags, protocols) forces re-staging even when old staged binaries still exist. File-existence-only conditions silently reuse stale runtimes.
+8. **Concurrent cache access** — parallel `dotnet build` and `dotnet publish` invocations can race on the shared FFmpeg cache; a `mkdir`-based cache lock held through validation, replacement, and output copies prevents corruption.
+9. **Missing `unix` protocol** — FFMpegCore's pipe-based invocation on macOS requires the `unix` protocol; without it the bundled runtime cannot decode encoded audio. The protocol must be in the configure surface and validated on every cache hit.
 
 ## Handoff
 

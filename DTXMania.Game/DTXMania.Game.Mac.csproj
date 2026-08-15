@@ -65,13 +65,28 @@
     <Exec Command="dotnet tool restore" />
   </Target>
 
+    <!-- Stage the native FFmpeg runtime. Uses Inputs/Outputs so that a change
+         to build-runtime.sh (version, checksum, configure flags, protocols)
+         forces re-staging even when the old staged binaries still exist.
+         Without this, editing the builder and clearing only the FFmpeg cache
+         (as the README instructs) would silently reuse stale staged binaries. -->
     <Target Name="PrepareNativeFfmpegRuntime"
             Condition="$([MSBuild]::IsOSPlatform('OSX'))"
-            BeforeTargets="BeforeBuild;AssignTargetPaths;GetCopyToOutputDirectoryItems">
+            BeforeTargets="BeforeBuild;AssignTargetPaths;GetCopyToOutputDirectoryItems"
+            Inputs="$(MSBuildProjectDirectory)/../tools/ffmpeg/macos-arm64/build-runtime.sh"
+            Outputs="$(NativeFfmpegRuntimeDir)/ffmpeg;$(NativeFfmpegRuntimeDir)/ffprobe;$(NativeFfmpegLicenseDir)/FFmpeg-LGPL-2.1.txt">
         <Exec
-            Condition="!Exists('$(NativeFfmpegRuntimeDir)/ffmpeg') Or !Exists('$(NativeFfmpegRuntimeDir)/ffprobe') Or !Exists('$(NativeFfmpegLicenseDir)/FFmpeg-LGPL-2.1.txt')"
             Command="bash &quot;$(MSBuildProjectDirectory)/../tools/ffmpeg/macos-arm64/build-runtime.sh&quot; &quot;$(NativeFfmpegRuntimeDir)&quot; &quot;$(NativeFfmpegLicenseDir)&quot;" />
+    </Target>
 
+    <!-- Declare the staged files as None items on every build, even when
+         PrepareNativeFfmpegRuntime is skipped by incremental build. If these
+         items were inside the incremental target, a warm build would skip
+         target body and the files would never be copied to output. -->
+    <Target Name="DeclareNativeFfmpegRuntimeItems"
+            Condition="$([MSBuild]::IsOSPlatform('OSX'))"
+            AfterTargets="PrepareNativeFfmpegRuntime"
+            BeforeTargets="AssignTargetPaths;GetCopyToOutputDirectoryItems">
         <ItemGroup>
             <None Include="$(NativeFfmpegRuntimeDir)/ffmpeg">
                 <TargetPath>runtimes/osx-arm64/MMTools/ffmpeg</TargetPath>
