@@ -257,7 +257,7 @@ namespace DTXMania.Test.Resources
                 {
                     // MP3 files should fail with FFmpeg-related error
                     _output.WriteLine($"MP3 loading failed as expected: {ex.Message}");
-                    Assert.Contains("Failed to convert MP3 file using bundled FFMpeg", ex.Message);
+                    AssertMp3FailureMessage(ex.Message);
                 }
                 else
                 {
@@ -273,7 +273,7 @@ namespace DTXMania.Test.Resources
             // Act & Assert
             var exception = Assert.Throws<SoundLoadException>(() => new ManagedSound(_fixture.EmptyMp3File));
             Assert.Equal(_fixture.EmptyMp3File, exception.SoundPath);
-            Assert.Contains("Failed to convert MP3 file using bundled FFMpeg", exception.Message);
+            AssertMp3FailureMessage(exception.Message);
         }
 
         [Fact]
@@ -282,7 +282,20 @@ namespace DTXMania.Test.Resources
             // Act & Assert
             var exception = Assert.Throws<SoundLoadException>(() => new ManagedSound(_fixture.InvalidMp3File));
             Assert.Equal(_fixture.InvalidMp3File, exception.SoundPath);
-            Assert.Contains("Failed to convert MP3 file using bundled FFMpeg", exception.Message);
+            AssertMp3FailureMessage(exception.Message);
+        }
+
+        /// <summary>
+        /// Asserts that the MP3 failure message matches either the bundled-runtime
+        /// unavailable diagnostic or the conversion-failure diagnostic, depending on
+        /// whether <see cref="FfmpegRuntime.EnsureConfigured"/> resolved a runtime.
+        /// </summary>
+        private static void AssertMp3FailureMessage(string message)
+        {
+            Assert.True(
+                message.Contains("Failed to convert MP3 file using bundled FFMpeg") ||
+                message.Contains("Bundled FFmpeg runtime is not available"),
+                $"Unexpected MP3 failure message: {message}");
         }
 
         /// <summary>
