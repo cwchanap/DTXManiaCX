@@ -16,7 +16,8 @@ namespace DTXMania.Test.Resources
             if (!OperatingSystem.IsMacOS() ||
                 RuntimeInformation.ProcessArchitecture != Architecture.Arm64)
             {
-                return;
+                throw new Exception(
+                    "$XunitDynamicSkip$Only supported on macOS Arm64.");
             }
 
             var result = FfmpegRuntime.EnsureConfigured();
