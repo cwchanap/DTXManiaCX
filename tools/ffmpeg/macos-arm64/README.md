@@ -147,3 +147,10 @@ test -f /tmp/dtx-ffmpeg-licenses/FFmpeg-LGPL-2.1.txt
 
 Repeat the `bash` command without deleting the cache. The second run should
 report the validated cache path and should not download or compile source.
+
+## Startup timing risk
+
+A clean runtime-cache miss during `dotnet run` compiles FFmpeg before the game
+launches and may exceed an E2E startup timeout. CI must build or otherwise warm
+the runtime before launching E2E; do not add background bootstrap machinery to
+hide this first-run cost.

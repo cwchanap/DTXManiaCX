@@ -12,6 +12,12 @@
     <ApplicationIcon>Icon.ico</ApplicationIcon>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <NativeFfmpegStagingRoot>$(BaseIntermediateOutputPath)ffmpeg-runtime</NativeFfmpegStagingRoot>
+    <NativeFfmpegRuntimeDir>$(NativeFfmpegStagingRoot)/runtimes/osx-arm64/MMTools</NativeFfmpegRuntimeDir>
+    <NativeFfmpegLicenseDir>$(NativeFfmpegStagingRoot)/Licenses</NativeFfmpegLicenseDir>
+  </PropertyGroup>
+
   <ItemGroup>
     <Compile Remove="Platform/Windows/WindowsFolderPickerService.cs" />
     <Compile Remove="Platform/FolderPickerServiceFactory.Windows.cs" />
@@ -30,7 +36,6 @@
   
   <ItemGroup>
     <PackageReference Include="FFMpegCore" Version="5.4.0" />
-    <PackageReference Include="MMTools.Executables.MacOS.X64" Version="1.0.6" />
     <PackageReference Include="Melanchall.DryWetMidi" Version="8.0.3" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.18" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="9.0.18">
@@ -58,5 +63,31 @@
   <Target Name="RestoreDotnetTools" BeforeTargets="Restore">
     <Message Text="Restoring dotnet tools" Importance="High" />
     <Exec Command="dotnet tool restore" />
+  </Target>
+
+  <Target Name="PrepareNativeFfmpegRuntime"
+          Condition="$([MSBuild]::IsOSPlatform('OSX'))"
+          BeforeTargets="BeforeBuild;AssignTargetPaths;GetCopyToOutputDirectoryItems">
+    <Exec
+      Condition="!Exists('$(NativeFfmpegRuntimeDir)/ffmpeg') Or !Exists('$(NativeFfmpegRuntimeDir)/ffprobe')"
+      Command="bash &quot;$(MSBuildProjectDirectory)/../tools/ffmpeg/macos-arm64/build-runtime.sh&quot; &quot;$(NativeFfmpegRuntimeDir)&quot; &quot;$(NativeFfmpegLicenseDir)&quot;" />
+
+    <ItemGroup>
+      <None Include="$(NativeFfmpegRuntimeDir)/ffmpeg">
+        <TargetPath>runtimes/osx-arm64/MMTools/ffmpeg</TargetPath>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </None>
+      <None Include="$(NativeFfmpegRuntimeDir)/ffprobe">
+        <TargetPath>runtimes/osx-arm64/MMTools/ffprobe</TargetPath>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </None>
+      <None Include="$(NativeFfmpegLicenseDir)/FFmpeg-LGPL-2.1.txt">
+        <TargetPath>Licenses/FFmpeg-LGPL-2.1.txt</TargetPath>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </None>
+    </ItemGroup>
   </Target>
 </Project>
