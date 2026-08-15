@@ -135,7 +135,7 @@ jobs:
 
   build-and-test-macos:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
-    runs-on: macos-latest
+    runs-on: macos-15
     
     steps:
     - name: Checkout code
@@ -153,17 +153,53 @@ jobs:
         key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
         restore-keys: |
           ${{ runner.os }}-nuget-
+
+    - name: Cache native FFmpeg runtime
+      uses: actions/cache@v6
+      with:
+        path: ~/Library/Caches/DTXManiaCX/ffmpeg
+        key: macos-arm64-ffmpeg-${{ hashFiles('tools/ffmpeg/macos-arm64/build-runtime.sh') }}
     
     - name: Restore dependencies
       run: dotnet restore DTXMania.Test/DTXMania.Test.Mac.csproj
 
-    - name: Build Mac project
+    - name: Build Game Mac project
       run: dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj --configuration Debug --no-restore
 
-    - name: Build Mac test project
+    - name: Verify Game bundled FFmpeg runtime
+      shell: bash
+      run: |
+        runtime="DTXMania.Game/bin/Debug/net8.0/runtimes/osx-arm64/MMTools"
+        for bin in "$runtime/ffmpeg" "$runtime/ffprobe"; do
+          test -x "$bin"
+          file -b "$bin" | grep -qi arm64
+        done
+
+    - name: Build Test.Mac project
       run: dotnet build DTXMania.Test/DTXMania.Test.Mac.csproj --configuration Debug --no-restore
 
+    - name: Verify Test.Mac bundled FFmpeg runtime
+      shell: bash
+      run: |
+        runtime="DTXMania.Test/bin/Debug/net8.0/runtimes/osx-arm64/MMTools"
+        for bin in "$runtime/ffmpeg" "$runtime/ffprobe"; do
+          test -x "$bin"
+          file -b "$bin" | grep -qi arm64
+        done
+
+    - name: Run focused bundled Audio tests on macOS
+      env:
+        ALSOFT_DRIVERS: 'null'
+      run: >
+        dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj
+        --configuration Debug
+        --no-build
+        --filter "FullyQualifiedName~FfmpegAudioVariantProcessorTests|FullyQualifiedName~FfmpegBundledRuntimeTests|FullyQualifiedName~ManagedSoundTests"
+        --verbosity normal
+
     - name: Run tests on macOS
+      env:
+        ALSOFT_DRIVERS: 'null'
       run: dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --configuration Debug --no-build --verbosity normal --collect:"XPlat Code Coverage" --settings ./coverlet.runsettings --results-directory ./TestResults --logger trx
 
     - name: Run Automation tests on macOS
@@ -292,7 +328,7 @@ jobs:
             project: DTXMania.Game/DTXMania.Game.Windows.csproj
             output: windows
             artifact: dtxmania-windows
-          - os: macos-latest
+          - os: macos-15
             project: DTXMania.Game/DTXMania.Game.Mac.csproj
             output: macos
             artifact: dtxmania-macos

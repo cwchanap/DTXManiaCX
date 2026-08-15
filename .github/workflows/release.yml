@@ -413,10 +413,9 @@ jobs:
     needs: prepare-release
     if: needs.prepare-release.outputs.should_release == 'true'
     # Pin to macos-15 (Apple Silicon / arm64) instead of macos-latest. This
-    # job publishes an arm64-only .app bundle and builds FFmpeg from source
-    # for the host architecture (./configure passes no --arch flag), so an
-    # x64 runner would produce x86_64 binaries that the arm64 guard below
-    # rejects — only after wasting the full FFmpeg build. macos-15 is arm64,
+    # job publishes an arm64-only .app bundle and the project-owned FFmpeg
+    # builder requires the host architecture, so an x64 runner would fail the
+    # native support boundary before publish. macos-15 is arm64,
     # stable, and not deprecated (unlike macos-14, whose deprecation started
     # 2026-07-06). macos-latest is mid-transition to macos-26 (rollout
     # 2026-06-15 through 2026-07-15), so avoid the alias until it settles.
@@ -470,6 +469,15 @@ jobs:
           -p:PublishReadyToRun=false -p:TieredCompilation=false
           -o ./publish/mac
 
+      - name: Verify bundled arm64 FFmpeg runtime
+        run: |
+          runtime="publish/mac/runtimes/osx-arm64/MMTools"
+          test -x "$runtime/ffmpeg"
+          test -x "$runtime/ffprobe"
+          file -b "$runtime/ffmpeg" | grep -qi arm64
+          file -b "$runtime/ffprobe" | grep -qi arm64
+          test -f publish/mac/Licenses/FFmpeg-LGPL-2.1.txt
+
       - name: Verify OFL font license files in publish output
         run: |
           # The SIL Open Font License requires every redistributed copy to
@@ -479,135 +487,6 @@ jobs:
           for f in publish/mac/Licenses/Orbitron-OFL.txt publish/mac/Licenses/ShareTechMono-OFL.txt; do
             if [ ! -f "$f" ]; then echo "::error::Missing OFL license file: $f" >&2; exit 1; fi
             echo "Found: $f"
-          done
-
-      - name: Build native arm64 ffmpeg (MP3 decode)
-        run: |
-          # The MMTools.Executables.MacOS.X64 NuGet package only bundles an
-          # x86_64 ffmpeg that requires Rosetta 2 on Apple Silicon. Build a
-          # minimal native arm64 ffmpeg/ffprobe so MP3-backed songs work
-          # without Rosetta. ManagedSound checks runtimes/osx-arm64/MMTools
-          # before falling back to the x64 Rosetta path.
-          #
-          # Minimal configure: only the decoders/demuxers/filters needed by
-          # FFMpegCore's audio pipelines. The default-profile MP3-to-PCM loader
-          # (ManagedSound.LoadMp3File) needs mp3float + mp3 demuxer + pcm_s16le
-          # encoder + s16le muxer. The non-default-speed variant pipeline
-          # (FfmpegAudioVariantProcessor) additionally needs the atempo/apad/
-          # atrim filters for tempo change, plus WAV/OGG/raw-PCM demuxers and
-          # their decoders so .wav/.ogg/.xa sources can be prepared at non-1.00x
-          # speed. The WAV decoder set must include adpcm_ima_wav and adpcm_ms
-          # because the default profile handles MS/IMA-ADPCM WAVs natively via
-          # SoundEffect.FromStream, but the variant profile routes .wav sources
-          # through FFmpeg (FFMpegArguments.FromFileInput); without the ADPCM
-          # decoders, any non-default-profile chart whose .wav sources use
-          # ADPCM encoding fails preparation. Without atempo every non-default
-          # profile fails at the -af step even though runtime availability
-          # reports true.
-          FFMPEG_VERSION=7.0.2
-          # SHA256 of https://ffmpeg.org/releases/ffmpeg-7.0.2.tar.xz,
-          # verified against the official tarball on 2026-07-09.
-          FFMPEG_TARBALL_SHA256=8646515b638a3ad303e23af6a3587734447cb8fc0a0c064ecdb8e95c4fd8b389
-          curl -fsSL "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" \
-            -o /tmp/ffmpeg.tar.xz
-          printf '%s  %s\n' "$FFMPEG_TARBALL_SHA256" /tmp/ffmpeg.tar.xz \
-            > /tmp/ffmpeg.tar.xz.sha256
-          shasum -a 256 -c /tmp/ffmpeg.tar.xz.sha256
-          tar xJf /tmp/ffmpeg.tar.xz -C /tmp
-          cd "/tmp/ffmpeg-${FFMPEG_VERSION}"
-          ./configure \
-            --prefix=/tmp/ffmpeg-arm64 \
-            --enable-static --disable-shared \
-            --disable-doc --disable-htmlpages --disable-manpages \
-            --disable-podpages --disable-txtpages \
-            --disable-ffplay \
-            --disable-everything \
-            --enable-decoder=mp3float \
-            --enable-decoder=vorbis \
-            --enable-decoder=pcm_s16le,pcm_s24le,pcm_f32le,pcm_u8,pcm_alaw,pcm_mulaw \
-            --enable-decoder=adpcm_ima_wav,adpcm_ms \
-            --enable-demuxer=mp3 \
-            --enable-demuxer=wav,ogg,pcm_s16le \
-            --enable-parser=mpegaudio,vorbis \
-            --enable-protocol=file,pipe \
-            --enable-muxer=pcm_s16le \
-            --enable-encoder=pcm_s16le \
-            --enable-filter=aformat,anull,aresample,atempo,apad,atrim
-          make -j"$(sysctl -n hw.ncpu)"
-          make install
-          DEST="${GITHUB_WORKSPACE}/publish/mac/runtimes/osx-arm64/MMTools"
-          mkdir -p "$DEST"
-          cp /tmp/ffmpeg-arm64/bin/ffmpeg  "$DEST/ffmpeg"
-          cp /tmp/ffmpeg-arm64/bin/ffprobe "$DEST/ffprobe"
-          chmod +x "$DEST/ffmpeg" "$DEST/ffprobe"
-          echo "Built arm64 ffmpeg:" && file "$DEST/ffmpeg" "$DEST/ffprobe"
-          # Hard fail if the produced binaries are not arm64. This release ships an
-          # arm64-only .app bundle, so an x86_64 ffmpeg/ffprobe would either force
-          # Rosetta 2 or fail outright on Apple Silicon. The job is pinned to
-          # macos-15 (an Apple Silicon runner) so configure builds for arm64 by
-          # default; this guard catches any future change to the runner image or
-          # to the configure flags without silently shipping a non-native build.
-          #
-          # Use `file -b` (bare mode) so the output contains only the Mach-O type
-          # description and NOT the destination path, which itself contains
-          # "osx-arm64" and would otherwise make the grep match the directory name
-          # instead of the binary architecture.
-          #
-          # Validate each binary independently. A single combined `file ... | grep`
-          # would pass as long as EITHER binary is arm64, letting a mixed pair
-          # (e.g. arm64 ffmpeg + x86_64 ffprobe) slip through. ManagedSound.LoadMp3File
-          # invokes FFProbe before ffmpeg, so a non-native ffprobe breaks MP3 playback
-          # on Apple Silicon systems without Rosetta 2.
-          for bin in "$DEST/ffmpeg" "$DEST/ffprobe"; do
-            if ! file -b "$bin" | grep -qi 'arm64'; then
-              echo "::error::$(basename "$bin") is not an arm64 Mach-O binary; refusing to ship a non-native build." >&2
-              file "$bin" >&2
-              exit 1
-            fi
-          done
-
-          # Verify the minimal filter/decoder set needed by the non-default-
-          # speed variant pipeline (FfmpegAudioVariantProcessor) is present.
-          # Every non-default profile reaches -af atempo=...; without atempo
-          # (or the apad/atrim retry filters, or WAV/OGG/s16le decoders) variant
-          # preparation fails even though FfmpegRuntime reports availability.
-          echo "Verifying required ffmpeg filters and decoders..."
-          for filter in atempo apad atrim aformat aresample; do
-            if ! "$DEST/ffmpeg" -hide_banner -filters 2>/dev/null | grep -qw "$filter"; then
-              echo "::error::ffmpeg is missing required filter '$filter'; non-default-speed audio variant preparation will fail." >&2
-              exit 1
-            fi
-          done
-          for decoder in mp3float vorbis pcm_s16le; do
-            if ! "$DEST/ffmpeg" -hide_banner -decoders 2>/dev/null | grep -qw "$decoder"; then
-              echo "::error::ffmpeg is missing required decoder '$decoder'; audio variant preparation for .mp3/.ogg/.xa sources will fail." >&2
-              exit 1
-            fi
-          done
-          for demuxer in mp3 wav ogg s16le; do
-            if ! "$DEST/ffmpeg" -hide_banner -demuxers 2>/dev/null | grep -qw "$demuxer"; then
-              echo "::error::ffmpeg is missing required demuxer '$demuxer'; audio variant preparation for the corresponding container will fail." >&2
-              exit 1
-            fi
-          done
-          # Verify the encoder and muxer required by the default MP3 decode
-          # path (ManagedSound.LoadMp3File). It transcodes MP3 input to raw
-          # 16-bit little-endian PCM via -c:a pcm_s16le -f s16le before handing
-          # the buffer to SoundEffect. Without the pcm_s16le encoder or the
-          # s16le muxer, the default MP3 playback path fails even though the
-          # decoder/demuxer checks above pass (those cover the read side; this
-          # covers the write side of the same transcode).
-          for encoder in pcm_s16le; do
-            if ! "$DEST/ffmpeg" -hide_banner -encoders 2>/dev/null | grep -qw "$encoder"; then
-              echo "::error::ffmpeg is missing required encoder '$encoder'; the default MP3 decode path (ManagedSound.LoadMp3File) cannot transcode to raw PCM." >&2
-              exit 1
-            fi
-          done
-          for muxer in s16le; do
-            if ! "$DEST/ffmpeg" -hide_banner -muxers 2>/dev/null | grep -qw "$muxer"; then
-              echo "::error::ffmpeg is missing required muxer '$muxer'; the default MP3 decode path (ManagedSound.LoadMp3File) cannot emit raw s16le PCM." >&2
-              exit 1
-            fi
           done
 
       - name: Setup Python for pack validation
@@ -686,6 +565,15 @@ jobs:
             "$APP_VERSION" \
             DTXMania.Game/Icon.ico \
             ./output
+
+      - name: Verify bundled FFmpeg runtime in .app
+        run: |
+          runtime="output/DTXMania.app/Contents/MacOS/runtimes/osx-arm64/MMTools"
+          test -x "$runtime/ffmpeg"
+          test -x "$runtime/ffprobe"
+          file -b "$runtime/ffmpeg" | grep -qi arm64
+          file -b "$runtime/ffprobe" | grep -qi arm64
+          test -f output/DTXMania.app/Contents/MacOS/Licenses/FFmpeg-LGPL-2.1.txt
 
       - name: Upload DMG artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
