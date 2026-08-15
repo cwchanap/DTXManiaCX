@@ -7,6 +7,7 @@ using Xunit;
 
 namespace DTXMania.Test.Resources
 {
+    [Collection("FfmpegRuntimeState")]
     [Trait("Category", AudioTestUtils.AudioTestCategory)]
     public class FfmpegBundledRuntimeTests
     {
