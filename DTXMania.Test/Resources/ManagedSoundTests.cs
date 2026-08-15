@@ -113,6 +113,23 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
+        public void Constructor_WithCommittedMp3File_CreatesSuccessfully()
+        {
+            var mp3Path = Path.Combine(
+                AppContext.BaseDirectory,
+                "TestData",
+                "Audio",
+                "ffmpeg-tone.mp3");
+
+            Assert.True(File.Exists(mp3Path), $"Missing committed audio fixture: {mp3Path}");
+
+            using var sound = new ManagedSound(mp3Path);
+
+            Assert.NotNull(sound.SoundEffect);
+            Assert.True(sound.Duration > TimeSpan.Zero);
+        }
+
+        [Fact]
         public void Constructor_WithValidXaFile_CreatesSuccessfully()
         {
             // Arrange & Act

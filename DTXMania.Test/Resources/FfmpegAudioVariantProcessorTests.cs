@@ -10,7 +10,6 @@ using System.Threading.Tasks;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Test.Utilities;
-using FFMpegCore;
 using Xunit;
 
 namespace DTXMania.Test.Resources
@@ -436,19 +435,14 @@ namespace DTXMania.Test.Resources
         {
             Assert.True(FfmpegRuntime.EnsureConfigured().IsAvailable);
             var wav = WriteToneWav("tone.wav", durationSeconds: 0.25);
-            var source = wav;
-            if (extension != "wav")
-            {
-                source = Path.Combine(_tempDirectory, "tone." + extension);
-                var codec = extension == "mp3" ? "libmp3lame" : "libvorbis";
-                await FFMpegArguments
-                    .FromFileInput(wav)
-                    .OutputToFile(
-                        source,
-                        overwrite: true,
-                        options => options.WithAudioCodec(codec))
-                    .ProcessAsynchronously();
-            }
+            var source = extension == "wav"
+                ? wav
+                : Path.Combine(
+                    AppContext.BaseDirectory,
+                    "TestData",
+                    "Audio",
+                    "ffmpeg-tone." + extension);
+            Assert.True(File.Exists(source), $"Missing committed audio fixture: {source}");
 
             var modifiers = new PlaybackModifiers(50, 12);
             var artifact = await new FfmpegAudioVariantProcessor().PrepareAsync(
