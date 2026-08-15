@@ -161,6 +161,9 @@ validate_runtime() {
 cache_ready=false
 acquire_cache_lock || exit 1
 cache_lock_held=true
+# Keep the lock through cache validation, a possible replacement, and the
+# output copies below. A waiting invocation must revalidate after it acquires
+# the lock so it can reuse a runtime produced by the previous invocation.
 if cache_metadata_valid "$cache_dir"; then
   # Revalidate the full capability surface on every cache hit so a runtime
   # built before a capability amendment (such as the unix protocol) cannot
@@ -172,8 +175,6 @@ if cache_metadata_valid "$cache_dir"; then
     echo "Cached FFmpeg runtime failed validation; rebuilding." >&2
   fi
 fi
-release_cache_lock
-
 if [[ "$cache_ready" != true ]]; then
   work_root="$(mktemp -d "${TMPDIR:-/tmp}/dtx-ffmpeg.XXXXXX")"
   source_tarball="$work_root/ffmpeg-${FFMPEG_VERSION}.tar.xz"
@@ -220,10 +221,6 @@ if [[ "$cache_ready" != true ]]; then
   install -m 644 "$source_dir/COPYING.LGPLv2.1" "$cache_stage/COPYING.LGPLv2.1"
 
   # Validate the staged output before it can replace a previously valid cache.
-  # Hold the cache lock through validation and cache replacement so concurrent
-  # builds cannot race on the shared cache directory.
-  acquire_cache_lock || exit 1
-  cache_lock_held=true
   validate_runtime "$cache_stage"
 
   # The provenance marker is written only after the freshly built runtime has
@@ -234,7 +231,6 @@ if [[ "$cache_ready" != true ]]; then
   mkdir -p "$(dirname "$cache_dir")"
   rm -rf "$cache_dir"
   mv "$cache_stage" "$cache_dir"
-  release_cache_lock
   cache_ready=true
   echo "Cached validated FFmpeg runtime at: $cache_dir"
 fi
@@ -243,6 +239,7 @@ mkdir -p "$runtime_output_dir" "$license_output_dir"
 install -m 755 "$cache_dir/ffmpeg" "$runtime_output_dir/ffmpeg"
 install -m 755 "$cache_dir/ffprobe" "$runtime_output_dir/ffprobe"
 install -m 644 "$cache_dir/COPYING.LGPLv2.1" "$license_output_dir/FFmpeg-LGPL-2.1.txt"
+release_cache_lock
 
 echo "FFmpeg runtime copied to: $runtime_output_dir"
 echo "FFmpeg LGPL license copied to: $license_output_dir/FFmpeg-LGPL-2.1.txt"
