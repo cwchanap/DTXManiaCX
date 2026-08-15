@@ -47,6 +47,7 @@ Create:
   DTXMania.Test/TestData/Audio/ffmpeg-tone.mp3
   DTXMania.Test/TestData/Audio/ffmpeg-tone.ogg
   DTXMania.Test/Resources/FfmpegBundledRuntimeTests.cs
+  DTXMania.Test/Resources/ManagedSoundErrorPathTests.cs
 
 Modify:
   DTXMania.Game/DTXMania.Game.Mac.csproj
@@ -54,19 +55,22 @@ Modify:
   DTXMania.Test/DTXMania.Test.csproj
   DTXMania.Test/DTXMania.Test.Mac.csproj
   DTXMania.Test/Resources/FfmpegAudioVariantProcessorTests.cs
+  DTXMania.Test/Resources/FfmpegBundledRuntimeTests.cs
+  DTXMania.Test/Resources/FfmpegRuntimeTests.cs
   DTXMania.Test/Resources/ManagedSoundTests.cs
   .github/workflows/build-and-test.yml
   .github/workflows/release.yml
 
 Do not modify:
   DTXMania.Game/Lib/Resources/FfmpegRuntime.cs
-  DTXMania.Test/Resources/FfmpegRuntimeTests.cs
   DTXMania.Test/Resources/ManagedSoundFFmpegPathTests.cs
 
 Only modify if packaged-output verification proves execute bits are lost:
   installer/macos/build-dmg.sh
   installer/macos/test-build-dmg.sh
 ```
+
+> **Plan drift note (2026-08-15):** `FfmpegRuntimeTests.cs`, `FfmpegBundledRuntimeTests.cs`, `FfmpegAudioVariantProcessorTests.cs`, and `ManagedSoundTests.cs` were modified only to add the `[Collection("FfmpegRuntimeState")]` attribute — a one-line, behavior-preserving change that serializes FFmpeg-runtime-state tests. `FfmpegRuntimeTests.cs` is therefore no longer in the "Do not modify" set; it is in "Modify" with that single-attribute scope. `ManagedSoundErrorPathTests.cs` was introduced after the original file inventory was written and is now listed in both the top-level "Create" set and Task 3 below. The `FfmpegRuntimeStateCollection` is declared with `DisableParallelization = true` because its members mutate process-wide state (`FfmpegRuntime.Configuration`, `GlobalFFOptions`, and the process `PATH`); a plain collection would only prevent intra-collection concurrency and leave a race where unrelated test collections observe the mutated globals.
 
 Keep the four HPA-512 tasks in one implementation PR after HPA-623 is merged.
 
@@ -442,11 +446,16 @@ git commit -m "build: bundle native ffmpeg in Mac outputs"
 - Create `DTXMania.Test/TestData/Audio/ffmpeg-tone.mp3`
 - Create `DTXMania.Test/TestData/Audio/ffmpeg-tone.ogg`
 - Create `DTXMania.Test/Resources/FfmpegBundledRuntimeTests.cs`
+- Create `DTXMania.Test/Resources/ManagedSoundErrorPathTests.cs`
 - Modify `DTXMania.Test/DTXMania.Test.csproj`
 - Modify `DTXMania.Test/DTXMania.Test.Mac.csproj`
 - Modify `DTXMania.Test/Resources/FfmpegAudioVariantProcessorTests.cs`
+- Modify `DTXMania.Test/Resources/FfmpegBundledRuntimeTests.cs`
+- Modify `DTXMania.Test/Resources/FfmpegRuntimeTests.cs`
 - Modify `DTXMania.Test/Resources/ManagedSoundTests.cs`
 - Modify `DTXMania.Game/Lib/Resources/ManagedSound.cs`
+
+> **Drift note (2026-08-15):** `FfmpegRuntimeTests.cs`, `FfmpegBundledRuntimeTests.cs`, `FfmpegAudioVariantProcessorTests.cs`, and `ManagedSoundTests.cs` were modified only to add the `[Collection("FfmpegRuntimeState")]` attribute (one line each, no logic change). `ManagedSoundErrorPathTests.cs` is the new error-path coverage class and also declares `FfmpegRuntimeStateCollection` with `[CollectionDefinition("FfmpegRuntimeState", DisableParallelization = true)]`. The non-parallel contract is mandatory because the error-path tests mutate process-wide state (`FfmpegRuntime.Configuration` via reflection, `GlobalFFOptions`, and the process `PATH`); without `DisableParallelization = true` an xUnit collection only blocks intra-collection concurrency, leaving a race where unrelated collections observe the mutated globals.
 
 **Consumes:** Task 2 Test.Mac output contract.
 
@@ -583,6 +592,8 @@ git add \
   DTXMania.Test/TestData/Audio/ffmpeg-tone.ogg \
   DTXMania.Test/Resources/FfmpegAudioVariantProcessorTests.cs \
   DTXMania.Test/Resources/FfmpegBundledRuntimeTests.cs \
+  DTXMania.Test/Resources/FfmpegRuntimeTests.cs \
+  DTXMania.Test/Resources/ManagedSoundErrorPathTests.cs \
   DTXMania.Test/Resources/ManagedSoundTests.cs
 
 git commit -m "test: preserve audio coverage with minimal Mac ffmpeg"
