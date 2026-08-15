@@ -51,7 +51,7 @@ The builder uses the existing release configure surface and adds only
   --enable-demuxer=mp3 \
   --enable-demuxer=wav,ogg,pcm_s16le \
   --enable-parser=mpegaudio,vorbis \
-  --enable-protocol=file,pipe \
+  --enable-protocol=file,pipe,unix \
   --enable-muxer=pcm_s16le \
   --enable-encoder=pcm_s16le \
   --enable-filter=aformat,anull,aresample,atempo,apad,atrim
@@ -62,8 +62,12 @@ The required runtime surface is:
 - Filters: `atempo`, `apad`, `atrim`, `aformat`, `aresample`
 - Decoders: `mp3float`, `vorbis`, `pcm_s16le`, `adpcm_ima_wav`, `adpcm_ms`
 - Demuxers: `mp3`, `wav`, `ogg`, `s16le`
+- Protocols: `file`, `pipe`, `unix`
 - Encoder: `pcm_s16le`
 - Muxer: `s16le`
+
+The `unix` protocol is required by FFMpegCore's macOS named-pipe transport
+used for in-memory audio input/output. Network protocols remain disabled.
 
 The ADPCM decoders are load-bearing: non-default playback profiles route WAV
 sources through FFmpeg, so IMA-ADPCM and Microsoft ADPCM WAV files must remain
@@ -86,8 +90,10 @@ ${DTXMANIA_FFMPEG_CACHE_ROOT:-$HOME/Library/Caches/DTXManiaCX/ffmpeg}/7.0.2/osx-
 Set `DTXMANIA_FFMPEG_CACHE_ROOT` to relocate the cache root. A cache is used
 only when both executables are present and executable, `COPYING.LGPLv2.1`
 exists, and `source.sha256` contains the pinned source hash. Cached binaries
-then pass the same architecture, capability, version, and dynamic dependency
-checks as a fresh build; an invalid cache is rebuilt.
+then pass the same architecture, capability (including `file`, `pipe`, and
+`unix` protocols), version, and dynamic dependency checks as a fresh build;
+an invalid cache is rebuilt. This revalidation rejects a cache created before
+the `unix` protocol was added even though its pinned source hash is unchanged.
 
 On a cold cache, the script creates a `mktemp -d` work root, downloads,
 verifies, configures, compiles, and installs into that temporary root. It

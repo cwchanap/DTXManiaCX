@@ -89,6 +89,7 @@ validate_runtime() {
   local filter
   local decoder
   local demuxer
+  local protocol
 
   [[ -f "$root/COPYING.LGPLv2.1" ]] || {
     echo "FFmpeg validation failed: missing LGPL license file in $root." >&2
@@ -124,12 +125,19 @@ validate_runtime() {
     require_capability "$root/ffmpeg" -demuxers "$demuxer" || return 1
   done
 
+  for protocol in file pipe unix; do
+    require_capability "$root/ffmpeg" -protocols "$protocol" || return 1
+  done
+
   require_capability "$root/ffmpeg" -encoders pcm_s16le || return 1
   require_capability "$root/ffmpeg" -muxers s16le || return 1
 }
 
 cache_ready=false
 if cache_metadata_valid "$cache_dir"; then
+  # Revalidate the full capability surface on every cache hit so a runtime
+  # built before a capability amendment (such as the unix protocol) cannot
+  # remain accepted solely because its source hash is still current.
   if validate_runtime "$cache_dir"; then
     echo "Using validated cached FFmpeg runtime: $cache_dir"
     cache_ready=true
@@ -170,7 +178,7 @@ if [[ "$cache_ready" != true ]]; then
       --enable-demuxer=mp3 \
       --enable-demuxer=wav,ogg,pcm_s16le \
       --enable-parser=mpegaudio,vorbis \
-      --enable-protocol=file,pipe \
+      --enable-protocol=file,pipe,unix \
       --enable-muxer=pcm_s16le \
       --enable-encoder=pcm_s16le \
       --enable-filter=aformat,anull,aresample,atempo,apad,atrim
