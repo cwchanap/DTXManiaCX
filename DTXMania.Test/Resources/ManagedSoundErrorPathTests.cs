@@ -17,7 +17,18 @@ namespace DTXMania.Test.Resources
     /// (e.g. <see cref="ManagedSoundTests"/>, <see cref="FfmpegBundledRuntimeTests"/>,
     /// <see cref="FfmpegAudioVariantProcessorTests"/>, <see cref="FfmpegRuntimeTests"/>).
     /// </summary>
-    [CollectionDefinition("FfmpegRuntimeState")]
+    /// <remarks>
+    /// <see cref="CollectionDefinitionAttribute.DisableParallelization"/> is set to
+    /// <see langword="true"/> because members of this collection mutate process-wide
+    /// state (<see cref="FfmpegRuntime.Configuration"/>, <c>GlobalFFOptions</c>, and
+    /// the process <c>PATH</c> environment variable).  A plain collection only
+    /// prevents its own members from running concurrently with each other; other
+    /// collections would still execute in parallel by default and could observe an
+    /// empty <c>PATH</c> or the stubbed FFmpeg global configuration, producing a
+    /// scheduling race.  Disabling parallelization at the collection level is the
+    /// appropriate scope for process-global mutation.
+    /// </remarks>
+    [CollectionDefinition("FfmpegRuntimeState", DisableParallelization = true)]
     public class FfmpegRuntimeStateCollection { }
 
     /// <summary>
