@@ -101,7 +101,7 @@ namespace DTXMania.Test.Resources
         ///   <c>catch (SoundLoadException) { throw; }</c> rethrow
         /// </summary>
         [Fact]
-        public void Constructor_WithMp3AndRuntimeUnavailable_ThrowsBundledRuntimeDiagnostic()
+        public void Constructor_WithMp3AndRuntimeUnavailable_ShouldThrowBundledRuntimeDiagnostic()
         {
             // Arrange — force the runtime to report unavailable.
             SetRuntimeAvailability(new FfmpegRuntimeAvailability(
@@ -130,7 +130,7 @@ namespace DTXMania.Test.Resources
         /// constructor overload.
         /// </summary>
         [Fact]
-        public void Constructor_WithMp3RuntimeUnavailableAndCustomSourcePath_PreservesSourcePath()
+        public void Constructor_WithMp3RuntimeUnavailableAndCustomSourcePath_ShouldPreserveSourcePath()
         {
             SetRuntimeAvailability(new FfmpegRuntimeAvailability(
                 IsAvailable: false,
@@ -153,17 +153,16 @@ namespace DTXMania.Test.Resources
         /// resulting <see cref="SoundLoadException"/> should carry a helpful
         /// diagnostic.
         ///
-        /// This test attempts to exercise the
+        /// This test exercises the
         /// <c>catch (FileNotFoundException ex) when (ex.Message.Contains("ffmpeg"))</c>
-        /// branch and the generic <c>catch (Exception ex)</c> branch.  On
-        /// systems where ffmpeg is also available on PATH (e.g. via Homebrew),
-        /// FFMpegCore may still find it and load the file successfully — in
-        /// that case the test passes without asserting the error path, since
-        /// the missing-binary branch is only reachable on clean CI runners
-        /// where ffmpeg is not on PATH.
+        /// branch and the generic <c>catch (Exception ex)</c> branch.  The
+        /// process PATH is cleared for the duration of the load so that
+        /// FFMpegCore cannot fall back to a system ffmpeg (e.g. via Homebrew),
+        /// making the missing-binary outcome deterministic regardless of the
+        /// host platform.
         /// </summary>
         [Fact]
-        public void Constructor_WithMp3AndMissingFfmpegBinary_ThrowsSoundLoadExceptionWhenFfmpegNotOnPath()
+        public void Constructor_WithMp3AndMissingFfmpegBinary_ShouldThrowSoundLoadExceptionWhenFfmpegNotOnPath()
         {
             // Arrange — point the runtime at an empty temp folder so FFMpegCore
             // cannot find the ffmpeg/ffprobe binaries in BinaryFolder.
@@ -184,17 +183,16 @@ namespace DTXMania.Test.Resources
                 "ffmpeg-tone.mp3");
             Assert.True(File.Exists(mp3File), $"Missing committed audio fixture: {mp3File}");
 
-            // Act — attempt to load the MP3.  On systems where ffmpeg is on
-            // PATH (e.g. Homebrew), FFMpegCore may still find it and succeed.
-            // On clean CI runners, the load should fail with SoundLoadException.
+            // Clear PATH for the process under test so FFMpegCore's subprocess
+            // cannot locate ffmpeg/ffprobe via the system PATH (e.g. Homebrew).
+            var savedPath = Environment.GetEnvironmentVariable("PATH");
+            Environment.SetEnvironmentVariable("PATH", string.Empty);
             try
             {
-                using var sound = new ManagedSound(mp3File);
-                // ffmpeg was found on PATH — the missing-binary branch is not
-                // reachable on this machine.  The test still passes.
-            }
-            catch (SoundLoadException ex)
-            {
+                // Act — the load must fail because ffmpeg is neither in the
+                // empty BinaryFolder nor on PATH.
+                var ex = Assert.Throws<SoundLoadException>(() => new ManagedSound(mp3File));
+
                 // Assert — accept either the FileNotFoundException-specific
                 // message or the generic conversion-failure message.
                 Assert.True(
@@ -202,6 +200,10 @@ namespace DTXMania.Test.Resources
                     ex.Message.Contains("Failed to convert MP3 file using bundled FFMpeg"),
                     $"Unexpected MP3 failure message: {ex.Message}");
                 Assert.Equal(mp3File, ex.SoundPath);
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("PATH", savedPath);
             }
         }
 
@@ -228,6 +230,7 @@ namespace DTXMania.Test.Resources
                 restrictedSkipVisibility: true);
             var il = method.GetILGenerator();
             il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Castclass, field.FieldType);
             il.Emit(OpCodes.Stsfld, field);
             il.Emit(OpCodes.Ret);
             return (Action<object?>)method.CreateDelegate(typeof(Action<object?>));
