@@ -155,10 +155,13 @@ jobs:
           ${{ runner.os }}-nuget-
     
     - name: Restore dependencies
-      run: dotnet restore DTXMania.Game/DTXMania.Game.Mac.csproj
+      run: dotnet restore DTXMania.Test/DTXMania.Test.Mac.csproj
 
     - name: Build Mac project
       run: dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj --configuration Debug --no-restore
+
+    - name: Build Mac test project
+      run: dotnet build DTXMania.Test/DTXMania.Test.Mac.csproj --configuration Debug --no-restore
 
     - name: Run tests on macOS
       run: dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --configuration Debug --no-build --verbosity normal --collect:"XPlat Code Coverage" --settings ./coverlet.runsettings --results-directory ./TestResults --logger trx
@@ -176,7 +179,7 @@ jobs:
         DTXMANIA_E2E_ARTIFACT_ROOT: TestResults/e2e-audio
       run: dotnet test DTXMania.E2E/DTXMania.E2E.csproj --configuration Debug --verbosity normal --logger trx --results-directory ./TestResults/e2e-audio --filter "Category=AudioE2E"
 
-    - name: Locate coverage report on macOS
+    - name: Require coverage report on macOS
       if: always()
       shell: bash
       run: |
@@ -184,7 +187,8 @@ jobs:
         if [ -n "$coverage_file" ]; then
           echo "Coverage report found: $coverage_file"
         else
-          echo "::warning::coverage.cobertura.xml not found in macOS TestResults directories."
+          echo "::error::coverage.cobertura.xml not found in macOS TestResults directories; DTXMania.Test.Mac may not have executed." >&2
+          exit 1
         fi
 
     - name: Upload test results
