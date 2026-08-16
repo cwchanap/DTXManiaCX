@@ -236,13 +236,23 @@ public class GameInteractionMcpToolHandlers
         if (!success || imageData == null)
             return BuildResult(false, message, new { action = "screenshot", client_id });
 
+        byte[] decoded;
+        try
+        {
+            decoded = Convert.FromBase64String(imageData);
+        }
+        catch (FormatException)
+        {
+            return BuildResult(false, "screenshot response contained malformed Base64 image data", new { action = "screenshot", client_id });
+        }
+
         var result = new CallToolResult
         {
             IsError = false,
             Content = new List<ContentBlock>
             {
                 new TextContentBlock { Text = message },
-                ImageContentBlock.FromBytes(Convert.FromBase64String(imageData), mimeType ?? "image/png")
+                ImageContentBlock.FromBytes(decoded, mimeType ?? "image/png")
             }
         };
         return result;
