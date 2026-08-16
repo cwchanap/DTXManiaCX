@@ -60,7 +60,7 @@ Passed!  - Failed:     0, Passed:   265, Skipped:     0, Total:   265, Duration:
 
 ## Commit SHA(s)
 
-05e1101 (initial task commit; will be amended once this report records the final SHA).
+8c1fb41 (implementation commit; report metadata correction follows in a report-only commit).
 
 ## Concerns
 
