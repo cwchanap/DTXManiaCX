@@ -1,14 +1,12 @@
 # HPA-13 Chart-Synchronized Gameplay Metronome Implementation Plan
 
-> **For implementation agents:** Follow the tasks in order. Keep this as one feature ticket and one implementation PR. Use test-driven development for each task and do not add any of the explicitly deferred practice/audio features.
+> **For implementation agents:** Follow the tasks in order. Keep this as one feature ticket and one implementation PR. Use test-driven development for each task and do not add any deferred practice/audio features.
 
-**Goal:** Add an optional gameplay metronome that accents measure starts, clicks quarter-note boundaries, follows the complete DTX timing map and Play Speed, and is enabled from the persisted Drums settings.
+**Goal:** Add an optional gameplay metronome that accents measure starts, clicks later quarter-note boundaries, follows the complete DTX timing map and Play Speed, and is enabled from persisted Drums settings.
 
-**Architecture:** `ChartTimingMap` resolves authored beat positions into immutable `BeatMarker.TimeMs` values during `ParsedChart.FinalizeChart()`. A small pure `MetronomePlayer` consumes those markers from the raw `SongTimer` logical clock. `PerformanceStage` owns optional sound resources and maps due markers to regular/accent one-shot playback.
+**Architecture:** `ParsedChart.FinalizeChart()` enumerates quarter-note markers and asks `ChartTimingMap` to resolve fractional positions into immutable `BeatMarker.TimeMs` values. A small pure `MetronomePlayer` consumes those markers from the raw `SongTimer` clock. `PerformanceStage` owns optional click resources and a narrow fire-and-forget playback seam.
 
-**Tech stack:** .NET 8, C#, MonoGame audio, xUnit, existing `ConfigManager`, `ChartTimingMap`, `ParsedChart`, `SongTimer`, `IResourceManager`, and `PerformanceStage` seams.
-
-**Scope guard:** Do not add count-in, subdivisions, visual beats, hotkeys, practice loops, custom sound selection, a separate volume, per-song settings, timers, threads, event buses, or sample-accurate scheduling.
+**Scope guard:** Do not add count-in, subdivisions, channel `51` parsing, visual beats, hotkeys, practice loops, custom sound selection, volume routing, per-song settings, timers, threads, event buses, or sample-accurate scheduling.
 
 ---
 
@@ -24,69 +22,70 @@
 - Modify: `DTXMania.Game/Lib/Stage/ConfigStage.cs`
 - Modify: `DTXMania.Test/Config/ConfigDataTests.cs`
 - Modify: `DTXMania.Test/Config/ConfigManagerTests.cs`
-- Modify: `DTXMania.Test/Stage/ConfigStageCoverageTests.cs`
+- Modify: `DTXMania.Test/Config/ConfigStageLogicTests.cs`
+- Modify: `DTXMania.Test/Stage/DrumConfig/DrumConfigStageTests.cs`
 
 ### Step 1: Add failing configuration tests
 
 Cover these contracts before production changes:
 
-1. `new ConfigData().MetronomeEnabled` is `false`.
-2. `LoadConfig` recognizes `MetronomeEnabled=true` and `false` case-insensitively through the existing boolean parser behavior.
-3. `SaveConfig` writes exactly one `MetronomeEnabled=<value>` entry.
+1. `new ConfigData().Metronome` is `false`.
+2. `LoadConfig` recognizes `Metronome=true`, `1`, and `on` through the existing `TryParseBool` behavior.
+3. `SaveConfig` writes exactly one `Metronome=<value>` entry under `[Game]`.
 4. A save/load round trip preserves the value.
-5. `SetMetronomeEnabled(bool)` updates the in-memory value and participates in the existing deferred-save behavior.
+5. `SetMetronome(bool)` updates the in-memory value and participates in the existing deferred-save behavior.
 
-Do not add migration logic. A missing key must naturally retain the default Off value.
+Do not add migration aliases. A missing key naturally retains the default Off value.
 
-### Step 2: Add a failing ConfigStage inventory test
+### Step 2: Extend the existing ConfigStage logic tests
 
-Use the existing `ConfigStageTestFactory` / reflection pattern already used by `ConfigStageCoverageTests` to call `SetupConfigItems` headlessly and inspect the Drums category.
+Do not create a second inventory-style test file for this toggle. Extend the existing tests that already own these contracts:
 
-Assert that:
+- add `Metronome` between `Pitch` and `Auto Play` in `SetupConfigItems_ShouldBuildSystemDrumsExitCategories`;
+- add `[InlineData("Metronome", nameof(ConfigData.Metronome))]` to `ActivatePressedOnToggle_ShouldMutateConfigViaSetter`.
 
-- a `Metronome` toggle exists;
-- it appears after `Pitch` and before `Auto Play`;
-- its current-value callback reads `ConfigData.MetronomeEnabled`;
-- changing it invokes the typed configuration setter.
+This verifies both list order and the setter path using the existing headless input seam.
 
-Avoid rendering or keyboard simulation for this contract; this is an item-registration test.
+### Step 3: Update concrete `IConfigManager` test doubles
 
-### Step 3: Implement the setting
+Adding `SetMetronome(bool)` to `IConfigManager` is a compile-time contract change. Update `DrumConfigStageTests.StubConfigManager` in the same task so the suite still compiles after the interface edit.
+
+Do not add a default interface implementation solely to avoid updating the test double.
+
+### Step 4: Implement the setting
 
 Add to `ConfigData`:
 
 ```csharp
-public bool MetronomeEnabled { get; set; } = false;
+public bool Metronome { get; set; } = false;
 ```
 
 Extend `IConfigManager` and `ConfigManager` following the existing `AutoPlay` / `NoFail` pattern:
 
-- parse `MetronomeEnabled`;
-- serialize it in `SaveConfig`;
-- expose `SetMetronomeEnabled(bool enabled)`;
-- mark the normal deferred save dirty rather than forcing a new immediate-write path.
+- parse `Metronome` with `TryParseBool`;
+- serialize `Metronome=<value>` in `[Game]`;
+- expose `SetMetronome(bool value)`;
+- mark the existing deferred save dirty only when the value changes.
 
-Add a `ToggleConfigItem` to the Drums list:
+Add a `ToggleConfigItem` to Drums after Pitch and before Auto Play:
 
 ```text
 Name: Metronome
-Description: Plays an accented click on each quarter-note beat during gameplay.
+Description: Accents each measure start and clicks later quarter-note beats during gameplay.
 ```
 
-Do not add a separate settings category or overlay.
-
-### Step 4: Run focused tests
+### Step 5: Run focused tests
 
 ```bash
 dotnet test DTXMania.Test/DTXMania.Test.csproj --no-restore \
-  --filter "FullyQualifiedName~ConfigDataTests|FullyQualifiedName~ConfigManagerTests|FullyQualifiedName~ConfigStageCoverageTests"
+  --filter "FullyQualifiedName~ConfigDataTests|FullyQualifiedName~ConfigManagerTests|FullyQualifiedName~ConfigStageLogicTests|FullyQualifiedName~DrumConfigStageTests"
 ```
 
-Expected: all selected tests pass.
+Expected: selected tests compile and pass.
 
 ---
 
-## Task 2: Generate resolved quarter-note markers during chart finalization
+## Task 2: Add fractional timing lookup and publish beat markers
 
 **Estimated size:** 0.75 engineer-day
 
@@ -98,25 +97,20 @@ Expected: all selected tests pass.
 - Modify: `DTXMania.Test/Song/ChartTimingMapTests.cs`
 - Modify: `DTXMania.Test/Song/ParsedChartTests.cs`
 
-### Step 1: Add failing timing-map tests
+### Step 1: Add focused `ChartTimingMapTests`
 
-Add focused `ChartTimingMapTests` for a marker-building seam. Use base BPM `120` so expected quarter-note times are easy to inspect.
+The timing map should not own musical-grid policy. Test only the new timing/resolution seams:
 
-Cover:
+1. `CalculateTimeMs(bar, double tick)` resolves a fractional position at base BPM.
+2. A fractional position before an in-measure BPM anchor uses the old BPM.
+3. A fractional position at/after the anchor uses the new BPM.
+4. `GetMeasureLengthMultiplier(bar)` returns `1.0` when absent and the configured channel `02` multiplier when present.
 
-1. **Normal measure `1.0`** — marker times `0`, `500`, `1000`, `1500`; only the first is accented.
-2. **Short measure `0.75`** — three markers at `0`, `500`, `1000`; next measure starts at `1500`.
-3. **Long measure `1.5`** — six markers at `0`, `500`, `1000`, `1500`, `2000`, `2500`; next measure starts at `3000`.
-4. **Non-integral musical length** — for multiplier `0.625`, emit offsets `0`, `1`, and `2` quarter notes without rounding the `2.5`-beat measure to two or three full beats.
-5. **Boundary BPM change** — the new BPM applies to all markers after the boundary.
-6. **Mid-measure BPM change** — later marker times integrate the new BPM rather than evenly dividing the measure.
-7. **Two adjacent measures** — one accent at each bar start and no duplicate marker at the shared boundary.
-
-Use precision-based assertions for `double` milliseconds.
+A useful fractional case is multiplier `0.625` with an in-measure tick such as `76.8`.
 
 ### Step 2: Implement `BeatMarker`
 
-Keep the runtime model minimal:
+Keep the model minimal:
 
 ```csharp
 public sealed class BeatMarker
@@ -126,48 +120,49 @@ public sealed class BeatMarker
 }
 ```
 
-Do not add BPM, bar, lane, display position, or scoring state.
+Do not add BPM, bar, lane, rendered position, or scoring state.
 
-### Step 3: Add fractional internal timing support
+### Step 3: Extend `ChartTimingMap` only as a timing resolver
 
-Extend `ChartTimingMap` with one internal method that builds markers through an inclusive occupied bar, for example:
+Add:
 
 ```csharp
-internal IReadOnlyList<BeatMarker> BuildBeatMarkers(int throughBar);
+internal double CalculateTimeMs(int bar, double tick);
+internal double GetMeasureLengthMultiplier(int bar);
 ```
 
 Implementation rules:
 
-- Require the map to have already been rebuilt through the requested bar.
-- Read the effective measure multiplier from the existing `_measureLengths` dictionary, defaulting to `1.0`.
-- Compute `measureBeats = 4.0 * multiplier`.
-- For integer `beatOffset = 0; beatOffset < measureBeats; beatOffset++`, compute:
+- retain the existing integer `CalculateTimeMs(int bar, int tick)` for authored events;
+- generalize private `CalculateIntervalMs` from `int tickDelta` to `double tickDelta`;
+- keep `NormalizePosition` integer-only;
+- the new fractional overload accepts an in-measure tick in `[0, 192)`;
+- select the last timing anchor at or before the fractional position using the integer floor for `FindAnchorIndex`;
+- integrate the remaining fractional delta with that anchor's BPM and measure multiplier;
+- `GetMeasureLengthMultiplier` reads the existing `_measureLengths` dictionary and defaults to `1.0`.
 
-```text
-fractionalTick = beatOffset * 192.0 / measureBeats
-```
+Do not add `BuildBeatMarkers`, a new timing table, or a generic fractional chart-position type.
 
-- Resolve that fractional position using the last timing anchor at or before it.
-- Mark only `beatOffset == 0` as a measure start.
-- Never emit a marker at tick `192`; the next bar emits its own accent.
+### Step 4: Add musical-grid tests to `ParsedChartTests`
 
-Generalize the private interval calculation from integer to `double tickDelta`. Keep `NormalizePosition` and the existing public authored-event lookup on integer bars/ticks. Fractional ticks are an internal metronome calculation only.
+Use base BPM `120` where convenient and cover:
 
-A narrow private helper such as `CalculateTimeMsWithinMeasure(int bar, double tick)` is enough. Do not introduce a generic fractional chart-position type.
+1. **Normal multiplier `1.0`** — times `0`, `500`, `1000`, `1500`; only the first is accented.
+2. **Multiplier `0.75`** — three markers before the next measure accent.
+3. **Multiplier `1.5`** — six markers before the next measure accent.
+4. **Multiplier `0.625`** — emit offsets `0`, `1`, and `2` without rounding the 2.5-beat measure.
+5. **Boundary BPM change** — new BPM applies to later markers.
+6. **Mid-measure BPM change** — later markers integrate the new BPM rather than dividing the measure evenly.
+7. **Adjacent measures** — exactly one accent at the shared boundary.
+8. **Terminal measure line** — `highestOccupiedBar + 1` does not create an extra metronome measure.
+9. **Empty chart** — no markers.
+10. **Repeated finalization** — same count, order, times, and accents.
 
-### Step 4: Add failing ParsedChart finalization tests
+Use precision-based assertions for `double` milliseconds.
 
-Cover:
+### Step 5: Enumerate markers in `ParsedChart.FinalizeChart()`
 
-1. A chart with an event in bar zero publishes the expected bar-zero markers.
-2. A chart whose highest event is in a later bar publishes markers only through that occupied bar.
-3. The extra terminal `MeasureLine` does not create an extra metronome measure.
-4. An empty chart has no markers.
-5. Calling `FinalizeChart()` twice produces identical marker values and count.
-
-### Step 5: Wire markers into `ParsedChart.FinalizeChart()`
-
-Add a public read-only-by-convention collection matching the existing chart component style:
+Add:
 
 ```csharp
 public List<BeatMarker> BeatMarkers { get; } = new();
@@ -175,11 +170,26 @@ public List<BeatMarker> BeatMarkers { get; } = new();
 
 During finalization:
 
-- clear `BeatMarkers` first;
+- clear `BeatMarkers` with `MeasureLines` before determining the occupied horizon;
 - leave empty charts empty;
-- after `TimingMap.Rebuild`, generate markers for bars `0..highestOccupiedBar`;
+- rebuild `TimingMap` exactly as today;
+- resolve note and BGM times exactly as today;
+- for bars `0..highestOccupiedBar`, read the effective multiplier and enumerate the quarter-note grid;
 - keep measure-line generation through `highestOccupiedBar + 1` unchanged;
-- do not change `ChartManager`.
+- leave `ChartManager` unchanged.
+
+Grid rule:
+
+```text
+measureBeats = 4.0 * multiplier
+for beatOffset = 0 while beatOffset < measureBeats:
+    tick = beatOffset * 192.0 / measureBeats
+    add BeatMarker(
+        TimingMap.CalculateTimeMs(bar, tick),
+        IsMeasureStart = beatOffset == 0)
+```
+
+Never emit tick `192` from the current measure.
 
 ### Step 6: Run focused tests
 
@@ -188,7 +198,7 @@ dotnet test DTXMania.Test/DTXMania.Test.csproj --no-restore \
   --filter "FullyQualifiedName~ChartTimingMapTests|FullyQualifiedName~ParsedChartTests"
 ```
 
-Expected: all selected tests pass, including existing HPA-600 timing tests.
+Expected: all selected tests pass, including existing HPA-600 timing coverage.
 
 ---
 
@@ -209,11 +219,11 @@ Cover:
 
 1. Updating before a marker produces no callback.
 2. A due regular marker is forwarded once.
-3. A due accented marker is forwarded once with `IsMeasureStart=true`.
-4. The marker at time zero is played when the first update arrives within the late tolerance.
+3. A due accented marker is forwarded once.
+4. Marker zero is played when the first update arrives within the late tolerance.
 5. When several markers became due during one delayed frame, only the latest one is forwarded.
-6. When the latest due marker is older than the late tolerance, it is skipped.
-7. A second update at the same/later time does not replay an already consumed marker.
+6. When the latest due marker is older than the tolerance, it is skipped.
+7. Already-consumed markers never replay.
 8. `Reset()` returns to marker zero.
 9. An empty list is a no-op.
 
@@ -241,7 +251,7 @@ On `Update`:
 - retain only the last consumed marker;
 - invoke once only when `currentChartTimeMs - marker.TimeMs <= MaxLatePlaybackMs`.
 
-Do not add pause/resume methods, clock ownership, seeking, `IDisposable`, an interface, or an event. `PerformanceStage` already owns transport and resources.
+Do not add pause/resume methods, clock ownership, seeking, `IDisposable`, an interface, or an event.
 
 ### Step 3: Run focused tests
 
@@ -250,99 +260,110 @@ dotnet test DTXMania.Test/DTXMania.Test.csproj --no-restore \
   --filter "FullyQualifiedName~MetronomePlayerTests"
 ```
 
-Expected: all scheduler tests pass without graphics or audio initialization.
+Expected: scheduler tests pass without graphics or audio initialization.
 
 ---
 
-## Task 4: Add click assets and integrate PerformanceStage
+## Task 4: Add click assets and integrate `PerformanceStage`
 
 **Estimated size:** 0.75 engineer-day
 
 **Files:**
 
 - Modify: `DTXMania.Game/Lib/Resources/SoundPath.cs`
+- Modify: `tools/sfxgen/manifest.json`
 - Create binary asset: `System/CXNeon/Sounds/Metronome Beat.ogg`
 - Create binary asset: `System/CXNeon/Sounds/Metronome Accent.ogg`
 - Modify: `DTXMania.Game/Lib/Stage/PerformanceStage.cs`
-- Modify: `DTXMania.Test/Resources/ResourceManagerLogicTests.cs` or the existing sound-inventory test that owns `SoundPath.GetAllSoundPaths()` coverage
+- Modify: `DTXMania.Test/Resources/CxNeonPackTests.cs`
 - Modify: `DTXMania.Test/Stage/Performance/PerformanceStageDeterministicTests.cs`
-- Modify: `DTXMania.Test/Stage/Performance/PerformanceStageAdditionalCoverageTests.cs` only for lifecycle/error paths not suited to the deterministic test file
+- Modify: `DTXMania.Test/Stage/Performance/PerformanceStageAdditionalCoverageTests.cs` only when a lifecycle branch does not fit the deterministic file
 
-### Step 1: Add failing sound-inventory tests
+### Step 1: Extend the sound inventory and generation manifest
 
-Extend the existing `SoundPath` inventory assertion to require:
-
-```text
-Sounds/Metronome Beat.ogg
-Sounds/Metronome Accent.ogg
-```
-
-Also verify that the bundled CXNeon files exist through the same repository/resource test pattern used for existing sounds. Do not add a new asset manifest.
-
-### Step 2: Add the two sounds
-
-Add constants and include them in `GetAllSoundPaths()`:
+Add to `SoundPath` and `GetAllSoundPaths()`:
 
 ```csharp
 public const string MetronomeBeat = "Sounds/Metronome Beat.ogg";
 public const string MetronomeAccent = "Sounds/Metronome Accent.ogg";
 ```
 
-Asset requirements:
+Add matching entries to `tools/sfxgen/manifest.json`. Keep them short, dry, and clearly distinguishable; the accent should have a stronger/higher transient than the regular beat.
 
-- short mono or stereo OGG clips;
-- dry transient with minimal tail;
-- clearly distinguishable accent;
-- normalized conservatively so repeated clicks do not dominate the song mix.
+Generate and commit both OGGs through the existing pipeline, for example:
 
-Do not reuse a drum chip or menu sound as the shipped metronome asset.
+```bash
+python tools/sfxgen/sfxgen.py generate --only "Metronome Beat.ogg"
+python tools/sfxgen/sfxgen.py generate --only "Metronome Accent.ogg"
+python tools/sfxgen/sfxgen.py validate
+```
 
-### Step 3: Add failing PerformanceStage tests
+Generation requires the existing `ELEVENLABS_API_KEY` + ffmpeg setup. Do not hand-author a parallel asset manifest.
 
-Use existing headless/reflection seams rather than constructing a real `GraphicsDevice`.
+`CxNeonPackTests` already gates every `SoundPath.GetAllSoundPaths()` entry once the sound tree exists; extend/adjust it only if an explicit assertion is needed for the two new paths.
 
-Cover these observable contracts:
+### Step 2: Add failing `PerformanceStage` tests
 
-1. With `MetronomeEnabled=false`, initialization does not request either click sound and creates no player.
-2. With the setting enabled and a finalized chart, initialization creates a player using the chart markers.
-3. The click callback selects accent versus regular sound and applies `SEVolume / 100f` clamped to `0..1`.
+Use existing headless/test-subclass seams. Cover these contracts:
+
+1. With `Metronome=false`, initialization does not request either click sound and creates no player.
+2. With `Metronome=true` and a finalized chart, initialization requests both sound paths and creates a player from `BeatMarkers`.
+3. The player callback reaches a narrow overridable `PlayMetronomeClick(BeatMarker)` hook.
 4. `UpdateGameplay` drives the player only from raw `currentTimeMs` while `_songTimer.IsPlaying`.
 5. READY/loading/paused states do not advance the player.
 6. Cleanup clears the player and balances references for both loaded sounds.
-7. Failure to load one or both sounds leaves gameplay usable and the available click type still works.
-8. Restart/re-activation begins from marker zero.
+7. Resource fallback/missing assets do not fail gameplay.
+8. Restart/re-activation begins again from marker zero.
 
-Prefer a small overridable sound-loading or one-shot-play seam on `PerformanceStage` if existing tests cannot observe calls. Do not introduce a project-wide audio service for this feature.
+Do not construct a real `SoundEffect` merely to test callback wiring.
 
-### Step 4: Implement stage-owned resources
+### Step 3: Implement stage-owned resources
 
 Add nullable fields for:
 
 - frozen `_metronomeEnabled`;
-- frozen `_metronomeVolume`;
 - regular `ISound`;
 - accent `ISound`;
 - `MetronomePlayer`.
 
-Freeze the setting and volume in `OnActivate`:
+Freeze only the toggle in `OnActivate`:
 
 ```text
-enabled = config.MetronomeEnabled
-volume = clamp(config.SEVolume / 100f)
+enabled = config.Metronome
 ```
 
-Create the player only after the chart is finalized and published by the existing asynchronous initialization path. Load sounds only when enabled.
+Do **not** read `SEVolume`. Volume routing is not currently persisted/applied consistently across gameplay audio and is outside HPA-13.
 
-Keep loading best-effort. Catch and log through the existing performance/resource diagnostics, leaving failed sounds null.
+Create the player only after the chart is finalized. Load sounds only when enabled:
 
-The callback should:
+```csharp
+_metronomeBeatSound = _resourceManager.LoadSound(SoundPath.MetronomeBeat);
+_metronomeAccentSound = _resourceManager.LoadSound(SoundPath.MetronomeAccent);
+_metronomePlayer = new MetronomePlayer(
+    _parsedChart.BeatMarkers,
+    PlayMetronomeClick);
+```
 
-- choose accent or regular by `marker.IsMeasureStart`;
-- no-op when that sound is unavailable;
-- submit a fire-and-forget one-shot at the frozen volume;
-- catch playback exceptions and log without changing stage state.
+Use the resource manager's existing missing-file behavior: it reports the failure and normally returns a silent fallback. Keep defensive null handling only for the rare fallback-creation failure path; do not invent a separate null-on-missing contract.
 
-Use `SoundEffect.Play(volume, pitch: 0f, pan: 0f)` through the loaded `ISound.SoundEffect` for the short fire-and-forget click. This uses MonoGame's one-shot path and avoids accumulating caller-owned `SoundEffectInstance` objects. Do not add a second active-instance collection solely for metronome clicks.
+### Step 4: Add the narrow fire-and-forget playback seam
+
+Add a small overridable method on `PerformanceStage`:
+
+```csharp
+protected virtual void PlayMetronomeClick(BeatMarker marker)
+{
+    var sound = marker.IsMeasureStart
+        ? _metronomeAccentSound
+        : _metronomeBeatSound;
+
+    sound?.SoundEffect?.Play(1.0f, 0.0f, 0.0f);
+}
+```
+
+Catch unexpected playback exceptions locally and log without changing stage state.
+
+The direct `SoundEffect.Play` overload is intentional for short one-shots: it avoids creating caller-owned `SoundEffectInstance` objects and therefore avoids a new active-instance collection. The virtual method is the test hook; do not add a project-wide audio service/interface for this feature.
 
 ### Step 5: Integrate the raw clock
 
@@ -362,29 +383,35 @@ call:
 _metronomePlayer?.Update(currentTimeMs);
 ```
 
-Place it beside `ProcessBGMEvents(currentTimeMs)` and before creation/use of `playerJudgementTimeMs` so the raw-clock dependency is obvious.
+Place it beside `ProcessBGMEvents(currentTimeMs)` and before latency-compensated player judgement timing so the raw-clock dependency is explicit.
 
-Do not call it from the compensated judgement path, `SongTimer.Update`, draw methods, or a separate timer.
+Do not call it from `GetPlayerJudgementTimeMs`, `SongTimer.Update`, draw methods, or a separate timer.
 
 ### Step 6: Complete cleanup
 
 In the existing serialized audio cleanup path:
 
 - clear `_metronomePlayer`;
-- `RemoveReference()` on each non-null loaded click sound exactly once;
-- null the fields;
-- ensure cancellation/deactivation during asynchronous initialization cannot publish resources after cleanup, using the stage's existing activation-generation/audio-lifecycle gate.
+- call `RemoveReference()` exactly once for each non-null loaded click sound;
+- null the sound fields;
+- use the existing activation-generation/audio-lifecycle gate so cancelled initialization cannot publish resources after teardown.
 
-Do not build a second cancellation mechanism.
+Do not add another cancellation mechanism.
 
 ### Step 7: Run focused tests
 
 ```bash
 dotnet test DTXMania.Test/DTXMania.Test.csproj --no-restore \
-  --filter "FullyQualifiedName~SoundPath|FullyQualifiedName~ResourceManagerLogicTests|FullyQualifiedName~PerformanceStageDeterministicTests|FullyQualifiedName~PerformanceStageAdditionalCoverageTests"
+  --filter "FullyQualifiedName~CxNeonPackTests|FullyQualifiedName~PerformanceStageDeterministicTests|FullyQualifiedName~PerformanceStageAdditionalCoverageTests"
 ```
 
-Expected: all selected tests pass.
+Also validate the sound pack:
+
+```bash
+python tools/sfxgen/sfxgen.py validate
+```
+
+Expected: selected tests and asset validation pass.
 
 ---
 
@@ -406,31 +433,32 @@ Expected: zero failures.
 dotnet build DTXMania.sln --no-restore
 ```
 
-Expected: successful build with no new warnings attributable to HPA-13.
+Expected: successful build with no new HPA-13 warnings.
 
 ### Step 3: Perform focused manual checks
 
 Use small local DTX fixtures or existing timing-map fixtures for each case:
 
-1. **Disabled:** no click assets are loaded/audible.
+1. **Disabled:** no metronome click sounds are requested/audible.
 2. **Normal 4/4 at 120 BPM:** four clicks per measure, first accented.
-3. **Channel `02` 0.75:** three evenly spaced quarter-note clicks before the next accent.
+3. **Channel `02` 0.75:** three quarter-note clicks before the next accent.
 4. **Channel `02` 1.5:** six quarter-note clicks before the next accent.
-5. **Channel `03` or `08` mid-measure tempo change:** later clicks change spacing without measure drift.
-6. **Play Speed 0.50x and 2.00x:** clicks stay aligned with notes/BGM.
+5. **Channel `03` or `08` mid-measure tempo change:** later click spacing changes without measure drift.
+6. **Play Speed 0.50x and 2.00x:** clicks remain aligned with notes/BGM.
 7. **Pause/resume:** silence while paused, then no duplicate or burst on resume.
 8. **Restart/re-enter:** first downbeat accents again.
-9. **Missing regular or accent asset:** gameplay continues with the remaining click type or silence.
+9. **Missing click asset:** gameplay continues using the resource manager's silent fallback behavior.
 
 ### Step 4: Review the final diff against scope
 
 Confirm the implementation contains only:
 
-- one persisted toggle;
-- one beat-marker model/list;
-- one timing-map marker builder;
-- one pure scheduler;
-- two sound assets/constants;
+- one persisted `Metronome` toggle;
+- one `BeatMarker` model/list;
+- two narrow timing-map helpers (`double` time lookup + measure multiplier lookup);
+- beat-grid enumeration in `ParsedChart.FinalizeChart()`;
+- one pure `MetronomePlayer` scheduler;
+- two `SoundPath` entries + SFX manifest entries + committed OGGs;
 - focused `PerformanceStage` integration and tests.
 
-Remove any count-in, subdivision, visual, hotkey, practice-loop, new audio-service, or generalized transport work before requesting review.
+Remove any `BuildBeatMarkers` timing-map policy, `SEVolume` wiring, channel `51` parsing, count-in, subdivision, visual, hotkey, practice-loop, new audio-service, or generalized transport work before requesting review.
