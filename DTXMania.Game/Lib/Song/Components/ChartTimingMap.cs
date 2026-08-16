@@ -175,19 +175,6 @@ namespace DTXMania.Game.Lib.Song.Components
                 throw new ArgumentOutOfRangeException(nameof(tick));
 
             var normalizedTick = tick - (measureOffset * TicksPerMeasure);
-            if (normalizedTick >= TicksPerMeasure)
-            {
-                if (measureOffset >= int.MaxValue - bar)
-                    throw new ArgumentOutOfRangeException(nameof(tick));
-
-                measureOffset++;
-                normalizedTick -= TicksPerMeasure;
-            }
-            else if (normalizedTick < 0)
-            {
-                measureOffset--;
-                normalizedTick += TicksPerMeasure;
-            }
 
             return ((int)(bar + measureOffset), normalizedTick);
         }

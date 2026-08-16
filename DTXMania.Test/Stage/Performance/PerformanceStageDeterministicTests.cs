@@ -919,6 +919,22 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void InitializeMetronome_WhenPlaySpeedPercentIsZero_ShouldFallBackToUnitySpeed()
+    {
+        var stage = CreateInitializedMetronomeStage(
+            0,
+            new BeatMarker { TimeMs = 100.0, IsMeasureStart = false });
+
+        // PlaySpeedPercent == 0 takes the `: 1.0` branch of the speed ternary, so the
+        // stale-click tolerance is 100 ms (100.0 * 1.0). A marker at 100 ms played at
+        // raw time 100 ms is within tolerance and should click.
+        ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplayManagers", 100.0, 0.0);
+
+        Assert.NotNull(ReflectionHelpers.GetPrivateField<MetronomePlayer>(stage, "_metronomePlayer"));
+        Assert.Single(stage.MetronomeClicks);
+    }
+
+    [Fact]
     public void CleanupComponents_ShouldClearMetronomeAndReleaseClickSoundReferences()
     {
         var stage = CreateStage();

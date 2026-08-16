@@ -243,5 +243,41 @@ namespace DTXMania.Test.Song
             Assert.Throws<ArgumentOutOfRangeException>(
                 () => ChartTimingMap.NormalizePosition(0, -1));
         }
+
+        [Theory]
+        [InlineData(-1)]
+        [InlineData(2)]
+        public void GetMeasureLengthMultiplier_BarOutsideCompiledRange_ShouldThrow(int bar)
+        {
+            var map = new ChartTimingMap();
+            map.Rebuild(120.0, throughBar: 1);
+
+            Assert.Throws<ArgumentOutOfRangeException>(
+                () => map.GetMeasureLengthMultiplier(bar));
+        }
+
+        [Fact]
+        public void CalculateTimeMs_NegativeBar_ShouldThrow()
+        {
+            var map = new ChartTimingMap();
+            map.Rebuild(120.0, throughBar: 1);
+
+            Assert.Throws<ArgumentOutOfRangeException>(
+                () => map.CalculateTimeMs(-1, 0));
+        }
+
+        [Fact]
+        public void CalculateTimeMs_TickOverflowingIntRange_ShouldThrow()
+        {
+            var map = new ChartTimingMap();
+            map.Rebuild(120.0, throughBar: 1);
+
+            // measureOffset = floor(tick / 192) exceeds int.MaxValue, tripping the
+            // overflow guard in NormalizeFractionalPosition before any anchor lookup.
+            var overflowingTick = (double)int.MaxValue * ChartTimingMap.TicksPerMeasure + ChartTimingMap.TicksPerMeasure;
+
+            Assert.Throws<ArgumentOutOfRangeException>(
+                () => map.CalculateTimeMs(0, overflowingTick));
+        }
     }
 }

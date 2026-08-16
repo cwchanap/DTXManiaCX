@@ -637,6 +637,85 @@ public class PerformanceStageCoverageTests
         Assert.NotNull(ReflectionHelpers.GetPrivateField<UIManager>(stage, "_uiManager"));
     }
 
+    [Fact]
+    public void PlayMetronomeClick_WithMeasureStartMarker_ShouldSelectAccentSound()
+    {
+        var stage = CreateStage();
+        var accentSound = new Mock<ISound>();
+        var beatSound = new Mock<ISound>();
+        ReflectionHelpers.SetPrivateField(stage, "_metronomeAccentSound", accentSound.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_metronomeBeatSound", beatSound.Object);
+
+        var exception = Record.Exception(() =>
+            ReflectionHelpers.InvokePrivateMethod(
+                stage,
+                "PlayMetronomeClick",
+                new BeatMarker { TimeMs = 0.0, IsMeasureStart = true }));
+
+        Assert.Null(exception);
+        accentSound.VerifyGet(s => s.SoundEffect, Times.Once);
+        beatSound.VerifyGet(s => s.SoundEffect, Times.Never);
+    }
+
+    [Fact]
+    public void PlayMetronomeClick_WithBeatMarker_ShouldSelectBeatSound()
+    {
+        var stage = CreateStage();
+        var accentSound = new Mock<ISound>();
+        var beatSound = new Mock<ISound>();
+        ReflectionHelpers.SetPrivateField(stage, "_metronomeAccentSound", accentSound.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_metronomeBeatSound", beatSound.Object);
+
+        var exception = Record.Exception(() =>
+            ReflectionHelpers.InvokePrivateMethod(
+                stage,
+                "PlayMetronomeClick",
+                new BeatMarker { TimeMs = 500.0, IsMeasureStart = false }));
+
+        Assert.Null(exception);
+        beatSound.VerifyGet(s => s.SoundEffect, Times.Once);
+        accentSound.VerifyGet(s => s.SoundEffect, Times.Never);
+    }
+
+    [Fact]
+    public void PlayMetronomeClick_WhenSoundEffectAccessThrows_ShouldSwallowException()
+    {
+        var stage = CreateStage();
+        var beatSound = new Mock<ISound>();
+        beatSound.SetupGet(s => s.SoundEffect)
+            .Throws(new InvalidOperationException("sound device lost"));
+        ReflectionHelpers.SetPrivateField(stage, "_metronomeBeatSound", beatSound.Object);
+
+        var exception = Record.Exception(() =>
+            ReflectionHelpers.InvokePrivateMethod(
+                stage,
+                "PlayMetronomeClick",
+                new BeatMarker { TimeMs = 500.0, IsMeasureStart = false }));
+
+        Assert.Null(exception);
+        beatSound.VerifyGet(s => s.SoundEffect, Times.AtLeastOnce);
+    }
+
+    [Fact]
+    public void OnActivate_ShouldReadMetronomeEnabledFromConfigBeforeComponentInitialization()
+    {
+        // OnActivate reads config.Metronome into _metronomeEnabled before reaching
+        // InitializeComponents, which throws on the uninitialized stage (null SpriteBatch).
+        // The throw is expected; the assertion verifies the config read executed.
+        var configManager = new Mock<IConfigManager>();
+        configManager.SetupGet(x => x.Config).Returns(new ConfigData { Metronome = true });
+        var game = ReflectionHelpers.CreateGame();
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager.Object);
+        var stage = CreateStage(game);
+        ReflectionHelpers.SetPrivateField(stage, "_sharedData", null);
+
+        var exception = Record.Exception(() =>
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnActivate"));
+
+        Assert.NotNull(exception);
+        Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_metronomeEnabled"));
+    }
+
     /// <summary>
     /// Test-only <see cref="PerformanceStage"/> that overrides <see cref="PerformanceStage.CreateSpriteBatch"/>
     /// to return null, so the constructor can be exercised without a live GraphicsDevice.
