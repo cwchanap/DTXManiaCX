@@ -1176,6 +1176,8 @@ namespace DTXMania.Test.Stage.DrumConfig
 
             public void SetNoFail(bool value) { }
 
+            public void SetMetronome(bool value) { }
+
             public void SetAudioLatency(int value) { }
 
             public void SetResolution(int width, int height) { }

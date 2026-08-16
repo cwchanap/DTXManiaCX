@@ -708,6 +708,12 @@ namespace DTXMania.Game.Lib.Stage
                     + playbackModifierWarning
             };
 
+            var metronomeItem = new ToggleConfigItem(
+                "Metronome",
+                () => _configManager.Config.Metronome,
+                value => _configManager.SetMetronome(value))
+            { Description = "Accents each measure start and clicks later quarter-note beats during gameplay." };
+
             var autoPlayItem = new ToggleConfigItem(
                 "Auto Play",
                 () => _configManager.Config.AutoPlay,
@@ -738,7 +744,7 @@ namespace DTXMania.Game.Lib.Stage
 
             var drumItems = new List<IConfigItem>
             {
-                scrollSpeedItem, playSpeedItem, pitchItem, autoPlayItem, noFailItem, drumKeyItem
+                scrollSpeedItem, playSpeedItem, pitchItem, metronomeItem, autoPlayItem, noFailItem, drumKeyItem
             };
 
             _categories = new List<ConfigCategory>

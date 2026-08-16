@@ -472,6 +472,10 @@ namespace DTXMania.Game.Lib.Config
                     if (int.TryParse(value, out var pitchSemitones))
                         Config.PitchSemitones = PitchRange.SnapAndClamp(pitchSemitones);
                     break;
+                case "Metronome":
+                    if (TryParseBool(value, out var metronome))
+                        Config.Metronome = metronome;
+                    break;
                 case "AutoPlay":
                     if (TryParseBool(value, out var autoPlay))
                         Config.AutoPlay = autoPlay;
@@ -656,6 +660,7 @@ namespace DTXMania.Game.Lib.Config
             sb.AppendLine($"ScrollSpeed={Config.ScrollSpeed}");
             sb.AppendLine($"PlaySpeedPercent={PlaySpeedRange.SnapAndClamp(Config.PlaySpeedPercent)}");
             sb.AppendLine($"PitchSemitones={PitchRange.SnapAndClamp(Config.PitchSemitones)}");
+            sb.AppendLine($"Metronome={Config.Metronome}");
             sb.AppendLine($"AutoPlay={Config.AutoPlay}");
             sb.AppendLine($"NoFail={Config.NoFail}");
             sb.AppendLine($"AudioLatencyOffsetMs={Config.AudioLatencyOffsetMs}");
@@ -845,6 +850,16 @@ namespace DTXMania.Game.Lib.Config
                 return;
 
             Config.PitchSemitones = snapped;
+            MarkDirty();
+        }
+
+        /// <summary>Sets Metronome and marks a deferred save pending only when the value changes. No event raised.</summary>
+        public void SetMetronome(bool value)
+        {
+            if (value == Config.Metronome)
+                return;
+
+            Config.Metronome = value;
             MarkDirty();
         }
 
