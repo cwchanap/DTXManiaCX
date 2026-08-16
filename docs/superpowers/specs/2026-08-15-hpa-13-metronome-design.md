@@ -6,41 +6,44 @@
 
 ## Context
 
-DTXManiaCX currently exposes drum gameplay settings such as Scroll Speed, Play Speed, Pitch, Auto Play, and No Fail, but it has no click track. HPA-13 adds a practice-oriented metronome that the player can enable from the Drums settings before entering gameplay.
+DTXManiaCX has no gameplay click track. HPA-13 adds one persisted **Metronome** toggle under the Drums settings and keeps the feature synchronized to authored DTX timing.
 
-HPA-600 already made `ChartTimingMap` the position-to-time authority for base `#BPM`, channel `02` measure-length multipliers, channel `03` direct BPM changes, and channel `08` BPM-table changes. `ParsedChart.FinalizeChart()` consumes that timing map and publishes finalized gameplay collections such as measure lines.
+The existing seams already define the right ownership split:
 
-The metronome should follow the same split: `ChartTimingMap` answers timing questions, `ParsedChart.FinalizeChart()` owns musical beat-grid enumeration, and `PerformanceStage` owns runtime playback.
+- `ChartTimingMap` compiles base BPM plus channels `02`, `03`, and `08` and resolves chart positions to logical milliseconds.
+- `ParsedChart.FinalizeChart()` publishes finalized gameplay collections such as measure lines.
+- `PerformanceStage.UpdateGameplayManagers(logicalSongTimeMs, pendingHitTimeMs)` already receives both the raw chart clock and the latency-compensated judgement clock.
+- `ResourceManager` owns skin-relative sound resolution and silent fallback behavior.
+
+The metronome extends those seams rather than adding another clock, parser channel, transport abstraction, or audio service.
 
 ## Goals
 
-- Add a persisted **Metronome** On/Off toggle under **Settings → Drums**.
-- Default the setting to Off.
-- Play an accented click at each measure start and a regular click at each later quarter-note boundary in that measure.
-- Follow channel `02`, `03`, and `08` timing, including tempo changes inside a measure.
-- Follow configured Play Speed by scheduling against the existing rate-aware logical song clock.
-- Start only when gameplay playback begins after READY, then pause, resume, reset, and stop with gameplay.
-- Keep metronome behavior independent from Auto Play, judgement, scoring, combo, gauge, and input-latency compensation.
-- Skip stale clicks after a delayed frame instead of producing a catch-up burst.
-- Allow skins to override the two click sounds through the existing resource path.
-- Degrade to silence rather than fail gameplay when a click asset cannot be loaded.
+- Persist `Metronome=false` by default.
+- Expose **Metronome OFF/ON** under **Settings → Drums**, after Pitch and before Auto Play.
+- Accent each measure start and click each later quarter-note boundary in that measure.
+- Follow base BPM and channels `02`, `03`, and `08`, including in-measure BPM changes.
+- Follow Play Speed.
+- Start only when gameplay playback starts after READY; remain silent while loading, READY, paused, and outside performance.
+- Skip stale accumulated clicks after a frame hitch instead of producing a catch-up burst.
+- Keep click playback independent of Auto Play, judgement, scoring, combo, gauge, and input-latency compensation.
+- Ship deterministic, skin-overridable click assets whose onset is suitable for a timing feature.
 
 ## Non-goals
 
-- Count-in before gameplay.
-- Eighth-note, triplet, or sixteenth-note subdivisions.
-- A metronome volume setting, custom click selection, or per-song override.
-- A gameplay hotkey for changing the setting.
-- Visual beat lines or notation changes.
-- Practice loops or a broader practice-mode redesign.
-- Procedural click synthesis.
-- Parsing NX beat-line channel `51`; CX intentionally does not need that channel for this feature.
-- A second timing event bus, recurring timer, worker thread, or sample-accurate audio scheduler.
-- Master/BGM/SE volume routing changes.
+- Count-in.
+- Eighth/triplet/sixteenth subdivisions.
+- Gameplay hotkey or per-song override.
+- Metronome volume UI or master/BGM/SE routing changes.
+- Visual beat lines.
+- Practice loops or a practice-mode redesign.
+- Parsing NX channel `51` beat-line chips.
+- **Runtime** click synthesis.
+- A second timer, event bus, worker thread, or sample-accurate audio scheduler.
 
 ## User experience
 
-The Drums category gains one item after Pitch and before Auto Play:
+The Drums category gains:
 
 ```text
 Metronome    OFF / ON
@@ -52,88 +55,79 @@ Description:
 Accents each measure start and clicks later quarter-note beats during gameplay.
 ```
 
-The setting is persisted immediately through the existing deferred config-save path and is frozen when `PerformanceStage` activates. There is no mid-song toggle.
-
-When enabled:
-
-- the first audible click is the accented marker at chart time `0`;
-- READY, loading, result, and other stages remain silent;
-- pausing freezes the logical song clock and therefore freezes click scheduling;
-- resuming continues from the next unresolved marker without replaying the previous click;
-- restarting or re-entering gameplay begins again from marker zero.
+The setting uses the existing deferred config-save path and is frozen when `PerformanceStage` activates. There is no mid-song toggle in this ticket.
 
 ## Timing semantics
 
-### Quarter-note grid inside a DTX measure
+### Quarter-note grid
 
-CX retains the DTX timeline coordinate of `192` ticks per authored measure. Channel `02` does not change that coordinate range; it changes how many musical quarter-note beats the measure contains:
+CX uses `192` authored ticks per measure. Channel `02` changes the musical duration of those 192 ticks, not the coordinate range.
 
 ```text
 measureBeats = 4.0 * measureLengthMultiplier
+measureTick  = beatOffset * 192.0 / measureBeats
+             = beatOffset * 48.0 / measureLengthMultiplier
 ```
 
-A quarter-note boundary at integer beat offset `n` maps to:
+Examples:
+
+| Multiplier | Quarter-note markers |
+| --- | --- |
+| `1.0` | `0, 48, 96, 144` |
+| `0.75` | `0, 64, 128` |
+| `1.5` | `0, 32, 64, 96, 128, 160` |
+
+`beatOffset == 0` is the measure accent. The current measure never emits tick `192`; the next measure emits its own accent.
+
+A non-integral length such as `0.625` gives `2.5` quarter notes, so the grid contains offsets `0`, `1`, and `2`, followed by the next measure accent after the remaining half beat.
+
+### Floating-point boundary guard
+
+`measureLengthMultiplier` is a `double`. A value mathematically intended to produce an integer number of beats can land marginally above that integer after parsing/calculation. Without a guard, the grid can emit an extra marker immediately before the next measure accent.
+
+Use a small quarter-beat epsilon:
 
 ```text
-measureTick = n * 192.0 / measureBeats
-            = n * 48.0 / measureLengthMultiplier
+BeatGridEpsilon = 1e-6
 ```
 
-Generate offsets `n = 0, 1, 2, ...` while `n < measureBeats`. Offset zero is the accented measure-start marker. The current measure never adds a second marker at tick `192`; the next measure contributes its own accent.
+Enumerate integer offsets while preserving the mandatory measure-start marker:
 
-Representative grids:
+```text
+for beatOffset = 0;
+    beatOffset == 0 || beatOffset < measureBeats - BeatGridEpsilon;
+    beatOffset++
+```
 
-| Multiplier | Musical length | Marker ticks |
-| --- | --- | --- |
-| `1.0` | 4 quarter notes | `0, 48, 96, 144` |
-| `0.75` | 3 quarter notes | `0, 64, 128` |
-| `1.5` | 6 quarter notes | `0, 32, 64, 96, 128, 160` |
-
-An arbitrary valid multiplier can place a quarter-note boundary between integer DTX ticks. Fractional ticks therefore exist only inside timing resolution; parser-authored positions and runtime marker data remain unchanged.
-
-For a non-integral musical length such as `2.5` quarter notes, emit offsets `0`, `1`, and `2`, then accent the next measure start after the remaining half beat. Do not round the measure length or invent a click for the incomplete quarter note.
+This treats `3.0000000001` beats as three beats while still emitting the accent for any valid positive, very short measure.
 
 ### BPM changes
 
-Each marker time is resolved through the compiled timing anchors. A BPM change at a measure boundary affects all later markers. A BPM change inside a measure affects only the elapsed interval after its authored position.
+Every marker position is resolved through `ChartTimingMap`. Do not divide adjacent `MeasureLine` timestamps evenly: an in-measure BPM change makes the beat intervals unequal.
 
-Do not derive beat times by evenly dividing adjacent `MeasureLine` timestamps: an in-measure BPM change makes those intervals unequal.
+### Play Speed and stale-click tolerance
 
-### Play Speed and audio latency
+`SongTimer.GetCurrentMs()` is logical chart time, so at Play Speed `s` a real interval of `R` milliseconds advances `R * s` logical milliseconds.
 
-`SongTimer.GetCurrentMs(GameTime)` returns the rate-aware raw logical chart clock. Scheduling markers against that clock keeps clicks aligned at non-default Play Speed.
+The late-click threshold is a perceptual **real-time** limit. Use `100 ms` real time for the MVP and convert it once at the stage boundary:
 
-Player input judgement separately uses latency-compensated timing. The metronome must not use that compensated clock; it is gameplay audio scheduled on the same raw timeline as BGM events, autoplay, visuals, progress, and completion.
+```text
+maxLateChartMs = 100.0 * frozenPlaySpeed
+```
 
-## Approaches considered
+Examples:
 
-### Finalized chart-owned beat markers — selected
+- `0.50x` → `50` logical ms = `100` real ms.
+- `1.00x` → `100` logical ms = `100` real ms.
+- `2.00x` → `200` logical ms = `100` real ms.
 
-`ParsedChart.FinalizeChart()` enumerates the musical quarter-note grid and asks `ChartTimingMap` to resolve each authored position into milliseconds. Runtime consumes only finalized `BeatMarker` values.
-
-This matches the existing measure-line seam: finalization publishes gameplay collections while the timing map remains a reusable position-to-time calculator.
-
-### Recurring runtime timer — rejected
-
-A timer based on base BPM would drift when channels `02`, `03`, or `08` alter authored timing and would require separate pause, resume, Play Speed, and lifecycle synchronization.
-
-### Fixed markers every 48 DTX ticks — rejected
-
-Forty-eight ticks is one quarter note only when the measure multiplier is `1.0`.
-
-### Evenly divide each rendered measure interval — rejected
-
-This cannot model tempo changes inside a measure and would make a visual model the source of musical timing.
-
-### Parse NX channel `51` — rejected
-
-NX can click authored bar/beat-line chips, but CX intentionally does not parse channel `51`. The timing map already contains enough information to derive the quarter-note grid without expanding the parser for this ticket.
+The pure scheduler receives the already-scaled logical threshold; it does not know about Play Speed.
 
 ## Chosen architecture
 
-### 1. Resolved beat-marker model
+### 1. Minimal finalized marker
 
-Add a small chart component:
+Add:
 
 ```csharp
 public sealed class BeatMarker
@@ -143,42 +137,51 @@ public sealed class BeatMarker
 }
 ```
 
-No lane, BPM, bar, display position, or scoring metadata is needed. `IsMeasureStart` selects the accented sound; `TimeMs` is the complete runtime timing contract.
+No BPM, bar, lane, display position, or scoring data is needed at runtime.
 
-### 2. `ChartTimingMap` stays the position-to-time authority
+### 2. `ChartTimingMap` remains only a timing calculator
 
-Do not add `BuildBeatMarkers` to `ChartTimingMap`. Beat-grid policy belongs to finalization, not the timing compiler.
+Do not add `BuildBeatMarkers`.
 
-Extend only the timing seams that finalization needs:
+Replace the current integer-only timing method with one implementation:
 
 ```csharp
 internal double CalculateTimeMs(int bar, double tick);
+```
+
+Existing integer callers continue to pass `int` ticks through normal numeric conversion.
+
+The method must preserve the current normalization contract for computed double positions:
+
+- reject negative bar/tick and non-finite tick values;
+- carry tick values `>= 192` into later bars;
+- preserve the fractional remainder;
+- reject positions beyond the compiled timing horizon.
+
+Keep the existing integer `NormalizePosition(int, int)` for authored parser/tempo-map paths. Add only a private fractional normalizer for `CalculateTimeMs`; do not change `_tempoChanges` or `TimingAnchor.Tick` away from integer ticks.
+
+Generalize private `CalculateIntervalMs` to `double tickDelta`. To select a compiled anchor for a fractional position, use the integer floor of the normalized tick; all tempo anchors are authored at integer ticks.
+
+Expose one additional query:
+
+```csharp
 internal double GetMeasureLengthMultiplier(int bar);
 ```
 
-Implementation notes:
+This must read the multiplier from the compiled bar-start `TimingAnchor`, not re-read `_measureLengths`. The compiled anchor is the timing map's source of truth and gives the same horizon/error behavior as time lookup.
 
-- retain the existing integer `CalculateTimeMs(int bar, int tick)` contract for authored note/BGM positions;
-- generalize private `CalculateIntervalMs` from `int tickDelta` to `double tickDelta`;
-- fractional lookup is only for an in-measure tick in `[0, 192)`;
-- select the last timing anchor at or before the fractional position by using the integer floor for `FindAnchorIndex`;
-- integrate the remaining fractional tick delta using that anchor's BPM and measure multiplier;
-- expose only a read-only effective multiplier lookup from the existing `_measureLengths` data, defaulting to `1.0`.
+### 3. `ParsedChart.FinalizeChart()` owns grid policy
 
-Do not introduce a fractional chart-position type or duplicate timing table.
+Add `BeatMarkers` and clear it with `MeasureLines` at the start of finalization.
 
-### 3. `ParsedChart.FinalizeChart()` owns marker enumeration
-
-Add an ordered `BeatMarkers` collection to `ParsedChart` and clear it with `MeasureLines` at the start of finalization.
-
-After `TimingMap.Rebuild` and before final sorting/completion bookkeeping, enumerate bars `0..highestOccupiedBar`:
+After `TimingMap.Rebuild` and normal note/BGM time resolution, enumerate bars `0..highestOccupiedBar`:
 
 ```text
 for each bar:
     multiplier = TimingMap.GetMeasureLengthMultiplier(bar)
     measureBeats = 4.0 * multiplier
 
-    for beatOffset = 0 while beatOffset < measureBeats:
+    for integer beatOffset using BeatGridEpsilon:
         tick = beatOffset * 192.0 / measureBeats
         BeatMarkers.Add(
             TimeMs = TimingMap.CalculateTimeMs(bar, tick),
@@ -187,209 +190,229 @@ for each bar:
 
 The extra terminal `MeasureLine` at `highestOccupiedBar + 1` does not create another metronome measure.
 
-An empty chart retains no beat markers. Timing directives without notes or BGM events do not invent a playable metronome timeline. Repeated finalization must reproduce the same marker count, order, timestamps, and accents.
+An empty chart remains empty. Timing directives alone do not invent a playable timeline. Repeated finalization must produce identical markers.
 
-`ChartManager` remains unchanged; `PerformanceStage` already owns the finalized `ParsedChart`.
+`ChartManager` remains unchanged.
 
-### 4. Pure `MetronomePlayer` scheduling component
+### 4. Pure `MetronomePlayer`
 
-Add `Stage/Performance/MetronomePlayer.cs` as a small stateful scheduler:
+Add a small ordered-event cursor:
 
 ```csharp
 internal sealed class MetronomePlayer
 {
-    internal const double MaxLatePlaybackMs = 100.0;
-
     internal MetronomePlayer(
         IReadOnlyList<BeatMarker> markers,
+        double maxLateChartMs,
         Action<BeatMarker> playClick);
 
-    internal void Reset();
     internal void Update(double currentChartTimeMs);
 }
 ```
 
-On each update:
+On update:
 
-1. Consume every marker whose `TimeMs <= currentChartTimeMs`.
-2. Remember only the latest consumed marker.
-3. If it is no more than `MaxLatePlaybackMs` late, invoke the callback once.
-4. Otherwise skip it.
+1. Consume all markers with `TimeMs <= currentChartTimeMs`.
+2. Retain only the latest consumed marker.
+3. Play it once when its lateness is within `maxLateChartMs`.
+4. Otherwise drop it.
 
-This handles marker zero on the first active frame while preventing accumulated clicks from firing as a burst after a hitch.
+Do not add `Reset`, pause/resume, seeking, clock ownership, `IDisposable`, an interface, or an event. `PerformanceStage` constructs a fresh player for each performance initialization and clears it during teardown, so a standalone reset API would have no caller.
 
-The scheduler owns no `ISound`, clock, pause state, seeking API, interface, or disposal logic. `Reset()` only moves the next-marker index back to zero.
+This cursor remains separate from BGM and Auto Play because all three intentionally have different overdue-event policies.
 
 ### 5. Persisted configuration
 
-Use the existing CX boolean naming style:
+Follow the existing CX boolean style:
 
 ```csharp
 public bool Metronome { get; set; } = false;
 ```
 
-Extend `IConfigManager` and `ConfigManager` following `AutoPlay` / `NoFail`:
+Extend `IConfigManager`/`ConfigManager` like `AutoPlay` and `NoFail`:
 
-- parse the `Metronome` key using `TryParseBool`;
-- serialize `Metronome=<value>` in `[Game]`;
-- expose `SetMetronome(bool)` and mark the normal deferred save dirty.
+- parse `Metronome` with `TryParseBool`;
+- save `Metronome=<value>` under `[Game]`;
+- expose `SetMetronome(bool)` using the existing deferred-save mechanism.
 
-A config file without the key naturally keeps the default Off value. No migration alias is required.
+No migration alias is required.
 
-### 6. `PerformanceStage` owns sounds and playback
+### 6. `PerformanceStage` owns runtime audio
 
-Freeze `ConfigData.Metronome` during `OnActivate`, the same way Auto Play is frozen.
+Freeze `ConfigData.Metronome` in `OnActivate`; Play Speed is already frozen in `_playbackModifiers`.
 
-After chart finalization, and only when enabled:
+After chart finalization, when enabled:
 
 - load `SoundPath.MetronomeBeat` and `SoundPath.MetronomeAccent` through `IResourceManager.LoadSound`;
-- create `MetronomePlayer` from `_parsedChart.BeatMarkers`;
-- pass a narrow stage playback hook as its callback.
+- convert the real `100 ms` late threshold to logical milliseconds using the frozen Play Speed;
+- construct `MetronomePlayer` with `_parsedChart.BeatMarkers` and `PlayMetronomeClick`.
 
-Use a small overridable test seam:
+Drive it from the existing dual-clock test seam:
+
+```csharp
+private void UpdateGameplayManagers(
+    double logicalSongTimeMs,
+    double pendingHitTimeMs)
+{
+    _metronomePlayer?.Update(logicalSongTimeMs);
+    ... ProcessAutoPlay(logicalSongTimeMs) ...
+    ... judgement uses pendingHitTimeMs ...
+}
+```
+
+This makes the raw-clock dependency directly testable with mismatched raw/judgement values without constructing a live `SongTimer` or renderer graph. The outer `_songTimer.IsPlaying` block still controls whether `UpdateGameplayManagers` runs during real gameplay.
+
+Use one narrow playback seam:
 
 ```csharp
 protected virtual void PlayMetronomeClick(BeatMarker marker)
 {
-    var sound = marker.IsMeasureStart ? _metronomeAccentSound : _metronomeBeatSound;
+    var sound = marker.IsMeasureStart
+        ? _metronomeAccentSound
+        : _metronomeBeatSound;
+
     sound?.SoundEffect?.Play(1.0f, 0.0f, 0.0f);
 }
 ```
 
-The direct `SoundEffect.Play` overload is intentional for these short fire-and-forget clicks: it does not create caller-owned `SoundEffectInstance` objects that would require another active-instance collection. Tests can override the narrow playback hook instead of constructing real MonoGame audio objects.
+Direct `SoundEffect.Play` is intentional for these fire-and-forget clicks: `ISound.Play(...)` creates a caller-owned `SoundEffectInstance`, which would require another active-instance cleanup collection.
 
-Do **not** route clicks through `SEVolume`. `ConfigData.SEVolume` is not currently parsed, persisted, or consistently applied to gameplay audio. Wiring only the metronome to it would create inconsistent volume behavior. Full master/BGM/SE volume routing should be handled as a separate cross-audio change.
+Do not wire `SEVolume`; it is not currently persisted/applied consistently across gameplay audio.
 
-In `UpdateGameplay`, call the scheduler beside `ProcessBGMEvents(currentTimeMs)` inside the existing `_songTimer.IsPlaying` block and before latency-compensated judgement timing is derived.
+Cleanup clears the player and balances `RemoveReference()` for both sounds through the existing serialized audio lifecycle/generation guard. Re-entry creates a new player at marker zero.
 
-Cleanup clears the player and balances `RemoveReference()` for both loaded sounds using the existing serialized audio lifecycle/generation guard. Do not add another cancellation mechanism.
+### 7. Deterministic click assets through `tools/sfxgen`
 
-### 7. Skin-overridable click assets
+The existing SFX generator uses ElevenLabs for normal UI sounds. That is unsuitable as the sole source for a metronome click because onset timing is not deterministic and the current pack validator checks compatibility, not transient onset.
 
-Add constants to `SoundPath`:
+Keep `tools/sfxgen/manifest.json` as the sound-pack inventory, but extend the generator minimally with a second source type for deterministic tone clicks. Existing entries remain backward-compatible and default to ElevenLabs.
 
-```csharp
-public const string MetronomeBeat = "Sounds/Metronome Beat.ogg";
-public const string MetronomeAccent = "Sounds/Metronome Accent.ogg";
+Suggested manifest shape:
+
+```json
+{
+  "file": "Metronome Beat.ogg",
+  "generator": "ffmpeg_sine",
+  "duration_seconds": 0.03,
+  "frequency_hz": 1000
+}
 ```
 
-Include both in `SoundPath.GetAllSoundPaths()`.
+The accent uses the same duration with a clearly different frequency, for example `1600 Hz`.
 
-Add matching entries to `tools/sfxgen/manifest.json` and commit the generated files:
+`sfxgen.py generate --only <metronome file>` should:
 
-```text
-System/CXNeon/Sounds/Metronome Beat.ogg
-System/CXNeon/Sounds/Metronome Accent.ogg
-```
+- dispatch `ffmpeg_sine` entries directly to ffmpeg without requiring `ELEVENLABS_API_KEY`;
+- generate a ~30 ms sine burst beginning at sample zero;
+- fade rapidly to zero and encode Ogg/Vorbis at a supported sample rate;
+- write directly to `System/CXNeon/Sounds`.
 
-The clips should be short, dry transients with a clearly distinguishable accent and minimal tail. Custom skins may override the same relative paths.
+Existing ElevenLabs entries continue using their current path. `generate all` may still require the API key because it includes ElevenLabs sounds; generating either metronome file alone must not.
+
+Update `test_sfxgen.py` so manifest validation is conditional by generator type and so the deterministic command/duration are covered. Extend `validate_pack` just enough to reject a deterministic click whose duration materially exceeds its manifest duration. Do not add a generalized DSP framework.
+
+The committed OGGs, `SoundPath` constants, and manifest entries land in the same implementation step so `CxNeonPackTests` never observes an intentionally incomplete sound inventory.
 
 ### 8. Failure handling
 
-Use the existing resource contract rather than inventing a null-on-missing contract. `ResourceManager.LoadSound` reports load failure and normally returns a silent fallback sound.
+Use the existing resource contract:
 
-Therefore:
+- `LoadSound` reports failures and normally returns a silent fallback;
+- defensive null handling remains only for fallback-creation failure;
+- unexpected playback exceptions are logged locally;
+- gameplay never fails because a click asset is missing.
 
-- load through `IResourceManager.LoadSound` like other stage sounds;
-- keep defensive null handling only for the fallback-creation failure path;
-- let a missing/invalid asset become silent through the existing fallback;
-- catch unexpected playback exceptions locally and continue gameplay;
-- do not synthesize a tone, reuse a drum chip, or fail chart initialization.
-
-Marker generation is deterministic chart data and never depends on sound availability.
-
-## Lifecycle
-
-```text
-ConfigStage edit
-    ↓ persisted Metronome
-PerformanceStage.OnActivate
-    ↓ freeze setting
-chart/audio initialization
-    ↓ finalized BeatMarkers + optional loaded click sounds/player
-StartSong
-    ↓ raw SongTimer begins at chart time 0
-UpdateGameplay while IsPlaying
-    ↓ consume due marker; play at most one current click
-Pause
-    ↓ raw clock freezes; no scheduler update
-Resume
-    ↓ continue from next marker
-OnDeactivate/restart
-    ↓ clear player and release sound references
-```
+Do not synthesize a runtime replacement or substitute a drum/menu sound.
 
 ## Testing strategy
 
 ### `ChartTimingMapTests`
 
-Cover only the new timing resolver contract:
+Cover:
 
-- fractional tick resolution at base BPM;
-- fractional tick before/at/after an in-measure BPM anchor;
-- measure multiplier lookup defaults and configured values.
+- one `CalculateTimeMs(int, double)` path with integer and fractional ticks;
+- negative/non-finite rejection and `tick >= 192` carry semantics;
+- fractional lookup before/at/after an integer BPM anchor;
+- compiled measure multiplier lookup from the bar-start anchor;
+- out-of-horizon behavior.
 
 ### `ParsedChartTests`
 
-Cover musical-grid behavior:
+Cover:
 
-- normal `1.0` measure: four markers, first accented;
-- channel `02` multiplier `0.75`: three markers;
-- channel `02` multiplier `1.5`: six markers;
-- non-integral musical length without rounding;
-- BPM change at a measure boundary;
-- BPM change inside a measure;
-- adjacent measures without duplicate boundary clicks;
-- no marker for the extra terminal measure line;
-- empty chart behavior;
+- multiplier `1.0` → four markers;
+- `0.75` → three;
+- `1.5` → six;
+- `0.625` → 2.5-beat behavior without rounding;
+- a value marginally above an integer beat count does not add a near-boundary extra marker;
+- a very short positive measure still emits its measure-start accent;
+- boundary and in-measure BPM changes;
+- adjacent measures with one shared-boundary accent;
+- no marker for the terminal measure line;
+- empty chart;
 - repeated finalization idempotence.
 
-Use time assertions with a small floating-point tolerance.
+### `MetronomePlayerTests`
 
-### Scheduler tests
+Cover:
 
-Cover no-early playback, accent/regular forwarding, marker zero, stale-marker skipping, one-click maximum after a hitch, no replay after consumption, reset, and empty input.
+- no early playback;
+- accent/regular forwarding;
+- marker zero;
+- consume-many/play-latest behavior;
+- stale-marker drop using the constructor-supplied logical threshold;
+- no replay;
+- empty input.
+
+No reset test: the component is recreated per performance.
 
 ### Configuration and stage tests
 
 Cover:
 
-- default Off and config round trip for `Metronome`;
-- typed setter/deferred-save behavior;
-- Drums collection order and toggle activation through existing `ConfigStageLogicTests`;
-- concrete `IConfigManager` test stubs compiling with `SetMetronome`;
-- disabled activation does not load click sounds;
-- enabled activation requests both sound paths;
-- the scheduler uses raw song time only while playing;
-- the scheduler callback reaches the overridable `PlayMetronomeClick` hook;
-- READY and paused states do not advance the scheduler;
-- cleanup balances sound references;
-- missing assets remain non-fatal through the existing fallback contract;
-- `CxNeonPackTests` sees both sounds in the shipped pack.
+- default Off, parse/save round trip, typed setter;
+- exact Drums collection order and toggle activation using existing `ConfigStageLogicTests`;
+- concrete `IConfigManager` test doubles compiling with `SetMetronome`;
+- disabled stage does not request click sounds;
+- enabled stage requests both paths and constructs a player;
+- `UpdateGameplayManagers(raw, compensated)` uses **raw** time for the metronome;
+- real late tolerance scales to logical time at `0.5x`, `1x`, and `2x`;
+- READY/paused real gameplay does not reach manager updates through the outer transport guard;
+- cleanup balances sound references and re-entry constructs a fresh cursor;
+- fallback/missing assets are non-fatal;
+- CXNeon inventory includes both files.
+
+### SFX tooling tests
+
+Cover:
+
+- manifest inventory still matches `SoundPath`;
+- legacy entries default to ElevenLabs;
+- `ffmpeg_sine` entries do not require an API key when generated individually;
+- deterministic command includes configured frequency, ~30 ms duration, supported sample rate, and Vorbis output;
+- validation rejects an overlong metronome click.
+
+## Manual verification precondition
+
+Before judging timing, confirm the two committed click files are actually reachable through the **active runtime skin resolution chain**. For a development run, point the active skin at the repository CXNeon pack or copy/install the generated sounds into the active/fallback System skin as appropriate.
+
+First confirm one audible metronome click. Only then run the BPM/measure/Play Speed timing matrix; otherwise ResourceManager's silent fallback can make an asset-resolution problem look like a scheduler bug.
 
 ## Risks and trade-offs
 
-### Frame-level audio submission
-
-Clicks are submitted from the game update loop, so precision is limited by frame cadence and the platform audio backend. This matches current BGM/autoplay scheduling and is acceptable for the first implementation. A dedicated scheduler would add lifecycle and cross-platform complexity without evidence that it is needed.
-
-### Very short sound clips
-
-Long click samples can overlap at high BPM or Play Speed. Keep the bundled assets short and dry rather than adding instance pooling or explicit stop logic.
-
-### Fractional chart positions
-
-Fractional ticks are necessary for exact quarter-note placement under arbitrary channel `02` multipliers. They remain private to timing resolution; notes, BGM events, parser directives, and runtime APIs continue using their existing contracts.
+- **Frame-level submission:** click timing remains bounded by update cadence/audio backend. A separate sample-accurate scheduler is deferred until audible evidence requires it.
+- **Fractional positions:** kept private to timing resolution; authored note/BGM/tempo anchors remain integer based.
+- **Generated asset quality:** deterministic ffmpeg clicks trade decorative sound design for precise onset, reproducibility, and key-free regeneration. That is the correct trade for the MVP metronome.
 
 ## Acceptance criteria
 
-- Settings → Drums exposes a persisted `Metronome` toggle that defaults to Off.
-- Disabled gameplay loads and plays no metronome audio.
-- Enabled gameplay accents each measure start and clicks each later quarter-note boundary.
-- Markers remain correct across representative channel `02`, `03`, and `08` timing changes.
-- Non-default Play Speed stays synchronized through the raw logical song clock.
-- Loading, READY, pause, result, and unrelated stages do not emit clicks.
-- Resume, restart, and stage re-entry neither duplicate clicks nor produce catch-up bursts.
-- Missing click assets do not crash or block gameplay.
-- Both click assets are represented in `SoundPath`, the SFX manifest, and the committed CXNeon pack.
-- No channel `51` parser, volume routing, new audio service, or second timing scheduler is introduced.
+- Persisted `Metronome` toggle defaults Off and appears in the Drums settings at the specified location.
+- Enabled gameplay accents measure starts and clicks later quarter notes correctly across representative channels `02`, `03`, and `08` timing.
+- Grid generation has no duplicate near-boundary click from floating-point drift.
+- Play Speed changes preserve a constant real-time late-drop threshold.
+- Metronome scheduling uses the raw logical clock through `UpdateGameplayManagers`.
+- Loading, READY, pause, result, and unrelated stages remain silent.
+- Re-entry starts from marker zero through fresh player construction; no dead `Reset()` API exists.
+- Missing assets do not crash gameplay.
+- Click assets are deterministic, short, committed, represented in `SoundPath` + manifest, and individually regenerable without an ElevenLabs key.
+- No channel `51` parser, `SEVolume` routing, runtime synthesis, new audio service, or second timing scheduler is introduced.
