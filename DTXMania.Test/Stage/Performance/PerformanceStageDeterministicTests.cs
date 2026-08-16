@@ -841,6 +841,166 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void InitializeMetronome_WhenDisabled_ShouldNotLoadClickSoundsOrCreatePlayer()
+    {
+        var stage = CreateInspectableStage();
+        var resourceManager = new Mock<IResourceManager>();
+        ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", CreateMetronomeChart());
+        ReflectionHelpers.SetPrivateField(stage, "_metronomeEnabled", false);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "InitializeMetronome");
+
+        resourceManager.Verify(x => x.LoadSound(It.IsAny<string>()), Times.Never);
+        Assert.Null(ReflectionHelpers.GetPrivateField<MetronomePlayer>(stage, "_metronomePlayer"));
+    }
+
+    [Fact]
+    public void InitializeMetronome_WhenEnabled_ShouldLoadBothSoundsAndUseFinalizedMarkers()
+    {
+        var stage = CreateInspectableStage();
+        var beatSound = new Mock<ISound>();
+        var accentSound = new Mock<ISound>();
+        var resourceManager = new Mock<IResourceManager>();
+        resourceManager.Setup(x => x.LoadSound(SoundPath.MetronomeBeat)).Returns(beatSound.Object);
+        resourceManager.Setup(x => x.LoadSound(SoundPath.MetronomeAccent)).Returns(accentSound.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", CreateMetronomeChart(
+            new BeatMarker { TimeMs = 0.0, IsMeasureStart = true },
+            new BeatMarker { TimeMs = 100.0, IsMeasureStart = false }));
+        ReflectionHelpers.SetPrivateField(stage, "_metronomeEnabled", true);
+        ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "InitializeMetronome");
+        ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplayManagers", 0.0, 0.0);
+
+        resourceManager.Verify(x => x.LoadSound(SoundPath.MetronomeBeat), Times.Once);
+        resourceManager.Verify(x => x.LoadSound(SoundPath.MetronomeAccent), Times.Once);
+        Assert.NotNull(ReflectionHelpers.GetPrivateField<MetronomePlayer>(stage, "_metronomePlayer"));
+        var click = Assert.Single(stage.MetronomeClicks);
+        Assert.Equal(0.0, click.TimeMs);
+        Assert.True(click.IsMeasureStart);
+    }
+
+    [Fact]
+    public void UpdateGameplayManagers_ShouldAdvanceMetronomeWithRawLogicalTime()
+    {
+        var stage = CreateInitializedMetronomeStage(100);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplayManagers", 100.0, 0.0);
+
+        var click = Assert.Single(stage.MetronomeClicks);
+        Assert.Equal(100.0, click.TimeMs);
+    }
+
+    [Theory]
+    [InlineData(50, 150.0, true)]
+    [InlineData(50, 151.0, false)]
+    [InlineData(100, 200.0, true)]
+    [InlineData(100, 201.0, false)]
+    [InlineData(200, 300.0, true)]
+    [InlineData(200, 301.0, false)]
+    public void InitializeMetronome_ShouldScaleStaleToleranceByFrozenPlaySpeed(
+        int playSpeedPercent,
+        double rawLogicalTimeMs,
+        bool expectedClick)
+    {
+        var stage = CreateInitializedMetronomeStage(
+            playSpeedPercent,
+            new BeatMarker { TimeMs = 100.0, IsMeasureStart = false });
+
+        ReflectionHelpers.InvokePrivateMethod(
+            stage,
+            "UpdateGameplayManagers",
+            rawLogicalTimeMs,
+            0.0);
+
+        Assert.Equal(expectedClick, stage.MetronomeClicks.Count == 1);
+    }
+
+    [Fact]
+    public void CleanupComponents_ShouldClearMetronomeAndReleaseClickSoundReferences()
+    {
+        var stage = CreateStage();
+        var beatSound = new Mock<ISound>();
+        var accentSound = new Mock<ISound>();
+        ReflectionHelpers.SetPrivateField(stage, "_metronomePlayer", new MetronomePlayer(
+            new[] { new BeatMarker { TimeMs = 0.0 } },
+            100.0,
+            _ => { }));
+        ReflectionHelpers.SetPrivateField(stage, "_metronomeBeatSound", beatSound.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_metronomeAccentSound", accentSound.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
+        ReflectionHelpers.SetPrivateField(stage, "_scheduledBGMEvents", new List<BGMEvent>());
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "CleanupComponents");
+
+        Assert.Null(ReflectionHelpers.GetPrivateField<MetronomePlayer>(stage, "_metronomePlayer"));
+        Assert.Null(ReflectionHelpers.GetPrivateField<ISound>(stage, "_metronomeBeatSound"));
+        Assert.Null(ReflectionHelpers.GetPrivateField<ISound>(stage, "_metronomeAccentSound"));
+        beatSound.Verify(x => x.RemoveReference(), Times.Once);
+        accentSound.Verify(x => x.RemoveReference(), Times.Once);
+    }
+
+    [Fact]
+    public void InitializeMetronome_AfterCleanup_ShouldCreateFreshPlayerStartingAtMarkerZero()
+    {
+        var stage = CreateInspectableStage();
+        var sound = new Mock<ISound>();
+        var resourceManager = new Mock<IResourceManager>();
+        resourceManager.Setup(x => x.LoadSound(It.IsAny<string>())).Returns(sound.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_metronomeEnabled", true);
+        ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
+        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
+        ReflectionHelpers.SetPrivateField(stage, "_scheduledBGMEvents", new List<BGMEvent>());
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", CreateMetronomeChart(
+            new BeatMarker { TimeMs = 0.0, IsMeasureStart = true }));
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "InitializeMetronome");
+        var firstPlayer = ReflectionHelpers.GetPrivateField<MetronomePlayer>(stage, "_metronomePlayer");
+        ReflectionHelpers.InvokePrivateMethod(stage, "CleanupComponents");
+
+        ReflectionHelpers.SetPrivateField(stage, "_metronomeEnabled", true);
+        ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", CreateMetronomeChart(
+            new BeatMarker { TimeMs = 0.0, IsMeasureStart = true }));
+        ReflectionHelpers.InvokePrivateMethod(stage, "InitializeMetronome");
+        var secondPlayer = ReflectionHelpers.GetPrivateField<MetronomePlayer>(stage, "_metronomePlayer");
+        ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplayManagers", 0.0, 0.0);
+
+        Assert.NotNull(firstPlayer);
+        Assert.NotNull(secondPlayer);
+        Assert.NotSame(firstPlayer, secondPlayer);
+        var click = Assert.Single(stage.MetronomeClicks);
+        Assert.Equal(0.0, click.TimeMs);
+    }
+
+    [Fact]
+    public void InitializeMetronome_WhenClickResourcesAreMissing_ShouldLeaveGameplayUsable()
+    {
+        var stage = CreateInspectableStage();
+        var resourceManager = new Mock<IResourceManager>();
+        resourceManager.Setup(x => x.LoadSound(It.IsAny<string>()))
+            .Throws(new FileNotFoundException("click asset missing"));
+        ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", CreateMetronomeChart(
+            new BeatMarker { TimeMs = 0.0, IsMeasureStart = true }));
+        ReflectionHelpers.SetPrivateField(stage, "_metronomeEnabled", true);
+        ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
+
+        var exception = Record.Exception(() =>
+        {
+            ReflectionHelpers.InvokePrivateMethod(stage, "InitializeMetronome");
+            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplayManagers", 0.0, 0.0);
+        });
+
+        Assert.Null(exception);
+        Assert.NotNull(ReflectionHelpers.GetPrivateField<MetronomePlayer>(stage, "_metronomePlayer"));
+        Assert.Single(stage.MetronomeClicks);
+    }
+
+    [Fact]
     public void ProcessAutoPlay_WhenNextNoteIsInFuture_ShouldLeaveIndexUnchanged()
     {
         var stage = CreateStage();
@@ -4028,6 +4188,33 @@ public class PerformanceStageDeterministicTests
         return new ChartManager(parsedChart);
     }
 
+    private static ParsedChart CreateMetronomeChart(params BeatMarker[] markers)
+    {
+        var chart = new ParsedChart("metronome-stage-test.dtx");
+        chart.BeatMarkers.AddRange(markers);
+        return chart;
+    }
+
+    private static InspectablePerformanceStage CreateInitializedMetronomeStage(
+        int playSpeedPercent,
+        params BeatMarker[] markers)
+    {
+        var stage = CreateInspectableStage();
+        var sound = new Mock<ISound>();
+        var resourceManager = new Mock<IResourceManager>();
+        resourceManager.Setup(x => x.LoadSound(It.IsAny<string>())).Returns(sound.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", CreateMetronomeChart(
+            markers.Length == 0
+                ? new[] { new BeatMarker { TimeMs = 100.0, IsMeasureStart = false } }
+                : markers));
+        ReflectionHelpers.SetPrivateField(stage, "_metronomeEnabled", true);
+        ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(playSpeedPercent, 0));
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "InitializeMetronome");
+        return stage;
+    }
+
     private static ChartManager BuildChartManager(IEnumerable<Note> notes)
     {
         var parsed = new ParsedChart("chip-sound-test.dtx") { Bpm = 120.0 };
@@ -4122,9 +4309,19 @@ public class PerformanceStageDeterministicTests
 
     private sealed class InspectablePerformanceStage : PerformanceStage
     {
+        private List<BeatMarker>? _metronomeClicks;
+
         public InspectablePerformanceStage(BaseGame game)
             : base(game)
         {
+        }
+
+        public IReadOnlyList<BeatMarker> MetronomeClicks =>
+            _metronomeClicks ??= new List<BeatMarker>();
+
+        protected override void PlayMetronomeClick(BeatMarker marker)
+        {
+            (_metronomeClicks ??= new List<BeatMarker>()).Add(marker);
         }
 
         public Texture2D? DrawFallbackTextureArgument { get; private set; }

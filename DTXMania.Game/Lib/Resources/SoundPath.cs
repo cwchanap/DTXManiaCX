@@ -15,6 +15,8 @@ namespace DTXMania.Game.Lib.Resources
         public const string FullCombo = "Sounds/Full Combo.ogg";
         public const string Excellent = "Sounds/Excellent.ogg";
         public const string NewRecord = "Sounds/New Record.ogg";
+        public const string MetronomeBeat = "Sounds/Metronome Beat.ogg";
+        public const string MetronomeAccent = "Sounds/Metronome Accent.ogg";
 
         /// <summary>All system sound paths; the CX Neon pack must ship each one.</summary>
         public static string[] GetAllSoundPaths()
@@ -22,7 +24,8 @@ namespace DTXMania.Game.Lib.Resources
             return new[]
             {
                 CursorMove, Decide, GameStart, NowLoading,
-                StageClear, FullCombo, Excellent, NewRecord
+                StageClear, FullCombo, Excellent, NewRecord,
+                MetronomeBeat, MetronomeAccent
             };
         }
     }

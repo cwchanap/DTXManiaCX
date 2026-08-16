@@ -93,6 +93,10 @@ namespace DTXMania.Game.Lib.Stage
         private ChipSoundCache _chipSoundCache = null!;
         private PreparedGameplayAudioSet? _preparedAudioSet;
         private PlaybackModifiers _playbackModifiers = new(100, 0);
+        private bool _metronomeEnabled;
+        private ISound? _metronomeBeatSound;
+        private ISound? _metronomeAccentSound;
+        private MetronomePlayer? _metronomePlayer;
         private CancellationTokenSource? _initializationCts;
         private Task? _initializationTask;
         private int _activationGeneration;
@@ -216,6 +220,7 @@ namespace DTXMania.Game.Lib.Stage
         protected override void OnActivate()
         {
             var config = _game.ConfigManager.Config;
+            _metronomeEnabled = config.Metronome;
             _playbackModifiers = new PlaybackModifiers(
                 PlaySpeedRange.SnapAndClamp(config.PlaySpeedPercent),
                 PitchRange.SnapAndClamp(config.PitchSemitones));
@@ -563,6 +568,12 @@ namespace DTXMania.Game.Lib.Stage
             // Cleanup gameplay managers
             CleanupGameplayManagers();
 
+            _metronomePlayer = null;
+            _metronomeBeatSound?.RemoveReference();
+            _metronomeBeatSound = null;
+            _metronomeAccentSound?.RemoveReference();
+            _metronomeAccentSound = null;
+
             _preparedAudioSet?.Dispose();
             _preparedAudioSet = null;
 
@@ -851,6 +862,8 @@ namespace DTXMania.Game.Lib.Stage
                     }
                     _songTimer = songTimer;
 
+                    InitializeMetronome();
+
                     // Note: per-WAV #VOLUME/#PAN for the background track are applied in
                     // StartSong() (no-BGM-events path) rather than here, because StartSong()
                     // overwrites Volume when playback begins.
@@ -873,6 +886,53 @@ namespace DTXMania.Game.Lib.Stage
             finally
             {
                 locallyPreparedSet?.Dispose();
+            }
+        }
+
+        private void InitializeMetronome()
+        {
+            if (!_metronomeEnabled || _parsedChart == null || _metronomePlayer != null)
+                return;
+
+            _metronomeBeatSound = TryLoadMetronomeSound(SoundPath.MetronomeBeat);
+            _metronomeAccentSound = TryLoadMetronomeSound(SoundPath.MetronomeAccent);
+
+            var speed = _playbackModifiers.PlaySpeedPercent > 0
+                ? _playbackModifiers.Speed
+                : 1.0;
+            var maxLateChartMs = 100.0 * speed;
+            _metronomePlayer = new MetronomePlayer(
+                _parsedChart.BeatMarkers,
+                maxLateChartMs,
+                PlayMetronomeClick);
+        }
+
+        private ISound? TryLoadMetronomeSound(string path)
+        {
+            try
+            {
+                return _resourceManager?.LoadSound(path);
+            }
+            catch (Exception ex)
+            {
+                LogPerformanceError($"PerformanceStage: Metronome sound unavailable ({path}): {ex.Message}");
+                return null;
+            }
+        }
+
+        protected virtual void PlayMetronomeClick(BeatMarker marker)
+        {
+            try
+            {
+                var sound = marker.IsMeasureStart
+                    ? _metronomeAccentSound
+                    : _metronomeBeatSound;
+
+                sound?.SoundEffect?.Play(1.0f, 0.0f, 0.0f);
+            }
+            catch (Exception ex)
+            {
+                LogPerformanceError($"PerformanceStage: Metronome click playback failed: {ex.Message}");
             }
         }
 
@@ -1735,6 +1795,8 @@ namespace DTXMania.Game.Lib.Stage
             {
                 ProcessAutoPlay(logicalSongTimeMs);
             }
+
+            _metronomePlayer?.Update(logicalSongTimeMs);
 
             // Pending hits and timeout misses both use the latency-compensated
             // logical time. Miss scanning must share the compensated clock so a

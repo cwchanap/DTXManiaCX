@@ -8,12 +8,12 @@ namespace DTXMania.Test.Resources
     public class SoundPathTests
     {
         [Fact]
-        public void GetAllSoundPaths_ShouldReturnEightDistinctOggPathsUnderSounds()
+        public void GetAllSoundPaths_ShouldReturnTenDistinctOggPathsUnderSounds()
         {
             var paths = SoundPath.GetAllSoundPaths();
 
-            Assert.Equal(8, paths.Length);
-            Assert.Equal(8, paths.Distinct().Count());
+            Assert.Equal(10, paths.Length);
+            Assert.Equal(10, paths.Distinct().Count());
             Assert.All(paths, p => Assert.StartsWith("Sounds/", p));
             Assert.All(paths, p => Assert.EndsWith(".ogg", p));
         }
@@ -29,6 +29,8 @@ namespace DTXMania.Test.Resources
             Assert.Equal("Sounds/Full Combo.ogg", SoundPath.FullCombo);
             Assert.Equal("Sounds/Excellent.ogg", SoundPath.Excellent);
             Assert.Equal("Sounds/New Record.ogg", SoundPath.NewRecord);
+            Assert.Equal("Sounds/Metronome Beat.ogg", SoundPath.MetronomeBeat);
+            Assert.Equal("Sounds/Metronome Accent.ogg", SoundPath.MetronomeAccent);
         }
     }
 }

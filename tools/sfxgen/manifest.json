@@ -48,6 +48,18 @@
       "duration_seconds": 3.0,
       "prompt_influence": 0.3,
       "prompt": "Triumphant synthwave achievement jingle: heroic rising synth melody over a pulsing bassline, ending on a sustained bright chord with sparkle, new high score celebration"
+    },
+    {
+      "file": "Metronome Beat.ogg",
+      "generator": "ffmpeg_sine",
+      "duration_seconds": 0.03,
+      "frequency_hz": 1000
+    },
+    {
+      "file": "Metronome Accent.ogg",
+      "generator": "ffmpeg_sine",
+      "duration_seconds": 0.03,
+      "frequency_hz": 1600
     }
   ]
 }
