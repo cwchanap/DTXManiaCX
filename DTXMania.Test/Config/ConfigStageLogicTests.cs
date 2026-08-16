@@ -991,6 +991,7 @@ public class ConfigStageLogicTests
     [Theory]
     [InlineData("VSync Wait", nameof(ConfigData.VSyncWait))]
     [InlineData("No Fail", nameof(ConfigData.NoFail))]
+    [InlineData("Metronome", nameof(ConfigData.Metronome))]
     [InlineData("Auto Play", nameof(ConfigData.AutoPlay))]
     public void ActivatePressedOnToggle_ShouldMutateConfigViaSetter(string itemName, string propertyName)
     {
@@ -1145,6 +1146,7 @@ public class ConfigStageLogicTests
                 i => Assert.Equal("Scroll Speed", i.Name),
                 i => Assert.Equal("Play Speed", i.Name),
                 i => Assert.Equal("Pitch", i.Name),
+                i => Assert.Equal("Metronome", i.Name),
                 i => Assert.Equal("Auto Play", i.Name),
                 i => Assert.Equal("No Fail", i.Name),
                 i => Assert.Equal("Drum Key Mapping", i.Name));

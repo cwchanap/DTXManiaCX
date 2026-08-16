@@ -463,6 +463,126 @@ ScreenHeight=720
         }
     }
 
+    [Theory]
+    [InlineData("true")]
+    [InlineData("1")]
+    [InlineData("on")]
+    public void ConfigManager_ParseMetronome_ShouldAcceptTruthyValues(string value)
+    {
+        var manager = new ConfigManager();
+        var tempFile = Path.Combine(Path.GetTempPath(), $"Test_Metronome_{Guid.NewGuid():N}.ini");
+
+        try
+        {
+            File.WriteAllText(tempFile, $"[Game]\nMetronome={value}\n", Encoding.UTF8);
+            manager.LoadConfig(tempFile);
+
+            Assert.True(manager.Config.Metronome);
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+                File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void ConfigManager_SaveConfig_ShouldWriteOneMetronomeSettingUnderGameSection()
+    {
+        var manager = new ConfigManager();
+        manager.Config.Metronome = true;
+        var tempFile = Path.Combine(Path.GetTempPath(), $"Test_Metronome_Save_{Guid.NewGuid():N}.ini");
+
+        try
+        {
+            manager.SaveConfig(tempFile);
+            var lines = File.ReadAllLines(tempFile, Encoding.UTF8);
+            var gameStart = Array.IndexOf(lines, "[Game]");
+            var nextSection = Array.FindIndex(
+                lines,
+                gameStart + 1,
+                line => line.StartsWith("[", StringComparison.Ordinal));
+            if (nextSection < 0)
+                nextSection = lines.Length;
+
+            var gameMetronomeLines = lines
+                .Skip(gameStart + 1)
+                .Take(nextSection - gameStart - 1)
+                .Where(line => line == "Metronome=True")
+                .ToArray();
+
+            Assert.Single(gameMetronomeLines);
+            Assert.Equal(1, lines.Count(line => line == "Metronome=True"));
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+                File.Delete(tempFile);
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ConfigManager_SaveAndLoadConfig_ShouldPreserveMetronome(bool value)
+    {
+        var manager = new ConfigManager();
+        manager.Config.Metronome = value;
+        var tempFile = Path.Combine(Path.GetTempPath(), $"Test_Metronome_RoundTrip_{Guid.NewGuid():N}.ini");
+
+        try
+        {
+            manager.SaveConfig(tempFile);
+
+            var reloadedManager = new ConfigManager();
+            reloadedManager.LoadConfig(tempFile);
+
+            Assert.Equal(value, reloadedManager.Config.Metronome);
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+                File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void SetMetronome_ShouldMutateAndUseDeferredSaveOnlyWhenChanged()
+    {
+        var manager = new ConfigManager();
+        var tempFile = Path.Combine(Path.GetTempPath(), $"Test_Metronome_Setter_{Guid.NewGuid():N}.ini");
+
+        try
+        {
+            manager.LoadConfig(tempFile);
+            Assert.Contains("Metronome=False", File.ReadAllText(tempFile, Encoding.UTF8));
+
+            manager.SetMetronome(true);
+
+            Assert.True(manager.Config.Metronome);
+            Assert.Contains("Metronome=False", File.ReadAllText(tempFile, Encoding.UTF8));
+
+            manager.FlushPendingSave();
+            var savedText = File.ReadAllText(tempFile, Encoding.UTF8);
+            Assert.Contains("Metronome=True", savedText);
+
+            manager.SetMetronome(true);
+            File.WriteAllText(
+                tempFile,
+                savedText.Replace("Metronome=True", "Metronome=False", StringComparison.Ordinal),
+                Encoding.UTF8);
+
+            manager.FlushPendingSave();
+
+            Assert.Contains("Metronome=False", File.ReadAllText(tempFile, Encoding.UTF8));
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+                File.Delete(tempFile);
+        }
+    }
+
     [Fact]
     public void ConfigManager_LoadConfig_EnableGameApiWithoutKey_ShouldGenerateAndPersistKey()
     {

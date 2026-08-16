@@ -69,6 +69,7 @@ namespace DTXMania.Game.Lib.Config
         public int ScrollSpeed { get; set; } = ScrollSpeedRange.Default;
         public int PlaySpeedPercent { get; set; } = PlaySpeedRange.Default;
         public int PitchSemitones { get; set; } = PitchRange.Default;
+        public bool Metronome { get; set; } = false;
         public bool AutoPlay { get; set; } = false;
         public bool NoFail { get; set; } = false;
 
