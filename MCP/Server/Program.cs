@@ -63,7 +63,7 @@ class Program
 
         try
         {
-            var mcpServer = serviceProvider.GetRequiredService<IMcpServer>();
+            var mcpServer = serviceProvider.GetRequiredService<McpServer>();
             await mcpServer.RunAsync();
         }
         catch (Exception ex)

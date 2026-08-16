@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
@@ -243,7 +242,7 @@ public class GameInteractionMcpToolHandlers
             Content = new List<ContentBlock>
             {
                 new TextContentBlock { Text = message },
-                new ImageContentBlock { Data = imageData, MimeType = mimeType ?? "image/png" }
+                ImageContentBlock.FromBytes(Convert.FromBase64String(imageData), mimeType ?? "image/png")
             }
         };
         return result;
@@ -280,7 +279,7 @@ public class GameInteractionMcpToolHandlers
 
         if (payload is not null)
         {
-            result.StructuredContent = JsonSerializer.SerializeToNode(payload, SerializerOptions);
+            result.StructuredContent = JsonSerializer.SerializeToElement(payload, SerializerOptions);
         }
 
         return result;
