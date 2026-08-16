@@ -50,7 +50,8 @@ public sealed class GameInteractionMcpToolHandlersTests
         using var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();
         var endpoint = (IPEndPoint)listener.LocalEndpoint;
-        var fakeServerTask = ServeScreenshotResponseAsync(listener, encodedPng, mimeType);
+        using var cts = new CancellationTokenSource(TestServerTimeout);
+        var fakeServerTask = ServeScreenshotResponseAsync(listener, encodedPng, mimeType, cts.Token);
 
         try
         {
@@ -68,6 +69,7 @@ public sealed class GameInteractionMcpToolHandlersTests
         }
         finally
         {
+            await CancelFakeServerAsync(fakeServerTask, cts);
             listener.Stop();
         }
     }
@@ -81,7 +83,8 @@ public sealed class GameInteractionMcpToolHandlersTests
         using var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();
         var endpoint = (IPEndPoint)listener.LocalEndpoint;
-        var fakeServerTask = ServeScreenshotResponseAsync(listener, malformedBase64, mimeType);
+        using var cts = new CancellationTokenSource(TestServerTimeout);
+        var fakeServerTask = ServeScreenshotResponseAsync(listener, malformedBase64, mimeType, cts.Token);
 
         try
         {
@@ -97,6 +100,7 @@ public sealed class GameInteractionMcpToolHandlersTests
         }
         finally
         {
+            await CancelFakeServerAsync(fakeServerTask, cts);
             listener.Stop();
         }
     }
@@ -109,12 +113,17 @@ public sealed class GameInteractionMcpToolHandlersTests
             new GameInteractionOptions { GameApiUrl = gameApiUrl });
     }
 
+    // Bound the fake server's accept wait so a test cannot hang indefinitely when
+    // TakeScreenshotAsync never connects (e.g. error-before-request path).
+    private static readonly TimeSpan TestServerTimeout = TimeSpan.FromSeconds(5);
+
     private static async Task ServeScreenshotResponseAsync(
         TcpListener listener,
         string encodedPng,
-        string mimeType)
+        string mimeType,
+        CancellationToken cancellationToken)
     {
-        using var client = await listener.AcceptTcpClientAsync();
+        using var client = await listener.AcceptTcpClientAsync(cancellationToken);
         await using var stream = client.GetStream();
         using var reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: true);
 
@@ -156,5 +165,31 @@ public sealed class GameInteractionMcpToolHandlersTests
 
         await stream.WriteAsync(responseHeaders);
         await stream.WriteAsync(responseBytes);
+    }
+
+    // Cancels the fake server's pending accept and observes the task so an unobserved
+    // cancellation/exception is not left behind. Response assertions inside the server
+    // task are preserved when the task already completed successfully in the try block;
+    // any task exception here is swallowed so it cannot mask the primary test failure
+    // that propagated out of the try block.
+    private static async Task CancelFakeServerAsync(Task fakeServerTask, CancellationTokenSource cts)
+    {
+        cts.Cancel();
+        try
+        {
+            await fakeServerTask;
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when the client never connected and the accept was cancelled.
+        }
+        catch (SocketException)
+        {
+            // Expected when the listener is stopped while still pending on accept.
+        }
+        catch (Exception)
+        {
+            // Swallowed: a faulted assertion here must not mask the try-block exception.
+        }
     }
 }
