@@ -15,6 +15,7 @@ Python 3.9+, stdlib only except ffmpeg/ffprobe (external binaries) for encode/de
 """
 import argparse
 import json
+import math
 import os
 import re
 import shutil
@@ -56,20 +57,21 @@ def load_sounds(manifest_path):
             raise ValueError("unsupported generator %r for %s" % (generator, entry.get("file", "<unnamed>")))
 
         duration = entry.get("duration_seconds")
-        if not isinstance(duration, (int, float)) or duration <= 0:
-            raise ValueError("duration_seconds must be positive for %s" % entry.get("file", "<unnamed>"))
+        if not isinstance(duration, (int, float)) or not math.isfinite(duration) or duration <= 0:
+            raise ValueError("duration_seconds must be a positive finite number for %s" % entry.get("file", "<unnamed>"))
 
         if generator == "elevenlabs":
             if not isinstance(entry.get("prompt"), str) or not entry["prompt"].strip():
                 raise ValueError("prompt is required for %s" % entry.get("file", "<unnamed>"))
-            if not isinstance(entry.get("prompt_influence"), (int, float)):
-                raise ValueError("prompt_influence is required for %s" % entry.get("file", "<unnamed>"))
+            prompt_influence = entry.get("prompt_influence")
+            if not isinstance(prompt_influence, (int, float)) or not math.isfinite(prompt_influence):
+                raise ValueError("prompt_influence must be a finite number for %s" % entry.get("file", "<unnamed>"))
             if duration > 22:
                 raise ValueError("duration_seconds must be at most 22 for %s" % entry.get("file", "<unnamed>"))
         else:
             frequency = entry.get("frequency_hz")
-            if not isinstance(frequency, (int, float)) or frequency <= 0:
-                raise ValueError("frequency_hz must be positive for %s" % entry.get("file", "<unnamed>"))
+            if not isinstance(frequency, (int, float)) or not math.isfinite(frequency) or frequency <= 0:
+                raise ValueError("frequency_hz must be a positive finite number for %s" % entry.get("file", "<unnamed>"))
             if duration > MAX_DETERMINISTIC_DURATION_SECONDS:
                 raise ValueError(
                     "duration_seconds must be short (<= %.2fs) for %s"

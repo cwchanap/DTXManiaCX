@@ -95,6 +95,30 @@ class ManifestTests(unittest.TestCase):
                 "duration_seconds": 1.1,
                 "frequency_hz": 1000,
             }, "short"),
+            ({
+                "file": "Beat.ogg",
+                "generator": "ffmpeg_sine",
+                "duration_seconds": float("nan"),
+                "frequency_hz": 1000,
+            }, "duration_seconds"),
+            ({
+                "file": "Beat.ogg",
+                "generator": "ffmpeg_sine",
+                "duration_seconds": float("inf"),
+                "frequency_hz": 1000,
+            }, "duration_seconds"),
+            ({
+                "file": "Beat.ogg",
+                "generator": "ffmpeg_sine",
+                "duration_seconds": 0.03,
+                "frequency_hz": float("nan"),
+            }, "frequency_hz"),
+            ({
+                "file": "Beat.ogg",
+                "generator": "ffmpeg_sine",
+                "duration_seconds": 0.03,
+                "frequency_hz": float("inf"),
+            }, "frequency_hz"),
         ]
 
         for sound, expected_message in invalid_sounds:
@@ -118,6 +142,41 @@ class ManifestTests(unittest.TestCase):
             sounds = sfxgen.load_sounds(manifest_path)
 
         self.assertEqual("ffmpeg_sine", sounds[0]["generator"])
+
+    def test_elevenlabs_entry_rejects_non_finite_duration_and_prompt_influence(self):
+        invalid_sounds = [
+            ({
+                "file": "Move.ogg",
+                "duration_seconds": float("nan"),
+                "prompt_influence": 0.4,
+                "prompt": "click",
+            }, "duration_seconds"),
+            ({
+                "file": "Move.ogg",
+                "duration_seconds": float("inf"),
+                "prompt_influence": 0.4,
+                "prompt": "click",
+            }, "duration_seconds"),
+            ({
+                "file": "Move.ogg",
+                "duration_seconds": 0.5,
+                "prompt_influence": float("nan"),
+                "prompt": "click",
+            }, "prompt_influence"),
+            ({
+                "file": "Move.ogg",
+                "duration_seconds": 0.5,
+                "prompt_influence": float("inf"),
+                "prompt": "click",
+            }, "prompt_influence"),
+        ]
+
+        for sound, expected_message in invalid_sounds:
+            with self.subTest(sound=sound):
+                with tempfile.TemporaryDirectory() as tmp:
+                    manifest_path = self._write_manifest(tmp, sound)
+                    with self.assertRaisesRegex(ValueError, expected_message):
+                        sfxgen.load_sounds(manifest_path)
 
     def test_manifest_matches_soundpath_inventory(self):
         # Derive the expected inventory from SoundPath.cs instead of hardcoding
