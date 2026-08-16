@@ -38,7 +38,10 @@ MAX_RESPONSE_BYTES = 50 * 1024 * 1024
 MIN_RUNTIME_SAMPLE_RATE = 8000
 MAX_RUNTIME_SAMPLE_RATE = 48000
 MAX_DETERMINISTIC_DURATION_SECONDS = 1.0
-DETERMINISTIC_DURATION_TOLERANCE_SECONDS = 0.02
+# Native Vorbis framing adds about 0.7 ms to the generated 48 kHz clicks
+# (and about 2 ms to the 8 kHz validation fixtures). Keep a small measured
+# allowance without accepting materially longer deterministic assets.
+DETERMINISTIC_DURATION_TOLERANCE_SECONDS = 0.005
 
 
 def load_sounds(manifest_path):

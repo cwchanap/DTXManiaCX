@@ -234,6 +234,25 @@ class ValidateTests(unittest.TestCase):
 
         self.assertTrue(any("duration" in error.lower() for error in errors))
 
+    def test_validate_rejects_deterministic_click_near_manifest_duration_boundary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest_path = ManifestTests._write_manifest(
+                tmp,
+                {
+                    "file": "Beat.ogg",
+                    "generator": "ffmpeg_sine",
+                    "duration_seconds": 0.03,
+                    "frequency_hz": 1000,
+                })
+            # 40 ms is materially longer than the 30 ms manifest click while
+            # remaining close enough to the old 50 ms acceptance boundary to
+            # catch an over-permissive validator tolerance.
+            _make_silent_ogg(os.path.join(tmp, "Beat.ogg"), seconds=0.04)
+
+            errors = sfxgen.validate_pack(manifest_path, tmp)
+
+        self.assertTrue(any("duration" in error.lower() for error in errors))
+
 
 class FfmpegCommandTests(unittest.TestCase):
     def test_postprocess_command_normalizes_and_encodes_vorbis(self):
