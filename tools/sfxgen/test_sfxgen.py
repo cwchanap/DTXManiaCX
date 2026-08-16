@@ -1,7 +1,10 @@
+import json
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 import sfxgen
 
@@ -51,6 +54,71 @@ def _make_silent_ogg_opus(path, seconds=0.1):
 
 
 class ManifestTests(unittest.TestCase):
+    @staticmethod
+    def _write_manifest(directory, sound):
+        path = os.path.join(directory, "manifest.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"output_dir": "out", "sounds": [sound]}, f)
+        return path
+
+    def test_existing_elevenlabs_entry_defaults_generator_without_prompt_contract_drift(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest_path = ManifestTests._write_manifest(
+                tmp,
+                {
+                    "file": "Legacy.ogg",
+                    "duration_seconds": 0.5,
+                    "prompt_influence": 0.4,
+                    "prompt": "legacy click",
+                })
+
+            sounds = sfxgen.load_sounds(manifest_path)
+
+        self.assertEqual("elevenlabs", sounds[0]["generator"])
+
+    def test_ffmpeg_sine_entry_requires_frequency_and_positive_short_duration(self):
+        invalid_sounds = [
+            ({
+                "file": "Beat.ogg",
+                "generator": "ffmpeg_sine",
+                "duration_seconds": 0.03,
+            }, "frequency_hz"),
+            ({
+                "file": "Beat.ogg",
+                "generator": "ffmpeg_sine",
+                "duration_seconds": 0,
+                "frequency_hz": 1000,
+            }, "duration_seconds"),
+            ({
+                "file": "Beat.ogg",
+                "generator": "ffmpeg_sine",
+                "duration_seconds": 1.1,
+                "frequency_hz": 1000,
+            }, "short"),
+        ]
+
+        for sound, expected_message in invalid_sounds:
+            with self.subTest(sound=sound):
+                with tempfile.TemporaryDirectory() as tmp:
+                    manifest_path = self._write_manifest(tmp, sound)
+                    with self.assertRaisesRegex(ValueError, expected_message):
+                        sfxgen.load_sounds(manifest_path)
+
+    def test_ffmpeg_sine_entry_does_not_require_prompt_or_prompt_influence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest_path = self._write_manifest(
+                tmp,
+                {
+                    "file": "Beat.ogg",
+                    "generator": "ffmpeg_sine",
+                    "duration_seconds": 0.03,
+                    "frequency_hz": 1000,
+                })
+
+            sounds = sfxgen.load_sounds(manifest_path)
+
+        self.assertEqual("ffmpeg_sine", sounds[0]["generator"])
+
     def test_manifest_matches_soundpath_inventory(self):
         # Derive the expected inventory from SoundPath.cs instead of hardcoding
         # it, so drift in either direction is caught: a sound in the manifest
@@ -68,9 +136,10 @@ class ManifestTests(unittest.TestCase):
 
     def test_every_sound_has_prompt_and_duration(self):
         for sound in sfxgen.load_sounds(sfxgen.MANIFEST_PATH):
-            self.assertTrue(sound["prompt"].strip(), sound["file"])
             self.assertGreater(sound["duration_seconds"], 0)
-            self.assertLessEqual(sound["duration_seconds"], 22)
+            if sound["generator"] == "elevenlabs":
+                self.assertTrue(sound["prompt"].strip(), sound["file"])
+                self.assertLessEqual(sound["duration_seconds"], 22)
 
 
 class ValidateTests(unittest.TestCase):
@@ -80,7 +149,7 @@ class ValidateTests(unittest.TestCase):
             errors = sfxgen.validate_pack(sfxgen.MANIFEST_PATH, tmp)
         # Every sound except Move.ogg is missing.
         missing_names = [e for e in errors if e.startswith("MISSING")]
-        self.assertEqual(len(missing_names), 7)
+        self.assertEqual(len(missing_names), 9)
         self.assertFalse(any("Move.ogg" in e for e in errors))
 
     def test_validate_rejects_empty_file(self):
@@ -144,9 +213,26 @@ class ValidateTests(unittest.TestCase):
     def test_validate_passes_for_complete_decodable_pack(self):
         with tempfile.TemporaryDirectory() as tmp:
             for sound in sfxgen.load_sounds(sfxgen.MANIFEST_PATH):
-                _make_silent_ogg(os.path.join(tmp, sound["file"]))
+                seconds = sound["duration_seconds"] if sound["generator"] == "ffmpeg_sine" else 0.1
+                _make_silent_ogg(os.path.join(tmp, sound["file"]), seconds=seconds)
             errors = sfxgen.validate_pack(sfxgen.MANIFEST_PATH, tmp)
         self.assertEqual(errors, [])
+
+    def test_validate_rejects_deterministic_click_that_exceeds_manifest_duration(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest_path = ManifestTests._write_manifest(
+                tmp,
+                {
+                    "file": "Beat.ogg",
+                    "generator": "ffmpeg_sine",
+                    "duration_seconds": 0.03,
+                    "frequency_hz": 1000,
+                })
+            _make_silent_ogg(os.path.join(tmp, "Beat.ogg"), seconds=0.2)
+
+            errors = sfxgen.validate_pack(manifest_path, tmp)
+
+        self.assertTrue(any("duration" in error.lower() for error in errors))
 
 
 class FfmpegCommandTests(unittest.TestCase):
@@ -162,6 +248,45 @@ class FfmpegCommandTests(unittest.TestCase):
         self.assertIn("-ar", cmd)
         sample_rate_index = cmd.index("-ar")
         self.assertEqual(cmd[sample_rate_index + 1], "48000")
+
+    def test_ffmpeg_sine_command_uses_frequency_short_duration_and_vorbis_output(self):
+        sound = {
+            "file": "Beat.ogg",
+            "generator": "ffmpeg_sine",
+            "duration_seconds": 0.03,
+            "frequency_hz": 1000,
+        }
+
+        cmd = sfxgen.ffmpeg_sine_command(sound, "out.ogg")
+        joined = " ".join(cmd)
+
+        self.assertIn("sine=frequency=1000:duration=0.03", joined)
+        self.assertIn("afade=t=out", joined)
+        self.assertIn(cmd[cmd.index("-c:a") + 1], ("libvorbis", "vorbis"))
+        self.assertIn("-ac", cmd)
+        self.assertEqual(cmd[cmd.index("-ac") + 1], "2")
+        self.assertEqual(cmd[cmd.index("-ar") + 1], "48000")
+        self.assertEqual(cmd[-1], "out.ogg")
+
+    @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg is required for generation")
+    def test_selected_ffmpeg_sine_generation_does_not_require_elevenlabs_key(self):
+        sound = {
+            "file": "Beat.ogg",
+            "generator": "ffmpeg_sine",
+            "duration_seconds": 0.03,
+            "frequency_hz": 1000,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest_path = ManifestTests._write_manifest(tmp, sound)
+            with mock.patch.object(sfxgen, "REPO_ROOT", tmp), \
+                    mock.patch.dict(os.environ, {"ELEVENLABS_API_KEY": ""}, clear=False):
+                result = sfxgen.main([
+                    "--manifest", manifest_path,
+                    "generate", "--only", "Beat.ogg",
+                ])
+
+            self.assertEqual(0, result)
+            self.assertTrue(os.path.isfile(os.path.join(tmp, "out", "Beat.ogg")))
 
 
 class _FakeResponse:

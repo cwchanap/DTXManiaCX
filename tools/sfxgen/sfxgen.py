@@ -37,11 +37,45 @@ API_URL = "https://api.elevenlabs.io/v1/sound-generation"
 MAX_RESPONSE_BYTES = 50 * 1024 * 1024
 MIN_RUNTIME_SAMPLE_RATE = 8000
 MAX_RUNTIME_SAMPLE_RATE = 48000
+MAX_DETERMINISTIC_DURATION_SECONDS = 1.0
+DETERMINISTIC_DURATION_TOLERANCE_SECONDS = 0.02
 
 
 def load_sounds(manifest_path):
     with open(manifest_path, encoding="utf-8") as f:
-        return json.load(f)["sounds"]
+        sounds = json.load(f)["sounds"]
+
+    normalized = []
+    for sound in sounds:
+        entry = dict(sound)
+        generator = entry.get("generator", "elevenlabs")
+        if generator not in ("elevenlabs", "ffmpeg_sine"):
+            raise ValueError("unsupported generator %r for %s" % (generator, entry.get("file", "<unnamed>")))
+
+        duration = entry.get("duration_seconds")
+        if not isinstance(duration, (int, float)) or duration <= 0:
+            raise ValueError("duration_seconds must be positive for %s" % entry.get("file", "<unnamed>"))
+
+        if generator == "elevenlabs":
+            if not isinstance(entry.get("prompt"), str) or not entry["prompt"].strip():
+                raise ValueError("prompt is required for %s" % entry.get("file", "<unnamed>"))
+            if not isinstance(entry.get("prompt_influence"), (int, float)):
+                raise ValueError("prompt_influence is required for %s" % entry.get("file", "<unnamed>"))
+            if duration > 22:
+                raise ValueError("duration_seconds must be at most 22 for %s" % entry.get("file", "<unnamed>"))
+        else:
+            frequency = entry.get("frequency_hz")
+            if not isinstance(frequency, (int, float)) or frequency <= 0:
+                raise ValueError("frequency_hz must be positive for %s" % entry.get("file", "<unnamed>"))
+            if duration > MAX_DETERMINISTIC_DURATION_SECONDS:
+                raise ValueError(
+                    "duration_seconds must be short (<= %.2fs) for %s"
+                    % (MAX_DETERMINISTIC_DURATION_SECONDS, entry.get("file", "<unnamed>")))
+
+        entry["generator"] = generator
+        normalized.append(entry)
+
+    return normalized
 
 
 def scan_sound_paths():
@@ -70,6 +104,24 @@ def postprocess_command(raw_path, ogg_path):
         "-af", "loudnorm=I=-16:TP=-1.5:LRA=11",
         "-ar", str(MAX_RUNTIME_SAMPLE_RATE),
         "-c:a", "libvorbis", "-qscale:a", "5",
+        ogg_path,
+    ]
+
+
+def ffmpeg_sine_command(sound, ogg_path):
+    """Return the deterministic short sine-burst ffmpeg command for one entry."""
+    duration = sound["duration_seconds"]
+    frequency = sound["frequency_hz"]
+    fade_start = max(0.0, duration - min(0.01, duration / 3.0))
+    fade_duration = min(0.01, duration / 3.0)
+    return [
+        "ffmpeg", "-y",
+        "-f", "lavfi",
+        "-i", "sine=frequency=%s:duration=%s" % (frequency, duration),
+        "-af", "afade=t=out:st=%s:d=%s" % (fade_start, fade_duration),
+        "-ac", "2",
+        "-ar", str(MAX_RUNTIME_SAMPLE_RATE),
+        "-c:a", "vorbis", "-strict", "experimental", "-qscale:a", "5",
         ogg_path,
     ]
 
@@ -105,6 +157,14 @@ def _stream_response_to_file(response, raw_path, max_bytes=MAX_RESPONSE_BYTES):
 
 
 def generate_one(sound, api_key, out_dir):
+    if sound.get("generator", "elevenlabs") == "ffmpeg_sine":
+        os.makedirs(out_dir, exist_ok=True)
+        ogg_path = os.path.join(out_dir, sound["file"])
+        print("generating %s ..." % sound["file"])
+        subprocess.run(ffmpeg_sine_command(sound, ogg_path), check=True)
+        print("wrote %s" % ogg_path)
+        return
+
     raw_path = os.path.join(RAW_DIR, sound["file"].removesuffix(".ogg") + ".mp3")
     os.makedirs(RAW_DIR, exist_ok=True)
     body = json.dumps({
@@ -155,6 +215,22 @@ def _sample_rate(path):
         return None
     try:
         return int(result.stdout.decode("utf-8", errors="replace").strip())
+    except ValueError:
+        return None
+
+
+def _duration_seconds(path):
+    """Return the decoded container duration in seconds, or None."""
+    if not shutil.which("ffprobe"):
+        return None
+    result = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", path],
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=30)
+    if result.returncode != 0:
+        return None
+    try:
+        return float(result.stdout.decode("utf-8", errors="replace").strip())
     except ValueError:
         return None
 
@@ -211,6 +287,14 @@ def validate_pack(manifest_path, out_dir):
                     "supported %d-%d Hz range"
                     % (sound["file"], sample_rate,
                        MIN_RUNTIME_SAMPLE_RATE, MAX_RUNTIME_SAMPLE_RATE))
+            if sound["generator"] == "ffmpeg_sine":
+                duration = _duration_seconds(path)
+                if duration is None:
+                    errors.append("UNREADABLE %s: duration could not be determined" % sound["file"])
+                elif duration > sound["duration_seconds"] + DETERMINISTIC_DURATION_TOLERANCE_SECONDS:
+                    errors.append(
+                        "INCOMPATIBLE %s: duration %.3fs exceeds manifest %.3fs"
+                        % (sound["file"], duration, sound["duration_seconds"]))
     return errors
 
 
@@ -228,13 +312,21 @@ def main(argv=None):
     out_dir = output_dir(args.manifest)
 
     if args.command == "generate":
-        api_key = os.environ.get("ELEVENLABS_API_KEY")
-        if not api_key:
-            print("error: ELEVENLABS_API_KEY is not set", file=sys.stderr)
-            return 2
         failures = []
         only_matched = args.only is None
-        for sound in load_sounds(args.manifest):
+        sounds = load_sounds(args.manifest)
+        selected_sounds = [
+            sound for sound in sounds
+            if args.only is None or sound["file"] == args.only
+        ]
+        if args.only and not selected_sounds:
+            print("error: --only %r matched no manifest entry" % args.only, file=sys.stderr)
+            return 1
+        api_key = os.environ.get("ELEVENLABS_API_KEY")
+        if any(sound["generator"] == "elevenlabs" for sound in selected_sounds) and not api_key:
+            print("error: ELEVENLABS_API_KEY is not set", file=sys.stderr)
+            return 2
+        for sound in sounds:
             if args.only and sound["file"] != args.only:
                 continue
             if args.only:
