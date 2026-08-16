@@ -713,6 +713,9 @@ public class PerformanceStageCoverageTests
             ReflectionHelpers.InvokePrivateMethod(stage, "OnActivate"));
 
         Assert.NotNull(exception);
+        // Verify the config read executed before asserting the field was set from it,
+        // so the assertion cannot pass by coincidence (e.g. a default or other setter).
+        configManager.VerifyGet(x => x.Config, Times.AtLeastOnce);
         Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_metronomeEnabled"));
     }
 
