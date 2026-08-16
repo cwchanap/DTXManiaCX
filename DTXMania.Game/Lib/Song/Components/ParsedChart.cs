@@ -38,6 +38,11 @@ namespace DTXMania.Game.Lib.Song.Components
         public List<MeasureLine> MeasureLines { get; } = new List<MeasureLine>();
 
         /// <summary>
+        /// Beat markers generated from the compiled chart timing map.
+        /// </summary>
+        public List<BeatMarker> BeatMarkers { get; } = new List<BeatMarker>();
+
+        /// <summary>
         /// Compiled timing map used to resolve authored chart positions during finalization.
         /// </summary>
         internal ChartTimingMap TimingMap { get; } = new ChartTimingMap();
@@ -224,6 +229,7 @@ namespace DTXMania.Game.Lib.Song.Components
         public void FinalizeChart()
         {
             MeasureLines.Clear();
+            BeatMarkers.Clear();
             DurationMs = 0.0;
 
             var highestOccupiedBar = -1;
@@ -257,6 +263,25 @@ namespace DTXMania.Game.Lib.Song.Components
                     Bar = bar,
                     TimeMs = TimingMap.CalculateTimeMs(bar, 0)
                 });
+            }
+
+            const double BeatGridEpsilon = 1e-6;
+            for (var bar = 0; bar <= highestOccupiedBar; bar++)
+            {
+                var measureBeats =
+                    4.0 * TimingMap.GetMeasureLengthMultiplier(bar);
+
+                for (var beatOffset = 0;
+                     beatOffset == 0 || beatOffset < measureBeats - BeatGridEpsilon;
+                     beatOffset++)
+                {
+                    var tick = beatOffset * 192.0 / measureBeats;
+                    BeatMarkers.Add(new BeatMarker
+                    {
+                        TimeMs = TimingMap.CalculateTimeMs(bar, tick),
+                        IsMeasureStart = beatOffset == 0
+                    });
+                }
             }
 
             // Sort notes by time for efficient rendering

@@ -345,6 +345,174 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
+        public void FinalizeChart_DefaultMeasure_ShouldEmitQuarterNoteMarkers()
+        {
+            var chart = CreateChartWithNote(0);
+
+            chart.FinalizeChart();
+
+            Assert.Equal(
+                new[] { 0.0, 500.0, 1000.0, 1500.0 },
+                chart.BeatMarkers.Select(marker => marker.TimeMs));
+            Assert.Equal(
+                new[] { true, false, false, false },
+                chart.BeatMarkers.Select(marker => marker.IsMeasureStart));
+        }
+
+        [Fact]
+        public void FinalizeChart_ShortMeasure_ShouldEmitThreeQuarterNoteMarkers()
+        {
+            var chart = CreateChartWithNote(0);
+            chart.TimingMap.SetMeasureLength(0, 0.75);
+
+            chart.FinalizeChart();
+
+            Assert.Collection(
+                chart.BeatMarkers,
+                marker => Assert.Equal(0.0, marker.TimeMs, 6),
+                marker => Assert.Equal(500.0, marker.TimeMs, 6),
+                marker => Assert.Equal(1000.0, marker.TimeMs, 6));
+        }
+
+        [Fact]
+        public void FinalizeChart_ExtendedMeasure_ShouldEmitSixQuarterNoteMarkers()
+        {
+            var chart = CreateChartWithNote(0);
+            chart.TimingMap.SetMeasureLength(0, 1.5);
+
+            chart.FinalizeChart();
+
+            Assert.Equal(
+                new[] { 0.0, 500.0, 1000.0, 1500.0, 2000.0, 2500.0 },
+                chart.BeatMarkers.Select(marker => marker.TimeMs));
+        }
+
+        [Fact]
+        public void FinalizeChart_TwoAndHalfBeatMeasure_ShouldNotRoundBeatOffsets()
+        {
+            var chart = CreateChartWithNote(0);
+            chart.TimingMap.SetMeasureLength(0, 0.625);
+
+            chart.FinalizeChart();
+
+            Assert.Collection(
+                chart.BeatMarkers,
+                marker => Assert.Equal(0.0, marker.TimeMs, 6),
+                marker => Assert.Equal(500.0, marker.TimeMs, 6),
+                marker => Assert.Equal(1000.0, marker.TimeMs, 6));
+        }
+
+        [Fact]
+        public void FinalizeChart_BoundaryTempoChange_ShouldUseNewBpmForNextMeasure()
+        {
+            var chart = CreateChartWithNote(0);
+            chart.AddNote(new Note(0, 1, 0, 0x11, "01"));
+            chart.TimingMap.SetTempoChange(1, 0, 240.0);
+
+            chart.FinalizeChart();
+
+            Assert.Equal(
+                new[]
+                {
+                    0.0, 500.0, 1000.0, 1500.0,
+                    2000.0, 2250.0, 2500.0, 2750.0
+                },
+                chart.BeatMarkers.Select(marker => marker.TimeMs));
+        }
+
+        [Fact]
+        public void FinalizeChart_InMeasureTempoChange_ShouldResolveLaterMarkersFromNewBpm()
+        {
+            var chart = CreateChartWithNote(0);
+            chart.TimingMap.SetTempoChange(0, 96, 240.0);
+
+            chart.FinalizeChart();
+
+            Assert.Equal(
+                new[] { 0.0, 500.0, 1000.0, 1250.0 },
+                chart.BeatMarkers.Select(marker => marker.TimeMs));
+        }
+
+        [Fact]
+        public void FinalizeChart_AdjacentMeasures_ShouldHaveOneSharedBoundaryAccent()
+        {
+            var chart = CreateChartWithNote(0);
+            chart.AddNote(new Note(0, 1, 0, 0x11, "01"));
+
+            chart.FinalizeChart();
+
+            var boundaryMarkers = chart.BeatMarkers
+                .Where(marker => marker.TimeMs == 2000.0)
+                .ToArray();
+            Assert.Single(boundaryMarkers);
+            Assert.True(boundaryMarkers[0].IsMeasureStart);
+        }
+
+        [Fact]
+        public void FinalizeChart_TerminalMeasureLine_ShouldNotCreateExtraMetronomeMeasure()
+        {
+            var chart = CreateChartWithNote(0);
+
+            chart.FinalizeChart();
+
+            Assert.Equal(new[] { 0, 1 }, chart.MeasureLines.Select(line => line.Bar));
+            Assert.Equal(4, chart.BeatMarkers.Count);
+            Assert.DoesNotContain(chart.BeatMarkers, marker => marker.TimeMs == 2000.0);
+        }
+
+        [Fact]
+        public void FinalizeChart_EmptyChart_ShouldEmitNoBeatMarkers()
+        {
+            var chart = new ParsedChart();
+
+            chart.FinalizeChart();
+
+            Assert.Empty(chart.BeatMarkers);
+        }
+
+        [Fact]
+        public void FinalizeChart_Repeated_ShouldNotDuplicateBeatMarkers()
+        {
+            var chart = CreateChartWithNote(0);
+            chart.FinalizeChart();
+            var firstMarkers = chart.BeatMarkers
+                .Select(marker => (marker.TimeMs, marker.IsMeasureStart))
+                .ToArray();
+
+            chart.FinalizeChart();
+
+            Assert.Equal(
+                firstMarkers,
+                chart.BeatMarkers
+                    .Select(marker => (marker.TimeMs, marker.IsMeasureStart))
+                    .ToArray());
+        }
+
+        [Fact]
+        public void FinalizeChart_MarginallyLongMeasure_ShouldNotEmitNearBoundaryMarker()
+        {
+            var chart = CreateChartWithNote(0);
+            chart.TimingMap.SetMeasureLength(0, 1.0000000001);
+
+            chart.FinalizeChart();
+
+            Assert.Equal(4, chart.BeatMarkers.Count);
+        }
+
+        [Fact]
+        public void FinalizeChart_VeryShortPositiveMeasure_ShouldEmitMeasureStartAccent()
+        {
+            var chart = CreateChartWithNote(0);
+            chart.TimingMap.SetMeasureLength(0, 0.000001);
+
+            chart.FinalizeChart();
+
+            var marker = Assert.Single(chart.BeatMarkers);
+            Assert.Equal(0.0, marker.TimeMs);
+            Assert.True(marker.IsMeasureStart);
+        }
+
+        [Fact]
         public void FinalizeChart_ShouldSortNotesByTime()
         {
             var chart = new ParsedChart { Bpm = 120.0 };
@@ -489,6 +657,13 @@ namespace DTXMania.Test.Song
         }
 
         #endregion
+
+        private static ParsedChart CreateChartWithNote(int bar)
+        {
+            var chart = new ParsedChart { Bpm = 120.0 };
+            chart.AddNote(new Note(0, bar, 0, 0x11, "01"));
+            return chart;
+        }
 
         #region GetNotesInTimeRange Tests
 

@@ -20,6 +20,74 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
+        public void CalculateTimeMs_FractionalTick_ShouldResolveAtBaseBpm()
+        {
+            var map = new ChartTimingMap();
+            map.Rebuild(120.0, throughBar: 0);
+
+            Assert.Equal(1005.2083333333, map.CalculateTimeMs(0, 96.5), 6);
+        }
+
+        [Fact]
+        public void CalculateTimeMs_FractionalTickAroundTempoAnchor_ShouldChooseContainingAnchor()
+        {
+            var map = new ChartTimingMap();
+            map.SetTempoChange(0, 96, 240.0);
+            map.Rebuild(120.0, throughBar: 0);
+
+            Assert.Equal(994.7916666667, map.CalculateTimeMs(0, 95.5), 6);
+            Assert.Equal(1000.0, map.CalculateTimeMs(0, 96.0), 6);
+            Assert.Equal(1002.6041666667, map.CalculateTimeMs(0, 96.5), 6);
+        }
+
+        [Theory]
+        [InlineData(-0.5)]
+        [InlineData(double.NaN)]
+        [InlineData(double.PositiveInfinity)]
+        [InlineData(double.NegativeInfinity)]
+        public void CalculateTimeMs_NegativeOrNonFiniteTick_ShouldThrow(double tick)
+        {
+            var map = new ChartTimingMap();
+            map.Rebuild(120.0, throughBar: 0);
+
+            Assert.Throws<ArgumentOutOfRangeException>(
+                () => map.CalculateTimeMs(0, tick));
+        }
+
+        [Fact]
+        public void CalculateTimeMs_OversizedFractionalTick_ShouldCarryIntoLaterBar()
+        {
+            var map = new ChartTimingMap();
+            map.Rebuild(120.0, throughBar: 1);
+
+            Assert.Equal(
+                map.CalculateTimeMs(1, 0.5),
+                map.CalculateTimeMs(0, 192.5),
+                6);
+        }
+
+        [Fact]
+        public void CalculateTimeMs_FractionalTickBeyondCompiledHorizon_ShouldThrow()
+        {
+            var map = new ChartTimingMap();
+            map.Rebuild(120.0, throughBar: 1);
+
+            Assert.Throws<ArgumentOutOfRangeException>(
+                () => map.CalculateTimeMs(1, 192.5));
+        }
+
+        [Fact]
+        public void GetMeasureLengthMultiplier_ShouldReadCompiledBarStartAnchor()
+        {
+            var map = new ChartTimingMap();
+            map.SetMeasureLength(0, 0.75);
+            map.Rebuild(120.0, throughBar: 1);
+
+            Assert.Equal(0.75, map.GetMeasureLengthMultiplier(0));
+            Assert.Equal(1.0, map.GetMeasureLengthMultiplier(1));
+        }
+
+        [Fact]
         public void CalculateTimeMs_ShortMeasure_ShouldShiftFollowingBar()
         {
             var map = new ChartTimingMap();

@@ -133,17 +133,18 @@ namespace DTXMania.Game.Lib.Song.Components
             _throughBar = throughBar;
         }
 
-        internal double CalculateTimeMs(int bar, int tick)
+        internal double CalculateTimeMs(int bar, double tick)
         {
-            var position = NormalizePosition(bar, tick);
+            var position = NormalizeFractionalPosition(bar, tick);
             if (position.Bar > _throughBar)
                 throw new ArgumentOutOfRangeException(
                     nameof(bar),
                     "The requested position is beyond the compiled timing map.");
 
-            var anchor = _anchors[FindAnchorIndex(position.Bar, position.Tick)];
+            var anchor = _anchors[
+                FindAnchorIndex(position.Bar, (int)Math.Floor(position.Tick))];
             var tickDelta =
-                ((position.Bar - anchor.Bar) * TicksPerMeasure) +
+                ((position.Bar - anchor.Bar) * (double)TicksPerMeasure) +
                 (position.Tick - anchor.Tick);
 
             return anchor.TimeMs + CalculateIntervalMs(
@@ -152,8 +153,47 @@ namespace DTXMania.Game.Lib.Song.Components
                 anchor.Bpm);
         }
 
+        internal double GetMeasureLengthMultiplier(int bar)
+        {
+            if (bar < 0 || bar > _throughBar)
+                throw new ArgumentOutOfRangeException(nameof(bar));
+
+            return _anchors[FindAnchorIndex(bar, 0)].MeasureLengthMultiplier;
+        }
+
+        private static (int Bar, double Tick) NormalizeFractionalPosition(
+            int bar,
+            double tick)
+        {
+            if (bar < 0)
+                throw new ArgumentOutOfRangeException(nameof(bar));
+            if (!double.IsFinite(tick) || tick < 0)
+                throw new ArgumentOutOfRangeException(nameof(tick));
+
+            var measureOffset = Math.Floor(tick / TicksPerMeasure);
+            if (measureOffset > int.MaxValue - bar)
+                throw new ArgumentOutOfRangeException(nameof(tick));
+
+            var normalizedTick = tick - (measureOffset * TicksPerMeasure);
+            if (normalizedTick >= TicksPerMeasure)
+            {
+                if (measureOffset >= int.MaxValue - bar)
+                    throw new ArgumentOutOfRangeException(nameof(tick));
+
+                measureOffset++;
+                normalizedTick -= TicksPerMeasure;
+            }
+            else if (normalizedTick < 0)
+            {
+                measureOffset--;
+                normalizedTick += TicksPerMeasure;
+            }
+
+            return ((int)(bar + measureOffset), normalizedTick);
+        }
+
         private static double CalculateIntervalMs(
-            int tickDelta,
+            double tickDelta,
             double measureLengthMultiplier,
             double bpm)
         {
