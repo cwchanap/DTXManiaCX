@@ -72,6 +72,35 @@ public sealed class GameInteractionMcpToolHandlersTests
         }
     }
 
+    [Fact]
+    public async Task Screenshot_MalformedBase64WithSuccessTrue_ReturnsErrorInsteadOfThrowing()
+    {
+        const string malformedBase64 = "not-valid-base64!!!";
+        const string mimeType = "image/png";
+
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var endpoint = (IPEndPoint)listener.LocalEndpoint;
+        var fakeServerTask = ServeScreenshotResponseAsync(listener, malformedBase64, mimeType);
+
+        try
+        {
+            using var service = CreateService($"http://127.0.0.1:{endpoint.Port}/jsonrpc");
+            var handlers = new GameInteractionMcpToolHandlers(service);
+
+            var result = await handlers.TakeScreenshotAsync("default");
+            await fakeServerTask;
+
+            Assert.True(result.IsError);
+            var text = Assert.IsType<TextContentBlock>(Assert.Single(result.Content));
+            Assert.Contains("malformed Base64", text.Text);
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
     private static GameInteractionService CreateService(string gameApiUrl)
     {
         return new GameInteractionService(
