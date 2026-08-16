@@ -17,6 +17,11 @@ namespace DTXMania.Game.Lib.Song.Components
         /// </summary>
         private const double DurationEndBufferMs = 500.0;
 
+        /// <summary>
+        /// Upper bound for materialized beat markers in a single measure.
+        /// </summary>
+        private const int MaxBeatMarkersPerMeasure = 256;
+
         #endregion
 
         #region Properties
@@ -272,7 +277,8 @@ namespace DTXMania.Game.Lib.Song.Components
                     4.0 * TimingMap.GetMeasureLengthMultiplier(bar);
 
                 for (var beatOffset = 0;
-                     beatOffset == 0 || beatOffset < measureBeats - BeatGridEpsilon;
+                     beatOffset < MaxBeatMarkersPerMeasure &&
+                     (beatOffset == 0 || beatOffset < measureBeats - BeatGridEpsilon);
                      beatOffset++)
                 {
                     var tick = beatOffset * 192.0 / measureBeats;

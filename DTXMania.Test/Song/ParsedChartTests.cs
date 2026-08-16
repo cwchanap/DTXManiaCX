@@ -513,6 +513,17 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
+        public void FinalizeChart_LargeMeasureMultiplier_ShouldBoundBeatMarkerMaterialization()
+        {
+            var chart = CreateChartWithNote(0);
+            chart.TimingMap.SetMeasureLength(0, 1000.0);
+
+            chart.FinalizeChart();
+
+            Assert.Equal(256, chart.BeatMarkers.Count);
+        }
+
+        [Fact]
         public void FinalizeChart_ShouldSortNotesByTime()
         {
             var chart = new ParsedChart { Bpm = 120.0 };
