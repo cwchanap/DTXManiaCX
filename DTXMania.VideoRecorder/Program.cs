@@ -21,7 +21,13 @@ internal static class Program
                 return await RunDoctorAsync(environment).ConfigureAwait(false);
 
             RecorderCommandLine.Validate(command, environment);
-            return await RunRecordAsync(command, environment).ConfigureAwait(false);
+
+            var target = RecorderGameLaunchPolicy.ResolveTarget(Environment.CurrentDirectory);
+            var preflight = RecorderPlatformPreflight.Evaluate(
+                RecorderPlatformPreflight.CaptureFacts(),
+                target);
+            return await RunRecordAsync(command, environment, target, preflight)
+                .ConfigureAwait(false);
         }
         catch (Exception exception)
         {
@@ -30,10 +36,14 @@ internal static class Program
         }
     }
 
-    private static async Task<int> RunRecordAsync(
+    internal static async Task<int> RunRecordAsync(
         RecorderCommand command,
-        RecorderEnvironment environment)
+        RecorderEnvironment environment,
+        ResolvedRecorderTarget target,
+        RecorderPlatformPreflightResult preflight)
     {
+        RejectFailedPreflight(preflight);
+
         using var cancellation = new CancellationTokenSource();
         ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
         {
@@ -55,7 +65,7 @@ internal static class Program
             try
             {
                 Console.WriteLine($"Recorder sandbox ready at '{sandbox.RunRoot}'.");
-                var startOptions = RecorderGameLaunchPolicy.CreateOptions(sandbox);
+                var startOptions = RecorderGameLaunchPolicy.CreateOptions(sandbox, target);
                 game = new AutomationGameRecordingControl(
                     sandbox.ApiPort,
                     sandbox.ApiKey);
@@ -144,13 +154,28 @@ internal static class Program
         }
     }
 
+    /// <summary>
+    /// Rejects a failed platform preflight before any run-owned resource
+    /// exists: no sandbox, no diagnostics run-root, no game/OBS client, no
+    /// workflow.
+    /// </summary>
+    private static void RejectFailedPreflight(RecorderPlatformPreflightResult preflight)
+    {
+        ArgumentNullException.ThrowIfNull(preflight);
+        if (preflight.Passed)
+            return;
+
+        var failures = string.Join(
+            "; ",
+            preflight.Gates
+                .Where(gate => !gate.Passed)
+                .Select(gate => $"{gate.Name}: {gate.Detail}"));
+        throw new InvalidOperationException($"Recorder platform preflight failed. {failures}");
+    }
+
     private static async Task<int> RunDoctorAsync(RecorderEnvironment environment)
     {
         var passed = true;
-        var repoRoot = FindRepositoryRoot(Environment.CurrentDirectory);
-        var gameProject = repoRoot is null
-            ? null
-            : Path.Combine(repoRoot, "DTXMania.Game", "DTXMania.Game.Windows.csproj");
         var sourceConfig = Path.Combine(environment.SourceAppDataRoot, "Config.ini");
         var ffprobe = RecordingArtifactVerifier.FindFfprobeOnPath();
 
@@ -168,19 +193,26 @@ internal static class Program
             Console.WriteLine($"Recorder configuration validation: FAILED ({exception.Message})");
         }
 
-        passed &= ReportGate(
-            "Windows",
-            OperatingSystem.IsWindows(),
-            OperatingSystem.IsWindows() ? "available" : "record is Windows-only");
-        passed &= ReportGate(
-            "Repository",
-            repoRoot is not null,
-            repoRoot ?? "not found from current directory");
-        passed &= ReportGate(
-            "Game project",
-            gameProject is not null && File.Exists(gameProject),
-            gameProject ?? "not found");
-        passed &= ReportGate("Source config", File.Exists(sourceConfig), sourceConfig);
+        ResolvedRecorderTarget? target = null;
+        string? targetFailure = null;
+        try
+        {
+            target = RecorderGameLaunchPolicy.ResolveTarget(Environment.CurrentDirectory);
+        }
+        catch (Exception exception)
+        {
+            targetFailure = exception.Message;
+        }
+
+        var facts = RecorderPlatformPreflight.CaptureFacts();
+        var preflight = target is null
+            ? new RecorderPlatformPreflightResult(
+                new[] { new RecorderPreflightGate("Launch target", Passed: false, Detail: targetFailure!) },
+                null)
+            : RecorderPlatformPreflight.Evaluate(facts, target);
+        passed &= ReportPlatformPreflight(Console.Out, facts, preflight);
+
+        passed &= ReportGate(Console.Out, "Source config", File.Exists(sourceConfig), sourceConfig);
         if (File.Exists(sourceConfig))
         {
             try
@@ -206,16 +238,9 @@ internal static class Program
         {
             var rawOutput = Path.GetFullPath(environment.ObsOutputDirectory);
             var rawOutputValid = Directory.Exists(rawOutput) && Path.IsPathFullyQualified(rawOutput);
-            passed &= ReportGate("Raw output directory", rawOutputValid, rawOutput);
+            passed &= ReportGate(Console.Out, "Raw output directory", rawOutputValid, rawOutput);
         }
 
-        Console.WriteLine("Manual OBS prerequisites:");
-        Console.WriteLine("Dedicated profile/collection/scene already selected");
-        Console.WriteLine("CX window/program capture configured");
-        Console.WriteLine("CX application audio configured");
-        Console.WriteLine("Hybrid MP4 configured");
-        Console.WriteLine("WebSocket enabled");
-        Console.WriteLine("raw output dir matches DTXMANIA_VIDEO_OBS_OUTPUT_DIR");
         Console.WriteLine("Warning: each HPA-503 run uses a fresh songs.db; cold enumeration may take minutes.");
 
         if (ffprobe is null)
@@ -258,27 +283,58 @@ internal static class Program
         return passed ? 0 : 2;
     }
 
-    private static bool ReportGate(string name, bool passed, string detail)
+    /// <summary>
+    /// Reports the shared platform preflight gates plus the platform-specific
+    /// manual OBS prerequisites. Manual items are never claimed to be
+    /// programmatically verified. Factored over injected facts/result so Mac
+    /// parity is testable without a live OBS server.
+    /// </summary>
+    internal static bool ReportPlatformPreflight(
+        TextWriter writer,
+        RecorderPlatformFacts facts,
+        RecorderPlatformPreflightResult preflight)
     {
-        Console.WriteLine($"{name}: {(passed ? "passed" : "FAILED")} ({detail})");
+        ArgumentNullException.ThrowIfNull(writer);
+        ArgumentNullException.ThrowIfNull(facts);
+        ArgumentNullException.ThrowIfNull(preflight);
+
+        var passed = true;
+        foreach (var gate in preflight.Gates)
+            passed &= ReportGate(writer, gate.Name, gate.Passed, gate.Detail);
+
+        writer.WriteLine("Manual OBS prerequisites:");
+        foreach (var line in facts.IsMacOS ? MacManualPrerequisites : WindowsManualPrerequisites)
+            writer.WriteLine(line);
+
         return passed;
     }
 
-    private static string? FindRepositoryRoot(string startDirectory)
+    private static readonly string[] MacManualPrerequisites =
     {
-        var candidate = Path.GetFullPath(startDirectory);
-        while (true)
-        {
-            if (File.Exists(Path.Combine(candidate, "DTXMania.sln")) ||
-                File.Exists(Path.Combine(candidate, "DTXMania.slnx")))
-            {
-                return candidate;
-            }
+        "Dedicated profile/collection/scene selected",
+        "ScreenCaptureKit application/window capture scoped to CX",
+        "CX application audio configured",
+        "Desktop Audio disabled",
+        "Microphone disabled",
+        "Hybrid MP4 configured",
+        "Screen Recording permission granted manually",
+        "WebSocket enabled/authenticated",
+        "Raw output directory matches DTXMANIA_VIDEO_OBS_OUTPUT_DIR"
+    };
 
-            var parent = Directory.GetParent(candidate);
-            if (parent is null)
-                return null;
-            candidate = parent.FullName;
-        }
+    private static readonly string[] WindowsManualPrerequisites =
+    {
+        "Dedicated profile/collection/scene already selected",
+        "CX window/program capture configured",
+        "CX application audio configured",
+        "Hybrid MP4 configured",
+        "WebSocket enabled",
+        "raw output dir matches DTXMANIA_VIDEO_OBS_OUTPUT_DIR"
+    };
+
+    private static bool ReportGate(TextWriter writer, string name, bool passed, string detail)
+    {
+        writer.WriteLine($"{name}: {(passed ? "passed" : "FAILED")} ({detail})");
+        return passed;
     }
 }
