@@ -313,6 +313,9 @@ internal static class RecorderCommandLine
         Func<Environment.SpecialFolder, string> getFolderPath,
         Func<string, string?> getEnvironmentVariable)
     {
+        ArgumentNullException.ThrowIfNull(getFolderPath);
+        ArgumentNullException.ThrowIfNull(getEnvironmentVariable);
+
         string basePath;
         if (isWindows)
         {

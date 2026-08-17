@@ -8,11 +8,10 @@ namespace DTXMania.VideoRecorder.Workflow;
 /// disposable recorder sandbox maps to the repository's game projects.
 /// </summary>
 /// <remarks>
-/// <b>Repository-root contract:</b> <c>dtx-video</c> must be invoked with the
-/// repository checkout as its working directory. <see cref="ResolveTarget"/>
-/// walks upward from the declared start directory to locate the solution, so
-/// the current-platform game project is always resolved relative to that
-/// single declared root.
+/// <see cref="ResolveTarget"/> walks upward from the declared start directory
+/// to locate the solution, so <c>dtx-video</c> may be invoked from the
+/// repository root or any nested directory within it. The current-platform
+/// game project is always resolved relative to the located solution root.
 /// </remarks>
 internal sealed record ResolvedRecorderTarget(
     string RepositoryRoot,

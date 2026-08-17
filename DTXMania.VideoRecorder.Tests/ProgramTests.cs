@@ -98,6 +98,43 @@ public sealed class ProgramTests
         }
     }
 
+    [Fact]
+    public void ReportPlatformPreflight_UnsupportedPlatform_DoesNotEmitWindowsOrMacPrerequisites()
+    {
+        var repo = CreateFakeRepo(GameProjectPaths.Mac);
+        try
+        {
+            var facts = new RecorderPlatformFacts(
+                IsWindows: false,
+                IsMacOS: false,
+                OsVersion: new Version(0, 0),
+                ProcessArchitecture: Architecture.X64);
+            var preflight = RecorderPlatformPreflight.Evaluate(
+                facts,
+                new ResolvedRecorderTarget(
+                    repo,
+                    repo,
+                    GameLaunchTarget.Project(Path.Combine(repo, GameProjectPaths.Mac))));
+
+            Assert.False(preflight.Passed);
+            Assert.Null(preflight.NativeRuntimeDirectory);
+
+            using var writer = new StringWriter();
+            var passed = Program.ReportPlatformPreflight(writer, facts, preflight);
+
+            Assert.False(passed);
+            var output = writer.ToString();
+            Assert.Contains("Windows and macOS only", output);
+            Assert.DoesNotContain("CX window/program capture configured", output);
+            Assert.DoesNotContain("ScreenCaptureKit application/window capture scoped to CX", output);
+            Assert.Contains("Manual OBS prerequisites are unavailable on this platform", output);
+        }
+        finally
+        {
+            Delete(repo);
+        }
+    }
+
     /// <summary>
     /// Identifies recorder sandboxes created from <paramref name="sourceRoot"/>
     /// by the marker paths its copied Config.ini embeds. Unique per source root,
@@ -165,6 +202,21 @@ public sealed class ProgramTests
             }
         }
 
+        return root;
+    }
+
+    private static string CreateFakeRepo(string relativeProjectPath)
+    {
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            "dtx-video-program-tests-repo",
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        File.WriteAllText(Path.Combine(root, "DTXMania.sln"), string.Empty);
+        var projectPath = Path.Combine(
+            new[] { root }.Concat(relativeProjectPath.Split('/')).ToArray());
+        Directory.CreateDirectory(Path.GetDirectoryName(projectPath)!);
+        File.WriteAllText(projectPath, "<Project Sdk=\"Microsoft.NET.Sdk\" />");
         return root;
     }
 

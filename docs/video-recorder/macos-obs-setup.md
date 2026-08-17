@@ -1,10 +1,11 @@
 # macOS OBS setup for the DTXManiaCX video recorder
 
 This runbook covers manual, one-time operator setup for running the
-`dtx-video` recorder on Apple Silicon macOS. The recorder itself is
-unchanged: `dtx-video doctor` and
-`dtx-video record --chart <chart.dtx> --output <dir>` work the same as on
-Windows.
+`dtx-video` recorder on Apple Silicon macOS. The `dtx-video` CLI commands
+(`dtx-video doctor`, `dtx-video record --chart <chart.dtx> --output <dir>`)
+are unchanged from Windows, but the recorder now performs environment
+reading, target resolution, and platform preflight (arm64, macOS 13+,
+bundled FFmpeg pair) before recording.
 
 ## Prerequisites
 
@@ -15,6 +16,10 @@ Windows.
 - OBS Studio 30.2 or newer with obs-websocket 5.x.
 
 ## Build the exact artifacts the recorder uses
+
+Run all build commands from the repository root. The commands below use
+relative paths (`DTXMania.Game/DTXMania.Game.Mac.csproj`) that only resolve
+from that location.
 
 The recorder launches the game project in-place with
 `--no-build --configuration Debug`. Build the current source first:
@@ -37,10 +42,10 @@ bundled FFmpeg pair exists and is executable:
 - `DTXMania.Game/bin/Debug/net8.0/runtimes/osx-arm64/MMTools/ffmpeg`
 - `DTXMania.Game/bin/Debug/net8.0/runtimes/osx-arm64/MMTools/ffprobe`
 
-Preflight does not gate the apphost binary itself. That
+Preflight does not gate the apphost binary itself.
 `DTXMania.Game/bin/Debug/net8.0/DTXMania.Game.Mac` is a native arm64
-apphost is manually inspected acceptance evidence (the `file` check in the
-verification record), not a preflight check.
+apphost; manually inspecting it (including the `file` check recorded in the
+verification record) is acceptance evidence, not a preflight gate.
 
 The HPA-512 `osx-arm64` FFmpeg pair is required for recorder certification:
 a working FFmpeg on `PATH` is not accepted as native evidence, even though
@@ -89,10 +94,11 @@ prints these as manual prerequisites only.
 
 ```bash
 export DTXMANIA_VIDEO_OBS_URL=ws://127.0.0.1:4455      # loopback only
-export DTXMANIA_VIDEO_OBS_PASSWORD=<obs-websocket password>
-export DTXMANIA_VIDEO_OBS_OUTPUT_DIR=<OBS raw MP4 output directory>
+# Replace the quoted values below before running.
+export DTXMANIA_VIDEO_OBS_PASSWORD="your-obs-websocket-password"
+export DTXMANIA_VIDEO_OBS_OUTPUT_DIR="/path/to/obs-raw-mp4-output"
 # optional: record against an app-data copy other than the default root
-export DTXMANIA_APPDATA_ROOT=<path>
+export DTXMANIA_APPDATA_ROOT="/path/to/app-data-root"
 ```
 
 The default source app-data root mirrors the game's own resolution:
