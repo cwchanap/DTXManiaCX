@@ -6,7 +6,7 @@
 
 ## Goal
 
-Port the accepted HPA-503/HPA-513 recorder workflow to native Apple Silicon macOS with the smallest possible platform-specific change, then retain one inspected Mac recording and a concise operator runbook.
+Port the accepted HPA-503/HPA-513 recorder workflow to native Apple Silicon macOS with the smallest platform-specific change, then retain one inspected Mac recording and a concise operator runbook.
 
 The public command and captured journey stay unchanged:
 
@@ -20,94 +20,92 @@ Song Select
 -> completed Result held for at least 5 seconds
 ```
 
-HPA-515 is parity work. It is not a second recorder architecture and it does not add a second launch mode.
-
-## Why this is the next actionable task
-
-- HPA-513 is Done and accepted the shared recorder workflow on Windows.
-- HPA-512 is Done and provides native `osx-arm64` FFmpeg/ffprobe for CX preview and gameplay audio.
-- HPA-515 is the remaining high-priority unblocked leaf under HPA-500.
-- HPA-505 and HPA-506 are optional hardening and should not precede parity.
+HPA-515 is parity work. It keeps one workflow and one project-mode launch path.
 
 ## Current-state findings
 
-The existing recorder is already mostly platform-neutral:
+The recorder is already mostly platform-neutral:
 
 - `RecordWorkflow` contains no Windows-specific stage flow.
-- `ObsWebSocketRecorder` speaks obs-websocket 5.x and does not care whether OBS captures with Game Capture or ScreenCaptureKit.
-- `GameProcessDriver` already launches a project through `dotnet run --project`.
+- `ObsWebSocketRecorder` only speaks obs-websocket 5.x.
 - `GameProjectPaths.Current` already selects the Windows or Mac CX project.
-- macOS CI already runs `DTXMania.VideoRecorder.Tests` and `DTXMania.Automation.Tests`.
-- HPA-512 already places executable arm64 `ffmpeg` and `ffprobe` under `runtimes/osx-arm64/MMTools` in Mac build/publish output.
+- `GameProcessDriver` already owns project launch through `dotnet run --project`.
+- macOS CI already runs the VideoRecorder and Automation test projects.
+- HPA-512 already builds/copies native arm64 `ffmpeg` and `ffprobe` into the Mac build output.
 
-The relevant Windows assumptions are narrow:
+The remaining Windows assumptions are narrow:
 
-1. `RecorderCommandLine.ValidateRecord` rejects every non-Windows host.
-2. `RecorderGameLaunchPolicy.CreateOptions` hard-codes `DTXMania.Game.Windows.csproj` and requires a `RecordingSandbox` even though target resolution itself does not.
-3. `Program.RunDoctorAsync` duplicates repository-root discovery and hard-codes the Windows project/guidance.
-4. the recorder's default app-data lookup does not explicitly encode CX's macOS `~/Library/Application Support/DTXManiaCX` contract.
+1. `RecorderCommandLine.ValidateRecord` rejects non-Windows hosts.
+2. `RecorderGameLaunchPolicy.CreateOptions` hard-codes the Windows project and couples target discovery to sandbox creation.
+3. `Program.RunDoctorAsync` duplicates repository/project discovery and prints a Windows-only gate.
+4. recorder default app-data resolution is not explicitly pinned to the same macOS contract as `AppPaths.GetAppDataRoot()`.
 
-Those are the intended implementation seams.
+There is one additional launch correctness issue that HPA-515 must address: a preflight cannot certify `bin/Debug` while `GameProcessDriver` immediately runs a build that may replace that output.
 
 ## Approaches considered
 
-### A. Extend the existing recorder with one project-target resolver and one focused preflight — recommended
+### A. One project target + prebuilt/no-build launch + one focused preflight — recommended
 
-Keep one `RecordWorkflow`, one OBS client, one CLI, and one project launch path. Reuse `GameProjectPaths.Current` and `GameLaunchTarget.Project(...)`. Resolve the launch target once, run a small platform/runtime preflight before recording, and reuse both in `doctor`.
+Keep the existing recorder architecture. Resolve the current-platform project once, require the Debug output before recording, launch that exact output via `dotnet run --no-build --configuration Debug`, and use one preflight result in both record and doctor.
 
 **Pros**
 
-- smallest production change;
-- preserves the proven Windows journey;
-- prevents doctor and record from drifting onto different game targets;
-- fails missing Mac runtime before OBS starts;
-- naturally uses the existing Windows/macOS test matrix.
+- the runtime inspected before OBS is the runtime actually launched;
+- clean-checkout failure is actionable rather than ambiguous;
+- no stale-output check followed by an implicit rebuild;
+- no workflow fork or platform adapter;
+- existing Automation callers keep today's build-on-run behavior unless they opt into project arguments.
 
 **Cons**
 
-- a few Mac-specific checks remain in recorder preflight code.
+- `GameProcessStartOptions` / `GameProcessDriver` need one small additive extension for project-run arguments.
 
 ### B. Move recorder platform policy into `DTXMania.Automation`
 
-Rejected. Automation already exposes the generic project-path and launch primitives. Moving recorder-specific runtime/OBS policy there would broaden a reusable library for one consumer.
+Rejected. Automation should expose generic launch primitives, not OBS/recorder policy.
 
-### C. Add `IRecorderPlatform` with Windows/Mac implementations
+### C. Add `IRecorderPlatform`
 
-Rejected. Two platform branches do not justify an adapter framework. It adds indirection without a second workflow or launch model.
+Rejected. Two small platform branches do not justify a platform framework.
 
-### D. Add packaged-executable recording now
+### D. Add packaged executable recording
 
-Rejected for HPA-515. The accepted Windows proof uses project mode and the Mac parity proof should exercise the same contract. A packaged executable adds a second working-directory/runtime-layout path that the acceptance run would not prove.
-
-If packaged-app recording becomes useful later, it can be added behind the single launch-policy seam created here.
+Rejected for HPA-515. The accepted Windows proof is project mode and the Mac parity proof should exercise the same contract.
 
 ## Design decision
 
-Use approach A and keep HPA-515 project-mode-only.
-
-The recorder gains three focused changes:
+Use approach A.
 
 ```text
 RecorderGameLaunchPolicy
   -> ResolveTarget(...) without a sandbox
-  -> current platform project + repository-root working directory
-  -> CreateOptions(...) only adds sandbox app-data + launch token
+  -> current-platform project + repository-root working directory
+  -> CreateOptions(...) adds sandbox app-data, launch token,
+     and recorder-owned project run arguments
+
+GameProcessStartOptions / GameProcessDriver
+  -> optional project run arguments
+  -> recorder supplies: --no-build --configuration Debug
+  -> all existing callers may omit them and retain current behavior
 
 RecorderPlatformPreflight
-  -> validate native Mac host and bundled Debug runtime
-  -> consume the already-resolved project target
+  -> consumes the already-resolved project target
+  -> validates Mac host + the exact Debug runtime that no-build will launch
 
-Program / RecorderCommandLine
-  -> permit macOS as a recorder host
-  -> run preflight before record creates sandbox or talks to OBS
-  -> doctor prints the same resolved target/preflight gates
+Program
+  -> record resolves target and evaluates preflight
+  -> RunRecordAsync receives that target/result and rejects failure at its top
+  -> only then create sandbox / OBS / workflow
+  -> doctor consumes the same target/result
 ```
 
-`RecordWorkflow`, `IGameRecordingControl`, `ObsWebSocketRecorder`, sandbox semantics, diagnostics schema, finalization, and `GameProcessDriver` remain unchanged unless the native proof exposes a directly related defect.
+`RecordWorkflow`, OBS ownership, diagnostics schema, finalization, and sandbox semantics remain unchanged.
 
-## Project target resolution
+## Launch the artifact that was checked
 
-Add one sandbox-free resolved-target result owned by `RecorderGameLaunchPolicy`, for example:
+### Shared target resolution
+
+Add one sandbox-free recorder-local result:
 
 ```csharp
 internal sealed record ResolvedRecorderTarget(
@@ -116,15 +114,15 @@ internal sealed record ResolvedRecorderTarget(
     GameLaunchTarget Target);
 ```
 
-`ResolveTarget(startDirectory)` must:
+`RecorderGameLaunchPolicy.ResolveTarget(startDirectory)` must:
 
 1. reuse the existing repository-root walk;
-2. read `GameProjectPaths.Current`;
-3. combine it with the repository root to produce an absolute project path;
+2. use `GameProjectPaths.Current`;
+3. resolve an absolute project path under the repository root;
 4. create `GameLaunchTarget.Project(projectPath)`;
 5. use the repository root as the working directory.
 
-On Apple Silicon the target is:
+On macOS this resolves to:
 
 ```text
 DTXMania.Game/DTXMania.Game.Mac.csproj
@@ -136,42 +134,95 @@ On Windows it remains:
 DTXMania.Game/DTXMania.Game.Windows.csproj
 ```
 
-`CreateOptions` then combines the resolved target with:
+### Additive Automation launch option
 
-- `RecordingSandbox.AppDataRoot`;
-- a fresh launch token.
+Extend `GameProcessStartOptions` with one optional project-only argument list, for example:
 
-This separation lets `doctor` inspect exactly what `record` would launch without creating a disposable sandbox just to discover a path.
+```csharp
+IReadOnlyList<string>? ProjectRunArguments = null
+```
 
-Do not add platform arguments, executable overrides, app-bundle discovery, DMG mounting, or `open`-based launch behavior.
+For `GameLaunchKind.Project`, `GameProcessDriver.Start` appends those arguments to the `dotnet run` command after the project path. Existing callers that omit the field retain today's behavior.
+
+The recorder's `CreateOptions(...)` supplies:
+
+```text
+--no-build
+--configuration
+Debug
+```
+
+The recorder therefore launches:
+
+```text
+dotnet run --project <resolved-project> --no-build --configuration Debug
+```
+
+Do not change E2E/default Automation callers to no-build as part of HPA-515.
+
+If project-run arguments are supplied for an executable target, reject them rather than silently ignoring them.
+
+### Prebuild contract
+
+The recorder does not compile the game itself. Before `doctor` or `record`, the Mac runbook requires:
+
+```bash
+dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj --configuration Debug
+```
+
+If the required Debug output is missing, preflight fails before sandbox/OBS with an actionable message naming that exact command.
+
+This intentionally changes HPA-515 from “build during launch” to “build, certify, then no-build launch”. It removes the clean-tree false failure/stale-output replacement race from the previous design.
 
 ## Supported platform contract
 
 ### Windows
 
-Keep current behavior unchanged. Do not add new Windows version, architecture, or runtime requirements as part of Mac parity.
+Keep accepted Windows recorder behavior. HPA-515 does not add Windows version, architecture, or bundled-runtime requirements.
 
 ### macOS
 
-Recording is supported only when all of the following are true:
+Recording is supported when:
 
 - macOS 13 or later;
 - the recorder process is native `arm64`;
 - `GameProjectPaths.Current` resolves to the Mac project;
 - the project exists;
-- the expected HPA-512 Debug runtime contains executable `ffmpeg` and `ffprobe`.
+- the expected Debug output contains executable HPA-512 `ffmpeg` and `ffprobe` under `runtimes/osx-arm64/MMTools`.
 
-Intel macOS and Rosetta are out of scope. There is no PATH fallback for the supported CX audio runtime.
+macOS 13 remains a hard requirement, not a warning. The HPA-515 capture contract requires CX application audio through OBS ScreenCaptureKit/macOS Audio Capture; OBS documents audio capture for this source path on macOS 13+ while macOS 12.3-12.6 is video-only.
 
-`RecorderCommandLine` should continue owning syntax/path/environment validation and may widen the existing OS gate from Windows-only to Windows-or-macOS. Native host/build-layout validation belongs to the focused preflight below rather than command parsing.
+Intel macOS and Rosetta are out of scope.
 
 ## Native platform/runtime preflight
 
-Add one internal pure-ish helper, `RecorderPlatformPreflight`, that consumes the already-resolved project target plus testable host/file facts.
+Add one internal testable helper, `RecorderPlatformPreflight`, that consumes the resolved target plus injectable host/file facts.
 
-For Windows, it preserves today's supported behavior and adds no new gate.
+A practical shape is:
 
-For macOS, it validates:
+```csharp
+internal sealed record RecorderPlatformFacts(
+    bool IsWindows,
+    bool IsMacOS,
+    Version OsVersion,
+    Architecture ProcessArchitecture);
+
+internal sealed record RecorderPreflightGate(
+    string Name,
+    bool Passed,
+    string Detail);
+
+internal sealed record RecorderPlatformPreflightResult(
+    IReadOnlyList<RecorderPreflightGate> Gates,
+    string? NativeRuntimeDirectory)
+{
+    public bool Passed => Gates.All(gate => gate.Passed);
+}
+```
+
+For Windows, preserve today's supported behavior without a new native-runtime gate.
+
+For macOS, validate:
 
 ```text
 macOS major version >= 13
@@ -182,55 +233,57 @@ project file exists
 <project-dir>/bin/Debug/net8.0/runtimes/osx-arm64/MMTools/ffprobe exists + executable
 ```
 
-The Debug layout is intentional. `GameProcessDriver` currently invokes:
+The helper must not reference `DTXMania.Game`, call `FfmpegRuntime`, configure FFMpegCore, probe codecs, download binaries, inspect OBS sources, or inspect privacy permissions.
+
+### Bundled-runtime certification policy
+
+`FfmpegRuntime` can fall back to other bundled RIDs or PATH. HPA-515 intentionally applies a stricter recorder certification rule:
+
+> `dtx-video` refuses to certify a native Apple Silicon acceptance run unless the managed HPA-512 `osx-arm64` FFmpeg pair is present and executable.
+
+This is not a claim that CX itself cannot run with PATH FFmpeg. It is a recorder proof requirement so the accepted Mac artifact demonstrates the runtime delivered by HPA-512 rather than an unmanaged local installation.
+
+The recorder-side final-MP4 verifier may continue its existing optional PATH `ffprobe` lookup; that is a separate post-record inspection aid.
+
+## Record ordering is an enforced invariant
+
+Make `Program.RunRecordAsync` internal and pass the already-resolved target plus already-evaluated preflight result into it:
 
 ```text
-dotnet run --project <project>
+parse/read environment
+-> command/path validation
+-> ResolveTarget
+-> RecorderPlatformPreflight.Evaluate
+-> RunRecordAsync(command, environment, target, preflight)
+     -> fail immediately if preflight failed
+     -> create sandbox
+     -> create diagnostics/game/OBS
+     -> existing RecordWorkflow
 ```
 
-without `--configuration`, so the recorder's supported project-mode launch is Debug. HPA-515 should state and test that contract instead of adding configuration/RID search logic.
+`RunRecordAsync` must reject a failed preflight at its first side-effect boundary, before creating the sandbox or OBS client.
 
-The helper must not:
-
-- reference `DTXMania.Game`;
-- call or duplicate `FfmpegRuntime`;
-- configure FFMpegCore;
-- search PATH for the CX runtime;
-- probe codecs;
-- download FFmpeg;
-- inspect OBS sources or privacy permissions.
-
-The recorder-side `RecordingArtifactVerifier` may continue its existing optional PATH `ffprobe` lookup for final MP4 inspection. That is separate from the required bundled CX runtime.
-
-### Record call site
-
-A Mac `record` command must execute the same preflight **before** `RunRecordAsync` creates the disposable sandbox, initializes OBS, or starts the workflow.
-
-This is intentionally a program/orchestration gate rather than a `RecorderCommandLine` build-layout check: command parsing validates the command; launch/preflight code validates the target that will actually run.
-
-Missing/unusable bundled FFmpeg therefore fails loudly before any OBS recording can begin.
-
-### Doctor call site
-
-`doctor` resolves the same target and consumes the same preflight result to print individual pass/fail gates. It must not independently reconstruct the Mac project or runtime path.
+This is more robust than relying only on statement order in `Main`: the method signature carries the launch-readiness decision into the side-effecting path, and a unit test can pin the invariant.
 
 ## Default source app-data contract
 
-Keep `DTXMANIA_APPDATA_ROOT` as the explicit override.
+`AppPaths.GetAppDataRoot()` remains the authoritative game behavior. Do **not** make `DTXMania.Game` reference `DTXMania.Automation` solely to share one path helper; that would invert the intended dependency direction for production code.
 
-When no override is supplied, encode the CX macOS contract directly:
+Keep `DTXMANIA_APPDATA_ROOT` as the explicit override. For the default resolver, mirror the existing `AppPaths` behavior, including its home fallback order:
 
 ```text
-~/Library/Application Support/DTXManiaCX
+Windows -> LocalApplicationData/DTXManiaCX
+macOS   -> (UserProfile -> Personal -> $HOME)/Library/Application Support/DTXManiaCX
+other   -> ApplicationData/DTXManiaCX with the existing home fallback
 ```
 
-Do not depend on `SpecialFolder.LocalApplicationData` happening to map to the same location on current .NET/macOS. The source path used for sandbox creation and before/after isolation hashes must be the same path CX considers its normal data root.
+Make the recorder default-root resolver injectable/pure enough that Windows and macOS cases run on every test host. Do not leave the Mac branch dependent on ambient `OperatingSystem.IsMacOS()` or `Environment.GetFolderPath()` in unit tests.
 
-Windows default behavior stays unchanged.
+Add comments/tests on the recorder side naming `AppPaths.GetAppDataRoot()` as the contract it mirrors. If a neutral shared runtime project is introduced for other reasons later, this small rule can move there; HPA-515 does not create one.
 
 ## `doctor` behavior
 
-Keep `doctor` read-only with respect to OBS. It still performs only:
+Keep doctor read-only with respect to OBS:
 
 ```text
 Hello
@@ -238,7 +291,9 @@ Identify
 GetRecordStatus
 ```
 
-Shared output should include:
+Delete the current hard-coded `Windows` gate. Doctor resolves the shared target and reports the same `RecorderPlatformPreflightResult` through the existing `Program.ReportGate` helper; do not add a second gate printer.
+
+Shared output includes:
 
 - recorder configuration;
 - repository root;
@@ -248,16 +303,16 @@ Shared output should include:
 - OBS auth/status;
 - optional recorder-side PATH `ffprobe` warning.
 
-Mac-specific gates should include:
+Mac gates include:
 
 - macOS 13+;
-- recorder process `arm64`;
+- recorder process arm64;
 - Mac project target;
-- native CX runtime directory;
+- native runtime directory;
 - bundled `ffmpeg` executable;
 - bundled `ffprobe` executable.
 
-Mac manual guidance should state only:
+Mac manual guidance remains intentionally non-diagnostic:
 
 ```text
 Dedicated DTXManiaCX profile/collection/scene selected
@@ -271,18 +326,14 @@ WebSocket enabled/authenticated
 raw output directory matches DTXMANIA_VIDEO_OBS_OUTPUT_DIR
 ```
 
-The tool must not claim to inspect ScreenCaptureKit selection, audio meters, stale selectors, or macOS privacy state.
-
-Windows doctor guidance remains the existing Game Capture/application-audio guidance.
+Add a focused test for doctor platform reporting so a synthetic passing Mac preflight is not rejected merely because the test host is not Windows.
 
 ## Recording workflow
 
-No workflow fork is introduced.
-
-After preflight succeeds, macOS follows the existing workflow unchanged:
+After preflight succeeds, the existing sequence stays unchanged:
 
 1. create disposable recorder app-data sandbox;
-2. launch the resolved Mac project through `DTXMania.Automation`;
+2. launch the resolved project with recorder-owned `--no-build --configuration Debug`;
 3. wait for populated Song Select;
 4. prepare the exact chart with preview stopped;
 5. start owned OBS recording;
@@ -290,21 +341,22 @@ After preflight succeeds, macOS follows the existing workflow unchanged:
 7. activate the chart;
 8. observe Song Transition;
 9. complete full AutoPlay Performance;
-10. observe completed Result and hold it for at least 5 seconds;
-11. stop only the owned OBS recording;
+10. observe completed Result and hold at least 5 seconds;
+11. stop only recorder-owned OBS recording;
 12. verify/publish the raw artifact;
 13. write diagnostics and delete only the successful sandbox.
 
-No Mac-specific stage timing, retry policy, or diagnostics schema is added.
+No Mac-specific stage timing, retry policy, workflow subclass, or diagnostics schema is added.
 
 ## OBS / ScreenCaptureKit contract
 
-Keep OBS setup manual and minimal:
+Keep OBS setup manual:
 
 - OBS Studio 30.2+;
+- macOS 13+;
 - dedicated DTXManiaCX profile, collection, and scene;
 - ScreenCaptureKit application/window capture scoped to CX;
-- CX application audio enabled through that source or one dedicated macOS Audio Capture source;
+- CX application audio through that source or one dedicated macOS Audio Capture source;
 - global Desktop Audio disabled for the recorded track;
 - microphone disabled for the recorded track;
 - Hybrid MP4;
@@ -312,11 +364,11 @@ Keep OBS setup manual and minimal:
 - Screen Recording permission granted manually;
 - OBS idle before `record` starts.
 
-HPA-505 remains the optional source/audio/privacy diagnostic follow-up. HPA-506 remains the optional strict media/remux follow-up.
+HPA-505 remains optional source/audio/privacy diagnostics. HPA-506 remains optional strict media/remux handling.
 
-## Acceptance chart and native evidence
+## Acceptance chart and evidence
 
-Use one short chart already indexed by normal CX Song Select with valid preview audio. Prefer MP3 preview/BGM or another encoded input that demonstrably exercises the HPA-512 runtime.
+Use one short chart already indexed by normal CX Song Select with valid preview audio. Prefer MP3 preview/BGM or another encoded input that exercises HPA-512.
 
 Retain outside Git:
 
@@ -333,20 +385,18 @@ Retain outside Git:
   published/diagnostics/<run-id>/cx-stderr.log
 ```
 
-`architecture.txt` should show, without private paths or secrets:
+`architecture.txt` should show:
 
 - host is Apple Silicon;
-- selected CX apphost is arm64;
+- the Debug CX apphost inspected before `record` is arm64;
 - bundled `ffmpeg` is arm64;
 - bundled `ffprobe` is arm64.
 
-The preflight proves executable presence before OBS. The HPA-512 focused audio tests plus encoded acceptance chart prove the runtime is actually useful for CX audio.
+Because record launches with `--no-build`, those inspected Debug artifacts are the artifacts used by the acceptance run.
 
 ## Source app-data isolation
 
-Reuse the HPA-513 before/after hash proof against the resolved normal Mac app-data root.
-
-Capture presence, byte size, and SHA-256 for:
+Reuse HPA-513 before/after hashes against the resolved normal Mac app-data root:
 
 ```text
 Config.ini
@@ -355,17 +405,15 @@ songs.db-wal
 songs.db-shm
 ```
 
-Acceptance requires no content change and no new source WAL/SHM file caused by the recorder.
-
-Do not add recorder instrumentation for this proof.
+Capture presence, size, and SHA-256. Acceptance requires no content change and no new source WAL/SHM file caused by the recorder.
 
 ## Automated telemetry acceptance
 
-Reuse the HPA-513 `run.json` contract. Require at least:
+Reuse HPA-513 `run.json`. Require at least:
 
 - `status == Completed`;
 - selected song present at `SongSelectReady`;
-- preview state Playing and elapsed preview >= 10,000 ms;
+- preview Playing and elapsed >= 10,000 ms;
 - Performance ready, AutoPlay enabled, total notes > 0;
 - Result completed/cleared by song completion;
 - `totalJudgements == totalNotes`;
@@ -376,118 +424,138 @@ Reuse the HPA-513 `run.json` contract. Require at least:
 
 ## Manual media acceptance
 
-Watch the complete published MP4 and confirm:
+Watch the complete MP4 and confirm:
 
-- intended populated Song Select is first;
-- preview begins after Song Select is visibly captured and lasts at least 10 seconds;
+- populated Song Select is first;
+- preview is visibly captured and lasts at least 10 seconds;
 - Song Transition is complete;
-- full AutoPlay gameplay is visible and BGM/chip audio is audible;
+- full AutoPlay gameplay and BGM/chip audio are present;
 - Result is fully rendered and held at least 5 seconds;
-- recording ends after the Result hold;
+- recording ends after Result hold;
 - no OBS UI, desktop, unrelated window, cursor, notification, microphone, or unrelated application audio is captured;
-- CX audio is not duplicated or echoed;
+- CX audio is not duplicated/echoed;
 - no aspect squeeze, severe stutter, or missing viewport region makes the recording unusable;
-- CX preview/gameplay audio does not require Rosetta or user-installed FFmpeg.
-
-## Failure and cleanup strategy
-
-Keep existing automated tests as the primary proof for platform-neutral ownership and cleanup.
-
-The native Mac proof adds only high-value evidence:
-
-1. real Apple Silicon `doctor`;
-2. one successful encoded-audio recording;
-3. one Ctrl+C after recorder-owned OBS start, confirming OBS stops and partial evidence is retained;
-4. manual confirmation that ScreenCaptureKit/privacy setup failures remain operator-visible and are not falsely classified by `doctor`.
-
-Do not revoke permissions or add source-diagnostic APIs merely to manufacture a failure case.
+- CX audio does not require Rosetta or user-installed FFmpeg.
 
 ## Testing strategy
 
-Extend `DTXMania.VideoRecorder.Tests` for:
+### Automation tests
 
-- `ResolveTarget` choosing the current platform project and repository-root working directory;
-- `CreateOptions` adding only sandbox app-data and a fresh launch token;
-- Mac default app-data resolving explicitly to `~/Library/Application Support/DTXManiaCX` when no override is set;
-- Windows record behavior remaining accepted;
-- Mac host version/architecture gates;
-- Mac Debug runtime path resolution from the already-resolved project target;
-- missing or non-executable bundled runtime files producing actionable preflight failure;
-- record preflight occurring before recorder/OBS workflow startup through a focused orchestration seam if needed.
+Extend `GameProcessDriverTests` for the additive project-run-argument behavior:
 
-Do not create a second Mac `RecordWorkflow` test matrix. Its existing tests remain shared.
+- existing project launch with no extra arguments still builds/runs as today;
+- build a child Debug project, then make its source uncompilable; launching with `--no-build --configuration Debug` still runs the already-built child, proving the driver honored no-build;
+- project-run arguments on an executable target are rejected.
 
-No CI edit is planned initially. Existing Windows/macOS VideoRecorder and Automation jobs should execute the new tests; change CI only if implementation proves otherwise.
+### VideoRecorder tests
+
+Cover:
+
+- shared target resolution from repository root and nested directories;
+- recorder `CreateOptions` preserves the target/working directory and adds `--no-build --configuration Debug`, sandbox app-data, and a fresh launch token;
+- both Windows and Mac default app-data resolution through injected platform/folder facts, including the `UserProfile -> Personal -> $HOME` Mac fallback;
+- Windows record behavior remains accepted;
+- Mac host version/architecture gates from synthetic facts;
+- exact Debug runtime path resolution;
+- missing/non-executable native runtime fails with the exact build command in the message;
+- `RunRecordAsync` with a failed preflight creates no sandbox and cannot initialize OBS;
+- doctor platform reporting accepts a passing synthetic Mac result and has no separate Windows-only gate.
+
+Do not create a second Mac `RecordWorkflow` matrix.
+
+No CI edit is planned initially; existing Windows/macOS jobs already run Automation and VideoRecorder tests.
+
+## Native proof
+
+On the Apple Silicon workstation:
+
+1. capture host/.NET versions;
+2. run `dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj --configuration Debug`;
+3. use `file` on the Debug apphost and bundled `ffmpeg`/`ffprobe`;
+4. run the existing focused HPA-512 audio tests;
+5. run `dtx-video doctor` and confirm all automated gates;
+6. configure OBS manually;
+7. capture source app-data hashes;
+8. run one successful `record` acceptance journey;
+9. repeat source hashes;
+10. run one Ctrl+C case after recorder-owned OBS start;
+11. inspect the complete published MP4.
 
 ## Documentation outputs
 
-The implementation/acceptance PR should add:
+The implementation/acceptance PR adds:
 
 ```text
 docs/video-recorder/macos-obs-setup.md
 docs/verification/hpa-515-apple-silicon-live-recording.md
 ```
 
-The runbook should cover only native Apple Silicon prerequisites, Debug project build, ScreenCaptureKit/application-audio setup, Screen Recording permission, OBS/WebSocket environment, `doctor`, `record`, bundled-runtime diagnostics, artifacts, and troubleshooting.
+The runbook covers Apple Silicon/macOS prerequisites, the required Debug build, ScreenCaptureKit/application-audio setup, Screen Recording permission, OBS/WebSocket environment, doctor/record commands, runtime-gate failure recovery, artifacts, and concise troubleshooting.
 
-The verification record should contain the accepted commit SHA, macOS/architecture/.NET/OBS versions, chart identity, arm64 evidence, doctor result, sanitized command, MP4 file metadata/hashes, key `run.json` values, source before/after comparison, Ctrl+C result, manual media checklist, focused automated-test results, and warnings/deviations.
-
-Do not document a packaged executable mode in HPA-515.
+The verification record captures the accepted commit SHA, host/.NET/OBS versions, chart identity, Debug apphost/runtime architecture evidence, doctor result, sanitized record command, MP4 metadata/hash, key `run.json` values, source before/after comparison, Ctrl+C result, manual media checklist, focused automated tests, and deviations.
 
 ## Risks
 
+### Build and launch must stay pinned
+
+The recorder now intentionally checks Debug output and launches it with `--no-build --configuration Debug`. If launch configuration changes, preflight and recorder launch policy must change in the same patch.
+
+### A stale prebuild is possible by operator choice
+
+`--no-build` guarantees the checked output is the launched output, but it does not prove source files have not changed since the operator ran `dotnet build`. The native acceptance procedure therefore records the commit SHA and performs the build immediately before architecture/doctor/record evidence.
+
+Do not add source-hash/build-manifest machinery for HPA-515.
+
 ### Manual OBS/privacy setup may fail before code does
 
-Hosted CI cannot prove ScreenCaptureKit selection, application-audio routing, or Screen Recording permission. The first native proof may require only an OBS/privacy correction, not a recorder change. Keep these as operator acceptance failures unless code evidence proves otherwise.
+Hosted CI cannot prove ScreenCaptureKit selection, application-audio routing, or Screen Recording permission. Treat these as operator setup failures unless code evidence proves otherwise.
 
-### Debug runtime layout is coupled to the current project launch contract
+### Bundled runtime certification is intentionally stricter than CX runtime fallback
 
-`GameProcessDriver` uses `dotnet run --project` without `--configuration`, which means Debug output. The preflight therefore deliberately checks `bin/Debug/net8.0`. If recorder launch configuration changes later, launch policy and preflight must change together.
+The game may fall back to another bundled RID or PATH. The recorder intentionally refuses to certify that as HPA-515 native Apple Silicon evidence.
 
-### Missing bundled FFmpeg can look like a capture/audio problem
+### App-data rule is mirrored, not shared
 
-A missing native runtime could otherwise surface after Song Select/OBS start as bad preview/gameplay audio. Running preflight before sandbox/OBS creation makes this a deterministic recorder error instead.
-
-### Wrong default app-data path invalidates the isolation proof
-
-HPA-515's source hashes are meaningful only if the recorder reads the same normal data root as CX. The explicit Mac default-path rule is therefore part of parity, not incidental cleanup.
+`AppPaths` remains authoritative and the recorder mirrors its small default-root rule to avoid a Game -> Automation production dependency. Keep the mirrored code/test comment explicit; if this rule grows, move it to a neutral shared runtime component rather than Automation.
 
 ## Out of scope
 
 - packaged executable/app-bundle recording;
 - app-bundle discovery or DMG mounting;
 - Intel Mac or Rosetta support;
-- PATH fallback for the supported CX audio runtime;
+- accepting unmanaged PATH FFmpeg as HPA-515 certification;
 - automated ScreenCaptureKit source/audio/privacy diagnosis;
 - strict codec/frame-rate/duration enforcement;
 - MKV fallback/remux/transcoding;
 - YouTube upload/editing;
-- new platform abstraction/framework;
-- unrelated `GameProcessDriver` refactoring.
+- platform adapter framework;
+- changing default Automation/E2E build-on-run behavior;
+- a new shared runtime project solely for app-data path resolution.
 
 ## Implementation slice
 
-One 2–3 engineer-day implementation/acceptance PR is sufficient:
+One 2–3 engineer-day implementation/acceptance PR remains sufficient:
 
-1. shared project target resolution + explicit Mac app-data default;
-2. shared Mac host/runtime preflight used by both record and doctor;
+1. pin recorder launch to a prebuilt Debug project and share target resolution;
+2. add Mac preflight, testable app-data resolution, enforced preflight ordering, and doctor parity;
 3. native Apple Silicon build/audio proof before OBS;
 4. one real ScreenCaptureKit recording + cleanup/isolation/media acceptance;
-5. Mac operator runbook + sanitized verification record.
-
-Each checkpoint is independently reviewable. If the native proof exposes an unrelated defect, file a focused blocker rather than expanding HPA-515.
+5. Mac runbook + sanitized verification record.
 
 ## Acceptance criteria
 
 HPA-515 is complete when:
 
-- the unchanged recorder CLI works on native Apple Silicon macOS 13+;
+- unchanged recorder CLI works on native Apple Silicon macOS 13+;
 - record and doctor resolve the same Mac project target;
-- record rejects an unsupported Mac host or missing/unusable bundled runtime before starting OBS;
-- the default Mac source app-data root matches CX's `~/Library/Application Support/DTXManiaCX` contract;
-- one encoded-audio chart completes the accepted Song Select -> preview -> transition -> AutoPlay -> Result journey;
+- recorder launches the same prebuilt Debug artifact that preflight certified;
+- missing/unusable native runtime fails before sandbox/OBS with the exact build recovery command;
+- failed preflight ordering is covered by an automated no-sandbox test;
+- doctor no longer fails merely because the host is macOS;
+- default Mac source app-data resolution matches the `AppPaths` contract and is host-independently unit tested;
+- one encoded-audio chart completes Song Select -> preview -> transition -> AutoPlay -> Result;
 - one inspected Hybrid MP4 and sanitized evidence bundle are retained;
 - normal CX app data remains unchanged;
-- Ctrl+C stops only recorder-owned OBS work and retains useful failure evidence;
-- Windows behavior remains unchanged;
+- Ctrl+C stops only recorder-owned OBS work and retains useful evidence;
+- Windows/default Automation behavior remains unchanged;
 - no platform adapter, packaged-executable mode, HPA-505, or HPA-506 scope is introduced.
