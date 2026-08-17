@@ -15,8 +15,46 @@ namespace DTXMania.VideoRecorder.Workflow;
 /// project (<c>DTXMania.Game/DTXMania.Game.Windows.csproj</c>) is always
 /// resolved relative to that single declared root.
 /// </remarks>
+internal sealed record ResolvedRecorderTarget(
+    string RepositoryRoot,
+    string WorkingDirectory,
+    GameLaunchTarget Target);
+
 internal static class RecorderGameLaunchPolicy
 {
+    /// <summary>
+    /// Sandbox-free resolution of the current-platform game launch target
+    /// rooted at the repository containing <paramref name="startDirectory"/>.
+    /// </summary>
+    internal static ResolvedRecorderTarget ResolveTarget(string startDirectory)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(startDirectory);
+        var repoRoot = ResolveRepoRoot(startDirectory);
+        var projectPath = Path.GetFullPath(Path.Combine(repoRoot, GameProjectPaths.Current));
+        return new ResolvedRecorderTarget(
+            repoRoot,
+            repoRoot,
+            GameLaunchTarget.Project(projectPath));
+    }
+
+    /// <summary>
+    /// Builds the launch options for the resolved target, pinned to the
+    /// prebuilt Debug output via no-build.
+    /// </summary>
+    internal static GameProcessStartOptions CreateOptions(
+        RecordingSandbox sandbox,
+        ResolvedRecorderTarget target)
+    {
+        ArgumentNullException.ThrowIfNull(sandbox);
+        ArgumentNullException.ThrowIfNull(target);
+        return new GameProcessStartOptions(
+            target.WorkingDirectory,
+            target.Target,
+            sandbox.AppDataRoot,
+            Guid.NewGuid().ToString("N"),
+            ProjectRunArguments: new[] { "--no-build", "--configuration", "Debug" });
+    }
+
     /// <summary>
     /// Builds the launch options for the Windows game project rooted at the
     /// repository root declared via the current working directory.

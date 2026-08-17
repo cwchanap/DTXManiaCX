@@ -5,4 +5,5 @@ public sealed record GameProcessStartOptions(
     GameLaunchTarget Target,
     string AppDataRoot,
     string LaunchToken,
-    IReadOnlyDictionary<string, string?>? EnvironmentOverrides = null);
+    IReadOnlyDictionary<string, string?>? EnvironmentOverrides = null,
+    IReadOnlyList<string>? ProjectRunArguments = null);
