@@ -72,6 +72,49 @@ public sealed class GameProcessDriverTests
     }
 
     [Fact(Timeout = 60_000)]
+    public async Task Start_ProjectTargetWithNoBuildRunArguments_ShouldRunPreviouslyBuiltOutputWithoutRebuilding()
+    {
+        using var fixture = CreateChildFixture();
+        BuildChild(fixture);
+        File.WriteAllText(
+            Path.Combine(fixture.Root, "Program.cs"),
+            "!!! this source must not compile !!!",
+            Encoding.UTF8);
+
+        await using var process = new GameProcessDriver();
+        var options = CreateOptions(
+            fixture,
+            GameLaunchTarget.Project(fixture.ProjectPath),
+            projectRunArguments: new[] { "--no-build", "--configuration", "Debug" });
+
+        process.Start(options);
+
+        var exitCode = await process.WaitForExitAsync(
+            TimeSpan.FromSeconds(30),
+            CancellationToken.None);
+
+        Assert.Equal(23, exitCode);
+        Assert.Contains("appdata=" + options.AppDataRoot, process.StandardOutput, StringComparison.Ordinal);
+        Assert.Contains("token=" + options.LaunchToken, process.StandardOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Start_WhenProjectRunArgumentsSuppliedToExecutableTarget_ShouldReject()
+    {
+        using var fixture = CreateChildFixture();
+        var process = new GameProcessDriver();
+        var options = CreateOptions(
+            fixture,
+            GameLaunchTarget.Executable(GetBuiltAppHostPath(fixture.Root)),
+            projectRunArguments: new[] { "--no-build" });
+
+        var exception = Assert.Throws<ArgumentException>(() => process.Start(options));
+
+        Assert.Contains("ProjectRunArguments", exception.Message, StringComparison.Ordinal);
+        Assert.Null(process.ProcessId);
+    }
+
+    [Fact(Timeout = 60_000)]
     public async Task Start_WhenCalledTwice_ShouldRejectDuplicateOwnership()
     {
         using var fixture = CreateChildFixture();
@@ -383,14 +426,16 @@ public sealed class GameProcessDriverTests
     private static GameProcessStartOptions CreateOptions(
         ChildFixture fixture,
         GameLaunchTarget target,
-        IReadOnlyDictionary<string, string?>? environmentOverrides = null)
+        IReadOnlyDictionary<string, string?>? environmentOverrides = null,
+        IReadOnlyList<string>? projectRunArguments = null)
     {
         return new GameProcessStartOptions(
             fixture.Root,
             target,
             Path.Combine(fixture.Root, "appdata"),
             "automation-token-123",
-            environmentOverrides);
+            environmentOverrides,
+            projectRunArguments);
     }
 
     private static ChildFixture CreateChildFixture()

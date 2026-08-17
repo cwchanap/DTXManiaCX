@@ -62,6 +62,7 @@ public sealed class GameProcessDriver : IAsyncDisposable
             throw new InvalidOperationException("Game process has already been started.");
 
         ValidateEnvironmentOverrides(options.EnvironmentOverrides);
+        ValidateProjectRunArguments(options);
 
         var startInfo = new ProcessStartInfo
         {
@@ -78,6 +79,13 @@ public sealed class GameProcessDriver : IAsyncDisposable
             startInfo.ArgumentList.Add("run");
             startInfo.ArgumentList.Add("--project");
             startInfo.ArgumentList.Add(options.Target.Path);
+            if (options.ProjectRunArguments is not null)
+            {
+                foreach (var argument in options.ProjectRunArguments)
+                {
+                    startInfo.ArgumentList.Add(argument);
+                }
+            }
         }
         else
         {
@@ -361,6 +369,17 @@ public sealed class GameProcessDriver : IAsyncDisposable
     private static string Format(string? value)
     {
         return value ?? "<null>";
+    }
+
+    private static void ValidateProjectRunArguments(GameProcessStartOptions options)
+    {
+        if (options.Target.Kind != GameLaunchKind.Project
+            && options.ProjectRunArguments is { Count: > 0 })
+        {
+            throw new ArgumentException(
+                "Project run arguments are only valid for project targets.",
+                nameof(options.ProjectRunArguments));
+        }
     }
 
     private static void ValidateEnvironmentOverrides(
