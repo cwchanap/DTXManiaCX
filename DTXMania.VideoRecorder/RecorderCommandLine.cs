@@ -122,14 +122,25 @@ internal static class RecorderCommandLine
     }
 
     public static void ValidateRecord(RecorderCommand command, RecorderEnvironment environment)
+        => ValidateRecord(
+            command,
+            environment,
+            OperatingSystem.IsWindows(),
+            OperatingSystem.IsMacOS());
+
+    internal static void ValidateRecord(
+        RecorderCommand command,
+        RecorderEnvironment environment,
+        bool isWindows,
+        bool isMacOS)
     {
         ArgumentNullException.ThrowIfNull(command);
         ArgumentNullException.ThrowIfNull(environment);
 
-        if (!OperatingSystem.IsWindows())
+        if (!isWindows && !isMacOS)
         {
             throw new PlatformNotSupportedException(
-                "dtx-video record is supported on Windows only.");
+                "dtx-video record is supported on Windows and macOS only.");
         }
 
         ValidateObsUrl(environment.ObsUrl);
@@ -289,19 +300,65 @@ internal static class RecorderCommandLine
         }
     }
 
-    private static string GetDefaultSourceAppDataRoot()
+    /// <summary>
+    /// Mirrors the default (non-override) resolution of
+    /// <c>AppPaths.GetAppDataRoot()</c> in <c>DTXMania.Game/Lib/Utilities/AppPaths.cs</c>,
+    /// which is the authoritative contract — keep the two in sync. Deliberately
+    /// duplicated here instead of referencing the game assembly so the recorder
+    /// stays a standalone tool.
+    /// </summary>
+    internal static string GetDefaultSourceAppDataRoot(
+        bool isWindows,
+        bool isMacOS,
+        Func<Environment.SpecialFolder, string> getFolderPath,
+        Func<string, string?> getEnvironmentVariable)
     {
-        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrWhiteSpace(localAppData))
+        string basePath;
+        if (isWindows)
         {
-            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            if (string.IsNullOrWhiteSpace(home))
-                throw new InvalidOperationException("Unable to determine the CX app-data root.");
-            localAppData = OperatingSystem.IsMacOS()
-                ? Path.Combine(home, "Library", "Application Support")
-                : Path.Combine(home, ".config");
+            basePath = getFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        }
+        else if (isMacOS)
+        {
+            var home = GetHomeDirectory(getFolderPath, getEnvironmentVariable);
+            basePath = Path.Combine(home, "Library", "Application Support");
+        }
+        else
+        {
+            basePath = getFolderPath(Environment.SpecialFolder.ApplicationData);
         }
 
-        return Path.Combine(localAppData, "DTXManiaCX");
+        if (string.IsNullOrWhiteSpace(basePath) || !Path.IsPathRooted(basePath))
+        {
+            var fallbackHome = GetHomeDirectory(getFolderPath, getEnvironmentVariable);
+            if (string.IsNullOrWhiteSpace(fallbackHome))
+                throw new InvalidOperationException("Unable to determine the CX app-data root.");
+            basePath = isMacOS
+                ? Path.Combine(fallbackHome, "Library", "Application Support")
+                : Path.Combine(fallbackHome, ".config");
+        }
+
+        return Path.Combine(basePath, "DTXManiaCX");
+    }
+
+    private static string GetDefaultSourceAppDataRoot()
+        => GetDefaultSourceAppDataRoot(
+            OperatingSystem.IsWindows(),
+            OperatingSystem.IsMacOS(),
+            Environment.GetFolderPath,
+            Environment.GetEnvironmentVariable);
+
+    private static string GetHomeDirectory(
+        Func<Environment.SpecialFolder, string> getFolderPath,
+        Func<string, string?> getEnvironmentVariable)
+    {
+        var home = getFolderPath(Environment.SpecialFolder.UserProfile);
+        if (string.IsNullOrWhiteSpace(home))
+            home = getFolderPath(Environment.SpecialFolder.Personal);
+
+        if (string.IsNullOrWhiteSpace(home))
+            home = getEnvironmentVariable("HOME") ?? string.Empty;
+
+        return home;
     }
 }
