@@ -28,6 +28,28 @@ public sealed class RecorderPlatformPreflightTests
     }
 
     [Fact]
+    public void Evaluate_UnsupportedPlatformFacts_FailsPlatformGateOnly()
+    {
+        var repo = CreateFakeRepo(GameProjectPaths.Mac);
+        try
+        {
+            var result = RecorderPlatformPreflight.Evaluate(
+                Facts(isWindows: false, isMacOS: false, new Version(0, 0), Architecture.X64),
+                CreateTarget(repo, GameProjectPaths.Mac));
+
+            Assert.False(result.Passed);
+            Assert.Null(result.NativeRuntimeDirectory);
+            var gate = Assert.Single(result.Gates);
+            Assert.False(gate.Passed);
+            Assert.Contains("Windows and macOS only", gate.Detail);
+        }
+        finally
+        {
+            Delete(repo);
+        }
+    }
+
+    [Fact]
     public void Evaluate_MacOs12Arm64_FailsVersionGate()
     {
         var repo = CreateMacRuntimeRepo();
@@ -93,7 +115,8 @@ public sealed class RecorderPlatformPreflightTests
 
             var gate = FailedGate(result, "Bundled ffmpeg");
             Assert.Contains(RecorderPlatformPreflight.MacRuntimeRecoveryCommand, gate.Detail);
-            Assert.All(result.Gates.Where(g => g.Name == "Bundled ffprobe"), g => Assert.True(g.Passed));
+            var ffprobeGate = Assert.Single(result.Gates, g => g.Name == "Bundled ffprobe");
+            Assert.True(ffprobeGate.Passed);
         }
         finally
         {
@@ -112,7 +135,8 @@ public sealed class RecorderPlatformPreflightTests
 
             var gate = FailedGate(result, "Bundled ffprobe");
             Assert.Contains(RecorderPlatformPreflight.MacRuntimeRecoveryCommand, gate.Detail);
-            Assert.All(result.Gates.Where(g => g.Name == "Bundled ffmpeg"), g => Assert.True(g.Passed));
+            var ffmpegGate = Assert.Single(result.Gates, g => g.Name == "Bundled ffmpeg");
+            Assert.True(ffmpegGate.Passed);
         }
         finally
         {
@@ -120,11 +144,10 @@ public sealed class RecorderPlatformPreflightTests
         }
     }
 
-    [Fact]
+    [SkippableFact]
     public void Evaluate_MacOs13Arm64WithNonExecutablePair_FailsRuntimeGates()
     {
-        if (!UnixFileModeSupported)
-            return; // exec bit not representable on this host; pass-case covers the fallback
+        Skip.IfNot(UnixFileModeSupported, "Unix file mode is not representable on this host.");
 
         var repo = CreateFakeRepo(GameProjectPaths.Mac);
         WriteRuntimeBinary(repo, "ffmpeg", executable: false);

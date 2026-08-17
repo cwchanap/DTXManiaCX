@@ -116,12 +116,20 @@ public sealed class RecorderCommandLineTests
     public void ValidateRecord_NonLoopbackObsUrl_ShouldExpectFailure()
     {
         var environment = CreateEnvironment(obsUrl: "ws://192.168.0.5:4455");
-        var command = new RecorderCommand(RecorderVerb.Record, "/nonexistent/chart.dtx", CreateTempDirectory());
+        var outputDirectory = CreateTempDirectory();
+        var command = new RecorderCommand(RecorderVerb.Record, "/nonexistent/chart.dtx", outputDirectory);
 
-        var exception = Assert.Throws<InvalidOperationException>(
-            () => RecorderCommandLine.ValidateRecord(command, environment, isWindows: true, isMacOS: false));
+        try
+        {
+            var exception = Assert.Throws<InvalidOperationException>(
+                () => RecorderCommandLine.ValidateRecord(command, environment, isWindows: true, isMacOS: false));
 
-        Assert.Contains("loopback", exception.Message);
+            Assert.Contains("loopback", exception.Message);
+        }
+        finally
+        {
+            Delete(outputDirectory);
+        }
     }
 
     [Fact]

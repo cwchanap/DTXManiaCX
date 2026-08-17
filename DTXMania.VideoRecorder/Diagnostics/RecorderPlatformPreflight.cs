@@ -68,9 +68,8 @@ internal static class RecorderPlatformPreflight
         }
 
         var projectPath = Path.GetFullPath(target.Target.Path);
-        var runtimeDirectory = Path.Combine(
-            Path.GetDirectoryName(projectPath) ?? string.Empty,
-            "bin", "Debug", "net8.0", "runtimes", "osx-arm64", "MMTools");
+        var runtimeDirectory = ResolveMacRuntimeDirectory(
+            Path.GetDirectoryName(projectPath) ?? string.Empty);
         return new RecorderPlatformPreflightResult(
             new[]
             {
@@ -105,6 +104,33 @@ internal static class RecorderPlatformPreflight
     private static bool IsMacProject(string projectPath)
         => projectPath.Replace('\\', '/')
             .EndsWith(GameProjectPaths.Mac, StringComparison.Ordinal);
+
+    /// <summary>
+    /// Locates the bundled osx-arm64 MMTools runtime directory by enumerating
+    /// the framework directories under <c>bin/Debug</c> rather than hardcoding
+    /// a target-framework segment, so the check stays aligned after framework
+    /// changes. Falls back to a best-effort path when nothing has been built
+    /// yet so the gate diagnostic still names a location.
+    /// </summary>
+    private static string ResolveMacRuntimeDirectory(string projectDirectory)
+    {
+        var binDebug = Path.Combine(projectDirectory, "bin", "Debug");
+        string? firstFrameworkDir = null;
+        if (Directory.Exists(binDebug))
+        {
+            foreach (var frameworkDir in Directory.GetDirectories(binDebug))
+            {
+                firstFrameworkDir ??= frameworkDir;
+                var candidate = Path.Combine(frameworkDir, "runtimes", "osx-arm64", "MMTools");
+                if (Directory.Exists(candidate))
+                    return candidate;
+            }
+        }
+
+        return firstFrameworkDir is null
+            ? Path.Combine(binDebug, "runtimes", "osx-arm64", "MMTools")
+            : Path.Combine(firstFrameworkDir, "runtimes", "osx-arm64", "MMTools");
+    }
 
     private static bool IsUsableRuntimeBinary(string path)
         => File.Exists(path) && IsExecutable(path);

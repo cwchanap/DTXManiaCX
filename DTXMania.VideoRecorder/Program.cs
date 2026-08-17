@@ -303,7 +303,12 @@ internal static class Program
             passed &= ReportGate(writer, gate.Name, gate.Passed, gate.Detail);
 
         writer.WriteLine("Manual OBS prerequisites:");
-        foreach (var line in facts.IsMacOS ? MacManualPrerequisites : WindowsManualPrerequisites)
+        var prerequisites = facts.IsMacOS
+            ? MacManualPrerequisites
+            : facts.IsWindows
+                ? WindowsManualPrerequisites
+                : UnsupportedPlatformManualPrerequisites;
+        foreach (var line in prerequisites)
             writer.WriteLine(line);
 
         return passed;
@@ -330,6 +335,12 @@ internal static class Program
         "Hybrid MP4 configured",
         "WebSocket enabled",
         "raw output dir matches DTXMANIA_VIDEO_OBS_OUTPUT_DIR"
+    };
+
+    private static readonly string[] UnsupportedPlatformManualPrerequisites =
+    {
+        "Manual OBS prerequisites are unavailable on this platform.",
+        "dtx-video record is supported on Windows and macOS only."
     };
 
     private static bool ReportGate(TextWriter writer, string name, bool passed, string detail)
