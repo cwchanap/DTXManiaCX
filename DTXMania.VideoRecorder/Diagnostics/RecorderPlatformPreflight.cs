@@ -28,24 +28,30 @@ internal sealed record RecorderPlatformPreflightResult(
 /// environment. HPA-515 recorder certification requires the bundled
 /// osx-arm64 Debug runtime; a working PATH FFmpeg is deliberately not
 /// accepted as evidence. Because <c>record</c> launches with
-/// <c>dotnet run --no-build --configuration Debug</c>, preflight certifies
-/// the exact Debug output artifact that launch will execute. The Mac project
-/// is a net8.0 <c>WinExe</c> with the SDK default <c>UseAppHost=true</c>, so
-/// <c>dotnet run --no-build</c> executes the native apphost
-/// (<c>&lt;AssemblyName&gt;</c>, no extension on macOS) — not the managed
-/// DLL. The "Debug output" gate therefore certifies the apphost itself
-/// (existence + executable bit), since a missing/non-executable apphost
-/// would pass a DLL-only gate and then fail at process launch after the
-/// sandbox is already created. The Debug output directory is resolved from
-/// the project's <c>&lt;TargetFramework&gt;</c> rather than by enumerating
-/// <c>bin/Debug</c> framework directories (a stale previous TFM could
-/// otherwise satisfy preflight while the current project has no runnable
-/// Debug output).
+/// <c>dotnet run --no-build --configuration Debug</c> on every platform,
+/// preflight certifies the exact Debug output artifact that launch will
+/// execute. The Mac project is a net8.0 <c>WinExe</c> with the SDK default
+/// <c>UseAppHost=true</c>, so <c>dotnet run --no-build</c> executes the
+/// native apphost (<c>&lt;AssemblyName&gt;</c>, no extension on macOS) — not
+/// the managed DLL. The Windows project is a net8.0-windows <c>WinExe</c>
+/// with the same SDK default, so its apphost is
+/// <c>&lt;AssemblyName&gt;.exe</c>. The "Debug output" gate therefore
+/// certifies the apphost itself (existence + executable bit on macOS;
+/// existence on Windows, which has no executable bit), since a
+/// missing/non-executable apphost would pass a DLL-only gate and then fail
+/// at process launch after the sandbox is already created. The Debug output
+/// directory is resolved from the project's <c>&lt;TargetFramework&gt;</c>
+/// rather than by enumerating <c>bin/Debug</c> framework directories (a
+/// stale previous TFM could otherwise satisfy preflight while the current
+/// project has no runnable Debug output).
 /// </summary>
 internal static class RecorderPlatformPreflight
 {
     internal const string MacRuntimeRecoveryCommand =
         "dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj --configuration Debug";
+
+    internal const string WindowsRuntimeRecoveryCommand =
+        "dotnet build DTXMania.Game/DTXMania.Game.Windows.csproj --configuration Debug";
 
     private static readonly Regex TargetFrameworkRegex = new(
         @"<TargetFramework>\s*([^<\s]+)\s*</TargetFramework>",
@@ -60,10 +66,13 @@ internal static class RecorderPlatformPreflight
     /// <summary>
     /// Evaluates the platform gates. The "Game project exists" gate is
     /// common to Windows and macOS so doctor cannot report success when the
-    /// resolved project is missing on either platform. Windows adds no
-    /// native-runtime, version, or architecture rejection; macOS must be 13+
-    /// on Apple Silicon with the Mac project and a usable bundled runtime in
-    /// the exact Debug output directory <c>--no-build</c> will launch.
+    /// resolved project is missing on either platform. Windows certifies the
+    /// Debug output apphost (<c>&lt;AssemblyName&gt;.exe</c>) in the exact
+    /// <c>bin/Debug/&lt;TargetFramework&gt;</c> directory
+    /// <c>--no-build</c> will launch, with no native-runtime, version, or
+    /// architecture rejection; macOS must be 13+ on Apple Silicon with the
+    /// Mac project and a usable bundled runtime in the exact Debug output
+    /// directory <c>--no-build</c> will launch.
     /// </summary>
     internal static RecorderPlatformPreflightResult Evaluate(
         RecorderPlatformFacts facts,
@@ -82,7 +91,11 @@ internal static class RecorderPlatformPreflight
         };
 
         if (facts.IsWindows)
-            return new RecorderPlatformPreflightResult(commonGates, null);
+        {
+            return new RecorderPlatformPreflightResult(
+                commonGates.Concat(EvaluateWindowsGates(projectPath)).ToArray(),
+                null);
+        }
 
         if (!facts.IsMacOS)
         {
@@ -97,7 +110,7 @@ internal static class RecorderPlatformPreflight
         }
 
         var projectDirectory = Path.GetDirectoryName(projectPath) ?? string.Empty;
-        var debugOutputResolution = ResolveMacDebugOutputDirectory(projectPath, projectDirectory);
+        var debugOutputResolution = ResolveDebugOutputDirectory(projectPath, projectDirectory);
         var debugOutputDirectory = debugOutputResolution.Directory;
         var runtimeDirectory = Path.Combine(debugOutputDirectory, "runtimes", "osx-arm64", "MMTools");
         // dotnet run --no-build on a net8.0 WinExe with UseAppHost=true (the
@@ -145,15 +158,15 @@ internal static class RecorderPlatformPreflight
             macGates.Add(new RecorderPreflightGate(
                 "Debug output",
                 IsUsableRuntimeBinary(apphost),
-                DescribeRuntimeBinary(apphost)));
+                DescribeRuntimeBinary(apphost, MacRuntimeRecoveryCommand)));
             macGates.Add(new RecorderPreflightGate(
                 "Bundled ffmpeg",
                 IsUsableRuntimeBinary(Path.Combine(runtimeDirectory, "ffmpeg")),
-                DescribeRuntimeBinary(Path.Combine(runtimeDirectory, "ffmpeg"))));
+                DescribeRuntimeBinary(Path.Combine(runtimeDirectory, "ffmpeg"), MacRuntimeRecoveryCommand)));
             macGates.Add(new RecorderPreflightGate(
                 "Bundled ffprobe",
                 IsUsableRuntimeBinary(Path.Combine(runtimeDirectory, "ffprobe")),
-                DescribeRuntimeBinary(Path.Combine(runtimeDirectory, "ffprobe"))));
+                DescribeRuntimeBinary(Path.Combine(runtimeDirectory, "ffprobe"), MacRuntimeRecoveryCommand)));
         }
 
         return new RecorderPlatformPreflightResult(
@@ -166,16 +179,66 @@ internal static class RecorderPlatformPreflight
             .EndsWith(GameProjectPaths.Mac, StringComparison.Ordinal);
 
     /// <summary>
+    /// Windows-only gates. <c>dotnet run --no-build</c> on a net8.0-windows
+    /// <c>WinExe</c> with the SDK default <c>UseAppHost=true</c> executes the
+    /// native apphost (<c>&lt;AssemblyName&gt;.exe</c>), not the managed DLL.
+    /// The "Debug output" gate certifies that apphost in the TFM-pinned
+    /// <c>bin/Debug</c> directory so a clean checkout cannot pass preflight
+    /// and then fail at process launch after the sandbox is created — the
+    /// same ordering guarantee the Mac gates provide. When the project's
+    /// <c>&lt;TargetFramework&gt;</c> is unreadable, a failed "Target
+    /// framework" gate replaces the "Debug output" gate so a stale
+    /// <c>bin/Debug</c> directory cannot satisfy preflight.
+    /// </summary>
+    private static IEnumerable<RecorderPreflightGate> EvaluateWindowsGates(string projectPath)
+    {
+        var projectDirectory = Path.GetDirectoryName(projectPath) ?? string.Empty;
+        var debugOutputResolution = ResolveDebugOutputDirectory(projectPath, projectDirectory);
+        var debugOutputDirectory = debugOutputResolution.Directory;
+        var apphost = Path.Combine(debugOutputDirectory, WindowsApphostName(projectPath));
+
+        if (debugOutputResolution.TargetFramework is null)
+        {
+            // Target-framework resolution failed (project missing, IO error,
+            // or no <TargetFramework> element). The fallback directory is
+            // retained only to name a diagnostic location in the gate detail;
+            // the Debug output gate is deliberately not evaluated so a stale
+            // bin/Debug directory cannot satisfy preflight when the current
+            // project's TFM is unreadable.
+            yield return new RecorderPreflightGate(
+                "Target framework",
+                Passed: false,
+                Detail: $"Could not read <TargetFramework> from '{projectPath.Replace('\\', '/')}'. "
+                    + $"Diagnostic fallback Debug output directory is '{debugOutputDirectory.Replace('\\', '/')}'; "
+                    + $"build the project so a readable <TargetFramework> is present.");
+            yield break;
+        }
+
+        yield return new RecorderPreflightGate(
+            "Debug output",
+            IsUsableRuntimeBinary(apphost),
+            DescribeRuntimeBinary(apphost, WindowsRuntimeRecoveryCommand));
+    }
+
+    /// <summary>
     /// Derives the native apphost file name that
     /// <c>dotnet run --no-build</c> executes for a net8.0 <c>WinExe</c>
     /// project with the SDK default <c>UseAppHost=true</c>. The apphost is
-    /// named after the assembly with no extension on macOS (and
-    /// <c>.exe</c> on Windows, but this gate is macOS-only). This matches the
+    /// named after the assembly with no extension on macOS. This matches the
     /// default MSBuild assembly name for a single-target project that does
     /// not override <c>&lt;AssemblyName&gt;</c>.
     /// </summary>
     private static string ApphostName(string projectPath)
         => Path.GetFileNameWithoutExtension(projectPath);
+
+    /// <summary>
+    /// Derives the native Windows apphost file name that
+    /// <c>dotnet run --no-build</c> executes for a net8.0-windows
+    /// <c>WinExe</c> project with the SDK default <c>UseAppHost=true</c>:
+    /// <c>&lt;AssemblyName&gt;.exe</c>.
+    /// </summary>
+    private static string WindowsApphostName(string projectPath)
+        => Path.GetFileNameWithoutExtension(projectPath) + ".exe";
 
     /// <summary>
     /// Resolves the single Debug output directory that
@@ -185,8 +248,8 @@ internal static class RecorderPlatformPreflight
     /// directories: a stale previous TFM could otherwise satisfy preflight
     /// while the current project has no runnable Debug output. When the
     /// project file or target framework cannot be read,
-    /// <see cref="MacDebugOutputResolution.TargetFramework"/> is null and the
-    /// returned <see cref="MacDebugOutputResolution.Directory"/> falls back to
+    /// <see cref="DebugOutputResolution.TargetFramework"/> is null and the
+    /// returned <see cref="DebugOutputResolution.Directory"/> falls back to
     /// a best-effort <c>net8.0</c> path so downstream diagnostic strings
     /// (gate detail, <see cref="RecorderPlatformPreflightResult.MacRuntimeDirectory"/>)
     /// still name a location; the caller must add a failed gate in that case
@@ -194,18 +257,18 @@ internal static class RecorderPlatformPreflight
     /// gates, since a stale <c>bin/Debug/net8.0</c> directory could otherwise
     /// pass those <see cref="File.Exists"/> checks.
     /// </summary>
-    private static MacDebugOutputResolution ResolveMacDebugOutputDirectory(
+    private static DebugOutputResolution ResolveDebugOutputDirectory(
         string projectPath,
         string projectDirectory)
     {
         var targetFramework = ReadTargetFramework(projectPath);
         var binDebug = Path.Combine(projectDirectory, "bin", "Debug");
-        return new MacDebugOutputResolution(
+        return new DebugOutputResolution(
             Path.Combine(binDebug, targetFramework ?? "net8.0"),
             targetFramework);
     }
 
-    private sealed record MacDebugOutputResolution(
+    private sealed record DebugOutputResolution(
         string Directory,
         string? TargetFramework);
 
@@ -229,10 +292,10 @@ internal static class RecorderPlatformPreflight
     private static bool IsUsableRuntimeBinary(string path)
         => File.Exists(path) && IsExecutable(path);
 
-    private static string DescribeRuntimeBinary(string path)
+    private static string DescribeRuntimeBinary(string path, string recoveryCommand)
         => File.Exists(path) && IsExecutable(path)
             ? path
-            : $"'{path}' is missing or not executable. Build the bundled Debug runtime first: {MacRuntimeRecoveryCommand}";
+            : $"'{path}' is missing or not executable. Build the Debug output first: {recoveryCommand}";
 
     private static bool IsExecutable(string path)
     {

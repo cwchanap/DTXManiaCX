@@ -8,9 +8,10 @@ namespace DTXMania.VideoRecorder.Tests.Diagnostics;
 public sealed class RecorderPlatformPreflightTests
 {
     [Fact]
-    public void Evaluate_WindowsFacts_ReportsCommonProjectGateOnly()
+    public void Evaluate_WindowsFactsWithDebugOutput_ReportsProjectAndDebugOutputGates()
     {
         var repo = CreateFakeRepo(GameProjectPaths.Windows);
+        WriteWindowsApphost(repo, GameProjectPaths.Windows);
         try
         {
             var result = RecorderPlatformPreflight.Evaluate(
@@ -18,11 +19,12 @@ public sealed class RecorderPlatformPreflightTests
                 CreateTarget(repo, GameProjectPaths.Windows));
 
             Assert.True(result.Passed);
-            // Windows keeps the common project-existence gate but adds no
-            // native-runtime/version/architecture gates.
-            var gate = Assert.Single(result.Gates);
-            Assert.Equal("Game project exists", gate.Name);
-            Assert.True(gate.Passed);
+            // Windows keeps the common project-existence gate and adds the
+            // Debug output gate, but no native-runtime/version/architecture
+            // gates.
+            Assert.Equal(2, result.Gates.Count);
+            Assert.True(result.Gates.Single(g => g.Name == "Game project exists").Passed);
+            Assert.True(result.Gates.Single(g => g.Name == "Debug output").Passed);
             Assert.Null(result.MacRuntimeDirectory);
         }
         finally
@@ -32,11 +34,47 @@ public sealed class RecorderPlatformPreflightTests
     }
 
     [Fact]
-    public void Evaluate_WindowsFactsWithMissingProject_FailsProjectGate()
+    public void Evaluate_WindowsFactsWithoutDebugOutput_FailsDebugOutputGateWithRecoveryCommand()
+    {
+        // Regression: CreateOptions applies --no-build --configuration Debug
+        // to Windows as well, so dotnet run --no-build executes the native
+        // apphost (DTXMania.Game.Windows.exe) from bin/Debug/net8.0-windows.
+        // A clean Windows checkout has the project but no bin/Debug output;
+        // preflight must reject it on the "Debug output" gate BEFORE the
+        // recorder sandbox is created, with the Windows recovery command.
+        // Without this gate, preflight would pass, the sandbox would be
+        // created, and dotnet run --no-build would fail post-sandbox — the
+        // exact ordering problem preflight exists to prevent.
+        var repo = CreateFakeRepo(GameProjectPaths.Windows);
+        try
+        {
+            var result = RecorderPlatformPreflight.Evaluate(
+                Facts(isWindows: true, isMacOS: false, new Version(10, 0, 22621), Architecture.X64),
+                CreateTarget(repo, GameProjectPaths.Windows));
+
+            Assert.False(result.Passed);
+            var debugGate = FailedGate(result, "Debug output");
+            Assert.Contains(RecorderPlatformPreflight.WindowsRuntimeRecoveryCommand, debugGate.Detail);
+            // The common project-existence gate still passes, isolating the
+            // failure to the Debug output gate.
+            Assert.True(result.Gates.Single(g => g.Name == "Game project exists").Passed);
+        }
+        finally
+        {
+            Delete(repo);
+        }
+    }
+
+    [Fact]
+    public void Evaluate_WindowsFactsWithMissingProject_FailsProjectAndTargetFrameworkGates()
     {
         var repo = CreateFakeRepo(GameProjectPaths.Windows);
         // Remove the project file so the common existence gate fails even on
-        // Windows, where the old early-return skipped all validation.
+        // Windows, where the old early-return skipped all validation. With the
+        // project missing, <TargetFramework> is also unreadable, so the
+        // Windows "Target framework" gate fails alongside it (the Debug
+        // output gate is deliberately not evaluated so a stale bin/Debug
+        // directory cannot satisfy preflight when the project is gone).
         File.Delete(Resolve(repo, GameProjectPaths.Windows));
         try
         {
@@ -45,9 +83,15 @@ public sealed class RecorderPlatformPreflightTests
                 CreateTarget(repo, GameProjectPaths.Windows));
 
             Assert.False(result.Passed);
-            var gate = Assert.Single(result.Gates);
-            Assert.Equal("Game project exists", gate.Name);
-            Assert.False(gate.Passed);
+            Assert.Equal(2, result.Gates.Count);
+            var projectGate = result.Gates.Single(g => g.Name == "Game project exists");
+            Assert.False(projectGate.Passed);
+            var tfmGate = result.Gates.Single(g => g.Name == "Target framework");
+            Assert.False(tfmGate.Passed);
+            // The Debug output gate must be absent (not merely failing) so a
+            // stale bin/Debug directory cannot green-light preflight when the
+            // project file is missing.
+            Assert.DoesNotContain(result.Gates, g => g.Name == "Debug output");
         }
         finally
         {
@@ -408,13 +452,17 @@ public sealed class RecorderPlatformPreflightTests
     {
         var projectPath = Resolve(root, relativeProjectPath);
         Directory.CreateDirectory(Path.GetDirectoryName(projectPath)!);
-        // The fake project carries the same TargetFramework the real Mac
-        // project does, so the TFM-pinned Debug output resolver exercises the
-        // production path rather than the unreadable-project fallback.
+        // The fake project carries the same TargetFramework the real project
+        // does (net8.0-windows for Windows, net8.0 for Mac), so the
+        // TFM-pinned Debug output resolver exercises the production path
+        // rather than the unreadable-project fallback.
+        var targetFramework = relativeProjectPath == GameProjectPaths.Windows
+            ? "net8.0-windows"
+            : "net8.0";
         File.WriteAllText(
             projectPath,
             "<Project Sdk=\"Microsoft.NET.Sdk\">"
-                + "<PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup>"
+                + $"<PropertyGroup><TargetFramework>{targetFramework}</TargetFramework></PropertyGroup>"
                 + "</Project>");
     }
 
@@ -435,6 +483,22 @@ public sealed class RecorderPlatformPreflightTests
         var debugDir = Path.Combine(
             Path.GetDirectoryName(projectPath)!, "bin", "Debug", "net8.0");
         WriteExecutableFile(Path.Combine(debugDir, assemblyName));
+    }
+
+    private static void WriteWindowsApphost(string repo, string relativeProjectPath)
+    {
+        // dotnet run --no-build on a net8.0-windows WinExe with
+        // UseAppHost=true executes the native apphost (named after the
+        // assembly with a .exe extension on Windows). Tests stage the apphost
+        // in the TFM-pinned bin/Debug/net8.0-windows directory — the artifact
+        // the Windows "Debug output" gate certifies. On Unix test hosts the
+        // executable bit is set so IsExecutable (which keys off the host OS,
+        // not the synthetic facts) treats it as usable.
+        var projectPath = Resolve(repo, relativeProjectPath);
+        var assemblyName = Path.GetFileNameWithoutExtension(projectPath);
+        var debugDir = Path.Combine(
+            Path.GetDirectoryName(projectPath)!, "bin", "Debug", "net8.0-windows");
+        WriteExecutableFile(Path.Combine(debugDir, assemblyName + ".exe"));
     }
 
     private static void WriteNonExecutableApphost(string repo, string relativeProjectPath)
