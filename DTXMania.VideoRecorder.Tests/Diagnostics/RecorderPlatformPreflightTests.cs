@@ -202,7 +202,7 @@ public sealed class RecorderPlatformPreflightTests
     public void Evaluate_MacOs13Arm64WithExecutablePair_Passes()
     {
         var repo = CreateFakeRepo(GameProjectPaths.Mac);
-        WriteManagedAssembly(repo, GameProjectPaths.Mac);
+        WriteApphost(repo, GameProjectPaths.Mac);
         WriteRuntimeBinary(repo, "ffmpeg", executable: true);
         WriteRuntimeBinary(repo, "ffprobe", executable: true);
         try
@@ -212,6 +212,69 @@ public sealed class RecorderPlatformPreflightTests
             Assert.True(result.Passed);
             Assert.All(result.Gates, gate => Assert.True(gate.Passed));
             Assert.Equal(RuntimeDirectory(repo), result.MacRuntimeDirectory);
+        }
+        finally
+        {
+            Delete(repo);
+        }
+    }
+
+    [Fact]
+    public void Evaluate_MacOs13Arm64WithManagedDllButNoApphost_FailsDebugOutputGate()
+    {
+        // Regression: the Mac project is a net8.0 WinExe with the SDK default
+        // UseAppHost=true, so dotnet run --no-build executes the native
+        // apphost (DTXMania.Game.Mac, no extension), not the managed DLL.
+        // A previous version of the "Debug output" gate checked only the
+        // managed DLL, so a missing/non-executable apphost would pass
+        // preflight, create the sandbox, and then fail at process launch —
+        // the exact ordering problem preflight exists to prevent. This test
+        // stages the DLL + bundled ffmpeg/ffprobe but NO apphost and asserts
+        // preflight fails on the "Debug output" gate.
+        var repo = CreateFakeRepo(GameProjectPaths.Mac);
+        WriteManagedAssembly(repo, GameProjectPaths.Mac);
+        WriteRuntimeBinary(repo, "ffmpeg", executable: true);
+        WriteRuntimeBinary(repo, "ffprobe", executable: true);
+        try
+        {
+            var result = EvaluateMac(repo, new Version(13, 0), Architecture.Arm64);
+
+            Assert.False(result.Passed);
+            var debugGate = FailedGate(result, "Debug output");
+            Assert.Contains(RecorderPlatformPreflight.MacRuntimeRecoveryCommand, debugGate.Detail);
+            // The bundled runtime gates pass, isolating the failure to the
+            // apphost-only "Debug output" gate.
+            var ffmpegGate = Assert.Single(result.Gates, g => g.Name == "Bundled ffmpeg");
+            Assert.True(ffmpegGate.Passed);
+            var ffprobeGate = Assert.Single(result.Gates, g => g.Name == "Bundled ffprobe");
+            Assert.True(ffprobeGate.Passed);
+        }
+        finally
+        {
+            Delete(repo);
+        }
+    }
+
+    [SkippableFact]
+    public void Evaluate_MacOs13Arm64WithNonExecutableApphost_FailsDebugOutputGate()
+    {
+        // The apphost exists but is not executable. dotnet run --no-build
+        // would fail to launch it, so preflight must reject it the same way
+        // it rejects a non-executable ffmpeg/ffprobe.
+        Skip.IfNot(UnixFileModeSupported, "Unix file mode is not representable on this host.");
+
+        var repo = CreateFakeRepo(GameProjectPaths.Mac);
+        WriteManagedAssembly(repo, GameProjectPaths.Mac);
+        WriteNonExecutableApphost(repo, GameProjectPaths.Mac);
+        WriteRuntimeBinary(repo, "ffmpeg", executable: true);
+        WriteRuntimeBinary(repo, "ffprobe", executable: true);
+        try
+        {
+            var result = EvaluateMac(repo, new Version(13, 0), Architecture.Arm64);
+
+            Assert.False(result.Passed);
+            var debugGate = FailedGate(result, "Debug output");
+            Assert.Contains(RecorderPlatformPreflight.MacRuntimeRecoveryCommand, debugGate.Detail);
         }
         finally
         {
@@ -253,7 +316,7 @@ public sealed class RecorderPlatformPreflightTests
     public void Evaluate_MacOs13Arm64WithUnreadableTargetFramework_FailsTargetFrameworkGateBeforeRuntimeGates()
     {
         // Project file exists but carries no readable <TargetFramework>, while
-        // a stale bin/Debug/net8.0 build output (managed assembly + bundled
+        // a stale bin/Debug/net8.0 build output (apphost + bundled
         // ffmpeg/ffprobe) is present. The net8.0 fallback must NOT let the
         // runtime/output gates pass: preflight fails on a dedicated
         // "Target framework" gate, and the runtime/output gates are not
@@ -261,7 +324,7 @@ public sealed class RecorderPlatformPreflightTests
         // when the current project's TFM is unreadable.
         var repo = CreateFakeRepo(GameProjectPaths.Mac);
         OverwriteProjectWithoutTargetFramework(repo, GameProjectPaths.Mac);
-        WriteManagedAssembly(repo, GameProjectPaths.Mac);
+        WriteApphost(repo, GameProjectPaths.Mac);
         WriteRuntimeBinary(repo, "ffmpeg", executable: true);
         WriteRuntimeBinary(repo, "ffprobe", executable: true);
         try
@@ -335,7 +398,7 @@ public sealed class RecorderPlatformPreflightTests
     private static string CreateMacRuntimeRepo()
     {
         var repo = CreateFakeRepo(GameProjectPaths.Mac);
-        WriteManagedAssembly(repo, GameProjectPaths.Mac);
+        WriteApphost(repo, GameProjectPaths.Mac);
         WriteRuntimeBinary(repo, "ffmpeg", executable: true);
         WriteRuntimeBinary(repo, "ffprobe", executable: true);
         return repo;
@@ -360,6 +423,34 @@ public sealed class RecorderPlatformPreflightTests
 
     private static string RuntimeDirectory(string repo)
         => Path.Combine(repo, "DTXMania.Game", "bin", "Debug", "net8.0", "runtimes", "osx-arm64", "MMTools");
+
+    private static void WriteApphost(string repo, string relativeProjectPath)
+    {
+        // dotnet run --no-build on a net8.0 WinExe with UseAppHost=true
+        // executes the native apphost (named after the assembly, no extension
+        // on macOS), not the managed DLL. Tests must therefore stage the
+        // apphost — the artifact the "Debug output" gate certifies.
+        var projectPath = Resolve(repo, relativeProjectPath);
+        var assemblyName = Path.GetFileNameWithoutExtension(projectPath);
+        var debugDir = Path.Combine(
+            Path.GetDirectoryName(projectPath)!, "bin", "Debug", "net8.0");
+        WriteExecutableFile(Path.Combine(debugDir, assemblyName));
+    }
+
+    private static void WriteNonExecutableApphost(string repo, string relativeProjectPath)
+    {
+        var projectPath = Resolve(repo, relativeProjectPath);
+        var assemblyName = Path.GetFileNameWithoutExtension(projectPath);
+        var debugDir = Path.Combine(
+            Path.GetDirectoryName(projectPath)!, "bin", "Debug", "net8.0");
+        var path = Path.Combine(debugDir, assemblyName);
+        Directory.CreateDirectory(debugDir);
+        File.WriteAllText(path, "stub");
+        if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
+            File.SetUnixFileMode(
+                path,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite);
+    }
 
     private static void WriteManagedAssembly(string repo, string relativeProjectPath)
     {
