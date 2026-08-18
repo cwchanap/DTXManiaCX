@@ -103,7 +103,7 @@ Set `DTXMANIA_VIDEO_OBS_PASSWORD` without echoing it into shell history. Either
 prompt for it silently in the same shell that will run the recorder:
 
 ```bash
-read -rs DTXMANIA_VIDEO_OBS_PASSWORD
+read -rs -p "OBS WebSocket password: " DTXMANIA_VIDEO_OBS_PASSWORD
 export DTXMANIA_VIDEO_OBS_PASSWORD
 printf '\n'
 ```
