@@ -29,8 +29,15 @@ internal sealed record RecorderPlatformPreflightResult(
 /// osx-arm64 Debug runtime; a working PATH FFmpeg is deliberately not
 /// accepted as evidence. Because <c>record</c> launches with
 /// <c>dotnet run --no-build --configuration Debug</c>, preflight certifies
-/// the exact Debug output directory that launch will use, resolved from the
-/// project's <c>&lt;TargetFramework&gt;</c> rather than by enumerating
+/// the exact Debug output artifact that launch will execute. The Mac project
+/// is a net8.0 <c>WinExe</c> with the SDK default <c>UseAppHost=true</c>, so
+/// <c>dotnet run --no-build</c> executes the native apphost
+/// (<c>&lt;AssemblyName&gt;</c>, no extension on macOS) — not the managed
+/// DLL. The "Debug output" gate therefore certifies the apphost itself
+/// (existence + executable bit), since a missing/non-executable apphost
+/// would pass a DLL-only gate and then fail at process launch after the
+/// sandbox is already created. The Debug output directory is resolved from
+/// the project's <c>&lt;TargetFramework&gt;</c> rather than by enumerating
 /// <c>bin/Debug</c> framework directories (a stale previous TFM could
 /// otherwise satisfy preflight while the current project has no runnable
 /// Debug output).
@@ -93,7 +100,13 @@ internal static class RecorderPlatformPreflight
         var debugOutputResolution = ResolveMacDebugOutputDirectory(projectPath, projectDirectory);
         var debugOutputDirectory = debugOutputResolution.Directory;
         var runtimeDirectory = Path.Combine(debugOutputDirectory, "runtimes", "osx-arm64", "MMTools");
-        var managedAssembly = Path.Combine(debugOutputDirectory, ManagedAssemblyName(projectPath));
+        // dotnet run --no-build on a net8.0 WinExe with UseAppHost=true (the
+        // SDK default for executable projects) executes the native apphost,
+        // not the managed DLL. The apphost is named after the assembly with
+        // no extension on macOS. Certify the apphost itself so a
+        // missing/non-executable apphost cannot pass preflight and then fail
+        // at process launch after the sandbox is created.
+        var apphost = Path.Combine(debugOutputDirectory, ApphostName(projectPath));
 
         var macGates = new List<RecorderPreflightGate>
         {
@@ -131,8 +144,8 @@ internal static class RecorderPlatformPreflight
         {
             macGates.Add(new RecorderPreflightGate(
                 "Debug output",
-                File.Exists(managedAssembly),
-                managedAssembly));
+                IsUsableRuntimeBinary(apphost),
+                DescribeRuntimeBinary(apphost)));
             macGates.Add(new RecorderPreflightGate(
                 "Bundled ffmpeg",
                 IsUsableRuntimeBinary(Path.Combine(runtimeDirectory, "ffmpeg")),
@@ -153,13 +166,16 @@ internal static class RecorderPlatformPreflight
             .EndsWith(GameProjectPaths.Mac, StringComparison.Ordinal);
 
     /// <summary>
-    /// Derives the managed assembly file name
-    /// (<c>&lt;AssemblyName&gt;.dll</c>) from the resolved project file name,
-    /// matching the default MSBuild assembly name for a single-target project
-    /// that does not override <c>&lt;AssemblyName&gt;</c>.
+    /// Derives the native apphost file name that
+    /// <c>dotnet run --no-build</c> executes for a net8.0 <c>WinExe</c>
+    /// project with the SDK default <c>UseAppHost=true</c>. The apphost is
+    /// named after the assembly with no extension on macOS (and
+    /// <c>.exe</c> on Windows, but this gate is macOS-only). This matches the
+    /// default MSBuild assembly name for a single-target project that does
+    /// not override <c>&lt;AssemblyName&gt;</c>.
     /// </summary>
-    private static string ManagedAssemblyName(string projectPath)
-        => Path.GetFileNameWithoutExtension(projectPath) + ".dll";
+    private static string ApphostName(string projectPath)
+        => Path.GetFileNameWithoutExtension(projectPath);
 
     /// <summary>
     /// Resolves the single Debug output directory that

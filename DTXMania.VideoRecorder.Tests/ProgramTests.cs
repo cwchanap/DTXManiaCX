@@ -191,9 +191,18 @@ public sealed class ProgramTests
             "Debug",
             "net8.0");
         Directory.CreateDirectory(debugOutputDirectory);
-        File.WriteAllText(
-            Path.Combine(debugOutputDirectory, "DTXMania.Game.Mac.dll"),
-            "stub");
+        // dotnet run --no-build on a net8.0 WinExe with UseAppHost=true
+        // executes the native apphost (no extension on macOS), not the DLL.
+        // Stage the apphost with the executable bit so the "Debug output"
+        // gate passes, matching a real Debug build's output.
+        var apphostPath = Path.Combine(debugOutputDirectory, "DTXMania.Game.Mac");
+        File.WriteAllText(apphostPath, "stub");
+        if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
+        {
+            File.SetUnixFileMode(
+                apphostPath,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
         var runtimeDirectory = Path.Combine(debugOutputDirectory, "runtimes", "osx-arm64", "MMTools");
         Directory.CreateDirectory(runtimeDirectory);
         foreach (var name in new[] { "ffmpeg", "ffprobe" })
