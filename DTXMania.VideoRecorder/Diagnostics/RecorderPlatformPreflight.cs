@@ -90,39 +90,61 @@ internal static class RecorderPlatformPreflight
         }
 
         var projectDirectory = Path.GetDirectoryName(projectPath) ?? string.Empty;
-        var debugOutputDirectory = ResolveMacDebugOutputDirectory(projectPath, projectDirectory);
+        var debugOutputResolution = ResolveMacDebugOutputDirectory(projectPath, projectDirectory);
+        var debugOutputDirectory = debugOutputResolution.Directory;
         var runtimeDirectory = Path.Combine(debugOutputDirectory, "runtimes", "osx-arm64", "MMTools");
         var managedAssembly = Path.Combine(debugOutputDirectory, ManagedAssemblyName(projectPath));
+
+        var macGates = new List<RecorderPreflightGate>
+        {
+            new RecorderPreflightGate(
+                "macOS >= 13",
+                facts.OsVersion.Major >= 13,
+                $"found macOS {facts.OsVersion}"),
+            new RecorderPreflightGate(
+                "Apple Silicon (arm64)",
+                facts.ProcessArchitecture == Architecture.Arm64,
+                $"process architecture is {facts.ProcessArchitecture}"),
+            new RecorderPreflightGate(
+                "Mac game project",
+                IsMacProject(projectPath),
+                projectPath),
+        };
+
+        if (debugOutputResolution.TargetFramework is null)
+        {
+            // Target-framework resolution failed (project missing, IO error,
+            // or no <TargetFramework> element). The net8.0 fallback below is
+            // retained only to name a diagnostic location in
+            // MacRuntimeDirectory and the gate detail; the runtime/output
+            // gates are deliberately not evaluated so a stale
+            // bin/Debug/net8.0 directory cannot satisfy preflight when the
+            // current project's TFM is unreadable.
+            macGates.Add(new RecorderPreflightGate(
+                "Target framework",
+                Passed: false,
+                Detail: $"Could not read <TargetFramework> from '{projectPath}'. "
+                    + $"Diagnostic fallback Debug output directory is '{debugOutputDirectory}'; "
+                    + $"build the project so a readable <TargetFramework> is present."));
+        }
+        else
+        {
+            macGates.Add(new RecorderPreflightGate(
+                "Debug output",
+                File.Exists(managedAssembly),
+                managedAssembly));
+            macGates.Add(new RecorderPreflightGate(
+                "Bundled ffmpeg",
+                IsUsableRuntimeBinary(Path.Combine(runtimeDirectory, "ffmpeg")),
+                DescribeRuntimeBinary(Path.Combine(runtimeDirectory, "ffmpeg"))));
+            macGates.Add(new RecorderPreflightGate(
+                "Bundled ffprobe",
+                IsUsableRuntimeBinary(Path.Combine(runtimeDirectory, "ffprobe")),
+                DescribeRuntimeBinary(Path.Combine(runtimeDirectory, "ffprobe"))));
+        }
+
         return new RecorderPlatformPreflightResult(
-            commonGates
-                .Concat(new[]
-                {
-                    new RecorderPreflightGate(
-                        "macOS >= 13",
-                        facts.OsVersion.Major >= 13,
-                        $"found macOS {facts.OsVersion}"),
-                    new RecorderPreflightGate(
-                        "Apple Silicon (arm64)",
-                        facts.ProcessArchitecture == Architecture.Arm64,
-                        $"process architecture is {facts.ProcessArchitecture}"),
-                    new RecorderPreflightGate(
-                        "Mac game project",
-                        IsMacProject(projectPath),
-                        projectPath),
-                    new RecorderPreflightGate(
-                        "Debug output",
-                        File.Exists(managedAssembly),
-                        managedAssembly),
-                    new RecorderPreflightGate(
-                        "Bundled ffmpeg",
-                        IsUsableRuntimeBinary(Path.Combine(runtimeDirectory, "ffmpeg")),
-                        DescribeRuntimeBinary(Path.Combine(runtimeDirectory, "ffmpeg"))),
-                    new RecorderPreflightGate(
-                        "Bundled ffprobe",
-                        IsUsableRuntimeBinary(Path.Combine(runtimeDirectory, "ffprobe")),
-                        DescribeRuntimeBinary(Path.Combine(runtimeDirectory, "ffprobe"))),
-                })
-                .ToArray(),
+            commonGates.Concat(macGates).ToArray(),
             runtimeDirectory);
     }
 
@@ -145,19 +167,31 @@ internal static class RecorderPlatformPreflight
     /// reading <c>&lt;TargetFramework&gt;</c> from the project file. This
     /// intentionally does not enumerate <c>bin/Debug</c> framework
     /// directories: a stale previous TFM could otherwise satisfy preflight
-    /// while the current project has no runnable Debug output. Falls back to
-    /// a best-effort <c>net8.0</c> path when the project file or target
-    /// framework cannot be read so the gate diagnostic still names a
-    /// location; the <see cref="File.Exists"/> checks will fail in that case.
+    /// while the current project has no runnable Debug output. When the
+    /// project file or target framework cannot be read,
+    /// <see cref="MacDebugOutputResolution.TargetFramework"/> is null and the
+    /// returned <see cref="MacDebugOutputResolution.Directory"/> falls back to
+    /// a best-effort <c>net8.0</c> path so downstream diagnostic strings
+    /// (gate detail, <see cref="RecorderPlatformPreflightResult.MacRuntimeDirectory"/>)
+    /// still name a location; the caller must add a failed gate in that case
+    /// rather than relying on the fallback directory to satisfy runtime/output
+    /// gates, since a stale <c>bin/Debug/net8.0</c> directory could otherwise
+    /// pass those <see cref="File.Exists"/> checks.
     /// </summary>
-    private static string ResolveMacDebugOutputDirectory(
+    private static MacDebugOutputResolution ResolveMacDebugOutputDirectory(
         string projectPath,
         string projectDirectory)
     {
         var targetFramework = ReadTargetFramework(projectPath);
         var binDebug = Path.Combine(projectDirectory, "bin", "Debug");
-        return Path.Combine(binDebug, targetFramework ?? "net8.0");
+        return new MacDebugOutputResolution(
+            Path.Combine(binDebug, targetFramework ?? "net8.0"),
+            targetFramework);
     }
+
+    private sealed record MacDebugOutputResolution(
+        string Directory,
+        string? TargetFramework);
 
     private static string? ReadTargetFramework(string projectPath)
     {

@@ -94,12 +94,34 @@ prints these as manual prerequisites only.
 
 ```bash
 export DTXMANIA_VIDEO_OBS_URL=ws://127.0.0.1:4455      # loopback only
-# Replace the quoted values below before running.
-export DTXMANIA_VIDEO_OBS_PASSWORD="your-obs-websocket-password"
 export DTXMANIA_VIDEO_OBS_OUTPUT_DIR="/path/to/obs-raw-mp4-output"
 # optional: record against an app-data copy other than the default root
 export DTXMANIA_APPDATA_ROOT="/path/to/app-data-root"
 ```
+
+Set `DTXMANIA_VIDEO_OBS_PASSWORD` without echoing it into shell history. Either
+prompt for it silently in the same shell that will run the recorder:
+
+```bash
+read -rs DTXMANIA_VIDEO_OBS_PASSWORD
+export DTXMANIA_VIDEO_OBS_PASSWORD
+printf '\n'
+```
+
+…or load it from a protected environment file whose permissions are restricted
+to your user (e.g. `chmod 600 ~/.config/dtx-video/obs.env`):
+
+```bash
+# ~/.config/dtx-video/obs.env  (chmod 600, never committed)
+# DTXMANIA_VIDEO_OBS_PASSWORD=your-obs-websocket-password
+set -a
+. ~/.config/dtx-video/obs.env
+set +a
+```
+
+Do not type the real password directly into a `export
+DTXMANIA_VIDEO_OBS_PASSWORD="..."` command line: that value is recorded in
+shell history and process listings.
 
 The default source app-data root mirrors the game's own resolution:
 `~/Library/Application Support/DTXManiaCX` on macOS.
