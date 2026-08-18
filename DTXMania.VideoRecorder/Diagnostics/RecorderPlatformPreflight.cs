@@ -285,6 +285,10 @@ internal static class RecorderPlatformPreflight
         {
             return null;
         }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
         var match = TargetFrameworkRegex.Match(projectXml);
         return match.Success ? match.Groups[1].Value : null;
     }

@@ -396,6 +396,76 @@ public sealed class RecorderPlatformPreflightTests
         }
     }
 
+    [SkippableFact]
+    public void Evaluate_MacOs13Arm64WithPermissionDeniedProject_FailsTargetFrameworkGateBeforeRuntimeGates()
+    {
+        // Regression: File.ReadAllText throws UnauthorizedAccessException (not
+        // IOException) when the project file exists but is unreadable due to
+        // file permissions. ReadTargetFramework must catch it and return null
+        // so Evaluate reports a failed "Target framework" gate rather than
+        // propagating the exception and crashing preflight after the sandbox
+        // is created. Stages a valid <TargetFramework> plus a stale net8.0
+        // build output (apphost + bundled ffmpeg/ffprobe) so the only thing
+        // preventing TFM resolution is the permission denial.
+        Skip.IfNot(UnixFileModeSupported, "Unix file mode is not representable on this host.");
+
+        var repo = CreateFakeRepo(GameProjectPaths.Mac);
+        WriteApphost(repo, GameProjectPaths.Mac);
+        WriteRuntimeBinary(repo, "ffmpeg", executable: true);
+        WriteRuntimeBinary(repo, "ffprobe", executable: true);
+        var projectPath = Resolve(repo, GameProjectPaths.Mac);
+        if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
+            File.SetUnixFileMode(projectPath, UnixFileMode.None);
+        try
+        {
+            // If the test host can still read a 000-mode file (e.g. running
+            // as root), the permission-denied path is not exercisable here;
+            // skip rather than assert falsely.
+            Skip.If(CanReadDespiteModeNone(projectPath),
+                "Test host bypasses file read permissions (running as root).");
+
+            var result = EvaluateMac(repo, new Version(13, 0), Architecture.Arm64);
+
+            Assert.False(result.Passed);
+
+            var tfmGate = FailedGate(result, "Target framework");
+            Assert.Contains(GameProjectPaths.Mac, tfmGate.Detail);
+            Assert.Contains("net8.0", tfmGate.Detail);
+
+            // The runtime/output gates must be absent (not merely failing) so
+            // a stale net8.0 directory cannot green-light preflight when the
+            // current project's TFM is unreadable.
+            Assert.DoesNotContain(result.Gates, gate => gate.Name == "Debug output");
+            Assert.DoesNotContain(result.Gates, gate => gate.Name == "Bundled ffmpeg");
+            Assert.DoesNotContain(result.Gates, gate => gate.Name == "Bundled ffprobe");
+
+            // The fallback directory is still surfaced for diagnostics.
+            Assert.Contains("net8.0", result.MacRuntimeDirectory!);
+        }
+        finally
+        {
+            // Restore read/write so the shared Delete helper can remove the
+            // file even on hosts where unlink requires write permission on
+            // the file itself (defensive; POSIX only requires parent write).
+            if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
+                File.SetUnixFileMode(projectPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            Delete(repo);
+        }
+    }
+
+    private static bool CanReadDespiteModeNone(string path)
+    {
+        try
+        {
+            File.ReadAllText(path);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private static void OverwriteProjectWithoutTargetFramework(string root, string relativeProjectPath)
     {
         var projectPath = Resolve(root, relativeProjectPath);
