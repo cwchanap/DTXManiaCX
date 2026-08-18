@@ -38,7 +38,7 @@ public sealed class ProgramTests
                         Detail: "'/missing/ffmpeg' not found. Build the bundled runtime: "
                             + RecorderPlatformPreflight.MacRuntimeRecoveryCommand)
                 },
-                NativeRuntimeDirectory: null);
+                MacRuntimeDirectory: null);
 
             // No OBS server is required for this call to complete: completing
             // without one is exactly the invariant under test.
@@ -117,7 +117,7 @@ public sealed class ProgramTests
                     GameLaunchTarget.Project(Path.Combine(repo, GameProjectPaths.Mac))));
 
             Assert.False(preflight.Passed);
-            Assert.Null(preflight.NativeRuntimeDirectory);
+            Assert.Null(preflight.MacRuntimeDirectory);
 
             using var writer = new StringWriter();
             var passed = Program.ReportPlatformPreflight(writer, facts, preflight);
@@ -179,16 +179,22 @@ public sealed class ProgramTests
         File.WriteAllText(Path.Combine(root, "DTXMania.sln"), string.Empty);
         var projectPath = Path.Combine(root, "DTXMania.Game", "DTXMania.Game.Mac.csproj");
         Directory.CreateDirectory(Path.GetDirectoryName(projectPath)!);
-        File.WriteAllText(projectPath, "<Project Sdk=\"Microsoft.NET.Sdk\" />");
-        var runtimeDirectory = Path.Combine(
+        File.WriteAllText(
+            projectPath,
+            "<Project Sdk=\"Microsoft.NET.Sdk\">"
+                + "<PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup>"
+                + "</Project>");
+        var debugOutputDirectory = Path.Combine(
             root,
             "DTXMania.Game",
             "bin",
             "Debug",
-            "net8.0",
-            "runtimes",
-            "osx-arm64",
-            "MMTools");
+            "net8.0");
+        Directory.CreateDirectory(debugOutputDirectory);
+        File.WriteAllText(
+            Path.Combine(debugOutputDirectory, "DTXMania.Game.Mac.dll"),
+            "stub");
+        var runtimeDirectory = Path.Combine(debugOutputDirectory, "runtimes", "osx-arm64", "MMTools");
         Directory.CreateDirectory(runtimeDirectory);
         foreach (var name in new[] { "ffmpeg", "ffprobe" })
         {
