@@ -142,6 +142,12 @@ public sealed class EventuallyTests
         using var foreignTokenSource = new CancellationTokenSource();
         var attempt = 0;
 
+        // The timeout is intentionally generous relative to the interval so the
+        // retry count stays robust on loaded CI runners, where Task.Delay can
+        // inflate far beyond the requested interval (timer coalescing plus
+        // scheduling latency). With 50ms the first delay alone could exhaust
+        // the budget and yield a single attempt; 500ms guarantees multiple
+        // retries even under heavy inflation while still completing quickly.
         var exception = await Assert.ThrowsAsync<TimeoutException>(() => Eventually.UntilAsync<int>(
             _ =>
             {
@@ -149,7 +155,7 @@ public sealed class EventuallyTests
                 throw new OperationCanceledException(foreignTokenSource.Token);
             },
             _ => false,
-            TimeSpan.FromMilliseconds(50),
+            TimeSpan.FromMilliseconds(500),
             TimeSpan.FromMilliseconds(5),
             "probe canceled with foreign token",
             CancellationToken.None));
@@ -218,6 +224,12 @@ public sealed class EventuallyTests
         // transient probe failure.
         var attempt = 0;
 
+        // Generous timeout relative to the interval so the retry count stays
+        // robust on loaded CI runners, where Task.Delay can inflate far beyond
+        // the requested interval. With 20ms the first delay alone could
+        // exhaust the budget and yield a single attempt; 500ms guarantees
+        // multiple retries even under heavy inflation while still completing
+        // quickly.
         var exception = await Assert.ThrowsAsync<TimeoutException>(() => Eventually.UntilAsync<int>(
             _ =>
             {
@@ -225,8 +237,8 @@ public sealed class EventuallyTests
                 throw new TimeoutException("persistent probe-side timeout");
             },
             _ => false,
-            TimeSpan.FromMilliseconds(20),
-            TimeSpan.FromMilliseconds(1),
+            TimeSpan.FromMilliseconds(500),
+            TimeSpan.FromMilliseconds(5),
             "probe always times out",
             CancellationToken.None));
 
