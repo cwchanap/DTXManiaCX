@@ -12,7 +12,10 @@ bundled FFmpeg pair) before recording.
 - Apple Silicon Mac (`arm64`) running macOS 13 or newer. The bundled
   application-audio path (ScreenCaptureKit / macOS Audio Capture) requires
   macOS 13+, so older systems are rejected before any recording starts.
-- .NET SDK 8+ (`dotnet --info`).
+- Native arm64 .NET SDK 8+. Run `dotnet --info` and confirm it reports
+  `Architecture: arm64` and an arm64 macOS runtime identifier (`osx-arm64`)
+  in the installed runtimes. An x64 SDK running under Rosetta launches the
+  recorder as an x64 process, which the preflight architecture gate rejects.
 - OBS Studio 30.2 or newer with obs-websocket 5.x.
 
 ## Build the exact artifacts the recorder uses
