@@ -36,16 +36,22 @@ dotnet build DTXMania.VideoRecorder/DTXMania.VideoRecorder.csproj --configuratio
 ```
 
 Preflight (`doctor` and `record` both run it) checks that the recorder
-process runs arm64, that the game project is the Mac project, and that the
-bundled FFmpeg pair exists and is executable:
+process runs arm64, that the game project is the Mac project, that the
+native apphost exists and is executable, and that the bundled FFmpeg pair
+exists and is executable:
 
+- `DTXMania.Game/bin/Debug/net8.0/DTXMania.Game.Mac` (native arm64 apphost;
+  `dotnet run --no-build` on a net8.0 `WinExe` with `UseAppHost=true`
+  executes this binary, not the managed DLL, so preflight gates its
+  existence and executable bit)
 - `DTXMania.Game/bin/Debug/net8.0/runtimes/osx-arm64/MMTools/ffmpeg`
 - `DTXMania.Game/bin/Debug/net8.0/runtimes/osx-arm64/MMTools/ffprobe`
 
-Preflight does not gate the apphost binary itself.
-`DTXMania.Game/bin/Debug/net8.0/DTXMania.Game.Mac` is a native arm64
-apphost; manually inspecting it (including the `file` check recorded in the
-verification record) is acceptance evidence, not a preflight gate.
+The apphost gate is named "Debug output" in `doctor` output. Manually
+inspecting the apphost with `file` and confirming it is `arm64` (the `file`
+check recorded in the verification record) is separate acceptance evidence
+that the gated binary is the expected native architecture — it is not
+itself a preflight gate.
 
 The HPA-512 `osx-arm64` FFmpeg pair is required for recorder certification:
 a working FFmpeg on `PATH` is not accepted as native evidence, even though
@@ -53,8 +59,8 @@ the game itself may fall back to other runtimes.
 
 ## Why the recorder uses `--no-build`
 
-Preflight checks the Debug output above (runtime pair and project
-identity), and the recorder then launches that same output with
+Preflight checks the Debug output above (apphost, runtime pair, and
+project identity), and the recorder then launches that same output with
 `dotnet run --project ... --no-build --configuration
 Debug`. This pins the checked artifact to the launched artifact: the
 recorder never silently rebuilds between certification and recording. Build
@@ -135,7 +141,7 @@ dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj --configuration Debug
 # build the dtx-video recorder itself
 dotnet build DTXMania.VideoRecorder/DTXMania.VideoRecorder.csproj --configuration Debug
 
-# check host, project, runtime pair, config, and OBS connectivity
+# check host, project, apphost, runtime pair, config, and OBS connectivity
 DTXMania.VideoRecorder/bin/Debug/net8.0/dtx-video doctor
 
 # record one chart
