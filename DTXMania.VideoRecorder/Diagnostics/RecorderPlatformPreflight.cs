@@ -136,8 +136,8 @@ internal static class RecorderPlatformPreflight
             macGates.Add(new RecorderPreflightGate(
                 "Target framework",
                 Passed: false,
-                Detail: $"Could not read <TargetFramework> from '{projectPath}'. "
-                    + $"Diagnostic fallback Debug output directory is '{debugOutputDirectory}'; "
+                Detail: $"Could not read <TargetFramework> from '{projectPath.Replace('\\', '/')}'. "
+                    + $"Diagnostic fallback Debug output directory is '{debugOutputDirectory.Replace('\\', '/')}'; "
                     + $"build the project so a readable <TargetFramework> is present."));
         }
         else
