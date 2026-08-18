@@ -249,6 +249,59 @@ public sealed class RecorderPlatformPreflightTests
         }
     }
 
+    [Fact]
+    public void Evaluate_MacOs13Arm64WithUnreadableTargetFramework_FailsTargetFrameworkGateBeforeRuntimeGates()
+    {
+        // Project file exists but carries no readable <TargetFramework>, while
+        // a stale bin/Debug/net8.0 build output (managed assembly + bundled
+        // ffmpeg/ffprobe) is present. The net8.0 fallback must NOT let the
+        // runtime/output gates pass: preflight fails on a dedicated
+        // "Target framework" gate, and the runtime/output gates are not
+        // evaluated, so a stale net8.0 directory cannot satisfy preflight
+        // when the current project's TFM is unreadable.
+        var repo = CreateFakeRepo(GameProjectPaths.Mac);
+        OverwriteProjectWithoutTargetFramework(repo, GameProjectPaths.Mac);
+        WriteManagedAssembly(repo, GameProjectPaths.Mac);
+        WriteRuntimeBinary(repo, "ffmpeg", executable: true);
+        WriteRuntimeBinary(repo, "ffprobe", executable: true);
+        try
+        {
+            var result = EvaluateMac(repo, new Version(13, 0), Architecture.Arm64);
+
+            Assert.False(result.Passed);
+
+            var tfmGate = FailedGate(result, "Target framework");
+            Assert.Contains(GameProjectPaths.Mac, tfmGate.Detail);
+            Assert.Contains("net8.0", tfmGate.Detail);
+
+            // The runtime/output gates must be absent (not merely failing) so
+            // a stale net8.0 directory cannot green-light preflight.
+            Assert.DoesNotContain(result.Gates, gate => gate.Name == "Debug output");
+            Assert.DoesNotContain(result.Gates, gate => gate.Name == "Bundled ffmpeg");
+            Assert.DoesNotContain(result.Gates, gate => gate.Name == "Bundled ffprobe");
+
+            // The fallback directory is still surfaced for diagnostics.
+            Assert.Contains("net8.0", result.MacRuntimeDirectory!);
+        }
+        finally
+        {
+            Delete(repo);
+        }
+    }
+
+    private static void OverwriteProjectWithoutTargetFramework(string root, string relativeProjectPath)
+    {
+        var projectPath = Resolve(root, relativeProjectPath);
+        Directory.CreateDirectory(Path.GetDirectoryName(projectPath)!);
+        // Project file with no <TargetFramework> element so ReadTargetFramework
+        // returns null and the fallback path is exercised.
+        File.WriteAllText(
+            projectPath,
+            "<Project Sdk=\"Microsoft.NET.Sdk\">"
+                + "<PropertyGroup><AssemblyName>DTXMania.Game.Mac</AssemblyName></PropertyGroup>"
+                + "</Project>");
+    }
+
     private static RecorderPlatformPreflightResult EvaluateMac(
         string repo,
         Version osVersion,
