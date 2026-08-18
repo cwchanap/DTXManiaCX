@@ -164,21 +164,24 @@ If project-run arguments are supplied for an executable target, reject them rath
 
 ### Prebuild contract
 
-The recorder does not compile the game itself. Before `doctor` or `record`, the Mac runbook requires:
+The recorder does not compile the game itself. Before `doctor` or `record`, the operator must build the resolved platform project so the Debug apphost and runtime output exist:
 
 ```bash
+# macOS
 dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj --configuration Debug
+# Windows
+dotnet build DTXMania.Game/DTXMania.Game.Windows.csproj --configuration Debug
 ```
 
 If the required Debug output is missing, preflight fails before sandbox/OBS with an actionable message naming that exact command.
 
-This intentionally changes HPA-515 from “build during launch” to “build, certify, then no-build launch”. It removes the clean-tree false failure/stale-output replacement race from the previous design.
+This intentionally changes HPA-515 from “build during launch” to “build, certify, then no-build launch”. It removes the clean-tree false failure/stale-output replacement race from the previous design. The same build → preflight → `--no-build` contract applies on both macOS and Windows: preflight certifies the Debug apphost that `dotnet run --no-build --configuration Debug` will execute, so a clean checkout cannot pass preflight and then fail at process launch after the sandbox is created.
 
 ## Supported platform contract
 
 ### Windows
 
-Keep accepted Windows recorder behavior. HPA-515 does not add Windows version, architecture, or bundled-runtime requirements.
+Windows follows the same build → preflight → `--no-build` launch contract as macOS: the operator must build the Windows project first, and preflight certifies the Debug apphost (`<AssemblyName>.exe`) under the TFM-pinned `bin/Debug` directory before `doctor` or `record`. HPA-515 still does not add Windows version, architecture, or bundled-runtime requirements — only the prebuilt Debug apphost requirement is new.
 
 ### macOS
 
@@ -220,7 +223,7 @@ internal sealed record RecorderPlatformPreflightResult(
 }
 ```
 
-For Windows, preserve today's supported behavior without a new native-runtime gate.
+For Windows, preserve today's supported behavior without a new native-runtime, OS-version, or bundled-runtime gate. Windows does gain one shared gate: the Debug apphost (`<AssemblyName>.exe`) under the TFM-pinned `bin/Debug` directory must exist and be a usable runtime binary, mirroring the Mac apphost gate so a clean checkout cannot pass preflight and then fail at `dotnet run --no-build` launch.
 
 For macOS, validate:
 
@@ -454,7 +457,7 @@ Cover:
 - shared target resolution from repository root and nested directories;
 - recorder `CreateOptions` preserves the target/working directory and adds `--no-build --configuration Debug`, sandbox app-data, and a fresh launch token;
 - both Windows and Mac default app-data resolution through injected platform/folder facts, including the `UserProfile -> Personal -> $HOME` Mac fallback;
-- Windows record behavior remains accepted;
+- Windows record behavior remains accepted, with the new shared Debug apphost gate covered (passing apphost, missing apphost with Windows recovery command, and missing project / unreadable TFM falling back to the "Target framework" gate);
 - Mac host version/architecture gates from synthetic facts;
 - exact Debug runtime path resolution;
 - missing/non-executable native runtime fails with the exact build command in the message;
