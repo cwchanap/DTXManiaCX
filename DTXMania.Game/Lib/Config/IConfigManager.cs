@@ -10,8 +10,14 @@ namespace DTXMania.Game.Lib.Config
     public interface IConfigManager
     {
         ConfigData Config { get; }
-        void LoadConfig(string filePath);
-        void SaveConfig(string filePath);
+
+        /// <summary>
+        /// Loads the configuration from the SQLite config database (the live
+        /// store). A legacy Config.ini is imported only when the database is
+        /// absent; an invalid database fails loudly with no INI fallback.
+        /// </summary>
+        void LoadConfig();
+
         void ResetToDefaults();
 
         /// <summary>
@@ -45,25 +51,23 @@ namespace DTXMania.Game.Lib.Config
         /// Validates, persists, and publishes an ordered song-root update. Existing
         /// interface implementations that do not own persisted song roots can opt out.
         /// </summary>
-        SongRootUpdateResult SetSongRoots(
-            string configFilePath,
-            IReadOnlyList<string> roots) =>
+        SongRootUpdateResult SetSongRoots(IReadOnlyList<string> roots) =>
             throw new NotSupportedException(
                 "This configuration manager does not support song-root updates.");
 
         /// <summary>
         /// Sets the scroll speed (percent), snapping to the nearest allowed step and
-        /// clamping to the allowed range. Persists to the given file path and raises
+        /// clamping to the allowed range. Marks a deferred save pending and raises
         /// ScrollSpeedChanged when the value actually changes.
         /// No-op (and no save) if the new value equals the current value.
         /// </summary>
-        void SetScrollSpeed(string configFilePath, int percent);
+        void SetScrollSpeed(int percent);
 
         /// <summary>
         /// Adjusts scroll speed by stepDelta * Step. Equivalent to
-        /// SetScrollSpeed(path, current + stepDelta * Step).
+        /// SetScrollSpeed(current + stepDelta * Step).
         /// </summary>
-        void AdjustScrollSpeed(string configFilePath, int stepDelta);
+        void AdjustScrollSpeed(int stepDelta);
 
         /// <summary>
         /// Sets gameplay speed, snapping to <see cref="PlaySpeedRange"/> and marking a
@@ -121,7 +125,7 @@ namespace DTXMania.Game.Lib.Config
         /// manager loads skin assets from) and marks a deferred save pending. No event raised.
         /// No-op when the value is null/whitespace or unchanged.
         /// </summary>
-        void SetSkinPath(string configFilePath, string skinPath);
+        void SetSkinPath(string skinPath);
 
         /// <summary>
         /// Flushes any deferred config changes to disk. Call this on stage exit

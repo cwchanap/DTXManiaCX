@@ -55,70 +55,211 @@ namespace DTXMania.Game.Lib.Config
 
         private readonly ILogger<ConfigManager> _logger;
         private readonly SongRootPolicy _songRootPolicy;
+        private readonly SqliteConfigStore _store;
+        private readonly string _legacyIniPath;
+        private readonly string _baseDir;
         public ConfigData Config { get; private set; }
 
         /// <summary>
-        /// Path of the config file that has a deferred (debounced) write pending.
-        /// Null when no write is pending.
+        /// True once this instance has loaded the store (or created it for the
+        /// first time). Guards the store's load-before-save ordering: the v1
+        /// store would silently stamp schema v1 over a higher-version database,
+        /// so no save may happen before a successful load/first-create.
         /// </summary>
-        private string? _pendingSavePath;
+        private bool _storeLoaded;
 
         /// <summary>
-        /// Path captured in <see cref="LoadConfig"/> so setters can mark dirty without a path arg.
+        /// Whether a deferred (debounced) SQLite save is pending. Cleared only
+        /// after a successful store save.
         /// </summary>
-        private string? _loadedConfigPath;
+        private bool _hasPendingSave;
 
         public ConfigManager(ILogger<ConfigManager>? logger = null)
-            : this(SongRootPolicy.ForCurrentPlatform(), logger)
+            : this(
+                AppPaths.GetConfigDatabasePath(),
+                AppPaths.GetLegacyConfigFilePath(),
+                songRootPolicy: null,
+                baseDir: null,
+                logger)
         {
         }
 
+        /// <summary>
+        /// Test seam owning the persistence inputs explicitly: the SQLite
+        /// config database path, the legacy Config.ini import path, the song
+        /// root validation policy, and the base directory bundled System skin
+        /// roots resolve from. Required for parallel-safe unit tests that must
+        /// not share the process-wide app-data root paths.
+        /// </summary>
         internal ConfigManager(
-            SongRootPolicy songRootPolicy,
+            string databasePath,
+            string legacyIniPath,
+            SongRootPolicy? songRootPolicy = null,
+            string? baseDir = null,
             ILogger<ConfigManager>? logger = null)
         {
-            _songRootPolicy = songRootPolicy ??
-                throw new ArgumentNullException(nameof(songRootPolicy));
+            _store = new SqliteConfigStore(databasePath);
+            _legacyIniPath = legacyIniPath;
+            _songRootPolicy = songRootPolicy ?? SongRootPolicy.ForCurrentPlatform();
+            _baseDir = baseDir ?? AppContext.BaseDirectory;
             _logger = logger ?? NullLogger<ConfigManager>.Instance;
             Config = new ConfigData();
         }
 
-        public void LoadConfig(string filePath)
-            => LoadConfig(filePath, AppContext.BaseDirectory);
-
         /// <summary>
-        /// Internal overload of <see cref="LoadConfig(string)"/> that resolves
-        /// bundled System skin root candidates from an explicit
-        /// <paramref name="baseDir"/> instead of
-        /// <see cref="AppContext.BaseDirectory"/> (immutable at runtime). This
-        /// is the seam that lets the migration test exercise the COMPLETE
-        /// load-and-persist flow against a genuine bundled path written from a
-        /// fake install directory — writing the fake install's validating
-        /// System root into Config.ini, calling this overload, and verifying
-        /// the file is rewritten to <see cref="DefaultSkinPathToken"/> —
-        /// without mutating <see cref="AppContext.BaseDirectory"/>.
+        /// Loads the configuration from the SQLite store (HPA-190). The store
+        /// is authoritative: when the database exists it is loaded and the
+        /// legacy Config.ini is ignored. When the database is absent but a
+        /// legacy Config.ini exists, the INI is imported once into a newly
+        /// created database (the INI file itself is left untouched). When
+        /// neither exists, defaults are persisted to a newly created database.
+        /// An invalid existing database fails loudly — there is no INI
+        /// fallback.
         /// </summary>
-        /// <param name="filePath">Path to the Config.ini file to load.</param>
-        /// <param name="baseDir">
-        /// Base directory for bundled System skin root candidate resolution.
-        /// </param>
-        internal void LoadConfig(string filePath, string baseDir)
+        public void LoadConfig()
         {
-            _loadedConfigPath = filePath;
-            EnsureConfigDirectory(filePath);
             Config.MidiVelocityThresholds.Clear();
             Config.SongRoots.Clear();
-            if (!File.Exists(filePath))
-            {
-                NormalizeConfigPaths(baseDir);
-                SaveConfig(filePath); // Create default config
-                return;
-            }
-
-            var lines = File.ReadAllLines(filePath, Encoding.UTF8);
             var indexedSongRoots = new Dictionary<int, string>();
             string? legacyDtxPath = null;
 
+            if (_store.Exists)
+            {
+                // Throws on unreadable/unsupported databases: fail loudly, no
+                // INI fallback.
+                foreach (var pair in _store.Load())
+                {
+                    ParseConfigLine(pair.Key, pair.Value, indexedSongRoots, ref legacyDtxPath);
+                }
+
+                _storeLoaded = true;
+            }
+            else if (File.Exists(_legacyIniPath))
+            {
+                ImportLegacyIni(indexedSongRoots, ref legacyDtxPath);
+            }
+            else
+            {
+                // First launch: persist the defaults so the database exists.
+                NormalizeConfigPaths(_baseDir);
+                CreateStoreSnapshot();
+                return;
+            }
+
+            var songRootsLoadSource = FinalizeSongRoots(indexedSongRoots, legacyDtxPath);
+            var songRootsMigrated = songRootsLoadSource != SongRootsLoadSource.Indexed;
+
+            // Capture the pre-normalization SkinPath so we can detect whether
+            // NormalizeConfigPaths migrated it (e.g. absolute bundled path →
+            // "Default" token). Migration changes must be persisted immediately
+            // — otherwise a relocation before the next setter-triggered save
+            // would leave the stale absolute path stored, breaking the
+            // token's relocation-survival guarantee.
+            var skinPathBeforeNormalization = Config.SkinPath;
+
+            // Capture the pre-normalization SongRoots so we can detect whether
+            // NormalizeConfigPaths discarded malformed entries, replaced them
+            // with resolved paths, or inserted the managed default. Those
+            // corrections must be persisted alongside skin/SongRoot migrations
+            // so a corrupted or stale SongRoot.* row does not survive a
+            // relocation-triggered reload.
+            var songRootsBeforeNormalization = Config.SongRoots.ToList();
+
+            NormalizeConfigPaths(_baseDir, songRootsLoadSource == SongRootsLoadSource.LegacyDTXPath);
+
+            var skinPathMigrated = !string.Equals(
+                skinPathBeforeNormalization, Config.SkinPath,
+                AppPaths.SkinPathComparison);
+
+            var songRootsCorrected = !SongRootsSequenceEqual(
+                songRootsBeforeNormalization, Config.SongRoots);
+
+            // An import must always write its snapshot once (first create);
+            // an existing store is only rewritten when a migration/correction
+            // was applied.
+            var mustPersist = !_storeLoaded || skinPathMigrated || songRootsMigrated || songRootsCorrected;
+            if (mustPersist)
+            {
+                try
+                {
+                    if (_storeLoaded)
+                    {
+                        SaveSnapshotToStore();
+                    }
+                    else
+                    {
+                        CreateStoreSnapshot();
+                    }
+
+                    if (skinPathMigrated)
+                    {
+                        _logger.LogInformation(
+                            "Migrated SkinPath from '{OldPath}' to '{NewPath}' and persisted the change to the config database.",
+                            skinPathBeforeNormalization, Config.SkinPath);
+                    }
+
+                    if (songRootsMigrated)
+                    {
+                        _logger.LogInformation(
+                            "Persisted SongRoot migration using {SongRootCount} configured root(s).",
+                            Config.SongRoots.Count);
+                    }
+
+                    if (songRootsCorrected && !songRootsMigrated)
+                    {
+                        _logger.LogInformation(
+                            "NormalizeConfigPaths corrected {SongRootCount} SongRoot entry/entries; persisting the updated values to the config database.",
+                            Config.SongRoots.Count);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex,
+                        "Failed to persist configuration migration. In-memory values are correct; " +
+                        "the database will be updated on the next save.");
+                }
+            }
+
+            // Security: If Game API is enabled but no API key is set, generate one and save
+            if (Config.EnableGameApi && string.IsNullOrEmpty(Config.GameApiKey))
+            {
+                var previousApiKey = Config.GameApiKey;
+                var generatedApiKey = GenerateSecureApiKey();
+                Config.GameApiKey = generatedApiKey;
+
+                try
+                {
+                    if (_storeLoaded)
+                    {
+                        SaveSnapshotToStore();
+                    }
+                    else
+                    {
+                        CreateStoreSnapshot();
+                    }
+
+                    _logger.LogInformation("Generated a new API key for Game API and saved it to the config database.");
+                }
+                catch (Exception ex)
+                {
+                    Config.GameApiKey = previousApiKey;
+                    _logger.LogError(ex, "Failed to save generated Game API key to the config database: {ErrorMessage}", ex.Message);
+                    return;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Parses the legacy Config.ini (read only when the SQLite database is
+        /// absent) into the same parser state the DB load path uses. The INI
+        /// file is never modified — the imported snapshot is persisted to the
+        /// new database by <see cref="LoadConfig"/> after normalization.
+        /// </summary>
+        private void ImportLegacyIni(
+            Dictionary<int, string> indexedSongRoots,
+            ref string? legacyDtxPath)
+        {
+            var lines = File.ReadAllLines(_legacyIniPath, Encoding.UTF8);
             foreach (var line in lines)
             {
                 if (string.IsNullOrWhiteSpace(line) || line.StartsWith(';'))
@@ -134,88 +275,6 @@ namespace DTXMania.Game.Lib.Config
                 var value = parts[1].Trim();
 
                 ParseConfigLine(key, value, indexedSongRoots, ref legacyDtxPath);
-            }
-
-            var songRootsLoadSource = FinalizeSongRoots(indexedSongRoots, legacyDtxPath);
-            var songRootsMigrated = songRootsLoadSource != SongRootsLoadSource.Indexed;
-
-            // Capture the pre-normalization SkinPath so we can detect whether
-            // NormalizeConfigPaths migrated it (e.g. absolute bundled path →
-            // "Default" token). Migration changes must be persisted immediately
-            // — otherwise a relocation before the next setter-triggered save
-            // would leave the stale absolute path in Config.ini, breaking the
-            // token's relocation-survival guarantee.
-            var skinPathBeforeNormalization = Config.SkinPath;
-
-            // Capture the pre-normalization SongRoots so we can detect whether
-            // NormalizeConfigPaths discarded malformed entries, replaced them
-            // with resolved paths, or inserted the managed default. Those
-            // corrections must be persisted alongside skin/SongRoot migrations
-            // so a corrupted or stale SongRoot.* line does not survive a
-            // relocation-triggered reload.
-            var songRootsBeforeNormalization = Config.SongRoots.ToList();
-
-            NormalizeConfigPaths(baseDir, songRootsLoadSource == SongRootsLoadSource.LegacyDTXPath);
-
-            var skinPathMigrated = !string.Equals(
-                skinPathBeforeNormalization, Config.SkinPath,
-                AppPaths.SkinPathComparison);
-
-            var songRootsCorrected = !SongRootsSequenceEqual(
-                songRootsBeforeNormalization, Config.SongRoots);
-
-            if (skinPathMigrated || songRootsMigrated || songRootsCorrected)
-            {
-                try
-                {
-                    SaveConfig(filePath);
-                    if (skinPathMigrated)
-                    {
-                        _logger.LogInformation(
-                            "Migrated SkinPath from '{OldPath}' to '{NewPath}' and persisted the change to the config file.",
-                            skinPathBeforeNormalization, Config.SkinPath);
-                    }
-
-                    if (songRootsMigrated)
-                    {
-                        _logger.LogInformation(
-                            "Persisted SongRoot migration using {SongRootCount} configured root(s).",
-                            Config.SongRoots.Count);
-                    }
-
-                    if (songRootsCorrected && !songRootsMigrated)
-                    {
-                        _logger.LogInformation(
-                            "NormalizeConfigPaths corrected {SongRootCount} SongRoot entry/entries; persisting the updated values to the config file.",
-                            Config.SongRoots.Count);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex,
-                        "Failed to persist configuration migration. In-memory values are correct; " +
-                        "the file will be updated on the next save.");
-                }
-            }
-
-            // Security: If Game API is enabled but no API key is set, generate one and save
-            if (Config.EnableGameApi && string.IsNullOrEmpty(Config.GameApiKey))
-            {
-                var previousApiKey = Config.GameApiKey;
-                var generatedApiKey = GenerateSecureApiKey();
-                Config.GameApiKey = generatedApiKey;
-
-                try
-                {
-                    SaveConfig(filePath);
-                    _logger.LogInformation("Generated a new API key for Game API and saved it to the config file.");
-                }
-                catch (Exception ex)
-                {
-                    Config.GameApiKey = previousApiKey;
-                    _logger.LogError(ex, "Failed to save generated Game API key to config file: {ErrorMessage}", ex.Message);
-                    return;
-                }
             }
         }
 
@@ -438,7 +497,8 @@ namespace DTXMania.Game.Lib.Config
                     legacyDtxPath = value;
                     break;
                 case "UseBoxDefSkin":
-                    Config.UseBoxDefSkin = value.ToLower() == "true";
+                    if (TryParseBool(value, out var useBoxDefSkin))
+                        Config.UseBoxDefSkin = useBoxDefSkin;
                     break;
                 case "SystemSkinRoot":
                     Config.SystemSkinRoot = value;
@@ -447,29 +507,31 @@ namespace DTXMania.Game.Lib.Config
                     Config.LastUsedSkin = value;
                     break;
                 case "ScreenWidth":
-                    if (int.TryParse(value, out var width))
+                    if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var width))
                         Config.ScreenWidth = width;
                     break;
                 case "ScreenHeight":
-                    if (int.TryParse(value, out var height))
+                    if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var height))
                         Config.ScreenHeight = height;
                     break;
                 case "FullScreen":
-                    Config.FullScreen = value.ToLower() == "true";
+                    if (TryParseBool(value, out var fullScreen))
+                        Config.FullScreen = fullScreen;
                     break;
                 case "VSyncWait":
-                    Config.VSyncWait = value.ToLower() == "true";
+                    if (TryParseBool(value, out var vSyncWait))
+                        Config.VSyncWait = vSyncWait;
                     break;
                 case "ScrollSpeed":
-                    if (int.TryParse(value, out var scrollSpeed))
+                    if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var scrollSpeed))
                         Config.ScrollSpeed = ScrollSpeedRange.SnapAndClamp(scrollSpeed);
                     break;
                 case "PlaySpeedPercent":
-                    if (int.TryParse(value, out var playSpeedPercent))
+                    if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var playSpeedPercent))
                         Config.PlaySpeedPercent = PlaySpeedRange.SnapAndClamp(playSpeedPercent);
                     break;
                 case "PitchSemitones":
-                    if (int.TryParse(value, out var pitchSemitones))
+                    if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var pitchSemitones))
                         Config.PitchSemitones = PitchRange.SnapAndClamp(pitchSemitones);
                     break;
                 case "Metronome":
@@ -485,7 +547,7 @@ namespace DTXMania.Game.Lib.Config
                         Config.NoFail = noFail;
                     break;
                 case "AudioLatencyOffsetMs":
-                    if (int.TryParse(value, out var audioLatencyOffsetMs))
+                    if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var audioLatencyOffsetMs))
                         Config.AudioLatencyOffsetMs = Math.Max(0, audioLatencyOffsetMs);
                     break;
                 case "EnableGameApi":
@@ -493,7 +555,7 @@ namespace DTXMania.Game.Lib.Config
                         Config.EnableGameApi = enableGameApi;
                     break;
                 case "GameApiPort":
-                    if (int.TryParse(value, out var apiPort))
+                    if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var apiPort))
                         Config.GameApiPort = apiPort;
                     break;
                 case "GameApiKey":
@@ -503,7 +565,7 @@ namespace DTXMania.Game.Lib.Config
                 default:
                     if (TryParseMidiVelocityThresholdKey(key, out var midiNoteNumber))
                     {
-                        if (int.TryParse(value, out var midiThreshold))
+                        if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var midiThreshold))
                         {
                             SetMidiVelocityThresholdInMemory(midiNoteNumber, midiThreshold);
                         }
@@ -520,7 +582,7 @@ namespace DTXMania.Game.Lib.Config
                         }
                     }
                     else if (key.StartsWith("Key.Unbound.") &&
-                        int.TryParse(key.Substring("Key.Unbound.".Length), out var unboundLane))
+                        int.TryParse(key.Substring("Key.Unbound.".Length), NumberStyles.Integer, CultureInfo.InvariantCulture, out var unboundLane))
                     {
                         if (unboundLane >= 0 && unboundLane <= 9 &&
                             TryParseBool(value, out var isUnbound) &&
@@ -539,7 +601,8 @@ namespace DTXMania.Game.Lib.Config
                             Config.UnboundDrumButtons.Add(buttonId);
                         }
                     }
-                    else if (IsSupportedBindingKeyOrLog(key) && int.TryParse(value, out var lane))
+                    else if (IsSupportedBindingKeyOrLog(key) &&
+                        int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var lane))
                     {
                         if (lane >= 0 && lane <= 9)
                         {
@@ -619,107 +682,111 @@ namespace DTXMania.Game.Lib.Config
             return SongRootsLoadSource.ManagedDefault;
         }
 
-        public void SaveConfig(string filePath)
+        /// <summary>
+        /// Builds the logical key/value snapshot persisted to the SQLite
+        /// store (formerly the body of the INI <c>SaveConfig</c>). The
+        /// duplicate <c>DTXPath</c> representation is deliberately excluded:
+        /// <c>DTXPath</c> is a legacy input/in-memory mirror only, and
+        /// <c>SongRoot.0</c> is the persisted form.
+        /// </summary>
+        private IReadOnlyDictionary<string, string> BuildPersistedEntries()
         {
-            EnsureConfigDirectory(filePath);
             var songRoots = Config.SongRoots.ToArray();
             if (songRoots.Length > 0)
             {
                 Config.DTXPath = songRoots[0];
             }
 
-            var sb = new StringBuilder();
-            sb.AppendLine("; DTXMania Configuration File");
-            sb.AppendLine($"; Generated: {DateTime.Now}");
-            sb.AppendLine();
+            var entries = new Dictionary<string, string>(StringComparer.Ordinal);
 
-            sb.AppendLine("[System]");
-            sb.AppendLine($"DTXManiaVersion={Config.DTXManiaVersion}");
-            sb.AppendLine($"SkinPath={Config.SkinPath}");
-            sb.AppendLine($"DTXPath={Config.DTXPath}");
+            entries["DTXManiaVersion"] = Config.DTXManiaVersion;
+            entries["SkinPath"] = Config.SkinPath;
             for (var index = 0; index < songRoots.Length; index++)
             {
-                sb.AppendLine($"{SongRootPrefix}{index}={songRoots[index]}");
-            }
-            sb.AppendLine();
-
-            sb.AppendLine("[Skin]");
-            sb.AppendLine($"UseBoxDefSkin={Config.UseBoxDefSkin}");
-            sb.AppendLine($"SystemSkinRoot={Config.SystemSkinRoot}");
-            sb.AppendLine($"LastUsedSkin={Config.LastUsedSkin}");
-            sb.AppendLine();
-            
-            sb.AppendLine("[Display]");
-            sb.AppendLine($"ScreenWidth={Config.ScreenWidth}");
-            sb.AppendLine($"ScreenHeight={Config.ScreenHeight}");
-            sb.AppendLine($"FullScreen={Config.FullScreen}");
-            sb.AppendLine($"VSyncWait={Config.VSyncWait}");
-            sb.AppendLine();
-            
-            sb.AppendLine("[Game]");
-            sb.AppendLine($"ScrollSpeed={Config.ScrollSpeed}");
-            sb.AppendLine($"PlaySpeedPercent={PlaySpeedRange.SnapAndClamp(Config.PlaySpeedPercent)}");
-            sb.AppendLine($"PitchSemitones={PitchRange.SnapAndClamp(Config.PitchSemitones)}");
-            sb.AppendLine($"Metronome={Config.Metronome}");
-            sb.AppendLine($"AutoPlay={Config.AutoPlay}");
-            sb.AppendLine($"NoFail={Config.NoFail}");
-            sb.AppendLine($"AudioLatencyOffsetMs={Config.AudioLatencyOffsetMs}");
-
-            sb.AppendLine();
-            sb.AppendLine("[Api]");
-            sb.AppendLine($"EnableGameApi={Config.EnableGameApi}");
-            sb.AppendLine($"GameApiPort={Config.GameApiPort}");
-            sb.AppendLine($"GameApiKey={Config.GameApiKey}");
-
-            // Save key bindings to config file
-            if (Config.KeyBindings.Count > 0 || Config.UnboundDrumLanes.Count > 0 || Config.UnboundDrumButtons.Count > 0)
-            {
-                sb.AppendLine();
-                sb.AppendLine("[KeyBindings]");
-                foreach (var kvp in Config.KeyBindings)
-                {
-                    sb.AppendLine($"{kvp.Key}={kvp.Value}");
-                }
-                foreach (var lane in Config.UnboundDrumLanes.OrderBy(lane => lane))
-                {
-                    sb.AppendLine($"Key.Unbound.{lane}=true");
-                }
-                foreach (var buttonId in Config.UnboundDrumButtons.OrderBy(buttonId => buttonId, StringComparer.Ordinal))
-                {
-                    sb.AppendLine($"Key.UnboundButton.{buttonId}=true");
-                }
+                entries[$"{SongRootPrefix}{index}"] = songRoots[index];
             }
 
-            if (Config.SystemKeyBindings.Count > 0)
+            entries["UseBoxDefSkin"] = Config.UseBoxDefSkin.ToString();
+            entries["SystemSkinRoot"] = Config.SystemSkinRoot;
+            entries["LastUsedSkin"] = Config.LastUsedSkin;
+
+            entries["ScreenWidth"] = Config.ScreenWidth.ToString(CultureInfo.InvariantCulture);
+            entries["ScreenHeight"] = Config.ScreenHeight.ToString(CultureInfo.InvariantCulture);
+            entries["FullScreen"] = Config.FullScreen.ToString();
+            entries["VSyncWait"] = Config.VSyncWait.ToString();
+
+            entries["ScrollSpeed"] = Config.ScrollSpeed.ToString(CultureInfo.InvariantCulture);
+            entries["PlaySpeedPercent"] = PlaySpeedRange.SnapAndClamp(Config.PlaySpeedPercent)
+                .ToString(CultureInfo.InvariantCulture);
+            entries["PitchSemitones"] = PitchRange.SnapAndClamp(Config.PitchSemitones)
+                .ToString(CultureInfo.InvariantCulture);
+            entries["Metronome"] = Config.Metronome.ToString();
+            entries["AutoPlay"] = Config.AutoPlay.ToString();
+            entries["NoFail"] = Config.NoFail.ToString();
+            entries["AudioLatencyOffsetMs"] = Config.AudioLatencyOffsetMs.ToString(CultureInfo.InvariantCulture);
+
+            entries["EnableGameApi"] = Config.EnableGameApi.ToString();
+            entries["GameApiPort"] = Config.GameApiPort.ToString(CultureInfo.InvariantCulture);
+            entries["GameApiKey"] = Config.GameApiKey;
+
+            foreach (var kvp in Config.KeyBindings)
             {
-                sb.AppendLine();
-                sb.AppendLine("[SystemKeyBindings]");
-                foreach (var kvp in Config.SystemKeyBindings)
-                {
-                    sb.AppendLine($"{kvp.Key}={kvp.Value}");
-                }
+                entries[kvp.Key] = kvp.Value.ToString(CultureInfo.InvariantCulture);
+            }
+            foreach (var lane in Config.UnboundDrumLanes.OrderBy(lane => lane))
+            {
+                entries[$"Key.Unbound.{lane}"] = bool.TrueString.ToLowerInvariant();
+            }
+            foreach (var buttonId in Config.UnboundDrumButtons.OrderBy(buttonId => buttonId, StringComparer.Ordinal))
+            {
+                entries[$"Key.UnboundButton.{buttonId}"] = bool.TrueString.ToLowerInvariant();
+            }
+
+            foreach (var kvp in Config.SystemKeyBindings)
+            {
+                entries[kvp.Key] = kvp.Value;
             }
 
             var savedMidiThresholds = Config.MidiVelocityThresholds
                 .Where(kvp => kvp.Key >= 0 && kvp.Key <= 127 && kvp.Value > 0)
                 .OrderBy(kvp => kvp.Key)
                 .ToList();
-            if (savedMidiThresholds.Count > 0)
+            foreach (var kvp in savedMidiThresholds)
             {
-                sb.AppendLine();
-                sb.AppendLine("[MidiVelocityThresholds]");
-                foreach (var kvp in savedMidiThresholds)
-                {
-                    sb.AppendLine($"{MidiVelocityPrefix}{kvp.Key}={Math.Clamp(kvp.Value, 0, 127)}");
-                }
+                entries[$"{MidiVelocityPrefix}{kvp.Key}"] =
+                    Math.Clamp(kvp.Value, 0, 127).ToString(CultureInfo.InvariantCulture);
             }
 
-            // Write atomically via temp-file to avoid truncation on crash/disk-full.
-            // Write to temp first — if it fails, original remains intact.
-            var tempFile = filePath + ".tmp";
-            File.WriteAllText(tempFile, sb.ToString(), Encoding.UTF8);
-            File.Move(tempFile, filePath, overwrite: true);
-            ClearMatchingPendingSavePath(filePath);
+            return entries;
+        }
+
+        /// <summary>
+        /// Replaces the persisted snapshot. Requires a prior successful load
+        /// (or first-create) in this instance: the v1 store would silently
+        /// stamp schema v1 over a higher-version database.
+        /// </summary>
+        private void SaveSnapshotToStore()
+        {
+            if (!_storeLoaded)
+            {
+                throw new InvalidOperationException(
+                    "Configuration must be loaded before it can be saved.");
+            }
+
+            _store.Save(BuildPersistedEntries());
+            _hasPendingSave = false;
+        }
+
+        /// <summary>
+        /// Creates the store snapshot for the first time (no prior database
+        /// exists, so no version can be clobbered) and marks this instance
+        /// eligible for further saves.
+        /// </summary>
+        private void CreateStoreSnapshot()
+        {
+            _store.Save(BuildPersistedEntries());
+            _storeLoaded = true;
+            _hasPendingSave = false;
         }
 
         public void ResetToDefaults()
@@ -739,11 +806,8 @@ namespace DTXMania.Game.Lib.Config
         /// Persists an ordered set of validated song-library roots immediately. A failed
         /// write restores the exact in-memory roots and legacy compatibility mirror.
         /// </summary>
-        public SongRootUpdateResult SetSongRoots(
-            string configFilePath,
-            IReadOnlyList<string> roots)
+        public SongRootUpdateResult SetSongRoots(IReadOnlyList<string> roots)
         {
-            ArgumentException.ThrowIfNullOrWhiteSpace(configFilePath);
             ArgumentNullException.ThrowIfNull(roots);
 
             var validation = _songRootPolicy.Validate(roots);
@@ -775,7 +839,7 @@ namespace DTXMania.Game.Lib.Config
 
             try
             {
-                SaveConfig(configFilePath);
+                SaveSnapshotToStore();
             }
             catch (Exception ex)
             {
@@ -785,13 +849,13 @@ namespace DTXMania.Game.Lib.Config
                 _logger.LogError(
                     ex,
                     "Failed to persist song roots to {Path}; restored the in-memory configuration.",
-                    configFilePath);
+                    _store.DatabasePath);
 
                 var diagnostics = validation.Diagnostics
                     .Concat(
                     [
                         new SongRootDiagnostic(
-                            configFilePath,
+                            _store.DatabasePath,
                             $"Could not persist song roots: {ex.Message}",
                             IsWarning: false),
                     ])
@@ -813,7 +877,7 @@ namespace DTXMania.Game.Lib.Config
                 validation.Diagnostics);
         }
 
-        public void SetScrollSpeed(string configFilePath, int percent)
+        public void SetScrollSpeed(int percent)
         {
             var snapped = ScrollSpeedRange.SnapAndClamp(percent);
             var old = Config.ScrollSpeed;
@@ -823,14 +887,14 @@ namespace DTXMania.Game.Lib.Config
             Config.ScrollSpeed = snapped;
 
             // Defer disk write — mark dirty and flush later via FlushPendingSave.
-            MarkDirty(configFilePath);
+            MarkDirty();
 
             RaiseEvent(ScrollSpeedChanged, new ScrollSpeedChangedEventArgs(old, snapped));
         }
 
-        public void AdjustScrollSpeed(string configFilePath, int stepDelta)
+        public void AdjustScrollSpeed(int stepDelta)
         {
-            SetScrollSpeed(configFilePath, Config.ScrollSpeed + stepDelta * ScrollSpeedRange.Step);
+            SetScrollSpeed(Config.ScrollSpeed + stepDelta * ScrollSpeedRange.Step);
         }
 
         public void SetPlaySpeedPercent(int percent)
@@ -938,7 +1002,11 @@ namespace DTXMania.Game.Lib.Config
                 return false;
             }
 
-            return int.TryParse(key.Substring(MidiVelocityPrefix.Length), out noteNumber) &&
+            return int.TryParse(
+                       key.Substring(MidiVelocityPrefix.Length),
+                       NumberStyles.Integer,
+                       CultureInfo.InvariantCulture,
+                       out noteNumber) &&
                    noteNumber >= 0 &&
                    noteNumber <= 127;
         }
@@ -962,7 +1030,7 @@ namespace DTXMania.Game.Lib.Config
         public void SetVSync(bool value) { Config.VSyncWait = value; MarkDirty(); }
 
         /// <summary>Sets the skin path (<see cref="ConfigData.SkinPath"/>) and marks a deferred save pending. No event raised. No-op when null/whitespace or unchanged.</summary>
-        public void SetSkinPath(string configFilePath, string skinPath)
+        public void SetSkinPath(string skinPath)
         {
             if (string.IsNullOrWhiteSpace(skinPath))
                 return;
@@ -970,7 +1038,7 @@ namespace DTXMania.Game.Lib.Config
             // Compare normalized forms rather than raw strings: the incoming
             // value comes from ResourceManager.GetCurrentEffectiveSkinPath()
             // (normalized with a trailing separator + forward slashes), while
-            // Config.SkinPath may have been loaded verbatim from Config.ini
+            // Config.SkinPath may have been loaded verbatim from the store
             // (no trailing separator, possibly backslashes on Windows). A raw
             // equality check would miss equivalent paths and spuriously mark
             // the config dirty (triggering a redundant write) on every switch.
@@ -980,7 +1048,7 @@ namespace DTXMania.Game.Lib.Config
                 return;
 
             Config.SkinPath = skinPath;
-            MarkDirty(configFilePath);
+            MarkDirty();
         }
 
         /// <summary>
@@ -1017,52 +1085,29 @@ namespace DTXMania.Game.Lib.Config
         /// <inheritdoc/>
         public void FlushPendingSave()
         {
-            var path = _pendingSavePath;
-            if (path == null)
+            if (!_hasPendingSave)
                 return;
 
             try
             {
-                SaveConfig(path);
+                SaveSnapshotToStore();
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to persist deferred config changes to {Path}; in-memory values are still up to date. Will retry on next flush.", path);
+                _logger.LogError(ex, "Failed to persist deferred config changes to {Path}; in-memory values are still up to date. Will retry on next flush.", _store.DatabasePath);
             }
         }
 
         /// <summary>
-        /// Marks a deferred save as pending. A no-op if <paramref name="path"/> is null
-        /// and no config path is known yet (i.e., before any <see cref="LoadConfig"/> call).
+        /// Marks a deferred save as pending. A no-op before any successful
+        /// <see cref="LoadConfig"/> call (in-memory mutation only), matching
+        /// the store's load-before-save ordering constraint.
         /// </summary>
-        private void MarkDirty(string? path = null)
+        private void MarkDirty()
         {
-            _pendingSavePath = path ?? _loadedConfigPath ?? _pendingSavePath;
-        }
-
-        private void ClearMatchingPendingSavePath(string savedPath)
-        {
-            if (_pendingSavePath == null)
-                return;
-
-            try
+            if (_storeLoaded)
             {
-                var pendingPath = Path.GetFullPath(_pendingSavePath);
-                var normalizedSavedPath = Path.GetFullPath(savedPath);
-                if (string.Equals(
-                    NormalizePathForComparison(pendingPath),
-                    NormalizePathForComparison(normalizedSavedPath),
-                    AppPaths.SkinPathComparison))
-                {
-                    _pendingSavePath = null;
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex,
-                    "Could not compare pending config path '{PendingPath}' with saved path '{SavedPath}'; retaining the pending save marker.",
-                    _pendingSavePath,
-                    savedPath);
+                _hasPendingSave = true;
             }
         }
 
@@ -1279,18 +1324,6 @@ namespace DTXMania.Game.Lib.Config
                 InputCommandType.Back => new[] { Keys.Escape },
                 _ => Array.Empty<Keys>(),
             };
-        }
-
-        private static void EnsureConfigDirectory(string filePath)
-        {
-            if (string.IsNullOrWhiteSpace(filePath))
-                return;
-
-            var directory = Path.GetDirectoryName(filePath);
-            if (string.IsNullOrWhiteSpace(directory))
-                return;
-
-            Directory.CreateDirectory(directory);
         }
 
         private static string NormalizePathForComparison(string path)

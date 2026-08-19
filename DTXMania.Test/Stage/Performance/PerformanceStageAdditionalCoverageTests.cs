@@ -488,7 +488,7 @@ public class PerformanceStageAdditionalCoverageTests
 
         ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
 
-        configManager.Verify(x => x.AdjustScrollSpeed(It.IsAny<string>(), 1), Times.Once);
+        configManager.Verify(x => x.AdjustScrollSpeed(1), Times.Once);
     }
 
     [Fact]
@@ -503,7 +503,7 @@ public class PerformanceStageAdditionalCoverageTests
 
         ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
 
-        configManager.Verify(x => x.AdjustScrollSpeed(It.IsAny<string>(), -1), Times.Once);
+        configManager.Verify(x => x.AdjustScrollSpeed(-1), Times.Once);
     }
 
     [Fact]

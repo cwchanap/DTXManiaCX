@@ -11,15 +11,6 @@ namespace DTXMania.Test.Utilities;
 public class AppPathsTests
 {
     [Fact]
-    public void GetConfigFilePath_ShouldBeRootedAndPointToConfigIni()
-    {
-        var path = AppPaths.GetConfigFilePath();
-
-        Assert.True(Path.IsPathRooted(path));
-        Assert.Equal("Config.ini", Path.GetFileName(path));
-    }
-
-    [Fact]
     public void GetLegacyConfigFilePath_ShouldBeRootedAndPointToConfigIni()
     {
         var path = AppPaths.GetLegacyConfigFilePath();
@@ -292,7 +283,6 @@ public class AppPathsEnvironmentTests
             var root = AppPaths.GetAppDataRoot();
 
             Assert.Equal(Path.GetFullPath(overrideRoot), root);
-            Assert.Equal(Path.Combine(Path.GetFullPath(overrideRoot), "Config.ini"), AppPaths.GetConfigFilePath());
             Assert.Equal(Path.Combine(Path.GetFullPath(overrideRoot), "Config.ini"), AppPaths.GetLegacyConfigFilePath());
             Assert.Equal(Path.Combine(Path.GetFullPath(overrideRoot), "config.db"), AppPaths.GetConfigDatabasePath());
             Assert.Equal(Path.Combine(Path.GetFullPath(overrideRoot), "DTXFiles"), AppPaths.GetDefaultSongsPath());

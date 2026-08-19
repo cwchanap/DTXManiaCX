@@ -672,7 +672,7 @@ namespace DTXMania.Game.Lib.Stage
             var scrollSpeedItem = new IntegerConfigItem(
                 "Scroll Speed",
                 () => _configManager.Config.ScrollSpeed,
-                value => _configManager.SetScrollSpeed(AppPaths.GetConfigFilePath(), value),
+                value => _configManager.SetScrollSpeed(value),
                 minValue: ScrollSpeedRange.Min,
                 maxValue: ScrollSpeedRange.Max,
                 step: ScrollSpeedRange.Step,
@@ -959,8 +959,7 @@ namespace DTXMania.Game.Lib.Stage
             var persistedPath = string.Equals(skinName, "Default", StringComparison.OrdinalIgnoreCase)
                 ? ConfigManager.DefaultSkinPathToken
                 : effectivePath;
-            _configManager.SetSkinPath(AppPaths.GetConfigFilePath(),
-                persistedPath);
+            _configManager.SetSkinPath(persistedPath);
 
             _logger.LogInformation("Switched skin to '{SkinName}'", skinName);
 
@@ -1075,7 +1074,6 @@ namespace DTXMania.Game.Lib.Stage
             try
             {
                 var updateResult = _configManager.SetSongRoots(
-                    AppPaths.GetConfigFilePath(),
                     validation.CanonicalRoots);
                 if (updateResult.Status != SongRootUpdateStatus.Updated)
                 {

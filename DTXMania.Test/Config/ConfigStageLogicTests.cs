@@ -157,7 +157,7 @@ public class ConfigStageLogicTests
         panel!.Update(0, new KeyboardState(Keys.Enter), new KeyboardState());
 
         configManager.Verify(manager => manager.SetSongRoots(
-            It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>()), Times.Never);
+            It.IsAny<IReadOnlyList<string>>()), Times.Never);
         Assert.Null(ReflectionHelpers.GetPrivateField<IConfigOverlayPanel>(stage, "_activePanel"));
         Assert.True(string.IsNullOrEmpty(
             ReflectionHelpers.GetPrivateField<string>(stage, "_songFolderStatus")));
@@ -1065,31 +1065,32 @@ public class ConfigStageLogicTests
     [Fact]
     public void OnDeactivate_ShouldFlushDirtyConfigToDisk()
     {
-        // Persist-on-edit: OnDeactivate must actually WRITE the dirty edit to disk, not just
-        // call a no-op flush. A real ConfigManager with LoadConfig establishes the pending-save
-        // path; a setter marks it dirty; OnDeactivate flushes. The file on disk must then reflect
-        // the edit (verified by reloading), proving a real write — not a null-path no-op.
+        // Persist-on-edit: OnDeactivate must actually WRITE the dirty edit to the store, not just
+        // call a no-op flush. A real ConfigManager with LoadConfig establishes the store; a setter
+        // marks it dirty; OnDeactivate flushes. The database must then reflect the edit (verified
+        // by reloading), proving a real write — not a no-op flush.
         var tempDir = Path.Combine(
             AppContext.BaseDirectory, "TestResults", "config-flush-deactivate",
             Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
-        var configPath = Path.Combine(tempDir, "Config.ini");
+        var configDbPath = Path.Combine(tempDir, "config.db");
+        var legacyIniPath = Path.Combine(tempDir, "Config.ini");
         try
         {
-            var configManager = new ConfigManager();
-            configManager.LoadConfig(configPath); // writes default file + records the save path
+            var configManager = new ConfigManager(configDbPath, legacyIniPath);
+            configManager.LoadConfig(); // creates the default database
 
-            // Baseline: the loaded file on disk has the default AutoPlay=false.
-            Assert.False(ReadAutoPlayFromDisk(configPath));
+            // Baseline: the loaded database has the default AutoPlay=false.
+            Assert.False(ReadAutoPlayFromStore(configDbPath, legacyIniPath));
 
             var (stage, inputManager) = CreateLifecycleStage(configManager);
             using (inputManager)
             {
                 ReflectionHelpers.InvokePrivateMethod(stage, "OnActivate");
 
-                // Dirty edit: live-applied to Config, deferred disk write (file still shows false).
+                // Dirty edit: live-applied to Config, deferred store write (still false).
                 configManager.SetAutoPlay(true);
-                Assert.False(ReadAutoPlayFromDisk(configPath));
+                Assert.False(ReadAutoPlayFromStore(configDbPath, legacyIniPath));
 
                 // Graphics fields are uninitialized stand-ins (no real GraphicsDevice in headless
                 // tests); null them so OnDeactivate's dispose path is a no-op, mirroring the
@@ -1097,12 +1098,12 @@ public class ConfigStageLogicTests
                 ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
                 ReflectionHelpers.SetPrivateField(stage, "_whitePixel", null);
 
-                // OnDeactivate must flush the dirty edit to disk.
+                // OnDeactivate must flush the dirty edit to the store.
                 ReflectionHelpers.InvokePrivateMethod(stage, "OnDeactivate");
             }
 
-            // The dirty edit is now persisted on disk.
-            Assert.True(ReadAutoPlayFromDisk(configPath));
+            // The dirty edit is now persisted.
+            Assert.True(ReadAutoPlayFromStore(configDbPath, legacyIniPath));
         }
         finally
         {
@@ -1110,10 +1111,10 @@ public class ConfigStageLogicTests
         }
     }
 
-    private static bool ReadAutoPlayFromDisk(string configPath)
+    private static bool ReadAutoPlayFromStore(string configDbPath, string legacyIniPath)
     {
-        var reloaded = new ConfigManager();
-        reloaded.LoadConfig(configPath);
+        var reloaded = new ConfigManager(configDbPath, legacyIniPath);
+        reloaded.LoadConfig();
         return reloaded.Config.AutoPlay;
     }
 

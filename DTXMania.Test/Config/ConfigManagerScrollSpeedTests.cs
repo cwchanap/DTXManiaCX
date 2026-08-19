@@ -1,25 +1,47 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using DTXMania.Game.Lib.Config;
+using Microsoft.Data.Sqlite;
 using Xunit;
 
 namespace DTXMania.Test.Config
 {
+    /// <summary>
+    /// Scroll-speed setter/snap/event/persistence behavior against the SQLite
+    /// config store. Each test owns a unique temp root with its own
+    /// config.db + legacy Config.ini pair (the internal ConfigManager test
+    /// seam), so no test touches the real app-data directory. The app-data
+    /// root env var is sandboxed because LoadConfig's normalization resolves
+    /// and creates default app-data directories.
+    /// </summary>
+    [Collection("AppPaths")]
     public class ConfigManagerScrollSpeedTests : IDisposable
     {
-        private readonly string _tempPath;
+        private readonly string _root;
+        private readonly string? _previousAppDataRoot;
 
         public ConfigManagerScrollSpeedTests()
         {
-            _tempPath = Path.Combine(Path.GetTempPath(),
-                "dtxmania-scrollspeed-" + Guid.NewGuid().ToString("N") + ".ini");
+            _root = Path.Combine(Path.GetTempPath(),
+                "dtxmania-scrollspeed-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(_root);
+            _previousAppDataRoot = Environment.GetEnvironmentVariable("DTXMANIA_APPDATA_ROOT");
+            Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", _root);
         }
 
         public void Dispose()
         {
-            if (File.Exists(_tempPath))
-                File.Delete(_tempPath);
+            SqliteConnection.ClearAllPools();
+            Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", _previousAppDataRoot);
+            if (Directory.Exists(_root))
+                Directory.Delete(_root, recursive: true);
         }
+
+        private string DbPath => Path.Combine(_root, "config.db");
+        private string IniPath => Path.Combine(_root, "Config.ini");
+
+        private ConfigManager CreateManager() => new(DbPath, IniPath);
 
         [Theory]
         [InlineData(117, 100)]
@@ -29,8 +51,8 @@ namespace DTXMania.Test.Config
         [Trait("Category", "ConfigManager")]
         public void SetScrollSpeed_SnapsToNearestStep(int input, int expected)
         {
-            var cm = new ConfigManager();
-            cm.SetScrollSpeed(_tempPath, input);
+            var cm = CreateManager();
+            cm.SetScrollSpeed(input);
             Assert.Equal(expected, cm.Config.ScrollSpeed);
         }
 
@@ -41,8 +63,8 @@ namespace DTXMania.Test.Config
         [Trait("Category", "ConfigManager")]
         public void SetScrollSpeed_ClampsToRange(int input, int expected)
         {
-            var cm = new ConfigManager();
-            cm.SetScrollSpeed(_tempPath, input);
+            var cm = CreateManager();
+            cm.SetScrollSpeed(input);
             Assert.Equal(expected, cm.Config.ScrollSpeed);
         }
 
@@ -50,13 +72,13 @@ namespace DTXMania.Test.Config
         [Trait("Category", "ConfigManager")]
         public void SetScrollSpeed_RaisesChangedEventWithOldAndNew()
         {
-            var cm = new ConfigManager();
+            var cm = CreateManager();
             cm.Config.ScrollSpeed = 100;
 
             ScrollSpeedChangedEventArgs? captured = null;
             cm.ScrollSpeedChanged += (_, e) => captured = e;
 
-            cm.SetScrollSpeed(_tempPath, 200);
+            cm.SetScrollSpeed(200);
 
             Assert.NotNull(captured);
             Assert.Equal(100, captured!.OldPercent);
@@ -67,27 +89,28 @@ namespace DTXMania.Test.Config
         [Trait("Category", "ConfigManager")]
         public void SetScrollSpeed_NoOpWhenUnchanged_DoesNotRaiseEvent()
         {
-            var cm = new ConfigManager();
+            var cm = CreateManager();
+            cm.LoadConfig();
             cm.Config.ScrollSpeed = 150;
             var raised = false;
             cm.ScrollSpeedChanged += (_, _) => raised = true;
 
-            cm.SetScrollSpeed(_tempPath, 150);
+            cm.SetScrollSpeed(150);
 
             Assert.False(raised);
-            Assert.False(File.Exists(_tempPath));
         }
 
         [Fact]
         [Trait("Category", "ConfigManager")]
-        public void SetScrollSpeed_PersistsToConfigIni()
+        public void SetScrollSpeed_PersistsToConfigDb()
         {
-            var cm = new ConfigManager();
-            cm.SetScrollSpeed(_tempPath, 250);
+            var cm = CreateManager();
+            cm.LoadConfig();
+            cm.SetScrollSpeed(250);
             cm.FlushPendingSave();
 
-            var roundTrip = new ConfigManager();
-            roundTrip.LoadConfig(_tempPath);
+            var roundTrip = CreateManager();
+            roundTrip.LoadConfig();
             Assert.Equal(250, roundTrip.Config.ScrollSpeed);
         }
 
@@ -95,10 +118,12 @@ namespace DTXMania.Test.Config
         [Trait("Category", "ConfigManager")]
         public void LoadConfig_SnapsHandEditedScrollSpeedToNearestStep()
         {
-            File.WriteAllText(_tempPath, "ScrollSpeed=133\n");
+            // A hand-edited legacy INI (or DB row) holding a non-step value is
+            // snapped on load; the import persists the snapped snapshot.
+            File.WriteAllText(IniPath, "ScrollSpeed=133\n");
 
-            var cm = new ConfigManager();
-            cm.LoadConfig(_tempPath);
+            var cm = CreateManager();
+            cm.LoadConfig();
 
             Assert.Equal(150, cm.Config.ScrollSpeed);
         }
@@ -107,9 +132,9 @@ namespace DTXMania.Test.Config
         [Trait("Category", "ConfigManager")]
         public void AdjustScrollSpeed_StepsUp()
         {
-            var cm = new ConfigManager();
+            var cm = CreateManager();
             cm.Config.ScrollSpeed = 100;
-            cm.AdjustScrollSpeed(_tempPath, +1);
+            cm.AdjustScrollSpeed(+1);
             Assert.Equal(150, cm.Config.ScrollSpeed);
         }
 
@@ -117,9 +142,9 @@ namespace DTXMania.Test.Config
         [Trait("Category", "ConfigManager")]
         public void AdjustScrollSpeed_StepsDown()
         {
-            var cm = new ConfigManager();
+            var cm = CreateManager();
             cm.Config.ScrollSpeed = 200;
-            cm.AdjustScrollSpeed(_tempPath, -1);
+            cm.AdjustScrollSpeed(-1);
             Assert.Equal(150, cm.Config.ScrollSpeed);
         }
 
@@ -127,9 +152,9 @@ namespace DTXMania.Test.Config
         [Trait("Category", "ConfigManager")]
         public void AdjustScrollSpeed_FloorsAtMin()
         {
-            var cm = new ConfigManager();
+            var cm = CreateManager();
             cm.Config.ScrollSpeed = 50;
-            cm.AdjustScrollSpeed(_tempPath, -1);
+            cm.AdjustScrollSpeed(-1);
             Assert.Equal(50, cm.Config.ScrollSpeed);
         }
 
@@ -137,9 +162,9 @@ namespace DTXMania.Test.Config
         [Trait("Category", "ConfigManager")]
         public void AdjustScrollSpeed_CeilingsAtMax()
         {
-            var cm = new ConfigManager();
+            var cm = CreateManager();
             cm.Config.ScrollSpeed = 400;
-            cm.AdjustScrollSpeed(_tempPath, +1);
+            cm.AdjustScrollSpeed(+1);
             Assert.Equal(400, cm.Config.ScrollSpeed);
         }
 
@@ -147,13 +172,13 @@ namespace DTXMania.Test.Config
         [Trait("Category", "ConfigManager")]
         public void AdjustScrollSpeed_RaisesChangedEventWithOldAndNew()
         {
-            var cm = new ConfigManager();
+            var cm = CreateManager();
             cm.Config.ScrollSpeed = 100;
 
             ScrollSpeedChangedEventArgs? captured = null;
             cm.ScrollSpeedChanged += (_, e) => captured = e;
 
-            cm.AdjustScrollSpeed(_tempPath, +1);
+            cm.AdjustScrollSpeed(+1);
 
             Assert.NotNull(captured);
             Assert.Equal(100, captured!.OldPercent);
@@ -164,33 +189,29 @@ namespace DTXMania.Test.Config
         [Trait("Category", "ConfigManager")]
         public void FlushPendingSave_FailureStillRetainsInMemoryAndFiredEvent()
         {
-            // Create a regular file where a directory would need to be created.
-            // When SaveConfig tries Directory.CreateDirectory on a path whose parent
-            // is a file (not a directory), it throws — exercising the catch block.
-            var blockerFile = Path.Combine(Path.GetTempPath(),
-                "dtxmania-scrollspeed-blocker-" + Guid.NewGuid().ToString("N"));
-            var badPath = Path.Combine(blockerFile, "sub", "config.ini");
-            File.WriteAllText(blockerFile, "blocker");
+            var cm = CreateManager();
+            cm.LoadConfig();
+            cm.Config.ScrollSpeed = 100;
 
+            ScrollSpeedChangedEventArgs? captured = null;
+            cm.ScrollSpeedChanged += (_, e) => captured = e;
+
+            // SetScrollSpeed defers the write; event fires immediately
+            cm.SetScrollSpeed(200);
+
+            // In-memory value should be updated
+            Assert.Equal(200, cm.Config.ScrollSpeed);
+
+            // Event should have fired
+            Assert.NotNull(captured);
+            Assert.Equal(100, captured!.OldPercent);
+            Assert.Equal(200, captured.NewPercent);
+
+            // Break the store's directory so the flush's save fails.
+            Directory.Delete(_root, recursive: true);
+            File.WriteAllText(_root, "blocker");
             try
             {
-                var cm = new ConfigManager();
-                cm.Config.ScrollSpeed = 100;
-
-                ScrollSpeedChangedEventArgs? captured = null;
-                cm.ScrollSpeedChanged += (_, e) => captured = e;
-
-                // SetScrollSpeed defers the write; event fires immediately
-                cm.SetScrollSpeed(badPath, 200);
-
-                // In-memory value should be updated
-                Assert.Equal(200, cm.Config.ScrollSpeed);
-
-                // Event should have fired
-                Assert.NotNull(captured);
-                Assert.Equal(100, captured!.OldPercent);
-                Assert.Equal(200, captured.NewPercent);
-
                 // Flush attempts the write — should NOT throw; failure is caught internally
                 cm.FlushPendingSave();
 
@@ -199,56 +220,56 @@ namespace DTXMania.Test.Config
             }
             finally
             {
-                if (File.Exists(blockerFile))
-                    File.Delete(blockerFile);
+                File.Delete(_root);
+                Directory.CreateDirectory(_root);
             }
         }
 
         [Fact]
         [Trait("Category", "ConfigManager")]
-        public void FlushPendingSave_FailurePreservesPendingPathForRetry()
+        public void FlushPendingSave_FailurePreservesPendingStateForRetry()
         {
-            // After a failed flush, _pendingSavePath should remain set so the next flush retries.
-            var blockerFile = Path.Combine(Path.GetTempPath(),
-                "dtxmania-scrollspeed-retry-" + Guid.NewGuid().ToString("N"));
-            var badPath = Path.Combine(blockerFile, "sub", "config.ini");
-            File.WriteAllText(blockerFile, "blocker");
+            // After a failed flush, the pending marker must remain set so the
+            // next flush retries against the same database.
+            var cm = CreateManager();
+            cm.LoadConfig();
+            cm.Config.ScrollSpeed = 100;
+            cm.SetScrollSpeed(200);
 
+            // Break the store's directory: the save's directory creation throws.
+            Directory.Delete(_root, recursive: true);
+            File.WriteAllText(_root, "blocker");
             try
             {
-                var cm = new ConfigManager();
-                cm.Config.ScrollSpeed = 100;
-                cm.SetScrollSpeed(badPath, 200);
-
                 // First flush fails
                 cm.FlushPendingSave();
 
                 // In-memory value is still updated
                 Assert.Equal(200, cm.Config.ScrollSpeed);
 
-                // Remove blocker so the next write can succeed
-                File.Delete(blockerFile);
+                // Remove blocker so the next write can succeed. ClearAllPools
+                // first: the pooled handle from the initial load points at the
+                // deleted inode and SQLite rejects writes to it ("attempt to
+                // write a readonly database").
+                SqliteConnection.ClearAllPools();
+                File.Delete(_root);
+                Directory.CreateDirectory(_root);
 
-                // Second flush should succeed — pending path was preserved
+                // Second flush should succeed — pending state was preserved
                 cm.FlushPendingSave();
-
-                // Verify the value was persisted
-                var roundTrip = new ConfigManager();
-                roundTrip.LoadConfig(badPath);
-                Assert.Equal(200, roundTrip.Config.ScrollSpeed);
-
-                // Cleanup
-                if (File.Exists(badPath))
-                    File.Delete(badPath);
-                var dir = Path.GetDirectoryName(badPath);
-                if (dir != null && Directory.Exists(dir))
-                    Directory.Delete(dir, recursive: true);
             }
             finally
             {
-                if (File.Exists(blockerFile))
-                    File.Delete(blockerFile);
+                if (File.Exists(_root))
+                    File.Delete(_root);
+                if (!Directory.Exists(_root))
+                    Directory.CreateDirectory(_root);
             }
+
+            // Verify the value was persisted
+            var roundTrip = CreateManager();
+            roundTrip.LoadConfig();
+            Assert.Equal(200, roundTrip.Config.ScrollSpeed);
         }
     }
 }

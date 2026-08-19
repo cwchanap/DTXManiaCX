@@ -234,7 +234,7 @@ public class ConfigStageNxImportTests : IDisposable
 
             Assert.Equal(SongFolderApplyStatus.Busy, result.Status);
             config.Verify(manager => manager.SetSongRoots(
-                It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>()), Times.Never);
+                 It.IsAny<IReadOnlyList<string>>()), Times.Never);
 
             importCompletion.TrySetResult(new NxImportResult());
             Assert.True(await WaitUntilOperationCompletesAsync(stage, timeoutMs: 5000));
@@ -269,7 +269,7 @@ public class ConfigStageNxImportTests : IDisposable
             Assert.False(GetCoordinator(stage).IsBusy);
             Assert.Equal(0, reloadCalls);
             config.Verify(manager => manager.SetSongRoots(
-                It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>()), Times.Never);
+                 It.IsAny<IReadOnlyList<string>>()), Times.Never);
         }
     }
 
@@ -285,7 +285,6 @@ public class ConfigStageNxImportTests : IDisposable
         var config = new Mock<IConfigManager>();
         config.SetupGet(manager => manager.Config).Returns(configData);
         config.Setup(manager => manager.SetSongRoots(
-                It.IsAny<string>(),
                 It.IsAny<IReadOnlyList<string>>()))
             .Returns(new SongRootUpdateResult(
                 SongRootUpdateStatus.Updated,
@@ -310,7 +309,7 @@ public class ConfigStageNxImportTests : IDisposable
             Assert.True(await WaitUntilOperationCompletesAsync(stage, timeoutMs: 5000));
             Assert.Equal(1, reloadCalls);
             config.Verify(manager => manager.SetSongRoots(
-                It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>()), Times.Once);
+                 It.IsAny<IReadOnlyList<string>>()), Times.Once);
         }
     }
 
@@ -330,7 +329,6 @@ public class ConfigStageNxImportTests : IDisposable
             var config = new Mock<IConfigManager>();
             config.SetupGet(manager => manager.Config).Returns(configData);
             config.Setup(manager => manager.SetSongRoots(
-                    It.IsAny<string>(),
                     It.Is<IReadOnlyList<string>>(roots =>
                         roots.SequenceEqual(new[] { first, second }))))
                 .Returns(new SongRootUpdateResult(

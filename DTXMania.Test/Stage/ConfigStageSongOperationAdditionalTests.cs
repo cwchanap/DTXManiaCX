@@ -43,7 +43,7 @@ public sealed class ConfigStageSongOperationAdditionalTests
         configData.SongRoots.Add("/old");
         var config = new Mock<IConfigManager>();
         config.SetupGet(m => m.Config).Returns(configData);
-        config.Setup(m => m.SetSongRoots(It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>()))
+        config.Setup(m => m.SetSongRoots(It.IsAny<IReadOnlyList<string>>()))
             .Returns(new SongRootUpdateResult(
                 SongRootUpdateStatus.Updated,
                 new[] { "/new" },
@@ -66,7 +66,6 @@ public sealed class ConfigStageSongOperationAdditionalTests
 
             // SetSongRoots must not have been called while busy.
             config.Verify(m => m.SetSongRoots(
-                It.IsAny<string>(),
                 It.IsAny<IReadOnlyList<string>>()), Times.Never);
         }
     }
@@ -83,8 +82,8 @@ public sealed class ConfigStageSongOperationAdditionalTests
             configData.SongRoots.Add("/old");
             var config = new Mock<IConfigManager>();
             config.SetupGet(m => m.Config).Returns(configData);
-            config.Setup(m => m.SetSongRoots(It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>()))
-                .Callback<string, IReadOnlyList<string>>((_, roots) =>
+            config.Setup(m => m.SetSongRoots(It.IsAny<IReadOnlyList<string>>()))
+                .Callback<IReadOnlyList<string>>(roots =>
                 {
                     configData.SongRoots.Clear();
                     configData.SongRoots.AddRange(roots);
@@ -134,7 +133,7 @@ public sealed class ConfigStageSongOperationAdditionalTests
             configData.SongRoots.Add("/old");
             var config = new Mock<IConfigManager>();
             config.SetupGet(m => m.Config).Returns(configData);
-            config.Setup(m => m.SetSongRoots(It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>()))
+            config.Setup(m => m.SetSongRoots(It.IsAny<IReadOnlyList<string>>()))
                 .Returns(new SongRootUpdateResult(
                     SongRootUpdateStatus.Updated,
                     new[] { tempRoot },

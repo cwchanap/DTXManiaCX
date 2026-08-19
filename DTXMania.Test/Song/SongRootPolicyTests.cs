@@ -11,6 +11,7 @@ using Xunit;
 namespace DTXMania.Test.Song;
 
 [Trait("Category", "Unit")]
+[Collection("AppPaths")]
 public sealed class SongRootPolicyTests
 {
     [Theory]
@@ -97,7 +98,7 @@ public sealed class SongRootPolicyTests
     [Fact]
     public void SetSongRoots_ShouldPersistCanonicalRootsBeforeRaisingOneEvent()
     {
-        WithTemporaryDirectory(root =>
+        WithTemporaryAppDataRoot(root =>
         {
             var oldRoot = Path.Combine(root, "old");
             var firstRoot = Path.Combine(root, "first");
@@ -105,28 +106,29 @@ public sealed class SongRootPolicyTests
             Directory.CreateDirectory(oldRoot);
             Directory.CreateDirectory(firstRoot);
             Directory.CreateDirectory(secondRoot);
-            var configFile = Path.Combine(root, "Config.ini");
             var manager = new ConfigManager(
+                Path.Combine(root, "config.db"),
+                Path.Combine(root, "Config.ini"),
                 new SongRootPolicy(SongRootPolicy.CreateComparer(false)));
+            manager.LoadConfig();
             manager.Config.SongRoots.Clear();
             manager.Config.SongRoots.Add(oldRoot);
             manager.Config.DTXPath = oldRoot;
             SongRootsChangedEventArgs? raised = null;
             var eventCount = 0;
-            var configFileExistedWhenRaised = false;
+            var dbExistedWhenRaised = false;
             manager.SongRootsChanged += (_, args) =>
             {
                 eventCount++;
                 raised = args;
-                configFileExistedWhenRaised = File.Exists(configFile);
+                dbExistedWhenRaised = File.Exists(Path.Combine(root, "config.db"));
             };
 
             var result = manager.SetSongRoots(
-                configFile,
                 [Path.Combine(firstRoot, "."), secondRoot]);
 
-            Assert.True(configFileExistedWhenRaised,
-                "The config file should exist when SongRootsChanged is raised.");
+            Assert.True(dbExistedWhenRaised,
+                "The config database should exist when SongRootsChanged is raised.");
             Assert.Equal(SongRootUpdateStatus.Updated, result.Status);
             Assert.Equal(
                 [Path.GetFullPath(firstRoot), Path.GetFullPath(secondRoot)],
@@ -138,21 +140,24 @@ public sealed class SongRootPolicyTests
             Assert.Equal(
                 [Path.GetFullPath(firstRoot), Path.GetFullPath(secondRoot)],
                 raised.NewRoots);
-            Assert.Contains($"SongRoot.0={Path.GetFullPath(firstRoot)}", File.ReadAllText(configFile));
-            Assert.Contains($"SongRoot.1={Path.GetFullPath(secondRoot)}", File.ReadAllText(configFile));
+            var rows = new SqliteConfigStore(Path.Combine(root, "config.db")).Load();
+            Assert.Equal(Path.GetFullPath(firstRoot), rows["SongRoot.0"]);
+            Assert.Equal(Path.GetFullPath(secondRoot), rows["SongRoot.1"]);
         });
     }
 
     [Fact]
     public void SetSongRoots_WhenCanonicalOrderedRootsAreUnchanged_ShouldNotWriteOrRaiseEvent()
     {
-        WithTemporaryDirectory(root =>
+        WithTemporaryAppDataRoot(root =>
         {
             var songsRoot = Path.Combine(root, "songs");
             Directory.CreateDirectory(songsRoot);
-            var configFile = Path.Combine(root, "Config.ini");
             var manager = new ConfigManager(
+                Path.Combine(root, "config.db"),
+                Path.Combine(root, "Config.ini"),
                 new SongRootPolicy(SongRootPolicy.CreateComparer(false)));
+            manager.LoadConfig();
             manager.Config.SongRoots.Clear();
             manager.Config.SongRoots.Add(songsRoot);
             manager.Config.DTXPath = songsRoot;
@@ -160,11 +165,9 @@ public sealed class SongRootPolicyTests
             manager.SongRootsChanged += (_, _) => eventCount++;
 
             var result = manager.SetSongRoots(
-                configFile,
                 [Path.Combine(songsRoot, ".")]);
 
             Assert.Equal(SongRootUpdateStatus.Unchanged, result.Status);
-            Assert.False(File.Exists(configFile));
             Assert.Equal(0, eventCount);
         });
     }
@@ -172,18 +175,20 @@ public sealed class SongRootPolicyTests
     [Fact]
     public void SetSongRoots_WhenNoRootsAreSupplied_ShouldRejectTheEmptyConfiguration()
     {
-        WithTemporaryDirectory(root =>
+        WithTemporaryAppDataRoot(root =>
         {
             var existingRoot = Path.Combine(root, "existing");
             Directory.CreateDirectory(existingRoot);
-            var configFile = Path.Combine(root, "Config.ini");
             var manager = new ConfigManager(
+                Path.Combine(root, "config.db"),
+                Path.Combine(root, "Config.ini"),
                 new SongRootPolicy(SongRootPolicy.CreateComparer(false)));
+            manager.LoadConfig();
             manager.Config.SongRoots.Clear();
             manager.Config.SongRoots.Add(existingRoot);
             manager.Config.DTXPath = existingRoot;
 
-            var result = manager.SetSongRoots(configFile, Array.Empty<string>());
+            var result = manager.SetSongRoots(Array.Empty<string>());
 
             Assert.Equal(SongRootUpdateStatus.ValidationFailed, result.Status);
             Assert.Empty(result.CanonicalRoots);
@@ -192,36 +197,47 @@ public sealed class SongRootPolicyTests
                 diagnostic.Message.Contains("at least one", StringComparison.OrdinalIgnoreCase));
             Assert.Equal(new[] { existingRoot }, manager.Config.SongRoots);
             Assert.Equal(existingRoot, manager.Config.DTXPath);
-            Assert.False(File.Exists(configFile));
         });
     }
 
     [Fact]
     public void SetSongRoots_WhenImmediatePersistenceFails_ShouldRestoreMemoryAndNotRaiseEvent()
     {
-        WithTemporaryDirectory(root =>
+        WithTemporaryAppDataRoot(root =>
         {
             var oldRoot = Path.Combine(root, "old");
             var newRoot = Path.Combine(root, "new");
             Directory.CreateDirectory(oldRoot);
             Directory.CreateDirectory(newRoot);
-            var blockingFile = Path.Combine(root, "not-a-directory");
-            File.WriteAllText(blockingFile, "block");
-            var configFile = Path.Combine(blockingFile, "Config.ini");
             var manager = new ConfigManager(
+                Path.Combine(root, "config.db"),
+                Path.Combine(root, "Config.ini"),
                 new SongRootPolicy(SongRootPolicy.CreateComparer(false)));
+            manager.LoadConfig();
             manager.Config.SongRoots.Clear();
             manager.Config.SongRoots.Add(oldRoot);
             manager.Config.DTXPath = oldRoot;
             var eventCount = 0;
             manager.SongRootsChanged += (_, _) => eventCount++;
 
-            var result = manager.SetSongRoots(configFile, [newRoot]);
+            // Break the store's directory: replacing the root with a regular
+            // file makes the store's directory creation throw on save.
+            Directory.Delete(root, recursive: true);
+            File.WriteAllText(root, "blocker");
+            try
+            {
+                var result = manager.SetSongRoots([newRoot]);
 
-            Assert.Equal(SongRootUpdateStatus.PersistenceFailed, result.Status);
-            Assert.Equal([oldRoot], manager.Config.SongRoots);
-            Assert.Equal(oldRoot, manager.Config.DTXPath);
-            Assert.Equal(0, eventCount);
+                Assert.Equal(SongRootUpdateStatus.PersistenceFailed, result.Status);
+                Assert.Equal([oldRoot], manager.Config.SongRoots);
+                Assert.Equal(oldRoot, manager.Config.DTXPath);
+                Assert.Equal(0, eventCount);
+            }
+            finally
+            {
+                File.Delete(root);
+                Directory.CreateDirectory(root);
+            }
         });
     }
 
@@ -415,6 +431,33 @@ public sealed class SongRootPolicyTests
         }
         finally
         {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Temporary directory that also sandboxes DTXMANIA_APPDATA_ROOT —
+    /// required for tests that call <see cref="ConfigManager.LoadConfig"/>,
+    /// whose normalization resolves and creates default app-data directories.
+    /// </summary>
+    private static void WithTemporaryAppDataRoot(Action<string> action)
+    {
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            nameof(SongRootPolicyTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var previous = Environment.GetEnvironmentVariable("DTXMANIA_APPDATA_ROOT");
+        Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", root);
+        try
+        {
+            action(root);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", previous);
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             if (Directory.Exists(root))
                 Directory.Delete(root, recursive: true);
         }
