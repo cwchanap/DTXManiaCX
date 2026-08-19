@@ -2,236 +2,114 @@
 
 **Issue:** [HPA-190](https://linear.app/cwchanap/issue/HPA-190/move-configini-to-sqlite)  
 **Date:** 2026-08-18  
-**Status:** Proposed — revised after call-site review
+**Status:** Proposed — revised after dependency, tooling, recorder, and E2E review
 
-## Goal
+## Goal and driver
 
-Move CX-owned configuration persistence from `Config.ini` to a small SQLite database while preserving the current runtime configuration model and edit behavior.
+Move CX-owned live configuration from `Config.ini` to a small SQLite database while preserving the current runtime settings model and behavior.
+
+This is a project direction, not a fix for unsafe INI writes. The current `ConfigManager.SaveConfig` already writes `Config.ini` atomically through a temporary file plus `File.Move`. HPA-190 instead standardizes CX-owned mutable state on a machine-readable transactional store while retaining INI as a compatibility/import format.
 
 After HPA-190:
 
-- `ConfigData` remains the in-memory source of truth used by stages and gameplay;
-- normal CX startup reads `<app-data>/config.db`;
-- normal edits and deferred flushes write `<app-data>/config.db` transactionally;
-- `Config.ini` is legacy input only, used to bootstrap `config.db` when no config database exists;
-- an existing CX/NX `Config.ini` upgrades automatically on first launch and remains untouched afterward;
-- `songs.db` remains independent from user configuration;
-- the video recorder reads and writes the same v1 key/value schema without referencing `DTXMania.Game`;
-- `dtx-video doctor` validates `config.db`, not stale INI state;
-- E2E may still author INI as disposable bootstrap input, but post-launch persistence assertions and artifacts use `config.db` / `ConfigManager`;
-- crash redaction registers both the live configuration database path and the retained legacy INI path.
+- `ConfigData` remains the in-memory runtime truth;
+- `<app-data>/config.db` is the only live CX settings store;
+- edits and deferred flushes replace one canonical key/value snapshot transactionally;
+- `Config.ini` is import/bootstrap input only when `config.db` does not exist;
+- `songs.db` remains independently owned by the song catalog;
+- old INI files can remain on disk without overriding newer DB values;
+- recorder and E2E workflows remain functional without creating a second live settings model.
 
-This is a persistence migration, not a redesign of the configuration UI, settings model, song database, recorder workflow, or E2E architecture.
+## Non-goals
 
-## Current-state findings
+- no EF config `DbContext` or migration project;
+- no shared config/song database;
+- no profiles, cloud sync, encryption, or secrets vault;
+- no new settings assembly;
+- no continuous SQLite -> INI mirror;
+- no broad Config UI expansion;
+- no recorder OBS/media hardening.
 
-### ConfigManager owns both runtime state and INI persistence
+## Existing architecture to preserve
 
-`DTXMania.Game/Lib/Config/ConfigManager.cs` currently:
+`ConfigManager` already owns:
 
-- owns `ConfigData`;
-- parses `Config.ini` key/value lines;
-- performs legacy `DTXPath` -> ordered `SongRoot.N` migration;
-- normalizes song and skin paths;
-- generates a Game API key when needed;
-- serializes the complete persisted snapshot back to `Config.ini`;
-- performs immediate writes for song-root changes;
-- performs deferred writes for ordinary config edits.
+- `ConfigData`;
+- all INI key parsing;
+- legacy `DTXPath` -> ordered `SongRoot.N` handling;
+- song/skin path normalization;
+- generated Game API key behavior;
+- key-binding and MIDI-threshold validation;
+- immediate song-root persistence/rollback;
+- deferred persistence for ordinary edits.
 
-The runtime contract is already useful: callers consume `IConfigManager.Config`, and typed setters mutate that live object. HPA-190 replaces storage under that contract rather than creating a second settings model.
+Stages and gameplay already consume `IConfigManager.Config`. HPA-190 is therefore a storage replacement under an existing runtime boundary, not a second configuration subsystem.
 
-### Persistence-path APIs have more callers than ConfigStage
+`songs.db` is intentionally unsuitable for settings because `SongDatabaseService` may recreate the catalog database during recovery. A song-index recovery must never delete user settings.
 
-`IConfigManager` currently exposes storage-shaped APIs:
+## Storage decision
+
+Use a separate:
 
 ```text
-LoadConfig(filePath)
-SaveConfig(filePath)
-SetSongRoots(configFilePath, roots)
-SetScrollSpeed(configFilePath, percent)
-AdjustScrollSpeed(configFilePath, stepDelta)
-SetSkinPath(configFilePath, skinPath)
+<app-data>/config.db
 ```
 
-Known production consumers include:
-
-- `DTXMania.Game/Game1.cs` — startup load;
-- `DTXMania.Game/Lib/Stage/ConfigStage.cs` — scroll speed, skin, song roots;
-- `DTXMania.Game/Lib/Stage/PerformanceStage.cs` — gameplay scroll-speed hotkeys;
-- `DTXMania.Game/Lib/Stage/SongSelectionStage.cs` — Song Select scroll-speed hotkeys.
-
-There are also tests/fakes that compile against these signatures, including performance coverage, Song Select coverage, Drum Config stubs, song-root persistence, play-speed/pitch persistence, system-key persistence, and ConfigManager persistence tests.
-
-The pathless interface change must therefore be one compile-green slice: change `IConfigManager`, all production consumers, and all compile-time fakes/assertions together. Do not checkpoint a branch where the interface changed but gameplay callers still use the old signature.
-
-### `songs.db` is not a safe home for configuration
-
-`SongDatabaseService` owns `songs.db` and intentionally contains database validation/recovery paths that can recreate the song catalog when the file is invalid or incompatible. User settings must not share that lifecycle: rebuilding a song index must never discard display, input, skin, API, or gameplay settings.
-
-Configuration therefore needs its own database file.
-
-### Recorder source-of-truth assumptions exist in two places
-
-`DTXMania.VideoRecorder/Sandbox/RecordingSandbox.cs` currently reads the developer's `Config.ini`, validates presentation paths, applies recorder-owned overrides, and writes a fresh sandbox INI.
-
-`DTXMania.VideoRecorder/Program.cs` also makes `dtx-video doctor` explicitly check `<source-app-data>/Config.ini` before calling `RecordingSandbox.ValidateSourceConfig`.
-
-Updating only `RecordingSandbox` would leave doctor reporting a missing source config after real CX has migrated to SQLite. The recorder slice must update both surfaces and their tests.
-
-### E2E uses INI as both bootstrap input and persistence evidence
-
-`DTXMania.E2E/Fixtures/E2EFixtureBuilder.cs` creates a disposable `Config.ini` before launch. Keeping that as bootstrap input is useful because it exercises the real one-time migration path.
-
-Post-launch assumptions are different:
-
-- `DrumMappingStageSmokeTests` reads `fixture.ConfigPath` after stage exit and asserts persisted bindings in INI text;
-- `GameplayAutoPlaySmokeTests` snapshots INI text;
-- `E2EArtifactWriter.CopyFixtureFiles` always copies `Config.ini` as the config artifact;
-- `E2EFixtureBuilderTests` directly calls `ConfigManager.LoadConfig(fixture.ConfigPath)`;
-- `MidiGameplaySmokeTests` patches the pre-launch INI, which remains a valid bootstrap use.
-
-After HPA-190 the first game launch creates `config.db` and stops updating the legacy INI. Therefore post-run INI assertions become stale even though bootstrap authoring remains valid.
-
-E2E already references the matching game project and disables test parallelization, so it can verify persisted runtime state through `ConfigManager` while temporarily pointing `DTXMANIA_APPDATA_ROOT` at the fixture. Do not add a third SQLite writer/parser to E2E.
-
-### Crash redaction names the old config path
-
-`CrashContextPublisher.RegisterSensitivePrefixes` currently registers `AppPaths.GetConfigFilePath()` and `GetSongsDatabasePath()` among other paths. HPA-190 changes the live config filename, so this existing privacy boundary must move with it.
-
-Register `GetConfigDatabasePath()` and retain `GetLegacyConfigFilePath()` while legacy INI import remains supported.
-
-### SQLite is already a game dependency
-
-The game already uses SQLite through `Microsoft.EntityFrameworkCore.Sqlite`. The configuration store can use `Microsoft.Data.Sqlite` directly without adding an EF config model or migration framework. `DTXMania.VideoRecorder` is platform-neutral and does not reference the game, so it may add its own direct `Microsoft.Data.Sqlite` reference for the tiny shared schema.
-
-## Approaches considered
-
-### A. Separate `config.db` with a key/value snapshot — recommended
-
-Use one stable table:
+with one stable v1 table:
 
 ```sql
 CREATE TABLE ConfigEntries (
     Key   TEXT PRIMARY KEY NOT NULL,
     Value TEXT NOT NULL
 );
-```
-
-Persist the same logical keys already used by `Config.ini` (`SkinPath`, `ScreenWidth`, `SongRoot.0`, `Key.*`, `SystemKey.*`, `MidiVelocity.*`, and so on). Save the complete canonical snapshot in one SQLite transaction.
-
-**Pros**
-
-- smallest change to the proven parser/config model;
-- no per-setting database schema migrations;
-- dynamic collections map naturally to prefixed keys;
-- removed bindings/roots disappear naturally when a full snapshot replaces prior rows;
-- recorder can patch the same tiny schema without referencing MonoGame/game code;
-- future scalar settings remain cheap to add.
-
-**Cons**
-
-- values remain strings at the storage boundary and are typed by `ConfigManager`, as they are today.
-
-### B. Put configuration tables in `songs.db`
-
-Rejected. It couples durable user preferences to a database whose existing service may recreate it for catalog recovery and mixes unrelated ownership.
-
-### C. Add a normalized EF Core config model
-
-Rejected. A config `DbContext` introduces migrations and mapping work for values that are never queried relationally.
-
-### D. Store one JSON document inside SQLite
-
-Rejected. It makes recorder overrides less direct and provides little benefit over a JSON settings file.
-
-## Design decision
-
-Use approach A.
-
-```text
-Stages / gameplay / BaseGame
-          |
-          v
-     IConfigManager
-          |
-          v
-      ConfigManager -------------------> ConfigData (runtime truth)
-          |
-          +--- SqliteConfigStore ------> <app-data>/config.db
-          |
-          +--- legacy INI importer ----> <app-data>/Config.ini
-                  (only if config.db is absent)
-
-VideoRecorder
-  Program doctor + RecordingSandbox
-          |
-          +--- read source config.db rows
-          +--- validate/patch rows
-          +--- write fresh sandbox config.db
-
-E2E
-  pre-launch Config.ini -> real bootstrap path
-  post-launch config.db -> ConfigManager assertions/artifact
-```
-
-There is no second configuration domain object and no shared config database with the song catalog.
-
-## SQLite storage contract
-
-Add:
-
-```text
-<AppDataRoot>/config.db
-```
-
-through `AppPaths.GetConfigDatabasePath()`. Rename the old INI path helper to `GetLegacyConfigFilePath()` so production code cannot confuse it with the live store.
-
-The v1 schema is intentionally tiny:
-
-```sql
-CREATE TABLE ConfigEntries (
-    Key   TEXT PRIMARY KEY NOT NULL,
-    Value TEXT NOT NULL
-);
-
 PRAGMA user_version = 1;
 ```
 
-No EF `DbContext`, migrations assembly, repository pattern, or general settings framework is required.
+Use direct `Microsoft.Data.Sqlite`. Do not model settings as relational entities.
 
-### Store responsibilities
+### Why key/value snapshot
 
-Add one internal concrete `SqliteConfigStore` with a narrow shape equivalent to:
+The current persisted format is already logically flat: scalar keys plus dynamic prefixes such as `SongRoot.N`, `Key.*`, `SystemKey.*`, and `MidiVelocity.*`. A key/value table therefore maps the existing contract directly and avoids per-setting DB schema changes.
+
+A save replaces the complete logical snapshot in one transaction. This intentionally removes stale dynamic rows when bindings, roots, or MIDI thresholds are deleted.
+
+## `SqliteConfigStore`
+
+Add one concrete internal `SqliteConfigStore` in the game configuration area. Do **not** add `IConfigStore` unless implementation evidence shows a real fake is required.
+
+Minimal responsibilities:
 
 ```csharp
-internal sealed class SqliteConfigStore
-{
-    public SqliteConfigStore(string databasePath);
-    public bool Exists { get; }
-    public IReadOnlyDictionary<string, string> Load();
-    public void Save(IReadOnlyDictionary<string, string> entries);
-}
+bool Exists { get; }
+IReadOnlyDictionary<string, string> Load();
+void Save(IReadOnlyDictionary<string, string> entries);
 ```
 
-Do not add `IConfigStore` merely because there is one implementation. ConfigManager tests can use explicit temporary database/legacy paths and deterministic invalid path states. Introduce an interface only if implementation proves a fake is genuinely required; if so, keep it internal and limited to these three operations.
+`Load` must:
+
+1. open the existing DB read-only;
+2. require `PRAGMA user_version = 1`;
+3. require `ConfigEntries`;
+4. return the complete row set;
+5. fail loudly for an unreadable/unsupported existing DB.
 
 `Save` must:
 
-1. create the parent directory when needed;
-2. create the v1 database/table when the database does not yet exist;
-3. begin a transaction;
-4. replace the complete `ConfigEntries` snapshot;
-5. commit only after every entry is written.
+1. create the parent directory;
+2. open/create `config.db`;
+3. begin one transaction;
+4. create the v1 table/version when needed;
+5. delete the previous rows;
+6. insert the full snapshot with parameters;
+7. commit.
 
-A full snapshot is intentional. Configuration is tiny, edits are already debounced, and snapshot replacement removes stale dynamic keys without delete bookkeeping.
-
-`Load` fails clearly if an existing file is not a readable supported configuration database. Do not silently delete it or fall back to a potentially stale `Config.ini` once `config.db` exists.
-
-Do not enable WAL or add tuning pragmas for this settings database.
+No WAL, tuning pragmas, custom recovery framework, or failed-initial-create sidecar cleanup is required for HPA-190. If a rare failed first write leaves an unusable DB, normal existing-DB validation fails loudly; deleting `config.db` and relaunching is the manual recovery path.
 
 ## Persisted key contract
 
-Keep the existing logical key names so migration remains mechanical. SQLite covers what current `ConfigManager.SaveConfig` persists:
+Build the DB snapshot by refactoring the logical content of today's `SaveConfig` rather than inventing a new serializer.
+
+Persist:
 
 ```text
 DTXManiaVersion
@@ -261,74 +139,84 @@ SystemKey.*
 MidiVelocity.*
 ```
 
-`DTXPath` is legacy INI compatibility input and an in-memory mirror of `SongRoot.0`; do not persist a duplicate SQLite row.
+Do **not** persist duplicate `DTXPath`. It remains:
 
-Do not opportunistically add currently non-persisted `ConfigData` fields such as volume/buffer fields in HPA-190.
+- accepted from legacy INI when no `SongRoot.N` exists;
+- mirrored in memory from `SongRoot.0` for existing code compatibility.
 
-Use invariant integer formatting and one canonical boolean format when writing rows.
+Do not start persisting currently non-persisted `ConfigData` fields as part of this ticket.
 
-## ConfigManager lifecycle
+### Culture contract
 
-### Startup
+Because the SQLite writer is canonical, parsing must also be canonical. While `ParseConfigLine` is already being reused for DB rows and legacy INI:
 
-Change `ConfigManager` to own explicit database/legacy paths rather than receiving a save path from callers.
+- parse integers with `CultureInfo.InvariantCulture`;
+- route all persisted booleans through the existing robust boolean parser (or equivalent ordinal/invariant comparison);
+- remove the remaining culture-sensitive `value.ToLower() == "true"` cases.
+
+This applies equally to legacy INI and DB rows and prevents the reader/writer pair from being culture-asymmetric.
+
+## App paths
+
+Add explicit sibling helpers:
 
 ```text
-LoadConfig()
-  |
-  +-- config.db exists
-  |     -> load ConfigEntries
-  |     -> apply typed values to ConfigData
-  |
-  +-- config.db missing + Config.ini exists
-  |     -> parse legacy INI using current compatibility rules
-  |     -> normalize/migrate
-  |     -> save canonical config.db
-  |
-  +-- neither exists
-        -> defaults
-        -> normalize
-        -> save canonical config.db
+AppPaths.GetConfigDatabasePath()   -> <app-data>/config.db
+AppPaths.GetLegacyConfigFilePath() -> <app-data>/Config.ini
 ```
 
-After database load or legacy import, retain existing normalization and generated-Game-API-key behavior. If those operations alter values, persist the corrected SQLite snapshot immediately as today.
+Retire ambiguous production use of `GetConfigFilePath()` once callers migrate.
 
-### Legacy INI import
+Register both the live DB path and retained legacy INI path with crash-report sensitive-prefix redaction.
 
-Keep current permissive behavior:
+## `ConfigManager` lifecycle
 
-- ignore sections/comments/unknown lines;
-- split only on the first `=`;
-- accept legacy `DTXPath` when indexed `SongRoot.N` entries are absent;
-- keep current boolean parsing and binding validation;
-- keep current skin/song-root normalization rules.
+`ConfigManager` owns its persistence destination. Normal callers no longer pass file paths.
 
-The import is one-way. Once `config.db` exists, startup ignores `Config.ini`, even if the INI changes later.
+Startup:
 
-Do not delete, rename, or rewrite the source INI during import.
+```text
+config.db exists
+  -> load DB rows
+  -> never consult Config.ini
 
-### Logical snapshot builder
+config.db missing + Config.ini exists
+  -> parse INI using current compatibility rules
+  -> normalize/migrate
+  -> save canonical config.db
+  -> leave Config.ini bytes untouched
 
-Refactor the current `SaveConfig` serialization into one canonical `BuildPersistedEntries()` operation. It emits the same persisted settings minus `DTXPath`; physical INI formatting is no longer part of normal saves.
+neither exists
+  -> defaults
+  -> normalize
+  -> save canonical config.db
+```
 
-Reuse `ParseConfigLine` and existing song-root finalization for both database rows and legacy INI assignments. Do not build a second typed deserializer.
+If DB loading fails, fail instead of falling back to stale INI.
 
-### Runtime edits
+Keep the current generated API-key behavior: if Game API is enabled with an empty key, generate and persist one.
 
-Preserve existing behavior:
+### Testability
 
-- `ConfigData` changes immediately;
-- normal setters mark one deferred save dirty;
-- `FlushPendingSave()` writes one complete SQLite snapshot;
-- failed deferred writes keep the dirty flag set for retry;
-- song-root Apply persists before live reload and restores prior in-memory roots if persistence fails;
-- events remain unchanged.
+Keep an internal constructor/load seam that accepts explicit database path, legacy INI path, base directory/path-policy inputs, and logger as needed by tests. Unit tests must not depend on process-global `DTXMANIA_APPDATA_ROOT` mutation.
 
-Replace `_pendingSavePath` / `_loadedConfigPath` with a simple dirty flag.
+## Runtime edit semantics
 
-## Pathless `IConfigManager` cleanup must be compile-green
+Preserve current behavior:
 
-Use these runtime signatures:
+- setters update `ConfigData` immediately;
+- ordinary edits set one dirty flag;
+- `FlushPendingSave()` writes one full snapshot and clears the flag only on success;
+- a failed deferred save keeps the flag set for retry;
+- song-root Apply persists immediately before live reload;
+- failed song-root persistence restores the prior roots/`DTXPath` and returns `PersistenceFailed`;
+- existing config events keep their behavior.
+
+Replace `_pendingSavePath` / `_loadedConfigPath` with a simple pending-save flag.
+
+## Internal API cleanup
+
+Move the interface break and every caller together so no checkpoint is knowingly uncompilable:
 
 ```text
 LoadConfig()
@@ -339,210 +227,213 @@ SetSkinPath(skinPath)
 FlushPendingSave()
 ```
 
-Remove public `SaveConfig(filePath)` in favor of ConfigManager's private persistence operation.
+Remove public `SaveConfig(filePath)` in favor of private/internal persistence owned by `ConfigManager`.
 
-Change the interface and all known production callers in the same implementation checkpoint:
+Known production callers include:
 
 - `Game1.cs`;
 - `ConfigStage.cs`;
 - `PerformanceStage.cs`;
-- `SongSelectionStage.cs`.
+- `SongSelectionStage.cs`;
+- `CrashContextPublisher.cs` for path redaction.
 
-Retarget all compile-time mocks/fakes/assertions that use the old signatures in the same checkpoint. Before committing, scan the repository for:
+Implementation must run a repository-wide call-site scan before the interface-change commit rather than treating test fakes as optional follow-up work.
 
-```text
-GetConfigFilePath(
-LoadConfig(
-SaveConfig(
-AdjustScrollSpeed(
-SetScrollSpeed(
-SetSkinPath(
-SetSongRoots(
-```
+## Configuration editability after INI becomes import-only
 
-Classify every hit as updated runtime code, legacy/bootstrap code, unrelated API with the same method name, or historical docs. Do not use compatibility overloads just to keep old tests compiling.
-
-## Crash-report privacy integration
-
-`CrashContextPublisher.RegisterSensitivePrefixes` must register:
+Three Game API values currently have no in-game editing surface:
 
 ```text
-AppPaths.GetConfigDatabasePath()
-AppPaths.GetLegacyConfigFilePath()
+EnableGameApi
+GameApiPort
+GameApiKey
 ```
 
-alongside existing app-data/song/cache/crash-report paths.
+HPA-190 will **not** add new ConfigStage UI for these developer-facing settings. Instead, make the new developer workflow explicit:
 
-This is not new telemetry or hardening scope; it preserves the existing sanitizer boundary after the authoritative config file changes name.
+- `MCP/README.md` must document `config.db` as authoritative and show how to read/update these rows with `sqlite3` after first launch;
+- reading the API key must no longer instruct users to inspect `Config.ini`;
+- do not re-import INI based on timestamps; DB authority remains deterministic.
+
+This is an accepted developer papercut for this slice. A proper Game API Config UI can be a later feature if it becomes worth the product work.
+
+### Existing tooling that edits INI
+
+HPA-190 must not silently break repository tooling:
+
+- `just install-cx-neon activate=true` currently edits `Config.ini`; after migration it must update `config.db` when the DB exists, while retaining INI bootstrap behavior when the DB does not yet exist. If the required SQLite CLI is unavailable, fail clearly rather than report a false activation.
+- `tools/hpa192/benchmark-startup.sh` creates a fresh temporary app-data root, so its INI is still a valid intentional bootstrap fixture.
+- `tools/hpa192/benchmark-critical-path.sh` clones seeded app-data for warm scenarios; its current `Config.ini` assertions no longer prove the active settings once the seed contains `config.db`. Update the runner and its tests so warm-scenario configuration checks inspect/patch the authoritative DB rather than stale INI bytes.
+- use a repo scan for `Config.ini` to identify any additional live-authority assumptions.
 
 ## Recorder integration
 
-The recorder migrates with the authoritative store.
+Do **not** make `DTXMania.Game` depend on `DTXMania.Automation` merely to share the config store. `DTXMania.Automation` is a platform-neutral external automation library; making the game runtime depend on it would reverse the intended dependency direction.
 
-### RecordingSandbox
+Also do not maintain a second production SQLite writer in `DTXMania.VideoRecorder`.
 
-Source contract becomes:
-
-```text
-<source-app-data>/config.db
-```
-
-The sandbox:
-
-1. opens source DB read-only;
-2. requires `PRAGMA user_version = 1` and `ConfigEntries`;
-3. reads rows into a dictionary rather than copying the database file;
-4. validates:
-   - at least one indexed `SongRoot.N`;
-   - every song root absolute;
-   - absolute `SystemSkinRoot`;
-   - `SkinPath` is `Default` or absolute;
-5. does **not** require `DTXPath`;
-6. applies recorder-owned overrides:
-   - `EnableGameApi=True`;
-   - fresh `GameApiPort` / `GameApiKey`;
-   - `AutoPlay=True`;
-   - `NoFail=True`;
-   - `ScreenWidth=1280`;
-   - `ScreenHeight=720`;
-   - `FullScreen=False`;
-7. writes a brand-new sandbox `config.db` with the v1 schema.
-
-Do not copy source `config.db`, `-wal`, or `-shm` files. Do not write a compatibility INI into the sandbox.
-
-### Doctor
-
-`Program.RunDoctorAsync` must use the same source filename/validation contract. Its `Source config` gate checks `config.db`, then calls `RecordingSandbox.ValidateSourceConfig`.
-
-Retarget recorder fixtures in:
-
-- `ProgramTests`;
-- `RecorderCommandLineTests`;
-- `RecorderGameLaunchPolicyTests`;
-- `RecordingSandboxTests`.
-
-`DTXMania.VideoRecorder` may add a direct `Microsoft.Data.Sqlite` package reference. Do not reference `DTXMania.Game` or create a shared settings assembly.
-
-`dtx-video` command syntax, workflow, OBS behavior, and app-data override behavior remain unchanged.
-
-## E2E integration
-
-Keep the throwaway fixture bootstrap simple:
+Use the smaller boundary:
 
 ```text
-E2EFixtureBuilder writes Config.ini
--> game launches with DTXMANIA_APPDATA_ROOT=<fixture>/appdata
--> ConfigManager imports Config.ini and creates config.db
--> runtime edits update config.db only
+source real app-data
+  config.db (authoritative)
+      |
+      v
+RecordingSandbox read-only SQLite reader
+  -> validate/patch rows in memory
+  -> write fresh sandbox Config.ini bootstrap input
+      |
+      v
+sandbox game startup
+  ConfigManager production INI importer
+  -> creates sandbox config.db
 ```
 
-The fixture should distinguish the paths explicitly, e.g. `LegacyConfigPath` and `ConfigDatabasePath`, rather than continuing to call the legacy path `ConfigPath` after it stops being authoritative.
+The recorder therefore needs only a small read-only understanding of v1 `config.db`. It does **not** copy the source DB, `-wal`, or `-shm`, and does not write a second DB implementation.
 
-### Post-run persistence assertions
+Recorder validation keeps the existing presentation requirements, translated to DB rows:
 
-Do not inspect old INI text after launch. For assertions such as Drum Mapping persistence:
+- at least one valid absolute `SongRoot.N`;
+- absolute `SystemSkinRoot`;
+- nonblank `SkinPath`, either `Default` or absolute.
 
-1. preserve the current process/stage flow;
-2. point the test process `DTXMANIA_APPDATA_ROOT` at `fixture.AppDataRoot` within a try/finally;
-3. create a normal `ConfigManager` and call `LoadConfig()`;
-4. assert `Config.KeyBindings`, `UnboundDrum*`, or other typed runtime state;
-5. restore the prior environment variable.
+Remove the recorder's `DTXPath` requirement.
 
-E2E disables test parallelization, so this temporary process-level environment override does not race another E2E test.
+Patch recorder-owned values in memory before writing the sandbox bootstrap INI:
 
-`MidiGameplaySmokeTests` may continue patching `LegacyConfigPath` before the first launch because that is specifically exercising bootstrap input.
+```text
+EnableGameApi=True
+fresh GameApiPort
+fresh GameApiKey
+AutoPlay=True
+NoFail=True
+ScreenWidth=1280
+ScreenHeight=720
+FullScreen=False
+```
 
-`E2EArtifactWriter.CopyFixtureFiles` should copy `config.db` as the post-run configuration artifact (when present), plus the legacy INI only when retaining bootstrap evidence is useful. Do not treat the INI copy as persisted state.
+`dtx-video doctor` checks source `config.db`, not `Config.ini`.
 
-`GameplayAutoPlaySmokeTests` should stop naming pre/post-run INI snapshots as authoritative config. If a profile needs persisted config evidence after launch, use the database artifact/typed load path.
+### Recorder/game schema compatibility proof
 
-Do not create an E2E SQLite store/writer. E2E already references the game project and should reuse `ConfigManager` for interpretation.
+Add one non-OBS integration test in the existing E2E support project:
+
+1. use the real `ConfigManager`/store with explicit paths to create a source `config.db`;
+2. call the real `RecordingSandbox` against that source;
+3. assert the recorder creates sandbox bootstrap INI and does not directly create/copy a DB;
+4. load the sandbox through a real explicit-path `ConfigManager`;
+5. assert source values plus recorder overrides round-trip correctly and a sandbox `config.db` is created.
+
+Use test-only `InternalsVisibleTo("DTXMania.E2E")` and an E2E project reference to `DTXMania.VideoRecorder` rather than adding a production dependency from the game to Automation.
+
+This test is the guard against future config schema drift.
+
+## Recorder diagnostics
+
+`RecorderDiagnosticsTests` currently asserts that `Config.ini` is never copied into diagnostic output. Extend this assertion to `config.db` as well, because the DB contains `GameApiKey`.
+
+No config storage file should be copied into the sanitized diagnostic bundle.
+
+## E2E persistence behavior
+
+Fresh E2E fixtures may continue writing `Config.ini`: that intentionally exercises first-launch bootstrap.
+
+Post-run persistence assertions must not read that bootstrap file. Add explicit paths to the fixture model and load the DB through real `ConfigManager`:
+
+```text
+fixture.LegacyConfigPath
+fixture.ConfigDatabasePath
+```
+
+Before any post-run load/assertion:
+
+```text
+assert config.db exists
+-> then load it with explicit paths
+-> then assert ConfigData
+```
+
+The existence assertion is load-bearing: without it, a test could fall back to the original bootstrap INI and falsely pass.
+
+Add `InternalsVisibleTo("DTXMania.E2E")` so the E2E support helper can use the explicit-path ConfigManager constructor without mutating process-global app-data environment state.
+
+### E2E artifacts
+
+Do not blindly `File.Copy(config.db)` from `E2EArtifactWriter.CopyFixtureFiles` while the game process may still own the DB. The current copy runs from `finally` blocks before the surrounding process bundle is necessarily disposed.
+
+Keep the bootstrap INI as input evidence if useful, but do not treat it as post-run persistence evidence. Persistence correctness is proven through the explicit ConfigManager DB load. If a physical DB artifact is ever retained, capture it only after process shutdown or through a SQLite-consistent snapshot operation; HPA-190 does not require that artifact.
+
+## NX compatibility meaning
+
+HPA-190 does **not** discover a DTXManiaNX installation or search for NX configuration files.
+
+For this issue, "Config.ini compatibility for import from NX" means:
+
+1. copy the desired NX/legacy `Config.ini` into the CX app-data root **before the first SQLite-backed launch** (or after deliberately removing `config.db` to perform a fresh re-import);
+2. launch CX;
+3. CX imports the subset of legacy keys it already understands and persists the canonical result to `config.db`.
+
+Automatic NX path discovery and a dedicated Import Config UI are out of scope.
 
 ## Failure behavior
 
-Keep failure handling simple:
+- existing unreadable/unsupported `config.db`: fail loudly; never fall back to INI;
+- deferred DB save failure: keep dirty state for retry;
+- song-root immediate save failure: restore old roots and report persistence failure;
+- legacy import failure before DB creation: surface the error;
+- recorder missing/unreadable source DB: fail preflight with an actionable message to launch CX once normally;
+- no automatic deletion/recovery framework for malformed config DBs in this ticket.
 
-- unreadable/unsupported existing `config.db` at game startup: fail/log; do not fall back to INI;
-- SQLite save failure during deferred flush: keep dirty and retry next flush;
-- SQLite save failure during song-root Apply: restore prior roots and return `PersistenceFailed`;
-- legacy INI import/save failure before first DB exists: surface the error; do not leave a usable partial database;
-- missing `config.db` in recorder source app-data: fail with the existing “open CX once and exit normally” recovery direction.
+## Required verification
 
-No corruption-recovery framework is required.
+### Store / ConfigManager
 
-## Testing strategy
+Cover:
 
-### Store
+- new DB create/load/save round-trip;
+- full snapshot replacement removes stale rows;
+- unsupported/missing schema fails;
+- defaults -> DB;
+- INI-only -> one-time DB import without modifying INI;
+- DB + conflicting INI -> DB wins;
+- `DTXPath`-only legacy import -> `SongRoot.0`;
+- normalization/API-key generation persist corrections;
+- deferred save retry;
+- song-root rollback;
+- invariant numeric/boolean parsing.
 
-Use real temporary SQLite files for:
+### Interface / caller migration
 
-- create/save/load round trip;
-- replacement removes stale keys;
-- user version/schema validation;
-- failed initial creation does not leave a usable partial DB.
-
-Prefer deterministic invalid path shapes over timing/locking tests.
-
-### ConfigManager + caller migration
-
-Prove:
-
-```text
-no DB + no INI -> defaults -> config.db
-no DB + legacy INI -> import -> config.db -> INI bytes unchanged
-config.db + conflicting INI -> database wins
-DTXPath-only INI -> SongRoot.0
-normalization/API key corrections -> persisted DB rows
-edit + FlushPendingSave -> DB changes
-failed flush -> dirty remains -> later retry succeeds
-failed SetSongRoots -> in-memory roots restored
-invalid existing DB -> no INI fallback
-```
-
-Retain behavioral tests for bindings, MIDI thresholds, events, clamping, path normalization, and skin token behavior. Update every mock/fake to the pathless interface.
+Require zero production references to old path-shaped config APIs before the checkpoint is committed.
 
 ### Recorder
 
-Run the full recorder suite after retargeting all source config fixtures, not just `RecordingSandboxTests`. Include a doctor test proving a valid `config.db` is accepted without `Config.ini`.
+Cover source DB validation, row preservation/override behavior, doctor source check, no `DTXPath` requirement, source isolation, and no config files in diagnostics.
 
-### E2E
+### Cross-contract / E2E
 
-Run the E2E suite as the real persistence proof, especially Drum Mapping:
+Run:
 
-```bash
-dotnet test DTXMania.E2E/DTXMania.E2E.csproj \
-  --configuration Debug \
-  --filter "Category=E2E"
-```
+- the new recorder <-> ConfigManager E2E-support compatibility test;
+- full `Category=E2E-Support`;
+- Windows `Category=E2E` gameplay persistence smoke;
+- full game unit suite/build on the implementation host;
+- full VideoRecorder test suite.
 
-On Windows, this is the authoritative native gameplay persistence gate. Keep pre-launch INI authoring where useful, but post-run persistence evidence must come from `config.db` / `ConfigManager`.
+No live OBS recording is required: the cross-contract test directly proves that a production-generated source DB is consumable by the recorder and that recorder-generated sandbox bootstrap input is consumable by production `ConfigManager`.
 
 ## Acceptance criteria
 
 HPA-190 is complete when:
 
-1. fresh CX launch creates and subsequently reloads `config.db` without creating/updating `Config.ini` unless INI existed as bootstrap input;
-2. legacy `Config.ini` imports exactly once when `config.db` is absent and source bytes remain unchanged;
-3. later CX edits survive restart through SQLite even when old INI values conflict;
-4. config-stage edits, gameplay/Song Select scroll-speed hotkeys, bindings, song roots, normalization, and generated API keys keep existing behavior;
-5. `songs.db` is unchanged and independent;
-6. crash sanitizer registers the live config DB and retained legacy INI path;
-7. `dtx-video doctor` and `RecordingSandbox` use `config.db` with no authoritative INI dependency;
-8. recorder tests pass with SQLite source fixtures;
-9. E2E Drum Mapping proves a runtime edit persisted by reloading through `ConfigManager`, and E2E artifacts retain `config.db`;
-10. Windows/macOS game/test builds remain green and the native Windows `Category=E2E` gate passes.
-
-## Out of scope
-
-- configuration profiles or multiple users;
-- cloud sync;
-- settings encryption or a secrets vault;
-- normalized per-category EF entities;
-- config EF migrations or a general database migration framework beyond v1 validation;
-- merging `config.db` into `songs.db`;
-- a new settings/shared assembly;
-- a new E2E SQLite persistence implementation;
-- in-game Import/Export Config UI changes;
-- continuously mirroring SQLite changes back to `Config.ini`;
-- changing currently non-persisted settings behavior;
-- recorder OBS/media hardening from HPA-504/HPA-505/HPA-506/HPA-507.
+1. normal CX starts from and saves to `config.db` only;
+2. legacy INI imports exactly once when DB is absent and remains untouched;
+3. conflicting stale INI cannot override a DB;
+4. current runtime config behavior, bindings, roots, events, and normalization are preserved;
+5. `songs.db` code/lifecycle is unchanged;
+6. all `IConfigManager` callers are migrated in one compile-green slice;
+7. crash redaction includes live DB and legacy INI paths;
+8. MCP docs, CX Neon activation tooling, and HPA-192 warm benchmark tooling no longer assume live INI authority;
+9. recorder validates source `config.db`, writes only sandbox bootstrap INI, and the production ConfigManager compatibility test passes;
+10. E2E post-run persistence assertions require and load `config.db` rather than stale INI;
+11. Windows/macOS applicable build/test gates remain green.
