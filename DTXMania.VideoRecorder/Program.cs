@@ -176,7 +176,7 @@ internal static class Program
     private static async Task<int> RunDoctorAsync(RecorderEnvironment environment)
     {
         var passed = true;
-        var sourceConfig = Path.Combine(environment.SourceAppDataRoot, "Config.ini");
+        var sourceConfig = Path.Combine(environment.SourceAppDataRoot, "config.db");
         var ffprobe = RecordingArtifactVerifier.FindFfprobeOnPath();
 
         Console.WriteLine("dtx-video doctor");

@@ -10,4 +10,12 @@
   <ItemGroup>
     <ProjectReference Include="..\DTXMania.Automation\DTXMania.Automation.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- Read-only access to the authoritative source config database
+         (<source-app-data>/config.db). The recorder never writes or copies
+         the database; it only loads rows to serialize the sandbox bootstrap
+         Config.ini. -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.18" />
+  </ItemGroup>
 </Project>

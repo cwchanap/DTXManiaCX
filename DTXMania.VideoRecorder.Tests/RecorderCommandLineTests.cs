@@ -403,14 +403,7 @@ public sealed class RecorderCommandLineTests
             Directory.CreateDirectory(songs);
             var systemSkin = Path.Combine(root, "System");
             Directory.CreateDirectory(systemSkin);
-            File.WriteAllText(
-                Path.Combine(root, "Config.ini"),
-                string.Join(
-                    '\n',
-                    "SkinPath=Default",
-                    "DTXPath=" + songs,
-                    "SongRoot.0=" + songs,
-                    "SystemSkinRoot=" + systemSkin) + "\n");
+            TestSourceConfigDatabase.Create(root, TestSourceConfigDatabase.BuildValidRows(root));
             var chartPath = Path.Combine(root, "chart.dtx");
             File.WriteAllText(chartPath, "#TITLE: test\n");
             var publishDirectory = Path.Combine(root, "publish");

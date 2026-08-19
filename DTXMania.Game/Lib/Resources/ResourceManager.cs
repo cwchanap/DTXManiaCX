@@ -12,6 +12,7 @@ using System.Threading;
 
 [assembly: InternalsVisibleTo("DTXMania.Test")]
 [assembly: InternalsVisibleTo("DTXMania.Test.Mac")]
+[assembly: InternalsVisibleTo("DTXMania.E2E")]
 
 namespace DTXMania.Game.Lib.Resources
 {

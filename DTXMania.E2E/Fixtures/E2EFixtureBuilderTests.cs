@@ -86,9 +86,10 @@ public sealed class E2EFixtureBuilderTests
             // bootstrap the launched game process performs.
             var previousAppDataRoot = Environment.GetEnvironmentVariable("DTXMANIA_APPDATA_ROOT");
             Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", fixture.AppDataRoot);
+            ConfigManager configManager;
             try
             {
-                var configManager = new ConfigManager();
+                configManager = new ConfigManager();
                 configManager.LoadConfig();
             }
             finally
