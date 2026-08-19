@@ -95,7 +95,8 @@ internal static class CrashContextPublisher
 
         RegisterPath(sensitiveData, config.SkinPath);
         RegisterComputedPath(sensitiveData, AppPaths.GetAppDataRoot);
-        RegisterComputedPath(sensitiveData, AppPaths.GetConfigFilePath);
+        RegisterComputedPath(sensitiveData, AppPaths.GetConfigDatabasePath);
+        RegisterComputedPath(sensitiveData, AppPaths.GetLegacyConfigFilePath);
         RegisterComputedPath(sensitiveData, AppPaths.GetSongsDatabasePath);
         RegisterComputedPath(sensitiveData, AppPaths.GetPlaybackAudioCacheRoot);
         RegisterComputedPath(sensitiveData, AppPaths.GetCrashReportsRoot);

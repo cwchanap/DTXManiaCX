@@ -619,11 +619,11 @@ namespace DTXMania.Game.Lib.Stage
             {
                 if (_inputManager.IsCommandPressed(InputCommandType.IncreaseScrollSpeed))
                 {
-                    configManager.AdjustScrollSpeed(AppPaths.GetConfigFilePath(), +1);
+                    configManager.AdjustScrollSpeed(+1);
                 }
                 else if (_inputManager.IsCommandPressed(InputCommandType.DecreaseScrollSpeed))
                 {
-                    configManager.AdjustScrollSpeed(AppPaths.GetConfigFilePath(), -1);
+                    configManager.AdjustScrollSpeed(-1);
                 }
             }
         }

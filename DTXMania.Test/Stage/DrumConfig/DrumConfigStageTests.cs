@@ -225,24 +225,24 @@ namespace DTXMania.Test.Stage.DrumConfig
         [Fact]
         public void ExitStage_FlushesPendingSaveOnConcreteConfigManager()
         {
-            var (stage, cm, _) = CreateWiredStage();
-            // Point the deferred-save path at a real temp dir so FlushPendingSave can write.
+            // Point the config store at a real temp dir BEFORE creating the
+            // manager (its default paths resolve eagerly in the constructor).
             var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempDir);
             var previousRoot = Environment.GetEnvironmentVariable("DTXMANIA_APPDATA_ROOT");
             Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", tempDir);
             try
             {
-                cm.LoadConfig(AppPaths.GetConfigFilePath());
+                var (stage, cm, _) = CreateWiredStage();
+                cm.LoadConfig();
                 ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "Key.Q", 5); // marks dirty
-                Assert.NotNull(GetPendingSavePath(cm));
+                Assert.True(GetPendingSave(cm));
 
                 ReflectionHelpers.InvokePrivateMethod(stage, "ExitStage");
 
-                // Exit flushed the deferred save to disk.
-                Assert.Null(GetPendingSavePath(cm));
-                var configPath = AppPaths.GetConfigFilePath();
-                Assert.True(File.Exists(configPath));
+                // Exit flushed the deferred save to the config database.
+                Assert.False(GetPendingSave(cm));
+                Assert.True(File.Exists(AppPaths.GetConfigDatabasePath()));
             }
             finally
             {
@@ -397,8 +397,8 @@ namespace DTXMania.Test.Stage.DrumConfig
             return (stage, cm, input);
         }
 
-        private static string? GetPendingSavePath(ConfigManager cm)
-            => ReflectionHelpers.GetPrivateField<string?>(cm, "_pendingSavePath");
+        private static bool GetPendingSave(ConfigManager cm)
+            => ReflectionHelpers.GetPrivateField<bool>(cm, "_hasPendingSave");
 
         private static MouseState MouseAt(int x, int y, bool leftDown, bool rightDown = false) =>
             new MouseState(x, y, 0,
@@ -1045,17 +1045,19 @@ namespace DTXMania.Test.Stage.DrumConfig
         [Fact]
         public void OnDeactivate_FlushesPendingSaveAndReleasesResourceReferences()
         {
-            var (stage, cm, _) = CreateWiredStage();
-            // Mark a pending save so OnDeactivate's FlushPendingSave has something to flush.
+            // Point the config store at a real temp dir BEFORE creating the
+            // manager (its default paths resolve eagerly in the constructor).
             var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempDir);
             var previousRoot = Environment.GetEnvironmentVariable("DTXMANIA_APPDATA_ROOT");
             Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", tempDir);
             try
             {
-                cm.LoadConfig(AppPaths.GetConfigFilePath());
+                var (stage, cm, _) = CreateWiredStage();
+                // Mark a pending save so OnDeactivate's FlushPendingSave has something to flush.
+                cm.LoadConfig();
                 ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "Key.Q", 5); // marks dirty
-                Assert.NotNull(GetPendingSavePath(cm));
+                Assert.True(GetPendingSave(cm));
 
                 // Mocked managed resources + nulled graphics fields (SpriteBatch/Texture2D need a
                 // GraphicsDevice); the null-conditional release paths are still exercised.
@@ -1071,9 +1073,9 @@ namespace DTXMania.Test.Stage.DrumConfig
 
                 ReflectionHelpers.InvokePrivateMethod(stage, "OnDeactivate");
 
-                // Pending save flushed to disk.
-                Assert.Null(GetPendingSavePath(cm));
-                Assert.True(File.Exists(AppPaths.GetConfigFilePath()));
+                // Pending save flushed to the config database.
+                Assert.False(GetPendingSave(cm));
+                Assert.True(File.Exists(AppPaths.GetConfigDatabasePath()));
                 // Managed resource references released.
                 background.Verify(t => t.RemoveReference(), Times.Once);
                 skeleton.Verify(t => t.RemoveReference(), Times.Once);
@@ -1150,15 +1152,13 @@ namespace DTXMania.Test.Stage.DrumConfig
 
             public event EventHandler<EventArgs>? SystemKeyBindingsChanged;
 
-            public void LoadConfig(string filePath) { }
-
-            public void SaveConfig(string filePath) { }
+            public void LoadConfig() { }
 
             public void ResetToDefaults() { }
 
-            public void SetScrollSpeed(string configFilePath, int percent) { }
+            public void SetScrollSpeed(int percent) { }
 
-            public void AdjustScrollSpeed(string configFilePath, int stepDelta) { }
+            public void AdjustScrollSpeed(int stepDelta) { }
 
             public void SetPlaySpeedPercent(int percent) { }
 
@@ -1186,7 +1186,7 @@ namespace DTXMania.Test.Stage.DrumConfig
 
             public void SetVSync(bool value) { }
 
-            public void SetSkinPath(string configFilePath, string skinPath) { }
+            public void SetSkinPath(string skinPath) { }
 
             public void FlushPendingSave() { }
         }

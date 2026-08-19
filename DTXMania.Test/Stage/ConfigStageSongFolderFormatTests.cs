@@ -246,7 +246,6 @@ public sealed class ConfigStageSongFolderFormatTests
         var config = new Mock<IConfigManager>();
         config.SetupGet(manager => manager.Config).Returns(configData);
         config.Setup(manager => manager.SetSongRoots(
-                It.IsAny<string>(),
                 It.IsAny<IReadOnlyList<string>>()))
             .Throws(new InvalidOperationException("Config write failed"));
         var (stage, inputManager) = CreateStage(
@@ -274,7 +273,6 @@ public sealed class ConfigStageSongFolderFormatTests
         var config = new Mock<IConfigManager>();
         config.SetupGet(manager => manager.Config).Returns(configData);
         config.Setup(manager => manager.SetSongRoots(
-                It.IsAny<string>(),
                 It.IsAny<IReadOnlyList<string>>()))
             .Returns(new SongRootUpdateResult(
                 SongRootUpdateStatus.Unchanged,
@@ -303,7 +301,6 @@ public sealed class ConfigStageSongFolderFormatTests
         var config = new Mock<IConfigManager>();
         config.SetupGet(manager => manager.Config).Returns(configData);
         config.Setup(manager => manager.SetSongRoots(
-                It.IsAny<string>(),
                 It.IsAny<IReadOnlyList<string>>()))
             .Returns(new SongRootUpdateResult(
                 SongRootUpdateStatus.ValidationFailed,

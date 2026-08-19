@@ -79,8 +79,22 @@ public sealed class E2EFixtureBuilderTests
             Assert.Equal("RIFF", System.Text.Encoding.ASCII.GetString(audioBytes, 0, 4));
             Assert.Equal("WAVE", System.Text.Encoding.ASCII.GetString(audioBytes, 8, 4));
 
-            var configManager = new ConfigManager();
-            configManager.LoadConfig(fixture.ConfigPath);
+            // HPA-190: the game now loads the SQLite config database and imports
+            // the legacy Config.ini only when the database is absent. Sandbox the
+            // app-data root to the fixture's own directory so this import reads
+            // the fixture INI and creates the fixture's config.db — the same
+            // bootstrap the launched game process performs.
+            var previousAppDataRoot = Environment.GetEnvironmentVariable("DTXMANIA_APPDATA_ROOT");
+            Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", fixture.AppDataRoot);
+            try
+            {
+                var configManager = new ConfigManager();
+                configManager.LoadConfig();
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", previousAppDataRoot);
+            }
 
             Assert.True(configManager.Config.EnableGameApi);
             Assert.Equal("e2e-autoplay-smoke-key", configManager.Config.GameApiKey);

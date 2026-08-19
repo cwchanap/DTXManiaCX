@@ -1,8 +1,10 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Utilities;
+using Microsoft.Data.Sqlite;
 using Xunit;
 
 namespace DTXMania.Test.Config
@@ -20,7 +22,7 @@ namespace DTXMania.Test.Config
             Directory.CreateDirectory(_tempDir);
 
             // Sandbox the app-data root so AppPaths.GetDefaultSystemSkinRoot()
-            // and GetConfigFilePath() resolve under _tempDir, not the real
+            // and the default config paths resolve under _tempDir, not the real
             // user app-data directory. Without this, LoadConfig normalizes the
             // default app-data SystemSkinRoot and DTXPath and ensures both
             // directories exist — creating Graphics/ in the real user app-data.
@@ -34,6 +36,7 @@ namespace DTXMania.Test.Config
         {
             try
             {
+                SqliteConnection.ClearAllPools();
                 Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", _previousAppDataRoot);
                 Directory.Delete(_tempDir, recursive: true);
             }
@@ -41,58 +44,73 @@ namespace DTXMania.Test.Config
         }
 
         private string ConfigPath => Path.Combine(_tempDir, "Config.ini");
+        private string DbPath => Path.Combine(_tempDir, "config.db");
+
+        private ConfigManager CreateManager(string? baseDir = null) =>
+            new(DbPath, ConfigPath, baseDir: baseDir);
+
+        private static bool HasPendingSave(ConfigManager manager) =>
+            (bool)typeof(ConfigManager)
+                .GetField("_hasPendingSave", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(manager)!;
 
         [Fact]
         public void SetSkinPath_WithNewValue_ShouldUpdateConfigAndDeferSave()
         {
-            var manager = new ConfigManager();
+            var manager = CreateManager();
+            manager.LoadConfig();
             var newSkin = Path.Combine(_tempDir, "System", "CXNeon") + Path.DirectorySeparatorChar;
 
-            manager.SetSkinPath(ConfigPath, newSkin);
+            manager.SetSkinPath(newSkin);
 
             Assert.Equal(newSkin, manager.Config.SkinPath);
-            Assert.False(File.Exists(ConfigPath)); // write is deferred, not immediate
+            // Write is deferred: the store still holds the previous value.
+            Assert.DoesNotContain(newSkin, new SqliteConfigStore(DbPath).Load()["SkinPath"]);
+            Assert.True(HasPendingSave(manager));
 
             manager.FlushPendingSave();
 
-            Assert.True(File.Exists(ConfigPath));
-            Assert.Contains($"SkinPath={newSkin}", File.ReadAllText(ConfigPath));
+            Assert.Equal(newSkin, new SqliteConfigStore(DbPath).Load()["SkinPath"]);
+            Assert.False(HasPendingSave(manager));
         }
 
         [Fact]
         public void SetSkinPath_WithUnchangedValue_ShouldNotDeferSave()
         {
-            var manager = new ConfigManager();
+            var manager = CreateManager();
+            manager.LoadConfig();
             var current = manager.Config.SkinPath;
 
-            manager.SetSkinPath(ConfigPath, current);
+            manager.SetSkinPath(current);
             manager.FlushPendingSave();
 
             Assert.Equal(current, manager.Config.SkinPath);
-            Assert.False(File.Exists(ConfigPath)); // nothing marked dirty -> nothing written
+            Assert.False(HasPendingSave(manager)); // nothing marked dirty -> nothing written
         }
 
         [Fact]
         public void SetSkinPath_WithWhitespaceValue_ShouldBeIgnored()
         {
-            var manager = new ConfigManager();
+            var manager = CreateManager();
+            manager.LoadConfig();
             var current = manager.Config.SkinPath;
 
-            manager.SetSkinPath(ConfigPath, "   ");
+            manager.SetSkinPath("   ");
             manager.FlushPendingSave();
 
             Assert.Equal(current, manager.Config.SkinPath);
-            Assert.False(File.Exists(ConfigPath));
+            Assert.False(HasPendingSave(manager));
         }
 
         [Fact]
         public void SetSkinPath_WithEquivalentPathDifferingBySeparatorOrTrailingSlash_ShouldNotDeferSave()
         {
-            // Config.SkinPath is loaded verbatim from Config.ini and may lack a
+            // Config.SkinPath may be loaded verbatim from the store and lack a
             // trailing separator or use backslashes, while the incoming value
             // arrives normalized by ResourceManager. These are the same path and
             // must not spuriously mark the config dirty.
-            var manager = new ConfigManager();
+            var manager = CreateManager();
+            manager.LoadConfig();
             var current = manager.Config.SkinPath;
             // Build an equivalent path: same segments, opposite separators, no
             // trailing slash.
@@ -108,67 +126,69 @@ namespace DTXMania.Test.Config
                 equivalent = current.TrimEnd(Path.DirectorySeparatorChar, '/');
             }
 
-            manager.SetSkinPath(ConfigPath, equivalent);
+            manager.SetSkinPath(equivalent);
             manager.FlushPendingSave();
 
             Assert.Equal(current, manager.Config.SkinPath);
-            Assert.False(File.Exists(ConfigPath)); // no-op detected, nothing written
+            Assert.False(HasPendingSave(manager)); // no-op detected, nothing written
         }
 
         [Fact]
-        public void SkinPath_PersistedToConfigIni_ShouldRoundTripAcrossRestart()
+        public void SkinPath_PersistedToDb_ShouldRoundTripAcrossRestart()
         {
             // Simulate a full restart cycle: set SkinPath → flush → create a new
-            // ConfigManager (fresh process) → load the same Config.ini → verify
+            // ConfigManager (fresh process) → load the same database → verify
             // the persisted SkinPath is read back. Then change it again, save,
             // reload once more, and verify the second value survives too.
             var skinA = Path.Combine(_tempDir, "System", "SkinA") + Path.DirectorySeparatorChar;
             var skinB = Path.Combine(_tempDir, "System", "SkinB") + Path.DirectorySeparatorChar;
 
             // --- First "session": set skin A and persist ---
-            var manager1 = new ConfigManager();
-            manager1.SetSkinPath(ConfigPath, skinA);
+            var manager1 = CreateManager();
+            manager1.LoadConfig();
+            manager1.SetSkinPath(skinA);
             manager1.FlushPendingSave();
-            Assert.True(File.Exists(ConfigPath));
-            Assert.Contains($"SkinPath={skinA}", File.ReadAllText(ConfigPath));
+            Assert.Equal(skinA, new SqliteConfigStore(DbPath).Load()["SkinPath"]);
 
             // --- "Restart": new ConfigManager loads the persisted config ---
-            var manager2 = new ConfigManager();
-            manager2.LoadConfig(ConfigPath);
+            var manager2 = CreateManager();
+            manager2.LoadConfig();
             Assert.Equal(skinA, manager2.Config.SkinPath);
 
             // --- Second "session": change to skin B and persist ---
-            manager2.SetSkinPath(ConfigPath, skinB);
+            manager2.SetSkinPath(skinB);
             manager2.FlushPendingSave();
 
             // --- Second "restart": new ConfigManager loads the updated config ---
-            var manager3 = new ConfigManager();
-            manager3.LoadConfig(ConfigPath);
+            var manager3 = CreateManager();
+            manager3.LoadConfig();
             Assert.Equal(skinB, manager3.Config.SkinPath);
         }
 
         [Fact]
         public void SkinPath_ContainingEqualsSign_ShouldRoundTripAcrossRestart()
         {
-            // A directory name containing '=' is legal. The loader must split on
-            // the first '=' only so the value (which may itself contain '=') is
-            // preserved verbatim. Without a 2-count split, the line
-            // "SkinPath=/path/CX=Neon/" produces 3 pieces and is silently
-            // discarded, so the selected skin works during the current session
-            // but its configuration is lost on the next startup.
+            // A directory name containing '=' is legal. The INI importer must
+            // split on the first '=' only so the value (which may itself
+            // contain '=') is preserved verbatim. Without the 2-count split
+            // the line "SkinPath=/path/CX=Neon/" produces 3 pieces and is
+            // silently discarded, so the selected skin works during the
+            // current session but its configuration is lost on the next
+            // startup.
             var skinWithEquals = Path.Combine(_tempDir, "Skins", "CX=Neon") + Path.DirectorySeparatorChar;
             Directory.CreateDirectory(skinWithEquals);
 
-            // --- First "session": set the skin path and persist ---
-            var manager1 = new ConfigManager();
-            manager1.SetSkinPath(ConfigPath, skinWithEquals);
-            manager1.FlushPendingSave();
-            Assert.True(File.Exists(ConfigPath));
-            Assert.Contains($"SkinPath={skinWithEquals}", File.ReadAllText(ConfigPath));
+            // Legacy INI holding the '='-containing path imports intact.
+            File.WriteAllText(ConfigPath, $"[System]\nSkinPath={skinWithEquals}\n");
+            var manager1 = CreateManager();
+            manager1.LoadConfig();
 
-            // --- "Restart": new ConfigManager loads the persisted config ---
-            var manager2 = new ConfigManager();
-            manager2.LoadConfig(ConfigPath);
+            Assert.Equal(skinWithEquals, manager1.Config.SkinPath);
+            Assert.Equal(skinWithEquals, new SqliteConfigStore(DbPath).Load()["SkinPath"]);
+
+            // "Restart": a new ConfigManager loads the persisted database.
+            var manager2 = CreateManager();
+            manager2.LoadConfig();
             Assert.Equal(skinWithEquals, manager2.Config.SkinPath);
         }
 
@@ -179,12 +199,13 @@ namespace DTXMania.Test.Config
             // bundled path. The token resolves to the current install location
             // at runtime, surviving app relocations (moving the .app bundle or
             // portable folder).
-            var manager = new ConfigManager();
-            manager.LoadConfig(ConfigPath);
+            var manager = CreateManager();
+            manager.LoadConfig();
 
             Assert.Equal(ConfigManager.DefaultSkinPathToken, manager.Config.SkinPath);
-            Assert.Contains($"SkinPath={ConfigManager.DefaultSkinPathToken}",
-                File.ReadAllText(ConfigPath));
+            Assert.Equal(
+                ConfigManager.DefaultSkinPathToken,
+                new SqliteConfigStore(DbPath).Load()["SkinPath"]);
         }
 
         [Fact]
@@ -238,16 +259,16 @@ namespace DTXMania.Test.Config
             // 4134a68) where the absolute bundled root was persisted directly.
             // On load, such a path should be recognized as a bundled candidate
             // and remapped to the "Default" token so future relocations don't
-            // stale it. The migration must also be PERSISTED to the file — not
-            // just applied in memory — so a relocation before the next
+            // stale it. The migration must also be PERSISTED to the database —
+            // not just applied in memory — so a relocation before the next
             // setter-triggered save doesn't leave the stale absolute path.
             //
-            // This test uses the LoadConfig(filePath, baseDir) seam: it
-            // creates a fake install directory with a validating System skin,
-            // writes that bundled root as the "old absolute bundled path"
-            // into Config.ini, calls LoadConfig with the fake install as the
-            // base dir, and asserts BOTH the in-memory value AND the
-            // persisted file contents migrated to the "Default" token.
+            // This test uses the baseDir constructor seam: it creates a fake
+            // install directory with a validating System skin, writes that
+            // bundled root as the "old absolute bundled path" into the legacy
+            // Config.ini, calls LoadConfig with the fake install as the base
+            // dir, and asserts BOTH the in-memory value AND the persisted rows
+            // migrated to the "Default" token.
             var installDir = Path.Combine(_tempDir, "fakeInstall");
             Directory.CreateDirectory(installDir);
             var systemRoot = Path.Combine(installDir, "System");
@@ -267,20 +288,18 @@ namespace DTXMania.Test.Config
             File.WriteAllText(ConfigPath,
                 $"[System]\nSkinPath={bundledRoot}\n");
 
-            var manager = new ConfigManager();
             // Use the baseDir seam so LoadConfig resolves bundled candidates
             // from the fake install, not AppContext.BaseDirectory.
-            manager.LoadConfig(ConfigPath, installDir);
+            var manager = CreateManager(installDir);
+            manager.LoadConfig();
 
             // In-memory value migrated to the token.
             Assert.Equal(ConfigManager.DefaultSkinPathToken, manager.Config.SkinPath);
 
-            // Persisted file contents also migrated — the absolute bundled
-            // path is gone and the token is in its place.
-            var persistedContents = File.ReadAllText(ConfigPath);
-            Assert.Contains($"SkinPath={ConfigManager.DefaultSkinPathToken}",
-                persistedContents);
-            Assert.DoesNotContain($"SkinPath={bundledRoot}", persistedContents);
+            // Persisted rows also migrated — the absolute bundled path is gone
+            // and the token is in its place.
+            var rows = new SqliteConfigStore(DbPath).Load();
+            Assert.Equal(ConfigManager.DefaultSkinPathToken, rows["SkinPath"]);
         }
 
         [Fact]
@@ -320,60 +339,60 @@ namespace DTXMania.Test.Config
             File.WriteAllText(ConfigPath,
                 $"[System]\nSkinPath={ConfigManager.DefaultSkinPathToken}\n");
 
-            var manager1 = new ConfigManager();
-            manager1.LoadConfig(ConfigPath);
+            var manager1 = CreateManager();
+            manager1.LoadConfig();
             Assert.Equal(ConfigManager.DefaultSkinPathToken, manager1.Config.SkinPath);
 
-            // Trigger a save (LoadConfig on existing file doesn't auto-save
+            // Trigger a save (LoadConfig on an existing store doesn't auto-save
             // unless a setter marks dirty, so force one).
             manager1.SetAutoPlay(true);
             manager1.FlushPendingSave();
 
-            var manager2 = new ConfigManager();
-            manager2.LoadConfig(ConfigPath);
+            var manager2 = CreateManager();
+            manager2.LoadConfig();
             Assert.Equal(ConfigManager.DefaultSkinPathToken, manager2.Config.SkinPath);
         }
 
         [Fact]
         public void DefaultToken_SurvivesRelocationSimulation()
         {
-            // Simulate a relocation: create config at "location A", then
-            // simulate a restart at "location B". With the token approach,
-            // the config persists "Default" and ResolveSkinPath picks up the
+            // Simulate a relocation: create the config database at "location A",
+            // then simulate a restart at "location B". With the token approach,
+            // the database stores "Default" and ResolveSkinPath picks up the
             // current bundled root on every launch — so the effective default
             // tracks the current install location, not the one that was
             // active when the config was first written.
             var appDataA = Path.Combine(_tempDir, "appdataA");
             Directory.CreateDirectory(appDataA);
 
-            // "Session at location A": create config with Default token.
-            var configPathA = Path.Combine(appDataA, "Config.ini");
-            var managerA = new ConfigManager();
-            managerA.LoadConfig(configPathA);
+            // "Session at location A": create the config database with the token.
+            var dbA = Path.Combine(appDataA, "config.db");
+            var managerA = new ConfigManager(dbA, Path.Combine(appDataA, "Config.ini"));
+            managerA.LoadConfig();
             Assert.Equal(ConfigManager.DefaultSkinPathToken, managerA.Config.SkinPath);
 
-            // The persisted file stores the token, not an absolute path.
-            var persistedLine = File.ReadAllText(configPathA);
-            Assert.Contains($"SkinPath={ConfigManager.DefaultSkinPathToken}", persistedLine);
+            // The persisted database stores the token, not an absolute path.
+            var rowsA = new SqliteConfigStore(dbA).Load();
+            Assert.Equal(ConfigManager.DefaultSkinPathToken, rowsA["SkinPath"]);
             // No absolute bundled path should be persisted.
             foreach (var candidate in AppPaths.GetBundledSystemSkinRootCandidates())
             {
-                Assert.DoesNotContain($"SkinPath={candidate}", persistedLine);
+                Assert.NotEqual(candidate, rowsA["SkinPath"]);
             }
 
-            // "Relocation to location B": the same Config.ini (copied to a new
+            // "Relocation to location B": the same database (copied to a new
             // app-data root) still resolves to the current bundled root.
             var appDataB = Path.Combine(_tempDir, "appdataB");
             Directory.CreateDirectory(appDataB);
-            var configPathB = Path.Combine(appDataB, "Config.ini");
-            File.Copy(configPathA, configPathB);
+            var dbB = Path.Combine(appDataB, "config.db");
+            File.Copy(dbA, dbB);
 
             var prevRoot = Environment.GetEnvironmentVariable("DTXMANIA_APPDATA_ROOT");
             Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", appDataB);
             try
             {
-                var managerB = new ConfigManager();
-                managerB.LoadConfig(configPathB);
+                var managerB = new ConfigManager(dbB, Path.Combine(appDataB, "Config.ini"));
+                managerB.LoadConfig();
                 // Token survives the relocation.
                 Assert.Equal(ConfigManager.DefaultSkinPathToken, managerB.Config.SkinPath);
                 // And resolving it gives a valid absolute path (the current

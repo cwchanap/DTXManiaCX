@@ -7,6 +7,7 @@ using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Diagnostics.CrashReporting;
 using DTXMania.Game.Lib.Graphics;
 using DTXMania.Game.Lib.Stage;
+using DTXMania.Game.Lib.Utilities;
 using DTXMania.Test.TestData;
 using Microsoft.Extensions.Logging;
 using Microsoft.Xna.Framework.Graphics;
@@ -267,6 +268,20 @@ public sealed class CrashContextPublisherTests
         {
             if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, recursive: true);
         }
+    }
+
+    [Fact]
+    public void RegisterSensitivePrefixes_ShouldRegisterBothConfigDatabaseAndLegacyIniPaths()
+    {
+        // HPA-190: the live store is config.db and Config.ini remains on disk
+        // as the legacy import input — both paths can contain identifying
+        // directory names and must be redacted from crash reports.
+        var diagnostics = new RecordingGameCrashDiagnostics();
+
+        CrashContextPublisher.RegisterSensitivePrefixes(diagnostics, new ConfigData());
+
+        Assert.Contains(AppPaths.GetConfigDatabasePath(), diagnostics.SensitiveData.Paths);
+        Assert.Contains(AppPaths.GetLegacyConfigFilePath(), diagnostics.SensitiveData.Paths);
     }
 
     [Fact]

@@ -121,18 +121,6 @@ namespace DTXMania.Game.Lib.Utilities
             return Path.GetFullPath(Path.Combine(GetAppDataRoot(), "Config.ini"));
         }
 
-        /// <summary>
-        /// Temporary alias for <see cref="GetLegacyConfigFilePath"/> kept only
-        /// because existing callers (Game1 startup, stage scroll-speed/skin
-        /// edits, crash-report path redaction, and their tests) still compile
-        /// against it. HPA-190 Task 2 migrates those callers and removes this
-        /// method together with them; do not use it in new code.
-        /// </summary>
-        public static string GetConfigFilePath()
-        {
-            return Path.GetFullPath(Path.Combine(GetAppDataRoot(), "Config.ini"));
-        }
-
         public static string GetCrashReportsRoot()
         {
             return Path.GetFullPath(Path.Combine(GetAppDataRoot(), "CrashReports"));

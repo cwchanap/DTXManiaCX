@@ -2916,11 +2916,11 @@ namespace DTXMania.Game.Lib.Stage
                     break;
 
                 case InputCommandType.IncreaseScrollSpeed:
-                    _configManager?.AdjustScrollSpeed(AppPaths.GetConfigFilePath(), +1);
+                    _configManager?.AdjustScrollSpeed(+1);
                     break;
 
                 case InputCommandType.DecreaseScrollSpeed:
-                    _configManager?.AdjustScrollSpeed(AppPaths.GetConfigFilePath(), -1);
+                    _configManager?.AdjustScrollSpeed(-1);
                     break;
 
                 case InputCommandType.OpenSearch:

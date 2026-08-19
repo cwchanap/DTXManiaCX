@@ -6,8 +6,33 @@ using Microsoft.Xna.Framework.Input;
 namespace DTXMania.Test.Config;
 
 [Trait("Category", "Persistence")]
-public class SystemKeyBindingsPersistenceTests
+[Collection("AppPaths")]
+public class SystemKeyBindingsPersistenceTests : IDisposable
 {
+    private readonly string _root = Path.Combine(
+        Path.GetTempPath(), "dtx-syskey-persistence-" + Guid.NewGuid().ToString("N"));
+    private readonly string? _previousAppDataRoot;
+
+    public SystemKeyBindingsPersistenceTests()
+    {
+        Directory.CreateDirectory(_root);
+        // Sandbox the app-data root: LoadConfig normalization creates default
+        // app-data directories.
+        _previousAppDataRoot = Environment.GetEnvironmentVariable("DTXMANIA_APPDATA_ROOT");
+        Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", _root);
+    }
+
+    public void Dispose()
+    {
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", _previousAppDataRoot);
+        if (Directory.Exists(_root))
+            Directory.Delete(_root, recursive: true);
+    }
+
+    private ConfigManager CreateManager() =>
+        new(Path.Combine(_root, "config.db"), Path.Combine(_root, "Config.ini"));
+
     // ─── ParseConfigLine ──────────────────────────────────────────────────────
 
     [Fact]
@@ -20,95 +45,78 @@ public class SystemKeyBindingsPersistenceTests
             SystemKey.Activate=Space
             """;
 
-        var tempFile = Path.GetTempFileName();
-        try
-        {
-            File.WriteAllText(tempFile, ini);
-            var manager = new ConfigManager();
-            manager.LoadConfig(tempFile);
+        File.WriteAllText(Path.Combine(_root, "Config.ini"), ini);
+        var manager = CreateManager();
+        manager.LoadConfig();
 
-            Assert.Equal("W", manager.Config.SystemKeyBindings["SystemKey.MoveUp"]);
-            Assert.Equal("S", manager.Config.SystemKeyBindings["SystemKey.MoveDown"]);
-            Assert.Equal("Space", manager.Config.SystemKeyBindings["SystemKey.Activate"]);
-        }
-        finally { File.Delete(tempFile); }
+        Assert.Equal("W", manager.Config.SystemKeyBindings["SystemKey.MoveUp"]);
+        Assert.Equal("S", manager.Config.SystemKeyBindings["SystemKey.MoveDown"]);
+        Assert.Equal("Space", manager.Config.SystemKeyBindings["SystemKey.Activate"]);
     }
 
     [Fact]
     public void ConfigManager_LoadConfig_InvalidKeyName_ShouldSkipEntry()
     {
-        var ini = "SystemKey.MoveUp=NotAValidKey\n";
-        var tempFile = Path.GetTempFileName();
-        try
-        {
-            File.WriteAllText(tempFile, ini);
-            var manager = new ConfigManager();
-            manager.LoadConfig(tempFile);
+        File.WriteAllText(Path.Combine(_root, "Config.ini"), "SystemKey.MoveUp=NotAValidKey\n");
+        var manager = CreateManager();
+        manager.LoadConfig();
 
-            // The entry is stored as-is; LoadSystemKeyBindings will silently skip it
-            // when parsing enum values.
-            manager.Config.SystemKeyBindings.TryGetValue("SystemKey.MoveUp", out var val);
-            Assert.Equal("NotAValidKey", val);
+        // The entry is stored as-is; LoadSystemKeyBindings will silently skip it
+        // when parsing enum values.
+        manager.Config.SystemKeyBindings.TryGetValue("SystemKey.MoveUp", out var val);
+        Assert.Equal("NotAValidKey", val);
 
-            var inputMgr = new InputManager();
-            // Should not throw – invalid values are skipped
-            manager.LoadSystemKeyBindings(inputMgr);
-            // Default Up->MoveUp should still be in place
-            var snapshot = inputMgr.GetKeyMappingSnapshot();
-            Assert.Equal(InputCommandType.MoveUp, snapshot[Keys.Up]);
-        }
-        finally { File.Delete(tempFile); }
+        var inputMgr = new InputManager();
+        // Should not throw – invalid values are skipped
+        manager.LoadSystemKeyBindings(inputMgr);
+        // Default Up->MoveUp should still be in place
+        var snapshot = inputMgr.GetKeyMappingSnapshot();
+        Assert.Equal(InputCommandType.MoveUp, snapshot[Keys.Up]);
     }
 
-    // ─── SaveConfig round-trip ────────────────────────────────────────────────
+    // ─── Deferred-save round-trip ────────────────────────────────────────────
 
     [Fact]
-    public void ConfigManager_SaveConfig_ShouldWriteSystemKeyBindingsSection()
+    public void ConfigManager_FlushPendingSave_ShouldPersistSystemKeyBindingsRows()
     {
-        var manager = new ConfigManager();
-        manager.Config.SystemKeyBindings["SystemKey.MoveUp"] = "W";
-        manager.Config.SystemKeyBindings["SystemKey.Back"] = "Escape";
+        var manager = CreateManager();
+        manager.LoadConfig();
 
-        var tempFile = Path.GetTempFileName();
-        try
+        manager.SetSystemKeyBindings(new Dictionary<Keys, InputCommandType>
         {
-            manager.SaveConfig(tempFile);
-            var content = File.ReadAllText(tempFile);
-            Assert.Contains("[SystemKeyBindings]", content);
-            Assert.Contains("SystemKey.MoveUp=W", content);
-            Assert.Contains("SystemKey.Back=Escape", content);
-        }
-        finally { File.Delete(tempFile); }
+            [Keys.W] = InputCommandType.MoveUp,
+            [Keys.Escape] = InputCommandType.Back,
+        });
+        manager.FlushPendingSave();
+
+        var rows = new SqliteConfigStore(Path.Combine(_root, "config.db")).Load();
+        Assert.Equal("W", rows["SystemKey.MoveUp"]);
+        Assert.Equal("Escape", rows["SystemKey.Back"]);
     }
 
     [Fact]
     public void ConfigManager_RoundTrip_SystemKeyBindings_ShouldPreserveValues()
     {
-        var manager = new ConfigManager();
+        var manager = CreateManager();
+        manager.LoadConfig();
         var inputMgr = new InputManager();
 
         // Set custom system binding: W -> MoveUp
         inputMgr.SetKeyMapping(Keys.W, InputCommandType.MoveUp);
         inputMgr.RemoveKeyMapping(Keys.Up); // remove default Up -> MoveUp
-        manager.SaveSystemKeyBindings(inputMgr);
+        manager.SetSystemKeyBindings(inputMgr.GetKeyMappingSnapshot());
+        manager.FlushPendingSave();
 
-        var tempFile = Path.GetTempFileName();
-        try
-        {
-            manager.SaveConfig(tempFile);
+        // Load into a fresh manager and apply
+        var manager2 = CreateManager();
+        manager2.LoadConfig();
+        var inputMgr2 = new InputManager();
+        manager2.LoadSystemKeyBindings(inputMgr2);
 
-            // Load into a fresh manager and apply
-            var manager2 = new ConfigManager();
-            manager2.LoadConfig(tempFile);
-            var inputMgr2 = new InputManager();
-            manager2.LoadSystemKeyBindings(inputMgr2);
-
-            var snapshot = inputMgr2.GetKeyMappingSnapshot();
-            Assert.Equal(InputCommandType.MoveUp, snapshot[Keys.W]);
-            // The default Keys.Up -> MoveUp binding must have been replaced, not duplicated.
-            Assert.False(snapshot.TryGetValue(Keys.Up, out var upCommand) && upCommand == InputCommandType.MoveUp);
-        }
-        finally { File.Delete(tempFile); }
+        var snapshot = inputMgr2.GetKeyMappingSnapshot();
+        Assert.Equal(InputCommandType.MoveUp, snapshot[Keys.W]);
+        // The default Keys.Up -> MoveUp binding must have been replaced, not duplicated.
+        Assert.False(snapshot.TryGetValue(Keys.Up, out var upCommand) && upCommand == InputCommandType.MoveUp);
     }
 
     // ─── SaveSystemKeyBindings / LoadSystemKeyBindings ────────────────────────

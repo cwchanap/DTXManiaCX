@@ -3,21 +3,40 @@ using System.Globalization;
 using System.IO;
 using System.Reflection;
 using DTXMania.Game.Lib.Config;
+using Microsoft.Data.Sqlite;
 using Xunit;
 
 namespace DTXMania.Test.Config
 {
+    [Collection("AppPaths")]
     public sealed class PlaySpeedAndPitchConfigTests : IDisposable
     {
-        private readonly string _tempPath = Path.Combine(
+        private readonly string _root = Path.Combine(
             Path.GetTempPath(),
-            "dtxmania-playback-modifiers-" + Guid.NewGuid().ToString("N") + ".ini");
+            "dtxmania-playback-modifiers-" + Guid.NewGuid().ToString("N"));
+        private readonly string? _previousAppDataRoot;
+
+        public PlaySpeedAndPitchConfigTests()
+        {
+            Directory.CreateDirectory(_root);
+            // Sandbox the app-data root: LoadConfig normalization creates
+            // default app-data directories.
+            _previousAppDataRoot = Environment.GetEnvironmentVariable("DTXMANIA_APPDATA_ROOT");
+            Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", _root);
+        }
 
         public void Dispose()
         {
-            if (File.Exists(_tempPath))
-                File.Delete(_tempPath);
+            SqliteConnection.ClearAllPools();
+            Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", _previousAppDataRoot);
+            if (Directory.Exists(_root))
+                Directory.Delete(_root, recursive: true);
         }
+
+        private string DbPath => Path.Combine(_root, "config.db");
+        private string IniPath => Path.Combine(_root, "Config.ini");
+
+        private ConfigManager CreateManager() => new(DbPath, IniPath);
 
         [Fact]
         public void ConfigData_ShouldDefaultToNormalSpeedAndUnshiftedPitch()
@@ -83,19 +102,19 @@ namespace DTXMania.Test.Config
         [Fact]
         public void SaveAndLoad_ShouldRoundTripCanonicalValues()
         {
-            var manager = new ConfigManager();
-            manager.LoadConfig(_tempPath);
+            var manager = CreateManager();
+            manager.LoadConfig();
 
             manager.SetPlaySpeedPercent(128);
             manager.SetPitchSemitones(99);
             manager.FlushPendingSave();
 
-            var saved = File.ReadAllText(_tempPath);
-            Assert.Contains("PlaySpeedPercent=130", saved);
-            Assert.Contains("PitchSemitones=12", saved);
+            var rows = new SqliteConfigStore(DbPath).Load();
+            Assert.Equal("130", rows["PlaySpeedPercent"]);
+            Assert.Equal("12", rows["PitchSemitones"]);
 
-            var roundTrip = new ConfigManager();
-            roundTrip.LoadConfig(_tempPath);
+            var roundTrip = CreateManager();
+            roundTrip.LoadConfig();
             Assert.Equal(130, roundTrip.Config.PlaySpeedPercent);
             Assert.Equal(12, roundTrip.Config.PitchSemitones);
         }
@@ -103,12 +122,12 @@ namespace DTXMania.Test.Config
         [Fact]
         public void LoadConfig_WithMalformedValues_ShouldKeepDefaults()
         {
-            File.WriteAllText(_tempPath,
+            File.WriteAllText(IniPath,
                 "PlaySpeedPercent=not-a-number\n" +
                 "PitchSemitones=also-not-a-number\n");
 
-            var manager = new ConfigManager();
-            manager.LoadConfig(_tempPath);
+            var manager = CreateManager();
+            manager.LoadConfig();
 
             Assert.Equal(PlaySpeedRange.Default, manager.Config.PlaySpeedPercent);
             Assert.Equal(PitchRange.Default, manager.Config.PitchSemitones);
@@ -117,12 +136,12 @@ namespace DTXMania.Test.Config
         [Fact]
         public void LoadConfig_WithHandEditedValues_ShouldSnapAndClamp()
         {
-            File.WriteAllText(_tempPath,
+            File.WriteAllText(IniPath,
                 "PlaySpeedPercent=127\n" +
                 "PitchSemitones=-99\n");
 
-            var manager = new ConfigManager();
-            manager.LoadConfig(_tempPath);
+            var manager = CreateManager();
+            manager.LoadConfig();
 
             Assert.Equal(125, manager.Config.PlaySpeedPercent);
             Assert.Equal(-12, manager.Config.PitchSemitones);
@@ -131,17 +150,17 @@ namespace DTXMania.Test.Config
         [Fact]
         public void UnchangedSetters_ShouldNotScheduleDeferredWrite()
         {
-            var manager = new ConfigManager();
-            manager.LoadConfig(_tempPath);
+            var manager = CreateManager();
+            manager.LoadConfig();
 
             manager.SetPlaySpeedPercent(PlaySpeedRange.Default);
             manager.SetPitchSemitones(PitchRange.Default);
 
             var pendingField = typeof(ConfigManager).GetField(
-                "_pendingSavePath",
+                "_hasPendingSave",
                 BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.NotNull(pendingField);
-            Assert.Null(pendingField!.GetValue(manager));
+            Assert.False((bool)pendingField!.GetValue(manager)!);
         }
     }
 }

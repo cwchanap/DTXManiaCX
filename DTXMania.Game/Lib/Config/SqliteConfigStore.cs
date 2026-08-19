@@ -39,6 +39,9 @@ namespace DTXMania.Game.Lib.Config
         /// <summary>Whether the config database file exists on disk.</summary>
         public bool Exists => File.Exists(_databasePath);
 
+        /// <summary>Full path of the config database file.</summary>
+        public string DatabasePath => _databasePath;
+
         /// <summary>
         /// Load the complete key/value snapshot from an existing v1 database.
         /// Fails loudly when the database is unreadable, has an unsupported

@@ -229,7 +229,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
 
         // Initialize managers
         ConfigManager = new ConfigManager();
-        ConfigManager.LoadConfig(AppPaths.GetConfigFilePath());
+        ConfigManager.LoadConfig();
         _startupTimingTrace?.MarkConfigLoaded();
         var config = ConfigManager.Config;
         CrashContextPublisher.PublishConfiguration(_gameCrashDiagnostics, config);

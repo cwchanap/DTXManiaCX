@@ -562,24 +562,32 @@ namespace DTXMania.Test
                 AppContext.BaseDirectory, "TestResults", "ongame-exiting-flush",
                 Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempDir);
-            var configPath = Path.Combine(tempDir, "Config.ini");
+            var configDbPath = Path.Combine(tempDir, "config.db");
+            var legacyIniPath = Path.Combine(tempDir, "Config.ini");
             try
             {
-                var configManager = new ConfigManager();
-                configManager.LoadConfig(configPath);
+                var configManager = new ConfigManager(configDbPath, legacyIniPath);
+                configManager.LoadConfig();
                 configManager.SetAutoPlay(true); // mark dirty
-                Assert.False(File.ReadAllText(configPath).Contains("AutoPlay=True"));
+                Assert.False(ReadAutoPlayFromStore());
 
                 var game = CreateGameForLifecycle();
                 ReflectionHelpers.SetPrivateField(game, "<ConfigManager>k__BackingField", configManager);
 
                 ReflectionHelpers.InvokePrivateMethod(game, "OnGameExiting", null!, EventArgs.Empty);
 
-                Assert.True(File.ReadAllText(configPath).Contains("AutoPlay=True"));
+                Assert.True(ReadAutoPlayFromStore());
             }
             finally
             {
                 if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true);
+            }
+
+            bool ReadAutoPlayFromStore()
+            {
+                var reloaded = new ConfigManager(configDbPath, legacyIniPath);
+                reloaded.LoadConfig();
+                return reloaded.Config.AutoPlay;
             }
         }
 
@@ -1237,11 +1245,12 @@ namespace DTXMania.Test
                 "critical-path-exit",
                 Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempDir);
-            var configPath = Path.Combine(tempDir, "Config.ini");
+            var configDbPath = Path.Combine(tempDir, "config.db");
+            var legacyIniPath = Path.Combine(tempDir, "Config.ini");
             try
             {
-                var configManager = new ConfigManager();
-                configManager.LoadConfig(configPath);
+                var configManager = new ConfigManager(configDbPath, legacyIniPath);
+                configManager.LoadConfig();
                 configManager.SetAutoPlay(true);
                 var trace = CreatePreparedCriticalPathTrace();
                 var game = CreateDrawHarness(trace, new Mock<IStageManager>().Object);
@@ -1259,12 +1268,14 @@ namespace DTXMania.Test
                 Assert.Contains(
                     "HPA192_CRITICAL_PATH_FAILURE outcome=failure error=exit_before_success",
                     game.DiagnosticWriter.ToString());
-                Assert.Contains("AutoPlay=True", File.ReadAllText(configPath));
+
+                var reloaded = new ConfigManager(configDbPath, legacyIniPath);
+                reloaded.LoadConfig();
+                Assert.True(reloaded.Config.AutoPlay);
             }
             finally
             {
-                if (Directory.Exists(tempDir))
-                    Directory.Delete(tempDir, recursive: true);
+                if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true);
             }
         }
 

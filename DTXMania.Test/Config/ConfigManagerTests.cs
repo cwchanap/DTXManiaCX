@@ -1,25 +1,64 @@
+using System.Collections.Generic;
+using System.IO;
+using System.Text;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Utilities;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using Microsoft.Xna.Framework.Input;
 using Moq;
-using System.Reflection;
-using System.Text;
+using Xunit;
 
 namespace DTXMania.Test.Config;
 
-// Several tests below mutate the process-wide DTXMANIA_APPDATA_ROOT env var and read/write
-// AppPaths.GetConfigFilePath(). The "AppPaths" collection disables parallelization so no other
-// test class touches AppPaths while these overrides are active (prevents flaky cross-class
-// config writes under xUnit class parallelization).
+// HPA-190: ConfigManager persists to a SQLite config database; the legacy
+// Config.ini is import-only input. Each test owns a unique temp directory
+// (config.db + Config.ini pair) via the internal ConfigManager test seam, and
+// the class sandboxes DTXMANIA_APPDATA_ROOT so LoadConfig normalization never
+// creates directories in the real user app-data. The "AppPaths" collection
+// disables parallelization so no other test class touches AppPaths while the
+// sandbox override is active.
 // [Trait("Category", "Unit")] is applied at class level so every method (including the MIDI
 // velocity-threshold cases) participates in category-filtered runs, matching the convention used
 // across the other DTXMania.Test suites.
 [Collection("AppPaths")]
 [Trait("Category", "Unit")]
-public class ConfigManagerTests
+public class ConfigManagerTests : IDisposable
 {
+    private readonly string _sandbox;
+    private readonly string? _previousAppDataRoot;
+
+    public ConfigManagerTests()
+    {
+        _sandbox = Path.Combine(Path.GetTempPath(), "dtxmania-config-tests-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(_sandbox);
+        _previousAppDataRoot = Environment.GetEnvironmentVariable("DTXMANIA_APPDATA_ROOT");
+        Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", _sandbox);
+    }
+
+    public void Dispose()
+    {
+        SqliteConnection.ClearAllPools();
+        Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", _previousAppDataRoot);
+        if (Directory.Exists(_sandbox))
+            Directory.Delete(_sandbox, recursive: true);
+    }
+
+    /// <summary>Unique per-test directory holding a config.db + Config.ini pair.</summary>
+    private string NewTestDir()
+    {
+        var dir = Path.Combine(_sandbox, Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        return dir;
+    }
+
+    private static ConfigManager CreateManager(string dir) =>
+        new(Path.Combine(dir, "config.db"), Path.Combine(dir, "Config.ini"));
+
+    private static IReadOnlyDictionary<string, string> ReadRows(string dir) =>
+        new SqliteConfigStore(Path.Combine(dir, "config.db")).Load();
+
     [Fact]
     public void ConfigManager_Constructor_ShouldInitializeWithDefaultConfig()
     {
@@ -50,50 +89,42 @@ public class ConfigManagerTests
     }
 
     [Fact]
-    public void ConfigManager_LoadConfig_NonExistentFile_ShouldNotThrow()
+    public void ConfigManager_LoadConfig_WithNoDatabase_ShouldCreateDefaultDatabase()
     {
         // Arrange
-        var manager = new ConfigManager();
-        var tempDir = Path.GetTempPath();
-        var nonExistentFile = Path.Combine(tempDir, "NonExistent_Config.ini");
+        var dir = NewTestDir();
+        var manager = CreateManager(dir);
 
-        // Act & Assert (should not throw)
-        manager.LoadConfig(nonExistentFile);
+        // Act (should not throw)
+        manager.LoadConfig();
+
+        // Assert — first launch creates the database with default values.
+        Assert.True(File.Exists(Path.Combine(dir, "config.db")));
+        Assert.Equal("1280", ReadRows(dir)["ScreenWidth"]);
+        Assert.Equal("720", ReadRows(dir)["ScreenHeight"]);
     }
 
     [Fact]
-    public void ConfigManager_SaveConfig_ShouldCreateValidIniFile()
+    public void ConfigManager_FlushPendingSave_ShouldPersistScalarSnapshot()
     {
         // Arrange
-        var manager = new ConfigManager();
-        var tempFile = Path.GetTempFileName();
+        var dir = NewTestDir();
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
 
-        try
-        {
-            manager.Config.ScreenWidth = 1920;
-            manager.Config.ScreenHeight = 1080;
-            manager.Config.FullScreen = true;
-            manager.Config.VSyncWait = false;
+        // Act — scalar setters mark the deferred save; flush persists them.
+        manager.SetResolution(1920, 1080);
+        manager.SetFullscreen(true);
+        manager.SetVSync(false);
+        manager.FlushPendingSave();
 
-            // Act
-            manager.SaveConfig(tempFile);
-
-            // Assert
-            Assert.True(File.Exists(tempFile));
-            var content = File.ReadAllText(tempFile);
-            Assert.Contains("ScreenWidth=1920", content);
-            Assert.Contains("ScreenHeight=1080", content);
-            Assert.Contains("FullScreen=True", content);
-            Assert.Contains("VSyncWait=False", content);
-            Assert.Contains("AudioLatencyOffsetMs=200", content);
-            Assert.Contains("[System]", content);
-            Assert.Contains("[Display]", content);
-        }
-        finally
-        {
-            if (File.Exists(tempFile))
-                File.Delete(tempFile);
-        }
+        // Assert
+        var rows = ReadRows(dir);
+        Assert.Equal("1920", rows["ScreenWidth"]);
+        Assert.Equal("1080", rows["ScreenHeight"]);
+        Assert.Equal("True", rows["FullScreen"]);
+        Assert.Equal("False", rows["VSyncWait"]);
+        Assert.Equal("200", rows["AudioLatencyOffsetMs"]);
     }
 
     [Fact]
@@ -115,14 +146,17 @@ public class ConfigManagerTests
     public void ConfigManager_SaveAndLoadConfig_ControllerOnlyLane_ShouldPreserveKeyboardUnbind()
     {
         // Arrange
-        var manager = new ConfigManager();
+        var dir = NewTestDir();
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
         var sourceBindings = new KeyBindings();
         sourceBindings.BindButton("MIDI.36", 6);
         sourceBindings.BindButton("Pad.A", 6);
         sourceBindings.UnbindKeyboardButtonsForLane(6);
 
         // Act
-        manager.SaveKeyBindings(sourceBindings);
+        manager.SetKeyBindings(sourceBindings);
+        manager.FlushPendingSave();
 
         // Assert
         Assert.Contains(6, manager.Config.UnboundDrumLanes);
@@ -130,78 +164,60 @@ public class ConfigManagerTests
         Assert.Equal(6, manager.Config.KeyBindings["Pad.A"]);
         Assert.DoesNotContain("Key.Space", manager.Config.KeyBindings.Keys);
 
-        var tempFile = Path.GetTempFileName();
-        try
-        {
-            manager.SaveConfig(tempFile);
+        var reloadedManager = CreateManager(dir);
+        reloadedManager.LoadConfig();
 
-            var reloadedManager = new ConfigManager();
-            reloadedManager.LoadConfig(tempFile);
+        Assert.Contains(6, reloadedManager.Config.UnboundDrumLanes);
+        Assert.Equal(6, reloadedManager.Config.KeyBindings["MIDI.36"]);
+        Assert.Equal(6, reloadedManager.Config.KeyBindings["Pad.A"]);
 
-            Assert.Contains(6, reloadedManager.Config.UnboundDrumLanes);
-            Assert.Equal(6, reloadedManager.Config.KeyBindings["MIDI.36"]);
-            Assert.Equal(6, reloadedManager.Config.KeyBindings["Pad.A"]);
+        var targetBindings = new KeyBindings();
+        reloadedManager.LoadKeyBindings(targetBindings);
 
-            var targetBindings = new KeyBindings();
-            reloadedManager.LoadKeyBindings(targetBindings);
-
-            Assert.Equal(-1, targetBindings.GetLane("Key.Space"));
-            Assert.Equal(6, targetBindings.GetLane("MIDI.36"));
-            Assert.Equal(6, targetBindings.GetLane("Pad.A"));
-        }
-        finally
-        {
-            File.Delete(tempFile);
-        }
+        Assert.Equal(-1, targetBindings.GetLane("Key.Space"));
+        Assert.Equal(6, targetBindings.GetLane("MIDI.36"));
+        Assert.Equal(6, targetBindings.GetLane("Pad.A"));
     }
 
     [Fact]
     public void ConfigManager_SaveAndLoadConfig_RemappedDefaultKeyboardLane_ShouldPersistRemovedDefaultButton()
     {
-        var manager = new ConfigManager();
+        var dir = NewTestDir();
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
         var sourceBindings = new KeyBindings();
         sourceBindings.UnbindButton("Key.Space");
         sourceBindings.BindButton("Key.B", 6);
 
-        manager.SaveKeyBindings(sourceBindings);
+        manager.SetKeyBindings(sourceBindings);
 
         Assert.DoesNotContain(6, manager.Config.UnboundDrumLanes);
         Assert.Contains("Key.Space", manager.Config.UnboundDrumButtons);
         Assert.Equal(6, manager.Config.KeyBindings["Key.B"]);
 
-        var tempFile = Path.GetTempFileName();
-        try
-        {
-            manager.SaveConfig(tempFile);
+        manager.FlushPendingSave();
 
-            var configText = File.ReadAllText(tempFile);
-            Assert.Contains("Key.UnboundButton.Key.Space=true", configText);
+        var rows = ReadRows(dir);
+        Assert.Equal("true", rows["Key.UnboundButton.Key.Space"]);
 
-            var reloadedManager = new ConfigManager();
-            reloadedManager.LoadConfig(tempFile);
+        var reloadedManager = CreateManager(dir);
+        reloadedManager.LoadConfig();
 
-            Assert.Contains("Key.Space", reloadedManager.Config.UnboundDrumButtons);
-            Assert.DoesNotContain(6, reloadedManager.Config.UnboundDrumLanes);
+        Assert.Contains("Key.Space", reloadedManager.Config.UnboundDrumButtons);
+        Assert.DoesNotContain(6, reloadedManager.Config.UnboundDrumLanes);
 
-            var targetBindings = new KeyBindings();
-            reloadedManager.LoadKeyBindings(targetBindings);
+        var targetBindings = new KeyBindings();
+        reloadedManager.LoadKeyBindings(targetBindings);
 
-            Assert.Equal(-1, targetBindings.GetLane("Key.Space"));
-            Assert.Equal(6, targetBindings.GetLane("Key.B"));
-        }
-        finally
-        {
-            File.Delete(tempFile);
-        }
+        Assert.Equal(-1, targetBindings.GetLane("Key.Space"));
+        Assert.Equal(6, targetBindings.GetLane("Key.B"));
     }
 
     [Fact]
     public void ConfigManager_LoadConfig_ValidIniContent_ShouldParseCorrectly()
     {
-        // Arrange
-        var manager = new ConfigManager();
-        var tempFile = Path.GetTempFileName();
-
+        // Arrange — a legacy INI imports on first launch.
+        var dir = NewTestDir();
         var iniContent = @"; Test Config File
 [System]
 DTXManiaVersion=TestVersion
@@ -217,29 +233,21 @@ VSyncWait=false
 [Game]
 AudioLatencyOffsetMs=350
 ";
+        File.WriteAllText(Path.Combine(dir, "Config.ini"), iniContent, Encoding.UTF8);
 
-        try
-        {
-            File.WriteAllText(tempFile, iniContent, Encoding.UTF8);
+        // Act
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
 
-            // Act
-            manager.LoadConfig(tempFile);
-
-            // Assert
-            Assert.Equal("TestVersion", manager.Config.DTXManiaVersion);
-            Assert.Equal("TestSkin", GetLastPathSegment(manager.Config.SkinPath));
-            Assert.Equal("TestDTX", GetLastPathSegment(manager.Config.DTXPath));
-            Assert.Equal(1920, manager.Config.ScreenWidth);
-            Assert.Equal(1080, manager.Config.ScreenHeight);
-            Assert.True(manager.Config.FullScreen);
-            Assert.False(manager.Config.VSyncWait);
-            Assert.Equal(350, manager.Config.AudioLatencyOffsetMs);
-        }
-        finally
-        {
-            if (File.Exists(tempFile))
-                File.Delete(tempFile);
-        }
+        // Assert
+        Assert.Equal("TestVersion", manager.Config.DTXManiaVersion);
+        Assert.Equal("TestSkin", GetLastPathSegment(manager.Config.SkinPath));
+        Assert.Equal("TestDTX", GetLastPathSegment(manager.Config.DTXPath));
+        Assert.Equal(1920, manager.Config.ScreenWidth);
+        Assert.Equal(1080, manager.Config.ScreenHeight);
+        Assert.True(manager.Config.FullScreen);
+        Assert.False(manager.Config.VSyncWait);
+        Assert.Equal(350, manager.Config.AudioLatencyOffsetMs);
     }
 
     private static string GetLastPathSegment(string path)
@@ -254,94 +262,60 @@ AudioLatencyOffsetMs=350
     [InlineData("ScreenWidth=invalid", 1280)] // Should keep default on invalid
     public void ConfigManager_ParseScreenWidth_ShouldHandleVariousInputs(string line, int expectedWidth)
     {
-        // Arrange
-        var manager = new ConfigManager();
-        var tempFile = Path.GetTempFileName();
+        var dir = NewTestDir();
+        var manager = CreateManager(dir);
 
         var iniContent = $@"[Display]
 {line}
 ScreenHeight=720
 ";
+        File.WriteAllText(Path.Combine(dir, "Config.ini"), iniContent, Encoding.UTF8);
 
-        try
-        {
-            File.WriteAllText(tempFile, iniContent, Encoding.UTF8);
+        manager.LoadConfig();
 
-            // Act
-            manager.LoadConfig(tempFile);
-
-            // Assert
-            Assert.Equal(expectedWidth, manager.Config.ScreenWidth);
-        }
-        finally
-        {
-            if (File.Exists(tempFile))
-                File.Delete(tempFile);
-        }
+        Assert.Equal(expectedWidth, manager.Config.ScreenWidth);
     }
 
     [Theory]
     [InlineData("FullScreen=true", true)]
     [InlineData("FullScreen=True", true)]
+    [InlineData("FullScreen=1", true)]
+    [InlineData("FullScreen=on", true)]
     [InlineData("FullScreen=false", false)]
     [InlineData("FullScreen=False", false)]
     [InlineData("FullScreen=invalid", false)] // Should default to false on invalid
     public void ConfigManager_ParseFullScreen_ShouldHandleVariousInputs(string line, bool expectedFullScreen)
     {
-        // Arrange
-        var manager = new ConfigManager();
-        var tempFile = Path.GetTempFileName();
+        var dir = NewTestDir();
+        var manager = CreateManager(dir);
 
         var iniContent = $@"[Display]
 {line}
 ";
+        File.WriteAllText(Path.Combine(dir, "Config.ini"), iniContent, Encoding.UTF8);
 
-        try
-        {
-            File.WriteAllText(tempFile, iniContent, Encoding.UTF8);
+        manager.LoadConfig();
 
-            // Act
-            manager.LoadConfig(tempFile);
-
-            // Assert
-            Assert.Equal(expectedFullScreen, manager.Config.FullScreen);
-        }
-        finally
-        {
-            if (File.Exists(tempFile))
-                File.Delete(tempFile);
-        }
+        Assert.Equal(expectedFullScreen, manager.Config.FullScreen);
     }
 
     [Theory]
     [InlineData("VSyncWait=true", true)]
     [InlineData("VSyncWait=false", false)]
-    [InlineData("VSyncWait=invalid", false)] // Should default to false on invalid (ToLower() != "true")
+    [InlineData("VSyncWait=invalid", true)] // Invalid keeps the default (true); only recognized truthy/falsey values assign
     public void ConfigManager_ParseVSyncWait_ShouldHandleVariousInputs(string line, bool expectedVSync)
     {
-        // Arrange
-        var manager = new ConfigManager();
-        var tempFile = Path.GetTempFileName();
+        var dir = NewTestDir();
+        var manager = CreateManager(dir);
 
         var iniContent = $@"[Display]
 {line}
 ";
+        File.WriteAllText(Path.Combine(dir, "Config.ini"), iniContent, Encoding.UTF8);
 
-        try
-        {
-            File.WriteAllText(tempFile, iniContent, Encoding.UTF8);
+        manager.LoadConfig();
 
-            // Act
-            manager.LoadConfig(tempFile);
-
-            // Assert
-            Assert.Equal(expectedVSync, manager.Config.VSyncWait);
-        }
-        finally
-        {
-            if (File.Exists(tempFile))
-                File.Delete(tempFile);
-        }
+        Assert.Equal(expectedVSync, manager.Config.VSyncWait);
     }
 
     [Theory]
@@ -352,56 +326,30 @@ ScreenHeight=720
     [InlineData("NoFail=invalid", false)] // Should default to false for invalid input
     public void ConfigManager_ParseNoFail_ShouldHandleVariousInputs(string line, bool expectedNoFail)
     {
-        // Arrange
-        var manager = new ConfigManager();
-        var tempDir = Path.GetTempPath();
-        var tempFile = Path.Combine(tempDir, $"Test_NoFail_{Guid.NewGuid()}.ini");
+        var dir = NewTestDir();
+        var manager = CreateManager(dir);
 
         var iniContent = $@"[Game]
 {line}
 ";
+        File.WriteAllText(Path.Combine(dir, "Config.ini"), iniContent, Encoding.UTF8);
 
-        try
-        {
-            File.WriteAllText(tempFile, iniContent, Encoding.UTF8);
+        manager.LoadConfig();
 
-            // Act
-            manager.LoadConfig(tempFile);
-
-            // Assert
-            Assert.Equal(expectedNoFail, manager.Config.NoFail);
-        }
-        finally
-        {
-            if (File.Exists(tempFile))
-                File.Delete(tempFile);
-        }
+        Assert.Equal(expectedNoFail, manager.Config.NoFail);
     }
 
     [Fact]
-    public void ConfigManager_SaveConfig_ShouldIncludeNoFailSetting()
+    public void ConfigManager_FlushPendingSave_ShouldIncludeNoFailSetting()
     {
-        // Arrange
-        var manager = new ConfigManager();
-        manager.Config.NoFail = true;
-        var tempDir = Path.GetTempPath();
-        var tempFile = Path.Combine(tempDir, $"Test_NoFail_Save_{Guid.NewGuid()}.ini");
+        var dir = NewTestDir();
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
+        manager.SetNoFail(true);
 
-        try
-        {
-            // Act
-            manager.SaveConfig(tempFile);
+        manager.FlushPendingSave();
 
-            // Assert
-            var content = File.ReadAllText(tempFile, Encoding.UTF8);
-            Assert.Contains("NoFail=True", content);
-            Assert.Contains("[Game]", content);
-        }
-        finally
-        {
-            if (File.Exists(tempFile))
-                File.Delete(tempFile);
-        }
+        Assert.Equal("True", ReadRows(dir)["NoFail"]);
     }
 
     [Theory]
@@ -412,55 +360,30 @@ ScreenHeight=720
     [InlineData("AutoPlay=invalid", false)] // Should default to false for invalid input
     public void ConfigManager_ParseAutoPlay_ShouldHandleVariousInputs(string line, bool expectedAutoPlay)
     {
-        // Arrange
-        var manager = new ConfigManager();
-        var tempDir = Path.GetTempPath();
-        var tempFile = Path.Combine(tempDir, $"Test_AutoPlay_{Guid.NewGuid()}.ini");
+        var dir = NewTestDir();
+        var manager = CreateManager(dir);
 
         var iniContent = $@"[Game]
 {line}
 ";
+        File.WriteAllText(Path.Combine(dir, "Config.ini"), iniContent, Encoding.UTF8);
 
-        try
-        {
-            // Act
-            File.WriteAllText(tempFile, iniContent, Encoding.UTF8);
-            manager.LoadConfig(tempFile);
+        manager.LoadConfig();
 
-            // Assert
-            Assert.Equal(expectedAutoPlay, manager.Config.AutoPlay);
-        }
-        finally
-        {
-            if (File.Exists(tempFile))
-                File.Delete(tempFile);
-        }
+        Assert.Equal(expectedAutoPlay, manager.Config.AutoPlay);
     }
 
     [Fact]
-    public void ConfigManager_SaveConfig_ShouldIncludeAutoPlaySetting()
+    public void ConfigManager_FlushPendingSave_ShouldIncludeAutoPlaySetting()
     {
-        // Arrange
-        var manager = new ConfigManager();
-        manager.Config.AutoPlay = true;
-        var tempDir = Path.GetTempPath();
-        var tempFile = Path.Combine(tempDir, $"Test_AutoPlay_Save_{Guid.NewGuid()}.ini");
+        var dir = NewTestDir();
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
+        manager.SetAutoPlay(true);
 
-        try
-        {
-            // Act
-            manager.SaveConfig(tempFile);
+        manager.FlushPendingSave();
 
-            // Assert
-            var content = File.ReadAllText(tempFile, Encoding.UTF8);
-            Assert.Contains("AutoPlay=True", content);
-            Assert.Contains("[Game]", content);
-        }
-        finally
-        {
-            if (File.Exists(tempFile))
-                File.Delete(tempFile);
-        }
+        Assert.Equal("True", ReadRows(dir)["AutoPlay"]);
     }
 
     [Theory]
@@ -469,56 +392,27 @@ ScreenHeight=720
     [InlineData("on")]
     public void ConfigManager_ParseMetronome_ShouldAcceptTruthyValues(string value)
     {
-        var manager = new ConfigManager();
-        var tempFile = Path.Combine(Path.GetTempPath(), $"Test_Metronome_{Guid.NewGuid():N}.ini");
+        var dir = NewTestDir();
+        var manager = CreateManager(dir);
 
-        try
-        {
-            File.WriteAllText(tempFile, $"[Game]\nMetronome={value}\n", Encoding.UTF8);
-            manager.LoadConfig(tempFile);
+        File.WriteAllText(Path.Combine(dir, "Config.ini"), $"[Game]\nMetronome={value}\n", Encoding.UTF8);
+        manager.LoadConfig();
 
-            Assert.True(manager.Config.Metronome);
-        }
-        finally
-        {
-            if (File.Exists(tempFile))
-                File.Delete(tempFile);
-        }
+        Assert.True(manager.Config.Metronome);
     }
 
     [Fact]
-    public void ConfigManager_SaveConfig_ShouldWriteOneMetronomeSettingUnderGameSection()
+    public void ConfigManager_FlushPendingSave_ShouldWriteSingleMetronomeRow()
     {
-        var manager = new ConfigManager();
-        manager.Config.Metronome = true;
-        var tempFile = Path.Combine(Path.GetTempPath(), $"Test_Metronome_Save_{Guid.NewGuid():N}.ini");
+        var dir = NewTestDir();
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
+        manager.SetMetronome(true);
 
-        try
-        {
-            manager.SaveConfig(tempFile);
-            var lines = File.ReadAllLines(tempFile, Encoding.UTF8);
-            var gameStart = Array.IndexOf(lines, "[Game]");
-            var nextSection = Array.FindIndex(
-                lines,
-                gameStart + 1,
-                line => line.StartsWith("[", StringComparison.Ordinal));
-            if (nextSection < 0)
-                nextSection = lines.Length;
+        manager.FlushPendingSave();
 
-            var gameMetronomeLines = lines
-                .Skip(gameStart + 1)
-                .Take(nextSection - gameStart - 1)
-                .Where(line => line == "Metronome=True")
-                .ToArray();
-
-            Assert.Single(gameMetronomeLines);
-            Assert.Equal(1, lines.Count(line => line == "Metronome=True"));
-        }
-        finally
-        {
-            if (File.Exists(tempFile))
-                File.Delete(tempFile);
-        }
+        // Key/value rows are structurally unique — exactly one Metronome entry.
+        Assert.Equal("True", ReadRows(dir)["Metronome"]);
     }
 
     [Theory]
@@ -526,129 +420,88 @@ ScreenHeight=720
     [InlineData(false)]
     public void ConfigManager_SaveAndLoadConfig_ShouldPreserveMetronome(bool value)
     {
-        var manager = new ConfigManager();
-        manager.Config.Metronome = value;
-        var tempFile = Path.Combine(Path.GetTempPath(), $"Test_Metronome_RoundTrip_{Guid.NewGuid():N}.ini");
+        var dir = NewTestDir();
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
+        manager.SetMetronome(value);
+        manager.FlushPendingSave();
 
-        try
-        {
-            manager.SaveConfig(tempFile);
+        var reloadedManager = CreateManager(dir);
+        reloadedManager.LoadConfig();
 
-            var reloadedManager = new ConfigManager();
-            reloadedManager.LoadConfig(tempFile);
-
-            Assert.Equal(value, reloadedManager.Config.Metronome);
-        }
-        finally
-        {
-            if (File.Exists(tempFile))
-                File.Delete(tempFile);
-        }
+        Assert.Equal(value, reloadedManager.Config.Metronome);
     }
 
     [Fact]
     public void SetMetronome_ShouldMutateAndUseDeferredSaveOnlyWhenChanged()
     {
-        var manager = new ConfigManager();
-        var tempFile = Path.Combine(Path.GetTempPath(), $"Test_Metronome_Setter_{Guid.NewGuid():N}.ini");
+        var dir = NewTestDir();
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
 
-        try
-        {
-            manager.LoadConfig(tempFile);
-            Assert.Contains("Metronome=False", File.ReadAllText(tempFile, Encoding.UTF8));
+        manager.SetMetronome(true);
 
-            manager.SetMetronome(true);
+        Assert.True(manager.Config.Metronome);
+        Assert.Equal("False", ReadRows(dir)["Metronome"]); // deferred write not landed yet
 
-            Assert.True(manager.Config.Metronome);
-            Assert.Contains("Metronome=False", File.ReadAllText(tempFile, Encoding.UTF8));
+        manager.FlushPendingSave();
+        Assert.Equal("True", ReadRows(dir)["Metronome"]);
 
-            manager.FlushPendingSave();
-            var savedText = File.ReadAllText(tempFile, Encoding.UTF8);
-            Assert.Contains("Metronome=True", savedText);
+        // Unchanged setter is a no-op: nothing becomes pending again, so a
+        // subsequent flush cannot resurrect a stale value.
+        manager.SetMetronome(true);
+        manager.FlushPendingSave();
 
-            manager.SetMetronome(true);
-            File.WriteAllText(
-                tempFile,
-                savedText.Replace("Metronome=True", "Metronome=False", StringComparison.Ordinal),
-                Encoding.UTF8);
-
-            manager.FlushPendingSave();
-
-            Assert.Contains("Metronome=False", File.ReadAllText(tempFile, Encoding.UTF8));
-        }
-        finally
-        {
-            if (File.Exists(tempFile))
-                File.Delete(tempFile);
-        }
+        Assert.Equal("True", ReadRows(dir)["Metronome"]);
     }
 
     [Fact]
     public void ConfigManager_LoadConfig_EnableGameApiWithoutKey_ShouldGenerateAndPersistKey()
     {
-        // Arrange
-        var manager = new ConfigManager();
-        var tempFile = Path.Combine(Path.GetTempPath(), $"Test_ApiKey_{Guid.NewGuid():N}.ini");
+        // Arrange — legacy INI import with Game API enabled but no key.
+        var dir = NewTestDir();
         var iniContent = @"[Api]
 EnableGameApi=true
 GameApiPort=5070
 ";
+        File.WriteAllText(Path.Combine(dir, "Config.ini"), iniContent, Encoding.UTF8);
 
-        try
-        {
-            File.WriteAllText(tempFile, iniContent, Encoding.UTF8);
+        // Act
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
 
-            // Act
-            manager.LoadConfig(tempFile);
+        // Assert
+        Assert.True(manager.Config.EnableGameApi);
+        Assert.False(string.IsNullOrWhiteSpace(manager.Config.GameApiKey));
+        Assert.Equal(32, manager.Config.GameApiKey.Length);
+        Assert.All(manager.Config.GameApiKey, c => Assert.True(char.IsDigit(c) || (c >= 'a' && c <= 'f')));
 
-            // Assert
-            Assert.True(manager.Config.EnableGameApi);
-            Assert.False(string.IsNullOrWhiteSpace(manager.Config.GameApiKey));
-            Assert.Equal(32, manager.Config.GameApiKey.Length);
-            Assert.All(manager.Config.GameApiKey, c => Assert.True(char.IsDigit(c) || (c >= 'a' && c <= 'f')));
-
-            var savedContent = File.ReadAllText(tempFile, Encoding.UTF8);
-            Assert.Contains($"GameApiKey={manager.Config.GameApiKey}", savedContent);
-        }
-        finally
-        {
-            if (File.Exists(tempFile))
-                File.Delete(tempFile);
-        }
+        Assert.Equal(manager.Config.GameApiKey, ReadRows(dir)["GameApiKey"]);
     }
 
     [Fact]
     public void ConfigManager_LoadConfig_ShouldParseValidKeyBindingsOnly()
     {
         // Arrange
-        var manager = new ConfigManager();
-        var tempFile = Path.Combine(Path.GetTempPath(), $"Test_KeyBindings_{Guid.NewGuid():N}.ini");
+        var dir = NewTestDir();
         var iniContent = @"[KeyBindings]
 Key.A=4
 Key.B=9
 Key.InvalidLane=12
 Key.Bad=abc
 ";
+        File.WriteAllText(Path.Combine(dir, "Config.ini"), iniContent, Encoding.UTF8);
 
-        try
-        {
-            File.WriteAllText(tempFile, iniContent, Encoding.UTF8);
+        // Act
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
 
-            // Act
-            manager.LoadConfig(tempFile);
-
-            // Assert - lanes 0-9 are valid (matching KeyBindings.BindButton contract)
-            Assert.Equal(2, manager.Config.KeyBindings.Count);
-            Assert.Equal(4, manager.Config.KeyBindings["Key.A"]);
-            Assert.Equal(9, manager.Config.KeyBindings["Key.B"]);
-            Assert.DoesNotContain("Key.InvalidLane", manager.Config.KeyBindings.Keys);
-            Assert.DoesNotContain("Key.Bad", manager.Config.KeyBindings.Keys);
-        }
-        finally
-        {
-            if (File.Exists(tempFile))
-                File.Delete(tempFile);
-        }
+        // Assert - lanes 0-9 are valid (matching KeyBindings.BindButton contract)
+        Assert.Equal(2, manager.Config.KeyBindings.Count);
+        Assert.Equal(4, manager.Config.KeyBindings["Key.A"]);
+        Assert.Equal(9, manager.Config.KeyBindings["Key.B"]);
+        Assert.DoesNotContain("Key.InvalidLane", manager.Config.KeyBindings.Keys);
+        Assert.DoesNotContain("Key.Bad", manager.Config.KeyBindings.Keys);
     }
 
     [Fact]
@@ -679,24 +532,17 @@ Key.Bad=abc
     public void ConfigManager_LoadConfig_CustomDTXPath_ShouldBeHonored()
     {
         // Arrange
-        var manager = new ConfigManager();
-        var tempFile = Path.Combine(Path.GetTempPath(), $"Test_CustomPath_{Guid.NewGuid():N}.ini");
-        var customPath = Path.Combine(Path.GetTempPath(), "CustomSongs");
+        var dir = NewTestDir();
+        var customPath = Path.Combine(dir, "CustomSongs");
         var iniContent = $"[System]\nDTXPath={customPath}\n";
-        File.WriteAllText(tempFile, iniContent, Encoding.UTF8);
+        File.WriteAllText(Path.Combine(dir, "Config.ini"), iniContent, Encoding.UTF8);
 
-        try
-        {
-            // Act
-            manager.LoadConfig(tempFile);
+        // Act
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
 
-            // Assert - Custom path should be honored
-            Assert.Equal(Path.GetFullPath(customPath), manager.Config.DTXPath);
-        }
-        finally
-        {
-            File.Delete(tempFile);
-        }
+        // Assert - Custom path should be honored
+        Assert.Equal(Path.GetFullPath(customPath), manager.Config.DTXPath);
     }
 
     [Trait("Category", "Unit")]
@@ -704,25 +550,18 @@ Key.Bad=abc
     public void ConfigManager_LoadConfig_EmptyDTXPath_ShouldUseDefault()
     {
         // Arrange
-        var manager = new ConfigManager();
-        var tempFile = Path.Combine(Path.GetTempPath(), $"Test_EmptyPath_{Guid.NewGuid():N}.ini");
+        var dir = NewTestDir();
         var iniContent = "[System]\nDTXPath=\n";
-        File.WriteAllText(tempFile, iniContent, Encoding.UTF8);
+        File.WriteAllText(Path.Combine(dir, "Config.ini"), iniContent, Encoding.UTF8);
 
-        try
-        {
-            // Act
-            manager.LoadConfig(tempFile);
+        // Act
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
 
-            // Assert - Empty path should use default DTXFiles
-            var dtxPathDir = Path.GetFileName(manager.Config.DTXPath.TrimEnd(
-                Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-            Assert.Equal("DTXFiles", dtxPathDir);
-        }
-        finally
-        {
-            File.Delete(tempFile);
-        }
+        // Assert - Empty path should use default DTXFiles
+        var dtxPathDir = Path.GetFileName(manager.Config.DTXPath.TrimEnd(
+            Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        Assert.Equal("DTXFiles", dtxPathDir);
     }
 
     [Trait("Category", "Unit")]
@@ -735,23 +574,16 @@ Key.Bad=abc
     public void ConfigManager_LoadConfig_LegacySongsDTXPath_ShouldUseDefault(string legacyPath)
     {
         // Arrange
-        var manager = new ConfigManager();
-        var tempFile = Path.Combine(Path.GetTempPath(), $"Test_LegacySongsPath_{Guid.NewGuid():N}.ini");
+        var dir = NewTestDir();
         var iniContent = $"[System]\nDTXPath={legacyPath}\n";
-        File.WriteAllText(tempFile, iniContent, Encoding.UTF8);
+        File.WriteAllText(Path.Combine(dir, "Config.ini"), iniContent, Encoding.UTF8);
 
-        try
-        {
-            // Act
-            manager.LoadConfig(tempFile);
+        // Act
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
 
-            // Assert
-            Assert.Equal("DTXFiles", GetLastPathSegment(manager.Config.DTXPath));
-        }
-        finally
-        {
-            File.Delete(tempFile);
-        }
+        // Assert
+        Assert.Equal("DTXFiles", GetLastPathSegment(manager.Config.DTXPath));
     }
 
     [Trait("Category", "Unit")]
@@ -759,90 +591,64 @@ Key.Bad=abc
     public void ConfigManager_LoadConfig_AbsoluteLegacySongsDTXPath_ShouldUseDefault()
     {
         // Arrange
-        var manager = new ConfigManager();
-        var tempFile = Path.Combine(Path.GetTempPath(), $"Test_AbsoluteLegacySongsPath_{Guid.NewGuid():N}.ini");
+        var dir = NewTestDir();
         var legacyAbsolutePath = Path.Combine(Path.GetDirectoryName(AppPaths.GetDefaultSongsPath())!, "Songs");
         var iniContent = $"[System]\nDTXPath={legacyAbsolutePath}\n";
-        File.WriteAllText(tempFile, iniContent, Encoding.UTF8);
+        File.WriteAllText(Path.Combine(dir, "Config.ini"), iniContent, Encoding.UTF8);
 
-        try
-        {
-            // Act
-            manager.LoadConfig(tempFile);
+        // Act
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
 
-            // Assert
-            Assert.Equal(AppPaths.GetDefaultSongsPath(), manager.Config.DTXPath);
-        }
-        finally
-        {
-            File.Delete(tempFile);
-        }
+        // Assert
+        Assert.Equal(AppPaths.GetDefaultSongsPath(), manager.Config.DTXPath);
     }
 
     [Fact]
     public void ConfigManager_LoadConfig_KeyBindingLane10_ShouldBeRejected()
     {
         // Arrange - lane 9 is the max valid lane (0-indexed for 10 NX drum lanes)
-        var manager = new ConfigManager();
-        var tempFile = Path.Combine(Path.GetTempPath(), $"Test_Lane10_{Guid.NewGuid():N}.ini");
+        var dir = NewTestDir();
         var iniContent = "[System]\n[KeyBindings]\nKey.A=10\nKey.B=9\n";
-        File.WriteAllText(tempFile, iniContent, Encoding.UTF8);
+        File.WriteAllText(Path.Combine(dir, "Config.ini"), iniContent, Encoding.UTF8);
 
-        try
-        {
-            // Act
-            manager.LoadConfig(tempFile);
+        // Act
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
 
-            // Assert - Lane 10 should be rejected, lane 9 accepted
-            Assert.DoesNotContain("Key.A", manager.Config.KeyBindings.Keys);
-            Assert.Contains("Key.B", manager.Config.KeyBindings.Keys);
-            Assert.Equal(9, manager.Config.KeyBindings["Key.B"]);
-        }
-        finally
-        {
-            File.Delete(tempFile);
-        }
+        // Assert - Lane 10 should be rejected, lane 9 accepted
+        Assert.DoesNotContain("Key.A", manager.Config.KeyBindings.Keys);
+        Assert.Contains("Key.B", manager.Config.KeyBindings.Keys);
+        Assert.Equal(9, manager.Config.KeyBindings["Key.B"]);
     }
 
     [Fact]
     public void SetKeyBindings_MutatesConfig_MarksDirty_FiresEvent()
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDir);
-        var previousRoot = Environment.GetEnvironmentVariable("DTXMANIA_APPDATA_ROOT");
-        Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", tempDir);
-        try
-        {
-            // Arrange — LoadConfig captures _loadedConfigPath so MarkDirty() stages a real
-            // deferred write (and seeds a default config file at that path).
-            var cm = new ConfigManager();
-            cm.LoadConfig(AppPaths.GetConfigFilePath());
+        var dir = NewTestDir();
+        // Arrange — LoadConfig establishes the store so MarkDirty stages a real
+        // deferred write (and seeds the default database).
+        var cm = CreateManager(dir);
+        cm.LoadConfig();
 
-            var raised = false;
-            cm.KeyBindingsChanged += (_, _) => raised = true;
+        var raised = false;
+        cm.KeyBindingsChanged += (_, _) => raised = true;
 
-            // Act
-            var kb = new KeyBindings();
-            kb.BindButton("Key.X", 2);
-            cm.SetKeyBindings(kb);
+        // Act
+        var kb = new KeyBindings();
+        kb.BindButton("Key.X", 2);
+        cm.SetKeyBindings(kb);
 
-            // Assert — in-memory mutation + event
-            Assert.Equal(2, cm.Config.KeyBindings["Key.X"]);
-            Assert.True(raised);
+        // Assert — in-memory mutation + event
+        Assert.Equal(2, cm.Config.KeyBindings["Key.X"]);
+        Assert.True(raised);
 
-            // Persist-on-edit: MarkDirty() must have staged a deferred write against the
-            // loaded path, so FlushPendingSave lands the binding on disk. The default config
-            // written by LoadConfig has no Key.X, so this only passes when the full
-            // SetKeyBindings -> MarkDirty -> FlushPendingSave chain ran end-to-end.
-            cm.FlushPendingSave();
-            Assert.True(File.Exists(AppPaths.GetConfigFilePath()));
-            Assert.Contains("Key.X=2", File.ReadAllText(AppPaths.GetConfigFilePath()));
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", previousRoot);
-            Directory.Delete(tempDir, recursive: true);
-        }
+        // Persist-on-edit: MarkDirty must have staged a deferred write, so
+        // FlushPendingSave lands the binding in the database. The default
+        // snapshot has no Key.X, so this only passes when the full
+        // SetKeyBindings -> MarkDirty -> FlushPendingSave chain ran end-to-end.
+        cm.FlushPendingSave();
+        Assert.Equal("2", ReadRows(dir)["Key.X"]);
     }
 
     [Fact]
@@ -852,42 +658,30 @@ Key.Bad=abc
     [Fact]
     public void SetSystemKeyBindings_MutatesConfig_MarksDirty_FiresEvent()
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDir);
-        var previousRoot = Environment.GetEnvironmentVariable("DTXMANIA_APPDATA_ROOT");
-        Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", tempDir);
-        try
-        {
-            // Arrange — LoadConfig captures _loadedConfigPath so MarkDirty() stages a real
-            // deferred write (and seeds a default config file at that path).
-            var cm = new ConfigManager();
-            cm.LoadConfig(AppPaths.GetConfigFilePath());
+        var dir = NewTestDir();
+        // Arrange — LoadConfig establishes the store so MarkDirty stages a real
+        // deferred write (and seeds the default database).
+        var cm = CreateManager(dir);
+        cm.LoadConfig();
 
-            var raised = false;
-            cm.SystemKeyBindingsChanged += (_, _) => raised = true;
+        var raised = false;
+        cm.SystemKeyBindingsChanged += (_, _) => raised = true;
 
-            // Act
-            cm.SetSystemKeyBindings(new Dictionary<Keys, InputCommandType> { [Keys.Z] = InputCommandType.MoveUp });
+        // Act
+        cm.SetSystemKeyBindings(new Dictionary<Keys, InputCommandType> { [Keys.Z] = InputCommandType.MoveUp });
 
-            // Assert — in-memory mutation + event
-            Assert.Contains("SystemKey.MoveUp", cm.Config.SystemKeyBindings.Keys);
-            Assert.Equal("Z", cm.Config.SystemKeyBindings["SystemKey.MoveUp"]);
-            Assert.True(raised);
+        // Assert — in-memory mutation + event
+        Assert.Contains("SystemKey.MoveUp", cm.Config.SystemKeyBindings.Keys);
+        Assert.Equal("Z", cm.Config.SystemKeyBindings["SystemKey.MoveUp"]);
+        Assert.True(raised);
 
-            // Persist-on-edit: MarkDirty() must have staged a deferred write against the
-            // loaded path, so FlushPendingSave lands the binding on disk. SaveConfig writes
-            // SystemKey.<Command>=<keys>; the default config has no SystemKey.MoveUp=Z, so
-            // this only passes when the full SetSystemKeyBindings -> MarkDirty ->
-            // FlushPendingSave chain ran end-to-end.
-            cm.FlushPendingSave();
-            Assert.True(File.Exists(AppPaths.GetConfigFilePath()));
-            Assert.Contains("SystemKey.MoveUp=Z", File.ReadAllText(AppPaths.GetConfigFilePath()));
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", previousRoot);
-            Directory.Delete(tempDir, recursive: true);
-        }
+        // Persist-on-edit: MarkDirty must have staged a deferred write, so
+        // FlushPendingSave lands the binding in the database. The default
+        // snapshot has no SystemKey.MoveUp=Z, so this only passes when the full
+        // SetSystemKeyBindings -> MarkDirty -> FlushPendingSave chain ran
+        // end-to-end.
+        cm.FlushPendingSave();
+        Assert.Equal("Z", ReadRows(dir)["SystemKey.MoveUp"]);
     }
 
     [Fact]
@@ -1018,258 +812,186 @@ Key.Bad=abc
 
     /// <summary>
     /// Each scalar setter must independently mark dirty so a subsequent
-    /// FlushPendingSave lands its edit on disk. Because FlushPendingSave clears
-    /// the pending path, the test interleaves setter -> flush -> assert per
-    /// setter: dropping MarkDirty from any one setter leaves the file holding
-    /// the previous (default) value and fails that assertion.
+    /// FlushPendingSave lands its edit in the database. Because a successful
+    /// flush clears the pending marker, the test interleaves setter -> flush ->
+    /// assert per setter: dropping MarkDirty from any one setter leaves the
+    /// database holding the previous (default) value and fails that assertion.
     /// </summary>
     [Fact]
-    public void FlushPendingSave_AfterScalarEdits_WritesFile()
+    public void FlushPendingSave_AfterScalarEdits_WritesDatabase()
     {
-        var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(dir);
-        var prev = Environment.GetEnvironmentVariable("DTXMANIA_APPDATA_ROOT");
-        Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", dir);
-        try
-        {
-            var cm = new ConfigManager();
-            cm.LoadConfig(AppPaths.GetConfigFilePath());
+        var dir = NewTestDir();
+        var cm = CreateManager(dir);
+        cm.LoadConfig();
 
-            cm.SetNoFail(true);
-            cm.FlushPendingSave();
-            Assert.Contains("NoFail=True", File.ReadAllText(AppPaths.GetConfigFilePath()));
+        cm.SetNoFail(true);
+        cm.FlushPendingSave();
+        Assert.Equal("True", ReadRows(dir)["NoFail"]);
 
-            cm.SetAutoPlay(true);
-            cm.FlushPendingSave();
-            Assert.Contains("AutoPlay=True", File.ReadAllText(AppPaths.GetConfigFilePath()));
+        cm.SetAutoPlay(true);
+        cm.FlushPendingSave();
+        Assert.Equal("True", ReadRows(dir)["AutoPlay"]);
 
-            cm.SetAudioLatency(350);
-            cm.FlushPendingSave();
-            Assert.Contains("AudioLatencyOffsetMs=350", File.ReadAllText(AppPaths.GetConfigFilePath()));
+        cm.SetAudioLatency(350);
+        cm.FlushPendingSave();
+        Assert.Equal("350", ReadRows(dir)["AudioLatencyOffsetMs"]);
 
-            cm.SetResolution(1920, 1080);
-            cm.FlushPendingSave();
-            var contents = File.ReadAllText(AppPaths.GetConfigFilePath());
-            Assert.Contains("ScreenWidth=1920", contents);
-            Assert.Contains("ScreenHeight=1080", contents);
+        cm.SetResolution(1920, 1080);
+        cm.FlushPendingSave();
+        var rows = ReadRows(dir);
+        Assert.Equal("1920", rows["ScreenWidth"]);
+        Assert.Equal("1080", rows["ScreenHeight"]);
 
-            cm.SetFullscreen(true);
-            cm.FlushPendingSave();
-            Assert.Contains("FullScreen=True", File.ReadAllText(AppPaths.GetConfigFilePath()));
+        cm.SetFullscreen(true);
+        cm.FlushPendingSave();
+        Assert.Equal("True", ReadRows(dir)["FullScreen"]);
 
-            // VSyncWait defaults to True, so flip to False to prove the edit landed.
-            cm.SetVSync(false);
-            cm.FlushPendingSave();
-            Assert.Contains("VSyncWait=False", File.ReadAllText(AppPaths.GetConfigFilePath()));
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", prev);
-            Directory.Delete(dir, recursive: true);
-        }
+        // VSyncWait defaults to True, so flip to False to prove the edit landed.
+        cm.SetVSync(false);
+        cm.FlushPendingSave();
+        Assert.Equal("False", ReadRows(dir)["VSyncWait"]);
     }
 
     /// <summary>
     /// Pins FlushPendingSave's retry-on-failure contract: when a flush fails (exception
-    /// caught internally), _pendingSavePath is KEPT so the next flush retries the same
-    /// path. The scalar setters (e.g. SetNoFail) mark dirty without taking a path, so
-    /// _pendingSavePath flows from _loadedConfigPath. This test drives that chain through
-    /// LoadConfig -> SetNoFail, then toggles the filesystem so the first flush fails and
-    /// the second succeeds against the SAME path.
+    /// caught internally), the pending marker is KEPT so the next flush retries.
+    /// The scalar setters (e.g. SetNoFail) mark dirty without any path, so this
+    /// test drives LoadConfig -> SetNoFail, then toggles the filesystem so the first
+    /// flush fails and the second succeeds against the SAME database.
     ///
-    /// Mechanism: GetConfigFilePath() resolves to "&lt;root&gt;/Config.ini", so
-    /// EnsureConfigDirectory calls Directory.CreateDirectory("&lt;root&gt;"). Deleting the
-    /// &lt;root&gt; directory and replacing it with a FILE at the same name makes that
-    /// CreateDirectory throw IOException (a file already exists with that name). Removing
-    /// the file makes the retry succeed. _pendingSavePath never changes.
+    /// Mechanism: the store saves to "&lt;sandbox&gt;/&lt;test&gt;/config.db", whose parent
+    /// directory creation throws when a regular file exists at the parent's name.
+    /// Removing the file makes the retry succeed. The pending marker never changes.
     /// </summary>
     [Fact]
     public void FlushPendingSave_ShouldRetryAfterFailure()
     {
-        var root = Path.Combine(Path.GetTempPath(), "dtxmania-flush-retry-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(root);
-        var prev = Environment.GetEnvironmentVariable("DTXMANIA_APPDATA_ROOT");
-        Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", root);
+        var dir = NewTestDir();
 
-        // The pending path is captured once; the filesystem at <root> is what changes.
-        var configFilePath = AppPaths.GetConfigFilePath();
+        var configDbPath = Path.Combine(dir, "config.db");
+        var manager = CreateManager(dir);
 
         try
         {
-            var cm = new ConfigManager();
-            cm.LoadConfig(configFilePath);
+            manager.LoadConfig();
 
-            // Sanity: LoadConfig wrote the default config and remembers the path.
-            Assert.True(File.Exists(configFilePath));
-            Assert.Contains("NoFail=False", File.ReadAllText(configFilePath));
+            // Sanity: LoadConfig created the default database.
+            Assert.True(File.Exists(configDbPath));
+            Assert.Equal("False", ReadRows(dir)["NoFail"]);
 
-            // Scalar setter marks dirty via _loadedConfigPath -> _pendingSavePath.
-            cm.SetNoFail(true);
-            Assert.True(cm.Config.NoFail);
+            // Scalar setter marks dirty.
+            manager.SetNoFail(true);
+            Assert.True(manager.Config.NoFail);
 
-            // Break the filesystem at <root>: replace the directory with a regular file
-            // so Directory.CreateDirectory("<root>") throws on the next SaveConfig.
-            Directory.Delete(root, recursive: true);
-            File.WriteAllText(root, "blocker");
+            // Break the filesystem at <dir>: replace the directory with a
+            // regular file so the store's directory creation throws on save.
+            Directory.Delete(dir, recursive: true);
+            File.WriteAllText(dir, "blocker");
 
-            // First flush: SaveConfig -> EnsureConfigDirectory throws, exception is
-            // caught internally, _pendingSavePath is retained. Must NOT throw.
-            cm.FlushPendingSave();
+            // First flush: the store save throws, the exception is caught
+            // internally, and the pending marker is retained. Must NOT throw.
+            manager.FlushPendingSave();
 
             // In-memory value survives the failed flush.
-            Assert.True(cm.Config.NoFail);
+            Assert.True(manager.Config.NoFail);
 
             // The edit must NOT have landed yet — proves the flush genuinely failed.
-            Assert.False(File.Exists(configFilePath));
+            Assert.False(File.Exists(configDbPath));
 
-            // Fix the filesystem at <root>: remove the blocking file so the retry can
-            // recreate the directory and write the file at the SAME path.
-            File.Delete(root);
-            Directory.CreateDirectory(root);
+            // Fix the filesystem at <dir>: remove the blocking file so the
+            // retry can recreate the directory and write the database at the
+            // SAME path. ClearAllPools first: the pooled handle from the
+            // initial load points at the deleted inode and SQLite rejects
+            // writes to it ("attempt to write a readonly database").
+            SqliteConnection.ClearAllPools();
+            File.Delete(dir);
+            Directory.CreateDirectory(dir);
 
-            // Second flush: retries the retained _pendingSavePath and succeeds.
-            cm.FlushPendingSave();
+            // Second flush: retries the retained pending save and succeeds.
+            manager.FlushPendingSave();
 
             // The edit now persists on retry.
-            Assert.True(File.Exists(configFilePath));
-            Assert.Contains("NoFail=True", File.ReadAllText(configFilePath));
+            Assert.True(File.Exists(configDbPath));
+            Assert.Equal("True", ReadRows(dir)["NoFail"]);
         }
         finally
         {
-            Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", prev);
-            // <root> may be a file or a directory depending on where the test landed;
-            // clean up both possibilities.
-            if (File.Exists(root))
-                File.Delete(root);
-            if (Directory.Exists(root))
-                Directory.Delete(root, recursive: true);
+            // <dir> may be a file or a directory depending on where the test
+            // landed; clean up both possibilities.
+            if (File.Exists(dir))
+                File.Delete(dir);
+            if (Directory.Exists(dir))
+                Directory.Delete(dir, recursive: true);
         }
     }
 
     [Fact]
-    public void SaveConfig_ShouldClearMatchingPendingPath()
+    public void FlushPendingSave_SuccessClearsPendingMarker()
     {
-        var root = Path.Combine(Path.GetTempPath(), "dtxmania-save-matching-" + Guid.NewGuid().ToString("N"));
-        var previousRoot = Environment.GetEnvironmentVariable("DTXMANIA_APPDATA_ROOT");
-        Directory.CreateDirectory(root);
-        Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", root);
+        // A successful flush clears the pending marker, so direct Config
+        // mutations afterwards (which never mark dirty) cannot be resurrected
+        // by an extra flush.
+        var dir = NewTestDir();
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
+        manager.SetNoFail(true);
+        manager.FlushPendingSave();
+        Assert.Equal("True", ReadRows(dir)["NoFail"]);
 
-        try
-        {
-            var configFilePath = AppPaths.GetConfigFilePath();
-            var manager = new ConfigManager();
-            manager.LoadConfig(configFilePath);
-            manager.SetNoFail(true);
+        // Direct mutation does not mark a deferred save. If the successful
+        // flush cleared the marker, a second flush must leave True intact.
+        manager.Config.NoFail = false;
+        manager.FlushPendingSave();
 
-            // The spelling differs but Path.GetFullPath resolves it to the loaded file.
-            manager.SaveConfig(Path.Combine(root, ".", "Config.ini"));
-
-            // Direct mutation does not mark a deferred save. If SaveConfig cleared the
-            // matching marker, FlushPendingSave must leave the persisted True intact.
-            manager.Config.NoFail = false;
-            manager.FlushPendingSave();
-
-            Assert.Contains("NoFail=True", File.ReadAllText(configFilePath));
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", previousRoot);
-            if (Directory.Exists(root))
-                Directory.Delete(root, recursive: true);
-        }
-    }
-
-    [Fact]
-    public void SaveConfig_ShouldRetainDifferentPendingPath()
-    {
-        var root = Path.Combine(Path.GetTempPath(), "dtxmania-save-different-" + Guid.NewGuid().ToString("N"));
-        var previousRoot = Environment.GetEnvironmentVariable("DTXMANIA_APPDATA_ROOT");
-        Directory.CreateDirectory(root);
-        Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", root);
-
-        try
-        {
-            var pendingConfigPath = AppPaths.GetConfigFilePath();
-            var explicitConfigPath = Path.Combine(root, "explicit.ini");
-            var manager = new ConfigManager();
-            manager.LoadConfig(pendingConfigPath);
-            manager.SetNoFail(true);
-
-            manager.SaveConfig(explicitConfigPath);
-
-            // The marker still belongs to pendingConfigPath, so the next flush must
-            // persist the changed value there instead of discarding that deferred write.
-            manager.Config.NoFail = false;
-            manager.FlushPendingSave();
-
-            Assert.Contains("NoFail=False", File.ReadAllText(pendingConfigPath));
-            Assert.Contains("NoFail=True", File.ReadAllText(explicitConfigPath));
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", previousRoot);
-            if (Directory.Exists(root))
-                Directory.Delete(root, recursive: true);
-        }
+        Assert.Equal("True", ReadRows(dir)["NoFail"]);
     }
 
     [Fact]
     public void ConfigManager_SaveAndLoadConfig_MidiVelocityThresholds_ShouldPreserveNonzeroThresholds()
     {
-        var manager = new ConfigManager();
+        var dir = NewTestDir();
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
+
         manager.SetMidiVelocityThreshold(36, 20);
         manager.SetMidiVelocityThreshold(38, 12);
+        manager.FlushPendingSave();
 
-        var tempFile = Path.GetTempFileName();
-        try
-        {
-            manager.SaveConfig(tempFile);
-            var text = File.ReadAllText(tempFile);
-            Assert.Contains("[MidiVelocityThresholds]", text);
-            Assert.Contains("MidiVelocity.36=20", text);
-            Assert.Contains("MidiVelocity.38=12", text);
+        var rows = ReadRows(dir);
+        Assert.Equal("20", rows["MidiVelocity.36"]);
+        Assert.Equal("12", rows["MidiVelocity.38"]);
 
-            var reloaded = new ConfigManager();
-            reloaded.LoadConfig(tempFile);
+        var reloaded = CreateManager(dir);
+        reloaded.LoadConfig();
 
-            Assert.Equal(20, reloaded.GetMidiVelocityThreshold(36));
-            Assert.Equal(12, reloaded.GetMidiVelocityThreshold(38));
-            Assert.Equal(0, reloaded.GetMidiVelocityThreshold(40));
-        }
-        finally
-        {
-            File.Delete(tempFile);
-        }
+        Assert.Equal(20, reloaded.GetMidiVelocityThreshold(36));
+        Assert.Equal(12, reloaded.GetMidiVelocityThreshold(38));
+        Assert.Equal(0, reloaded.GetMidiVelocityThreshold(40));
     }
 
     [Fact]
     public void ConfigManager_SetMidiVelocityThreshold_Zero_ShouldRemovePersistedThreshold()
     {
-        var manager = new ConfigManager();
+        var dir = NewTestDir();
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
+
         manager.SetMidiVelocityThreshold(36, 20);
         manager.SetMidiVelocityThreshold(36, 0);
 
         Assert.Equal(0, manager.GetMidiVelocityThreshold(36));
         Assert.False(manager.Config.MidiVelocityThresholds.ContainsKey(36));
 
-        var tempFile = Path.GetTempFileName();
-        try
-        {
-            manager.SaveConfig(tempFile);
-            var text = File.ReadAllText(tempFile);
-            Assert.DoesNotContain("MidiVelocity.36=", text);
-        }
-        finally
-        {
-            File.Delete(tempFile);
-        }
+        manager.FlushPendingSave();
+
+        Assert.False(ReadRows(dir).ContainsKey("MidiVelocity.36"));
     }
 
     [Fact]
     public void ConfigManager_LoadConfig_InvalidMidiVelocityThresholds_ShouldIgnoreOrClamp()
     {
-        var tempFile = Path.GetTempFileName();
-        File.WriteAllText(tempFile, string.Join(Environment.NewLine, new[]
+        var dir = NewTestDir();
+        File.WriteAllText(Path.Combine(dir, "Config.ini"), string.Join(Environment.NewLine, new[]
         {
             "[MidiVelocityThresholds]",
             "MidiVelocity.36=300",
@@ -1279,20 +1001,13 @@ Key.Bad=abc
             "MidiVelocity.40=abc"
         }));
 
-        try
-        {
-            var manager = new ConfigManager();
-            manager.LoadConfig(tempFile);
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
 
-            Assert.Equal(127, manager.GetMidiVelocityThreshold(36));
-            Assert.Equal(0, manager.GetMidiVelocityThreshold(38));
-            Assert.Equal(0, manager.GetMidiVelocityThreshold(200));
-            Assert.Equal(0, manager.GetMidiVelocityThreshold(40));
-        }
-        finally
-        {
-            File.Delete(tempFile);
-        }
+        Assert.Equal(127, manager.GetMidiVelocityThreshold(36));
+        Assert.Equal(0, manager.GetMidiVelocityThreshold(38));
+        Assert.Equal(0, manager.GetMidiVelocityThreshold(200));
+        Assert.Equal(0, manager.GetMidiVelocityThreshold(40));
     }
 
     [Fact]
@@ -1304,91 +1019,69 @@ Key.Bad=abc
         // Only a non-integer VALUE on a well-formed key triggers the warning; out-of-range
         // notes (MidiVelocity.200) and non-numeric notes (MidiVelocity.bad) are rejected
         // earlier by TryParseMidiVelocityThresholdKey and take a different (silent) path.
-        var tempFile = Path.GetTempFileName();
-        File.WriteAllText(tempFile, string.Join(Environment.NewLine, new[]
+        var dir = NewTestDir();
+        File.WriteAllText(Path.Combine(dir, "Config.ini"), string.Join(Environment.NewLine, new[]
         {
             "[MidiVelocityThresholds]",
             "MidiVelocity.36=20",    // valid integer value — loads, no warning
             "MidiVelocity.40=abc"    // malformed value — ignored AND warned
         }));
 
-        try
-        {
-            var logger = new Mock<ILogger<ConfigManager>>();
-            var manager = new ConfigManager(logger.Object);
-            manager.LoadConfig(tempFile);
+        var logger = new Mock<ILogger<ConfigManager>>();
+        var manager = new ConfigManager(
+            Path.Combine(dir, "config.db"),
+            Path.Combine(dir, "Config.ini"),
+            logger: logger.Object);
+        manager.LoadConfig();
 
-            // Valid entry still loads.
-            Assert.Equal(20, manager.GetMidiVelocityThreshold(36));
-            // Malformed entry is ignored (no threshold set).
-            Assert.Equal(0, manager.GetMidiVelocityThreshold(40));
+        // Valid entry still loads.
+        Assert.Equal(20, manager.GetMidiVelocityThreshold(36));
+        // Malformed entry is ignored (no threshold set).
+        Assert.Equal(0, manager.GetMidiVelocityThreshold(40));
 
-            logger.Verify(l => l.Log(
-                LogLevel.Warning,
-                It.IsAny<EventId>(),
-                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("MidiVelocity.40") && v.ToString()!.Contains("abc")),
-                It.IsAny<Exception?>(),
-                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
-                Times.Once);
-        }
-        finally
-        {
-            File.Delete(tempFile);
-        }
+        logger.Verify(l => l.Log(
+            LogLevel.Warning,
+            It.IsAny<EventId>(),
+            It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("MidiVelocity.40") && v.ToString()!.Contains("abc")),
+            It.IsAny<Exception?>(),
+            It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
     }
 
     [Fact]
     public void ConfigManager_LoadConfig_WithoutMidiVelocityThresholds_ShouldClearPreviouslyLoadedThresholds()
     {
-        var firstFile = Path.GetTempFileName();
-        var secondFile = Path.GetTempFileName();
-        File.WriteAllText(firstFile, string.Join(Environment.NewLine, new[]
-        {
-            "[MidiVelocityThresholds]",
-            "MidiVelocity.36=20"
-        }));
-        File.WriteAllText(secondFile, "[System]");
+        // Two loads against the same store: the second load's snapshot no
+        // longer contains the threshold row, so the in-memory state is cleared.
+        var dir = NewTestDir();
+        var store = new SqliteConfigStore(Path.Combine(dir, "config.db"));
+        store.Save(new Dictionary<string, string> { ["MidiVelocity.36"] = "20" });
+        var manager = CreateManager(dir);
 
-        try
-        {
-            var manager = new ConfigManager();
-            manager.LoadConfig(firstFile);
-            Assert.Equal(20, manager.GetMidiVelocityThreshold(36));
+        manager.LoadConfig();
+        Assert.Equal(20, manager.GetMidiVelocityThreshold(36));
 
-            manager.LoadConfig(secondFile);
+        store.Save(new Dictionary<string, string> { ["ScreenWidth"] = "1280" });
+        manager.LoadConfig();
 
-            Assert.Equal(0, manager.GetMidiVelocityThreshold(36));
-        }
-        finally
-        {
-            File.Delete(firstFile);
-            File.Delete(secondFile);
-        }
+        Assert.Equal(0, manager.GetMidiVelocityThreshold(36));
     }
 
     [Fact]
     public void ConfigManager_SetMidiVelocityThreshold_AfterLoadAndFlush_ShouldPersistThreshold()
     {
-        var tempFile = Path.GetTempFileName();
-        try
-        {
-            var manager = new ConfigManager();
-            manager.LoadConfig(tempFile);
+        var dir = NewTestDir();
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
 
-            manager.SetMidiVelocityThreshold(36, 20);
-            manager.FlushPendingSave();
+        manager.SetMidiVelocityThreshold(36, 20);
+        manager.FlushPendingSave();
 
-            var text = File.ReadAllText(tempFile);
-            Assert.Contains("MidiVelocity.36=20", text);
+        Assert.Equal("20", ReadRows(dir)["MidiVelocity.36"]);
 
-            var reloaded = new ConfigManager();
-            reloaded.LoadConfig(tempFile);
-            Assert.Equal(20, reloaded.GetMidiVelocityThreshold(36));
-        }
-        finally
-        {
-            File.Delete(tempFile);
-        }
+        var reloaded = CreateManager(dir);
+        reloaded.LoadConfig();
+        Assert.Equal(20, reloaded.GetMidiVelocityThreshold(36));
     }
 
     [Theory]
@@ -1451,25 +1144,18 @@ Key.Bad=abc
     [Fact]
     public void ConfigManager_LoadConfig_CanonicalMidiButtonId_ShouldBeAccepted()
     {
-        var tempFile = Path.GetTempFileName();
-        File.WriteAllText(tempFile, string.Join(Environment.NewLine, new[]
+        var dir = NewTestDir();
+        File.WriteAllText(Path.Combine(dir, "Config.ini"), string.Join(Environment.NewLine, new[]
         {
             "[KeyBindings]",
             "MIDI.36=5"
         }));
 
-        try
-        {
-            var manager = new ConfigManager();
-            manager.LoadConfig(tempFile);
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
 
-            Assert.True(manager.Config.KeyBindings.ContainsKey("MIDI.36"));
-            Assert.Equal(5, manager.Config.KeyBindings["MIDI.36"]);
-        }
-        finally
-        {
-            File.Delete(tempFile);
-        }
+        Assert.True(manager.Config.KeyBindings.ContainsKey("MIDI.36"));
+        Assert.Equal(5, manager.Config.KeyBindings["MIDI.36"]);
     }
 
     [Theory]
@@ -1484,26 +1170,19 @@ Key.Bad=abc
         // Hand-edited configs with malformed MIDI IDs must not silently load as bindings
         // that can never be matched at lookup time (TryParseMidiButtonId is strict about
         // canonical decimal form). The parser should reject them outright.
-        var tempFile = Path.GetTempFileName();
-        File.WriteAllText(tempFile, string.Join(Environment.NewLine, new[]
+        var dir = NewTestDir();
+        File.WriteAllText(Path.Combine(dir, "Config.ini"), string.Join(Environment.NewLine, new[]
         {
             "[KeyBindings]",
             $"{malformedKey}=5"
         }));
 
-        try
-        {
-            var manager = new ConfigManager();
-            manager.LoadConfig(tempFile);
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
 
-            Assert.False(
-                manager.Config.KeyBindings.ContainsKey(malformedKey),
-                $"Malformed key '{malformedKey}' ({description}) should have been rejected.");
-        }
-        finally
-        {
-            File.Delete(tempFile);
-        }
+        Assert.False(
+            manager.Config.KeyBindings.ContainsKey(malformedKey),
+            $"Malformed key '{malformedKey}' ({description}) should have been rejected.");
     }
 
     [Fact]
@@ -1511,8 +1190,8 @@ Key.Bad=abc
     {
         // A single malformed key must not prevent other (valid) keys in the same
         // config file from loading correctly.
-        var tempFile = Path.GetTempFileName();
-        File.WriteAllText(tempFile, string.Join(Environment.NewLine, new[]
+        var dir = NewTestDir();
+        File.WriteAllText(Path.Combine(dir, "Config.ini"), string.Join(Environment.NewLine, new[]
         {
             "[KeyBindings]",
             "MIDI.036=3",
@@ -1520,120 +1199,52 @@ Key.Bad=abc
             "MIDI.38=7"
         }));
 
-        try
-        {
-            var manager = new ConfigManager();
-            manager.LoadConfig(tempFile);
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
 
-            Assert.False(manager.Config.KeyBindings.ContainsKey("MIDI.036"));
-            Assert.True(manager.Config.KeyBindings.ContainsKey("MIDI.36"));
-            Assert.Equal(5, manager.Config.KeyBindings["MIDI.36"]);
-            Assert.True(manager.Config.KeyBindings.ContainsKey("MIDI.38"));
-            Assert.Equal(7, manager.Config.KeyBindings["MIDI.38"]);
-        }
-        finally
-        {
-            File.Delete(tempFile);
-        }
+        Assert.False(manager.Config.KeyBindings.ContainsKey("MIDI.036"));
+        Assert.True(manager.Config.KeyBindings.ContainsKey("MIDI.36"));
+        Assert.Equal(5, manager.Config.KeyBindings["MIDI.36"]);
+        Assert.True(manager.Config.KeyBindings.ContainsKey("MIDI.38"));
+        Assert.Equal(7, manager.Config.KeyBindings["MIDI.38"]);
     }
 
     [Fact]
     public void ConfigManager_LoadConfig_MalformedMidiUnboundButton_ShouldBeRejected()
     {
-        var tempFile = Path.GetTempFileName();
-        File.WriteAllText(tempFile, string.Join(Environment.NewLine, new[]
+        var dir = NewTestDir();
+        File.WriteAllText(Path.Combine(dir, "Config.ini"), string.Join(Environment.NewLine, new[]
         {
             "[KeyBindings]",
             "Key.UnboundButton.MIDI.036=True",
             "Key.UnboundButton.MIDI.36=True"
         }));
 
-        try
-        {
-            var manager = new ConfigManager();
-            manager.LoadConfig(tempFile);
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
 
-            Assert.False(manager.Config.UnboundDrumButtons.Contains("MIDI.036"));
-            Assert.True(manager.Config.UnboundDrumButtons.Contains("MIDI.36"));
-        }
-        finally
-        {
-            File.Delete(tempFile);
-        }
+        Assert.False(manager.Config.UnboundDrumButtons.Contains("MIDI.036"));
+        Assert.True(manager.Config.UnboundDrumButtons.Contains("MIDI.36"));
     }
 
     [Fact]
-    public void SaveConfig_WhenSongRootsAreEmpty_ShouldNotOverwriteTheLegacyDtxPathMirror()
+    public void FlushPendingSave_WhenSongRootsAreEmpty_ShouldNotOverwriteTheLegacyDtxPathMirror()
     {
-        var dir = Path.Combine(Path.GetTempPath(), "dtxmania-empty-roots-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(dir);
-        var prev = Environment.GetEnvironmentVariable("DTXMANIA_APPDATA_ROOT");
-        Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", dir);
-        try
-        {
-            var configFile = Path.Combine(dir, "Config.ini");
-            var manager = new ConfigManager();
-            manager.LoadConfig(configFile);
-            // Force the defensive empty-roots branch: LoadConfig always populates at
-            // least one managed default, so clear it to exercise the guard.
-            var preservedDtxPath = "preserved-dtx-path";
-            manager.Config.SongRoots.Clear();
-            manager.Config.DTXPath = preservedDtxPath;
+        var dir = NewTestDir();
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
+        // Force the defensive empty-roots branch: LoadConfig always populates at
+        // least one managed default, so clear it to exercise the guard.
+        var preservedDtxPath = "preserved-dtx-path";
+        manager.Config.SongRoots.Clear();
+        manager.Config.DTXPath = preservedDtxPath;
 
-            manager.SaveConfig(configFile);
+        manager.SetNoFail(true);
+        manager.FlushPendingSave();
 
-            // The empty-roots guard must skip reassigning DTXPath from SongRoots[0].
-            Assert.Equal(preservedDtxPath, manager.Config.DTXPath);
-            var contents = File.ReadAllText(configFile);
-            Assert.DoesNotContain("SongRoot.0=", contents, StringComparison.Ordinal);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", prev);
-            if (Directory.Exists(dir))
-                Directory.Delete(dir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public void SaveConfig_WhenPendingPathCannotBeResolved_ShouldRetainThePendingSaveMarker()
-    {
-        var dir = Path.Combine(Path.GetTempPath(), "dtxmania-pending-bad-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(dir);
-        var prev = Environment.GetEnvironmentVariable("DTXMANIA_APPDATA_ROOT");
-        Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", dir);
-        try
-        {
-            var loadedConfig = Path.Combine(dir, "Config.ini");
-            var manager = new ConfigManager();
-            manager.LoadConfig(loadedConfig);
-            // Stage a pending save against a path containing an illegal NUL character so
-            // ClearMatchingPendingSavePath's Path.GetFullPath throws and the catch block
-            // retains the marker. SetScrollSpeed stores its configFilePath verbatim; pass
-            // a value that snaps away from the default (100) so MarkDirty actually runs.
-            manager.SetScrollSpeed("bad\0path", 200);
-
-            // Saving to the valid loaded path must not throw and must retain the bad
-            // pending marker (the comparison failure is logged, not fatal).
-            manager.SaveConfig(loadedConfig);
-
-            // FlushPendingSave retries the (bad) pending path and swallows the failure,
-            // so the in-memory edit is still correct even though the bad path never lands.
-            manager.FlushPendingSave();
-            Assert.Equal(200, manager.Config.ScrollSpeed);
-
-            // The invalid pending path must still be recorded so a future flush can
-            // retry it. Verify via reflection that _pendingSavePath was not cleared.
-            var pendingSavePath = typeof(ConfigManager)
-                .GetField("_pendingSavePath", BindingFlags.Instance | BindingFlags.NonPublic)
-                ?.GetValue(manager) as string;
-            Assert.Equal("bad\0path", pendingSavePath);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", prev);
-            if (Directory.Exists(dir))
-                Directory.Delete(dir, recursive: true);
-        }
+        // The empty-roots guard must skip reassigning DTXPath from SongRoots[0].
+        Assert.Equal(preservedDtxPath, manager.Config.DTXPath);
+        var rows = ReadRows(dir);
+        Assert.DoesNotContain(rows.Keys, key => key.StartsWith("SongRoot.", StringComparison.Ordinal));
     }
 }

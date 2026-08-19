@@ -354,7 +354,7 @@ namespace DTXMania.Test.Stage
 
             InvokePrivateMethod(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.IncreaseScrollSpeed, 0.0));
 
-            configManager.Verify(x => x.AdjustScrollSpeed(AppPaths.GetConfigFilePath(), 1), Times.Once);
+            configManager.Verify(x => x.AdjustScrollSpeed(1), Times.Once);
         }
 
         [Fact]
@@ -367,7 +367,7 @@ namespace DTXMania.Test.Stage
 
             InvokePrivateMethod(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.DecreaseScrollSpeed, 0.0));
 
-            configManager.Verify(x => x.AdjustScrollSpeed(AppPaths.GetConfigFilePath(), -1), Times.Once);
+            configManager.Verify(x => x.AdjustScrollSpeed(-1), Times.Once);
         }
 
         [Fact]
