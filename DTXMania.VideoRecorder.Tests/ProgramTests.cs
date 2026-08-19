@@ -242,15 +242,7 @@ public sealed class ProgramTests
             "dtx-video-program-tests-source",
             Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
-        var songs = Path.Combine(root, "Songs");
-        File.WriteAllText(
-            Path.Combine(root, "Config.ini"),
-            string.Join(
-                '\n',
-                "SkinPath=Default",
-                "DTXPath=" + songs,
-                "SongRoot.0=" + songs,
-                "SystemSkinRoot=" + Path.Combine(root, "System")) + "\n");
+        TestSourceConfigDatabase.Create(root, TestSourceConfigDatabase.BuildValidRows(root));
         return root;
     }
 

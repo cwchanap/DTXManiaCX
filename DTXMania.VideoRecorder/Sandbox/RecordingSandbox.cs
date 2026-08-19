@@ -63,16 +63,7 @@ internal sealed class RecordingSandbox
         Action<string>? afterRunRootCreated)
     {
         var sourceRoot = NormalizeSourceRoot(sourceAppDataRoot);
-        var sourceConfigPath = Path.Combine(sourceRoot, ConfigFileName);
-        if (!File.Exists(sourceConfigPath))
-        {
-            throw new InvalidOperationException(
-                $"Source Config.ini was not found at '{sourceConfigPath}'. " +
-                NormalizationHint);
-        }
-
-        var sourceConfig = File.ReadAllText(sourceConfigPath, Encoding.UTF8);
-        ValidateAndPatchConfig(sourceConfig, out var normalizedConfig);
+        var sourceValues = LoadValidatedSourceValues(sourceRoot);
 
         var runRoot = Path.Combine(
             Path.GetTempPath(),
@@ -86,31 +77,24 @@ internal sealed class RecordingSandbox
 
         var apiPort = FindEphemeralApiPort();
         var apiKey = GenerateApiKey();
-        normalizedConfig = PatchOwnedConfigValues(
-            normalizedConfig,
-            apiPort,
-            apiKey);
-        File.WriteAllText(configPath, normalizedConfig, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        var patchedValues = PatchOwnedConfigValues(sourceValues, apiPort, apiKey);
+        File.WriteAllText(
+            configPath,
+            SerializeConfigIni(patchedValues),
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
         return new RecordingSandbox(runRoot, appDataRoot, configPath, apiPort, apiKey);
     }
 
     /// <summary>
-    /// Validates the source configuration without creating a run directory.
-    /// The recorder calls this gate before it owns any per-run resources.
+    /// Validates the source configuration database without creating a run
+    /// directory. The recorder calls this gate before it owns any per-run
+    /// resources.
     /// </summary>
     public static void ValidateSourceConfig(string sourceAppDataRoot)
     {
         var sourceRoot = NormalizeSourceRoot(sourceAppDataRoot);
-        var sourceConfigPath = Path.Combine(sourceRoot, ConfigFileName);
-        if (!File.Exists(sourceConfigPath))
-        {
-            throw new InvalidOperationException(
-                $"Source Config.ini was not found at '{sourceConfigPath}'. " +
-                NormalizationHint);
-        }
-
-        ValidateAndPatchConfig(File.ReadAllText(sourceConfigPath, Encoding.UTF8), out _);
+        _ = LoadValidatedSourceValues(sourceRoot);
     }
 
     public Task DeleteOnSuccessAsync()
@@ -127,68 +111,60 @@ internal sealed class RecordingSandbox
         if (!Path.IsPathFullyQualified(value.Trim()))
         {
             throw new InvalidOperationException(
-                $"Source Config.ini key '{key}' is not normalized. " +
+                $"Source config database key '{key}' is not normalized. " +
                 NormalizationHint);
         }
     }
 
-    private static string NormalizeSourceRoot(string sourceAppDataRoot)
+    /// <summary>
+    /// Loads the source database rows (read-only, v1 + ConfigEntries
+    /// required) and validates the path-bearing logical values the sandbox
+    /// game must resolve: absolute SongRoot.N entries (at least one),
+    /// absolute SystemSkinRoot, and SkinPath as either the Default token or
+    /// an absolute path. The legacy DTXPath representation is never
+    /// persisted to the database, so no DTXPath validation remains.
+    /// </summary>
+    private static IReadOnlyDictionary<string, string> LoadValidatedSourceValues(string sourceRoot)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(sourceAppDataRoot);
-        return Path.GetFullPath(sourceAppDataRoot);
-    }
-
-    private static void ValidateAndPatchConfig(string config, out string normalizedConfig)
-    {
-        var newline = config.Contains("\r\n", StringComparison.Ordinal)
-            ? "\r\n"
-            : "\n";
-        var usesTrailingNewline = config.EndsWith('\n');
-        var lines = config.Replace("\r\n", "\n", StringComparison.Ordinal)
-            .Split('\n')
-            .ToList();
-        if (usesTrailingNewline && lines.Count > 0)
-            lines.RemoveAt(lines.Count - 1);
-
-        var dtxPaths = FindValues(lines, "DTXPath");
-        if (dtxPaths.Count == 0)
-            RequireAbsolute("DTXPath", string.Empty);
-        foreach (var dtxPath in dtxPaths)
-            RequireAbsolute("DTXPath", dtxPath);
-
-        var songRootKeys = new List<(string Key, string Value)>();
-        foreach (var line in lines)
-        {
-            if (!TryReadAssignment(line, out var key, out var value) ||
-                !IsIndexedSongRootKey(key))
-                continue;
-
-            songRootKeys.Add((key, value));
-        }
-
-        if (songRootKeys.Count == 0)
+        var sourceDatabasePath = SourceConfigDatabase.GetDatabasePath(sourceRoot);
+        if (!File.Exists(sourceDatabasePath))
         {
             throw new InvalidOperationException(
-                "Source Config.ini must contain at least one SongRoot.N entry. " +
+                $"Source config database was not found at '{sourceDatabasePath}'. " +
                 NormalizationHint);
         }
 
-        foreach (var songRoot in songRootKeys)
-            RequireAbsolute(songRoot.Key, songRoot.Value);
+        var sourceValues = SourceConfigDatabase.Load(sourceDatabasePath);
 
-        var systemSkinRoots = FindValues(lines, "SystemSkinRoot");
-        if (systemSkinRoots.Count == 0)
-            RequireAbsolute("SystemSkinRoot", string.Empty);
-        foreach (var systemSkinRoot in systemSkinRoots)
-            RequireAbsolute("SystemSkinRoot", systemSkinRoot);
+        var hasSongRoot = false;
+        foreach (var pair in sourceValues)
+        {
+            if (!IsIndexedSongRootKey(pair.Key))
+                continue;
 
-        var skinPaths = FindValues(lines, "SkinPath");
-        foreach (var skinPath in skinPaths)
+            hasSongRoot = true;
+            RequireAbsolute(pair.Key, pair.Value);
+        }
+
+        if (!hasSongRoot)
+        {
+            throw new InvalidOperationException(
+                "Source config database must contain at least one SongRoot.N entry. " +
+                NormalizationHint);
+        }
+
+        RequireAbsolute(
+            "SystemSkinRoot",
+            sourceValues.TryGetValue("SystemSkinRoot", out var systemSkinRoot)
+                ? systemSkinRoot
+                : string.Empty);
+
+        if (sourceValues.TryGetValue("SkinPath", out var skinPath))
         {
             if (string.IsNullOrWhiteSpace(skinPath))
             {
                 throw new InvalidOperationException(
-                    "Source Config.ini key 'SkinPath' is not normalized. " +
+                    "Source config database key 'SkinPath' is not normalized. " +
                     NormalizationHint);
             }
 
@@ -196,84 +172,43 @@ internal sealed class RecordingSandbox
                 RequireAbsolute("SkinPath", skinPath);
         }
 
-        normalizedConfig = string.Join(newline, lines);
-        if (usesTrailingNewline)
-            normalizedConfig += newline;
+        return sourceValues;
     }
 
-    private static string PatchOwnedConfigValues(string config, int apiPort, string apiKey)
+    /// <summary>
+    /// Patches the recorder-owned rows in memory; the source database is
+    /// never modified.
+    /// </summary>
+    private static IReadOnlyDictionary<string, string> PatchOwnedConfigValues(
+        IReadOnlyDictionary<string, string> sourceValues,
+        int apiPort,
+        string apiKey)
     {
-        var newline = config.Contains("\r\n", StringComparison.Ordinal)
-            ? "\r\n"
-            : "\n";
-        var usesTrailingNewline = config.EndsWith('\n');
-        var lines = config.Replace("\r\n", "\n", StringComparison.Ordinal)
-            .Split('\n')
-            .ToList();
-        if (usesTrailingNewline && lines.Count > 0)
-            lines.RemoveAt(lines.Count - 1);
-
-        var values = new Dictionary<string, string>(OwnedConfigValues, StringComparer.Ordinal)
-        {
-            ["GameApiPort"] = apiPort.ToString(CultureInfo.InvariantCulture),
-            ["GameApiKey"] = apiKey
-        };
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        var patchedLines = new List<string>(lines.Count + values.Count);
-
-        foreach (var line in lines)
-        {
-            if (!TryReadAssignment(line, out var key, out _) ||
-                !values.TryGetValue(key, out var replacement))
-            {
-                patchedLines.Add(line);
-                continue;
-            }
-
-            var equalsIndex = line.IndexOf('=');
-            patchedLines.Add(line[..(equalsIndex + 1)] + replacement);
-            seen.Add(key);
-        }
-
-        foreach (var pair in values)
-        {
-            if (!seen.Contains(pair.Key))
-                patchedLines.Add($"{pair.Key}={pair.Value}");
-        }
-
-        var patched = string.Join(newline, patchedLines);
-        if (usesTrailingNewline)
-            patched += newline;
+        var patched = new Dictionary<string, string>(sourceValues, StringComparer.Ordinal);
+        foreach (var pair in OwnedConfigValues)
+            patched[pair.Key] = pair.Value;
+        patched["GameApiPort"] = apiPort.ToString(CultureInfo.InvariantCulture);
+        patched["GameApiKey"] = apiKey;
         return patched;
     }
 
-    private static List<string> FindValues(IEnumerable<string> lines, string expectedKey)
+    /// <summary>
+    /// Serializes a FRESH sandbox Config.ini containing the patched logical
+    /// values (ordinal key order, LF newlines, trailing newline, UTF-8
+    /// without BOM). The sandbox game imports this INI and creates its own
+    /// config.db through the production ConfigManager.
+    /// </summary>
+    private static string SerializeConfigIni(IReadOnlyDictionary<string, string> values) =>
+        string.Join(
+            '\n',
+            values.Keys
+                .OrderBy(key => key, StringComparer.Ordinal)
+                .Select(key => $"{key}={values[key]}")) + "\n";
+
+    private static string NormalizeSourceRoot(string sourceAppDataRoot)
     {
-        var values = new List<string>();
-        foreach (var line in lines)
-        {
-            if (TryReadAssignment(line, out var key, out var value) &&
-                key.Equals(expectedKey, StringComparison.Ordinal))
-                values.Add(value);
-        }
-
-        return values;
-    }
-
-    private static bool TryReadAssignment(string line, out string key, out string value)
-    {
-        key = string.Empty;
-        value = string.Empty;
-        if (string.IsNullOrWhiteSpace(line) || line.TrimStart().StartsWith(';'))
-            return false;
-
-        var equalsIndex = line.IndexOf('=');
-        if (equalsIndex <= 0)
-            return false;
-
-        key = line[..equalsIndex].Trim();
-        value = line[(equalsIndex + 1)..].Trim();
-        return key.Length > 0;
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceAppDataRoot);
+        return Path.GetFullPath(sourceAppDataRoot);
     }
 
     private static bool IsIndexedSongRootKey(string key)

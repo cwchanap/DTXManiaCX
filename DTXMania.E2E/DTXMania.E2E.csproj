@@ -24,6 +24,10 @@
     <ProjectReference Include="..\DTXMania.Automation\DTXMania.Automation.csproj" />
     <ProjectReference Include="..\DTXMania.Game\DTXMania.Game.Windows.csproj" Condition="'$(RuntimeIdentifier)' == 'win-x64' Or '$(OS)' == 'Windows_NT'" />
     <ProjectReference Include="..\DTXMania.Game\DTXMania.Game.Mac.csproj" Condition="'$(RuntimeIdentifier)' != 'win-x64' And '$(OS)' != 'Windows_NT'" />
+    <!-- Test-only reference (HPA-190): RecorderConfigCompatibilityTests drives
+         the real RecordingSandbox against a config.db built by the real
+         ConfigManager. No production dependency between the two. -->
+    <ProjectReference Include="..\DTXMania.VideoRecorder\DTXMania.VideoRecorder.csproj" />
   </ItemGroup>
 
 </Project>

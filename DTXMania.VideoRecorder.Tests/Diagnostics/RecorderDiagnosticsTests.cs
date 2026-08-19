@@ -6,6 +6,12 @@ namespace DTXMania.VideoRecorder.Tests.Diagnostics;
 
 public sealed class RecorderDiagnosticsTests
 {
+    /// <summary>
+    /// Neither the bootstrap/sandbox configuration file nor the authoritative
+    /// SQLite source database may ever leak into diagnostic output.
+    /// </summary>
+    private static readonly string[] ForbiddenDiagnosticFiles = { "Config.ini", "config.db" };
+
     [Fact]
     public async Task WriteAsync_ShouldEmitExactlyThreeSanitizedFilesAndSelectedEvidence()
     {
@@ -37,7 +43,9 @@ public sealed class RecorderDiagnosticsTests
                     .ToArray());
             Assert.DoesNotContain(
                 Directory.EnumerateFiles(runDirectory, "*", SearchOption.AllDirectories),
-                path => Path.GetFileName(path).Equals("Config.ini", StringComparison.OrdinalIgnoreCase));
+                path => ForbiddenDiagnosticFiles.Contains(
+                    Path.GetFileName(path),
+                    StringComparer.OrdinalIgnoreCase));
 
             var allText = string.Join(
                 "\n",
