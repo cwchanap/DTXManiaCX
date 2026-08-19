@@ -104,6 +104,30 @@ namespace DTXMania.Game.Lib.Utilities
             return home;
         }
 
+        /// <summary>
+        /// Path of the live SQLite configuration database (HPA-190).
+        /// </summary>
+        public static string GetConfigDatabasePath()
+        {
+            return Path.GetFullPath(Path.Combine(GetAppDataRoot(), "config.db"));
+        }
+
+        /// <summary>
+        /// Path of the legacy Config.ini file. Becomes import/bootstrap input
+        /// only once the SQLite config database is the live store (HPA-190).
+        /// </summary>
+        public static string GetLegacyConfigFilePath()
+        {
+            return Path.GetFullPath(Path.Combine(GetAppDataRoot(), "Config.ini"));
+        }
+
+        /// <summary>
+        /// Temporary alias for <see cref="GetLegacyConfigFilePath"/> kept only
+        /// because existing callers (Game1 startup, stage scroll-speed/skin
+        /// edits, crash-report path redaction, and their tests) still compile
+        /// against it. HPA-190 Task 2 migrates those callers and removes this
+        /// method together with them; do not use it in new code.
+        /// </summary>
         public static string GetConfigFilePath()
         {
             return Path.GetFullPath(Path.Combine(GetAppDataRoot(), "Config.ini"));

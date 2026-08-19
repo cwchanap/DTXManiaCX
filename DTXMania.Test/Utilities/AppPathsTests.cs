@@ -20,6 +20,26 @@ public class AppPathsTests
     }
 
     [Fact]
+    public void GetLegacyConfigFilePath_ShouldBeRootedAndPointToConfigIni()
+    {
+        var path = AppPaths.GetLegacyConfigFilePath();
+
+        Assert.True(Path.IsPathRooted(path));
+        Assert.Equal("Config.ini", Path.GetFileName(path));
+        Assert.Equal(AppPaths.GetAppDataRoot(), Path.GetDirectoryName(path));
+    }
+
+    [Fact]
+    public void GetConfigDatabasePath_ShouldBeRootedAndPointToConfigDb()
+    {
+        var path = AppPaths.GetConfigDatabasePath();
+
+        Assert.True(Path.IsPathRooted(path));
+        Assert.Equal("config.db", Path.GetFileName(path));
+        Assert.Equal(AppPaths.GetAppDataRoot(), Path.GetDirectoryName(path));
+    }
+
+    [Fact]
     public void GetDefaultPaths_ShouldUseExpectedNames()
     {
         Assert.Equal("DTXFiles", Path.GetFileName(AppPaths.GetDefaultSongsPath().TrimEnd(Path.DirectorySeparatorChar)));
@@ -273,6 +293,8 @@ public class AppPathsEnvironmentTests
 
             Assert.Equal(Path.GetFullPath(overrideRoot), root);
             Assert.Equal(Path.Combine(Path.GetFullPath(overrideRoot), "Config.ini"), AppPaths.GetConfigFilePath());
+            Assert.Equal(Path.Combine(Path.GetFullPath(overrideRoot), "Config.ini"), AppPaths.GetLegacyConfigFilePath());
+            Assert.Equal(Path.Combine(Path.GetFullPath(overrideRoot), "config.db"), AppPaths.GetConfigDatabasePath());
             Assert.Equal(Path.Combine(Path.GetFullPath(overrideRoot), "DTXFiles"), AppPaths.GetDefaultSongsPath());
             Assert.Equal(Path.Combine(Path.GetFullPath(overrideRoot), "System"), AppPaths.GetDefaultSystemSkinRoot());
             Assert.Equal(Path.Combine(Path.GetFullPath(overrideRoot), "songs.db"), AppPaths.GetSongsDatabasePath());
