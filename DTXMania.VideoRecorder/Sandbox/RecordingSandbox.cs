@@ -108,7 +108,21 @@ internal sealed class RecordingSandbox
 
     internal static void RequireAbsolute(string key, string value)
     {
-        if (!Path.IsPathFullyQualified(value.Trim()))
+        // SerializeConfigIni writes the original (untrimmed) value, but the
+        // sandbox game's ConfigManager.ImportLegacyIni trims values on read
+        // (parts[1].Trim()). A path with leading/trailing whitespace would
+        // therefore mean one path to the normal DB-backed game but a
+        // different (trimmed) path inside the recorder sandbox. Reject such
+        // values so path-bearing rows round-trip unchanged through the
+        // DB → INI bridge, the same way the key-trim check in
+        // SerializeConfigIni does for keys.
+        if (value != value.Trim())
+        {
+            throw new InvalidOperationException(
+                $"Source config database key '{key}' is not normalized. " +
+                NormalizationHint);
+        }
+        if (!Path.IsPathFullyQualified(value))
         {
             throw new InvalidOperationException(
                 $"Source config database key '{key}' is not normalized. " +
