@@ -170,6 +170,52 @@ namespace DTXMania.Test.Config
         }
 
         [Fact]
+        public void LoadConfig_WithIniOnlyAndUnwritableDbDestination_ShouldFailLoudly()
+        {
+            // Deterministically unwritable destination: the database path is
+            // an existing directory, so the first-import snapshot save cannot
+            // open a database file there. Swallowing this would run the game
+            // with no store at all (MarkDirty refuses to persist before a
+            // successful load/first-create), silently losing every edit.
+            File.WriteAllText(IniPath, "[Display]\nScreenWidth=1920\n");
+            Directory.CreateDirectory(DbPath);
+
+            var manager = CreateManager();
+
+            Assert.ThrowsAny<Exception>(() => manager.LoadConfig());
+        }
+
+        [Fact]
+        public void LoadConfig_WhenCorrectionSaveFailsOnLoadedStore_ShouldRemainPendingAndRetryOnFlush()
+        {
+            // Seed a store whose SongRoot.0 needs a normalization correction,
+            // then make the database file read-only: the load (read-only
+            // open) succeeds, but the correction save inside LoadConfig must
+            // fail — without silently dropping the correction.
+            new SqliteConfigStore(DbPath).Save(
+                new Dictionary<string, string> { ["SongRoot.0"] = "bad\0root" });
+            SqliteConnection.ClearAllPools();
+            File.SetAttributes(DbPath, FileAttributes.ReadOnly);
+
+            var manager = CreateManager();
+            manager.LoadConfig();
+
+            // In-memory values were corrected despite the failed save.
+            var correctedRoot = Path.GetFullPath(Path.Combine(_root, "DTXFiles"));
+            Assert.Equal(correctedRoot, Path.GetFullPath(manager.Config.SongRoots[0]));
+
+            // The failed correction stayed pending: after repairing write
+            // access, a flush persists it to the database.
+            SqliteConnection.ClearAllPools();
+            File.SetAttributes(DbPath, FileAttributes.Normal);
+            manager.FlushPendingSave();
+
+            var rows = ReadRows();
+            Assert.True(rows.TryGetValue("SongRoot.0", out var persistedRoot));
+            Assert.Equal(correctedRoot, Path.GetFullPath(persistedRoot!));
+        }
+
+        [Fact]
         public void LoadConfig_WhenGameApiEnabledWithoutKey_ShouldGenerateAndPersistKeyToDb()
         {
             File.WriteAllText(IniPath, "[Api]\nEnableGameApi=true\n");

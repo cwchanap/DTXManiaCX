@@ -39,6 +39,13 @@ public sealed class RecorderConfigCompatibilityTests
                 legacyIniPath: Path.Combine(sourceAppData, "Config.ini"));
             sourceManager.LoadConfig();
             sourceManager.Config.SystemSkinRoot = systemSkinRoot;
+            // Persist a DISTINCT absolute custom skin path (created on disk
+            // so both sides' normalization keep it verbatim) — this pins the
+            // recorder's SkinPath contract (nonblank: Default or absolute)
+            // through the whole round trip.
+            var customSkinPath = Path.Combine(root, "CustomSkin");
+            Directory.CreateDirectory(customSkinPath);
+            sourceManager.SetSkinPath(customSkinPath);
             var songRootsResult = sourceManager.SetSongRoots(new[] { songsRoot, moreSongsRoot });
             Assert.Equal(SongRootUpdateStatus.Updated, songRootsResult.Status);
             sourceManager.SetScrollSpeed(150);
@@ -69,6 +76,7 @@ public sealed class RecorderConfigCompatibilityTests
             Assert.True(File.Exists(sandboxDatabasePath));
             Assert.Equal(expectedSongRoots, sandboxManager.Config.SongRoots);
             Assert.Equal(systemSkinRoot, sandboxManager.Config.SystemSkinRoot);
+            Assert.Equal(customSkinPath, sandboxManager.Config.SkinPath);
             Assert.Equal(150, sandboxManager.Config.ScrollSpeed);
             Assert.True(sandboxManager.Config.EnableGameApi);
             Assert.True(sandboxManager.Config.AutoPlay);
@@ -88,6 +96,7 @@ public sealed class RecorderConfigCompatibilityTests
             verifyManager.LoadConfig();
             Assert.Equal(expectedSongRoots, verifyManager.Config.SongRoots);
             Assert.Equal(systemSkinRoot, verifyManager.Config.SystemSkinRoot);
+            Assert.Equal(customSkinPath, verifyManager.Config.SkinPath);
             Assert.Equal(150, verifyManager.Config.ScrollSpeed);
 
             await sandbox.DeleteOnSuccessAsync();

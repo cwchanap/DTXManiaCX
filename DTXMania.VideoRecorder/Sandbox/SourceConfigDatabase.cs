@@ -29,7 +29,14 @@ internal static class SourceConfigDatabase
     /// </summary>
     internal static IReadOnlyDictionary<string, string> Load(string databasePath)
     {
-        using var connection = new SqliteConnection($"Data Source={databasePath};Mode=ReadOnly");
+        // The builder escapes path-hostile characters (';', '"') that raw
+        // string interpolation would misparse as connection delimiters.
+        using var connection = new SqliteConnection(
+            new SqliteConnectionStringBuilder
+            {
+                DataSource = databasePath,
+                Mode = SqliteOpenMode.ReadOnly,
+            }.ToString());
         connection.Open();
 
         var version = ReadUserVersion(connection);

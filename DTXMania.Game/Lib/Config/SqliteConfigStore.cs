@@ -49,7 +49,14 @@ namespace DTXMania.Game.Lib.Config
         /// </summary>
         public IReadOnlyDictionary<string, string> Load()
         {
-            using var connection = new SqliteConnection($"Data Source={_databasePath};Mode=ReadOnly");
+            // The builder escapes path-hostile characters (';', '"') that raw
+            // string interpolation would misparse as connection delimiters.
+            using var connection = new SqliteConnection(
+                new SqliteConnectionStringBuilder
+                {
+                    DataSource = _databasePath,
+                    Mode = SqliteOpenMode.ReadOnly,
+                }.ToString());
             connection.Open();
 
             var version = ReadUserVersion(connection);
@@ -92,7 +99,9 @@ namespace DTXMania.Game.Lib.Config
                 Directory.CreateDirectory(parentDirectory);
             }
 
-            using var connection = new SqliteConnection($"Data Source={_databasePath}");
+            // See Load(): the builder keeps delimiter-bearing paths intact.
+            using var connection = new SqliteConnection(
+                new SqliteConnectionStringBuilder { DataSource = _databasePath }.ToString());
             connection.Open();
 
             using var transaction = connection.BeginTransaction();

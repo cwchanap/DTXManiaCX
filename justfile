@@ -95,7 +95,7 @@ install-cx-neon activate="false":
           fi
           echo "activated: SkinPath=$skin_path in $config"
         else
-          echo "warning: $config not found — launch the game once to create it, then re-run with activate=true" >&2
+          echo "warning: neither $config_db nor $config found — launch the game once to create config.db, then re-run 'just install-cx-neon true'" >&2
         fi
       fi
     fi
