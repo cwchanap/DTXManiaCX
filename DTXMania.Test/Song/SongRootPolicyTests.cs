@@ -226,7 +226,11 @@ public sealed class SongRootPolicyTests
             manager.SongRootsChanged += (_, _) => eventCount++;
 
             // Break the store's directory: replacing the root with a regular
-            // file makes the store's directory creation throw on save.
+            // file makes the store's directory creation throw on save. Clear
+            // pooled SQLite handles first — LoadConfig() above opened (and
+            // pooled) a connection to <root>/config.db, which on Windows keeps
+            // the file locked and would make the recursive delete throw.
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             Directory.Delete(root, recursive: true);
             File.WriteAllText(root, "blocker");
             try

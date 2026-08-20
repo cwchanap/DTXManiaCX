@@ -104,8 +104,13 @@ namespace DTXMania.Test.Config
             Assert.True(manager.Config.FullScreen);
 
             var rows = ReadRows();
-            Assert.Equal("/skins/Custom", rows["SkinPath"]);
-            Assert.Equal("/songs/legacy", rows["SongRoot.0"]);
+            // NormalizeConfigPaths resolves rooted paths via Path.GetFullPath,
+            // which on Windows roots them against the current drive (e.g.
+            // /skins/Custom -> D:\skins\Custom) and leaves them absolute on
+            // Unix. Compute the expected resolved form so the assertion holds
+            // on both platforms.
+            Assert.Equal(Path.GetFullPath("/skins/Custom"), rows["SkinPath"]);
+            Assert.Equal(Path.GetFullPath("/songs/legacy"), rows["SongRoot.0"]);
 
             Assert.Equal(iniBytesBefore, File.ReadAllBytes(IniPath));
         }

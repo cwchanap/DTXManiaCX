@@ -19,6 +19,12 @@ namespace DTXMania.Test.Config
         public ConfigStoreFailureScope(string root)
         {
             _root = root;
+            // A prior ConfigManager in the same test may have opened (and
+            // pooled) a SQLite connection to <root>/config.db. On Windows the
+            // pooled native handle keeps the file locked, so the recursive
+            // directory delete below would throw IOException. Clear the pool
+            // first so the inode is released before we tear down the directory.
+            SqliteConnection.ClearAllPools();
             Directory.Delete(root, recursive: true);
             File.WriteAllText(root, "blocker");
             _blocked = true;

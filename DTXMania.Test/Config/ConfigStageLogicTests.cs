@@ -1107,6 +1107,10 @@ public class ConfigStageLogicTests
         }
         finally
         {
+            // Release pooled config.db handles before deleting the temp
+            // directory (Windows keeps the file locked otherwise). LoadConfig
+            // and ReadAutoPlayFromStore above both opened pooled connections.
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true);
         }
     }
