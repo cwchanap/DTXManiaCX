@@ -424,8 +424,8 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
         if (string.IsNullOrWhiteSpace(config.GameApiKey))
         {
             _logger.LogWarning("Game API is enabled but no API key is configured. " +
-                              "API server will not start. Please set GameApiKey in Config.ini or " +
-                              "delete Config.ini to auto-generate a secure key.");
+                              "API server will not start. Please set the GameApiKey row in the config database " +
+                              "(config.db) or clear the EnableGameApi row so a secure key can be auto-generated.");
             return false;
         }
 
@@ -456,7 +456,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to start JSON-RPC server on port {Port}. Ensure the port is not in use by another application. You can change the port in Config.ini via GameApiPort setting.", config.GameApiPort);
+            _logger.LogError(ex, "Failed to start JSON-RPC server on port {Port}. Ensure the port is not in use by another application. You can change the port via the GameApiPort row in the config database (config.db).", config.GameApiPort);
             // Continue without JSON-RPC server if it fails to start
         }
     }

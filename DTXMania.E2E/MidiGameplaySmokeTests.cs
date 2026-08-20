@@ -103,7 +103,9 @@ public sealed class MidiGameplaySmokeTests
 
     private static void ConfigureMidiGameplayFixture(E2EFixture fixture)
     {
-        var config = File.ReadAllText(fixture.ConfigPath, Encoding.UTF8)
+        // Edits the bootstrap-input INI before launch; the game imports it once
+        // on first launch because the fixture app-data has no config.db yet.
+        var config = File.ReadAllText(fixture.LegacyConfigPath, Encoding.UTF8)
             .Replace("AutoPlay=True", "AutoPlay=False", StringComparison.Ordinal);
 
         config += string.Join('\n', new[]
@@ -117,7 +119,7 @@ public sealed class MidiGameplaySmokeTests
             string.Empty
         });
 
-        File.WriteAllText(fixture.ConfigPath, config, Encoding.UTF8);
+        File.WriteAllText(fixture.LegacyConfigPath, config, Encoding.UTF8);
         File.WriteAllText(fixture.ChartPath, BuildMidiChart(), Encoding.UTF8);
     }
 

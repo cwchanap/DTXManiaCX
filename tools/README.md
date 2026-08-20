@@ -102,12 +102,26 @@ ln -sfn "$(pwd)/System/CXNeon" "$APP_SYSTEM/CXNeon"
 Then either:
 
 - Launch the game and switch **System → Skin → CXNeon** in the config menu
-  (persists `SkinPath` on change), or
-- Set `SkinPath` in `Config.ini` to the installed folder:
+  (persists `SkinPath` to the config database on change), or
+- Run `just install-cx-neon true` (patches the `SkinPath` /
+  `LastUsedSkin` rows in `config.db` transactionally via `sqlite3` once the
+  game has launched at least once; falls back to the `Config.ini` bootstrap
+  input when no database exists yet), or
+- Patch the authoritative rows directly (quit the game first):
 
-  ```ini
-  SkinPath=/Users/you/Library/Application Support/DTXManiaCX/System/CXNeon/
+  ```bash
+  sqlite3 "$HOME/Library/Application Support/DTXManiaCX/config.db" <<'SQL'
+  BEGIN;
+  INSERT INTO ConfigEntries (Key, Value) VALUES ('SkinPath', '/Users/you/Library/Application Support/DTXManiaCX/System/CXNeon/')
+      ON CONFLICT(Key) DO UPDATE SET Value = excluded.Value;
+  INSERT INTO ConfigEntries (Key, Value) VALUES ('LastUsedSkin', 'CXNeon')
+      ON CONFLICT(Key) DO UPDATE SET Value = excluded.Value;
+  COMMIT;
+  SQL
   ```
+
+`Config.ini` is bootstrap/import input only (read once, when `config.db` does
+not exist yet); editing it after the first launch has no effect.
 
 `ConfigManager` resolves a *relative* `SkinPath` under the app-data root — not
 the repository checkout — so a bare `System/CXNeon/` only works after the pack

@@ -38,7 +38,7 @@ public static class E2EFixtureBuilder
         Directory.CreateDirectory(paths.ArtifactRoot);
 
         File.WriteAllText(
-            paths.ConfigPath,
+            paths.LegacyConfigPath,
             BuildConfig(
                 paths.DtxRoot,
                 paths.SkinRoot,
@@ -54,13 +54,17 @@ public static class E2EFixtureBuilder
             Path.Combine(paths.SkinRoot, "Graphics", "hit_fx.png"),
             Convert.FromBase64String(HitEffectPngBase64));
 
+        // HPA-190: only the legacy bootstrap INI is written pre-launch. The
+        // game creates the authoritative config.db on first launch, which is
+        // exactly the bootstrap path these fixtures exercise.
         return new E2EFixture(
             paths.RunRoot,
             paths.AppDataRoot,
             paths.SkinRoot,
             paths.DtxRoot,
             paths.SongDirectory,
-            paths.ConfigPath,
+            paths.LegacyConfigPath,
+            paths.ConfigDatabasePath,
             paths.ChartPath,
             audioPath,
             paths.ArtifactRoot,
@@ -93,6 +97,7 @@ public static class E2EFixtureBuilder
             dtxRoot,
             songDirectory,
             Path.Combine(appDataRoot, "Config.ini"),
+            Path.Combine(appDataRoot, "config.db"),
             Path.Combine(songDirectory, "autoplay-smoke.dtx"),
             Path.GetFullPath(artifactRoot));
     }

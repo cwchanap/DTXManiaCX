@@ -1012,6 +1012,31 @@ inspect_closed_database() {
     [[ ! -e "$database-wal" && ! -e "$database-shm" ]] || return 1
 }
 
+# HPA-190: the authoritative configuration store is the SQLite config
+# database (<app-data>/config.db, ConfigEntries(Key, Value), user_version 1).
+# The legacy Config.ini is only a first-launch bootstrap input, so active
+# configuration (notably EnableGameApi) must be proven from the database.
+# Echoes the EnableGameApi value (True/False); fails when the database is
+# missing, still open, or not a valid v1 ConfigEntries store (fail closed).
+config_database_api_enabled() {
+    local appdata="$1"
+    local database="$appdata/config.db"
+    local version
+    local value
+
+    [[ -f "$database" ]] || return 1
+    [[ ! -e "$database-wal" && ! -e "$database-shm" ]] || return 1
+    version="$(sqlite3 -noheader "$database" 'PRAGMA user_version;')" ||
+        return 1
+    [[ "$version" == 1 ]] || return 1
+    value="$(
+        sqlite3 -noheader "$database" \
+            "SELECT Value FROM ConfigEntries WHERE Key = 'EnableGameApi';"
+    )" || return 1
+    [[ "$value" == True || "$value" == False ]] || return 1
+    printf '%s\n' "$value"
+}
+
 extract_raw_product_lines() {
     awk '
         /^HPA192_STARTUP / ||
@@ -1071,6 +1096,11 @@ prepare_seed() {
         fail "seed database counts are not 100 charts and 27 songs"
     cmp -s "$expected_corpus_paths" "$setup_chart_paths" ||
         fail "seed database chart paths differ from the corpus"
+    # HPA-190: the seed's authoritative config database must exist and hold
+    # the Game API disabled — the INI checks above only prove the untouched
+    # bootstrap input, not the active configuration.
+    [[ "$(config_database_api_enabled "$setup_appdata")" == False ]] ||
+        fail "seed setup left the Game API enabled (or missing) in config.db"
 
     mv "$setup_appdata" "$seed_appdata"
     generate_tree_manifest "$seed_appdata" "$seed_manifest"
@@ -1106,6 +1136,8 @@ run_attempt() {
     local chart_paths_sha256
     local expected_chart_paths_sha256
     local game_api_enabled
+    local config_api_value
+    local config_database_inspection="$attempt_root/config-database.txt"
     local observed_seed_manifest="$temporary_root/attempt-seed-$slot-$attempt_number.tsv"
     local observed_empty_manifest="$temporary_root/attempt-empty-$slot-$attempt_number.tsv"
     local clone_manifest="$temporary_root/clone-$slot-$attempt_number.tsv"
@@ -1141,6 +1173,10 @@ run_attempt() {
             ;;
     esac
 
+    # HPA-190: the copied INI is the recorded bootstrap input (imported only
+    # on a cold app-data in scenarios A/B; inert for the warm scenario C clone
+    # whose config.db is authoritative). The active configuration is proven
+    # from the database after the run, not from these bytes.
     cp "$scenario_config" "$appdata/Config.ini"
     cmp -s "$scenario_config" "$appdata/Config.ini" ||
         fail "attempt prelaunch config bytes differ"
@@ -1167,10 +1203,23 @@ run_attempt() {
     else
         config_observed_sha256="$empty_manifest_sha256"
     fi
-    if config_has_exact_api_disabled "$appdata/Config.ini"; then
+    # HPA-190: prove the active configuration from the authoritative config
+    # database. Fail closed — a missing, open, invalid, or API-enabled
+    # database is recorded as enabled so the summarizer rejects the attempt
+    # (it cannot be proven that the Game API was disabled).
+    config_api_value=
+    if ! config_api_value="$(config_database_api_enabled "$appdata")"; then
+        config_api_value=
+    fi
+    if [[ "$config_api_value" == False ]]; then
         game_api_enabled=0
+        printf '%s\n' \
+            'status=closed enable_game_api=False' \
+            >"$config_database_inspection"
     else
         game_api_enabled=1
+        printf 'status=rejected reason=missing_open_invalid_or_enabled_config_database enable_game_api=%s\n' \
+            "${config_api_value:-unknown}" >"$config_database_inspection"
     fi
 
     database_charts=0

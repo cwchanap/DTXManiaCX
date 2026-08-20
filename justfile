@@ -17,7 +17,9 @@ default:
 
 # Symlink System/CXNeon into app-data System/ so the in-game Skin dropdown
 # lists "CXNeon". Regenerating Graphics/ under the worktree is live.
-# Optional: just install-cx-neon activate=true  to also set SkinPath in Config.ini
+# Optional: just install-cx-neon true  to also set the active skin:
+# in config.db (HPA-190 authoritative store) when it exists, else in Config.ini
+# (first-launch bootstrap input for installations that have not launched yet).
 install-cx-neon activate="false":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -50,26 +52,51 @@ install-cx-neon activate="false":
     echo "installed: $target -> $repo_skin"
     if [[ "{{ activate }}" == "true" ]]; then
       config="$(dirname "$app_system")/Config.ini"
+      config_db="$(dirname "$app_system")/config.db"
       skin_path="$target/"
-      # Escape \, &, and | so Windows paths survive sed replacement unchanged.
-      esc_skin_path=$(printf '%s' "$skin_path" | sed -e 's/\\/\\\\/g' -e 's/&/\\&/g' -e 's/|/\\|/g')
-      if [[ -f "$config" ]]; then
-        if grep -q '^SkinPath=' "$config"; then
-          # portable in-place edit
-          tmp="$(mktemp)"
-          sed "s|^SkinPath=.*|SkinPath=${esc_skin_path}|" "$config" > "$tmp" && mv "$tmp" "$config"
-        else
-          printf '\nSkinPath=%s\n' "$skin_path" >> "$config"
+      if [[ -f "$config_db" ]]; then
+        # HPA-190: config.db exists -> it is the authoritative store. Patch the
+        # SkinPath/LastUsedSkin rows transactionally via sqlite3. Quit the game
+        # first: a running instance would overwrite these rows on save.
+        if ! command -v sqlite3 >/dev/null 2>&1; then
+          echo "error: $config_db exists but the sqlite3 CLI was not found — install sqlite3 (e.g. brew install sqlite) and re-run; activation NOT applied" >&2
+          exit 1
         fi
-        if grep -q '^LastUsedSkin=' "$config"; then
-          tmp="$(mktemp)"
-          sed "s|^LastUsedSkin=.*|LastUsedSkin=CXNeon|" "$config" > "$tmp" && mv "$tmp" "$config"
-        else
-          printf '\nLastUsedSkin=CXNeon\n' >> "$config"
-        fi
-        echo "activated: SkinPath=$skin_path in $config"
+        # Escape single quotes for SQL string literals.
+        esc_skin_path="${skin_path//\'/\'\'}"
+        esc_skin_name='CXNeon'
+        sqlite3 "$config_db" <<SQL
+        BEGIN;
+        INSERT INTO ConfigEntries (Key, Value) VALUES ('SkinPath', '${esc_skin_path}')
+            ON CONFLICT(Key) DO UPDATE SET Value = excluded.Value;
+        INSERT INTO ConfigEntries (Key, Value) VALUES ('LastUsedSkin', '${esc_skin_name}')
+            ON CONFLICT(Key) DO UPDATE SET Value = excluded.Value;
+        COMMIT;
+    SQL
+        echo "activated: SkinPath=$skin_path in $config_db"
       else
-        echo "warning: $config not found — launch the game once to create it, then re-run with activate=true" >&2
+        # No database yet (game never launched): Config.ini is the bootstrap
+        # input imported on first launch.
+        # Escape \, &, and | so Windows paths survive sed replacement unchanged.
+        esc_skin_path=$(printf '%s' "$skin_path" | sed -e 's/\\/\\\\/g' -e 's/&/\\&/g' -e 's/|/\\|/g')
+        if [[ -f "$config" ]]; then
+          if grep -q '^SkinPath=' "$config"; then
+            # portable in-place edit
+            tmp="$(mktemp)"
+            sed "s|^SkinPath=.*|SkinPath=${esc_skin_path}|" "$config" > "$tmp" && mv "$tmp" "$config"
+          else
+            printf '\nSkinPath=%s\n' "$skin_path" >> "$config"
+          fi
+          if grep -q '^LastUsedSkin=' "$config"; then
+            tmp="$(mktemp)"
+            sed "s|^LastUsedSkin=.*|LastUsedSkin=CXNeon|" "$config" > "$tmp" && mv "$tmp" "$config"
+          else
+            printf '\nLastUsedSkin=CXNeon\n' >> "$config"
+          fi
+          echo "activated: SkinPath=$skin_path in $config"
+        else
+          echo "warning: $config not found — launch the game once to create it, then re-run with activate=true" >&2
+        fi
       fi
     fi
 

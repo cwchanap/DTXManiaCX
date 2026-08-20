@@ -299,6 +299,7 @@ set -euo pipefail
 
 appdata="${DTXMANIA_APPDATA_ROOT:?}"
 config="$appdata/Config.ini"
+config_database="$appdata/config.db"
 database="$appdata/songs.db"
 count=0
 if [[ -f "$HPA192_FAKE_STATE" ]]; then
@@ -341,7 +342,8 @@ dtx_path="$(
 )"
 if [[ "$dtx_path" == */empty-songs ]]; then
     scenario=B
-elif [[ -f "$database" ]]; then
+elif [[ -f "$config_database" ]]; then
+    # HPA-190: a warm app-data carries the authoritative config database.
     scenario=C
 else
     scenario=A
@@ -353,6 +355,18 @@ if [[ "${HPA192_CRITICAL_PATH:-}" != 1 ||
     printf '%s\n' \
         'HPA192_CRITICAL_PATH_FAILURE outcome=failure error=flags last_milestone=entry'
     exit 0
+fi
+
+# HPA-190 emulation: on a cold app-data the real game imports the bootstrap
+# Config.ini once and creates the config database; a warm app-data already
+# contains it and the INI is ignored.
+if [[ ! -f "$config_database" ]]; then
+    rm -f "$config_database" "$config_database-wal" "$config_database-shm"
+    sqlite3 "$config_database" <<'SQL'
+CREATE TABLE ConfigEntries (Key TEXT PRIMARY KEY NOT NULL, Value TEXT NOT NULL);
+PRAGMA user_version = 1;
+INSERT INTO ConfigEntries (Key, Value) VALUES ('EnableGameApi', 'False');
+SQL
 fi
 
 if [[ "$mode" == no-line-child ]]; then
@@ -388,9 +402,11 @@ case "$mode" in
             'HPA192_CRITICAL_PATH_FAILURE outcome=failure error=synthetic last_milestone=database'
         ;;
     mutate-config)
-        /usr/bin/perl -0pi -e \
-            's/\[Api\]\nEnableGameApi=False/[Api]\nEnableGameApi=True/' \
-            "$config"
+        # HPA-190: the authoritative store is config.db; flipping the INI
+        # would prove nothing because the game ignores it once the database
+        # exists.
+        sqlite3 "$config_database" \
+            "UPDATE ConfigEntries SET Value = 'True' WHERE Key = 'EnableGameApi';"
         cat "$HPA192_FAKE_RAW/$scenario.txt"
         ;;
     mutate-corpus)
@@ -403,6 +419,12 @@ case "$mode" in
         ;;
     missing-db)
         rm -f "$database"
+        cat "$HPA192_FAKE_RAW/$scenario.txt"
+        ;;
+    missing-config-db)
+        # HPA-190: a game that leaves no authoritative config database behind
+        # cannot prove the Game API was disabled; the runner must fail closed.
+        rm -f "$config_database" "$config_database-wal" "$config_database-shm"
         cat "$HPA192_FAKE_RAW/$scenario.txt"
         ;;
     stuck)
@@ -2320,6 +2342,35 @@ for attempt_number in 1 2 3; do
         "^HPA192_ATTEMPT scenario=A slot=1 attempt=$attempt_number .* game_api_enabled=1 " \
         "$fixture_result/slots/01-A/attempt-$attempt_number/result.txt" ||
         fail "API-enabled attempt $attempt_number lost its fail-closed metadata"
+done
+
+# Break caught (HPA-190): trusting the untouched bootstrap Config.ini as proof
+# of the active configuration when the authoritative config database is
+# missing — the runner must fail closed instead.
+create_runner_fixture missing-config-database
+if ! run_fixture_runner prepare-seed success \
+    >"$fixture_root/prepare.stdout" 2>"$fixture_root/prepare.stderr"; then
+    tail -40 "$fixture_root/prepare.stderr" >&2
+    fail "missing-config-database fixture seed preparation failed"
+fi
+reset_runner_fixture
+if run_fixture_runner matrix missing-config-db \
+    >"$fixture_root/matrix.stdout" 2>"$fixture_root/matrix.stderr"; then
+    fail "runner accepted attempts without an authoritative config database"
+fi
+grep -Fq \
+    'HPA192_CRITICAL_PATH_DECISION decision=stop reason=diagnostic_harness slot=1 scenario=A' \
+    "$fixture_result/decision.txt" ||
+    fail "missing-config-database attempts did not stop after the bounded retries"
+for attempt_number in 1 2 3; do
+    grep -Eq \
+        "^HPA192_ATTEMPT scenario=A slot=1 attempt=$attempt_number .* game_api_enabled=1 " \
+        "$fixture_result/slots/01-A/attempt-$attempt_number/result.txt" ||
+        fail "missing-config-database attempt $attempt_number lost its fail-closed metadata"
+    grep -Fq \
+        'status=rejected reason=missing_open_invalid_or_enabled_config_database' \
+        "$fixture_result/slots/01-A/attempt-$attempt_number/config-database.txt" ||
+        fail "missing-config-database attempt $attempt_number lacks its config inspection record"
 done
 
 run_runner_process_tests

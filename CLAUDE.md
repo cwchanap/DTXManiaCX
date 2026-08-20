@@ -128,8 +128,8 @@ DTXMania.Game.Lib.Utilities - AppPaths, CacheManager, PathValidator
 - SQLite integration via Microsoft.EntityFrameworkCore.Sqlite
 - SET.def parsing with robust regex handling
 
-**Configuration** (`Lib/Config/`): INI-based config system
-- ConfigManager loads/saves Config.ini with auto-generation
+**Configuration** (`Lib/Config/`): SQLite-backed config system (HPA-190)
+- ConfigManager persists configuration in `config.db` (`ConfigEntries(Key,Value)`); the legacy `Config.ini` is bootstrap/import input only, read once when the DB is absent
 - GameConstants for game-wide constants
 - Auto-generates secure API key for MCP communication
 
@@ -147,7 +147,7 @@ DTXMania.Game.Lib.Utilities - AppPaths, CacheManager, PathValidator
 - DTXManiaVisualTheme for consistent styling
 
 **MCP Integration**: JSON-RPC bridge for AI copilots
-- GameApiServer (`Lib/GameApiServer.cs`) exposes HTTP endpoint (port configurable via Config.ini `GameApiPort`)
+- GameApiServer (`Lib/GameApiServer.cs`) exposes HTTP endpoint (port configurable via the `GameApiPort` row in `config.db`)
 - GameApiImplementation implements IGameContext providing access to all managers
 - MCP server uses ModelContextProtocol SDK with stdio transport
 - Tools: game_click, game_drag, game_get_state, game_send_key
@@ -231,5 +231,5 @@ GitHub Actions (`.github/workflows/build-and-test.yml`):
 ## Troubleshooting
 
 - **Missing Assets**: Check skin directory structure and SkinManager fallback chain
-- **MCP Connection**: Ensure GameApiServer is running before starting MCP server; check `GameApiPort` in Config.ini
+- **MCP Connection**: Ensure GameApiServer is running before starting MCP server; check the `GameApiPort` row in `config.db`
 - **macOS Test Crashes**: SDL threading errors are expected for graphics tests; the Mac .csproj excludes them. If adding new tests that need GraphicsDevice, exclude them from `DTXMania.Test.Mac.csproj`
