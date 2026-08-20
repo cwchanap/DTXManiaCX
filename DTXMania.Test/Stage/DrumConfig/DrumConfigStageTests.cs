@@ -247,6 +247,9 @@ namespace DTXMania.Test.Stage.DrumConfig
             finally
             {
                 Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", previousRoot);
+                // Release pooled config.db handles before deleting the temp
+                // directory (Windows keeps the file locked otherwise).
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
                 Directory.Delete(tempDir, recursive: true);
             }
         }
@@ -1087,6 +1090,9 @@ namespace DTXMania.Test.Stage.DrumConfig
             finally
             {
                 Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", previousRoot);
+                // Release pooled config.db handles before deleting the temp
+                // directory (Windows keeps the file locked otherwise).
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
                 Directory.Delete(tempDir, recursive: true);
             }
         }
