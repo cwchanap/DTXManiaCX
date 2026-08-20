@@ -144,6 +144,36 @@ namespace DTXMania.Test.Config
                 store.Save(new Dictionary<string, string> { ["ScrollSpeed"] = "250" }));
         }
 
+        [Fact]
+        public void SaveAndLoad_WhenPathContainsConnectionStringDelimiters_ShouldRoundTrip()
+        {
+            // ';' (and '"' on platforms where it is a legal path character)
+            // are connection-string delimiters: raw string interpolation
+            // would misparse the path and target the wrong (or no)
+            // database. The store must build its connection strings so such
+            // paths survive.
+            var directoryName = "delim;path";
+            if (!OperatingSystem.IsWindows())
+                directoryName = "delim;path\"quote";
+            var databasePath = Path.Combine(_root, directoryName, "config.db");
+            var store = new SqliteConfigStore(databasePath);
+            var entries = new Dictionary<string, string>
+            {
+                ["ScrollSpeed"] = "250",
+                ["SkinPath"] = "Default",
+            };
+
+            store.Save(entries);
+
+            Assert.True(store.Exists);
+            Assert.True(File.Exists(databasePath));
+
+            var loaded = store.Load();
+
+            Assert.Equal("250", loaded["ScrollSpeed"]);
+            Assert.Equal("Default", loaded["SkinPath"]);
+        }
+
         private static long ReadUserVersion(string databasePath)
         {
             using var connection = new SqliteConnection($"Data Source={databasePath}");

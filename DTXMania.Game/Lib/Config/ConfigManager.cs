@@ -215,6 +215,22 @@ namespace DTXMania.Game.Lib.Config
                 }
                 catch (Exception ex)
                 {
+                    if (!_storeLoaded)
+                    {
+                        // First create/import failed: continuing would run
+                        // the game without its sole live store — MarkDirty
+                        // refuses to schedule saves before a successful
+                        // load/first-create, so every later edit would be
+                        // silently lost. Fail loudly per the spec (same
+                        // contract as an unreadable existing database).
+                        throw;
+                    }
+
+                    // The store was already loaded: only this normalization
+                    // correction failed. In-memory values are correct; mark
+                    // the write pending so the next flush (or the shutdown
+                    // save) retries it.
+                    _hasPendingSave = true;
                     _logger.LogError(ex,
                         "Failed to persist configuration migration. In-memory values are correct; " +
                         "the database will be updated on the next save.");

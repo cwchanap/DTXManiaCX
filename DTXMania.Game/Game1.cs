@@ -424,8 +424,9 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
         if (string.IsNullOrWhiteSpace(config.GameApiKey))
         {
             _logger.LogWarning("Game API is enabled but no API key is configured. " +
-                              "API server will not start. Please set the GameApiKey row in the config database " +
-                              "(config.db) or clear the EnableGameApi row so a secure key can be auto-generated.");
+                              "API server will not start. A secure key is auto-generated when EnableGameApi is enabled with an empty " +
+                              "GameApiKey row, so a missing key here means that save likely failed. Repair write access to the config " +
+                              "database (config.db) and restart, or set the GameApiKey row in the config database to a nonblank value.");
             return false;
         }
 

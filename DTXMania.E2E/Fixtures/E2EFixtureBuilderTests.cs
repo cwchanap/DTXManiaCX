@@ -1,5 +1,6 @@
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Song;
+using Microsoft.Data.Sqlite;
 
 namespace DTXMania.E2E.Fixtures;
 
@@ -119,6 +120,9 @@ public sealed class E2EFixtureBuilderTests
         }
         finally
         {
+            // Release pooled SQLite handles (the test loads config.db via the
+            // real ConfigManager) so recursive deletion works on Windows CI.
+            SqliteConnection.ClearAllPools();
             if (Directory.Exists(root))
                 Directory.Delete(root, recursive: true);
         }

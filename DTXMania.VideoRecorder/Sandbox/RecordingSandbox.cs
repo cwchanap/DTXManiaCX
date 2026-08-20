@@ -159,18 +159,16 @@ internal sealed class RecordingSandbox
                 ? systemSkinRoot
                 : string.Empty);
 
-        if (sourceValues.TryGetValue("SkinPath", out var skinPath))
+        if (!sourceValues.TryGetValue("SkinPath", out var skinPath) ||
+            string.IsNullOrWhiteSpace(skinPath))
         {
-            if (string.IsNullOrWhiteSpace(skinPath))
-            {
-                throw new InvalidOperationException(
-                    "Source config database key 'SkinPath' is not normalized. " +
-                    NormalizationHint);
-            }
-
-            if (!IsDefaultSkin(skinPath))
-                RequireAbsolute("SkinPath", skinPath);
+            throw new InvalidOperationException(
+                "Source config database key 'SkinPath' is not normalized. " +
+                NormalizationHint);
         }
+
+        if (!IsDefaultSkin(skinPath))
+            RequireAbsolute("SkinPath", skinPath);
 
         return sourceValues;
     }

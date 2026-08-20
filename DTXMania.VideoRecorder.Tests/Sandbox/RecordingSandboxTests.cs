@@ -84,6 +84,49 @@ public sealed class RecordingSandboxTests
     }
 
     [Fact]
+    public void Create_WithoutSkinPathRow_ShouldRejectWithNormalizationGuidance()
+    {
+        // The contract requires a nonblank SkinPath (Default token or
+        // absolute): an absent row must be rejected like a blank one, not
+        // silently accepted.
+        var rows = BuildRows();
+        rows.Remove("SkinPath");
+        var sourceRoot = CreateSourceRoot(rows);
+
+        try
+        {
+            var exception = Assert.Throws<InvalidOperationException>(() => RecordingSandbox.Create(sourceRoot));
+
+            Assert.Contains("Source config database key 'SkinPath' is not normalized.", exception.Message);
+            Assert.Contains("Open CX once and exit normally, then retry dtx-video.", exception.Message);
+        }
+        finally
+        {
+            Delete(sourceRoot);
+        }
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Create_WithBlankSkinPath_ShouldRejectWithNormalizationGuidance(string skinPath)
+    {
+        var sourceRoot = CreateSourceRoot(BuildRows($"SkinPath={skinPath}"));
+
+        try
+        {
+            var exception = Assert.Throws<InvalidOperationException>(() => RecordingSandbox.Create(sourceRoot));
+
+            Assert.Contains("Source config database key 'SkinPath' is not normalized.", exception.Message);
+            Assert.Contains("Open CX once and exit normally, then retry dtx-video.", exception.Message);
+        }
+        finally
+        {
+            Delete(sourceRoot);
+        }
+    }
+
+    [Fact]
     public void Create_WithoutIndexedSongRoot_ShouldReject()
     {
         var rows = BuildRows();
