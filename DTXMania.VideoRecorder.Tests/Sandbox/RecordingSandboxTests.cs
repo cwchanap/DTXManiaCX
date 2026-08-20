@@ -153,6 +153,47 @@ public sealed class RecordingSandboxTests
         }
     }
 
+    [Theory]
+    // Regression: a hand-edited row keyed `SongRoot.0 ` (trailing space)
+    // fails IsIndexedSongRootKey (int.TryParse("0 ") is false), so it skips
+    // RequireAbsolute validation, then the game's legacy INI parser trims it
+    // back to `SongRoot.0` — landing as a SongRoot with an unvalidated
+    // (possibly relative) path. The leading-space variant for `AutoPlay`
+    // shows the same bypass against a recorder-owned key.
+    [InlineData("SongRoot.0 ", "is not trimmed")]
+    [InlineData(" SongRoot.0", "is not trimmed")]
+    [InlineData(" AutoPlay", "is not trimmed")]
+    [InlineData("AutoPlay ", "is not trimmed")]
+    [InlineData("", "empty key")]
+    [InlineData("Foo=Bar", "contains '='")]
+    public void Create_WithKeyThatDoesNotRoundTripThroughIniParser_ShouldRejectWithNormalizationGuidance(
+        string key,
+        string expectedMessageFragment)
+    {
+        // The source SQLite DB accepts arbitrary TEXT keys, but
+        // SerializeConfigIni emits `key=value` lines that the game's legacy
+        // INI parser reads back with `line.Split('=', 2)` + Trim() on both
+        // halves. Keys that don't round-trip unchanged through that parser
+        // can bypass the recorder's canonical-key / SongRoot validation and
+        // normalize to a different key inside the sandbox game. Such a row
+        // can only come from a hand-edited source database.
+        var rows = BuildRows();
+        rows[key] = "/tmp/relative-bypass";
+        var sourceRoot = CreateSourceRoot(rows);
+
+        try
+        {
+            var exception = Assert.Throws<InvalidOperationException>(() => RecordingSandbox.Create(sourceRoot));
+
+            Assert.Contains(expectedMessageFragment, exception.Message);
+            Assert.Contains("Open CX once and exit normally, then retry dtx-video.", exception.Message);
+        }
+        finally
+        {
+            Delete(sourceRoot);
+        }
+    }
+
     [Fact]
     public void Create_WithoutIndexedSongRoot_ShouldReject()
     {
