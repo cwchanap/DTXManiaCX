@@ -68,6 +68,15 @@ App-data location of `config.db`:
 | Windows | `%LOCALAPPDATA%\DTXManiaCX\config.db` |
 | Linux | `~/.config/DTXManiaCX/config.db` |
 
+Launch the game once before using `sqlite3` on the config database: the file only exists after the first
+run creates it, and running `sqlite3` against a missing `config.db` silently creates an INVALID empty
+database (no `ConfigEntries` table, `user_version` 0) that the game then rejects on startup. Verify first:
+
+```bash
+# Must print an existing file; if nothing prints, launch and quit the game once, then re-check.
+ls "$HOME/Library/Application Support/DTXManiaCX/config.db"
+```
+
 Read the current API key:
 
 ```bash

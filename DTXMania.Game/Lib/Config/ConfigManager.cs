@@ -599,7 +599,7 @@ namespace DTXMania.Game.Lib.Config
                         }
                     }
                     else if (key.StartsWith("Key.Unbound.") &&
-                        int.TryParse(key.Substring("Key.Unbound.".Length), NumberStyles.Integer, CultureInfo.InvariantCulture, out var unboundLane))
+                        int.TryParse(key.Substring("Key.Unbound.".Length), NumberStyles.None, CultureInfo.InvariantCulture, out var unboundLane))
                     {
                         if (unboundLane >= 0 && unboundLane <= 9 &&
                             TryParseBool(value, out var isUnbound) &&
@@ -716,16 +716,20 @@ namespace DTXMania.Game.Lib.Config
 
             var entries = new Dictionary<string, string>(StringComparer.Ordinal);
 
-            entries["DTXManiaVersion"] = Config.DTXManiaVersion;
-            entries["SkinPath"] = Config.SkinPath;
+            // Defensive coalescing: these five string properties can hold null
+            // at runtime despite their non-nullable annotations (e.g. via
+            // deserialization); null must never reach SqliteConfigStore.Save
+            // (NOT NULL schema).
+            entries["DTXManiaVersion"] = Config.DTXManiaVersion ?? string.Empty;
+            entries["SkinPath"] = Config.SkinPath ?? string.Empty;
             for (var index = 0; index < songRoots.Length; index++)
             {
                 entries[$"{SongRootPrefix}{index}"] = songRoots[index];
             }
 
             entries["UseBoxDefSkin"] = Config.UseBoxDefSkin.ToString();
-            entries["SystemSkinRoot"] = Config.SystemSkinRoot;
-            entries["LastUsedSkin"] = Config.LastUsedSkin;
+            entries["SystemSkinRoot"] = Config.SystemSkinRoot ?? string.Empty;
+            entries["LastUsedSkin"] = Config.LastUsedSkin ?? string.Empty;
 
             entries["ScreenWidth"] = Config.ScreenWidth.ToString(CultureInfo.InvariantCulture);
             entries["ScreenHeight"] = Config.ScreenHeight.ToString(CultureInfo.InvariantCulture);
@@ -744,7 +748,7 @@ namespace DTXMania.Game.Lib.Config
 
             entries["EnableGameApi"] = Config.EnableGameApi.ToString();
             entries["GameApiPort"] = Config.GameApiPort.ToString(CultureInfo.InvariantCulture);
-            entries["GameApiKey"] = Config.GameApiKey;
+            entries["GameApiKey"] = Config.GameApiKey ?? string.Empty;
 
             foreach (var kvp in Config.KeyBindings)
             {
@@ -1021,7 +1025,7 @@ namespace DTXMania.Game.Lib.Config
 
             return int.TryParse(
                        key.Substring(MidiVelocityPrefix.Length),
-                       NumberStyles.Integer,
+                       NumberStyles.None,
                        CultureInfo.InvariantCulture,
                        out noteNumber) &&
                    noteNumber >= 0 &&

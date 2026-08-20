@@ -1034,6 +1034,10 @@ config_database_api_enabled() {
             "SELECT Value FROM ConfigEntries WHERE Key = 'EnableGameApi';"
     )" || return 1
     [[ "$value" == True || "$value" == False ]] || return 1
+    # Recheck after the query: a connection left holding the database open
+    # materializes -wal/-shm sidecars, and the caller treats those as a
+    # still-running game (fail closed).
+    [[ ! -e "$database-wal" && ! -e "$database-shm" ]] || return 1
     printf '%s\n' "$value"
 }
 

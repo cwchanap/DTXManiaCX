@@ -21,8 +21,6 @@ namespace DTXMania.Game.Lib.Config
     /// </summary>
     internal sealed class SqliteConfigStore
     {
-        private const int SchemaVersion = 1;
-
         private readonly string _databasePath;
 
         /// <param name="databasePath">Full path of the config database file.</param>
@@ -59,31 +57,7 @@ namespace DTXMania.Game.Lib.Config
                 }.ToString());
             connection.Open();
 
-            var version = ReadUserVersion(connection);
-            if (version != SchemaVersion)
-            {
-                throw new InvalidOperationException(
-                    $"Unsupported config database schema version {version} at '{_databasePath}'; expected {SchemaVersion}.");
-            }
-
-            if (!HasConfigEntriesTable(connection))
-            {
-                throw new InvalidOperationException(
-                    $"Config database at '{_databasePath}' is missing the ConfigEntries table.");
-            }
-
-            var entries = new Dictionary<string, string>(StringComparer.Ordinal);
-            using (var select = connection.CreateCommand())
-            {
-                select.CommandText = "SELECT Key, Value FROM ConfigEntries";
-                using var reader = select.ExecuteReader();
-                while (reader.Read())
-                {
-                    entries[reader.GetString(0)] = reader.GetString(1);
-                }
-            }
-
-            return entries;
+            return ConfigDbSchema.ReadEntries(connection, _databasePath);
         }
 
         /// <summary>
@@ -106,11 +80,22 @@ namespace DTXMania.Game.Lib.Config
 
             using var transaction = connection.BeginTransaction();
 
+            // Never downgrade a database written by a NEWER schema version:
+            // a save that blindly wrote user_version would strand that data
+            // behind a version check the older build then rejects.
+            var existingVersion = ConfigDbSchema.ReadUserVersion(connection);
+            if (existingVersion > ConfigDbSchema.SchemaVersion)
+            {
+                throw new InvalidOperationException(
+                    $"Refusing to save over config database at '{_databasePath}' with schema version " +
+                    $"{existingVersion} newer than the supported {ConfigDbSchema.SchemaVersion}.");
+            }
+
             ExecuteNonQuery(connection, transaction,
                 "CREATE TABLE IF NOT EXISTS ConfigEntries (" +
                 "Key TEXT PRIMARY KEY NOT NULL, " +
                 "Value TEXT NOT NULL)");
-            ExecuteNonQuery(connection, transaction, $"PRAGMA user_version = {SchemaVersion};");
+            ExecuteNonQuery(connection, transaction, $"PRAGMA user_version = {ConfigDbSchema.SchemaVersion};");
             ExecuteNonQuery(connection, transaction, "DELETE FROM ConfigEntries");
 
             using (var insert = connection.CreateCommand())
@@ -129,21 +114,6 @@ namespace DTXMania.Game.Lib.Config
             }
 
             transaction.Commit();
-        }
-
-        private static long ReadUserVersion(SqliteConnection connection)
-        {
-            using var command = connection.CreateCommand();
-            command.CommandText = "PRAGMA user_version;";
-            return (long)command.ExecuteScalar()!;
-        }
-
-        private static bool HasConfigEntriesTable(SqliteConnection connection)
-        {
-            using var command = connection.CreateCommand();
-            command.CommandText =
-                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'ConfigEntries'";
-            return (long)command.ExecuteScalar()! == 1L;
         }
 
         private static void ExecuteNonQuery(SqliteConnection connection, SqliteTransaction transaction, string commandText)

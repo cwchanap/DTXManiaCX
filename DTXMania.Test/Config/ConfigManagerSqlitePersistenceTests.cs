@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
+using DTXMania.Test.TestData;
 using Microsoft.Data.Sqlite;
 using Microsoft.Xna.Framework.Input;
 using Xunit;
@@ -62,6 +63,9 @@ namespace DTXMania.Test.Config
 
         private IReadOnlyDictionary<string, string> ReadRows() =>
             new SqliteConfigStore(DbPath).Load();
+
+        private static bool HasPendingSave(ConfigManager manager) =>
+            ReflectionHelpers.GetPrivateField<bool>(manager, "_hasPendingSave");
 
         // ── 2.1 pins ──────────────────────────────────────────────────────
 
@@ -124,12 +128,18 @@ namespace DTXMania.Test.Config
         [Fact]
         public void LoadConfig_WithInvalidDbVersion_ShouldFailWithoutIniFallback()
         {
+            // Seed a VALID v1 store first, then bump the version: without a
+            // valid schema the load would fail on the missing ConfigEntries
+            // table and the test would not prove version rejection.
+            new SqliteConfigStore(DbPath).Save(
+                new Dictionary<string, string> { ["ScrollSpeed"] = "250" });
             WriteDatabaseWithUserVersion(DbPath, 2);
             File.WriteAllText(IniPath, "[Display]\nScreenWidth=1920\n");
 
             var manager = CreateManager();
 
-            Assert.ThrowsAny<Exception>(() => manager.LoadConfig());
+            var exception = Assert.Throws<InvalidOperationException>(() => manager.LoadConfig());
+            Assert.Contains("schema version", exception.Message);
         }
 
         [Fact]
@@ -203,9 +213,14 @@ namespace DTXMania.Test.Config
             // In-memory values were corrected despite the failed save.
             var correctedRoot = Path.GetFullPath(Path.Combine(_root, "DTXFiles"));
             Assert.Equal(correctedRoot, Path.GetFullPath(manager.Config.SongRoots[0]));
+            // And the failed correction demonstrably stayed pending — this is
+            // the proof the save was really blocked (SQLite rejects writes to
+            // a read-only file on Windows and macOS); without it the test
+            // would also pass if the block silently stopped working.
+            Assert.True(HasPendingSave(manager),
+                "The correction save must have failed and stayed pending.");
 
-            // The failed correction stayed pending: after repairing write
-            // access, a flush persists it to the database.
+            // Repair write access and flush: the pending correction lands.
             SqliteConnection.ClearAllPools();
             File.SetAttributes(DbPath, FileAttributes.Normal);
             manager.FlushPendingSave();
@@ -253,23 +268,16 @@ namespace DTXMania.Test.Config
             manager.LoadConfig();
             manager.SetNoFail(true);
 
-            // Break the filesystem at the app-data root: replace the directory
-            // with a file so the store's directory creation throws on save.
-            Directory.Delete(_root, recursive: true);
-            File.WriteAllText(_root, "blocker");
+            using (var blocker = new ConfigStoreFailureScope(_root))
+            {
+                // The failed flush must not throw and must keep the edit pending.
+                manager.FlushPendingSave();
+                Assert.True(manager.Config.NoFail);
 
-            // The failed flush must not throw and must keep the edit pending.
-            manager.FlushPendingSave();
-            Assert.True(manager.Config.NoFail);
-
-            // Repair the filesystem and retry: the pending edit now lands.
-            // ClearAllPools first: the pooled handle from the initial load
-            // points at the deleted inode and SQLite rejects writes to it
-            // ("attempt to write a readonly database").
-            SqliteConnection.ClearAllPools();
-            File.Delete(_root);
-            Directory.CreateDirectory(_root);
-            manager.FlushPendingSave();
+                // Repair and retry: the pending edit now lands.
+                blocker.Repair();
+                manager.FlushPendingSave();
+            }
 
             Assert.Equal("True", ReadRows()["NoFail"]);
         }
@@ -288,20 +296,13 @@ namespace DTXMania.Test.Config
             manager.Config.SongRoots.Add(oldRoot);
             manager.Config.DTXPath = oldRoot;
 
-            Directory.Delete(_root, recursive: true);
-            File.WriteAllText(_root, "blocker");
-            try
+            using (new ConfigStoreFailureScope(_root))
             {
                 var result = manager.SetSongRoots([newRoot]);
 
                 Assert.Equal(SongRootUpdateStatus.PersistenceFailed, result.Status);
                 Assert.Equal([oldRoot], manager.Config.SongRoots);
                 Assert.Equal(oldRoot, manager.Config.DTXPath);
-            }
-            finally
-            {
-                File.Delete(_root);
-                Directory.CreateDirectory(_root);
             }
         }
 
@@ -330,7 +331,9 @@ namespace DTXMania.Test.Config
             var rows = ReadRows();
             Assert.False(rows.ContainsKey("Key.X"));
             Assert.False(rows.ContainsKey("MidiVelocity.36"));
-            Assert.NotEqual("F1", rows["SystemKey.IncreaseScrollSpeed"]);
+            // The row may legitimately be absent (no system keys bound); the
+            // stale hand-planted value must simply never survive.
+            Assert.NotEqual("F1", rows.GetValueOrDefault("SystemKey.IncreaseScrollSpeed"));
         }
 
         [Fact]
@@ -346,6 +349,33 @@ namespace DTXMania.Test.Config
             var reloaded = CreateManager();
             reloaded.LoadConfig();
             Assert.Equal(250, reloaded.Config.ScrollSpeed);
+        }
+
+        [Fact]
+        public void Save_WhenDatabaseHasNewerSchemaVersion_ShouldRefuseAndNotDowngrade()
+        {
+            // A newer build wrote user_version=2; an older build saving over
+            // it must refuse rather than silently downgrade the version (and
+            // strand v2-only data behind the v1 loader's version check).
+            new SqliteConfigStore(DbPath).Save(
+                new Dictionary<string, string> { ["ScrollSpeed"] = "250" });
+            WriteDatabaseWithUserVersion(DbPath, 2);
+
+            Assert.Throws<InvalidOperationException>(() =>
+                new SqliteConfigStore(DbPath).Save(
+                    new Dictionary<string, string> { ["ScrollSpeed"] = "120" }));
+
+            // The refused save changed nothing: still v2, still the old row.
+            using (var connection = new SqliteConnection($"Data Source={DbPath}"))
+            {
+                connection.Open();
+                using var version = connection.CreateCommand();
+                version.CommandText = "PRAGMA user_version;";
+                Assert.Equal(2L, (long)version.ExecuteScalar()!);
+                using var select = connection.CreateCommand();
+                select.CommandText = "SELECT Value FROM ConfigEntries WHERE Key = 'ScrollSpeed';";
+                Assert.Equal("250", select.ExecuteScalar());
+            }
         }
 
         private static void WriteDatabaseWithUserVersion(string dbPath, long version)

@@ -1,13 +1,14 @@
 using System;
 using System.Globalization;
 using System.IO;
-using System.Reflection;
 using DTXMania.Game.Lib.Config;
+using DTXMania.Test.TestData;
 using Microsoft.Data.Sqlite;
 using Xunit;
 
 namespace DTXMania.Test.Config
 {
+    [Trait("Category", "Unit")]
     [Collection("AppPaths")]
     public sealed class PlaySpeedAndPitchConfigTests : IDisposable
     {
@@ -156,11 +157,7 @@ namespace DTXMania.Test.Config
             manager.SetPlaySpeedPercent(PlaySpeedRange.Default);
             manager.SetPitchSemitones(PitchRange.Default);
 
-            var pendingField = typeof(ConfigManager).GetField(
-                "_hasPendingSave",
-                BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.NotNull(pendingField);
-            Assert.False((bool)pendingField!.GetValue(manager)!);
+            Assert.False(ReflectionHelpers.GetPrivateField<bool>(manager, "_hasPendingSave"));
         }
     }
 }

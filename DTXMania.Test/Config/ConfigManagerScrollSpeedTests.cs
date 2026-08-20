@@ -208,20 +208,13 @@ namespace DTXMania.Test.Config
             Assert.Equal(200, captured.NewPercent);
 
             // Break the store's directory so the flush's save fails.
-            Directory.Delete(_root, recursive: true);
-            File.WriteAllText(_root, "blocker");
-            try
+            using (var blocker = new ConfigStoreFailureScope(_root))
             {
                 // Flush attempts the write — should NOT throw; failure is caught internally
                 cm.FlushPendingSave();
 
                 // In-memory value should still be updated despite save failure
                 Assert.Equal(200, cm.Config.ScrollSpeed);
-            }
-            finally
-            {
-                File.Delete(_root);
-                Directory.CreateDirectory(_root);
             }
         }
 
@@ -237,9 +230,7 @@ namespace DTXMania.Test.Config
             cm.SetScrollSpeed(200);
 
             // Break the store's directory: the save's directory creation throws.
-            Directory.Delete(_root, recursive: true);
-            File.WriteAllText(_root, "blocker");
-            try
+            using (var blocker = new ConfigStoreFailureScope(_root))
             {
                 // First flush fails
                 cm.FlushPendingSave();
@@ -247,23 +238,11 @@ namespace DTXMania.Test.Config
                 // In-memory value is still updated
                 Assert.Equal(200, cm.Config.ScrollSpeed);
 
-                // Remove blocker so the next write can succeed. ClearAllPools
-                // first: the pooled handle from the initial load points at the
-                // deleted inode and SQLite rejects writes to it ("attempt to
-                // write a readonly database").
-                SqliteConnection.ClearAllPools();
-                File.Delete(_root);
-                Directory.CreateDirectory(_root);
+                // Remove blocker so the next write can succeed.
+                blocker.Repair();
 
                 // Second flush should succeed — pending state was preserved
                 cm.FlushPendingSave();
-            }
-            finally
-            {
-                if (File.Exists(_root))
-                    File.Delete(_root);
-                if (!Directory.Exists(_root))
-                    Directory.CreateDirectory(_root);
             }
 
             // Verify the value was persisted

@@ -40,6 +40,14 @@ public sealed class GameplayAutoPlaySmokeTests
                     profile.PitchSemitones);
                 lastFixture = fixture;
 
+                // Later profiles share the RunRoot (songs.db score persistence
+                // spans launches), but each launch must bootstrap its playback
+                // profile from this iteration's fresh INI: remove the config.db
+                // the previous launch wrote, or the DB (authoritative once it
+                // exists) would replay the first profile's values forever.
+                if (profileIndex > 0 && File.Exists(fixture.ConfigDatabasePath))
+                    File.Delete(fixture.ConfigDatabasePath);
+
                 await RunProfileAsync(
                     fixture,
                     profile,

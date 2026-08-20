@@ -104,6 +104,10 @@ public sealed class RecorderConfigCompatibilityTests
         }
         finally
         {
+            // Release pooled source-database handles (the verification load
+            // above) before deleting the temp roots — Windows keeps files
+            // locked while pooled handles are open.
+            SqliteConnection.ClearAllPools();
             if (sandbox is not null)
                 TryDelete(sandbox.RunRoot);
             TryDelete(root);

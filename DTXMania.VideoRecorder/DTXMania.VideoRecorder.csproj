@@ -18,4 +18,11 @@
          Config.ini. -->
     <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.18" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- Shared v1 config-database schema contract, compiled from the game's
+         source so the recorder validates config.db exactly like the game
+         without taking a project reference (keeps the recorder independent). -->
+    <Compile Include="..\DTXMania.Game\Lib\Config\ConfigDbSchema.cs" Link="Config\ConfigDbSchema.cs" />
+  </ItemGroup>
 </Project>
