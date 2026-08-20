@@ -40,7 +40,8 @@ namespace DTXMania.Game.Lib.Config
         }
 
         /// <summary>
-        /// Logical token persisted in Config.ini to represent the bundled default
+        /// Logical token persisted in the config database (and, before
+        /// HPA-190, the legacy Config.ini) to represent the bundled default
         /// skin. Resolved at runtime to the current validating bundled System
         /// root (see <see cref="ResolveSkinPath"/>) so the config survives
         /// application relocations — moving the .app bundle or portable folder
@@ -1580,7 +1581,8 @@ namespace DTXMania.Game.Lib.Config
         /// <see cref="AppContext.BaseDirectory"/> (immutable at runtime). This
         /// is the seam that lets the load-and-persist migration test exercise a
         /// GENUINE bundled path — writing a fake install's validating System
-        /// root into Config.ini and verifying LoadConfig rewrites it to the
+        /// root into the config store (via a legacy Config.ini import) and
+        /// verifying LoadConfig rewrites it to the
         /// <see cref="DefaultSkinPathToken"/> token — without mutating
         /// <see cref="AppContext.BaseDirectory"/>.
         /// </summary>

@@ -222,8 +222,8 @@ namespace DTXMania.Game.Lib.Resources
             // cached at RefreshAvailableSkins time, so a skin deleted (or stripped of
             // its validation files) between discovery and selection would otherwise
             // pass here: SetSkinPath only logs validation failure, so without this
-            // guard ConfigStage.SwitchSkin would persist the stale path to Config.ini
-            // and force ResourceManager onto fallback assets.
+            // guard ConfigStage.SwitchSkin would persist the stale path to the
+            // config database and force ResourceManager onto fallback assets.
             if (!ValidateSkinPath(skinPath))
             {
                 Debug.WriteLine($"SkinManager: Skin '{skinName}' no longer valid on disk: {skinPath}");

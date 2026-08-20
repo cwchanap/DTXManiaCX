@@ -389,7 +389,7 @@ The menu rendering now follows the authentic DTXMania pattern:
 - **Basic Config Screen**: Implemented full configuration stage with UI components
 - **Config Item System**: Created IConfigItem interface with dropdown, toggle, and integer implementations
 - **Value Editing**: Left/Right arrows change values, Enter toggles boolean options
-- **Save Functionality**: Apply changes immediately, save to Config.ini on exit, cancel option
+- **Save Functionality**: Apply changes immediately, save to the config database (config.db) on exit, cancel option
 - **DTXMania Integration**: Follows DTXMania patterns with proper stage lifecycle management
 - **Unit Testing**: 11 unit tests covering config item functionality
 

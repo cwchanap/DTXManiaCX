@@ -10,8 +10,9 @@ namespace DTXMania.E2E;
 /// <summary>
 /// Black-box smoke for the visual drum-mapping stage (<c>StageType.DrumConfig</c>): navigate to
 /// the stage, open a piece's capture popup, hit a key to bind it, then Back (= save &amp; exit),
-/// and assert the new binding was persisted to the sandbox <c>Config.ini</c>. This exercises the
-/// live render + capture + save round-trip that the headless unit suite structurally cannot reach.
+/// and assert the new binding was persisted to the sandbox <c>config.db</c> (the authoritative
+/// SQLite store since HPA-190). This exercises the live render + capture + save round-trip that
+/// the headless unit suite structurally cannot reach.
 /// </summary>
 [Trait("Category", "E2E")]
 public sealed class DrumMappingStageSmokeTests
@@ -78,13 +79,18 @@ public sealed class DrumMappingStageSmokeTests
             await WaitForStageAsync(client, "Config", TimeSpan.FromSeconds(45), cancellation.Token);
 
             // ExitStage flushes the pending save before changing stage, so by the time we are
-            // back in Config the file already contains the new binding.
-            var configText = await File.ReadAllTextAsync(fixture.ConfigPath, cancellation.Token);
-            await E2EArtifactWriter.WriteTextAsync(fixture, "drum-config.ini", configText);
+            // back in Config the authoritative config database already contains the binding.
+            // The helper asserts the database exists before loading, so this cannot pass by
+            // falling back to (re-importing) the bootstrap INI.
+            var persisted = E2EConfigPersistence.LoadPersistedConfig(fixture);
+            await E2EArtifactWriter.WriteTextAsync(
+                fixture,
+                "drum-config-bindings.txt",
+                FormatKeyBindings(persisted));
 
-            // [KeyBindings] serializes entries as "<buttonId>=<lane>"; assert the lane too so an
-            // unbound-button entry that merely contains the id can't pass.
-            Assert.Contains($"{ExpectedBindingId}={DefaultFocusedLane}", configText);
+            // Assert the lane too so an entry bound to a different lane can't pass.
+            Assert.True(persisted.Config.KeyBindings.TryGetValue(ExpectedBindingId, out var boundLane));
+            Assert.Equal(DefaultFocusedLane, boundLane);
         }
         catch (Exception ex)
         {
@@ -165,10 +171,16 @@ public sealed class DrumMappingStageSmokeTests
             await client.SendKeyAsync("Escape", TimeSpan.FromMilliseconds(50), cancellation.Token);
             await WaitForStageAsync(client, "Config", TimeSpan.FromSeconds(45), cancellation.Token);
 
-            // Reset overwrote the custom binding in Config before the flush, so it must not be on disk.
-            var configText = await File.ReadAllTextAsync(fixture.ConfigPath, cancellation.Token);
-            await E2EArtifactWriter.WriteTextAsync(fixture, "drum-reset-config.ini", configText);
-            Assert.DoesNotContain($"{ExpectedBindingId}={DefaultFocusedLane}", configText);
+            // Reset overwrote the custom binding in Config before the flush, so it must not be
+            // in the authoritative config database. The helper asserts the database exists
+            // before loading, so this cannot pass by falling back to the bootstrap INI (which
+            // also lacks the binding).
+            var persisted = E2EConfigPersistence.LoadPersistedConfig(fixture);
+            await E2EArtifactWriter.WriteTextAsync(
+                fixture,
+                "drum-reset-config-bindings.txt",
+                FormatKeyBindings(persisted));
+            Assert.False(persisted.Config.KeyBindings.TryGetValue(ExpectedBindingId, out _));
         }
         catch (Exception ex)
         {
@@ -182,6 +194,17 @@ public sealed class DrumMappingStageSmokeTests
             await E2EArtifactWriter.WriteTextAsync(fixture, "game-stdout.log", process.StandardOutput);
             await E2EArtifactWriter.WriteTextAsync(fixture, "game-stderr.log", process.StandardError);
         }
+    }
+
+    /// <summary>
+    /// Serializes the persisted key bindings ("<buttonId>=<lane>" per line, ordinal order) as
+    /// the artifact evidence for the database-backed persistence assertions.
+    /// </summary>
+    private static string FormatKeyBindings(DTXMania.Game.Lib.Config.ConfigManager manager)
+    {
+        return string.Join('\n', manager.Config.KeyBindings
+            .OrderBy(kvp => kvp.Key, StringComparer.Ordinal)
+            .Select(kvp => $"{kvp.Key}={kvp.Value}"));
     }
 
     private static async Task<GameStateSnapshot> WaitForStageAsync(

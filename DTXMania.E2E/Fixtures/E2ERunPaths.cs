@@ -6,6 +6,7 @@ public sealed record E2ERunPaths(
     string SkinRoot,
     string DtxRoot,
     string SongDirectory,
-    string ConfigPath,
+    string LegacyConfigPath,
+    string ConfigDatabasePath,
     string ChartPath,
     string ArtifactRoot);

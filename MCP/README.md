@@ -45,8 +45,51 @@ Use `-- --test` to launch the interactive `GameInteractionTestConsole`, which ex
 ### Server lifecycle
 - On startup the server starts the ModelContextProtocol stdio transport and exposes the registered tool handlers, including `game_launch`, `game_restart`, `game_change_stage`, `game_get_state`, `game_send_key`, `game_click`, `game_drag`, `game_screenshot`, `game_get_window_info`, and `game_list_clients`.
 - `GameInteractionService` forwards each tool invocation to the configured JSON-RPC endpoint (default: `http://localhost:8080/jsonrpc`). Configure the URL via the `DTXMANIA_API_URL` environment variable if your game build exposes a different port or path.
-- If the game API requires authentication (when `EnableGameApi` is enabled with a `GameApiKey` in `Config.ini`), set the `DTXMANIA_API_KEY` environment variable to the same key value. Without this, MCP tool calls will receive HTTP 401 Unauthorized errors.
+- If the game API requires authentication (when `EnableGameApi` is enabled with a `GameApiKey` set — see [Game API settings live in config.db](#game-api-settings-live-in-configdb-hpa-190) below), set the `DTXMANIA_API_KEY` environment variable to the same key value. Without this, MCP tool calls will receive HTTP 401 Unauthorized errors.
 - Set `DTXMANIA_PROJECT_PATH` when you want MCP clients to launch or restart the game process instead of connecting to a game that is already running.
+
+### Game API settings live in config.db (HPA-190)
+
+Since HPA-190 the authoritative configuration store is the SQLite database at
+`<app-data>/config.db` (table `ConfigEntries(Key TEXT PRIMARY KEY, Value TEXT)`, schema
+`PRAGMA user_version = 1`). **`Config.ini` is import/bootstrap input only**: it is read once when
+`config.db` does not yet exist (typically the first launch, or a fresh E2E/recorder sandbox) and is
+never modified afterwards — once the database exists, edits to `Config.ini` are ignored.
+
+`EnableGameApi`, `GameApiPort`, and `GameApiKey` currently have no in-game Config editor, so they
+are developer-facing settings managed directly in the database. The game auto-generates a secure
+`GameApiKey` when the Game API is enabled and no key is set.
+
+App-data location of `config.db`:
+
+| Platform | Path |
+|----------|------|
+| macOS | `~/Library/Application Support/DTXManiaCX/config.db` |
+| Windows | `%LOCALAPPDATA%\DTXManiaCX\config.db` |
+| Linux | `~/.config/DTXManiaCX/config.db` |
+
+Read the current API key:
+
+```bash
+sqlite3 "$HOME/Library/Application Support/DTXManiaCX/config.db" \
+    "SELECT Value FROM ConfigEntries WHERE Key = 'GameApiKey';"
+```
+
+Update the Game API enable/port/key rows (adjust the path per platform; quit the game before
+patching so a running instance cannot overwrite the rows on save):
+
+```bash
+sqlite3 "$HOME/Library/Application Support/DTXManiaCX/config.db" <<'SQL'
+BEGIN;
+INSERT INTO ConfigEntries (Key, Value) VALUES ('EnableGameApi', 'True')
+    ON CONFLICT(Key) DO UPDATE SET Value = excluded.Value;
+INSERT INTO ConfigEntries (Key, Value) VALUES ('GameApiPort', '8080')
+    ON CONFLICT(Key) DO UPDATE SET Value = excluded.Value;
+INSERT INTO ConfigEntries (Key, Value) VALUES ('GameApiKey', 'replace-with-your-key')
+    ON CONFLICT(Key) DO UPDATE SET Value = excluded.Value;
+COMMIT;
+SQL
+```
 
 ## Configuring an MCP client
 Model Context Protocol clients discover and launch servers via small JSON manifests. Regardless of the client, point the command to `dotnet run --project MCP/MCP.csproj` so the .NET host boots on demand. The exact shape of the manifest depends on the client, but every setup needs the command line, working directory, and optional environment variables. The examples below use `<repo-root>` as a placeholder—replace it with the absolute path to your local DTXManiaCX repository clone.
@@ -61,7 +104,7 @@ Create (or merge into) `~/.config/mcp/servers.json`:
       "cwd": "<repo-root>",
       "env": {
         "DOTNET_ENVIRONMENT": "Development",
-        "DTXMANIA_API_KEY": "<your-api-key-from-Config.ini>"
+        "DTXMANIA_API_KEY": "<your-api-key-from-config.db>"
       }
     }
   }
@@ -85,7 +128,7 @@ Claude Desktop loads `claude_desktop_config.json` from `~/Library/Application Su
       "cwd": "<repo-root>",
       "env": {
         "DOTNET_ENVIRONMENT": "Development",
-        "DTXMANIA_API_KEY": "<your-api-key-from-Config.ini>"
+        "DTXMANIA_API_KEY": "<your-api-key-from-config.db>"
       }
     }
   ]

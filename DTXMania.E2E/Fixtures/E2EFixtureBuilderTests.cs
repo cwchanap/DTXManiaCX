@@ -22,6 +22,12 @@ public sealed class E2EFixtureBuilderTests
             Assert.Equal(Path.Combine(fixture.RunRoot, "System"), fixture.SkinRoot);
             Assert.Equal(Path.Combine(fixture.RunRoot, "DTXFiles"), fixture.DtxRoot);
             Assert.Equal(Path.Combine(fixture.DtxRoot, "AutoPlaySmoke"), fixture.SongDirectory);
+            Assert.Equal(
+                Path.Combine(fixture.AppDataRoot, "Config.ini"),
+                fixture.LegacyConfigPath);
+            Assert.Equal(
+                Path.Combine(fixture.AppDataRoot, "config.db"),
+                fixture.ConfigDatabasePath);
             Assert.Equal(Path.Combine(fixture.SongDirectory, "autoplay-smoke.dtx"), fixture.ChartPath);
             Assert.Equal(Path.Combine(fixture.SongDirectory, E2EFixtureBuilder.AudioFileName), fixture.AudioPath);
             Assert.Equal(Path.Combine(fixture.RunRoot, "TestResults", "e2e"), fixture.ArtifactRoot);
@@ -36,7 +42,7 @@ public sealed class E2EFixtureBuilderTests
             Assert.True(Directory.Exists(fixture.DtxRoot));
             Assert.True(Directory.Exists(fixture.SongDirectory));
             Assert.True(Directory.Exists(fixture.ArtifactRoot));
-            Assert.True(File.Exists(fixture.ConfigPath));
+            Assert.True(File.Exists(fixture.LegacyConfigPath));
             Assert.True(File.Exists(fixture.ChartPath));
             Assert.True(File.Exists(fixture.AudioPath));
 
@@ -49,7 +55,7 @@ public sealed class E2EFixtureBuilderTests
                 new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A },
                 hitEffectBytes.Take(8).ToArray());
 
-            var config = File.ReadAllText(fixture.ConfigPath);
+            var config = File.ReadAllText(fixture.LegacyConfigPath);
             Assert.Contains("EnableGameApi=True", config);
             Assert.Contains("GameApiKey=e2e-autoplay-smoke-key", config);
             Assert.Contains("GameApiPort=18080", config);
@@ -79,23 +85,17 @@ public sealed class E2EFixtureBuilderTests
             Assert.Equal("RIFF", System.Text.Encoding.ASCII.GetString(audioBytes, 0, 4));
             Assert.Equal("WAVE", System.Text.Encoding.ASCII.GetString(audioBytes, 8, 4));
 
-            // HPA-190: the game now loads the SQLite config database and imports
-            // the legacy Config.ini only when the database is absent. Sandbox the
-            // app-data root to the fixture's own directory so this import reads
-            // the fixture INI and creates the fixture's config.db — the same
-            // bootstrap the launched game process performs.
-            var previousAppDataRoot = Environment.GetEnvironmentVariable("DTXMANIA_APPDATA_ROOT");
-            Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", fixture.AppDataRoot);
-            ConfigManager configManager;
-            try
-            {
-                configManager = new ConfigManager();
-                configManager.LoadConfig();
-            }
-            finally
-            {
-                Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", previousAppDataRoot);
-            }
+            // HPA-190: the fixture writes only the legacy bootstrap INI; the
+            // authoritative store is the SQLite config database the game (or
+            // here, the production ConfigManager through its explicit-path
+            // constructor) creates on first launch by importing that INI. No
+            // process-global DTXMANIA_APPDATA_ROOT mutation is involved.
+            Assert.False(File.Exists(fixture.ConfigDatabasePath));
+            var configManager = new ConfigManager(
+                fixture.ConfigDatabasePath,
+                fixture.LegacyConfigPath);
+            configManager.LoadConfig();
+            Assert.True(File.Exists(fixture.ConfigDatabasePath));
 
             Assert.True(configManager.Config.EnableGameApi);
             Assert.Equal("e2e-autoplay-smoke-key", configManager.Config.GameApiKey);
@@ -145,7 +145,7 @@ public sealed class E2EFixtureBuilderTests
                 playSpeedPercent: 75,
                 pitchSemitones: 3);
 
-            var config = File.ReadAllText(first.ConfigPath);
+            var config = File.ReadAllText(first.LegacyConfigPath);
             Assert.Contains("PlaySpeedPercent=75", config);
             Assert.Contains("PitchSemitones=3", config);
             Assert.Equal(

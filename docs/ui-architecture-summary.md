@@ -121,7 +121,7 @@ uiManager.Draw(spriteBatch, deltaTime);
 - **DTXMania-Style Rendering**: Replaced UI components with authentic DTXMania direct rendering using BitmapFont
 - **Config Item System**: Created IConfigItem interface with dropdown, toggle, and integer implementations
 - **Value Editing**: Left/Right arrows change values, Enter toggles boolean options, Up/Down navigation
-- **Save Functionality**: Apply changes immediately, save to Config.ini on exit, cancel option
+- **Save Functionality**: Apply changes immediately, save to the config database (config.db) on exit, cancel option
 - **DTXMania Integration**: Follows DTXMania patterns with proper stage lifecycle management and text rendering
 - **Unit Testing**: 11 unit tests covering config item functionality
 - **Visual Features**: Selection highlighting, DTXMania-style text rendering, fallback rectangles when fonts unavailable

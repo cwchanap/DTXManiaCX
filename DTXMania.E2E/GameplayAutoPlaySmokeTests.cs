@@ -92,8 +92,8 @@ public sealed class GameplayAutoPlaySmokeTests
             $"{profileIndex + 1}-{profile.PlaySpeedPercent}-pitch-{profile.PitchSemitones}";
         await E2EArtifactWriter.WriteTextAsync(
             fixture,
-            $"config-{artifactSuffix}.ini",
-            await File.ReadAllTextAsync(fixture.ConfigPath, cancellationToken));
+            $"bootstrap-config-{artifactSuffix}.ini",
+            await File.ReadAllTextAsync(fixture.LegacyConfigPath, cancellationToken));
         await using var bundle = E2EGameLaunch.CreateClientBundle(fixture);
         var process = bundle.Process;
         var client = bundle.Client;

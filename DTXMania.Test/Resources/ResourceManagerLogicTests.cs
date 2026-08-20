@@ -1519,7 +1519,7 @@ namespace DTXMania.Test.Resources
             // notification subscribe via SetSkinPath. If SetBoxDefSkinPath ever
             // raises SkinChanged, downstream subscribers (e.g. ConfigStage) would
             // treat a per-song override as a global skin switch and persist the
-            // box.def path to Config.ini.
+            // box.def path to the config database.
             var resourceManager = CreateTestableResourceManager(_customSkinRoot, _defaultSkinRoot);
             var skinChangedRaised = false;
             resourceManager.SkinChanged += (_, _) => skinChangedRaised = true;
