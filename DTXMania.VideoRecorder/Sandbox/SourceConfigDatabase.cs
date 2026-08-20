@@ -35,6 +35,7 @@ internal static class SourceConfigDatabase
             {
                 DataSource = databasePath,
                 Mode = SqliteOpenMode.ReadOnly,
+                Pooling = false,
             }.ToString());
         connection.Open();
 

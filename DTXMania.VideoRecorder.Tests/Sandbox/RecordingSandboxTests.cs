@@ -126,6 +126,33 @@ public sealed class RecordingSandboxTests
         }
     }
 
+    [Theory]
+    [InlineData("Bad\nKey")]
+    [InlineData("Bad\rKey")]
+    [InlineData("Bad\r\nKey")]
+    public void Create_WithNewlineBearingKey_ShouldRejectWithNormalizationGuidance(string key)
+    {
+        // A CR/LF inside a config key would inject forged Key=Value lines
+        // into the bootstrap INI, exactly like a newline-bearing value.
+        // Such a row can only come from a hand-edited source database.
+        var rows = BuildRows();
+        rows[key] = "value";
+        var sourceRoot = CreateSourceRoot(rows);
+
+        try
+        {
+            var exception = Assert.Throws<InvalidOperationException>(() => RecordingSandbox.Create(sourceRoot));
+
+            Assert.Contains("contains a line break", exception.Message);
+            Assert.Contains("keys must be single-line", exception.Message);
+            Assert.Contains("Open CX once and exit normally, then retry dtx-video.", exception.Message);
+        }
+        finally
+        {
+            Delete(sourceRoot);
+        }
+    }
+
     [Fact]
     public void Create_WithoutIndexedSongRoot_ShouldReject()
     {
@@ -391,12 +418,11 @@ public sealed class RecordingSandboxTests
 
     private static void Delete(string path)
     {
-        // RecordingSandbox.Create opens a (default-pooled) read-only
-        // SqliteConnection to <sourceRoot>/config.db via
-        // SourceConfigDatabase.Load. On Windows the pooled native handle
-        // keeps the file locked after the managed connection is disposed,
-        // so the recursive directory delete below would throw IOException.
-        // Clear the pool first to release the inode.
+        // RecordingSandbox.Create opens a read-only SqliteConnection to
+        // <sourceRoot>/config.db via SourceConfigDatabase.Load (Pooling=false,
+        // so the native handle releases on dispose). TestSourceConfigDatabase
+        // also uses Pooling=false, but ClearAllPools() is kept as a safety net
+        // in case any other pooled connection lingers in the AppDomain.
         SqliteConnection.ClearAllPools();
         if (Directory.Exists(path))
             Directory.Delete(path, recursive: true);
