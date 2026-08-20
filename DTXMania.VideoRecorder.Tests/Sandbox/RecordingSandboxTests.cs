@@ -391,6 +391,13 @@ public sealed class RecordingSandboxTests
 
     private static void Delete(string path)
     {
+        // RecordingSandbox.Create opens a (default-pooled) read-only
+        // SqliteConnection to <sourceRoot>/config.db via
+        // SourceConfigDatabase.Load. On Windows the pooled native handle
+        // keeps the file locked after the managed connection is disposed,
+        // so the recursive directory delete below would throw IOException.
+        // Clear the pool first to release the inode.
+        SqliteConnection.ClearAllPools();
         if (Directory.Exists(path))
             Directory.Delete(path, recursive: true);
     }
