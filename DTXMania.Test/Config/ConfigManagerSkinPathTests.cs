@@ -118,25 +118,27 @@ namespace DTXMania.Test.Config
             // must not spuriously mark the config dirty.
             var manager = CreateManager();
             manager.LoadConfig();
-            var current = manager.Config.SkinPath;
-            // Build an equivalent path: same segments, opposite separators, no
-            // trailing slash.
-            var equivalent = current.Replace('/', Path.DirectorySeparatorChar)
-                                    .Replace('\\', Path.DirectorySeparatorChar)
-                                    .TrimEnd(Path.DirectorySeparatorChar);
-            // Only meaningful when the default actually has a separator to trim;
-            // otherwise the equivalent string equals current and the test is trivial.
-            if (equivalent == current)
-            {
-                // Force a trailing-separator-only difference by appending and
-                // re-trimming the OS separator on a copy.
-                equivalent = current.TrimEnd(Path.DirectorySeparatorChar, '/');
-            }
+
+            // First set and flush a custom skin path with multiple segments and
+            // a trailing separator so the comparison logic has a real path to
+            // normalize (the "Default" token has no separators to trim, which
+            // would make this test trivial).
+            var customSkin = Path.Combine(_tempDir, "System", "CXNeon") +
+                Path.DirectorySeparatorChar;
+            manager.SetSkinPath(customSkin);
+            manager.FlushPendingSave();
+            Assert.Equal(customSkin, manager.Config.SkinPath);
+
+            // Derive an equivalent path: same segments, alternate separators,
+            // no trailing slash.
+            var equivalent = customSkin
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                .Replace(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
             manager.SetSkinPath(equivalent);
             manager.FlushPendingSave();
 
-            Assert.Equal(current, manager.Config.SkinPath);
+            Assert.Equal(customSkin, manager.Config.SkinPath);
             Assert.False(HasPendingSave(manager)); // no-op detected, nothing written
         }
 

@@ -200,9 +200,15 @@ internal sealed class RecordingSandbox
     {
         foreach (var pair in values)
         {
-            // A CR/LF inside a value would inject forged Key=Value lines into
-            // the bootstrap INI; such a row can only come from a hand-edited
-            // source database.
+            // A CR/LF inside a key or value would inject forged Key=Value
+            // lines into the bootstrap INI; such a row can only come from a
+            // hand-edited source database.
+            if (pair.Key.Contains('\r') || pair.Key.Contains('\n'))
+            {
+                throw new InvalidOperationException(
+                    $"Source config database key '{pair.Key}' contains a line break; " +
+                    $"keys must be single-line. {NormalizationHint}");
+            }
             if (pair.Value.Contains('\r') || pair.Value.Contains('\n'))
             {
                 throw new InvalidOperationException(
