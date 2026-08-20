@@ -44,6 +44,12 @@ public sealed class EventuallyTests
     {
         var attempt = 0;
 
+        // Generous timeout relative to the interval so the failure attempt is
+        // reached even on loaded CI runners, where Task.Delay can inflate far
+        // beyond the requested interval. With 20ms the delay after the first
+        // (successful) attempt could exhaust the budget before the throwing
+        // attempt runs, leaving no last exception to retain; 500ms guarantees
+        // both attempts land.
         var exception = await Assert.ThrowsAsync<TimeoutException>(() => Eventually.UntilAsync(
             _ =>
             {
@@ -54,8 +60,8 @@ public sealed class EventuallyTests
                 throw new InvalidOperationException("transient boom");
             },
             _ => false,
-            TimeSpan.FromMilliseconds(20),
-            TimeSpan.FromMilliseconds(1),
+            TimeSpan.FromMilliseconds(500),
+            TimeSpan.FromMilliseconds(5),
             "transient operation",
             CancellationToken.None));
 
