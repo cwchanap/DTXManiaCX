@@ -122,6 +122,11 @@ public sealed class SongRootPolicyTests
                 eventCount++;
                 raised = args;
                 dbExistedWhenRaised = File.Exists(Path.Combine(root, "config.db"));
+                // Prove persistence PRECEDES the event: the canonical roots
+                // are already the committed rows when the handler runs.
+                var persisted = new SqliteConfigStore(Path.Combine(root, "config.db")).Load();
+                Assert.Equal(Path.GetFullPath(firstRoot), persisted["SongRoot.0"]);
+                Assert.Equal(Path.GetFullPath(secondRoot), persisted["SongRoot.1"]);
             };
 
             var result = manager.SetSongRoots(

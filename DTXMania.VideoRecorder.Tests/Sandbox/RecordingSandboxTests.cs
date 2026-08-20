@@ -312,10 +312,18 @@ public sealed class RecordingSandboxTests
             if (sandbox is not null)
                 Delete(sandbox.RunRoot);
             SqliteConnection.ClearAllPools();
-            Assert.Equal(sourceDatabaseBefore, File.ReadAllBytes(sourceDatabasePath));
-            Assert.False(File.Exists(sourceDatabasePath + "-wal"));
-            Assert.False(File.Exists(sourceDatabasePath + "-shm"));
-            Delete(sourceRoot);
+            try
+            {
+                // Source-database assertions run after cleanup completes, but
+                // sourceRoot deletion must still happen if they fail.
+                Assert.Equal(sourceDatabaseBefore, File.ReadAllBytes(sourceDatabasePath));
+                Assert.False(File.Exists(sourceDatabasePath + "-wal"));
+                Assert.False(File.Exists(sourceDatabasePath + "-shm"));
+            }
+            finally
+            {
+                Delete(sourceRoot);
+            }
         }
     }
 

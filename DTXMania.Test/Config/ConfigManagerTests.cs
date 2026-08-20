@@ -4,6 +4,7 @@ using System.Text;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Utilities;
+using DTXMania.Test.TestData;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using Microsoft.Xna.Framework.Input;
@@ -857,11 +858,8 @@ Key.Bad=abc
     /// caught internally), the pending marker is KEPT so the next flush retries.
     /// The scalar setters (e.g. SetNoFail) mark dirty without any path, so this
     /// test drives LoadConfig -> SetNoFail, then toggles the filesystem so the first
-    /// flush fails and the second succeeds against the SAME database.
-    ///
-    /// Mechanism: the store saves to "&lt;sandbox&gt;/&lt;test&gt;/config.db", whose parent
-    /// directory creation throws when a regular file exists at the parent's name.
-    /// Removing the file makes the retry succeed. The pending marker never changes.
+    /// flush fails and the second succeeds against the SAME database. The pending
+    /// marker never changes.
     /// </summary>
     [Fact]
     public void FlushPendingSave_ShouldRetryAfterFailure()
@@ -871,23 +869,20 @@ Key.Bad=abc
         var configDbPath = Path.Combine(dir, "config.db");
         var manager = CreateManager(dir);
 
-        try
+        manager.LoadConfig();
+
+        // Sanity: LoadConfig created the default database.
+        Assert.True(File.Exists(configDbPath));
+        Assert.Equal("False", ReadRows(dir)["NoFail"]);
+
+        // Scalar setter marks dirty.
+        manager.SetNoFail(true);
+        Assert.True(manager.Config.NoFail);
+
+        // Break the filesystem at <dir>: replace the directory with a
+        // regular file so the store's directory creation throws on save.
+        using (var blocker = new ConfigStoreFailureScope(dir))
         {
-            manager.LoadConfig();
-
-            // Sanity: LoadConfig created the default database.
-            Assert.True(File.Exists(configDbPath));
-            Assert.Equal("False", ReadRows(dir)["NoFail"]);
-
-            // Scalar setter marks dirty.
-            manager.SetNoFail(true);
-            Assert.True(manager.Config.NoFail);
-
-            // Break the filesystem at <dir>: replace the directory with a
-            // regular file so the store's directory creation throws on save.
-            Directory.Delete(dir, recursive: true);
-            File.WriteAllText(dir, "blocker");
-
             // First flush: the store save throws, the exception is caught
             // internally, and the pending marker is retained. Must NOT throw.
             manager.FlushPendingSave();
@@ -895,34 +890,23 @@ Key.Bad=abc
             // In-memory value survives the failed flush.
             Assert.True(manager.Config.NoFail);
 
-            // The edit must NOT have landed yet — proves the flush genuinely failed.
-            Assert.False(File.Exists(configDbPath));
+            // The pending marker survived — proves the flush genuinely failed
+            // and the edit will be retried (the directory itself is gone, so
+            // File.Exists would be trivially false and prove nothing).
+            Assert.True(ReflectionHelpers.GetPrivateField<bool>(manager, "_hasPendingSave"));
 
             // Fix the filesystem at <dir>: remove the blocking file so the
             // retry can recreate the directory and write the database at the
-            // SAME path. ClearAllPools first: the pooled handle from the
-            // initial load points at the deleted inode and SQLite rejects
-            // writes to it ("attempt to write a readonly database").
-            SqliteConnection.ClearAllPools();
-            File.Delete(dir);
-            Directory.CreateDirectory(dir);
+            // SAME path.
+            blocker.Repair();
 
             // Second flush: retries the retained pending save and succeeds.
             manager.FlushPendingSave();
+        }
 
-            // The edit now persists on retry.
-            Assert.True(File.Exists(configDbPath));
-            Assert.Equal("True", ReadRows(dir)["NoFail"]);
-        }
-        finally
-        {
-            // <dir> may be a file or a directory depending on where the test
-            // landed; clean up both possibilities.
-            if (File.Exists(dir))
-                File.Delete(dir);
-            if (Directory.Exists(dir))
-                Directory.Delete(dir, recursive: true);
-        }
+        // The edit now persists on retry.
+        Assert.True(File.Exists(configDbPath));
+        Assert.Equal("True", ReadRows(dir)["NoFail"]);
     }
 
     [Fact]

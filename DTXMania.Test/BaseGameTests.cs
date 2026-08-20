@@ -17,6 +17,7 @@ using DTXMania.Game.Lib.Input.Midi;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Test.TestData;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Xna.Framework;
@@ -580,6 +581,9 @@ namespace DTXMania.Test
             }
             finally
             {
+                // Release pooled config.db handles before deleting the temp
+                // directory (Windows keeps the file locked otherwise).
+                SqliteConnection.ClearAllPools();
                 if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true);
             }
 
@@ -1275,6 +1279,9 @@ namespace DTXMania.Test
             }
             finally
             {
+                // Release pooled config.db handles before deleting the temp
+                // directory (Windows keeps the file locked otherwise).
+                SqliteConnection.ClearAllPools();
                 if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true);
             }
         }

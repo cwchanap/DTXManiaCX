@@ -1,9 +1,9 @@
 using System;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Utilities;
+using DTXMania.Test.TestData;
 using Microsoft.Data.Sqlite;
 using Xunit;
 
@@ -37,10 +37,19 @@ namespace DTXMania.Test.Config
             try
             {
                 SqliteConnection.ClearAllPools();
-                Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", _previousAppDataRoot);
-                Directory.Delete(_tempDir, recursive: true);
             }
-            catch { /* best effort */ }
+            finally
+            {
+                // Restore the environment even if pool clearing (or the
+                // best-effort delete below) fails: a leaked sandbox root would
+                // poison every later test in this collection.
+                Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", _previousAppDataRoot);
+                try
+                {
+                    Directory.Delete(_tempDir, recursive: true);
+                }
+                catch { /* best effort */ }
+            }
         }
 
         private string ConfigPath => Path.Combine(_tempDir, "Config.ini");
@@ -50,9 +59,7 @@ namespace DTXMania.Test.Config
             new(DbPath, ConfigPath, baseDir: baseDir);
 
         private static bool HasPendingSave(ConfigManager manager) =>
-            (bool)typeof(ConfigManager)
-                .GetField("_hasPendingSave", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .GetValue(manager)!;
+            ReflectionHelpers.GetPrivateField<bool>(manager, "_hasPendingSave");
 
         [Fact]
         public void SetSkinPath_WithNewValue_ShouldUpdateConfigAndDeferSave()
@@ -65,7 +72,7 @@ namespace DTXMania.Test.Config
 
             Assert.Equal(newSkin, manager.Config.SkinPath);
             // Write is deferred: the store still holds the previous value.
-            Assert.DoesNotContain(newSkin, new SqliteConfigStore(DbPath).Load()["SkinPath"]);
+            Assert.NotEqual(newSkin, new SqliteConfigStore(DbPath).Load()["SkinPath"]);
             Assert.True(HasPendingSave(manager));
 
             manager.FlushPendingSave();

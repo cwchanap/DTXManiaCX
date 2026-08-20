@@ -20,7 +20,15 @@ internal static class TestSourceConfigDatabase
     {
         Directory.CreateDirectory(sourceRoot);
         var databasePath = Path.Combine(sourceRoot, DatabaseFileName);
-        using var connection = new SqliteConnection($"Data Source={databasePath}");
+        // The builder escapes path-hostile characters (';', '"') and Pooling=false
+        // guarantees disposing the connection releases the config.db handle, so
+        // callers can delete the source root right after Create.
+        using var connection = new SqliteConnection(
+            new SqliteConnectionStringBuilder
+            {
+                DataSource = databasePath,
+                Pooling = false,
+            }.ToString());
         connection.Open();
         using var transaction = connection.BeginTransaction();
 

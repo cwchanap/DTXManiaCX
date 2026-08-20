@@ -196,12 +196,27 @@ internal sealed class RecordingSandbox
     /// without BOM). The sandbox game imports this INI and creates its own
     /// config.db through the production ConfigManager.
     /// </summary>
-    private static string SerializeConfigIni(IReadOnlyDictionary<string, string> values) =>
-        string.Join(
+    private static string SerializeConfigIni(IReadOnlyDictionary<string, string> values)
+    {
+        foreach (var pair in values)
+        {
+            // A CR/LF inside a value would inject forged Key=Value lines into
+            // the bootstrap INI; such a row can only come from a hand-edited
+            // source database.
+            if (pair.Value.Contains('\r') || pair.Value.Contains('\n'))
+            {
+                throw new InvalidOperationException(
+                    $"Source config database key '{pair.Key}' has a value containing a line break; " +
+                    $"values must be single-line. {NormalizationHint}");
+            }
+        }
+
+        return string.Join(
             '\n',
             values.Keys
                 .OrderBy(key => key, StringComparer.Ordinal)
                 .Select(key => $"{key}={values[key]}")) + "\n";
+    }
 
     private static string NormalizeSourceRoot(string sourceAppDataRoot)
     {

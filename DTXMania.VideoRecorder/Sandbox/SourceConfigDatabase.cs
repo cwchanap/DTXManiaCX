@@ -1,3 +1,4 @@
+using DTXMania.Game.Lib.Config;
 using Microsoft.Data.Sqlite;
 
 namespace DTXMania.VideoRecorder.Sandbox;
@@ -5,9 +6,9 @@ namespace DTXMania.VideoRecorder.Sandbox;
 /// <summary>
 /// Read-only access to the authoritative v1 source configuration database
 /// (<c>&lt;source-app-data&gt;/config.db</c>) written by the game's
-/// ConfigManager. Mirrors the schema contract of
-/// <c>DTXMania.Game/Lib/Config/SqliteConfigStore.cs</c>; the messages are
-/// intentionally identical so drift surfaces identically on both sides.
+/// ConfigManager. Schema validation and row reading live in the shared
+/// <see cref="ConfigDbSchema"/> (linked source from the game project), so
+/// both sides validate identically.
 /// The recorder never writes or copies the database (no config.db, -wal,
 /// or -shm writes anywhere in recorder code) — rows are only loaded into
 /// memory to serialize the sandbox bootstrap Config.ini.
@@ -15,8 +16,6 @@ namespace DTXMania.VideoRecorder.Sandbox;
 internal static class SourceConfigDatabase
 {
     internal const string DatabaseFileName = "config.db";
-
-    private const int SchemaVersion = 1;
 
     internal static string GetDatabasePath(string sourceRoot) =>
         Path.Combine(sourceRoot, DatabaseFileName);
@@ -39,45 +38,6 @@ internal static class SourceConfigDatabase
             }.ToString());
         connection.Open();
 
-        var version = ReadUserVersion(connection);
-        if (version != SchemaVersion)
-        {
-            throw new InvalidOperationException(
-                $"Unsupported config database schema version {version} at '{databasePath}'; expected {SchemaVersion}.");
-        }
-
-        if (!HasConfigEntriesTable(connection))
-        {
-            throw new InvalidOperationException(
-                $"Config database at '{databasePath}' is missing the ConfigEntries table.");
-        }
-
-        var entries = new Dictionary<string, string>(StringComparer.Ordinal);
-        using (var select = connection.CreateCommand())
-        {
-            select.CommandText = "SELECT Key, Value FROM ConfigEntries";
-            using var reader = select.ExecuteReader();
-            while (reader.Read())
-            {
-                entries[reader.GetString(0)] = reader.GetString(1);
-            }
-        }
-
-        return entries;
-    }
-
-    private static long ReadUserVersion(SqliteConnection connection)
-    {
-        using var command = connection.CreateCommand();
-        command.CommandText = "PRAGMA user_version;";
-        return (long)command.ExecuteScalar()!;
-    }
-
-    private static bool HasConfigEntriesTable(SqliteConnection connection)
-    {
-        using var command = connection.CreateCommand();
-        command.CommandText =
-            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'ConfigEntries'";
-        return (long)command.ExecuteScalar()! == 1L;
+        return ConfigDbSchema.ReadEntries(connection, databasePath);
     }
 }
