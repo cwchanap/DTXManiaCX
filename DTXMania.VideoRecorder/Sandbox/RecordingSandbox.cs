@@ -200,6 +200,35 @@ internal sealed class RecordingSandbox
     {
         foreach (var pair in values)
         {
+            // The source SQLite DB accepts arbitrary TEXT keys, but this
+            // method emits them as `key=value` lines that the game's legacy
+            // INI parser reads back with `line.Split('=', 2)` followed by
+            // `parts[0].Trim()` / `parts[1].Trim()`. A hand-edited row whose
+            // key does not round-trip unchanged through that parser can
+            // bypass the recorder's canonical-key / SongRoot validation and
+            // normalize to a different key inside the sandbox game (e.g.
+            // `SongRoot.0 ` -> `SongRoot.0`, or `Foo=Bar` -> `Foo`). Reject
+            // such keys before generating the INI rather than adding more
+            // parsing machinery to the bridge.
+            if (string.IsNullOrEmpty(pair.Key))
+            {
+                throw new InvalidOperationException(
+                    "Source config database contains a row with an empty key; " +
+                    $"keys must be non-empty. {NormalizationHint}");
+            }
+            if (pair.Key != pair.Key.Trim())
+            {
+                throw new InvalidOperationException(
+                    $"Source config database key '{pair.Key}' is not trimmed; " +
+                    $"keys must not have leading or trailing whitespace. {NormalizationHint}");
+            }
+            if (pair.Key.Contains('='))
+            {
+                throw new InvalidOperationException(
+                    $"Source config database key '{pair.Key}' contains '='; " +
+                    $"keys must not contain '='. {NormalizationHint}");
+            }
+
             // A CR/LF inside a key or value would inject forged Key=Value
             // lines into the bootstrap INI; such a row can only come from a
             // hand-edited source database.
