@@ -1,5 +1,6 @@
 using DTXMania.VideoRecorder;
 using DTXMania.VideoRecorder.Configuration;
+using Microsoft.Data.Sqlite;
 
 namespace DTXMania.VideoRecorder.Tests;
 
@@ -377,6 +378,13 @@ public sealed class RecorderCommandLineTests
 
     private static void Delete(string path)
     {
+        // RecorderCommandLine.ReadEnvironment validates the source config.db
+        // via RecordingSandbox.ValidateSourceConfig -> SourceConfigDatabase.Load,
+        // which opens a default-pooled read-only SqliteConnection. On Windows
+        // the pooled native handle keeps the file locked after the managed
+        // connection disposes, so the recursive directory delete below would
+        // throw IOException. Clear the pool first to release the inode.
+        SqliteConnection.ClearAllPools();
         if (Directory.Exists(path))
             Directory.Delete(path, recursive: true);
     }
