@@ -194,6 +194,39 @@ public sealed class RecordingSandboxTests
         }
     }
 
+    [Theory]
+    // Regression: RequireAbsolute validates value.Trim(), but
+    // SerializeConfigIni writes the original value and the sandbox's
+    // ConfigManager.ImportLegacyIni trims it on read (parts[1].Trim()).
+    // A path with leading/trailing whitespace therefore means one path
+    // to the normal DB-backed game but a different (trimmed) path inside
+    // the recorder sandbox. Reject such values so path-bearing rows
+    // round-trip unchanged through the DB → INI bridge, like keys do.
+    [InlineData("SongRoot.0", " /tmp/Songs")]
+    [InlineData("SongRoot.0", "/tmp/Songs ")]
+    [InlineData("SystemSkinRoot", " /tmp/System")]
+    [InlineData("SystemSkinRoot", "/tmp/System ")]
+    [InlineData("SkinPath", " /tmp/Skins/X")]
+    [InlineData("SkinPath", "/tmp/Skins/X ")]
+    public void Create_WithWhitespaceBearingAbsolutePath_ShouldRejectWithNormalizationGuidance(
+        string key,
+        string value)
+    {
+        var sourceRoot = CreateSourceRoot(BuildRows($"{key}={value}"));
+
+        try
+        {
+            var exception = Assert.Throws<InvalidOperationException>(() => RecordingSandbox.Create(sourceRoot));
+
+            Assert.Contains($"Source config database key '{key}' is not normalized.", exception.Message);
+            Assert.Contains("Open CX once and exit normally, then retry dtx-video.", exception.Message);
+        }
+        finally
+        {
+            Delete(sourceRoot);
+        }
+    }
+
     [Fact]
     public void Create_WithoutIndexedSongRoot_ShouldReject()
     {
