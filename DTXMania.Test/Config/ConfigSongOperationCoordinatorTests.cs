@@ -102,7 +102,10 @@ public sealed class ConfigSongOperationCoordinatorTests
 
     private static void SpinWaitUntil(Func<bool> condition)
     {
-        Assert.True(System.Threading.SpinWait.SpinUntil(condition, TimeSpan.FromSeconds(2)),
+        // The lease-releasing continuation is a queued thread-pool work item;
+        // CI runners (2 vCPU, parallel blocking tests) can starve the pool for
+        // several seconds, so the budget must exceed realistic stalls.
+        Assert.True(System.Threading.SpinWait.SpinUntil(condition, TimeSpan.FromSeconds(30)),
             "The operation lease was not released after the task terminated.");
     }
 }
