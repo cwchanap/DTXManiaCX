@@ -9,6 +9,7 @@ namespace DTXMania.Test.Stage.Performance
     /// Unit tests for GaugeManager fail threshold functionality.
     /// Tests that the GaugeManager correctly handles failure when life drops below 2%.
     /// </summary>
+    [Trait("Category", "Unit")]
     public class GaugeManagerFailThresholdTests
     {
         [Fact]
@@ -321,7 +322,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void GaugeManager_RiskyLimit_CountsOnlyPoorAndMiss_AndFailsOnThird()
+        public void RiskyLimitCountingPoorAndMiss_ShouldFailOnThird()
         {
             var gaugeManager = new GaugeManager(riskyLimit: 3);
 
@@ -339,7 +340,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void GaugeManager_RiskyMode_IgnoresLifeThresholdUntilAllowanceReachesZero()
+        public void RiskyModeWithLifeAtZero_ShouldFailOnlyWhenAllowanceDepleted()
         {
             var gaugeManager = new GaugeManager(startingLife: 3.0f, riskyLimit: 3);
 
@@ -355,7 +356,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void GaugeManager_FailureDisabled_DoesNotFailWhenLifeReachesZero()
+        public void FailureDisabledWithLifeAtZero_ShouldNotFail()
         {
             var gaugeManager = new GaugeManager(
                 startingLife: 3.0f,
@@ -371,7 +372,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void GaugeManager_FailureDisabled_AllowsLifeRecoveryAfterReachingZero()
+        public void FailureDisabledAfterZeroLife_ShouldAllowRecovery()
         {
             var gaugeManager = new GaugeManager(
                 startingLife: 3.0f,
@@ -389,7 +390,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void GaugeManager_Reset_RestoresRiskyAllowance()
+        public void Reset_ShouldRestoreRiskyAllowance()
         {
             var gaugeManager = new GaugeManager(riskyLimit: 2);
 
@@ -405,7 +406,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void GaugeManager_Constructor_RiskyLimit_ClampsToMaximum()
+        public void ConstructorWithRiskyLimitAboveMax_ShouldClampToMaximum()
         {
             var gaugeManager = new GaugeManager(riskyLimit: 11);
 
@@ -418,7 +419,7 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void GaugeManager_Constructor_RiskyLimit_ClampsBelowMinimum()
+        public void ConstructorWithRiskyLimitBelowMin_ShouldClampToMinimum()
         {
             var gaugeManager = new GaugeManager(
                 startingLife: 50.0f,

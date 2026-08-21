@@ -9,6 +9,7 @@ namespace DTXMania.Test.Stage.Performance
     /// <summary>
     /// Tests for GaugeManager
     /// </summary>
+    [Trait("Category", "Unit")]
     public class GaugeManagerTests
     {
         #region Constructor Tests
@@ -150,7 +151,7 @@ namespace DTXMania.Test.Stage.Performance
         [InlineData(GaugeDamageLevel.Low, -1.5f)]
         [InlineData(GaugeDamageLevel.Normal, -3.0f)]
         [InlineData(GaugeDamageLevel.High, -4.5f)]
-        public void GetLifeAdjustment_Miss_UsesDamageLevel(
+        public void GetLifeAdjustment_Miss_WithDamageLevel_ShouldApplyConfiguredDamage(
             GaugeDamageLevel level,
             float expected)
         {
@@ -162,7 +163,7 @@ namespace DTXMania.Test.Stage.Performance
         [InlineData(GaugeDamageLevel.Low)]
         [InlineData(GaugeDamageLevel.Normal)]
         [InlineData(GaugeDamageLevel.High)]
-        public void GetLifeAdjustment_Poor_IsUnchangedAcrossDamageLevels(GaugeDamageLevel level)
+        public void GetLifeAdjustment_Poor_WithDamageLevel_ShouldUseConstantDamage(GaugeDamageLevel level)
         {
             var manager = new GaugeManager(damageLevel: level);
             Assert.Equal(-1.5f, manager.GetLifeAdjustment(JudgementType.Poor));
