@@ -1,4 +1,5 @@
 using System;
+using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage.Performance;
 using Xunit;
@@ -143,6 +144,28 @@ namespace DTXMania.Test.Stage.Performance
         {
             var manager = new GaugeManager();
             Assert.Equal(expected, manager.GetLifeAdjustment(type));
+        }
+
+        [Theory]
+        [InlineData(GaugeDamageLevel.Low, -1.5f)]
+        [InlineData(GaugeDamageLevel.Normal, -3.0f)]
+        [InlineData(GaugeDamageLevel.High, -4.5f)]
+        public void GetLifeAdjustment_Miss_UsesDamageLevel(
+            GaugeDamageLevel level,
+            float expected)
+        {
+            var manager = new GaugeManager(damageLevel: level);
+            Assert.Equal(expected, manager.GetLifeAdjustment(JudgementType.Miss));
+        }
+
+        [Theory]
+        [InlineData(GaugeDamageLevel.Low)]
+        [InlineData(GaugeDamageLevel.Normal)]
+        [InlineData(GaugeDamageLevel.High)]
+        public void GetLifeAdjustment_Poor_IsUnchangedAcrossDamageLevels(GaugeDamageLevel level)
+        {
+            var manager = new GaugeManager(damageLevel: level);
+            Assert.Equal(-1.5f, manager.GetLifeAdjustment(JudgementType.Poor));
         }
 
         [Fact]
