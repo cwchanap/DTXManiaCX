@@ -7,6 +7,8 @@ using DTXMania.VideoRecorder.Workflow;
 
 namespace DTXMania.VideoRecorder.Tests.Workflow;
 
+[CollectionDefinition("Workflow Timing Tests", DisableParallelization = true)]
+[Collection("Workflow Timing Tests")]
 public sealed class RecordWorkflowTests
 {
     [Fact]
