@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Song.Entities;
 
 namespace DTXMania.Game.Lib.Stage.Performance
@@ -17,7 +18,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private float _currentLife;
         private bool _hasFailed;
         private bool _disposed = false;
-
+        private readonly GaugeDamageLevel _damageLevel;
+        private readonly int _initialRiskyLimit;
+        private int _remainingRisky;
+        private readonly bool _failureEnabled;
 
         #endregion
 
@@ -53,7 +57,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         public event EventHandler<GaugeChangedEventArgs>? GaugeChanged;
 
         /// <summary>
-        /// Raised when the player fails (life falls below threshold)
+        /// Raised when the player fails according to the configured failure policy
         /// </summary>
         public event EventHandler<FailureEventArgs>? Failed;
 
@@ -89,9 +93,20 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// Creates a new GaugeManager
         /// </summary>
         /// <param name="startingLife">Starting life value (default: 50%)</param>
-        public GaugeManager(float startingLife = StartingLife)
+        /// <param name="damageLevel">Miss damage level</param>
+        /// <param name="riskyLimit">Number of Poor/Miss judgements allowed before failure</param>
+        /// <param name="failureEnabled">Whether gameplay failure is enabled</param>
+        public GaugeManager(
+            float startingLife = StartingLife,
+            GaugeDamageLevel damageLevel = GaugeDamageLevel.Normal,
+            int riskyLimit = RiskyRange.Default,
+            bool failureEnabled = true)
         {
             _currentLife = Math.Clamp(startingLife, MinLife, MaxLife);
+            _damageLevel = damageLevel;
+            _initialRiskyLimit = RiskyRange.Clamp(riskyLimit);
+            _remainingRisky = _initialRiskyLimit;
+            _failureEnabled = failureEnabled;
             _hasFailed = false;
         }
 
@@ -117,9 +132,21 @@ namespace DTXMania.Game.Lib.Stage.Performance
             // Clamp to valid range
             _currentLife = Math.Clamp(_currentLife, MinLife, MaxLife);
 
+            var riskyActive = _initialRiskyLimit > RiskyRange.Default;
+            if (riskyActive && (judgementEvent.Type == JudgementType.Poor || judgementEvent.Type == JudgementType.Miss))
+            {
+                _remainingRisky--;
+            }
+
             // Check for failure
             var justFailed = false;
-            if (_currentLife < FailureThreshold && !_hasFailed)
+            var shouldFail = !_failureEnabled
+                ? false
+                : riskyActive
+                    ? _remainingRisky <= 0
+                    : _currentLife < FailureThreshold;
+
+            if (shouldFail && !_hasFailed)
             {
                 _hasFailed = true;
                 justFailed = true;
@@ -158,8 +185,19 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 JudgementType.Great => +1.5f,  // Great: +1.5%
                 JudgementType.Good => +1.0f,   // Good: +1%
                 JudgementType.Poor => -1.5f,   // Poor: -1.5%
-                JudgementType.Miss => -3.0f,   // Miss: -3%
+                JudgementType.Miss => -3.0f * GetMissDamageMultiplier(_damageLevel),
                 _ => 0.0f // Default for unknown types
+            };
+        }
+
+        private static float GetMissDamageMultiplier(GaugeDamageLevel damageLevel)
+        {
+            return damageLevel switch
+            {
+                GaugeDamageLevel.Low => 0.5f,
+                GaugeDamageLevel.Normal => 1.0f,
+                GaugeDamageLevel.High => 1.5f,
+                _ => 1.0f
             };
         }
 
@@ -177,6 +215,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             
             _currentLife = Math.Clamp(startingLife, MinLife, MaxLife);
             _hasFailed = false;
+            _remainingRisky = _initialRiskyLimit;
 
             // Raise gauge changed event
             GaugeChanged?.Invoke(this, new GaugeChangedEventArgs

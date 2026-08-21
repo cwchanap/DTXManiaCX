@@ -319,5 +319,110 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Equal(1, failureEventCount); // Should only fire once
             Assert.True(gaugeManager.HasFailed);
         }
+
+        [Fact]
+        public void GaugeManager_RiskyLimit_CountsOnlyPoorAndMiss_AndFailsOnThird()
+        {
+            var gaugeManager = new GaugeManager(riskyLimit: 3);
+
+            gaugeManager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Perfect));
+            gaugeManager.ProcessJudgement(new JudgementEvent(1, 0, 0.0, JudgementType.Great));
+            gaugeManager.ProcessJudgement(new JudgementEvent(2, 0, 0.0, JudgementType.Good));
+            Assert.False(gaugeManager.HasFailed);
+
+            gaugeManager.ProcessJudgement(new JudgementEvent(3, 0, 0.0, JudgementType.Poor));
+            gaugeManager.ProcessJudgement(new JudgementEvent(4, 0, 0.0, JudgementType.Miss));
+            Assert.False(gaugeManager.HasFailed);
+
+            gaugeManager.ProcessJudgement(new JudgementEvent(5, 0, 0.0, JudgementType.Poor));
+            Assert.True(gaugeManager.HasFailed);
+        }
+
+        [Fact]
+        public void GaugeManager_RiskyMode_IgnoresLifeThresholdUntilAllowanceReachesZero()
+        {
+            var gaugeManager = new GaugeManager(startingLife: 3.0f, riskyLimit: 3);
+
+            gaugeManager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Miss));
+            Assert.Equal(0.0f, gaugeManager.CurrentLife);
+            Assert.False(gaugeManager.HasFailed);
+
+            gaugeManager.ProcessJudgement(new JudgementEvent(1, 0, 0.0, JudgementType.Poor));
+            Assert.False(gaugeManager.HasFailed);
+
+            gaugeManager.ProcessJudgement(new JudgementEvent(2, 0, 0.0, JudgementType.Miss));
+            Assert.True(gaugeManager.HasFailed);
+        }
+
+        [Fact]
+        public void GaugeManager_FailureDisabled_DoesNotFailWhenLifeReachesZero()
+        {
+            var gaugeManager = new GaugeManager(
+                startingLife: 3.0f,
+                failureEnabled: false);
+            var failureEventCount = 0;
+            gaugeManager.Failed += (_, _) => failureEventCount++;
+
+            gaugeManager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Miss));
+
+            Assert.Equal(0.0f, gaugeManager.CurrentLife);
+            Assert.False(gaugeManager.HasFailed);
+            Assert.Equal(0, failureEventCount);
+        }
+
+        [Fact]
+        public void GaugeManager_FailureDisabled_AllowsLifeRecoveryAfterReachingZero()
+        {
+            var gaugeManager = new GaugeManager(
+                startingLife: 3.0f,
+                failureEnabled: false);
+
+            gaugeManager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Miss));
+            gaugeManager.ProcessJudgement(new JudgementEvent(1, 0, 0.0, JudgementType.Perfect));
+
+            Assert.Equal(2.0f, gaugeManager.CurrentLife);
+            Assert.False(gaugeManager.HasFailed);
+        }
+
+        [Fact]
+        public void GaugeManager_Reset_RestoresRiskyAllowance()
+        {
+            var gaugeManager = new GaugeManager(riskyLimit: 2);
+
+            gaugeManager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Poor));
+            Assert.False(gaugeManager.HasFailed);
+
+            gaugeManager.Reset();
+            gaugeManager.ProcessJudgement(new JudgementEvent(1, 0, 0.0, JudgementType.Poor));
+            Assert.False(gaugeManager.HasFailed);
+
+            gaugeManager.ProcessJudgement(new JudgementEvent(2, 0, 0.0, JudgementType.Poor));
+            Assert.True(gaugeManager.HasFailed);
+        }
+
+        [Fact]
+        public void GaugeManager_Constructor_RiskyLimit_ClampsToMaximum()
+        {
+            var gaugeManager = new GaugeManager(riskyLimit: 11);
+
+            for (var i = 0; i < 10; i++)
+            {
+                gaugeManager.ProcessJudgement(new JudgementEvent(i, 0, 0.0, JudgementType.Poor));
+            }
+
+            Assert.True(gaugeManager.HasFailed);
+        }
+
+        [Fact]
+        public void GaugeManager_Constructor_RiskyLimit_ClampsBelowMinimum()
+        {
+            var gaugeManager = new GaugeManager(
+                startingLife: 50.0f,
+                riskyLimit: -1);
+
+            gaugeManager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Poor));
+
+            Assert.False(gaugeManager.HasFailed);
+        }
     }
 }
