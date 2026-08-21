@@ -1,6 +1,7 @@
 using System.Text.Json;
 using DTXMania.Automation.Process;
 using DTXMania.Automation.Telemetry;
+using DTXMania.VideoRecorder.Diagnostics;
 using DTXMania.VideoRecorder.Obs;
 using DTXMania.VideoRecorder.Workflow;
 
@@ -87,6 +88,69 @@ public sealed class RecordWorkflowTests
             game.ObservedSongSelectTitles.Take(2));
         Assert.Equal(1, game.PrepareCount);
         Assert.Equal("indexed chart", game.PrepareSelectedSongTitle);
+    }
+
+    [Fact]
+    public async Task RunAsync_PrepareFailure_ShouldFailOnceBeforeObsAndDispose()
+    {
+        var failure = new InvalidOperationException("prepare failed");
+        var game = new FakeGame(
+            Title(),
+            SongSelect("indexed chart"))
+        {
+            PrepareException = failure
+        };
+        var obs = new FakeObs(game.Events);
+        var workflow = new RecordWorkflow(
+            game,
+            obs,
+            "chart.dtx",
+            CreateStartOptions(),
+            FastOptions(game.Events));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => workflow.RunAsync(CancellationToken.None));
+
+        Assert.Same(failure, exception);
+        Assert.Equal(1, game.PrepareCount);
+        Assert.DoesNotContain("obs:connect", game.Events);
+        Assert.DoesNotContain("obs:start", game.Events);
+        Assert.DoesNotContain("obs:stop", game.Events);
+        Assert.Contains("dispose", game.Events);
+        Assert.Equal(1, obs.DisposeCallCount);
+        Assert.Contains("obs:dispose", game.Events);
+    }
+
+    [Fact]
+    public async Task RunAsync_PreviewTimeout_ShouldConsumeNearMissesAndStopOwnedObs()
+    {
+        var game = new FakeGame(
+            Title(),
+            SongSelect("indexed chart"),
+            Preview(state: "Playing", elapsedMs: 9_999),
+            Preview(state: "Prepared", elapsedMs: 10_000));
+        var obs = new FakeObs(game.Events);
+        var workflow = new RecordWorkflow(
+            game,
+            obs,
+            "chart.dtx",
+            CreateStartOptions(),
+            FastOptions(game.Events) with
+            {
+                StageTimeout = TimeSpan.FromMilliseconds(250)
+            });
+
+        await Assert.ThrowsAsync<TimeoutException>(
+            () => workflow.RunAsync(CancellationToken.None));
+
+        Assert.Equal(3, game.Events.Count(e => e == "state:SongSelect"));
+        Assert.Contains("obs:start", game.Events);
+        Assert.Contains("start-preview", game.Events);
+        Assert.DoesNotContain("activate", game.Events);
+        Assert.Equal(1, obs.StopCallCount);
+        Assert.Contains("obs:stop", game.Events);
+        Assert.Contains("dispose", game.Events);
+        Assert.Equal(1, obs.DisposeCallCount);
     }
 
     [Fact]
@@ -259,6 +323,149 @@ public sealed class RecordWorkflowTests
     }
 
     [Fact]
+    public async Task RunAsync_EmptyResultScreenshot_ShouldFailButRetainRawOutputEvidence()
+    {
+        var output = CreateTemporaryDirectory();
+        try
+        {
+            var diagnostics = new RecorderDiagnostics(output, "result-screenshot-failure");
+            var game = new FakeGame(
+                Title(),
+                SongSelect("indexed chart"),
+                Preview(),
+                Transition(),
+                Performance(),
+                Result())
+            {
+                ResultScreenshot = string.Empty
+            };
+            var obs = new FakeObs(game.Events);
+            var workflow = new RecordWorkflow(
+                game,
+                obs,
+                "chart.dtx",
+                CreateStartOptions(),
+                FastOptions(game.Events),
+                diagnostics);
+
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => workflow.RunAsync(CancellationToken.None));
+
+            Assert.Equal(2, game.ScreenshotCallCount);
+            Assert.Contains("state:Result", game.Events);
+            Assert.DoesNotContain("delay:00:00:05", game.Events);
+            Assert.Equal(1, obs.StopCallCount);
+            Assert.Contains("dispose", game.Events);
+            Assert.Equal(1, obs.DisposeCallCount);
+
+            await diagnostics.WriteAsync(game.StandardOutput, game.StandardError);
+
+            using var document = JsonDocument.Parse(
+                await File.ReadAllTextAsync(
+                    Path.Combine(diagnostics.DiagnosticsDirectory, "run.json")));
+            var root = document.RootElement;
+            Assert.Equal("Failed", root.GetProperty("status").GetString());
+            Assert.EndsWith(
+                "raw-output.mp4",
+                root.GetProperty("rawOutputPath").GetString(),
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteDirectory(output);
+        }
+    }
+
+    [Fact]
+    public async Task RunAsync_StopFailureAfterSuccessfulJourney_ShouldDisposeSurfaceAndRecordStopFailure()
+    {
+        var output = CreateTemporaryDirectory();
+        try
+        {
+            var diagnostics = new RecorderDiagnostics(output, "stop-failure");
+            var stopFailure = new InvalidOperationException("stop failed");
+            var game = new FakeGame(
+                Title(),
+                SongSelect("indexed chart"),
+                Preview(),
+                Transition(),
+                Performance(),
+                Result());
+            var obs = new FakeObs(game.Events)
+            {
+                StopException = stopFailure
+            };
+            var workflow = new RecordWorkflow(
+                game,
+                obs,
+                "chart.dtx",
+                CreateStartOptions(),
+                FastOptions(game.Events),
+                diagnostics);
+
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+                () => workflow.RunAsync(CancellationToken.None));
+
+            Assert.Same(stopFailure, exception);
+            Assert.Equal(1, obs.StopCallCount);
+            Assert.Contains("obs:stop", game.Events);
+            Assert.Contains("dispose", game.Events);
+            Assert.Equal(1, obs.DisposeCallCount);
+
+            await diagnostics.WriteAsync(game.StandardOutput, game.StandardError);
+
+            using var document = JsonDocument.Parse(
+                await File.ReadAllTextAsync(
+                    Path.Combine(diagnostics.DiagnosticsDirectory, "run.json")));
+            var stopOutcome = document.RootElement
+                .GetProperty("obsOutcomes")
+                .EnumerateArray()
+                .Single(outcome => string.Equals(
+                    outcome.GetProperty("operation").GetString(),
+                    "Stop",
+                    StringComparison.Ordinal));
+            Assert.False(stopOutcome.GetProperty("succeeded").GetBoolean());
+            Assert.Equal("stop failed", stopOutcome.GetProperty("detail").GetString());
+        }
+        finally
+        {
+            DeleteDirectory(output);
+        }
+    }
+
+    [Fact]
+    public async Task RunAsync_PrimaryFailureAndStopFailure_ShouldPreservePrimaryFailure()
+    {
+        var game = new FakeGame(
+            Title(),
+            SongSelect("indexed chart"),
+            Preview(),
+            Performance());
+        var obs = new FakeObs(game.Events)
+        {
+            StopException = new InvalidOperationException("stop failed")
+        };
+        var workflow = new RecordWorkflow(
+            game,
+            obs,
+            "chart.dtx",
+            CreateStartOptions(),
+            FastOptions(game.Events) with
+            {
+                StageTimeout = TimeSpan.FromMilliseconds(250)
+            });
+
+        await Assert.ThrowsAsync<TimeoutException>(
+            () => workflow.RunAsync(CancellationToken.None));
+
+        Assert.Contains("activate", game.Events);
+        Assert.Equal(1, obs.StopCallCount);
+        Assert.Contains("obs:stop", game.Events);
+        Assert.Contains("dispose", game.Events);
+        Assert.Equal(1, obs.DisposeCallCount);
+    }
+
+    [Fact]
     public async Task RunAsync_CancellationDuringPerformance_ShouldStopOwnedObs()
     {
         using var cancellation = new CancellationTokenSource();
@@ -360,10 +567,13 @@ public sealed class RecordWorkflowTests
 
     private static GameStateSnapshot SongSelect() => Snapshot("SongSelect");
 
-    private static GameStateSnapshot Preview() =>
+    private static GameStateSnapshot Preview(
+        string state = "Playing",
+        double elapsedMs = 10_000) =>
         Snapshot(
             "SongSelect",
-            "\"preparedPreviewState\":\"Playing\",\"preparedPreviewElapsedMs\":10000");
+            $"\"preparedPreviewState\":{JsonSerializer.Serialize(state)},"
+            + $"\"preparedPreviewElapsedMs\":{elapsedMs}");
 
     private static GameStateSnapshot Transition() => Snapshot("SongTransition");
 
@@ -389,6 +599,22 @@ public sealed class RecordWorkflowTests
         };
     }
 
+    private static string CreateTemporaryDirectory()
+    {
+        var path = Path.Combine(
+            Path.GetTempPath(),
+            "dtx-video-recorder-workflow-tests",
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(path);
+        return path;
+    }
+
+    private static void DeleteDirectory(string path)
+    {
+        if (Directory.Exists(path))
+            Directory.Delete(path, recursive: true);
+    }
+
     private sealed class FakeGame : IGameRecordingControl
     {
         private readonly Queue<GameStateSnapshot> _states;
@@ -397,6 +623,9 @@ public sealed class RecordWorkflowTests
         public List<string?> ObservedSongSelectTitles { get; } = new();
         public int PrepareCount { get; private set; }
         public string? PrepareSelectedSongTitle { get; private set; }
+        public Exception? PrepareException { get; init; }
+        public string? ResultScreenshot { get; init; } = "c2NyZWVuc2hvdA==";
+        public int ScreenshotCallCount { get; private set; }
         private string? LastSelectedSongTitle { get; set; }
         public string? CancelAt { get; init; }
         public CancellationTokenSource? Cancellation { get; init; }
@@ -434,13 +663,17 @@ public sealed class RecordWorkflowTests
             PrepareCount++;
             PrepareSelectedSongTitle = LastSelectedSongTitle;
             Events.Add("prepare");
+            if (PrepareException is not null)
+                throw PrepareException;
             return Task.CompletedTask;
         }
 
         public Task<string?> TakeScreenshotBase64Async(CancellationToken token)
         {
             Events.Add("screenshot");
-            return Task.FromResult<string?>("c2NyZWVuc2hvdA==");
+            ScreenshotCallCount++;
+            return Task.FromResult<string?>(
+                ScreenshotCallCount == 1 ? "c2NyZWVuc2hvdA==" : ResultScreenshot);
         }
 
         public Task StartPreparedPreviewAsync(CancellationToken token)
@@ -479,6 +712,7 @@ public sealed class RecordWorkflowTests
         public List<string> Events { get; }
         public bool IsRecording { get; init; }
         public bool ThrowOnStart { get; init; }
+        public Exception? StopException { get; init; }
         public int StopCallCount { get; private set; }
         public int DisposeCallCount { get; private set; }
 
@@ -506,6 +740,8 @@ public sealed class RecordWorkflowTests
         {
             StopCallCount++;
             Events.Add("obs:stop");
+            if (StopException is not null)
+                throw StopException;
             return Task.FromResult("raw-output.mp4");
         }
 
