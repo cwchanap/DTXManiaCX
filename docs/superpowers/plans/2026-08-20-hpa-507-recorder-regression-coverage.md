@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add only the remaining high-value `dtx-video` workflow/cleanup regression tests that are not already covered by HPA-503, HPA-513, and HPA-515.
+**Goal:** Add five focused characterization tests for the remaining expensive recorder workflow/cleanup gaps.
 
-**Architecture:** Keep the existing `RecordWorkflow` and its private test fakes. Extend `RecordWorkflowTests.cs` with two small fault-injection knobs plus precise preview near-miss snapshots; production code should remain unchanged unless a characterization test exposes a real ownership/failure-precedence bug.
+**Architecture:** Extend only the private fakes in `RecordWorkflowTests.cs`: three one-purpose fault knobs plus preview parameterization. Keep production unchanged unless a new test proves a real contract violation.
 
 **Tech Stack:** .NET 8, xUnit, existing `DTXMania.VideoRecorder.Tests`.
 
@@ -12,38 +12,35 @@
 
 ## Global Constraints
 
-- Keep HPA-507 to one PR and under one engineer day.
-- Continue implementation on this same HPA-507 branch/PR; do not open a second implementation PR.
-- Do not add a test framework, mock library, fake obs-websocket server, workflow/state-machine abstraction, or E2E harness.
-- Reuse the private `FakeGame`, `FakeObs`, event list, counters, state queue, timeout options, and cancellation hooks already in `RecordWorkflowTests.cs`.
-- Add only `FakeGame.PrepareException`, `FakeObs.StopException`, and the minimum `Preview(...)` helper parameterization needed by the new tests.
-- Characterization tests may be GREEN immediately on current production code. Do not manufacture a RED production change.
-- Modify `RecordWorkflow.cs` only if a focused test proves a real contract violation.
-- Do not duplicate existing missing/empty artifact or secret-redaction tests.
-- Do not add Windows Game Capture, macOS permission diagnostics, strict MP4/remux, or full-song CI coverage.
-- HPA-507 task verification is the `DTXMania.VideoRecorder.Tests` project only. Existing AudioE2E remains owned by the normal CI job.
+- One HPA-507 PR; continue on the existing branch/PR.
+- No mock library, fake obs-websocket server, workflow/state-machine abstraction, new E2E harness, stop retry, or exception aggregation.
+- HPA-507 verification is only `DTXMania.VideoRecorder.Tests`; existing `AudioE2E` remains CI-owned.
+- Characterization tests may be green on current `main`; do not manufacture production changes.
+- If production must change, keep the correction local to `DTXMania.VideoRecorder/Workflow/RecordWorkflow.cs`.
 
 ---
 
-### Task 1: Pin pre-OBS prepare failure and the exact preview-readiness barrier
+### Task 1: Add the five characterization tests on the existing private fakes
 
 **Files:**
 - Modify: `DTXMania.VideoRecorder.Tests/Workflow/RecordWorkflowTests.cs`
-- Modify only if a real bug is exposed: `DTXMania.VideoRecorder/Workflow/RecordWorkflow.cs`
+- Modify only if a test proves a bug: `DTXMania.VideoRecorder/Workflow/RecordWorkflow.cs`
 
 **Interfaces:**
-- Consumes: existing `RecordWorkflow.RunAsync(CancellationToken)`, `FakeGame`, `FakeObs`, `FastOptions(...)`, `SongSelect(...)`, and `Preview()` helpers.
-- Produces: characterization coverage for one-shot prepare failure and the `Playing && elapsed >= 10_000` preview barrier after OBS ownership.
+- Consumes: `RecordWorkflow.RunAsync`, existing `FakeGame`, `FakeObs`, `FastOptions`, `SongSelect`, `Preview`, and `RecorderDiagnostics`.
+- Produces: five regression tests covering prepare ownership, preview readiness, Result screenshot failure, and both stop-failure precedence branches.
 
-- [ ] **Step 1: Add one-shot prepare failure injection to `FakeGame`**
+- [ ] **Step 1: Extend the existing fake seam only**
 
-Add exactly one optional property:
+Add these three fault knobs and one counter:
 
 ```csharp
 public Exception? PrepareException { get; init; }
+public string? ResultScreenshot { get; init; } = "c2NyZWVuc2hvdA==";
+public int ScreenshotCallCount { get; private set; }
 ```
 
-Update `PrepareVideoChartAsync` so it preserves the current counter/event behavior before throwing:
+Update prepare without adding a general fault engine:
 
 ```csharp
 public Task PrepareVideoChartAsync(string chartPath, CancellationToken token)
@@ -51,90 +48,75 @@ public Task PrepareVideoChartAsync(string chartPath, CancellationToken token)
     PrepareCount++;
     PrepareSelectedSongTitle = LastSelectedSongTitle;
     Events.Add("prepare");
-
     if (PrepareException is not null)
         throw PrepareException;
-
     return Task.CompletedTask;
 }
 ```
 
-Do not add a generic scripted-failure engine.
-
-- [ ] **Step 2: Add the exact-chart prepare failure characterization test**
-
-Add:
-
-```text
-RunAsync_PrepareFailure_ShouldFailOnceBeforeObsAndDispose
-```
-
-Arrange only the states needed to reach prepare:
+Make only the second screenshot configurable:
 
 ```csharp
-var game = new FakeGame(
-    Title(),
-    SongSelect("indexed chart"))
+public Task<string?> TakeScreenshotBase64Async(CancellationToken token)
 {
-    PrepareException = new InvalidOperationException(
-        "The requested chart is not available in the active song library.")
-};
-var obs = new FakeObs(game.Events);
+    Events.Add("screenshot");
+    ScreenshotCallCount++;
+    return Task.FromResult<string?>(
+        ScreenshotCallCount == 1 ? "c2NyZWVuc2hvdA==" : ResultScreenshot);
+}
 ```
 
-Use `new FakeObs(game.Events)` deliberately so `obs:*` events and game events share one authoritative list.
+Add the OBS stop knob:
 
-Assert:
+```csharp
+public Exception? StopException { get; init; }
 
-```text
-InvalidOperationException message contains exactly the production-facing chart-unavailable text
-PrepareCount == 1
-game.Events does not contain obs:connect
-game.Events does not contain obs:start
-game.Events does not contain obs:stop
-game.Events contains dispose
-obs.DisposeCallCount == 1
-game.Events contains obs:dispose
+public Task<string> StopRecordAsync(CancellationToken token)
+{
+    StopCallCount++;
+    Events.Add("obs:stop");
+    if (StopException is not null)
+        throw StopException;
+    return Task.FromResult("raw-output.mp4");
+}
 ```
 
-This test may pass immediately on current `main`.
-
-- [ ] **Step 3: Run only the prepare-failure test**
-
-Run:
-
-```bash
-dotnet test DTXMania.VideoRecorder.Tests/DTXMania.VideoRecorder.Tests.csproj \
-  --filter FullyQualifiedName~RunAsync_PrepareFailure_ShouldFailOnceBeforeObsAndDispose
-```
-
-Expected: PASS if current one-shot/pre-ownership cleanup behavior is intact. If it fails, inspect the failure before changing production code.
-
-- [ ] **Step 4: Parameterize the existing `Preview()` helper for deliberate near-misses**
-
-Keep the default behavior unchanged for existing tests while allowing state and elapsed-time overrides. One acceptable shape is:
+Parameterize the existing preview helper while preserving its defaults:
 
 ```csharp
 private static GameStateSnapshot Preview(
     string state = "Playing",
-    long elapsedMs = 10_000) =>
+    double elapsedMs = 10_000) =>
     Snapshot(
         "SongSelect",
         $"\"preparedPreviewState\":{JsonSerializer.Serialize(state)},"
         + $"\"preparedPreviewElapsedMs\":{elapsedMs}");
 ```
 
-Do not add a second fake-state builder.
+- [ ] **Step 2: Add prepare-failure ownership coverage**
 
-- [ ] **Step 5: Add the preview predicate timeout characterization test**
+Add `RunAsync_PrepareFailure_ShouldFailOnceBeforeObsAndDispose`.
 
-Add:
+Arrange `Title -> populated SongSelect`, share events with `new FakeObs(game.Events)`, and inject a single `InvalidOperationException` instance through `PrepareException`.
 
-```text
-RunAsync_PreviewTimeout_ShouldPinPredicateAndStopOwnedObs
+Assert:
+
+```csharp
+Assert.Same(failure, exception);
+Assert.Equal(1, game.PrepareCount);
+Assert.DoesNotContain("obs:connect", game.Events);
+Assert.DoesNotContain("obs:start", game.Events);
+Assert.DoesNotContain("obs:stop", game.Events);
+Assert.Contains("dispose", game.Events);
+Assert.Equal(1, obs.DisposeCallCount);
+Assert.Contains("obs:dispose", game.Events);
 ```
 
-Arrange a **distinct** populated Song Select for pre-prepare readiness, then two post-start near-misses:
+Do not assert the fake's injected message text.
+
+- [ ] **Step 3: Add a mutation-sensitive preview-barrier timeout**
+
+Add `RunAsync_PreviewTimeout_ShouldConsumeNearMissesAndStopOwnedObs` with:
 
 ```csharp
 var game = new FakeGame(
@@ -145,160 +127,79 @@ var game = new FakeGame(
 var obs = new FakeObs(game.Events);
 ```
 
-Use a short existing `StageTimeout`, for example 25 ms.
-
-Why both near-misses are required:
-
-```text
-- deleting the >= 10_000 check makes Playing/9,999 pass and reaches activate;
-- deleting the Playing check makes Prepared/10,000 pass and reaches activate;
-- with the production conjunction intact, neither passes and the wait times out.
-```
-
-Assert:
-
-```text
-TimeoutException is thrown
-game.Events contains obs:start
-game.Events contains start-preview
-game.Events does not contain activate
-obs.StopCallCount == 1
-game.Events contains obs:stop
-game.Events contains dispose
-obs.DisposeCallCount == 1
-game.Events contains obs:dispose
-```
-
-Do not put preview fields on the pre-prepare Song Select snapshot; that gate checks only stage/title and would consume the state before OBS starts.
-
-Do not add separate timeout tests for SongTransition, Performance, and Result; current tests already cover later bounded waits.
-
-- [ ] **Step 6: Run the two Task 1 tests together**
-
-Run:
-
-```bash
-dotnet test DTXMania.VideoRecorder.Tests/DTXMania.VideoRecorder.Tests.csproj \
-  --filter "FullyQualifiedName~RunAsync_PrepareFailure_ShouldFailOnceBeforeObsAndDispose|FullyQualifiedName~RunAsync_PreviewTimeout_ShouldPinPredicateAndStopOwnedObs"
-```
-
-Expected: PASS.
-
-- [ ] **Step 7: Fix production only if a test exposed a real bug**
-
-If either test proves `RecordWorkflow` violates the design contract, make the smallest local correction in `DTXMania.VideoRecorder/Workflow/RecordWorkflow.cs`.
-
-Allowed examples:
-
-```text
-preserve the original prepare exception instead of retrying/wrapping it
-prevent activation after preview timeout
-ensure owned OBS stop still runs from finally
-```
-
-Not allowed:
-
-```text
-new workflow abstractions
-new interfaces
-generic retry policy
-refactoring unrelated stages
-```
-
-- [ ] **Step 8: Commit the Task 1 slice**
-
-Stage only the touched workflow test file and `RecordWorkflow.cs` if it was genuinely needed.
-
-Suggested commit:
-
-```text
-test: cover recorder prepare and preview failures
-```
-
----
-
-### Task 2: Pin both OBS stop-failure precedence branches independently
-
-**Files:**
-- Modify: `DTXMania.VideoRecorder.Tests/Workflow/RecordWorkflowTests.cs`
-- Modify only if a real bug is exposed: `DTXMania.VideoRecorder/Workflow/RecordWorkflow.cs`
-
-**Interfaces:**
-- Consumes: existing `RecordWorkflow` ownership-aware `try/finally`, the normal happy journey, and the already-established unexpected-stage-order post-ownership timeout pattern.
-- Produces: independent regression coverage for cleanup failure after success and cleanup failure after an existing primary workflow failure.
-
-- [ ] **Step 1: Add stop failure injection to `FakeObs`**
-
-Add exactly one optional property:
+Use:
 
 ```csharp
-public Exception? StopException { get; init; }
-```
-
-Update `StopRecordAsync` so the attempt remains observable before the injected failure:
-
-```csharp
-public Task<string> StopRecordAsync(CancellationToken token)
+FastOptions(game.Events) with
 {
-    StopCallCount++;
-    Events.Add("obs:stop");
-
-    if (StopException is not null)
-        throw StopException;
-
-    return Task.FromResult("raw-output.mp4");
+    StageTimeout = TimeSpan.FromMilliseconds(250)
 }
 ```
 
-Do not add stop retries or a cleanup fault framework.
-
-- [ ] **Step 2: Add successful-journey / failed-stop coverage**
-
-Add:
-
-```text
-RunAsync_StopFailureAfterSuccessfulJourney_ShouldDisposeAndSurfaceStopFailure
-```
-
-Use the normal happy journey:
+Assert the timeout and, critically, that both near-misses were really polled:
 
 ```csharp
-Title()
-SongSelect("indexed chart")
-Preview()
-Transition()
-Performance()
-Result()
+Assert.Equal(3, game.Events.Count(e => e == "state:SongSelect"));
+Assert.Contains("obs:start", game.Events);
+Assert.Contains("start-preview", game.Events);
+Assert.DoesNotContain("activate", game.Events);
+Assert.Equal(1, obs.StopCallCount);
+Assert.Contains("obs:stop", game.Events);
+Assert.Contains("dispose", game.Events);
+Assert.Equal(1, obs.DisposeCallCount);
 ```
 
-Inject:
+This test must fail if either preview predicate is removed or if CI starvation prevents both near-misses from being consumed.
+
+- [ ] **Step 4: Add post-Result screenshot-failure coverage**
+
+Add `RunAsync_EmptyResultScreenshot_ShouldFailButRetainRawOutputEvidence` using the normal happy-state queue and:
+
+```csharp
+ResultScreenshot = string.Empty
+```
+
+Pass a real `RecorderDiagnostics` with a temporary output directory. Assert:
+
+```text
+InvalidOperationException is thrown for the empty screenshot
+ScreenshotCallCount == 2
+Result was reached
+the 5-second delay event is absent
+StopCallCount == 1
+both disposals ran
+```
+
+Then call `diagnostics.WriteAsync(...)`, parse `run.json`, and assert:
+
+```text
+status == Failed
+rawOutputPath ends with raw-output.mp4
+```
+
+This pins the chosen policy: the required Result render barrier fails the run, but owned OBS still stops and the raw take remains discoverable in diagnostics.
+
+- [ ] **Step 5: Add stop-failure-after-success coverage including diagnostics wiring**
+
+Add `RunAsync_StopFailureAfterSuccessfulJourney_ShouldDisposeSurfaceAndRecordStopFailure` using the normal happy journey and:
 
 ```csharp
 StopException = new InvalidOperationException("stop failed")
 ```
 
-Assert:
+Pass `RecorderDiagnostics`, assert the same injected stop exception escapes, stop is attempted once, and both disposals run.
 
-```text
-InvalidOperationException with "stop failed" is thrown
-StopCallCount == 1
-obs:stop occurs
-game dispose occurs
-Obs DisposeCallCount == 1
-obs:dispose occurs
+Write/read `run.json` and assert `obsOutcomes` contains:
+
+```json
+{"operation":"Stop","succeeded":false,"detail":"stop failed"}
 ```
 
-This pins the `primaryFailure is null && cleanupFailure is not null` branch.
+Do not add a separate diagnostics-only test.
 
-- [ ] **Step 3: Add primary-failure / failed-stop precedence coverage using an existing post-ownership timeout**
+- [ ] **Step 6: Add stop-failure precedence using the existing independent timeout path**
 
-Add:
-
-```text
-RunAsync_PrimaryFailureAndStopFailure_ShouldPreservePrimaryFailure
-```
-
-Do **not** reuse Task 1's preview timeout. Instead use the existing unexpected-stage-order pattern so cleanup precedence is independent of the new preview predicate test:
+Add `RunAsync_PrimaryFailureAndStopFailure_ShouldPreservePrimaryFailure` using the existing unexpected-stage-order arrangement:
 
 ```csharp
 var game = new FakeGame(
@@ -312,100 +213,19 @@ var obs = new FakeObs(game.Events)
 };
 ```
 
-Use a short `StageTimeout`. This path starts OBS, completes preview, calls `activate`, then times out waiting for `SongTransition` because `Performance`/empty snapshots never satisfy that wait.
-
-Assert:
+Use a bounded `StageTimeout` such as 250 ms. Assert:
 
 ```text
-TimeoutException remains the thrown primary failure
-game.Events contains activate
+TimeoutException remains the thrown failure
+activate occurred
 StopCallCount == 1
-game.Events contains obs:stop
-game dispose occurs
-Obs DisposeCallCount == 1
-game.Events contains obs:dispose
+obs:stop occurred
+both disposals ran
 ```
 
-Do not require an aggregate exception and do not assert the stop error becomes the result. The journey failure remains primary.
+Do not depend on the new preview-timeout test for this branch.
 
-- [ ] **Step 4: Run the two cleanup-precedence tests**
-
-Run:
-
-```bash
-dotnet test DTXMania.VideoRecorder.Tests/DTXMania.VideoRecorder.Tests.csproj \
-  --filter "FullyQualifiedName~RunAsync_StopFailureAfterSuccessfulJourney_ShouldDisposeAndSurfaceStopFailure|FullyQualifiedName~RunAsync_PrimaryFailureAndStopFailure_ShouldPreservePrimaryFailure"
-```
-
-Expected: PASS if the current `ExceptionDispatchInfo`/`finally` contract is intact.
-
-- [ ] **Step 5: Fix production only if the precedence contract is violated**
-
-If current behavior fails either test, keep any production change local to the `RecordWorkflow.RunAsync` cleanup block. Preserve:
-
-```text
-primary workflow/cancellation failure > cleanup failure
-cleanup failure fails the run only when there is no primary failure
-all owned disposables are attempted even when OBS stop fails
-```
-
-Do not add exception aggregation or cleanup retry machinery.
-
-- [ ] **Step 6: Commit the Task 2 slice**
-
-Suggested commit:
-
-```text
-test: cover recorder cleanup failure precedence
-```
-
----
-
-### Task 3: Verify only the task-owned recorder coverage and final diff
-
-**Files:**
-- No new files expected.
-- Expected implementation file: `DTXMania.VideoRecorder.Tests/Workflow/RecordWorkflowTests.cs`.
-- Conditional production file only if a test proves a defect: `DTXMania.VideoRecorder/Workflow/RecordWorkflow.cs`.
-
-**Interfaces:**
-- Consumes: completed Task 1/2 tests.
-- Produces: final evidence that HPA-507 closes only the residual portable regression gaps.
-
-- [ ] **Step 1: Run the full recorder test project**
-
-Run:
-
-```bash
-dotnet test DTXMania.VideoRecorder.Tests/DTXMania.VideoRecorder.Tests.csproj
-```
-
-Expected: all tests pass. Do not hard-code a test count because subsequent recorder work may expand the suite.
-
-Do not add a local `PreparedChartRecordingSmokeTests` run to HPA-507 acceptance. That test is already categorized `AudioE2E` and executed by the existing graphical CI job; this task does not change CX, JSON-RPC, or the E2E fixture.
-
-- [ ] **Step 2: Review the final diff for scope**
-
-Expected implementation diff:
-
-```text
-DTXMania.VideoRecorder.Tests/Workflow/RecordWorkflowTests.cs
-```
-
-`RecordWorkflow.cs` is acceptable only if one of the four characterization tests exposed a real production defect.
-
-Confirm the diff does **not** contain:
-
-```text
-new mock/test framework dependencies
-new OBS protocol server
-new E2E test class or fixture changes
-new workflow/session abstraction
-media/remux logic
-platform capture diagnostics
-```
-
-- [ ] **Step 3: Run the recorder test project once more after any review-driven edits**
+- [ ] **Step 7: Run the full recorder test project once**
 
 Run:
 
@@ -415,24 +235,40 @@ dotnet test DTXMania.VideoRecorder.Tests/DTXMania.VideoRecorder.Tests.csproj
 
 Expected: PASS.
 
-Normal repository CI should still be green before merge, but HPA-507 does not introduce or require an additional AudioE2E gate.
+If a new characterization test fails because production violates the documented contract, make only the smallest local `RecordWorkflow.cs` correction, then rerun this same command.
 
-- [ ] **Step 4: Update this existing HPA-507 draft PR**
+- [ ] **Step 8: Commit the complete HPA-507 test slice**
 
-Commit/push implementation to the same branch and update the PR summary/validation results. Do not open a second HPA-507 PR.
+Stage only the touched test file plus `RecordWorkflow.cs` if a proven defect required it.
 
-- [ ] **Step 5: Mark HPA-507 complete only after merge**
+Suggested commit:
 
-After this same PR is reviewed and merged, update Linear with the final recorder-test validation summary and move HPA-507 to Done.
+```text
+test: cover recorder workflow cleanup regressions
+```
 
-## Final self-review checklist
+---
 
-- [ ] Prepare failure uses the real chart-unavailable message and the actual OBS event stream.
-- [ ] Preview timeout uses both deliberate near-misses and proves `obs:start`, `start-preview`, no `activate`, stop once, and both disposals.
-- [ ] Stop failure after success pins the cleanup-failure branch.
-- [ ] Stop failure after an existing independent post-ownership timeout pins primary-failure precedence.
-- [ ] Existing HPA-503/HPA-513/HPA-515 coverage is reused instead of copied.
-- [ ] No production abstraction was introduced for testability.
-- [ ] The implementation stays within one HPA-507 PR.
-- [ ] `DTXMania.VideoRecorder.Tests` is green.
-- [ ] No task-specific AudioE2E run was added.
+### Task 2: Final scope review and same-PR handoff
+
+**Files:**
+- Expected implementation change: `DTXMania.VideoRecorder.Tests/Workflow/RecordWorkflowTests.cs`
+- Conditional only: `DTXMania.VideoRecorder/Workflow/RecordWorkflow.cs`
+
+**Interfaces:**
+- Consumes: Task 1's green recorder suite.
+- Produces: a review-ready HPA-507 diff on the existing PR.
+
+- [ ] **Step 1: Review the final diff**
+
+Confirm there is no new dependency, test framework, E2E class, OBS protocol server, workflow/session abstraction, media/remux logic, or platform-capture diagnostic code.
+
+- [ ] **Step 2: Update the existing draft PR validation summary**
+
+Record the final `DTXMania.VideoRecorder.Tests` result and whether production remained unchanged. Keep implementation on this same HPA-507 PR.
+
+- [ ] **Step 3: Complete Linear only after merge**
+
+After this PR is reviewed and merged, update HPA-507 with the final validation summary and move it to Done.
+
+No second local E2E run or duplicate full-suite invocation is part of HPA-507 unless a review-driven code edit occurs after Task 1 verification.
