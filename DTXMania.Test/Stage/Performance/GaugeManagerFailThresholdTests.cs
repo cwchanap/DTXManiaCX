@@ -375,9 +375,13 @@ namespace DTXMania.Test.Stage.Performance
         {
             var gaugeManager = new GaugeManager(
                 startingLife: 3.0f,
+                riskyLimit: 1,
                 failureEnabled: false);
 
             gaugeManager.ProcessJudgement(new JudgementEvent(0, 0, 0.0, JudgementType.Miss));
+            Assert.Equal(0.0f, gaugeManager.CurrentLife);
+            Assert.False(gaugeManager.HasFailed);
+
             gaugeManager.ProcessJudgement(new JudgementEvent(1, 0, 0.0, JudgementType.Perfect));
 
             Assert.Equal(2.0f, gaugeManager.CurrentLife);
