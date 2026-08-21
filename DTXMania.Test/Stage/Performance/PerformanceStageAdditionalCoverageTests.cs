@@ -167,7 +167,7 @@ public class PerformanceStageAdditionalCoverageTests
     }
 
     [Fact]
-    public void OnPlayerFailed_NoFailEnabled_ShouldNotFinalize()
+    public void OnPlayerFailed_NoFailEnabled_ShouldFinalizeWithoutReadingConfig()
     {
         var configData = new ConfigData { NoFail = true };
         var configManager = new Mock<IConfigManager>();
@@ -182,10 +182,11 @@ public class PerformanceStageAdditionalCoverageTests
         var args = new FailureEventArgs { FinalLife = 0.5f, JudgementType = JudgementType.Miss };
         ReflectionHelpers.InvokePrivateMethod(stage, "OnPlayerFailed", null, args);
 
-        Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_stageCompleted"));
+        Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_stageCompleted"));
         stageManager.Verify(
-            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
-            Times.Never);
+            x => x.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
+            Times.Once);
+        configManager.VerifyGet(x => x.Config, Times.Never);
     }
 
     [Fact]
