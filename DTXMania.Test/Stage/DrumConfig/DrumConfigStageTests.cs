@@ -1184,6 +1184,12 @@ namespace DTXMania.Test.Stage.DrumConfig
 
             public void SetMetronome(bool value) { }
 
+            public void SetRisky(int value) { }
+
+            public void SetDamageLevel(GaugeDamageLevel value) { }
+
+            public void SetAutoAddGauge(bool value) { }
+
             public void SetAudioLatency(int value) { }
 
             public void SetResolution(int width, int height) { }

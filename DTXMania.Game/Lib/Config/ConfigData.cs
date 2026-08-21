@@ -72,6 +72,9 @@ namespace DTXMania.Game.Lib.Config
         public bool Metronome { get; set; } = false;
         public bool AutoPlay { get; set; } = false;
         public bool NoFail { get; set; } = false;
+        public int Risky { get; set; } = RiskyRange.Default;
+        public GaugeDamageLevel DamageLevel { get; set; } = GaugeDamageLevel.Normal;
+        public bool AutoAddGauge { get; set; } = true;
 
         /// <summary>
         /// Audio output latency compensation in milliseconds. This value is subtracted from
