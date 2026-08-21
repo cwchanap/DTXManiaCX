@@ -137,7 +137,15 @@ public sealed class RecordWorkflowTests
             CreateStartOptions(),
             FastOptions(game.Events) with
             {
-                StageTimeout = TimeSpan.FromMilliseconds(250)
+                // Both near-miss preview states must be polled before the
+                // timeout fires. On loaded Windows CI runners a single
+                // Task.Delay(1ms) can inflate far beyond the requested
+                // interval, so a 250ms budget can be exhausted by the delay
+                // after the first near-miss before the second is ever probed
+                // (leaving 2 instead of 3 SongSelect events). 500ms guarantees
+                // both near-misses land while still timing out, matching the
+                // budget already applied to the sibling Eventually tests.
+                StageTimeout = TimeSpan.FromMilliseconds(500)
             });
 
         await Assert.ThrowsAsync<TimeoutException>(
