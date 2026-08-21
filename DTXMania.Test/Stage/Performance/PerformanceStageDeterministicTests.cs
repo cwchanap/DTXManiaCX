@@ -468,6 +468,39 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void InitializeAutoPlay_WhenConfigProvidesGameplayRules_ShouldFreezeAllRunValuesTogether()
+    {
+        var config = new ConfigData
+        {
+            AutoPlay = true,
+            AutoAddGauge = false,
+            DamageLevel = GaugeDamageLevel.High,
+            Risky = 3,
+            NoFail = true
+        };
+        var game = ReflectionHelpers.CreateGame();
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(config));
+        var stage = CreateStage(game);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "InitializeAutoPlay");
+
+        // A later config edit must not change the policy captured for this run.
+        config.AutoPlay = false;
+        config.AutoAddGauge = true;
+        config.DamageLevel = GaugeDamageLevel.Low;
+        config.Risky = 0;
+        config.NoFail = false;
+
+        Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_autoPlayEnabled"));
+        Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_autoAddGaugeEnabled"));
+        Assert.Equal(
+            GaugeDamageLevel.High,
+            ReflectionHelpers.GetPrivateField<GaugeDamageLevel>(stage, "_gaugeDamageLevel"));
+        Assert.Equal(3, ReflectionHelpers.GetPrivateField<int>(stage, "_riskyLimit"));
+        Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_gaugeFailureEnabled"));
+    }
+
+    [Fact]
     public void InitializeAutoPlay_WhenConfigManagerMissing_ShouldDisableAutoPlayAndResetIndex()
     {
         var game = ReflectionHelpers.CreateGame();
@@ -633,6 +666,41 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(0.0f, ReflectionHelpers.GetPrivateField<float>(stage, "_currentProgressValue"));
         Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isPaused"));
         Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isDanger"));
+    }
+
+    [Fact]
+    public void InitializeGameplayManagers_WhenConfigManagerMissing_ShouldUseFrozenGameplayPolicy()
+    {
+        var game = ReflectionHelpers.CreateGame();
+        var config = new ConfigData
+        {
+            AutoPlay = true,
+            AutoAddGauge = false,
+            DamageLevel = GaugeDamageLevel.High,
+            Risky = 3,
+            NoFail = true
+        };
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(config));
+        var stage = CreateStage(game);
+        ReflectionHelpers.InvokePrivateMethod(stage, "InitializeAutoPlay");
+
+        // Manager creation must consume the activation snapshot, not a live config.
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), null);
+        ReflectionHelpers.SetPrivateField(stage, "_inputManager", new MockInputManagerCompat());
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", CreateChartManagerWithSingleNote());
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "InitializeGameplayManagers");
+
+        var judgementManager = ReflectionHelpers.GetPrivateField<JudgementManager>(stage, "_judgementManager");
+        var gaugeManager = ReflectionHelpers.GetPrivateField<GaugeManager>(stage, "_gaugeManager");
+        Assert.NotNull(judgementManager);
+        Assert.True(judgementManager!.IgnorePlayerInput);
+        Assert.NotNull(gaugeManager);
+        Assert.Equal(
+            GaugeDamageLevel.High,
+            ReflectionHelpers.GetPrivateField<GaugeDamageLevel>(gaugeManager!, "_damageLevel"));
+        Assert.Equal(3, ReflectionHelpers.GetPrivateField<int>(gaugeManager!, "_initialRiskyLimit"));
+        Assert.False(ReflectionHelpers.GetPrivateField<bool>(gaugeManager!, "_failureEnabled"));
     }
 
     [Fact]
@@ -2119,20 +2187,45 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void OnPlayerFailed_WhenNoFailEnabled_ShouldNotFinalizePerformance()
+    public void OnPlayerFailed_WhenGaugeRaisesFailedEvent_ShouldFinalizeWithoutReadingCurrentConfig()
     {
         var game = ReflectionHelpers.CreateGame();
-        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(new ConfigData { NoFail = true }));
+        var configManager = new Mock<IConfigManager>();
+        configManager
+            .SetupGet(x => x.Config)
+            .Throws(new InvalidOperationException("current config must not be read"));
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager.Object);
         var stage = CreateStage(game);
         var stageManager = new Mock<IStageManager>();
+        Dictionary<string, object>? capturedSharedData = null;
+        stageManager
+            .Setup(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()))
+            .Callback<StageType, IStageTransition, Dictionary<string, object>>((_, _, sharedData) => capturedSharedData = sharedData);
         stage.StageManager = stageManager.Object;
+        var chartManager = CreateChartManagerWithSingleNote();
+        var scoreManager = new ScoreManager(1);
+        var comboManager = new ComboManager();
+        var gaugeManager = new GaugeManager(startingLife: 2.0f);
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
+        ReflectionHelpers.SetPrivateField(stage, "_scoreManager", scoreManager);
+        ReflectionHelpers.SetPrivateField(stage, "_comboManager", comboManager);
+        ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", gaugeManager);
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_judgementManager",
+            new JudgementManager(new MockInputManagerCompat(), chartManager));
+        ReflectionHelpers.SetPrivateField(stage, "_skillManager", new SkillManager(1, comboManager));
+        ReflectionHelpers.InvokePrivateMethod(stage, "WireUpEventHandlers");
 
-        ReflectionHelpers.InvokePrivateMethod(stage, "OnPlayerFailed", null, new FailureEventArgs { FinalLife = 0.0f, JudgementType = JudgementType.Miss });
+        gaugeManager.ProcessJudgement(
+            new JudgementEvent(noteRef: 1, lane: 0, deltaMs: 0.0, type: JudgementType.Miss));
 
-        Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_stageCompleted"));
+        Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_stageCompleted"));
+        var summary = Assert.IsType<PerformanceSummary>(capturedSharedData!["performanceSummary"]);
+        Assert.Equal(CompletionReason.PlayerFailed, summary.CompletionReason);
         stageManager.Verify(
             x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
-            Times.Never);
+            Times.Once);
     }
 
     [Fact]
@@ -3461,17 +3554,85 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void CheckStageCompletion_WhenNoFailEnabledAndGaugeFailed_ShouldNotFinalize()
+    public void OnJudgementMade_WhenAutoPlayAndAutoAddGaugeAreDisabled_ShouldSkipOnlyGaugeForwarding()
+    {
+        var stage = CreateStage();
+        var scoreManager = new ScoreManager(1);
+        var comboManager = new ComboManager();
+        var gaugeManager = new GaugeManager();
+        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", true);
+        ReflectionHelpers.SetPrivateField(stage, "_autoAddGaugeEnabled", false);
+        ReflectionHelpers.SetPrivateField(stage, "_scoreManager", scoreManager);
+        ReflectionHelpers.SetPrivateField(stage, "_comboManager", comboManager);
+        ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", gaugeManager);
+
+        ReflectionHelpers.InvokePrivateMethod(
+            stage,
+            "OnJudgementMade",
+            null,
+            new JudgementEvent(noteRef: 1, lane: 2, deltaMs: 0.0, type: JudgementType.Great));
+
+        Assert.Equal(scoreManager.CalculateScoreForJudgement(JudgementType.Great), scoreManager.CurrentScore);
+        Assert.Equal(1, comboManager.CurrentCombo);
+        Assert.Equal(GaugeManager.StartingLife, gaugeManager.CurrentLife);
+    }
+
+    [Fact]
+    public void OnJudgementMade_WhenManualPlayAndAutoAddGaugeAreDisabled_ShouldStillUpdateGauge()
+    {
+        var stage = CreateStage();
+        var gaugeManager = new GaugeManager();
+        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", false);
+        ReflectionHelpers.SetPrivateField(stage, "_autoAddGaugeEnabled", false);
+        ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", gaugeManager);
+
+        ReflectionHelpers.InvokePrivateMethod(
+            stage,
+            "OnJudgementMade",
+            null,
+            new JudgementEvent(noteRef: 1, lane: 2, deltaMs: 0.0, type: JudgementType.Great));
+
+        Assert.Equal(51.5f, gaugeManager.CurrentLife);
+    }
+
+    [Fact]
+    public void CheckStageCompletion_WhenGaugeHasFailed_ShouldFinalizeWithoutReadingCurrentConfig()
     {
         var game = ReflectionHelpers.CreateGame();
-        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(new ConfigData { NoFail = true }));
+        var configManager = new Mock<IConfigManager>();
+        configManager
+            .SetupGet(x => x.Config)
+            .Throws(new InvalidOperationException("current config must not be read"));
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager.Object);
         var stage = CreateStage(game);
+        var stageManager = new Mock<IStageManager>();
+        Dictionary<string, object>? capturedSharedData = null;
+        stageManager
+            .Setup(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()))
+            .Callback<StageType, IStageTransition, Dictionary<string, object>>((_, _, sharedData) => capturedSharedData = sharedData);
+        stage.StageManager = stageManager.Object;
         ReflectionHelpers.SetPrivateField(stage, "_parsedChart", new ParsedChart("nofail-test.dtx") { DurationMs = 5000.0 });
-        ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", new GaugeManager());
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", CreateChartManagerWithSingleNote());
+        ReflectionHelpers.SetPrivateField(stage, "_scoreManager", new ScoreManager(1));
+        ReflectionHelpers.SetPrivateField(stage, "_comboManager", new ComboManager());
+
+        var gaugeManager = new GaugeManager();
+        ReflectionHelpers.SetPrivateField(gaugeManager, "_hasFailed", true);
+        ReflectionHelpers.SetPrivateField(gaugeManager, "_currentLife", 0.0f);
+        ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", gaugeManager);
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_judgementManager",
+            new JudgementManager(new MockInputManagerCompat(), CreateChartManagerWithSingleNote()));
 
         ReflectionHelpers.InvokePrivateMethod(stage, "CheckStageCompletion", 1000.0);
 
-        Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_stageCompleted"));
+        var summary = Assert.IsType<PerformanceSummary>(capturedSharedData!["performanceSummary"]);
+        Assert.Equal(CompletionReason.PlayerFailed, summary.CompletionReason);
+        Assert.False(summary.ClearFlag);
+        stageManager.Verify(
+            x => x.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
+            Times.Once);
     }
 
     [Fact]

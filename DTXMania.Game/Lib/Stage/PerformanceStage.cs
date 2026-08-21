@@ -169,6 +169,10 @@ namespace DTXMania.Game.Lib.Stage
         
         // Autoplay functionality
         private bool _autoPlayEnabled = false;
+        private bool _autoAddGaugeEnabled = true;
+        private GaugeDamageLevel _gaugeDamageLevel = GaugeDamageLevel.Normal;
+        private int _riskyLimit = RiskyRange.Default;
+        private bool _gaugeFailureEnabled = true;
         private int _autoPlayNoteIndex = 0; // Track the next note to auto-hit
         
         // Note: Using global stage transition debouncing from BaseGame
@@ -427,8 +431,12 @@ namespace DTXMania.Game.Lib.Stage
 
         private void InitializeAutoPlay()
         {
-            // Get autoplay setting from config
-            _autoPlayEnabled = _game?.ConfigManager?.Config?.AutoPlay ?? false;
+            var config = _game?.ConfigManager?.Config;
+            _autoPlayEnabled = config?.AutoPlay ?? false;
+            _autoAddGaugeEnabled = config?.AutoAddGauge ?? true;
+            _gaugeDamageLevel = config?.DamageLevel ?? GaugeDamageLevel.Normal;
+            _riskyLimit = RiskyRange.Clamp(config?.Risky ?? RiskyRange.Default);
+            _gaugeFailureEnabled = !(config?.NoFail ?? false);
             _autoPlayNoteIndex = 0;
 
             System.Diagnostics.Debug.WriteLine(
@@ -1595,7 +1603,11 @@ namespace DTXMania.Game.Lib.Stage
 
             _scoreManager = new ScoreManager(_chartManager.TotalNotes);
             _comboManager = new ComboManager();
-            _gaugeManager = new GaugeManager();
+            _gaugeManager = new GaugeManager(
+                GaugeManager.StartingLife,
+                _gaugeDamageLevel,
+                _riskyLimit,
+                _gaugeFailureEnabled);
             _skillManager = new SkillManager(_chartManager.TotalNotes, _comboManager);
 
             // Initialize UI state values
@@ -1692,7 +1704,8 @@ namespace DTXMania.Game.Lib.Stage
             // Forward judgement to all managers
             _scoreManager?.ProcessJudgement(e);
             _comboManager?.ProcessJudgement(e);
-            _gaugeManager?.ProcessJudgement(e);
+            if (!_autoPlayEnabled || _autoAddGaugeEnabled)
+                _gaugeManager?.ProcessJudgement(e);
             _skillManager?.ProcessJudgement(e);
             _skillPanelDisplay?.ProcessJudgement(e, _comboManager?.MaxCombo ?? 0);
 
@@ -1769,18 +1782,10 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void OnPlayerFailed(object? sender, FailureEventArgs e)
         {
-            // Check if NoFail is enabled in config
-            bool noFailEnabled = _game?.ConfigManager?.Config?.NoFail ?? false;
-            
-            if (!noFailEnabled)
+            if (!_stageCompleted)
             {
-                // Trigger stage completion on failure only if NoFail is disabled
-                if (!_stageCompleted)
-                {
-                    FinalizePerformance(CompletionReason.PlayerFailed);
-                }
+                FinalizePerformance(CompletionReason.PlayerFailed);
             }
-            // If NoFail is enabled, do nothing - let the player continue playing
         }
 
         /// <summary>
@@ -2305,9 +2310,7 @@ namespace DTXMania.Game.Lib.Stage
                 }
             }
 
-            // Check for player failure (only if NoFail is disabled)
-            bool noFailEnabled = _game?.ConfigManager?.Config?.NoFail ?? false;
-            if (!noFailEnabled && _gaugeManager?.HasFailed == true)
+            if (_gaugeManager?.HasFailed == true)
             {
                 FinalizePerformance(CompletionReason.PlayerFailed);
             }
