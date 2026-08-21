@@ -981,9 +981,12 @@ namespace DTXMania.Game.Lib.Config
             MarkDirty();
         }
 
-        /// <summary>Sets gauge damage level and marks a deferred save when changed.</summary>
+        /// <summary>Sets gauge damage level, normalizing undefined values to Normal, and marks a deferred save when changed.</summary>
         public void SetDamageLevel(GaugeDamageLevel value)
         {
+            if (!Enum.IsDefined(value))
+                value = GaugeDamageLevel.Normal;
+
             if (value == Config.DamageLevel)
                 return;
 
