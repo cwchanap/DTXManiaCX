@@ -993,6 +993,7 @@ public class ConfigStageLogicTests
     [InlineData("No Fail", nameof(ConfigData.NoFail))]
     [InlineData("Metronome", nameof(ConfigData.Metronome))]
     [InlineData("Auto Play", nameof(ConfigData.AutoPlay))]
+    [InlineData("Auto Add Gauge", nameof(ConfigData.AutoAddGauge))]
     public void ActivatePressedOnToggle_ShouldMutateConfigViaSetter(string itemName, string propertyName)
     {
         var (stage, configManager, inputManager) = CreateStage();
@@ -1008,6 +1009,40 @@ public class ConfigStageLogicTests
             ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
 
             Assert.True((bool)property.GetValue(configManager.Config)!);
+        }
+    }
+
+    [Fact]
+    public void ActivatePressedOnRisky_ShouldMutateConfigViaSetter()
+    {
+        var (stage, configManager, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            configManager.Config.Risky = 3;
+            InitializeStageMenu(stage, includePanels: false);
+            SelectItemForEditing(stage, "Risky");
+            SetKeyboardStates(stage, new KeyboardState(Keys.Right), new KeyboardState());
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            Assert.Equal(4, configManager.Config.Risky);
+        }
+    }
+
+    [Fact]
+    public void ActivatePressedOnDamageLevel_ShouldMutateConfigViaSetter()
+    {
+        var (stage, configManager, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            configManager.Config.DamageLevel = GaugeDamageLevel.Low;
+            InitializeStageMenu(stage, includePanels: false);
+            SelectItemForEditing(stage, "Damage Level");
+            SetKeyboardStates(stage, new KeyboardState(Keys.Right), new KeyboardState());
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            Assert.Equal(GaugeDamageLevel.Normal, configManager.Config.DamageLevel);
         }
     }
 
@@ -1153,7 +1188,10 @@ public class ConfigStageLogicTests
                 i => Assert.Equal("Pitch", i.Name),
                 i => Assert.Equal("Metronome", i.Name),
                 i => Assert.Equal("Auto Play", i.Name),
+                i => Assert.Equal("Auto Add Gauge", i.Name),
                 i => Assert.Equal("No Fail", i.Name),
+                i => Assert.Equal("Risky", i.Name),
+                i => Assert.Equal("Damage Level", i.Name),
                 i => Assert.Equal("Drum Key Mapping", i.Name));
 
             Assert.False(categories[2].HasItems);

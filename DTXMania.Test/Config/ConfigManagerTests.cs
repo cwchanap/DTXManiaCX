@@ -354,6 +354,96 @@ ScreenHeight=720
     }
 
     [Theory]
+    [InlineData("Risky=-4", 0)]
+    [InlineData("Risky=0", 0)]
+    [InlineData("Risky=7", 7)]
+    [InlineData("Risky=99", 10)]
+    public void ConfigManager_ParseRisky_ShouldClampToDefinedRange(string line, int expectedRisky)
+    {
+        var dir = NewTestDir();
+        File.WriteAllText(Path.Combine(dir, "Config.ini"), $"[Game]\n{line}\n", Encoding.UTF8);
+
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
+
+        Assert.Equal(expectedRisky, manager.Config.Risky);
+    }
+
+    [Theory]
+    [InlineData("DamageLevel=low", GaugeDamageLevel.Low)]
+    [InlineData("DamageLevel=NORMAL", GaugeDamageLevel.Normal)]
+    [InlineData("DamageLevel=High", GaugeDamageLevel.High)]
+    [InlineData("DamageLevel=garbage", GaugeDamageLevel.Normal)]
+    [InlineData("DamageLevel=0", GaugeDamageLevel.Normal)]
+    [InlineData("DamageLevel=1", GaugeDamageLevel.Normal)]
+    [InlineData("DamageLevel=2", GaugeDamageLevel.Normal)]
+    public void ConfigManager_ParseDamageLevel_ShouldAcceptNamesOnly(
+        string line, GaugeDamageLevel expectedDamageLevel)
+    {
+        var dir = NewTestDir();
+        File.WriteAllText(Path.Combine(dir, "Config.ini"), $"[Game]\n{line}\n", Encoding.UTF8);
+
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
+
+        Assert.Equal(expectedDamageLevel, manager.Config.DamageLevel);
+    }
+
+    [Theory]
+    [InlineData("AutoAddGauge=false", false)]
+    [InlineData("AutoAddGauge=0", false)]
+    [InlineData("AutoAddGauge=on", true)]
+    public void ConfigManager_ParseAutoAddGauge_ShouldUseStandardBooleanValues(
+        string line, bool expectedAutoAddGauge)
+    {
+        var dir = NewTestDir();
+        File.WriteAllText(Path.Combine(dir, "Config.ini"), $"[Game]\n{line}\n", Encoding.UTF8);
+
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
+
+        Assert.Equal(expectedAutoAddGauge, manager.Config.AutoAddGauge);
+    }
+
+    [Theory]
+    [InlineData(-4, 0)]
+    [InlineData(0, 0)]
+    [InlineData(4, 4)]
+    [InlineData(99, 10)]
+    public void SetRisky_ShouldClampAndUseDeferredPersistence(int value, int expectedRisky)
+    {
+        var dir = NewTestDir();
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
+
+        manager.SetRisky(value);
+
+        Assert.Equal(expectedRisky, manager.Config.Risky);
+        manager.FlushPendingSave();
+        Assert.Equal(expectedRisky.ToString(), ReadRows(dir)["Risky"]);
+    }
+
+    [Fact]
+    public void ConfigManager_SaveAndLoadConfig_ShouldPreserveFailRuleSettings()
+    {
+        var dir = NewTestDir();
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
+
+        manager.SetRisky(4);
+        manager.SetDamageLevel(GaugeDamageLevel.High);
+        manager.SetAutoAddGauge(false);
+        manager.FlushPendingSave();
+
+        var reloadedManager = CreateManager(dir);
+        reloadedManager.LoadConfig();
+
+        Assert.Equal(4, reloadedManager.Config.Risky);
+        Assert.Equal(GaugeDamageLevel.High, reloadedManager.Config.DamageLevel);
+        Assert.False(reloadedManager.Config.AutoAddGauge);
+    }
+
+    [Theory]
     [InlineData("AutoPlay=true", true)]
     [InlineData("AutoPlay=True", true)]
     [InlineData("AutoPlay=false", false)]

@@ -105,6 +105,15 @@ namespace DTXMania.Game.Lib.Config
         /// <summary>Sets NoFail and marks a deferred save pending. No event raised.</summary>
         void SetNoFail(bool value);
 
+        /// <summary>Sets Risky, clamped to the supported range, and marks a deferred save pending.</summary>
+        void SetRisky(int value);
+
+        /// <summary>Sets the gauge damage level and marks a deferred save pending.</summary>
+        void SetDamageLevel(GaugeDamageLevel value);
+
+        /// <summary>Sets Auto Add Gauge and marks a deferred save pending.</summary>
+        void SetAutoAddGauge(bool value);
+
         /// <summary>Sets Metronome and marks a deferred save pending when the value changes. No event raised.</summary>
         void SetMetronome(bool value);
 

@@ -33,6 +33,34 @@ public class ConfigDataTests
     }
 
     [Fact]
+    public void Constructor_FailRuleDefaults_PreserveCurrentGameplay()
+    {
+        var config = new ConfigData();
+
+        Assert.Equal(RiskyRange.Default, config.Risky);
+        Assert.Equal(GaugeDamageLevel.Normal, config.DamageLevel);
+        Assert.True(config.AutoAddGauge);
+    }
+
+    [Theory]
+    [InlineData(-4, 0)]
+    [InlineData(0, 0)]
+    [InlineData(7, 7)]
+    [InlineData(99, 10)]
+    public void RiskyRange_Clamp_ShouldKeepValuesWithinContract(int value, int expected)
+    {
+        Assert.Equal(expected, RiskyRange.Clamp(value));
+    }
+
+    [Theory]
+    [InlineData(0, "Off")]
+    [InlineData(4, "4")]
+    public void RiskyRange_Format_ShouldUseOffForDefault(int value, string expected)
+    {
+        Assert.Equal(expected, RiskyRange.Format(value));
+    }
+
+    [Fact]
     public void DefaultConfig_ShouldContainManagedSongRootAndMirror()
     {
         var config = new ConfigData();

@@ -563,6 +563,24 @@ namespace DTXMania.Game.Lib.Config
                     if (TryParseBool(value, out var noFail))
                         Config.NoFail = noFail;
                     break;
+                case "Risky":
+                    if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var risky))
+                        Config.Risky = RiskyRange.Clamp(risky);
+                    break;
+                case "DamageLevel":
+                {
+                    var matchedName = Enum.GetNames<GaugeDamageLevel>()
+                        .FirstOrDefault(name =>
+                            string.Equals(name, value, StringComparison.OrdinalIgnoreCase));
+
+                    if (matchedName != null)
+                        Config.DamageLevel = Enum.Parse<GaugeDamageLevel>(matchedName);
+                    break;
+                }
+                case "AutoAddGauge":
+                    if (TryParseBool(value, out var autoAddGauge))
+                        Config.AutoAddGauge = autoAddGauge;
+                    break;
                 case "AudioLatencyOffsetMs":
                     if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var audioLatencyOffsetMs))
                         Config.AudioLatencyOffsetMs = Math.Max(0, audioLatencyOffsetMs);
@@ -744,6 +762,10 @@ namespace DTXMania.Game.Lib.Config
             entries["Metronome"] = Config.Metronome.ToString();
             entries["AutoPlay"] = Config.AutoPlay.ToString();
             entries["NoFail"] = Config.NoFail.ToString();
+            entries["Risky"] = RiskyRange.Clamp(Config.Risky)
+                .ToString(CultureInfo.InvariantCulture);
+            entries["DamageLevel"] = Config.DamageLevel.ToString();
+            entries["AutoAddGauge"] = Config.AutoAddGauge.ToString();
             entries["AudioLatencyOffsetMs"] = Config.AudioLatencyOffsetMs.ToString(CultureInfo.InvariantCulture);
 
             entries["EnableGameApi"] = Config.EnableGameApi.ToString();
@@ -945,6 +967,37 @@ namespace DTXMania.Game.Lib.Config
                 return;
 
             Config.Metronome = value;
+            MarkDirty();
+        }
+
+        /// <summary>Sets Risky, clamped to the supported range, and marks a deferred save when changed.</summary>
+        public void SetRisky(int value)
+        {
+            var clamped = RiskyRange.Clamp(value);
+            if (clamped == Config.Risky)
+                return;
+
+            Config.Risky = clamped;
+            MarkDirty();
+        }
+
+        /// <summary>Sets gauge damage level and marks a deferred save when changed.</summary>
+        public void SetDamageLevel(GaugeDamageLevel value)
+        {
+            if (value == Config.DamageLevel)
+                return;
+
+            Config.DamageLevel = value;
+            MarkDirty();
+        }
+
+        /// <summary>Sets Auto Add Gauge and marks a deferred save when changed.</summary>
+        public void SetAutoAddGauge(bool value)
+        {
+            if (value == Config.AutoAddGauge)
+                return;
+
+            Config.AutoAddGauge = value;
             MarkDirty();
         }
 

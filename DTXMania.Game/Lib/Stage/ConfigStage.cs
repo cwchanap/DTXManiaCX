@@ -720,11 +720,42 @@ namespace DTXMania.Game.Lib.Stage
                 value => _configManager.SetAutoPlay(value))
             { Description = "Plays the chart automatically without input." };
 
+            var autoAddGaugeItem = new ToggleConfigItem(
+                "Auto Add Gauge",
+                () => _configManager.Config.AutoAddGauge,
+                value => _configManager.SetAutoAddGauge(value))
+            { Description = "Allow Auto Play judgements to change the life gauge." };
+
+            var riskyItem = new IntegerConfigItem(
+                "Risky",
+                () => _configManager.Config.Risky,
+                value => _configManager.SetRisky(value),
+                minValue: RiskyRange.Min,
+                maxValue: RiskyRange.Max,
+                step: RiskyRange.Step,
+                valueFormatter: RiskyRange.Format)
+            {
+                Description = "Fail after this many Poor/Miss judgements. Off uses the life gauge."
+            };
+
+            var damageLevelItem = new DropdownConfigItem(
+                "Damage Level",
+                () => _configManager.Config.DamageLevel.ToString(),
+                Enum.GetNames<GaugeDamageLevel>(),
+                value =>
+                {
+                    if (Enum.TryParse<GaugeDamageLevel>(value, true, out var level))
+                        _configManager.SetDamageLevel(level);
+                })
+            {
+                Description = "Controls Miss damage to the life gauge."
+            };
+
             var noFailItem = new ToggleConfigItem(
                 "No Fail",
                 () => _configManager.Config.NoFail,
                 value => _configManager.SetNoFail(value))
-            { Description = "Continue playing even when the life gauge is empty." };
+            { Description = "Continue playing without entering a failed gauge state." };
 
             var drumKeyItem = new NavigationConfigItem("Drum Key Mapping",
                 () => NavigateToDrumConfig())
@@ -744,7 +775,8 @@ namespace DTXMania.Game.Lib.Stage
 
             var drumItems = new List<IConfigItem>
             {
-                scrollSpeedItem, playSpeedItem, pitchItem, metronomeItem, autoPlayItem, noFailItem, drumKeyItem
+                scrollSpeedItem, playSpeedItem, pitchItem, metronomeItem, autoPlayItem,
+                autoAddGaugeItem, noFailItem, riskyItem, damageLevelItem, drumKeyItem
             };
 
             _categories = new List<ConfigCategory>
