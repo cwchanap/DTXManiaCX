@@ -372,6 +372,11 @@ namespace DTXMania.Game.Lib.Stage.Result
 
         private static bool IsNewRecord(PerformanceSummary summary, SongScore? previousScore)
         {
+            // Assisted or non-completed runs are never persisted, so they can
+            // never be a record — suppress the NEW RECORD badge and sound too.
+            if (!summary.IsSavable)
+                return false;
+
             if (previousScore == null)
                 return false;
 
