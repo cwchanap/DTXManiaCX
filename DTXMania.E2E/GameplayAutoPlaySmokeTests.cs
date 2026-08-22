@@ -13,7 +13,7 @@ namespace DTXMania.E2E;
 public sealed class GameplayAutoPlaySmokeTests
 {
     [Fact(Timeout = 420_000)]
-    public async Task AutoPlaySmoke_ShouldPersistIndependentSpeedBucketsAndReuseBucketAcrossPitches()
+    public async Task GameplaySmoke_ShouldPersistIndependentSpeedBucketsAndReuseBucketAcrossPitches()
     {
         using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(390));
         var repoRoot = E2EGameLaunch.ResolveRepoRoot();
@@ -37,7 +37,8 @@ public sealed class GameplayAutoPlaySmokeTests
                     repoRoot,
                     profileApiPort,
                     profile.PlaySpeedPercent,
-                    profile.PitchSemitones);
+                    profile.PitchSemitones,
+                    enableAutoPlayLanes: false);
                 lastFixture = fixture;
 
                 // Later profiles share the RunRoot (songs.db score persistence
@@ -178,7 +179,10 @@ public sealed class GameplayAutoPlaySmokeTests
             Assert.True(resultState.TotalNotes > 0, "Expected generated chart to contain notes.");
             Assert.Equal(resultState.TotalNotes, resultState.TotalJudgements);
             Assert.True(resultState.ClearFlag);
-            Assert.True(resultState.Score > 0);
+            // Manual play with no input: every note misses, so the saved score
+            // is zero. Assisted (AutoPlay) runs would score but are never
+            // persisted since HPA-18, which is why this fixture runs manual.
+            Assert.Equal(0, resultState.Score);
             Assert.Equal("SongComplete", resultState.CompletionReason);
             Assert.Equal("Saved", resultState.ScoreSaveStatus);
             Assert.Null(resultState.ScoreSaveError);
