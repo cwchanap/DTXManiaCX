@@ -32,6 +32,7 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Equal(Guid.Empty, summary.RunId);
             Assert.Equal(100, summary.PlaySpeedPercent);
             Assert.Equal(0, summary.PitchSemitones);
+            Assert.False(summary.UsedAutoPlay);
             Assert.False(summary.IsSavable);
         }
 
@@ -72,6 +73,36 @@ namespace DTXMania.Test.Stage.Performance
             };
 
             Assert.False(summary.IsSavable);
+        }
+
+        [Theory]
+        [InlineData(CompletionReason.SongComplete)]
+        [InlineData(CompletionReason.PlayerFailed)]
+        public void IsSavable_WhenUsedAutoPlayIsTrue_ShouldRejectAssistedRun(CompletionReason reason)
+        {
+            var summary = new PerformanceSummary
+            {
+                RunId = Guid.NewGuid(),
+                CompletionReason = reason,
+                UsedAutoPlay = true
+            };
+
+            Assert.False(summary.IsSavable);
+        }
+
+        [Theory]
+        [InlineData(CompletionReason.SongComplete)]
+        [InlineData(CompletionReason.PlayerFailed)]
+        public void IsSavable_WhenManualRunHasIdentity_ShouldAllowCompletedOrFailedRun(CompletionReason reason)
+        {
+            var summary = new PerformanceSummary
+            {
+                RunId = Guid.NewGuid(),
+                CompletionReason = reason,
+                UsedAutoPlay = false
+            };
+
+            Assert.True(summary.IsSavable);
         }
 
         #endregion

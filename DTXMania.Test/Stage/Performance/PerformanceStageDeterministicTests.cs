@@ -137,7 +137,7 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", gaugeManager);
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
         ReflectionHelpers.SetPrivateField(stage, "_songTimer", new SongTimer());
-        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", true);
+        SetAutoPlayLanes(stage, Enumerable.Range(0, PerformanceUILayout.LaneCount).ToArray());
         ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
         ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
         ReflectionHelpers.SetPrivateField(stage, "_readyCountdown", 1.5);
@@ -157,6 +157,28 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(0, telemetry.CurrentCombo);
         Assert.Equal(0, telemetry.MaxCombo);
         Assert.Equal(GaugeManager.StartingLife, telemetry.Gauge);
+    }
+
+    [Fact]
+    public void PopulateTelemetry_WhenAutoPlayIsPartial_ShouldReportAutoPlayDisabled()
+    {
+        var stage = CreateStage();
+        var chart = new ParsedChart("partial-autoplay-telemetry.dtx");
+        chart.Notes.Add(new Note { Id = 1, LaneIndex = 0, TimeMs = 100 });
+        var chartManager = new ChartManager(chart);
+
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
+        ReflectionHelpers.SetPrivateField(stage, "_songTimer", new SongTimer());
+        ReflectionHelpers.SetPrivateField(stage, "_autoPlayLanes", new HashSet<int> { 0, 1 });
+        ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
+        ReflectionHelpers.SetPrivateField(stage, "_isReady", true);
+        ReflectionHelpers.SetPrivateField(stage, "_stageCompleted", false);
+
+        var telemetry = new GameTelemetrySnapshot();
+
+        stage.PopulateTelemetry(telemetry);
+
+        Assert.False(telemetry.AutoPlayEnabled);
     }
 
     [Fact]
@@ -453,17 +475,19 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void InitializeAutoPlay_WhenConfigEnablesAutoPlay_ShouldEnableAndResetIndex()
+    public void InitializeAutoPlay_WhenConfigProvidesAutoPlayLanes_ShouldCopyLanesAndResetIndex()
     {
         var game = ReflectionHelpers.CreateGame();
-        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(new ConfigData { AutoPlay = true }));
+        var config = new ConfigData();
+        config.AutoPlayLanes.UnionWith(new[] { 2, 7 });
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(config));
         var stage = CreateStage(game);
-        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", false);
+        SetAutoPlayLanes(stage, 0);
         ReflectionHelpers.SetPrivateField(stage, "_autoPlayNoteIndex", 19);
 
         ReflectionHelpers.InvokePrivateMethod(stage, "InitializeAutoPlay");
 
-        Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_autoPlayEnabled"));
+        Assert.Equal(new[] { 2, 7 }, GetAutoPlayLanes(stage).OrderBy(lane => lane));
         Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
     }
 
@@ -472,12 +496,12 @@ public class PerformanceStageDeterministicTests
     {
         var config = new ConfigData
         {
-            AutoPlay = true,
             AutoAddGauge = false,
             DamageLevel = GaugeDamageLevel.High,
             Risky = 3,
             NoFail = true
         };
+        config.AutoPlayLanes.UnionWith(new[] { 1, 8 });
         var game = ReflectionHelpers.CreateGame();
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(config));
         var stage = CreateStage(game);
@@ -485,13 +509,14 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.InvokePrivateMethod(stage, "InitializeAutoPlay");
 
         // A later config edit must not change the policy captured for this run.
-        config.AutoPlay = false;
+        config.AutoPlayLanes.Clear();
+        config.AutoPlayLanes.Add(4);
         config.AutoAddGauge = true;
         config.DamageLevel = GaugeDamageLevel.Low;
         config.Risky = 0;
         config.NoFail = false;
 
-        Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_autoPlayEnabled"));
+        Assert.Equal(new[] { 1, 8 }, GetAutoPlayLanes(stage).OrderBy(lane => lane));
         Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_autoAddGaugeEnabled"));
         Assert.Equal(
             GaugeDamageLevel.High,
@@ -506,12 +531,12 @@ public class PerformanceStageDeterministicTests
         var game = ReflectionHelpers.CreateGame();
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), null);
         var stage = CreateStage(game);
-        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", true);
+        SetAutoPlayLanes(stage, 3);
         ReflectionHelpers.SetPrivateField(stage, "_autoPlayNoteIndex", 7);
 
         ReflectionHelpers.InvokePrivateMethod(stage, "InitializeAutoPlay");
 
-        Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_autoPlayEnabled"));
+        Assert.Empty(GetAutoPlayLanes(stage));
         Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
     }
 
@@ -519,14 +544,14 @@ public class PerformanceStageDeterministicTests
     public void InitializeAutoPlay_WhenConfigDisablesAutoPlay_ShouldDisableAndResetIndex()
     {
         var game = ReflectionHelpers.CreateGame();
-        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(new ConfigData { AutoPlay = false }));
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(new ConfigData()));
         var stage = CreateStage(game);
-        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", true);
+        SetAutoPlayLanes(stage, 3);
         ReflectionHelpers.SetPrivateField(stage, "_autoPlayNoteIndex", 3);
 
         ReflectionHelpers.InvokePrivateMethod(stage, "InitializeAutoPlay");
 
-        Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_autoPlayEnabled"));
+        Assert.Empty(GetAutoPlayLanes(stage));
         Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
     }
 
@@ -535,12 +560,12 @@ public class PerformanceStageDeterministicTests
     {
         var stage = CreateStage();
         ReflectionHelpers.SetPrivateField(stage, "_game", null);
-        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", true);
+        SetAutoPlayLanes(stage, 3);
         ReflectionHelpers.SetPrivateField(stage, "_autoPlayNoteIndex", 11);
 
         ReflectionHelpers.InvokePrivateMethod(stage, "InitializeAutoPlay");
 
-        Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_autoPlayEnabled"));
+        Assert.Empty(GetAutoPlayLanes(stage));
         Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
     }
 
@@ -552,12 +577,12 @@ public class PerformanceStageDeterministicTests
         configManager.SetupGet(x => x.Config).Returns((ConfigData)null!);
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager.Object);
         var stage = CreateStage(game);
-        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", true);
+        SetAutoPlayLanes(stage, 3);
         ReflectionHelpers.SetPrivateField(stage, "_autoPlayNoteIndex", 4);
 
         ReflectionHelpers.InvokePrivateMethod(stage, "InitializeAutoPlay");
 
-        Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_autoPlayEnabled"));
+        Assert.Empty(GetAutoPlayLanes(stage));
         Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
     }
 
@@ -611,6 +636,30 @@ public class PerformanceStageDeterministicTests
         Assert.NotNull(padVisuals);
         Assert.Equal(PadState.Pressed, padVisuals![4].State);
         Assert.Equal(0.0, padVisuals[4].TimePressed);
+    }
+
+    [Fact]
+    public void OnLaneHitForPadFeedback_WithMixedAutoPlay_ShouldSuppressOnlyAutomatedLane()
+    {
+        var stage = CreateStage();
+        SetAutoPlayLanes(stage, 1);
+        var padRenderer = CreatePadRenderer();
+        ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
+
+        ReflectionHelpers.InvokePrivateMethod(
+            stage,
+            "OnLaneHitForPadFeedback",
+            null,
+            new LaneHitEventArgs(0, new ButtonState("Manual", true)));
+        ReflectionHelpers.InvokePrivateMethod(
+            stage,
+            "OnLaneHitForPadFeedback",
+            null,
+            new LaneHitEventArgs(1, new ButtonState("Automated", true)));
+
+        var padVisuals = ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals");
+        Assert.Equal(PadState.Pressed, padVisuals![0].State);
+        Assert.Equal(PadState.Idle, padVisuals[1].State);
     }
 
     [Theory]
@@ -669,17 +718,53 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void InitializeGameplayManagers_WithFrozenAutoPlayLanes_ShouldFilterOnlyAutomatedPhysicalInput()
+    {
+        var stage = CreateStage();
+        var inputManager = new MockInputManagerCompat();
+        var chartManager = BuildChartManager(new[]
+        {
+            new Note(laneIndex: 0, bar: 0, tick: 96, channel: 0x11, value: "01"),
+            new Note(laneIndex: 1, bar: 0, tick: 96, channel: 0x12, value: "01")
+        });
+        SetAutoPlayLanes(stage, 1);
+        ReflectionHelpers.SetPrivateField(stage, "_inputManager", inputManager);
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "InitializeGameplayManagers");
+
+        var judgementManager = ReflectionHelpers.GetPrivateField<JudgementManager>(stage, "_judgementManager");
+        Assert.NotNull(judgementManager);
+        Assert.False(judgementManager!.IgnorePlayerInput);
+        judgementManager.IsActive = true;
+        JudgementEvent? captured = null;
+        judgementManager.JudgementMade += (_, judgement) => captured = judgement;
+
+        inputManager.TriggerLaneHit(1);
+        judgementManager.Update(1000.0);
+        Assert.Null(captured);
+        Assert.Equal(NoteStatus.Pending, judgementManager.GetNoteRuntimeData(chartManager.AllNotes[1].Id)!.Status);
+
+        inputManager.TriggerLaneHit(0);
+        judgementManager.Update(1000.0);
+
+        Assert.NotNull(captured);
+        Assert.Equal(0, captured!.Lane);
+        Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chartManager.AllNotes[0].Id)!.Status);
+    }
+
+    [Fact]
     public void InitializeGameplayManagers_WhenConfigManagerMissing_ShouldUseFrozenGameplayPolicy()
     {
         var game = ReflectionHelpers.CreateGame();
         var config = new ConfigData
         {
-            AutoPlay = true,
             AutoAddGauge = false,
             DamageLevel = GaugeDamageLevel.High,
             Risky = 3,
             NoFail = true
         };
+        config.AutoPlayLanes.Add(0);
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(config));
         var stage = CreateStage(game);
         ReflectionHelpers.InvokePrivateMethod(stage, "InitializeAutoPlay");
@@ -694,7 +779,7 @@ public class PerformanceStageDeterministicTests
         var judgementManager = ReflectionHelpers.GetPrivateField<JudgementManager>(stage, "_judgementManager");
         var gaugeManager = ReflectionHelpers.GetPrivateField<GaugeManager>(stage, "_gaugeManager");
         Assert.NotNull(judgementManager);
-        Assert.True(judgementManager!.IgnorePlayerInput);
+        Assert.False(judgementManager!.IgnorePlayerInput);
         Assert.NotNull(gaugeManager);
         Assert.Equal(
             GaugeDamageLevel.High,
@@ -832,7 +917,7 @@ public class PerformanceStageDeterministicTests
     {
         var stage = CreateStage();
         var judgementManager = new JudgementManager(new MockInputManagerCompat(), CreateChartManagerWithSingleNote());
-        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", false);
+        SetAutoPlayLanes(stage);
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
 
         ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplayManagers", 1301.0, 1301.0);
@@ -852,7 +937,7 @@ public class PerformanceStageDeterministicTests
         var judgementManager = new JudgementManager(
             new MockInputManagerCompat(),
             CreateChartManagerWithSingleNote());
-        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", false);
+        SetAutoPlayLanes(stage);
         ReflectionHelpers.SetPrivateField(
             stage,
             "_judgementManager",
@@ -873,10 +958,11 @@ public class PerformanceStageDeterministicTests
     public void UpdateGameplayManagers_WhenAutoPlayEnabled_ShouldTriggerAutoHitBeforeMissDetection()
     {
         var stage = CreateStage();
+        SetAutoPlayLanes(stage, 0);
         var chartManager = CreateChartManagerWithSingleNote();
         var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
         var padRenderer = CreatePadRenderer();
-        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", true);
+        SetAutoPlayLanes(stage, 0);
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
         ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
@@ -896,7 +982,7 @@ public class PerformanceStageDeterministicTests
         var chartManager = CreateChartManagerWithSingleNote();
         var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
         var padRenderer = CreatePadRenderer();
-        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", true);
+        SetAutoPlayLanes(stage, 0);
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
         ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
@@ -1088,6 +1174,7 @@ public class PerformanceStageDeterministicTests
     public void ProcessAutoPlay_WhenNextNoteIsInFuture_ShouldLeaveIndexUnchanged()
     {
         var stage = CreateStage();
+        SetAutoPlayLanes(stage, 0);
         var chartManager = CreateChartManagerWithSingleNote();
         var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
         var padRenderer = CreatePadRenderer();
@@ -1107,6 +1194,7 @@ public class PerformanceStageDeterministicTests
         // Note is at 1000ms. Calling ProcessAutoPlay at 955ms (45ms early) should NOT trigger.
         // Previously, a ±50ms window allowed early triggering which caused audible timing issues.
         var stage = CreateStage();
+        SetAutoPlayLanes(stage, 0);
         var chartManager = CreateChartManagerWithSingleNote();
         var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
         var padRenderer = CreatePadRenderer();
@@ -1134,6 +1222,7 @@ public class PerformanceStageDeterministicTests
         // late due to a GC pause, frame hitch, or low FPS. A note at 1000ms
         // processed at 1100ms (100ms late) must still be auto-hit.
         var stage = CreateStage();
+        SetAutoPlayLanes(stage, 0);
         var chartManager = CreateChartManagerWithSingleNote();
         var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
         var padRenderer = CreatePadRenderer();
@@ -1157,6 +1246,7 @@ public class PerformanceStageDeterministicTests
         // then frame at 1051ms (51ms past note). The old code would skip because
         // 51ms > 50ms autoPlayWindowMs. Autoplay must always hit pending past-due notes.
         var stage = CreateStage();
+        SetAutoPlayLanes(stage, 0);
         var chartManager = CreateChartManagerWithSingleNote();
         var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
         var padRenderer = CreatePadRenderer();
@@ -1182,6 +1272,7 @@ public class PerformanceStageDeterministicTests
     public void ProcessAutoPlay_WhenNextNoteIsWithinWindow_ShouldQueueHitAndPressPad()
     {
         var stage = CreateStage();
+        SetAutoPlayLanes(stage, 0);
         var chartManager = CreateChartManagerWithSingleNote();
         var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
         var padRenderer = CreatePadRenderer();
@@ -1201,6 +1292,7 @@ public class PerformanceStageDeterministicTests
     public void ProcessAutoPlay_WhenNoteWasAlreadyResolved_ShouldAdvanceIndexWithoutTriggeringPadPress()
     {
         var stage = CreateStage();
+        SetAutoPlayLanes(stage, 0);
         var chartManager = CreateChartManagerWithSingleNote();
         var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
         var padRenderer = CreatePadRenderer();
@@ -1218,6 +1310,35 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void ProcessAutoPlay_WhenDueManualNotePrecedesAutomatedNote_ShouldAdvanceCursorAndResolveAutomatedNote()
+    {
+        var stage = CreateStage();
+        SetAutoPlayLanes(stage, 1);
+        var chartManager = BuildChartManager(new[]
+        {
+            new Note(laneIndex: 0, bar: 0, tick: 96, channel: 0x11, value: "01"),
+            new Note(laneIndex: 1, bar: 0, tick: 192, channel: 0x12, value: "01")
+        });
+        var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
+        var padRenderer = CreatePadRenderer();
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
+        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
+        ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessAutoPlay", 2000.0);
+
+        Assert.Equal(2, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
+        Assert.Equal(NoteStatus.Pending, judgementManager.GetNoteRuntimeData(chartManager.AllNotes[0].Id)!.Status);
+        Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chartManager.AllNotes[1].Id)!.Status);
+        Assert.Equal(
+            JudgementType.Perfect,
+            judgementManager.GetNoteRuntimeData(chartManager.AllNotes[1].Id)!.JudgementEvent!.Type);
+        var padVisuals = ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals");
+        Assert.Equal(PadState.Idle, padVisuals![0].State);
+        Assert.Equal(PadState.Pressed, padVisuals[1].State);
+    }
+
+    [Fact]
     public void UpdateGameplayManagers_WithAutoPlayDisabled_DoesNotProcessAutoPlay()
     {
         var stage = CreateStage();
@@ -1227,7 +1348,7 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
         ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
-        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", false);
+        SetAutoPlayLanes(stage);
 
         ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplayManagers", 1000.0, 1000.0);
 
@@ -1246,7 +1367,7 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
         ReflectionHelpers.SetPrivateField(stage, "_padRenderer", padRenderer);
-        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", true);
+        SetAutoPlayLanes(stage, 0);
 
         ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplayManagers", 1000.0, 1000.0);
 
@@ -1258,6 +1379,7 @@ public class PerformanceStageDeterministicTests
     public void ProcessAutoPlay_NoteInWindow_PlaysChipForNote()
     {
         var stage = CreateStage();
+        SetAutoPlayLanes(stage, 3);
         var chartManager = BuildChartManager(new[]
         {
             new Note(laneIndex: 3, bar: 0, tick: 10, channel: 0x12, value: "07"),
@@ -1277,7 +1399,6 @@ public class PerformanceStageDeterministicTests
             judgementManager.IsActive = true;
             ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
 
-            ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", true);
             ReflectionHelpers.SetPrivateField(stage, "_autoPlayNoteIndex", 0);
 
             ReflectionHelpers.InvokePrivateMethod(stage, "ProcessAutoPlay", 110.0);
@@ -1294,6 +1415,7 @@ public class PerformanceStageDeterministicTests
     public void ProcessAutoPlay_NoteInWindow_NoChipCache_DoesNotThrow()
     {
         var stage = CreateStage();
+        SetAutoPlayLanes(stage, 3);
         var chartManager = BuildChartManager(new[]
         {
             new Note(laneIndex: 3, bar: 0, tick: 10, channel: 0x12, value: "07"),
@@ -1305,7 +1427,6 @@ public class PerformanceStageDeterministicTests
         judgementManager.IsActive = true;
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
 
-        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", true);
         ReflectionHelpers.SetPrivateField(stage, "_autoPlayNoteIndex", 0);
 
         var ex = Record.Exception(() =>
@@ -1325,6 +1446,7 @@ public class PerformanceStageDeterministicTests
         // the window entirely. A note at 1000ms processed at 1500ms (400ms late)
         // must still be auto-hit with Perfect timing.
         var stage = CreateStage();
+        SetAutoPlayLanes(stage, 0);
         var chartManager = CreateChartManagerWithSingleNote();
         var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
         var padRenderer = CreatePadRenderer();
@@ -1354,6 +1476,7 @@ public class PerformanceStageDeterministicTests
         // Multiple notes all >200ms past their time — all must be resolved.
         // This simulates a long GC pause where the song jumps forward significantly.
         var stage = CreateStage();
+        SetAutoPlayLanes(stage, 0, 1, 2);
         var chartManager = BuildChartManager(new[]
         {
             new Note(laneIndex: 0, bar: 0, tick: 10, channel: 0x11, value: "01"),
@@ -1379,7 +1502,7 @@ public class PerformanceStageDeterministicTests
     public void OnLaneHitForPadFeedback_WhenAutoPlayEnabled_NoPadOrChip()
     {
         var stage = CreateStage();
-        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", true);
+        SetAutoPlayLanes(stage, 0);
 
         // Seed a hittable note on lane 0 so PlayChipForNote would have something to play
         var note = new Note(laneIndex: 0, bar: 0, tick: 96, channel: 0x12, value: "07");
@@ -1427,7 +1550,7 @@ public class PerformanceStageDeterministicTests
     public void OnLaneHitForPadFeedback_AutoPlayOff_PlaysChipForNearestNote()
     {
         var stage = CreateStage();
-        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", false);
+        SetAutoPlayLanes(stage);
 
         var note = new Note(laneIndex: 3, bar: 0, tick: 96, channel: 0x12, value: "07");
         var chartManager = BuildChartManager(new[] { note });
@@ -1468,7 +1591,7 @@ public class PerformanceStageDeterministicTests
     public void OnLaneHitForPadFeedback_AutoPlayOff_NoNoteInWindow_NoChip()
     {
         var stage = CreateStage();
-        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", false);
+        SetAutoPlayLanes(stage);
 
         // Note exists but is far away — outside the ±200ms window
         var note = new Note(laneIndex: 3, bar: 2, tick: 96, channel: 0x12, value: "07");
@@ -1516,7 +1639,7 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager),
             CreateConfigManager(new ConfigData { AudioLatencyOffsetMs = latencyOffsetMs }));
         var stage = CreateStage(game);
-        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", false);
+        SetAutoPlayLanes(stage);
 
         // Note at 1000ms on lane 3. With 200ms latency offset, raw clock 1200ms
         // should map to compensated 1000ms — within the Poor window (150ms).
@@ -1561,7 +1684,7 @@ public class PerformanceStageDeterministicTests
     public void OnLaneHitForPadFeedback_SongNotPlaying_VisualPadButNoChipSound()
     {
         var stage = CreateStage();
-        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", false);
+        SetAutoPlayLanes(stage);
 
         var note = new Note(laneIndex: 3, bar: 0, tick: 1, channel: 0x12, value: "07");
         var chartManager = BuildChartManager(new[] { note });
@@ -1611,7 +1734,7 @@ public class PerformanceStageDeterministicTests
         // A hit during loading/countdown/after-stop must not populate the last-hit fields, which
         // would otherwise leak into GameApi state for the next consumer.
         var stage = CreateStage();
-        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", false);
+        SetAutoPlayLanes(stage);
         // No _songTimer set -> IsPlaying is false.
 
         var args = new LaneHitEventArgs(4, new ButtonState("Key.Z", true, 1.0f));
@@ -1786,7 +1909,7 @@ public class PerformanceStageDeterministicTests
         // Exercises the _lastLaneHit = new LastLaneHit(...) line in OnLaneHitForPadFeedback
         // when the song timer is actively playing.
         var stage = CreateStage();
-        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", false);
+        SetAutoPlayLanes(stage);
         ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreatePlayingSongTimer());
         ReflectionHelpers.SetPrivateField(stage, "_currentGameTime",
             new GameTime(TimeSpan.FromMilliseconds(1500), TimeSpan.Zero));
@@ -1806,7 +1929,7 @@ public class PerformanceStageDeterministicTests
     public void OnLaneHitForPadFeedback_ShouldFrameSampleLogicalClockAtFrozenSpeed()
     {
         var stage = CreateStage();
-        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", false);
+        SetAutoPlayLanes(stage);
         var timer = new SongTimer(150);
         timer.Play(new GameTime(TimeSpan.Zero, TimeSpan.Zero));
         ReflectionHelpers.SetPrivateField(stage, "_songTimer", timer);
@@ -3560,7 +3683,7 @@ public class PerformanceStageDeterministicTests
         var scoreManager = new ScoreManager(1);
         var comboManager = new ComboManager();
         var gaugeManager = new GaugeManager();
-        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", true);
+        SetAutoPlayLanes(stage, 2);
         ReflectionHelpers.SetPrivateField(stage, "_autoAddGaugeEnabled", false);
         ReflectionHelpers.SetPrivateField(stage, "_scoreManager", scoreManager);
         ReflectionHelpers.SetPrivateField(stage, "_comboManager", comboManager);
@@ -3582,7 +3705,7 @@ public class PerformanceStageDeterministicTests
     {
         var stage = CreateStage();
         var gaugeManager = new GaugeManager();
-        ReflectionHelpers.SetPrivateField(stage, "_autoPlayEnabled", false);
+        SetAutoPlayLanes(stage);
         ReflectionHelpers.SetPrivateField(stage, "_autoAddGaugeEnabled", false);
         ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", gaugeManager);
 
@@ -3763,6 +3886,7 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(75, summary.PlaySpeedPercent);
         Assert.Equal(-4, summary.PitchSemitones);
         Assert.True(summary.IsSavable);
+        Assert.False(summary.UsedAutoPlay);
         Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_stageCompleted"));
         Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_inputPaused"));
     }
@@ -3781,6 +3905,7 @@ public class PerformanceStageDeterministicTests
             nameof(BaseGame.ConfigManager),
             CreateConfigManager(config));
         var stage = CreateStage(game);
+        SetAutoPlayLanes(stage, 2);
         ReflectionHelpers.SetPrivateField(
             stage,
             "_playbackModifiers",
@@ -3797,6 +3922,8 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(75, summary.PlaySpeedPercent);
         Assert.Equal(-4, summary.PitchSemitones);
         Assert.NotEqual(Guid.Empty, summary.RunId);
+        Assert.True(summary.UsedAutoPlay);
+        Assert.False(summary.IsSavable);
     }
 
     [Fact]
@@ -4237,12 +4364,23 @@ public class PerformanceStageDeterministicTests
         Assert.Null(ex);
     }
 
+    private static void SetAutoPlayLanes(PerformanceStage stage, params int[] lanes)
+    {
+        ReflectionHelpers.SetPrivateField(stage, "_autoPlayLanes", new HashSet<int>(lanes));
+    }
+
+    private static HashSet<int> GetAutoPlayLanes(PerformanceStage stage)
+    {
+        return ReflectionHelpers.GetPrivateField<HashSet<int>>(stage, "_autoPlayLanes")!;
+    }
+
     private static PerformanceStage CreateStage(BaseGame? game = null)
     {
 #pragma warning disable SYSLIB0050
         var stage = (PerformanceStage)FormatterServices.GetUninitializedObject(typeof(PerformanceStage));
 #pragma warning restore SYSLIB0050
         ReflectionHelpers.SetPrivateField(stage, "_game", game ?? ReflectionHelpers.CreateGame());
+        ReflectionHelpers.SetPrivateField(stage, "_autoPlayLanes", new HashSet<int>());
         return stage;
     }
 
@@ -4252,6 +4390,7 @@ public class PerformanceStageDeterministicTests
         var stage = (InspectablePerformanceStage)FormatterServices.GetUninitializedObject(typeof(InspectablePerformanceStage));
 #pragma warning restore SYSLIB0050
         ReflectionHelpers.SetPrivateField(stage, "_game", game ?? ReflectionHelpers.CreateGame());
+        ReflectionHelpers.SetPrivateField(stage, "_autoPlayLanes", new HashSet<int>());
         return stage;
     }
 
