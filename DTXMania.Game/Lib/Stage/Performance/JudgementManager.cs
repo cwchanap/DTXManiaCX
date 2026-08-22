@@ -26,6 +26,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private readonly ChartManager _chartManager;
         private readonly Dictionary<int, NoteRuntimeData> _noteRuntimeData;
         private readonly List<LaneHitEventArgs> _pendingLaneHits;
+        private HashSet<int> _ignoredPlayerInputLanes = new();
         private bool _disposed = false;
         
         // Miss detection optimization: Track the next note index to check for misses
@@ -59,6 +60,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// Set during PerformanceStage activation based on Config.AutoPlay.
         /// </summary>
         public bool IgnorePlayerInput { get; internal set; } = false;
+
+        internal void SetIgnoredPlayerInputLanes(IEnumerable<int> lanes)
+        {
+            _ignoredPlayerInputLanes = new HashSet<int>(lanes);
+        }
 
         #endregion
 
@@ -293,7 +299,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private void OnLaneHit(object? sender, LaneHitEventArgs args)
         {
             // Only process events when active and player input is allowed
-            if (!IsActive || _disposed || IgnorePlayerInput)
+            if (!IsActive || _disposed || IgnorePlayerInput || _ignoredPlayerInputLanes.Contains(args.Lane))
                 return;
 
             // Add lane hit event to pending list for processing in next Update

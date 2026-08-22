@@ -88,6 +88,53 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
+        public void OnLaneHit_WhenLaneIsIgnored_DropsIgnoredInputButJudgesManualLane()
+        {
+            var compat = CreateMockInputManagerWithEvents();
+            var judgementManager = new JudgementManager(compat, CreateTestChartManager());
+            judgementManager.SetIgnoredPlayerInputLanes(new[] { 0 });
+
+            JudgementEvent? captured = null;
+            judgementManager.JudgementMade += (_, e) => captured = e;
+
+            compat.TriggerLaneHit(0);
+            judgementManager.Update(1000.0, 1000.0);
+
+            Assert.Null(captured);
+
+            compat.TriggerLaneHit(1);
+            judgementManager.Update(1500.0, 1000.0);
+
+            Assert.NotNull(captured);
+            Assert.Equal(1, captured.Lane);
+        }
+
+        [Fact]
+        public void SetIgnoredPlayerInputLanes_CopiesCallerCollection()
+        {
+            var compat = CreateMockInputManagerWithEvents();
+            var judgementManager = new JudgementManager(compat, CreateTestChartManager());
+            var ignoredLanes = new[] { 0 };
+            judgementManager.SetIgnoredPlayerInputLanes(ignoredLanes);
+
+            ignoredLanes[0] = 1;
+
+            JudgementEvent? captured = null;
+            judgementManager.JudgementMade += (_, e) => captured = e;
+
+            compat.TriggerLaneHit(0);
+            judgementManager.Update(1000.0, 1000.0);
+
+            Assert.Null(captured);
+
+            compat.TriggerLaneHit(1);
+            judgementManager.Update(1500.0, 1000.0);
+
+            Assert.NotNull(captured);
+            Assert.Equal(1, captured.Lane);
+        }
+
+        [Fact]
         public void Update_MissedNote_GeneratesMissEvent()
         {
             // Arrange
