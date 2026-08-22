@@ -652,7 +652,13 @@ namespace DTXMania.Test.Stage
 #pragma warning restore SYSLIB0050
             var sound = new Mock<ISound>();
             var model = ResultScreenModel.Create(
-                new PerformanceSummary { Score = 900000, GameSkill = 100.0 },
+                new PerformanceSummary
+                {
+                    RunId = Guid.NewGuid(),
+                    CompletionReason = CompletionReason.SongComplete,
+                    Score = 900000,
+                    GameSkill = 100.0
+                },
                 null,
                 0,
                 null,

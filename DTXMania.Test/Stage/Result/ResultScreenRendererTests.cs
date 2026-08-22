@@ -128,6 +128,8 @@ public class ResultScreenRendererTests
         var model = ResultScreenModel.Create(
             new PerformanceSummary
             {
+                RunId = Guid.NewGuid(),
+                CompletionReason = CompletionReason.SongComplete,
                 ClearFlag = true,
                 PerfectCount = 100,
                 TotalNotes = 100,

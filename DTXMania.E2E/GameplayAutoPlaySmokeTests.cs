@@ -91,6 +91,84 @@ public sealed class GameplayAutoPlaySmokeTests
         }
     }
 
+    [Fact(Timeout = 240_000)]
+    public async Task GameplayFullAutoPlay_ShouldJudgeEveryNoteAndComplete()
+    {
+        // Black-box proof of the core HPA-18 path: persisted AutoPlay.0..9 ->
+        // frozen performance lanes -> automatic judgements -> completed Result.
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(210));
+        var repoRoot = E2EGameLaunch.ResolveRepoRoot();
+        var runRoot = Path.Combine(Path.GetTempPath(), "dtxmaniacx-e2e-fullautoplay-" + Guid.NewGuid().ToString("N"));
+        var apiPort = E2EGameLaunch.ResolveApiPort();
+        var fixture = E2EFixtureBuilder.Build(runRoot, repoRoot, apiPort, enableAutoPlayLanes: true);
+        await using var bundle = E2EGameLaunch.CreateClientBundle(fixture);
+        var process = bundle.Process;
+        var client = bundle.Client;
+
+        try
+        {
+            process.Start(E2EGameLaunch.CreateOptions(fixture));
+            await process.WaitForStartupAsync(
+                client.GetHealthAsync,
+                TimeSpan.FromSeconds(60),
+                TimeSpan.FromMilliseconds(500),
+                cancellation.Token);
+
+            await WaitForStageAsync(client, "Title", TimeSpan.FromSeconds(45), cancellation.Token);
+            await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
+            await WaitForStageAsync(client, "SongSelect", TimeSpan.FromSeconds(45), cancellation.Token);
+            await SaveScreenshotAsync(client, fixture, "song-select-fullautoplay.png", cancellation.Token);
+
+            await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
+            await Task.Delay(500, cancellation.Token);
+            await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
+
+            var fullyJudged = await Eventually.UntilAsync(
+                token => client.GetGameStateAsync(token),
+                state =>
+                    state.PerformanceReady &&
+                    state.AutoPlayEnabled &&
+                    state.TotalNotes > 0 &&
+                    state.TotalJudgements == state.TotalNotes,
+                TimeSpan.FromSeconds(120),
+                TimeSpan.FromMilliseconds(250),
+                "all chart notes automatically judged",
+                cancellation.Token);
+
+            Assert.True(fullyJudged.AutoPlayEnabled);
+            Assert.Equal(fullyJudged.TotalNotes, fullyJudged.TotalJudgements);
+
+            await WaitForStageAsync(client, "Result", TimeSpan.FromSeconds(120), cancellation.Token);
+            var resultState = await Eventually.UntilAsync(
+                token => client.GetGameStateAsync(token),
+                state =>
+                    string.Equals(state.StageType, "Result", StringComparison.Ordinal) &&
+                    state.StageCompleted,
+                TimeSpan.FromSeconds(30),
+                TimeSpan.FromMilliseconds(250),
+                "Result stage completion",
+                cancellation.Token);
+
+            Assert.Equal(E2EFixtureBuilder.SongTitle, resultState.SelectedSongTitle);
+            // AutoPlayEnabled is only reported while the Performance stage owns
+            // telemetry; the fullyJudged poll above already pinned it there.
+            Assert.Equal(resultState.TotalNotes, resultState.TotalJudgements);
+            Assert.Equal("SongComplete", resultState.CompletionReason);
+            await E2EArtifactWriter.WriteJsonAsync(fixture, "final-state-fullautoplay.json", resultState);
+        }
+        catch
+        {
+            await SaveScreenshotAsync(client, fixture, "failure-fullautoplay.png", CancellationToken.None);
+            throw;
+        }
+        finally
+        {
+            E2EArtifactWriter.CopyFixtureFiles(fixture);
+            await E2EArtifactWriter.WriteTextAsync(fixture, "game-stdout-fullautoplay.log", process.StandardOutput);
+            await E2EArtifactWriter.WriteTextAsync(fixture, "game-stderr-fullautoplay.log", process.StandardError);
+        }
+    }
+
     private static async Task RunProfileAsync(
         E2EFixture fixture,
         PlaybackProfile profile,

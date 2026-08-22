@@ -201,6 +201,14 @@ internal sealed class RecordingSandbox
         // Recording runs automate every drum lane. The AutoPlay.{lane} keys are
         // generated from the lane index — no textual lane codes, no Game
         // project dependency — matching the game's sparse per-lane INI rows.
+        // Inherited bare AutoPlay / stale AutoPlay.* rows are stripped first so
+        // the sandbox INI carries only canonical rows (no obsolete-setting
+        // warning on import).
+        patched.Remove("AutoPlay");
+        foreach (var staleLaneKey in patched.Keys
+                     .Where(key => key.StartsWith("AutoPlay.", StringComparison.Ordinal))
+                     .ToArray())
+            patched.Remove(staleLaneKey);
         for (var lane = 0; lane < 10; lane++)
             patched[$"AutoPlay.{lane}"] = "True";
         patched["GameApiPort"] = apiPort.ToString(CultureInfo.InvariantCulture);

@@ -354,7 +354,10 @@ public sealed class RecordingSandboxTests
             "NoFail=False",
             "ScreenWidth=640",
             "ScreenHeight=480",
-            "FullScreen=True"));
+            "FullScreen=True",
+            "AutoPlay=True",
+            "AutoPlay.3=False",
+            "AutoPlay.99=True"));
 
         RecordingSandbox? sandbox = null;
         try
@@ -366,12 +369,15 @@ public sealed class RecordingSandboxTests
             Assert.Contains($"GameApiPort={sandbox.ApiPort}", config);
             Assert.Contains($"GameApiKey={sandbox.ApiKey}", config);
             // Full-lane AutoPlay is emitted as generated AutoPlay.{lane} rows; the
-            // legacy global AutoPlay bool is never written by the recorder.
+            // legacy global AutoPlay bool is never written by the recorder, and
+            // inherited bare/stale rows are stripped so the sandbox INI is canonical.
             for (var lane = 0; lane < 10; lane++)
             {
                 Assert.Contains($"AutoPlay.{lane}=True", config);
             }
             Assert.DoesNotContain("AutoPlay=", config);
+            Assert.DoesNotContain("AutoPlay.3=False", config);
+            Assert.DoesNotContain("AutoPlay.99=", config);
             Assert.Contains("NoFail=True", config);
             Assert.Contains("ScreenWidth=1280", config);
             Assert.Contains("ScreenHeight=720", config);

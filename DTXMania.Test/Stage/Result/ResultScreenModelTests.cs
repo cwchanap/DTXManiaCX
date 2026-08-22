@@ -479,6 +479,26 @@ public class ResultScreenModelTests
         Assert.False(model.NewRecord);
     }
 
+    [Fact]
+    public void Create_WithAutoPlayRunBeatingPreviousScore_ShouldNotMarkNewRecord()
+    {
+        var previous = new SongScore
+        {
+            PlayCount = 4,
+            BestScore = 500000,
+            HighSkill = 90.0
+        };
+
+        var model = ResultScreenModel.Create(
+            Summary(score: 900000, gameSkill: 100.0, usedAutoPlay: true),
+            null,
+            0,
+            null,
+            previous);
+
+        Assert.False(model.NewRecord);
+    }
+
     [Theory]
     [InlineData(0, 0, "--")]
     [InlineData(-1, 0, "--")]
@@ -544,10 +564,16 @@ public class ResultScreenModelTests
         double playingSkill = 0.0,
         double gameSkill = 0.0,
         int level = 0,
-        int levelDec = 0)
+        int levelDec = 0,
+        bool usedAutoPlay = false)
     {
         return new PerformanceSummary
         {
+            // Genuine completed run identity so IsSavable holds unless the
+            // test opts into an assisted run via usedAutoPlay.
+            RunId = Guid.NewGuid(),
+            CompletionReason = CompletionReason.SongComplete,
+            UsedAutoPlay = usedAutoPlay,
             Score = score,
             MaxCombo = maxCombo,
             ClearFlag = clear,
