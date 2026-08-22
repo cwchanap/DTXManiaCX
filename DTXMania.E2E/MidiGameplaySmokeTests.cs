@@ -23,7 +23,9 @@ public sealed class MidiGameplaySmokeTests
         var repoRoot = E2EGameLaunch.ResolveRepoRoot();
         var runRoot = Path.Combine(Path.GetTempPath(), "dtxmaniacx-e2e-midi-" + Guid.NewGuid().ToString("N"));
         var apiPort = E2EGameLaunch.ResolveApiPort();
-        var fixture = E2EFixtureBuilder.Build(runRoot, repoRoot, apiPort);
+        // Manual-play fixture: the bootstrap INI carries no AutoPlay.{lane}
+        // rows, so the game imports an empty automated-lane set.
+        var fixture = E2EFixtureBuilder.Build(runRoot, repoRoot, apiPort, enableAutoPlayLanes: false);
         ConfigureMidiGameplayFixture(fixture);
         await using var bundle = E2EGameLaunch.CreateClientBundle(fixture);
         var process = bundle.Process;
@@ -105,8 +107,9 @@ public sealed class MidiGameplaySmokeTests
     {
         // Edits the bootstrap-input INI before launch; the game imports it once
         // on first launch because the fixture app-data has no config.db yet.
-        var config = File.ReadAllText(fixture.LegacyConfigPath, Encoding.UTF8)
-            .Replace("AutoPlay=True", "AutoPlay=False", StringComparison.Ordinal);
+        // The fixture was built without AutoPlay.{lane} rows, so nothing needs
+        // to be disabled here — manual play comes from the absent rows.
+        var config = File.ReadAllText(fixture.LegacyConfigPath, Encoding.UTF8);
 
         config += string.Join('\n', new[]
         {

@@ -79,7 +79,9 @@ public sealed class RecorderConfigCompatibilityTests
             Assert.Equal(customSkinPath, sandboxManager.Config.SkinPath);
             Assert.Equal(150, sandboxManager.Config.ScrollSpeed);
             Assert.True(sandboxManager.Config.EnableGameApi);
-            Assert.True(sandboxManager.Config.AutoPlay);
+            // The recorder's full-lane AutoPlay patch lands as exactly lanes 0..9.
+            Assert.True(
+                sandboxManager.Config.AutoPlayLanes.SetEquals(Enumerable.Range(0, 10)));
             Assert.True(sandboxManager.Config.NoFail);
             Assert.Equal(1280, sandboxManager.Config.ScreenWidth);
             Assert.Equal(720, sandboxManager.Config.ScreenHeight);

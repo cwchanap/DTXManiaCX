@@ -90,7 +90,8 @@ internal static class TestSourceConfigDatabase
             ["EnableGameApi"] = "False",
             ["GameApiPort"] = "8080",
             ["GameApiKey"] = "source-key",
-            ["AutoPlay"] = "False",
+            // No AutoPlay row: a source database without AutoPlay.{lane} rows means
+            // manual play, and the recorder owns the full-lane rows it patches in.
             ["NoFail"] = "False"
         };
 

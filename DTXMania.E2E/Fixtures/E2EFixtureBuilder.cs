@@ -22,7 +22,8 @@ public static class E2EFixtureBuilder
         string repoRoot,
         int apiPort,
         int playSpeedPercent = PlaySpeedRange.Default,
-        int pitchSemitones = PitchRange.Default)
+        int pitchSemitones = PitchRange.Default,
+        bool enableAutoPlayLanes = true)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(runRoot);
         ArgumentException.ThrowIfNullOrWhiteSpace(repoRoot);
@@ -44,7 +45,8 @@ public static class E2EFixtureBuilder
                 paths.SkinRoot,
                 apiPort,
                 PlaySpeedRange.SnapAndClamp(playSpeedPercent),
-                PitchRange.SnapAndClamp(pitchSemitones)),
+                PitchRange.SnapAndClamp(pitchSemitones),
+                enableAutoPlayLanes),
             Encoding.UTF8);
         File.WriteAllText(paths.ChartPath, BuildChart(), Encoding.UTF8);
         var audioPath = Path.Combine(paths.SongDirectory, AudioFileName);
@@ -107,9 +109,10 @@ public static class E2EFixtureBuilder
         string systemRoot,
         int apiPort,
         int playSpeedPercent,
-        int pitchSemitones)
+        int pitchSemitones,
+        bool enableAutoPlayLanes)
     {
-        return string.Join('\n', new[]
+        var lines = new List<string>
         {
             "[System]",
             $"SkinPath={systemRoot}",
@@ -128,17 +131,26 @@ public static class E2EFixtureBuilder
             "[Game]",
             "ScrollSpeed=100",
             $"PlaySpeedPercent={playSpeedPercent}",
-            $"PitchSemitones={pitchSemitones}",
-            "AutoPlay=True",
-            "NoFail=True",
-            "AudioLatencyOffsetMs=0",
-            string.Empty,
-            "[Api]",
-            "EnableGameApi=True",
-            $"GameApiPort={apiPort}",
-            $"GameApiKey={ApiKey}",
-            string.Empty
-        });
+            $"PitchSemitones={pitchSemitones}"
+        };
+
+        // Sparse per-lane rows generated from the lane index: full AutoPlay is
+        // lanes 0..9, and a manual-play fixture simply omits every row.
+        if (enableAutoPlayLanes)
+        {
+            for (var lane = 0; lane < 10; lane++)
+                lines.Add($"AutoPlay.{lane}=True");
+        }
+
+        lines.Add("NoFail=True");
+        lines.Add("AudioLatencyOffsetMs=0");
+        lines.Add(string.Empty);
+        lines.Add("[Api]");
+        lines.Add("EnableGameApi=True");
+        lines.Add($"GameApiPort={apiPort}");
+        lines.Add($"GameApiKey={ApiKey}");
+        lines.Add(string.Empty);
+        return string.Join('\n', lines);
     }
 
     private static string BuildChart()
