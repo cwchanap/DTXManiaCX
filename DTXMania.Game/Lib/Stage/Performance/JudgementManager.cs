@@ -54,13 +54,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// </summary>
         public bool IsActive { get; set; } = true;
 
-        /// <summary>
-        /// When true, lane hit events received from the input system are silently
-        /// dropped. AutoPlay-driven hits via EnqueueLaneHit bypass this gate.
-        /// Set during PerformanceStage activation based on Config.AutoPlay.
-        /// </summary>
-        public bool IgnorePlayerInput { get; internal set; } = false;
-
         internal void SetIgnoredPlayerInputLanes(IEnumerable<int> lanes)
         {
             _ignoredPlayerInputLanes = new HashSet<int>(lanes);
@@ -210,7 +203,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         /// <summary>
         /// Directly enqueues a lane hit event into the pending queue.
-        /// Bypasses the IgnorePlayerInput gate — used by AutoPlay and unit tests.
+        /// Bypasses the ignored-lane gate — used by AutoPlay and unit tests.
         /// Player-initiated events go through OnLaneHit which respects the gate.
         /// </summary>
         /// <param name="lane">Lane index that was hit</param>
@@ -222,7 +215,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             var buttonState = new DTXMania.Game.Lib.Input.ButtonState(buttonId, true, 1.0f);
             var hitArgs = new LaneHitEventArgs(lane, buttonState);
 
-            // Bypass IgnorePlayerInput by enqueuing directly. Used by AutoPlay
+            // Bypass the ignored-lane gate by enqueuing directly. Used by AutoPlay
             // and unit tests; player events go through OnLaneHit which respects the gate.
             lock (_pendingLaneHits)
             {
@@ -298,8 +291,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <param name="args">Lane hit event arguments</param>
         private void OnLaneHit(object? sender, LaneHitEventArgs args)
         {
-            // Only process events when active and player input is allowed
-            if (!IsActive || _disposed || IgnorePlayerInput || _ignoredPlayerInputLanes.Contains(args.Lane))
+            // Only process events when active and the lane accepts player input
+            if (!IsActive || _disposed || _ignoredPlayerInputLanes.Contains(args.Lane))
                 return;
 
             // Add lane hit event to pending list for processing in next Update

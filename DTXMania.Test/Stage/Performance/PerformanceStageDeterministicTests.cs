@@ -735,7 +735,6 @@ public class PerformanceStageDeterministicTests
 
         var judgementManager = ReflectionHelpers.GetPrivateField<JudgementManager>(stage, "_judgementManager");
         Assert.NotNull(judgementManager);
-        Assert.False(judgementManager!.IgnorePlayerInput);
         judgementManager.IsActive = true;
         JudgementEvent? captured = null;
         judgementManager.JudgementMade += (_, judgement) => captured = judgement;
@@ -779,7 +778,6 @@ public class PerformanceStageDeterministicTests
         var judgementManager = ReflectionHelpers.GetPrivateField<JudgementManager>(stage, "_judgementManager");
         var gaugeManager = ReflectionHelpers.GetPrivateField<GaugeManager>(stage, "_gaugeManager");
         Assert.NotNull(judgementManager);
-        Assert.False(judgementManager!.IgnorePlayerInput);
         Assert.NotNull(gaugeManager);
         Assert.Equal(
             GaugeDamageLevel.High,

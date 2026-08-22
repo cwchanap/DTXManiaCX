@@ -354,7 +354,7 @@ namespace DTXMania.Test.Config
 
             // Trigger a save (LoadConfig on an existing store doesn't auto-save
             // unless a setter marks dirty, so force one).
-            manager1.SetAutoPlay(true);
+            manager1.SetMetronome(true);
             manager1.FlushPendingSave();
 
             var manager2 = CreateManager();

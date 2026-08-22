@@ -1178,8 +1178,6 @@ namespace DTXMania.Test.Stage.DrumConfig
 
             public void SetMidiVelocityThreshold(int noteNumber, int threshold) { }
 
-            public void SetAutoPlay(bool value) { }
-
             public void SetNoFail(bool value) { }
 
             public void SetMetronome(bool value) { }

@@ -532,38 +532,39 @@ ScreenHeight=720
         Assert.False(reloadedManager.Config.AutoAddGauge);
     }
 
-    [Theory]
-    [InlineData("AutoPlay=true", true)]
-    [InlineData("AutoPlay=True", true)]
-    [InlineData("AutoPlay=false", false)]
-    [InlineData("AutoPlay=False", false)]
-    [InlineData("AutoPlay=invalid", false)] // Should default to false for invalid input
-    public void ConfigManager_ParseAutoPlay_ShouldHandleVariousInputs(string line, bool expectedAutoPlay)
-    {
-        var dir = NewTestDir();
-        var manager = CreateManager(dir);
-
-        var iniContent = $@"[Game]
-{line}
-";
-        File.WriteAllText(Path.Combine(dir, "Config.ini"), iniContent, Encoding.UTF8);
-
-        manager.LoadConfig();
-
-        Assert.Equal(expectedAutoPlay, manager.Config.AutoPlay);
-    }
-
     [Fact]
-    public void ConfigManager_FlushPendingSave_ShouldIncludeAutoPlaySetting()
+    public void ConfigManager_ParseObsoleteGlobalAutoPlay_ShouldWarnOnceAndLeaveLanesEmpty()
     {
         var dir = NewTestDir();
-        var manager = CreateManager(dir);
+        var logger = new Mock<ILogger<ConfigManager>>();
+        var manager = new ConfigManager(
+            Path.Combine(dir, "config.db"), Path.Combine(dir, "Config.ini"), logger: logger.Object);
+
+        File.WriteAllText(
+            Path.Combine(dir, "Config.ini"),
+            "[Game]\nAutoPlay=True\n",
+            Encoding.UTF8);
+
         manager.LoadConfig();
-        manager.SetAutoPlay(true);
 
-        manager.FlushPendingSave();
+        // The obsolete value is ignored: no lane translation, empty lane set.
+        Assert.Empty(GetAutoPlayLanes(manager));
 
-        Assert.Equal("True", ReadRows(dir)["AutoPlay"]);
+        // Exactly one warning names the replacement keys.
+        logger.Verify(
+            x => x.Log(
+                LogLevel.Warning,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((state, _) =>
+                    state.ToString()!.Contains(
+                        "Ignoring obsolete global AutoPlay setting; configure AutoPlay.0 through AutoPlay.9 instead.",
+                        StringComparison.Ordinal)),
+                It.IsAny<Exception?>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
+
+        // The obsolete row is not re-persisted into the config database.
+        Assert.False(ReadRows(dir).ContainsKey("AutoPlay"));
     }
 
     [Theory]
@@ -908,14 +909,6 @@ Key.Bad=abc
     // --- Scalar setters (Task 1.4): dirty+flush, NO events ---
 
     [Fact]
-    public void SetAutoPlay_Mutates_AndMarksDirty()
-    {
-        var cm = new ConfigManager();
-        cm.SetAutoPlay(true);
-        Assert.True(cm.Config.AutoPlay);
-    }
-
-    [Fact]
     public void SetNoFail_Mutates_AndMarksDirty()
     {
         var cm = new ConfigManager();
@@ -980,7 +973,6 @@ Key.Bad=abc
         fired = false;
 
         // Now assert scalar setters do NOT fire.
-        cm.SetAutoPlay(true);
         cm.SetNoFail(true);
         cm.SetAudioLatency(100);
         cm.SetResolution(1920, 1080);
@@ -1007,10 +999,6 @@ Key.Bad=abc
         cm.SetNoFail(true);
         cm.FlushPendingSave();
         Assert.Equal("True", ReadRows(dir)["NoFail"]);
-
-        cm.SetAutoPlay(true);
-        cm.FlushPendingSave();
-        Assert.Equal("True", ReadRows(dir)["AutoPlay"]);
 
         cm.SetAudioLatency(350);
         cm.FlushPendingSave();

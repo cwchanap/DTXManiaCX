@@ -28,7 +28,7 @@ public class PerformanceStageCoverageTests
     public void OnActivate_WhenConfigManagerNotNull_ShouldSubscribeToScrollSpeedChanged()
     {
         var configManager = new Mock<IConfigManager>();
-        configManager.SetupGet(x => x.Config).Returns(new ConfigData { AutoPlay = true });
+        configManager.SetupGet(x => x.Config).Returns(new ConfigData());
         var game = ReflectionHelpers.CreateGame();
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager.Object);
         var stage = CreateStage(game);
