@@ -222,6 +222,15 @@ namespace DTXMania.Test.Config
             return new ToggleConfigItem("TestToggle", () => _currentValue, v => _currentValue = v);
         }
 
+        private ToggleConfigItem CreateItemWithFormatter(Func<bool, string> formatter)
+        {
+            return new ToggleConfigItem(
+                "TestToggle",
+                () => _currentValue,
+                value => _currentValue = value,
+                formatter);
+        }
+
         #region Constructor Tests
 
         [Fact]
@@ -255,6 +264,15 @@ namespace DTXMania.Test.Config
             _currentValue = currentValue;
             var item = CreateItem();
             Assert.Contains(expected, item.GetDisplayText());
+        }
+
+        [Fact]
+        public void GetDisplayText_WithFormatter_ShouldReplaceOnlyBooleanValue()
+        {
+            _currentValue = true;
+            var item = CreateItemWithFormatter(value => value ? "Mixed" : "None");
+
+            Assert.Equal("TestToggle: Mixed", item.GetDisplayText());
         }
 
         #endregion

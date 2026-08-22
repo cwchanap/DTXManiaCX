@@ -992,7 +992,6 @@ public class ConfigStageLogicTests
     [InlineData("VSync Wait", nameof(ConfigData.VSyncWait))]
     [InlineData("No Fail", nameof(ConfigData.NoFail))]
     [InlineData("Metronome", nameof(ConfigData.Metronome))]
-    [InlineData("Auto Play", nameof(ConfigData.AutoPlay))]
     [InlineData("Auto Add Gauge", nameof(ConfigData.AutoAddGauge))]
     public void ActivatePressedOnToggle_ShouldMutateConfigViaSetter(string itemName, string propertyName)
     {
@@ -1188,13 +1187,104 @@ public class ConfigStageLogicTests
                 i => Assert.Equal("Pitch", i.Name),
                 i => Assert.Equal("Metronome", i.Name),
                 i => Assert.Equal("Auto Play", i.Name),
+                i => Assert.Equal("Left Cymbal", i.Name),
+                i => Assert.Equal("Hi-Hat", i.Name),
+                i => Assert.Equal("Left Pedal", i.Name),
+                i => Assert.Equal("Snare", i.Name),
+                i => Assert.Equal("High Tom", i.Name),
+                i => Assert.Equal("Bass Drum", i.Name),
+                i => Assert.Equal("Low Tom", i.Name),
+                i => Assert.Equal("Floor Tom", i.Name),
+                i => Assert.Equal("Cymbal", i.Name),
+                i => Assert.Equal("Ride", i.Name),
                 i => Assert.Equal("Auto Add Gauge", i.Name),
                 i => Assert.Equal("No Fail", i.Name),
                 i => Assert.Equal("Risky", i.Name),
                 i => Assert.Equal("Damage Level", i.Name),
                 i => Assert.Equal("Drum Key Mapping", i.Name));
 
+            Assert.DoesNotContain(
+                categories[1].Items,
+                item => item is NavigationConfigItem && item.Name.Contains("Auto Play", StringComparison.Ordinal));
             Assert.False(categories[2].HasItems);
+        }
+    }
+
+    [Theory]
+    [InlineData(0, "None")]
+    [InlineData(1, "Mixed")]
+    [InlineData(9, "Mixed")]
+    [InlineData(10, "All")]
+    public void AutoPlayMaster_ShouldDisplayStateForEnabledLaneCount(int enabledLaneCount, string expectedState)
+    {
+        var (stage, configManager, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            for (var lane = 0; lane < enabledLaneCount; lane++)
+                configManager.SetAutoPlayLane(lane, true);
+
+            InitializeStageMenu(stage, includePanels: false);
+            var categories = ReflectionHelpers.GetPrivateField<List<ConfigCategory>>(stage, "_categories");
+            var master = categories!.Single(category => category.Name == "Drums")
+                .Items.Single(item => item.Name == "Auto Play");
+
+            Assert.Equal($"Auto Play: {expectedState}", master.GetDisplayText());
+        }
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(10)]
+    public void AutoPlayMaster_WhenActivated_ShouldEnableOrClearAllLanes(int initialEnabledLaneCount)
+    {
+        var (stage, configManager, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            for (var lane = 0; lane < initialEnabledLaneCount; lane++)
+                configManager.SetAutoPlayLane(lane, true);
+
+            InitializeStageMenu(stage, includePanels: false);
+            SelectItemForEditing(stage, "Auto Play");
+            SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            var expected = initialEnabledLaneCount == 10
+                ? Array.Empty<int>()
+                : Enumerable.Range(0, 10).ToArray();
+            Assert.Equal(expected, configManager.Config.AutoPlayLanes.OrderBy(lane => lane));
+        }
+    }
+
+    [Fact]
+    public void LaneAutoPlayItem_WhenActivated_ShouldMutateOnlyItsMatchingLane()
+    {
+        var (stage, configManager, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            SelectItemForEditing(stage, "Left Pedal");
+            SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            Assert.Equal(new[] { 2 }, configManager.Config.AutoPlayLanes.OrderBy(lane => lane));
+        }
+    }
+
+    [Fact]
+    public void LeftPedalAutoPlayItem_ShouldDescribeSharedDtxChannels()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            var categories = ReflectionHelpers.GetPrivateField<List<ConfigCategory>>(stage, "_categories");
+            var leftPedal = categories!.Single(category => category.Name == "Drums")
+                .Items.Single(item => item.Name == "Left Pedal");
+
+            Assert.Contains("DTX 0x1B and 0x1C share lane 2", leftPedal.Description);
         }
     }
 

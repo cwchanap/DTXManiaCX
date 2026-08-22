@@ -714,11 +714,37 @@ namespace DTXMania.Game.Lib.Stage
                 value => _configManager.SetMetronome(value))
             { Description = "Accents each measure start and clicks later quarter-note beats during gameplay." };
 
+            var autoPlayLaneLabels = new[]
+            {
+                "Left Cymbal", "Hi-Hat", "Left Pedal", "Snare", "High Tom",
+                "Bass Drum", "Low Tom", "Floor Tom", "Cymbal", "Ride"
+            };
+            var enabledAutoPlayLaneCount = () => Enumerable.Range(0, autoPlayLaneLabels.Length)
+                .Count(lane => _configManager.Config.AutoPlayLanes.Contains(lane));
+
             var autoPlayItem = new ToggleConfigItem(
                 "Auto Play",
-                () => _configManager.Config.AutoPlay,
-                value => _configManager.SetAutoPlay(value))
-            { Description = "Plays the chart automatically without input." };
+                () => enabledAutoPlayLaneCount() == autoPlayLaneLabels.Length,
+                value => _configManager.SetAllAutoPlayLanes(value),
+                _ => enabledAutoPlayLaneCount() switch
+                {
+                    0 => "None",
+                    10 => "All",
+                    _ => "Mixed"
+                })
+            { Description = "Enables or disables Auto Play for all drum lanes." };
+
+            var autoPlayLaneItems = autoPlayLaneLabels
+                .Select((label, lane) => (IConfigItem)new ToggleConfigItem(
+                    label,
+                    () => _configManager.Config.AutoPlayLanes.Contains(lane),
+                    value => _configManager.SetAutoPlayLane(lane, value))
+                {
+                    Description = lane == 2
+                        ? "DTX 0x1B and 0x1C share lane 2 (Left Pedal)."
+                        : $"Toggles Auto Play for the {label} lane."
+                })
+                .ToList();
 
             var autoAddGaugeItem = new ToggleConfigItem(
                 "Auto Add Gauge",
@@ -775,9 +801,14 @@ namespace DTXMania.Game.Lib.Stage
 
             var drumItems = new List<IConfigItem>
             {
-                scrollSpeedItem, playSpeedItem, pitchItem, metronomeItem, autoPlayItem,
-                autoAddGaugeItem, noFailItem, riskyItem, damageLevelItem, drumKeyItem
+                scrollSpeedItem, playSpeedItem, pitchItem, metronomeItem, autoPlayItem
             };
+            drumItems.AddRange(autoPlayLaneItems);
+            drumItems.Add(autoAddGaugeItem);
+            drumItems.Add(noFailItem);
+            drumItems.Add(riskyItem);
+            drumItems.Add(damageLevelItem);
+            drumItems.Add(drumKeyItem);
 
             _categories = new List<ConfigCategory>
             {
