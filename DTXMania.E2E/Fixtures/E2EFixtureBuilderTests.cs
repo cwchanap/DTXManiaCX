@@ -60,7 +60,11 @@ public sealed class E2EFixtureBuilderTests
             Assert.Contains("EnableGameApi=True", config);
             Assert.Contains("GameApiKey=e2e-autoplay-smoke-key", config);
             Assert.Contains("GameApiPort=18080", config);
-            Assert.Contains("AutoPlay=True", config);
+            for (var lane = 0; lane < 10; lane++)
+            {
+                Assert.Contains($"AutoPlay.{lane}=True", config);
+            }
+            Assert.DoesNotContain("AutoPlay=", config);
             Assert.Contains("NoFail=True", config);
             Assert.Contains("PlaySpeedPercent=100", config);
             Assert.Contains("PitchSemitones=0", config);
@@ -101,7 +105,7 @@ public sealed class E2EFixtureBuilderTests
             Assert.True(configManager.Config.EnableGameApi);
             Assert.Equal("e2e-autoplay-smoke-key", configManager.Config.GameApiKey);
             Assert.Equal(18080, configManager.Config.GameApiPort);
-            Assert.True(configManager.Config.AutoPlay);
+            Assert.True(configManager.Config.AutoPlayLanes.SetEquals(Enumerable.Range(0, 10)));
             Assert.True(configManager.Config.NoFail);
             Assert.Equal(100, configManager.Config.PlaySpeedPercent);
             Assert.Equal(0, configManager.Config.PitchSemitones);
@@ -122,6 +126,40 @@ public sealed class E2EFixtureBuilderTests
         {
             // Release pooled SQLite handles (the test loads config.db via the
             // real ConfigManager) so recursive deletion works on Windows CI.
+            SqliteConnection.ClearAllPools();
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Build_WithoutAutoPlayLanes_ShouldImportEmptyLaneSetThroughConfigManager()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "dtx-e2e-fixture-" + Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            // The manual-play bootstrap used by the MIDI gameplay smoke: no
+            // AutoPlay.{lane} rows at all.
+            var fixture = E2EFixtureBuilder.Build(
+                root,
+                Directory.GetCurrentDirectory(),
+                apiPort: 18080,
+                enableAutoPlayLanes: false);
+
+            var config = File.ReadAllText(fixture.LegacyConfigPath);
+            Assert.DoesNotContain("AutoPlay=", config);
+            Assert.DoesNotContain("AutoPlay.", config);
+
+            var configManager = new ConfigManager(
+                fixture.ConfigDatabasePath,
+                fixture.LegacyConfigPath);
+            configManager.LoadConfig();
+
+            Assert.Empty(configManager.Config.AutoPlayLanes);
+        }
+        finally
+        {
             SqliteConnection.ClearAllPools();
             if (Directory.Exists(root))
                 Directory.Delete(root, recursive: true);

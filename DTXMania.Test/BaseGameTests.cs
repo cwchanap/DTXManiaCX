@@ -49,6 +49,8 @@ namespace DTXMania.Test
                 SkinPath = @"C:\Secret\Skin"
             };
             config.KeyBindings["Snare"] = 1;
+            config.AutoPlayLanes.Add(4);
+            config.AutoPlayLanes.Add(9);
 
             CrashContextPublisher.PublishConfiguration(diagnostics, config);
             CrashContextPublisher.RegisterSensitivePrefixes(diagnostics, config);
@@ -57,6 +59,14 @@ namespace DTXMania.Test
                 item => item.Kind == CrashContextKind.Configuration);
             Assert.Equal(1920, snapshot.Fields["ScreenWidth"]);
             Assert.Equal(1, snapshot.Fields["KeyBindingCount"]);
+            Assert.Equal(2, snapshot.Fields["AutoPlayLaneCount"]);
+            // The obsolete global AutoPlay bool must not leak into the published
+            // context even when still set; per-lane detail stays unpublished too.
+            Assert.False(snapshot.Fields.ContainsKey("AutoPlay"));
+            for (var lane = 0; lane < 10; lane++)
+            {
+                Assert.False(snapshot.Fields.ContainsKey($"AutoPlay.{lane}"));
+            }
             Assert.DoesNotContain(
                 snapshot.Fields.Values,
                 value => value?.ToString()?.Contains("must-not-appear", StringComparison.Ordinal) == true);

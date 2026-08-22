@@ -71,11 +71,11 @@ internal static class CrashContextPublisher
                 ["FullScreen"] = config.FullScreen,
                 ["VSyncWait"] = config.VSyncWait,
                 ["BufferSizeMs"] = config.BufferSizeMs,
-                ["AutoPlay"] = config.AutoPlay,
                 ["NoFail"] = config.NoFail,
                 ["EnableGameApi"] = config.EnableGameApi,
                 ["KeyBindingCount"] = config.KeyBindings?.Count ?? 0,
                 ["SystemKeyBindingCount"] = config.SystemKeyBindings?.Count ?? 0,
+                ["AutoPlayLaneCount"] = config.AutoPlayLanes.Count,
                 ["UnboundDrumLaneCount"] = config.UnboundDrumLanes?.Count ?? 0,
                 ["UnboundDrumButtonCount"] = config.UnboundDrumButtons?.Count ?? 0,
                 ["MidiVelocityThresholdCount"] = config.MidiVelocityThresholds.Count
