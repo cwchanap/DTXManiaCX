@@ -56,7 +56,6 @@ public sealed class CrashContextPublisherTests
             FullScreen = true,
             VSyncWait = false,
             BufferSizeMs = 80,
-            AutoPlay = true,
             NoFail = true,
             EnableGameApi = true
         };
@@ -65,6 +64,8 @@ public sealed class CrashContextPublisherTests
         config.UnboundDrumLanes.Add(2);
         config.UnboundDrumButtons.Add("ButtonA");
         config.MidiVelocityThresholds[36] = 10;
+        config.AutoPlayLanes.Add(0);
+        config.AutoPlayLanes.Add(3);
 
         CrashContextPublisher.PublishConfiguration(diagnostics, config);
 
@@ -74,7 +75,7 @@ public sealed class CrashContextPublisherTests
         Assert.Equal(true, configuration.Fields["FullScreen"]);
         Assert.Equal(false, configuration.Fields["VSyncWait"]);
         Assert.Equal(80, configuration.Fields["BufferSizeMs"]);
-        Assert.Equal(true, configuration.Fields["AutoPlay"]);
+        Assert.Equal(2, configuration.Fields["AutoPlayLaneCount"]);
         Assert.Equal(true, configuration.Fields["NoFail"]);
         Assert.Equal(true, configuration.Fields["EnableGameApi"]);
         Assert.Equal(1, configuration.Fields["KeyBindingCount"]);

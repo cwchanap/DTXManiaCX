@@ -283,6 +283,40 @@ public class PerformanceStageAdditionalCoverageTests
         Assert.Equal(expectedGameSkill, summary.GameSkill);
     }
 
+    [Theory]
+    [InlineData(false, 52.0f)]
+    [InlineData(true, 54.0f)]
+    public void UpdateGameplayManagers_MixedAutoPlay_ShouldApplyGaugeByFrozenLanePolicy(
+        bool autoAddGauge,
+        float expectedFinalLife)
+    {
+        var stage = CreateStage();
+        var inputManager = new MockInputManagerCompat();
+        var chartManager = CreateMixedChartManager();
+        ReflectionHelpers.SetPrivateField(stage, "_autoPlayLanes", new HashSet<int> { 1 });
+        ReflectionHelpers.SetPrivateField(stage, "_autoAddGaugeEnabled", autoAddGauge);
+        ReflectionHelpers.SetPrivateField(stage, "_inputManager", inputManager);
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "InitializeGameplayManagers");
+
+        var judgementManager = ReflectionHelpers.GetPrivateField<JudgementManager>(stage, "_judgementManager");
+        var gaugeManager = ReflectionHelpers.GetPrivateField<GaugeManager>(stage, "_gaugeManager");
+        Assert.NotNull(judgementManager);
+        Assert.NotNull(gaugeManager);
+        judgementManager!.IsActive = true;
+
+        inputManager.TriggerLaneHit(0);
+        ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplayManagers", 1000.0, 1000.0);
+        Assert.Equal(52.0f, gaugeManager!.CurrentLife);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplayManagers", 2000.0, 2000.0);
+
+        Assert.Equal(expectedFinalLife, gaugeManager.CurrentLife);
+        Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chartManager.AllNotes[0].Id)!.Status);
+        Assert.Equal(NoteStatus.Hit, judgementManager.GetNoteRuntimeData(chartManager.AllNotes[1].Id)!.Status);
+    }
+
     [Fact]
     public void TransitionToResultStage_ShouldIncludePerformanceSummary()
     {
@@ -593,9 +627,10 @@ public class PerformanceStageAdditionalCoverageTests
     }
 
     [Fact]
-    public void InitializeAutoPlay_WhenConfigAutoPlayTrue_ShouldEnableAutoPlay()
+    public void InitializeAutoPlay_WhenConfigAutoPlayLaneIsEnabled_ShouldCopyAutoPlayLane()
     {
-        var configData = new ConfigData { AutoPlay = true };
+        var configData = new ConfigData();
+        configData.AutoPlayLanes.Add(2);
         var configManager = new Mock<IConfigManager>();
         configManager.SetupGet(x => x.Config).Returns(configData);
         var game = ReflectionHelpers.CreateGame();
@@ -605,14 +640,15 @@ public class PerformanceStageAdditionalCoverageTests
 
         ReflectionHelpers.InvokePrivateMethod(stage, "InitializeAutoPlay");
 
-        Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_autoPlayEnabled"));
+        var autoPlayLanes = ReflectionHelpers.GetPrivateField<HashSet<int>>(stage, "_autoPlayLanes");
+        Assert.True(autoPlayLanes!.SetEquals(new[] { 2 }));
         Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
     }
 
     [Fact]
     public void InitializeAutoPlay_WhenConfigAutoPlayFalse_ShouldDisableAutoPlay()
     {
-        var configData = new ConfigData { AutoPlay = false };
+        var configData = new ConfigData();
         var configManager = new Mock<IConfigManager>();
         configManager.SetupGet(x => x.Config).Returns(configData);
         var game = ReflectionHelpers.CreateGame();
@@ -621,7 +657,7 @@ public class PerformanceStageAdditionalCoverageTests
 
         ReflectionHelpers.InvokePrivateMethod(stage, "InitializeAutoPlay");
 
-        Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_autoPlayEnabled"));
+        Assert.Empty(ReflectionHelpers.GetPrivateField<HashSet<int>>(stage, "_autoPlayLanes")!);
     }
 
     [Fact]
@@ -679,6 +715,18 @@ public class PerformanceStageAdditionalCoverageTests
             Bpm = 120.0
         };
         parsedChart.AddNote(new Note(0, 0, 96, 0x11, "01"));
+        parsedChart.FinalizeChart();
+        return new ChartManager(parsedChart);
+    }
+
+    private static ChartManager CreateMixedChartManager()
+    {
+        var parsedChart = new ParsedChart("mixed-autoplay-gauge.dtx")
+        {
+            Bpm = 120.0
+        };
+        parsedChart.AddNote(new Note(0, 0, 96, 0x11, "01"));
+        parsedChart.AddNote(new Note(1, 0, 192, 0x12, "01"));
         parsedChart.FinalizeChart();
         return new ChartManager(parsedChart);
     }

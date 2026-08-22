@@ -354,6 +354,10 @@ public sealed class CrashLogFieldPolicyTests
         Assert.True(Policy.TryNormalizeContextProperty(
             CrashContextKind.Configuration, "UnboundDrumLaneCount", 1, out normalized));
         Assert.Equal(1, normalized);
+
+        Assert.True(Policy.TryNormalizeContextProperty(
+            CrashContextKind.Configuration, "AutoPlayLaneCount", 10, out normalized));
+        Assert.Equal(10, normalized);
     }
 
     [Fact]
@@ -366,10 +370,6 @@ public sealed class CrashLogFieldPolicyTests
         Assert.True(Policy.TryNormalizeContextProperty(
             CrashContextKind.Configuration, "VSyncWait", false, out normalized));
         Assert.False((bool)normalized!);
-
-        Assert.True(Policy.TryNormalizeContextProperty(
-            CrashContextKind.Configuration, "AutoPlay", true, out normalized));
-        Assert.True((bool)normalized!);
 
         Assert.True(Policy.TryNormalizeContextProperty(
             CrashContextKind.Configuration, "NoFail", true, out normalized));

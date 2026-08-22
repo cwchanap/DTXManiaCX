@@ -269,12 +269,13 @@ internal sealed class CrashLogFieldPolicy
 
             case "KeyBindingCount" when TryNormalizeCount(value, out normalizedValue):
             case "SystemKeyBindingCount" when TryNormalizeCount(value, out normalizedValue):
+            case "AutoPlayLaneCount" when TryNormalizeCount(value, out normalizedValue):
             case "UnboundDrumLaneCount" when TryNormalizeCount(value, out normalizedValue):
             case "UnboundDrumButtonCount" when TryNormalizeCount(value, out normalizedValue):
             case "MidiVelocityThresholdCount" when TryNormalizeCount(value, out normalizedValue):
                 return true;
 
-            case "FullScreen" or "VSyncWait" or "AutoPlay" or "NoFail" or "EnableGameApi"
+            case "FullScreen" or "VSyncWait" or "NoFail" or "EnableGameApi"
                 when value is bool booleanValue:
                 normalizedValue = booleanValue;
                 return true;

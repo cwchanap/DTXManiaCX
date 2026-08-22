@@ -28,8 +28,18 @@ public class ConfigDataTests
         Assert.NotNull(config.UnboundDrumButtons);
         Assert.Equal(100, config.ScrollSpeed);
         Assert.Equal(200, config.AudioLatencyOffsetMs);
-        Assert.False(config.AutoPlay);
         Assert.False(config.Metronome);
+    }
+
+    [Fact]
+    public void ConfigData_AutoPlayLanes_ShouldDefaultEmptyAndHaveNoPublicSetter()
+    {
+        var config = new ConfigData();
+        var property = typeof(ConfigData).GetProperty("AutoPlayLanes");
+
+        Assert.NotNull(property);
+        Assert.False(property!.CanWrite);
+        Assert.Empty(Assert.IsType<HashSet<int>>(property.GetValue(config)));
     }
 
     [Fact]

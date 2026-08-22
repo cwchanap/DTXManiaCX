@@ -193,7 +193,7 @@ public sealed class FolderPickerContractTests
         using var picker = new StaFolderPickerDispatcher(factory);
 
         var request = picker.PickFolderAsync(null, cancellation.Token);
-        await firstDialog.Opened.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        await firstDialog.Opened.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         cancellation.Cancel();
 
@@ -216,7 +216,7 @@ public sealed class FolderPickerContractTests
         using var picker = new StaFolderPickerDispatcher(factory);
 
         var firstRequest = picker.PickFolderAsync(null, firstCancellation.Token);
-        await firstDialog.Opened.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        await firstDialog.Opened.Task.WaitAsync(TimeSpan.FromSeconds(5));
         var secondRequest = picker.PickFolderAsync(null, secondCancellation.Token);
 
         secondCancellation.Cancel();

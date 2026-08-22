@@ -646,12 +646,12 @@ public class ConfigStageLogicTests
             InitializeStageMenu(stage, includePanels: false);
             // Drum Key Mapping is a NavigationConfigItem; Left should not change config values.
             SelectItemForEditing(stage, "Drum Key Mapping");
-            var autoPlayBefore = configManager.Config.AutoPlay;
+            var metronomeBefore = configManager.Config.Metronome;
             SetKeyboardStates(stage, new KeyboardState(Keys.Left), new KeyboardState());
 
             ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
 
-            Assert.Equal(autoPlayBefore, configManager.Config.AutoPlay);
+            Assert.Equal(metronomeBefore, configManager.Config.Metronome);
         }
     }
 
@@ -664,12 +664,12 @@ public class ConfigStageLogicTests
             InitializeStageMenu(stage, includePanels: false);
             // System Key Mapping is a NavigationConfigItem; Right should not change config values.
             SelectItemForEditing(stage, "System Key Mapping");
-            var autoPlayBefore = configManager.Config.AutoPlay;
+            var metronomeBefore = configManager.Config.Metronome;
             SetKeyboardStates(stage, new KeyboardState(Keys.Right), new KeyboardState());
 
             ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
 
-            Assert.Equal(autoPlayBefore, configManager.Config.AutoPlay);
+            Assert.Equal(metronomeBefore, configManager.Config.Metronome);
         }
     }
 
@@ -992,7 +992,6 @@ public class ConfigStageLogicTests
     [InlineData("VSync Wait", nameof(ConfigData.VSyncWait))]
     [InlineData("No Fail", nameof(ConfigData.NoFail))]
     [InlineData("Metronome", nameof(ConfigData.Metronome))]
-    [InlineData("Auto Play", nameof(ConfigData.AutoPlay))]
     [InlineData("Auto Add Gauge", nameof(ConfigData.AutoAddGauge))]
     public void ActivatePressedOnToggle_ShouldMutateConfigViaSetter(string itemName, string propertyName)
     {
@@ -1115,8 +1114,8 @@ public class ConfigStageLogicTests
             var configManager = new ConfigManager(configDbPath, legacyIniPath);
             configManager.LoadConfig(); // creates the default database
 
-            // Baseline: the loaded database has the default AutoPlay=false.
-            Assert.False(ReadAutoPlayFromStore(configDbPath, legacyIniPath));
+            // Baseline: the loaded database has the default Metronome=false.
+            Assert.False(ReadMetronomeFromStore(configDbPath, legacyIniPath));
 
             var (stage, inputManager) = CreateLifecycleStage(configManager);
             using (inputManager)
@@ -1124,8 +1123,8 @@ public class ConfigStageLogicTests
                 ReflectionHelpers.InvokePrivateMethod(stage, "OnActivate");
 
                 // Dirty edit: live-applied to Config, deferred store write (still false).
-                configManager.SetAutoPlay(true);
-                Assert.False(ReadAutoPlayFromStore(configDbPath, legacyIniPath));
+                configManager.SetMetronome(true);
+                Assert.False(ReadMetronomeFromStore(configDbPath, legacyIniPath));
 
                 // Graphics fields are uninitialized stand-ins (no real GraphicsDevice in headless
                 // tests); null them so OnDeactivate's dispose path is a no-op, mirroring the
@@ -1138,23 +1137,23 @@ public class ConfigStageLogicTests
             }
 
             // The dirty edit is now persisted.
-            Assert.True(ReadAutoPlayFromStore(configDbPath, legacyIniPath));
+            Assert.True(ReadMetronomeFromStore(configDbPath, legacyIniPath));
         }
         finally
         {
             // Release pooled config.db handles before deleting the temp
             // directory (Windows keeps the file locked otherwise). LoadConfig
-            // and ReadAutoPlayFromStore above both opened pooled connections.
+            // and ReadMetronomeFromStore above both opened pooled connections.
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true);
         }
     }
 
-    private static bool ReadAutoPlayFromStore(string configDbPath, string legacyIniPath)
+    private static bool ReadMetronomeFromStore(string configDbPath, string legacyIniPath)
     {
         var reloaded = new ConfigManager(configDbPath, legacyIniPath);
         reloaded.LoadConfig();
-        return reloaded.Config.AutoPlay;
+        return reloaded.Config.Metronome;
     }
 
     // ---- New NX master-detail behavior tests (Task 5) ----
@@ -1188,13 +1187,104 @@ public class ConfigStageLogicTests
                 i => Assert.Equal("Pitch", i.Name),
                 i => Assert.Equal("Metronome", i.Name),
                 i => Assert.Equal("Auto Play", i.Name),
+                i => Assert.Equal("Left Cymbal", i.Name),
+                i => Assert.Equal("Hi-Hat", i.Name),
+                i => Assert.Equal("Left Pedal", i.Name),
+                i => Assert.Equal("Snare", i.Name),
+                i => Assert.Equal("High Tom", i.Name),
+                i => Assert.Equal("Bass Drum", i.Name),
+                i => Assert.Equal("Low Tom", i.Name),
+                i => Assert.Equal("Floor Tom", i.Name),
+                i => Assert.Equal("Cymbal", i.Name),
+                i => Assert.Equal("Ride", i.Name),
                 i => Assert.Equal("Auto Add Gauge", i.Name),
                 i => Assert.Equal("No Fail", i.Name),
                 i => Assert.Equal("Risky", i.Name),
                 i => Assert.Equal("Damage Level", i.Name),
                 i => Assert.Equal("Drum Key Mapping", i.Name));
 
+            Assert.DoesNotContain(
+                categories[1].Items,
+                item => item is NavigationConfigItem && item.Name.Contains("Auto Play", StringComparison.Ordinal));
             Assert.False(categories[2].HasItems);
+        }
+    }
+
+    [Theory]
+    [InlineData(0, "None")]
+    [InlineData(1, "Mixed")]
+    [InlineData(9, "Mixed")]
+    [InlineData(10, "All")]
+    public void AutoPlayMaster_ShouldDisplayStateForEnabledLaneCount(int enabledLaneCount, string expectedState)
+    {
+        var (stage, configManager, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            for (var lane = 0; lane < enabledLaneCount; lane++)
+                configManager.SetAutoPlayLane(lane, true);
+
+            InitializeStageMenu(stage, includePanels: false);
+            var categories = ReflectionHelpers.GetPrivateField<List<ConfigCategory>>(stage, "_categories");
+            var master = categories!.Single(category => category.Name == "Drums")
+                .Items.Single(item => item.Name == "Auto Play");
+
+            Assert.Equal($"Auto Play: {expectedState}", master.GetDisplayText());
+        }
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(10)]
+    public void AutoPlayMaster_WhenActivated_ShouldEnableOrClearAllLanes(int initialEnabledLaneCount)
+    {
+        var (stage, configManager, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            for (var lane = 0; lane < initialEnabledLaneCount; lane++)
+                configManager.SetAutoPlayLane(lane, true);
+
+            InitializeStageMenu(stage, includePanels: false);
+            SelectItemForEditing(stage, "Auto Play");
+            SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            var expected = initialEnabledLaneCount == 10
+                ? Array.Empty<int>()
+                : Enumerable.Range(0, 10).ToArray();
+            Assert.Equal(expected, configManager.Config.AutoPlayLanes.OrderBy(lane => lane));
+        }
+    }
+
+    [Fact]
+    public void LaneAutoPlayItem_WhenActivated_ShouldMutateOnlyItsMatchingLane()
+    {
+        var (stage, configManager, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            SelectItemForEditing(stage, "Left Pedal");
+            SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+            Assert.Equal(new[] { 2 }, configManager.Config.AutoPlayLanes.OrderBy(lane => lane));
+        }
+    }
+
+    [Fact]
+    public void LeftPedalAutoPlayItem_ShouldDescribeSharedDtxChannels()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            var categories = ReflectionHelpers.GetPrivateField<List<ConfigCategory>>(stage, "_categories");
+            var leftPedal = categories!.Single(category => category.Name == "Drums")
+                .Items.Single(item => item.Name == "Left Pedal");
+
+            Assert.Contains("DTX 0x1B and 0x1C share lane 2", leftPedal.Description);
         }
     }
 

@@ -99,6 +99,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
         public float FinalLife { get; set; }
 
         /// <summary>
+        /// True when any lane was automated (AutoPlay) during this run.
+        /// Assisted runs are never persisted as player scores.
+        /// </summary>
+        public bool UsedAutoPlay { get; init; }
+
+        /// <summary>
         /// Performance completion reason
         /// </summary>
         public CompletionReason CompletionReason { get; set; }
@@ -109,10 +115,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         /// <summary>
         /// Only genuine completed/failed gameplay runs with an assigned run
-        /// identity may enter score persistence.
+        /// identity may enter score persistence. Assisted runs (any
+        /// automated lane) are never saved.
         /// </summary>
         public bool IsSavable =>
             RunId != Guid.Empty &&
+            !UsedAutoPlay &&
             CompletionReason is
                 CompletionReason.SongComplete or
                 CompletionReason.PlayerFailed;

@@ -31,6 +31,7 @@ namespace DTXMania.Game.Lib.Config
 
         private const string MidiVelocityPrefix = "MidiVelocity.";
         private const string SongRootPrefix = "SongRoot.";
+        private const string AutoPlayLanePrefix = "AutoPlay.";
 
         private enum SongRootsLoadSource
         {
@@ -120,6 +121,7 @@ namespace DTXMania.Game.Lib.Config
         public void LoadConfig()
         {
             Config.MidiVelocityThresholds.Clear();
+            Config.AutoPlayLanes.Clear();
             Config.SongRoots.Clear();
             var indexedSongRoots = new Dictionary<int, string>();
             string? legacyDtxPath = null;
@@ -556,8 +558,10 @@ namespace DTXMania.Game.Lib.Config
                         Config.Metronome = metronome;
                     break;
                 case "AutoPlay":
-                    if (TryParseBool(value, out var autoPlay))
-                        Config.AutoPlay = autoPlay;
+                    // Obsolete global flag (HPA-18): recognized only to warn. The
+                    // value is neither translated into lanes nor persisted again.
+                    _logger.LogWarning(
+                        "Ignoring obsolete global AutoPlay setting; configure AutoPlay.0 through AutoPlay.9 instead.");
                     break;
                 case "NoFail":
                     if (TryParseBool(value, out var noFail))
@@ -614,6 +618,15 @@ namespace DTXMania.Game.Lib.Config
                                 "Ignoring malformed MIDI velocity threshold '{Key}={Value}': " +
                                 "value must be an integer in the 0–127 range.",
                                 key, value);
+                        }
+                    }
+                    else if (key.StartsWith(AutoPlayLanePrefix, StringComparison.Ordinal))
+                    {
+                        if (TryParseAutoPlayLaneKey(key, out var autoPlayLane) &&
+                            TryParseBool(value, out var isAutoPlayLaneEnabled) &&
+                            isAutoPlayLaneEnabled)
+                        {
+                            Config.AutoPlayLanes.Add(autoPlayLane);
                         }
                     }
                     else if (key.StartsWith("Key.Unbound.") &&
@@ -760,7 +773,12 @@ namespace DTXMania.Game.Lib.Config
             entries["PitchSemitones"] = PitchRange.SnapAndClamp(Config.PitchSemitones)
                 .ToString(CultureInfo.InvariantCulture);
             entries["Metronome"] = Config.Metronome.ToString();
-            entries["AutoPlay"] = Config.AutoPlay.ToString();
+            foreach (var lane in Config.AutoPlayLanes
+                .Where(lane => lane >= 0 && lane <= 9)
+                .OrderBy(lane => lane))
+            {
+                entries[$"{AutoPlayLanePrefix}{lane}"] = bool.TrueString.ToLowerInvariant();
+            }
             entries["NoFail"] = Config.NoFail.ToString();
             entries["Risky"] = RiskyRange.Clamp(Config.Risky)
                 .ToString(CultureInfo.InvariantCulture);
@@ -1088,8 +1106,51 @@ namespace DTXMania.Game.Lib.Config
                    noteNumber <= 127;
         }
 
-        /// <summary>Sets AutoPlay and marks a deferred save pending. No event raised.</summary>
-        public void SetAutoPlay(bool value) { Config.AutoPlay = value; MarkDirty(); }
+        private static bool TryParseAutoPlayLaneKey(string key, out int lane)
+        {
+            lane = default;
+            if (string.IsNullOrWhiteSpace(key) ||
+                !key.StartsWith(AutoPlayLanePrefix, StringComparison.Ordinal) ||
+                key.Length <= AutoPlayLanePrefix.Length)
+            {
+                return false;
+            }
+
+            return int.TryParse(
+                       key.Substring(AutoPlayLanePrefix.Length),
+                       NumberStyles.None,
+                       CultureInfo.InvariantCulture,
+                       out lane) &&
+                   lane >= 0 &&
+                   lane <= 9;
+        }
+
+        public void SetAutoPlayLane(int lane, bool enabled)
+        {
+            if (lane < 0 || lane > 9)
+                return;
+
+            var changed = enabled
+                ? Config.AutoPlayLanes.Add(lane)
+                : Config.AutoPlayLanes.Remove(lane);
+            if (changed)
+                MarkDirty();
+        }
+
+        public void SetAllAutoPlayLanes(bool enabled)
+        {
+            var target = enabled
+                ? Enumerable.Range(0, 10)
+                : Enumerable.Empty<int>();
+            if (Config.AutoPlayLanes.SetEquals(target))
+                return;
+
+            Config.AutoPlayLanes.Clear();
+            if (enabled)
+                Config.AutoPlayLanes.UnionWith(Enumerable.Range(0, 10));
+
+            MarkDirty();
+        }
 
         /// <summary>Sets NoFail and marks a deferred save pending. No event raised.</summary>
         public void SetNoFail(bool value) { Config.NoFail = value; MarkDirty(); }

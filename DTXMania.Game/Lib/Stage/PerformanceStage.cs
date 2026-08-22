@@ -167,8 +167,19 @@ namespace DTXMania.Game.Lib.Stage
         private bool _inputPaused = false;
         private PerformanceSummary _performanceSummary = null!;
         
-        // Autoplay functionality
-        private bool _autoPlayEnabled = false;
+        // Autoplay functionality. The lane set is copied from config at
+        // activation (frozen for the run); the live ConfigData collection is
+        // never retained. An empty set means fully manual play.
+        private HashSet<int> _autoPlayLanes = new HashSet<int>();
+
+        /// <summary>
+        /// Read accessor for the frozen lane set. Lazily materializes an empty
+        /// set so reflection-created (uninitialized) stage instances — common
+        /// in tests — behave as fully manual play instead of throwing
+        /// NullReferenceException.
+        /// </summary>
+        private HashSet<int> FrozenAutoPlayLanes => _autoPlayLanes ??= new HashSet<int>();
+
         private bool _autoAddGaugeEnabled = true;
         private GaugeDamageLevel _gaugeDamageLevel = GaugeDamageLevel.Normal;
         private int _riskyLimit = RiskyRange.Default;
@@ -432,7 +443,10 @@ namespace DTXMania.Game.Lib.Stage
         private void InitializeAutoPlay()
         {
             var config = _game?.ConfigManager?.Config;
-            _autoPlayEnabled = config?.AutoPlay ?? false;
+            // Defensive copy: the run owns its lane set. Later config edits
+            // (UI toggles, mid-song SetAutoPlayLane) must not alter which
+            // lanes this performance automates.
+            _autoPlayLanes = new HashSet<int>(config?.AutoPlayLanes ?? Enumerable.Empty<int>());
             _autoAddGaugeEnabled = config?.AutoAddGauge ?? true;
             _gaugeDamageLevel = config?.DamageLevel ?? GaugeDamageLevel.Normal;
             _riskyLimit = RiskyRange.Clamp(config?.Risky ?? RiskyRange.Default);
@@ -440,7 +454,7 @@ namespace DTXMania.Game.Lib.Stage
             _autoPlayNoteIndex = 0;
 
             System.Diagnostics.Debug.WriteLine(
-                $"[AutoPlay] InitializeAutoPlay: enabled={_autoPlayEnabled}, " +
+                $"[AutoPlay] InitializeAutoPlay: lanes={string.Join(",", _autoPlayLanes.OrderBy(lane => lane))}, " +
                 $"chartLoaded={_chartManager != null}, " +
                 $"notesCount={_chartManager?.AllNotes.Count ?? -1}");
         }
@@ -1597,9 +1611,11 @@ namespace DTXMania.Game.Lib.Stage
             _judgementManager = new JudgementManager(_inputManager, _chartManager);
             // Start with judgement manager inactive - it will be activated when song starts
             _judgementManager.IsActive = false;
-            // Suppress player input when autoplay is on. Different from DTXManiaNX,
-            // which lets player and autoplay coexist.
-            _judgementManager.IgnorePlayerInput = _autoPlayEnabled;
+            // Lane-scoped input filtering: automated lanes ignore physical input
+            // while manual lanes keep full player control (the seam copies the
+            // frozen set, so it stays run-owned). Unlike DTXManiaNX, which lets
+            // player and autoplay coexist, automated lanes drop player hits.
+            _judgementManager.SetIgnoredPlayerInputLanes(FrozenAutoPlayLanes);
 
             _scoreManager = new ScoreManager(_chartManager.TotalNotes);
             _comboManager = new ComboManager();
@@ -1659,8 +1675,10 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void OnLaneHitForPadFeedback(object? sender, LaneHitEventArgs e)
         {
-            // Suppress player feedback entirely when autoplay is driving hits
-            if (_autoPlayEnabled) return;
+            // Suppress physical pad feedback only on automated lanes; manual
+            // lanes keep their immediate key-down animation. Autoplay's own
+            // hit animation is driven from ProcessAutoPlay.
+            if (FrozenAutoPlayLanes.Contains(e.Lane)) return;
 
             // Trigger immediate pad press effect on input (regardless of judgement). Visual pad
             // feedback is intentionally allowed during loading/countdown so the player sees their
@@ -1701,10 +1719,12 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void OnJudgementMade(object? sender, DTXMania.Game.Lib.Song.Entities.JudgementEvent e)
         {
-            // Forward judgement to all managers
+            // Forward judgement to all managers. Gauge follows the frozen
+            // AutoAddGauge policy only for automated-lane judgements;
+            // manual-lane judgements always reach the gauge.
             _scoreManager?.ProcessJudgement(e);
             _comboManager?.ProcessJudgement(e);
-            if (!_autoPlayEnabled || _autoAddGaugeEnabled)
+            if (!FrozenAutoPlayLanes.Contains(e.Lane) || _autoAddGaugeEnabled)
                 _gaugeManager?.ProcessJudgement(e);
             _skillManager?.ProcessJudgement(e);
             _skillPanelDisplay?.ProcessJudgement(e, _comboManager?.MaxCombo ?? 0);
@@ -1795,8 +1815,8 @@ namespace DTXMania.Game.Lib.Stage
             double logicalSongTimeMs,
             double pendingHitTimeMs)
         {
-            // Process autoplay if enabled
-            if (_autoPlayEnabled)
+            // Process autoplay when any lane is automated
+            if (FrozenAutoPlayLanes.Count > 0)
             {
                 ProcessAutoPlay(logicalSongTimeMs);
             }
@@ -1836,6 +1856,9 @@ namespace DTXMania.Game.Lib.Stage
             // should NEVER skip a pending note. The window only prevents triggering
             // notes that are in the future — any past-due note is auto-hit regardless
             // of how late the frame arrived (GC pause, hitch, low FPS, etc.).
+            // One cursor serves all lanes: due notes on manual lanes are skipped
+            // (left for normal judgement/miss handling) but still advance the
+            // cursor so a manual note can never stall automated ones behind it.
             while (_autoPlayNoteIndex < allNotes.Count)
             {
                 var note = allNotes[_autoPlayNoteIndex];
@@ -1849,21 +1872,24 @@ namespace DTXMania.Game.Lib.Stage
                     break;
                 }
 
-                // Note is at or past its time — always auto-hit it if still pending.
-                // This prevents frame hitches from causing autoplay to miss notes.
-                var noteData = _judgementManager.GetNoteRuntimeData(note.Id);
-                if (noteData?.Status == DTXMania.Game.Lib.Stage.Performance.NoteStatus.Pending)
+                // Note is at or past its time — always advance the cursor, but
+                // only resolve notes on automated lanes.
+                if (FrozenAutoPlayLanes.Contains(note.LaneIndex))
                 {
-                    // Resolve directly by note ID, bypassing hit detection window.
-                    // This ensures deterministic hits even when currentSongTimeMs is
-                    // far past the note time (e.g., after GC pause or frame hitch).
-                    _judgementManager.ResolveAutoHit(note.Id);
+                    var noteData = _judgementManager.GetNoteRuntimeData(note.Id);
+                    if (noteData?.Status == DTXMania.Game.Lib.Stage.Performance.NoteStatus.Pending)
+                    {
+                        // Resolve directly by note ID, bypassing hit detection window.
+                        // This ensures deterministic hits even when currentSongTimeMs is
+                        // far past the note time (e.g., after GC pause or frame hitch).
+                        _judgementManager.ResolveAutoHit(note.Id);
 
-                    // Trigger pad press effect for autoplay
-                    _padRenderer?.TriggerPadPress(note.LaneIndex, true);
+                        // Trigger pad press effect for autoplay
+                        _padRenderer?.TriggerPadPress(note.LaneIndex, true);
 
-                    // Play the per-note drum chip sound (silent if no cache or no WAV)
-                    PlayChipForNote(note);
+                        // Play the per-note drum chip sound (silent if no cache or no WAV)
+                        PlayChipForNote(note);
+                    }
                 }
 
                 _autoPlayNoteIndex++;
@@ -2356,6 +2382,7 @@ namespace DTXMania.Game.Lib.Stage
             _performanceSummary = new PerformanceSummary
             {
                 RunId = Guid.NewGuid(),
+                UsedAutoPlay = FrozenAutoPlayLanes.Count > 0,
                 PlaySpeedPercent = _playbackModifiers.PlaySpeedPercent,
                 PitchSemitones = _playbackModifiers.PitchSemitones,
                 Score = _scoreManager?.CurrentScore ?? 0,
@@ -2443,7 +2470,8 @@ namespace DTXMania.Game.Lib.Stage
                 preparedAudioSet?.DecodedPcmBytes
                 ?? audioPreparationProgress?.DecodedByteEstimate
                 ?? 0L;
-            telemetry.AutoPlayEnabled = _autoPlayEnabled;
+            // Full autoplay only: partial automation reports as manual play.
+            telemetry.AutoPlayEnabled = FrozenAutoPlayLanes.Count == PerformanceUILayout.LaneCount;
             telemetry.StageCompleted = _stageCompleted;
             telemetry.CurrentSongTimeMs =
                 songTimerHasReadablePosition && currentGameTime != null

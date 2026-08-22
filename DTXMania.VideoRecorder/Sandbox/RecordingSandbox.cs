@@ -16,7 +16,6 @@ internal sealed class RecordingSandbox
         new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["EnableGameApi"] = "True",
-            ["AutoPlay"] = "True",
             ["NoFail"] = "True",
             ["ScreenWidth"] = "1280",
             ["ScreenHeight"] = "720",
@@ -199,6 +198,11 @@ internal sealed class RecordingSandbox
         var patched = new Dictionary<string, string>(sourceValues, StringComparer.Ordinal);
         foreach (var pair in OwnedConfigValues)
             patched[pair.Key] = pair.Value;
+        // Recording runs automate every drum lane. The AutoPlay.{lane} keys are
+        // generated from the lane index — no textual lane codes, no Game
+        // project dependency — matching the game's sparse per-lane INI rows.
+        for (var lane = 0; lane < 10; lane++)
+            patched[$"AutoPlay.{lane}"] = "True";
         patched["GameApiPort"] = apiPort.ToString(CultureInfo.InvariantCulture);
         patched["GameApiKey"] = apiKey;
         return patched;

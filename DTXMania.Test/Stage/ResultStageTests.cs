@@ -322,6 +322,34 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void StartPerformanceSummarySave_WithAssistedSummary_DoesNotInvokePersistence()
+        {
+            // An assisted run (any automated lane) must never reach score
+            // persistence: IsSavable rejects UsedAutoPlay summaries, so the
+            // existing guard returns before SavePerformanceSummaryAsync runs.
+#pragma warning disable SYSLIB0050
+            var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
+#pragma warning restore SYSLIB0050
+
+            var assisted = new PerformanceSummary
+            {
+                RunId = Guid.NewGuid(),
+                CompletionReason = CompletionReason.SongComplete,
+                UsedAutoPlay = true,
+                Score = 500_000
+            };
+            SetPrivateField(stage, "_performanceSummary", assisted);
+
+            InvokePrivateMethod(
+                stage,
+                "StartPerformanceSummarySave",
+                new SongChart { Id = 42 });
+
+            Assert.Equal(ResultSaveState.NotStarted, stage.ScoreSaveState);
+            Assert.Null(GetPrivateField<System.Threading.Tasks.Task<ScoreSaveResult>>(stage, "_scoreSaveTask"));
+        }
+
+        [Fact]
         public async Task StartPerformanceSummarySave_WithCompletedPriorTask_ShouldStartNewSave()
         {
             // Once the previous task has completed (late reconciliation resolved),

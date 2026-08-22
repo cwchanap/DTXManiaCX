@@ -138,18 +138,24 @@ namespace DTXMania.Game.Lib.Config
     {
         private readonly Func<bool> _getCurrentValue;
         private readonly Action<bool> _setValue;
+        private readonly Func<bool, string> _valueFormatter;
 
-        public ToggleConfigItem(string name, Func<bool> getCurrentValue, Action<bool> setValue)
+        public ToggleConfigItem(string name, Func<bool> getCurrentValue, Action<bool> setValue,
+            Func<bool, string> valueFormatter = null)
             : base(name)
         {
             _getCurrentValue = getCurrentValue ?? throw new ArgumentNullException(nameof(getCurrentValue));
             _setValue = setValue ?? throw new ArgumentNullException(nameof(setValue));
+            _valueFormatter = valueFormatter;
         }
 
         public override string GetDisplayText()
         {
             var currentValue = _getCurrentValue();
-            return $"{Name}: {(currentValue ? "ON" : "OFF")}";
+            var formatted = _valueFormatter != null
+                ? _valueFormatter(currentValue)
+                : currentValue ? "ON" : "OFF";
+            return $"{Name}: {formatted}";
         }
 
         public override void PreviousValue()

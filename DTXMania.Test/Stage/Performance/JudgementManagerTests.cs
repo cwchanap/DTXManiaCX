@@ -88,6 +88,53 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
+        public void OnLaneHit_WhenLaneIsIgnored_DropsIgnoredInputButJudgesManualLane()
+        {
+            var compat = CreateMockInputManagerWithEvents();
+            var judgementManager = new JudgementManager(compat, CreateTestChartManager());
+            judgementManager.SetIgnoredPlayerInputLanes(new[] { 0 });
+
+            JudgementEvent? captured = null;
+            judgementManager.JudgementMade += (_, e) => captured = e;
+
+            compat.TriggerLaneHit(0);
+            judgementManager.Update(1000.0, 1000.0);
+
+            Assert.Null(captured);
+
+            compat.TriggerLaneHit(1);
+            judgementManager.Update(1500.0, 1000.0);
+
+            Assert.NotNull(captured);
+            Assert.Equal(1, captured.Lane);
+        }
+
+        [Fact]
+        public void SetIgnoredPlayerInputLanes_CopiesCallerCollection()
+        {
+            var compat = CreateMockInputManagerWithEvents();
+            var judgementManager = new JudgementManager(compat, CreateTestChartManager());
+            var ignoredLanes = new[] { 0 };
+            judgementManager.SetIgnoredPlayerInputLanes(ignoredLanes);
+
+            ignoredLanes[0] = 1;
+
+            JudgementEvent? captured = null;
+            judgementManager.JudgementMade += (_, e) => captured = e;
+
+            compat.TriggerLaneHit(0);
+            judgementManager.Update(1000.0, 1000.0);
+
+            Assert.Null(captured);
+
+            compat.TriggerLaneHit(1);
+            judgementManager.Update(1500.0, 1000.0);
+
+            Assert.NotNull(captured);
+            Assert.Equal(1, captured.Lane);
+        }
+
+        [Fact]
         public void Update_MissedNote_GeneratesMissEvent()
         {
             // Arrange
@@ -273,38 +320,6 @@ namespace DTXMania.Test.Stage.Performance
         private static DTXMania.Test.Helpers.MockInputManagerCompat CreateMockInputManagerWithEvents()
         {
             return new DTXMania.Test.Helpers.MockInputManagerCompat();
-        }
-
-        [Fact]
-        public void OnLaneHit_WhenIgnorePlayerInputTrue_DropsPlayerEvent()
-        {
-            var compat = CreateMockInputManagerWithEvents();
-            var judgementManager = new JudgementManager(compat, CreateTestChartManager());
-            judgementManager.IgnorePlayerInput = true;
-
-            JudgementEvent? captured = null;
-            judgementManager.JudgementMade += (_, e) => captured = e;
-
-            compat.TriggerLaneHit(0); // simulates player input via the modular input event
-            judgementManager.Update(1000.0);
-
-            Assert.Null(captured);
-        }
-
-        [Fact]
-        public void EnqueueLaneHit_WhenIgnorePlayerInputTrue_StillEnqueuesHit()
-        {
-            var compat = CreateMockInputManagerWithEvents();
-            var judgementManager = new JudgementManager(compat, CreateTestChartManager());
-            judgementManager.IgnorePlayerInput = true;
-
-            JudgementEvent? captured = null;
-            judgementManager.JudgementMade += (_, e) => captured = e;
-
-            judgementManager.EnqueueLaneHit(0, "AutoPlay"); // bypasses gate
-            judgementManager.Update(1000.0);
-
-            Assert.NotNull(captured);
         }
 
         [Fact]
