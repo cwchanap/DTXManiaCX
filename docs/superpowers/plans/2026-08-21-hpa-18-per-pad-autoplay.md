@@ -4,9 +4,9 @@
 >
 > **PR rule:** Continue implementation on this branch and this draft PR. Do not open a second PR for HPA-18.
 
-**Goal:** Replace the single global Drums AutoPlay flag with a frozen 10-lane AutoPlay set that supports mixed manual/automatic play while preserving recorder and gameplay-E2E full-AutoPlay behavior.
+**Goal:** Replace global Drums AutoPlay with a frozen 10-lane AutoPlay set that supports mixed manual/automatic play, excludes assisted runs from score persistence, and preserves recorder/E2E full-AutoPlay behavior.
 
-**Architecture:** One small Game-side lane-definition table reuses the existing `PerformanceUILayout.LaneType` identity and supplies config labels/keys to `ConfigManager`, `ConfigStage`, and Game-referencing E2E fixtures. `ConfigData` owns a get-only mutable set; `ConfigManager` is the mutation/persistence owner. `PerformanceStage` defensively copies the set at activation and keeps the current single AutoPlay scan. `JudgementManager` only filters physical input for automated lanes. The recorder keeps its intentional no-Game-dependency boundary and proves its local ten-key patch through the existing real-`ConfigManager` compatibility test.
+**Architecture:** Use integer gameplay lane IDs directly. `ConfigData` owns a get-only `AutoPlayLanes` set and `ConfigManager` persists enabled lanes as sparse `AutoPlay.0..9=true` rows, mirroring `Key.Unbound.{lane}`. `PerformanceStage` snapshots the set, keeps the existing single AutoPlay cursor, and supplies lane-scoped input filtering to `JudgementManager`. `PerformanceSummary` records whether AutoPlay was used so existing `IsSavable` gating rejects assisted runs. Recorder/E2E generate full-AutoPlay keys with `0..9` loops; no shared lane-definition component or recorder -> Game dependency is added.
 
 **Tech Stack:** .NET 8, MonoGame, xUnit, SQLite-backed configuration.
 
@@ -14,21 +14,46 @@
 
 ## Global constraints
 
-- Drums only; exactly the current 10 CX gameplay lanes.
-- Canonical lane order/codes are `LC, HH, LP, SN, HT, DB, LT, FT, CY, RD`; lane 5 persists as `AutoPlay.DB`, not `AutoPlay.BD`.
+- Drums only; exactly integer lanes `0..9` in current parser/performance order: LC, HH, LP, SN, HT, DB, LT, FT, CY, RD.
+- Persist enabled lanes as sparse `AutoPlay.{lane}=true`; do not introduce textual lane-code keys or `AutoPlayLaneDefinitions.cs`.
 - DTX `0x1B` and `0x1C` remain one lane-2 Left Pedal setting.
-- No second lane enum/domain refactor, judgement-source field, NoteRenderer change, telemetry schema expansion, Guitar/Bass work, or legacy global-AutoPlay migration.
-- `AutoPlayLanes` is get-only; running performance receives a defensive copy, never the live ConfigData set.
-- Keep one AutoPlay scan and advance past manual notes so they cannot block later automated notes.
-- Do not add a `DTXMania.VideoRecorder -> DTXMania.Game` project dependency merely to share AutoPlay constants.
+- `AutoPlayLanes` is get-only; running performance receives a defensive copy.
+- Keep one AutoPlay cursor and advance past due manual notes.
+- Any run with at least one automated lane is not score-savable.
+- No new lane enum/refactor, judgement-source field, renderer redesign, telemetry schema, Guitar/Bass work, config migration, AutoPlay sub-screen, or recorder -> Game project reference.
+- Do not change `KeyBindings.GetLaneName` or `DrumKitLayout`; HPA-619 owns the separate Drum Key Mapping visual/binding contract.
+- Implementation order is **add -> migrate -> delete** so every intermediate focused test gate can compile and become GREEN.
 - One HPA-18 PR only.
+
+## Validation command matrix
+
+Use the project matching the machine. Every focused Game command below uses the same filter with one of these projects.
+
+**macOS Game tests:**
+
+```bash
+dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "<FILTER>"
+```
+
+**Windows Game tests:**
+
+```bash
+dotnet test DTXMania.Test/DTXMania.Test.csproj --filter "<FILTER>"
+```
+
+**Recorder tests (cross-platform):**
+
+```bash
+dotnet test DTXMania.VideoRecorder.Tests/DTXMania.VideoRecorder.Tests.csproj
+```
+
+`DTXMania.E2E` targets `net8.0-windows7.0`; run its support/gameplay tests on Windows/CI only. Do not skip a Mac Game gate by substituting the Windows test project.
 
 ---
 
-### Task 1: Establish the canonical ten-lane config contract and persistence
+### Task 1: Add the per-lane config model beside the legacy global contract
 
 **Files:**
-- Create: `DTXMania.Game/Lib/Config/AutoPlayLaneDefinitions.cs`
 - Modify: `DTXMania.Game/Lib/Config/ConfigData.cs`
 - Modify: `DTXMania.Game/Lib/Config/IConfigManager.cs`
 - Modify: `DTXMania.Game/Lib/Config/ConfigManager.cs`
@@ -36,60 +61,77 @@
 - Test: `DTXMania.Test/Config/ConfigManagerTests.cs`
 - Test: `DTXMania.Test/Config/ConfigManagerSqlitePersistenceTests.cs`
 
-**Interfaces:**
-- Canonical table: ten entries in lane order, each carrying existing `PerformanceUILayout.LaneType` plus Config label; lane ID comes from the enum value and suffix/key comes from the existing lane identity.
-- `ConfigData.AutoPlayLanes`: get-only `HashSet<int>`, empty by default.
-- `IConfigManager.SetAutoPlayLane(int lane, bool enabled)`: mutate one valid canonical lane and mark deferred save when state changes.
-- `IConfigManager.SetAllAutoPlayLanes(bool enabled)`: enable exactly all ten canonical lanes or clear the set, then mark deferred save when state changes.
+**Interfaces produced for later tasks:**
 
-- [ ] **Step 1: Write failing canonical-table/config-model tests**
+```csharp
+public HashSet<int> AutoPlayLanes { get; } = new();
+void SetAutoPlayLane(int lane, bool enabled);
+void SetAllAutoPlayLanes(bool enabled);
+```
 
-Pin all of these before production edits:
+For this task only, keep existing `ConfigData.AutoPlay`, `IConfigManager.SetAutoPlay(bool)`, the bare `AutoPlay` load/write path, and their existing tests. They are transitional branch scaffolding and are deleted in Task 6.
+
+- [ ] **Step 1: Write failing model/mutator tests**
+
+Pin:
 
 ```text
-AutoPlay definitions count == 10
-lanes == 0..9 in order and unique
-suffixes == LC,HH,LP,SN,HT,DB,LT,FT,CY,RD
-suffix for lane 5 == DB
-suffixes match PerformanceUILayout.LaneType.ToString() and LaneNames[lane]
-new ConfigData().AutoPlayLanes is empty and cannot be replaced through a public setter
+new ConfigData().AutoPlayLanes is empty
+AutoPlayLanes has no public setter
+SetAutoPlayLane(3,true) adds only lane 3
+SetAutoPlayLane(3,false) removes lane 3
+invalid lanes (<0 or >9) do not mutate/dirty the set
+SetAllAutoPlayLanes(true) yields exactly 0..9
+SetAllAutoPlayLanes(false) clears the set
+no-op mutations do not create extra dirty work
 ```
 
-- [ ] **Step 2: Run the focused config tests and confirm RED**
+- [ ] **Step 2: Run focused config tests and confirm RED**
+
+Filter:
+
+```text
+FullyQualifiedName~ConfigDataTests|FullyQualifiedName~ConfigManagerTests|FullyQualifiedName~ConfigManagerSqlitePersistenceTests
+```
+
+Expected: failure only for missing per-lane APIs/behavior; the project still compiles because the legacy global API remains.
+
+- [ ] **Step 3: Add the get-only set and narrow manager mutations**
+
+Use integer bounds `0..9`. Mutate the collection in place and call the existing deferred `MarkDirty()` only when membership actually changes. Do not add a whole-set replacement API.
+
+- [ ] **Step 4: Add sparse integer persistence beside the legacy row**
+
+Use a private `AutoPlay.` prefix in `ConfigManager`, matching the existing `Key.Unbound.` pattern:
+
+```text
+enabled lane 0 -> AutoPlay.0=true
+enabled lane 9 -> AutoPlay.9=true
+disabled lane -> no AutoPlay.<lane> row
+```
+
+Load only numeric suffixes `0..9` whose value parses true. Malformed/out-of-range entries do not enter the set.
+
+During this task, continue writing/loading the old bare `AutoPlay` row as well so unrelated existing consumers still compile and behave until migrated.
+
+- [ ] **Step 5: Add SQLite round-trip tests**
+
+Prove empty, one-lane, and all-lane round trips. Assert there is no `AutoPlayLaneDefinitions`/textual code contract and enabled rows are `AutoPlay.0..9` only.
+
+- [ ] **Step 6: Re-run the focused config tests until GREEN**
+
+Use the Step 2 filter with the platform-appropriate Game test project.
+
+- [ ] **Step 7: Commit**
 
 ```bash
-dotnet test DTXMania.Test/DTXMania.Test.csproj --filter "FullyQualifiedName~ConfigDataTests|FullyQualifiedName~ConfigManagerTests|FullyQualifiedName~ConfigManagerSqlitePersistenceTests"
+git add DTXMania.Game/Lib/Config DTXMania.Test/Config
+git commit -m "feat: add per-lane autoplay config model"
 ```
-
-Expected: failures are limited to missing per-lane AutoPlay model/table/persistence behavior.
-
-- [ ] **Step 3: Add the Game-side AutoPlay lane-definition table**
-
-Keep it configuration metadata only. Reuse `PerformanceUILayout.LaneType`; do not create another lane enum. The only new authored per-lane data should be the Config display labels. Derive the lane integer and persisted suffix/key from existing lane identity.
-
-- [ ] **Step 4: Replace the global config property with a protected collection**
-
-Remove `ConfigData.AutoPlay`. Add get-only `AutoPlayLanes`, following the same collection-safety reasoning as get-only `MidiVelocityThresholds`.
-
-- [ ] **Step 5: Replace `SetAutoPlay(bool)` with lane/all-lane mutations**
-
-Reject/ignore lane values outside the canonical table. Mutate the existing set in place and use the current deferred `MarkDirty()` persistence pattern. Do not expose a whole-set replacement API.
-
-- [ ] **Step 6: Replace the global load/write path with the canonical ten keys**
-
-`BuildPersistedEntries()` iterates the canonical table and writes the ten explicit keys. Config loading recognizes only canonical `AutoPlay.*` entries and adds enabled lanes to the set. Remove the old `AutoPlay` switch case/write. Do not migrate it.
-
-- [ ] **Step 7: Add round-trip and mutation tests**
-
-Prove one-lane enable/disable, all-lanes enable/clear, invalid-lane rejection, exact ten-key SQLite round-trip including `AutoPlay.DB`, and that the legacy global `AutoPlay` key is neither required nor written.
-
-- [ ] **Step 8: Re-run focused tests until GREEN**
-
-Use the Step 2 command.
 
 ---
 
-### Task 2: Build Config-stage rows from the canonical table
+### Task 2: Migrate ConfigStage to inline per-lane controls
 
 **Files:**
 - Modify: `DTXMania.Game/Lib/Config/ConfigItems.cs`
@@ -97,245 +139,429 @@ Use the Step 2 command.
 - Test: `DTXMania.Test/Config/ConfigItemTests.cs`
 - Test: `DTXMania.Test/Config/ConfigStageLogicTests.cs`
 
-**Interfaces:**
-- New focused computed master item: display is `None`, `Mixed`, or `All`; previous/next/toggle invoke one supplied action.
-- Per-lane rows consume the Task 1 canonical lane table and `IConfigManager.SetAutoPlayLane`.
+**Interfaces consumed:** Task 1 `AutoPlayLanes`, `SetAutoPlayLane`, `SetAllAutoPlayLanes`.
 
-- [ ] **Step 1: Add failing master-item tests**
+**UI contract:** keep the rows in the existing scrolling Drums category. Do not add a sub-screen. Use these local gameplay labels in lane order:
+
+```text
+Left Cymbal, Hi-Hat, Left Pedal, Snare, High Tom,
+Bass Drum, Low Tom, Floor Tom, Cymbal, Ride
+```
+
+Do not use `KeyBindings.GetLaneName`; that belongs to the separate Drum Key Mapping contract.
+
+- [ ] **Step 1: Add failing `ToggleConfigItem` formatter tests**
+
+Extend the existing class rather than create a tri-state class. Tests prove:
+
+```text
+ordinary ToggleConfigItem still renders ON/OFF when no formatter is supplied
+optional formatter can replace only the displayed value
+Previous/Next/Toggle still invert the bool and raise ValueChanged
+```
+
+- [ ] **Step 2: Add failing ConfigStage AutoPlay tests**
 
 Pin:
 
 ```text
-0 enabled -> AutoPlay (All): None
-10 enabled -> AutoPlay (All): All
-1..9 enabled -> AutoPlay (All): Mixed
-All action -> clear all
-None action -> enable all
-Mixed action -> enable all
-Previous/Next/Toggle all invoke the same master action
+master display: 0 -> None, 1..9 -> Mixed, 10 -> All
+master action: All -> clear, None/Mixed -> enable all
+exactly 10 gameplay-lane rows appear in integer order 0..9
+one lane row mutates only its matching lane
+Left Pedal description states DTX 0x1B and 0x1C share lane 2
+Drums category remains one scrolling list; no AutoPlay navigation item/stage is introduced
 ```
 
-- [ ] **Step 2: Add failing ConfigStage row tests**
+- [ ] **Step 3: Run focused UI tests and confirm RED**
 
-Assert one master plus exactly ten lane rows in canonical order, with lane 5 using the existing DB identity and the Left Pedal row documenting that lane 2 includes both DTX `0x1B` and `0x1C`.
+Filter:
 
-- [ ] **Step 3: Run focused tests and confirm RED**
+```text
+FullyQualifiedName~ConfigItemTests|FullyQualifiedName~ConfigStageLogicTests
+```
+
+- [ ] **Step 4: Add optional display formatting to `ToggleConfigItem`**
+
+Follow the existing optional-formatter pattern from `IntegerConfigItem`. The master getter is true only when all 10 lanes are enabled; its formatter derives `None/Mixed/All` from the current count. This makes Mixed naturally toggle to All without a new config-item type.
+
+- [ ] **Step 5: Replace the ConfigStage global row with master + 10 rows**
+
+Use a small local label array/list in `ConfigStage`; persistence keys are integer-derived and are not part of UI metadata. Per-lane rows call `SetAutoPlayLane`.
+
+Do **not** delete the legacy config property/API yet; other projects still use it until Task 6.
+
+- [ ] **Step 6: Re-run focused UI tests until GREEN**
+
+Use the Step 3 filter and platform-appropriate Game test project.
+
+- [ ] **Step 7: Commit**
 
 ```bash
-dotnet test DTXMania.Test/DTXMania.Test.csproj --filter "FullyQualifiedName~ConfigItemTests|FullyQualifiedName~ConfigStageLogicTests"
+git add DTXMania.Game/Lib/Config/ConfigItems.cs DTXMania.Game/Lib/Stage/ConfigStage.cs DTXMania.Test/Config
+git commit -m "feat: add per-lane autoplay settings UI"
 ```
-
-- [ ] **Step 4: Add the small computed master config item**
-
-Do not use `DropdownConfigItem`: `Mixed` is computed state, not a selectable value. Do not create a general tri-state framework.
-
-- [ ] **Step 5: Generate lane rows from the Task 1 table**
-
-Remove the old global AutoPlay row. Do not hand-author a second lane/suffix mapping inside `ConfigStage`.
-
-- [ ] **Step 6: Re-run focused tests until GREEN**
-
-Use the Step 3 command.
 
 ---
 
-### Task 3: Make physical judgement input lane-scoped
+### Task 3: Add lane-scoped judgement input filtering without deleting the global gate yet
 
 **Files:**
 - Modify: `DTXMania.Game/Lib/Stage/Performance/JudgementManager.cs`
 - Test: `DTXMania.Test/Stage/Performance/JudgementManagerTests.cs`
 
-**Interfaces:**
-- `ResolveAutoHit(noteId)` and `JudgementEvent` stay unchanged.
-- Replace global `IgnorePlayerInput` behavior with the minimum lane collection/predicate needed by `OnLaneHit`.
+**Interface produced:** add the minimum copy-owning seam needed to configure ignored physical lanes, for example:
 
-- [ ] **Step 1: Add a failing two-lane characterization**
+```csharp
+internal void SetIgnoredPlayerInputLanes(IEnumerable<int> lanes)
+```
 
-With one lane automated, prove a physical hit on that lane is ignored while a hit on a different manual lane is queued/judged normally.
+It copies the supplied lane IDs into JudgementManager-owned state. For this task only, retain `IgnorePlayerInput`; `OnLaneHit` rejects input when the transitional global gate is true **or** the hit lane is in the ignored set. Task 6 removes the global gate after PerformanceStage is migrated.
+
+- [ ] **Step 1: Add failing two-lane input tests**
+
+Prove:
+
+```text
+ignored lane physical hit is dropped
+manual lane physical hit is still queued/judged
+changing the caller's source collection after SetIgnoredPlayerInputLanes does not mutate JudgementManager's copy
+existing IgnorePlayerInput=true behavior remains temporarily green
+```
 
 - [ ] **Step 2: Run `JudgementManagerTests` and confirm RED**
 
-```bash
-dotnet test DTXMania.Test/DTXMania.Test.csproj --filter "FullyQualifiedName~JudgementManagerTests"
+Filter:
+
+```text
+FullyQualifiedName~JudgementManagerTests
 ```
 
-- [ ] **Step 3: Replace the global gate with lane-scoped filtering**
+- [ ] **Step 3: Implement the lane filter beside the legacy bool**
 
-Keep filtering at `OnLaneHit`; do not add an AutoPlay/manual source field or redesign judgement processing.
+Keep `ResolveAutoHit(noteId)` and `JudgementEvent` unchanged. Do not add source/origin metadata.
 
 - [ ] **Step 4: Re-run `JudgementManagerTests` until GREEN**
 
-Use the Step 2 command.
+Use the Step 2 filter and platform-appropriate Game test project.
 
----
-
-### Task 4: Convert the real PerformanceStage AutoPlay path to mixed lanes
-
-**Files:**
-- Modify: `DTXMania.Game/Lib/Stage/PerformanceStage.cs`
-- Primary test: `DTXMania.Test/Stage/Performance/PerformanceStageDeterministicTests.cs`
-- Supporting test: `DTXMania.Test/Stage/Performance/PerformanceStageAdditionalCoverageTests.cs`
-- Do not use `AutomatedPlaySimulationTests.cs` as the primary proof; it injects `JudgementEvent`s and does not execute `ProcessAutoPlay`.
-
-**Interfaces:**
-- Performance-owned frozen set is initialized by defensive copy in `InitializeAutoPlay()`.
-- The existing `_autoPlayNoteIndex` remains the only AutoPlay cursor.
-- `AutoPlayEnabled` telemetry remains boolean and means all ten canonical lanes are automated.
-
-- [ ] **Step 1: Retarget existing global AutoPlay characterizations in `PerformanceStageDeterministicTests`**
-
-Add/adjust tests that execute the real stage path and pin:
-
-```text
-InitializeAutoPlay copies configured lanes rather than retaining ConfigData reference
-post-activation config mutation does not change running AutoPlay ownership
-JudgementManager receives lane-scoped ignored input
-manual pad feedback remains active on manual lanes and is suppressed on automated lanes
-AutoPlayEnabled telemetry is true only when all ten lanes are frozen as automated
-```
-
-- [ ] **Step 2: Add a failing mixed-chart `ProcessAutoPlay` characterization**
-
-Use a chart ordered so a due manual note appears before a later due automated note. Prove the scan advances past the manual note without resolving it, then resolves the automated note Perfect. The manual note must remain available to the normal judgement/miss path.
-
-- [ ] **Step 3: Add failing per-lane gauge tests**
-
-Prove manual-lane judgements always reach `GaugeManager`, while automated-lane judgements reach it only when frozen `AutoAddGauge` is enabled.
-
-- [ ] **Step 4: Run the owning performance suites and confirm RED**
+- [ ] **Step 5: Commit**
 
 ```bash
-dotnet test DTXMania.Test/DTXMania.Test.csproj --filter "FullyQualifiedName~PerformanceStageDeterministicTests|FullyQualifiedName~PerformanceStageAdditionalCoverageTests|FullyQualifiedName~JudgementManagerTests"
+git add DTXMania.Game/Lib/Stage/Performance/JudgementManager.cs DTXMania.Test/Stage/Performance/JudgementManagerTests.cs
+git commit -m "feat: filter autoplay input by lane"
 ```
-
-- [ ] **Step 5: Replace `_autoPlayEnabled` with a defensive frozen set**
-
-`InitializeAutoPlay()` copies `Config.AutoPlayLanes` into a new stage-owned set and continues freezing `AutoAddGauge`, fail rules, and other HPA-10 state as today.
-
-- [ ] **Step 6: Feed the frozen set into `JudgementManager` and pad-feedback filtering**
-
-Physical judgement input and `OnLaneHitForPadFeedback` are suppressed only for lanes in the frozen set.
-
-- [ ] **Step 7: Keep one AutoPlay scan and make resolution membership-based**
-
-Run `ProcessAutoPlay` only when the frozen set is non-empty. For every due note, resolve/pad/chip only when its lane is automated, but always advance `_autoPlayNoteIndex` once the note is due.
-
-- [ ] **Step 8: Make gauge and telemetry decisions from the frozen set**
-
-Gauge condition is `manual lane || AutoAddGauge`. `AutoPlayEnabled` is true only when all ten canonical lanes are present; do not modify telemetry DTOs.
-
-- [ ] **Step 9: Re-run focused stage tests until GREEN**
-
-Use the Step 4 command.
 
 ---
 
-### Task 5: Update recorder and E2E bootstrap consumers explicitly
+### Task 4: Migrate real gameplay to frozen mixed AutoPlay and make assisted runs unsavable
 
-**Files:**
+**Production files:**
+- Modify: `DTXMania.Game/Lib/Stage/PerformanceStage.cs`
+- Modify: `DTXMania.Game/Lib/Stage/Performance/PerformanceSummary.cs`
+
+**Test files:**
+- Modify: `DTXMania.Test/Stage/Performance/PerformanceStageDeterministicTests.cs`
+- Modify: `DTXMania.Test/Stage/Performance/PerformanceStageAdditionalCoverageTests.cs`
+- Modify: `DTXMania.Test/Stage/Performance/PerformanceSummaryTests.cs`
+- Modify `DTXMania.Test/Stage/ResultStageTests.cs` only where needed to prove existing `IsSavable` gating does not call persistence for an assisted summary.
+
+Do not use `AutomatedPlaySimulationTests` as the primary proof; it fabricates judgement events and never executes `PerformanceStage.ProcessAutoPlay`.
+
+**Interface addition:**
+
+```csharp
+public bool UsedAutoPlay { get; init; }
+```
+
+`PerformanceSummary.IsSavable` additionally requires `!UsedAutoPlay`.
+
+- [ ] **Step 1: Retarget/add failing stage characterizations**
+
+In `PerformanceStageDeterministicTests`, prove:
+
+```text
+InitializeAutoPlay copies Config.AutoPlayLanes into stage-owned state
+later config mutation cannot alter running ownership
+JudgementManager receives automated lanes through lane-scoped input filtering
+manual pad feedback remains active only on manual lanes
+AutoPlayEnabled telemetry is true only when all 10 lanes are automated
+```
+
+- [ ] **Step 2: Add the critical one-cursor mixed-chart RED case**
+
+Arrange a due manual note before a due automated note. Invoke the real AutoPlay path and prove:
+
+```text
+manual note remains pending for normal judgement/miss handling
+autoplay cursor advances past it
+later automated note resolves Perfect
+```
+
+This prevents an implementation that stalls on the first manual note.
+
+- [ ] **Step 3: Add failing gauge tests**
+
+Manual-lane judgements always reach GaugeManager. Automated-lane judgements reach it only when frozen `AutoAddGauge` is true.
+
+- [ ] **Step 4: Add failing score-savability tests**
+
+Pin:
+
+```text
+manual completed/failed run with RunId remains savable
+UsedAutoPlay=true makes partial/full assisted run unsavable
+PerformanceStage.FinalizePerformance sets UsedAutoPlay when frozen set is non-empty
+ResultStage does not invoke SavePerformanceSummaryAsync for an assisted summary
+```
+
+- [ ] **Step 5: Run owning stage/result tests and confirm RED**
+
+Filter:
+
+```text
+FullyQualifiedName~PerformanceStageDeterministicTests|FullyQualifiedName~PerformanceStageAdditionalCoverageTests|FullyQualifiedName~JudgementManagerTests|FullyQualifiedName~PerformanceSummaryTests|FullyQualifiedName~ResultStageTests
+```
+
+- [ ] **Step 6: Replace `_autoPlayEnabled` gameplay ownership with a defensive lane set**
+
+`InitializeAutoPlay()` copies `Config.AutoPlayLanes`. Feed that frozen set to JudgementManager. Do not retain the live ConfigData collection.
+
+- [ ] **Step 7: Keep one scheduler cursor**
+
+Run `ProcessAutoPlay` only when the frozen set is non-empty. Once a note is due, always advance `_autoPlayNoteIndex`; resolve/pad/chip only if the note lane is automated.
+
+- [ ] **Step 8: Make feedback, gauge, telemetry, and summary decisions from the frozen set**
+
+- physical pad feedback suppressed only on automated lanes;
+- gauge condition is `manual lane || AutoAddGauge`;
+- telemetry `AutoPlayEnabled` is true only for all 10 lanes;
+- `PerformanceSummary.UsedAutoPlay` is true for any non-empty frozen set;
+- `PerformanceSummary.IsSavable` rejects any assisted run.
+
+Do not add a ResultStage-specific AutoPlay branch or score DB/schema field.
+
+- [ ] **Step 9: Re-run the focused stage/result tests until GREEN**
+
+Use the Step 5 filter and platform-appropriate Game test project.
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add DTXMania.Game/Lib/Stage DTXMania.Test/Stage
+git commit -m "feat: support mixed-lane autoplay gameplay"
+```
+
+---
+
+### Task 5: Migrate diagnostics, recorder, and E2E/bootstrap consumers
+
+**Game diagnostics:**
+- Modify: `DTXMania.Game/Lib/Diagnostics/CrashReporting/CrashContextPublisher.cs`
+- Modify: `DTXMania.Game/Lib/Diagnostics/CrashReporting/CrashLogFieldPolicy.cs`
+- Test: `DTXMania.Test/CrashReporting/CrashLogFieldPolicyTests.cs`
+- Test: `DTXMania.Test/BaseGameTests.cs`
+
+**Recorder:**
 - Modify: `DTXMania.VideoRecorder/Sandbox/RecordingSandbox.cs`
+- Modify: `DTXMania.VideoRecorder.Tests/TestSourceConfigDatabase.cs`
 - Test: `DTXMania.VideoRecorder.Tests/Sandbox/RecordingSandboxTests.cs`
+
+**Windows E2E/bootstrap:**
 - Modify: `DTXMania.E2E/Fixtures/E2EFixtureBuilder.cs`
 - Test: `DTXMania.E2E/Fixtures/E2EFixtureBuilderTests.cs`
 - Modify: `DTXMania.E2E/MidiGameplaySmokeTests.cs`
 - Test: `DTXMania.E2E/RecorderConfigCompatibilityTests.cs`
 
-**Boundary:**
-- `DTXMania.E2E` already references Game and may consume the Game-side lane-definition table.
-- `DTXMania.VideoRecorder` intentionally does not reference Game. Keep its local ten-key override; do not add a Game reference or another shared assembly. `RecorderConfigCompatibilityTests` is the drift guard because it loads recorder output through the real `ConfigManager`.
+- [ ] **Step 1: Add failing crash-context tests**
 
-- [ ] **Step 1: Add/update failing recorder sandbox tests**
+Replace the global boolean expectation with:
 
-Prove sandbox output writes all ten keys `AutoPlay.LC` through `AutoPlay.RD`, includes `AutoPlay.DB`, and does not emit the removed global `AutoPlay=True` entry.
+```text
+AutoPlayLaneCount == config.AutoPlayLanes.Count
+CrashLogFieldPolicy accepts AutoPlayLaneCount through count normalization
+obsolete configuration-context AutoPlay bool is no longer required after final cleanup
+```
 
-- [ ] **Step 2: Update `RecordingSandbox` local owned values**
+- [ ] **Step 2: Migrate crash configuration context**
 
-Replace the one global override with ten `True` values. Keep the existing patching flow and recorder project references unchanged.
+Publish `AutoPlayLaneCount`; handle it beside `UnboundDrumLaneCount` through `TryNormalizeCount`. Do not publish individual lanes.
 
-- [ ] **Step 3: Retarget `RecorderConfigCompatibilityTests`**
+- [ ] **Step 3: Add/update recorder bootstrap tests**
 
-After the real `ConfigManager` imports the sandbox INI, assert its `AutoPlayLanes` equals all ten canonical lanes instead of asserting `Config.AutoPlay`.
+Prove `RecordingSandbox` emits `AutoPlay.0=True` through `AutoPlay.9=True` using generated integer keys and no dependency on Game. Remove `AutoPlay=False` from `TestSourceConfigDatabase.BuildValidRows`; absence means manual play.
 
-- [ ] **Step 4: Retarget the gameplay E2E fixture**
+- [ ] **Step 4: Implement recorder full-AutoPlay with a `0..9` loop**
 
-`E2EFixtureBuilder` writes the ten full-AutoPlay keys from the Game-side canonical table. `E2EFixtureBuilderTests` asserts those keys and asserts the imported `AutoPlayLanes` set contains all ten canonical lanes.
+Do not hand-copy textual lane codes. Keep existing config patch flow and project references unchanged.
 
-- [ ] **Step 5: Fix MIDI smoke manual-play bootstrap**
+- [ ] **Step 5: Retarget recorder compatibility E2E**
 
-Remove the `.Replace("AutoPlay=True", "AutoPlay=False")` assumption. Produce a bootstrap with no enabled AutoPlay lanes so MIDI smoke continues to test physical judgement input.
+After importing recorder output through real `ConfigManager`, assert `AutoPlayLanes` equals exactly `0..9` instead of asserting `Config.AutoPlay`.
 
-- [ ] **Step 6: Run focused recorder/E2E support tests**
+- [ ] **Step 6: Retarget gameplay E2E bootstrap**
+
+`E2EFixtureBuilder` generates `AutoPlay.0=True` through `.9=True` with a loop. `E2EFixtureBuilderTests` asserts real ConfigManager imports exactly all 10 lanes. `MidiGameplaySmokeTests` stops replacing one `AutoPlay=True` string and instead runs from a fixture with no `AutoPlay.{lane}` rows.
+
+- [ ] **Step 7: Run cross-platform focused diagnostics/recorder tests**
+
+Game filter:
+
+```text
+FullyQualifiedName~BaseGameTests|FullyQualifiedName~CrashLogFieldPolicyTests
+```
+
+Recorder:
 
 ```bash
 dotnet test DTXMania.VideoRecorder.Tests/DTXMania.VideoRecorder.Tests.csproj --filter "FullyQualifiedName~RecordingSandboxTests"
+```
+
+These gates must be GREEN on the current platform before final legacy deletion.
+
+- [ ] **Step 8: Run Windows-only E2E support tests when on Windows/CI**
+
+```bash
 dotnet test DTXMania.E2E/DTXMania.E2E.csproj --filter "FullyQualifiedName~E2EFixtureBuilderTests|FullyQualifiedName~RecorderConfigCompatibilityTests"
 ```
 
-Expected: GREEN, with no new recorder -> Game production dependency.
+On macOS, record this as a Windows CI gate; do not claim local execution.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add DTXMania.Game/Lib/Diagnostics DTXMania.Test/CrashReporting DTXMania.Test/BaseGameTests.cs \
+  DTXMania.VideoRecorder DTXMania.VideoRecorder.Tests DTXMania.E2E
+git commit -m "test: migrate autoplay diagnostics and bootstraps"
+```
 
 ---
 
-### Task 6: Whole-slice stale-assumption sweep and validation
+### Task 6: Delete the legacy global contract and clean compile-only callers
 
-- [ ] **Step 1: Search every production/test project that can retain the global contract**
+**Production files:**
+- Modify: `DTXMania.Game/Lib/Config/ConfigData.cs`
+- Modify: `DTXMania.Game/Lib/Config/IConfigManager.cs`
+- Modify: `DTXMania.Game/Lib/Config/ConfigManager.cs`
+- Modify: `DTXMania.Game/Lib/Stage/Performance/JudgementManager.cs`
+
+**Known test/fake fallout to inspect explicitly:**
+- `DTXMania.Test/BaseGameTests.cs`
+- `DTXMania.Test/Config/ConfigDataApiSettingsTests.cs`
+- `DTXMania.Test/Config/ConfigManagerTests.cs`
+- `DTXMania.Test/Config/ConfigManagerSkinPathTests.cs`
+- `DTXMania.Test/Config/ConfigStageLogicTests.cs`
+- `DTXMania.Test/Stage/DrumConfig/DrumConfigStageTests.cs`
+- `DTXMania.E2E/Fixtures/E2EFixtureBuilderTests.cs`
+- `DTXMania.E2E/RecorderConfigCompatibilityTests.cs`
+
+- [ ] **Step 1: Search the whole relevant repository before deletion**
 
 ```bash
 rg "\bAutoPlay\b|SetAutoPlay|IgnorePlayerInput|_autoPlayEnabled|AutoPlayEnabled" \
   DTXMania.Game DTXMania.Test \
   DTXMania.VideoRecorder DTXMania.VideoRecorder.Tests \
-  DTXMania.E2E \
-  DTXMania.Automation DTXMania.Automation.Tests
+  DTXMania.E2E DTXMania.Automation DTXMania.Automation.Tests
 ```
 
-Review every hit. Remove obsolete global-config assumptions. `AutoPlayEnabled` telemetry references are expected and must remain boolean; do not mechanically rename/remove them.
+Classify each hit before editing. `AutoPlayEnabled` telemetry and `ResolveAutoHit` are expected to remain.
 
-- [ ] **Step 2: Confirm no unplanned architecture expansion**
+- [ ] **Step 2: Retarget tests that used AutoPlay only as a dirty-save lever**
 
-The implementation may touch config, ConfigStage, PerformanceStage/JudgementManager, recorder bootstrap, and E2E bootstrap/tests. It must not add a second lane enum, new gameplay manager, telemetry DTO fields, recorder -> Game reference, or compatibility migration.
+For persistence/lifecycle tests such as `ConfigManagerSkinPathTests` and the BaseGame exit-flush test, use an unrelated existing deferred setter such as `SetMetronome` and assert that setting's persisted result. Do not preserve a fake global AutoPlay API just to satisfy those tests.
 
-- [ ] **Step 3: Run the complete Game test project**
+- [ ] **Step 3: Remove obsolete DTO/interface/tests/fake members**
 
-```bash
-dotnet test DTXMania.Test/DTXMania.Test.csproj
+Delete:
+
+```text
+ConfigData.AutoPlay
+IConfigManager.SetAutoPlay(bool)
+ConfigManager.SetAutoPlay(bool)
+old tests that only prove the removed global property
+hand-written fake implementations of SetAutoPlay
 ```
 
-- [ ] **Step 4: Run the complete recorder test project**
+- [ ] **Step 4: Remove global persistence but leave an explicit obsolete-key warning**
+
+`BuildPersistedEntries()` no longer writes bare `AutoPlay`.
+
+The loader still recognizes the exact bare key only to log one warning such as:
+
+```text
+Ignoring obsolete global AutoPlay setting; configure AutoPlay.0 through AutoPlay.9 instead.
+```
+
+Do not translate its value into lanes and do not persist it again. Add a logger-backed config test proving the warning and unchanged empty lane set.
+
+- [ ] **Step 5: Remove transitional global judgement suppression**
+
+Delete `IgnorePlayerInput` now that PerformanceStage uses only lane-scoped ignored-input state. Keep `ResolveAutoHit` unchanged.
+
+- [ ] **Step 6: Re-run the repository-wide search**
+
+Expected remaining hits are intentional history/docs, lane config names, `ResolveAutoHit`, and boolean `AutoPlayEnabled` telemetry. No production consumer may read `Config.AutoPlay` or call `SetAutoPlay`.
+
+- [ ] **Step 7: Run full macOS validation when on macOS**
 
 ```bash
+dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj
+dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj
 dotnet test DTXMania.VideoRecorder.Tests/DTXMania.VideoRecorder.Tests.csproj
 ```
 
-- [ ] **Step 5: Run E2E support/contract tests available on the development platform**
+- [ ] **Step 8: Run full Windows validation when on Windows/CI**
 
-At minimum include `E2EFixtureBuilderTests`, `RecorderConfigCompatibilityTests`, and `AutomationContractTests`; the normal Windows gameplay E2E CI remains the authoritative runtime gate for the AutoPlay fixture and MIDI smoke flow.
+```bash
+dotnet build DTXMania.Game/DTXMania.Game.Windows.csproj
+dotnet test DTXMania.Test/DTXMania.Test.csproj
+dotnet test DTXMania.VideoRecorder.Tests/DTXMania.VideoRecorder.Tests.csproj
+dotnet test DTXMania.E2E/DTXMania.E2E.csproj --filter "Category=E2E-Support"
+```
 
-- [ ] **Step 6: Build the Game target and inspect final diff**
+Then run the normal Windows gameplay E2E gate used by CI.
 
-Run the normal platform Game build, then:
+- [ ] **Step 9: Final hygiene review**
 
 ```bash
 git diff --check
 ```
 
-Confirm the final diff follows the design non-goals and remains on this existing HPA-18 PR.
+Confirm:
+
+- no `AutoPlayLaneDefinitions.cs`;
+- no recorder -> Game reference;
+- no KeyBindings/DrumKitLayout lane-semantic edits;
+- no AutoPlay sub-screen;
+- no score/telemetry database schema additions;
+- no global AutoPlay compatibility layer beyond the one warning-only parser case.
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add -A
+git commit -m "refactor: remove global autoplay contract"
+```
 
 ## Acceptance checklist
 
-- [ ] One Game-side AutoPlay lane table reuses existing `LaneType`/`LaneNames`; no second lane enum exists.
-- [ ] Config persists exactly ten CX Drums AutoPlay lane keys in order `LC, HH, LP, SN, HT, DB, LT, FT, CY, RD`.
-- [ ] Lane 5 key is `AutoPlay.DB`; `AutoPlay.BD` is absent.
-- [ ] `ConfigData.AutoPlayLanes` is get-only and defaults empty; config manager owns mutation.
-- [ ] Config UI shows `AutoPlay (All)` as `None`, `Mixed`, or `All` plus exactly ten lane toggles generated from the canonical table.
-- [ ] Lane 2 is one Left Pedal AutoPlay setting covering both DTX `0x1B` and `0x1C`.
-- [ ] `InitializeAutoPlay()` defensively copies the configured set.
-- [ ] `PerformanceStageDeterministicTests` prove mixed scanning, lane-scoped pad/input suppression, frozen ownership, per-lane gauge behavior, and all-lanes telemetry.
-- [ ] One AutoPlay scan advances past manual notes and auto-resolves only automated lanes.
-- [ ] Recorder sandbox enables all ten keys without adding a Game dependency, and real-ConfigManager compatibility proves the patch.
-- [ ] E2E full-AutoPlay fixture uses all ten keys; MIDI smoke launches with no automated lanes.
-- [ ] `DTXMania.Automation` keeps the existing boolean `AutoPlayEnabled` contract; no telemetry schema expansion is added.
-- [ ] No Guitar/Bass work, legacy migration layer, judgement-source model, renderer redesign, or lane-domain refactor is added.
-- [ ] Full Game/recorder tests plus relevant E2E support tests pass; Windows gameplay E2E is green before merge.
+- [ ] `ConfigData.AutoPlayLanes` is get-only and defaults empty.
+- [ ] Enabled lane persistence uses only sparse numeric `AutoPlay.0..9=true` rows.
+- [ ] Bare global `AutoPlay` is not migrated or rewritten and emits one warning when encountered.
+- [ ] Config UI shows one computed `None/Mixed/All` master plus exactly 10 inline gameplay-lane toggles.
+- [ ] Existing ordinary `ToggleConfigItem` ON/OFF display remains unchanged.
+- [ ] Lane 2 remains one Left Pedal switch covering DTX `0x1B` and `0x1C`.
+- [ ] Running performance freezes a defensive copy of configured lanes.
+- [ ] One AutoPlay cursor advances past due manual notes and auto-resolves only configured lanes.
+- [ ] Physical input/pad feedback is suppressed only on automated lanes.
+- [ ] Manual judgements affect gauge normally; automated judgements obey `AutoAddGauge`.
+- [ ] Any partial/full AutoPlay run has `UsedAutoPlay=true` and is not score-savable.
+- [ ] Crash config context reports `AutoPlayLaneCount`, not the removed global bool.
+- [ ] Recorder/E2E full AutoPlay is generated with integer `0..9` loops; MIDI manual smoke enables none.
+- [ ] Existing boolean `AutoPlayEnabled` telemetry still means all 10 lanes automated.
+- [ ] No Game-side lane-definition component, new lane domain, recorder -> Game dependency, telemetry schema, or KeyBindings/DrumKitLayout scope expansion is added.
+- [ ] Applicable macOS and Windows validation commands pass.
 
 ## Expected size
 
-One PR, approximately **1.5-2 engineer days**. The revision adds explicit ownership for existing E2E/bootstrap call sites while avoiding new production abstractions or a recorder -> Game dependency.
+One PR, about **2 engineer days** and comfortably inside the three-day task ceiling. If implementation shows that gameplay AutoPlay cannot use parser/performance integer lane IDs without changing the separate HPA-619 Drum Key Mapping contract, stop and split that concern rather than expanding HPA-18.
