@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
 using System.Text;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
@@ -59,6 +60,94 @@ public class ConfigManagerTests : IDisposable
 
     private static IReadOnlyDictionary<string, string> ReadRows(string dir) =>
         new SqliteConfigStore(Path.Combine(dir, "config.db")).Load();
+
+    private static HashSet<int> GetAutoPlayLanes(ConfigManager manager)
+    {
+        var property = typeof(ConfigData).GetProperty("AutoPlayLanes");
+        Assert.NotNull(property);
+        return Assert.IsType<HashSet<int>>(property!.GetValue(manager.Config));
+    }
+
+    private static void InvokeAutoPlayMutation(ConfigManager manager, string methodName, params object[] arguments)
+    {
+        var method = typeof(ConfigManager).GetMethod(
+            methodName,
+            BindingFlags.Instance | BindingFlags.Public);
+        Assert.NotNull(method);
+        method!.Invoke(manager, arguments);
+    }
+
+    private static bool HasPendingSave(ConfigManager manager) =>
+        ReflectionHelpers.GetPrivateField<bool>(manager, "_hasPendingSave");
+
+    [Fact]
+    public void ConfigManager_PerLaneAutoPlayMutators_ShouldBeExposedByInterface()
+    {
+        Assert.NotNull(typeof(IConfigManager).GetMethod("SetAutoPlayLane"));
+        Assert.NotNull(typeof(IConfigManager).GetMethod("SetAllAutoPlayLanes"));
+    }
+
+    [Fact]
+    public void SetAutoPlayLane_ShouldAddAndRemoveOnlyRequestedLane()
+    {
+        var manager = new ConfigManager();
+
+        InvokeAutoPlayMutation(manager, "SetAutoPlayLane", 3, true);
+        Assert.True(GetAutoPlayLanes(manager).SetEquals(new[] { 3 }));
+
+        InvokeAutoPlayMutation(manager, "SetAutoPlayLane", 3, false);
+        Assert.Empty(GetAutoPlayLanes(manager));
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(10)]
+    public void SetAutoPlayLane_OutOfRange_ShouldNotMutateOrMarkDirty(int lane)
+    {
+        var dir = NewTestDir();
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
+
+        InvokeAutoPlayMutation(manager, "SetAutoPlayLane", lane, true);
+
+        Assert.Empty(GetAutoPlayLanes(manager));
+        Assert.False(HasPendingSave(manager));
+    }
+
+    [Fact]
+    public void SetAllAutoPlayLanes_ShouldSetExactlyAllLanesOrClearThem()
+    {
+        var manager = new ConfigManager();
+
+        InvokeAutoPlayMutation(manager, "SetAllAutoPlayLanes", true);
+        Assert.True(GetAutoPlayLanes(manager).SetEquals(new[] { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 }));
+
+        InvokeAutoPlayMutation(manager, "SetAllAutoPlayLanes", false);
+        Assert.Empty(GetAutoPlayLanes(manager));
+    }
+
+    [Fact]
+    public void AutoPlayLaneMutators_ShouldNotMarkDirtyForNoOpChanges()
+    {
+        var dir = NewTestDir();
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
+
+        InvokeAutoPlayMutation(manager, "SetAutoPlayLane", 3, true);
+        manager.FlushPendingSave();
+        InvokeAutoPlayMutation(manager, "SetAutoPlayLane", 3, true);
+        Assert.False(HasPendingSave(manager));
+
+        InvokeAutoPlayMutation(manager, "SetAllAutoPlayLanes", true);
+        manager.FlushPendingSave();
+        InvokeAutoPlayMutation(manager, "SetAllAutoPlayLanes", true);
+        Assert.False(HasPendingSave(manager));
+
+        InvokeAutoPlayMutation(manager, "SetAllAutoPlayLanes", false);
+        manager.FlushPendingSave();
+        InvokeAutoPlayMutation(manager, "SetAllAutoPlayLanes", false);
+        Assert.False(HasPendingSave(manager));
+    }
 
     [Fact]
     public void ConfigManager_Constructor_ShouldInitializeWithDefaultConfig()

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Test.TestData;
@@ -63,6 +64,22 @@ namespace DTXMania.Test.Config
 
         private IReadOnlyDictionary<string, string> ReadRows() =>
             new SqliteConfigStore(DbPath).Load();
+
+        private static HashSet<int> GetAutoPlayLanes(ConfigManager manager)
+        {
+            var property = typeof(ConfigData).GetProperty("AutoPlayLanes");
+            Assert.NotNull(property);
+            return Assert.IsType<HashSet<int>>(property!.GetValue(manager.Config));
+        }
+
+        private static void InvokeAutoPlayMutation(ConfigManager manager, string methodName, params object[] arguments)
+        {
+            var method = typeof(ConfigManager).GetMethod(
+                methodName,
+                BindingFlags.Instance | BindingFlags.Public);
+            Assert.NotNull(method);
+            method!.Invoke(manager, arguments);
+        }
 
         private static bool HasPendingSave(ConfigManager manager) =>
             ReflectionHelpers.GetPrivateField<bool>(manager, "_hasPendingSave");
@@ -285,6 +302,98 @@ namespace DTXMania.Test.Config
             }
 
             Assert.Equal("True", ReadRows()["NoFail"]);
+        }
+
+        [Fact]
+        public void AutoPlayLanes_EmptyRoundTrip_ShouldPersistNoSparseRows()
+        {
+            var manager = CreateManager();
+            manager.LoadConfig();
+
+            manager.FlushPendingSave();
+
+            var rows = ReadRows();
+            Assert.Empty(rows.Keys.Where(key => key.StartsWith("AutoPlay.", StringComparison.Ordinal)));
+            Assert.DoesNotContain("AutoPlayLaneDefinitions", rows.Keys);
+            Assert.DoesNotContain("AutoPlayLanes", rows.Keys);
+
+            var reloaded = CreateManager();
+            reloaded.LoadConfig();
+            Assert.Empty(GetAutoPlayLanes(reloaded));
+        }
+
+        [Fact]
+        public void AutoPlayLanes_OneLaneRoundTrip_ShouldPersistOnlyEnabledNumericRow()
+        {
+            var manager = CreateManager();
+            manager.LoadConfig();
+
+            InvokeAutoPlayMutation(manager, "SetAutoPlayLane", 0, true);
+            manager.FlushPendingSave();
+
+            var rows = ReadRows();
+            Assert.Equal("true", rows["AutoPlay.0"]);
+            Assert.Single(rows.Keys.Where(key => key.StartsWith("AutoPlay.", StringComparison.Ordinal)));
+            Assert.DoesNotContain("AutoPlayLaneDefinitions", rows.Keys);
+            Assert.DoesNotContain("AutoPlayLanes", rows.Keys);
+
+            var reloaded = CreateManager();
+            reloaded.LoadConfig();
+            Assert.True(GetAutoPlayLanes(reloaded).SetEquals(new[] { 0 }));
+
+            InvokeAutoPlayMutation(reloaded, "SetAutoPlayLane", 0, false);
+            reloaded.FlushPendingSave();
+            Assert.DoesNotContain("AutoPlay.0", ReadRows().Keys);
+        }
+
+        [Fact]
+        public void AutoPlayLanes_AllLaneRoundTrip_ShouldPersistRowsZeroThroughNine()
+        {
+            var manager = CreateManager();
+            manager.LoadConfig();
+
+            InvokeAutoPlayMutation(manager, "SetAllAutoPlayLanes", true);
+            manager.FlushPendingSave();
+
+            var rows = ReadRows();
+            var sparseKeys = rows.Keys
+                .Where(key => key.StartsWith("AutoPlay.", StringComparison.Ordinal))
+                .OrderBy(key => key, StringComparer.Ordinal)
+                .ToArray();
+            Assert.Equal(
+                new[]
+                {
+                    "AutoPlay.0", "AutoPlay.1", "AutoPlay.2", "AutoPlay.3", "AutoPlay.4",
+                    "AutoPlay.5", "AutoPlay.6", "AutoPlay.7", "AutoPlay.8", "AutoPlay.9",
+                },
+                sparseKeys);
+            Assert.All(sparseKeys, key => Assert.Equal("true", rows[key]));
+            Assert.DoesNotContain("AutoPlayLaneDefinitions", rows.Keys);
+            Assert.DoesNotContain("AutoPlayLanes", rows.Keys);
+
+            var reloaded = CreateManager();
+            reloaded.LoadConfig();
+            Assert.True(GetAutoPlayLanes(reloaded).SetEquals(new[] { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 }));
+        }
+
+        [Fact]
+        public void AutoPlayLanes_Load_ShouldAcceptOnlyTrueNumericSuffixesWithinBounds()
+        {
+            new SqliteConfigStore(DbPath).Save(new Dictionary<string, string>
+            {
+                ["AutoPlay.0"] = "true",
+                ["AutoPlay.3"] = "false",
+                ["AutoPlay.9"] = "1",
+                ["AutoPlay.10"] = "true",
+                ["AutoPlay.-1"] = "true",
+                ["AutoPlay.bad"] = "true",
+                ["AutoPlay.8"] = "invalid",
+            });
+
+            var manager = CreateManager();
+            manager.LoadConfig();
+
+            Assert.True(GetAutoPlayLanes(manager).SetEquals(new[] { 0, 9 }));
         }
 
         [Fact]
