@@ -158,23 +158,6 @@ namespace DTXMania.Test.Config
             Assert.Equal(speed, config.ScrollSpeed);
         }
 
-        [Fact]
-        public void ConfigData_AutoPlay_DefaultShouldBeFalse()
-        {
-            var config = new ConfigData();
-            Assert.False(config.AutoPlay);
-        }
-
-        [Theory]
-        [InlineData(true)]
-        [InlineData(false)]
-        public void ConfigData_SetAutoPlay_ShouldUpdateCorrectly(bool value)
-        {
-            var config = new ConfigData();
-            config.AutoPlay = value;
-            Assert.Equal(value, config.AutoPlay);
-        }
-
         #endregion
 
         #region Sound Settings – Buffer Size

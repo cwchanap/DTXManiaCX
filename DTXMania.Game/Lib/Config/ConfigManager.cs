@@ -558,8 +558,10 @@ namespace DTXMania.Game.Lib.Config
                         Config.Metronome = metronome;
                     break;
                 case "AutoPlay":
-                    if (TryParseBool(value, out var autoPlay))
-                        Config.AutoPlay = autoPlay;
+                    // Obsolete global flag (HPA-18): recognized only to warn. The
+                    // value is neither translated into lanes nor persisted again.
+                    _logger.LogWarning(
+                        "Ignoring obsolete global AutoPlay setting; configure AutoPlay.0 through AutoPlay.9 instead.");
                     break;
                 case "NoFail":
                     if (TryParseBool(value, out var noFail))
@@ -771,7 +773,6 @@ namespace DTXMania.Game.Lib.Config
             entries["PitchSemitones"] = PitchRange.SnapAndClamp(Config.PitchSemitones)
                 .ToString(CultureInfo.InvariantCulture);
             entries["Metronome"] = Config.Metronome.ToString();
-            entries["AutoPlay"] = Config.AutoPlay.ToString();
             foreach (var lane in Config.AutoPlayLanes
                 .Where(lane => lane >= 0 && lane <= 9)
                 .OrderBy(lane => lane))
@@ -1123,9 +1124,6 @@ namespace DTXMania.Game.Lib.Config
                    lane >= 0 &&
                    lane <= 9;
         }
-
-        /// <summary>Sets AutoPlay and marks a deferred save pending. No event raised.</summary>
-        public void SetAutoPlay(bool value) { Config.AutoPlay = value; MarkDirty(); }
 
         public void SetAutoPlayLane(int lane, bool enabled)
         {

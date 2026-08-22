@@ -99,9 +99,6 @@ namespace DTXMania.Game.Lib.Config
         /// <summary>Sets a MIDI minimum velocity threshold, clamped to 0..127, and marks config dirty.</summary>
         void SetMidiVelocityThreshold(int noteNumber, int threshold);
 
-        /// <summary>Sets AutoPlay and marks a deferred save pending. No event raised.</summary>
-        void SetAutoPlay(bool value);
-
         void SetAutoPlayLane(int lane, bool enabled) =>
             throw new NotSupportedException(
                 "This configuration manager does not support per-lane AutoPlay updates.");

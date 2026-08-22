@@ -372,10 +372,6 @@ public sealed class CrashLogFieldPolicyTests
         Assert.False((bool)normalized!);
 
         Assert.True(Policy.TryNormalizeContextProperty(
-            CrashContextKind.Configuration, "AutoPlay", true, out normalized));
-        Assert.True((bool)normalized!);
-
-        Assert.True(Policy.TryNormalizeContextProperty(
             CrashContextKind.Configuration, "NoFail", true, out normalized));
         Assert.True((bool)normalized!);
 

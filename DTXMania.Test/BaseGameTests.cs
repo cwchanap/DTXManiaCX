@@ -41,7 +41,6 @@ namespace DTXMania.Test
                 FullScreen = true,
                 VSyncWait = false,
                 BufferSizeMs = 80,
-                AutoPlay = true,
                 NoFail = true,
                 EnableGameApi = true,
                 GameApiKey = "must-not-appear",
@@ -60,9 +59,7 @@ namespace DTXMania.Test
             Assert.Equal(1920, snapshot.Fields["ScreenWidth"]);
             Assert.Equal(1, snapshot.Fields["KeyBindingCount"]);
             Assert.Equal(2, snapshot.Fields["AutoPlayLaneCount"]);
-            // The obsolete global AutoPlay bool must not leak into the published
-            // context even when still set; per-lane detail stays unpublished too.
-            Assert.False(snapshot.Fields.ContainsKey("AutoPlay"));
+            // Per-lane detail stays unpublished.
             for (var lane = 0; lane < 10; lane++)
             {
                 Assert.False(snapshot.Fields.ContainsKey($"AutoPlay.{lane}"));
@@ -579,15 +576,15 @@ namespace DTXMania.Test
             {
                 var configManager = new ConfigManager(configDbPath, legacyIniPath);
                 configManager.LoadConfig();
-                configManager.SetAutoPlay(true); // mark dirty
-                Assert.False(ReadAutoPlayFromStore());
+                configManager.SetMetronome(true); // mark dirty
+                Assert.False(ReadMetronomeFromStore());
 
                 var game = CreateGameForLifecycle();
                 ReflectionHelpers.SetPrivateField(game, "<ConfigManager>k__BackingField", configManager);
 
                 ReflectionHelpers.InvokePrivateMethod(game, "OnGameExiting", null!, EventArgs.Empty);
 
-                Assert.True(ReadAutoPlayFromStore());
+                Assert.True(ReadMetronomeFromStore());
             }
             finally
             {
@@ -597,11 +594,11 @@ namespace DTXMania.Test
                 if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true);
             }
 
-            bool ReadAutoPlayFromStore()
+            bool ReadMetronomeFromStore()
             {
                 var reloaded = new ConfigManager(configDbPath, legacyIniPath);
                 reloaded.LoadConfig();
-                return reloaded.Config.AutoPlay;
+                return reloaded.Config.Metronome;
             }
         }
 
@@ -1265,7 +1262,7 @@ namespace DTXMania.Test
             {
                 var configManager = new ConfigManager(configDbPath, legacyIniPath);
                 configManager.LoadConfig();
-                configManager.SetAutoPlay(true);
+                configManager.SetMetronome(true);
                 var trace = CreatePreparedCriticalPathTrace();
                 var game = CreateDrawHarness(trace, new Mock<IStageManager>().Object);
                 ReflectionHelpers.SetPrivateField(
@@ -1285,7 +1282,7 @@ namespace DTXMania.Test
 
                 var reloaded = new ConfigManager(configDbPath, legacyIniPath);
                 reloaded.LoadConfig();
-                Assert.True(reloaded.Config.AutoPlay);
+                Assert.True(reloaded.Config.Metronome);
             }
             finally
             {

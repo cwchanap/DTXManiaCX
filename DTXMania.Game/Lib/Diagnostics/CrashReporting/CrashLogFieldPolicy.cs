@@ -275,7 +275,7 @@ internal sealed class CrashLogFieldPolicy
             case "MidiVelocityThresholdCount" when TryNormalizeCount(value, out normalizedValue):
                 return true;
 
-            case "FullScreen" or "VSyncWait" or "AutoPlay" or "NoFail" or "EnableGameApi"
+            case "FullScreen" or "VSyncWait" or "NoFail" or "EnableGameApi"
                 when value is bool booleanValue:
                 normalizedValue = booleanValue;
                 return true;

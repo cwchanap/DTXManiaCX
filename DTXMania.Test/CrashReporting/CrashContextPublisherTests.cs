@@ -56,7 +56,6 @@ public sealed class CrashContextPublisherTests
             FullScreen = true,
             VSyncWait = false,
             BufferSizeMs = 80,
-            AutoPlay = true,
             NoFail = true,
             EnableGameApi = true
         };
