@@ -33,6 +33,17 @@ public class ConfigDataTests
     }
 
     [Fact]
+    public void ConfigData_AutoPlayLanes_ShouldDefaultEmptyAndHaveNoPublicSetter()
+    {
+        var config = new ConfigData();
+        var property = typeof(ConfigData).GetProperty("AutoPlayLanes");
+
+        Assert.NotNull(property);
+        Assert.False(property!.CanWrite);
+        Assert.Empty(Assert.IsType<HashSet<int>>(property.GetValue(config)));
+    }
+
+    [Fact]
     public void Constructor_FailRuleDefaults_PreserveCurrentGameplay()
     {
         var config = new ConfigData();

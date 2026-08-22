@@ -31,6 +31,7 @@ namespace DTXMania.Game.Lib.Config
 
         private const string MidiVelocityPrefix = "MidiVelocity.";
         private const string SongRootPrefix = "SongRoot.";
+        private const string AutoPlayLanePrefix = "AutoPlay.";
 
         private enum SongRootsLoadSource
         {
@@ -120,6 +121,7 @@ namespace DTXMania.Game.Lib.Config
         public void LoadConfig()
         {
             Config.MidiVelocityThresholds.Clear();
+            Config.AutoPlayLanes.Clear();
             Config.SongRoots.Clear();
             var indexedSongRoots = new Dictionary<int, string>();
             string? legacyDtxPath = null;
@@ -616,6 +618,15 @@ namespace DTXMania.Game.Lib.Config
                                 key, value);
                         }
                     }
+                    else if (key.StartsWith(AutoPlayLanePrefix, StringComparison.Ordinal))
+                    {
+                        if (TryParseAutoPlayLaneKey(key, out var autoPlayLane) &&
+                            TryParseBool(value, out var isAutoPlayLaneEnabled) &&
+                            isAutoPlayLaneEnabled)
+                        {
+                            Config.AutoPlayLanes.Add(autoPlayLane);
+                        }
+                    }
                     else if (key.StartsWith("Key.Unbound.") &&
                         int.TryParse(key.Substring("Key.Unbound.".Length), NumberStyles.None, CultureInfo.InvariantCulture, out var unboundLane))
                     {
@@ -761,6 +772,12 @@ namespace DTXMania.Game.Lib.Config
                 .ToString(CultureInfo.InvariantCulture);
             entries["Metronome"] = Config.Metronome.ToString();
             entries["AutoPlay"] = Config.AutoPlay.ToString();
+            foreach (var lane in Config.AutoPlayLanes
+                .Where(lane => lane >= 0 && lane <= 9)
+                .OrderBy(lane => lane))
+            {
+                entries[$"{AutoPlayLanePrefix}{lane}"] = bool.TrueString.ToLowerInvariant();
+            }
             entries["NoFail"] = Config.NoFail.ToString();
             entries["Risky"] = RiskyRange.Clamp(Config.Risky)
                 .ToString(CultureInfo.InvariantCulture);
@@ -1088,8 +1105,54 @@ namespace DTXMania.Game.Lib.Config
                    noteNumber <= 127;
         }
 
+        private static bool TryParseAutoPlayLaneKey(string key, out int lane)
+        {
+            lane = default;
+            if (string.IsNullOrWhiteSpace(key) ||
+                !key.StartsWith(AutoPlayLanePrefix, StringComparison.Ordinal) ||
+                key.Length <= AutoPlayLanePrefix.Length)
+            {
+                return false;
+            }
+
+            return int.TryParse(
+                       key.Substring(AutoPlayLanePrefix.Length),
+                       NumberStyles.None,
+                       CultureInfo.InvariantCulture,
+                       out lane) &&
+                   lane >= 0 &&
+                   lane <= 9;
+        }
+
         /// <summary>Sets AutoPlay and marks a deferred save pending. No event raised.</summary>
         public void SetAutoPlay(bool value) { Config.AutoPlay = value; MarkDirty(); }
+
+        public void SetAutoPlayLane(int lane, bool enabled)
+        {
+            if (lane < 0 || lane > 9)
+                return;
+
+            var changed = enabled
+                ? Config.AutoPlayLanes.Add(lane)
+                : Config.AutoPlayLanes.Remove(lane);
+            if (changed)
+                MarkDirty();
+        }
+
+        public void SetAllAutoPlayLanes(bool enabled)
+        {
+            var target = enabled
+                ? Enumerable.Range(0, 10)
+                : Enumerable.Empty<int>();
+            if (Config.AutoPlayLanes.SetEquals(target))
+                return;
+
+            Config.AutoPlayLanes.Clear();
+            if (enabled)
+                Config.AutoPlayLanes.UnionWith(Enumerable.Range(0, 10));
+
+            MarkDirty();
+        }
 
         /// <summary>Sets NoFail and marks a deferred save pending. No event raised.</summary>
         public void SetNoFail(bool value) { Config.NoFail = value; MarkDirty(); }
