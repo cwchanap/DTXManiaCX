@@ -322,7 +322,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void StartPerformanceSummarySave_WithAssistedSummary_DoesNotInvokePersistence()
+        public void StartPerformanceSummarySave_WithAssistedSummary_ShouldNotInvokePersistence()
         {
             // An assisted run (any automated lane) must never reach score
             // persistence: IsSavable rejects UsedAutoPlay summaries, so the
