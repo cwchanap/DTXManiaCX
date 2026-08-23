@@ -10,17 +10,17 @@ Design reference: `docs/superpowers/specs/2026-08-23-hpa-19-core-lane-visibility
 
 ## Scope guardrails
 
-Before changing code, keep these decisions fixed:
+Keep these decisions fixed:
 
 - Preserve the current Drums-only 50–400% Scroll Speed implementation and live hotkeys.
-- Defaults must reproduce current CX visuals.
+- Defaults reproduce current CX visuals: `AllOn`, judgement line on, lane flush on, combo on.
 - Do not implement or stub HID-SUD, Dark, AttackEffect variants, Reverse, JudgePosition, LaneType, NumOfLanes, JudgeLinePos, shutters, HHOGraphics, LBDGraphics, RDPosition, or Graph.
-- Do not add a visual-modifier service, renderer hierarchy, preset framework, or new GraphicsDevice test harness.
+- Do not add a visual-modifier service, renderer hierarchy, preset framework, live config events, new GraphicsDevice harness, or E2E test.
 - Config-stage edits to these four settings take effect on the next performance activation.
 
-Expected effort: 2–3 engineer days.
+Expected effort remains within 2–3 engineer days.
 
-## Task 1 — Add the config contract and SQLite persistence
+## Task 1 — Add the config contract, lane matrix, and SQLite persistence
 
 ### Files
 
@@ -28,29 +28,57 @@ Expected effort: 2–3 engineer days.
 - Modify `DTXMania.Game/Lib/Config/ConfigData.cs`
 - Modify `DTXMania.Game/Lib/Config/IConfigManager.cs`
 - Modify `DTXMania.Game/Lib/Config/ConfigManager.cs`
+- Add `DTXMania.Test/Config/DrumsLaneDisplayModeTests.cs`
 - Modify `DTXMania.Test/Config/ConfigDataTests.cs`
+- Modify `DTXMania.Test/Config/ConfigManagerTests.cs`
 - Modify `DTXMania.Test/Config/ConfigManagerSqlitePersistenceTests.cs`
-- Extend `DTXMania.Test/Config/ConfigManagerTests.cs` only if that is where setter behavior is already characterized
+- Modify only the `StubConfigManager` in `DTXMania.Test/Stage/DrumConfig/DrumConfigStageTests.cs` so the new `IConfigManager` methods compile; do not add HPA-19 behavior tests there
 
 ### Tests first
 
-Add focused tests that pin:
+Pin the reusable lane-display contract with a four-row theory:
 
-- defaults: `AllOn`, judgement line on, lane flush on, combo on
-- setters update `ConfigData` through `IConfigManager`
-- all four values survive a SQLite save/reload
-- an absent key keeps the `ConfigData` default instead of creating a migration requirement
+| Mode | `ShowsLaneBackground()` | `ShowsMeasureLines()` |
+| --- | --- | --- |
+| `AllOn` | true | true |
+| `LaneOff` | false | true |
+| `LineOff` | true | false |
+| `AllOff` | false | false |
 
-Follow existing ConfigManager handling for malformed persisted values; do not create a one-off recovery subsystem for this feature.
+Then cover:
+
+- `ConfigData` defaults: `AllOn`, judgement line on, lane flush on, combo on
+- `SetLaneDisplayMode` normalizes an undefined enum to `AllOn`, no-ops when unchanged, and marks dirty when changed, matching `SetDamageLevel`
+- the three boolean setters follow the existing changed/no-op setter pattern
+- all four settings survive SQLite save/reload
+- `LaneDisplayMode` is persisted as its enum name such as `LaneOff`, not `1` or `LANE OFF`
+- missing or unrecognized `LaneDisplayMode` rows leave the `AllOn` default unchanged
+
+Do not add a migration layer or numeric enum parser.
 
 ### Implementation
 
-Add `DrumsLaneDisplayMode` with explicit values:
+Define:
 
-- `AllOn = 0`
-- `LaneOff = 1`
-- `LineOff = 2`
-- `AllOff = 3`
+```csharp
+public enum DrumsLaneDisplayMode
+{
+    AllOn = 0,
+    LaneOff = 1,
+    LineOff = 2,
+    AllOff = 3,
+}
+```
+
+Add the two required matrix helpers beside the enum:
+
+```csharp
+public static bool ShowsLaneBackground(this DrumsLaneDisplayMode mode) =>
+    mode is DrumsLaneDisplayMode.AllOn or DrumsLaneDisplayMode.LineOff;
+
+public static bool ShowsMeasureLines(this DrumsLaneDisplayMode mode) =>
+    mode is DrumsLaneDisplayMode.AllOn or DrumsLaneDisplayMode.LaneOff;
+```
 
 Add to `ConfigData`:
 
@@ -59,138 +87,139 @@ Add to `ConfigData`:
 - `EnableLaneFlush`
 - `ShowCombo`
 
-Add one direct setter per setting to `IConfigManager` / `ConfigManager`, following the existing Metronome/Risky/NoFail style. Persist through the existing `ConfigEntries(Key, Value)` mechanism. No change event is required.
+For `ConfigManager`:
+
+- load `LaneDisplayMode` by case-insensitive enum name, like `DamageLevel`
+- persist `Config.LaneDisplayMode.ToString()` in `BuildPersistedEntries`
+- implement `SetLaneDisplayMode` like `SetDamageLevel`, with invalid values normalized to `AllOn`
+- implement the three booleans like `SetMetronome`
+- add the four methods to `IConfigManager`
+- add matching no-op methods to the existing test-only `StubConfigManager`
 
 ### Verify
 
-Run the relevant config tests on the current platform, for example on macOS:
+On macOS:
 
 ```bash
-dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~ConfigDataTests"
+dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~DrumsLaneDisplayModeTests"
+dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~ConfigManagerTests"
 dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~ConfigManagerSqlitePersistenceTests"
 ```
 
-## Task 2 — Expose the four settings in Drums Config
+Use `DTXMania.Test/DTXMania.Test.csproj` on Windows.
+
+## Task 2 — Expose the four settings in the existing Drums Config list
 
 ### Files
 
 - Modify `DTXMania.Game/Lib/Stage/ConfigStage.cs`
-- Modify `DTXMania.Test/Stage/DrumConfig/DrumConfigStageTests.cs`
+- Modify `DTXMania.Test/Config/ConfigStageLogicTests.cs`
 
 ### Tests first
 
-Extend the existing Drums config tests to pin:
+Extend `SetupConfigItems_ShouldBuildSystemDrumsExitCategories` so the Drums `Assert.Collection` includes, immediately after `Scroll Speed`:
 
-- the menu contains `Lane Display`, `Judge Line`, `Lane Flush`, and `Combo`
+1. `Lane Display`
+2. `Judge Line`
+3. `Lane Flush`
+4. `Combo`
+
+Add focused Config-stage logic tests that pin:
+
 - `Lane Display` exposes exactly `ALL ON`, `LANE OFF`, `LINE OFF`, `ALL OFF` in that order
-- the initial displayed value follows `ConfigData`
-- changing each item uses the corresponding ConfigManager setter
-- existing `Scroll Speed` remains present with its current range/formatter
+- the current display label maps from `ConfigData.LaneDisplayMode`
+- changing `Lane Display` calls `SetLaneDisplayMode` with the corresponding enum value
+- each toggle calls its matching config setter
+- existing `Scroll Speed` remains present with its current range/formatter and behavior
 
-Do not test rendering from ConfigStage.
+Do not put these tests in `DrumConfigStageTests`; that suite owns drum-kit key assignment, not the Drums settings list.
 
 ### Implementation
 
-Add the four items near `Scroll Speed` in the existing Drums list:
+Add the four items after `Scroll Speed` in `ConfigStage.SetupConfigItems`:
 
 - one `DropdownConfigItem` for `Lane Display`
-- three `ToggleConfigItem`s for the boolean settings
+- three `ToggleConfigItem`s for `Judge Line`, `Lane Flush`, and `Combo`
 
-Keep labels/descriptions concise and user-facing. Do not add another screen or category.
+Map UI labels explicitly to/from enum values. Persisted values remain enum names; the uppercase labels are presentation only.
+
+Do not add another screen, category, or generic UI model.
 
 ### Verify
 
 ```bash
-dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~DrumConfigStageTests"
-```
-
-Use `DTXMania.Test/DTXMania.Test.csproj` instead on Windows.
-
-## Task 3 — Apply visibility settings in PerformanceStage
-
-### Files
-
-- Modify `DTXMania.Game/Lib/Stage/PerformanceStage.cs`
-- Modify `DTXMania.Test/Stage/Performance/PerformanceRendererStateTests.cs`, or add a small `DTXMania.Test/Stage/Performance/PerformanceStageVisualConfigTests.cs` if keeping the new assertions separate is clearer
-
-Do not modify `LaneBackgroundRenderer`, `JudgementLineRenderer`, or `ComboDisplay` merely to create a new abstraction. `PerformanceStage` is the required integration point because its skin-texture paths can bypass those fallback components.
-
-### Tests first
-
-Pin the lane-display matrix:
-
-| Mode | Show lane background | Show measure lines |
-| --- | --- | --- |
-| `AllOn` | true | true |
-| `LaneOff` | false | true |
-| `LineOff` | true | false |
-| `AllOff` | false | false |
-
-Also pin that:
-
-- judgement-line disabled suppresses the stage-level judgement-line draw path
-- combo disabled suppresses only combo drawing, not combo state updates
-- defaults keep all current draw paths enabled
-
-Use existing reflection/state helpers if needed. Do not extract a production framework solely to make the tests easy; a tiny local predicate/helper is acceptable if it also makes `PerformanceStage` clearer.
-
-### Implementation
-
-When a performance activates, snapshot the four config values into stage-local state.
-
-Then gate existing orchestration points:
-
-- lane background: guard before both the skin-texture path and `LaneBackgroundRenderer` fallback
-- measure/bar lines: guard the existing `NoteRenderer.DrawMeasureLines` call
-- judgement line: guard before both textured hit-bar and fallback renderer paths
-- combo: guard the existing `ComboDisplay.Draw` call only
-
-Notes, pads, judgement text, attack effects, score, gauge, and result calculations must remain unchanged.
-
-### Verify
-
-Run the focused performance visual tests plus the existing component state tests.
-
-## Task 4 — Wire Lane Flush to successful judgements
-
-### Files
-
-- Modify `DTXMania.Game/Lib/Stage/PerformanceStage.cs`
-- Modify `DTXMania.Test/Stage/Performance/PerformanceStageJudgementIntegrationTests.cs`
-- `DTXMania.Test/Stage/Performance/NoteRendererLogicTests.cs` should normally remain unchanged because it already pins `TriggerLaneFlash` and flash decay
-
-### Tests first
-
-Add characterization around the stage judgement path:
-
-- a non-Miss judgement triggers the judged lane when lane flush is enabled
-- a non-Miss judgement does not trigger lane flash when disabled
-- a Miss never triggers lane flash
-- auto-play should rely on the same judgement event path; do not add a duplicate direct trigger in `ProcessAutoPlay`
-
-Reuse the existing judgement integration helpers. Avoid a fake graphics stack.
-
-### Implementation
-
-In the existing `PerformanceStage` judgement event handler, after a judgement is known:
-
-- if `EnableLaneFlush` is true and the judgement type is not `Miss`, call the existing `NoteRenderer.TriggerLaneFlash` for that lane
-- otherwise do nothing
-
-Leave `NoteRenderer` animation/decay/drawing untouched. Do not wire the unused lane-flash skin texture or add a second effect manager.
-
-### Verify
-
-Run:
-
-```bash
-dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~PerformanceStageJudgementIntegrationTests"
-dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~NoteRendererLogicTests"
+dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~ConfigStageLogicTests"
 ```
 
 Use the Windows test project on Windows.
 
-## Task 5 — Regression verification and smoke check
+## Task 3 — Snapshot and apply the visual contract in PerformanceStage
+
+### Files
+
+- Modify `DTXMania.Game/Lib/Stage/PerformanceStage.cs`
+- Modify `DTXMania.Test/Stage/Performance/PerformanceStageDeterministicTests.cs`
+
+`PerformanceRendererStateTests` and `PerformanceStageJudgementIntegrationTests` are not HPA-19 owners: the former tests leaf renderers and the latter drives `JudgementManager` without constructing `PerformanceStage`.
+
+### Tests first
+
+Extend the existing deterministic stage tests instead of creating a parallel test stack:
+
+- add/extend coverage showing the activation snapshot derives lane-background and measure-line flags from the enum helpers and copies the three booleans for the run
+- add disabled-gate cases beside the existing `DrawLaneBackgrounds` tests; the gate must return before textured/fallback selection
+- add a disabled case beside the existing `DrawMeasureLines` tests
+- add a disabled case beside the existing `DrawJudgementLine` textured/fallback tests
+- add combo-hidden coverage beside the existing `DrawUIElements` tests while preserving `OnComboChanged` behavior
+- rewrite `OnJudgementMade_WhenJudgementIsHit_ShouldForwardToManagersAndTriggerVisualFeedbackWithoutLaneFlash` into the enabled-default contract: the same hit still reaches the managers/attack/pad/popup paths and now sets the judged lane flash to `1.0f`
+- add a lane-flush-disabled hit case next to that test
+- keep/extend the existing Miss test to assert the lane does not flash
+
+`NoteRendererLogicTests` already pins `TriggerLaneFlash` and decay. Do not change it unless the leaf renderer itself changes, which is not expected.
+
+### Implementation
+
+At `PerformanceStage.OnActivate`, snapshot stage-local values next to the other frozen performance configuration:
+
+- lane background = `config.LaneDisplayMode.ShowsLaneBackground()`
+- measure lines = `config.LaneDisplayMode.ShowsMeasureLines()`
+- judgement line = `config.ShowJudgementLine`
+- lane flush = `config.EnableLaneFlush`
+- combo = `config.ShowCombo`
+
+Use those snapped values for the entire run. Do not subscribe to config changes.
+
+Gate only the existing orchestration points:
+
+- `DrawLaneBackgrounds`: early return before skin texture vs. fallback renderer selection
+- `DrawMeasureLines`: early return before `NoteRenderer.DrawMeasureLines`
+- `DrawJudgementLine`: early return before textured hit-bar vs. fallback renderer selection
+- combo: guard only `_comboDisplay?.Draw(...)`; leave `OnComboChanged`, `ComboManager`, scoring, and result state unchanged
+
+For lane flush, add the trigger only inside the existing successful-hit block:
+
+```csharp
+if (e.IsHit())
+{
+    // existing attack/pad feedback
+    if (_enableLaneFlush)
+        _noteRenderer?.TriggerLaneFlash(e.Lane);
+}
+```
+
+Use the existing `JudgementEvent.IsHit()` predicate. Do not duplicate it with `Type != Miss`.
+
+Do not add a flash call to `ProcessAutoPlay`. `ResolveAutoHit` already raises `JudgementMade`, so auto-play reaches this same block. Do not revive `_laneFlashTexture` or add another effect system.
+
+### Verify
+
+```bash
+dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~PerformanceStageDeterministicTests"
+```
+
+Use the Windows test project on Windows.
+
+## Task 4 — Regression verification and manual smoke
 
 Run the platform build and full Game test suite.
 
@@ -208,25 +237,27 @@ dotnet build DTXMania.Game/DTXMania.Game.Windows.csproj
 dotnet test DTXMania.Test/DTXMania.Test.csproj
 ```
 
-No new E2E test is required for this visual/config slice.
+No new E2E test is required.
 
 Perform one manual gameplay smoke using a simple chart:
 
 1. Verify all four `Lane Display` combinations against the design table.
 2. Toggle `Judge Line` independently.
-3. Toggle `Lane Flush` and confirm successful hits change only the lane flash, not pad/attack effects.
-4. Toggle `Combo` and confirm score/combo progression still occurs while the number is hidden.
+3. Toggle `Lane Flush` and confirm successful hits change only lane flash visibility, not pad/attack effects.
+4. Toggle `Combo` and confirm combo/scoring still progress while the display is hidden.
 5. Use the existing PageUp/PageDown Scroll Speed hotkeys and confirm behavior is unchanged.
-6. Restart once and confirm the four settings persisted through SQLite.
+6. Restart once and confirm all four settings reload from SQLite.
 
 ## Completion criteria
 
 HPA-19 is ready to merge when:
 
-- the four settings are persisted and editable in Drums Config
-- textured and fallback lane/judgement rendering obey the same visibility rules
-- lane flush uses the existing `NoteRenderer` flash path and is controlled by judgements
-- hiding combo does not alter combo/scoring state
+- the four settings are persisted and editable in the existing Drums Config list
+- `DrumsLaneDisplayMode` owns and tests the 2×2 lane/measure matrix
+- `LaneDisplayMode` persists by enum name and invalid/missing values retain `AllOn`
+- textured and fallback lane/judgement rendering obey the same stage-level gates
+- lane flush uses the existing `OnJudgementMade` → `e.IsHit()` → `NoteRenderer.TriggerLaneFlash` path exactly once
+- hiding combo changes drawing only, not combo/scoring state
 - Scroll Speed is untouched
 - deferred legacy modifiers have no placeholder production code
 - focused tests, full platform Game tests, build, and manual smoke pass
