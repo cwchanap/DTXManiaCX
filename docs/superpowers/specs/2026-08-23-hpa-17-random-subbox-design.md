@@ -7,70 +7,54 @@
 
 ## Context
 
-`SongSelectionStage.SelectRandomSong()` currently builds candidates only from direct `NodeType.Score` entries in `_currentSongList`. Songs below child `NodeType.Box` nodes are therefore excluded even though `SongListNode` already exposes the required tree through `Children`.
+`SongSelectionStage.SelectRandomSong()` currently collects only direct `NodeType.Score` entries from `_currentSongList`, chooses one with the existing per-action `Random`, and passes it to `SelectSong()`. `SelectSong()` validates the node and immediately transitions to `StageType.SongTransition` with the current difficulty.
 
-HPA-17 restores the DTXManiaNX `RandSubBox` behavior as a System-menu toggle. The setting controls whether RANDOM SELECT stays at the current BOX level or also considers songs in descendant BOXes.
+HPA-17 adds the DTXManiaNX-style `RandSubBox` behavior as a CX System toggle: RANDOM SELECT may optionally include scores from descendant BOXes below the currently open list.
 
-The current stage already owns both the active song-list context and `IConfigManager`. Configuration already flows through `ConfigData`, `ConfigManager`, SQLite `ConfigEntries`, and `ConfigStage`, so this feature does not need a new service or data model.
+The feature fits existing seams. `SongListNode.Children` already models the tree, the stage already owns `_currentSongList` and `_configManager`, and configuration already persists through `ConfigData` + `ConfigManager` + SQLite `ConfigEntries`.
 
 ## Goals
 
 - Add a persisted System toggle for including descendant BOXes in RANDOM SELECT.
-- Preserve today's direct-only behavior when the toggle is Off.
-- When On, include eligible songs from every descendant BOX below the current list.
-- Reuse the existing song-selection transition once a candidate is chosen.
-- Keep candidate collection independently testable without graphics or random-number injection.
+- Preserve current direct-only behavior when the toggle is Off.
+- When On, include direct scores plus scores inside descendant BOXes of the current list.
+- Preserve the existing random choice and `SelectSong()` -> `SongTransition` flow.
+- Keep the implementation local and directly testable without graphics.
 
 ## Non-goals
 
-- Random selection across the entire song library regardless of the current BOX.
-- Searching parent BOXes, sibling BOXes, or other configured song roots.
-- Changing normal BOX navigation or opening BOXes during random selection.
-- Changing active filter/search semantics. RANDOM SELECT continues to use `_currentSongList`, not `_filteredView`.
-- Adding weights, history avoidance, difficulty filtering, or retry rules.
-- Including `NodeType.ScoreMidi`; the existing random-pick contract remains `NodeType.Score` only.
-- Adding a generic song-tree query service, cached flattened index, RNG abstraction, or new configuration panel.
-- Migrating a legacy key or adding a `Config.ini` alias.
+- Random selection across the whole library, parent BOXes, siblings, or unrelated song roots.
+- Changing filter/search semantics; RANDOM SELECT continues to use `_currentSongList`, not `_filteredView`.
+- Adding weights, recent-song avoidance, difficulty filtering, or retry policy.
+- Adding node types that do not exist in CX.
+- Adding a generic tree-query service, cached flattened candidates, panel, migration alias, cycle tracker, or RNG abstraction.
+- Changing the current random-number construction or song-confirmation behavior.
 
-## Approaches considered
+## Reuse decisions
 
-### 1. Local depth-first collector in `SongSelectionStage` — chosen
+### Configuration
 
-Extract a private static helper that collects direct scores and, when enabled, recursively visits child `Box.Children`. `SelectRandomSong()` consumes that list and keeps its existing random choice and transition behavior.
-
-This uses the data already owned by the stage, is easy to characterize with headless tests, and adds no lifecycle or synchronization concerns.
-
-### 2. Generic song-library tree query service
-
-A reusable service could expose recursive searches for multiple future features. HPA-17 has only one caller and one predicate, so this would introduce an abstraction before a second use case exists.
-
-### 3. Cached flattened candidate lists
-
-The stage could precompute descendant candidates per BOX. The candidate set is only needed on a RANDOM SELECT action, while song reloads and tree replacement would create cache invalidation work. An on-demand traversal is simpler and easily fast enough for a user-triggered action.
-
-## Configuration contract
-
-Add one property to `ConfigData`:
+Add one scalar property:
 
 ```csharp
 public bool RandomSelectFromSubBox { get; set; } = false;
 ```
 
-`false` preserves current CX behavior for existing and fresh configurations.
+Add `SetRandomSelectFromSubBox(bool value)` to `IConfigManager` and `ConfigManager`.
 
-Add `SetRandomSelectFromSubBox(bool value)` to `IConfigManager` and `ConfigManager`. Follow the existing scalar-boolean path:
+Follow the existing `Metronome` path exactly:
 
-- include `RandomSelectFromSubBox` in the known-key allowlist;
-- return `false` from the default-value mapping;
-- parse it through the existing boolean parser in `ApplyEntry`;
-- include it in the SQLite snapshot written to `ConfigEntries`;
-- mark deferred persistence dirty only when the value actually changes.
+- parse one `RandomSelectFromSubBox` case in `ParseConfigLine()` through `TryParseBool()`;
+- add one `RandomSelectFromSubBox` entry to `BuildPersistedEntries()`;
+- implement the setter with the same early-return + `MarkDirty()` behavior as `SetMetronome()`.
 
-The canonical persisted key is exactly `RandomSelectFromSubBox`. There is no compatibility alias because CX has not previously shipped this setting.
+Defaults remain on the `ConfigData` property initializer. There is no known-key allowlist, default-value map, or `ApplyEntry` seam to extend.
 
-## Config-stage interaction
+The canonical persisted key is exactly `RandomSelectFromSubBox`. Do not accept or write `RandSubBox` / `RandomFromSubBox` aliases.
 
-Add one `ToggleConfigItem` to the existing **System** category:
+### Config UI
+
+Add one normal `ToggleConfigItem` to the existing **System** category immediately after `Song Folders`:
 
 ```text
 Name: Random Select Sub-BOXes
@@ -78,50 +62,62 @@ Value: ON / OFF
 Description: Include songs inside descendant BOXes when using RANDOM SELECT.
 ```
 
-Place it after `Song Folders`, keeping song-library behavior together before key mapping and score import. The row directly calls `SetRandomSelectFromSubBox`; no overlay or navigation item is added.
+The row reads `Config.RandomSelectFromSubBox` and calls `SetRandomSelectFromSubBox`. No overlay, category, or navigation screen is added.
 
-The setting is read when RANDOM SELECT is activated. There is no stage-level cached copy and no change event because the Config stage and Song Selection stage are not active simultaneously.
+The setting is read when RANDOM SELECT is activated; do not cache it or subscribe to changes.
 
-## Candidate traversal contract
+### Candidate collection
 
-Keep candidate collection private to `SongSelectionStage`, conceptually:
+Add one `internal static` helper on `SongSelectionStage`, using the existing `InternalsVisibleTo("DTXMania.Test")` test seam:
 
-```text
-CollectRandomCandidates(nodes, includeSubBoxes):
-    for each node in nodes:
-        if node.Type == Score:
-            add node
-        else if includeSubBoxes and node.Type == Box:
-            recursively visit node.Children
+```csharp
+internal static List<SongListNode> CollectRandomCandidates(
+    IEnumerable<SongListNode> nodes,
+    bool includeSubBoxes)
 ```
 
 Rules:
 
-- the traversal root is the current `_currentSongList`;
-- direct `Score` nodes are always candidates;
-- recursion follows only `Box` nodes and may span any descendant depth;
-- `ScoreMidi`, `Random`, `BackBox`, and `Unknown` nodes are ignored;
-- the existing `Score != null` guard remains before entering difficulty selection;
-- duplicate/cycle protection is not added because the loaded song model is an authored tree with parent/child ownership;
-- no navigation state, current BOX, filter state, or list contents are mutated.
+```text
+Score -> add
+Box + includeSubBoxes -> recurse into Children
+anything else -> ignore
+```
 
-The helper returns a new local list for one action. No candidate cache is retained.
+CX `NodeType` contains only `Score`, `Box`, `BackBox`, and `Random`. Tests should pin those real types only.
+
+Additional constraints:
+
+- traversal root is `_currentSongList`;
+- direct scores are eligible in both modes;
+- recursion can span any descendant BOX depth;
+- no navigation/filter/list state is mutated;
+- return a fresh list for the current RANDOM SELECT action;
+- no cache or visited set is introduced for the authored parent/child tree.
+
+Do not reuse `SongListFilterService.Flatten`; that API always recurses and produces `FilteredSongResult`, which does not match this gated candidate contract.
 
 ## Random choice and transition
 
-`SelectRandomSong()` asks the helper for candidates using the live configuration value. When there are no candidates, it remains a no-op, matching current behavior.
+`SelectRandomSong()` replaces only its current direct `FindAll(NodeType.Score)` candidate construction:
 
-When candidates exist, keep the current per-action `Random` construction and `Next(candidates.Count)` selection. HPA-17 changes only candidate scope; it does not change random-number behavior or add an injectable random service. Tests use a single-candidate tree for the narrow selection integration case.
+```csharp
+var songNodes = CollectRandomCandidates(
+    _currentSongList,
+    _configManager.Config.RandomSelectFromSubBox);
+```
 
-After choosing a valid score, preserve the existing sequence:
+Everything after candidate construction stays as it is today:
 
-1. assign `_selectedSong`;
-2. build difficulty-selection bars;
-3. move to `SelectionStage.DifficultySelection`;
-4. set `_isSelected = true`;
-5. reset the difficulty cursor to zero.
+1. if the candidate list is empty, do nothing;
+2. construct the current per-action `Random`;
+3. choose `songNodes[random.Next(songNodes.Count)]`;
+4. call `SelectSong(randomSong)`;
+5. `SelectSong()` / `StartSongSelection()` transitions to `StageType.SongTransition` with `selectedSong` and `_currentDifficulty`.
 
-A descendant song is selected directly; RANDOM SELECT does not navigate into or visually open its parent BOX first.
+There is no difficulty-selection phase, stage-level `_isSelected`, or cursor update in this flow. HPA-17 must not introduce any of them.
+
+A descendant score is selected directly; RANDOM SELECT does not open its parent BOX first.
 
 ## Testing strategy
 
@@ -129,43 +125,51 @@ Extend existing suites; do not add a new harness.
 
 ### Configuration
 
-In `ConfigDataTests`, `ConfigManagerTests`, and `ConfigManagerSqlitePersistenceTests`, prove:
+Use `ConfigDataTests`, `ConfigManagerTests`, and `ConfigManagerSqlitePersistenceTests` to prove:
 
 - default is Off;
-- the setter changes the value and uses normal deferred persistence;
-- repeated no-op assignment does not create extra dirty work;
-- SQLite round trip preserves both Off and On;
-- malformed boolean input follows the existing config policy rather than adding special parsing.
+- `true`, `1`, and `on` parse through the existing boolean parser;
+- setter changes mark deferred persistence dirty, while repeated same-value calls do not;
+- SQLite round-trip preserves Off and On under exactly `RandomSelectFromSubBox`;
+- no compatibility alias is written or accepted.
+
+Update `DrumConfigStageTests.StubConfigManager` for the new `IConfigManager` method so the interface edit compiles.
 
 ### Config UI
 
-In `ConfigStageLogicTests`, prove:
+Extend `ConfigStageLogicTests`:
 
-- the System category contains `Random Select Sub-BOXes` after `Song Folders`;
-- its initial ON/OFF display reflects the config value;
-- activating/toggling it mutates the value through the manager setter;
-- no new category, overlay, or navigation row is introduced.
+- update the existing `Assert.Collection` inventory so `Random Select Sub-BOXes` appears immediately after `Song Folders`;
+- assert its ON/OFF display follows the config value;
+- assert keyboard toggle uses the manager setter;
+- keep the existing three-category structure unchanged.
 
 ### Song selection
 
-Use `SongSelectionStageBasicTests` and its existing reflection/headless conventions. Characterize the private collector with small `SongListNode` trees:
+Use the stage's existing logic/coverage suites instead of `SongSelectionStageBasicTests`.
 
-- Off returns direct scores only;
-- On returns direct plus one-level and multi-level descendant scores;
-- non-Score node types are ignored;
-- an empty tree produces no candidates;
-- a single nested valid score is selectable only when the setting is On and reaches the existing difficulty-selection state.
+Directly test `CollectRandomCandidates` through the internal test seam:
 
-Do not test random distribution or seed behavior.
+- Off: direct scores only;
+- On: direct + nested + multi-level BOX scores;
+- `Random` and `BackBox` are ignored;
+- empty / BOX-only inputs return no candidates.
+
+Extend existing `SelectRandomSong` tests with deterministic one-candidate trees:
+
+- Off + only nested score -> no `ChangeStage`;
+- On + one nested score -> one `StageType.SongTransition` whose shared data contains that nested node as `selectedSong`.
+
+Keep the existing direct-score test as the regression for unchanged current behavior. Do not test random distribution.
 
 ## Acceptance criteria
 
-- A persisted Off setting leaves RANDOM SELECT limited to direct songs in the current list.
-- A persisted On setting includes direct songs and songs under descendant BOXes of the current list.
-- RANDOM SELECT never escapes to ancestors, siblings, or unrelated roots.
-- Existing direct-score selection, random choice, and difficulty transition remain unchanged.
-- Configuration and candidate behavior are covered by headless unit tests.
-- The macOS test/build projects and Windows CI build without a new service, panel, cache, or schema migration.
+- Off keeps RANDOM SELECT limited to direct scores in `_currentSongList`.
+- On includes direct scores and scores under descendant BOXes of `_currentSongList`.
+- RANDOM SELECT never escapes to ancestors, siblings, unrelated roots, or filtered-view projection.
+- Existing random choice and `SelectSong()` -> `SongTransition` confirmation remain unchanged.
+- The setting persists via the existing SQLite config path and appears after `Song Folders`.
+- Tests cover the collector plus Off/On transition behavior without a graphics harness.
 
 ## Expected production touch points
 
@@ -175,14 +179,16 @@ Do not test random distribution or seed behavior.
 - `DTXMania.Game/Lib/Stage/ConfigStage.cs`
 - `DTXMania.Game/Lib/Stage/SongSelectionStage.cs`
 
-Expected tests:
+Expected test touch points:
 
 - `DTXMania.Test/Config/ConfigDataTests.cs`
 - `DTXMania.Test/Config/ConfigManagerTests.cs`
 - `DTXMania.Test/Config/ConfigManagerSqlitePersistenceTests.cs`
 - `DTXMania.Test/Config/ConfigStageLogicTests.cs`
-- `DTXMania.Test/Stage/SongSelectionStageBasicTests.cs`
+- `DTXMania.Test/Stage/DrumConfig/DrumConfigStageTests.cs` (interface stub only)
+- `DTXMania.Test/Stage/SongSelectionStageLogicTests.cs`
+- `DTXMania.Test/Stage/SongSelectionStageCoverageTests.cs`
 
-## Size and scope guard
+## Stop line
 
-The feature should remain about **1 engineer day** and one implementation PR. If implementation reveals that RANDOM SELECT must also honor filtered views, cross-root selection, or another node type, stop and create a separate ticket rather than expanding HPA-17.
+Keep this at about **1 engineer day** and one PR. Filter-aware random selection, whole-library selection, new node categories, RNG changes, or navigation behavior are separate tickets.
