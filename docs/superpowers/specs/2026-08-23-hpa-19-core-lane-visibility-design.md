@@ -49,60 +49,84 @@ Keep the data model explicit and small. Add one enum plus three booleans to the 
 - `bool EnableLaneFlush`, default `true`
 - `bool ShowCombo`, default `true`
 
-`DrumsLaneDisplayMode` should use the four values `AllOn`, `LaneOff`, `LineOff`, and `AllOff`. Assign stable numeric values in that order so the enum is simple to persist and reason about.
+`DrumsLaneDisplayMode` uses explicit values for stable ordering only:
 
-Persist the values through the existing `ConfigManager` SQLite key/value path. Add focused setter methods on `IConfigManager` / `ConfigManager`, following existing settings such as Metronome and Scroll Speed. No event bus or generic visual-settings object is needed because these values do not need live mutation during gameplay.
+- `AllOn = 0`
+- `LaneOff = 1`
+- `LineOff = 2`
+- `AllOff = 3`
+
+The 2×2 lane-display matrix is part of the production contract, not test-only knowledge. Put two small helpers beside the enum:
+
+```csharp
+public static bool ShowsLaneBackground(this DrumsLaneDisplayMode mode) =>
+    mode is DrumsLaneDisplayMode.AllOn or DrumsLaneDisplayMode.LineOff;
+
+public static bool ShowsMeasureLines(this DrumsLaneDisplayMode mode) =>
+    mode is DrumsLaneDisplayMode.AllOn or DrumsLaneDisplayMode.LaneOff;
+```
+
+These helpers are intentionally not a visual-modifier abstraction. They are the single definition of what the four enum states mean and are reusable by the activation snapshot, tests, and any later `Dark` preset work.
+
+Persist `LaneDisplayMode` the same way CX already persists `GaugeDamageLevel`: store the enum name (`LaneOff`), not its integer discriminator and not the user-facing label (`LANE OFF`). Loading matches enum names case-insensitively. Missing or unrecognized rows leave the `ConfigData` default `AllOn` unchanged.
+
+`SetLaneDisplayMode` should mirror `SetDamageLevel`: normalize undefined enum values to `AllOn`, no-op when unchanged, otherwise update `ConfigData` and mark the deferred save dirty. The three boolean setters follow the existing `SetMetronome` pattern. No event bus or generic visual-settings object is needed because these values do not mutate live during a performance.
 
 Missing database rows naturally use the defaults in `ConfigData`; no schema migration or compatibility layer is required.
 
 ## Config-stage UX
 
-Expose four items in the existing Drums config list near Scroll Speed:
+Expose four items in the existing Drums config list immediately after Scroll Speed:
 
 1. `Lane Display` — dropdown: `ALL ON`, `LANE OFF`, `LINE OFF`, `ALL OFF`
 2. `Judge Line` — On/Off
 3. `Lane Flush` — On/Off
 4. `Combo` — On/Off
 
-Use the existing `DropdownConfigItem` / `ToggleConfigItem` patterns and `ConfigManager` setters. Do not add a sub-page or generic visual-modifier editor for four values.
+Use the existing `DropdownConfigItem` / `ToggleConfigItem` patterns and `ConfigManager` setters. Map the four display labels explicitly to/from `DrumsLaneDisplayMode`; do not use the display labels as persisted values. Do not add a sub-page or generic visual-modifier editor for four values.
 
 These settings apply to the next performance activation. The existing Scroll Speed behavior is intentionally unchanged: it remains independently adjustable in Config and live during a performance.
 
 ## Performance-stage integration
 
-`PerformanceStage` should own the feature gating because it already decides between skin-texture rendering and fallback renderers. Putting visibility only on leaf renderers would miss the direct textured paths.
+`PerformanceStage` owns the feature gates because it already decides between skin-texture rendering and fallback renderers. Putting visibility only on leaf renderers would miss the direct textured paths.
 
-At activation, snapshot the four visual settings into stage-local state along with the other performance configuration. This keeps a run deterministic and makes the “next performance” application rule explicit.
+At activation, snapshot the visual contract into stage-local state next to the other frozen performance configuration:
+
+- lane background visibility from `LaneDisplayMode.ShowsLaneBackground()`
+- measure-line visibility from `LaneDisplayMode.ShowsMeasureLines()`
+- judgement-line visibility from `ShowJudgementLine`
+- lane-flush enablement from `EnableLaneFlush`
+- combo visibility from `ShowCombo`
+
+This keeps a run deterministic and makes the “next performance” application rule explicit.
 
 ### Lane background and measure lines
 
-Derive two booleans from `LaneDisplayMode`:
+Gate the existing orchestration points with the snapped booleans:
 
-- show lane background for `AllOn` and `LineOff`
-- show measure lines for `AllOn` and `LaneOff`
+- `DrawLaneBackgrounds`: return before choosing the skin texture vs. `LaneBackgroundRenderer` fallback when lane backgrounds are hidden.
+- `DrawMeasureLines`: return before calling `NoteRenderer.DrawMeasureLines` when measure lines are hidden.
 
-Use those booleans at the existing orchestration points:
-
-- gate the full lane-background draw path before choosing skin texture vs. `LaneBackgroundRenderer` fallback
-- gate the call to `NoteRenderer.DrawMeasureLines`
-
-Keep this mapping local to the performance/config feature. Do not introduce a reusable modifier framework.
+Notes, pads, judgement text, and the judgement line are unaffected by `Lane Display`.
 
 ### Judgement line
 
-Guard the existing judgement-line draw path in `PerformanceStage` before choosing the textured hit-bar or `JudgementLineRenderer` fallback. This guarantees `ShowJudgementLine=false` works for both paths.
+Guard `DrawJudgementLine` before choosing the textured hit-bar or `JudgementLineRenderer` fallback. This guarantees `ShowJudgementLine=false` applies identically to both paths.
 
 ### Lane flush
 
-`NoteRenderer` already owns the lane-flash state, decay, and drawing, and already exposes `TriggerLaneFlash`. The missing piece is gameplay wiring.
+`NoteRenderer` already owns the lane-flash state, decay, drawing, and `TriggerLaneFlash` API. The missing piece is only gameplay wiring.
 
-On a successful judgement, call `NoteRenderer.TriggerLaneFlash` for the judged lane only when `EnableLaneFlush` is true. Misses must not flash. Let the existing judgement event path cover both player hits and auto-play resolution; do not add a second auto-play-specific flash path or revive the unused lane-flash texture as a separate effect system.
+`PerformanceStage.OnJudgementMade` already has one `if (e.IsHit())` block for successful-hit visual feedback. Inside that existing block, and only there, call `NoteRenderer.TriggerLaneFlash(e.Lane)` when the snapped lane-flush flag is enabled. Do not add a second `Type != Miss` predicate.
+
+Auto-play already resolves through `JudgementManager.ResolveAutoHit`, which raises the same `JudgementMade` event. Do not add a direct lane-flash call to `ProcessAutoPlay`; that would double-trigger the same visual path. Do not revive `_laneFlashTexture` or add another effect manager.
 
 No changes to the flash animation itself are in scope.
 
 ### Combo
 
-Keep combo calculation and `ComboDisplay.Combo` updates unchanged. Only guard the existing combo draw call when `ShowCombo` is false. Do not alter `ComboManager`, scoring, result data, or the component’s internal “combo > 0” visibility behavior.
+Keep `OnComboChanged`, `ComboDisplay.Combo`, `ComboManager`, scoring, and result data unchanged. Only guard the existing `_comboDisplay?.Draw(...)` call with the snapped combo-visibility flag. Hidden combo remains fully calculated and updated.
 
 ## Scroll Speed decision
 
@@ -123,14 +147,18 @@ Legacy audit corrections worth retaining for later work:
 
 ## Test strategy
 
-Keep tests at existing seams; no new graphics harness, screenshot tests, or E2E flow is required.
+Keep tests on the existing owners; no new graphics harness, screenshot tests, or E2E flow is required.
 
+- `DTXMania.Test/Config/DrumsLaneDisplayModeTests.cs`: theory-test all four rows of the lane-background / measure-line matrix without a `GraphicsDevice`.
 - `DTXMania.Test/Config/ConfigDataTests.cs`: defaults preserve current visuals.
-- `DTXMania.Test/Config/ConfigManagerSqlitePersistenceTests.cs`: all four settings round-trip through SQLite; invalid/missing values fall back to defaults using existing ConfigManager conventions.
-- `DTXMania.Test/Stage/DrumConfig/DrumConfigStageTests.cs`: Drums menu contains the four controls, dropdown ordering matches the NX four-state contract, and edits call the config setters.
-- `DTXMania.Test/Stage/Performance/PerformanceRendererStateTests.cs` or a small focused `PerformanceStageVisualConfigTests.cs`: pin the four-state lane/measure mapping and the stage draw gates without requiring a real `GraphicsDevice`.
-- `DTXMania.Test/Stage/Performance/PerformanceStageJudgementIntegrationTests.cs`: pin that successful judgements can produce lane flush when enabled and misses/disabled mode do not. Reuse existing judgement/test helpers rather than inventing a new fake gameplay stack.
-- `DTXMania.Test/Stage/Performance/NoteRendererLogicTests.cs`: existing `TriggerLaneFlash`/decay tests remain the animation contract; add tests here only if implementation changes that contract, which is not expected.
+- `DTXMania.Test/Config/ConfigManagerTests.cs`: `SetLaneDisplayMode` normalization/no-op behavior and the simple boolean setters, following existing setter tests.
+- `DTXMania.Test/Config/ConfigManagerSqlitePersistenceTests.cs`: all four settings round-trip through SQLite; `LaneDisplayMode` is persisted by enum name; missing/malformed values keep defaults.
+- `DTXMania.Test/Config/ConfigStageLogicTests.cs`: extend `SetupConfigItems_ShouldBuildSystemDrumsExitCategories` and related Config-stage logic tests for the four Drums items, dropdown labels/order, current value, and setter dispatch.
+- `DTXMania.Test/Stage/DrumConfig/DrumConfigStageTests.cs`: no menu behavior belongs here; only update its `StubConfigManager` with the new interface methods so the existing drum-key-assign tests still compile.
+- `DTXMania.Test/Stage/Performance/PerformanceStageDeterministicTests.cs`: extend the existing stage-level draw and judgement tests. Rewrite the current successful-hit characterization that explicitly expects no lane flash into the enabled-default contract, then add disabled-flush coverage beside the existing Miss coverage. Add disabled draw-gate assertions next to the existing `DrawLaneBackgrounds`, `DrawMeasureLines`, `DrawJudgementLine`, and `DrawUIElements` tests.
+- `DTXMania.Test/Stage/Performance/NoteRendererLogicTests.cs`: existing `TriggerLaneFlash` and decay tests remain the leaf-renderer contract; no change is expected.
+
+Do not add HPA-19 coverage to `PerformanceRendererStateTests` or `PerformanceStageJudgementIntegrationTests`: those suites own leaf renderers and `JudgementManager` behavior respectively, not `PerformanceStage` orchestration.
 
 Existing Scroll Speed tests remain unchanged and serve as regression coverage for the decision not to alter that feature.
 
@@ -143,6 +171,7 @@ After automated tests, run one simple chart and verify:
 - lane flashes toggle without affecting pad-hit effects or attack effects
 - combo visibility toggles while score/combo behavior still progresses
 - Scroll Speed hotkeys still work during performance
+- restart once and confirm the four settings reload from SQLite
 
 ## Non-goals
 
