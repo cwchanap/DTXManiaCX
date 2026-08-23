@@ -157,7 +157,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         #region Public Methods
 
         /// <summary>
-        /// Sets the scroll speed based on look-ahead time and user preference
+        /// Sets the scroll speed from the NX drum velocity and user preference
         /// </summary>
         /// <param name="scrollSpeedSetting">User scroll speed setting (100 = normal, 200 = 2x faster, 50 = 0.5x slower)</param>
         public void SetScrollSpeed(int scrollSpeedSetting = 100)
@@ -165,23 +165,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
             if (scrollSpeedSetting <= 0)
                 throw new ArgumentException("Scroll speed must be greater than 0", nameof(scrollSpeedSetting));
 
-
-            // Base look-ahead time: 1.5 seconds for faster scrolling
-            var baseLookAheadMs = PerformanceUILayout.NoteDefaultLookAheadMs;
-
             // User scroll speed multiplier (100 = normal, 200 = 2x faster, 50 = 0.5x slower)
             var scrollSpeedMultiplier = scrollSpeedSetting / 100.0;
 
-            // Effective look-ahead time (faster scroll = less look-ahead time)
-            var effectiveLookAheadMs = baseLookAheadMs / scrollSpeedMultiplier;
-            
-            // Store effective look-ahead time for consistency with GetActiveNotes
-            EffectiveLookAheadMs = effectiveLookAheadMs;
-
-            // Calculate scroll speed: distance / time
-            var scrollDistance = JudgementY; // Distance from top (Y=0) to judgement line
-            _scrollPixelsPerMs = scrollDistance / effectiveLookAheadMs;
-
+            _scrollPixelsPerMs = PerformanceUILayout.NoteBaseScrollPixelsPerMs * scrollSpeedMultiplier;
+            EffectiveLookAheadMs = JudgementY / _scrollPixelsPerMs;
         }
 
         /// <summary>
@@ -445,7 +433,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// </summary>
         /// <param name="notes">All notes to check</param>
         /// <param name="currentSongTimeMs">Current song time in milliseconds</param>
-        /// <param name="lookAheadMs">How far ahead to look for notes (default 1500ms)</param>
+        /// <param name="lookAheadMs">How far ahead to look for notes</param>
         /// <returns>Notes that should be rendered</returns>
         public IEnumerable<Note> FilterVisibleNotes(IEnumerable<Note> notes, double currentSongTimeMs, double lookAheadMs = PerformanceUILayout.NoteDefaultLookAheadMs)
         {

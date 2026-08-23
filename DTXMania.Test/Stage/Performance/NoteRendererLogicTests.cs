@@ -25,15 +25,34 @@ public class NoteRendererLogicTests
         Assert.Throws<ArgumentException>(() => renderer.SetScrollSpeed(0));
     }
 
-    [Fact]
-    public void SetScrollSpeed_WhenValueIsValid_ShouldUpdateLookAheadAndPixelsPerMs()
+    [Theory]
+    [InlineData(50, 0.089375)]
+    [InlineData(100, 0.17875)]
+    [InlineData(400, 0.715)]
+    public void SetScrollSpeed_ShouldMatchNxDrumScrollVelocity(
+        int scrollSpeedSetting,
+        double expectedPixelsPerMs)
     {
         var renderer = CreateRenderer();
 
-        renderer.SetScrollSpeed(200);
+        renderer.SetScrollSpeed(scrollSpeedSetting);
 
-        Assert.Equal(750.0, renderer.EffectiveLookAheadMs, 3);
-        Assert.Equal(renderer.JudgementY / 750.0, renderer.ScrollPixelsPerMs, 3);
+        Assert.Equal(expectedPixelsPerMs, renderer.ScrollPixelsPerMs, 6);
+    }
+
+    [Theory]
+    [InlineData(50, 6276.923077)]
+    [InlineData(100, 3138.461538)]
+    [InlineData(400, 784.615385)]
+    public void SetScrollSpeed_ShouldDeriveLookAheadFromNxVelocity(
+        int scrollSpeedSetting,
+        double expectedLookAheadMs)
+    {
+        var renderer = CreateRenderer();
+
+        renderer.SetScrollSpeed(scrollSpeedSetting);
+
+        Assert.Equal(expectedLookAheadMs, renderer.EffectiveLookAheadMs, 6);
     }
 
     [Fact]
