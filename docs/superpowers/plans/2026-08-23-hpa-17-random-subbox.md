@@ -20,6 +20,7 @@
 - Read the config when the user activates RANDOM SELECT; do not cache or subscribe to changes.
 - Do not mutate BOX navigation state, add cycle tracking, or pre-flatten the song tree.
 - Do not add a legacy alias, `Config.ini` migration, generic tree-query service, or injectable RNG.
+- Preserve the current `Random` construction and selection behavior; this ticket changes candidate scope only.
 - One HPA-17 PR only.
 
 ## Validation command matrix
@@ -160,23 +161,22 @@ Pin:
 
 1. Off returns direct `Score` nodes and excludes a one-level nested score.
 2. On returns direct scores plus one-level and multi-level descendant scores.
-3. Traversal follows nested `Box.Children` in stable depth-first authored order.
-4. `ScoreMidi`, `Random`, `BackBox`, and `Unknown` are ignored even when they have children/references.
-5. empty input and BOX-only input return an empty list.
-6. the input lists and node navigation state are not mutated.
+3. `ScoreMidi`, `Random`, `BackBox`, and `Unknown` are ignored even when they have children/references.
+4. empty input and BOX-only input return an empty list.
+5. the input lists and node navigation state are not mutated.
 
-Do not assert random distribution.
+Do not assert candidate ordering, random distribution, or seed behavior.
 
 ### 2.2 Add two narrow selection integration tests
 
-Use a current list containing a RANDOM node/BOX and exactly one valid nested score so random choice is deterministic without an RNG seam.
+Use a current list containing one child BOX with exactly one valid nested score so random choice is deterministic without an RNG seam.
 
 Prove:
 
 1. with `RandomSelectFromSubBox=false`, a list with no direct score remains in song-list selection and does not set `_selectedSong`;
 2. with the setting `true`, the nested score becomes `_selectedSong` and the existing difficulty-selection state is entered.
 
-Populate only the minimum `SongListNode.Score` data required by `CreateDifficultySelectionBars`. If this integration path exposes an existing headless test helper, reuse it; do not create a production test-only constructor.
+Populate only the minimum `SongListNode.Score` data required by `CreateDifficultySelectionBars`. Reuse the existing reflection helpers; do not create a production test-only constructor.
 
 ### 2.3 Run focused stage tests and confirm RED
 
@@ -204,23 +204,17 @@ Box + includeSubBoxes -> recurse into Children
 anything else -> ignore
 ```
 
-Return a fresh list. Do not use LINQ recursion, a repository-wide extension, a visited set, or cached state.
+Return a fresh list. Do not use a repository-wide extension, visited set, or cached state.
 
 ### 2.5 Wire `SelectRandomSong()`
 
-Replace the direct `FindAll(NodeType.Score)` candidate construction with the helper, passing:
+Replace only the direct `FindAll(NodeType.Score)` candidate construction with the helper, passing:
 
 ```csharp
 _configManager.Config.RandomSelectFromSubBox
 ```
 
-Keep the existing no-candidate/no-valid-score no-op and difficulty transition. Choose the candidate with:
-
-```csharp
-Random.Shared.Next(candidates.Count)
-```
-
-Do not navigate into the candidate's parent BOX and do not use `_filteredView`.
+Keep the existing per-action `Random` construction, `Next(candidates.Count)` choice, no-candidate/no-valid-score no-op, and difficulty transition. Do not navigate into the candidate's parent BOX and do not use `_filteredView`.
 
 ### 2.6 Re-run focused stage tests until GREEN
 
@@ -273,7 +267,7 @@ Confirm the production diff is limited to the five expected files and contains n
 - navigation mutations;
 - new panel/category;
 - config migration/alias;
-- RNG interface or dependency injection.
+- RNG API or dependency-injection changes.
 
 Interface-driven test-double edits are allowed when required only to compile.
 
