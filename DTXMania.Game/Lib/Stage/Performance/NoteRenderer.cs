@@ -433,15 +433,15 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// </summary>
         /// <param name="notes">All notes to check</param>
         /// <param name="currentSongTimeMs">Current song time in milliseconds</param>
-        /// <param name="lookAheadMs">How far ahead to look for notes</param>
+        /// <param name="lookAheadMs">How far ahead to look for notes; omit to use the configured <see cref="EffectiveLookAheadMs"/></param>
         /// <returns>Notes that should be rendered</returns>
-        public IEnumerable<Note> FilterVisibleNotes(IEnumerable<Note> notes, double currentSongTimeMs, double lookAheadMs = PerformanceUILayout.NoteDefaultLookAheadMs)
+        public IEnumerable<Note> FilterVisibleNotes(IEnumerable<Note> notes, double currentSongTimeMs, double? lookAheadMs = null)
         {
             if (notes == null)
                 return Enumerable.Empty<Note>();
 
             var startTime = currentSongTimeMs - 200.0; // Small buffer for notes just past judgement
-            var endTime = currentSongTimeMs + lookAheadMs;
+            var endTime = currentSongTimeMs + (lookAheadMs ?? EffectiveLookAheadMs);
 
             return notes.Where(note => note.TimeMs >= startTime && note.TimeMs <= endTime);
         }

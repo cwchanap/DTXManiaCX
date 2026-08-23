@@ -102,6 +102,30 @@ public class NoteRendererLogicTests
         Assert.Contains(notes[2], result);
     }
 
+    [Theory]
+    [InlineData(50)]  // x0.5: wider window than the static default
+    [InlineData(400)] // x4.0: narrower window than the static default
+    public void FilterVisibleNotes_WhenLookAheadOmitted_ShouldUseConfiguredEffectiveLookAhead(
+        int scrollSpeedSetting)
+    {
+        var renderer = CreateRenderer();
+        renderer.SetScrollSpeed(scrollSpeedSetting);
+        var horizonMs = 1000.0 + renderer.EffectiveLookAheadMs;
+        var notes = new[]
+        {
+            new Note { TimeMs = 799.9 },          // past grace buffer, excluded
+            new Note { TimeMs = 1000.0 },         // current time, included
+            new Note { TimeMs = horizonMs },      // exactly at look-ahead horizon, included
+            new Note { TimeMs = horizonMs + 0.1 } // beyond horizon, excluded
+        };
+
+        var result = renderer.FilterVisibleNotes(notes, 1000.0).ToList();
+
+        Assert.Equal(2, result.Count);
+        Assert.Contains(notes[1], result);
+        Assert.Contains(notes[2], result);
+    }
+
     [Fact]
     public void GetNoteScreenY_AndShouldDropNote_ShouldUseConfiguredScrollSpeed()
     {
