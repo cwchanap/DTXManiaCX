@@ -768,6 +768,146 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void SelectRandomSong_WhenConfigManagerIsMissing_ShouldUseDirectScoresOnly()
+        {
+            var game = CreateGame(totalGameTime: 2.0, lastStageTransitionTime: 0.0);
+            var stage = CreateStage(game);
+            var stageManager = new Mock<IStageManager>();
+            var directSong = CreateScoreNode("Direct Song");
+            var nestedSong = CreateScoreNode("Nested Song");
+
+            stage.StageManager = stageManager.Object;
+            SetPrivateField(stage, "_currentSongList", new List<SongListNode>
+            {
+                directSong,
+                CreateBoxNode("Folder", nestedSong)
+            });
+
+            var exception = Record.Exception(() => InvokePrivateMethod(stage, "SelectRandomSong"));
+
+            Assert.Null(exception);
+            stageManager.Verify(
+                x => x.ChangeStage(
+                    StageType.SongTransition,
+                    It.IsAny<IStageTransition>(),
+                    It.Is<Dictionary<string, object>>(d => ReferenceEquals(d["selectedSong"], directSong))),
+                Times.Once);
+        }
+
+        [Fact]
+        public void SelectRandomSong_WhenConfigIsNull_ShouldUseDirectScoresOnly()
+        {
+            var game = CreateGame(totalGameTime: 2.0, lastStageTransitionTime: 0.0);
+            var stage = CreateStage(game);
+            var stageManager = new Mock<IStageManager>();
+            var configManager = new Mock<IConfigManager>();
+            var directSong = CreateScoreNode("Direct Song");
+            var nestedSong = CreateScoreNode("Nested Song");
+            configManager.SetupGet(manager => manager.Config).Returns((ConfigData)null!);
+
+            stage.StageManager = stageManager.Object;
+            SetPrivateField(stage, "_configManager", configManager.Object);
+            SetPrivateField(stage, "_currentSongList", new List<SongListNode>
+            {
+                directSong,
+                CreateBoxNode("Folder", nestedSong)
+            });
+
+            var exception = Record.Exception(() => InvokePrivateMethod(stage, "SelectRandomSong"));
+
+            Assert.Null(exception);
+            stageManager.Verify(
+                x => x.ChangeStage(
+                    StageType.SongTransition,
+                    It.IsAny<IStageTransition>(),
+                    It.Is<Dictionary<string, object>>(d => ReferenceEquals(d["selectedSong"], directSong))),
+                Times.Once);
+        }
+
+        [Fact]
+        public void SelectRandomSong_WhenSubBoxSelectionIsDisabled_ShouldIgnoreNestedScores()
+        {
+            var game = CreateGame(totalGameTime: 2.0, lastStageTransitionTime: 0.0);
+            var stage = CreateStage(game);
+            var stageManager = new Mock<IStageManager>();
+            var configManager = new Mock<IConfigManager>();
+            var nestedSong = CreateScoreNode("Nested Song");
+            configManager.SetupGet(manager => manager.Config).Returns(
+                new ConfigData { RandomSelectFromSubBox = false });
+
+            stage.StageManager = stageManager.Object;
+            SetPrivateField(stage, "_configManager", configManager.Object);
+            SetPrivateField(stage, "_currentSongList", new List<SongListNode>
+            {
+                CreateBoxNode("Folder", nestedSong)
+            });
+
+            InvokePrivateMethod(stage, "SelectRandomSong");
+
+            stageManager.Verify(
+                x => x.ChangeStage(
+                    It.IsAny<StageType>(),
+                    It.IsAny<IStageTransition>(),
+                    It.IsAny<Dictionary<string, object>>()),
+                Times.Never);
+        }
+
+        [Fact]
+        public void SelectRandomSong_WhenSubBoxSelectionIsEnabled_ShouldSelectNestedSongAndKeepDifficulty()
+        {
+            var game = CreateGame(totalGameTime: 2.0, lastStageTransitionTime: 0.0);
+            var stage = CreateStage(game);
+            var stageManager = new Mock<IStageManager>();
+            var configManager = new Mock<IConfigManager>();
+            var nestedSong = CreateScoreNode("Nested Song");
+            configManager.SetupGet(manager => manager.Config).Returns(
+                new ConfigData { RandomSelectFromSubBox = true });
+
+            stage.StageManager = stageManager.Object;
+            SetPrivateField(stage, "_configManager", configManager.Object);
+            SetPrivateField(stage, "_currentDifficulty", 99);
+            SetPrivateField(stage, "_currentSongList", new List<SongListNode>
+            {
+                CreateBoxNode("Folder", nestedSong)
+            });
+
+            InvokePrivateMethod(stage, "SelectRandomSong");
+
+            stageManager.Verify(
+                x => x.ChangeStage(
+                    StageType.SongTransition,
+                    It.IsAny<IStageTransition>(),
+                    It.Is<Dictionary<string, object>>(d =>
+                        ReferenceEquals(d["selectedSong"], nestedSong) &&
+                        (int)d["selectedDifficulty"] == 99)),
+                Times.Once);
+        }
+
+        [Fact]
+        public void SelectRandomSong_WhenActiveTabIsNotAllSongs_ShouldNotSelectHiddenSong()
+        {
+            var game = CreateGame(totalGameTime: 2.0, lastStageTransitionTime: 0.0);
+            var stage = CreateStage(game);
+            var stageManager = new Mock<IStageManager>();
+
+            stage.StageManager = stageManager.Object;
+            SetPrivateField(stage, "_activeTab", SongSelectionTab.RecentPlays);
+            SetPrivateField(stage, "_currentSongList", new List<SongListNode>
+            {
+                CreateScoreNode("Hidden Song")
+            });
+
+            InvokePrivateMethod(stage, "SelectRandomSong");
+
+            stageManager.Verify(
+                x => x.ChangeStage(
+                    It.IsAny<StageType>(),
+                    It.IsAny<IStageTransition>(),
+                    It.IsAny<Dictionary<string, object>>()),
+                Times.Never);
+        }
+
+        [Fact]
         public void SelectRandomSong_WhenNoPlayableSongsExist_ShouldNotTransition()
         {
             var game = CreateGame(totalGameTime: 2.0, lastStageTransitionTime: 0.0);

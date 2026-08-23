@@ -2302,15 +2302,35 @@ namespace DTXMania.Game.Lib.Stage
             StageManager.ChangeStage(StageType.SongTransition, new InstantTransition(), sharedData);
         }
 
+        internal static List<SongListNode> CollectRandomCandidates(
+            IEnumerable<SongListNode> nodes,
+            bool includeSubBoxes)
+        {
+            var candidates = new List<SongListNode>();
+            foreach (var node in nodes)
+            {
+                if (node.Type == NodeType.Score)
+                    candidates.Add(node);
+                else if (includeSubBoxes && node.Type == NodeType.Box)
+                    candidates.AddRange(CollectRandomCandidates(node.Children, includeSubBoxes));
+            }
+
+            return candidates;
+        }
+
         private void SelectRandomSong()
         {
+            if (_activeTab != SongSelectionTab.AllSongs)
+                return;
+
             if (_currentSongList != null && _currentSongList.Count > 0)
             {
-                var random = new Random();
-                var songNodes = _currentSongList.FindAll(n => n.Type == NodeType.Score);
+                var includeSubBoxes = _configManager?.Config?.RandomSelectFromSubBox ?? false;
+                var songNodes = CollectRandomCandidates(_currentSongList, includeSubBoxes);
 
                 if (songNodes.Count > 0)
                 {
+                    var random = new Random();
                     var randomSong = songNodes[random.Next(songNodes.Count)];
                     SelectSong(randomSong);
                 }
