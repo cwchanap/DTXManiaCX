@@ -34,6 +34,110 @@ namespace DTXMania.Test.Stage
     public class SongSelectionStageLogicTests
     {
         [Fact]
+        public void CollectRandomCandidates_WhenDisabled_ShouldIncludeDirectScoresOnly()
+        {
+            var directSong = CreateScoreNode("Direct Song");
+            var nestedSong = CreateScoreNode("Nested Song");
+            var nodes = new List<SongListNode>
+            {
+                directSong,
+                CreateBoxNode("Folder", nestedSong)
+            };
+
+            var candidates = SongSelectionStage.CollectRandomCandidates(nodes, includeSubBoxes: false);
+
+            var candidate = Assert.Single(candidates);
+            Assert.Same(directSong, candidate);
+            Assert.DoesNotContain(nestedSong, candidates);
+        }
+
+        [Fact]
+        public void CollectRandomCandidates_WhenEnabled_ShouldIncludeDirectAndDescendantScores()
+        {
+            var directSong = CreateScoreNode("Direct Song");
+            var oneLevelSong = CreateScoreNode("One-Level Song");
+            var deepSong = CreateScoreNode("Deep Song");
+            var nestedBox = CreateBoxNode("Nested Folder", deepSong);
+            var nodes = new List<SongListNode>
+            {
+                directSong,
+                CreateBoxNode("Folder", oneLevelSong, nestedBox)
+            };
+
+            var candidates = SongSelectionStage.CollectRandomCandidates(nodes, includeSubBoxes: true);
+
+            Assert.Equal(3, candidates.Count);
+            Assert.Contains(directSong, candidates);
+            Assert.Contains(oneLevelSong, candidates);
+            Assert.Contains(deepSong, candidates);
+        }
+
+        [Fact]
+        public void CollectRandomCandidates_ShouldIgnoreRandomAndBackBoxNodes()
+        {
+            var directSong = CreateScoreNode("Direct Song");
+            var randomSong = CreateScoreNode("Random Child");
+            var backSong = CreateScoreNode("Back Child");
+            var nodes = new List<SongListNode>
+            {
+                new SongListNode
+                {
+                    Type = NodeType.Random,
+                    Children = new List<SongListNode> { randomSong }
+                },
+                new SongListNode
+                {
+                    Type = NodeType.BackBox,
+                    Children = new List<SongListNode> { backSong }
+                },
+                directSong
+            };
+
+            var candidates = SongSelectionStage.CollectRandomCandidates(nodes, includeSubBoxes: true);
+
+            var candidate = Assert.Single(candidates);
+            Assert.Same(directSong, candidate);
+            Assert.DoesNotContain(randomSong, candidates);
+            Assert.DoesNotContain(backSong, candidates);
+        }
+
+        [Fact]
+        public void CollectRandomCandidates_WhenInputIsEmptyOrBoxOnly_ShouldReturnEmpty()
+        {
+            Assert.Empty(SongSelectionStage.CollectRandomCandidates(
+                Array.Empty<SongListNode>(), includeSubBoxes: true));
+            Assert.Empty(SongSelectionStage.CollectRandomCandidates(
+                new[] { CreateBoxNode("Empty Folder") }, includeSubBoxes: true));
+        }
+
+        [Fact]
+        public void CollectRandomCandidates_ShouldNotMutateTreeOrNavigationState()
+        {
+            var stage = CreateStage();
+            var childSong = CreateScoreNode("Child Song");
+            var box = CreateBoxNode("Folder", childSong);
+            childSong.Parent = box;
+            var nodes = new List<SongListNode> { box };
+            var children = box.Children;
+            var navigation = GetPrivateField<Stack<SongListNode>>(stage, "_navigationStack")!;
+            var navigationMarker = new SongListNode { Type = NodeType.BackBox, Title = "Marker" };
+            navigation.Push(navigationMarker);
+
+            var candidates = SongSelectionStage.CollectRandomCandidates(nodes, includeSubBoxes: true);
+            var secondCandidates = SongSelectionStage.CollectRandomCandidates(nodes, includeSubBoxes: true);
+
+            var candidate = Assert.Single(candidates);
+            Assert.Same(childSong, candidate);
+            Assert.NotSame(candidates, secondCandidates);
+            Assert.Single(nodes);
+            Assert.Same(box, nodes[0]);
+            Assert.Same(children, box.Children);
+            Assert.Same(box, childSong.Parent);
+            Assert.Single(navigation);
+            Assert.Same(navigationMarker, navigation.Peek());
+        }
+
+        [Fact]
         public void PopulateSongList_WhenCurrentSongListEmpty_ShouldClearDisplay()
         {
             var stage = CreateStage();
