@@ -51,7 +51,34 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void PopulateSongList_WhenInSubfolder_ShouldPrependBackEntry()
+        public void PopulateSongList_WhenAtRoot_ShouldAppendExactlyOneRandomEntryWithoutMutatingCurrentSongList()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            var songs = new List<SongListNode>
+            {
+                CreateScoreNode("Song A"),
+                CreateBoxNode("Folder")
+            };
+
+            AttachCoreUi(stage, display: display);
+            SetPrivateField(stage, "_currentSongList", songs);
+
+            InvokePrivateMethod(stage, "PopulateSongList");
+
+            Assert.Equal(3, display.CurrentList.Count);
+            Assert.Same(songs[0], display.CurrentList[0]);
+            Assert.Same(songs[1], display.CurrentList[1]);
+            Assert.Equal(NodeType.Random, display.CurrentList[2].Type);
+            Assert.Equal(0, display.SelectedIndex);
+            Assert.Same(songs[0], display.SelectedSong);
+            Assert.Same(songs, GetPrivateField<List<SongListNode>>(stage, "_currentSongList"));
+            Assert.Equal(2, songs.Count);
+            Assert.DoesNotContain(display.CurrentList[2], songs);
+        }
+
+        [Fact]
+        public void PopulateSongList_WhenInSubfolder_ShouldPrependBackEntryAndKeepBackSelected()
         {
             var stage = CreateStage();
             var display = new SongListDisplay();
@@ -67,10 +94,13 @@ namespace DTXMania.Test.Stage
 
             InvokePrivateMethod(stage, "PopulateSongList");
 
-            Assert.Equal(3, display.CurrentList.Count);
+            Assert.Equal(4, display.CurrentList.Count);
             Assert.Equal(NodeType.BackBox, display.CurrentList[0].Type);
             Assert.Same(songs[0], display.CurrentList[1]);
             Assert.Same(songs[1], display.CurrentList[2]);
+            Assert.Equal(NodeType.Random, display.CurrentList[3].Type);
+            Assert.Equal(0, display.SelectedIndex);
+            Assert.Equal(NodeType.BackBox, display.SelectedSong!.Type);
         }
 
         [Fact]
@@ -90,8 +120,9 @@ namespace DTXMania.Test.Stage
             Assert.True(GetPrivateField<bool>(stage, "_songInitializationProcessed"));
             Assert.Null(GetPrivateField<object>(stage, "_songInitializationTask"));
             Assert.Same(songs, GetPrivateField<List<SongListNode>>(stage, "_currentSongList"));
-            Assert.Single(display.CurrentList);
+            Assert.Equal(2, display.CurrentList.Count);
             Assert.Same(songs[0], display.CurrentList[0]);
+            Assert.Equal(NodeType.Random, display.CurrentList[1].Type);
         }
 
         [Fact]
@@ -442,8 +473,9 @@ namespace DTXMania.Test.Stage
 
             Assert.Same(rootSongs, GetPrivateField<List<SongListNode>>(stage, "_currentSongList"));
             Assert.Equal("Root", GetPrivateField<string>(stage, "_currentBreadcrumb"));
-            Assert.Single(display.CurrentList);
+            Assert.Equal(2, display.CurrentList.Count);
             Assert.Same(rootSongs[0], display.CurrentList[0]);
+            Assert.Equal(NodeType.Random, display.CurrentList[1].Type);
             Assert.Empty(stack);
         }
 
@@ -486,8 +518,9 @@ namespace DTXMania.Test.Stage
 
             Assert.Same(rootSongs, GetPrivateField<List<SongListNode>>(stage, "_currentSongList"));
             Assert.Equal("", GetPrivateField<string>(stage, "_currentBreadcrumb"));
-            Assert.Single(display.CurrentList);
+            Assert.Equal(2, display.CurrentList.Count);
             Assert.Same(rootSongs[0], display.CurrentList[0]);
+            Assert.Equal(NodeType.Random, display.CurrentList[1].Type);
         }
 
         [Fact]
@@ -645,16 +678,20 @@ namespace DTXMania.Test.Stage
             var game = CreateGame(totalGameTime: 2.0, lastStageTransitionTime: 0.0);
             var stage = CreateStage(game);
             var stageManager = new Mock<IStageManager>();
+            var display = new SongListDisplay();
             var song = CreateScoreNode("Song", songId: 22);
+            var currentSongList = new List<SongListNode> { song };
 
+            AttachCoreUi(stage, display: display);
             stage.StageManager = stageManager.Object;
-            SetPrivateField(stage, "_currentSongList", new List<SongListNode>
-            {
-                song,
-                new SongListNode { Type = NodeType.Random, Title = "Random" }
-            });
+            SetPrivateField(stage, "_currentSongList", currentSongList);
+            InvokePrivateMethod(stage, "PopulateSongList");
 
-            InvokePrivateMethod(stage, "HandleSongActivation", new SongListNode { Type = NodeType.Random, Title = "Random" });
+            Assert.Equal(2, display.CurrentList.Count);
+            Assert.Equal(NodeType.Random, display.CurrentList[1].Type);
+            Assert.DoesNotContain(display.CurrentList[1], currentSongList);
+
+            InvokePrivateMethod(stage, "HandleSongActivation", display.CurrentList[1]);
 
             stageManager.Verify(
                 x => x.ChangeStage(
@@ -880,8 +917,9 @@ namespace DTXMania.Test.Stage
 
             Assert.Same(rootSongs, GetPrivateField<List<SongListNode>>(stage, "_currentSongList"));
             Assert.Equal("Root", GetPrivateField<string>(stage, "_currentBreadcrumb"));
-            Assert.Single(display.CurrentList);
+            Assert.Equal(2, display.CurrentList.Count);
             Assert.Same(rootSongs[0], display.CurrentList[0]);
+            Assert.Equal(NodeType.Random, display.CurrentList[1].Type);
         }
 
         [Fact]
@@ -2424,8 +2462,9 @@ namespace DTXMania.Test.Stage
 
                 Assert.Single(GetPrivateField<List<SongListNode>>(stage, "_currentSongList")!);
                 Assert.Same(song, GetPrivateField<List<SongListNode>>(stage, "_currentSongList")![0]);
-                Assert.Single(display.CurrentList);
+                Assert.Equal(2, display.CurrentList.Count);
                 Assert.Same(song, display.CurrentList[0]);
+                Assert.Equal(NodeType.Random, display.CurrentList[1].Type);
                 Assert.Null(GetPrivateField<object>(stage, "_songInitializationTask"));
             }
             finally

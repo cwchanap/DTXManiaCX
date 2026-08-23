@@ -1080,8 +1080,9 @@ namespace DTXMania.Game.Lib.Stage
             }
 
             // Add all songs and folders
-            displayList.AddRange(_currentSongList);            // Update the song list display
-            _songListDisplay.CurrentList = displayList;
+            displayList.AddRange(_currentSongList);
+            displayList.Add(SongListNode.CreateRandomNode());
+            _songListDisplay.CurrentList = displayList; // Update the song list display
         }
 
         private void CheckSongInitializationCompletion()

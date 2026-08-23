@@ -100,7 +100,9 @@ namespace DTXMania.Test.Stage
 
                 Assert.Empty(GetPrivateField<Stack<SongListNode>>(stage, "_navigationStack")!);
                 Assert.Equal("", GetPrivateField<string>(stage, "_currentBreadcrumb"));
-                Assert.Equal(new[] { replacement }, display.CurrentList);
+                Assert.Equal(2, display.CurrentList.Count);
+                Assert.Same(replacement, display.CurrentList[0]);
+                Assert.Equal(NodeType.Random, display.CurrentList[1].Type);
             }
             finally
             {
@@ -170,7 +172,9 @@ namespace DTXMania.Test.Stage
 
             Assert.Empty(GetPrivateField<Stack<SongListNode>>(stage, "_navigationStack")!);
             Assert.Single(GetPrivateField<List<SongListNode>>(stage, "_currentSongList")!);
-            Assert.Same(replacement, display.CurrentList.Single());
+            Assert.Equal(2, display.CurrentList.Count);
+            Assert.Same(replacement, display.CurrentList[0]);
+            Assert.Equal(NodeType.Random, display.CurrentList[1].Type);
             Assert.Null(GetPrivateField<SongListNode>(preview, "_currentSong"));
             oldTexture.Verify(texture => texture.RemoveReference(), Times.Once);
         }
@@ -358,7 +362,9 @@ namespace DTXMania.Test.Stage
                 InvokePrivateMethod(stage, "ApplyPendingLibraryPublication");
 
                 Assert.Equal(31L, GetPrivateField<long>(stage, "_appliedLibraryPublicationVersion"));
-                Assert.Same(newestNode, display.CurrentList.Single());
+                Assert.Equal(2, display.CurrentList.Count);
+                Assert.Same(newestNode, display.CurrentList[0]);
+                Assert.Equal(NodeType.Random, display.CurrentList[1].Type);
                 Assert.Equal(new[] { "/library/newest" },
                     GetPrivateField<SongLibrarySnapshot>(stage, "_appliedLibrarySnapshot")!.ActiveRoots);
             }
@@ -533,7 +539,9 @@ namespace DTXMania.Test.Stage
             InvokePrivateMethod(stage, "CheckSongInitializationCompletion");
 
             Assert.Equal(92L, GetPrivateField<long>(stage, "_appliedLibraryPublicationVersion"));
-            Assert.Equal(new[] { newNode }, display.CurrentList);
+            Assert.Equal(2, display.CurrentList.Count);
+            Assert.Same(newNode, display.CurrentList[0]);
+            Assert.Equal(NodeType.Random, display.CurrentList[1].Type);
             Assert.Empty(completions);
         }
 
@@ -737,7 +745,9 @@ namespace DTXMania.Test.Stage
             await oldSnapshotReader;
 
             Assert.Equal(27L, GetPrivateField<long>(stage, "_appliedLibraryPublicationVersion"));
-            Assert.Equal(new[] { newestNode }, display.CurrentList);
+            Assert.Equal(2, display.CurrentList.Count);
+            Assert.Same(newestNode, display.CurrentList[0]);
+            Assert.Equal(NodeType.Random, display.CurrentList[1].Type);
             Assert.DoesNotContain(oldNode, display.CurrentList);
         }
 

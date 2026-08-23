@@ -1600,8 +1600,9 @@ namespace DTXMania.Test.Stage
 
             InvokePrivateMethod(stage, "PopulateSongListForCurrentMode");
 
-            Assert.Equal(1, display.CurrentList.Count);
+            Assert.Equal(2, display.CurrentList.Count);
             Assert.Same(song, display.CurrentList[0]);
+            Assert.Equal(NodeType.Random, display.CurrentList[1].Type);
         }
 
         [Fact]
