@@ -106,8 +106,9 @@ namespace DTXMania.Test.Stage
 
             InvokePrivateMethod(stage, "RefreshSongListForActiveTab");
 
-            Assert.Single(display.CurrentList);
+            Assert.Equal(2, display.CurrentList.Count);
             Assert.Equal("A1", display.CurrentList[0].Title);
+            Assert.Equal(NodeType.Random, display.CurrentList[1].Type);
         }
 
         [Fact]
