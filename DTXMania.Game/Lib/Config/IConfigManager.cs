@@ -122,6 +122,9 @@ namespace DTXMania.Game.Lib.Config
         /// <summary>Sets Metronome and marks a deferred save pending when the value changes. No event raised.</summary>
         void SetMetronome(bool value);
 
+        /// <summary>Sets Random Select descendant-BOX inclusion and marks a deferred save pending when the value changes. No event raised.</summary>
+        void SetRandomSelectFromSubBox(bool value);
+
         /// <summary>Sets audio latency (in ms, clamped to &gt;= 0) and marks a deferred save pending. No event raised.</summary>
         void SetAudioLatency(int value);
 

@@ -659,6 +659,12 @@ namespace DTXMania.Game.Lib.Stage
                 Description = "Edit the ordered song folders. Apply saves the list and triggers one live reload."
             };
 
+            var randomSelectFromSubBoxItem = new ToggleConfigItem(
+                "Random Select Sub-BOXes",
+                () => _configManager.Config.RandomSelectFromSubBox,
+                value => _configManager.SetRandomSelectFromSubBox(value))
+            { Description = "Include songs inside descendant BOXes when using RANDOM SELECT." };
+
             var systemKeyItem = new NavigationConfigItem("System Key Mapping",
                 () => OpenPanel(_systemPanel))
             { Description = "Assign keys for menu and system commands." };
@@ -796,6 +802,7 @@ namespace DTXMania.Game.Lib.Stage
                 systemItems.Add(skinItem);
             }
             systemItems.Add(songFoldersItem);
+            systemItems.Add(randomSelectFromSubBoxItem);
             systemItems.Add(systemKeyItem);
             systemItems.Add(importItem);
 

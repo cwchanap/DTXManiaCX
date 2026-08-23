@@ -73,6 +73,54 @@ public class ConfigStageLogicTests
     }
 
     [Fact]
+    public void SetupConfigItems_RandomSelectFromSubBox_ShouldDescribeAndDisplayToggleState()
+    {
+        var (stage, configManager, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            var categories = ReflectionHelpers.GetPrivateField<List<ConfigCategory>>(stage, "_categories");
+            var item = categories!.Single(category => category.Name == "System")
+                .Items.Single(item => item.Name == "Random Select Sub-BOXes");
+
+            Assert.Equal(
+                "Include songs inside descendant BOXes when using RANDOM SELECT.",
+                item.Description);
+            Assert.Equal("Random Select Sub-BOXes: OFF", item.GetDisplayText());
+
+            configManager.Config.RandomSelectFromSubBox = true;
+
+            Assert.Equal("Random Select Sub-BOXes: ON", item.GetDisplayText());
+        }
+    }
+
+    [Fact]
+    public void ActivatePressedOnRandomSelectFromSubBox_ShouldUseManagerSetterAndChangeOnlyThisValue()
+    {
+        using var inputManager = new InputManagerCompat(new ConfigManager(), new TestMidiDeviceBackend());
+        var (stage, mockConfig) = CreateStageWithMockConfig(inputManager);
+        var config = mockConfig.Object.Config;
+        config.FullScreen = false;
+        config.Metronome = false;
+        mockConfig
+            .Setup(manager => manager.SetRandomSelectFromSubBox(It.IsAny<bool>()))
+            .Callback<bool>(value => config.RandomSelectFromSubBox = value);
+
+        InitializeStageMenu(stage, includePanels: false);
+        SelectItemForEditing(stage, "Random Select Sub-BOXes");
+        SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+        Assert.True(config.RandomSelectFromSubBox);
+        Assert.False(config.FullScreen);
+        Assert.False(config.Metronome);
+        mockConfig.Verify(
+            manager => manager.SetRandomSelectFromSubBox(true),
+            Moq.Times.Once);
+    }
+
+    [Fact]
     public void DrawItemList_WhenSongFoldersHasMultipleRoots_ShouldRenderCountInValueColumn()
     {
         var configManager = new ConfigManager();
@@ -608,11 +656,11 @@ public class ConfigStageLogicTests
         {
             stage.InitializeDrawingState();
             ReflectionHelpers.InvokePrivateMethod(stage, "SetupConfigItems");
-            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 0); // System (index 5 = System Key Mapping)
+            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 0); // System (index 6 = System Key Mapping)
 
             ReflectionHelpers.InvokePrivateMethod(stage, "DrawItemList");
 
-            var navRowTopY = ConfigUILayout.RowTopY(5, 0.0);
+            var navRowTopY = ConfigUILayout.RowTopY(6, 0.0);
             var normalRect = ConfigUILayout.ItemBoxRect(navRowTopY, ConfigUILayout.ItemBoxNormalWidth);
             Assert.Contains(stage.RectangleDrawCalls,
                 c => c.Rectangle == normalRect && c.Color == new Color(34, 40, 68, 200));
@@ -898,10 +946,10 @@ public class ConfigStageLogicTests
 
             Assert.False(systemPanel.IsActive);
             Assert.Null(ReflectionHelpers.GetPrivateField<IKeyAssignPanel>(stage, "_activePanel"));
-            // Still in System category with System Key Mapping selected (index 5 in System items).
+            // Still in System category with System Key Mapping selected (index 6 in System items).
             Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_currentCategoryIndex"));
             var categories = ReflectionHelpers.GetPrivateField<List<ConfigCategory>>(stage, "_categories");
-            Assert.Equal(5, categories![0].SelectedIndex);
+            Assert.Equal(6, categories![0].SelectedIndex);
             // Cancel (Back) does not persist; system bindings unchanged.
             Assert.Equal(before, inputManager.GetKeyMappingSnapshot().Count);
         }
@@ -1178,6 +1226,7 @@ public class ConfigStageLogicTests
                 i => Assert.Equal("VSync Wait", i.Name),
                 i => Assert.Equal("Audio Latency Offset", i.Name),
                 i => Assert.Equal("Song Folders", i.Name),
+                i => Assert.Equal("Random Select Sub-BOXes", i.Name),
                 i => Assert.Equal("System Key Mapping", i.Name),
                 i => Assert.Equal("Import NX Scores", i.Name));
 

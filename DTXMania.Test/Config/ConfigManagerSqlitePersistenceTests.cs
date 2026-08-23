@@ -284,6 +284,24 @@ namespace DTXMania.Test.Config
         }
 
         [Fact]
+        public void RandomSelectFromSubBox_RoundTrip_ShouldPersistOnlyCanonicalKey()
+        {
+            var manager = CreateManager();
+            manager.LoadConfig();
+            manager.SetRandomSelectFromSubBox(true);
+            manager.FlushPendingSave();
+
+            var rows = ReadRows();
+            Assert.Equal("True", rows["RandomSelectFromSubBox"]);
+            Assert.DoesNotContain("RandomFromSubBox", rows.Keys);
+            Assert.DoesNotContain("RandSubBox", rows.Keys);
+
+            var reloaded = CreateManager();
+            reloaded.LoadConfig();
+            Assert.True(reloaded.Config.RandomSelectFromSubBox);
+        }
+
+        [Fact]
         public void FlushPendingSave_WhenSaveFails_ShouldRemainPendingAndRetryLater()
         {
             var manager = CreateManager();

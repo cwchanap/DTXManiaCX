@@ -557,6 +557,11 @@ namespace DTXMania.Game.Lib.Config
                     if (TryParseBool(value, out var metronome))
                         Config.Metronome = metronome;
                     break;
+                case "RandomSelectFromSubBox":
+                case "RandomFromSubBox":
+                    if (TryParseBool(value, out var randomSelectFromSubBox))
+                        Config.RandomSelectFromSubBox = randomSelectFromSubBox;
+                    break;
                 case "AutoPlay":
                     // Obsolete global flag (HPA-18): recognized only to warn. The
                     // value is neither translated into lanes nor persisted again.
@@ -773,6 +778,7 @@ namespace DTXMania.Game.Lib.Config
             entries["PitchSemitones"] = PitchRange.SnapAndClamp(Config.PitchSemitones)
                 .ToString(CultureInfo.InvariantCulture);
             entries["Metronome"] = Config.Metronome.ToString();
+            entries["RandomSelectFromSubBox"] = Config.RandomSelectFromSubBox.ToString();
             foreach (var lane in Config.AutoPlayLanes
                 .Where(lane => lane >= 0 && lane <= 9)
                 .OrderBy(lane => lane))
@@ -985,6 +991,16 @@ namespace DTXMania.Game.Lib.Config
                 return;
 
             Config.Metronome = value;
+            MarkDirty();
+        }
+
+        /// <summary>Sets Random Select descendant-BOX inclusion and marks a deferred save when changed.</summary>
+        public void SetRandomSelectFromSubBox(bool value)
+        {
+            if (value == Config.RandomSelectFromSubBox)
+                return;
+
+            Config.RandomSelectFromSubBox = value;
             MarkDirty();
         }
 

@@ -70,6 +70,7 @@ namespace DTXMania.Game.Lib.Config
         public int PlaySpeedPercent { get; set; } = PlaySpeedRange.Default;
         public int PitchSemitones { get; set; } = PitchRange.Default;
         public bool Metronome { get; set; } = false;
+        public bool RandomSelectFromSubBox { get; set; } = false;
         public HashSet<int> AutoPlayLanes { get; } = new();
         public bool NoFail { get; set; } = false;
         public int Risky { get; set; } = RiskyRange.Default;

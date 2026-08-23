@@ -582,6 +582,77 @@ ScreenHeight=720
         Assert.True(manager.Config.Metronome);
     }
 
+    [Theory]
+    [InlineData("true")]
+    [InlineData("1")]
+    [InlineData("on")]
+    public void ConfigManager_ParseRandomSelectFromSubBox_ShouldAcceptTruthyValues(string value)
+    {
+        var dir = NewTestDir();
+        var manager = CreateManager(dir);
+
+        File.WriteAllText(
+            Path.Combine(dir, "Config.ini"),
+            $"[Game]\nRandomSelectFromSubBox={value}\n",
+            Encoding.UTF8);
+        manager.LoadConfig();
+
+        Assert.True(manager.Config.RandomSelectFromSubBox);
+    }
+
+    [Fact]
+    public void ConfigManager_ParseRandomFromSubBox_ShouldAcceptLegacyTruthyValue()
+    {
+        var dir = NewTestDir();
+        var manager = CreateManager(dir);
+
+        File.WriteAllText(
+            Path.Combine(dir, "Config.ini"),
+            "[Game]\nRandomFromSubBox=1\n",
+            Encoding.UTF8);
+        manager.LoadConfig();
+
+        Assert.True(manager.Config.RandomSelectFromSubBox);
+    }
+
+    [Fact]
+    public void ConfigManager_ParseRandomSelectFromSubBox_InvalidValue_ShouldKeepExistingValue()
+    {
+        var dir = NewTestDir();
+        var manager = CreateManager(dir);
+        manager.Config.RandomSelectFromSubBox = true;
+
+        File.WriteAllText(
+            Path.Combine(dir, "Config.ini"),
+            "[Game]\nRandomSelectFromSubBox=invalid\n",
+            Encoding.UTF8);
+        manager.LoadConfig();
+
+        Assert.True(manager.Config.RandomSelectFromSubBox);
+    }
+
+    [Fact]
+    public void SetRandomSelectFromSubBox_ShouldMutateAndUseDeferredSaveOnlyWhenChanged()
+    {
+        var dir = NewTestDir();
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
+
+        manager.SetRandomSelectFromSubBox(false);
+        Assert.False(HasPendingSave(manager));
+
+        manager.SetRandomSelectFromSubBox(true);
+
+        Assert.True(manager.Config.RandomSelectFromSubBox);
+        Assert.True(HasPendingSave(manager));
+
+        manager.FlushPendingSave();
+        Assert.Equal("True", ReadRows(dir)["RandomSelectFromSubBox"]);
+
+        manager.SetRandomSelectFromSubBox(true);
+        Assert.False(HasPendingSave(manager));
+    }
+
     [Fact]
     public void ConfigManager_FlushPendingSave_ShouldWriteSingleMetronomeRow()
     {
