@@ -1182,6 +1182,8 @@ namespace DTXMania.Test.Stage.DrumConfig
 
             public void SetMetronome(bool value) { }
 
+            public void SetRandomSelectFromSubBox(bool value) { }
+
             public void SetRisky(int value) { }
 
             public void SetDamageLevel(GaugeDamageLevel value) { }
