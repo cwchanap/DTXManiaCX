@@ -514,9 +514,14 @@ namespace DTXMania.Game.Lib.UI.Layout
         #region Note Rendering Constants
         
         /// <summary>
-        /// Note rendering settings
+        /// Base drum-note velocity at x1.0, matching NX CChip.ComputeDistanceFromBar.
         /// </summary>
-        public const double NoteDefaultLookAheadMs = 1500.0;
+        public const double NoteBaseScrollPixelsPerMs = 37.5 * 286.0 / 60000.0;
+
+        /// <summary>
+        /// Time for an x1.0 note to travel from the top of the screen to the judgement line.
+        /// </summary>
+        public const double NoteDefaultLookAheadMs = JudgementLineY / NoteBaseScrollPixelsPerMs;
         public const int NoteDefaultScrollSpeed = 100; // Default scroll speed percentage
 
         // Scroll-speed indicator (in-game toast shown when player adjusts scroll speed)
