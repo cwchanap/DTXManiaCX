@@ -19,7 +19,7 @@ The current stage already owns both the active song-list context and `IConfigMan
 - Preserve today's direct-only behavior when the toggle is Off.
 - When On, include eligible songs from every descendant BOX below the current list.
 - Reuse the existing song-selection transition once a candidate is chosen.
-- Keep candidate collection deterministic and independently testable without graphics or random-number injection.
+- Keep candidate collection independently testable without graphics or random-number injection.
 
 ## Non-goals
 
@@ -36,7 +36,7 @@ The current stage already owns both the active song-list context and `IConfigMan
 
 ### 1. Local depth-first collector in `SongSelectionStage` — chosen
 
-Extract a private static helper that collects direct scores and, when enabled, recursively visits child `Box.Children`. `SelectRandomSong()` consumes that list and keeps its existing transition behavior.
+Extract a private static helper that collects direct scores and, when enabled, recursively visits child `Box.Children`. `SelectRandomSong()` consumes that list and keeps its existing random choice and transition behavior.
 
 This uses the data already owned by the stage, is easy to characterize with headless tests, and adds no lifecycle or synchronization concerns.
 
@@ -88,7 +88,7 @@ Keep candidate collection private to `SongSelectionStage`, conceptually:
 
 ```text
 CollectRandomCandidates(nodes, includeSubBoxes):
-    for each node in nodes in authored order:
+    for each node in nodes:
         if node.Type == Score:
             add node
         else if includeSubBoxes and node.Type == Box:
@@ -111,7 +111,7 @@ The helper returns a new local list for one action. No candidate cache is retain
 
 `SelectRandomSong()` asks the helper for candidates using the live configuration value. When there are no candidates, it remains a no-op, matching current behavior.
 
-When candidates exist, choose one uniformly with `Random.Shared.Next(candidates.Count)`. Do not introduce an injectable random service. Tests should make candidate enumeration deterministic and use a single-candidate tree for the narrow selection integration case.
+When candidates exist, keep the current per-action `Random` construction and `Next(candidates.Count)` selection. HPA-17 changes only candidate scope; it does not change random-number behavior or add an injectable random service. Tests use a single-candidate tree for the narrow selection integration case.
 
 After choosing a valid score, preserve the existing sequence:
 
@@ -129,13 +129,13 @@ Extend existing suites; do not add a new harness.
 
 ### Configuration
 
-In `ConfigManagerTests` and `ConfigManagerSqlitePersistenceTests`, prove:
+In `ConfigDataTests`, `ConfigManagerTests`, and `ConfigManagerSqlitePersistenceTests`, prove:
 
 - default is Off;
 - the setter changes the value and uses normal deferred persistence;
 - repeated no-op assignment does not create extra dirty work;
 - SQLite round trip preserves both Off and On;
-- malformed boolean input falls back through the existing config policy rather than adding special parsing.
+- malformed boolean input follows the existing config policy rather than adding special parsing.
 
 ### Config UI
 
@@ -163,7 +163,7 @@ Do not test random distribution or seed behavior.
 - A persisted Off setting leaves RANDOM SELECT limited to direct songs in the current list.
 - A persisted On setting includes direct songs and songs under descendant BOXes of the current list.
 - RANDOM SELECT never escapes to ancestors, siblings, or unrelated roots.
-- Existing direct-score selection and difficulty transition remain unchanged.
+- Existing direct-score selection, random choice, and difficulty transition remain unchanged.
 - Configuration and candidate behavior are covered by headless unit tests.
 - The macOS test/build projects and Windows CI build without a new service, panel, cache, or schema migration.
 
@@ -177,6 +177,7 @@ Do not test random distribution or seed behavior.
 
 Expected tests:
 
+- `DTXMania.Test/Config/ConfigDataTests.cs`
 - `DTXMania.Test/Config/ConfigManagerTests.cs`
 - `DTXMania.Test/Config/ConfigManagerSqlitePersistenceTests.cs`
 - `DTXMania.Test/Config/ConfigStageLogicTests.cs`
