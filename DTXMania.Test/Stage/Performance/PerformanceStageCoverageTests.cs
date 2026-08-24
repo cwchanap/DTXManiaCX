@@ -37,7 +37,7 @@ public class PerformanceStageCoverageTests
         ReflectionHelpers.SetPrivateField(stage, "_scheduledBGMEvents", new List<BGMEvent>());
 
         ReflectionHelpers.InvokePrivateMethod(stage, "ExtractSharedData");
-        ReflectionHelpers.InvokePrivateMethod(stage, "InitializeAutoPlay");
+        ReflectionHelpers.InvokePrivateMethod(stage, "FreezeRunConfiguration");
 
         var configManagerField = game.ConfigManager;
         Assert.NotNull(configManagerField);
@@ -57,7 +57,7 @@ public class PerformanceStageCoverageTests
         ReflectionHelpers.SetPrivateField(stage, "_sharedData", null);
 
         ReflectionHelpers.InvokePrivateMethod(stage, "ExtractSharedData");
-        ReflectionHelpers.InvokePrivateMethod(stage, "InitializeAutoPlay");
+        ReflectionHelpers.InvokePrivateMethod(stage, "FreezeRunConfiguration");
 
         Assert.Null(ReflectionHelpers.GetPrivateField<IConfigManager>(stage, "_subscribedConfigManager"));
     }
