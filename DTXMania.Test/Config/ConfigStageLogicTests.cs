@@ -1232,6 +1232,10 @@ public class ConfigStageLogicTests
 
             Assert.Collection(categories[1].Items,
                 i => Assert.Equal("Scroll Speed", i.Name),
+                i => Assert.Equal("Lane Display", i.Name),
+                i => Assert.Equal("Judge Line", i.Name),
+                i => Assert.Equal("Lane Flush", i.Name),
+                i => Assert.Equal("Combo", i.Name),
                 i => Assert.Equal("Play Speed", i.Name),
                 i => Assert.Equal("Pitch", i.Name),
                 i => Assert.Equal("Metronome", i.Name),
@@ -1256,6 +1260,154 @@ public class ConfigStageLogicTests
                 categories[1].Items,
                 item => item is NavigationConfigItem && item.Name.Contains("Auto Play", StringComparison.Ordinal));
             Assert.False(categories[2].HasItems);
+        }
+    }
+
+    [Fact]
+    public void LaneDisplayItem_ShouldUseOptionTableLabelOrder()
+    {
+        var expectedLabels = new[] { "ALL ON", "LANE OFF", "LINE OFF", "ALL OFF" };
+        var (stage, configManager, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            Assert.Equal(expectedLabels, DrumsLaneDisplayModeExtensions.Labels);
+            Assert.Equal(expectedLabels, DrumsLaneDisplayModeExtensions.Options.Select(option => option.Label));
+
+            configManager.Config.LaneDisplayMode = DrumsLaneDisplayMode.AllOn;
+            InitializeStageMenu(stage, includePanels: false);
+            var categories = ReflectionHelpers.GetPrivateField<List<ConfigCategory>>(stage, "_categories");
+            var item = categories!.Single(category => category.Name == "Drums")
+                .Items.Single(configItem => configItem.Name == "Lane Display");
+
+            foreach (var label in expectedLabels)
+            {
+                Assert.Equal($"Lane Display: {label}", item.GetDisplayText());
+                item.NextValue();
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData(DrumsLaneDisplayMode.AllOn, "ALL ON")]
+    [InlineData(DrumsLaneDisplayMode.LaneOff, "LANE OFF")]
+    [InlineData(DrumsLaneDisplayMode.LineOff, "LINE OFF")]
+    [InlineData(DrumsLaneDisplayMode.AllOff, "ALL OFF")]
+    public void LaneDisplayItem_ShouldDisplayMatchingLabel(
+        DrumsLaneDisplayMode mode,
+        string expectedLabel)
+    {
+        var (stage, configManager, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            configManager.Config.LaneDisplayMode = mode;
+            InitializeStageMenu(stage, includePanels: false);
+            var categories = ReflectionHelpers.GetPrivateField<List<ConfigCategory>>(stage, "_categories");
+            var item = categories!.Single(category => category.Name == "Drums")
+                .Items.Single(configItem => configItem.Name == "Lane Display");
+
+            Assert.Equal($"Lane Display: {expectedLabel}", item.GetDisplayText());
+        }
+    }
+
+    [Theory]
+    [InlineData(DrumsLaneDisplayMode.AllOn, Keys.Left, DrumsLaneDisplayMode.AllOff)]
+    [InlineData(DrumsLaneDisplayMode.AllOn, Keys.Right, DrumsLaneDisplayMode.LaneOff)]
+    [InlineData(DrumsLaneDisplayMode.AllOn, Keys.Enter, DrumsLaneDisplayMode.LaneOff)]
+    [InlineData(DrumsLaneDisplayMode.LaneOff, Keys.Left, DrumsLaneDisplayMode.AllOn)]
+    [InlineData(DrumsLaneDisplayMode.LaneOff, Keys.Right, DrumsLaneDisplayMode.LineOff)]
+    [InlineData(DrumsLaneDisplayMode.LaneOff, Keys.Enter, DrumsLaneDisplayMode.LineOff)]
+    [InlineData(DrumsLaneDisplayMode.LineOff, Keys.Left, DrumsLaneDisplayMode.LaneOff)]
+    [InlineData(DrumsLaneDisplayMode.LineOff, Keys.Right, DrumsLaneDisplayMode.AllOff)]
+    [InlineData(DrumsLaneDisplayMode.LineOff, Keys.Enter, DrumsLaneDisplayMode.AllOff)]
+    [InlineData(DrumsLaneDisplayMode.AllOff, Keys.Left, DrumsLaneDisplayMode.LineOff)]
+    [InlineData(DrumsLaneDisplayMode.AllOff, Keys.Right, DrumsLaneDisplayMode.AllOn)]
+    [InlineData(DrumsLaneDisplayMode.AllOff, Keys.Enter, DrumsLaneDisplayMode.AllOn)]
+    public void LaneDisplayItem_WhenAdjusted_ShouldDispatchLabelToEnumSetter(
+        DrumsLaneDisplayMode startingMode,
+        Keys key,
+        DrumsLaneDisplayMode expectedMode)
+    {
+        using var inputManager = new InputManagerCompat(new ConfigManager(), new TestMidiDeviceBackend());
+        var (stage, mockConfig) = CreateStageWithMockConfig(inputManager);
+        mockConfig.Object.Config.LaneDisplayMode = startingMode;
+        InitializeStageMenu(stage, includePanels: false);
+        SelectItemForEditing(stage, "Lane Display");
+        SetKeyboardStates(stage, new KeyboardState(key), new KeyboardState());
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+        mockConfig.Verify(
+            manager => manager.SetLaneDisplayMode(expectedMode),
+            Times.Once);
+    }
+
+    [Fact]
+    public void JudgeLineItem_WhenActivated_ShouldDispatchToSetter()
+    {
+        using var inputManager = new InputManagerCompat(new ConfigManager(), new TestMidiDeviceBackend());
+        var (stage, mockConfig) = CreateStageWithMockConfig(inputManager);
+        InitializeStageMenu(stage, includePanels: false);
+        SelectItemForEditing(stage, "Judge Line");
+        SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+        mockConfig.Verify(manager => manager.SetShowJudgementLine(false), Times.Once);
+    }
+
+    [Fact]
+    public void LaneFlushItem_WhenActivated_ShouldDispatchToSetter()
+    {
+        using var inputManager = new InputManagerCompat(new ConfigManager(), new TestMidiDeviceBackend());
+        var (stage, mockConfig) = CreateStageWithMockConfig(inputManager);
+        InitializeStageMenu(stage, includePanels: false);
+        SelectItemForEditing(stage, "Lane Flush");
+        SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+        mockConfig.Verify(manager => manager.SetEnableLaneFlush(true), Times.Once);
+    }
+
+    [Fact]
+    public void ComboItem_WhenActivated_ShouldDispatchToSetter()
+    {
+        using var inputManager = new InputManagerCompat(new ConfigManager(), new TestMidiDeviceBackend());
+        var (stage, mockConfig) = CreateStageWithMockConfig(inputManager);
+        InitializeStageMenu(stage, includePanels: false);
+        SelectItemForEditing(stage, "Combo");
+        SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+        mockConfig.Verify(manager => manager.SetShowCombo(false), Times.Once);
+    }
+
+    [Fact]
+    public void ScrollSpeedItem_ShouldKeepRangeFormatterAndBehavior()
+    {
+        var (stage, configManager, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            InitializeStageMenu(stage, includePanels: false);
+            var categories = ReflectionHelpers.GetPrivateField<List<ConfigCategory>>(stage, "_categories");
+            var item = categories!.Single(category => category.Name == "Drums")
+                .Items.Single(configItem => configItem.Name == "Scroll Speed");
+
+            configManager.Config.ScrollSpeed = ScrollSpeedRange.Default;
+            Assert.Equal("Scroll Speed: x1.0", item.GetDisplayText());
+
+            item.NextValue();
+            Assert.Equal(ScrollSpeedRange.Default + ScrollSpeedRange.Step, configManager.Config.ScrollSpeed);
+            Assert.Equal("Scroll Speed: x1.5", item.GetDisplayText());
+
+            configManager.Config.ScrollSpeed = ScrollSpeedRange.Max;
+            item.NextValue();
+            Assert.Equal(ScrollSpeedRange.Max, configManager.Config.ScrollSpeed);
+
+            configManager.Config.ScrollSpeed = ScrollSpeedRange.Min;
+            item.PreviousValue();
+            Assert.Equal(ScrollSpeedRange.Min, configManager.Config.ScrollSpeed);
         }
     }
 
