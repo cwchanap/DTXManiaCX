@@ -1182,6 +1182,14 @@ namespace DTXMania.Test.Stage.DrumConfig
 
             public void SetMetronome(bool value) { }
 
+            public void SetLaneDisplayMode(DrumsLaneDisplayMode value) { }
+
+            public void SetShowJudgementLine(bool value) { }
+
+            public void SetEnableLaneFlush(bool value) { }
+
+            public void SetShowCombo(bool value) { }
+
             public void SetRandomSelectFromSubBox(bool value) { }
 
             public void SetRisky(int value) { }

@@ -85,6 +85,10 @@ public class ConfigManagerTests : IDisposable
     {
         Assert.NotNull(typeof(IConfigManager).GetMethod("SetAutoPlayLane"));
         Assert.NotNull(typeof(IConfigManager).GetMethod("SetAllAutoPlayLanes"));
+        Assert.NotNull(typeof(IConfigManager).GetMethod("SetLaneDisplayMode"));
+        Assert.NotNull(typeof(IConfigManager).GetMethod("SetShowJudgementLine"));
+        Assert.NotNull(typeof(IConfigManager).GetMethod("SetEnableLaneFlush"));
+        Assert.NotNull(typeof(IConfigManager).GetMethod("SetShowCombo"));
     }
 
     [Fact]
@@ -476,6 +480,129 @@ ScreenHeight=720
         manager.LoadConfig();
 
         Assert.Equal(expectedDamageLevel, manager.Config.DamageLevel);
+    }
+
+    [Theory]
+    [InlineData("LaneDisplayMode=laneoff", DrumsLaneDisplayMode.LaneOff)]
+    [InlineData("LaneDisplayMode=LINEOFF", DrumsLaneDisplayMode.LineOff)]
+    [InlineData("LaneDisplayMode=AllOff", DrumsLaneDisplayMode.AllOff)]
+    [InlineData("LaneDisplayMode=1", DrumsLaneDisplayMode.AllOn)]
+    [InlineData("LaneDisplayMode=LANE OFF", DrumsLaneDisplayMode.AllOn)]
+    [InlineData("LaneDisplayMode=garbage", DrumsLaneDisplayMode.AllOn)]
+    public void ConfigManager_ParseLaneDisplayMode_ShouldAcceptNamesOnly(
+        string line, DrumsLaneDisplayMode expectedMode)
+    {
+        var dir = NewTestDir();
+        File.WriteAllText(Path.Combine(dir, "Config.ini"), $"[Game]\n{line}\n", Encoding.UTF8);
+
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
+
+        Assert.Equal(expectedMode, manager.Config.LaneDisplayMode);
+    }
+
+    [Theory]
+    [InlineData(DrumsLaneDisplayMode.AllOn)]
+    [InlineData(DrumsLaneDisplayMode.LaneOff)]
+    [InlineData(DrumsLaneDisplayMode.LineOff)]
+    [InlineData(DrumsLaneDisplayMode.AllOff)]
+    public void SetLaneDisplayMode_ShouldPersistDefinedModes(DrumsLaneDisplayMode mode)
+    {
+        var dir = NewTestDir();
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
+
+        manager.SetLaneDisplayMode(mode);
+        manager.FlushPendingSave();
+
+        Assert.Equal(mode, manager.Config.LaneDisplayMode);
+        Assert.Equal(mode.ToString(), ReadRows(dir)["LaneDisplayMode"]);
+    }
+
+    [Fact]
+    public void SetLaneDisplayMode_ShouldNormalizeUndefinedValuesAndSkipNoOps()
+    {
+        var dir = NewTestDir();
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
+
+        manager.SetLaneDisplayMode((DrumsLaneDisplayMode)99);
+        Assert.Equal(DrumsLaneDisplayMode.AllOn, manager.Config.LaneDisplayMode);
+        Assert.False(HasPendingSave(manager));
+
+        manager.SetLaneDisplayMode(DrumsLaneDisplayMode.AllOn);
+        Assert.False(HasPendingSave(manager));
+
+        manager.SetLaneDisplayMode(DrumsLaneDisplayMode.LaneOff);
+        Assert.Equal(DrumsLaneDisplayMode.LaneOff, manager.Config.LaneDisplayMode);
+        Assert.True(HasPendingSave(manager));
+
+        manager.FlushPendingSave();
+        manager.SetLaneDisplayMode(DrumsLaneDisplayMode.LaneOff);
+        Assert.False(HasPendingSave(manager));
+    }
+
+    [Fact]
+    public void SetShowJudgementLine_ShouldChangeAndSkipNoOps()
+    {
+        var manager = CreateManager(NewTestDir());
+        manager.LoadConfig();
+
+        AssertVisualBooleanSetter(
+            manager,
+            manager.SetShowJudgementLine,
+            () => manager.Config.ShowJudgementLine,
+            defaultValue: true,
+            changedValue: false);
+    }
+
+    [Fact]
+    public void SetEnableLaneFlush_ShouldChangeAndSkipNoOps()
+    {
+        var manager = CreateManager(NewTestDir());
+        manager.LoadConfig();
+
+        AssertVisualBooleanSetter(
+            manager,
+            manager.SetEnableLaneFlush,
+            () => manager.Config.EnableLaneFlush,
+            defaultValue: false,
+            changedValue: true);
+    }
+
+    [Fact]
+    public void SetShowCombo_ShouldChangeAndSkipNoOps()
+    {
+        var manager = CreateManager(NewTestDir());
+        manager.LoadConfig();
+
+        AssertVisualBooleanSetter(
+            manager,
+            manager.SetShowCombo,
+            () => manager.Config.ShowCombo,
+            defaultValue: true,
+            changedValue: false);
+    }
+
+    private static void AssertVisualBooleanSetter(
+        ConfigManager manager,
+        Action<bool> setter,
+        Func<bool> getter,
+        bool defaultValue,
+        bool changedValue)
+    {
+        setter(defaultValue);
+        Assert.False(HasPendingSave(manager));
+
+        setter(changedValue);
+        Assert.Equal(changedValue, getter());
+        Assert.True(HasPendingSave(manager));
+
+        manager.FlushPendingSave();
+        Assert.False(HasPendingSave(manager));
+
+        setter(changedValue);
+        Assert.False(HasPendingSave(manager));
     }
 
     [Theory]

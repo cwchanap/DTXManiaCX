@@ -76,6 +76,10 @@ namespace DTXMania.Game.Lib.Config
         public int Risky { get; set; } = RiskyRange.Default;
         public GaugeDamageLevel DamageLevel { get; set; } = GaugeDamageLevel.Normal;
         public bool AutoAddGauge { get; set; } = true;
+        public DrumsLaneDisplayMode LaneDisplayMode { get; set; } = DrumsLaneDisplayMode.AllOn;
+        public bool ShowJudgementLine { get; set; } = true;
+        public bool EnableLaneFlush { get; set; } = false;
+        public bool ShowCombo { get; set; } = true;
 
         /// <summary>
         /// Audio output latency compensation in milliseconds. This value is subtracted from
