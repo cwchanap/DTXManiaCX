@@ -475,7 +475,7 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void InitializeAutoPlay_WhenConfigProvidesAutoPlayLanes_ShouldCopyLanesAndResetIndex()
+    public void FreezeRunConfiguration_WhenConfigProvidesAutoPlayLanes_ShouldCopyLanesAndResetIndex()
     {
         var game = ReflectionHelpers.CreateGame();
         var config = new ConfigData();
@@ -485,28 +485,32 @@ public class PerformanceStageDeterministicTests
         SetAutoPlayLanes(stage, 0);
         ReflectionHelpers.SetPrivateField(stage, "_autoPlayNoteIndex", 19);
 
-        ReflectionHelpers.InvokePrivateMethod(stage, "InitializeAutoPlay");
+        ReflectionHelpers.InvokePrivateMethod(stage, "FreezeRunConfiguration");
 
         Assert.Equal(new[] { 2, 7 }, GetAutoPlayLanes(stage).OrderBy(lane => lane));
         Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
     }
 
     [Fact]
-    public void InitializeAutoPlay_WhenConfigProvidesGameplayRules_ShouldFreezeAllRunValuesTogether()
+    public void FreezeRunConfiguration_WhenConfigProvidesGameplayRules_ShouldFreezeAllRunValuesTogether()
     {
         var config = new ConfigData
         {
             AutoAddGauge = false,
             DamageLevel = GaugeDamageLevel.High,
             Risky = 3,
-            NoFail = true
+            NoFail = true,
+            LaneDisplayMode = DrumsLaneDisplayMode.AllOff,
+            ShowJudgementLine = false,
+            EnableLaneFlush = true,
+            ShowCombo = false
         };
         config.AutoPlayLanes.UnionWith(new[] { 1, 8 });
         var game = ReflectionHelpers.CreateGame();
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(config));
         var stage = CreateStage(game);
 
-        ReflectionHelpers.InvokePrivateMethod(stage, "InitializeAutoPlay");
+        ReflectionHelpers.InvokePrivateMethod(stage, "FreezeRunConfiguration");
 
         // A later config edit must not change the policy captured for this run.
         config.AutoPlayLanes.Clear();
@@ -515,6 +519,10 @@ public class PerformanceStageDeterministicTests
         config.DamageLevel = GaugeDamageLevel.Low;
         config.Risky = 0;
         config.NoFail = false;
+        config.LaneDisplayMode = DrumsLaneDisplayMode.AllOn;
+        config.ShowJudgementLine = true;
+        config.EnableLaneFlush = false;
+        config.ShowCombo = true;
 
         Assert.Equal(new[] { 1, 8 }, GetAutoPlayLanes(stage).OrderBy(lane => lane));
         Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_autoAddGaugeEnabled"));
@@ -523,10 +531,19 @@ public class PerformanceStageDeterministicTests
             ReflectionHelpers.GetPrivateField<GaugeDamageLevel>(stage, "_gaugeDamageLevel"));
         Assert.Equal(3, ReflectionHelpers.GetPrivateField<int>(stage, "_riskyLimit"));
         Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_gaugeFailureEnabled"));
+
+        var visualGates = ReflectionHelpers.GetPrivateField<object>(stage, "_visualGates");
+        Assert.NotNull(visualGates);
+        var gateType = visualGates!.GetType();
+        Assert.True((bool)gateType.GetProperty("HideLaneBackground")!.GetValue(visualGates)!);
+        Assert.True((bool)gateType.GetProperty("HideMeasureLines")!.GetValue(visualGates)!);
+        Assert.True((bool)gateType.GetProperty("HideJudgementLine")!.GetValue(visualGates)!);
+        Assert.True((bool)gateType.GetProperty("HideCombo")!.GetValue(visualGates)!);
+        Assert.True((bool)gateType.GetProperty("EnableLaneFlush")!.GetValue(visualGates)!);
     }
 
     [Fact]
-    public void InitializeAutoPlay_WhenConfigManagerMissing_ShouldDisableAutoPlayAndResetIndex()
+    public void FreezeRunConfiguration_WhenConfigManagerMissing_ShouldDisableAutoPlayAndResetIndex()
     {
         var game = ReflectionHelpers.CreateGame();
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), null);
@@ -534,14 +551,14 @@ public class PerformanceStageDeterministicTests
         SetAutoPlayLanes(stage, 3);
         ReflectionHelpers.SetPrivateField(stage, "_autoPlayNoteIndex", 7);
 
-        ReflectionHelpers.InvokePrivateMethod(stage, "InitializeAutoPlay");
+        ReflectionHelpers.InvokePrivateMethod(stage, "FreezeRunConfiguration");
 
         Assert.Empty(GetAutoPlayLanes(stage));
         Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
     }
 
     [Fact]
-    public void InitializeAutoPlay_WhenConfigDisablesAutoPlay_ShouldDisableAndResetIndex()
+    public void FreezeRunConfiguration_WhenConfigDisablesAutoPlay_ShouldDisableAndResetIndex()
     {
         var game = ReflectionHelpers.CreateGame();
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(new ConfigData()));
@@ -549,28 +566,28 @@ public class PerformanceStageDeterministicTests
         SetAutoPlayLanes(stage, 3);
         ReflectionHelpers.SetPrivateField(stage, "_autoPlayNoteIndex", 3);
 
-        ReflectionHelpers.InvokePrivateMethod(stage, "InitializeAutoPlay");
+        ReflectionHelpers.InvokePrivateMethod(stage, "FreezeRunConfiguration");
 
         Assert.Empty(GetAutoPlayLanes(stage));
         Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
     }
 
     [Fact]
-    public void InitializeAutoPlay_WhenGameMissing_ShouldDisableAutoPlayAndResetIndex()
+    public void FreezeRunConfiguration_WhenGameMissing_ShouldDisableAutoPlayAndResetIndex()
     {
         var stage = CreateStage();
         ReflectionHelpers.SetPrivateField(stage, "_game", null);
         SetAutoPlayLanes(stage, 3);
         ReflectionHelpers.SetPrivateField(stage, "_autoPlayNoteIndex", 11);
 
-        ReflectionHelpers.InvokePrivateMethod(stage, "InitializeAutoPlay");
+        ReflectionHelpers.InvokePrivateMethod(stage, "FreezeRunConfiguration");
 
         Assert.Empty(GetAutoPlayLanes(stage));
         Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
     }
 
     [Fact]
-    public void InitializeAutoPlay_WhenConfigIsNull_ShouldDisableAutoPlayAndResetIndex()
+    public void FreezeRunConfiguration_WhenConfigIsNull_ShouldDisableAutoPlayAndResetIndex()
     {
         var game = ReflectionHelpers.CreateGame();
         var configManager = new Mock<IConfigManager>();
@@ -580,7 +597,7 @@ public class PerformanceStageDeterministicTests
         SetAutoPlayLanes(stage, 3);
         ReflectionHelpers.SetPrivateField(stage, "_autoPlayNoteIndex", 4);
 
-        ReflectionHelpers.InvokePrivateMethod(stage, "InitializeAutoPlay");
+        ReflectionHelpers.InvokePrivateMethod(stage, "FreezeRunConfiguration");
 
         Assert.Empty(GetAutoPlayLanes(stage));
         Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
@@ -766,7 +783,7 @@ public class PerformanceStageDeterministicTests
         config.AutoPlayLanes.Add(0);
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(config));
         var stage = CreateStage(game);
-        ReflectionHelpers.InvokePrivateMethod(stage, "InitializeAutoPlay");
+        ReflectionHelpers.InvokePrivateMethod(stage, "FreezeRunConfiguration");
 
         // Manager creation must consume the activation snapshot, not a live config.
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), null);
@@ -2562,6 +2579,34 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void DrawLaneBackgrounds_WhenGateHidesLaneBackground_ShouldSkipTextureDraw()
+    {
+        var config = new ConfigData { LaneDisplayMode = DrumsLaneDisplayMode.LaneOff };
+        var game = ReflectionHelpers.CreateGame();
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(config));
+        var stage = CreateStage(game);
+        var laneTexture = CreateTextureMock(width: 512, height: 512);
+
+        ReflectionHelpers.SetPrivateField(stage, "_laneBgTexture", laneTexture.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
+        ReflectionHelpers.InvokePrivateMethod(stage, "FreezeRunConfiguration");
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "DrawLaneBackgrounds");
+
+        laneTexture.Verify(
+            texture => texture.Draw(
+                It.IsAny<SpriteBatch>(),
+                It.IsAny<Rectangle>(),
+                It.IsAny<Rectangle?>(),
+                It.IsAny<Color>(),
+                It.IsAny<float>(),
+                It.IsAny<Vector2>(),
+                It.IsAny<SpriteEffects>(),
+                It.IsAny<float>()),
+            Times.Never);
+    }
+
+    [Fact]
     public void DrawLaneBackgrounds_WhenLaneTextureMissing_ShouldUseFallbackRendererPathWithoutThrowing()
     {
         var stage = CreateStage();
@@ -2599,6 +2644,34 @@ public class PerformanceStageDeterministicTests
                 SpriteEffects.None,
                 0.6f),
             Times.Once);
+    }
+
+    [Fact]
+    public void DrawJudgementLine_WhenGateHidesJudgementLine_ShouldSkipTextureDraw()
+    {
+        var config = new ConfigData { ShowJudgementLine = false };
+        var game = ReflectionHelpers.CreateGame();
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(config));
+        var stage = CreateStage(game);
+        var judgementLineTexture = CreateTextureMock(width: 8, height: 8);
+
+        ReflectionHelpers.SetPrivateField(stage, "_judgementLineTexture", judgementLineTexture.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
+        ReflectionHelpers.InvokePrivateMethod(stage, "FreezeRunConfiguration");
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "DrawJudgementLine");
+
+        judgementLineTexture.Verify(
+            texture => texture.Draw(
+                It.IsAny<SpriteBatch>(),
+                It.IsAny<Rectangle>(),
+                It.IsAny<Rectangle?>(),
+                It.IsAny<Color>(),
+                It.IsAny<float>(),
+                It.IsAny<Vector2>(),
+                It.IsAny<SpriteEffects>(),
+                It.IsAny<float>()),
+            Times.Never);
     }
 
     [Fact]
@@ -3145,6 +3218,51 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void DrawUIElements_WhenComboGateHidesCombo_ShouldKeepComboStateButSkipDisplayDraw()
+    {
+        var config = new ConfigData { ShowCombo = false };
+        var game = ReflectionHelpers.CreateGame();
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(config));
+        var stage = CreateStage(game);
+        var comboDisplay = CreateComboDisplay();
+        var comboTexture = CreateTextureMock();
+        var spriteBatch = CreateSpriteBatchStub(new Viewport(0, 0, 1280, 720));
+
+        ReflectionHelpers.SetPrivateField(comboDisplay, "_comboTexture", comboTexture.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_comboDisplay", comboDisplay);
+        ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", spriteBatch);
+        ReflectionHelpers.InvokePrivateMethod(stage, "FreezeRunConfiguration");
+
+        ReflectionHelpers.InvokePrivateMethod(
+            stage,
+            "OnComboChanged",
+            null,
+            new ComboChangedEventArgs { CurrentCombo = 87 });
+
+        Assert.Equal(87, comboDisplay.Combo);
+
+        // Confirm the existing ComboDisplay texture seam is observable before
+        // checking that PerformanceStage suppresses only its draw call.
+        comboDisplay.Draw(spriteBatch);
+        comboTexture.Verify(
+            texture => texture.Draw(
+                spriteBatch,
+                It.IsAny<Vector2>(),
+                It.IsAny<Rectangle?>()),
+            Times.AtLeastOnce);
+        comboTexture.Invocations.Clear();
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "DrawUIElements");
+
+        comboTexture.Verify(
+            texture => texture.Draw(
+                It.IsAny<SpriteBatch>(),
+                It.IsAny<Vector2>(),
+                It.IsAny<Rectangle?>()),
+            Times.Never);
+    }
+
+    [Fact]
     public void DrawFallbackRectangle_WhenDrawerMissingAndWhiteTextureExists_ShouldUseTexturePath()
     {
         var stage = CreateInspectableStage();
@@ -3196,6 +3314,26 @@ public class PerformanceStageDeterministicTests
         var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "DrawNotes"));
 
         Assert.Null(exception);
+    }
+
+    [Fact]
+    public void DrawMeasureLines_WhenGateHidesMeasureLines_ShouldNotReachConcreteRendererPath()
+    {
+        var disabledStage = CreateMeasureLineStage(DrumsLaneDisplayMode.LineOff);
+        var disabledException = Record.Exception(
+            () => ReflectionHelpers.InvokePrivateMethod(disabledStage, "DrawMeasureLines"));
+
+        Assert.Null(disabledException);
+
+        // This intentionally malformed chart manager makes the existing concrete
+        // NoteRenderer path observable: an enabled draw enumerates its measure-line
+        // source and reaches the null collection. The disabled gate must return
+        // before that path is touched.
+        var enabledStage = CreateMeasureLineStage(DrumsLaneDisplayMode.AllOn);
+        var enabledException = Record.Exception(
+            () => ReflectionHelpers.InvokePrivateMethod(enabledStage, "DrawMeasureLines"));
+
+        Assert.NotNull(enabledException);
     }
 
     [Fact]
@@ -3598,9 +3736,13 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void OnJudgementMade_WhenJudgementIsHit_ShouldForwardToManagersAndTriggerVisualFeedbackWithoutLaneFlash()
+    public void OnJudgementMade_WhenJudgementIsHitAndLaneFlushIsEnabled_ShouldTriggerVisualFeedbackAndLaneFlash()
     {
-        var stage = CreateStage();
+        var config = new ConfigData { EnableLaneFlush = true };
+        var game = ReflectionHelpers.CreateGame();
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(config));
+        var stage = CreateStage(game);
+        ReflectionHelpers.InvokePrivateMethod(stage, "FreezeRunConfiguration");
         var scoreManager = new ScoreManager(10);
         var comboManager = new ComboManager();
         var gaugeManager = new GaugeManager();
@@ -3630,7 +3772,7 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(2, attackManager.LastSpawnLaneForTesting);
         Assert.Equal(JudgementType.Great, attackManager.LastSpawnJudgementTypeForTesting);
 #endif
-        Assert.Equal(0.0f, ReflectionHelpers.GetPrivateField<float[]>(noteRenderer, "_laneFlashAlpha")[2]);
+        Assert.Equal(1.0f, ReflectionHelpers.GetPrivateField<float[]>(noteRenderer, "_laneFlashAlpha")[2]);
         Assert.Equal(PadState.Pressed, ReflectionHelpers.GetPrivateField<PadVisual[]>(padRenderer, "_padVisuals")[2].State);
         Assert.Equal(1, popupManager.ActivePopupCount);
         Assert.Equal(1, skillPanelDisplay.GreatCount);
@@ -3639,9 +3781,33 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void OnJudgementMade_WhenJudgementIsMiss_ShouldForwardToManagersWithoutTriggeringHitVisualFeedback()
+    public void OnJudgementMade_WhenJudgementIsHitAndLaneFlushIsDisabled_ShouldNotTriggerLaneFlash()
     {
-        var stage = CreateStage();
+        var config = new ConfigData { EnableLaneFlush = false };
+        var game = ReflectionHelpers.CreateGame();
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(config));
+        var stage = CreateStage(game);
+        var noteRenderer = CreateNoteRenderer();
+        ReflectionHelpers.SetPrivateField(stage, "_noteRenderer", noteRenderer);
+        ReflectionHelpers.InvokePrivateMethod(stage, "FreezeRunConfiguration");
+
+        ReflectionHelpers.InvokePrivateMethod(
+            stage,
+            "OnJudgementMade",
+            null,
+            new JudgementEvent(noteRef: 1, lane: 2, deltaMs: 0.0, type: JudgementType.Great));
+
+        Assert.Equal(0.0f, ReflectionHelpers.GetPrivateField<float[]>(noteRenderer, "_laneFlashAlpha")[2]);
+    }
+
+    [Fact]
+    public void OnJudgementMade_WhenJudgementIsMissAndLaneFlushIsEnabled_ShouldNotTriggerHitVisualFeedback()
+    {
+        var config = new ConfigData { EnableLaneFlush = true };
+        var game = ReflectionHelpers.CreateGame();
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(config));
+        var stage = CreateStage(game);
+        ReflectionHelpers.InvokePrivateMethod(stage, "FreezeRunConfiguration");
         var scoreManager = new ScoreManager(10);
         var comboManager = new ComboManager();
         var gaugeManager = new GaugeManager();
@@ -4379,6 +4545,31 @@ public class PerformanceStageDeterministicTests
 #pragma warning restore SYSLIB0050
         ReflectionHelpers.SetPrivateField(stage, "_game", game ?? ReflectionHelpers.CreateGame());
         ReflectionHelpers.SetPrivateField(stage, "_autoPlayLanes", new HashSet<int>());
+        return stage;
+    }
+
+    private static PerformanceStage CreateMeasureLineStage(DrumsLaneDisplayMode laneDisplayMode)
+    {
+        var config = new ConfigData { LaneDisplayMode = laneDisplayMode };
+        var game = ReflectionHelpers.CreateGame();
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(config));
+        var stage = CreateStage(game);
+        var renderer = CreateNoteRenderer();
+        var chartManager = CreateChartManagerWithSingleNote();
+
+        ReflectionHelpers.SetPrivateField(chartManager, "_measureLines", null);
+        ReflectionHelpers.SetPrivateField(stage, "_noteRenderer", renderer);
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
+        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreatePlayingSongTimer());
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_currentGameTime",
+            new GameTime(TimeSpan.Zero, TimeSpan.Zero));
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_spriteBatch",
+            CreateSpriteBatchStub(new Viewport(0, 0, 1280, 720)));
+        ReflectionHelpers.InvokePrivateMethod(stage, "FreezeRunConfiguration");
         return stage;
     }
 

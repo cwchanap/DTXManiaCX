@@ -627,7 +627,7 @@ public class PerformanceStageAdditionalCoverageTests
     }
 
     [Fact]
-    public void InitializeAutoPlay_WhenConfigAutoPlayLaneIsEnabled_ShouldCopyAutoPlayLane()
+    public void FreezeRunConfiguration_WhenConfigAutoPlayLaneIsEnabled_ShouldCopyAutoPlayLane()
     {
         var configData = new ConfigData();
         configData.AutoPlayLanes.Add(2);
@@ -638,7 +638,7 @@ public class PerformanceStageAdditionalCoverageTests
         var stage = CreateStage(game);
         ReflectionHelpers.SetPrivateField(stage, "_autoPlayNoteIndex", 5);
 
-        ReflectionHelpers.InvokePrivateMethod(stage, "InitializeAutoPlay");
+        ReflectionHelpers.InvokePrivateMethod(stage, "FreezeRunConfiguration");
 
         var autoPlayLanes = ReflectionHelpers.GetPrivateField<HashSet<int>>(stage, "_autoPlayLanes");
         Assert.True(autoPlayLanes!.SetEquals(new[] { 2 }));
@@ -646,7 +646,7 @@ public class PerformanceStageAdditionalCoverageTests
     }
 
     [Fact]
-    public void InitializeAutoPlay_WhenConfigAutoPlayFalse_ShouldDisableAutoPlay()
+    public void FreezeRunConfiguration_WhenConfigAutoPlayFalse_ShouldDisableAutoPlay()
     {
         var configData = new ConfigData();
         var configManager = new Mock<IConfigManager>();
@@ -655,7 +655,7 @@ public class PerformanceStageAdditionalCoverageTests
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager.Object);
         var stage = CreateStage(game);
 
-        ReflectionHelpers.InvokePrivateMethod(stage, "InitializeAutoPlay");
+        ReflectionHelpers.InvokePrivateMethod(stage, "FreezeRunConfiguration");
 
         Assert.Empty(ReflectionHelpers.GetPrivateField<HashSet<int>>(stage, "_autoPlayLanes")!);
     }

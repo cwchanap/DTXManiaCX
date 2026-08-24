@@ -185,6 +185,14 @@ namespace DTXMania.Game.Lib.Stage
         private int _riskyLimit = RiskyRange.Default;
         private bool _gaugeFailureEnabled = true;
         private int _autoPlayNoteIndex = 0; // Track the next note to auto-hit
+        private PerformanceVisualGates _visualGates;
+
+        private readonly record struct PerformanceVisualGates(
+            bool HideLaneBackground,
+            bool HideMeasureLines,
+            bool HideJudgementLine,
+            bool HideCombo,
+            bool EnableLaneFlush);
         
         // Note: Using global stage transition debouncing from BaseGame
 
@@ -249,8 +257,8 @@ namespace DTXMania.Game.Lib.Stage
             // Extract shared data from stage transition
             ExtractSharedData();
 
-            // Initialize autoplay setting from config
-            InitializeAutoPlay();
+            // Freeze run configuration from config
+            FreezeRunConfiguration();
 
             // Initialize UI components
             InitializeComponents();
@@ -440,9 +448,17 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
 
-        private void InitializeAutoPlay()
+        private void FreezeRunConfiguration()
         {
             var config = _game?.ConfigManager?.Config;
+            var laneDisplayMode = config?.LaneDisplayMode ?? DrumsLaneDisplayMode.AllOn;
+            _visualGates = new PerformanceVisualGates(
+                HideLaneBackground: !laneDisplayMode.ShowsLaneBackground(),
+                HideMeasureLines: !laneDisplayMode.ShowsMeasureLines(),
+                HideJudgementLine: !(config?.ShowJudgementLine ?? true),
+                HideCombo: !(config?.ShowCombo ?? true),
+                EnableLaneFlush: config?.EnableLaneFlush ?? false);
+
             // Defensive copy: the run owns its lane set. Later config edits
             // (UI toggles, mid-song SetAutoPlayLane) must not alter which
             // lanes this performance automates.
@@ -454,7 +470,7 @@ namespace DTXMania.Game.Lib.Stage
             _autoPlayNoteIndex = 0;
 
             System.Diagnostics.Debug.WriteLine(
-                $"[AutoPlay] InitializeAutoPlay: lanes={string.Join(",", _autoPlayLanes.OrderBy(lane => lane))}, " +
+                $"[AutoPlay] FreezeRunConfiguration: lanes={string.Join(",", _autoPlayLanes.OrderBy(lane => lane))}, " +
                 $"chartLoaded={_chartManager != null}, " +
                 $"notesCount={_chartManager?.AllNotes.Count ?? -1}");
         }
@@ -1100,6 +1116,9 @@ namespace DTXMania.Game.Lib.Stage
 
         private void DrawMeasureLines()
         {
+            if (_visualGates.HideMeasureLines)
+                return;
+
             if (_noteRenderer == null ||
                 _chartManager == null ||
                 _songTimer == null ||
@@ -1736,6 +1755,9 @@ namespace DTXMania.Game.Lib.Stage
 
                 // Trigger pad press effect
                 _padRenderer?.TriggerPadPress(e.Lane, true);
+
+                if (_visualGates.EnableLaneFlush)
+                    _noteRenderer?.TriggerLaneFlash(e.Lane);
             }
 
             // Spawn judgement text popup for all judgements
@@ -2062,6 +2084,9 @@ namespace DTXMania.Game.Lib.Stage
 
         private void DrawLaneBackgrounds()
         {
+            if (_visualGates.HideLaneBackground)
+                return;
+
             // Use actual 7_paret.png texture with maximum visibility
             if (_laneBgTexture != null)
             {
@@ -2104,6 +2129,9 @@ namespace DTXMania.Game.Lib.Stage
 
         private void DrawJudgementLine()
         {
+            if (_visualGates.HideJudgementLine)
+                return;
+
             if (_judgementLineTexture != null)
             {
                 // NX stretches the 8px hit-bar strip across the full drum lane panel.
@@ -2161,7 +2189,8 @@ namespace DTXMania.Game.Lib.Stage
             // Legacy gauge display removed - using asset-based gauge only
             
             _scoreDisplay?.Draw(_spriteBatch);
-            _comboDisplay?.Draw(_spriteBatch);
+            if (!_visualGates.HideCombo)
+                _comboDisplay?.Draw(_spriteBatch);
             _skillPanelDisplay?.Draw(_spriteBatch);
             _skillMeterDisplay?.Draw(_spriteBatch);
             
