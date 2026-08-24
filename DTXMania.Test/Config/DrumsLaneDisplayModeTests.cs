@@ -3,6 +3,7 @@ using DTXMania.Game.Lib.Config;
 
 namespace DTXMania.Test.Config;
 
+[Trait("Category", "Unit")]
 public class DrumsLaneDisplayModeTests
 {
     [Theory]

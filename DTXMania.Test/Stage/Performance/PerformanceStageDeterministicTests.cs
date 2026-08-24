@@ -543,6 +543,44 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public async Task InitializeGameplayAsync_WithVisualGateSettingsInConfig_ShouldFreezeVisualGates()
+    {
+        // Direct initialization must capture the configured visual gates the same way
+        // OnActivate does; without the freeze in InitializeGameplayAsync the gates stay
+        // at their all-false defaults and hidden lanes/lines/combo render anyway.
+        var config = new ConfigData
+        {
+            LaneDisplayMode = DrumsLaneDisplayMode.AllOff,
+            ShowJudgementLine = false,
+            ShowCombo = false,
+            EnableLaneFlush = true
+        };
+        var game = ReflectionHelpers.CreateGame();
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(config));
+        var stage = CreateStage(game);
+        var chart = new ParsedChart("silent-clock.dtx");
+        chart.AddNote(new Note(0, 0, 96, 0x11, "01"));
+        chart.FinalizeChart();
+
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
+        ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
+        ReflectionHelpers.SetPrivateField(stage, "_inputManager", new MockInputManagerCompat());
+        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
+
+        var initializeTask = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "InitializeGameplayAsync")!;
+        await initializeTask;
+
+        var visualGates = ReflectionHelpers.GetPrivateField<object>(stage, "_visualGates");
+        Assert.NotNull(visualGates);
+        var gateType = visualGates!.GetType();
+        Assert.True((bool)gateType.GetProperty("HideLaneBackground")!.GetValue(visualGates)!);
+        Assert.True((bool)gateType.GetProperty("HideMeasureLines")!.GetValue(visualGates)!);
+        Assert.True((bool)gateType.GetProperty("HideJudgementLine")!.GetValue(visualGates)!);
+        Assert.True((bool)gateType.GetProperty("HideCombo")!.GetValue(visualGates)!);
+        Assert.True((bool)gateType.GetProperty("EnableLaneFlush")!.GetValue(visualGates)!);
+    }
+
+    [Fact]
     public void FreezeRunConfiguration_WhenConfigManagerMissing_ShouldDisableAutoPlayAndResetIndex()
     {
         var game = ReflectionHelpers.CreateGame();
