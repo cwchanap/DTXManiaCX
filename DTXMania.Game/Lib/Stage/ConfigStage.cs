@@ -685,6 +685,31 @@ namespace DTXMania.Game.Lib.Stage
                 valueFormatter: ScrollSpeedRange.Format)
             { Description = "Sets how fast notes scroll down the lanes." };
 
+            var laneDisplayItem = new DropdownConfigItem(
+                "Lane Display",
+                () => _configManager.Config.LaneDisplayMode.ToLabel(),
+                DrumsLaneDisplayModeExtensions.Labels.ToArray(),
+                value => _configManager.SetLaneDisplayMode(DrumsLaneDisplayModeExtensions.FromLabel(value)))
+            { Description = "Controls drum lane background and measure line visibility." };
+
+            var judgeLineItem = new ToggleConfigItem(
+                "Judge Line",
+                () => _configManager.Config.ShowJudgementLine,
+                value => _configManager.SetShowJudgementLine(value))
+            { Description = "Toggles the judgement line during gameplay." };
+
+            var laneFlushItem = new ToggleConfigItem(
+                "Lane Flush",
+                () => _configManager.Config.EnableLaneFlush,
+                value => _configManager.SetEnableLaneFlush(value))
+            { Description = "Toggles the lane flash effect when a drum is hit." };
+
+            var comboItem = new ToggleConfigItem(
+                "Combo",
+                () => _configManager.Config.ShowCombo,
+                value => _configManager.SetShowCombo(value))
+            { Description = "Toggles the combo counter during gameplay." };
+
             var ffmpegAvailability = _ffmpegAvailabilityProvider();
             var playbackModifierWarning = GetPlaybackModifierWarning(ffmpegAvailability);
 
@@ -808,7 +833,8 @@ namespace DTXMania.Game.Lib.Stage
 
             var drumItems = new List<IConfigItem>
             {
-                scrollSpeedItem, playSpeedItem, pitchItem, metronomeItem, autoPlayItem
+                scrollSpeedItem, laneDisplayItem, judgeLineItem, laneFlushItem, comboItem,
+                playSpeedItem, pitchItem, metronomeItem, autoPlayItem
             };
             drumItems.AddRange(autoPlayLaneItems);
             drumItems.Add(autoAddGaugeItem);
