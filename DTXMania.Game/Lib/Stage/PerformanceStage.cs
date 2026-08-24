@@ -783,7 +783,10 @@ namespace DTXMania.Game.Lib.Stage
         private Task InitializeGameplayAsync()
         {
             // Compatibility entry point used by deterministic tests and older callers
-            // that initialize directly without the normal OnActivate freeze.
+            // that initialize directly without the normal OnActivate freeze, so capture
+            // the configured visual/gameplay gates here before core initialization.
+            FreezeRunConfiguration();
+
             if (_playbackModifiers.PlaySpeedPercent == 0)
                 _playbackModifiers = new PlaybackModifiers(100, 0);
 
