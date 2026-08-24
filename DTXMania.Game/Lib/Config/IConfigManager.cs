@@ -119,6 +119,18 @@ namespace DTXMania.Game.Lib.Config
         /// <summary>Sets Auto Add Gauge and marks a deferred save pending.</summary>
         void SetAutoAddGauge(bool value);
 
+        /// <summary>Sets the drum lane display mode and marks a deferred save pending.</summary>
+        void SetLaneDisplayMode(DrumsLaneDisplayMode value);
+
+        /// <summary>Sets Judge Line visibility and marks a deferred save pending when the value changes. No event raised.</summary>
+        void SetShowJudgementLine(bool value);
+
+        /// <summary>Sets Lane Flush and marks a deferred save pending when the value changes. No event raised.</summary>
+        void SetEnableLaneFlush(bool value);
+
+        /// <summary>Sets Combo visibility and marks a deferred save pending when the value changes. No event raised.</summary>
+        void SetShowCombo(bool value);
+
         /// <summary>Sets Metronome and marks a deferred save pending when the value changes. No event raised.</summary>
         void SetMetronome(bool value);
 

@@ -586,6 +586,28 @@ namespace DTXMania.Game.Lib.Config
                         Config.DamageLevel = Enum.Parse<GaugeDamageLevel>(matchedName);
                     break;
                 }
+                case "LaneDisplayMode":
+                {
+                    var matchedName = Enum.GetNames<DrumsLaneDisplayMode>()
+                        .FirstOrDefault(name =>
+                            string.Equals(name, value, StringComparison.OrdinalIgnoreCase));
+
+                    if (matchedName != null)
+                        Config.LaneDisplayMode = Enum.Parse<DrumsLaneDisplayMode>(matchedName);
+                    break;
+                }
+                case "ShowJudgementLine":
+                    if (TryParseBool(value, out var showJudgementLine))
+                        Config.ShowJudgementLine = showJudgementLine;
+                    break;
+                case "EnableLaneFlush":
+                    if (TryParseBool(value, out var enableLaneFlush))
+                        Config.EnableLaneFlush = enableLaneFlush;
+                    break;
+                case "ShowCombo":
+                    if (TryParseBool(value, out var showCombo))
+                        Config.ShowCombo = showCombo;
+                    break;
                 case "AutoAddGauge":
                     if (TryParseBool(value, out var autoAddGauge))
                         Config.AutoAddGauge = autoAddGauge;
@@ -790,6 +812,10 @@ namespace DTXMania.Game.Lib.Config
                 .ToString(CultureInfo.InvariantCulture);
             entries["DamageLevel"] = Config.DamageLevel.ToString();
             entries["AutoAddGauge"] = Config.AutoAddGauge.ToString();
+            entries["LaneDisplayMode"] = Config.LaneDisplayMode.ToString();
+            entries["ShowJudgementLine"] = Config.ShowJudgementLine.ToString();
+            entries["EnableLaneFlush"] = Config.EnableLaneFlush.ToString();
+            entries["ShowCombo"] = Config.ShowCombo.ToString();
             entries["AudioLatencyOffsetMs"] = Config.AudioLatencyOffsetMs.ToString(CultureInfo.InvariantCulture);
 
             entries["EnableGameApi"] = Config.EnableGameApi.ToString();
@@ -1035,6 +1061,49 @@ namespace DTXMania.Game.Lib.Config
                 return;
 
             Config.AutoAddGauge = value;
+            MarkDirty();
+        }
+
+        /// <summary>Sets drum lane display mode, normalizing undefined values to AllOn, and marks a deferred save when changed.</summary>
+        public void SetLaneDisplayMode(DrumsLaneDisplayMode value)
+        {
+            if (!Enum.IsDefined(value))
+                value = DrumsLaneDisplayMode.AllOn;
+
+            if (value == Config.LaneDisplayMode)
+                return;
+
+            Config.LaneDisplayMode = value;
+            MarkDirty();
+        }
+
+        /// <summary>Sets Judge Line visibility and marks a deferred save when changed.</summary>
+        public void SetShowJudgementLine(bool value)
+        {
+            if (value == Config.ShowJudgementLine)
+                return;
+
+            Config.ShowJudgementLine = value;
+            MarkDirty();
+        }
+
+        /// <summary>Sets Lane Flush and marks a deferred save when changed.</summary>
+        public void SetEnableLaneFlush(bool value)
+        {
+            if (value == Config.EnableLaneFlush)
+                return;
+
+            Config.EnableLaneFlush = value;
+            MarkDirty();
+        }
+
+        /// <summary>Sets Combo visibility and marks a deferred save when changed.</summary>
+        public void SetShowCombo(bool value)
+        {
+            if (value == Config.ShowCombo)
+                return;
+
+            Config.ShowCombo = value;
             MarkDirty();
         }
 

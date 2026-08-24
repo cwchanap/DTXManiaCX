@@ -30,6 +30,10 @@ public class ConfigDataTests
         Assert.Equal(200, config.AudioLatencyOffsetMs);
         Assert.False(config.Metronome);
         Assert.False(config.RandomSelectFromSubBox);
+        Assert.Equal(DrumsLaneDisplayMode.AllOn, config.LaneDisplayMode);
+        Assert.True(config.ShowJudgementLine);
+        Assert.False(config.EnableLaneFlush);
+        Assert.True(config.ShowCombo);
     }
 
     [Fact]

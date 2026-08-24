@@ -284,6 +284,62 @@ namespace DTXMania.Test.Config
         }
 
         [Fact]
+        public void LaneVisibilitySettings_RoundTrip_ShouldPersistAllValues()
+        {
+            var manager = CreateManager();
+            manager.LoadConfig();
+
+            manager.SetLaneDisplayMode(DrumsLaneDisplayMode.LaneOff);
+            manager.SetShowJudgementLine(false);
+            manager.SetEnableLaneFlush(true);
+            manager.SetShowCombo(false);
+            manager.FlushPendingSave();
+
+            var rows = ReadRows();
+            Assert.Equal("LaneOff", rows["LaneDisplayMode"]);
+            Assert.NotEqual("1", rows["LaneDisplayMode"]);
+            Assert.NotEqual("LANE OFF", rows["LaneDisplayMode"]);
+            Assert.Equal("False", rows["ShowJudgementLine"]);
+            Assert.Equal("True", rows["EnableLaneFlush"]);
+            Assert.Equal("False", rows["ShowCombo"]);
+
+            var reloaded = CreateManager();
+            reloaded.LoadConfig();
+
+            Assert.Equal(DrumsLaneDisplayMode.LaneOff, reloaded.Config.LaneDisplayMode);
+            Assert.False(reloaded.Config.ShowJudgementLine);
+            Assert.True(reloaded.Config.EnableLaneFlush);
+            Assert.False(reloaded.Config.ShowCombo);
+        }
+
+        [Fact]
+        public void LaneDisplayMode_WhenMissing_ShouldRetainAllOnDefault()
+        {
+            new SqliteConfigStore(DbPath).Save(
+                new Dictionary<string, string> { ["ScreenWidth"] = "1280" });
+
+            var manager = CreateManager();
+            manager.LoadConfig();
+
+            Assert.Equal(DrumsLaneDisplayMode.AllOn, manager.Config.LaneDisplayMode);
+        }
+
+        [Theory]
+        [InlineData("1")]
+        [InlineData("LANE OFF")]
+        [InlineData("unrecognized")]
+        public void LaneDisplayMode_WhenUnrecognized_ShouldRetainAllOnDefault(string value)
+        {
+            new SqliteConfigStore(DbPath).Save(
+                new Dictionary<string, string> { ["LaneDisplayMode"] = value });
+
+            var manager = CreateManager();
+            manager.LoadConfig();
+
+            Assert.Equal(DrumsLaneDisplayMode.AllOn, manager.Config.LaneDisplayMode);
+        }
+
+        [Fact]
         public void RandomSelectFromSubBox_RoundTrip_ShouldPersistOnlyCanonicalKey()
         {
             var manager = CreateManager();
