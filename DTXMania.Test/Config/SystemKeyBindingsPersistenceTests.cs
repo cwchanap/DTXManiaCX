@@ -119,6 +119,32 @@ public class SystemKeyBindingsPersistenceTests : IDisposable
         Assert.False(snapshot.TryGetValue(Keys.Up, out var upCommand) && upCommand == InputCommandType.MoveUp);
     }
 
+    [Fact]
+    public void ConfigManager_RoundTrip_FullSnapshotWithOpenSearch_ShouldPersistF1Binding()
+    {
+        // Characterization: ConfigStage submits the FULL working snapshot, so prove the
+        // full-snapshot save shape (not a sparse dict) can add F1 -> OpenSearch and
+        // survive a real SQLite round trip.
+        var manager = CreateManager();
+        manager.LoadConfig();
+
+        var inputMgr = manager.CreateConfiguredInputManager();
+        var fullSnapshot = new Dictionary<Keys, InputCommandType>(inputMgr.GetKeyMappingSnapshot())
+        {
+            [Keys.F1] = InputCommandType.OpenSearch,
+        };
+        manager.SetSystemKeyBindings(fullSnapshot);
+        manager.FlushPendingSave();
+
+        // Load into a fresh manager and configured InputManager
+        var manager2 = CreateManager();
+        manager2.LoadConfig();
+        Assert.Equal("F1", manager2.Config.SystemKeyBindings["SystemKey.OpenSearch"]);
+
+        var inputMgr2 = manager2.CreateConfiguredInputManager();
+        Assert.Equal(InputCommandType.OpenSearch, inputMgr2.GetKeyMappingSnapshot()[Keys.F1]);
+    }
+
     // ─── SaveSystemKeyBindings / LoadSystemKeyBindings ────────────────────────
 
     [Fact]
