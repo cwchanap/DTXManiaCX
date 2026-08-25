@@ -4,7 +4,7 @@
 
 **Goal:** Add an optional Drums setting that shows transient signed timing error for manual hits using the existing judgement delta and bundled lag-number sprite sheet.
 
-**Architecture:** `PerformanceStage` remains the policy owner: it freezes the config flag and filters out Miss/AutoPlay judgements. A small `HitTimingFeedbackDisplay` owns only transient per-lane timing presentation and the `7_lag numbers.png` texture. Reuse existing config persistence, layout, resource ownership, and deterministic stage test seams; add no debug HUD or timing subsystem.
+**Architecture:** `PerformanceStage` remains the policy owner: it freezes the config flag and filters out Miss/AutoPlay judgements. `PerformanceUILayout.HitTimingFeedback` owns the pure rounding, glyph-packing, and lane-position contract. A small `HitTimingFeedbackDisplay` owns only one transient timing value per lane plus the `7_lag numbers.png` texture. Reuse existing config persistence, judgement presentation, and deterministic test seams; add no debug HUD or timing subsystem.
 
 **Tech Stack:** C# / .NET 8, MonoGame, existing SQLite config store, xUnit + Moq.
 
@@ -16,10 +16,11 @@
 - Default `Hit Timing Feedback` is Off and existing gameplay visuals remain unchanged.
 - Display only the existing `JudgementEvent.DeltaMs`; do not recalculate timing or apply latency compensation again.
 - No timing feedback for `Miss` or AutoPlay-resolved lanes.
-- No `ShowLagTimeColor`, aggregate counters, result statistics, debug HUD, logging controls, telemetry, or new art.
+- No `ShowLagTimeColor`, aggregate counters, result statistics, debug HUD, logging controls, telemetry, judgement-window changes, or new art.
 - Keep the setting frozen per performance activation; do not add a live config event.
-- Keep the display component presentation-only; config and AutoPlay policy stay in `PerformanceStage`.
-- Do not add a generic popup/animation/rendering framework.
+- Keep config/AutoPlay eligibility in `PerformanceStage`; the display is presentation-only.
+- Keep one timing value per lane; do not change the existing judgement-word stacking behavior.
+- Do not add a generic popup/animation/rendering framework or a font fallback.
 
 ---
 
@@ -34,7 +35,7 @@
 - Modify: `DTXMania.Test/Config/ConfigManagerTests.cs`
 - Modify: `DTXMania.Test/Config/ConfigManagerSqlitePersistenceTests.cs`
 - Modify: `DTXMania.Test/Config/ConfigStageLogicTests.cs`
-- Modify only as required for interface compilation: `DTXMania.Test/Stage/DrumConfig/DrumConfigStageTests.cs`
+- Modify only for interface compilation: `DTXMania.Test/Stage/DrumConfig/DrumConfigStageTests.cs`
 
 **Interfaces:**
 - Produces: `ConfigData.ShowHitTimingFeedback : bool`, default `false`
@@ -42,23 +43,34 @@
 - Persists: SQLite key `ShowHitTimingFeedback`
 - UI label: `Hit Timing Feedback`, immediately after `Combo` in Drums config
 
-- [ ] **Step 1: Add failing config-model and setter tests**
+- [ ] **Step 1: Add failing config-model and interface-surface tests**
 
-Pin these behaviors before production edits:
+Add the default assertion:
 
 ```csharp
 Assert.False(new ConfigData().ShowHitTimingFeedback);
 ```
 
-For `ConfigManager`, mirror the existing `ShowCombo` test pattern: changing `false -> true` updates `Config.ShowHitTimingFeedback` and schedules a deferred save; setting the same value again is a no-op.
+Extend the existing `ConfigManager_PerLaneAutoPlayMutators_ShouldBeExposedByInterface` reflection test with:
 
-- [ ] **Step 2: Add failing SQLite round-trip coverage**
+```csharp
+Assert.NotNull(typeof(IConfigManager).GetMethod("SetShowHitTimingFeedback"));
+```
 
-Extend the existing config persistence test to write `ShowHitTimingFeedback=true`, reload through a fresh `ConfigManager`, and assert `true`. Also cover an input snapshot without the key and assert the default remains `false`.
+This explicitly pins the interface contract; setter behavior tests alone do not prove the member was added to `IConfigManager`.
+
+- [ ] **Step 2: Add failing setter and SQLite persistence coverage**
+
+Mirror `ShowCombo` exactly:
+
+- `false -> true` updates `Config.ShowHitTimingFeedback` and schedules a deferred save
+- setting `true` again is a no-op
+- persist `true`, reload through a fresh `ConfigManager`, assert `true`
+- loading a snapshot without `ShowHitTimingFeedback` leaves the default `false`
 
 - [ ] **Step 3: Add failing ConfigStage contract coverage**
 
-Extend the exact Drums-item ordering assertion so the visual section ends:
+Extend the exact Drums-item order so the visual section ends:
 
 ```text
 Lane Display
@@ -68,9 +80,11 @@ Combo
 Hit Timing Feedback
 ```
 
-Exercise the toggle and assert the typed `SetShowHitTimingFeedback` path is used. Update only the hand-written `IConfigManager` stubs that fail compilation after adding the interface member.
+Exercise the row and assert it dispatches through `SetShowHitTimingFeedback`.
 
-- [ ] **Step 4: Run the focused config tests and confirm RED**
+Update `DrumConfigStageTests.StubConfigManager` only because the new interface member requires it to compile; do not add a second test double.
+
+- [ ] **Step 4: Run focused config tests and confirm RED**
 
 Run:
 
@@ -78,18 +92,18 @@ Run:
 dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~DTXMania.Test.Config|FullyQualifiedName~ConfigStageLogicTests|FullyQualifiedName~DrumConfigStageTests"
 ```
 
-Expected: failures/compile errors identify the missing property, setter, persistence key, and UI row.
+Expected: compile/test failures identify the missing property, interface setter, persistence key, and UI row.
 
 - [ ] **Step 5: Implement the smallest config change**
 
-Follow the current `ShowCombo` pattern exactly:
+Follow `ShowCombo` exactly:
 
 - add `ShowHitTimingFeedback = false` to `ConfigData`
 - add `SetShowHitTimingFeedback(bool)` to `IConfigManager` and `ConfigManager`
-- parse `ShowHitTimingFeedback` only when it is a valid boolean
-- add it to `BuildPersistedEntries`
-- setter returns when unchanged, otherwise assigns and calls `MarkDirty()`
-- add one `ToggleConfigItem` after `Combo`
+- parse the key only when it is a valid boolean
+- add the key to `BuildPersistedEntries`
+- setter returns when unchanged; otherwise assign and `MarkDirty()`
+- add one `ToggleConfigItem` immediately after `Combo`
 
 Do not add a migration, event, settings object, enum, color control, or compatibility alias.
 
@@ -106,129 +120,195 @@ git commit -m "feat: add hit timing feedback setting"
 
 ---
 
-### Task 2: Add the lane-local lag-number display
+### Task 2: Define the lag-number projection and lane-local display
 
 **Files:**
-- Create: `DTXMania.Game/Lib/Stage/Performance/HitTimingFeedbackDisplay.cs`
 - Modify: `DTXMania.Game/Lib/UI/Layout/PerformanceUILayout.cs`
+- Modify: `DTXMania.Test/UI/PerformanceUILayoutMoreTests.cs`
+- Create: `DTXMania.Game/Lib/Stage/Performance/HitTimingFeedbackDisplay.cs`
 - Create: `DTXMania.Test/Stage/Performance/HitTimingFeedbackDisplayTests.cs`
 
 **Interfaces:**
-- Consumes: `JudgementEvent.DeltaMs`, `JudgementEvent.Lane`, `TexturePath.LagNumbers`
-- Produces: `HitTimingFeedbackDisplay.Spawn(JudgementEvent judgementEvent)`
-- Produces: `HitTimingFeedbackDisplay.Update(double deltaTime)`
-- Produces: `HitTimingFeedbackDisplay.Draw(SpriteBatch spriteBatch)`
-- Produces: `IDisposable` resource cleanup
-- Test seam: narrow internal factory/read access comparable to `SpriteJudgementTextPopupManager.CreateForTesting`
+- `PerformanceUILayout.HitTimingFeedback` owns all fixed geometry and delta projection
+- `HitTimingFeedbackDisplay.Spawn(JudgementEvent judgementEvent)`
+- `HitTimingFeedbackDisplay.Update(double deltaTime)`
+- `HitTimingFeedbackDisplay.Draw(SpriteBatch spriteBatch)`
+- `HitTimingFeedbackDisplay : IDisposable`
+- internal `HitTimingFeedbackDisplay.CreateForTesting(...)`
+- internal active-lane count/read seam for deterministic stage tests
 
-- [ ] **Step 1: Pin the NX lag-number geometry in layout tests/display tests**
+- [ ] **Step 1: Pin the exact 4×3 bank geometry in `PerformanceUILayoutMoreTests`**
 
-Define a small `PerformanceUILayout.HitTimingFeedback` owner for:
-
-```text
-Glyph size:       15 x 19
-Glyphs per bank:  12
-FAST bank origin: 0,0
-SLOW bank origin: 64,64
-Digit slots:      0..9
-Plus slot:        10
-Minus slot:       11
-Vertical offset:  sprite judgement Y + 34 px
-Lifetime:         SpriteJudgementTextAssets.TotalDurationSeconds
-```
-
-Tests must assert source rectangles from these constants rather than duplicating the math in production and test code.
-
-- [ ] **Step 2: Add failing formatting/direction tests**
-
-Cover at least:
+Add `PerformanceUILayout.HitTimingFeedback` and first write tests for these constants:
 
 ```text
--18.x ms -> rounded negative value, FAST bank
-+24.x ms -> rounded positive value, SLOW bank
-0 ms     -> unsigned zero glyph
+GlyphWidth            = 15
+GlyphHeight           = 19
+ColumnsPerBank        = 4
+SlotsPerBank          = 12
+FastBankOrigin        = 0,0
+SlowBankOrigin        = 64,64
+RequiredTextureWidth  = 128
+RequiredTextureHeight = 128
+PlusSlot              = 10
+MinusSlot             = 11
 ```
 
-Use normal midpoint-away-from-zero rounding so the presentation is deterministic. Keep the raw `JudgementEvent.DeltaMs` untouched.
+Pin row-major source rectangles in both banks. At minimum assert slots `0`, `9`, `10`, and `11`:
 
-- [ ] **Step 3: Add failing lifecycle and lane-ownership tests**
+```text
+FAST slot 0  -> ( 0,  0, 15, 19)
+FAST slot 9  -> (15, 38, 15, 19)
+FAST slot 10 -> (30, 38, 15, 19)
+FAST slot 11 -> (45, 38, 15, 19)
 
-Pin these rules:
+SLOW slot 0  -> ( 64,  64, 15, 19)
+SLOW slot 9  -> ( 79, 102, 15, 19)
+SLOW slot 10 -> ( 94, 102, 15, 19)
+SLOW slot 11 -> (109, 102, 15, 19)
+```
 
-- at most one active value per lane
-- a second hit on the same lane replaces/restarts that lane's value
-- hits on different lanes coexist
-- values expire after the shared judgement-popup lifetime
-- draw position is centered on `PerformanceUILayout.GetLaneX(lane)`
-- missing/invalid `LagNumbers` texture is a safe no-op
-- dispose releases only the display's own texture reference
+Also pin the wrap boundaries at slots 4 and 8 so nobody later changes the 4-column packing accidentally.
 
-Do not require a live `GraphicsDevice`; use an `ITexture`/draw seam consistent with current performance presentation tests.
+Production formula:
 
-- [ ] **Step 4: Run the new display tests and confirm RED**
+```text
+sourceX = bankX + (slot % 4) * 15
+sourceY = bankY + (slot / 4) * 19
+```
+
+Do not copy this formula into `HitTimingFeedbackDisplay`.
+
+- [ ] **Step 2: Pin round-before-sign projection**
+
+Add a pure projection helper under `PerformanceUILayout.HitTimingFeedback`. It may return a tiny nested readonly value such as `(Text, UseSlowBank)`; do not create a service/interface.
+
+Use:
+
+```csharp
+var rounded = (int)Math.Round(deltaMs, MidpointRounding.AwayFromZero);
+```
+
+Then pin:
+
+```text
+-18.5 -> "-19", FAST
++24.5 -> "+25", SLOW
+-0.4  -> "0",   FAST
++0.4  -> "0",   FAST
+-0.5  -> "-1",  FAST
++0.5  -> "+1",  SLOW
+```
+
+The rounded value decides sign and color bank. Raw `DeltaMs < 0` must not produce a signed/FAST zero after rounding.
+
+- [ ] **Step 3: Pin full-run lane positioning**
+
+Add `GetLaneRunPosition(int laneIndex, int glyphCount)` to the same layout owner and test:
+
+```text
+x = GetLaneX(laneIndex) - (glyphCount * GlyphWidth) / 2f
+y = SpriteJudgementTextAssets judgement Y + 34
+```
+
+Use the existing judgement-text vertical contract (`JudgementLineY - SpriteJudgementTextAssets.JudgementLineOffsetY`) for Y. Do not left-align the first glyph at lane center.
+
+- [ ] **Step 4: Add failing display lifecycle/resource tests**
+
+`HitTimingFeedbackDisplayTests` should pin only display ownership/lifecycle; geometry/projection stays in `PerformanceUILayoutMoreTests`.
+
+Cover:
+
+- one active slot per lane
+- a new hit on the same lane replaces/restarts that slot
+- different lanes coexist
+- expiry uses `PerformanceUILayout.SpriteJudgementTextAssets.TotalDurationSeconds`
+- the timing number simply fades; no pop/scale behavior
+- draw uses the projected glyph sequence and `GetLaneRunPosition`
+- missing/disposed/<128×128 texture is a safe no-op
+- dispose releases the display's own texture reference once
+
+Use a fixed `PerformanceUILayout.LaneCount`-sized state collection. Do not reuse `SpriteJudgementTextPopupManager`, whose list intentionally stacks judgement words.
+
+- [ ] **Step 5: Run Task 2 tests and confirm RED**
 
 Run:
 
 ```bash
-dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter FullyQualifiedName~HitTimingFeedbackDisplayTests
+dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~PerformanceUILayoutMoreTests|FullyQualifiedName~HitTimingFeedbackDisplayTests"
 ```
 
-Expected: FAIL because the display/layout contract does not exist yet.
+Expected: FAIL because the new layout contract/display do not exist yet.
 
-- [ ] **Step 5: Implement `HitTimingFeedbackDisplay`**
+- [ ] **Step 6: Implement the smallest layout/display code**
 
-Keep the class narrow:
+`PerformanceUILayout.HitTimingFeedback` is the single source for:
 
-- load `TexturePath.LagNumbers` once
-- keep a fixed lane-sized active-state collection rather than a general popup list
-- round only for display
-- map formatted characters to the fixed glyph slots/color bank
-- center the glyph run on the lane
-- fade using the existing judgement-popup total lifetime
-- safely skip drawing when the texture is unavailable
+- 128×128 required size
+- 15×19 glyphs
+- 4×3 packing
+- FAST/SLOW origins
+- digit/plus/minus slots
+- round-before-sign projection
+- source rectangles
+- run centering
+- 34 px vertical offset
+- shared short lifetime
 
-The class must not read `ConfigData`, `FrozenAutoPlayLanes`, score state, timers, or telemetry.
+`HitTimingFeedbackDisplay` should:
 
-- [ ] **Step 6: Re-run the new display tests and confirm GREEN**
+- load only `TexturePath.LagNumbers`
+- reject/release an invalid texture and then remain a no-op; no retry framework
+- keep one active state per lane
+- call the layout projection/mapper rather than duplicate math
+- fade/update/draw active states
+- expose `CreateForTesting` plus an internal active-lane count/read seam
+- release its texture on `Dispose`
 
-Run the command from Step 4. Expected: PASS.
+It must not read config, inspect AutoPlay, recalculate timing, publish counters, or provide a font fallback.
 
-- [ ] **Step 7: Commit Task 2**
+- [ ] **Step 7: Re-run Task 2 tests and confirm GREEN**
+
+Run the command from Step 5. Expected: PASS.
+
+- [ ] **Step 8: Commit Task 2**
 
 ```bash
-git add DTXMania.Game/Lib/Stage/Performance/HitTimingFeedbackDisplay.cs DTXMania.Game/Lib/UI/Layout/PerformanceUILayout.cs DTXMania.Test/Stage/Performance/HitTimingFeedbackDisplayTests.cs
+git add DTXMania.Game/Lib/UI/Layout/PerformanceUILayout.cs DTXMania.Test/UI/PerformanceUILayoutMoreTests.cs DTXMania.Game/Lib/Stage/Performance/HitTimingFeedbackDisplay.cs DTXMania.Test/Stage/Performance/HitTimingFeedbackDisplayTests.cs
 git commit -m "feat: render hit timing feedback"
 ```
 
 ---
 
-### Task 3: Wire manual judgements through PerformanceStage
+### Task 3: Wire eligible manual judgements through `PerformanceStage`
 
 **Files:**
 - Modify: `DTXMania.Game/Lib/Stage/PerformanceStage.cs`
 - Modify: `DTXMania.Test/Stage/Performance/PerformanceStageDeterministicTests.cs`
-- Modify only if existing assertions require it: `DTXMania.Test/Stage/Performance/PerformanceStageAdditionalCoverageTests.cs`
-- Modify only if existing reflection names/cleanup assertions require it: `DTXMania.Test/Stage/Performance/PerformanceStageCoverageTests.cs`
 
 **Interfaces:**
 - Consumes: `ConfigData.ShowHitTimingFeedback`
 - Consumes: `FrozenAutoPlayLanes`
 - Consumes: `HitTimingFeedbackDisplay`
-- Eligibility: `ShowHitTimingFeedback && e.IsHit() && !FrozenAutoPlayLanes.Contains(e.Lane)`
+- Eligibility: `_visualGates.ShowHitTimingFeedback && e.IsHit() && !FrozenAutoPlayLanes.Contains(e.Lane)`
 
 - [ ] **Step 1: Add failing run-freeze coverage**
 
-Extend the existing `FreezeRunConfiguration` characterization to assert:
+Extend the existing `FreezeRunConfiguration` characterization:
 
 - config Off -> frozen timing flag Off
 - config On -> frozen timing flag On
 - changing config after freeze does not alter the current run
 
-Add `ShowHitTimingFeedback` as a positive field on `PerformanceVisualGates`; the default/zero record must still mean the current Off behavior for reflection-created stage tests.
+Add positive `ShowHitTimingFeedback` to `PerformanceVisualGates`. The all-zero/default record must continue to mean current CX visuals: no timing feedback.
 
-- [ ] **Step 2: Add failing judgement-routing coverage**
+- [ ] **Step 2: Add failing judgement-routing coverage using the real display test seam**
 
-Using the existing reflection/test seams around `OnJudgementMade`, pin this matrix:
+Create a valid mocked lag texture and build `HitTimingFeedbackDisplay.CreateForTesting(...)`. Inject it into `_hitTimingFeedbackDisplay`, just as current tests inject `_spriteJudgementTextPopupManager`.
+
+Invoke `OnJudgementMade` through the existing reflection seam and assert the display's active-lane count/read state.
+
+Pin this matrix:
 
 | Toggle | Lane | Judgement | Timing display |
 | --- | --- | --- | --- |
@@ -238,9 +318,25 @@ Using the existing reflection/test seams around `OnJudgementMade`, pin this matr
 | On | AutoPlay | Perfect | no |
 | On | manual lane while another lane is AutoPlay | hit | yes |
 
-Keep existing score/combo/gauge/skill assertions in place; timing feedback is additive presentation only.
+Do not use `DeltaMs == 0` as an AutoPlay detector; `ResolveAutoHit` happens to emit zero but the frozen lane set is the policy source.
 
-- [ ] **Step 3: Run the focused performance tests and confirm RED**
+Keep current score/combo/gauge/skill/effect/pad/judgement-word assertions intact.
+
+- [ ] **Step 3: Retarget the existing cleanup test before deleting `_lagNumbersTexture`**
+
+`PerformanceStageDeterministicTests` currently injects `_lagNumbersTexture` and verifies `RemoveReference()` during `CleanupComponents`.
+
+Change that coverage deliberately:
+
+1. remove the reflection setup/assertion for the stale `_lagNumbersTexture` field
+2. create `HitTimingFeedbackDisplay.CreateForTesting(lagTextureMock, ...)`
+3. inject it into `_hitTimingFeedbackDisplay`
+4. invoke `CleanupComponents`
+5. verify `lagTextureMock.RemoveReference()` exactly once through display disposal
+
+Do not simply delete the resource-ownership assertion.
+
+- [ ] **Step 4: Run the performance namespace and confirm RED**
 
 Run:
 
@@ -248,27 +344,36 @@ Run:
 dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter FullyQualifiedName~DTXMania.Test.Stage.Performance
 ```
 
-Expected: new timing-feedback routing/freeze assertions fail before stage integration.
+Expected: the new freeze/routing/cleanup assertions fail before stage integration.
 
-- [ ] **Step 4: Integrate the display with the existing stage lifecycle**
+- [ ] **Step 5: Integrate the display into the existing judgement presentation lifecycle**
 
-Make only these stage changes:
+Make only these production changes:
 
-- construct `HitTimingFeedbackDisplay` with other gameplay presentation components
-- update it from the existing component-update path
-- draw it in the normal alpha-blended gameplay pass with judgement feedback
-- dispose it with the other components
-- freeze `ShowHitTimingFeedback` in `PerformanceVisualGates`
-- spawn only for the eligibility predicate above inside `OnJudgementMade`
+- add `_hitTimingFeedbackDisplay`
+- construct it with the other gameplay presentation components
+- update it immediately beside `_spriteJudgementTextPopupManager` / `_fontJudgementTextPopupManager` updates
+- draw it inside `DrawJudgementTexts` beside the current judgement-word draw calls
+- keep the existing alpha-blended base pass; do not create a new `SpriteBatch.Begin/End`
+- dispose it with the other performance components
+- freeze positive `ShowHitTimingFeedback` in `PerformanceVisualGates`
+- inside `OnJudgementMade`, call `Spawn(e)` only for:
+
+```csharp
+_visualGates.ShowHitTimingFeedback
+    && e.IsHit()
+    && !FrozenAutoPlayLanes.Contains(e.Lane)
+```
+
 - remove the stale `_lagNumbersTexture` field/load/release that currently loads `TexturePath.LagIndicator`
 
-Do not touch judgement calculation, `AudioLatencyOffsetMs`, `JudgementManager`, score/combo/gauge/skill logic, AutoPlay resolution, results, or telemetry.
+Do not touch `JudgementManager`, `AudioLatencyOffsetMs`, score/combo/gauge/skill logic, AutoPlay resolution, result data, or telemetry.
 
-- [ ] **Step 5: Re-run the performance namespace and confirm GREEN**
+- [ ] **Step 6: Re-run the performance namespace and confirm GREEN**
 
-Run the command from Step 3. Expected: PASS.
+Run the command from Step 4. Expected: PASS.
 
-- [ ] **Step 6: Run the full Mac test project**
+- [ ] **Step 7: Run the full Mac test project**
 
 Run:
 
@@ -278,23 +383,25 @@ dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj
 
 Expected: PASS.
 
-- [ ] **Step 7: Perform manual smoke**
+- [ ] **Step 8: Perform manual smoke**
 
 Use a simple chart:
 
 1. Verify default Off has no visual change.
 2. Enable the toggle, start a new run, and intentionally hit early/late.
-3. Confirm direction/color and displayed magnitude look correct.
-4. Confirm repeated same-lane hits replace rather than stack.
-5. Enable partial AutoPlay and confirm only manual lanes display timing feedback.
-6. Restart and confirm the toggle persisted.
+3. Confirm FAST/negative and SLOW/positive banks plus displayed magnitude are correct.
+4. Confirm near-zero values that round to zero appear as unsigned `0`.
+5. Confirm repeated same-lane hits replace the timing number while judgement words may overlap independently.
+6. Confirm multi-glyph numbers are centered on the lane rather than starting at lane center.
+7. Enable partial AutoPlay and confirm only manual lanes display timing feedback.
+8. Restart and confirm the toggle persisted.
 
-If the fixed 34 px offset causes obvious overlap with existing judgement text on the default skin, adjust only the `PerformanceUILayout.HitTimingFeedback` vertical constant and its geometry test; do not redesign the renderer.
+If the fixed 34 px offset visibly overlaps the default-skin judgement word, adjust only the layout constant and its geometry test; do not redesign either popup system.
 
-- [ ] **Step 8: Commit Task 3**
+- [ ] **Step 9: Commit Task 3**
 
 ```bash
-git add DTXMania.Game/Lib/Stage/PerformanceStage.cs DTXMania.Test/Stage/Performance
+git add DTXMania.Game/Lib/Stage/PerformanceStage.cs DTXMania.Test/Stage/Performance/PerformanceStageDeterministicTests.cs
 git commit -m "feat: show manual hit timing feedback"
 ```
 
@@ -308,4 +415,12 @@ Before marking the PR ready for review:
 dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj
 ```
 
-Confirm the final diff stays within HPA-15: one persisted boolean, one Drums row, one small display component, layout constants, stage wiring, and focused tests. No telemetry/debug/result/timing-rule changes should appear.
+Confirm the final diff stays within HPA-15:
+
+- one persisted boolean and one Drums row
+- one pure lag-number layout/projection contract
+- one small lane-local display component
+- existing `PerformanceStage` judgement/update/draw/cleanup wiring
+- focused config/layout/display/stage tests
+
+No telemetry, debug/result timing statistics, `ShowLagTimeColor`, judgement-word rewrite, new sprite pass, or timing-rule changes should appear.
