@@ -163,6 +163,7 @@ public class KeyConflictCheckerTests
     {
         Assert.False(KeyConflictChecker.IsRequiredCommand(InputCommandType.IncreaseScrollSpeed));
         Assert.False(KeyConflictChecker.IsRequiredCommand(InputCommandType.DecreaseScrollSpeed));
+        Assert.False(KeyConflictChecker.IsRequiredCommand(InputCommandType.OpenSearch));
     }
 
     // ─── GetRequiredSystemConflict ────────────────────────────────────────────

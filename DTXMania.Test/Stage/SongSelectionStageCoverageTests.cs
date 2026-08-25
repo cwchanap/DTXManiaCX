@@ -407,16 +407,17 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void ExecuteInputCommand_OpenSearch_WhenModalIsNull_ShouldReturnFalse()
+        public void ExecuteInputCommand_OpenSearch_WhenModalIsNull_ShouldReturnTrue()
         {
-            // OpenSearch returns false even when modal is null so that
-            // remaining queued commands are drained (same guard as filter-reset Back).
+            // OpenSearch returns true when the modal is unavailable (null or off-tab)
+            // so remaining queued commands continue to execute normally; only an
+            // actually-opened modal stops the drain.
             var stage = CreateStage();
             SetPrivateField(stage, "_searchFilterModal", null);
 
             var result = InvokePrivateMethod<bool>(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.OpenSearch, 0.0));
 
-            Assert.False(result);
+            Assert.True(result);
         }
 
         [Fact]
@@ -2300,32 +2301,67 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void ProcessInputCommands_OpenSearch_ShouldDrainRemainingCommands()
         {
-            // OpenSearch + Activate queued: OpenSearch opens the modal and returns false,
-            // so the queued Activate should NOT execute (it would select a song behind the modal).
+            // OpenSearch + MoveDown queued on All Songs: OpenSearch opens the modal and
+            // stops the drain, so the queued MoveDown must NOT move the selection behind
+            // the modal on the same frame.
             var stage = CreateStage();
-            var display = new SongListDisplay();
+            var display = new SongListDisplay
+            {
+                CurrentList = [CreateScoreNode("A"), CreateScoreNode("B")]
+            };
             var fakeTextSource = new Mock<ITextInputSource>();
             var modal = new SongSearchFilterModal(fakeTextSource.Object);
             var inputManager = new QueuedInputManager();
 
             AttachCoreUi(stage, display: display);
             SetPrivateField(stage, "_searchFilterModal", modal);
-            SetPrivateField(stage, "_currentSongList", new List<SongListNode> { CreateScoreNode("S") });
+            SetPrivateField(stage, "_currentSongList", new List<SongListNode> { CreateScoreNode("A"), CreateScoreNode("B") });
             SetPrivateField(stage, "_songInitializationTask", null);
             SetPrivateField(stage, "_inputManager", inputManager);
 
             inputManager.Enqueue(new InputCommand(InputCommandType.OpenSearch, 0.0));
-            inputManager.Enqueue(new InputCommand(InputCommandType.Activate, 0.0));
+            inputManager.Enqueue(new InputCommand(InputCommandType.MoveDown, 0.0));
 
             InvokePrivateMethod(stage, "ProcessInputCommands");
 
             // Modal should be open
             Assert.True(modal.IsOpen);
-            // The Activate command should have been drained and NOT executed —
-            // no stage transition should have been requested.
-            // (If Activate had run, it would have set _selectedSong and attempted
-            // a stage change. We verify the command queue is empty instead.)
-            Assert.Empty(inputManager.GetInputCommands());
+            // The queued MoveDown was drained and NOT executed: selection stays on A.
+            // (ProcessInputCommands copies+clears the manager queue before dispatch, so
+            // queue emptiness would not prove suppression — the selection does.)
+            Assert.Equal("A", display.SelectedSong!.Title);
+        }
+
+        [Fact]
+        public void ProcessInputCommands_OpenSearch_OnRecentPlays_ShouldContinueRemainingCommands()
+        {
+            // Off All Songs, OpenSearch is a no-op (there is no Search UI on Recent Plays),
+            // so the drain must continue: a queued MoveDown still moves the selection.
+            var stage = CreateStage();
+            var display = new SongListDisplay
+            {
+                CurrentList = [CreateScoreNode("A"), CreateScoreNode("B")]
+            };
+            var fakeTextSource = new Mock<ITextInputSource>();
+            var modal = new SongSearchFilterModal(fakeTextSource.Object);
+            var inputManager = new QueuedInputManager();
+
+            AttachCoreUi(stage, display: display);
+            SetPrivateField(stage, "_searchFilterModal", modal);
+            SetPrivateField(stage, "_currentSongList", new List<SongListNode> { CreateScoreNode("A"), CreateScoreNode("B") });
+            SetPrivateField(stage, "_songInitializationTask", null);
+            SetPrivateField(stage, "_inputManager", inputManager);
+            SetPrivateField(stage, "_activeTab", SongSelectionTab.RecentPlays);
+
+            inputManager.Enqueue(new InputCommand(InputCommandType.OpenSearch, 0.0));
+            inputManager.Enqueue(new InputCommand(InputCommandType.MoveDown, 0.0));
+
+            InvokePrivateMethod(stage, "ProcessInputCommands");
+
+            // Search is unavailable off All Songs: the modal stays closed...
+            Assert.False(modal.IsOpen);
+            // ...and the queued MoveDown still executes: selection moves to B.
+            Assert.Equal("B", display.SelectedSong!.Title);
         }
 
         #endregion

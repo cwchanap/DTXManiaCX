@@ -1,5 +1,6 @@
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Stage.KeyAssign;
+using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework.Input;
 
 namespace DTXMania.Test.Config;
@@ -48,7 +49,8 @@ public class KeyAssignPanelWorkingCopyTests
         panel.Closed += (_, _) => { closedFired = true; savedBeforeClosed = savedFired; };
 
         // Navigate to FooterSave (index = ActionCount)
-        for (int i = 0; i < 8; i++)
+        var footerSave = ReflectionHelpers.GetStaticIntField(typeof(SystemKeyAssignPanel), "FooterSave");
+        for (int i = 0; i < footerSave; i++)
             PressKey(panel, Keys.Down);
         PressKey(panel, Keys.Enter);
 
@@ -169,8 +171,8 @@ public class KeyAssignPanelWorkingCopyTests
 
     [Trait("Category", "Unit")]
     [Theory]
-    [InlineData(6, Keys.PageUp, InputCommandType.IncreaseScrollSpeed)]
-    [InlineData(7, Keys.PageDown, InputCommandType.DecreaseScrollSpeed)]
+    [InlineData(7, Keys.PageUp, InputCommandType.IncreaseScrollSpeed)]
+    [InlineData(8, Keys.PageDown, InputCommandType.DecreaseScrollSpeed)]
     public void SystemPanel_DeleteOnOptionalAction_ShouldClearBinding(int selectedIndex, Keys expectedKey, InputCommandType command)
     {
         using var inputManager = new InputManager();
@@ -205,7 +207,8 @@ public class KeyAssignPanelWorkingCopyTests
         };
         panel.Activate();
 
-        for (int i = 0; i < 8; i++)
+        var footerSave = ReflectionHelpers.GetStaticIntField(typeof(SystemKeyAssignPanel), "FooterSave");
+        for (int i = 0; i < footerSave; i++)
             PressKey(panel, Keys.Down);
 
         PressKey(panel, Keys.Enter);
@@ -262,7 +265,9 @@ public class KeyAssignPanelWorkingCopyTests
 
         panel.Update(2.1, new KeyboardState(), new KeyboardState());
 
-        for (int i = 0; i < 6; i++)
+        // From row 2 (MoveLeft), FooterSave - 2 MoveDown presses land on SAVE.
+        var downsToSave = ReflectionHelpers.GetStaticIntField(typeof(SystemKeyAssignPanel), "FooterSave") - 2;
+        for (int i = 0; i < downsToSave; i++)
             PressKey(panel, Keys.S);
 
         PressKey(panel, Keys.F);
@@ -341,7 +346,8 @@ public class KeyAssignPanelWorkingCopyTests
 
         panel.Activate();
 
-        for (int i = 0; i < 8; i++)
+        var footerSave = ReflectionHelpers.GetStaticIntField(typeof(SystemKeyAssignPanel), "FooterSave");
+        for (int i = 0; i < footerSave; i++)
         {
             pressedCommand = InputCommandType.MoveDown;
             panel.Update(0.0, new KeyboardState(), new KeyboardState());

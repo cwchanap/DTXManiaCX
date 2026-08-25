@@ -3,6 +3,7 @@ using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Stage.KeyAssign;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game;
+using DTXMania.Test.TestData;
 using Moq;
 using System.Collections.Generic;
 using System.Reflection;
@@ -254,7 +255,8 @@ public class ConfigStageTests
         panel.Closed += (_, _) => closedFired = true;
         panel.Activate();
 
-        for (int i = 0; i < 8; i++)
+        var footerSave = ReflectionHelpers.GetStaticIntField(typeof(SystemKeyAssignPanel), "FooterSave");
+        for (int i = 0; i < footerSave; i++)
         {
             DispatchInjectedPanelCommand(stage, inputManager, panel, "Key.Down");
         }

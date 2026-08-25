@@ -45,6 +45,15 @@ namespace DTXMania.Test.TestData
             return (T?)field!.GetValue(target);
         }
 
+        internal static int GetStaticIntField(Type type, string fieldName)
+        {
+            var field = type.GetField(
+                fieldName,
+                BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
+            Assert.NotNull(field);
+            return Assert.IsType<int>(field!.GetValue(null));
+        }
+
         internal static object? InvokePrivateMethod(object target, string methodName, params object[] args)
         {
             var method = GetMethod(target.GetType(), methodName);

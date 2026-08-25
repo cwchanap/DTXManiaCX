@@ -32,6 +32,7 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
             InputCommandType.MoveRight,
             InputCommandType.Activate,
             InputCommandType.Back,
+            InputCommandType.OpenSearch,
             InputCommandType.IncreaseScrollSpeed,
             InputCommandType.DecreaseScrollSpeed,
         };
@@ -322,7 +323,7 @@ namespace DTXMania.Game.Lib.Stage.KeyAssign
 
             // Centered framed board (all coordinates in the same scaled space as the config stage).
             const int boardW = 720;
-            const int boardH = 540;
+            const int boardH = 580;
             int boardX = (virtualWidth - boardW) / 2;
             int boardY = (virtualHeight - boardH) / 2;
 
