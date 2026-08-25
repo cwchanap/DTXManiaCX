@@ -979,7 +979,8 @@ public class ConfigStageLogicTests
 
             ReflectionHelpers.InvokePrivateMethod(stage, "OpenPanel", systemPanel!);
             ReflectionHelpers.SetPrivateField(systemPanel!, "_workingMapping", newWorkingMapping);
-            ReflectionHelpers.SetPrivateField(systemPanel!, "_selectedIndex", 8);
+            ReflectionHelpers.SetPrivateField(systemPanel!, "_selectedIndex",
+                ReflectionHelpers.GetStaticIntField(typeof(SystemKeyAssignPanel), "FooterSave"));
 
             systemPanel.Update(0.016, new KeyboardState(Keys.Enter), new KeyboardState());
 

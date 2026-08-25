@@ -1,6 +1,4 @@
-using System;
 using System.Collections.Generic;
-using System.Reflection;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Stage.KeyAssign;
 using DTXMania.Test.TestData;
@@ -21,7 +19,7 @@ public class KeyAssignPanelAdditionalCoverageTests
         panel._liveDrumBindingsProvider = () => new Dictionary<string, int>();
         panel.Activate();
 
-        ReflectionHelpers.SetPrivateField(panel, "_selectedIndex", GetStaticIntField(typeof(SystemKeyAssignPanel), "FooterCancel"));
+        ReflectionHelpers.SetPrivateField(panel, "_selectedIndex", ReflectionHelpers.GetStaticIntField(typeof(SystemKeyAssignPanel), "FooterCancel"));
         ReflectionHelpers.InvokePrivateMethod(panel, "ShowConflict", "System conflict");
 
         Assert.Equal("ShowingConflict", GetStateName(panel));
@@ -109,7 +107,7 @@ public class KeyAssignPanelAdditionalCoverageTests
         panel._liveDrumBindingsProvider = () => new Dictionary<string, int>();
         panel.Activate();
 
-        for (int i = 0; i < 6; i++)
+        for (int i = 0; i < 7; i++)
             PressKey(panel, Keys.Down);
 
         var before = panel.GetWorkingMappingSnapshot();
@@ -135,7 +133,7 @@ public class KeyAssignPanelAdditionalCoverageTests
 
         panel.Activate();
 
-        for (int i = 0; i < 6; i++)
+        for (int i = 0; i < 7; i++)
             PressKey(panel, Keys.Down);
 
         var before = panel.GetWorkingMappingSnapshot();
@@ -159,13 +157,6 @@ public class KeyAssignPanelAdditionalCoverageTests
     private static string? GetStateName(object panel)
     {
         return ReflectionHelpers.GetPrivateField<object>(panel, "_state")?.ToString();
-    }
-
-    private static int GetStaticIntField(Type type, string fieldName)
-    {
-        var field = type.GetField(fieldName, BindingFlags.Static | BindingFlags.NonPublic);
-        Assert.NotNull(field);
-        return (int)field!.GetValue(null)!;
     }
 
     #endregion

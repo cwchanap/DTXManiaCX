@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.Serialization;
@@ -17,6 +16,30 @@ namespace DTXMania.Test.Config;
 public class KeyAssignPanelCoverageTests
 {
     [Fact]
+    public void SystemPanel_Actions_ShouldMatchExactNineRowOrdering()
+    {
+        // Full-array pin: OpenSearch sits between Back and the scroll-speed actions,
+        // and no future row may silently reorder or drop the panel's actions.
+        var field = typeof(SystemKeyAssignPanel).GetField(
+            "Actions", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        var actions = Assert.IsType<InputCommandType[]>(field!.GetValue(null));
+
+        Assert.Equal(new[]
+        {
+            InputCommandType.MoveUp,
+            InputCommandType.MoveDown,
+            InputCommandType.MoveLeft,
+            InputCommandType.MoveRight,
+            InputCommandType.Activate,
+            InputCommandType.Back,
+            InputCommandType.OpenSearch,
+            InputCommandType.IncreaseScrollSpeed,
+            InputCommandType.DecreaseScrollSpeed,
+        }, actions);
+    }
+
+    [Fact]
     public void SystemPanel_MoveUpFromTop_ShouldWrapToFooterCancel()
     {
         using var inputManager = new InputManager();
@@ -25,7 +48,7 @@ public class KeyAssignPanelCoverageTests
 
         PressKey(panel, Keys.Up);
 
-        Assert.Equal(GetStaticIntField(typeof(SystemKeyAssignPanel), "FooterCancel"), ReflectionHelpers.GetPrivateField<int>(panel, "_selectedIndex"));
+        Assert.Equal(ReflectionHelpers.GetStaticIntField(typeof(SystemKeyAssignPanel), "FooterCancel"), ReflectionHelpers.GetPrivateField<int>(panel, "_selectedIndex"));
     }
 
     [Fact]
@@ -40,7 +63,7 @@ public class KeyAssignPanelCoverageTests
         panel.Closed += (_, _) => closed = true;
         panel.Activate();
 
-        for (int i = 0; i < GetStaticIntField(typeof(SystemKeyAssignPanel), "FooterCancel"); i++)
+        for (int i = 0; i < ReflectionHelpers.GetStaticIntField(typeof(SystemKeyAssignPanel), "FooterCancel"); i++)
         {
             PressKey(panel, Keys.Down);
         }
@@ -158,7 +181,7 @@ public class KeyAssignPanelCoverageTests
         var panel = new SystemKeyAssignPanel(inputManager);
         panel.Activate();
 
-        ReflectionHelpers.SetPrivateField(panel, "_selectedIndex", GetStaticIntField(typeof(SystemKeyAssignPanel), "FooterCancel"));
+        ReflectionHelpers.SetPrivateField(panel, "_selectedIndex", ReflectionHelpers.GetStaticIntField(typeof(SystemKeyAssignPanel), "FooterCancel"));
         ReflectionHelpers.InvokePrivateMethod(panel, "ShowConflict", "System conflict");
 
         var drawException = Record.Exception(() => panel.Draw(null!, null, null, null, 1280, 720));
@@ -177,13 +200,6 @@ public class KeyAssignPanelCoverageTests
     private static string? GetStateName(object panel)
     {
         return ReflectionHelpers.GetPrivateField<object>(panel, "_state")?.ToString();
-    }
-
-    private static int GetStaticIntField(Type type, string fieldName)
-    {
-        var field = type.GetField(fieldName, BindingFlags.Static | BindingFlags.NonPublic);
-        Assert.NotNull(field);
-        return (int)field!.GetValue(null)!;
     }
 
     private sealed class FakeSpriteBatch
@@ -241,7 +257,7 @@ public class KeyAssignPanelCoverageTests
         panel.Activate();
         // Select the SAVE footer button so its fill uses SelectionBarColor.
         ReflectionHelpers.SetPrivateField(panel, "_selectedIndex",
-            GetStaticIntField(typeof(SystemKeyAssignPanel), "FooterSave"));
+            ReflectionHelpers.GetStaticIntField(typeof(SystemKeyAssignPanel), "FooterSave"));
 
         var spriteBatch = FakeSpriteBatch.Create();
         var fontMock = new Mock<IFont>();
@@ -278,6 +294,11 @@ public class KeyAssignPanelCoverageTests
         var boldFontMock = new Mock<IFont>();
         boldFontMock.Setup(f => f.MeasureString(It.IsAny<string>())).Returns(new Vector2(40f, 14f));
 
+        var drawCalls = new List<(string Text, Vector2 Position)>();
+        fontMock
+            .Setup(f => f.DrawString(It.IsAny<SpriteBatch>(), It.IsAny<string>(), It.IsAny<Vector2>(), It.IsAny<Color>()))
+            .Callback<SpriteBatch, string, Vector2, Color>((_, text, position, _) => drawCalls.Add((text, position)));
+
         panel.Draw(spriteBatch, fontMock.Object, boldFontMock.Object, null, 1280, 720);
 
         fontMock.Verify(
@@ -285,6 +306,14 @@ public class KeyAssignPanelCoverageTests
                 It.IsAny<Vector2>(), It.Is<Color>(c => c == new Color(255, 96, 96))),
             Times.Once,
             "conflict message should be drawn with ConflictColor");
+
+        // Layout invariant: the conflict line must not overlap the instruction line
+        // pinned near the board bottom, whatever the board height ends up being.
+        var conflictCall = Assert.Single(drawCalls, c => c.Text == "Conflict: System conflict");
+        var instructionCall = Assert.Single(drawCalls, c => c.Text == panel.GetInstructionText());
+        var conflictBottom = conflictCall.Position.Y + fontMock.Object.MeasureString(conflictCall.Text).Y;
+        Assert.True(conflictBottom <= instructionCall.Position.Y,
+            $"conflict line bottom ({conflictBottom}) must not overlap instruction line top ({instructionCall.Position.Y})");
     }
 
     private static Texture2D CreateFakeTexture2D()
