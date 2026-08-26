@@ -82,6 +82,7 @@ namespace DTXMania.Game.Lib.Stage
         private NxAttackEffectManager _nxAttackEffectManager = null!;
         private JudgementTextPopupManager _fontJudgementTextPopupManager = null!;
         private SpriteJudgementTextPopupManager _spriteJudgementTextPopupManager = null!;
+        private HitTimingFeedbackDisplay _hitTimingFeedbackDisplay = null!;
         private PadRenderer _padRenderer = null!;
 
         // BGM management
@@ -131,9 +132,6 @@ namespace DTXMania.Game.Lib.Stage
         // Judgement text textures (using sprite sheets)
         private ITexture _judgeStringsTexture = null!;
         
-        // Timing indicator textures (using sprite sheet)
-        private ITexture _lagNumbersTexture = null!;
-
         // Gameplay state
         private bool _isLoading = true;
         private bool _isReady = false;
@@ -192,7 +190,8 @@ namespace DTXMania.Game.Lib.Stage
             bool HideMeasureLines,
             bool HideJudgementLine,
             bool HideCombo,
-            bool EnableLaneFlush);
+            bool EnableLaneFlush,
+            bool ShowHitTimingFeedback);
         
         // Note: Using global stage transition debouncing from BaseGame
 
@@ -457,7 +456,8 @@ namespace DTXMania.Game.Lib.Stage
                 HideMeasureLines: !laneDisplayMode.ShowsMeasureLines(),
                 HideJudgementLine: !(config?.ShowJudgementLine ?? true),
                 HideCombo: !(config?.ShowCombo ?? true),
-                EnableLaneFlush: config?.EnableLaneFlush ?? false);
+                EnableLaneFlush: config?.EnableLaneFlush ?? false,
+                ShowHitTimingFeedback: config?.ShowHitTimingFeedback ?? false);
 
             // Defensive copy: the run owns its lane set. Later config edits
             // (UI toggles, mid-song SetAutoPlayLane) must not alter which
@@ -514,6 +514,7 @@ namespace DTXMania.Game.Lib.Stage
             _spriteJudgementTextPopupManager = new SpriteJudgementTextPopupManager(
                 _resourceManager,
                 judgementEvent => _fontJudgementTextPopupManager?.SpawnPopup(judgementEvent));
+            _hitTimingFeedbackDisplay = new HitTimingFeedbackDisplay(_resourceManager);
             _padRenderer = new PadRenderer(graphicsDevice, _resourceManager);
 
             // Initialize UX components
@@ -578,6 +579,8 @@ namespace DTXMania.Game.Lib.Stage
             _spriteJudgementTextPopupManager = null;
             _fontJudgementTextPopupManager?.Dispose();
             _fontJudgementTextPopupManager = null;
+            _hitTimingFeedbackDisplay?.Dispose();
+            _hitTimingFeedbackDisplay = null;
             _padRenderer?.Dispose();
             _padRenderer = null;
 
@@ -1010,6 +1013,7 @@ namespace DTXMania.Game.Lib.Stage
             // Update judgement text popup managers
             _spriteJudgementTextPopupManager?.Update(deltaTime);
             _fontJudgementTextPopupManager?.Update(deltaTime);
+            _hitTimingFeedbackDisplay?.Update(deltaTime);
 
             // Update pad renderer
             _padRenderer?.Update(deltaTime);
@@ -1294,9 +1298,6 @@ namespace DTXMania.Game.Lib.Stage
             // Load judgement text sprite sheet using TexturePath constant
             _judgeStringsTexture = TryLoadTexture(TexturePath.JudgeStrings);
 
-            // Load timing indicator sprite sheet using TexturePath constant
-            _lagNumbersTexture = TryLoadTexture(TexturePath.LagIndicator);
-
             // Load overlay textures using TexturePath constants
             _pauseOverlayTexture = TryLoadTexture(TexturePath.PauseOverlay);
             _dangerOverlayTexture = TryLoadTexture(TexturePath.Danger);
@@ -1435,9 +1436,6 @@ namespace DTXMania.Game.Lib.Stage
             
             _judgeStringsTexture?.RemoveReference();
             _judgeStringsTexture = null;
-            
-            _lagNumbersTexture?.RemoveReference();
-            _lagNumbersTexture = null;
             
             _pauseOverlayTexture?.RemoveReference();
             _pauseOverlayTexture = null;
@@ -1765,6 +1763,13 @@ namespace DTXMania.Game.Lib.Stage
 
             // Spawn judgement text popup for all judgements
             _spriteJudgementTextPopupManager?.SpawnPopup(e);
+
+            if (_visualGates.ShowHitTimingFeedback
+                && e.IsHit()
+                && !FrozenAutoPlayLanes.Contains(e.Lane))
+            {
+                _hitTimingFeedbackDisplay?.Spawn(e);
+            }
         }
 
         /// <summary>
@@ -2171,6 +2176,7 @@ namespace DTXMania.Game.Lib.Stage
             // Draw judgement text popups using sprite sheets with font fallback
             _spriteJudgementTextPopupManager?.Draw(_spriteBatch);
             _fontJudgementTextPopupManager?.Draw(_spriteBatch);
+            _hitTimingFeedbackDisplay?.Draw(_spriteBatch);
         }
 
         [ExcludeFromCodeCoverage]
