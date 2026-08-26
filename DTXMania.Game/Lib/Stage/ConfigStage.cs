@@ -710,6 +710,12 @@ namespace DTXMania.Game.Lib.Stage
                 value => _configManager.SetShowCombo(value))
             { Description = "Toggles the combo counter during gameplay." };
 
+            var hitTimingFeedbackItem = new ToggleConfigItem(
+                "Hit Timing Feedback",
+                () => _configManager.Config.ShowHitTimingFeedback,
+                value => _configManager.SetShowHitTimingFeedback(value))
+            { Description = "Toggles hit timing feedback during gameplay." };
+
             var ffmpegAvailability = _ffmpegAvailabilityProvider();
             var playbackModifierWarning = GetPlaybackModifierWarning(ffmpegAvailability);
 
@@ -834,6 +840,7 @@ namespace DTXMania.Game.Lib.Stage
             var drumItems = new List<IConfigItem>
             {
                 scrollSpeedItem, laneDisplayItem, judgeLineItem, laneFlushItem, comboItem,
+                hitTimingFeedbackItem,
                 playSpeedItem, pitchItem, metronomeItem, autoPlayItem
             };
             drumItems.AddRange(autoPlayLaneItems);

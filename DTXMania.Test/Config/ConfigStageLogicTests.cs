@@ -1237,6 +1237,7 @@ public class ConfigStageLogicTests
                 i => Assert.Equal("Judge Line", i.Name),
                 i => Assert.Equal("Lane Flush", i.Name),
                 i => Assert.Equal("Combo", i.Name),
+                i => Assert.Equal("Hit Timing Feedback", i.Name),
                 i => Assert.Equal("Play Speed", i.Name),
                 i => Assert.Equal("Pitch", i.Name),
                 i => Assert.Equal("Metronome", i.Name),
@@ -1382,6 +1383,20 @@ public class ConfigStageLogicTests
         ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
 
         mockConfig.Verify(manager => manager.SetShowCombo(false), Times.Once);
+    }
+
+    [Fact]
+    public void HitTimingFeedbackItem_WhenActivated_ShouldDispatchToSetter()
+    {
+        using var inputManager = new InputManagerCompat(new ConfigManager(), new TestMidiDeviceBackend());
+        var (stage, mockConfig) = CreateStageWithMockConfig(inputManager);
+        InitializeStageMenu(stage, includePanels: false);
+        SelectItemForEditing(stage, "Hit Timing Feedback");
+        SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+        mockConfig.Verify(manager => manager.SetShowHitTimingFeedback(true), Times.Once);
     }
 
     [Fact]
