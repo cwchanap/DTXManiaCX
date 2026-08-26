@@ -36,6 +36,98 @@ namespace DTXMania.Test.UI
 
         #endregion
 
+        #region HitTimingFeedback Tests
+
+        [Fact]
+        public void HitTimingFeedback_Geometry_ShouldDeriveRuntimeBoundsFromAtlasCells()
+        {
+            Assert.Equal(15, PerformanceUILayout.HitTimingFeedback.GlyphWidth);
+            Assert.Equal(19, PerformanceUILayout.HitTimingFeedback.GlyphHeight);
+            Assert.Equal(4, PerformanceUILayout.HitTimingFeedback.ColumnsPerBank);
+            Assert.Equal(12, PerformanceUILayout.HitTimingFeedback.SlotsPerBank);
+            Assert.Equal(3, PerformanceUILayout.HitTimingFeedback.RowsPerBank);
+            Assert.Equal(new Point(0, 0), PerformanceUILayout.HitTimingFeedback.FastBankOrigin);
+            Assert.Equal(new Point(64, 64), PerformanceUILayout.HitTimingFeedback.SlowBankOrigin);
+            Assert.Equal(11, PerformanceUILayout.HitTimingFeedback.MinusSlot);
+            Assert.Equal(124, PerformanceUILayout.HitTimingFeedback.RequiredTextureWidth);
+            Assert.Equal(121, PerformanceUILayout.HitTimingFeedback.RequiredTextureHeight);
+        }
+
+        [Theory]
+        [InlineData(false, 0, 0, 0)]
+        [InlineData(false, 4, 0, 19)]
+        [InlineData(false, 8, 0, 38)]
+        [InlineData(false, 9, 15, 38)]
+        [InlineData(false, 11, 45, 38)]
+        [InlineData(true, 0, 64, 64)]
+        [InlineData(true, 4, 64, 83)]
+        [InlineData(true, 8, 64, 102)]
+        [InlineData(true, 9, 79, 102)]
+        [InlineData(true, 11, 109, 102)]
+        public void HitTimingFeedback_GetSourceRectangle_ShouldUseFourColumnRowMajorPacking(
+            bool slowBank, int slot, int expectedX, int expectedY)
+        {
+            var source = PerformanceUILayout.HitTimingFeedback.GetSourceRectangle(slot, slowBank);
+
+            Assert.Equal(new Rectangle(expectedX, expectedY, 15, 19), source);
+        }
+
+        [Theory]
+        [InlineData(-18.5, "-19", false)]
+        [InlineData(24.5, "25", true)]
+        [InlineData(-0.4, "0", false)]
+        [InlineData(0.4, "0", false)]
+        [InlineData(-0.5, "-1", false)]
+        [InlineData(0.5, "1", true)]
+        public void HitTimingFeedback_ProjectDelta_ShouldRoundBeforeChoosingDirection(
+            double deltaMs, string expectedText, bool expectedSlowBank)
+        {
+            var projection = PerformanceUILayout.HitTimingFeedback.ProjectDelta(deltaMs);
+
+            Assert.Equal(expectedText, projection.Text);
+            Assert.Equal(expectedSlowBank, projection.IsSlow);
+        }
+
+        [Fact]
+        public void HitTimingFeedback_ProjectDelta_ShouldMapNegativeZeroAndPositiveRunsWithoutPlusGlyph()
+        {
+            Assert.Equal(new[] { 11, 1, 9 },
+                PerformanceUILayout.HitTimingFeedback.ProjectDelta(-19).GlyphSlots);
+            Assert.Equal(new[] { 0 },
+                PerformanceUILayout.HitTimingFeedback.ProjectDelta(0).GlyphSlots);
+            Assert.Equal(new[] { 2, 5 },
+                PerformanceUILayout.HitTimingFeedback.ProjectDelta(25).GlyphSlots);
+        }
+
+        [Theory]
+        [InlineData(0, 1)]
+        [InlineData(3, 2)]
+        [InlineData(9, 5)]
+        public void HitTimingFeedback_GetLaneRunPosition_ShouldCenterFullRunBelowJudgementText(
+            int laneIndex, int glyphCount)
+        {
+            var position = PerformanceUILayout.HitTimingFeedback.GetLaneRunPosition(laneIndex, glyphCount);
+
+            var expectedX = PerformanceUILayout.GetLaneX(laneIndex)
+                - (glyphCount * PerformanceUILayout.HitTimingFeedback.GlyphWidth) / 2f;
+            var expectedY = PerformanceUILayout.JudgementLineY
+                - PerformanceUILayout.SpriteJudgementTextAssets.JudgementLineOffsetY
+                + 34;
+
+            Assert.Equal(expectedX, position.X);
+            Assert.Equal(expectedY, position.Y);
+        }
+
+        [Fact]
+        public void HitTimingFeedback_Duration_ShouldShareSpriteJudgementTextLifetime()
+        {
+            Assert.Equal(
+                PerformanceUILayout.SpriteJudgementTextAssets.TotalDurationSeconds,
+                PerformanceUILayout.HitTimingFeedback.TotalDurationSeconds);
+        }
+
+        #endregion
+
         #region HitSparks Tests
 
         [Theory]
