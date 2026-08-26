@@ -66,26 +66,20 @@ public sealed class HitTimingFeedbackDisplay : IDisposable
 
     private HitTimingFeedbackDisplay(
         ITexture? lagNumbersTexture,
-        IResourceManager? resourceManager,
-        HitTimingFeedbackState?[]? activeStates)
+        IResourceManager? resourceManager)
     {
-        var states = activeStates ?? new HitTimingFeedbackState?[PerformanceUILayout.LaneCount];
-        if (states.Length != PerformanceUILayout.LaneCount)
-            throw new ArgumentException("Active state storage must match the lane count.", nameof(activeStates));
-
         _lagNumbersTexture = lagNumbersTexture;
         _resourceManager = resourceManager;
-        _activeStates = states;
+        _activeStates = new HitTimingFeedbackState?[PerformanceUILayout.LaneCount];
 
         _reloadAttempted = lagNumbersTexture == null;
     }
 
     internal static HitTimingFeedbackDisplay CreateForTesting(
         ITexture? lagNumbersTexture,
-        IResourceManager? resourceManager = null,
-        HitTimingFeedbackState?[]? activeStates = null)
+        IResourceManager? resourceManager = null)
     {
-        return new HitTimingFeedbackDisplay(lagNumbersTexture, resourceManager, activeStates);
+        return new HitTimingFeedbackDisplay(lagNumbersTexture, resourceManager);
     }
 
     internal IReadOnlyList<HitTimingFeedbackState?> ActiveStatesForTesting => _activeStates;
