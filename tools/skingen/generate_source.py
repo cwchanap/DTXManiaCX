@@ -687,15 +687,20 @@ def build_all() -> Dict[str, str]:
     ln_full.paste(ln, (0, 0), ln)
     put("Graphics/7_LevelNumber.png", ln_full)
 
-    put("Graphics/7_lag numbers.png",
-        digit_sheet([(str(i), 12) for i in range(10)] + [(".", 8)], 128, 48))
-    # force size
+    # Lag numbers: two 4x3 banks of 15x19 glyph cells. Slot 10 is reserved;
+    # slot 11 holds the minus sign.
     lag_n = new_rgba(128, 128)
-    font = _font(48, bold=True)
     ld = ImageDraw.Draw(lag_n)
-    for i in range(10):
-        draw_text_centered(ld, ((i % 5) * 25, (i // 5) * 60, (i % 5) * 25 + 25, (i // 5) * 60 + 60),
-                           str(i), font, fill=TEXT, glow_color=(*CYAN[:3], 100))
+    font = _font(22, bold=True)
+    for bank_x, bank_y, color in ((0, 0, CYAN), (64, 64, DANGER)):
+        for slot in range(12):
+            if slot == 10:
+                continue
+            glyph = str(slot) if slot < 10 else "-"
+            x = bank_x + (slot % 4) * 15
+            y = bank_y + (slot // 4) * 19
+            draw_text_centered(ld, (x, y, x + 15, y + 19), glyph, font,
+                               fill=TEXT, glow_color=(*color[:3], 100))
     put("Graphics/7_lag numbers.png", lag_n)
 
     lag = new_rgba(200, 40)

@@ -40,6 +40,79 @@ class ScanTexturePathTests(unittest.TestCase):
                          "\n  ".join(missing))
 
 
+class LagAtlasTests(unittest.TestCase):
+    ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    ATLAS_PATHS = (
+        os.path.join(ROOT, "tools", "skingen", "source", "7_lag numbers.png"),
+        os.path.join(ROOT, "System", "CXNeon", "Graphics", "7_lag numbers.png"),
+    )
+    GLYPH_WIDTH = 15
+    GLYPH_HEIGHT = 19
+    COLUMNS_PER_BANK = 4
+    SLOTS_PER_BANK = 12
+    BANK_ORIGINS = ((0, 0), (64, 64))
+
+    @classmethod
+    def _cell_pixels(cls, image, origin, slot):
+        bank_x, bank_y = origin
+        x = bank_x + (slot % cls.COLUMNS_PER_BANK) * cls.GLYPH_WIDTH
+        y = bank_y + (slot // cls.COLUMNS_PER_BANK) * cls.GLYPH_HEIGHT
+        return [
+            image.getpixel((x + dx, y + dy))
+            for dy in range(cls.GLYPH_HEIGHT)
+            for dx in range(cls.GLYPH_WIDTH)
+        ]
+
+    @classmethod
+    def _bank_pixels(cls, image, origin):
+        return [
+            pixel
+            for slot in range(cls.SLOTS_PER_BANK)
+            for pixel in cls._cell_pixels(image, origin, slot)
+        ]
+
+    def test_cx_neon_lag_atlas_matches_two_bank_contract(self):
+        self.assertEqual(
+            (self.BANK_ORIGINS[0][0] + self.COLUMNS_PER_BANK * self.GLYPH_WIDTH,
+             self.BANK_ORIGINS[0][1] + 3 * self.GLYPH_HEIGHT),
+            (60, 57),
+        )
+        self.assertEqual(
+            (self.BANK_ORIGINS[1][0] + self.COLUMNS_PER_BANK * self.GLYPH_WIDTH,
+             self.BANK_ORIGINS[1][1] + 3 * self.GLYPH_HEIGHT),
+            (124, 121),
+        )
+
+        for path in self.ATLAS_PATHS:
+            with self.subTest(path=path), Image.open(path) as image:
+                image.load()
+                self.assertEqual(image.size, (128, 128))
+
+                for origin in self.BANK_ORIGINS:
+                    bank_pixels = self._bank_pixels(image, origin)
+                    self.assertTrue(any(pixel[3] > 0 for pixel in bank_pixels))
+                    for slot in tuple(range(10)) + (11,):
+                        self.assertTrue(
+                            any(pixel[3] > 0 for pixel in self._cell_pixels(image, origin, slot)),
+                            "slot %d at %s is empty" % (slot, origin),
+                        )
+                    self.assertFalse(
+                        any(pixel[3] > 0 for pixel in self._cell_pixels(image, origin, 10)),
+                        "slot 10 at %s must remain unused" % (origin,),
+                    )
+
+                fast_pixels = self._bank_pixels(image, self.BANK_ORIGINS[0])
+                slow_pixels = self._bank_pixels(image, self.BANK_ORIGINS[1])
+                self.assertTrue(
+                    any(pixel[:3] == generate_source.CYAN[:3] for pixel in fast_pixels),
+                    "FAST bank must visibly use the cyan palette",
+                )
+                self.assertTrue(
+                    any(pixel[:3] == generate_source.DANGER[:3] for pixel in slow_pixels),
+                    "SLOW bank must visibly use the danger palette",
+                )
+
+
 class ValidateTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
