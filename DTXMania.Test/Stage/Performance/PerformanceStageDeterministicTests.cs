@@ -489,6 +489,10 @@ public class PerformanceStageDeterministicTests
 
         Assert.Equal(new[] { 2, 7 }, GetAutoPlayLanes(stage).OrderBy(lane => lane));
         Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_autoPlayNoteIndex"));
+
+        var visualGates = ReflectionHelpers.GetPrivateField<object>(stage, "_visualGates");
+        Assert.NotNull(visualGates);
+        Assert.False((bool)visualGates!.GetType().GetProperty("ShowHitTimingFeedback")!.GetValue(visualGates)!);
     }
 
     [Fact]
@@ -503,7 +507,8 @@ public class PerformanceStageDeterministicTests
             LaneDisplayMode = DrumsLaneDisplayMode.AllOff,
             ShowJudgementLine = false,
             EnableLaneFlush = true,
-            ShowCombo = false
+            ShowCombo = false,
+            ShowHitTimingFeedback = true
         };
         config.AutoPlayLanes.UnionWith(new[] { 1, 8 });
         var game = ReflectionHelpers.CreateGame();
@@ -523,6 +528,7 @@ public class PerformanceStageDeterministicTests
         config.ShowJudgementLine = true;
         config.EnableLaneFlush = false;
         config.ShowCombo = true;
+        config.ShowHitTimingFeedback = false;
 
         Assert.Equal(new[] { 1, 8 }, GetAutoPlayLanes(stage).OrderBy(lane => lane));
         Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_autoAddGaugeEnabled"));
@@ -540,6 +546,7 @@ public class PerformanceStageDeterministicTests
         Assert.True((bool)gateType.GetProperty("HideJudgementLine")!.GetValue(visualGates)!);
         Assert.True((bool)gateType.GetProperty("HideCombo")!.GetValue(visualGates)!);
         Assert.True((bool)gateType.GetProperty("EnableLaneFlush")!.GetValue(visualGates)!);
+        Assert.True((bool)gateType.GetProperty("ShowHitTimingFeedback")!.GetValue(visualGates)!);
     }
 
     [Fact]
@@ -2206,6 +2213,7 @@ public class PerformanceStageDeterministicTests
         var scoreDigitsTexture = CreateTextureMock();
         var judgeStringsTexture = CreateTextureMock();
         var lagNumbersTexture = CreateTextureMock();
+        var hitTimingFeedbackDisplay = HitTimingFeedbackDisplay.CreateForTesting(lagNumbersTexture.Object);
         var pauseOverlayTexture = CreateTextureMock();
         var dangerOverlayTexture = CreateTextureMock();
         var skillPanelTexture = CreateTextureMock();
@@ -2231,7 +2239,7 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_comboDigitsTexture", comboDigitsTexture.Object);
         ReflectionHelpers.SetPrivateField(stage, "_scoreDigitsTexture", scoreDigitsTexture.Object);
         ReflectionHelpers.SetPrivateField(stage, "_judgeStringsTexture", judgeStringsTexture.Object);
-        ReflectionHelpers.SetPrivateField(stage, "_lagNumbersTexture", lagNumbersTexture.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_hitTimingFeedbackDisplay", hitTimingFeedbackDisplay);
         ReflectionHelpers.SetPrivateField(stage, "_pauseOverlayTexture", pauseOverlayTexture.Object);
         ReflectionHelpers.SetPrivateField(stage, "_dangerOverlayTexture", dangerOverlayTexture.Object);
         ReflectionHelpers.SetPrivateField(stage, "_skillPanelTexture", skillPanelTexture.Object);
@@ -2266,6 +2274,7 @@ public class PerformanceStageDeterministicTests
         scoreDigitsTexture.Verify(x => x.RemoveReference(), Times.Once);
         judgeStringsTexture.Verify(x => x.RemoveReference(), Times.Once);
         lagNumbersTexture.Verify(x => x.RemoveReference(), Times.Once);
+        Assert.Null(ReflectionHelpers.GetPrivateField<HitTimingFeedbackDisplay>(stage, "_hitTimingFeedbackDisplay"));
         pauseOverlayTexture.Verify(x => x.RemoveReference(), Times.Once);
         dangerOverlayTexture.Verify(x => x.RemoveReference(), Times.Once);
         skillPanelTexture.Verify(x => x.RemoveReference(), Times.Once);
@@ -3771,6 +3780,44 @@ public class PerformanceStageDeterministicTests
             ReflectionHelpers.InvokePrivateMethod(stage, "TriggerBGMEvent", new BGMEvent { WavId = "01" }));
 
         Assert.Null(exception);
+    }
+
+    [Theory]
+    [InlineData(false, 2, JudgementType.Perfect, -1, false)]
+    [InlineData(true, 2, JudgementType.Perfect, -1, true)]
+    [InlineData(true, 2, JudgementType.Great, -1, true)]
+    [InlineData(true, 2, JudgementType.Good, -1, true)]
+    [InlineData(true, 2, JudgementType.Poor, -1, true)]
+    [InlineData(true, 2, JudgementType.Miss, -1, false)]
+    [InlineData(true, 2, JudgementType.Perfect, 2, false)]
+    [InlineData(true, 3, JudgementType.Great, 2, true)]
+    public void OnJudgementMade_ShouldRouteOnlyEligibleManualHitsToTimingDisplay(
+        bool showHitTimingFeedback,
+        int lane,
+        JudgementType judgementType,
+        int autoPlayLane,
+        bool expectedTimingDisplay)
+    {
+        var config = new ConfigData { ShowHitTimingFeedback = showHitTimingFeedback };
+        if (autoPlayLane >= 0)
+            config.AutoPlayLanes.Add(autoPlayLane);
+
+        var game = ReflectionHelpers.CreateGame();
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(config));
+        var stage = CreateStage(game);
+        ReflectionHelpers.InvokePrivateMethod(stage, "FreezeRunConfiguration");
+
+        using var timingDisplay = HitTimingFeedbackDisplay.CreateForTesting(new MutableTexture());
+        ReflectionHelpers.SetPrivateField(stage, "_hitTimingFeedbackDisplay", timingDisplay);
+
+        var deltaMs = judgementType == JudgementType.Miss ? 75.0 : -12.5;
+        ReflectionHelpers.InvokePrivateMethod(
+            stage,
+            "OnJudgementMade",
+            null!,
+            new JudgementEvent(noteRef: 1, lane: lane, deltaMs: deltaMs, type: judgementType));
+
+        Assert.Equal(expectedTimingDisplay ? 1 : 0, timingDisplay.ActiveLaneCountForTesting);
     }
 
     [Fact]
