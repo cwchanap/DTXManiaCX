@@ -2,6 +2,8 @@ using Microsoft.Xna.Framework;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Song.Entities;
 using System;
+using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 
 namespace DTXMania.Game.Lib.UI.Layout
@@ -962,6 +964,73 @@ namespace DTXMania.Game.Lib.UI.Layout
             public const int GoodFrame = 2;
             public const int PoorFrame = 3;
             public const int MissFrame = 4;
+        }
+
+        public static class HitTimingFeedback
+        {
+            public const int GlyphWidth = 15;
+            public const int GlyphHeight = 19;
+            public const int ColumnsPerBank = 4;
+            public const int SlotsPerBank = 12;
+            public const int RowsPerBank = (SlotsPerBank + ColumnsPerBank - 1) / ColumnsPerBank;
+            public const int DigitSlotStart = 0;
+            public const int DigitSlotEnd = 9;
+            public const int MinusSlot = 11;
+
+            public static readonly Point FastBankOrigin = new Point(0, 0);
+            public static readonly Point SlowBankOrigin = new Point(64, 64);
+            public static readonly int RequiredTextureWidth =
+                SlowBankOrigin.X + ColumnsPerBank * GlyphWidth;
+            public static readonly int RequiredTextureHeight =
+                SlowBankOrigin.Y + RowsPerBank * GlyphHeight;
+            public static readonly double TotalDurationSeconds = SpriteJudgementTextAssets.TotalDurationSeconds;
+
+            public readonly record struct DeltaProjection(
+                int RoundedMilliseconds,
+                string Text,
+                bool IsSlow,
+                IReadOnlyList<int> GlyphSlots)
+            {
+                public int RoundedValue => RoundedMilliseconds;
+                public bool IsFast => !IsSlow;
+            }
+
+            public static DeltaProjection ProjectDelta(double deltaMs)
+            {
+                var rounded = (int)Math.Round(deltaMs, MidpointRounding.AwayFromZero);
+                var text = rounded.ToString(CultureInfo.InvariantCulture);
+                var glyphSlots = new int[text.Length];
+
+                for (var i = 0; i < text.Length; i++)
+                {
+                    glyphSlots[i] = text[i] == '-'
+                        ? MinusSlot
+                        : text[i] - '0';
+                }
+
+                return new DeltaProjection(rounded, text, rounded > 0, glyphSlots);
+            }
+
+            public static Rectangle GetSourceRectangle(int slot, bool slowBank)
+            {
+                if (slot < 0 || slot >= SlotsPerBank)
+                    throw new ArgumentOutOfRangeException(nameof(slot));
+
+                var bankOrigin = slowBank ? SlowBankOrigin : FastBankOrigin;
+                var sourceX = bankOrigin.X + (slot % ColumnsPerBank) * GlyphWidth;
+                var sourceY = bankOrigin.Y + (slot / ColumnsPerBank) * GlyphHeight;
+                return new Rectangle(sourceX, sourceY, GlyphWidth, GlyphHeight);
+            }
+
+            public static Vector2 GetLaneRunPosition(int laneIndex, int glyphCount)
+            {
+                if (glyphCount < 0)
+                    throw new ArgumentOutOfRangeException(nameof(glyphCount));
+
+                var x = GetLaneX(laneIndex) - (glyphCount * GlyphWidth) / 2f;
+                var y = (JudgementLineY - SpriteJudgementTextAssets.JudgementLineOffsetY) + 34;
+                return new Vector2(x, y);
+            }
         }
 
         public static class SpriteJudgementTextAssets
