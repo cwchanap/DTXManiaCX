@@ -989,11 +989,7 @@ namespace DTXMania.Game.Lib.UI.Layout
                 int RoundedMilliseconds,
                 string Text,
                 bool IsSlow,
-                IReadOnlyList<int> GlyphSlots)
-            {
-                public int RoundedValue => RoundedMilliseconds;
-                public bool IsFast => !IsSlow;
-            }
+                IReadOnlyList<int> GlyphSlots);
 
             public static DeltaProjection ProjectDelta(double deltaMs)
             {
