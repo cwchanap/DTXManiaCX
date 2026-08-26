@@ -80,6 +80,7 @@ namespace DTXMania.Game.Lib.Config
         public bool ShowJudgementLine { get; set; } = true;
         public bool EnableLaneFlush { get; set; } = false;
         public bool ShowCombo { get; set; } = true;
+        public bool ShowHitTimingFeedback { get; set; } = false;
 
         /// <summary>
         /// Audio output latency compensation in milliseconds. This value is subtracted from

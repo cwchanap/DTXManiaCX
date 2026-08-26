@@ -34,6 +34,7 @@ public class ConfigDataTests
         Assert.True(config.ShowJudgementLine);
         Assert.False(config.EnableLaneFlush);
         Assert.True(config.ShowCombo);
+        Assert.False(config.ShowHitTimingFeedback);
     }
 
     [Fact]

@@ -89,6 +89,7 @@ public class ConfigManagerTests : IDisposable
         Assert.NotNull(typeof(IConfigManager).GetMethod("SetShowJudgementLine"));
         Assert.NotNull(typeof(IConfigManager).GetMethod("SetEnableLaneFlush"));
         Assert.NotNull(typeof(IConfigManager).GetMethod("SetShowCombo"));
+        Assert.NotNull(typeof(IConfigManager).GetMethod("SetShowHitTimingFeedback"));
     }
 
     [Fact]
@@ -582,6 +583,38 @@ ScreenHeight=720
             () => manager.Config.ShowCombo,
             defaultValue: true,
             changedValue: false);
+    }
+
+    [Fact]
+    public void SetShowHitTimingFeedback_ShouldChangeAndSkipNoOps()
+    {
+        var manager = CreateManager(NewTestDir());
+        manager.LoadConfig();
+
+        AssertVisualBooleanSetter(
+            manager,
+            manager.SetShowHitTimingFeedback,
+            () => manager.Config.ShowHitTimingFeedback,
+            defaultValue: false,
+            changedValue: true);
+    }
+
+    [Theory]
+    [InlineData("ShowHitTimingFeedback=true", true)]
+    [InlineData("ShowHitTimingFeedback=1", true)]
+    [InlineData("ShowHitTimingFeedback=on", true)]
+    [InlineData("ShowHitTimingFeedback=false", false)]
+    [InlineData("ShowHitTimingFeedback=invalid", false)]
+    public void ConfigManager_ParseShowHitTimingFeedback_ShouldUseStandardBooleanValues(
+        string line, bool expectedShowHitTimingFeedback)
+    {
+        var dir = NewTestDir();
+        File.WriteAllText(Path.Combine(dir, "Config.ini"), $"[Game]\n{line}\n", Encoding.UTF8);
+
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
+
+        Assert.Equal(expectedShowHitTimingFeedback, manager.Config.ShowHitTimingFeedback);
     }
 
     private static void AssertVisualBooleanSetter(

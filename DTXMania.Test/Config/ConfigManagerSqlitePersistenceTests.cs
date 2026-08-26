@@ -293,6 +293,7 @@ namespace DTXMania.Test.Config
             manager.SetShowJudgementLine(false);
             manager.SetEnableLaneFlush(true);
             manager.SetShowCombo(false);
+            manager.SetShowHitTimingFeedback(true);
             manager.FlushPendingSave();
 
             var rows = ReadRows();
@@ -302,6 +303,7 @@ namespace DTXMania.Test.Config
             Assert.Equal("False", rows["ShowJudgementLine"]);
             Assert.Equal("True", rows["EnableLaneFlush"]);
             Assert.Equal("False", rows["ShowCombo"]);
+            Assert.Equal("True", rows["ShowHitTimingFeedback"]);
 
             var reloaded = CreateManager();
             reloaded.LoadConfig();
@@ -310,6 +312,19 @@ namespace DTXMania.Test.Config
             Assert.False(reloaded.Config.ShowJudgementLine);
             Assert.True(reloaded.Config.EnableLaneFlush);
             Assert.False(reloaded.Config.ShowCombo);
+            Assert.True(reloaded.Config.ShowHitTimingFeedback);
+        }
+
+        [Fact]
+        public void ShowHitTimingFeedback_WhenMissing_ShouldRetainFalseDefault()
+        {
+            new SqliteConfigStore(DbPath).Save(
+                new Dictionary<string, string> { ["ScreenWidth"] = "1280" });
+
+            var manager = CreateManager();
+            manager.LoadConfig();
+
+            Assert.False(manager.Config.ShowHitTimingFeedback);
         }
 
         [Fact]

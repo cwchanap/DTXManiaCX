@@ -131,6 +131,9 @@ namespace DTXMania.Game.Lib.Config
         /// <summary>Sets Combo visibility and marks a deferred save pending when the value changes. No event raised.</summary>
         void SetShowCombo(bool value);
 
+        /// <summary>Sets hit timing feedback visibility and marks a deferred save pending when the value changes. No event raised.</summary>
+        void SetShowHitTimingFeedback(bool value);
+
         /// <summary>Sets Metronome and marks a deferred save pending when the value changes. No event raised.</summary>
         void SetMetronome(bool value);
 

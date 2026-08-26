@@ -1190,6 +1190,8 @@ namespace DTXMania.Test.Stage.DrumConfig
 
             public void SetShowCombo(bool value) { }
 
+            public void SetShowHitTimingFeedback(bool value) { }
+
             public void SetRandomSelectFromSubBox(bool value) { }
 
             public void SetRisky(int value) { }

@@ -608,6 +608,10 @@ namespace DTXMania.Game.Lib.Config
                     if (TryParseBool(value, out var showCombo))
                         Config.ShowCombo = showCombo;
                     break;
+                case "ShowHitTimingFeedback":
+                    if (TryParseBool(value, out var showHitTimingFeedback))
+                        Config.ShowHitTimingFeedback = showHitTimingFeedback;
+                    break;
                 case "AutoAddGauge":
                     if (TryParseBool(value, out var autoAddGauge))
                         Config.AutoAddGauge = autoAddGauge;
@@ -816,6 +820,7 @@ namespace DTXMania.Game.Lib.Config
             entries["ShowJudgementLine"] = Config.ShowJudgementLine.ToString();
             entries["EnableLaneFlush"] = Config.EnableLaneFlush.ToString();
             entries["ShowCombo"] = Config.ShowCombo.ToString();
+            entries["ShowHitTimingFeedback"] = Config.ShowHitTimingFeedback.ToString();
             entries["AudioLatencyOffsetMs"] = Config.AudioLatencyOffsetMs.ToString(CultureInfo.InvariantCulture);
 
             entries["EnableGameApi"] = Config.EnableGameApi.ToString();
@@ -1104,6 +1109,16 @@ namespace DTXMania.Game.Lib.Config
                 return;
 
             Config.ShowCombo = value;
+            MarkDirty();
+        }
+
+        /// <summary>Sets hit timing feedback visibility and marks a deferred save when changed.</summary>
+        public void SetShowHitTimingFeedback(bool value)
+        {
+            if (value == Config.ShowHitTimingFeedback)
+                return;
+
+            Config.ShowHitTimingFeedback = value;
             MarkDirty();
         }
 
