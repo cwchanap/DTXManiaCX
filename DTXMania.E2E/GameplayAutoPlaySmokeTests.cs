@@ -139,6 +139,11 @@ public sealed class GameplayAutoPlaySmokeTests
             Assert.Equal(fullyJudged.TotalNotes, fullyJudged.TotalJudgements);
 
             await WaitForStageAsync(client, "Result", TimeSpan.FromSeconds(120), cancellation.Token);
+            // StageCompleted is NOT screenshot readiness: it is published as soon
+            // as Result has a PerformanceSummary, roughly 1.15 seconds before the
+            // reveal completes on an un-fast-forwarded result. Keep this wait for
+            // its existing journey-completion purpose; the game-owned screenshot
+            // file is awaited independently below.
             var resultState = await Eventually.UntilAsync(
                 token => client.GetGameStateAsync(token),
                 state =>
@@ -155,6 +160,37 @@ public sealed class GameplayAutoPlaySmokeTests
             Assert.Equal(resultState.TotalNotes, resultState.TotalJudgements);
             Assert.Equal("SongComplete", resultState.CompletionReason);
             await E2EArtifactWriter.WriteJsonAsync(fixture, "final-state-fullautoplay.json", resultState);
+
+            // HPA-16: the production Result draw must write exactly one PNG under
+            // the game-owned Screenshots root (DTXMANIA_APPDATA_ROOT pins it to
+            // fixture.AppDataRoot). The budget covers the ~1.15s of reveal still
+            // pending after StageCompleted, PNG encoding on the draw thread, and
+            // the asynchronous directory/file write.
+            var screenshotsRoot = Path.Combine(fixture.AppDataRoot, "Screenshots");
+            await Eventually.UntilAsync(
+                _ => Task.FromResult(
+                    Directory.Exists(screenshotsRoot)
+                        ? Directory.EnumerateFiles(screenshotsRoot, "result-*.png").Count()
+                        : 0),
+                count => count == 1,
+                TimeSpan.FromSeconds(10),
+                TimeSpan.FromMilliseconds(250),
+                "exactly one automatic result screenshot under the game-owned Screenshots root",
+                cancellation.Token);
+
+            var screenshotPath = Assert.Single(Directory.EnumerateFiles(screenshotsRoot, "result-*.png"));
+            var screenshotBytes = await File.ReadAllBytesAsync(screenshotPath, cancellation.Token);
+            Assert.NotEmpty(screenshotBytes);
+            var pngSignature = new byte[] { 0x89, (byte)'P', (byte)'N', (byte)'G', 0x0D, 0x0A, 0x1A, 0x0A };
+            Assert.True(
+                screenshotBytes.Length >= pngSignature.Length &&
+                screenshotBytes.AsSpan(0, pngSignature.Length).SequenceEqual(pngSignature),
+                $"Automatic result screenshot '{screenshotPath}' does not begin with the PNG signature.");
+
+            // The accepted one-shot must not re-fire on later Result draws: let
+            // further fully revealed frames run, then confirm the count is still one.
+            await Task.Delay(TimeSpan.FromSeconds(2), cancellation.Token);
+            Assert.Single(Directory.EnumerateFiles(screenshotsRoot, "result-*.png"));
         }
         catch
         {
