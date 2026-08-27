@@ -36,7 +36,7 @@ This path must remain the only framebuffer-read / PNG-encoding implementation.
 public bool IsComplete => ElapsedSeconds >= TotalRevealSeconds;
 ```
 
-It also owns the fast-forward path through `Complete()`. `ResultStage` already calls `Complete()` when Activate/Back is pressed before the reveal has finished, so HPA-16 does not need another timer or a renderer-derived completion check.
+It also owns the fast-forward path through `Complete()`. `ResultStage` already consumes the first Activate/Back while reveal is incomplete, calls `Complete()`, and only permits a later input to leave Result. That guarantees a draw opportunity for the completed Result frame without another timer or renderer-derived predicate.
 
 ### Existing output paths
 
@@ -76,6 +76,11 @@ There must still be exactly one `_pendingScreenshot` slot and one render-target 
 
 Do not make `IStageGame` inherit `IGameContext`; their existing manager contracts differ and widening the whole stage interface graph is unnecessary for one capability.
 
+Two tests pin the two different contracts:
+
+- `IStageGameContractTests` exercises the default method on `MinimalStageGameStub` and proves an implementation that does not override the new optional capability receives null without breaking existing stubs;
+- `BaseGameTests` calls the member through `IStageGame` and proves `BaseGame` overrides/forwards it into the real shared `_pendingScreenshot` slot. This test is what prevents a forgotten `BaseGame` forward from silently using the default no-op.
+
 ### 2. Trigger from Result Draw, not Update
 
 The screenshot request must be queued at the end of a stable Result draw.
@@ -88,13 +93,13 @@ The safe ordering is:
 ResultStage.OnDraw
   -> draw stable Result content
   -> SpriteBatch.End()
-  -> if reveal IsComplete and not already requested: queue screenshot
+  -> TryScheduleResultScreenshot()
 BaseGame.Draw resumes
   -> fulfill pending request from the still-bound Result render target
   -> unbind + letterbox blit
 ```
 
-This guarantees the captured pixels are the Result frame that just rendered.
+`TryScheduleResultScreenshot()` is the single scheduling helper used by both production `OnDraw()` and focused unit tests. Do not mark that helper `[ExcludeFromCodeCoverage]`; only the graphics-bound `OnDraw()` remains excluded/headless-unfriendly.
 
 ### 3. One request per Result activation
 
@@ -106,7 +111,7 @@ _resultScreenshotRequested
 
 Reset it to `false` in `OnActivate()`.
 
-At the end of `OnDraw()`, call a small helper that returns unless:
+`TryScheduleResultScreenshot()` returns unless:
 
 - `_revealState?.IsComplete == true`; and
 - `_resultScreenshotRequested == false`.
@@ -123,11 +128,12 @@ Use one internal virtual `CaptureAndSaveResultScreenshotAsync()` seam on `Result
 
 1. await `_game.CaptureScreenshotAsync()`;
 2. treat null/empty bytes as a non-fatal failed attempt;
-3. create `AppPaths.GetScreenshotsRoot()`;
-4. write a filename such as `result-20260826-221755-123.png`;
-5. return.
+3. resolve `AppPaths.GetScreenshotsRoot()`;
+4. create that directory;
+5. build the final path through `AppPaths.BuildResultScreenshotPath(root, DateTime.Now)`;
+6. write the PNG bytes asynchronously.
 
-A private safe wrapper should catch/log all exceptions so the fire-and-forget task cannot become an unobserved failure. Use the stage’s existing logger infrastructure (`game.LoggerFactory`) for a warning; no UI message is required.
+A private safe wrapper should catch/log all exceptions so the fire-and-forget task cannot become an unobserved failure. Follow the existing Result-stage pattern for observing asynchronous failures and obtain the logger through `game.LoggerFactory`; no UI message is required.
 
 No cancellation token is needed. Once the stable Result frame has requested a screenshot, a subsequent stage transition should not cancel the already-captured file write.
 
@@ -138,6 +144,15 @@ Use a simple local-time timestamp:
 ```text
 result-yyyyMMdd-HHmmss-fff.png
 ```
+
+Keep filename construction as a tiny pure/testable helper, for example:
+
+```csharp
+internal static string BuildResultScreenshotPath(string screenshotsRoot, DateTime timestamp)
+    => Path.Combine(screenshotsRoot, $"result-{timestamp:yyyyMMdd-HHmmss-fff}.png");
+```
+
+This keeps the exact directory/filename contract out of the async Result logic and lets a fixed timestamp unit test pin it. `GetScreenshotsRoot()` remains a pure getter and must not create directories.
 
 Do not include song titles in filenames: sanitizing arbitrary chart metadata is unrelated work. Do not add retention, collision-management, or a screenshot index in this ticket.
 
@@ -159,9 +174,19 @@ There is no retry queue and the one-shot flag remains set after failure.
 
 ## Test strategy
 
+### `IStageGameContractTests`
+
+Pin the new default-interface-member behavior next to the existing startup/CrashReportInbox DIM tests:
+
+- `MinimalStageGameStub` requires no new implementation;
+- `CaptureScreenshotAsync()` through that stub completes with null;
+- the interface declaration test includes `CaptureScreenshotAsync`.
+
+This is a source-compatibility/default-behavior contract. It complements rather than replaces the BaseGame forwarding test.
+
 ### `BaseGameTests`
 
-Pin reuse, not implementation duplication:
+Pin reuse and the concrete forward:
 
 - a screenshot requested through `IStageGame` installs the same `_pendingScreenshot` task used by `IGameContext`;
 - while that request is pending, a request through the other interface returns the existing “busy” null result.
@@ -170,7 +195,12 @@ Existing tests continue to own render-target fulfillment and unavailable-device 
 
 ### `AppPathsTests`
 
-Add one path contract test proving `GetScreenshotsRoot()` is rooted and is the `Screenshots` child of `GetAppDataRoot()`.
+Add two pure contracts:
+
+- `GetScreenshotsRoot()` is rooted and equals the `Screenshots` child of `GetAppDataRoot()` / the configured `DTXMANIA_APPDATA_ROOT`;
+- a fixed timestamp passed to `BuildResultScreenshotPath()` yields the exact expected `result-yyyyMMdd-HHmmss-fff.png` path.
+
+The second assertion ensures later E2E use of `result-*.png` cannot be the only protection for filename drift.
 
 ### `ResultStageTests`
 
@@ -182,11 +212,13 @@ Reuse the existing `InspectableResultStage` seam and add only the screenshot beh
 - failed capture/persist task -> swallowed/logged and no retry;
 - `OnActivate()` resets the one-shot state for the next Result activation.
 
-Test the extracted scheduling helper directly; do not construct a real `GraphicsDevice` just to execute `OnDraw()`.
+Call the same `TryScheduleResultScreenshot()` helper that `OnDraw()` uses. Do not construct a real `GraphicsDevice` just to execute the `[ExcludeFromCodeCoverage]` draw method.
 
 ### Existing gameplay E2E
 
 Extend `GameplayFullAutoPlay_ShouldJudgeEveryNoteAndComplete()` instead of creating another live-game harness.
+
+`ResultStage.PopulateTelemetry()` sets `StageCompleted = true` as soon as the performance summary exists, before the ~1.15 second reveal completes. Therefore **do not** interpret the existing `StageCompleted` wait as “screenshot is due.” Keep that wait for the existing gameplay assertion, then independently poll the game-owned screenshot directory until the automatic file appears.
 
 Because the fixture already launches with `DTXMANIA_APPDATA_ROOT = fixture.AppDataRoot`, the game should create:
 
@@ -194,9 +226,17 @@ Because the fixture already launches with `DTXMANIA_APPDATA_ROOT = fixture.AppDa
 <fixture.AppDataRoot>/Screenshots/result-*.png
 ```
 
-After reaching Result, poll until exactly one PNG exists, verify it is non-empty / has the PNG signature, allow additional Result frames, and assert the count remains one.
+After entering Result:
 
-This proves the production render-target capture and filesystem path together.
+1. do not invoke `SaveScreenshotAsync()` / `takeScreenshot` while validating the automatic Result capture, because it shares the same BaseGame pending slot;
+2. keep the existing Result/`StageCompleted` telemetry assertion;
+3. poll for up to roughly 10 seconds until exactly one `result-*.png` exists (comfortably covering reveal + PNG encode + write);
+4. verify the file is non-empty and has the PNG signature;
+5. allow additional Result frames to run, then re-enumerate and assert the count remains one.
+
+If the automatic-file assertion fails after Result has been entered, rely on process logs/artifacts rather than issuing a competing API screenshot from the test catch path.
+
+The E2E project targets `net8.0-windows7.0`, so this existing live E2E is a mandatory Windows PR-CI gate for merge. The macOS unit suite proves the pure/state-machine pieces but cannot substitute for the graphics-bound `OnDraw()` wiring.
 
 ## Expected implementation files
 
@@ -210,6 +250,7 @@ Production:
 Tests:
 
 - `DTXMania.Test/Utilities/AppPathsTests.cs`
+- `DTXMania.Test/Stage/IStageGameContractTests.cs`
 - `DTXMania.Test/BaseGameTests.cs`
 - `DTXMania.Test/Stage/ResultStageTests.cs`
 - `DTXMania.E2E/GameplayAutoPlaySmokeTests.cs`
@@ -252,9 +293,12 @@ Rejected as unnecessary. `BaseGame` already has the one pending request queue an
 
 HPA-16 is complete when:
 
-- a normal completed play writes exactly one `result-*.png` to `<AppDataRoot>/Screenshots` after the Result reveal is complete;
+- a normal completed play writes exactly one `result-yyyyMMdd-HHmmss-fff.png` to `<AppDataRoot>/Screenshots` after the Result reveal is complete;
 - fast-forwarding the reveal still produces one stable Result screenshot before the player can leave on a later input;
 - repeated Result frames do not create more files;
 - capture still flows through the existing `_pendingScreenshot` / `CapturePendingScreenshot()` / `CaptureRenderTargetAsPng()` implementation;
+- `IStageGame` default behavior and `BaseGame`’s explicit stage-interface forward are both unit-pinned;
+- the screenshot root and exact fixed-timestamp filename construction are unit-pinned;
 - capture or filesystem failure is logged and never blocks Result interaction or stage progression;
+- the existing Windows full-AutoPlay E2E proves the actual Result Draw wiring without issuing a competing API screenshot in the Result validation window;
 - MCP/Automation and E2E artifact-path ownership remain unchanged.
