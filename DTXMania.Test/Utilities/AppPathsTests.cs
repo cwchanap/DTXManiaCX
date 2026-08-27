@@ -226,6 +226,27 @@ public class AppPathsTests
         Assert.Equal(blank, expanded);
     }
 
+    [Fact]
+    public void GetScreenshotsRoot_ShouldBeRootedScreenshotsDirectoryUnderAppDataRoot()
+    {
+        var path = AppPaths.GetScreenshotsRoot();
+
+        Assert.True(Path.IsPathRooted(path));
+        Assert.Equal("Screenshots", Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar)));
+        Assert.Equal(AppPaths.GetAppDataRoot(), Path.GetDirectoryName(path));
+    }
+
+    [Fact]
+    public void BuildResultScreenshotPath_WithFixedTimestamp_ShouldProduceExactFilename()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "screenshots");
+        var timestamp = new DateTime(2026, 8, 26, 22, 17, 55, 123);
+
+        var path = AppPaths.BuildResultScreenshotPath(root, timestamp);
+
+        Assert.Equal(Path.Combine(root, "result-20260826-221755-123.png"), path);
+    }
+
     private static string GetHomeDirectory()
     {
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
@@ -308,6 +329,26 @@ public class AppPathsEnvironmentTests
             Assert.Equal(
                 Path.Combine(Path.GetFullPath(root), "CrashReports"),
                 AppPaths.GetCrashReportsRoot());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", previous);
+        }
+    }
+
+    [Fact]
+    public void GetScreenshotsRoot_WhenEnvironmentOverrideIsSet_ShouldUseAppDataScreenshotsDirectory()
+    {
+        var previous = Environment.GetEnvironmentVariable("DTXMANIA_APPDATA_ROOT");
+        var root = Path.Combine(Path.GetTempPath(), "dtx-screenshots-root-" + Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", root);
+
+            Assert.Equal(
+                Path.Combine(Path.GetFullPath(root), "Screenshots"),
+                AppPaths.GetScreenshotsRoot());
         }
         finally
         {

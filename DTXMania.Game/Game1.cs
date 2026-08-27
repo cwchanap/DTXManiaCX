@@ -189,6 +189,19 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
 
     Task<byte[]?> IGameContext.CaptureScreenshotAsync()
     {
+        return QueueScreenshotCapture();
+    }
+
+    Task<byte[]?> IStageGame.CaptureScreenshotAsync()
+    {
+        return QueueScreenshotCapture();
+    }
+
+    /// <summary>
+    /// Shared screenshot request queue behind both the game-API and stage-facing interfaces.
+    /// </summary>
+    private Task<byte[]?> QueueScreenshotCapture()
+    {
         var tcs = new TaskCompletionSource<byte[]?>(TaskCreationOptions.RunContinuationsAsynchronously);
         // Use Interlocked.CompareExchange to allow only one pending screenshot at a time
         var previous = Interlocked.CompareExchange(ref _pendingScreenshot, tcs, null);

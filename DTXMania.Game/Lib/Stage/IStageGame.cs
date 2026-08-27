@@ -8,6 +8,7 @@ using DTXMania.Game.Lib.UI.Components;
 using Microsoft.Extensions.Logging;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using System.Threading.Tasks;
 
 namespace DTXMania.Game.Lib.Stage
 {
@@ -68,5 +69,14 @@ namespace DTXMania.Game.Lib.Stage
         /// its <see cref="IGameCrashDiagnostics"/>.
         /// </summary>
         ICrashReportInbox CrashReportInbox => EmptyCrashReportInbox.Instance;
+
+        /// <summary>
+        /// Requests a screenshot capture to occur on the next Draw() call, returning the
+        /// PNG bytes when fulfilled. Default implementation returns a synchronously
+        /// completed null task so headless/test implementations remain valid without
+        /// modification; the concrete <see cref="Game"/> (<c>BaseGame</c>) forwards this
+        /// to the same capture queue used by the game API.
+        /// </summary>
+        Task<byte[]?> CaptureScreenshotAsync() => Task.FromResult<byte[]?>(null);
     }
 }

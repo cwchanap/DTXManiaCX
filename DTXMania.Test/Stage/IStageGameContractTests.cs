@@ -135,6 +135,20 @@ namespace DTXMania.Test.Stage
             Assert.Same(EmptyCrashReportInbox.Instance, stageGame.CrashReportInbox);
         }
 
+        [Fact]
+        public async Task IStageGame_DefaultCaptureScreenshotAsync_ShouldReturnNull_WhenImplementationDoesNotOverrideIt()
+        {
+            // CaptureScreenshotAsync is a default interface member whose body returns a
+            // synchronously completed null task, so existing IStageGame implementations and
+            // test stubs remain valid without modification. The concrete BaseGame overrides
+            // it to forward to the shared capture queue (pinned in BaseGameTests).
+            IStageGame stageGame = new MinimalStageGameStub();
+
+            var result = await stageGame.CaptureScreenshotAsync();
+
+            Assert.Null(result);
+        }
+
         /// <summary>
         /// Minimal <see cref="IStageGame"/> implementation that leaves the three startup-report
         /// default interface methods unoverridden, so the DIM bodies can be exercised.
