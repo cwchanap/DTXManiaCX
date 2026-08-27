@@ -2,8 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
@@ -18,6 +21,7 @@ using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Game.Lib.Stage.Result;
+using DTXMania.Game.Lib.Utilities;
 
 namespace DTXMania.Game.Lib.Stage
 {
@@ -52,6 +56,7 @@ namespace DTXMania.Game.Lib.Stage
         private ISound _newRecordSound;
         private Texture2D _whitePixel;
         private bool _newRecordSoundPlayed;
+        private bool _resultScreenshotRequested;
 
         // State
         private double _elapsedTime = 0.0;
@@ -132,6 +137,9 @@ namespace DTXMania.Game.Lib.Stage
             InitializeComponents();
             _revealState = new ResultRevealState();
             _newRecordSoundPlayed = false;
+            // StageManager caches this stage instance across plays: without the reset,
+            // every result after the first would be silently skipped.
+            _resultScreenshotRequested = false;
             PlayResultSound();
 
             // Clear any pending input commands to prevent auto-transition
@@ -190,6 +198,94 @@ namespace DTXMania.Game.Lib.Stage
             }
 
             _spriteBatch.End();
+
+            // Schedule after the batch has ended so the queued capture resolves to the
+            // fully revealed Result frame from this same draw (HPA-16).
+            TryScheduleResultScreenshot();
+        }
+
+        #endregion
+
+        #region Automatic Result Screenshot (HPA-16)
+
+        /// <summary>
+        /// Requests the one-shot automatic screenshot of the fully revealed Result screen.
+        /// Invoked from <see cref="OnDraw"/> after the renderer drew and the sprite batch
+        /// ended. Deliberately not gated on <see cref="StagePhase.Normal"/>:
+        /// StageManager.DrawTransition draws outgoing Result pixels unchanged, so the first
+        /// eligible fully revealed draw can be the exit-transition draw.
+        /// </summary>
+        internal void TryScheduleResultScreenshot()
+        {
+            if (_revealState?.IsComplete != true || _resultScreenshotRequested)
+                return;
+
+            Task<byte[]?> captureTask;
+            try
+            {
+                captureTask = _game.CaptureScreenshotAsync();
+            }
+            catch (Exception ex)
+            {
+                // The concrete BaseGame queue is not expected to throw; if it ever does,
+                // consume the one-shot rather than retrying every draw.
+                _resultScreenshotRequested = true;
+                LogResultScreenshotWarning("Automatic result screenshot request failed.", ex);
+                return;
+            }
+
+            if (captureTask.IsCompletedSuccessfully && captureTask.Result is null)
+            {
+                // Existing _pendingScreenshot slot is busy; this request was never queued.
+                // Keep _resultScreenshotRequested false so the next Result draw may retry.
+                return;
+            }
+
+            _resultScreenshotRequested = true;
+            _ = CaptureAndSaveResultScreenshotSafeAsync(captureTask);
+        }
+
+        private async Task CaptureAndSaveResultScreenshotSafeAsync(Task<byte[]?> captureTask)
+        {
+            try
+            {
+                await CaptureAndSaveResultScreenshotAsync(captureTask).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                LogResultScreenshotWarning("Automatic result screenshot could not be saved.", ex);
+            }
+        }
+
+        /// <summary>
+        /// Persistence seam: awaits the already-queued capture task and writes the PNG
+        /// under the screenshots root. Override to inspect accepted capture tasks
+        /// without a graphics device or filesystem.
+        /// </summary>
+        internal virtual async Task CaptureAndSaveResultScreenshotAsync(Task<byte[]?> captureTask)
+        {
+            var pngBytes = await captureTask.ConfigureAwait(false);
+            if (pngBytes is null || pngBytes.Length == 0)
+            {
+                // Accepted task with no bytes: failed attempt, no retry (one-shot consumed).
+                LogResultScreenshotWarning("Automatic result screenshot capture returned no image data.");
+                return;
+            }
+
+            var screenshotsRoot = AppPaths.GetScreenshotsRoot();
+            AppPaths.EnsureDirectory(screenshotsRoot);
+            var destinationPath = AppPaths.BuildResultScreenshotPath(screenshotsRoot, DateTime.Now);
+            await File.WriteAllBytesAsync(destinationPath, pngBytes).ConfigureAwait(false);
+        }
+
+        private void LogResultScreenshotWarning(string message, Exception? exception = null)
+        {
+            var logger = _game?.LoggerFactory?.CreateLogger<ResultStage>()
+                ?? NullLogger<ResultStage>.Instance;
+            if (exception is null)
+                logger.LogWarning(message);
+            else
+                logger.LogWarning(exception, message);
         }
 
         #endregion

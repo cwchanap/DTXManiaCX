@@ -15,6 +15,7 @@ using DTXMania.Game.Lib.UI;
 using DTXMania.Game.Lib.UI.Layout;
 using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 using static DTXMania.Test.TestData.ReflectionHelpers;
+using Microsoft.Extensions.Logging;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework;
 using Moq;
@@ -922,6 +923,102 @@ namespace DTXMania.Test.Stage
 
         #endregion
 
+        #region Automatic Result Screenshot Tests (HPA-16)
+
+        [Fact]
+        public void TryScheduleResultScreenshot_WhenRevealIncomplete_ShouldNotCallCaptureQueue()
+        {
+            var stage = CreateScreenshotSchedulingStage(out var gameMock, completeReveal: false);
+
+            stage.TryScheduleResultScreenshot();
+
+            gameMock.Verify(g => g.CaptureScreenshotAsync(), Times.Never);
+            Assert.Equal(0, stage.AcceptedPersistenceCalls);
+        }
+
+        [Fact]
+        public void TryScheduleResultScreenshot_WhenRevealCompleteAndRequestAccepted_ShouldStartExactlyOnePersistence()
+        {
+            var pendingCapture = new TaskCompletionSource<byte[]?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var stage = CreateScreenshotSchedulingStage(out var gameMock, captureResult: pendingCapture.Task);
+
+            stage.TryScheduleResultScreenshot();
+
+            gameMock.Verify(g => g.CaptureScreenshotAsync(), Times.Once);
+            Assert.Equal(1, stage.AcceptedPersistenceCalls);
+            Assert.Same(pendingCapture.Task, stage.LastCaptureTask);
+        }
+
+        [Fact]
+        public void TryScheduleResultScreenshot_WhenInvokedAgainAfterAcceptance_ShouldNotCallQueueOrPersistenceAgain()
+        {
+            var stage = CreateScreenshotSchedulingStage(out var gameMock);
+
+            stage.TryScheduleResultScreenshot();
+            stage.TryScheduleResultScreenshot();
+
+            gameMock.Verify(g => g.CaptureScreenshotAsync(), Times.Once);
+            Assert.Equal(1, stage.AcceptedPersistenceCalls);
+        }
+
+        [Fact]
+        public void TryScheduleResultScreenshot_WhenBusySlotRejectsFirstDraw_ShouldAcceptOnLaterDraw()
+        {
+            var stage = CreateScreenshotSchedulingStage(out var gameMock, captureResult: Task.FromResult<byte[]?>(null));
+
+            stage.TryScheduleResultScreenshot();
+
+            gameMock.Verify(g => g.CaptureScreenshotAsync(), Times.Once);
+            Assert.Equal(0, stage.AcceptedPersistenceCalls);
+
+            var pendingCapture = new TaskCompletionSource<byte[]?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            gameMock.Setup(g => g.CaptureScreenshotAsync()).Returns(pendingCapture.Task);
+            stage.TryScheduleResultScreenshot();
+
+            gameMock.Verify(g => g.CaptureScreenshotAsync(), Times.Exactly(2));
+            Assert.Equal(1, stage.AcceptedPersistenceCalls);
+        }
+
+        [Fact]
+        public void TryScheduleResultScreenshot_WhenAcceptedPersistenceFails_ShouldLogWarningAndNotRetry()
+        {
+            var loggerFactory = new RecordingLoggerFactory();
+            var stage = CreateScreenshotSchedulingStage(out var gameMock, loggerFactory: loggerFactory);
+            stage.PersistenceExceptionToThrow = new IOException("disk full");
+
+            stage.TryScheduleResultScreenshot();
+            stage.TryScheduleResultScreenshot();
+
+            Assert.Equal(1, stage.AcceptedPersistenceCalls);
+            Assert.Equal(1, loggerFactory.WarningCount);
+            gameMock.Verify(g => g.CaptureScreenshotAsync(), Times.Once);
+        }
+
+        [Fact]
+        public void OnActivate_AfterPriorAcceptance_ShouldResetOneShotForNewActivation()
+        {
+            var stage = CreateScreenshotSchedulingStage(out _);
+            SetPrivateField(stage, "_sharedData", new Dictionary<string, object>
+            {
+                [PerformanceSummaryKey] = new PerformanceSummary { Score = 123456 }
+            });
+            stage.TryScheduleResultScreenshot();
+            Assert.Equal(1, stage.AcceptedPersistenceCalls);
+
+            var exception = Record.Exception(() => InvokePrivateMethod(stage, "OnActivate"));
+
+            Assert.Null(exception);
+
+            // OnActivate installs a fresh (incomplete) reveal; completing it must schedule
+            // a new accepted attempt, proving the one-shot flag was reset.
+            GetPrivateField<ResultRevealState>(stage, "_revealState")!.Complete();
+            stage.TryScheduleResultScreenshot();
+
+            Assert.Equal(2, stage.AcceptedPersistenceCalls);
+        }
+
+        #endregion
+
         #region Helper Methods
 
         private static void InvokeDispose(ResultStage stage, bool disposing)
@@ -973,6 +1070,80 @@ namespace DTXMania.Test.Stage
                     null),
                 Times.Once);
             Assert.Equal(expectedTransitionTime, DTXMania.Test.TestData.ReflectionHelpers.GetPrivateField<double>(GetPrivateField<BaseGame>(stage, "_game")!, "_lastStageTransitionTime"));
+        }
+
+        /// <summary>
+        /// Uninitialized <see cref="InspectableResultStage"/> wired to a controllable
+        /// <see cref="IStageGame"/> fake whose <c>CaptureScreenshotAsync</c> returns
+        /// <paramref name="captureResult"/>, with a reveal state whose completion is optional.
+        /// </summary>
+        private static InspectableResultStage CreateScreenshotSchedulingStage(
+            out Mock<IStageGame> gameMock,
+            bool completeReveal = true,
+            Task<byte[]?>? captureResult = null,
+            RecordingLoggerFactory? loggerFactory = null)
+        {
+#pragma warning disable SYSLIB0050
+            var stage = (InspectableResultStage)FormatterServices.GetUninitializedObject(typeof(InspectableResultStage));
+#pragma warning restore SYSLIB0050
+
+            gameMock = new Mock<IStageGame>();
+            gameMock.Setup(g => g.CaptureScreenshotAsync())
+                .Returns(captureResult ?? new TaskCompletionSource<byte[]?>(TaskCreationOptions.RunContinuationsAsynchronously).Task);
+            if (loggerFactory != null)
+                gameMock.Setup(g => g.LoggerFactory).Returns(loggerFactory);
+            SetPrivateField(stage, "_game", gameMock.Object);
+
+            var reveal = new ResultRevealState();
+            if (completeReveal)
+                reveal.Complete();
+            SetPrivateField(stage, "_revealState", reveal);
+
+            return stage;
+        }
+
+        /// <summary>
+        /// Counts warning-level log records so failure-observation tests can pin that a
+        /// warning was emitted without pinning the exact log text.
+        /// </summary>
+        private sealed class RecordingLoggerFactory : ILoggerFactory
+        {
+            public int WarningCount { get; private set; }
+
+            public void AddProvider(ILoggerProvider provider)
+            {
+            }
+
+            public ILogger CreateLogger(string categoryName) => new CountingLogger(this);
+
+            public void Dispose()
+            {
+            }
+
+            private sealed class CountingLogger : ILogger
+            {
+                private readonly RecordingLoggerFactory _owner;
+
+                public CountingLogger(RecordingLoggerFactory owner)
+                {
+                    _owner = owner;
+                }
+
+                public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+                public bool IsEnabled(LogLevel logLevel) => true;
+
+                public void Log<TState>(
+                    LogLevel logLevel,
+                    EventId eventId,
+                    TState state,
+                    Exception? exception,
+                    Func<TState, Exception?, string> formatter)
+                {
+                    if (logLevel == LogLevel.Warning)
+                        _owner.WarningCount++;
+                }
+            }
         }
 
         private sealed class TrackingInputManager : InputManager
@@ -1035,7 +1206,7 @@ namespace DTXMania.Test.Stage
 
         private sealed class InspectableResultStage : ResultStage
         {
-            public InspectableResultStage(BaseGame game)
+            public InspectableResultStage(IStageGame game)
                 : base(game)
             {
             }
@@ -1045,6 +1216,12 @@ namespace DTXMania.Test.Stage
             public Texture2D? WhitePixelToReturn { get; set; }
 
             public Exception? FontExceptionToThrow { get; set; }
+
+            public Exception? PersistenceExceptionToThrow { get; set; }
+
+            public int AcceptedPersistenceCalls { get; private set; }
+
+            public Task<byte[]?>? LastCaptureTask { get; private set; }
 
             public Texture2D? DrawTextureArgument { get; private set; }
 
@@ -1093,6 +1270,15 @@ namespace DTXMania.Test.Stage
                 DrawTextureArgument = texture;
                 DrawTextureRectangle = destinationRectangle;
                 DrawTextureColor = color;
+            }
+
+            internal override Task CaptureAndSaveResultScreenshotAsync(Task<byte[]?> captureTask)
+            {
+                AcceptedPersistenceCalls++;
+                LastCaptureTask = captureTask;
+                if (PersistenceExceptionToThrow != null)
+                    throw PersistenceExceptionToThrow;
+                return Task.CompletedTask;
             }
         }
 
