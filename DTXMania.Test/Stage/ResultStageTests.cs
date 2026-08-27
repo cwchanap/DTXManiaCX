@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Reflection;
 using System.Runtime.Serialization;
 using DTXMania.Game;
 using DTXMania.Game.Lib;
+using DTXMania.Game.Lib.Utilities;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
@@ -995,6 +997,118 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void TryScheduleResultScreenshot_WhenCaptureQueueThrows_ShouldConsumeOneShotAndLogWarning()
+        {
+            var loggerFactory = new RecordingLoggerFactory();
+            var stage = CreateScreenshotSchedulingStage(out var gameMock, loggerFactory: loggerFactory);
+            gameMock.Setup(g => g.CaptureScreenshotAsync())
+                .Throws(new InvalidOperationException("capture queue unavailable"));
+
+            stage.TryScheduleResultScreenshot();
+            stage.TryScheduleResultScreenshot();
+
+            gameMock.Verify(g => g.CaptureScreenshotAsync(), Times.Once);
+            Assert.Equal(1, loggerFactory.WarningCount);
+            Assert.Equal(0, stage.AcceptedPersistenceCalls);
+        }
+
+        [Fact]
+        public void CaptureAndSaveResultScreenshotAsync_WhenCaptureHasBytes_ShouldWritePngUnderScreenshotsRoot()
+        {
+            using var appDataRoot = new TempAppDataRoot();
+            var stage = CreateScreenshotSchedulingStage(out _, useRealPersistence: true);
+            var pngBytes = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A };
+
+            stage.CaptureAndSaveResultScreenshotAsync(Task.FromResult<byte[]?>(pngBytes)).GetAwaiter().GetResult();
+
+            var written = Directory.GetFiles(AppPaths.GetScreenshotsRoot(), "result-*.png");
+            var file = Assert.Single(written);
+            Assert.Equal(pngBytes, File.ReadAllBytes(file));
+        }
+
+        [Fact]
+        public void CaptureAndSaveResultScreenshotAsync_WhenCaptureReturnsNoBytes_ShouldLogWarningAndWriteNothing()
+        {
+            using var appDataRoot = new TempAppDataRoot();
+            var loggerFactory = new RecordingLoggerFactory();
+            var stage = CreateScreenshotSchedulingStage(
+                out _, useRealPersistence: true, loggerFactory: loggerFactory);
+
+            // Both branch sides of the emptiness check (null and zero-length).
+            stage.CaptureAndSaveResultScreenshotAsync(Task.FromResult<byte[]?>(null)).GetAwaiter().GetResult();
+            stage.CaptureAndSaveResultScreenshotAsync(Task.FromResult<byte[]?>(Array.Empty<byte>())).GetAwaiter().GetResult();
+
+            Assert.Equal(2, loggerFactory.WarningCount);
+            Assert.False(Directory.Exists(AppPaths.GetScreenshotsRoot()));
+        }
+
+        [Fact]
+        public void TryScheduleResultScreenshot_WhenRealPersistenceFails_ShouldLogWarningAndNotRetry()
+        {
+            using var appDataRoot = new TempAppDataRoot();
+            var loggerFactory = new RecordingLoggerFactory();
+            var pngBytes = new byte[] { 0x89, 0x50 };
+            // Blocking the Screenshots root with a file makes EnsureDirectory throw,
+            // exercising the real persistence failure path through the safe wrapper.
+            var blockerPath = AppPaths.GetScreenshotsRoot();
+            Directory.CreateDirectory(appDataRoot.Root);
+            File.WriteAllText(blockerPath, string.Empty);
+            var stage = CreateScreenshotSchedulingStage(
+                out var gameMock,
+                captureResult: Task.FromResult<byte[]?>(pngBytes),
+                useRealPersistence: true,
+                loggerFactory: loggerFactory);
+
+            stage.TryScheduleResultScreenshot();
+            stage.TryScheduleResultScreenshot();
+
+            Assert.Equal(1, stage.AcceptedPersistenceCalls);
+            Assert.Equal(1, loggerFactory.WarningCount);
+            gameMock.Verify(g => g.CaptureScreenshotAsync(), Times.Once);
+        }
+
+        [Fact]
+        public void TryScheduleResultScreenshot_WhenRevealStateMissing_ShouldNotCallCaptureQueue()
+        {
+            var stage = CreateScreenshotSchedulingStage(out var gameMock);
+            SetPrivateField(stage, "_revealState", null);
+
+            stage.TryScheduleResultScreenshot();
+
+            gameMock.Verify(g => g.CaptureScreenshotAsync(), Times.Never);
+            Assert.Equal(0, stage.AcceptedPersistenceCalls);
+        }
+
+        [Fact]
+        public void TryScheduleResultScreenshot_WhenGameIsMissing_ShouldConsumeOneShotWithoutThrowing()
+        {
+            var stage = CreateScreenshotSchedulingStage(out var gameMock);
+            SetPrivateField(stage, "_game", null);
+
+            stage.TryScheduleResultScreenshot();
+            stage.TryScheduleResultScreenshot();
+
+            gameMock.Verify(g => g.CaptureScreenshotAsync(), Times.Never);
+            Assert.Equal(0, stage.AcceptedPersistenceCalls);
+            // One-shot consumed despite the null game (warning went to the NullLogger fallback).
+            Assert.True(GetPrivateField<bool>(stage, "_resultScreenshotRequested"));
+        }
+
+        [Fact]
+        public void CaptureAndSaveResultScreenshotAsync_WhenLoggerFactoryMissing_ShouldFallBackToNullLogger()
+        {
+            using var appDataRoot = new TempAppDataRoot();
+            var stage = CreateScreenshotSchedulingStage(out _, useRealPersistence: true);
+
+            var exception = Record.Exception(() =>
+                stage.CaptureAndSaveResultScreenshotAsync(Task.FromResult<byte[]?>(null)).GetAwaiter().GetResult());
+
+            // Warning path ran against the NullLogger fallback without throwing or writing.
+            Assert.Null(exception);
+            Assert.False(Directory.Exists(AppPaths.GetScreenshotsRoot()));
+        }
+
+        [Fact]
         public void OnActivate_AfterPriorAcceptance_ShouldResetOneShotForNewActivation()
         {
             var stage = CreateScreenshotSchedulingStage(out _);
@@ -1081,7 +1195,8 @@ namespace DTXMania.Test.Stage
             out Mock<IStageGame> gameMock,
             bool completeReveal = true,
             Task<byte[]?>? captureResult = null,
-            RecordingLoggerFactory? loggerFactory = null)
+            RecordingLoggerFactory? loggerFactory = null,
+            bool useRealPersistence = false)
         {
 #pragma warning disable SYSLIB0050
             var stage = (InspectableResultStage)FormatterServices.GetUninitializedObject(typeof(InspectableResultStage));
@@ -1093,6 +1208,7 @@ namespace DTXMania.Test.Stage
             if (loggerFactory != null)
                 gameMock.Setup(g => g.LoggerFactory).Returns(loggerFactory);
             SetPrivateField(stage, "_game", gameMock.Object);
+            stage.UseRealPersistence = useRealPersistence;
 
             var reveal = new ResultRevealState();
             if (completeReveal)
@@ -1106,6 +1222,31 @@ namespace DTXMania.Test.Stage
         /// Counts warning-level log records so failure-observation tests can pin that a
         /// warning was emitted without pinning the exact log text.
         /// </summary>
+        /// <summary>
+        /// Redirects <c>DTXMANIA_APPDATA_ROOT</c> to a unique temp directory so tests can
+        /// exercise real AppPaths-based persistence without touching user app data.
+        /// </summary>
+        private sealed class TempAppDataRoot : IDisposable
+        {
+            private readonly string? _previousOverride;
+
+            public TempAppDataRoot()
+            {
+                _previousOverride = Environment.GetEnvironmentVariable("DTXMANIA_APPDATA_ROOT");
+                Root = Path.Combine(Path.GetTempPath(), $"dtx-result-screenshot-{Guid.NewGuid():N}");
+                Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", Root);
+            }
+
+            public string Root { get; }
+
+            public void Dispose()
+            {
+                Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", _previousOverride);
+                if (Directory.Exists(Root))
+                    Directory.Delete(Root, recursive: true);
+            }
+        }
+
         private sealed class RecordingLoggerFactory : ILoggerFactory
         {
             public int WarningCount { get; private set; }
@@ -1217,6 +1358,8 @@ namespace DTXMania.Test.Stage
 
             public Exception? FontExceptionToThrow { get; set; }
 
+            public bool UseRealPersistence { get; set; }
+
             public Exception? PersistenceExceptionToThrow { get; set; }
 
             public int AcceptedPersistenceCalls { get; private set; }
@@ -1272,13 +1415,17 @@ namespace DTXMania.Test.Stage
                 DrawTextureColor = color;
             }
 
-            internal override Task CaptureAndSaveResultScreenshotAsync(Task<byte[]?> captureTask)
+            internal override async Task CaptureAndSaveResultScreenshotAsync(Task<byte[]?> captureTask)
             {
                 AcceptedPersistenceCalls++;
                 LastCaptureTask = captureTask;
+                if (UseRealPersistence)
+                {
+                    await base.CaptureAndSaveResultScreenshotAsync(captureTask);
+                    return;
+                }
                 if (PersistenceExceptionToThrow != null)
                     throw PersistenceExceptionToThrow;
-                return Task.CompletedTask;
             }
         }
 
