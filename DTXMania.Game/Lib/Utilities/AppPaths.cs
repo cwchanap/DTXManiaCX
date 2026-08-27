@@ -126,6 +126,25 @@ namespace DTXMania.Game.Lib.Utilities
             return Path.GetFullPath(Path.Combine(GetAppDataRoot(), "CrashReports"));
         }
 
+        /// <summary>
+        /// Root directory for saved screenshots. Does not create the directory;
+        /// creation belongs to the write operation (via <see cref="EnsureDirectory"/>).
+        /// </summary>
+        public static string GetScreenshotsRoot()
+        {
+            return Path.GetFullPath(Path.Combine(GetAppDataRoot(), "Screenshots"));
+        }
+
+        /// <summary>
+        /// Builds the full path for a result screenshot captured at the given timestamp,
+        /// e.g. <c>&lt;root&gt;/result-20260826-221755-123.png</c>. Pure: no directory or
+        /// collision handling.
+        /// </summary>
+        internal static string BuildResultScreenshotPath(string screenshotsRoot, DateTime timestamp)
+        {
+            return Path.Combine(screenshotsRoot, $"result-{timestamp:yyyyMMdd-HHmmss-fff}.png");
+        }
+
         public static string GetDefaultSongsPath()
         {
             return Path.GetFullPath(Path.Combine(GetAppDataRoot(), "DTXFiles"));

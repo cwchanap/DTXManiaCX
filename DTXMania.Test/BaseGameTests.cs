@@ -226,6 +226,30 @@ namespace DTXMania.Test
         }
 
         [Fact]
+        public async Task IStageGame_CaptureScreenshotAsync_ShouldForwardToSharedPendingSlotAndRejectConcurrentRequest()
+        {
+            // The explicit IStageGame forward must reach the same _pendingScreenshot slot as the
+            // IGameContext path. If BaseGame forgot the forward, the interface default would
+            // return a completed null task and the slot would stay empty.
+            var game = ReflectionHelpers.CreateGame();
+            var stageGame = (IStageGame)game;
+
+            var task = stageGame.CaptureScreenshotAsync();
+
+            Assert.False(task.IsCompleted);
+            var pendingScreenshot = ReflectionHelpers.GetPrivateField<TaskCompletionSource<byte[]>>(game, "_pendingScreenshot");
+            Assert.NotNull(pendingScreenshot);
+            Assert.Same(pendingScreenshot!.Task, task);
+
+            // While the stage-side request is still pending, an API-side request through the
+            // other interface must hit the same busy slot and complete synchronously with null.
+            var secondRequest = ((IGameContext)game).CaptureScreenshotAsync();
+
+            Assert.True(secondRequest.IsCompletedSuccessfully);
+            Assert.Null(await secondRequest);
+        }
+
+        [Fact]
         public void CaptureRenderTargetAsPng_WhenRenderTargetIsNull_ShouldReturnNull()
         {
             var method = typeof(BaseGame).GetMethod(
