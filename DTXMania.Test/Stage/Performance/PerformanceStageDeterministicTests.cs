@@ -3821,6 +3821,61 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void OnJudgementMade_WhenTimingDisplayMissing_ShouldNotThrowOnEligibleManualHit()
+    {
+        // When the display was never initialized (e.g. a reflection-created stage used in
+        // tests), an eligible manual hit must not crash on the null Spawn target.
+        var config = new ConfigData { ShowHitTimingFeedback = true };
+        var game = ReflectionHelpers.CreateGame();
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(config));
+        var stage = CreateStage(game);
+        ReflectionHelpers.InvokePrivateMethod(stage, "FreezeRunConfiguration");
+        ReflectionHelpers.SetPrivateField(stage, "_hitTimingFeedbackDisplay", null!);
+
+        var exception = Record.Exception(() =>
+            ReflectionHelpers.InvokePrivateMethod(
+                stage,
+                "OnJudgementMade",
+                null!,
+                new JudgementEvent(noteRef: 1, lane: 2, deltaMs: -12.5, type: JudgementType.Great)));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void UpdateGameplay_WhenSongIsPlaying_ShouldAdvanceTimingFeedbackDisplay()
+    {
+        var stage = CreateStage();
+        var chartManager = CreateChartManagerWithSingleNote();
+        var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager);
+        ReflectionHelpers.SetPrivateField(stage, "_isLoading", false);
+        ReflectionHelpers.SetPrivateField(stage, "_isReady", false);
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_currentGameTime",
+            new GameTime(TimeSpan.FromMilliseconds(1301.0), TimeSpan.FromSeconds(0.016)));
+        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreatePlayingSongTimer());
+        ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
+        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", new ParsedChart("timing-feedback.dtx") { DurationMs = 2000.0 });
+        ReflectionHelpers.SetPrivateField(stage, "_scheduledBGMEvents", new List<BGMEvent>());
+
+        using var timingDisplay = HitTimingFeedbackDisplay.CreateForTesting(new MutableTexture());
+        timingDisplay.Spawn(new JudgementEvent(1, 2, -12.5, JudgementType.Great));
+        ReflectionHelpers.SetPrivateField(stage, "_hitTimingFeedbackDisplay", timingDisplay);
+        Assert.Equal(1, timingDisplay.ActiveLaneCountForTesting);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "UpdateGameplay", 0.016);
+
+        // The display's Update must have been invoked, advancing elapsed time and fading
+        // the active state instead of leaving it pinned at full alpha.
+        var state = timingDisplay.ActiveStatesForTesting[2];
+        Assert.NotNull(state);
+        Assert.True(state!.ElapsedSeconds > 0.0);
+        Assert.True(state.Alpha < 1f);
+    }
+
+    [Fact]
     public void OnJudgementMade_WhenJudgementIsHitAndLaneFlushIsEnabled_ShouldTriggerVisualFeedbackAndLaneFlash()
     {
         var config = new ConfigData { EnableLaneFlush = true };

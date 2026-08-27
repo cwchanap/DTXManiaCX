@@ -126,6 +126,53 @@ namespace DTXMania.Test.UI
                 PerformanceUILayout.HitTimingFeedback.TotalDurationSeconds);
         }
 
+        [Theory]
+        [InlineData(-1)]
+        [InlineData(12)]
+        [InlineData(99)]
+        public void HitTimingFeedback_GetSourceRectangle_WhenSlotOutOfRange_ShouldThrow(int slot)
+        {
+            Assert.Throws<ArgumentOutOfRangeException>(() =>
+                PerformanceUILayout.HitTimingFeedback.GetSourceRectangle(slot, slowBank: false));
+        }
+
+        [Theory]
+        [InlineData(-1)]
+        [InlineData(-5)]
+        public void HitTimingFeedback_GetLaneRunPosition_WhenGlyphCountNegative_ShouldThrow(int glyphCount)
+        {
+            Assert.Throws<ArgumentOutOfRangeException>(() =>
+                PerformanceUILayout.HitTimingFeedback.GetLaneRunPosition(0, glyphCount));
+        }
+
+        [Fact]
+        public void HitTimingFeedback_ProjectDelta_WhenDeltaHasNoFraction_ShouldMapDigitsDirectly()
+        {
+            var projection = PerformanceUILayout.HitTimingFeedback.ProjectDelta(42.0);
+
+            Assert.Equal("42", projection.Text);
+            Assert.True(projection.IsSlow);
+            Assert.Equal(new[] { 4, 2 }, projection.GlyphSlots);
+        }
+
+        [Fact]
+        public void HitTimingFeedback_DeltaProjection_WhenConstructedViaInitializer_ShouldAcceptAllInitProperties()
+        {
+            var slots = new[] { 1, 9 };
+            var projection = new PerformanceUILayout.HitTimingFeedback.DeltaProjection(0, "0", false, slots)
+            {
+                RoundedMilliseconds = 19,
+                Text = "19",
+                IsSlow = false,
+                GlyphSlots = slots
+            };
+
+            Assert.Equal(19, projection.RoundedMilliseconds);
+            Assert.Equal("19", projection.Text);
+            Assert.False(projection.IsSlow);
+            Assert.Equal(slots, projection.GlyphSlots);
+        }
+
         #endregion
 
         #region HitSparks Tests

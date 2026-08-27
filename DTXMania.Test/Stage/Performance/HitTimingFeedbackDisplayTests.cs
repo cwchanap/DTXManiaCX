@@ -252,6 +252,303 @@ public class HitTimingFeedbackDisplayTests
         Assert.Equal(1, texture.RemoveReferenceCount);
     }
 
+    [Fact]
+    public void Constructor_WhenResourceManagerIsNull_ShouldThrow()
+    {
+        Assert.Throws<ArgumentNullException>(() =>
+            new HitTimingFeedbackDisplay(null!));
+    }
+
+    [Fact]
+    public void Spawn_AfterDispose_ShouldBeNoOp()
+    {
+        using var display = HitTimingFeedbackDisplay.CreateForTesting(new MutableTexture());
+        display.Dispose();
+
+        var exception = Record.Exception(() =>
+            display.Spawn(new JudgementEvent(1, 0, 1, JudgementType.Great)));
+
+        Assert.Null(exception);
+        Assert.Equal(0, display.ActiveLaneCountForTesting);
+    }
+
+    [Fact]
+    public void Spawn_WhenJudgementEventIsNull_ShouldBeNoOp()
+    {
+        using var display = HitTimingFeedbackDisplay.CreateForTesting(new MutableTexture());
+
+        var exception = Record.Exception(() => display.Spawn(null!));
+
+        Assert.Null(exception);
+        Assert.Equal(0, display.ActiveLaneCountForTesting);
+    }
+
+    [Fact]
+    public void Update_AfterDispose_ShouldBeNoOp()
+    {
+        using var display = HitTimingFeedbackDisplay.CreateForTesting(new MutableTexture());
+        display.Spawn(new JudgementEvent(1, 0, 1, JudgementType.Great));
+        display.Dispose();
+
+        var exception = Record.Exception(() => display.Update(0.1));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void Draw_AfterDispose_ShouldBeNoOp()
+    {
+        using var display = HitTimingFeedbackDisplay.CreateForTesting(new MutableTexture());
+        display.Spawn(new JudgementEvent(1, 0, 1, JudgementType.Great));
+        display.Dispose();
+
+        var exception = Record.Exception(() => display.Draw(CreateSpriteBatchStub()));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void Draw_WhenSpriteBatchIsNull_ShouldBeNoOp()
+    {
+        using var display = HitTimingFeedbackDisplay.CreateForTesting(new MutableTexture());
+        display.Spawn(new JudgementEvent(1, 0, 1, JudgementType.Great));
+
+        var exception = Record.Exception(() => display.Draw(null!));
+
+        Assert.Null(exception);
+        Assert.Equal(1, display.ActiveLaneCountForTesting);
+    }
+
+    [Fact]
+    public void Update_WithNegativeDeltaTime_ShouldClampToZeroAndRemainAtFullAlpha()
+    {
+        using var display = HitTimingFeedbackDisplay.CreateForTesting(new MutableTexture());
+        display.Spawn(new JudgementEvent(1, 0, 1, JudgementType.Great));
+
+        display.Update(-0.5);
+
+        var state = display.ActiveStatesForTesting[0];
+        Assert.NotNull(state);
+        Assert.Equal(0.0, state!.ElapsedSeconds);
+        Assert.Equal(1f, state.Alpha);
+        Assert.True(state.IsActive);
+    }
+
+    [Fact]
+    public void Update_WhenStateAlreadyInactive_ShouldClearLaneSlot()
+    {
+        using var display = HitTimingFeedbackDisplay.CreateForTesting(new MutableTexture());
+        display.Spawn(new JudgementEvent(1, 0, 1, JudgementType.Great));
+        // Expire the state by advancing past the total duration.
+        display.Update(PerformanceUILayout.HitTimingFeedback.TotalDurationSeconds + 0.01);
+        Assert.Null(display.ActiveStatesForTesting[0]);
+
+        // A subsequent update on the cleared slot must remain a no-op.
+        var exception = Record.Exception(() => display.Update(0.1));
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void Draw_WhenStateAlphaIsZero_ShouldSkipLane()
+    {
+        var texture = new CapturingTexture();
+        using var display = HitTimingFeedbackDisplay.CreateForTesting(texture);
+        display.Spawn(new JudgementEvent(1, 0, 1, JudgementType.Great));
+        // Advance exactly to expiry so the state is cleared (Alpha == 0 path is reached
+        // via the IsActive check in Draw; here we verify cleared states draw nothing).
+        display.Update(PerformanceUILayout.HitTimingFeedback.TotalDurationSeconds);
+
+        display.Draw(CreateSpriteBatchStub());
+
+        Assert.Empty(texture.Draws);
+    }
+
+    [Fact]
+    public void LoadLagNumbersTexture_WhenLoadTextureThrows_ShouldSwallowAndReturnNull()
+    {
+        var resourceManager = new Mock<IResourceManager>();
+        resourceManager.Setup(x => x.ResourceExists(TexturePath.LagNumbers)).Returns(true);
+        resourceManager.Setup(x => x.LoadTexture(TexturePath.LagNumbers))
+            .Throws(new InvalidOperationException("boom"));
+        using var display = new HitTimingFeedbackDisplay(resourceManager.Object);
+
+        display.Spawn(new JudgementEvent(1, 0, 1, JudgementType.Great));
+
+        Assert.Equal(0, display.ActiveLaneCountForTesting);
+        resourceManager.Verify(x => x.LoadTexture(TexturePath.LagNumbers), Times.Once);
+    }
+
+    [Fact]
+    public void LoadLagNumbersTexture_WhenLoadReturnsThenThrowsOnRemoveReference_ShouldStillReturnNull()
+    {
+        var texture = new MutableTexture { ThrowOnRemoveReference = true, IsDisposed = true };
+        var resourceManager = CreateResourceManager(texture);
+        using var display = new HitTimingFeedbackDisplay(resourceManager.Object);
+
+        display.Spawn(new JudgementEvent(1, 0, 1, JudgementType.Great));
+
+        Assert.Equal(0, display.ActiveLaneCountForTesting);
+        Assert.Equal(1, texture.RemoveReferenceCount);
+    }
+
+    [Fact]
+    public void TryEnsureTextureAvailable_WhenValidationThrows_ShouldReleaseAndReload()
+    {
+        var initialTexture = new MutableTexture { ThrowOnWidthGet = true };
+        var reloadedTexture = new CapturingTexture();
+        var resourceManager = CreateResourceManager(reloadedTexture);
+        using var display = HitTimingFeedbackDisplay.CreateForTesting(initialTexture, resourceManager.Object);
+        display.Spawn(new JudgementEvent(1, 2, 2, JudgementType.Great));
+
+        display.Draw(CreateSpriteBatchStub());
+
+        Assert.Equal(1, initialTexture.RemoveReferenceCount);
+        resourceManager.Verify(x => x.LoadTexture(TexturePath.LagNumbers), Times.Once);
+        Assert.NotEmpty(reloadedTexture.Draws);
+    }
+
+    [Fact]
+    public void ReleaseHeldTexture_WhenRemoveReferenceThrows_ShouldSwallowFailure()
+    {
+        var texture = new MutableTexture { ThrowOnRemoveReference = true };
+        var resourceManager = new Mock<IResourceManager>();
+        resourceManager.Setup(x => x.ResourceExists(TexturePath.LagNumbers)).Returns(false);
+        using var display = HitTimingFeedbackDisplay.CreateForTesting(texture, resourceManager.Object);
+        display.Spawn(new JudgementEvent(1, 2, 2, JudgementType.Great));
+
+        // Force an invalidation episode (disposed texture) so ReleaseHeldTexture runs and
+        // the reload fails (ResourceExists=false). The thrown RemoveReference must be
+        // swallowed, not propagated to the caller.
+        texture.IsDisposed = true;
+        var exception = Record.Exception(() => display.Draw(null!));
+
+        Assert.Null(exception);
+        Assert.Equal(1, texture.RemoveReferenceCount);
+    }
+
+    [Fact]
+    public void Draw_WhenTextureDrawThrowsAndTextureStillValid_ShouldRethrow()
+    {
+        // A valid texture (not disposed, adequately sized) that throws on Draw must
+        // surface the exception rather than silently swallowing a non-texture failure.
+        // InvalidateOnDraw=false keeps the texture valid after the throw, so
+        // HandleTextureDrawFailure returns false and the catch rethrows.
+        var texture = new ThrowingDrawTexture { InvalidateOnDraw = false };
+        using var display = HitTimingFeedbackDisplay.CreateForTesting(texture);
+        display.Spawn(new JudgementEvent(1, 0, 1, JudgementType.Great));
+
+        Assert.Throws<InvalidOperationException>(() => display.Draw(CreateSpriteBatchStub()));
+    }
+
+    [Fact]
+    public void Draw_WhenTextureDrawThrowsAndTextureInvalid_ShouldSwallowAndReload()
+    {
+        // The texture is valid at validation time but disposes itself when Draw is called,
+        // so HandleTextureDrawFailure observes an invalid texture, swallows the exception,
+        // releases the bad texture, and attempts a reload so later frames can recover.
+        var initialTexture = new ThrowingDrawTexture();
+        var reloadedTexture = new CapturingTexture();
+        var resourceManager = CreateResourceManager(reloadedTexture);
+        using var display = HitTimingFeedbackDisplay.CreateForTesting(initialTexture, resourceManager.Object);
+        display.Spawn(new JudgementEvent(1, 0, 1, JudgementType.Great));
+
+        var exception = Record.Exception(() => display.Draw(CreateSpriteBatchStub()));
+
+        Assert.Null(exception);
+        Assert.Equal(1, initialTexture.RemoveReferenceCount);
+        resourceManager.Verify(x => x.LoadTexture(TexturePath.LagNumbers), Times.Once);
+    }
+
+    [Fact]
+    public void IsInvalidTexture_WhenUnderlyingTextureIsNull_ShouldTreatAsInvalid()
+    {
+        var texture = new MutableTexture { Texture = null! };
+        var resourceManager = new Mock<IResourceManager>();
+        resourceManager.Setup(x => x.ResourceExists(TexturePath.LagNumbers)).Returns(false);
+        using var display = HitTimingFeedbackDisplay.CreateForTesting(texture, resourceManager.Object);
+        display.Spawn(new JudgementEvent(1, 0, 1, JudgementType.Great));
+
+        // The null underlying texture triggers invalidation; reload fails (ResourceExists=false),
+        // so the spawn is dropped and the held texture is released.
+        display.Draw(null!);
+
+        Assert.Equal(1, texture.RemoveReferenceCount);
+        Assert.Equal(0, display.ActiveLaneCountForTesting);
+    }
+
+    [Fact]
+    public void LoadLagNumbersTexture_WhenLoadTextureReturnsNull_ShouldReturnNullWithoutThrowing()
+    {
+        var resourceManager = new Mock<IResourceManager>();
+        resourceManager.Setup(x => x.ResourceExists(TexturePath.LagNumbers)).Returns(true);
+        resourceManager.Setup(x => x.LoadTexture(TexturePath.LagNumbers)).Returns((ITexture?)null);
+        using var display = new HitTimingFeedbackDisplay(resourceManager.Object);
+
+        display.Spawn(new JudgementEvent(1, 0, 1, JudgementType.Great));
+
+        Assert.Equal(0, display.ActiveLaneCountForTesting);
+        resourceManager.Verify(x => x.LoadTexture(TexturePath.LagNumbers), Times.Once);
+    }
+
+    [Fact]
+    public void LoadLagNumbersTexture_WhenValidationThrowsAndRemoveReferenceThrows_ShouldSwallowInnerCatch()
+    {
+        // LoadTexture returns a texture whose Width getter throws, so IsInvalidTexture throws
+        // and the outer catch runs. The texture's RemoveReference also throws, exercising the
+        // inner catch that protects the loader from a double-fault during cleanup.
+        var texture = new MutableTexture { ThrowOnWidthGet = true, ThrowOnRemoveReference = true };
+        var resourceManager = CreateResourceManager(texture);
+        using var display = new HitTimingFeedbackDisplay(resourceManager.Object);
+
+        var exception = Record.Exception(() =>
+            display.Spawn(new JudgementEvent(1, 0, 1, JudgementType.Great)));
+
+        Assert.Null(exception);
+        Assert.Equal(0, display.ActiveLaneCountForTesting);
+    }
+
+    [Fact]
+    public void Draw_WhenTextureDrawThrowsAndValidityCheckThrows_ShouldSwallowAndReload()
+    {
+        // The texture is valid during TryEnsureTextureAvailable (Width succeeds), but its Draw
+        // call flips Width to throw and then throws. HandleTextureDrawFailure's IsInvalidTexture
+        // then throws, exercising its catch (which keeps invalid=true) so the failure is treated
+        // as a texture episode: swallow, release, reload.
+        var initialTexture = new ThrowingDrawTexture { InvalidateWidthOnDraw = true, InvalidateOnDraw = false };
+        var reloadedTexture = new CapturingTexture();
+        var resourceManager = CreateResourceManager(reloadedTexture);
+        using var display = HitTimingFeedbackDisplay.CreateForTesting(initialTexture, resourceManager.Object);
+        display.Spawn(new JudgementEvent(1, 0, 1, JudgementType.Great));
+
+        var exception = Record.Exception(() => display.Draw(CreateSpriteBatchStub()));
+
+        Assert.Null(exception);
+        Assert.Equal(1, initialTexture.RemoveReferenceCount);
+        resourceManager.Verify(x => x.LoadTexture(TexturePath.LagNumbers), Times.Once);
+    }
+
+    [Fact]
+    public void HitTimingFeedbackState_Update_WhenAlreadyInactive_ShouldReturnFalseWithoutMutating()
+    {
+        var projection = PerformanceUILayout.HitTimingFeedback.ProjectDelta(12.5);
+        var state = new HitTimingFeedbackState(0, projection);
+        // Expire the state.
+        while (state.Update(PerformanceUILayout.HitTimingFeedback.TotalDurationSeconds))
+        {
+        }
+
+        Assert.False(state.IsActive);
+        Assert.Equal(0f, state.Alpha);
+
+        // A subsequent Update on an inactive state must short-circuit without changing alpha.
+        var elapsedBefore = state.ElapsedSeconds;
+        var result = state.Update(0.1);
+
+        Assert.False(result);
+        Assert.Equal(elapsedBefore, state.ElapsedSeconds);
+        Assert.False(state.IsActive);
+    }
+
     private static Mock<IResourceManager> CreateResourceManager(ITexture texture)
     {
         var resourceManager = new Mock<IResourceManager>();
@@ -280,6 +577,34 @@ public class HitTimingFeedbackDisplayTests
             float layerDepth)
         {
             Draws.Add(new DrawCall(destinationRectangle, sourceRectangle, color));
+        }
+    }
+
+    /// <summary>
+    /// Texture double whose Draw call always throws. When <see cref="InvalidateOnDraw"/>
+    /// is set, the texture marks itself disposed before throwing so the subsequent
+    /// HandleTextureDrawFailure validity check treats it as an invalid texture episode.
+    /// </summary>
+    private sealed class ThrowingDrawTexture : MutableTexture
+    {
+        public bool InvalidateOnDraw { get; set; } = true;
+        public bool InvalidateWidthOnDraw { get; set; }
+
+        public override void Draw(
+            SpriteBatch spriteBatch,
+            Rectangle destinationRectangle,
+            Rectangle? sourceRectangle,
+            Color color,
+            float rotation,
+            Vector2 origin,
+            SpriteEffects effects,
+            float layerDepth)
+        {
+            if (InvalidateOnDraw)
+                IsDisposed = true;
+            if (InvalidateWidthOnDraw)
+                ThrowOnWidthGet = true;
+            throw new InvalidOperationException("Draw failed");
         }
     }
 
