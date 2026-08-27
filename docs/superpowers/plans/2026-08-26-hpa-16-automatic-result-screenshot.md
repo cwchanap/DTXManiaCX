@@ -4,7 +4,7 @@
 
 **Goal:** Save exactly one PNG of the fully revealed Result frame to the game’s app-data `Screenshots` directory without adding a second framebuffer/PNG pipeline or affecting Result progression when capture fails.
 
-**Architecture:** Reuse `BaseGame`’s existing pending screenshot request and `RenderTarget2D.SaveAsPng()` fulfillment. Expose that same queue through `IStageGame`, request capture at the end of a stable Result draw, then persist the returned bytes asynchronously to `AppPaths.GetScreenshotsRoot()`.
+**Architecture:** Reuse `BaseGame`’s existing pending screenshot request and `RenderTarget2D.SaveAsPng()` fulfillment. Expose that same queue through `IStageGame`, request capture at the end of a stable Result draw, then persist the returned bytes asynchronously to a pure/testable `AppPaths` filename contract.
 
 **Tech Stack:** .NET 8, C#, MonoGame, xUnit, existing DTXMania E2E/JSON-RPC harness.
 
@@ -20,34 +20,48 @@
 - No MCP/Automation production dependency.
 - No config toggle, UI toast, retry queue, screenshot manager, retention policy, or song-title filename work.
 - Screenshot failure is warning-only and must never block Result interaction/progression.
+- The existing Windows full-AutoPlay E2E is a required merge gate because the macOS unit suite cannot exercise the graphics-bound Result `OnDraw()` wiring.
 
 ---
 
-### Task 1: Expose the existing capture queue and runtime screenshot path
+### Task 1: Expose the existing capture queue and pin the persist contract
 
 **Files:**
 - Modify: `DTXMania.Game/Lib/Utilities/AppPaths.cs`
 - Modify: `DTXMania.Game/Lib/Stage/IStageGame.cs`
 - Modify: `DTXMania.Game/Game1.cs`
 - Modify: `DTXMania.Test/Utilities/AppPathsTests.cs`
+- Modify: `DTXMania.Test/Stage/IStageGameContractTests.cs`
 - Modify: `DTXMania.Test/BaseGameTests.cs`
 
-**Produces:** a stage-facing request that is demonstrably the same screenshot queue already used by the Game API, plus one game-owned writable screenshot directory.
+**Produces:** a stage-facing request that is demonstrably the same screenshot queue already used by the Game API, plus exact runtime directory/filename contracts that are unit-testable without a live game.
 
-- [ ] **Step 1: Pin the runtime path contract**
+- [ ] **Step 1: Pin the screenshot root and exact filename contract**
 
-Add a focused `AppPathsTests` assertion first:
+Add focused `AppPathsTests` first.
+
+Root contract:
 
 ```text
 GetScreenshotsRoot()
   is rooted
-  filename/last directory segment == "Screenshots"
+  last directory segment == "Screenshots"
   parent == AppPaths.GetAppDataRoot()
 ```
 
-Expected on current main: FAIL because the method does not exist.
+Also mirror the existing `GetCrashReportsRoot()` override-shape test: set `DTXMANIA_APPDATA_ROOT` to a temp root and assert `GetScreenshotsRoot()` equals `<override>/Screenshots`.
 
-- [ ] **Step 2: Add the smallest `AppPaths` helper**
+Filename contract: pass a fixed timestamp to a tiny pure helper and assert the complete path, for example:
+
+```text
+root = /tmp/screenshots
+2026-08-26 22:17:55.123
+=> /tmp/screenshots/result-20260826-221755-123.png
+```
+
+Expected on current main: compile/test failure because these helpers do not exist.
+
+- [ ] **Step 2: Add only the two small `AppPaths` helpers**
 
 In `AppPaths.cs`, add:
 
@@ -56,11 +70,35 @@ public static string GetScreenshotsRoot()
 {
     return Path.GetFullPath(Path.Combine(GetAppDataRoot(), "Screenshots"));
 }
+
+internal static string BuildResultScreenshotPath(string screenshotsRoot, DateTime timestamp)
+{
+    return Path.Combine(screenshotsRoot, $"result-{timestamp:yyyyMMdd-HHmmss-fff}.png");
+}
 ```
 
-Do not create the directory in the getter. Creation belongs to the write operation, matching the other path helpers.
+`DTXMania.Game` already exposes internals to both test assemblies, so no visibility change is required.
 
-- [ ] **Step 3: Pin stage/API capture reuse before changing production**
+Do not create the directory in either helper. Directory creation belongs to the write operation.
+
+Do not add collision handling, sanitization, retention, or a generic artifact-path framework.
+
+- [ ] **Step 3: Pin the new `IStageGame` default-interface-member contract**
+
+Update `DTXMania.Test/Stage/IStageGameContractTests.cs`, next to the existing startup-report and `CrashReportInbox` DIM tests.
+
+1. Extend the interface declaration assertion to include `CaptureScreenshotAsync`.
+2. Add:
+
+```text
+IStageGame_DefaultCaptureScreenshotAsync_ShouldReturnNull_WhenImplementationDoesNotOverrideIt
+```
+
+using the existing `MinimalStageGameStub` without adding a stub implementation. Await the call through `IStageGame` and assert null.
+
+This pins source compatibility/default behavior for existing stage stubs. It does **not** replace the concrete BaseGame forwarding test below.
+
+- [ ] **Step 4: Pin BaseGame’s concrete stage-interface forward and shared slot**
 
 In `BaseGameTests`, add coverage that requests a screenshot through the stage contract and proves it uses the existing pending slot:
 
@@ -68,11 +106,13 @@ In `BaseGameTests`, add coverage that requests a screenshot through the stage co
 2. cast to `IStageGame` and request a screenshot;
 3. assert `_pendingScreenshot` is populated and its task is the returned task;
 4. while it is still pending, call `((IGameContext)game).CaptureScreenshotAsync()`;
-5. assert the second request completes with null, proving both interfaces share the same single pending slot.
+5. assert the second request completes with null.
+
+This test catches the important dual-interface footgun: if `BaseGame` forgets to implement the new `IStageGame` member, the interface default would return null and `_pendingScreenshot` would remain empty.
 
 Do not add a new render-target encoder test; existing BaseGame coverage already owns pending capture fulfillment and unavailable-device behavior.
 
-- [ ] **Step 4: Expose capture through `IStageGame` without widening the interface graph**
+- [ ] **Step 5: Expose capture through `IStageGame` without widening the interface graph**
 
 In `IStageGame`, add a default method returning null for headless/test implementations:
 
@@ -84,7 +124,7 @@ Add the required `System.Threading.Tasks` import.
 
 Do **not** make `IStageGame : IGameContext`.
 
-- [ ] **Step 5: Refactor BaseGame to one queue helper**
+- [ ] **Step 6: Refactor BaseGame to one queue helper**
 
 Move the existing body of explicit `IGameContext.CaptureScreenshotAsync()` into one private helper, e.g. `QueueScreenshotCapture()`.
 
@@ -102,11 +142,11 @@ Keep all existing behavior unchanged:
 - `BaseGame.Draw()` still owns capture fulfillment;
 - `CaptureRenderTargetAsPng()` stays the only PNG encoder.
 
-- [ ] **Step 6: Run focused Task 1 tests**
+- [ ] **Step 7: Run focused Task 1 tests**
 
 ```bash
 dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --no-restore \
-  --filter "FullyQualifiedName~AppPathsTests|FullyQualifiedName~BaseGameTests"
+  --filter "FullyQualifiedName~AppPathsTests|FullyQualifiedName~IStageGameContractTests|FullyQualifiedName~BaseGameTests"
 ```
 
 Expected: PASS.
@@ -135,11 +175,21 @@ The inspectable test subclass should be able to count calls and optionally retur
 
 Do not add a new Result test fixture or screenshot service abstraction.
 
-- [ ] **Step 2: Add characterization tests for the one-shot state machine**
+- [ ] **Step 2: Add one named scheduling helper shared by unit tests and `OnDraw()`**
 
-Test the extracted scheduling helper directly.
+Add an internal helper such as:
 
-Required cases:
+```text
+TryScheduleResultScreenshot()
+```
+
+Do **not** mark this helper `[ExcludeFromCodeCoverage]`.
+
+Focused tests call this exact method directly, and production `OnDraw()` calls the same method after `_spriteBatch.End()`. This keeps the state-machine logic unit-tested even though the graphics-bound `OnDraw()` remains `[ExcludeFromCodeCoverage]` and cannot run headlessly.
+
+- [ ] **Step 3: Add characterization tests for the one-shot state machine**
+
+Required cases against `TryScheduleResultScreenshot()`:
 
 1. reveal incomplete -> zero attempts;
 2. reveal complete -> one attempt;
@@ -147,36 +197,38 @@ Required cases:
 4. capture/persist throws -> safe wrapper observes/logs it and a later stable-frame check still does not retry;
 5. `OnActivate()` resets the attempt flag for a new Result activation.
 
-The tests should pin the contract, not private task plumbing or exact log text.
+The tests should pin behavior, not private task plumbing or exact log text.
 
-- [ ] **Step 3: Add the one-shot fields and reset**
+- [ ] **Step 4: Add the one-shot field and reset**
 
-In `ResultStage` add only the state needed by the behavior:
+In `ResultStage` add only:
 
 ```text
 _resultScreenshotRequested
 ```
 
-Initialize/reset it to `false` in `OnActivate()`.
+Reset it to `false` in `OnActivate()`.
 
 A separate retry count, queue, cancellation source, or screenshot lifecycle enum is unnecessary.
 
-- [ ] **Step 4: Trigger after Result rendering**
+- [ ] **Step 5: Trigger after Result rendering**
 
-At the end of `OnDraw()`, after the Result renderer/fallback has drawn and `_spriteBatch.End()` has completed, invoke the scheduling helper.
+At the end of `OnDraw()`, after the Result renderer/fallback has drawn and `_spriteBatch.End()` has completed, call `TryScheduleResultScreenshot()`.
 
-The helper should return unless:
+The helper returns unless:
 
 ```text
 _revealState?.IsComplete == true
 && !_resultScreenshotRequested
 ```
 
-Set `_resultScreenshotRequested = true` before launching the async work.
+Set `_resultScreenshotRequested = true` before launching async work.
 
 Do not put this trigger in `OnUpdate()`: input can transition the stage later in the same update, causing the next draw to belong to Song Select.
 
-- [ ] **Step 5: Implement capture + persistence through existing ownership**
+Fast-forward needs no special case: the first Activate/Back calls `_revealState.Complete()` and is consumed; a later input is required to leave Result, so the completed frame still gets a draw.
+
+- [ ] **Step 6: Implement capture + persistence through existing ownership**
 
 Production `CaptureAndSaveResultScreenshotAsync()` should:
 
@@ -185,21 +237,22 @@ Production `CaptureAndSaveResultScreenshotAsync()` should:
 3. return quietly (warning optional) if bytes are null/empty;
 4. resolve `AppPaths.GetScreenshotsRoot()`;
 5. create the directory;
-6. write `result-yyyyMMdd-HHmmss-fff.png` asynchronously.
+6. call `AppPaths.BuildResultScreenshotPath(root, DateTime.Now)`;
+7. write the bytes asynchronously.
 
 The request is issued during `ResultStage.OnDraw()`. When control returns to `BaseGame.Draw()`, the existing pending-request logic captures the still-bound Result render target from that same frame.
 
-Use local time for the timestamp so files are human-browsable. Do not include song metadata in the filename.
+Do not inline another filename formatter in `ResultStage`; the fixed-timestamp AppPaths unit test owns that contract.
 
-- [ ] **Step 6: Wrap the fire-and-forget task safely**
+- [ ] **Step 7: Wrap the fire-and-forget task safely**
 
 The draw method must never synchronously wait for capture or disk I/O.
 
-Use a private safe async wrapper that catches all exceptions from `CaptureAndSaveResultScreenshotAsync()` and logs one warning via the existing `game.LoggerFactory` infrastructure. Discard only that safe wrapper task.
+Use a private safe async wrapper that catches all exceptions from `CaptureAndSaveResultScreenshotAsync()` and logs one warning via the existing `game.LoggerFactory` infrastructure. Follow the existing Result-stage style for observing async failures; discard only the safe wrapper task.
 
-The one-shot flag remains set after any failure. Do not retry on later Result frames.
+The one-shot flag remains set after any failure. Do not retry on later Result frames, including when the shared `_pendingScreenshot` slot was busy.
 
-- [ ] **Step 7: Run focused Result tests**
+- [ ] **Step 8: Run focused Result tests**
 
 ```bash
 dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --no-restore \
@@ -210,51 +263,86 @@ Expected: PASS.
 
 ---
 
-### Task 3: Prove the real game writes exactly one PNG and close the slice
+### Task 3: Prove the actual Result Draw wiring and close the slice
 
 **Files:**
 - Modify: `DTXMania.E2E/GameplayAutoPlaySmokeTests.cs`
 
 **Produces:** black-box proof that the production Result draw, BaseGame capture queue, PNG encoding, app-data path, and one-shot behavior work together.
 
-- [ ] **Step 1: Extend the existing full-AutoPlay smoke**
+The project targets `net8.0-windows7.0`. This live E2E is therefore a required Windows PR-CI merge gate; the macOS unit suite is necessary but not sufficient because `ResultStage.OnDraw()` is graphics-bound and `[ExcludeFromCodeCoverage]`.
+
+- [ ] **Step 1: Extend the existing full-AutoPlay smoke only**
 
 Do not create a new E2E harness or another end-to-end journey.
 
-In `GameplayFullAutoPlay_ShouldJudgeEveryNoteAndComplete()`:
+In `GameplayFullAutoPlay_ShouldJudgeEveryNoteAndComplete()` keep the existing Title -> Song Select -> Performance -> Result journey.
 
-1. keep the existing Title -> Song Select -> Performance -> Result journey;
-2. after Result is reached, resolve `Path.Combine(fixture.AppDataRoot, "Screenshots")`;
-3. poll until exactly one `result-*.png` appears;
-4. assert the file is non-empty and begins with the PNG signature;
-5. allow additional Result frames to run;
-6. enumerate again and assert there is still exactly one matching file.
+The existing Result telemetry wait is **not** screenshot readiness:
 
-The fixture already maps `DTXMANIA_APPDATA_ROOT` to `fixture.AppDataRoot`, so this exercises the production `AppPaths` contract without test-only path injection.
+```text
+StageCompleted == true
+```
 
-Do not copy the automatic screenshot into `fixture.ArtifactRoot` as part of production behavior. CI can collect it separately later if desired; HPA-16 is about the game-owned runtime path.
+is published as soon as Result has a `PerformanceSummary`, roughly 1.15 seconds before `ResultRevealState.IsComplete` on an un-fast-forwarded result. Keep that assertion for its existing purpose, then independently wait for the game-owned screenshot file.
 
-- [ ] **Step 2: Run the focused unit surface again**
+- [ ] **Step 2: Do not compete for the shared screenshot slot in the Result validation window**
+
+Once the test has entered Result and begins HPA-16 validation, do not call `SaveScreenshotAsync()` / the JSON-RPC `takeScreenshot` endpoint until the automatic-file assertion has completed.
+
+The current happy path only uses `SaveScreenshotAsync()` at Song Select, which is safe. Adjust the test’s catch/failure-diagnostic path so a failure after entering the automatic Result screenshot window relies on stdout/stderr and existing artifacts rather than issuing an API screenshot that shares `_pendingScreenshot`.
+
+No MCP/Automation production behavior changes are needed.
+
+- [ ] **Step 3: Poll for one game-owned PNG after the existing Result telemetry assertion**
+
+Resolve:
+
+```text
+<fixture.AppDataRoot>/Screenshots
+```
+
+Then use the existing bounded polling helper to wait up to about 10 seconds until exactly one `result-*.png` exists. The budget intentionally covers:
+
+- up to ~1.15 seconds of Result reveal after `StageCompleted` first becomes true;
+- PNG encoding on the draw thread;
+- asynchronous directory/file write.
+
+Do not replace this with an immediate `File.Exists` check or a fixed reveal-only sleep.
+
+- [ ] **Step 4: Validate bytes and one-shot behavior**
+
+For the single file:
+
+1. assert it is non-empty;
+2. assert it begins with the PNG signature;
+3. allow additional Result frames to run (a short bounded delay is enough);
+4. enumerate `result-*.png` again;
+5. assert the count remains exactly one.
+
+The E2E glob is intentionally only an integration locator. Exact `Screenshots` root and `result-yyyyMMdd-HHmmss-fff.png` formatting are already pinned by `AppPathsTests`.
+
+Do not copy the player screenshot into `fixture.ArtifactRoot` as production behavior.
+
+- [ ] **Step 5: Run the focused unit surface again**
 
 ```bash
 dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --no-restore \
-  --filter "FullyQualifiedName~AppPathsTests|FullyQualifiedName~BaseGameTests|FullyQualifiedName~ResultStageTests"
+  --filter "FullyQualifiedName~AppPathsTests|FullyQualifiedName~IStageGameContractTests|FullyQualifiedName~BaseGameTests|FullyQualifiedName~ResultStageTests"
 ```
 
 Expected: PASS.
 
-- [ ] **Step 3: Run full unit suite + game build**
+- [ ] **Step 6: Run full unit suite + game build**
 
 ```bash
 dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --no-restore
 dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj --no-restore
 ```
 
-Windows remains owned by PR CI.
+- [ ] **Step 7: Require the existing Windows live E2E before merge**
 
-- [ ] **Step 4: Run/verify the existing live E2E where supported**
-
-Use the repository’s normal E2E invocation and filter to `GameplayFullAutoPlay_ShouldJudgeEveryNoteAndComplete` when running locally. If local platform prerequisites are unavailable, PR CI is the authoritative live-game gate; do not build a second harness to compensate.
+Run/verify `GameplayFullAutoPlay_ShouldJudgeEveryNoteAndComplete` through the repository’s normal E2E invocation on Windows/PR CI.
 
 Expected evidence:
 
@@ -262,9 +350,12 @@ Expected evidence:
 <fixture.AppDataRoot>/Screenshots/result-*.png
 count == 1
 valid PNG bytes
+count still == 1 after later Result frames
 ```
 
-- [ ] **Step 5: Minimal interactive smoke**
+Do not waive this gate based only on green macOS unit tests: Task 2 proves the scheduling helper, while this E2E proves `OnDraw()` actually invokes it after the stable frame is rendered.
+
+- [ ] **Step 8: Minimal interactive smoke**
 
 1. Launch the game normally.
 2. Complete one song and leave the Result screen untouched until its reveal completes.
@@ -273,7 +364,7 @@ valid PNG bytes
 5. Complete a second song and confirm exactly one additional PNG appears.
 6. Confirm Result navigation remains normal even if the screenshot directory is temporarily unwritable (manual check only if convenient; automated failure coverage owns the contract).
 
-- [ ] **Step 6: Final scope audit**
+- [ ] **Step 9: Final scope audit**
 
 Expected production changes only:
 
@@ -288,6 +379,7 @@ Expected test changes only:
 
 ```text
 DTXMania.Test/Utilities/AppPathsTests.cs
+DTXMania.Test/Stage/IStageGameContractTests.cs
 DTXMania.Test/BaseGameTests.cs
 DTXMania.Test/Stage/ResultStageTests.cs
 DTXMania.E2E/GameplayAutoPlaySmokeTests.cs
