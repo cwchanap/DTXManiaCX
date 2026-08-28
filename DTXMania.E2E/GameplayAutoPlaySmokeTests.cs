@@ -168,12 +168,20 @@ public sealed class GameplayAutoPlaySmokeTests
             // the asynchronous directory/file write.
             var screenshotsRoot = Path.Combine(fixture.AppDataRoot, "Screenshots");
             // The production path writes the PNG with File.WriteAllBytesAsync,
-            // so the directory entry can become enumerable before the write
-            // task has completed. Poll until the file is fully readable and
-            // begins with the PNG signature, not merely until it exists;
-            // otherwise the read can race with an in-progress write and see an
-            // empty/partial file or a transient sharing error.
+            // which opens with FileShare.Read, so a concurrent reader can open
+            // the file mid-write and read partial bytes without throwing. The
+            // directory entry can also become enumerable before the write task
+            // has completed. Poll until the file is fully readable and is a
+            // complete PNG, not merely until it exists or starts with the
+            // signature; otherwise the read can race with an in-progress write
+            // and see an empty/partial file, a transient sharing error, or a
+            // truncated image that happens to begin with the PNG magic bytes.
+            // The signature proves the file is a PNG; the trailing IEND chunk
+            // (length 0 + type "IEND" + its constant CRC) proves the write has
+            // reached the end of the encoded image, since WriteAllBytesAsync
+            // emits the full buffer in a single write.
             var pngSignature = new byte[] { 0x89, (byte)'P', (byte)'N', (byte)'G', 0x0D, 0x0A, 0x1A, 0x0A };
+            var pngIEndChunk = new byte[] { 0x00, 0x00, 0x00, 0x00, (byte)'I', (byte)'E', (byte)'N', (byte)'D', 0xAE, 0x42, 0x60, 0x82 };
             var screenshotPath = await Eventually.UntilAsync(
                 async token =>
                 {
@@ -188,9 +196,11 @@ public sealed class GameplayAutoPlaySmokeTests
                     try
                     {
                         var bytes = await File.ReadAllBytesAsync(path, token).ConfigureAwait(false);
-                        if (bytes.Length < pngSignature.Length)
+                        if (bytes.Length < pngSignature.Length + pngIEndChunk.Length)
                             return (string?)null;
                         if (!bytes.AsSpan(0, pngSignature.Length).SequenceEqual(pngSignature))
+                            return (string?)null;
+                        if (!bytes.AsSpan(bytes.Length - pngIEndChunk.Length).SequenceEqual(pngIEndChunk))
                             return (string?)null;
                         return path;
                     }
@@ -204,7 +214,7 @@ public sealed class GameplayAutoPlaySmokeTests
                 path => path is not null,
                 TimeSpan.FromSeconds(10),
                 TimeSpan.FromMilliseconds(250),
-                "exactly one readable automatic result screenshot with a valid PNG signature under the game-owned Screenshots root",
+                "exactly one readable automatic result screenshot that is a complete PNG (signature + trailing IEND chunk) under the game-owned Screenshots root",
                 cancellation.Token);
 
             Assert.NotNull(screenshotPath);
