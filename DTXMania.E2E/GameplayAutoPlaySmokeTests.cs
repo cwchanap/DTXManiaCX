@@ -167,25 +167,47 @@ public sealed class GameplayAutoPlaySmokeTests
             // pending after StageCompleted, PNG encoding on the draw thread, and
             // the asynchronous directory/file write.
             var screenshotsRoot = Path.Combine(fixture.AppDataRoot, "Screenshots");
-            await Eventually.UntilAsync(
-                _ => Task.FromResult(
-                    Directory.Exists(screenshotsRoot)
-                        ? Directory.EnumerateFiles(screenshotsRoot, "result-*.png").Count()
-                        : 0),
-                count => count == 1,
+            // The production path writes the PNG with File.WriteAllBytesAsync,
+            // so the directory entry can become enumerable before the write
+            // task has completed. Poll until the file is fully readable and
+            // begins with the PNG signature, not merely until it exists;
+            // otherwise the read can race with an in-progress write and see an
+            // empty/partial file or a transient sharing error.
+            var pngSignature = new byte[] { 0x89, (byte)'P', (byte)'N', (byte)'G', 0x0D, 0x0A, 0x1A, 0x0A };
+            var screenshotPath = await Eventually.UntilAsync(
+                async token =>
+                {
+                    if (!Directory.Exists(screenshotsRoot))
+                        return (string?)null;
+
+                    var paths = Directory.EnumerateFiles(screenshotsRoot, "result-*.png").ToList();
+                    if (paths.Count != 1)
+                        return (string?)null;
+
+                    var path = paths[0];
+                    try
+                    {
+                        var bytes = await File.ReadAllBytesAsync(path, token).ConfigureAwait(false);
+                        if (bytes.Length < pngSignature.Length)
+                            return (string?)null;
+                        if (!bytes.AsSpan(0, pngSignature.Length).SequenceEqual(pngSignature))
+                            return (string?)null;
+                        return path;
+                    }
+                    catch (IOException)
+                    {
+                        // Write still in progress / file locked: treat as
+                        // not-yet-ready and let Eventually retry.
+                        return (string?)null;
+                    }
+                },
+                path => path is not null,
                 TimeSpan.FromSeconds(10),
                 TimeSpan.FromMilliseconds(250),
-                "exactly one automatic result screenshot under the game-owned Screenshots root",
+                "exactly one readable automatic result screenshot with a valid PNG signature under the game-owned Screenshots root",
                 cancellation.Token);
 
-            var screenshotPath = Assert.Single(Directory.EnumerateFiles(screenshotsRoot, "result-*.png"));
-            var screenshotBytes = await File.ReadAllBytesAsync(screenshotPath, cancellation.Token);
-            Assert.NotEmpty(screenshotBytes);
-            var pngSignature = new byte[] { 0x89, (byte)'P', (byte)'N', (byte)'G', 0x0D, 0x0A, 0x1A, 0x0A };
-            Assert.True(
-                screenshotBytes.Length >= pngSignature.Length &&
-                screenshotBytes.AsSpan(0, pngSignature.Length).SequenceEqual(pngSignature),
-                $"Automatic result screenshot '{screenshotPath}' does not begin with the PNG signature.");
+            Assert.NotNull(screenshotPath);
 
             // The accepted one-shot must not re-fire on later Result draws: let
             // further fully revealed frames run, then confirm the count is still one.
