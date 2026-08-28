@@ -29,6 +29,10 @@ namespace DTXMania.Test.Stage
     /// Unit tests for ResultStage focusing on pure logic methods
     /// that do not require graphics initialization.
     /// </summary>
+    // TempAppDataRoot mutates the process-wide DTXMANIA_APPDATA_ROOT env var and
+    // deletes directories on dispose, so this class must not run in parallel with
+    // other AppPaths-touching tests (ConfigManagerTests, AppPathsTests, etc.).
+    [Collection("AppPaths")]
     [Trait("Category", "Unit")]
     public class ResultStageTests
     {
