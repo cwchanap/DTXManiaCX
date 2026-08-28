@@ -4,120 +4,145 @@
 
 HPA-11 adds the first focused CX vertical slice for chart-authored background video during `PerformanceStage`.
 
-The implementation should reuse two foundations that already exist on `main`:
+The architecture stays deliberately small:
 
-1. `ParsedChart.FinalizeChart()` / `ChartTimingMap` already owns authored `(bar, tick) -> TimeMs` conversion for gameplay events.
-2. `SongTimer.SongPositionMs` already exposes the logical gameplay timeline, including the frozen Play Speed profile and pause/resume behavior.
+1. `ParsedChart.FinalizeChart()` / `ChartTimingMap` remains the only authored `(bar, tick) -> TimeMs` compiler.
+2. `PerformanceStage` uses the existing logical song time it already reads from `_songTimer.GetCurrentMs(_currentGameTime)`; video never owns a second clock and Play Speed is never multiplied a second time.
+3. One FFmpeg-backed player owns one child decode process, a small bounded CPU-frame queue, and one current MonoGame texture.
+4. The existing static performance background always remains underneath video and is the fallback for every media failure.
 
-Video must therefore be a **follower of logical chart time**, not a second clock. The stage schedules chart video events using finalized event times; the video player presents the frame corresponding to `SongTimer.SongPositionMs - event.TimeMs`.
+The first slice supports legacy `#AVIxx` / `#VIDEOxx` definitions plus DTX channels `54` and `5A`, normalized to one CX background-video behavior. AVIPAN, MovieMode, static BGA/BMP, video configuration, embedded movie audio, and broad codec/container support remain out of scope.
 
-For media decoding, use the existing shared FFmpeg runtime rather than introducing MonoGame `VideoPlayer` assumptions or separate Windows/macOS native media stacks. Decode a deliberately small first format surface—representative uncompressed AVI—to CPU frames, upload only the current frame to one MonoGame texture on the game thread, and render it between the existing static background and gameplay lanes/HUD.
+## Verified reuse survey
 
-If video is absent, unresolved, unsupported, corrupt, or temporarily unable to provide a timely frame, gameplay continues with the existing static background.
+### Chart timing already has one owner
 
-## Why HPA-11 is the next actionable backlog item
+`DTXMania.Game/Lib/Song/Components/ParsedChart.cs` already retains authored positions for notes/BGM and finalizes them through `ChartTimingMap`.
 
-The current active DTXManiaCX backlog has two core product items plus optional recorder hardening:
+`ChartVideoEvent` should be a sibling of `BGMEvent` and join those same finalization loops. Do not add a video-specific time calculator.
 
-- HPA-11: chart background video playback;
-- HPA-12: interactive key-sound latency validation;
-- HPA-504/505/506: explicitly optional recorder hardening.
+### The real gameplay clock is `GetCurrentMs(...)`
 
-HPA-11 is unblocked, player-visible, and fully executable by implementation agents. HPA-12 begins with physical Windows/macOS audio-device measurements and evidence gathering before code changes can be justified, so it is not the best next agent-driven implementation slice.
+`PlaybackClock` applies the frozen Play Speed factor and freezes its logical anchor while paused. `SongTimer` wraps it and exposes the logical chart position through:
 
-This PR remains the single planning + implementation PR for HPA-11.
-
-## Reuse survey
-
-### Current chart timing ownership
-
-`DTXMania.Game/Lib/Song/Components/ParsedChart.cs` already owns finalized chart timing:
-
-- `Notes` and `BGMEvents` retain authored bar/tick positions;
-- `ChartTimingMap` compiles channel 02/03/08 timing changes;
-- `FinalizeChart()` calculates `TimeMs`, sorts events, and computes chart duration.
-
-Video events should join this same lifecycle. Do not create a separate fixed-BPM video-time calculator.
-
-### Current gameplay clock ownership
-
-`DTXMania.Game/Lib/Stage/Performance/PlaybackClock.cs` converts monotonic game time into logical chart time using the frozen `PlaySpeedPercent` profile.
-
-`DTXMania.Game/Lib/Stage/Performance/SongTimer.cs` exposes that logical position to `PerformanceStage` and already freezes/resumes correctly when gameplay pauses.
-
-Therefore HPA-11 does not need a video stopwatch, a video-specific Play Speed multiplier, or explicit pause/resume timestamps. The video player is updated with the logical media position that the chart already uses.
-
-### Current gameplay background ownership
-
-`DTXMania.Game/Lib/Stage/Performance/BackgroundRenderer.cs` owns the normal skin background and fallback color. `PerformanceStage` draws that background before lanes and HUD.
-
-Keep it. The video is an optional overlay in the same background layer:
-
-```text
-static/fallback background
-  -> active chart video frame (when valid)
-  -> lane background / notes / HUD / effects
+```csharp
+_songTimer.GetCurrentMs(_currentGameTime)
 ```
 
-This preserves today’s behavior automatically whenever video is unavailable.
+`PerformanceStage.UpdateGameplay()` already reads this once inside the `_songTimer.IsPlaying` branch and passes the resulting `currentTimeMs` to BGM, gameplay managers, progress, and completion.
 
-### Current FFmpeg ownership
+HPA-11 should reuse that same `currentTimeMs` value. There is no `SongTimer.SongPositionMs` property on current `main`, and the design must not invent one.
 
-CX already ships `FFMpegCore` and centralizes executable resolution in `DTXMania.Game/Lib/Resources/FfmpegRuntime.cs`.
+### Background z-order is depth-based, not call-order based
 
-Windows already has a packaged FFmpeg runtime. Native Apple Silicon packaging was established by HPA-512 under:
+`PerformanceStage.OnDraw()` begins the base pass with `SpriteSortMode.BackToFront` and documents the existing depth contract:
 
 ```text
-runtimes/osx-arm64/MMTools/{ffmpeg,ffprobe}
+static background 1.0
+lane fallback     0.9
+lane strips       0.8
+measure lines     0.78
+...
+sprite notes      0.05
 ```
 
-and is verified by `DTXMania.Test/Resources/FfmpegBundledRuntimeTests.cs`.
+Therefore a video draw using the default sprite depth (`0.0`) would render in front of gameplay even if called immediately after the background.
 
-Reuse that runtime resolution and extend the existing Mac capability contract only with the video features HPA-11 actually needs. Do not add another binary resolver or NuGet FFmpeg provider.
+`PerformanceStage` owns this composition contract. HPA-11 uses one named stage-owned video depth of approximately `0.95f`, between the static background and lane backgrounds, and uses `PerformanceUILayout.Background.Bounds` as the gameplay background bounds.
 
-The current Apple Silicon builder is intentionally audio-only (`--disable-everything`), so HPA-11 must add the minimal AVI/raw-video capabilities rather than assuming the bundled binary can already decode video.
+The decoder/player must not hard-code its own z-order. The stage passes the layer depth into the player draw call (or otherwise performs the final texture draw itself).
 
-## Legacy DTX/NX contract
+### The parser has a header latch that video must not copy blindly
 
-Inspection of `DTXmaniaNX` pins the compatibility surface needed by this slice:
+`DTXChartParser.ParseFileContentWithTimingAsync()` currently sets `inDataSection` after the first timeline/data marker and stops calling `ParseHeaderCommand()` afterward. That is acceptable for current WAV/header behavior but is not compatible with the required legacy video contract.
 
-- video file definitions accept both `#AVIxx` and `#VIDEOxx`;
-- the suffix is a two-character base-36 resource id;
-- later definitions for the same id replace earlier ones;
-- channel `54` (`EChannel.Movie`) triggers video playback;
-- channel `5A` (`EChannel.MovieFull`) also triggers video playback;
+NX processes `#AVIxx` / `#VIDEOxx` definitions throughout the file, and later definitions replace earlier ones even when authored after timeline rows.
+
+HPA-11 therefore collects video definitions independently across the whole file, not only while `!inDataSection`. Timeline events and definitions are resolved after the full scan.
+
+Definition ids and timeline cell ids are exactly two characters and normalized to uppercase, matching the existing WAV/BGM id convention.
+
+Video path resolution must call the existing `DTXChartParser.ResolveBGMPath(...)` helper rather than forking a second chart-relative path policy. The helper name is historical; duplicating its semantics is worse than reusing it.
+
+### FFmpeg resolution is already centralized
+
+`FfmpegRuntime.EnsureConfigured()` owns packaged-runtime/PATH resolution for both platforms.
+
+Windows uses the full `MMTools.Executables.Windows.X64` package. Apple Silicon uses the HPA-512 source-built runtime with `--disable-everything` plus an explicit audio-only capability list.
+
+HPA-11 must extend that existing Mac capability surface narrowly. It must not add Media Foundation, AVFoundation, MonoGame `VideoPlayer`, a second NuGet binary provider, or another FFmpeg resolver.
+
+The player needs the actual `ffmpeg` / `ffprobe` executable paths for child processes. Do not duplicate `ffmpeg` vs `ffmpeg.exe` naming or bundled-folder/PATH behavior in the player. Add one small internal executable-path helper to `FfmpegRuntime` (with focused tests) that derives a command path from the already-resolved runtime availability. `BinaryFolder == null` continues to mean PATH lookup.
+
+Any test class that invokes or mutates shared FFmpeg runtime state joins the existing `[Collection("FfmpegRuntimeState")]` serialization contract.
+
+### Performance already has an early-stop path
+
+`ReturnToSongSelect()` and `FinalizePerformance()` both stop logical time and call `StopGameplayAudioInstances()` before the stage transition/fade. `CleanupComponents()` happens later.
+
+An owned FFmpeg process must stop on that same early-stop path so it cannot burn CPU or leave a last video frame active during the song-select/result transition. Full player disposal still belongs in `CleanupComponents()`.
+
+Do not add a generic media lifecycle manager for this.
+
+## Legacy DTX/NX contract for this slice
+
+The required compatibility surface is:
+
+- `#AVIxx:path` and `#VIDEOxx:path` are aliases;
+- `xx` is a two-character base-36-style resource id, normalized uppercase in CX;
+- later definitions for the same id win, regardless of whether a timeline event appeared earlier;
+- channel `54` triggers movie playback;
+- channel `5A` triggers movie playback;
 - `00` cells mean no event;
-- NX also supports `AVIPAN` and a much larger DirectShow/SharpDX positioning/mode matrix.
+- both channels use the same CX rendering behavior in HPA-11.
 
-CX should intentionally implement only the plain movie contract in HPA-11.
-
-### First-slice normalization
-
-Both channel 54 and channel 5A become the same CX `ChartVideoEvent` behavior: play the referenced video in the normal gameplay background layer.
-
-Do not add a `Movie`/`MovieFull` mode enum merely to preserve a distinction that this slice does not render differently. If a future product requirement needs distinct behavior, add it then.
-
-`AVIPAN`, chart-authored crop/position animation, old MovieMode permutations, and static BGA/BMP channels are out of scope.
+NX also supports AVIPAN and a much larger DirectShow/SharpDX rendering matrix. None of that is required here.
 
 ## Supported first media profile
 
-The repository performance corpus already identifies `DTXFiles.2/Test/mas.dtx` with `bg.avi` as the representative uncompressed-AVI rendering load.
+The repository corpus manifest identifies the representative acceptance file:
 
-HPA-11 should guarantee this first profile:
+```text
+DTXFiles.2/Test/mas.dtx
+DTXFiles.2/Test/bg.avi
+```
 
-- AVI container;
-- uncompressed/raw video codec used by the representative corpus;
-- constant/usable frame-rate metadata from `ffprobe`;
-- video track only for rendering; embedded media audio is ignored;
-- arbitrary source dimensions, rendered with aspect ratio preserved.
+The manifest proves the file identity/size, not its codec or pixel format. The current planning branch must not guess those facts.
 
-Do not preemptively enable H.264, HEVC, VP9, MPEG-4, subtitle, audio, streaming, network protocol, or broad container support. If inspection of the actual Group C `bg.avi` shows one additional decoder is required, add exactly that decoder in this PR and pin it in the capability test.
+Before changing the Apple Silicon FFmpeg configure surface, implementation Task 2 must run `ffprobe` against the actual corpus `bg.avi` whenever that corpus is available and record at least:
+
+```text
+codec_name
+pix_fmt
+width
+height
+avg_frame_rate (or r_frame_rate when required)
+```
+
+The tiny committed AVI fixture must then match the representative codec/pixel-format family closely enough that Windows cannot pass on a materially easier path than the Mac Group C file.
+
+If the corpus is unavailable to the implementation environment, do not claim the representative decoder/pixel format is known. Keep the PR draft until the actual Group C probe is recorded before final acceptance.
+
+The first-slice output contract is always CPU `RGBA` frames suitable for MonoGame `Texture2D.SetData`.
+
+Because the Mac builder uses `--disable-everything`, HPA-11 must enable and validate every component needed for the actual AVI -> RGBA raw-frame command, including:
+
+- AVI demuxing;
+- the actual representative video decoder (do not assume `rawvideo` until probed);
+- rawvideo output encoder/muxer;
+- pixel-format conversion support (`format` / `scale` and the swscale path as required by the FFmpeg build);
+- `rgba` output pixel-format support;
+- existing `pipe` protocol.
+
+Validation must include an actual tiny-fixture decode command to `-pix_fmt rgba -f rawvideo pipe:1`, not only capability-list greps. Preserve every HPA-512 audio capability and validation gate.
+
+Do not preemptively enable H.264, HEVC, VP9, MPEG-4, subtitles, network protocols, or unrelated formats.
 
 ## Design
 
-### 1. Add one chart video event model
+### 1. `ChartVideoEvent` joins existing chart finalization
 
-Create one small `ChartVideoEvent` next to `BGMEvent` with only the data the runtime consumes:
+Create one small model next to `BGMEvent`:
 
 ```text
 Bar
@@ -127,331 +152,327 @@ VideoId
 VideoFilePath
 ```
 
-`VideoFilePath` is empty when no final definition resolves the id.
+Add `ParsedChart.VideoEvents` and one add helper.
 
-Add `ParsedChart.VideoEvents` and `AddVideoEvent(...)`.
+`FinalizeChart()` must:
 
-Do not expose a second public video-definition registry unless implementation proves a caller needs it. The parser can keep definitions local, then resolve every retained event after the complete file has been read. This naturally gives legacy-compatible “later definition wins” behavior even when an event appears before its `#AVIxx` definition.
+- include normalized video-event bars in `highestOccupiedBar`;
+- resolve `TimeMs` through `TimingMap.CalculateTimeMs`;
+- sort video events by `TimeMs`;
+- include video trigger times in the existing chart event horizon used for `DurationMs`.
 
-### 2. Parse only `#AVIxx` / `#VIDEOxx` + channels 54 / 5A
+Do not include movie file duration in chart duration.
 
-Extend the existing parser attempt-local state with a case-insensitive video-definition dictionary.
+### 2. Whole-file video definition collection
 
-Header behavior:
+Use one parser-attempt-local video-definition dictionary.
+
+For every non-comment line, before the `inDataSection` header/measure split, attempt to collect exactly shaped video definitions:
 
 ```text
 #AVI01:bg.avi
 #VIDEO01:bg.avi
 ```
 
-Both define video id `01`. Resolve relative paths against the chart directory using the same path policy already used for chart-owned media. Do not require the file to exist while parsing.
+This collector is independent of `ParseHeaderCommand()` and therefore still runs after timeline data begins.
 
-Measure behavior:
+Rules:
 
-```text
-#00054:01
-#0005A:01
-```
+- command prefix is case-insensitive;
+- id is exactly two characters and stored uppercase;
+- quoted-value handling should match existing header value behavior;
+- later assignment replaces earlier assignment;
+- malformed definition is ignored diagnostically and must not abort chart parsing.
 
-Use the same two-character cell subdivision rule as other DTX event channels. Retain non-`00` references as `ChartVideoEvent` authored positions.
+Timeline channels `54` and `5A` use the existing two-character cell subdivision rule. Non-`00` cell ids are uppercased and retained as `ChartVideoEvent` authored positions.
 
-After the file scan, resolve each event’s `VideoFilePath` from the final definition table. A missing definition is non-fatal and leaves an empty path for runtime fallback/diagnostics.
+After the complete scan, resolve every event against the final definition table using existing `ResolveBGMPath(...)`. Missing definitions leave `VideoFilePath` empty.
 
-Do not parse `#AVIPANxx` in this ticket.
+Do not add a public definition registry or a second path helper.
 
-### 3. Finalize video timing through `ChartTimingMap`
+### 3. One narrow player contract with stage-owned draw depth
 
-`ParsedChart.FinalizeChart()` must treat video events like BGM events:
-
-- include their normalized bar in `highestOccupiedBar`;
-- calculate `TimeMs` through `TimingMap.CalculateTimeMs(bar, tick)`;
-- sort by resolved `TimeMs`;
-- include the event trigger time when calculating `DurationMs`.
-
-Do not include the media file’s own duration in chart duration. HPA-11 needs the event to be reachable before gameplay ends; it does not redefine DTX song-end semantics around movie length.
-
-This makes channel 02/03/08 timing changes authoritative for notes, BGM, beat/measure markers, and video without another timeline implementation.
-
-### 4. Keep one narrow video-player abstraction
-
-Add a small gameplay-owned interface, for example `IChartVideoPlayer`, under `Lib/Stage/Performance`.
-
-The interface only needs lifecycle/timeline behavior used by `PerformanceStage`, conceptually:
+Add one gameplay-owned interface under `Lib/Stage/Performance` with only the stage needs, conceptually:
 
 ```text
 Start(path, initialMediaTimeMs)
 Update(mediaTimeMs)
-Draw(spriteBatch, destinationBounds)
+Draw(spriteBatch, destinationBounds, layerDepth)
 Stop()
 Dispose()
 ```
 
-Exact return types are an implementation detail, but the contract must make these properties true:
+The exact success/result shape may be adjusted during implementation, but these properties are mandatory:
 
-- `Start` must not block the game thread on whole-file decode;
-- `Update` is called on the game thread and receives authoritative logical media time;
-- GPU texture upload/draw occurs only on the game thread;
-- decoder/process failure is contained inside the player and reported diagnostically;
-- `Stop`/`Dispose` cancels decoding and terminates the owned FFmpeg process.
+- `Start` never performs whole-file decode on the game thread;
+- FFmpeg/probe/process failures are contained and diagnostic;
+- CPU decoding happens off the game thread;
+- texture creation/update and draw happen on the game thread;
+- the stage supplies destination bounds and layer depth;
+- `Stop` cancels the current generation and terminates the owned child process;
+- `Dispose` additionally releases the current texture/resources.
 
-Do not create a generic media service, plugin model, playback manager hierarchy, or project-wide video abstraction.
+Do not add generic media, playback-rate, audio, device, or plugin APIs.
 
-### 5. FFmpeg-backed frame streaming
+### 4. FFmpeg stdout -> bounded blocking queue
 
-Implement one `FfmpegChartVideoPlayer` using the already configured shared runtime.
-
-The simple pipeline is:
-
-```text
-ffprobe -> width / height / frame-rate metadata
-ffmpeg  -> raw pixel frames on stdout
-background decode worker -> small bounded CPU frame queue
-game-thread Update       -> select latest frame due for logical media time
-                           -> upload it into one reusable Texture2D
-game-thread Draw         -> render current texture
-```
-
-The FFmpeg process should decode as fast as available CPU allows; do **not** use FFmpeg wall-clock real-time playback as the synchronization mechanism.
-
-A small bounded queue is enough. Its purpose is to keep a few frames ahead without decoding the whole movie into RAM. The exact capacity is not a product contract; keep it single-digit unless profiling proves otherwise.
-
-Frame timestamps may be derived from the probed constant frame rate for this first AVI profile. VFR-accurate PTS plumbing is not required by HPA-11.
-
-When `Start` is requested after the event is already in the past—for example because one update crosses multiple events or decoder startup is delayed—start/seek near `initialMediaTimeMs` rather than deliberately replaying from frame zero and showing stale content.
-
-Do not play or mix the video file’s audio track. DTX chart audio remains the sole gameplay audio authority.
-
-### 6. Logical-time frame selection
-
-For the currently active event:
+The player pipeline is:
 
 ```text
-mediaTimeMs = max(0, SongTimer.SongPositionMs - activeEvent.TimeMs)
+ffprobe -> source dimensions / frame rate / codec facts
+ffmpeg  -> RGBA raw frames on stdout
+worker  -> bounded CPU frame queue
+Update  -> pure timestamp selection + game-thread texture upload
+Draw    -> current texture at stage-provided bounds/depth
 ```
 
-`PerformanceStage` passes that value to the video player every gameplay update.
+Use a small fixed-capacity queue. When the queue is full, the decode worker **waits**. It must not grow the queue and must not drop future frames: at slow Play Speed those frames have not become due yet.
 
-This automatically handles:
+The consumer is allowed to discard obsolete frames when logical target time jumps ahead (fast Play Speed or update hitch).
 
-- **100% Play Speed:** normal progression;
-- **50–95%:** the same source frame is held longer because logical time advances more slowly;
-- **105–150%:** stale decoded frames are skipped because logical time advances faster;
-- **Pause:** `SongPositionMs` freezes, so the current frame freezes;
-- **Resume:** logical time continues from the paused position;
-- **update hitch:** the player catches up to the latest due frame instead of replaying every missed frame.
+Do not use `-re` or any decoder wall clock as synchronization.
 
-There is no separate playback-speed transform in the video backend.
+### 5. Keep frame selection pure
 
-### 7. Never knowingly display a badly stale frame
+Do not bury hold/skip/stale policy in `Texture2D` or FFmpeg process code.
 
-The decoder is a producer; `SongTimer` is still the authority.
+Add one tiny internal pure selector (a small helper/class, not a service) whose inputs are logical target media time, source frame interval, current-frame timestamp, and queued frame timestamps. Its result tells the player whether to:
 
-If the decoder cannot provide a frame that is reasonably current for the target logical position, do not let an old frame advance on its own clock. The player may temporarily expose no drawable frame (leaving the static background visible) until it catches up.
+- keep the current frame;
+- consume/skip to the latest queued frame now due;
+- expose no drawable frame because the decoder is materially stale.
 
-Use the source frame interval to define the stale-frame check rather than a new user setting. A small tolerance of a couple of source-frame intervals is sufficient for the first slice.
+This helper has no `GraphicsDevice`, `Texture2D`, FFmpeg, process, or filesystem dependency and is the primary home for slow/fast/hitch/stale unit tests.
 
-This satisfies the HPA-11 requirement that non-default Play Speed must not silently desynchronize video: failure to keep up degrades to the known static fallback rather than pretending an incorrect video position is synchronized.
+The queue producer remains blocking; only the selector/consumer discards frames that are already obsolete for the authoritative logical time.
 
-Do not add adaptive quality, transcoding, frame interpolation, or a recovery state machine.
+### 6. Texture lifecycle is generation/dimension aware
 
-### 8. Event scheduling in `PerformanceStage`
+The player owns at most one current `Texture2D`.
 
-Maintain one cursor into sorted `ParsedChart.VideoEvents` plus the active event start time.
+- Reuse it across frames while width/height are unchanged.
+- On retrigger to a video with different dimensions, dispose/replace the old texture before uploading the new frame.
+- Do not call `SetData` with a buffer shape that belongs to the previous video generation.
+- On playback failure/stale state, hiding the video does not require destroying the texture immediately; `Stop`/retrigger/dispose owns lifecycle cleanup.
 
-On update:
+### 7. Stage scheduling reuses the existing `currentTimeMs`
 
-1. read `_songTimer.SongPositionMs` once;
-2. consume every video event now due;
-3. if several became due in one update, start only the **last** due event—intermediate events are already obsolete;
-4. stop the previous movie before replacing it;
-5. if the final due event has an empty/missing path or player startup fails, leave the static background active;
-6. update the active player using `songTimeMs - event.TimeMs`.
+Inside the existing `_songTimer != null && _songTimer.IsPlaying` update branch, reuse the already-computed:
 
-Reset the cursor/player state for each performance activation. Stop the player during retry, stage deactivation, cancellation, and disposal using the same lifecycle points that already clean gameplay resources.
+```csharp
+var currentTimeMs = _songTimer.GetCurrentMs(_currentGameTime);
+```
 
-No separate scheduler class is needed unless implementation shows `PerformanceStage` cannot keep this small.
+Pass that same value into video scheduling. Do not call the clock a second time and do not apply `PlaybackModifiers.Speed` again.
 
-### 9. Rendering behavior
+Scheduling rules:
 
-Keep `BackgroundRenderer` as the base layer.
+1. consume every sorted video event with `TimeMs <= currentTimeMs` that has not been handled;
+2. if several become due in one update, only the **last due** event starts—the intermediate events are already obsolete;
+3. stop the previous generation before replacement;
+4. unresolved/missing media leaves the video layer inactive but does not block later events;
+5. for the active event:
 
-When the player has a current frame, render it centered in the existing virtual gameplay background bounds with aspect ratio preserved. Use a tiny pure “aspect fit” rectangle helper so 4:3 legacy AVI is not stretched to 16:9.
+```text
+mediaTimeMs = max(0, currentTimeMs - activeEvent.TimeMs)
+```
 
-Any uncovered letter/pillar-box area continues to show the existing static background. Do not add black-bar art, lane alpha, crop modes, or per-video positioning.
+6. pass `mediaTimeMs` directly to the player.
 
-Both DTX channel 54 and 5A use this same CX rendering policy in HPA-11.
+Pause needs no second transport command: the existing gameplay update branch stops advancing logical video target time while `SongTimer.IsPlaying` is false, so the current texture remains held. Resume continues from the same `PlaybackClock` logical anchor.
+
+No `VideoScheduler` type is needed.
+
+### 8. Draw inside `DrawBackground()` at a pinned depth
+
+`DrawBackground()` remains the composition owner:
+
+```text
+static/fallback background at 1.0
+chart video             at 0.95
+lane fallback           at 0.9
+lane strips             at 0.8
+```
+
+Draw the static/fallback background first, then ask the player to draw a timely frame using:
+
+```text
+bounds = PerformanceUILayout.Background.Bounds
+layerDepth = 0.95f
+```
+
+Use aspect-fit geometry so 4:3 video is not stretched to 16:9. Uncovered area shows the existing static background.
+
+Do not depend on call order alone and do not put the depth constant inside the decoder.
+
+### 9. Stop early; dispose later
+
+Extend the existing early-stop helper path used by both `ReturnToSongSelect()` and `FinalizePerformance()` so `_chartVideoPlayer.Stop()` is called before the transition/fade, alongside current gameplay audio stopping.
+
+`CleanupComponents()` then disposes and clears the player.
+
+Retrigger also calls `Stop()` before starting the replacement generation.
+
+Do not let an FFmpeg process survive until deferred deactivation cleanup.
 
 ### 10. Failure behavior
 
 Background video is optional presentation, never gameplay state.
 
-The following must not prevent chart play or transition to Result:
+The following are non-fatal and fall back to the static background:
 
+- unresolved definition/path;
+- missing/corrupt/unsupported video;
 - FFmpeg runtime unavailable;
-- video definition missing;
-- video file missing;
-- `ffprobe` failure;
-- unsupported/corrupt AVI;
-- invalid dimensions/frame-rate metadata;
-- FFmpeg process exit;
-- decoder cancellation during retrigger/exit;
-- texture upload failure.
+- ffprobe failure;
+- invalid dimensions/frame rate;
+- child process exit/read failure;
+- decoder behind logical time;
+- texture upload failure;
+- cancellation during retrigger/exit.
 
-Log one useful diagnostic per failed video start/playback generation and fall back to the existing background. Do not show a modal/toast or repeatedly log every frame.
+Log one useful diagnostic per failed playback generation; do not log every frame and do not show a modal/toast.
 
-A later valid video event in the same chart may still start after an earlier event fails.
-
-## Apple Silicon FFmpeg amendment
-
-The HPA-512 builder currently enables audio-only capabilities under `--disable-everything`.
-
-Extend `tools/ffmpeg/macos-arm64/build-runtime.sh` only with the features required by the representative AVI-to-raw-frame pipeline. Expected minimum surface is:
-
-```text
-demuxer: avi
-decoder: rawvideo
-encoder: rawvideo
-muxer:   rawvideo
-protocol: pipe (already enabled)
-```
-
-If the actual Group C AVI reports a different uncompressed decoder name, use the probed corpus fact rather than this expectation and pin the exact resulting capability.
-
-Extend the existing builder validation and `FfmpegBundledRuntimeTests` rather than creating a second runtime checker. Preserve all HPA-512 audio capabilities and tests.
-
-Do not upgrade FFmpeg, broaden packaging, or change runtime lookup precedence.
+A later valid event in the same chart may still start.
 
 ## Test strategy
 
-### Parser / chart timing tests
+### Parser/finalization
 
-Extend existing `DTXChartParserTests` / `DTXChartParserAdditionalTests` and `ParsedChartTests` with focused contracts:
+Extend existing parser/chart tests to pin:
 
-- `#AVIxx` definition + channel 54 resolves path/event;
-- `#VIDEOxx` is an alias;
-- channel 5A creates the same supported event behavior;
-- `00` cells are ignored;
-- multiple cells map to correct authored ticks;
-- later definition wins even if definition appears after an event;
-- missing definition keeps parsing playable and leaves unresolved path;
-- channel 02/03/08 timing changes affect video `TimeMs` through the same timing map;
-- video events participate in sorting and occupied-duration horizon.
+- `#AVIxx` and `#VIDEOxx` aliases;
+- ids uppercased and exactly two characters;
+- channel 54 and 5A events;
+- `00` ignored;
+- correct authored ticks for multiple cells;
+- **event first, later `#AVIxx` definition afterward** resolves successfully despite the parser data-section latch;
+- repeated late definition wins;
+- video path uses the same `ResolveBGMPath` semantics as WAV/BGM;
+- missing definition stays playable with empty path;
+- channel 02/03/08 timing changes flow through `ChartTimingMap`;
+- sorting and chart duration/event horizon include video triggers.
 
-Do not add AVIPAN tests.
+### Runtime/player
 
-### Video backend tests
+Before editing Mac flags, probe Group C `bg.avi` when present and record codec/pixel-format facts in the PR.
 
-Add a tiny deterministic uncompressed AVI fixture, not the 54 MB representative corpus, for automated decoder capability tests.
+Create a tiny deterministic AVI fixture matching that first profile. `TestData/Video/**` must be explicitly copied in **both** `DTXMania.Test.csproj` and `DTXMania.Test.Mac.csproj`, mirroring the existing `TestData/Audio/**` item.
 
-Pin at least:
+Runtime/player tests pin:
 
+- shared FFmpeg executable-path helper for bundled-folder and PATH cases;
+- Apple Silicon builder still contains every previous audio capability;
+- actual required AVI decoder/demuxer plus `format`/`scale`/RGBA conversion surface;
+- an actual tiny-fixture `ffmpeg ... -pix_fmt rgba -f rawvideo pipe:1` decode succeeds;
 - probe returns usable dimensions/frame rate;
-- the configured FFmpeg runtime can decode the fixture to raw frames;
-- logical frame selection holds/skips frames based on target media time rather than elapsed wall time;
-- missing/corrupt input returns a contained failure;
-- cancellation/retrigger terminates the prior decode generation;
+- pure selector holds, skips, and returns stale/no-frame correctly without GPU;
+- bounded producer uses wait/block-on-full semantics;
+- missing/corrupt input is contained;
+- cancellation/retrigger terminates the prior process generation;
+- dimension change requires texture replacement;
 - aspect-fit geometry preserves source ratio.
 
-Keep GPU-specific assertions small. Do not build a fake FFmpeg server.
+Tests that touch shared runtime state join `[Collection("FfmpegRuntimeState")]`.
 
-### `PerformanceStageDeterministicTests`
+Do not require `TestGraphicsDeviceService` on Mac just to test frame-selection policy.
 
-Reuse the existing reflection/test seams and inject/set one fake `IChartVideoPlayer`. Pin stage orchestration only:
+### `PerformanceStageDeterministicTests` / renderer-state tests
 
-- no video events -> no player start and existing background path unchanged;
+Use one fake `IChartVideoPlayer`; do not launch FFmpeg.
+
+Pin:
+
+- no events -> no player start;
 - before event -> no start;
-- crossing event -> start once at correct local media time;
-- update hitch crossing multiple events -> only last due event starts;
-- pause -> unchanged song position yields unchanged media position;
-- resume/non-default Play Speed -> player receives `SongTimer` logical positions, not separately scaled time;
-- failed/missing event does not block later gameplay or later valid video event;
-- deactivation/retry stops owned video playback.
+- crossing event -> one start with `max(0, currentTimeMs - event.TimeMs)`;
+- hitch crossing multiple events -> only last due starts;
+- subsequent updates pass the same logical `currentTimeMs` domain with no second speed multiply;
+- missing/failed event does not block later valid event;
+- existing early-stop path stops video before transition;
+- cleanup disposes video;
+- `DrawBackground()` passes `PerformanceUILayout.Background.Bounds` and the pinned `0.95f` depth to the fake player while static background remains at `1.0f`.
 
-Do not launch FFmpeg from deterministic stage tests.
+The draw-depth contract is required because `SpriteSortMode.BackToFront` makes default depth incorrect.
 
-### Platform capability/smoke
+### Platform / Group C acceptance
 
-Automated PR gates:
+Automated gates:
 
-- macOS: `DTXMania.Test.Mac.csproj`, including bundled FFmpeg capability + tiny AVI decode;
-- Windows: normal `DTXMania.Test.csproj`, including the same tiny AVI decode where the packaged runtime supports it;
-- normal Game builds remain green on both platforms.
+```text
+macOS: DTXMania.Test.Mac + Game.Mac build
+Windows: DTXMania.Test + Game.Windows build
+```
 
-Representative acceptance uses the existing Group C corpus chart `DTXFiles.2/Test/mas.dtx` / `bg.avi` on both supported platforms. Verify:
+Representative Group C smoke on Windows and Apple Silicon macOS must verify:
 
-- movie appears behind lanes/HUD;
-- start timing follows the chart event;
-- pause freezes the displayed frame and resume continues aligned;
-- 150% Play Speed stays logically aligned or cleanly falls back rather than visibly running at 100%;
-- no-video chart still looks identical to current CX.
+- actual `bg.avi` probe facts match the enabled capability contract;
+- movie is behind lanes/HUD;
+- event start timing follows finalized chart time;
+- pause freezes the visible frame;
+- resume continues aligned;
+- 150% Play Speed follows logical chart time rather than 100% wall time;
+- decoder lag falls back to static background instead of freewheeling stale video;
+- no-video chart is unchanged;
+- leaving performance stops the FFmpeg child before transition completion.
 
-Do not commit the large external corpus into the repository.
+Do not commit the large Group C corpus or create a new permanent E2E harness solely for this feature.
 
 ## Expected implementation surface
 
-Production, likely:
+Production:
 
 ```text
 Create:
   DTXMania.Game/Lib/Song/Components/ChartVideoEvent.cs
   DTXMania.Game/Lib/Stage/Performance/IChartVideoPlayer.cs
   DTXMania.Game/Lib/Stage/Performance/FfmpegChartVideoPlayer.cs
+  DTXMania.Game/Lib/Stage/Performance/VideoFrameSelector.cs   # tiny pure helper
 
 Modify:
   DTXMania.Game/Lib/Song/Components/ParsedChart.cs
   DTXMania.Game/Lib/Song/DTXChartParser.cs
+  DTXMania.Game/Lib/Resources/FfmpegRuntime.cs
   DTXMania.Game/Lib/Stage/PerformanceStage.cs
   tools/ffmpeg/macos-arm64/build-runtime.sh
-  DTXMania.Test/Resources/FfmpegBundledRuntimeTests.cs
+  tools/ffmpeg/macos-arm64/README.md
 ```
 
-Tests, likely:
+Tests/data:
 
 ```text
 Create:
   DTXMania.Test/TestData/Video/tiny-uncompressed.avi
   DTXMania.Test/Stage/Performance/FfmpegChartVideoPlayerTests.cs
+  DTXMania.Test/Stage/Performance/VideoFrameSelectorTests.cs
 
 Modify:
+  DTXMania.Test/DTXMania.Test.csproj
+  DTXMania.Test/DTXMania.Test.Mac.csproj
+  DTXMania.Test/Resources/FfmpegRuntimeTests.cs
+  DTXMania.Test/Resources/FfmpegBundledRuntimeTests.cs
   DTXMania.Test/Song/DTXChartParserTests.cs and/or DTXChartParserAdditionalTests.cs
   DTXMania.Test/Song/ParsedChartTests.cs
   DTXMania.Test/Stage/Performance/PerformanceStageDeterministicTests.cs
+  DTXMania.Test/Stage/Performance/PerformanceRendererStateTests.cs
 ```
 
-Do not change configuration/database/UI surfaces for HPA-11.
+This file list is a boundary, not a requirement to create extra abstraction. Keep the pure selector tiny; do not add a scheduler/service/framework.
 
 ## Rejected alternatives
 
-### MonoGame `VideoPlayer`
-
-Rejected for this slice because CX needs predictable Windows + DesktopGL/macOS behavior and already owns a packaged cross-platform FFmpeg dependency. Adding another platform-sensitive media path would increase uncertainty rather than reduce work.
-
-### Media Foundation on Windows + AVFoundation on macOS
-
-Rejected because two native backends double implementation/testing/maintenance for a hobby project whose existing FFmpeg runtime already spans both targets.
-
-### Port NX `CActPerfAVI` / DirectShow behavior
-
-Rejected. NX carries years of DirectShow/SharpDX sizing, MovieMode, crop, and AVIPAN behavior that HPA-11 explicitly does not require. CX should preserve the chart trigger contract, not the legacy rendering subsystem.
-
-### Predecode the whole movie
-
-Rejected due to unbounded memory/storage cost on real song videos.
-
-### Spawn FFmpeg once per rendered frame
-
-Rejected because process startup/seek overhead would be much more expensive than one sequential decode process with a bounded queue.
-
-### Let the decoder/media player own playback time
-
-Rejected because it would create a second clock and would immediately make Play Speed and pause synchronization harder. `SongTimer` is already the correct authority.
-
-### Add video settings now
-
-Rejected. Video is automatically enabled when a supported chart event exists. MovieMode, alpha, enable toggles, and playback preferences are YAGNI for this first vertical slice.
+- **Second clock / media-owned Play Speed:** rejected because `PlaybackClock` already owns logical rate and pause semantics.
+- **Call-order-only background rendering:** rejected because the current sprite batch is depth sorted.
+- **Reuse `ParseHeaderCommand()` for video definitions:** rejected because the current `inDataSection` latch would lose valid late definitions.
+- **Drop frames when producer queue is full:** rejected because slow Play Speed still needs not-yet-due frames; producer backpressure is the correct bounded behavior.
+- **GPU-bound frame-selection tests:** rejected because hold/skip/stale is pure timing logic and Mac deliberately excludes the graphics-device test helper.
+- **Media Foundation / AVFoundation / MonoGame `VideoPlayer`:** rejected because CX already owns FFmpeg cross-platform resolution.
+- **Port NX `CActPerfAVI` / AVIPAN / MovieMode:** rejected as unnecessary legacy rendering scope.
+- **Whole-file predecode:** rejected due to unbounded memory.
+- **Generic media lifecycle/scheduler framework:** rejected; stage scheduling and existing cleanup seams are sufficient.
 
 ## Delivery boundary
 
-Keep planning and implementation on this one HPA-11 PR and target roughly 2–3 engineer days.
+Keep planning and implementation on this single HPA-11 PR and within roughly 2–3 engineer days.
 
-Do not preemptively split the ticket. If implementation proves the representative AVI needs a materially larger media subsystem than this design, stop the draft and re-plan the ticket before broadening scope; do not hide that growth behind a generic framework.
+If the actual Group C probe or smoke proves the bounded FFmpeg-to-RGBA approach materially larger than this design, stop and re-plan HPA-11 before broadening scope.
