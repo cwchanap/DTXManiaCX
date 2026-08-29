@@ -115,6 +115,14 @@ validate_runtime() {
   local decoder
   local demuxer
   local protocol
+  local video_fixture
+  local expected_bytes
+  local actual_bytes
+  local dimensions
+
+  # The committed rawvideo/bgr24 AVI fixture backs the real decode check below.
+  # This script lives at <repo>/tools/ffmpeg/macos-arm64/.
+  video_fixture="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/DTXMania.Test/TestData/Video/tiny-raw-bgr24.avi"
 
   [[ -f "$root/COPYING.LGPLv2.1" ]] || {
     echo "FFmpeg validation failed: missing LGPL license file in $root." >&2
@@ -138,15 +146,15 @@ validate_runtime() {
     validate_system_dependencies "$binary" || return 1
   done
 
-  for filter in atempo apad atrim aformat aresample; do
+  for filter in atempo apad atrim aformat aresample format scale; do
     require_capability "$root/ffmpeg" -filters "$filter" || return 1
   done
 
-  for decoder in mp3float vorbis pcm_s16le adpcm_ima_wav adpcm_ms; do
+  for decoder in mp3float vorbis pcm_s16le adpcm_ima_wav adpcm_ms rawvideo; do
     require_capability "$root/ffmpeg" -decoders "$decoder" || return 1
   done
 
-  for demuxer in mp3 wav ogg s16le; do
+  for demuxer in mp3 wav ogg s16le avi; do
     require_capability "$root/ffmpeg" -demuxers "$demuxer" || return 1
   done
 
@@ -155,7 +163,34 @@ validate_runtime() {
   done
 
   require_capability "$root/ffmpeg" -encoders pcm_s16le || return 1
+  require_capability "$root/ffmpeg" -encoders rawvideo || return 1
   require_capability "$root/ffmpeg" -muxers s16le || return 1
+  require_capability "$root/ffmpeg" -muxers rawvideo || return 1
+
+  # Acceptance criterion is successful RGBA bytes, not capability greps:
+  # decode the committed fixture to rawvideo/rgba and compare the byte count.
+  if [[ ! -f "$video_fixture" ]]; then
+    echo "FFmpeg validation failed: missing video fixture $video_fixture." >&2
+    return 1
+  fi
+  dimensions="$("$root/ffprobe" -v error -select_streams v:0 \
+    -show_entries stream=width,height -of csv=p=0 "$video_fixture")" || {
+    echo "FFmpeg validation failed: could not probe video fixture dimensions." >&2
+    return 1
+  }
+  expected_bytes="$(echo "$dimensions" | awk -F, '{ printf "%d", $1 * $2 * 4 }')"
+  actual_bytes="$("$root/ffmpeg" -v error -i "$video_fixture" \
+    -map 0:v:0 -an \
+    -vf format=rgba \
+    -frames:v 2 \
+    -pix_fmt rgba -f rawvideo pipe:1 | wc -c)" || {
+    echo "FFmpeg validation failed: fixture decode to RGBA failed." >&2
+    return 1
+  }
+  if [[ "$actual_bytes" -ne $((expected_bytes * 2)) ]]; then
+    echo "FFmpeg validation failed: expected $((expected_bytes * 2)) RGBA bytes from two fixture frames, got $actual_bytes." >&2
+    return 1
+  fi
 }
 
 cache_ready=false
@@ -204,13 +239,17 @@ if [[ "$cache_ready" != true ]]; then
       --enable-decoder=vorbis \
       --enable-decoder=pcm_s16le,pcm_s24le,pcm_f32le,pcm_u8,pcm_alaw,pcm_mulaw \
       --enable-decoder=adpcm_ima_wav,adpcm_ms \
+      --enable-decoder=rawvideo \
       --enable-demuxer=mp3 \
       --enable-demuxer=wav,ogg,pcm_s16le \
+      --enable-demuxer=avi \
       --enable-parser=mpegaudio,vorbis \
       --enable-protocol=file,pipe,unix \
       --enable-muxer=pcm_s16le \
+      --enable-muxer=rawvideo \
       --enable-encoder=pcm_s16le \
-      --enable-filter=aformat,anull,aresample,atempo,apad,atrim
+      --enable-encoder=rawvideo \
+      --enable-filter=aformat,anull,aresample,atempo,apad,atrim,format,scale
     make -j"$(sysctl -n hw.ncpu)"
     make install
   )
