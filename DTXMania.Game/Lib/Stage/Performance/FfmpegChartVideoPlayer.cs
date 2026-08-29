@@ -219,12 +219,19 @@ namespace DTXMania.Game.Lib.Stage.Performance
             Stop();
 
             var cts = new CancellationTokenSource();
+            // Capture the token before scheduling: the startup scheduler may
+            // defer the callback, and Stop() cancels + disposes the CTS before
+            // the deferred work can read generationCts.Token. The cached
+            // CancellationToken (a struct) stays safe to observe after the
+            // source is disposed; the CTS reference is passed only for the
+            // active-generation ownership check.
+            var token = cts.Token;
             lock (_stateLock)
             {
                 _generationCts = cts;
             }
 
-            _generationTask = _startupScheduler(() => RunGenerationAsync(videoFilePath, cts));
+            _generationTask = _startupScheduler(() => RunGenerationAsync(videoFilePath, cts, token));
         }
 
         /// <summary>Game-thread update: selects and uploads the due frame.</summary>
@@ -396,9 +403,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 height);
         }
 
-        private async Task RunGenerationAsync(string videoFilePath, CancellationTokenSource generationCts)
+        private async Task RunGenerationAsync(
+            string videoFilePath,
+            CancellationTokenSource generationCts,
+            CancellationToken token)
         {
-            var token = generationCts.Token;
             try
             {
                 var runtime = FfmpegRuntime.EnsureConfigured();
