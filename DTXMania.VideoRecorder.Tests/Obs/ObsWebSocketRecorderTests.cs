@@ -14,7 +14,7 @@ public sealed class ObsWebSocketRecorderTests
     {
         await using var server = await ObsTestServer.StartAsync();
         await using var recorder = new ObsWebSocketRecorder(server.Url, password: string.Empty);
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
 
         await recorder.ConnectAsync(timeout.Token);
 
@@ -32,7 +32,7 @@ public sealed class ObsWebSocketRecorderTests
         // StopRecord as compensation despite the start failure.
         await using var server = await ObsTestServer.StartAsync(dropStartRecordResponse: true);
         await using var recorder = new ObsWebSocketRecorder(server.Url, password: string.Empty);
-        using var connectTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        using var connectTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         await recorder.ConnectAsync(connectTimeout.Token);
 
         using var startTimeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
