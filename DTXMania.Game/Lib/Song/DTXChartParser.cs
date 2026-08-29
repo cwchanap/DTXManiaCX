@@ -484,6 +484,17 @@ namespace DTXMania.Game.Lib.Song
                 value = value.Substring(1, value.Length - 2);
             }
 
+            // An empty/whitespace target (e.g. "#AVI01:") must not register.
+            // ResolveBGMPath("") resolves to the chart directory, which would make
+            // ResolveVideoEventPaths treat the event as resolved and start a decode
+            // against a directory. Leaving the definition unregistered keeps the
+            // event unresolved so the stage retains the static background.
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                Debug.WriteLine($"DTXChartParser: Ignoring empty video definition '{line}'");
+                return true;
+            }
+
             videoDefinitions[videoId] = value;
             return true;
         }
