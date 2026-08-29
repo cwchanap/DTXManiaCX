@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Threading;
 using System.Threading.Channels;
@@ -99,6 +100,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         void Reset();
     }
 
+    [ExcludeFromCodeCoverage]
     internal sealed class Texture2DVideoFrameSurface : IVideoFrameSurface
     {
         private readonly GraphicsDevice _graphicsDevice;
@@ -167,6 +169,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             double FrameIntervalMs);
 
         /// <summary>Creates the player for the game thread.</summary>
+        [ExcludeFromCodeCoverage]
         public FfmpegChartVideoPlayer(GraphicsDevice graphicsDevice, Action<string>? log)
             : this(work => Task.Run(work), new Texture2DVideoFrameSurface(graphicsDevice), log)
         {
@@ -320,6 +323,15 @@ namespace DTXMania.Game.Lib.Stage.Performance
             if (texture == null)
                 return;
 
+            DrawChartVideoFrame(spriteBatch, destinationBounds, layerDepth, texture);
+        }
+
+        /// <summary>GPU draw call extracted so the headless-testable guard logic in
+        /// <see cref="Draw"/> stays measurable.</summary>
+        [ExcludeFromCodeCoverage]
+        private void DrawChartVideoFrame(
+            SpriteBatch spriteBatch, Rectangle destinationBounds, float layerDepth, Texture2D texture)
+        {
             var destination = ComputeAspectFit(destinationBounds, texture.Width, texture.Height);
             spriteBatch.Draw(
                 texture,

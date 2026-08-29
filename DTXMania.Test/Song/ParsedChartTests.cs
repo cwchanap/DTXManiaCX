@@ -849,5 +849,62 @@ namespace DTXMania.Test.Song
         }
 
         #endregion
+
+        #region ChartVideoEvent Tests
+
+        [Fact]
+        public void ChartVideoEvent_DefaultConstructor_ShouldInitializeWithDefaults()
+        {
+            var videoEvent = new ChartVideoEvent();
+
+            Assert.Equal(0, videoEvent.Bar);
+            Assert.Equal(0, videoEvent.Tick);
+            Assert.Equal(0.0, videoEvent.TimeMs);
+            Assert.Equal("", videoEvent.VideoId);
+            Assert.Equal("", videoEvent.VideoFilePath);
+        }
+
+        [Fact]
+        public void ChartVideoEvent_ParameterizedConstructor_ShouldSetBarTickAndVideoId()
+        {
+            var videoEvent = new ChartVideoEvent(bar: 3, tick: 96, videoId: "0A");
+
+            Assert.Equal(3, videoEvent.Bar);
+            Assert.Equal(96, videoEvent.Tick);
+            Assert.Equal("0A", videoEvent.VideoId);
+            // TimeMs and VideoFilePath default until finalization/resolution
+            Assert.Equal(0.0, videoEvent.TimeMs);
+            Assert.Equal("", videoEvent.VideoFilePath);
+        }
+
+        [Fact]
+        public void ChartVideoEvent_ToString_ShouldIncludeVideoIdBarTickAndFileName()
+        {
+            var videoEvent = new ChartVideoEvent(bar: 2, tick: 48, videoId: "01")
+            {
+                TimeMs = 1500.0,
+                VideoFilePath = "/songs/test/bg.avi"
+            };
+
+            var result = videoEvent.ToString();
+
+            Assert.Contains("01", result);
+            Assert.Contains("Bar:2", result);
+            Assert.Contains("Tick:48", result);
+            Assert.Contains("bg.avi", result);
+        }
+
+        [Fact]
+        public void ChartVideoEvent_ToString_WithEmptyFilePath_ShouldNotThrow()
+        {
+            var videoEvent = new ChartVideoEvent(0, 0, "01");
+
+            var result = videoEvent.ToString();
+
+            Assert.NotNull(result);
+            Assert.Contains("01", result);
+        }
+
+        #endregion
     }
 }

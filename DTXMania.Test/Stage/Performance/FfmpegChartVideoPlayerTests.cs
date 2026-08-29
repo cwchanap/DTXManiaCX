@@ -29,6 +29,9 @@ namespace DTXMania.Test.Stage.Performance
         private static readonly string AltFixturePath = Path.Combine(
             AppContext.BaseDirectory, "TestData", "Video", "tiny-raw-bgr24-32x24.avi");
 
+        private static readonly string AudioFixturePath = Path.Combine(
+            AppContext.BaseDirectory, "TestData", "Audio", "ffmpeg-tone.mp3");
+
         private readonly string _tempDirectory = Path.Combine(
             Path.GetTempPath(),
             "dtxmania-video-player-" + Guid.NewGuid().ToString("N"));
@@ -71,6 +74,34 @@ namespace DTXMania.Test.Stage.Performance
                 scheduler ?? (work => Task.Run(work)),
                 surface,
                 log);
+        }
+
+        /// <summary>
+        /// Creates a copy of the rawvideo AVI fixture with its codec FourCC
+        /// changed from rawvideo (0x00000000) to mpeg4 ("mp4v"). FFProbe reads
+        /// the AVI container header and reports a valid mpeg4 video stream
+        /// (correct dimensions and frame rate), but the bundled ffmpeg runtime
+        /// lacks the mpeg4 decoder so decoding fails with a non-zero exit.
+        /// This exercises the "decode failed" branch of RunGenerationAsync
+        /// without requiring any external ffmpeg or committed binary fixture.
+        /// </summary>
+        private Task<string> CreateCorruptedMpeg4Avi()
+        {
+            var corruptedPath = Path.Combine(_tempDirectory, "modified-codec.avi");
+            File.Copy(FixturePath, corruptedPath);
+
+            // The AVI stream header (strh) starts at offset 108 with 'vids',
+            // followed by the 4-byte codec FourCC at offset 112. The
+            // BITMAPINFOHEADER biCompression field at offset 188 also holds
+            // the codec FourCC. Both must be changed so FFProbe and ffmpeg
+            // agree on the (undecodable) codec.
+            using var stream = new FileStream(corruptedPath, FileMode.Open, FileAccess.Write);
+            stream.Seek(112, SeekOrigin.Begin);
+            stream.Write("mp4v"u8.ToArray());
+            stream.Seek(188, SeekOrigin.Begin);
+            stream.Write("mp4v"u8.ToArray());
+
+            return Task.FromResult(corruptedPath);
         }
 
         #region Step 2: FFMpegCore probe/pipe pins
@@ -475,6 +506,86 @@ namespace DTXMania.Test.Stage.Performance
 
             player.Stop();
             await player.GenerationTask!.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+
+        #endregion
+
+        #region Draw guard paths (headless-testable without SpriteBatch)
+
+        [Fact]
+        public void Draw_BeforeAnyFrameIsCurrent_ShouldReturnWithoutThrowing()
+        {
+            var logs = new List<string>();
+            using var player = CreatePlayer(logs.Add);
+
+            // No frame has been presented: Draw must early-return without
+            // touching the SpriteBatch (null is safe because the guard fires).
+            player.Draw(null!, new Rectangle(0, 0, 100, 100), 0.5f);
+
+            Assert.False(player.HasCurrentFrame);
+            Assert.Empty(logs);
+        }
+
+        [Fact]
+        public async Task Draw_WhenCurrentFrameExistsButSurfaceTextureIsNull_ShouldReturnWithoutThrowing()
+        {
+            var logs = new List<string>();
+            var surface = new FakeVideoFrameSurface(); // Texture => null
+            using var player = CreatePlayer(logs.Add, surface: surface);
+
+            player.Start(FixturePath);
+            await EventuallyAsync(() => player.QueuedFrameCount >= 1);
+
+            // Present a frame: HasCurrentFrame becomes true, but the fake
+            // surface's Texture is null. Draw must return before calling
+            // spriteBatch.Draw (null SpriteBatch is safe due to the guard).
+            player.Update(0);
+            Assert.True(player.HasCurrentFrame);
+
+            player.Draw(null!, new Rectangle(0, 0, 100, 100), 0.5f);
+
+            Assert.Empty(logs);
+        }
+
+        #endregion
+
+        #region RunGenerationAsync edge cases
+
+        [Fact]
+        public async Task Start_AudioOnlyFile_ShouldLogNoUsableVideoStream()
+        {
+            // FFProbe succeeds on an audio-only file but PrimaryVideoStream is
+            // null: the generation must log and return without decoding.
+            var logs = new List<string>();
+            using var player = CreatePlayer(logs.Add);
+
+            player.Start(AudioFixturePath);
+
+            await player.GenerationTask!.WaitAsync(TimeSpan.FromSeconds(30));
+
+            Assert.Single(logs);
+            Assert.Contains("no usable video stream", logs[0]);
+        }
+
+        [Fact]
+        public async Task Start_CorruptedVideoFile_ShouldLogDecodeFailure()
+        {
+            // Modify the rawvideo AVI fixture's codec FourCC to mpeg4 ("mp4v").
+            // FFProbe reads the container header and reports a valid mpeg4
+            // video stream, but the bundled ffmpeg lacks the mpeg4 decoder so
+            // decoding fails with a non-zero exit.
+            var logs = new List<string>();
+            using var player = CreatePlayer(logs.Add);
+
+            var corruptedPath = await CreateCorruptedMpeg4Avi();
+            player.Start(corruptedPath);
+
+            await player.GenerationTask!.WaitAsync(TimeSpan.FromSeconds(30));
+
+            // The decode failure log is distinct from the "no usable video
+            // stream" log (FFProbe found a stream, but decoding failed).
+            Assert.Single(logs);
+            Assert.Contains("decode failed", logs[0]);
         }
 
         #endregion

@@ -4752,6 +4752,28 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void ProcessVideoEvents_WhenUnresolvedEventSupersedesActiveEvent_ShouldStopActiveAndClear()
+    {
+        // A valid event starts the video, then a later unresolved event (empty
+        // path) becomes due: the active generation must be stopped and the
+        // active event cleared so the static background reappears.
+        var stage = CreateVideoStage(out var player, CreateVideoChart(
+            VideoEvent(500.0, "movie.avi", "01"),
+            VideoEvent(900.0, "", "02")));
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessVideoEvents", 600.0);
+        Assert.Equal(new[] { "movie.avi" }, player.StartedPaths);
+        Assert.NotNull(ReflectionHelpers.GetPrivateField<ChartVideoEvent>(stage, "_activeVideoEvent"));
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessVideoEvents", 1000.0);
+
+        Assert.Equal(1, player.StopCount);
+        Assert.Null(ReflectionHelpers.GetPrivateField<ChartVideoEvent>(stage, "_activeVideoEvent"));
+        // No further Update calls after the active event is cleared.
+        Assert.Equal(new[] { 100.0 }, player.UpdateValues);
+    }
+
+    [Fact]
     public void StopGameplayAudioInstances_WhenVideoIsActive_ShouldStopPlayer()
     {
         var stage = CreateVideoStage(out var player, CreateVideoChart(VideoEvent(500.0, "movie.avi")));
