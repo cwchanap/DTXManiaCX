@@ -286,13 +286,13 @@ Under `## Validation Results` in the spec, append one Markdown row per actual en
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 ```
 
-Use concise concrete observations, for example the level of detail expected is:
+Use concise, concrete observations. The following fictional row demonstrates the expected level of detail only:
 
 ```text
-Windows 11 | wired motherboard output | <actual chart name> | 0, 30 ms | opening visually/audibly aligned | no accumulating drift noticed through full song | resumed without new shift | 0 felt late; 30 ms comfortable | keep MonoGame
+Windows 11 | wired motherboard output | example-long-chart.dtx | 0, 30 ms | opening visually/audibly aligned | no accumulating drift noticed through full song | resumed without new shift | 0 felt late; 30 ms comfortable | keep MonoGame
 ```
 
-That sentence is an **example of evidence granularity**, not a result to copy. Every value entered in the PR must come from the actual run.
+Never copy the fictional values into validation results. Every value entered in the PR must come from the actual run.
 
 Set the decision for each row to one of:
 
