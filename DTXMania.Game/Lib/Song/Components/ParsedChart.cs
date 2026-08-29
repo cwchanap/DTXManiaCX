@@ -323,8 +323,15 @@ namespace DTXMania.Game.Lib.Song.Components
             // Sort BGM events by time for efficient playback scheduling
             BGMEvents.Sort((a, b) => a.TimeMs.CompareTo(b.TimeMs));
 
-            // Sort video events by time for efficient playback scheduling
-            VideoEvents.Sort((a, b) => a.TimeMs.CompareTo(b.TimeMs));
+            // Sort video events by time for efficient playback scheduling.
+            // Use a stable sort so equal-time triggers (e.g. channels 54 and 5A at
+            // the same tick) retain their insertion/source order. ProcessVideoEvents
+            // consumes due events in list order and starts only the last due one, so
+            // preserving insertion order makes the last-authored simultaneous trigger
+            // win deterministically. List.Sort is unstable; OrderBy is stable.
+            var stableSortedVideoEvents = VideoEvents.OrderBy(v => v.TimeMs).ToList();
+            VideoEvents.Clear();
+            VideoEvents.AddRange(stableSortedVideoEvents);
 
             // Debug: Report parsing summary
 #if DEBUG

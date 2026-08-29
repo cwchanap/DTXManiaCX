@@ -1184,6 +1184,73 @@ namespace DTXMania.Test.Song
             Assert.Empty(chart.VideoEvents);
         }
 
+        [Fact]
+        public async Task ParseAsync_EmptyAviDefinition_ShouldLeaveVideoFilePathEmpty()
+        {
+            // An empty "#AVI01:" target must not register. ResolveBGMPath("") would
+            // otherwise resolve to the chart directory, making the event look
+            // resolved and starting a decode against a directory. The event must
+            // stay unresolved so the stage keeps the static background.
+            var content =
+                "#BPM: 120.0\n" +
+                "#AVI01:\n" +
+                "#00054: 01\n";
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            var videoEvent = Assert.Single(chart.VideoEvents);
+            Assert.Equal("01", videoEvent.VideoId);
+            Assert.Equal("", videoEvent.VideoFilePath);
+        }
+
+        [Theory]
+        [InlineData("#AVI01: \n")]
+        [InlineData("#AVI01: \"\"\n")]
+        public async Task ParseAsync_WhitespaceOrQuotedEmptyAviDefinition_ShouldLeaveVideoFilePathEmpty(string definitionLine)
+        {
+            // Whitespace-only and quoted-empty targets are stripped to "" after
+            // trim/quote removal and must be ignored for the same reason as above.
+            var content =
+                "#BPM: 120.0\n" +
+                definitionLine +
+                "#00054: 01\n";
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            var videoEvent = Assert.Single(chart.VideoEvents);
+            Assert.Equal("01", videoEvent.VideoId);
+            Assert.Equal("", videoEvent.VideoFilePath);
+        }
+
+        [Fact]
+        public async Task ParseAsync_SimultaneousVideoTriggers_ShouldPreserveSourceOrder()
+        {
+            // Two video triggers at the same bar/tick (channels 54 and 5A) resolve
+            // to the same TimeMs. ProcessVideoEvents consumes due events in list
+            // order and starts only the last due one, so the sort must be stable to
+            // keep the authored/insertion order and make the last-authored trigger
+            // win deterministically. Assert the channel-54 event (authored first)
+            // precedes the channel-5A event at equal TimeMs.
+            var content =
+                "#BPM: 120.0\n" +
+                "#AVI01: a.avi\n" +
+                "#AVI02: b.avi\n" +
+                "#00054: 01\n" +
+                "#0005A: 02\n";
+            var path = CreateTempDtx(content);
+            File.WriteAllBytes(Path.Combine(_tempDir, "a.avi"), Array.Empty<byte>());
+            File.WriteAllBytes(Path.Combine(_tempDir, "b.avi"), Array.Empty<byte>());
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            Assert.Equal(2, chart.VideoEvents.Count);
+            Assert.Equal(chart.VideoEvents[0].TimeMs, chart.VideoEvents[1].TimeMs, 3);
+            Assert.Equal("01", chart.VideoEvents[0].VideoId);
+            Assert.Equal("02", chart.VideoEvents[1].VideoId);
+        }
+
         #endregion
 
         #region Encoding Retry Isolation Tests
