@@ -38,6 +38,12 @@ namespace DTXMania.Game.Lib.Song.Components
         public List<BGMEvent> BGMEvents { get; } = new List<BGMEvent>();
 
         /// <summary>
+        /// List of all whole-file background video events in the chart (channels 54/5A).
+        /// FinalizeChart sorts the list by resolved time.
+        /// </summary>
+        public List<ChartVideoEvent> VideoEvents { get; } = new List<ChartVideoEvent>();
+
+        /// <summary>
         /// Ordered measure boundaries generated from retained chart events.
         /// </summary>
         public List<MeasureLine> MeasureLines { get; } = new List<MeasureLine>();
@@ -229,6 +235,18 @@ namespace DTXMania.Game.Lib.Song.Components
         }
 
         /// <summary>
+        /// Adds a whole-file background video event to the chart
+        /// </summary>
+        /// <param name="videoEvent">Video event to add</param>
+        public void AddVideoEvent(ChartVideoEvent videoEvent)
+        {
+            if (videoEvent == null)
+                return;
+
+            VideoEvents.Add(videoEvent);
+        }
+
+        /// <summary>
         /// Finalizes the chart by sorting notes and calculating final statistics
         /// </summary>
         public void FinalizeChart()
@@ -250,6 +268,12 @@ namespace DTXMania.Game.Lib.Song.Components
                 highestOccupiedBar = Math.Max(highestOccupiedBar, normalized.Bar);
             }
 
+            foreach (var videoEvent in VideoEvents)
+            {
+                var normalized = ChartTimingMap.NormalizePosition(videoEvent.Bar, videoEvent.Tick);
+                highestOccupiedBar = Math.Max(highestOccupiedBar, normalized.Bar);
+            }
+
             if (highestOccupiedBar < 0)
                 return;
 
@@ -260,6 +284,9 @@ namespace DTXMania.Game.Lib.Song.Components
 
             foreach (var bgmEvent in BGMEvents)
                 bgmEvent.TimeMs = TimingMap.CalculateTimeMs(bgmEvent.Bar, bgmEvent.Tick);
+
+            foreach (var videoEvent in VideoEvents)
+                videoEvent.TimeMs = TimingMap.CalculateTimeMs(videoEvent.Bar, videoEvent.Tick);
 
             for (var bar = 0; highestOccupiedBar >= 0 && bar <= highestOccupiedBar + 1; bar++)
             {
@@ -296,6 +323,9 @@ namespace DTXMania.Game.Lib.Song.Components
             // Sort BGM events by time for efficient playback scheduling
             BGMEvents.Sort((a, b) => a.TimeMs.CompareTo(b.TimeMs));
 
+            // Sort video events by time for efficient playback scheduling
+            VideoEvents.Sort((a, b) => a.TimeMs.CompareTo(b.TimeMs));
+
             // Debug: Report parsing summary
 #if DEBUG
             var maxMeasure = highestOccupiedBar;
@@ -310,6 +340,8 @@ namespace DTXMania.Game.Lib.Song.Components
                 maxEventTimeMs = Math.Max(maxEventTimeMs, Notes.Max(note => note.TimeMs));
             if (BGMEvents.Count > 0)
                 maxEventTimeMs = Math.Max(maxEventTimeMs, BGMEvents.Max(bgmEvent => bgmEvent.TimeMs));
+            if (VideoEvents.Count > 0)
+                maxEventTimeMs = Math.Max(maxEventTimeMs, VideoEvents.Max(videoEvent => videoEvent.TimeMs));
 
             // Add small buffer to duration for final note/event to ring out
             DurationMs = maxEventTimeMs + DurationEndBufferMs;

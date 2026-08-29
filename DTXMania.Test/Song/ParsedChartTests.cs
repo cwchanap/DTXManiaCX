@@ -24,6 +24,7 @@ namespace DTXMania.Test.Song
             Assert.Equal(0.0, chart.DurationMs);
             Assert.Empty(chart.Notes);
             Assert.Empty(chart.BGMEvents);
+            Assert.Empty(chart.VideoEvents);
             Assert.Equal(0, chart.TotalNotes);
         }
 
@@ -317,6 +318,41 @@ namespace DTXMania.Test.Song
             chart.AddBGMEvent(bgm);
 
             Assert.Equal(0.0, bgm.TimeMs);
+            Assert.Equal(0.0, chart.DurationMs);
+        }
+
+        #endregion
+
+        #region AddVideoEvent Tests
+
+        [Fact]
+        public void AddVideoEvent_NullEvent_ShouldNotThrow()
+        {
+            var chart = new ParsedChart();
+            chart.AddVideoEvent(null); // Should not throw
+            Assert.Empty(chart.VideoEvents);
+        }
+
+        [Fact]
+        public void AddVideoEvent_ValidEvent_ShouldAddToList()
+        {
+            var chart = new ParsedChart();
+            var videoEvent = new ChartVideoEvent(0, 0, "01");
+
+            chart.AddVideoEvent(videoEvent);
+
+            Assert.Single(chart.VideoEvents);
+        }
+
+        [Fact]
+        public void AddVideoEvent_ShouldDeferTimeAndDurationUntilFinalize()
+        {
+            var chart = new ParsedChart { Bpm = 120.0 };
+            var videoEvent = new ChartVideoEvent(1, 0, "01");
+
+            chart.AddVideoEvent(videoEvent);
+
+            Assert.Equal(0.0, videoEvent.TimeMs);
             Assert.Equal(0.0, chart.DurationMs);
         }
 
@@ -665,6 +701,60 @@ namespace DTXMania.Test.Song
             Assert.Equal(10500.0, chart.DurationMs, 3);
             Assert.Equal(6, chart.MeasureLines[^1].Bar);
             Assert.Equal(12000.0, chart.MeasureLines[^1].TimeMs, 3);
+        }
+
+        [Fact]
+        public void FinalizeChart_VideoEvent_ShouldResolveTimeAfterMeasureLengthChange()
+        {
+            // Channel 02 analog: a shortened measure before the video event
+            var chart = new ParsedChart { Bpm = 120.0 };
+            chart.TimingMap.SetMeasureLength(0, 0.5);
+            chart.AddVideoEvent(new ChartVideoEvent(1, 0, "01"));
+
+            chart.FinalizeChart();
+
+            Assert.Equal(1000.0, chart.VideoEvents[0].TimeMs, 3);
+        }
+
+        [Fact]
+        public void FinalizeChart_VideoEvent_ShouldResolveTimeAfterTempoChange()
+        {
+            // Channel 03/08 analog: a mid-measure tempo change before the video event
+            var chart = new ParsedChart { Bpm = 120.0 };
+            chart.TimingMap.SetTempoChange(0, 96, 240.0);
+            chart.AddVideoEvent(new ChartVideoEvent(1, 0, "01"));
+
+            chart.FinalizeChart();
+
+            // Measure 0: first half at 120 BPM (1000ms), second half at 240 BPM (500ms)
+            Assert.Equal(1500.0, chart.VideoEvents[0].TimeMs, 3);
+        }
+
+        [Fact]
+        public void FinalizeChart_ShouldSortVideoEventsByTime()
+        {
+            var chart = new ParsedChart { Bpm = 120.0 };
+            chart.AddVideoEvent(new ChartVideoEvent(1, 96, "02"));
+            chart.AddVideoEvent(new ChartVideoEvent(0, 48, "01"));
+
+            chart.FinalizeChart();
+
+            Assert.Equal(500.0, chart.VideoEvents[0].TimeMs, 3);
+            Assert.Equal(3000.0, chart.VideoEvents[1].TimeMs, 3);
+        }
+
+        [Fact]
+        public void FinalizeChart_VideoBeyondLastNoteAndBgm_ShouldExtendEventHorizon()
+        {
+            var chart = new ParsedChart { Bpm = 120.0 };
+            chart.AddNote(new Note(0, 0, 0, 0x11, "01"));
+            chart.AddBGMEvent(new BGMEvent(1, 0, "01"));
+            chart.AddVideoEvent(new ChartVideoEvent(3, 0, "01"));
+
+            chart.FinalizeChart();
+
+            Assert.Equal(6000.0, chart.VideoEvents[0].TimeMs, 3);
+            Assert.Equal(6500.0, chart.DurationMs, 3);
         }
 
         #endregion

@@ -174,6 +174,7 @@ namespace DTXMania.Game.Lib.Song
             Dictionary<string, string> wavDefinitions = null!; // WAV ID -> file path
             Dictionary<string, int> wavVolumes = null!;        // WAV ID -> volume (0-100)
             Dictionary<string, int> wavPans = null!;           // WAV ID -> pan (-100..100)
+            Dictionary<string, string> videoDefinitions = null!; // Video ID -> file path (#AVIxx/#VIDEOxx)
 
             Exception lastException = null;
             bool parsed = false;
@@ -184,6 +185,7 @@ namespace DTXMania.Game.Lib.Song
                 wavDefinitions = new Dictionary<string, string>();
                 wavVolumes = new Dictionary<string, int>();
                 wavPans = new Dictionary<string, int>();
+                videoDefinitions = new Dictionary<string, string>();
 
                 try
                 {
@@ -200,7 +202,8 @@ namespace DTXMania.Game.Lib.Song
                         wavVolumes,
                         wavPans,
                         bpmDefinitions,
-                        pendingTempoDirectives);
+                        pendingTempoDirectives,
+                        videoDefinitions);
 
                     ResolvePendingTempoDirectives(chart, bpmDefinitions, pendingTempoDirectives);
 
@@ -225,6 +228,9 @@ namespace DTXMania.Game.Lib.Song
 
             // Find background audio file
             FindBackgroundAudio(chart, wavDefinitions, filePath);
+
+            // Resolve whole-file video event paths against the final #AVI/#VIDEO map
+            ResolveVideoEventPaths(chart, videoDefinitions, filePath);
 
             // Attach per-WAV volume/pan so playback honors #VOLUME/#PAN definitions
             chart.SetWavVolumes(wavVolumes);
@@ -335,6 +341,7 @@ namespace DTXMania.Game.Lib.Song
         {
             var bpmDefinitions = new Dictionary<string, double>();
             var pendingTempoDirectives = new List<PendingTempoDirective>();
+            var videoDefinitions = new Dictionary<string, string>();
 
             await ParseFileContentWithTimingAsync(
                 reader,
@@ -343,7 +350,8 @@ namespace DTXMania.Game.Lib.Song
                 wavVolumes,
                 wavPans,
                 bpmDefinitions,
-                pendingTempoDirectives);
+                pendingTempoDirectives,
+                videoDefinitions);
 
             ResolvePendingTempoDirectives(chart, bpmDefinitions, pendingTempoDirectives);
         }
@@ -355,7 +363,8 @@ namespace DTXMania.Game.Lib.Song
             Dictionary<string, int> wavVolumes,
             Dictionary<string, int> wavPans,
             IDictionary<string, double> bpmDefinitions,
-            IList<PendingTempoDirective> pendingTempoDirectives)
+            IList<PendingTempoDirective> pendingTempoDirectives,
+            IDictionary<string, string> videoDefinitions)
         {
             string line;
             bool inDataSection = false;
@@ -369,6 +378,9 @@ namespace DTXMania.Game.Lib.Song
                     continue;
 
                 if (TryHandleExtendedBpmDefinition(line, bpmDefinitions))
+                    continue;
+
+                if (TryHandleVideoDefinition(line, videoDefinitions))
                     continue;
 
                 // Check if we've reached the data section
@@ -428,6 +440,51 @@ namespace DTXMania.Game.Lib.Song
                 Debug.WriteLine($"DTXChartParser: Ignoring invalid BPM definition '{line}'");
             }
 
+            return true;
+        }
+
+        /// <summary>
+        /// Recognizes whole-file background video definitions (#AVIxx, with #VIDEOxx as
+        /// an alias sharing the same id namespace). Runs before the data-section split
+        /// so definitions placed after timeline rows still register; later definitions
+        /// overwrite earlier ones. Malformed shapes (including #AVIPANxx) are consumed
+        /// with a diagnostic and ignored.
+        /// </summary>
+        private static bool TryHandleVideoDefinition(
+            string line,
+            IDictionary<string, string> videoDefinitions)
+        {
+            if (!line.StartsWith("#AVI", StringComparison.OrdinalIgnoreCase) &&
+                !line.StartsWith("#VIDEO", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            var colonIndex = line.IndexOf(':');
+            if (colonIndex == -1)
+            {
+                Debug.WriteLine($"DTXChartParser: Ignoring malformed video definition '{line}'");
+                return true;
+            }
+
+            var command = line.Substring(0, colonIndex).Trim();
+            var expectedLength = command.StartsWith("#VIDEO", StringComparison.OrdinalIgnoreCase)
+                ? 8   // #VIDEOxx
+                : 6;  // #AVIxx
+            if (command.Length != expectedLength)
+            {
+                Debug.WriteLine($"DTXChartParser: Ignoring malformed video definition '{line}'");
+                return true;
+            }
+
+            var videoId = command.Substring(expectedLength - 2).ToUpperInvariant();
+            var value = line.Substring(colonIndex + 1).Trim();
+
+            // Remove quotes if present (consistent with header parsing)
+            if (value.StartsWith('"') && value.EndsWith('"') && value.Length > 1)
+            {
+                value = value.Substring(1, value.Length - 2);
+            }
+
+            videoDefinitions[videoId] = value;
             return true;
         }
 
@@ -571,6 +628,14 @@ namespace DTXMania.Game.Lib.Song
                 return;
             }
 
+            // Whole-file background video channels: 54 and 5A deliberately normalize
+            // to the same event behavior (HPA-11)
+            if (channel == 0x54 || channel == 0x5A)
+            {
+                ParseVideoEvents(noteData, measure, chart);
+                return;
+            }
+
             // Check if this is a drum lane channel (11-1C)
             if (!ChannelToLaneMap.TryGetValue(channel, out var laneIndex))
             {
@@ -589,6 +654,26 @@ namespace DTXMania.Game.Lib.Song
         private static int CalculatePairTick(int pairIndex, int pairCount)
         {
             return (int)((double)pairIndex / pairCount * TicksPerMeasure);
+        }
+
+        /// <summary>
+        /// Enumerates the non-zero two-character event cells in measure data, yielding
+        /// the uppercase cell value and its tick position within the measure. Shared by
+        /// BGM (channel 01) and video (channels 54/5A) event parsing.
+        /// </summary>
+        private static IEnumerable<(string Pair, int Tick)> EnumerateNonZeroEventPairs(string noteData)
+        {
+            var pairCount = noteData.Length / 2;
+            for (var i = 0; i < pairCount; i++)
+            {
+                var pair = noteData.Substring(i * 2, 2).ToUpperInvariant();
+
+                // Skip empty events (00)
+                if (pair == "00" || string.IsNullOrWhiteSpace(pair))
+                    continue;
+
+                yield return (pair, CalculatePairTick(i, pairCount));
+            }
         }
 
         private static void ParseTempoDirectives(
@@ -682,31 +767,23 @@ namespace DTXMania.Game.Lib.Song
             if (string.IsNullOrWhiteSpace(noteData))
                 return;
 
-            // DTX uses pairs of characters to represent BGM events
-            // Each pair represents one BGM event position within the measure
-            var pairCount = noteData.Length / 2;
-            if (pairCount == 0)
+            foreach (var (pair, tick) in EnumerateNonZeroEventPairs(noteData))
+            {
+                chart.AddBGMEvent(new BGMEvent(measure, tick, pair));
+            }
+        }
+
+        /// <summary>
+        /// Parses whole-file background video events from channels 54/5A measure data
+        /// </summary>
+        private static void ParseVideoEvents(string noteData, int measure, ParsedChart chart)
+        {
+            if (string.IsNullOrWhiteSpace(noteData))
                 return;
 
-            for (int i = 0; i < pairCount; i++)
+            foreach (var (pair, tick) in EnumerateNonZeroEventPairs(noteData))
             {
-                if (i * 2 + 1 >= noteData.Length)
-                    break;
-
-                // Normalize to uppercase so BGM WAV ids match #WAV header keys
-                // which are stored as uppercase by ParseHeaderCommand (.ToUpperInvariant).
-                var pair = noteData.Substring(i * 2, 2).ToUpperInvariant();
-
-                // Skip empty BGM events (00)
-                if (pair == "00" || string.IsNullOrWhiteSpace(pair))
-                    continue;
-
-                // Calculate tick position within the measure
-                var tick = CalculatePairTick(i, pairCount);
-
-                // Create BGM event
-                var bgmEvent = new BGMEvent(measure, tick, pair);
-                chart.AddBGMEvent(bgmEvent);
+                chart.AddVideoEvent(new ChartVideoEvent(measure, tick, pair));
             }
         }
 
@@ -848,6 +925,23 @@ namespace DTXMania.Game.Lib.Song
                 // above ensures we only reach this assignment when that is the case.
                 chart.BackgroundWavId = backgroundWavId;
                 // Background audio path resolved
+            }
+        }
+
+        /// <summary>
+        /// Resolves whole-file video event file paths against the final #AVI/#VIDEO
+        /// definition map (collected across the full scan, including late definitions).
+        /// Missing definitions leave the event path empty; parse still succeeds.
+        /// </summary>
+        private static void ResolveVideoEventPaths(
+            ParsedChart chart,
+            IReadOnlyDictionary<string, string> videoDefinitions,
+            string dtxFilePath)
+        {
+            foreach (var videoEvent in chart.VideoEvents)
+            {
+                if (videoDefinitions.TryGetValue(videoEvent.VideoId, out var videoPath))
+                    videoEvent.VideoFilePath = ResolveBGMPath(videoPath, dtxFilePath);
             }
         }
 
