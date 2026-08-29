@@ -944,6 +944,198 @@ namespace DTXMania.Test.Song
 
         #endregion
 
+        #region Whole-File Video Event Tests
+
+        [Fact]
+        public async Task ParseAsync_AviDefinitionWithChannel54_ShouldCreateSingleVideoEvent()
+        {
+            var content =
+                "#BPM: 120.0\n" +
+                "#AVI01: bg.avi\n" +
+                "#00054: 01\n";
+            var path = CreateTempDtx(content);
+            File.WriteAllBytes(Path.Combine(_tempDir, "bg.avi"), Array.Empty<byte>());
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            var videoEvent = Assert.Single(chart.VideoEvents);
+            Assert.Equal(0, videoEvent.Bar);
+            Assert.Equal(0, videoEvent.Tick);
+            Assert.Equal(0.0, videoEvent.TimeMs, 3);
+            Assert.Equal("01", videoEvent.VideoId);
+            Assert.Equal(Path.Combine(_tempDir, "bg.avi"), videoEvent.VideoFilePath);
+        }
+
+        [Fact]
+        public async Task ParseAsync_VideoAliasDefinition_ShouldBehaveLikeAvi()
+        {
+            // #VIDEOxx is an alias of #AVIxx; quoted values are unquoted like other headers
+            var content =
+                "#BPM: 120.0\n" +
+                "#VIDEO01: \"bg.avi\"\n" +
+                "#00054: 01\n";
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            var videoEvent = Assert.Single(chart.VideoEvents);
+            Assert.Equal("01", videoEvent.VideoId);
+            Assert.Equal("bg.avi", Path.GetFileName(videoEvent.VideoFilePath));
+        }
+
+        [Fact]
+        public async Task ParseAsync_Channel5A_ShouldBehaveLikeChannel54()
+        {
+            var content =
+                "#BPM: 120.0\n" +
+                "#AVI01: bg.avi\n" +
+                "#0005A: 01\n";
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            var videoEvent = Assert.Single(chart.VideoEvents);
+            Assert.Equal("01", videoEvent.VideoId);
+            Assert.Equal(0.0, videoEvent.TimeMs, 3);
+        }
+
+        [Fact]
+        public async Task ParseAsync_VideoZeroPairs_ShouldBeIgnored()
+        {
+            var content =
+                "#BPM: 120.0\n" +
+                "#AVI01: bg.avi\n" +
+                "#00054: 0000\n";
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            Assert.Empty(chart.VideoEvents);
+        }
+
+        [Fact]
+        public async Task ParseAsync_VideoMultiplePairs_ShouldCalculateTicks()
+        {
+            var content =
+                "#BPM: 120.0\n" +
+                "#AVI01: bg.avi\n" +
+                "#00054: 01000203\n";
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            Assert.Equal(3, chart.VideoEvents.Count);
+            // 4 pairs per measure: pair 0 -> tick 0, pair 2 -> 96, pair 3 -> 144
+            Assert.Equal(0, chart.VideoEvents[0].Tick);
+            Assert.Equal(96, chart.VideoEvents[1].Tick);
+            Assert.Equal(144, chart.VideoEvents[2].Tick);
+            // 120 BPM: one 4/4 measure = 2000ms
+            Assert.Equal(0.0, chart.VideoEvents[0].TimeMs, 3);
+            Assert.Equal(1000.0, chart.VideoEvents[1].TimeMs, 3);
+            Assert.Equal(1500.0, chart.VideoEvents[2].TimeMs, 3);
+        }
+
+        [Fact]
+        public async Task ParseAsync_VideoLowercaseIds_ShouldNormalizeToUppercase()
+        {
+            var content =
+                "#BPM: 120.0\n" +
+                "#avi0a: bg.avi\n" +
+                "#00054: 0a\n";
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            var videoEvent = Assert.Single(chart.VideoEvents);
+            Assert.Equal("0A", videoEvent.VideoId);
+            Assert.Equal("bg.avi", Path.GetFileName(videoEvent.VideoFilePath));
+        }
+
+        [Fact]
+        public async Task ParseAsync_VideoMissingDefinition_ShouldRetainEventWithEmptyPath()
+        {
+            var content =
+                "#BPM: 120.0\n" +
+                "#00154: 01\n"; // no #AVI01/#VIDEO01 definition anywhere
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            var videoEvent = Assert.Single(chart.VideoEvents);
+            Assert.Equal("01", videoEvent.VideoId);
+            Assert.Equal("", videoEvent.VideoFilePath);
+            // Video-only chart must still resolve timing (video bars drive finalization)
+            Assert.Equal(2000.0, videoEvent.TimeMs, 3);
+            Assert.Equal(2500.0, chart.DurationMs, 3);
+        }
+
+        [Fact]
+        public async Task ParseAsync_AvipanHeader_ShouldBeIgnored()
+        {
+            // #AVIPANxx must not register as a video definition for any id
+            var content =
+                "#BPM: 120.0\n" +
+                "#AVIPAN01: bg.avi\n" +
+                "#00054: 01\n";
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            var videoEvent = Assert.Single(chart.VideoEvents);
+            Assert.Equal("", videoEvent.VideoFilePath);
+        }
+
+        [Fact]
+        public async Task ParseAsync_VideoDefinitionAfterTimeline_ShouldStillResolve()
+        {
+            // Load-bearing: definitions placed after timeline rows must still resolve
+            var content =
+                "#BPM: 120.0\n" +
+                "#00054: 01\n" +
+                "#AVI01: bg.avi\n";
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            var videoEvent = Assert.Single(chart.VideoEvents);
+            Assert.Equal("bg.avi", Path.GetFileName(videoEvent.VideoFilePath));
+        }
+
+        [Fact]
+        public async Task ParseAsync_RepeatedLateAviDefinitions_FinalAssignmentWins()
+        {
+            var content =
+                "#BPM: 120.0\n" +
+                "#00054: 01\n" +
+                "#AVI01: first.avi\n" +
+                "#AVI01: second.avi\n";
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            var videoEvent = Assert.Single(chart.VideoEvents);
+            Assert.Equal("second.avi", Path.GetFileName(videoEvent.VideoFilePath));
+        }
+
+        [Fact]
+        public async Task ParseAsync_RepeatedLateVideoAliasDefinitions_FinalAssignmentWins()
+        {
+            // #AVIxx and #VIDEOxx share one id namespace; the last assignment wins
+            var content =
+                "#BPM: 120.0\n" +
+                "#00054: 01\n" +
+                "#AVI01: first.avi\n" +
+                "#VIDEO01: second.avi\n";
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            var videoEvent = Assert.Single(chart.VideoEvents);
+            Assert.Equal("second.avi", Path.GetFileName(videoEvent.VideoFilePath));
+        }
+
+        #endregion
+
         #region Encoding Retry Isolation Tests
 
         /// <summary>
