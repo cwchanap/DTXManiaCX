@@ -85,6 +85,13 @@ namespace DTXMania.Game.Lib.Stage
         private HitTimingFeedbackDisplay _hitTimingFeedbackDisplay = null!;
         private PadRenderer _padRenderer = null!;
 
+        // HPA-11 chart background video. The player is game-owned and non-blocking;
+        // scheduling keeps one cursor into the chart's sorted VideoEvents plus the
+        // event whose media generation is currently active.
+        private IChartVideoPlayer _chartVideoPlayer = null!;
+        private int _nextVideoEventIndex;
+        private ChartVideoEvent? _activeVideoEvent;
+
         // BGM management
         private Dictionary<string, ISound> _bgmSounds = new Dictionary<string, ISound>();
         private List<BGMEvent> _scheduledBGMEvents = new List<BGMEvent>();
@@ -199,6 +206,9 @@ namespace DTXMania.Game.Lib.Stage
 
         #region Constants
 
+        /// <summary>HPA-11 chart background video depth: above the static background
+        /// (1.0) and below the lane strips (0.8).</summary>
+        internal const float ChartVideoLayerDepth = 0.95f;
 
         #endregion
 
@@ -224,6 +234,13 @@ namespace DTXMania.Game.Lib.Stage
 
         protected virtual PlaybackAudioVariantCache CreateAudioVariantCache()
             => new();
+
+        /// <summary>
+        /// Creates the HPA-11 chart background video player. Extracted as a seam so
+        /// headless tests can substitute a recording fake instead of launching FFmpeg.
+        /// </summary>
+        protected virtual IChartVideoPlayer CreateChartVideoPlayer()
+            => new FfmpegChartVideoPlayer(_spriteBatch.GraphicsDevice);
 
         /// <summary>
         /// Creates the <see cref="SpriteBatch"/> used by this stage. Extracted as a seam so
@@ -517,6 +534,11 @@ namespace DTXMania.Game.Lib.Stage
             _hitTimingFeedbackDisplay = new HitTimingFeedbackDisplay(_resourceManager);
             _padRenderer = new PadRenderer(graphicsDevice, _resourceManager);
 
+            // HPA-11: chart background video player; scheduling state resets per activation.
+            _chartVideoPlayer = CreateChartVideoPlayer();
+            _nextVideoEventIndex = 0;
+            _activeVideoEvent = null;
+
             // Initialize UX components
             InitializeReadyFont();
             
@@ -621,6 +643,12 @@ namespace DTXMania.Game.Lib.Stage
             // Clear chart data
             _parsedChart = null;
             _chartManager = null;
+
+            // Cleanup HPA-11 chart background video player
+            _chartVideoPlayer?.Dispose();
+            _chartVideoPlayer = null;
+            _activeVideoEvent = null;
+            _nextVideoEventIndex = 0;
 
         }
 
@@ -746,6 +774,11 @@ namespace DTXMania.Game.Lib.Stage
             // the cache; Dispose (called from CleanupGameplayManagers via
             // CleanupComponents) handles final stop-and-dispose.
             _chipSoundCache?.StopAll();
+
+            // Cancel the chart background video generation so the last decoded
+            // frame does not persist through the transition fade. Full disposal
+            // remains in CleanupComponents.
+            _chartVideoPlayer?.Stop();
         }
 
         private void ObserveInitializationTask()
@@ -1026,6 +1059,10 @@ namespace DTXMania.Game.Lib.Stage
                 
                 // Process BGM events during song playback
                 ProcessBGMEvents(currentTimeMs);
+
+                // HPA-11: schedule chart background video events on the same
+                // logical clock (never re-read from GetCurrentMs, never speed-scaled).
+                ProcessVideoEvents(currentTimeMs);
 
                 // Dual-clock architecture:
                 // - Raw song clock (currentTimeMs): autoplay, BGM events, note visuals,
@@ -1585,6 +1622,56 @@ namespace DTXMania.Game.Lib.Stage
         }
 
         /// <summary>
+        /// Processes chart background video events that should be triggered at the
+        /// current time (HPA-11). Consumes all due unhandled events but starts only
+        /// the last due one; an unresolved definition (empty path) leaves the video
+        /// inactive without blocking later events. The active generation receives
+        /// <c>Update(max(0, currentTimeMs - activeEvent.TimeMs))</c> — raw logical
+        /// chart time, never rescaled by playback speed.
+        /// </summary>
+        /// <param name="currentTimeMs">Current song time in milliseconds (shared with BGM scheduling).</param>
+        private void ProcessVideoEvents(double currentTimeMs)
+        {
+            var videoEvents = _parsedChart?.VideoEvents;
+            if (videoEvents == null || videoEvents.Count == 0 || _chartVideoPlayer == null)
+                return;
+
+            // Consume all due unhandled events; only the last due event from one
+            // update starts (Start itself cancels the previous generation).
+            ChartVideoEvent? dueEvent = null;
+            while (_nextVideoEventIndex < videoEvents.Count &&
+                   videoEvents[_nextVideoEventIndex].TimeMs <= currentTimeMs)
+            {
+                dueEvent = videoEvents[_nextVideoEventIndex];
+                _nextVideoEventIndex++;
+            }
+
+            if (dueEvent != null)
+            {
+                if (string.IsNullOrEmpty(dueEvent.VideoFilePath))
+                {
+                    // Unresolved definition: keep the static-background fallback
+                    // (video inactive) without blocking later valid events.
+                    if (_activeVideoEvent != null)
+                    {
+                        _chartVideoPlayer.Stop();
+                        _activeVideoEvent = null;
+                    }
+                }
+                else
+                {
+                    _chartVideoPlayer.Start(dueEvent.VideoFilePath);
+                    _activeVideoEvent = dueEvent;
+                }
+            }
+
+            if (_activeVideoEvent != null)
+            {
+                _chartVideoPlayer.Update(Math.Max(0.0, currentTimeMs - _activeVideoEvent.TimeMs));
+            }
+        }
+
+        /// <summary>
         /// Triggers a BGM event by playing its associated sound
         /// </summary>
         /// <param name="bgmEvent">BGM event to trigger</param>
@@ -2073,6 +2160,15 @@ namespace DTXMania.Game.Lib.Stage
 
         #region Drawing Methods
 
+        /// <summary>
+        /// GPU-free draw layout for the chart background video (HPA-11): the video
+        /// fills the background bounds at depth 0.95 — above the static background
+        /// (1.0) and below the lane strips (0.8). Extracted so cross-platform tests
+        /// can pin both values without a graphics device.
+        /// </summary>
+        internal (Rectangle Bounds, float LayerDepth) ResolveChartVideoDrawLayout()
+            => (PerformanceUILayout.Background.Bounds, ChartVideoLayerDepth);
+
         private void DrawBackground()
         {
             if (_backgroundTexture != null)
@@ -2088,6 +2184,12 @@ namespace DTXMania.Game.Lib.Stage
                 var backgroundRect = new Rectangle(0, 0, viewport.Width, viewport.Height);
                 _backgroundRenderer?.Draw(_spriteBatch, backgroundRect, 1.0f);
             }
+
+            // Chart background video above the static background, below the lanes.
+            // The player renders nothing while no timely frame exists (inactive,
+            // failed, or still-decoding media), leaving the fallback visible.
+            var (videoBounds, videoDepth) = ResolveChartVideoDrawLayout();
+            _chartVideoPlayer?.Draw(_spriteBatch, videoBounds, videoDepth);
         }
 
         private void DrawLaneBackgrounds()

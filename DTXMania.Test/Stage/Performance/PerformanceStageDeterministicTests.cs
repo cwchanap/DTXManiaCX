@@ -4668,6 +4668,194 @@ public class PerformanceStageDeterministicTests
         Assert.Null(ex);
     }
 
+    #region HPA-11 Chart Background Video
+
+    [Fact]
+    public void ProcessVideoEvents_WhenChartHasNoVideoEvents_ShouldNotStartPlayer()
+    {
+        var stage = CreateVideoStage(out var player, CreateVideoChart());
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessVideoEvents", 10_000.0);
+
+        Assert.Empty(player.StartedPaths);
+        Assert.Empty(player.UpdateValues);
+    }
+
+    [Fact]
+    public void ProcessVideoEvents_WhenBeforeFirstEvent_ShouldNotStartPlayer()
+    {
+        var stage = CreateVideoStage(out var player, CreateVideoChart(VideoEvent(5000.0, "movie.avi")));
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessVideoEvents", 4999.0);
+
+        Assert.Empty(player.StartedPaths);
+        Assert.Empty(player.UpdateValues);
+    }
+
+    [Fact]
+    public void ProcessVideoEvents_WhenEventBecomesDue_ShouldStartOnceAndForwardRelativeMediaTime()
+    {
+        var stage = CreateVideoStage(out var player, CreateVideoChart(VideoEvent(500.0, "movie.avi")));
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessVideoEvents", 1000.0);
+
+        Assert.Equal(new[] { "movie.avi" }, player.StartedPaths);
+        Assert.Equal(new[] { 500.0 }, player.UpdateValues);
+        Assert.Equal(500.0, ReflectionHelpers.GetPrivateField<ChartVideoEvent>(stage, "_activeVideoEvent")!.TimeMs);
+    }
+
+    [Fact]
+    public void ProcessVideoEvents_WhenSeveralEventsAreDue_ShouldStartOnlyLastDueEvent()
+    {
+        var stage = CreateVideoStage(out var player, CreateVideoChart(
+            VideoEvent(100.0, "first.avi", "01"),
+            VideoEvent(300.0, "second.avi", "02"),
+            VideoEvent(700.0, "third.avi", "03")));
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessVideoEvents", 800.0);
+
+        Assert.Equal(new[] { "third.avi" }, player.StartedPaths);
+        Assert.Single(player.UpdateValues);
+        Assert.Equal(100.0, player.UpdateValues[0]);
+    }
+
+    [Fact]
+    public void ProcessVideoEvents_WhenLaterUpdateArrives_ShouldForwardExactLogicalMediaTimeWithoutRescaling()
+    {
+        // The stage runs frozen at 50% play speed (set by CreateVideoStage); the
+        // forwarded media time must stay raw logical chart ms, never rescaled.
+        var stage = CreateVideoStage(out var player, CreateVideoChart(VideoEvent(500.0, "movie.avi")));
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessVideoEvents", 1000.0);
+        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessVideoEvents", 1500.0);
+
+        Assert.Single(player.StartedPaths);
+        Assert.Equal(new[] { 500.0, 1000.0 }, player.UpdateValues);
+    }
+
+    [Fact]
+    public void ProcessVideoEvents_WhenUnresolvedEventIsDue_ShouldLeaveFallbackAndAllowLaterValidEvent()
+    {
+        var stage = CreateVideoStage(out var player, CreateVideoChart(
+            VideoEvent(500.0, "", "01"),
+            VideoEvent(700.0, "movie.avi", "02")));
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessVideoEvents", 600.0);
+
+        Assert.Empty(player.StartedPaths);
+        Assert.Null(ReflectionHelpers.GetPrivateField<ChartVideoEvent>(stage, "_activeVideoEvent"));
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessVideoEvents", 800.0);
+
+        Assert.Equal(new[] { "movie.avi" }, player.StartedPaths);
+        Assert.Equal(new[] { 100.0 }, player.UpdateValues);
+    }
+
+    [Fact]
+    public void StopGameplayAudioInstances_WhenVideoIsActive_ShouldStopPlayer()
+    {
+        var stage = CreateVideoStage(out var player, CreateVideoChart(VideoEvent(500.0, "movie.avi")));
+        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessVideoEvents", 1000.0);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "StopGameplayAudioInstances");
+
+        Assert.Equal(1, player.StopCount);
+    }
+
+    [Fact]
+    public void CleanupComponents_WhenVideoPlayerExists_ShouldDisposeAndClearPlayer()
+    {
+        var stage = CreateVideoStage(out var player, CreateVideoChart(VideoEvent(500.0, "movie.avi")));
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "CleanupComponents");
+
+        Assert.Equal(1, player.DisposeCount);
+        Assert.Null(ReflectionHelpers.GetPrivateField<IChartVideoPlayer>(stage, "_chartVideoPlayer"));
+    }
+
+    [Fact]
+    public void ResolveChartVideoDrawLayout_ShouldPinBackgroundBoundsAndDepth()
+    {
+        var stage = CreateStage();
+
+        var (bounds, depth) = ReflectionHelpers.InvokePrivateMethod<(Rectangle Bounds, float Depth)>(
+            stage,
+            "ResolveChartVideoDrawLayout");
+
+        Assert.Equal(PerformanceUILayout.Background.Bounds, bounds);
+        Assert.Equal(0.95f, depth);
+    }
+
+    [Fact]
+    public void DrawBackground_WhenVideoPlayerDraws_ShouldConsumePinnedLayout()
+    {
+        var stage = CreateVideoStage(out var player, CreateVideoChart(VideoEvent(500.0, "movie.avi")));
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_spriteBatch",
+            CreateSpriteBatchStub(new Viewport(0, 0, 1280, 720)));
+        ReflectionHelpers.InvokePrivateMethod(stage, "ProcessVideoEvents", 1000.0);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "DrawBackground");
+
+        var draw = Assert.Single(player.DrawCalls);
+        Assert.Equal(PerformanceUILayout.Background.Bounds, draw.Bounds);
+        Assert.Equal(0.95f, draw.Depth);
+    }
+
+    #endregion
+
+    private static PerformanceStage CreateVideoStage(out RecordingChartVideoPlayer player, ParsedChart chart)
+    {
+        var stage = CreateStage();
+        player = new RecordingChartVideoPlayer();
+        ReflectionHelpers.SetPrivateField(stage, "_chartVideoPlayer", player);
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_playbackModifiers",
+            new PlaybackModifiers(50, 0));
+        return stage;
+    }
+
+    private static ParsedChart CreateVideoChart(params ChartVideoEvent[] events)
+    {
+        var chart = new ParsedChart("video-schedule.dtx") { Bpm = 120.0 };
+        foreach (var videoEvent in events)
+        {
+            chart.AddVideoEvent(videoEvent);
+        }
+
+        return chart;
+    }
+
+    private static ChartVideoEvent VideoEvent(double timeMs, string videoFilePath, string videoId = "01")
+    {
+        return new ChartVideoEvent(0, 0, videoId) { TimeMs = timeMs, VideoFilePath = videoFilePath };
+    }
+
+    private sealed record RecordedVideoDraw(Rectangle Bounds, float Depth);
+
+    private sealed class RecordingChartVideoPlayer : IChartVideoPlayer
+    {
+        public List<string> StartedPaths { get; } = new();
+        public List<double> UpdateValues { get; } = new();
+        public List<RecordedVideoDraw> DrawCalls { get; } = new();
+        public int StopCount { get; private set; }
+        public int DisposeCount { get; private set; }
+
+        public void Start(string videoFilePath) => StartedPaths.Add(videoFilePath);
+
+        public void Update(double mediaTimeMs) => UpdateValues.Add(mediaTimeMs);
+
+        public void Draw(SpriteBatch spriteBatch, Rectangle destinationBounds, float layerDepth) =>
+            DrawCalls.Add(new RecordedVideoDraw(destinationBounds, layerDepth));
+
+        public void Stop() => StopCount++;
+
+        public void Dispose() => DisposeCount++;
+    }
+
     private static void SetAutoPlayLanes(PerformanceStage stage, params int[] lanes)
     {
         ReflectionHelpers.SetPrivateField(stage, "_autoPlayLanes", new HashSet<int>(lanes));
