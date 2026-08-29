@@ -231,6 +231,44 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
+        public async Task Start_WhenStopRunsBeforeDeferredWork_ShouldNotFaultOrLog()
+        {
+            // Regression for the deferred-startup ObjectDisposedException race:
+            // Start() schedules RunGenerationAsync through a deferred scheduler.
+            // If Stop() cancels + disposes the generation CTS before the
+            // deferred callback runs, reading generationCts.Token inside it
+            // would throw ObjectDisposedException before the try block. The
+            // fix captures cts.Token in Start() before scheduling and passes
+            // the cached token in, so the deferred work observes cancellation
+            // gracefully instead of faulting.
+            var scheduledWork = new List<Func<Task>>();
+            var logs = new List<string>();
+            using var player = CreatePlayer(
+                logs.Add,
+                scheduler: work =>
+                {
+                    lock (scheduledWork) { scheduledWork.Add(work); }
+                    return Task.CompletedTask;
+                });
+
+            player.Start(FixturePath);
+
+            Func<Task>? work;
+            lock (scheduledWork) { work = scheduledWork[0]; }
+
+            // Stop() disposes the generation CTS before the deferred work runs.
+            player.Stop();
+
+            // The deferred generation must complete without faulting or logging.
+            var generation = work();
+            await generation.WaitAsync(TimeSpan.FromSeconds(30));
+
+            Assert.True(generation.IsCompletedSuccessfully,
+                $"Deferred generation should complete successfully, status={generation.Status}");
+            Assert.Empty(logs);
+        }
+
+        [Fact]
         public async Task Start_MissingFile_ShouldContainFailureAndLogOnce()
         {
             var logs = new List<string>();
