@@ -1,7 +1,6 @@
 #nullable enable
 
 using System;
-using System.Collections.Generic;
 
 namespace DTXMania.Game.Lib.Stage.Performance
 {
@@ -47,36 +46,36 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <param name="targetMediaTimeMs">Current media time from generation zero.</param>
         /// <param name="frameIntervalMs">Constant frame interval in milliseconds.</param>
         /// <param name="currentFrameTimestampMs">Timestamp of the displayed frame, if any.</param>
-        /// <param name="queuedFrameTimestampMs">Timestamps of queued frames, oldest first.</param>
+        /// <param name="dueFrameCount">Number of queued frames with timestamp at or
+        /// before the target time (the caller consumes them either way).</param>
+        /// <param name="newestDueFrameTimestampMs">Timestamp of the newest due
+        /// queued frame, or null when <paramref name="dueFrameCount"/> is 0.</param>
         public static VideoFrameSelection Select(
             double targetMediaTimeMs,
             double frameIntervalMs,
             double? currentFrameTimestampMs,
-            IReadOnlyList<double> queuedFrameTimestampMs)
+            int dueFrameCount,
+            double? newestDueFrameTimestampMs)
         {
             if (frameIntervalMs <= 0)
             {
                 return new VideoFrameSelection(VideoFrameSelectionKind.NoFrame, 0);
             }
 
-            // Consume through the latest due queued frame; intermediate frames
-            // are obsolete and skipped without display.
-            int dueCount = 0;
-            for (int index = 0; index < queuedFrameTimestampMs.Count; index++)
+            if (dueFrameCount > 0)
             {
-                if (queuedFrameTimestampMs[index] <= targetMediaTimeMs)
+                // Every due frame is consumed so the decoder keeps advancing.
+                // Display the newest due frame only while it is within the
+                // stale tolerance; when it is still materially behind the
+                // target (async startup catch-up or a decoder that fell
+                // behind), report NoFrame so the static background stays
+                // visible instead of a fast-forwarding stale frame.
+                if (targetMediaTimeMs - newestDueFrameTimestampMs!.Value <= frameIntervalMs)
                 {
-                    dueCount++;
+                    return new VideoFrameSelection(VideoFrameSelectionKind.Advance, dueFrameCount);
                 }
-                else
-                {
-                    break;
-                }
-            }
 
-            if (dueCount > 0)
-            {
-                return new VideoFrameSelection(VideoFrameSelectionKind.Advance, dueCount);
+                return new VideoFrameSelection(VideoFrameSelectionKind.NoFrame, dueFrameCount);
             }
 
             if (currentFrameTimestampMs.HasValue &&
