@@ -224,7 +224,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 _generationCts = cts;
             }
 
-            _generationTask = _startupScheduler(() => RunGenerationAsync(videoFilePath, cts.Token));
+            _generationTask = _startupScheduler(() => RunGenerationAsync(videoFilePath, cts));
         }
 
         /// <summary>Game-thread update: selects and uploads the due frame.</summary>
@@ -396,8 +396,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 height);
         }
 
-        private async Task RunGenerationAsync(string videoFilePath, CancellationToken token)
+        private async Task RunGenerationAsync(string videoFilePath, CancellationTokenSource generationCts)
         {
+            var token = generationCts.Token;
             try
             {
                 var runtime = FfmpegRuntime.EnsureConfigured();
@@ -425,9 +426,17 @@ namespace DTXMania.Game.Lib.Stage.Performance
                         SingleWriter = true,
                     });
 
+                // Publish only if this startup still owns the current
+                // generation. Stop() clears _generationCts under the lock and
+                // only cancels the token after releasing it, so a probe that
+                // completes in that gap would otherwise see a non-cancelled
+                // token and republish a generation Stop() just cleared. The
+                // ownership check closes that window without a lifecycle
+                // abstraction: a cleared/replaced _generationCts fails the
+                // reference check and leaves _generation null.
                 lock (_stateLock)
                 {
-                    if (!token.IsCancellationRequested)
+                    if (!token.IsCancellationRequested && ReferenceEquals(_generationCts, generationCts))
                     {
                         _generation = new GenerationState(
                             queue.Reader, video.Width, video.Height, frameIntervalMs);
