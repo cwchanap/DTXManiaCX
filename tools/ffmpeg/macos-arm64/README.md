@@ -1,7 +1,7 @@
 # Native Apple Silicon FFmpeg runtime
 
-`build-runtime.sh` builds and stages the small, audio-only FFmpeg runtime used
-by the macOS arm64 package. It produces this layout:
+`build-runtime.sh` builds and stages the small, audio-plus-rawvideo FFmpeg
+runtime used by the macOS arm64 package. It produces this layout:
 
 ```text
 build-runtime.sh <runtime-output-dir> <license-output-dir>
@@ -48,26 +48,36 @@ The builder uses the existing release configure surface and adds only
   --enable-decoder=vorbis \
   --enable-decoder=pcm_s16le,pcm_s24le,pcm_f32le,pcm_u8,pcm_alaw,pcm_mulaw \
   --enable-decoder=adpcm_ima_wav,adpcm_ms \
+  --enable-decoder=rawvideo \
   --enable-demuxer=mp3 \
   --enable-demuxer=wav,ogg,pcm_s16le \
+  --enable-demuxer=avi \
   --enable-parser=mpegaudio,vorbis \
   --enable-protocol=file,pipe,unix \
   --enable-muxer=pcm_s16le \
+  --enable-muxer=rawvideo \
   --enable-encoder=pcm_s16le \
-  --enable-filter=aformat,anull,aresample,atempo,apad,atrim
+  --enable-encoder=rawvideo \
+  --enable-filter=aformat,anull,aresample,atempo,apad,atrim,format,scale
 ```
 
 The required runtime surface is:
 
-- Filters: `atempo`, `apad`, `atrim`, `aformat`, `aresample`
-- Decoders: `mp3float`, `vorbis`, `pcm_s16le`, `adpcm_ima_wav`, `adpcm_ms`
-- Demuxers: `mp3`, `wav`, `ogg`, `s16le`
+- Filters: `atempo`, `apad`, `atrim`, `aformat`, `aresample`, `format`, `scale`
+- Decoders: `mp3float`, `vorbis`, `pcm_s16le`, `adpcm_ima_wav`, `adpcm_ms`, `rawvideo`
+- Demuxers: `mp3`, `wav`, `ogg`, `s16le`, `avi`
 - Protocols: `file`, `pipe`, `unix`
-- Encoder: `pcm_s16le`
-- Muxer: `s16le`
+- Encoders: `pcm_s16le`, `rawvideo`
+- Muxers: `s16le`, `rawvideo`
 
 The `unix` protocol is required by FFMpegCore's macOS named-pipe transport
 used for in-memory audio input/output. Network protocols remain disabled.
+
+The `avi` demuxer, `rawvideo` decoder/encoder/muxer, and `format`/`scale`
+filters are load-bearing for HPA-11 chart background video (BGA AVI):
+rawvideo/bgr24 AVI charts decode to RGBA frames over the pipe protocol.
+No broad codec/container families are enabled for video beyond this
+declared profile.
 
 The ADPCM decoders are load-bearing: non-default playback profiles route WAV
 sources through FFmpeg, so IMA-ADPCM and Microsoft ADPCM WAV files must remain
@@ -91,14 +101,18 @@ Set `DTXMANIA_FFMPEG_CACHE_ROOT` to relocate the cache root. A cache is used
 only when both executables are present and executable, `COPYING.LGPLv2.1`
 exists, and `source.sha256` contains the pinned source hash. Cached binaries
 then pass the same architecture, capability (including `file`, `pipe`, and
-`unix` protocols), version, and dynamic dependency checks as a fresh build;
-an invalid cache is rebuilt. This revalidation rejects a cache created before
-the `unix` protocol was added even though its pinned source hash is unchanged.
-The cache root has a directory lock. The lock remains held through cache
-validation, replacement, and copying the runtime/license to the requested
-output directories, so a waiting invocation revalidates and reuses the cache
-created by the invocation ahead of it. Run the deterministic shell regression
-check with:
+`unix` protocols, and the video surface), version, dynamic dependency, and
+real-decode checks as a fresh build; an invalid cache is rebuilt. This
+revalidation rejects a cache created before a capability amendment (such as
+the `unix` protocol or the AVI/rawvideo video profile) even though its pinned
+source hash is unchanged. The real-decode check runs the committed fixture
+`DTXMania.Test/TestData/Video/tiny-raw-bgr24.avi` through the exact HPA-11
+command shape and requires two complete RGBA frames on stdout. The cache root
+has a directory lock. The lock remains held through cache validation,
+replacement, and copying the runtime/license to the requested output
+directories, so a waiting invocation revalidates and reuses the cache created
+by the invocation ahead of it. Run the deterministic shell regression check
+with:
 
 ```bash
 bash tools/ffmpeg/macos-arm64/test-cache-lock.sh
