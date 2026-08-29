@@ -1134,6 +1134,56 @@ namespace DTXMania.Test.Song
             Assert.Equal("second.avi", Path.GetFileName(videoEvent.VideoFilePath));
         }
 
+        [Fact]
+        public async Task ParseAsync_VideoDefinitionWithoutColon_ShouldBeIgnored()
+        {
+            // #AVIxx with no colon is malformed; it must be consumed (not treated
+            // as timeline data) and ignored without registering a definition.
+            var content =
+                "#BPM: 120.0\n" +
+                "#AVI01 no-colon-here\n" +
+                "#00054: 01\n";
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            var videoEvent = Assert.Single(chart.VideoEvents);
+            Assert.Equal("", videoEvent.VideoFilePath);
+        }
+
+        [Fact]
+        public async Task ParseAsync_VideoChannel5A_ShouldBehaveLikeChannel54()
+        {
+            // Channel 0x5A is an alias for 0x54; both produce video events.
+            var content =
+                "#BPM: 120.0\n" +
+                "#AVI01: bg.avi\n" +
+                "#0005A: 01\n";
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            var videoEvent = Assert.Single(chart.VideoEvents);
+            Assert.Equal("01", videoEvent.VideoId);
+            Assert.Equal("bg.avi", Path.GetFileName(videoEvent.VideoFilePath));
+        }
+
+        [Fact]
+        public async Task ParseAsync_VideoChannelWithEmptyData_ShouldProduceNoVideoEvents()
+        {
+            // A channel 54 row with empty/whitespace data must not create video
+            // events (the IsNullOrWhiteSpace early return in ParseVideoEvents).
+            var content =
+                "#BPM: 120.0\n" +
+                "#AVI01: bg.avi\n" +
+                "#00054: \n";
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            Assert.Empty(chart.VideoEvents);
+        }
+
         #endregion
 
         #region Encoding Retry Isolation Tests

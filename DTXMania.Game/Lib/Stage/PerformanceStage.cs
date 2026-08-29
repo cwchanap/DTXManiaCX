@@ -241,10 +241,23 @@ namespace DTXMania.Game.Lib.Stage
         /// Generation failures are routed through the stage's Console-based error log,
         /// matching how the song timer and metronome report diagnostics.
         /// </summary>
+        [ExcludeFromCodeCoverage]
         protected virtual IChartVideoPlayer CreateChartVideoPlayer()
             => new FfmpegChartVideoPlayer(
                 _spriteBatch.GraphicsDevice,
                 message => LogPerformanceError(message));
+
+        /// <summary>
+        /// Creates the chart video player and resets scheduling state. Extracted so
+        /// the GPU-dependent creation can be excluded from headless coverage.
+        /// </summary>
+        [ExcludeFromCodeCoverage]
+        private void InitializeChartVideoPlayer()
+        {
+            _chartVideoPlayer = CreateChartVideoPlayer();
+            _nextVideoEventIndex = 0;
+            _activeVideoEvent = null;
+        }
 
         /// <summary>
         /// Creates the <see cref="SpriteBatch"/> used by this stage. Extracted as a seam so
@@ -539,9 +552,7 @@ namespace DTXMania.Game.Lib.Stage
             _padRenderer = new PadRenderer(graphicsDevice, _resourceManager);
 
             // HPA-11: chart background video player; scheduling state resets per activation.
-            _chartVideoPlayer = CreateChartVideoPlayer();
-            _nextVideoEventIndex = 0;
-            _activeVideoEvent = null;
+            InitializeChartVideoPlayer();
 
             // Initialize UX components
             InitializeReadyFont();
