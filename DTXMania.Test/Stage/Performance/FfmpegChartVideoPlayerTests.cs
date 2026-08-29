@@ -26,6 +26,9 @@ namespace DTXMania.Test.Stage.Performance
         private static readonly string FixturePath = Path.Combine(
             AppContext.BaseDirectory, "TestData", "Video", "tiny-raw-bgr24.avi");
 
+        private static readonly string AltFixturePath = Path.Combine(
+            AppContext.BaseDirectory, "TestData", "Video", "tiny-raw-bgr24-32x24.avi");
+
         private readonly string _tempDirectory = Path.Combine(
             Path.GetTempPath(),
             "dtxmania-video-player-" + Guid.NewGuid().ToString("N"));
@@ -57,12 +60,6 @@ namespace DTXMania.Test.Stage.Performance
             }
 
             Assert.True(condition(), "Condition was not met within the timeout.");
-        }
-
-        private static VideoFramePipeSink CreateSink(Channel<VideoFrame> queue, CancellationToken token)
-        {
-            return new VideoFramePipeSink(
-                64, 48, frameIntervalMs: 100, queue.Writer, token);
         }
 
         private static FfmpegChartVideoPlayer CreatePlayer(
@@ -346,6 +343,142 @@ namespace DTXMania.Test.Stage.Performance
 
         #endregion
 
+        #region Final-review fixes: bounded selection pass, stale catch-up, upload containment
+
+        [Fact]
+        public async Task Update_CatchUpBeyondTolerance_ShouldDiscardStaleFramesAndShowStaticBackground()
+        {
+            var logs = new List<string>();
+            using var player = CreatePlayer(logs.Add);
+
+            player.Start(FixturePath);
+            await EventuallyAsync(() => player.QueuedFrameCount == FfmpegChartVideoPlayer.QueueCapacity);
+
+            // Logical media time already far ahead of the decoder (async
+            // startup or an update hitch): nothing drawable — the static
+            // background stays visible — while the obsolete frames are
+            // consumed so the decoder can advance.
+            player.Update(100_000);
+
+            Assert.False(player.HasCurrentFrame);
+            Assert.Equal(0, player.QueuedFrameCount);
+
+            // The consumed queue unblocks the producer: decoding continues.
+            await EventuallyAsync(() => player.QueuedFrameCount == FfmpegChartVideoPlayer.QueueCapacity);
+
+            player.Stop();
+            await player.GenerationTask!.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Empty(logs);
+        }
+
+        [Fact]
+        public async Task Update_WhenTextureUploadFails_ShouldContainFailureAndLogOncePerGeneration()
+        {
+            var logs = new List<string>();
+            var surface = new ThrowingVideoFrameSurface();
+            using var player = CreatePlayer(logs.Add, surface: surface);
+
+            player.Start(FixturePath);
+            await EventuallyAsync(() => player.QueuedFrameCount >= 1);
+
+            // Update must never throw for an upload failure: fall back to the
+            // static background and keep the generation alive.
+            player.Update(0);
+            Assert.False(player.HasCurrentFrame);
+            Assert.Single(logs);
+
+            // A second failing upload in the same generation stays silent.
+            player.Update(100);
+            Assert.False(player.HasCurrentFrame);
+            Assert.Single(logs);
+
+            player.Stop();
+            await player.GenerationTask!.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+
+        #endregion
+
+        #region Final-review fixes: retrigger pins
+
+        [Fact]
+        public async Task Start_RetriggerWhileQueueFull_ShouldCompletePriorGenerationWithoutDeadlock()
+        {
+            var logs = new List<string>();
+            using var player = CreatePlayer(logs.Add);
+
+            player.Start(FixturePath);
+            await EventuallyAsync(() => player.QueuedFrameCount == FfmpegChartVideoPlayer.QueueCapacity);
+            var priorTask = player.GenerationTask!;
+
+            // Second Start while the first generation's producer is blocked on
+            // the full queue: the prior generation must be cancelled and its
+            // task completed (no deadlock), and the new generation must decode
+            // normally afterwards.
+            player.Start(FixturePath);
+
+            await priorTask.WaitAsync(TimeSpan.FromSeconds(10));
+            await EventuallyAsync(() => player.QueuedFrameCount == FfmpegChartVideoPlayer.QueueCapacity);
+
+            player.Stop();
+            await player.GenerationTask!.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Empty(logs);
+        }
+
+        [Fact]
+        public async Task Start_Retrigger_ShouldCancelPriorGenerationTask()
+        {
+            var logs = new List<string>();
+            using var player = CreatePlayer(logs.Add);
+
+            player.Start(FixturePath);
+            await EventuallyAsync(() => player.QueuedFrameCount >= 1);
+            var priorTask = player.GenerationTask!;
+
+            player.Start(FixturePath);
+
+            // The prior generation's task must observe the cancellation and
+            // complete instead of lingering.
+            await priorTask.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.True(priorTask.IsCompleted);
+
+            player.Stop();
+            await player.GenerationTask!.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+
+        [Fact]
+        public async Task Start_RetriggerWithDifferentDimensions_ShouldReplaceSurfaceTexture()
+        {
+            var logs = new List<string>();
+            var surface = new FakeVideoFrameSurface();
+            using var player = CreatePlayer(logs.Add, surface: surface);
+
+            player.Start(FixturePath);
+            await EventuallyAsync(() => player.QueuedFrameCount >= 1);
+            player.Update(0);
+            Assert.Equal(64, surface.LastWidth);
+            Assert.Equal(48, surface.LastHeight);
+
+            // Retrigger with a 32x24 fixture: the dimension change must
+            // replace the texture.
+            player.Start(AltFixturePath);
+
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+            while (surface.LastWidth != 32 && DateTime.UtcNow < deadline)
+            {
+                player.Update(0); // the new generation restarts at media zero
+                await Task.Delay(25);
+            }
+
+            Assert.Equal(32, surface.LastWidth);
+            Assert.Equal(24, surface.LastHeight);
+            Assert.True(surface.ResetCount >= 1, "Prior-generation texture must be reset on retrigger.");
+
+            player.Stop();
+            await player.GenerationTask!.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+
+        #endregion
+
         private sealed class FakeVideoFrameSurface : IVideoFrameSurface
         {
             public int PresentCount { get; private set; }
@@ -354,6 +487,8 @@ namespace DTXMania.Test.Stage.Performance
 
             public int LastHeight { get; private set; }
 
+            public int ResetCount { get; private set; }
+
             public Microsoft.Xna.Framework.Graphics.Texture2D? Texture => null;
 
             public void Present(byte[] rgba, int width, int height)
@@ -361,6 +496,25 @@ namespace DTXMania.Test.Stage.Performance
                 PresentCount++;
                 LastWidth = width;
                 LastHeight = height;
+            }
+
+            public void Reset()
+            {
+                ResetCount++;
+            }
+
+            public void Dispose()
+            {
+            }
+        }
+
+        private sealed class ThrowingVideoFrameSurface : IVideoFrameSurface
+        {
+            public Microsoft.Xna.Framework.Graphics.Texture2D? Texture => null;
+
+            public void Present(byte[] rgba, int width, int height)
+            {
+                throw new InvalidOperationException("Simulated texture upload failure");
             }
 
             public void Reset()

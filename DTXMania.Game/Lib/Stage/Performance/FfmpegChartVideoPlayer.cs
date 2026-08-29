@@ -1,7 +1,6 @@
 #nullable enable
 
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Channels;
@@ -152,13 +151,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private readonly Action<string>? _log;
         private readonly IVideoFrameSurface? _surface;
         private readonly object _stateLock = new();
-        private readonly List<VideoFrame> _pending = new();
-        private readonly List<double> _pendingTimestamps = new();
 
         private bool _disposed;
         private CancellationTokenSource? _generationCts;
         private Task? _generationTask;
         private GenerationState? _generation;
+        private GenerationState? _textureFailureLoggedGeneration;
         private double? _currentTimestampMs;
         private bool _hasCurrentFrame;
 
@@ -169,8 +167,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             double FrameIntervalMs);
 
         /// <summary>Creates the player for the game thread.</summary>
-        public FfmpegChartVideoPlayer(GraphicsDevice graphicsDevice)
-            : this(work => Task.Run(work), new Texture2DVideoFrameSurface(graphicsDevice), null)
+        public FfmpegChartVideoPlayer(GraphicsDevice graphicsDevice, Action<string>? log)
+            : this(work => Task.Run(work), new Texture2DVideoFrameSurface(graphicsDevice), log)
         {
         }
 
@@ -188,14 +186,14 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <summary>Task observing the current generation, or null before Start.</summary>
         internal Task? GenerationTask => _generationTask;
 
-        /// <summary>Frames queued for the active generation plus pending on the game thread.</summary>
+        /// <summary>Frames queued for the active generation.</summary>
         internal int QueuedFrameCount
         {
             get
             {
                 lock (_stateLock)
                 {
-                    return _pending.Count + (_generation?.Queue.Count ?? 0);
+                    return _generation?.Queue.Count ?? 0;
                 }
             }
         }
@@ -244,34 +242,68 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 return;
             }
 
-            while (generation.Queue.TryRead(out var frame))
+            // One bounded pass over the queue: consume-and-discard obsolete
+            // frames via the selector contract, keeping only the newest due
+            // frame. Total held frames never exceed the capacity-3 queue plus
+            // this single in-flight frame; no pending list is accumulated.
+            VideoFrame? newestDueFrame = null;
+            var dueCount = 0;
+            while (generation.Queue.TryPeek(out var head) && head.TimestampMs <= mediaTimeMs)
             {
-                _pending.Add(frame);
-                _pendingTimestamps.Add(frame.TimestampMs);
+                if (!generation.Queue.TryRead(out var frame))
+                {
+                    break;
+                }
+
+                dueCount++;
+                newestDueFrame = frame;
             }
 
             var selection = VideoFrameSelector.Select(
                 mediaTimeMs,
                 generation.FrameIntervalMs,
                 _currentTimestampMs,
-                _pendingTimestamps);
+                dueCount,
+                newestDueFrame?.TimestampMs);
 
             switch (selection.Kind)
             {
                 case VideoFrameSelectionKind.Advance:
-                    var selected = _pending[selection.ConsumeCount - 1];
-                    _pending.RemoveRange(0, selection.ConsumeCount);
-                    _pendingTimestamps.RemoveRange(0, selection.ConsumeCount);
-                    _currentTimestampMs = selected.TimestampMs;
-                    _hasCurrentFrame = true;
-                    _surface?.Present(selected.Rgba, generation.Width, generation.Height);
+                    PresentFrame(generation, newestDueFrame!);
                     break;
 
                 case VideoFrameSelectionKind.NoFrame:
-                    // Nothing timely exists (startup catch-up or stale beyond
-                    // one frame interval): Draw renders nothing.
+                    // Nothing timely exists (async-start catch-up, decoder
+                    // behind by more than one frame interval, or empty queue):
+                    // Draw renders nothing so the static background shows.
                     _hasCurrentFrame = false;
                     break;
+            }
+        }
+
+        /// <summary>
+        /// Uploads a frame to the texture surface. Texture upload failure is
+        /// non-fatal per the spec: it is contained, logged once per generation,
+        /// and falls back to the static background while the decode generation
+        /// stays alive.
+        /// </summary>
+        private void PresentFrame(GenerationState generation, VideoFrame frame)
+        {
+            try
+            {
+                _surface?.Present(frame.Rgba, generation.Width, generation.Height);
+                _currentTimestampMs = frame.TimestampMs;
+                _hasCurrentFrame = true;
+            }
+            catch (Exception ex)
+            {
+                if (!ReferenceEquals(_textureFailureLoggedGeneration, generation))
+                {
+                    _textureFailureLoggedGeneration = generation;
+                    _log?.Invoke($"Chart video texture upload failed: {ex.GetType().Name}: {ex.Message}");
+                }
+
+                _hasCurrentFrame = false;
             }
         }
 
@@ -317,8 +349,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
             cts?.Cancel();
             cts?.Dispose();
 
-            _pending.Clear();
-            _pendingTimestamps.Clear();
             _currentTimestampMs = null;
             _hasCurrentFrame = false;
             _surface?.Reset();

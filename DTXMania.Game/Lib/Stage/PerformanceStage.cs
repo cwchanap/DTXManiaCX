@@ -238,9 +238,13 @@ namespace DTXMania.Game.Lib.Stage
         /// <summary>
         /// Creates the HPA-11 chart background video player. Extracted as a seam so
         /// headless tests can substitute a recording fake instead of launching FFmpeg.
+        /// Generation failures are routed through the stage's Console-based error log,
+        /// matching how the song timer and metronome report diagnostics.
         /// </summary>
         protected virtual IChartVideoPlayer CreateChartVideoPlayer()
-            => new FfmpegChartVideoPlayer(_spriteBatch.GraphicsDevice);
+            => new FfmpegChartVideoPlayer(
+                _spriteBatch.GraphicsDevice,
+                message => LogPerformanceError(message));
 
         /// <summary>
         /// Creates the <see cref="SpriteBatch"/> used by this stage. Extracted as a seam so

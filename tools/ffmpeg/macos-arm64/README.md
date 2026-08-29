@@ -84,7 +84,7 @@ sources through FFmpeg, so IMA-ADPCM and Microsoft ADPCM WAV files must remain
 playable. No `--enable-lib*`, `libmp3lame`, or `libvorbis` options are used.
 
 `--disable-gpl` and `--disable-nonfree` are intentionally omitted. The
-audio-only surface above is selected after `--disable-everything` with
+audio-plus-rawvideo surface above is selected after `--disable-everything` with
 autodetection disabled, and it does not enable GPL or nonfree components.
 The approved release configure surface therefore remains explicit about what
 is enabled without adding unrelated policy switches.
