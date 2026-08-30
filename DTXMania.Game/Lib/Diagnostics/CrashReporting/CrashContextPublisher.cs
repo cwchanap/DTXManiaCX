@@ -70,7 +70,6 @@ internal static class CrashContextPublisher
                 ["ScreenHeight"] = config.ScreenHeight,
                 ["FullScreen"] = config.FullScreen,
                 ["VSyncWait"] = config.VSyncWait,
-                ["BufferSizeMs"] = config.BufferSizeMs,
                 ["NoFail"] = config.NoFail,
                 ["EnableGameApi"] = config.EnableGameApi,
                 ["KeyBindingCount"] = config.KeyBindings?.Count ?? 0,

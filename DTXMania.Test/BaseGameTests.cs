@@ -40,7 +40,6 @@ namespace DTXMania.Test
                 ScreenHeight = 1080,
                 FullScreen = true,
                 VSyncWait = false,
-                BufferSizeMs = 80,
                 NoFail = true,
                 EnableGameApi = true,
                 GameApiKey = "must-not-appear",

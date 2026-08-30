@@ -1959,7 +1959,7 @@ namespace DTXMania.Game.Lib.Stage
             // logical time. Miss scanning must share the compensated clock so a
             // note is not marked missed before the player hears it: using raw
             // time would shrink the reaction window by AudioLatencyOffsetMs
-            // (default 200 ms equals the hit window, leaving zero reaction time).
+            // whenever the user configures a manual latency offset.
             _judgementManager?.Update(pendingHitTimeMs, pendingHitTimeMs);
         }
         

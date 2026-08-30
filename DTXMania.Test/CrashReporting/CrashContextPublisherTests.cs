@@ -55,7 +55,6 @@ public sealed class CrashContextPublisherTests
             ScreenHeight = 1080,
             FullScreen = true,
             VSyncWait = false,
-            BufferSizeMs = 80,
             NoFail = true,
             EnableGameApi = true
         };
@@ -74,7 +73,6 @@ public sealed class CrashContextPublisherTests
         Assert.Equal(1080, configuration.Fields["ScreenHeight"]);
         Assert.Equal(true, configuration.Fields["FullScreen"]);
         Assert.Equal(false, configuration.Fields["VSyncWait"]);
-        Assert.Equal(80, configuration.Fields["BufferSizeMs"]);
         Assert.Equal(2, configuration.Fields["AutoPlayLaneCount"]);
         Assert.Equal(true, configuration.Fields["NoFail"]);
         Assert.Equal(true, configuration.Fields["EnableGameApi"]);

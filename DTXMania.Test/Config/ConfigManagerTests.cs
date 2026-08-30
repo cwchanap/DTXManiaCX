@@ -219,7 +219,7 @@ public class ConfigManagerTests : IDisposable
         Assert.Equal("1080", rows["ScreenHeight"]);
         Assert.Equal("True", rows["FullScreen"]);
         Assert.Equal("False", rows["VSyncWait"]);
-        Assert.Equal("200", rows["AudioLatencyOffsetMs"]);
+        Assert.Equal("0", rows["AudioLatencyOffsetMs"]);
     }
 
     [Fact]
@@ -1159,7 +1159,10 @@ Key.Bad=abc
     public void SetAudioLatency_Negative_ClampsToZero()
     {
         var cm = new ConfigManager();
+        cm.SetAudioLatency(120);
+
         cm.SetAudioLatency(-50);
+
         Assert.Equal(0, cm.Config.AudioLatencyOffsetMs);
     }
 

@@ -325,26 +325,6 @@ public sealed class CrashLogFieldPolicyTests
     }
 
     [Fact]
-    public void TryNormalizeContextProperty_ConfigurationBufferSizeMs_ShouldRetainInBounds()
-    {
-        Assert.True(Policy.TryNormalizeContextProperty(
-            CrashContextKind.Configuration, "BufferSizeMs", 30_000, out var normalized));
-        Assert.Equal(30_000, normalized);
-    }
-
-    [Fact]
-    public void TryNormalizeContextProperty_ConfigurationBufferSizeMsOutOfRange_ShouldReturnFalse()
-    {
-        Assert.False(Policy.TryNormalizeContextProperty(
-            CrashContextKind.Configuration, "BufferSizeMs", -1, out var normalized));
-        Assert.Null(normalized);
-
-        Assert.False(Policy.TryNormalizeContextProperty(
-            CrashContextKind.Configuration, "BufferSizeMs", 61_000, out normalized));
-        Assert.Null(normalized);
-    }
-
-    [Fact]
     public void TryNormalizeContextProperty_ConfigurationCounts_ShouldRetainInBounds()
     {
         Assert.True(Policy.TryNormalizeContextProperty(

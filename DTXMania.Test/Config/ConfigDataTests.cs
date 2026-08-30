@@ -23,11 +23,10 @@ public class ConfigDataTests
         Assert.Equal(100, config.MasterVolume);
         Assert.Equal(100, config.BGMVolume);
         Assert.Equal(100, config.SEVolume);
-        Assert.Equal(100, config.BufferSizeMs);
         Assert.NotNull(config.KeyBindings);
         Assert.NotNull(config.UnboundDrumButtons);
         Assert.Equal(100, config.ScrollSpeed);
-        Assert.Equal(200, config.AudioLatencyOffsetMs);
+        Assert.Equal(0, config.AudioLatencyOffsetMs);
         Assert.False(config.Metronome);
         Assert.False(config.RandomSelectFromSubBox);
         Assert.Equal(DrumsLaneDisplayMode.AllOn, config.LaneDisplayMode);
