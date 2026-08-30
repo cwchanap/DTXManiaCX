@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using DTXMania.Game.Lib.Config;
@@ -16,6 +17,13 @@ namespace DTXMania.Game.Lib.Song
         Inaccessible,
     }
 
+    internal sealed record SongRootProbeResult(
+        SongRootAvailability Availability,
+        string Reason,
+        string? ExceptionType,
+        string? ExceptionMessage,
+        int? HResult);
+
     /// <summary>
     /// The canonicalization and identity policy for configured song-library roots.
     /// Keeping this logic in one place prevents config, enumeration, and cache rebuilds
@@ -24,10 +32,15 @@ namespace DTXMania.Game.Lib.Song
     internal sealed class SongRootPolicy
     {
         private readonly StringComparer _comparer;
+        private readonly Func<string, IEnumerable<string>> _enumerateFileSystemEntries;
 
-        internal SongRootPolicy(StringComparer comparer)
+        internal SongRootPolicy(
+            StringComparer comparer,
+            Func<string, IEnumerable<string>>? enumerateFileSystemEntries = null)
         {
             _comparer = comparer ?? throw new ArgumentNullException(nameof(comparer));
+            _enumerateFileSystemEntries = enumerateFileSystemEntries ??
+                Directory.EnumerateFileSystemEntries;
         }
 
         internal static SongRootPolicy ForCurrentPlatform() =>
@@ -100,7 +113,8 @@ namespace DTXMania.Game.Lib.Song
 
                 canonicalRoots.Add(normalizedRoot);
 
-                switch (Probe(normalizedRoot))
+                var probe = Probe(normalizedRoot);
+                switch (probe.Availability)
                 {
                     case SongRootAvailability.Missing:
                         diagnostics.Add(new SongRootDiagnostic(
@@ -111,7 +125,7 @@ namespace DTXMania.Game.Lib.Song
                     case SongRootAvailability.Inaccessible:
                         diagnostics.Add(new SongRootDiagnostic(
                             normalizedRoot,
-                            $"Configured song root is inaccessible: {normalizedRoot}",
+                            $"Cannot read configured song root: {probe.Reason}.",
                             IsWarning: true));
                         break;
                 }
@@ -154,45 +168,100 @@ namespace DTXMania.Game.Lib.Song
             return true;
         }
 
-        internal SongRootAvailability Probe(string normalizedRoot)
+        internal SongRootProbeResult Probe(string normalizedRoot)
         {
-            // Directory.Exists swallows access exceptions internally and returns
-            // false for both missing and inaccessible directories, so the catch
-            // blocks below would never fire from Exists alone. Distinguish the
-            // two by attempting a read access on a directory that Exists reports
-            // as present: an inaccessible root surfaces as Inaccessible rather
-            // than being misreported as Missing.
             try
             {
-                if (!Directory.Exists(normalizedRoot))
-                    return SongRootAvailability.Missing;
+                // A file is not a valid song root. Keep this existing behavior
+                // without relying on Directory.Exists for inaccessible folders,
+                // because Exists swallows access exceptions.
+                if (File.Exists(normalizedRoot))
+                {
+                    return new SongRootProbeResult(
+                        SongRootAvailability.Missing,
+                        "directory is missing",
+                        null,
+                        null,
+                        null);
+                }
 
                 // Force a real directory read. EnumerateFileSystemEntries is
                 // documented as lazy: constructing the enumerable alone is not
                 // guaranteed to open the directory on every runtime, so advance
                 // the enumerator once to force the ACL/read check inside this
-                // try block. (On .NET 8 macOS construction already throws, but
-                // MoveNext makes the eager-read contract runtime-independent.)
-                // MoveNext returns false for an empty but readable directory;
-                // only whether it throws matters here.
-                using var entries = Directory
-                    .EnumerateFileSystemEntries(normalizedRoot)
+                // try block. MoveNext returns false for an empty but readable
+                // directory; only whether it throws matters here.
+                using var entries = _enumerateFileSystemEntries(normalizedRoot)
                     .GetEnumerator();
                 _ = entries.MoveNext();
-                return SongRootAvailability.Available;
+                return new SongRootProbeResult(
+                    SongRootAvailability.Available,
+                    string.Empty,
+                    null,
+                    null,
+                    null);
             }
-            catch (UnauthorizedAccessException)
+            catch (DirectoryNotFoundException exception)
             {
-                return SongRootAvailability.Inaccessible;
+                return CreateFailure(
+                    normalizedRoot,
+                    SongRootAvailability.Missing,
+                    "directory disappeared",
+                    exception);
             }
-            catch (IOException)
+            catch (UnauthorizedAccessException exception)
             {
-                return SongRootAvailability.Inaccessible;
+                return CreateFailure(
+                    normalizedRoot,
+                    SongRootAvailability.Inaccessible,
+                    "permission denied",
+                    exception);
             }
-            catch (System.Security.SecurityException)
+            catch (System.Security.SecurityException exception)
             {
-                return SongRootAvailability.Inaccessible;
+                return CreateFailure(
+                    normalizedRoot,
+                    SongRootAvailability.Inaccessible,
+                    "permission denied",
+                    exception);
             }
+            catch (PathTooLongException exception)
+            {
+                return CreateFailure(
+                    normalizedRoot,
+                    SongRootAvailability.Inaccessible,
+                    "path is too long",
+                    exception);
+            }
+            catch (IOException exception)
+            {
+                return CreateFailure(
+                    normalizedRoot,
+                    SongRootAvailability.Inaccessible,
+                    "filesystem I/O error",
+                    exception);
+            }
+        }
+
+        private static SongRootProbeResult CreateFailure(
+            string normalizedRoot,
+            SongRootAvailability availability,
+            string reason,
+            Exception exception)
+        {
+            var exceptionType = exception.GetType().FullName ?? exception.GetType().Name;
+            Debug.WriteLine(
+                $"SongRootPolicy: Failed to read configured song root. " +
+                $"Root path: {normalizedRoot}; " +
+                $"Exception type: {exceptionType}; " +
+                $"HResult: {exception.HResult}; " +
+                $"Exception message: {exception.Message}");
+            return new SongRootProbeResult(
+                availability,
+                reason,
+                exceptionType,
+                exception.Message,
+                exception.HResult);
         }
 
         private bool PathsEqual(string first, string second)

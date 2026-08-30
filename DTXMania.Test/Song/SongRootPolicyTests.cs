@@ -87,13 +87,100 @@ public sealed class SongRootPolicyTests
 
             Assert.Equal(
                 SongRootAvailability.Available,
-                policy.Probe(Path.GetFullPath(available)));
+                policy.Probe(Path.GetFullPath(available)).Availability);
             Assert.Equal(
                 SongRootAvailability.Missing,
-                policy.Probe(Path.GetFullPath(missing)));
+                policy.Probe(Path.GetFullPath(missing)).Availability);
             Assert.False(Directory.Exists(missing));
         });
     }
+
+    [Theory]
+    [InlineData(
+        "directory-not-found",
+        "Missing",
+        "directory disappeared")]
+    [InlineData(
+        "unauthorized",
+        "Inaccessible",
+        "permission denied")]
+    [InlineData(
+        "security",
+        "Inaccessible",
+        "permission denied")]
+    [InlineData(
+        "path-too-long",
+        "Inaccessible",
+        "path is too long")]
+    [InlineData(
+        "io",
+        "Inaccessible",
+        "filesystem I/O error")]
+    public void Probe_WhenEnumerationFails_ShouldClassifyAndRetainTechnicalDetails(
+        string failure,
+        string expectedAvailability,
+        string expectedReason)
+    {
+        WithTemporaryDirectory(root =>
+        {
+            var exception = CreateProbeException(failure);
+            var policy = new SongRootPolicy(
+                SongRootPolicy.CreateComparer(false),
+                _ => throw exception);
+
+            var result = policy.Probe(root);
+
+            Assert.Equal(
+                Enum.Parse<SongRootAvailability>(expectedAvailability),
+                result.Availability);
+            Assert.Equal(expectedReason, result.Reason);
+            Assert.Equal(exception.GetType().FullName, result.ExceptionType);
+            Assert.Equal(exception.Message, result.ExceptionMessage);
+            Assert.Equal((int?)exception.HResult, result.HResult);
+        });
+    }
+
+    [Theory]
+    [InlineData(
+        "unauthorized",
+        "Cannot read configured song root: permission denied.")]
+    [InlineData(
+        "security",
+        "Cannot read configured song root: permission denied.")]
+    [InlineData(
+        "path-too-long",
+        "Cannot read configured song root: path is too long.")]
+    [InlineData(
+        "io",
+        "Cannot read configured song root: filesystem I/O error.")]
+    public void Validate_WhenRootProbeFails_ShouldKeepWarningNonBlockingAndUseReason(
+        string failure,
+        string expectedMessage)
+    {
+        WithTemporaryDirectory(root =>
+        {
+            var policy = new SongRootPolicy(
+                SongRootPolicy.CreateComparer(false),
+                _ => throw CreateProbeException(failure));
+
+            var result = policy.Validate([root]);
+            var diagnostic = Assert.Single(result.Diagnostics);
+
+            Assert.True(result.IsValid);
+            Assert.True(diagnostic.IsWarning);
+            Assert.Equal(expectedMessage, diagnostic.Message);
+        });
+    }
+
+    private static Exception CreateProbeException(string failure) => failure switch
+    {
+        "directory-not-found" => new DirectoryNotFoundException("root disappeared"),
+        "unauthorized" => new UnauthorizedAccessException("access denied"),
+        "security" => new System.Security.SecurityException("security denied"),
+        "path-too-long" => new PathTooLongException("path exceeded the limit"),
+        "io" => new IOException("filesystem read failed", unchecked((int)0x80070020)),
+        _ => throw new ArgumentOutOfRangeException(nameof(failure), failure, null),
+    };
 
     [Fact]
     public void SetSongRoots_ShouldPersistCanonicalRootsBeforeRaisingOneEvent()
@@ -322,7 +409,7 @@ public sealed class SongRootPolicyTests
                 Assert.Equal([restricted], result.CanonicalRoots);
                 Assert.Contains(result.Diagnostics, diagnostic =>
                     diagnostic.IsWarning &&
-                    diagnostic.Message.Contains("inaccessible", StringComparison.OrdinalIgnoreCase));
+                    diagnostic.Message.Contains("permission denied", StringComparison.OrdinalIgnoreCase));
             }
             finally
             {
@@ -347,7 +434,7 @@ public sealed class SongRootPolicyTests
 
                 Assert.Equal(
                     SongRootAvailability.Inaccessible,
-                    policy.Probe(restricted));
+                    policy.Probe(restricted).Availability);
             }
             finally
             {

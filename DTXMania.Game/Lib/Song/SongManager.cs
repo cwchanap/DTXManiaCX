@@ -1024,16 +1024,16 @@ namespace DTXMania.Game.Lib.Song
             var activeRoots = new List<string>();
             foreach (var normalizedRoot in validation.CanonicalRoots)
             {
-                var availability = RootPolicy.Probe(normalizedRoot);
-                if (availability == SongRootAvailability.Available)
+                var probe = RootPolicy.Probe(normalizedRoot);
+                if (probe.Availability == SongRootAvailability.Available)
                 {
                     activeRoots.Add(normalizedRoot);
                     continue;
                 }
 
-                var message = availability == SongRootAvailability.Missing
+                var message = probe.Availability == SongRootAvailability.Missing
                     ? $"Configured song root does not exist: {normalizedRoot}"
-                    : $"Configured song root is inaccessible: {normalizedRoot}";
+                    : $"Cannot read configured song root: {probe.Reason}.";
                 var error = new SongEnumerationError(
                     normalizedRoot,
                     message,
@@ -1751,7 +1751,8 @@ namespace DTXMania.Game.Lib.Song
                 var configuredRoots = RootPolicy.Validate(searchPaths)
                     .CanonicalRoots;
                 var availableRoots = configuredRoots
-                    .Where(root => RootPolicy.Probe(root) == SongRootAvailability.Available)
+                    .Where(root =>
+                        RootPolicy.Probe(root).Availability == SongRootAvailability.Available)
                     .ToArray();
 
                 if (availableRoots.Length == 0)
@@ -3733,7 +3734,7 @@ namespace DTXMania.Game.Lib.Song
                 {
                     if (string.IsNullOrEmpty(searchPath))
                         continue;
-                    if (RootPolicy.Probe(searchPath) == SongRootAvailability.Available)
+                    if (RootPolicy.Probe(searchPath).Availability == SongRootAvailability.Available)
                         availableRoots.Add(searchPath);
                     else
                         Debug.WriteLine($"SongManager: Configured root unavailable, skipping freshness check: {searchPath}");
