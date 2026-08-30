@@ -269,6 +269,46 @@ public sealed class SongFolderPanelTests
     }
 
     [Fact]
+    public void Draw_WhenWarningExceedsStatusWidth_ShouldWrapAndEllipsizeSecondLine()
+    {
+        var missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"dtxmania-panel-long-root-{Guid.NewGuid():N}",
+            new string('r', 120));
+        var panel = CreatePanel(new[] { missingPath });
+        panel.Activate();
+
+        var font = new Mock<IFont>();
+        font.Setup(value => value.MeasureString(It.IsAny<string>()))
+            .Returns<string>(value => new Vector2(value.Length * 8f, 14f));
+        font.SetupGet(value => value.LineSpacing).Returns(14f);
+        var spriteBatch = CreateUninitializedSpriteBatch();
+
+        try
+        {
+            panel.Draw(spriteBatch, font.Object, boldFont: null, whitePixel: null,
+                virtualWidth: 1280, virtualHeight: 720);
+
+            var statusColor = new Color(255, 196, 96);
+            var statusLines = font.Invocations
+                .Where(invocation => invocation.Method.Name == nameof(IFont.DrawString))
+                .Where(invocation => (Color)invocation.Arguments[3] == statusColor)
+                .Select(invocation => (string)invocation.Arguments[1])
+                .ToArray();
+
+            Assert.Equal(2, statusLines.Length);
+            Assert.EndsWith("...", statusLines[1], StringComparison.Ordinal);
+            Assert.All(statusLines, line => Assert.True(
+                font.Object.MeasureString(line).X <= 720f,
+                $"Status line exceeds the panel width: {line}"));
+        }
+        finally
+        {
+            GC.SuppressFinalize(spriteBatch);
+        }
+    }
+
+    [Fact]
     public void AddFolder_WhenPickerIsCancelled_ShouldLeaveDraftAndPanelUnchanged()
     {
         using var root = TemporaryDirectory.Create();
