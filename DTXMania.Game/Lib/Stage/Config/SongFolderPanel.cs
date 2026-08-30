@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
+using DTXMania.Game.Lib.Utilities;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
@@ -236,8 +237,41 @@ namespace DTXMania.Game.Lib.Stage.Config
             if (!string.IsNullOrWhiteSpace(StatusMessage))
             {
                 var color = _statusIsWarning ? WarningTextColor : ErrorTextColor;
-                font?.DrawString(spriteBatch, StatusMessage,
-                    new Vector2(boardX + RowPadding, boardY + BoardHeight - 64), color);
+                if (font != null)
+                {
+                    var statusWidth = BoardWidth - (RowPadding * 2);
+                    var words = StatusMessage.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    var firstLine = string.Empty;
+                    var wordIndex = 0;
+                    while (wordIndex < words.Length)
+                    {
+                        var candidate = firstLine.Length == 0
+                            ? words[wordIndex]
+                            : $"{firstLine} {words[wordIndex]}";
+                        if (firstLine.Length > 0 && font.MeasureString(candidate).X > statusWidth)
+                            break;
+
+                        firstLine = candidate;
+                        wordIndex++;
+                    }
+
+                    var statusPosition = new Vector2(boardX + RowPadding, boardY + BoardHeight - 64);
+                    if (firstLine.Length > 0)
+                        font.DrawString(spriteBatch, firstLine, statusPosition, color);
+
+                    if (wordIndex < words.Length)
+                    {
+                        var secondLine = TextHelper.TruncateToWidth(
+                            string.Join(' ', words, wordIndex, words.Length - wordIndex),
+                            statusWidth,
+                            font);
+                        if (secondLine.Length > 0)
+                        {
+                            font.DrawString(spriteBatch, secondLine,
+                                statusPosition + new Vector2(0, font.LineSpacing), color);
+                        }
+                    }
+                }
             }
 
             var instruction = _pickerCancellation == null
