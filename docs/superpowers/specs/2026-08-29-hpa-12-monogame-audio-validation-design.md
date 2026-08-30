@@ -213,9 +213,9 @@ Bluetooth is not a gate.
 Use the same known-good long chart where practical and fix:
 
 ```text
-Play Speed            = 100%
-Pitch                  = 0 st
-Audio Latency Offset   = 0 ms initially
+Play Speed             = 100%
+Pitch                   = 0 st
+Audio Latency Offset    = 0 ms initially
 ```
 
 The chart should have clear chip attacks, recognizable BGM/visual alignment, enough duration to expose progressive drift, and a pause/resume opportunity.
