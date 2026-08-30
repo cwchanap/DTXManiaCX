@@ -280,8 +280,8 @@ public sealed class SongFolderPanelTests
 
         var font = new Mock<IFont>();
         font.Setup(value => value.MeasureString(It.IsAny<string>()))
-            .Returns<string>(value => new Vector2(value.Length * 8f, 14f));
-        font.SetupGet(value => value.LineSpacing).Returns(14f);
+            .Returns<string>(value => new Vector2(value.Length * 8f, 27f));
+        font.SetupGet(value => value.LineSpacing).Returns(27f);
         var spriteBatch = CreateUninitializedSpriteBatch();
 
         try
@@ -289,18 +289,28 @@ public sealed class SongFolderPanelTests
             panel.Draw(spriteBatch, font.Object, boldFont: null, whitePixel: null,
                 virtualWidth: 1280, virtualHeight: 720);
 
-            var statusColor = new Color(255, 196, 96);
-            var statusLines = font.Invocations
+            var drawCalls = font.Invocations
                 .Where(invocation => invocation.Method.Name == nameof(IFont.DrawString))
-                .Where(invocation => (Color)invocation.Arguments[3] == statusColor)
-                .Select(invocation => (string)invocation.Arguments[1])
+                .Select(invocation => (
+                    Text: (string)invocation.Arguments[1],
+                    Position: (Vector2)invocation.Arguments[2],
+                    Color: (Color)invocation.Arguments[3]))
                 .ToArray();
 
+            var statusColor = new Color(255, 196, 96);
+            var statusLines = drawCalls.Where(call => call.Color == statusColor).ToArray();
             Assert.Equal(2, statusLines.Length);
-            Assert.EndsWith("...", statusLines[1], StringComparison.Ordinal);
+            Assert.EndsWith("...", statusLines[1].Text, StringComparison.Ordinal);
             Assert.All(statusLines, line => Assert.True(
-                font.Object.MeasureString(line).X <= 720f,
-                $"Status line exceeds the panel width: {line}"));
+                font.Object.MeasureString(line.Text).X <= 720f,
+                $"Status line exceeds the panel width: {line.Text}"));
+
+            var instruction = Assert.Single(drawCalls.Where(call =>
+                call.Text == "UP/DOWN: Navigate | ENTER: Select | ESC: Cancel"));
+            var statusBottom = statusLines.Max(line =>
+                line.Position.Y + font.Object.MeasureString(line.Text).Y);
+            Assert.True(statusBottom <= instruction.Position.Y,
+                $"Status block bottom ({statusBottom}) must not overlap instruction top ({instruction.Position.Y})");
         }
         finally
         {
