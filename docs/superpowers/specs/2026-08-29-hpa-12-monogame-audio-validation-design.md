@@ -21,8 +21,8 @@ No replacement audio engine is introduced unless later evidence justifies a sepa
 - Change fresh/default `AudioLatencyOffsetMs` from `200` to `0` without migrating existing persisted values.
 - Preserve the existing `0..500 ms`, `10 ms` step latency control.
 - Keep compensation in `PerformanceStage.GetPlayerJudgementTimeMs(...)`.
-- Record concrete Windows/macOS playback observations before PR #159 leaves Draft.
-- Keep all planning, cleanup, validation evidence, and review fixes in one HPA-12 PR.
+- Keep all planning, cleanup, and review fixes in one HPA-12 PR.
+- Defer the real-device Windows/macOS playback observations to a later follow-up run by owner decision (see `Real-device validation gate` below); they are no longer a Draft gate for PR #159.
 
 ## Non-goals
 
@@ -196,15 +196,17 @@ Do **not** alter `JudgementManager.HitDetectionWindowMs = 200.0` or its ±200 ms
 
 This remains a practical acceptance check, not a benchmark framework. It is deliberately partly human because physical audible offset and chip response are the product experience being validated.
 
+> **Status (owner decision, 2026-08-30):** The real-device validation rows below are **deferred** and are no longer a Draft gate for PR #159. The PR may be reviewed and merged without the Windows/macOS/USB wired/default observations. The procedure, environments, and result table below are retained as the acceptance checklist for the deferred follow-up run; the `Validation Results` checkboxes stay unchecked until that run happens. The cleanup and default-neutralization work in this PR does not depend on the deferred observations.
+
 ### Required environments
 
-Before PR #159 leaves Draft:
+For the deferred follow-up run, cover:
 
 1. Windows, normal/default **wired** output;
 2. macOS, normal/default **wired** output;
 3. one USB audio interface if readily available; otherwise record that it was unavailable.
 
-Windows and macOS are required supported-platform evidence. Do not replace the Windows row with an "unavailable" escape hatch; that would weaken the ticket's acceptance criteria. Keep the PR Draft until both required rows exist.
+Windows and macOS are the required supported-platform evidence for the follow-up. Do not replace the Windows row with an "unavailable" escape hatch; that would weaken the follow-up's acceptance criteria.
 
 Bluetooth is not a gate.
 
@@ -253,6 +255,8 @@ A `follow-up required` row must state the observed defect and repeatability. If 
 
 ## Validation Results
 
+> Deferred by owner decision (2026-08-30). These rows are not a Draft gate for PR #159 and will be filled in during the deferred follow-up run.
+
 - [ ] Windows wired/default output observation recorded.
 - [ ] macOS wired/default output observation recorded.
 - [ ] USB interface observation recorded, or unavailability explicitly recorded.
@@ -291,7 +295,7 @@ git grep -n "BufferSizeMs" -- ':!docs/superpowers/**'
 # expected: no output
 ```
 
-Run focused config/crash/timing tests on the available host, then the normal full test/build gate for that host. Before the PR leaves Draft, repeat the relevant full gate on both required validation platforms together with the hardware observation.
+Run focused config/crash/timing tests on the available host, then the normal full test/build gate for that host. The deferred real-device validation run (see `Real-device validation gate`) is no longer a merge gate for PR #159; it is performed in a follow-up and records its own platform results.
 
 ## Follow-up rule
 

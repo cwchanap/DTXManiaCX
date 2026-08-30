@@ -1,8 +1,10 @@
 # HPA-12 MonoGame Audio Validation and Stale Setting Cleanup Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans`. Keep planning, implementation, validation evidence, and review fixes on this same PR.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans`. Keep planning, implementation, and review fixes on this same PR.
 
-**Goal:** Remove dead audio-buffer configuration/diagnostics, make fresh/default latency compensation neutral (`0 ms`), preserve the existing judgement-only offset seam, and validate the unchanged MonoGame transport on Windows and macOS hardware.
+> **Owner decision (2026-08-30):** The real-device hardware validation in Task 2 is **deferred** and is no longer a Draft/merge gate for PR #159. Task 2's procedure and checklist are retained for the deferred follow-up run; PR #159 may be reviewed and merged on the strength of Task 1 (cleanup + default neutralization + automated regression updates) alone.
+
+**Goal:** Remove dead audio-buffer configuration/diagnostics, make fresh/default latency compensation neutral (`0 ms`), preserve the existing judgement-only offset seam, and (deferred to a follow-up) validate the unchanged MonoGame transport on Windows and macOS hardware.
 
 **Architecture:** No new audio abstraction. MonoGame `SoundEffectInstance` remains transport; `SongTimer`/`PlaybackClock` remains logical chart time; `PerformanceStage.GetPlayerJudgementTimeMs(...)` remains manual latency compensation. If a hardware run shows drift after a long hitch, investigate the fixed-step clock before blaming the audio backend.
 
@@ -20,7 +22,7 @@
 - Keep the current `0..500 ms` / `10 ms` manual control.
 - Preserve `JudgementManager.HitDetectionWindowMs = 200.0`.
 - Production clock/audio architecture remains unchanged in this ticket.
-- Windows wired/default and macOS wired/default observations are required before the PR leaves Draft. USB is optional when available.
+- Windows wired/default and macOS wired/default observations are **deferred** by owner decision and are no longer a Draft/merge gate for PR #159; USB remains optional when available. Task 2 retains the procedure for the deferred follow-up run.
 
 ---
 
@@ -168,11 +170,13 @@ Use the equivalent Windows test project on Windows.
 
 Then run the normal full test/build gate for the available host.
 
-**Task 1 gate:** code cleanup is independently correct and tested, but keep PR #159 Draft because HPA-12 is not complete until Task 2 hardware evidence exists.
+**Task 1 gate:** code cleanup is independently correct and tested. Per the owner decision above, the Task 2 hardware evidence is deferred and is not a Draft/merge gate for PR #159; Task 1 completion is sufficient to move the PR forward for review/merge.
 
 ---
 
 ## Task 2: Validate the unchanged MonoGame transport on real hardware
+
+> **Deferred by owner decision (2026-08-30).** This task is no longer a Draft/merge gate for PR #159. The steps below are the procedure for the deferred follow-up run; they do not block review or merge of the Task 1 cleanup.
 
 **Modify only:**
 
@@ -210,7 +214,7 @@ Use the same known-good long chart where practical.
 
 ### 3. Run the required wired smoke
 
-Required environments:
+Environments to cover in the deferred follow-up run:
 
 ```text
 Windows wired/default output
@@ -264,12 +268,9 @@ A failure row must state the repeatable symptom. It does not prescribe a backend
 
 ### 6. Final verification
 
-Before moving PR #159 out of Draft:
+PR #159 merge gate (Task 1 cleanup; hardware rows deferred by owner decision):
 
 ```text
-[ ] Windows wired/default row recorded
-[ ] macOS wired/default row recorded
-[ ] USB row recorded or unavailability stated
 [ ] no BufferSizeMs live references
 [ ] fresh/default AudioLatencyOffsetMs == 0
 [ ] zero-offset runtime semantics test passes
@@ -279,4 +280,12 @@ Before moving PR #159 out of Draft:
 [ ] no audio/clock architecture expansion in HPA-12
 ```
 
-If a required row is `follow-up required`, create one separate Linear task describing the observed defect and keep HPA-12's implementation scope unchanged.
+Deferred follow-up run checklist (not a PR #159 merge gate):
+
+```text
+[ ] Windows wired/default row recorded
+[ ] macOS wired/default row recorded
+[ ] USB row recorded or unavailability stated
+```
+
+If a deferred run row is `follow-up required`, create one separate Linear task describing the observed defect and keep HPA-12's implementation scope unchanged.
