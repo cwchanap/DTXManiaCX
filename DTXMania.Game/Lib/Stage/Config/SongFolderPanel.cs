@@ -255,11 +255,14 @@ namespace DTXMania.Game.Lib.Stage.Config
                         wordIndex++;
                     }
 
-                    var statusPosition = new Vector2(boardX + RowPadding, boardY + BoardHeight - 64);
+                    var hasSecondLine = wordIndex < words.Length;
+                    var statusPosition = new Vector2(
+                        boardX + RowPadding,
+                        boardY + BoardHeight - 64 - (hasSecondLine ? font.LineSpacing : 0));
                     if (firstLine.Length > 0)
                         font.DrawString(spriteBatch, firstLine, statusPosition, color);
 
-                    if (wordIndex < words.Length)
+                    if (hasSecondLine)
                     {
                         var secondLine = TextHelper.TruncateToWidth(
                             string.Join(' ', words, wordIndex, words.Length - wordIndex),
