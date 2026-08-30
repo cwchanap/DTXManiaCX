@@ -19,7 +19,6 @@ internal sealed class CrashLogFieldPolicy
     private const int MaximumContextMetadataLength = 256;
     private const int MaximumReportedDimension = 16_384;
     private const int MaximumReportedCount = 100_000;
-    private const int MaximumBufferMilliseconds = 60_000;
 
     /// <summary>
     /// Every property name a breadcrumb or log call may carry into a crash report. A name that is
@@ -259,12 +258,6 @@ internal sealed class CrashLogFieldPolicy
         {
             case "ScreenWidth" when TryNormalizeDimension(value, out normalizedValue):
             case "ScreenHeight" when TryNormalizeDimension(value, out normalizedValue):
-                return true;
-
-            case "BufferSizeMs" when value is int bufferSizeMs
-                                     && bufferSizeMs >= 0
-                                     && bufferSizeMs <= MaximumBufferMilliseconds:
-                normalizedValue = bufferSizeMs;
                 return true;
 
             case "KeyBindingCount" when TryNormalizeCount(value, out normalizedValue):

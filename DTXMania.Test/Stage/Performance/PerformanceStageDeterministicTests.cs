@@ -973,6 +973,24 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void GetPlayerJudgementTimeMs_WhenDefaultOffsetIsZero_ShouldReturnRawTime()
+    {
+        var game = ReflectionHelpers.CreateGame();
+        ReflectionHelpers.SetProperty(
+            game,
+            nameof(BaseGame.ConfigManager),
+            CreateConfigManager(new ConfigData()));
+        var stage = CreateStage(game);
+
+        Assert.Equal(
+            1000.0,
+            ReflectionHelpers.InvokePrivateMethod<double>(
+                stage,
+                "GetPlayerJudgementTimeMs",
+                1000.0));
+    }
+
+    [Fact]
     public void UpdateGameplayManagers_WhenAutoPlayDisabled_ShouldStillAdvanceMissDetection()
     {
         var stage = CreateStage();
@@ -1872,8 +1890,10 @@ public class PerformanceStageDeterministicTests
         var telemetry = new GameTelemetrySnapshot();
         stage.PopulateTelemetry(telemetry);
 
-        // SongTimer is playing with _startTime=Zero, so GetCurrentMs = 2000 - 0 = 2000,
-        // minus the AudioLatencyOffsetMs compensation inside SongTimer.GetCurrentMs.
+        // SongTimer is playing with _startTime=Zero, so GetCurrentMs = 2000 - 0 = 2000.
+        // Telemetry reports the raw clock: latency compensation happens in
+        // PerformanceStage.GetPlayerJudgementTimeMs (player judgement only),
+        // never inside SongTimer.GetCurrentMs.
         Assert.True(telemetry.CurrentSongTimeMs > 0.0);
         Assert.True(telemetry.PerformanceReady);
     }

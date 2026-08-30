@@ -159,39 +159,5 @@ namespace DTXMania.Test.Config
         }
 
         #endregion
-
-        #region Sound Settings – Buffer Size
-
-        [Fact]
-        public void ConfigData_BufferSizeMs_DefaultShouldBe100()
-        {
-            var config = new ConfigData();
-            Assert.Equal(100, config.BufferSizeMs);
-        }
-
-        [Theory]
-        [InlineData(50)]
-        [InlineData(100)]
-        [InlineData(200)]
-        [InlineData(512)]
-        public void ConfigData_SetBufferSizeMs_ShouldUpdateCorrectly(int bufferSize)
-        {
-            var config = new ConfigData();
-            config.BufferSizeMs = bufferSize;
-            Assert.Equal(bufferSize, config.BufferSizeMs);
-        }
-
-        [Theory]
-        [InlineData(0)]
-        [InlineData(-1)]
-        [InlineData(-512)]
-        public void ConfigData_SetBufferSizeMs_NegativeOrZero_ShouldPreserveValue(int bufferSize)
-        {
-            var config = new ConfigData();
-            config.BufferSizeMs = bufferSize;
-            Assert.Equal(bufferSize, config.BufferSizeMs);
-        }
-
-        #endregion
     }
 }

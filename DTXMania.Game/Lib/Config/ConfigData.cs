@@ -54,7 +54,8 @@ namespace DTXMania.Game.Lib.Config
         public int MasterVolume { get; set; } = 100;
         public int BGMVolume { get; set; } = 100;
         public int SEVolume { get; set; } = 100;
-        public int BufferSizeMs { get; set; } = 100;        // Input settings
+
+        // Input settings
         public Dictionary<string, int> KeyBindings { get; set; } = new();
         public HashSet<int> UnboundDrumLanes { get; set; } = new();
         public HashSet<string> UnboundDrumButtons { get; set; } = new();
@@ -83,26 +84,18 @@ namespace DTXMania.Game.Lib.Config
         public bool ShowHitTimingFeedback { get; set; } = false;
 
         /// <summary>
-        /// Audio output latency compensation in milliseconds. This value is subtracted from
-        /// the raw song clock when evaluating player input timing, so that judgement windows
-        /// are aligned with what the player actually hears rather than when audio was submitted
-        /// to the output buffer.
-        /// <para>
-        /// SongTimer returns wall-clock time since Play() was called — the moment audio was
-        /// queued. The actual audible output lags behind by the audio buffer + driver latency.
-        /// On MonoGame DesktopGL (OpenAL) with BufferSizeMs=100, total output latency is
-        /// typically 100-200ms. Without compensation, a player with perfect reaction time
-        /// would always be judged ~200ms late because the clock reads T+200 but the note
-        /// they're reacting to was heard at T.
-        /// </para>
+        /// Optional manual audio output latency compensation in milliseconds. This value is
+        /// subtracted from the raw song clock when evaluating player input timing, so that
+        /// judgement windows are aligned with what the player actually hears rather than when
+        /// audio was submitted for playback. <c>0</c> means no compensation.
         /// <para>
         /// This offset only affects player judgement timing. Autoplay, note visuals, BGM
         /// events, song progress, and stage completion all use the raw song clock to stay
         /// synchronized with the chart. Equivalent to DTXManiaNX's nInputAdjustTimeMs
-        /// (which defaults to 0 and is user-configured in range -99..+99).
+        /// (which also defaults to 0 and is user-configured).
         /// </para>
         /// </summary>
-        public int AudioLatencyOffsetMs { get; set; } = 200;
+        public int AudioLatencyOffsetMs { get; set; } = 0;
 
         // API settings
         /// <summary>
