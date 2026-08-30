@@ -163,7 +163,7 @@ public sealed class SongRootPolicyAdditionalTests
             File.WriteAllText(filePath, "x");
             var policy = new SongRootPolicy(SongRootPolicy.CreateComparer(false));
 
-            Assert.Equal(SongRootAvailability.Missing, policy.Probe(filePath));
+            Assert.Equal(SongRootAvailability.Missing, policy.Probe(filePath).Availability);
         });
     }
 
