@@ -201,8 +201,8 @@ dotnet build DTXMania.Game/DTXMania.Game.Windows.csproj --no-restore
 For every run:
 
 ```text
-Play Speed          = 100%
-Pitch               = 0 st
+Play Speed           = 100%
+Pitch                = 0 st
 Audio Latency Offset = 0 ms initially
 ```
 
