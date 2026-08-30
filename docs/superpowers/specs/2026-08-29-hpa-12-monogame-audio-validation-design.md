@@ -4,71 +4,69 @@
 
 HPA-12 is a validation-and-cleanup ticket, not an audio-backend project.
 
-CX already has one cross-platform playback path built on MonoGame `SoundEffect` / `SoundEffectInstance`. Windows uses the WindowsDX MonoGame target and macOS uses DesktopGL. `SongTimer` starts, pauses, resumes, and stops the `SoundEffectInstance` while `PlaybackClock` owns the logical chart clock. `PerformanceStage` applies `AudioLatencyOffsetMs` only to manual player judgement/chip lookup/miss timing; autoplay, BGM scheduling, chart visuals, progress, video, and completion stay on the raw logical chart clock.
+CX already has one cross-platform playback path built on MonoGame `SoundEffect` / `SoundEffectInstance`. Windows uses `MonoGame.Framework.WindowsDX`; macOS uses `MonoGame.Framework.DesktopGL`. `SongTimer` starts, pauses, resumes, and stops the audio instance while `PlaybackClock` owns logical chart time. `PerformanceStage.GetPlayerJudgementTimeMs(...)` applies the user-configured `AudioLatencyOffsetMs` only to manual judgement/chip lookup/miss timing.
 
-The current configuration still contains one stale NX-era-looking property:
+The ticket should therefore do three things only:
 
-```csharp
-public int BufferSizeMs { get; set; } = 100;
-```
+1. remove the dead `BufferSizeMs` config/diagnostic surface;
+2. use a neutral fresh/default `AudioLatencyOffsetMs = 0` while preserving the existing manual adjustment;
+3. validate the existing MonoGame transport on real Windows/macOS hardware before closing the ticket.
 
-`BufferSizeMs` is not consumed by playback and is not persisted by `ConfigManager`, but it is still copied into crash-report configuration context and accepted by `CrashLogFieldPolicy`. Several tests also pin those stale crash/config behaviors. Removing the field therefore requires deleting the whole dead diagnostic surface in the same change; it does **not** require a replacement setting or persistence migration.
-
-`AudioLatencyOffsetMs` is different: it is persisted, exposed in the config UI, and used by `PerformanceStage`. Keep it, but remove the unsupported assumption that a hard-coded `200 ms` compensation is a defensible cross-platform default. Fresh/default configuration should use `0 ms`; players can opt into compensation when their actual output path needs it.
+No replacement audio engine is introduced unless later evidence justifies a separately scoped task.
 
 ## Goals
 
-1. Validate the existing MonoGame playback path on representative real devices before declaring it acceptable.
-2. Keep the current MonoGame playback implementation unless validation exposes a concrete blocking defect.
-3. Remove `BufferSizeMs` completely from live config, crash diagnostics, field policy, and tests because CX cannot configure or observe an audio buffer through its current playback path.
-4. Change the fresh/default `AudioLatencyOffsetMs` value from `200` to the neutral `0` and make comments describe only behavior the code actually owns.
-5. Preserve the existing manual `Audio Latency Offset` setting and its judgement-only semantics.
-6. Keep the implementation small enough for one focused PR and comfortably below three engineer days.
+- Keep the existing MonoGame playback path unless a required hardware run exposes a repeatable product problem.
+- Remove `BufferSizeMs` from config, crash diagnostics/policy, and tests; do not rename or replace it.
+- Change fresh/default `AudioLatencyOffsetMs` from `200` to `0` without migrating existing persisted values.
+- Preserve the existing `0..500 ms`, `10 ms` step latency control.
+- Keep compensation in `PerformanceStage.GetPlayerJudgementTimeMs(...)`.
+- Record concrete Windows/macOS playback observations before PR #159 leaves Draft.
+- Keep all planning, cleanup, validation evidence, and review fixes in one HPA-12 PR.
 
 ## Non-goals
 
-HPA-12 does **not** add or prototype:
+Do **not** add or prototype:
 
-- DirectSound, ASIO, WASAPI, BASS, NAudio, or another native playback backend;
-- an `IAudioEngine`, backend registry, device manager, or plugin system;
-- buffer-size configuration;
-- output-device selection;
-- automatic latency measurement or calibration;
-- per-device latency profiles;
-- a latency benchmark harness;
-- changes to Play Speed, pitch processing, chart timing, judgement windows, or MIDI/input timing;
-- `UseOSTimer` or another clock source.
+- DirectSound, ASIO, WASAPI, BASS, NAudio, or another playback dependency;
+- `IAudioEngine`, backend/device registries, output-device selection, or plugin APIs;
+- audio-buffer configuration;
+- automatic calibration or per-device latency profiles;
+- a latency benchmark/instrumentation harness;
+- negative latency offsets or separate input/output offsets;
+- a new timer/clock source in this ticket;
+- changes to Play Speed, pitch processing, chart parsing, judgement windows, or MIDI/input timing.
 
-If real-device validation finds a concrete problem that cannot be solved by the existing judgement offset or current MonoGame transport, record the evidence and create a separate follow-up. Do not widen HPA-12 to solve it.
+A later task may investigate the clock or playback backend if HPA-12 produces evidence for it. Do not expand this PR to implement that follow-up.
 
 ## Verified current architecture
 
-### Playback is already MonoGame-owned
+### Playback is MonoGame-owned
 
-`DTXMania.Game/Lib/Resources/ManagedSound.cs` decodes supported source media and creates a MonoGame `SoundEffect`. Playback is performed by `SoundEffectInstance.Play()` / `Pause()` / `Resume()` / `Stop()`.
+`ManagedSound` produces MonoGame `SoundEffect` objects and playback uses `SoundEffectInstance`. FFmpeg/NVorbis are decode/conversion dependencies, not alternate runtime playback backends.
 
-FFmpeg and NVorbis are decode/conversion dependencies here, not alternate runtime playback engines.
-
-Platform projects select the MonoGame implementation:
+Platform selection already happens at the project level:
 
 ```text
-Windows: MonoGame.Framework.WindowsDX 3.8.*
-macOS:   MonoGame.Framework.DesktopGL 3.8.*
+Windows -> MonoGame.Framework.WindowsDX 3.8.*
+macOS   -> MonoGame.Framework.DesktopGL 3.8.*
 ```
 
-No HPA-12 code should bypass these project-level platform choices.
+No HPA-12 production code should bypass those platform choices.
 
-### Logical chart time and audio transport are intentionally separate
+### Logical chart time is not an audio cursor
 
 `SongTimer` owns an optional `SoundEffectInstance` plus a `PlaybackClock`.
 
-On `Play`, `Pause`, `Resume`, and `Stop`, it updates both the audio instance and the logical clock. `GetCurrentMs(...)` returns the logical clock position; it does not query an audio-device playback cursor. `SetPosition(...)` changes logical chart time only because `SoundEffectInstance` does not expose seeking.
+- `Play`, `Pause`, `Resume`, and `Stop` coordinate the transport and logical clock.
+- `GetCurrentMs(GameTime)` returns `PlaybackClock` time, not audio-device playback position.
+- `SetPosition(...)` changes logical chart time only; `SoundEffectInstance` has no seek path here.
 
-This means HPA-12's validation question is whether the existing transport stays usable and stable enough for CX. It is **not** an invitation to derive a second clock from the audio backend.
+This separation is existing behavior and remains unchanged.
 
-### `AudioLatencyOffsetMs` is a manual judgement correction
+### Latency compensation stays judgement-only
 
-`PerformanceStage` already uses two timing views:
+The runtime has two timing views:
 
 ```text
 raw logical chart time
@@ -77,21 +75,19 @@ raw logical chart time
   -> note visuals
   -> progress/completion
 
-latency-compensated player judgement time
-  -> manual judgement
-  -> manual chip lookup
-  -> pending-hit / miss timing
+latency-compensated manual time
+  -> player judgement
+  -> player chip lookup
+  -> pending-hit/miss timing
 ```
 
-The offset remains expressed as real milliseconds. `PerformanceStage` converts it to logical chart time according to the frozen Play Speed profile before subtracting it from the raw clock.
+`AudioLatencyOffsetMs` is expressed in real milliseconds. `GetPlayerJudgementTimeMs(...)` converts it for the frozen Play Speed profile before subtracting it.
 
-This is the correct seam to keep. Do not move compensation into `SongTimer`, `PlaybackClock`, `ManagedSound`, or chart parsing.
+The setting does **not** move chart visuals and does **not** reduce physical input-to-speaker chip latency. Validation must keep those observations separate.
 
-Important limitation for validation: the setting does **not** delay chart visuals or reduce physical chip-sound output latency. It only corrects the manual judgement timeline. Therefore a small fixed output delay at `0 ms` is not automatically a MonoGame transport failure, but an audio/visual or chip-response delay that remains materially unplayable is still valid evidence for a follow-up.
+### `BufferSizeMs` is dead playback config but still live diagnostic data
 
-### `BufferSizeMs` is dead playback configuration but still live diagnostic data
-
-Current `main` references `BufferSizeMs` in the following live surfaces:
+Current `main` references `BufferSizeMs` in:
 
 ```text
 Production
@@ -107,291 +103,203 @@ Tests
   DTXMania.Test/CrashReporting/CrashLogFieldPolicyTests.cs
 ```
 
-It is absent from `ConfigManager` parsing/snapshot persistence and absent from the playback path. The Mac test project explicitly compiles `**/*.cs` apart from a narrow exclusion list, so the config/crash tests above are part of that suite too.
+It is absent from `ConfigManager` parsing/snapshot persistence and absent from playback. Remove the entire stale surface together. Delete `MaximumBufferMilliseconds` with the policy case and delete the `ConfigDataApiSettingsTests` buffer-size region.
 
-Removal therefore means deleting the diagnostic field/policy cases and their tests together with the `ConfigData` property. Do not replace the removed crash field with `AudioLatencyOffsetMs`; HPA-12 is deleting unsupported buffer telemetry, not expanding crash diagnostics.
+Do not replace the removed crash field with `AudioLatencyOffsetMs`; useful crash telemetry can be considered in a crash-reporting task when a concrete diagnostic need exists.
 
-### Existing default pins already cover `ConfigData`
+### Existing tests already pin the defaults
 
-`ConfigDataTests.ConfigData_DefaultValues_ShouldBeValid` currently asserts both:
+`ConfigDataTests.ConfigData_DefaultValues_ShouldBeValid` currently pins both `BufferSizeMs == 100` and `AudioLatencyOffsetMs == 200`. Use that existing test for the default change rather than adding another default assertion elsewhere.
 
-```text
-BufferSizeMs == 100
-AudioLatencyOffsetMs == 200
-```
+`ConfigManagerTests` separately pins the first-created SQLite snapshot and explicit latency parsing/persistence. The E2E fixture already writes `AudioLatencyOffsetMs=0`.
 
-That existing test is the direct red/green pin for the default change. Do not add a duplicate default assertion to `ConfigManager_Constructor_ShouldInitializeWithDefaultConfig` just for HPA-12.
+## Fixed-timestep clock caveat
 
-`ConfigManagerTests` separately pins the first-created SQLite snapshot and should change its persisted default expectation from `200` to `0`.
+This is important for interpreting any observed drift.
 
-The E2E fixture already writes `AudioLatencyOffsetMs=0`, so this change does not require an E2E fixture update.
+CX does not assign `Game.IsFixedTimeStep`, so MonoGame's default fixed-step loop applies. `PlaybackClock` derives elapsed logical time from `GameTime.TotalGameTime`. MonoGame's fixed-step loop caps accumulated elapsed time at `MaxElapsedTime` (default `500 ms`) before advancing `TotalGameTime`.
+
+Therefore a real hitch longer than that cap can permanently leave the logical chart clock behind wall/audio time even when the audio transport itself is healthy. A visible late-song offset after a long GC pause, suspension, debugger stop, or similar stall must not automatically become an "audio backend" finding.
+
+HPA-12 does **not** change the clock. Instead:
+
+- validation runs should avoid intentional alt-tab/debugger pauses outside the explicit pause/resume test;
+- if accumulating drift is observed, repeat the run from a clean start;
+- note any obvious long hitch or slow-frame episode;
+- drift that correlates with hitches should first become a clock/game-loop follow-up, not a backend replacement task;
+- only stable, repeatable transport problems should justify investigating the playback backend.
+
+Do not add temporary `SongTimer` end-of-song instrumentation in HPA-12. `SongTimer` does not own `ISound.Duration`, and observing a real `SoundEffectInstance.State` is itself a real-audio transport check rather than a headless measurement. A benchmark seam would add production/test plumbing for a one-time acceptance exercise that the ticket explicitly does not require.
 
 ## Design decisions
 
-### 1. Keep the MonoGame playback path
+### 1. Keep MonoGame unless evidence says otherwise
 
-The default outcome is no playback architecture change.
+A follow-up is justified when a required wired run repeatedly shows a material problem such as:
 
-Real-device validation is a gate that can falsify this decision. A follow-up is justified only if validation produces a repeatable problem such as:
+- progressive BGM/chart drift on a clean run;
+- a permanent pause/resume alignment shift;
+- playback failure or instability;
+- physical player-triggered chip latency that makes rhythm play impractical;
+- a fixed audio/visual/judgement delay that remains impractical within the current adjustment model.
 
-- audible/visible drift that grows during a normal song;
-- pause/resume producing a repeatable permanent alignment shift;
-- player-triggered chip response latency severe enough to make rhythm input unusable;
-- a fixed audio/visual delay large enough that manual play remains unusable even after the existing judgement offset is tuned;
-- platform-specific playback failure or instability.
-
-A normal small fixed device/output delay is not by itself evidence that MonoGame must be replaced. The validation should distinguish fixed output latency from accumulating transport drift.
-
-Subjective preference for a different backend or theoretical lower latency is not sufficient evidence for HPA-12 to replace MonoGame.
+Evidence determines the **problem**, not the solution. Do not prescribe ASIO/WASAPI/etc. unless the later investigation demonstrates that need.
 
 ### 2. Delete `BufferSizeMs`; do not replace it
 
-Remove the property from `ConfigData`, then remove the stale crash-context publication, `CrashLogFieldPolicy` normalization case/maximum constant, and every test that specifically exists to pin the removed field.
+Remove the property, crash publication, field-policy normalization/limit, and tests. There is no runtime behavior or persisted value to preserve.
 
-In particular, delete the whole `Sound Settings – Buffer Size` region from `ConfigDataApiSettingsTests`; getter/setter tests for a deleted property provide no value.
+### 3. Use `0 ms` as the fresh/default compensation
 
-Do not add:
-
-- `AudioBufferSizeMs` under another name;
-- a backend-specific buffer option;
-- `AudioLatencyOffsetMs` as replacement crash telemetry;
-- an ignored compatibility row in SQLite;
-- a migration for a key that current `ConfigManager` never persisted.
-
-There is no runtime playback behavior to preserve.
-
-### 3. Use `0 ms` as the fresh/default latency compensation
-
-Change:
-
-```csharp
-public int AudioLatencyOffsetMs { get; set; } = 200;
-```
-
-to:
+Fresh/default config becomes:
 
 ```csharp
 public int AudioLatencyOffsetMs { get; set; } = 0;
 ```
 
-Rationale:
+Rationale: output latency is hardware/driver/path dependent and CX has no measurement supporting one universal non-zero default. Existing persisted values continue to load unchanged; `ResetToDefaults()` receives the new `0` through `new ConfigData()`.
 
-- output latency is device/driver/OS-path dependent;
-- current CX has no measurement proving one non-zero value applies across WindowsDX and DesktopGL;
-- the current `200 ms` explanation depends on the dead `BufferSizeMs=100` setting and therefore overstates what CX controls;
-- a non-zero universal default can systematically over-correct low-latency wired paths;
-- `0 ms` has clear semantics: do not guess; let the user add compensation if their setup needs it.
+### 4. Preserve manual UI/persistence
 
-No schema or one-time migration is needed. Existing persisted `AudioLatencyOffsetMs` values continue to load normally; fresh config and `ResetToDefaults()` receive `0`. HPA-12 does not try to infer whether an existing persisted `200` was user-selected or inherited from an old default.
-
-### 4. Keep the existing manual UI and persistence
-
-The `Audio Latency Offset` item remains:
+Keep:
 
 ```text
 range: 0..500 ms
 step:  10 ms
 ```
 
-`ConfigManager.SetAudioLatency(...)`, SQLite parsing/snapshot persistence, and the current config-stage interaction remain unchanged except for tests that explicitly assert the fresh/default value.
+Keep `ConfigManager.SetAudioLatency(...)`, parsing, snapshot persistence, and Config-stage behavior. The negative clamp test must first seed a non-zero value before applying a negative value so the test cannot pass when the setter is accidentally a no-op.
 
-Do not add negative values or split input/output offsets in this ticket. Current runtime semantics only model delayed audible output for manual judgement, and HPA-12 is not redesigning calibration.
+### 5. Pin zero-offset runtime semantics
 
-### 5. Correct only latency-default/judgement comments
+Besides changing the default-value assertion, add one deterministic `PerformanceStageDeterministicTests` case using a real default `ConfigData` through the test config manager:
 
-Update comments that currently present `200 ms`, `BufferSizeMs=100`, or a presumed OpenAL buffering model as factual CX behavior.
+```text
+AudioLatencyOffsetMs == 0
+raw logical time = 1000 ms
+GetPlayerJudgementTimeMs(...) = 1000 ms
+```
 
-Also fix the stale `PerformanceStageDeterministicTests` comment that says compensation happens inside `SongTimer.GetCurrentMs(...)`; compensation is applied later by `PerformanceStage.GetPlayerJudgementTimeMs(...)`.
+The existing manual chip-lookup tests already cover unadjusted/raw lookup and explicit non-zero compensation. Do not duplicate the whole chip fixture solely for the default change.
 
-The replacement documentation should say only:
+### 6. Correct only stale latency comments
 
-- `AudioLatencyOffsetMs` is optional manual output-latency compensation;
-- `0` means no compensation;
-- it affects manual player judgement/chip lookup/miss timing only;
-- autoplay, BGM/video scheduling, visuals, progress, and stage completion use the raw logical chart clock;
-- Play Speed conversion remains handled by the existing `PerformanceStage` helper.
+Fix comments that incorrectly claim:
 
-Do **not** rewrite unrelated `200 ms` comments/constants. `JudgementManager.HitDetectionWindowMs = 200` and comments describing the ±200 ms hit-detection window are independent timing rules and must remain unchanged.
+- `BufferSizeMs` configures MonoGame latency;
+- `200 ms` is a known/default physical latency;
+- compensation occurs inside `SongTimer.GetCurrentMs(...)`.
 
-Do not rewrite working timing code merely to make the comments easier to explain.
+Do **not** alter `JudgementManager.HitDetectionWindowMs = 200.0` or its ±200 ms hit-window documentation.
 
 ## Real-device validation gate
 
-Validation is intentionally manual and lightweight. Do not build instrumentation solely for HPA-12.
+This remains a practical acceptance check, not a benchmark framework. It is deliberately partly human because physical audible offset and chip response are the product experience being validated.
 
 ### Required environments
 
-Before the PR becomes ready for review, run the same small smoke on:
+Before PR #159 leaves Draft:
 
-1. Windows with the normal/default **wired** output path;
-2. macOS with the normal/default **wired** output path;
-3. one USB audio interface, if one is readily available during implementation.
+1. Windows, normal/default **wired** output;
+2. macOS, normal/default **wired** output;
+3. one USB audio interface if readily available; otherwise record that it was unavailable.
 
-Bluetooth is not a required acceptance path because its transport latency is expected to be materially larger and device-specific; the manual offset remains available for such setups.
+Windows and macOS are required supported-platform evidence. Do not replace the Windows row with an "unavailable" escape hatch; that would weaken the ticket's acceptance criteria. Keep the PR Draft until both required rows exist.
 
-### Validation fixture
+Bluetooth is not a gate.
 
-Use one known-good DTX chart already available to the implementer that has:
+### Test profile
 
-- clearly audible drum/chip attacks;
-- continuous or easily recognizable BGM alignment;
-- enough duration to notice accumulating drift;
-- a normal pause/resume opportunity.
-
-Use the same chart where practical across environments. Do not commit a new media corpus just for this ticket.
-
-For consistency, validate at:
+Use the same known-good long chart where practical and fix:
 
 ```text
-Play Speed = 100%
-Pitch      = 0 st
+Play Speed            = 100%
+Pitch                  = 0 st
+Audio Latency Offset   = 0 ms initially
 ```
 
-HPA-12 is evaluating the normal playback path; Play Speed/pitch processing should not add noise to the result.
+The chart should have clear chip attacks, recognizable BGM/visual alignment, enough duration to expose progressive drift, and a pause/resume opportunity.
 
 ### Procedure
 
 For each environment:
 
-1. Set `Play Speed = 100%`, `Pitch = 0 st`, and `Audio Latency Offset = 0 ms`.
-2. Play the opening and record whether there is a noticeable **fixed** audio-vs-chart offset. A small fixed output delay is expected on real hardware and is not an automatic failure.
-3. Hit several clear notes and assess both:
-   - physical input -> audible chip-response latency;
-   - whether manual judgement is usable at the current offset.
-4. If manual judgement feels systematically early/late, try the existing `Audio Latency Offset` control in 10 ms steps and record the values tried. This changes judgement timing only; it does not shift visuals or eliminate physical chip-output latency.
-5. Continue far enough into the song to detect **accumulating** BGM/chart drift rather than confusing it with the fixed startup/output offset.
-6. Pause for several seconds, resume, and verify there is no new permanent alignment shift relative to the pre-pause state.
-7. Check late-song/ending alignment and playback stability.
+1. Start a clean run at the profile above. Avoid alt-tab/debugger interruption during the drift observation.
+2. Record whether a noticeable **fixed** audio-vs-chart offset exists near the opening. A small constant output delay is not automatically a failure.
+3. Hit clear notes and separately assess:
+   - physical input -> audible chip response;
+   - manual judgement usability.
+4. If judgement is systematically early/late, try the existing offset in `10 ms` steps and record the values tried. Remember: this changes judgement only, not visuals or physical speaker latency.
+5. Continue through a substantial/late portion of the chart and compare the late offset with the opening offset.
+6. Pause for several seconds, resume, and check whether a **new permanent** shift appears.
+7. Record any obvious hitch/slow-frame episode. If progressive drift appeared, repeat once from a clean run before classifying it.
 
-### Evidence to record in this spec during implementation
+### Result table
 
-Append one completed row per environment under `Validation Results` before marking the PR ready for review. Each row must name the actual output path used and record concrete observations rather than only `pass`/`fail`.
-
-Use this column shape:
+Use:
 
 ```text
-Platform | Output path/device | Chart | Offset tried | Fixed start/output offset | Late-song drift | Pause/resume | Chip/manual response | Decision
+Platform | Output/device | Chart | Offset tried | Fixed opening offset | Late-song change | Pause/resume | Chip/manual response | Hitch notes | Decision
 ```
 
-### Acceptance interpretation
+Decisions are:
 
-MonoGame is accepted for HPA-12 when required wired environments show:
+```text
+keep MonoGame
+follow-up required
+```
 
-- no obvious accumulating BGM/chart drift during normal playback;
-- no repeatable permanent shift after pause/resume;
-- no playback failure/instability;
-- player-triggered chip response remains usable for rhythm play;
-- manual judgement is usable with a fixed `0..500 ms` correction when needed;
-- any remaining fixed audio/visual offset is small enough that gameplay is still practical.
-
-A fixed offset at `0 ms` does **not** by itself fail MonoGame. The existing judgement control is specifically available for fixed output-latency correction, although it does not move chart visuals or reduce physical chip-output delay.
-
-A required wired row needs `follow-up required` when the problem is repeatable and materially affects play, for example:
-
-- accumulating drift;
-- a permanent pause/resume shift;
-- playback failure/instability;
-- unacceptable physical chip-response latency;
-- or a fixed audio/visual/judgement delay that remains unplayable within the existing adjustment range.
-
-Such evidence does not automatically imply “replace MonoGame.” The follow-up should identify the smallest missing capability first (for example visual timing calibration vs. transport/backend latency) before prescribing an audio engine.
+A `follow-up required` row must state the observed defect and repeatability. If drift followed a long hitch, classify the follow-up as clock/game-loop investigation first.
 
 ## Validation Results
 
-This section is intentionally populated during implementation from real hardware; the planning PR does not fabricate measurements.
-
-Required evidence before ready-for-review:
-
 - [ ] Windows wired/default output observation recorded.
 - [ ] macOS wired/default output observation recorded.
-- [ ] USB interface observation recorded when readily available, or the PR states that no interface was available for this run.
+- [ ] USB interface observation recorded, or unavailability explicitly recorded.
 
-## Production changes
+## Expected implementation surface
 
-Expected production changes are limited to:
+Production:
 
 ```text
 DTXMania.Game/Lib/Config/ConfigData.cs
-  - remove BufferSizeMs
-  - default AudioLatencyOffsetMs to 0
-  - replace stale backend/buffer claims with behavior-only documentation
-
 DTXMania.Game/Lib/Diagnostics/CrashReporting/CrashContextPublisher.cs
-  - stop publishing BufferSizeMs
-
 DTXMania.Game/Lib/Diagnostics/CrashReporting/CrashLogFieldPolicy.cs
-  - remove MaximumBufferMilliseconds
-  - remove BufferSizeMs normalization/allowlist behavior
-
-DTXMania.Game/Lib/Stage/PerformanceStage.cs
-  - remove comments that describe 200 ms as the default/known physical latency
-  - preserve unrelated 200 ms hit-window documentation
-  - no timing behavior change
+DTXMania.Game/Lib/Stage/PerformanceStage.cs   # comments only besides config-read behavior remaining unchanged
 ```
 
-`ConfigManager`, `ConfigStage`, `ManagedSound`, `SongTimer`, `PlaybackClock`, and `JudgementManager` should remain behaviorally unchanged unless implementation discovers a concrete contradiction to this verified design.
-
-## Test changes
-
-Expected focused test changes:
+Tests:
 
 ```text
 DTXMania.Test/BaseGameTests.cs
-  - remove the dead BufferSizeMs initializer
-
 DTXMania.Test/Config/ConfigDataTests.cs
-  - remove BufferSizeMs default assertion
-  - change AudioLatencyOffsetMs default assertion from 200 to 0
-
 DTXMania.Test/Config/ConfigDataApiSettingsTests.cs
-  - delete the entire Sound Settings – Buffer Size region
-
 DTXMania.Test/Config/ConfigManagerTests.cs
-  - update fresh/default persisted AudioLatencyOffsetMs expectation from 200 to 0
-  - preserve explicit-value parsing/persistence and negative clamp coverage
-
 DTXMania.Test/CrashReporting/CrashContextPublisherTests.cs
-  - remove BufferSizeMs initializer/assertion
-
 DTXMania.Test/CrashReporting/CrashLogFieldPolicyTests.cs
-  - remove BufferSizeMs normalization/range tests
-
 DTXMania.Test/Stage/Performance/PerformanceStageDeterministicTests.cs
-  - correct the stale comment that assigns compensation to SongTimer.GetCurrentMs
 ```
 
-Existing `ConfigStageLogicTests` already pin that the manual offset can be increased, cannot go below `0`, and is capped at `500`. A test fixture that explicitly starts from `200` remains valid because it is testing increment behavior, not the product default.
-
-Existing `PerformanceStageDeterministicTests` use explicit non-zero offsets to pin compensation behavior across Play Speed profiles. Keep those behavior tests unchanged.
-
-No new integration harness is required.
+`ConfigManager`, `ConfigStage`, `ManagedSound`, `AudioLoader`, `SongTimer`, `PlaybackClock`, and `JudgementManager` remain behaviorally unchanged in HPA-12.
 
 ## Verification
 
-Implementation should run targeted cross-platform tests first:
+After implementation:
 
 ```bash
-# macOS
-dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --no-restore \
-  --filter "FullyQualifiedName~ConfigData|FullyQualifiedName~ConfigManagerTests|FullyQualifiedName~ConfigStageLogicTests|FullyQualifiedName~CrashContextPublisherTests|FullyQualifiedName~CrashLogFieldPolicyTests|FullyQualifiedName~PerformanceStageDeterministicTests|FullyQualifiedName~BaseGameTests"
-
-# Windows
-dotnet test DTXMania.Test/DTXMania.Test.csproj --no-restore \
-  --filter "FullyQualifiedName~ConfigData|FullyQualifiedName~ConfigManagerTests|FullyQualifiedName~ConfigStageLogicTests|FullyQualifiedName~CrashContextPublisherTests|FullyQualifiedName~CrashLogFieldPolicyTests|FullyQualifiedName~PerformanceStageDeterministicTests|FullyQualifiedName~BaseGameTests"
+git grep -n "BufferSizeMs" -- ':!docs/superpowers/**'
+# expected: no output
 ```
 
-Then run the repository's normal full test/build gates for the available host platform before ready-for-review.
-
-Repository search after cleanup must return no live-code/test references:
-
-```bash
-git grep -n "BufferSizeMs" -- DTXMania.Game DTXMania.Test DTXMania.E2E
-```
-
-Expected: no output. Historical planning notes under `docs/superpowers` may still mention the removed name as rationale and are intentionally excluded from this gate.
+Run focused config/crash/timing tests on the available host, then the normal full test/build gate for that host. Before the PR leaves Draft, repeat the relevant full gate on both required validation platforms together with the hardware observation.
 
 ## Follow-up rule
 
-HPA-12 must not speculate a replacement backend into existence.
+HPA-12 never converts an observation directly into "replace MonoGame."
 
-A later ticket is justified only when the validation notes contain a repeatable concrete defect and enough environment detail to state what capability CX lacks. The follow-up should evaluate the smallest remedy for that defect rather than resurrecting the old NX backend matrix wholesale.
+- Hitch-correlated drift -> investigate the fixed-step clock/game loop first.
+- Stable physical chip latency -> investigate the smallest playback-latency remedy.
+- Fixed visual/audio mismatch -> investigate timing/calibration ownership before backend replacement.
+- Playback failure/instability -> investigate the platform playback path.
+
+Only create a follow-up when the real-device evidence is concrete and repeatable.
