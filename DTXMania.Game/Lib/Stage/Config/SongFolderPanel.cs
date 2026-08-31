@@ -248,8 +248,16 @@ namespace DTXMania.Game.Lib.Stage.Config
                         var candidate = firstLine.Length == 0
                             ? words[wordIndex]
                             : $"{firstLine} {words[wordIndex]}";
-                        if (firstLine.Length > 0 && font.MeasureString(candidate).X > statusWidth)
+                        if (font.MeasureString(candidate).X > statusWidth)
+                        {
+                            if (firstLine.Length == 0)
+                            {
+                                firstLine = TextHelper.TruncateToWidth(
+                                    words[wordIndex], statusWidth, font);
+                                wordIndex++;
+                            }
                             break;
+                        }
 
                         firstLine = candidate;
                         wordIndex++;
