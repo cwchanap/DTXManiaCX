@@ -173,6 +173,14 @@ public sealed class SongRootPolicyTests
             // tell which one is inaccessible.
             Assert.Contains(diagnostic.Path, diagnostic.Message);
             Assert.Contains(expectedReason, diagnostic.Message);
+            // The reason must precede the path: SongFolderPanel ellipsizes the
+            // second wrapped line, so a long unbroken path placed before the
+            // reason would hide the classified cause this warning surfaces.
+            var reasonIndex = diagnostic.Message.IndexOf(expectedReason, StringComparison.Ordinal);
+            var pathIndex = diagnostic.Message.IndexOf(diagnostic.Path, StringComparison.Ordinal);
+            Assert.True(reasonIndex >= 0 && pathIndex >= 0 && reasonIndex < pathIndex,
+                $"Reason ('{expectedReason}' @ {reasonIndex}) must precede the path ('{diagnostic.Path}' @ {pathIndex}) " +
+                $"so it survives second-line ellipsization. Message: '{diagnostic.Message}'");
         });
     }
 

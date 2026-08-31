@@ -371,6 +371,67 @@ public sealed class SongFolderPanelTests
     }
 
     [Fact]
+    public void Draw_WhenInaccessibleRootWarningHasLongPath_ShouldKeepReasonVisibleOnFirstLine()
+    {
+        using var root = TemporaryDirectory.Create();
+        // Mirrors the SongRootPolicy Inaccessible warning shape with a long unbroken
+        // root path. The path token is wide enough to force a second rendered line,
+        // which SongFolderPanel ellipsizes. The classified reason must stay on line 1
+        // so the user can still see *why* the root is inaccessible. The status is
+        // driven through the apply-throw path (error color); the wrap/ellipsization
+        // logic under test is color-agnostic, so this exercises the same rendering
+        // as a real inaccessible-root warning.
+        var longPath = "/Songs/" + new string('r', 120);
+        var statusMessage =
+            $"Cannot read configured song root (permission denied): {longPath}";
+        var panel = CreatePanel(
+            new[] { root.Path },
+            apply: _ => throw new InvalidOperationException(statusMessage));
+        panel.Activate();
+        ActivateAction(panel, rootCount: 1, actionOffset: 4);
+
+        Assert.Equal(statusMessage, panel.StatusMessage);
+
+        var font = new Mock<IFont>();
+        font.Setup(value => value.MeasureString(It.IsAny<string>()))
+            .Returns<string>(value => new Vector2(value.Length * 8f, 27f));
+        font.SetupGet(value => value.LineSpacing).Returns(27f);
+        var spriteBatch = CreateUninitializedSpriteBatch();
+
+        try
+        {
+            panel.Draw(spriteBatch, font.Object, boldFont: null, whitePixel: null,
+                virtualWidth: 1280, virtualHeight: 720);
+
+            var drawCalls = font.Invocations
+                .Where(invocation => invocation.Method.Name == nameof(IFont.DrawString))
+                .Select(invocation => (
+                    Text: (string)invocation.Arguments[1],
+                    Position: (Vector2)invocation.Arguments[2],
+                    Color: (Color)invocation.Arguments[3]))
+                .ToArray();
+
+            var errorColor = new Color(255, 96, 96);
+            var statusLines = drawCalls.Where(call => call.Color == errorColor).ToArray();
+            Assert.Equal(2, statusLines.Length);
+            Assert.All(statusLines, line => Assert.True(
+                font.Object.MeasureString(line.Text).X <= 720f,
+                $"Status line exceeds the panel width: {line.Text}"));
+
+            // The classified reason must survive on the first rendered line.
+            Assert.Contains("permission denied", statusLines[0].Text, StringComparison.Ordinal);
+            // The long path spills onto the second line and is ellipsized, never
+            // drawn verbatim, so it cannot crowd out the reason.
+            Assert.EndsWith("...", statusLines[1].Text, StringComparison.Ordinal);
+            Assert.DoesNotContain(longPath, statusLines[1].Text, StringComparison.Ordinal);
+        }
+        finally
+        {
+            GC.SuppressFinalize(spriteBatch);
+        }
+    }
+
+    [Fact]
     public void AddFolder_WhenPickerIsCancelled_ShouldLeaveDraftAndPanelUnchanged()
     {
         using var root = TemporaryDirectory.Create();
