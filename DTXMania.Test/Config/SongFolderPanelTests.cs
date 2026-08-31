@@ -319,6 +319,58 @@ public sealed class SongFolderPanelTests
     }
 
     [Fact]
+    public void Draw_WhenStatusMessageIsSingleOverwideToken_ShouldTruncateFirstLineToFit()
+    {
+        using var root = TemporaryDirectory.Create();
+        // An exception message that is a single unbroken token longer than the status area
+        // exercises the first-token truncation path (no spaces to wrap on).
+        var overwideToken = new string('x', 200);
+        var panel = CreatePanel(
+            new[] { root.Path },
+            apply: _ => throw new InvalidOperationException(overwideToken));
+        panel.Activate();
+        ActivateAction(panel, rootCount: 1, actionOffset: 4);
+
+        Assert.Equal(overwideToken, panel.StatusMessage);
+
+        var font = new Mock<IFont>();
+        font.Setup(value => value.MeasureString(It.IsAny<string>()))
+            .Returns<string>(value => new Vector2(value.Length * 8f, 27f));
+        font.SetupGet(value => value.LineSpacing).Returns(27f);
+        var spriteBatch = CreateUninitializedSpriteBatch();
+
+        try
+        {
+            panel.Draw(spriteBatch, font.Object, boldFont: null, whitePixel: null,
+                virtualWidth: 1280, virtualHeight: 720);
+
+            var drawCalls = font.Invocations
+                .Where(invocation => invocation.Method.Name == nameof(IFont.DrawString))
+                .Select(invocation => (
+                    Text: (string)invocation.Arguments[1],
+                    Position: (Vector2)invocation.Arguments[2],
+                    Color: (Color)invocation.Arguments[3]))
+                .ToArray();
+
+            // Apply persistence failures render as error text, not a warning.
+            var errorColor = new Color(255, 96, 96);
+            var statusLines = drawCalls.Where(call => call.Color == errorColor).ToArray();
+
+            var statusLine = Assert.Single(statusLines);
+            Assert.True(font.Object.MeasureString(statusLine.Text).X <= 720f,
+                $"Status line exceeds the panel width: {statusLine.Text}");
+            // The unbroken token must be ellipsized, not drawn verbatim.
+            Assert.NotEqual(overwideToken, statusLine.Text);
+            Assert.True(statusLine.Text.Length < overwideToken.Length,
+                "Single overwide token should be truncated, not drawn in full.");
+        }
+        finally
+        {
+            GC.SuppressFinalize(spriteBatch);
+        }
+    }
+
+    [Fact]
     public void AddFolder_WhenPickerIsCancelled_ShouldLeaveDraftAndPanelUnchanged()
     {
         using var root = TemporaryDirectory.Create();
