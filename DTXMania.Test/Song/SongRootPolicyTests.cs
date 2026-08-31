@@ -143,19 +143,19 @@ public sealed class SongRootPolicyTests
     [Theory]
     [InlineData(
         "unauthorized",
-        "Cannot read configured song root: permission denied.")]
+        "permission denied")]
     [InlineData(
         "security",
-        "Cannot read configured song root: permission denied.")]
+        "permission denied")]
     [InlineData(
         "path-too-long",
-        "Cannot read configured song root: path is too long.")]
+        "path is too long")]
     [InlineData(
         "io",
-        "Cannot read configured song root: filesystem I/O error.")]
+        "filesystem I/O error")]
     public void Validate_WhenRootProbeFails_ShouldKeepWarningNonBlockingAndUseReason(
         string failure,
-        string expectedMessage)
+        string expectedReason)
     {
         WithTemporaryDirectory(root =>
         {
@@ -168,7 +168,11 @@ public sealed class SongRootPolicyTests
 
             Assert.True(result.IsValid);
             Assert.True(diagnostic.IsWarning);
-            Assert.Equal(expectedMessage, diagnostic.Message);
+            // The warning must identify which configured root failed (the path)
+            // and retain the classified reason, so users with multiple roots can
+            // tell which one is inaccessible.
+            Assert.Contains(diagnostic.Path, diagnostic.Message);
+            Assert.Contains(expectedReason, diagnostic.Message);
         });
     }
 
