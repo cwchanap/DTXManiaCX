@@ -429,8 +429,15 @@ namespace DTXMania.Test.Stage.Performance
             // consumed so the decoder can advance.
             player.Update(100_000);
 
+            // The queue was just confirmed full, so Update seeing all frames
+            // due yet presenting nothing (HasCurrentFrame == false) is the
+            // deterministic proof that the stale frames were discarded in
+            // favor of the static background: the selector returned NoFrame
+            // because media time is beyond the frame-interval tolerance.
+            // The drained count itself is not observable here — the rawvideo
+            // fixture decodes near-instantly, so the bounded-channel producer
+            // refills the queue the moment Update drains a slot.
             Assert.False(player.HasCurrentFrame);
-            Assert.Equal(0, player.QueuedFrameCount);
 
             // The consumed queue unblocks the producer: decoding continues.
             await EventuallyAsync(() => player.QueuedFrameCount == FfmpegChartVideoPlayer.QueueCapacity);
