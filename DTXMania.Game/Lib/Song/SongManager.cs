@@ -1033,7 +1033,7 @@ namespace DTXMania.Game.Lib.Song
 
                 var message = probe.Availability == SongRootAvailability.Missing
                     ? $"Configured song root does not exist: {normalizedRoot}"
-                    : $"Cannot read configured song root: {normalizedRoot} ({probe.Reason}).";
+                    : $"Cannot read configured song root ({probe.Reason}): {normalizedRoot}";
                 var error = new SongEnumerationError(
                     normalizedRoot,
                     message,
