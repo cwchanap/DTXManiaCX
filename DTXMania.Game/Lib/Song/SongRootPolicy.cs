@@ -125,7 +125,7 @@ namespace DTXMania.Game.Lib.Song
                     case SongRootAvailability.Inaccessible:
                         diagnostics.Add(new SongRootDiagnostic(
                             normalizedRoot,
-                            $"Cannot read configured song root: {probe.Reason}.",
+                            $"Cannot read configured song root: {normalizedRoot} ({probe.Reason}).",
                             IsWarning: true));
                         break;
                 }
