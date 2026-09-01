@@ -427,20 +427,24 @@ namespace DTXMania.Test.Stage.Performance
             // startup or an update hitch): nothing drawable — the static
             // background stays visible — while the obsolete frames are
             // consumed so the decoder can advance.
-            player.Update(100_000);
+            //
+            // The fixture has 10 frames and a capacity-3 queue, so the
+            // producer cannot reach EOF unless the consumer keeps freeing
+            // slots. Driving Update at a media time beyond every frame's
+            // timestamp drains the stale queue each call; if Update regresses
+            // to not consuming, the producer stays blocked on the full queue
+            // and this condition times out. Update is invoked inside the
+            // poll deliberately — its side effect IS the signal under test.
+            await EventuallyAsync(() =>
+            {
+                player.Update(100_000);
+                return player.GenerationTask?.IsCompleted == true;
+            });
 
-            // The queue was just confirmed full, so Update seeing all frames
-            // due yet presenting nothing (HasCurrentFrame == false) is the
-            // deterministic proof that the stale frames were discarded in
-            // favor of the static background: the selector returned NoFrame
-            // because media time is beyond the frame-interval tolerance.
-            // The drained count itself is not observable here — the rawvideo
-            // fixture decodes near-instantly, so the bounded-channel producer
-            // refills the queue the moment Update drains a slot.
+            // Every frame was consumed as stale (media time far beyond the
+            // frame-interval tolerance), so the selector always returned
+            // NoFrame and the static background stayed visible throughout.
             Assert.False(player.HasCurrentFrame);
-
-            // The consumed queue unblocks the producer: decoding continues.
-            await EventuallyAsync(() => player.QueuedFrameCount == FfmpegChartVideoPlayer.QueueCapacity);
 
             player.Stop();
             await player.GenerationTask!.WaitAsync(TimeSpan.FromSeconds(10));
