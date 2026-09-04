@@ -18,7 +18,12 @@ namespace DTXMania.Game.Platform
         private readonly StaFolderPickerDispatcher _dispatcher;
 
         public WindowsFolderPickerService()
-            : this(new WindowsFolderPickerDialogFactory())
+            : this(IntPtr.Zero)
+        {
+        }
+
+        internal WindowsFolderPickerService(IntPtr ownerWindow)
+            : this(new WindowsFolderPickerDialogFactory(ownerWindow))
         {
         }
 
@@ -40,11 +45,19 @@ namespace DTXMania.Game.Platform
 
         private sealed class WindowsFolderPickerDialogFactory : IStaFolderPickerDialogFactory
         {
+            private readonly IntPtr _ownerWindow;
+
+            internal WindowsFolderPickerDialogFactory(IntPtr ownerWindow)
+            {
+                _ownerWindow = ownerWindow;
+            }
+
             public void InitializeDispatcherThread()
             {
             }
 
-            public IStaFolderPickerDialog CreateDialog() => new WindowsFolderPickerDialog();
+            public IStaFolderPickerDialog CreateDialog() =>
+                new WindowsFolderPickerDialog(_ownerWindow);
 
             public void CloseOnDispatcher(IStaFolderPickerDialog dialog)
             {
@@ -71,9 +84,15 @@ namespace DTXMania.Game.Platform
             private const int MaxPathLength = 260;
 
             private readonly object _dialogLock = new();
+            private readonly IntPtr _ownerWindow;
             private IntPtr _dialogHandle;
             private bool _closeRequested;
             private string? _initialDirectory;
+
+            internal WindowsFolderPickerDialog(IntPtr ownerWindow)
+            {
+                _ownerWindow = ownerWindow;
+            }
 
             public FolderPickerResult Show(string? initialDirectory)
             {
@@ -91,6 +110,7 @@ namespace DTXMania.Game.Platform
                     {
                         var browseInfo = new BrowseInfo
                         {
+                            OwnerWindow = _ownerWindow,
                             DisplayName = displayName,
                             Title = "Choose song folder",
                             Flags = BifReturnOnlyFileSystemDirectories |
