@@ -15,19 +15,11 @@ Update the existing `SongSelectionStage.OnDraw` empty-library presentation. Keep
 - `NoActiveRoots`: `No song folders available — add one in CONFIG > Song Folders`
 - `NoSupportedCharts`: `No supported charts found — check CONFIG > Song Folders`
 
-Prefer reusing one small pure/helper method for the copy so the contract can be tested without a graphics device. Do not introduce a new UI abstraction just for two strings.
+Reuse one small helper for the copy so the contract can be tested without a graphics device. Do not introduce a new UI abstraction just for two strings.
 
 ### Tests
 
-Extend the existing focused coverage in `DTXMania.Test/Stage/SongSelectionPublicationTests.cs` around `ResolveLibraryEmptyState_ShouldDistinguishNoRootsFromRootsWithoutSupportedCharts` to pin both recovery messages.
-
-The test should prove:
-
-1. no active roots resolves to the add/reconnect guidance;
-2. active roots with no supported charts resolves to the check-folder guidance;
-3. `HasSongs` does not produce an empty-state recovery message, if the helper exposes that state.
-
-Run the targeted Song Selection tests, then the normal `DTXMania.Test` suite if practical.
+Add focused unit coverage for both recovery messages plus the `HasSongs` no-message case. Run the normal `DTXMania.Test` suite through CI.
 
 ## Existing behavior to preserve
 
