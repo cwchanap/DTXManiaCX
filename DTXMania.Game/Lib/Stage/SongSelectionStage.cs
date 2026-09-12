@@ -224,7 +224,7 @@ namespace DTXMania.Game.Lib.Stage
         private const double BGM_FADE_OUT_DURATION = SongSelectionUILayout.Audio.BgmFadeOutDuration;
         private const double BGM_FADE_IN_DURATION = SongSelectionUILayout.Audio.BgmFadeInDuration;
 
-        private enum SongLibraryEmptyState
+        internal enum SongLibraryEmptyState
         {
             HasSongs,
             NoActiveRoots,
@@ -709,7 +709,7 @@ namespace DTXMania.Game.Lib.Stage
                 Font = uiFont?.SpriteFont,
                 ManagedFont = uiFont,
                 WhitePixel = _whitePixel
-            };            // Initialize Phase 2 enhanced rendering
+            };            // Initialize Phase 2 enhancements
             try
             {
                 _songListDisplay.InitializeEnhancedRendering(_game.GraphicsDevice, _resourceManager,
@@ -1648,7 +1648,7 @@ namespace DTXMania.Game.Lib.Stage
 
                 _previewSoundInstance = CreatePreviewSoundInstance(_previewSound);
                 if (_previewSoundInstance == null)
-                    return MarkPreparedPreviewFailed("The prepared chart preview instance could not be created.");
+                    return MarkPreparedPreviewFailed("The prepared preview instance could not be created.");
 
                 _previewSoundInstance.Volume = SongSelectionUILayout.Audio.PreviewSoundVolume;
                 _previewSoundInstance.IsLooped = true;
@@ -2049,6 +2049,15 @@ namespace DTXMania.Game.Lib.Stage
                 ? SongLibraryEmptyState.HasSongs
                 : SongLibraryEmptyState.NoSupportedCharts;
         }
+
+        internal static string? GetLibraryEmptyStateMessage(SongLibraryEmptyState state) => state switch
+        {
+            SongLibraryEmptyState.NoActiveRoots =>
+                "No song folders available — add one in CONFIG > Song Folders",
+            SongLibraryEmptyState.NoSupportedCharts =>
+                "No supported charts found — check CONFIG > Song Folders",
+            _ => null,
+        };
 
         private static bool ContainsPublishedScore(IEnumerable<SongListNode> nodes)
         {
@@ -2598,12 +2607,13 @@ namespace DTXMania.Game.Lib.Stage
                 && _font != null
                 && (_searchFilterModal == null || !_searchFilterModal.IsOpen))
             {
-                string msg = _libraryEmptyState == SongLibraryEmptyState.NoActiveRoots
-                    ? "No active song folders configured"
-                    : "No supported charts found in active song folders";
-                _font.DrawString(_spriteBatch, msg,
-                    new Vector2(SongSelectionUILayout.SongBars.UnselectedBarX + 100, SongSelectionUILayout.SongBars.SelectedBarY),
-                    ResolveStatusTextColor(CurrentTheme));
+                var msg = GetLibraryEmptyStateMessage(_libraryEmptyState);
+                if (!string.IsNullOrEmpty(msg))
+                {
+                    _font.DrawString(_spriteBatch, msg,
+                        new Vector2(SongSelectionUILayout.SongBars.UnselectedBarX + 100, SongSelectionUILayout.SongBars.SelectedBarY),
+                        ResolveStatusTextColor(CurrentTheme));
+                }
             }
 
             // Draw the tab bar (skip while the search modal is open to avoid overlap).
