@@ -709,7 +709,7 @@ namespace DTXMania.Game.Lib.Stage
                 Font = uiFont?.SpriteFont,
                 ManagedFont = uiFont,
                 WhitePixel = _whitePixel
-            };            // Initialize Phase 2 enhancements
+            };            // Initialize Phase 2 enhanced rendering
             try
             {
                 _songListDisplay.InitializeEnhancedRendering(_game.GraphicsDevice, _resourceManager,
@@ -1648,7 +1648,7 @@ namespace DTXMania.Game.Lib.Stage
 
                 _previewSoundInstance = CreatePreviewSoundInstance(_previewSound);
                 if (_previewSoundInstance == null)
-                    return MarkPreparedPreviewFailed("The prepared preview instance could not be created.");
+                    return MarkPreparedPreviewFailed("The prepared chart preview instance could not be created.");
 
                 _previewSoundInstance.Volume = SongSelectionUILayout.Audio.PreviewSoundVolume;
                 _previewSoundInstance.IsLooped = true;
