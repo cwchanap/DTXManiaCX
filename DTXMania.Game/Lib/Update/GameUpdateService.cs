@@ -36,10 +36,10 @@ public sealed class GameUpdateService : IGameUpdateService
     private readonly GitHubReleaseClient _client;
     private readonly WindowsUpdateInstallerLauncher _launcher;
     private readonly ILogger<GameUpdateService>? _logger;
+    private readonly object _checkGate = new();
     private GameUpdateSnapshot _snapshot = GameUpdateSnapshot.NotChecked;
-    private Task _checkTask = Task.CompletedTask;
+    private Task? _checkTask;
     private Task _updateTask = Task.CompletedTask;
-    private int _checkStarted;
 
     public GameUpdateService(HttpClient httpClient, ILogger<GameUpdateService>? logger = null)
         : this(httpClient, logger, launcher: null)
@@ -64,14 +64,17 @@ public sealed class GameUpdateService : IGameUpdateService
 
     public Task CheckOnce()
     {
-        if (Interlocked.CompareExchange(ref _checkStarted, 1, 0) != 0)
+        lock (_checkGate)
         {
+            if (_checkTask is not null)
+            {
+                return _checkTask;
+            }
+
+            Publish(new GameUpdateSnapshot(GameUpdateState.Checking, null, null, null, null));
+            _checkTask = RunCheckAsync();
             return _checkTask;
         }
-
-        Publish(new GameUpdateSnapshot(GameUpdateState.Checking, null, null, null, null));
-        _checkTask = RunCheckAsync();
-        return _checkTask;
     }
 
     /// <summary>One deterministic, version-scoped temp path for the installer download.</summary>

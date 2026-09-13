@@ -242,6 +242,27 @@ public class GameUpdateServiceTests
     }
 
     [Fact]
+    public async Task CheckOnce_WhenCalledConcurrently_ShouldReturnTheSameInFlightTask()
+    {
+        var release = new TaskCompletionSource<HttpResponseMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handler = new BlockingGitHubHandler(release.Task);
+        var service = new GameUpdateService(new HttpClient(handler));
+
+        var first = service.CheckOnce();
+        var second = await Task.Run<Task>(() => service.CheckOnce());
+
+        Assert.Same(first, second);
+        Assert.False(second.IsCompleted);
+        Assert.Equal(GameUpdateState.Checking, service.GetSnapshot().State);
+
+        release.SetResult(JsonResponse(ReleaseJson("v0.0.1", prerelease: false)));
+        await first;
+
+        Assert.Equal(1, handler.CallCount);
+        Assert.Equal(GameUpdateState.UpToDate, service.GetSnapshot().State);
+    }
+
+    [Fact]
     public void DismissForProcess_WhenUpdateAvailable_ShouldStopOfferingAndClearDownloadFields()
     {
         var version = NextNewerVersion();
@@ -308,6 +329,24 @@ public class GameUpdateServiceTests
             }
 
             return Task.FromResult(_response ?? new HttpResponseMessage(HttpStatusCode.OK));
+        }
+    }
+
+    private sealed class BlockingGitHubHandler : HttpMessageHandler
+    {
+        private readonly Task<HttpResponseMessage> _response;
+
+        public int CallCount;
+
+        public BlockingGitHubHandler(Task<HttpResponseMessage> response)
+        {
+            _response = response;
+        }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref CallCount);
+            return await _response;
         }
     }
 
