@@ -34,7 +34,12 @@ public enum GameUpdateState
     /// </summary>
     Failed,
 
-    /// <summary>The verified installer was started successfully; the service does not wait for it.</summary>
+    /// <summary>
+    /// The verified installer committed past its elevation gate — the process was
+    /// created and either respawned elevated or is still running the install. The
+    /// service waits only for that bounded decision window, never for install
+    /// completion.
+    /// </summary>
     InstallerLaunched
 }
 

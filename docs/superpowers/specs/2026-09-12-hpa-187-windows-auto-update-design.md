@@ -152,6 +152,8 @@ Digest mismatch or I/O/network failure after explicit Update produces a bounded 
 
 Launch the verified installer directly; never invoke a command shell. Catch `Win32Exception`/process-start failures, including elevation cancellation, as retryable failure. A failed start must never publish `InstallerLaunched` and must never exit the game.
 
+Process creation alone is not a committed launch: with `PrivilegesRequired=lowest` + `PrivilegesRequiredOverridesAllowed=dialog` the bootstrapper starts unelevated and re-launches itself elevated via UAC from inside the started process when it reuses a previous all-users install, so `Process.Start` can return a process before that outcome is known. The launcher therefore observes the started process through a bounded elevation-decision window: a quick nonzero exit is a refused elevation (retryable failure, game stays alive), a quick exit 0 is a successful elevated respawn, and a process still running at the deadline is an in-progress install that needed no elevation. The wait never extends to install completion.
+
 The final process-start semantics and arguments are those proven by Task 0. Do not infer install privilege mode from path unless Task 0 forces a revised design.
 
 ## Inno Setup changes

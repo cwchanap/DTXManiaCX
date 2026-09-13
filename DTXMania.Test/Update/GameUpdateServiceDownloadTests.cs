@@ -63,11 +63,18 @@ public class GameUpdateServiceDownloadTests
         }
     }
 
+    /// <summary>
+    /// The attempt the fake starter returns when no failure is being exercised: the
+    /// installer process survived the elevation-decision window, so the launch is
+    /// committed and the service may publish InstallerLaunched.
+    /// </summary>
+    private static InstallerLaunchAttempt CommittedAttempt => new(Started: true, ExitCode: 0, StillRunning: true);
+
     private static (GameUpdateService Service, FakeHandler Handler, List<ProcessStartInfo> Starts) CreateOfferedService(
         byte[] installerBytes,
         string? advertisedDigest = null,
         Exception? starterThrows = null,
-        Func<Process?>? starterResult = null,
+        InstallerLaunchAttempt? starterAttempt = null,
         Action? onLaunchAttempt = null)
     {
         var handler = new FakeHandler(request =>
@@ -90,7 +97,7 @@ public class GameUpdateServiceDownloadTests
                 throw starterThrows;
             }
 
-            return starterResult is not null ? starterResult() : new Process();
+            return starterAttempt ?? CommittedAttempt;
         });
 
         var service = new GameUpdateService(new HttpClient(handler), logger: null, launcher);
@@ -252,7 +259,7 @@ public class GameUpdateServiceDownloadTests
             return new HttpResponseMessage(HttpStatusCode.OK) { Content = RawStreamContent.WithLength(stream, bytes.Length) };
         });
         var service = new GameUpdateService(
-            new HttpClient(handler), null, new WindowsUpdateInstallerLauncher(_ => new Process()));
+            new HttpClient(handler), null, new WindowsUpdateInstallerLauncher(_ => CommittedAttempt));
         service.CheckOnce().GetAwaiter().GetResult();
 
         try
@@ -292,7 +299,7 @@ public class GameUpdateServiceDownloadTests
         });
         var logger = new CollectingLogger();
         var service = new GameUpdateService(
-            new HttpClient(handler), logger, new WindowsUpdateInstallerLauncher(_ => new Process()));
+            new HttpClient(handler), logger, new WindowsUpdateInstallerLauncher(_ => CommittedAttempt));
         service.CheckOnce().GetAwaiter().GetResult();
 
         try
@@ -332,6 +339,36 @@ public class GameUpdateServiceDownloadTests
             var start = Assert.Single(starts);
             Assert.Equal(TempPath, start.FileName);
             // The test process (standing in for the game) is still alive.
+        }
+        finally
+        {
+            File.Delete(TempPath);
+        }
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(1223)]
+    public void BeginUpdate_WhenBootstrapperExitsNonzeroInsideElevationWindow_ShouldFailRetryableWithoutInstallerLaunched(int exitCode)
+    {
+        // The Task-0 all-users cancel path: Process.Start succeeded, but the Inno
+        // bootstrapper's internal UAC handoff was refused and the process exited
+        // nonzero inside the decision window. The service must publish a retryable
+        // Failed — never InstallerLaunched — so the running game stays alive.
+        var bytes = InstallerBytes();
+        var (service, _, starts) = CreateOfferedService(
+            bytes, starterAttempt: new InstallerLaunchAttempt(Started: true, ExitCode: exitCode));
+
+        try
+        {
+            service.BeginUpdate();
+            service.UpdateTask.GetAwaiter().GetResult();
+
+            var snapshot = service.GetSnapshot();
+            Assert.Equal(GameUpdateState.Failed, snapshot.State);
+            Assert.Equal("launch_failed", snapshot.ReasonCode);
+            Assert.Equal(InstallerUrl, snapshot.InstallerUrl); // retryable: offer survives
+            Assert.Single(starts);
         }
         finally
         {
@@ -410,7 +447,7 @@ public class GameUpdateServiceDownloadTests
         var service = new GameUpdateService(
             httpClient,
             logger: null,
-            new WindowsUpdateInstallerLauncher(info => { starts.Add(info); return new Process(); }));
+            new WindowsUpdateInstallerLauncher(info => { starts.Add(info); return CommittedAttempt; }));
 
         try
         {
