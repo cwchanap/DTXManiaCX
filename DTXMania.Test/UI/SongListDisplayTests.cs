@@ -6,8 +6,10 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Moq;
 using System.Collections.Generic;
+using System.Linq;
 using DTXMania.Test.Helpers;
 using DTXMania.Game.Lib.Song.Entities;
+using DTXMania.Game.Lib.UI.Layout;
 using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
 
 namespace DTXMania.Test.UI
@@ -323,6 +325,69 @@ namespace DTXMania.Test.UI
             Assert.Equal(songs[0], songEventArgs.Song);
         }
 
+        [Fact]
+        public void FourNodeList_ShouldUseFourUniqueSlotsAroundCenter()
+        {
+            var slots = Enumerable.Range(0, SongSelectionUILayout.SongBars.VisibleItems)
+                .Select(barIndex => SongListDisplay.TryResolveVisibleSongIndex(
+                    centerSongIndex: 0,
+                    barIndex,
+                    songCount: 4,
+                    out var songIndex)
+                    ? (int?)songIndex
+                    : null)
+                .ToArray();
 
+            Assert.Equal(4, slots.Count(index => index.HasValue));
+            Assert.Equal(4, slots.Where(index => index.HasValue).Select(index => index!.Value).Distinct().Count());
+            Assert.Equal(3, slots[SongSelectionUILayout.SongBars.CenterIndex - 1]);
+            Assert.Equal(0, slots[SongSelectionUILayout.SongBars.CenterIndex]);
+            Assert.Equal(1, slots[SongSelectionUILayout.SongBars.CenterIndex + 1]);
+            Assert.Equal(2, slots[SongSelectionUILayout.SongBars.CenterIndex + 2]);
+        }
+
+        [Fact]
+        public void OneNodeList_ShouldRenderOnlyTheCenterSlot()
+        {
+            var visibleSlots = Enumerable.Range(0, SongSelectionUILayout.SongBars.VisibleItems)
+                .Where(barIndex => SongListDisplay.TryResolveVisibleSongIndex(
+                    centerSongIndex: 0,
+                    barIndex,
+                    songCount: 1,
+                    out _))
+                .ToArray();
+
+            Assert.Equal(new[] { SongSelectionUILayout.SongBars.CenterIndex }, visibleSlots);
+        }
+
+        [Fact]
+        public void FullViewportList_ShouldKeepLegacyThirteenSlotProjection()
+        {
+            var indices = Enumerable.Range(0, SongSelectionUILayout.SongBars.VisibleItems)
+                .Select(barIndex =>
+                {
+                    Assert.True(SongListDisplay.TryResolveVisibleSongIndex(
+                        centerSongIndex: 0,
+                        barIndex,
+                        songCount: SongSelectionUILayout.SongBars.VisibleItems,
+                        out var songIndex));
+                    return songIndex;
+                })
+                .ToArray();
+
+            Assert.Equal(SongSelectionUILayout.SongBars.VisibleItems, indices.Distinct().Count());
+        }
+
+        [Fact]
+        public void WrappedCenter_ShouldKeepSelectedNodeAtCenter()
+        {
+            Assert.True(SongListDisplay.TryResolveVisibleSongIndex(
+                centerSongIndex: -1,
+                barIndex: SongSelectionUILayout.SongBars.CenterIndex,
+                songCount: 4,
+                out var songIndex));
+
+            Assert.Equal(3, songIndex);
+        }
     }
 }
