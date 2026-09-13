@@ -1463,7 +1463,8 @@ namespace DTXMania.Game.Lib.Stage
         private void DrawVersionInfo()
         {
             // Draw version info right-aligned against the edge margin (DTXMania pattern)
-            const string versionText = "DTXManiaCX v1.0.0 - MonoGame Edition";
+            var version = typeof(StartupStage).Assembly.GetName().Version?.ToString(3) ?? "unknown";
+            var versionText = $"DTXManiaCX v{version} - MonoGame Edition";
             var viewport = GetViewportCore();
             var theme = Theme;
 
