@@ -290,9 +290,10 @@ namespace DTXMania.Game.Lib.UI.Layout
             public const int BookmarkStarOffsetX = 20;
             public const int BookmarkStarOffsetY = 6;
 
-            // Horizontal inset for the Recent/Bookmarks empty-state status text, relative to
-            // UnselectedBarX. Shared by both tabs' "No … yet" / "Could not load …" messages.
+            // Horizontal inset for empty-state status text, relative to UnselectedBarX.
             public const int EmptyMessageOffsetX = 100;
+            // Remaining width inside the authored song-bar region after the text inset.
+            public const int EmptyMessageMaxWidth = BarWidth - EmptyMessageOffsetX;
             
             // Visual constants
             public const int VisibleItems = 13;        // Number of visible song bars
