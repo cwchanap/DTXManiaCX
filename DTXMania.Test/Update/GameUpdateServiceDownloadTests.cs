@@ -114,8 +114,9 @@ public class GameUpdateServiceDownloadTests
     [Fact]
     public void BeginUpdate_WhileVerifiedFileIsHeldForLaunch_ShouldDenyOtherOpenersWriteAccess()
     {
-        // Runs inside the fake launcher, i.e. exactly inside the verify→launch hold: a write-open
-        // must hit a sharing violation while the service still holds the downloaded file.
+        // Runs inside the fake launcher, i.e. exactly inside the read-hold (verify→launch):
+        // the service holds a FileAccess.Read/FileShare.Read handle over the verified file,
+        // so a write-open must hit a sharing violation until the launcher has returned.
         Exception? observed = null;
         var bytes = InstallerBytes();
         var (service, _, _) = CreateOfferedService(bytes, onLaunchAttempt: () =>
