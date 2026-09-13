@@ -19,7 +19,7 @@ namespace DTXMania.Game.Lib.Update;
 public sealed class GameUpdateService : IGameUpdateService
 {
     private static readonly Regex StableTagPattern =
-        new(@"^v?\d+\.\d+\.\d+$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        new(@"^v\d+\.\d+\.\d+$", RegexOptions.Compiled);
 
     private static readonly Regex DigestPattern =
         new(@"^sha256:[0-9a-f]{64}$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -143,8 +143,7 @@ public sealed class GameUpdateService : IGameUpdateService
             return;
         }
 
-        var detail = snapshot.ReasonCode
-            ?? (snapshot.State == GameUpdateState.Available ? $"available_v{snapshot.AvailableVersion}" : "no_change");
+        var detail = snapshot.ReasonCode ?? $"available_v{snapshot.AvailableVersion}";
         _logger?.LogInformation("Game update: {ReasonCode}", detail);
     }
 }

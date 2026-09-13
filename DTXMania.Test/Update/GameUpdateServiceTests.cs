@@ -29,6 +29,9 @@ public class GameUpdateServiceTests
         return $"{{\"tag_name\":\"{tag}\",\"prerelease\":{(prerelease ? "true" : "false")},\"assets\":{assets}}}";
     }
 
+    private static string ReleaseJsonWithAssets(string tag, string assetsJson) =>
+        $"{{\"tag_name\":\"{tag}\",\"prerelease\":false,\"assets\":{assetsJson}}}";
+
     private static (GameUpdateService Service, FakeGitHubHandler Handler) CreateService(
         HttpResponseMessage? response = null,
         Exception? throwOnSend = null,
@@ -101,6 +104,8 @@ public class GameUpdateServiceTests
     [Theory]
     [InlineData("not-a-version")]
     [InlineData("1.2")]
+    [InlineData("1.2.3")]
+    [InlineData("V1.2.3")]
     [InlineData("v1.2.3-rc.1")]
     [InlineData("1.2.3.4")]
     [InlineData("")]
@@ -160,6 +165,27 @@ public class GameUpdateServiceTests
 
         Assert.Equal(GameUpdateState.DiscoveryFailed, snapshot.State);
         Assert.Equal("asset_missing", snapshot.ReasonCode);
+    }
+
+    [Fact]
+    public void CheckOnce_WhenMultipleAssetsExist_ShouldSelectExactMatchingSetupAsset()
+    {
+        var version = NextNewerVersion();
+        var display = $"{version.Major}.{version.Minor}.{version.Build}";
+        var assetsJson = "[" +
+            "{\"name\":\"DTXMania-Setup-9.9.9.exe\",\"browser_download_url\":\"https://github.com/example/wrong-exe\",\"digest\":\"sha256:" + new string('b', 64) + "\"}," +
+            "{\"name\":\"DTXMania-Setup-" + display + ".zip\",\"browser_download_url\":\"https://github.com/example/zip\",\"digest\":null}," +
+            "{\"name\":\"checksums.txt\",\"browser_download_url\":\"https://github.com/example/checksums\",\"digest\":null}," +
+            "{\"name\":\"DTXMania-Setup-" + display + ".exe\",\"browser_download_url\":\"https://github.com/example/correct-exe\",\"digest\":\"sha256:" + Digest64Hex + "\"}" +
+        "]";
+        var json = ReleaseJsonWithAssets("v" + display, assetsJson);
+
+        var snapshot = Check(JsonResponse(json));
+
+        Assert.Equal(GameUpdateState.Available, snapshot.State);
+        Assert.Equal("https://github.com/example/correct-exe", snapshot.InstallerUrl);
+        Assert.Equal("sha256:" + Digest64Hex, snapshot.Sha256Digest);
+        Assert.Null(snapshot.ReasonCode);
     }
 
     [Theory]
