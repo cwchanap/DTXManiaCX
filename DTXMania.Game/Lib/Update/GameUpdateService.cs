@@ -129,9 +129,11 @@ public sealed class GameUpdateService : IGameUpdateService
                 return; // digest mismatch already published
             }
 
-            // TOCTOU hold: the verified bytes' handle stays open (FileShare.Read) until the
-            // launcher has started (or refused) the process, denying every other process
-            // write access between verification and launch.
+            // TOCTOU hold: the verified bytes' read-only handle (FileShare.Read) stays open
+            // until the launcher has started (or refused) the process — denying every other
+            // process write/delete access between verification and launch, while CreateProcess
+            // can still map the image (its FILE_SHARE_READ|FILE_SHARE_DELETE share permits our
+            // read access; FILE_SHARE_READ permits its read+execute access).
             try
             {
                 if (!_launcher.Launch(tempPath))
@@ -159,46 +161,66 @@ public sealed class GameUpdateService : IGameUpdateService
     }
 
     /// <summary>
-    /// Streams the installer to the version-scoped temp path and SHA-256-verifies
-    /// the final bytes. Returns the still-open file handle on a digest match —
-    /// opened with FileShare.Read so no other process can write (or substitute)
-    /// the file after verification; the caller must dispose it only after the
-    /// launcher has run. Returns (null, null) on a digest mismatch (handle already
-    /// disposed, failed snapshot published). Percent stays null when no
-    /// Content-Length was available.
+    /// Streams the installer to the version-scoped temp path (write handle, no
+    /// incremental hash), flushes and closes it, then SHA-256-verifies the bytes
+    /// on disk through a second, read-only pass. On a digest match the read
+    /// handle is returned still open — FileAccess.Read + FileShare.Read denies
+    /// every other process write/delete access after verification, while
+    /// CreateProcess can still open the image, so the launcher runs against the
+    /// verified bytes with no substitution window; the caller must dispose it
+    /// only after the launcher has run. Returns (null, null) on a digest
+    /// mismatch (handle already disposed, failed snapshot published). Percent
+    /// stays null when no Content-Length was available.
     /// </summary>
     private async Task<(FileStream? VerifiedFile, int? Percent)> DownloadAndVerifyAsync(HttpResponseMessage response, GameUpdateSnapshot offered, string tempPath)
     {
         long? totalBytes = response.Content.Headers.ContentLength;
         await using var source = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
-        var file = new FileStream(
-            tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.Read,
-            bufferSize: 81920, FileOptions.Asynchronous | FileOptions.SequentialScan);
-        FileStream? verifiedFile = null;
-        try
-        {
-            using var hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        var digest = offered.Sha256Digest!.Substring(DigestPrefix.Length);
 
+        // Pass 1 — write the download. The read pass below is the authoritative
+        // digest of the bytes actually on disk, so no incremental hash here.
+        int? percent = null;
+        using (var file = new FileStream(
+            tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.Read,
+            bufferSize: 81920, FileOptions.Asynchronous | FileOptions.SequentialScan))
+        {
             var buffer = new byte[81920];
-            var digest = offered.Sha256Digest!.Substring(DigestPrefix.Length);
             long written = 0;
-            int? lastPercent = null;
             int read;
             while ((read = await source.ReadAsync(buffer).ConfigureAwait(false)) > 0)
             {
                 await file.WriteAsync(buffer.AsMemory(0, read)).ConfigureAwait(false);
-                hasher.AppendData(buffer, 0, read);
                 written += read;
 
                 if (totalBytes is > 0)
                 {
-                    var percent = (int)Math.Clamp(written * 100 / totalBytes.Value, 0, 100);
-                    if (percent != lastPercent)
+                    var current = (int)Math.Clamp(written * 100 / totalBytes.Value, 0, 100);
+                    if (current != percent)
                     {
-                        lastPercent = percent;
-                        Publish(offered with { State = GameUpdateState.Downloading, DownloadPercent = percent });
+                        percent = current;
+                        Publish(offered with { State = GameUpdateState.Downloading, DownloadPercent = current });
                     }
                 }
+            }
+
+            // Flush so the read pass hashes (and the launcher reads) complete bytes.
+            await file.FlushAsync().ConfigureAwait(false);
+        } // write handle closed before verify/launch; a retry always sees a fresh path
+
+        // Pass 2 — verify from a read hold we keep open across the launch.
+        var readHandle = new FileStream(
+            tempPath, FileMode.Open, FileAccess.Read, FileShare.Read,
+            bufferSize: 81920, FileOptions.Asynchronous | FileOptions.SequentialScan);
+        FileStream? held = null;
+        try
+        {
+            using var hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            var buffer = new byte[81920];
+            int read;
+            while ((read = await readHandle.ReadAsync(buffer).ConfigureAwait(false)) > 0)
+            {
+                hasher.AppendData(buffer, 0, read);
             }
 
             var actual = Convert.ToHexString(hasher.GetHashAndReset()).ToLowerInvariant();
@@ -208,16 +230,14 @@ public sealed class GameUpdateService : IGameUpdateService
                 return (null, null);
             }
 
-            // Flush the managed buffer so the launched installer reads complete bytes.
-            await file.FlushAsync().ConfigureAwait(false);
-            verifiedFile = file;
-            return (file, lastPercent);
+            held = readHandle;
+            return (readHandle, percent);
         }
         finally
         {
-            if (verifiedFile is null)
+            if (held is null)
             {
-                await file.DisposeAsync().ConfigureAwait(false);
+                await readHandle.DisposeAsync().ConfigureAwait(false);
             }
         }
     }
