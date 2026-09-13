@@ -269,19 +269,14 @@ public class GameUpdateServiceTests
     }
 
     [Fact]
-    public void BeginUpdate_WhenUpdateAvailable_ShouldDeferWithoutChangingSnapshot()
+    public void BeginUpdate_WhenNoUpdateOffered_ShouldNotChangeSnapshotOrRequest()
     {
-        var version = NextNewerVersion();
-        var display = $"{version.Major}.{version.Minor}.{version.Build}";
-        var json = ReleaseJson("v" + display, prerelease: false, $"DTXMania-Setup-{display}.exe", "sha256:" + Digest64Hex);
-        var (service, handler) = CreateService(JsonResponse(json));
-        service.CheckOnce().GetAwaiter().GetResult();
-        var before = service.GetSnapshot();
+        var (service, handler) = CreateService();
 
         service.BeginUpdate();
 
-        Assert.Equal(before, service.GetSnapshot());
-        Assert.Single(handler.Requests);
+        Assert.Equal(GameUpdateState.NotChecked, service.GetSnapshot().State);
+        Assert.Empty(handler.Requests);
     }
 
     private static HttpResponseMessage JsonResponse(string json) =>

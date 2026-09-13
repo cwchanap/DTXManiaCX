@@ -5,9 +5,8 @@ using System.Threading.Tasks;
 namespace DTXMania.Game.Lib.Update;
 
 /// <summary>
-/// Lifecycle of the process-owned update check. Task 3 (download/launch) will
-/// extend this enum additively with downloading/launched states; existing
-/// members and their order are stable.
+/// Lifecycle of the process-owned update check. Existing members and their
+/// order are stable; download/launch states are appended additively.
 /// </summary>
 public enum GameUpdateState
 {
@@ -24,7 +23,19 @@ public enum GameUpdateState
     Available,
 
     /// <summary>Discovery could not offer an update; see <see cref="GameUpdateSnapshot.ReasonCode"/>.</summary>
-    DiscoveryFailed
+    DiscoveryFailed,
+
+    /// <summary>The installer download is streaming to the temp path.</summary>
+    Downloading,
+
+    /// <summary>
+    /// Download or launch failed but the offer is still valid; the player may
+    /// retry (a retry always downloads into a fresh temp file).
+    /// </summary>
+    Failed,
+
+    /// <summary>The verified installer was started successfully; the service does not wait for it.</summary>
+    InstallerLaunched
 }
 
 /// <summary>
@@ -36,7 +47,8 @@ public sealed record GameUpdateSnapshot(
     string? AvailableVersion,
     string? InstallerUrl,
     string? Sha256Digest,
-    string? ReasonCode)
+    string? ReasonCode,
+    int? DownloadPercent = null)
 {
     /// <summary>Snapshot published by the service before the first <c>CheckOnce</c>.</summary>
     public static GameUpdateSnapshot NotChecked { get; } =
@@ -60,8 +72,10 @@ public interface IGameUpdateService
     Task CheckOnce();
 
     /// <summary>
-    /// Begins downloading the available update. Not implemented yet (Task 3);
-    /// currently a logged no-op that leaves the snapshot unchanged.
+    /// Begins downloading the offered update off the MonoGame loop: streams it
+    /// to one version-scoped temp file, verifies the SHA-256 digest, and starts
+    /// the installer only on a match. Offered while <see cref="GameUpdateState.Available"/>
+    /// or retryable <see cref="GameUpdateState.Failed"/>; ignored otherwise.
     /// </summary>
     void BeginUpdate();
 
