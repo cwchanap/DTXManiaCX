@@ -28,6 +28,8 @@ public sealed class GameUpdateService : IGameUpdateService
 
     private const int DiscoveryTimeoutSeconds = 30;
 
+    private const int DownloadTimeoutMinutes = 10;
+
     private const string DigestPrefix = "sha256:";
 
     private readonly HttpClient _httpClient;
@@ -114,8 +116,9 @@ public sealed class GameUpdateService : IGameUpdateService
         {
             TryDeleteStaleInstaller(tempPath);
 
+            using var download = new CancellationTokenSource(TimeSpan.FromMinutes(DownloadTimeoutMinutes));
             using var response = await _httpClient
-                .GetAsync(offered.InstallerUrl!, HttpCompletionOption.ResponseHeadersRead)
+                .GetAsync(offered.InstallerUrl!, HttpCompletionOption.ResponseHeadersRead, download.Token)
                 .ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
@@ -123,7 +126,7 @@ public sealed class GameUpdateService : IGameUpdateService
                 return;
             }
 
-            var (verifiedFile, percent) = await DownloadAndVerifyAsync(response, offered, tempPath).ConfigureAwait(false);
+            var (verifiedFile, percent) = await DownloadAndVerifyAsync(response, offered, tempPath, download.Token).ConfigureAwait(false);
             if (verifiedFile is null)
             {
                 return; // digest mismatch already published
@@ -172,10 +175,10 @@ public sealed class GameUpdateService : IGameUpdateService
     /// mismatch (handle already disposed, failed snapshot published). Percent
     /// stays null when no Content-Length was available.
     /// </summary>
-    private async Task<(FileStream? VerifiedFile, int? Percent)> DownloadAndVerifyAsync(HttpResponseMessage response, GameUpdateSnapshot offered, string tempPath)
+    private async Task<(FileStream? VerifiedFile, int? Percent)> DownloadAndVerifyAsync(HttpResponseMessage response, GameUpdateSnapshot offered, string tempPath, CancellationToken cancellationToken)
     {
         long? totalBytes = response.Content.Headers.ContentLength;
-        await using var source = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
+        await using var source = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
         var digest = offered.Sha256Digest!.Substring(DigestPrefix.Length);
 
         // Pass 1 — write the download. The read pass below is the authoritative
@@ -188,9 +191,9 @@ public sealed class GameUpdateService : IGameUpdateService
             var buffer = new byte[81920];
             long written = 0;
             int read;
-            while ((read = await source.ReadAsync(buffer).ConfigureAwait(false)) > 0)
+            while ((read = await source.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) > 0)
             {
-                await file.WriteAsync(buffer.AsMemory(0, read)).ConfigureAwait(false);
+                await file.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
                 written += read;
 
                 if (totalBytes is > 0)
@@ -205,7 +208,7 @@ public sealed class GameUpdateService : IGameUpdateService
             }
 
             // Flush so the read pass hashes (and the launcher reads) complete bytes.
-            await file.FlushAsync().ConfigureAwait(false);
+            await file.FlushAsync(cancellationToken).ConfigureAwait(false);
         } // write handle closed before verify/launch; a retry always sees a fresh path
 
         // Pass 2 — verify from a read hold we keep open across the launch.
@@ -218,7 +221,7 @@ public sealed class GameUpdateService : IGameUpdateService
             using var hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
             var buffer = new byte[81920];
             int read;
-            while ((read = await readHandle.ReadAsync(buffer).ConfigureAwait(false)) > 0)
+            while ((read = await readHandle.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) > 0)
             {
                 hasher.AppendData(buffer, 0, read);
             }
