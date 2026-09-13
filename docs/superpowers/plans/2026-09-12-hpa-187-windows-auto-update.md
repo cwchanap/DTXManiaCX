@@ -146,8 +146,9 @@ Do not reuse crash `ExternalLauncher`; copying its narrow injected process-start
 - [ ] Build the process start from the exact contract proven in Task 0.
 - [ ] Never invoke a shell.
 - [ ] Catch `Win32Exception`/process-start failure, including elevation cancellation, as retryable `Failed`.
-- [ ] Failed start does not publish `InstallerLaunched` and does not exit the game.
-- [ ] Successful start publishes `InstallerLaunched`; service does not call game APIs or wait for completion.
+- [ ] Observe the started process through a bounded elevation-decision window: the unelevated bootstrapper resolves its internal all-users UAC handoff inside it (early nonzero exit = refused, early exit 0 = respawned elevated, still running = committed install).
+- [ ] Failed or cancelled start does not publish `InstallerLaunched` and does not exit the game.
+- [ ] Committed start publishes `InstallerLaunched`; service does not call game APIs or wait for install completion.
 
 **Commit:** `feat: download and verify windows updates`
 
