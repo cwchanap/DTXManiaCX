@@ -49,7 +49,7 @@ public class ResultScreenRendererTests
             Times.Once);
         smallFont.Verify(x => x.DrawString(
             It.IsAny<SpriteBatch>(),
-            "SCORE BUCKET: SPEED 0.75x · PITCH NOT SPLIT",
+            "SCORE BUCKET: 0.75x · ALL PITCHES",
             ResultUILayout.PlaybackPresentation.ScoreBucketPosition,
             ResultUILayout.PlaybackPresentation.ScoreBucketColor),
             Times.Once);
