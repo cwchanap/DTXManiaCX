@@ -61,11 +61,11 @@ namespace DTXMania.Game.Lib.UI.Layout
         public const int ItemVisibleTopY = 105;      // header bottom
         public const int ItemVisibleBottomY = 690;   // footer top
         public const int ItemNameOffsetX = 20;
-        public const int ItemValueOffsetX = 260;
+        public const int ItemValueOffsetX = 270;
         public const int ItemTextOffsetY = 24;
-        // Value text left-aligns at ItemListX+ItemValueOffsetX (680) and must stay left of the
-        // description panel (x=800), so cap its width. 800 - 680 - 4 margin = 116.
-        public const int ItemValueMaxWidth = 116;
+        // Value text left-aligns at ItemListX+ItemValueOffsetX (690) and must stay left of the
+        // description panel (x=800), so cap its width. 800 - 690 - 4 margin = 106.
+        public const int ItemValueMaxWidth = 106;
         // Selection cursor is fixed at the focus row; items scroll under it (NX 4_itembox cursor.png 497x68).
         public static Rectangle ItemCursorRect => new(413, 193, 497, 68);
 
