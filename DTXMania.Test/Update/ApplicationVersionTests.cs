@@ -6,6 +6,7 @@ using Xunit;
 
 namespace DTXMania.Test.Update;
 
+[Trait("Category", "Unit")]
 public class ApplicationVersionTests
 {
     [Fact]

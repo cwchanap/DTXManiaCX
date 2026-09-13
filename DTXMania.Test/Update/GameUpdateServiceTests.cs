@@ -14,6 +14,7 @@ using Xunit;
 
 namespace DTXMania.Test.Update;
 
+[Trait("Category", "Unit")]
 public class GameUpdateServiceTests
 {
     private const string Digest64Hex = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";

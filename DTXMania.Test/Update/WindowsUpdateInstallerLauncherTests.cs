@@ -9,6 +9,7 @@ using Xunit;
 
 namespace DTXMania.Test.Update;
 
+[Trait("Category", "Unit")]
 public class WindowsUpdateInstallerLauncherTests
 {
     private const string InstallerPath = @"C:\temp\DTXMania-Setup-1.2.3.tmp.exe";

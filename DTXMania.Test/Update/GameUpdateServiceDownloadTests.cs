@@ -19,6 +19,7 @@ using Xunit;
 
 namespace DTXMania.Test.Update;
 
+[Trait("Category", "Unit")]
 public class GameUpdateServiceDownloadTests
 {
     private static string NewerDisplay { get; } =
