@@ -25,7 +25,7 @@ public class ResultScreenModelTests
         var model = ResultScreenModel.Create(summary, null, 0, null, null);
 
         Assert.Equal("PLAY 0.75x · PITCH +3 st", model.PlaybackProfileText);
-        Assert.Equal("SCORE BUCKET: SPEED 0.75x · PITCH NOT SPLIT", model.ScoreBucketText);
+        Assert.Equal("SCORE BUCKET: 0.75x · ALL PITCHES", model.ScoreBucketText);
     }
 
     [Fact]
@@ -47,7 +47,7 @@ public class ResultScreenModelTests
                 null);
 
             Assert.Equal("PLAY 0.75x · PITCH +3 st", model.PlaybackProfileText);
-            Assert.Equal("SCORE BUCKET: SPEED 0.75x · PITCH NOT SPLIT", model.ScoreBucketText);
+            Assert.Equal("SCORE BUCKET: 0.75x · ALL PITCHES", model.ScoreBucketText);
         }
         finally
         {
