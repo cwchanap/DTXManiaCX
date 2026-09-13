@@ -1,5 +1,6 @@
 <Project>
   <PropertyGroup>
     <MSBuildProjectExtensionsPath>obj/$(MSBuildProjectName)/</MSBuildProjectExtensionsPath>
+    <Version Condition="'$(APP_VERSION)' != ''">$(APP_VERSION)</Version>
   </PropertyGroup>
 </Project>
