@@ -1451,7 +1451,7 @@ public class SongListDisplayLogicTests
         {
             ManagedFont = managedFont.Object,
             WhitePixel = null,
-            CurrentList = CreateSongsForDraw()
+            CurrentList = CreateSongsForDraw(SongSelectionUILayout.SongBars.VisibleItems)
         };
 
         SetField(display, "_useEnhancedRendering", false);
@@ -2088,35 +2088,26 @@ public class SongListDisplayLogicTests
         return songs;
     }
 
-    private static List<SongListNode> CreateSongsForDraw()
+    private static List<SongListNode> CreateSongsForDraw(int count = 2)
     {
-        return
-        [
-            new SongListNode
+        var songs = new List<SongListNode>();
+        for (int i = 0; i < count; i++)
+        {
+            songs.Add(new SongListNode
             {
                 Type = NodeType.Score,
-                Title = "Song 0",
+                Title = $"Song {i}",
                 DatabaseSong = new SongEntity
                 {
-                    Title = "Song 0",
-                    Artist = "Artist 0",
+                    Title = $"Song {i}",
+                    Artist = $"Artist {i}",
                     Comment = ""
                 },
                 Scores = new SongScore[5]
-            },
-            new SongListNode
-            {
-                Type = NodeType.Score,
-                Title = "Song 1",
-                DatabaseSong = new SongEntity
-                {
-                    Title = "Song 1",
-                    Artist = "Artist 1",
-                    Comment = ""
-                },
-                Scores = new SongScore[5]
-            }
-        ];
+            });
+        }
+
+        return songs;
     }
 
     private static Mock<IFont> CreateManagedFont()
