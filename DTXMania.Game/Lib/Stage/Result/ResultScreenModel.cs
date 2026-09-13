@@ -165,7 +165,7 @@ namespace DTXMania.Game.Lib.Stage.Result
 
         public static string FormatScoreBucket(int playSpeedPercent)
         {
-            return $"SCORE BUCKET: SPEED {PlaySpeedRange.Format(playSpeedPercent)} · PITCH NOT SPLIT";
+            return $"SCORE BUCKET: {PlaySpeedRange.Format(playSpeedPercent)} · ALL PITCHES";
         }
 
         public static string FormatSaveStatus(ResultSaveState state)
