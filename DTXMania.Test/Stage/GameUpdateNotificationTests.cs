@@ -44,6 +44,19 @@ public sealed class GameUpdateNotificationTests
         Assert.True(notification.IsBannerVisible);
     }
 
+    [Fact]
+    public void InitialState_WhenFailed_ShouldShowFailureBannerButStayClosed()
+    {
+        // After Downloading -> Failed the update UI must NOT silently disappear:
+        // a persistent retry banner keeps the failure reachable without relying
+        // on an undocumented F9 press.
+        var notification = new GameUpdateNotification(CreateService(Snap(GameUpdateState.Failed)));
+
+        Assert.False(notification.IsOpen);
+        Assert.True(notification.IsBannerVisible);
+        Assert.Null(notification.StatusText);
+    }
+
     // ---------------------------------------------------------------------------------------------
     // Opening: raw edge-triggered F9 (non-remappable) and the banner click
     // ---------------------------------------------------------------------------------------------
@@ -116,6 +129,19 @@ public sealed class GameUpdateNotificationTests
         Assert.False(notification.IsOpen);
     }
 
+    [Fact]
+    public void ClosedBanner_WhenBannerClickWhileFailed_ShouldOpenRetryPanelAndConsumeFrame()
+    {
+        // The failure banner is clickable like the available banner — it opens the
+        // retryable Failed panel (RETRY / LATER), not just the undocumented F9 path.
+        var notification = new GameUpdateNotification(CreateService(Snap(GameUpdateState.Failed)));
+
+        var consumed = notification.HandleInput(NoKeys, NoKeys, inputManager: null, virtualMouse: BannerClickPoint, leftMouseClick: true);
+
+        Assert.True(consumed);
+        Assert.True(notification.IsOpen);
+    }
+
     // ---------------------------------------------------------------------------------------------
     // Closed banner consumes nothing (required regression: title Activate must still work)
     // ---------------------------------------------------------------------------------------------
@@ -124,6 +150,19 @@ public sealed class GameUpdateNotificationTests
     public void ClosedBanner_WhenActivatePressed_ShouldConsumeNothing()
     {
         var notification = new GameUpdateNotification(CreateService(Snap(GameUpdateState.Available)));
+
+        var consumed = notification.HandleInput(NoKeys, NoKeys, CreateInput(InputCommandType.Activate), null, false);
+
+        Assert.False(consumed);
+        Assert.False(notification.IsOpen);
+    }
+
+    [Fact]
+    public void ClosedFailureBanner_WhenActivatePressed_ShouldConsumeNothing()
+    {
+        // The persistent failure banner is passive like the available banner: the
+        // title's Activate (GAME START) keeps working while it is shown.
+        var notification = new GameUpdateNotification(CreateService(Snap(GameUpdateState.Failed)));
 
         var consumed = notification.HandleInput(NoKeys, NoKeys, CreateInput(InputCommandType.Activate), null, false);
 
@@ -294,9 +333,11 @@ public sealed class GameUpdateNotificationTests
     public void StatusText_WhenNotDownloading_ShouldBeNull()
     {
         var available = new GameUpdateNotification(CreateService(Snap(GameUpdateState.Available)));
+        var failed = new GameUpdateNotification(CreateService(Snap(GameUpdateState.Failed)));
         var launched = new GameUpdateNotification(CreateService(Snap(GameUpdateState.InstallerLaunched)));
 
         Assert.Null(available.StatusText);
+        Assert.Null(failed.StatusText); // failure shows the retry banner, not the status line
         Assert.Null(launched.StatusText);
     }
 

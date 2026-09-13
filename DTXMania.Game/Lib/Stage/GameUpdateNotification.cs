@@ -69,7 +69,8 @@ namespace DTXMania.Game.Lib.Stage
         // exposing it on the public surface).
         internal bool IsOpen => _isOpen;
         internal int ActionFocus => _actionFocus;
-        internal bool IsBannerVisible => !_isOpen && _service.GetSnapshot().State == GameUpdateState.Available;
+        internal bool IsBannerVisible => !_isOpen &&
+            _service.GetSnapshot().State is GameUpdateState.Available or GameUpdateState.Failed;
 
         /// <summary>
         /// The status line rendered while an install operation is in flight: exactly
@@ -129,7 +130,8 @@ namespace DTXMania.Game.Lib.Stage
                     return true;
                 }
 
-                if (leftMouseClick && virtualMouse is { } point && state == GameUpdateState.Available &&
+                if (leftMouseClick && virtualMouse is { } point &&
+                    state is GameUpdateState.Available or GameUpdateState.Failed &&
                     BannerRegion.Contains(point))
                 {
                     OpenPanel();
@@ -183,9 +185,9 @@ namespace DTXMania.Game.Lib.Stage
         }
 
         /// <summary>
-        /// Draws the closed banner (while an update is available), the downloading status line,
-        /// and the review panel (while open). Reuses the title's SpriteBatch/font/white-pixel
-        /// resources.
+        /// Draws the closed banner (while an update is available or retryably failed), the
+        /// downloading status line, and the review panel (while open). Reuses the title's
+        /// SpriteBatch/font/white-pixel resources.
         /// </summary>
         [ExcludeFromCodeCoverage]
         public void Draw(SpriteBatch spriteBatch, IFont? font, Texture2D? whitePixel)
@@ -212,6 +214,10 @@ namespace DTXMania.Game.Lib.Stage
             if (snapshot.State == GameUpdateState.Available)
             {
                 DrawBanner(spriteBatch, font, whitePixel);
+            }
+            else if (snapshot.State == GameUpdateState.Failed)
+            {
+                DrawFailedBanner(spriteBatch, font, whitePixel);
             }
         }
 
@@ -288,6 +294,31 @@ namespace DTXMania.Game.Lib.Stage
                     "Press F9 or click to review",
                     new Vector2(BannerRegion.X + 12, BannerRegion.Y + 28),
                     new Color(200, 255, 200));
+            }
+        }
+
+        [ExcludeFromCodeCoverage]
+        private void DrawFailedBanner(SpriteBatch spriteBatch, IFont? font, Texture2D whitePixel)
+        {
+            spriteBatch.Draw(
+                whitePixel,
+                BannerRegion,
+                new Color(84, 32, 32, 220));
+
+            DrawHollowRect(spriteBatch, whitePixel, BannerRegion, new Color(230, 140, 140, 230));
+
+            if (font != null)
+            {
+                font.DrawString(
+                    spriteBatch,
+                    $"UPDATE FAILED — v{_service.GetSnapshot().AvailableVersion}",
+                    new Vector2(BannerRegion.X + 12, BannerRegion.Y + 8),
+                    Color.White);
+                font.DrawString(
+                    spriteBatch,
+                    "Press F9 or click to retry",
+                    new Vector2(BannerRegion.X + 12, BannerRegion.Y + 28),
+                    new Color(255, 200, 200));
             }
         }
 
