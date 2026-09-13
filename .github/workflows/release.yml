@@ -269,6 +269,7 @@ jobs:
           dotnet publish DTXMania.Game/DTXMania.Game.Windows.csproj
           -c Release -r win-x64 --self-contained
           -p:PublishReadyToRun=false -p:TieredCompilation=false
+          -p:Version=$env:APP_VERSION
           -o ./publish/win
 
       - name: Verify OFL font license files in publish output
@@ -467,6 +468,7 @@ jobs:
           dotnet publish DTXMania.Game/DTXMania.Game.Mac.csproj
           -c Release -r osx-arm64 --self-contained
           -p:PublishReadyToRun=false -p:TieredCompilation=false
+          -p:Version=$APP_VERSION
           -o ./publish/mac
 
       - name: Verify bundled arm64 FFmpeg runtime

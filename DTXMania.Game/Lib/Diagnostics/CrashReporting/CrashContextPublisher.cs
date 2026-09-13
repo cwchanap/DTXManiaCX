@@ -3,12 +3,12 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Graphics;
 using DTXMania.Game.Lib.Stage;
+using DTXMania.Game.Lib.Update;
 using DTXMania.Game.Lib.Utilities;
 
 namespace DTXMania.Game.Lib.Diagnostics.CrashReporting;
@@ -28,14 +28,7 @@ internal static class CrashContextPublisher
     {
         ArgumentNullException.ThrowIfNull(diagnostics);
 
-        var assembly = typeof(CrashContextPublisher).Assembly;
-        var applicationVersion = assembly
-            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
-            ?.InformationalVersion;
-        if (string.IsNullOrWhiteSpace(applicationVersion))
-        {
-            applicationVersion = assembly.GetName().Version?.ToString() ?? "Unknown";
-        }
+        var applicationVersion = ApplicationVersion.BuildId;
 
         diagnostics.Contexts.SetSnapshot(new CrashContextSnapshot(
             CrashContextKind.Process,

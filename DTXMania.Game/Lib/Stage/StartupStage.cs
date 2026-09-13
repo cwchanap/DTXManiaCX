@@ -4,6 +4,7 @@ using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Config;
+using DTXMania.Game.Lib.Update;
 using DTXMania.Game.Lib.Utilities;
 using DTXMania.Game;
 using System;
@@ -1463,8 +1464,7 @@ namespace DTXMania.Game.Lib.Stage
         private void DrawVersionInfo()
         {
             // Draw version info right-aligned against the edge margin (DTXMania pattern)
-            var version = AppVersion.GetDisplayVersion();
-            var versionText = $"DTXManiaCX v{version} - MonoGame Edition";
+            string versionText = $"DTXManiaCX v{ApplicationVersion.DisplayWithPrerelease} - MonoGame Edition";
             var viewport = GetViewportCore();
             var theme = Theme;
 

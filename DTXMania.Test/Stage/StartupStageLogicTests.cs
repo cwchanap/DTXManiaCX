@@ -13,6 +13,7 @@ using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage;
+using DTXMania.Game.Lib.Update;
 using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -1619,8 +1620,10 @@ namespace DTXMania.Test.Stage
 
             ReflectionHelpers.InvokePrivateMethod(stage, "DrawVersionInfo");
 
-            font.Verify(f => f.MeasureString("DTXManiaCX v1.0.0 - MonoGame Edition"), Times.Once);
-            font.Verify(f => f.DrawString(stage.SpriteBatchStub, "DTXManiaCX v1.0.0 - MonoGame Edition", new Vector2(1070, 2), Color.White), Times.Once);
+            var versionText = $"DTXManiaCX v{ApplicationVersion.DisplayWithPrerelease} - MonoGame Edition";
+
+            font.Verify(f => f.MeasureString(versionText), Times.Once);
+            font.Verify(f => f.DrawString(stage.SpriteBatchStub, versionText, new Vector2(1070, 2), Color.White), Times.Once);
         }
 
         private static ConfigData CreateConfigWithSongRoots(params string[] roots)
