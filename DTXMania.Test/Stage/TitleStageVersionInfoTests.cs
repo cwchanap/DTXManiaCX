@@ -1,6 +1,8 @@
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Test.TestData;
+using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
 using Moq;
 using Xunit;
 
@@ -50,6 +52,24 @@ namespace DTXMania.Test.Stage
 
             Assert.Null(exception);
             Assert.Null(ReflectionHelpers.GetPrivateField<IFont>(stage, "_versionFont"));
+        }
+
+        [Fact]
+        public void DrawVersionInfo_ShouldUseGameAssemblyVersion()
+        {
+            var stage = CreateStage();
+            var font = new Mock<IFont>();
+            ReflectionHelpers.SetPrivateField(stage, "_versionFont", font.Object);
+            var version = typeof(TitleStage).Assembly.GetName().Version?.ToString(3) ?? "unknown";
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "DrawVersionInfo");
+
+            font.Verify(x => x.DrawString(
+                It.IsAny<SpriteBatch>(),
+                $"DTXManiaCX v{version} - MonoGame Edition",
+                new Vector2(4, 4),
+                Color.White),
+                Times.Once);
         }
     }
 }
