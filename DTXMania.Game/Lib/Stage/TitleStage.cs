@@ -65,6 +65,15 @@ namespace DTXMania.Game.Lib.Stage
         // disposal. Created on activate after resources are available.
         private CrashReportNotification _crashReportNotification;
 
+        // Windows auto-update notification (same ownership convention as the crash notification:
+        // the update service is process-owned, only the component state is stage-owned).
+        private GameUpdateNotification _updateNotification;
+
+        // Guards the terminal InstallerLaunched exit observation below so the game requests exit
+        // exactly once even if OnUpdate keeps running. Deliberately NOT reset on deactivation:
+        // the launched-installer state is terminal for the process.
+        private bool _installerExitRequested;
+
         #endregion
 
         #region Properties
@@ -170,6 +179,9 @@ namespace DTXMania.Game.Lib.Stage
                     StartupCriticalPathAggregate.TitleCrashInbox);
             }
 
+            // Pure in-memory wiring (no bounded filesystem snapshot, unlike the crash inbox above).
+            _updateNotification = new GameUpdateNotification(_game.GameUpdateService);
+
             System.Diagnostics.Debug.WriteLine("Title Stage activated successfully");
         }
 
@@ -181,6 +193,16 @@ namespace DTXMania.Game.Lib.Stage
 
         protected override void OnUpdate(double deltaTime)
         {
+            // Terminal update state is observed OUTSIDE the Normal-phase input gate below: the exit
+            // must fire even during FadeIn or while the crash panel owns input, and exactly once.
+            // Deliberately not inside GameUpdateNotification.HandleInput.
+            if (!_installerExitRequested &&
+                _game.GameUpdateService.GetSnapshot().State == GameUpdateState.InstallerLaunched)
+            {
+                _installerExitRequested = true;
+                _game.RequestExit();
+            }
+
             _elapsedTime += deltaTime;
 
             // Update input state
@@ -200,6 +222,19 @@ namespace DTXMania.Game.Lib.Stage
                 // whose Back-action path calls RequestExit(): an open panel's Back/Escape must close
                 // the panel and must never reach RequestExit() in the same frame.
                 if (_crashReportNotification?.HandleInput(
+                        _currentKeyboardState,
+                        _previousKeyboardState,
+                        _game.InputManager,
+                        _game.MapMouseToVirtual(_currentMouseState.Position),
+                        IsMouseButtonPressed(MouseButton.Left)) == true)
+                {
+                    return;
+                }
+
+                // The update notification sits between the crash panel (first priority) and the
+                // title menu: when it consumes the frame (open panel, opening edge, or an in-flight
+                // install operation) the title's Start/Config/exit input paths are skipped.
+                if (_updateNotification?.HandleInput(
                         _currentKeyboardState,
                         _previousKeyboardState,
                         _game.InputManager,
@@ -239,8 +274,10 @@ namespace DTXMania.Game.Lib.Stage
             // Draw menu
             DrawMenu();
 
-            // Draw the crash-report notification (banner/panel) after the menu, reusing the title's
-            // SpriteBatch/font/white-pixel. The component owns its own geometry.
+            // Draw the update notification first so the crash-report notification (which stays
+            // first priority) draws on top of it when both surface at once. Both reuse the title's
+            // SpriteBatch/font/white-pixel; each component owns its own geometry.
+            _updateNotification?.Draw(_spriteBatch, _versionFont, _whitePixel);
             _crashReportNotification?.Draw(_spriteBatch, _versionFont, _whitePixel);
 
             _spriteBatch.End();
@@ -262,9 +299,10 @@ namespace DTXMania.Game.Lib.Stage
             _currentMouseState = default;
             _hoveredMenuIndex = -1;
 
-            // Drop only the stage-owned notification reference; the runtime/inbox it forwards is
-            // process-owned and must survive title deactivation.
+            // Drop only the stage-owned notification references; the inbox/update service they
+            // forward are process-owned and must survive title deactivation.
             _crashReportNotification = null;
+            _updateNotification = null;
         }
 
         protected override void OnTransitionInStarted(IStageTransition transition)
@@ -286,6 +324,11 @@ namespace DTXMania.Game.Lib.Stage
         {
             System.Diagnostics.Debug.WriteLine("Title Stage: Transition completed");
             _titlePhase = TitlePhase.Normal;
+
+            // One-shot update check fires exactly when the title becomes interactive (NOT in
+            // OnFirstUpdate, which runs during FadeIn inside the instrumented first-update window).
+            // The service owns process idempotence; CheckOnce never throws synchronously.
+            _ = _game.GameUpdateService.CheckOnce();
         }
 
         #endregion
@@ -320,9 +363,10 @@ namespace DTXMania.Game.Lib.Stage
                 _selectSound = null;
                 _gameStartSound = null;
 
-                // Drop only the stage-owned notification reference; the inbox/runtime it forwards is
-                // process-owned and must outlive this stage instance.
+                // Drop only the stage-owned notification references; the inbox/update service
+                // they forward are process-owned and must outlive this stage instance.
                 _crashReportNotification = null;
+                _updateNotification = null;
             }
 
             base.Dispose(disposing);

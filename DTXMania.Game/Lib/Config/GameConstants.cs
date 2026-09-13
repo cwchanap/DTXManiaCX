@@ -53,6 +53,13 @@ namespace DTXMania.Game.Lib.Config
             /// Server shutdown timeout in milliseconds
             /// </summary>
             public const int ShutdownTimeoutMs = 5000;
+
+            /// <summary>
+            /// Environment variable carrying the per-launch automation token. When set the game
+            /// is driven by the E2E harness/MCP out-of-process tooling: the JSON-RPC health
+            /// endpoint reports it back and the Windows auto-update composition disables itself.
+            /// </summary>
+            public const string LaunchTokenEnvironmentVariable = "DTXMANIA_LAUNCH_TOKEN";
         }
 
         /// <summary>

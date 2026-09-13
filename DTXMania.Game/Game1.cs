@@ -19,9 +19,11 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
+using System.Net.Http;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using DTXMania.Game.Lib.Update;
 
 namespace DTXMania.Game;
 
@@ -53,6 +55,8 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
     private RenderTarget2D _renderTarget = null!;
     private readonly IGameCrashDiagnostics _gameCrashDiagnostics;
     private readonly ILoggerFactory _loggerFactory;
+    private readonly IGameUpdateService _gameUpdateService;
+    private HttpClient? _updateHttpClient;
 
     public IStageManager StageManager { get; protected set; } = null!;
     public IConfigManager ConfigManager { get; protected set; } = null!;
@@ -154,6 +158,15 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
     public ICrashReportInbox CrashReportInbox => _gameCrashDiagnostics.CrashReportInbox;
 
     /// <summary>
+    /// Overrides the <see cref="IStageGame.GameUpdateService"/> default facade with ONE
+    /// process-owned service for BaseGame's lifetime: a real <see cref="Update.GameUpdateService"/>
+    /// (GitHub client + temp storage + Windows launcher) when the updater is enabled
+    /// (Windows, no automation launch token), the disabled singleton otherwise. The owned
+    /// <see cref="HttpClient"/>, when created, is disposed with the game.
+    /// </summary>
+    public IGameUpdateService GameUpdateService => _gameUpdateService;
+
+    /// <summary>
     /// Builds a <see cref="WindowTextInputSource"/> from the OS window for text input,
     /// or returns null when no window is available (headless/test environments).
     /// Implements <see cref="IStageGame.GetTextInputSource"/>.
@@ -228,6 +241,20 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
 
         _loggerFactory = _gameCrashDiagnostics.LoggerFactory;
         _logger = _loggerFactory.CreateLogger<BaseGame>();
+        (_gameUpdateService, _updateHttpClient) = CreateGameUpdateService(_loggerFactory);
+    }
+
+    private static (IGameUpdateService Service, HttpClient? OwnedHttpClient) CreateGameUpdateService(
+        ILoggerFactory loggerFactory)
+    {
+        var launchToken = Environment.GetEnvironmentVariable(GameConstants.JsonRpc.LaunchTokenEnvironmentVariable);
+        if (!GameUpdateComposition.ShouldEnable(OperatingSystem.IsWindows(), launchToken))
+        {
+            return (DisabledGameUpdateService.Instance, null);
+        }
+
+        var httpClient = new HttpClient();
+        return (new GameUpdateService(httpClient, loggerFactory.CreateLogger<GameUpdateService>()), httpClient);
     }
 
     [ExcludeFromCodeCoverage]
@@ -1056,6 +1083,10 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
 
         // Dispose resource manager
         ResourceManager?.Dispose();
+
+        // Dispose the updater's owned HttpClient (only created when the updater is enabled)
+        _updateHttpClient?.Dispose();
+        _updateHttpClient = null;
 
         // Stop and dispose game API server
         if (_gameApiCancellation is not null)
