@@ -64,7 +64,8 @@ In `SongSelectionEmptyStateTests`, directly test `ResolveLibraryEmptyMessage` an
 - `NoSupportedCharts` maps to the add-DTX/change-folder recovery copy.
 - `HasSongs` returns empty.
 - Recovery copy contains only printable ASCII U+0020–U+007E.
-- `EmptyMessageMaxWidth == BarWidth - EmptyMessageOffsetX` and is positive; production draw-time `TextHelper.TruncateToWidth` enforces that pixel budget.
+- `EmptyMessageMaxWidth == BarWidth - EmptyMessageOffsetX` and is positive.
+- Reuse the repo's existing `IFont` mock pattern to run each recovery message through `TextHelper.TruncateToWidth` and assert the measured output is within `EmptyMessageMaxWidth` on the Mac test project.
 
 No reflection helper and no graphics-device test are needed.
 
