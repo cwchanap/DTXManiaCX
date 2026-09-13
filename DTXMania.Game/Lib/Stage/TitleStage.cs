@@ -348,7 +348,7 @@ namespace DTXMania.Game.Lib.Stage
         {
             try
             {
-                // Use ResourceManager to load background texture with proper skin path resolution
+                // Use ResourceManager to load menu texture with proper skin path resolution
                 var criticalPathTrace = ResolveCriticalPathTrace();
                 TryBeginAggregate(
                     criticalPathTrace,
