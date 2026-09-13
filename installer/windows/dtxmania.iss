@@ -29,7 +29,7 @@
 #define MyAppName      "DTXManiaCX"
 #define MyAppPublisher "DTXManiaCX"
 #define MyAppExeName   "DTXMania.Game.Windows.exe"
-#define MyAppURL       "https://github.com/chanwaichan/DTXmaniaCX"
+#define MyAppURL       "https://github.com/cwchanap/DTXManiaCX"
 
 [Setup]
 ; AppId must stay stable across versions so upgrades replace the old install.
@@ -94,3 +94,28 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent
+; Silent auto-update relaunch: [Run] entries only run after a successful
+; install, so this fires exactly once per install and never on failure.
+; Gated on the /AUTOUPDATE command-line flag (no persisted mode state) so
+; normal interactive installs never relaunch via this entry; the postinstall
+; entry above is skipped by skipifsilent in silent installs. WizardSilent is
+; checked too, so an interactive install with a stray /AUTOUPDATE flag still
+; can't double-launch. runasoriginaluser keeps the relaunch de-elevated when
+; the installer itself runs elevated (all-users install).
+Filename: "{app}\{#MyAppExeName}"; Flags: nowait runasoriginaluser; Check: IsAutoUpdateInstall
+
+[Code]
+; True only for a silent (/SILENT or /VERYSILENT) install launched with the
+; case-insensitive /AUTOUPDATE flag. Read fresh from the command line every
+; run; nothing is written to the registry or disk.
+function IsAutoUpdateInstall: Boolean;
+var
+  I: Integer;
+  FlagPresent: Boolean;
+begin
+  FlagPresent := False;
+  for I := 1 to ParamCount do
+    if LowerCase(ParamStr(I)) = '/autoupdate' then
+      FlagPresent := True;
+  Result := FlagPresent and WizardSilent;
+end;
