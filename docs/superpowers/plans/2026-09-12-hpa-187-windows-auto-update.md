@@ -1,26 +1,24 @@
 # HPA-187 Windows Auto-Update Implementation Plan
 
-> **For agentic workers:** implement on this same PR. Keep this as a focused Windows auto-update feature, not a packaging migration or notification framework.
+> **For agentic workers:** implement on this same PR. Task 0 is a hard gate: do not write the updater production code until the existing Inno path is proven.
 
-**Goal:** On normal Windows launches, check once from `TitleStage` for a newer stable GitHub Release, show a title-only offer, download and verify the existing Inno installer, then silently upgrade and relaunch.
+**Goal:** On normal Windows launches, check once from `TitleStage` for a newer stable GitHub Release, notify only there, download and verify the current Inno installer, then upgrade and relaunch without replacing the packaging stack.
 
 ## Non-negotiable constraints
 
 - One PR for HPA-187.
 - Reuse GitHub Releases + Inno Setup + stable `AppId`.
 - No Velopack/Squirrel/MSIX/helper updater.
-- Update UI exists only on `TitleStage`.
-- Passive failures are invisible; explicit update failures are retryable.
-- Exact asset: `DTXMania-Setup-X.Y.Z.exe` with valid GitHub `sha256:` digest.
-- No download progress %, persisted skip, channels, release-notes UI, or cancel flow.
-- `CrashReportNotification` remains separate and has first input priority.
-- Processes carrying `DTXMANIA_LAUNCH_TOKEN` use the disabled updater and never call GitHub.
-- Available/Failed update actions are mouse-only; never bind title `Activate`/Enter or Back.
-- Real Windows old-version -> new-version silent upgrade/relaunch is a merge gate.
+- macOS auto-install stays out of scope.
+- `CrashReportNotification` stays separate and keeps first input priority.
+- `DTXMANIA_LAUNCH_TOKEN` processes never call GitHub.
+- Closed update banner must not steal title `Activate` / Enter.
+- No persisted skip, channels, release-notes UI, or cancel subsystem.
+- Lightweight percentage text is allowed; no progress-bar framework.
 
-## Expected files
+## Expected code shape
 
-**Create/keep focused:**
+Create/keep focused:
 
 - `DTXMania.Game/Lib/Update/ApplicationVersion.cs`
 - `DTXMania.Game/Lib/Update/GameUpdateContracts.cs`
@@ -30,283 +28,252 @@
 - `DTXMania.Game/Lib/Stage/GameUpdateNotification.cs`
 - focused tests under `DTXMania.Test/Update/` and `DTXMania.Test/Stage/`
 
-**Modify:**
-
-- `.github/workflows/release.yml`
-- `installer/windows/dtxmania.iss`
-- `DTXMania.Game/Lib/Stage/TitleStage.cs`
-- `DTXMania.Game/Lib/Stage/StartupStage.cs`
-- `DTXMania.Game/Lib/Diagnostics/CrashReporting/CrashContextPublisher.cs`
-- `DTXMania.Game/Lib/Diagnostics/CrashReporting/CrashReportStore.cs`
-- `DTXMania.Game/Lib/Stage/IStageGame.cs`
-- `DTXMania.Game/Game1.cs`
-- existing focused tests that pin these contracts
-
-Combine trivially small update files rather than adding layers.
+Modify existing release/installer/stage/crash files only where required. Do not edit the Mac test project merely to include the new test folders; its current compile glob already picks them up.
 
 ---
 
-## Task 1 — Establish one application-version reader
+## Task 0 — Prove the existing Inno update path first
 
-### Scope
+**Purpose:** validate the one assumption that can invalidate the whole design before building C# around it.
 
-Create `ApplicationVersion` as the only code that reads assembly version metadata.
+Build two Windows installers from current `main` with different test versions and otherwise identical content.
 
-It must expose:
+### Current-user mode
 
-- normalized `System.Version` / `X.Y.Z` display value;
-- informational/build identifier for crash reports, preserving revision metadata when present.
-
-### Work
-
-- [ ] Add normalization tests for release/informational version values and safe fallback.
-- [ ] Replace Title's hard-coded `DTXManiaCX v1.0.0 - MonoGame Edition` with `ApplicationVersion` display output.
-- [ ] Replace Startup's hard-coded version line with the same helper.
-- [ ] Update `StartupStageLogicTests` and any Title expectations.
-- [ ] Change `CrashContextPublisher` to obtain build/application version through `ApplicationVersion`; no direct `AssemblyInformationalVersionAttribute` read remains there.
-- [ ] Change `CrashReportStore.GetBuildId()` to obtain its value through `ApplicationVersion`; no private duplicate reflection remains.
-- [ ] Pass the existing `APP_VERSION` into both Windows and macOS release publish commands with `-p:Version=<APP_VERSION>`.
-- [ ] Search the whole game/test tree for stale `v1.0.0` literals and remove/update relevant production/test expectations.
-
-### Tests
-
-- pure `ApplicationVersion` tests;
-- existing Startup/Title version-display tests;
-- focused crash tests proving the build ID still contains the helper-provided informational value.
-
-### Commit
+- [ ] Install the older package for current user.
+- [ ] Launch the installed game.
+- [ ] Start the newer installer manually with:
 
 ```text
-feat: unify runtime application version
+/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /AUTOUPDATE
 ```
+
+- [ ] Confirm the old process releases installed files.
+- [ ] Confirm the same installation root is upgraded.
+- [ ] Confirm the new game relaunches from that root.
+
+### All-users mode
+
+Repeat from an all-users installation using the same stable `AppId` and baseline updater arguments.
+
+- [ ] Confirm Inno reuses the previous all-users installation rather than creating a per-user shadow install.
+- [ ] Confirm the required elevation flow is acceptable.
+- [ ] Explicitly cancel/fail UAC once and record the behavior needed from the launcher; the current game must remain alive when launch/elevation fails.
+- [ ] Confirm successful upgrade/relaunch from the same all-users install root.
+
+Do **not** add `/DIR`, `/ALLUSERS`, `/CURRENTUSER`, registry inspection, or path-based mode inference unless this test proves the existing previous-install reuse is insufficient. If explicit overrides or a different close/exit sequence are needed, update the design before continuing.
+
+If the flow cannot be reliable without a helper updater or packaging migration, stop HPA-187.
+
+Record the proven argument/process-start contract in the PR before Task 1.
 
 ---
 
-## Task 2 — Add one-shot stable-release discovery
+## Task 1 — Establish one normalized application-version reader
 
-### Contract
+Create `ApplicationVersion` as the only game-code reader of assembly version metadata.
+
+- [ ] Normalize both local assembly version and parsed GitHub tag to exactly three components before comparison.
+- [ ] Expose `X.Y.Z` display value and informational/build identifier.
+- [ ] Replace Title and Startup hard-coded version lines.
+- [ ] Make `CrashContextPublisher` and `CrashReportStore.GetBuildId()` delegate to the helper; remove their private reflection copies.
+- [ ] Update `StartupStageLogicTests` and other pinned version expectations.
+- [ ] Pass existing `APP_VERSION` to both Windows and macOS publish commands with `-p:Version=<APP_VERSION>`.
+- [ ] Search game/tests for stale `v1.0.0` production/test expectations.
+
+Tests must include `1.2.3` versus an assembly-style `1.2.3.0` normalization case and equal-version behavior.
+
+**Commit:** `feat: unify runtime application version`
+
+---
+
+## Task 2 — Add one-shot stable-release discovery and diagnostics
 
 Keep the stage-facing facade small:
 
 ```csharp
-public interface IGameUpdateService
-{
-    GameUpdateSnapshot GetSnapshot();
-    void CheckOnce();
-    void BeginUpdate();
-    void DismissForProcess();
-}
+IGameUpdateService
+  GetSnapshot()
+  CheckOnce()
+  BeginUpdate()
+  DismissForProcess()
 ```
 
-Use immutable snapshots and a disabled singleton.
+- [ ] Reuse `GitHubCrashIssueBuilder.TargetOwner` / `TargetRepository` to build the latest-release API URL.
+- [ ] Accept only stable `vX.Y.Z` and exact `DTXMania-Setup-X.Y.Z.exe` with valid `sha256:` digest.
+- [ ] Compare only normalized three-component versions.
+- [ ] `CheckOnce()` is process-idempotent; Later is memory-only.
+- [ ] Passive rejection produces no player UI.
+- [ ] Log one bounded reason code through the existing `LoggerFactory` path (`not_newer`, `asset_missing`, `digest_missing`, `invalid_tag`, HTTP/network class, etc.).
+- [ ] Never log response bodies to the UI or add a telemetry subsystem.
 
-### GitHub identity
+Normal discovery tests use fake handlers and make no real GitHub requests.
 
-- [ ] Build the GitHub API repository path from `GitHubCrashIssueBuilder.TargetOwner` and `TargetRepository`.
-- [ ] Do not add another GitHub identity service/config setting.
-- [ ] Request only `/repos/{owner}/{repo}/releases/latest` with a stable User-Agent and bounded timeout.
-
-### Parsing/state
-
-- [ ] Accept only `vX.Y.Z`.
-- [ ] Require exact `DTXMania-Setup-X.Y.Z.exe`.
-- [ ] Require valid `sha256:<64 hex>` digest before publishing `Available`.
-- [ ] Equal/newer current version -> no offer.
-- [ ] Malformed/network/JSON/unusable release -> silent passive state.
-- [ ] `CheckOnce()` is idempotent for the service/process lifetime.
-- [ ] `DismissForProcess()` is memory-only.
-
-Normal tests use fakes and make zero real GitHub requests.
-
-### Commit
-
-```text
-feat: add one-shot github update discovery
-```
+**Commit:** `feat: add one-shot github update discovery`
 
 ---
 
-## Task 3 — Download, follow redirects, verify, and launch
+## Task 3 — Stream download, redirect, hash, temp cleanup, and launch
 
-### HTTP/download
+### Temp/download behavior
 
-Production composition must use an `HttpClientHandler` with automatic redirects explicitly enabled and a bounded redirect/timeout policy.
+- [ ] Use one version-scoped temp installer path.
+- [ ] Before each attempt, delete/best-effort clean a stale file already at that path.
+- [ ] Stream response bytes to disk; do not buffer the installer.
+- [ ] Compute SHA-256 from the final downloaded bytes.
+- [ ] Digest mismatch or explicit download/write failure -> retryable `Failed`; launcher is not called.
+- [ ] Retry always starts from a fresh temp file.
 
-- [ ] Stream the installer to a version-scoped temp `.exe`.
-- [ ] SHA-256 the final downloaded bytes; do not buffer the whole installer in memory.
-- [ ] Match digest case-insensitively.
-- [ ] Mismatch -> launcher not called, bad temp file cleaned best-effort, retryable `Failed`.
-- [ ] Retry starts a fresh download.
+### Lightweight progress
 
-### Required redirect test
+If `Content-Length` exists, update the immutable snapshot with an integer percent. If unavailable, leave it null. UI text may render `(43%)`; no progress bar/cancel/history.
 
-Add one focused test/integration-style test where:
+### Redirect proof
+
+Keep fake-handler tests for ordinary state/error cases, but add one loopback integration-style test using the production `HttpClient`/handler stack:
 
 ```text
-browser_download_url -> redirect -> final installer body
+GET /asset -> 302 Location: /real
+GET /real  -> installer bytes
 ```
 
-The expected digest must be calculated from the **final redirected body**. Also pin production redirect configuration so a fake 200 response on the original URL cannot be the only coverage.
+Hash must match `/real` bytes. This replaces a fake-handler redirect test plus an `AllowAutoRedirect` property assertion.
 
 ### Installer launcher
 
-Do **not** reuse crash-report `ExternalLauncher`.
+Do not reuse crash `ExternalLauncher`; copying its narrow injected process-start seam is fine.
 
-Build a direct `ProcessStartInfo` for the verified `.exe`:
+- [ ] Build the process start from the exact contract proven in Task 0.
+- [ ] Never invoke a shell.
+- [ ] Catch `Win32Exception`/process-start failure, including elevation cancellation, as retryable `Failed`.
+- [ ] Failed start does not publish `InstallerLaunched` and does not exit the game.
+- [ ] Successful start publishes `InstallerLaunched`; service does not call game APIs or wait for completion.
 
-```text
-/VERYSILENT
-/SUPPRESSMSGBOXES
-/NORESTART
-/CLOSEAPPLICATIONS
-/AUTOUPDATE
-```
-
-- [ ] no `cmd`, PowerShell, or shell strings;
-- [ ] arguments are separate `ArgumentList` items;
-- [ ] successful `Process.Start` -> `InstallerLaunched`;
-- [ ] service does not exit the game or wait for installer completion.
-
-### Commit
-
-```text
-feat: download and verify windows updates
-```
+**Commit:** `feat: download and verify windows updates`
 
 ---
 
 ## Task 4 — Extend Inno auto-update mode
 
-Preserve installer identity and existing file/app-data ownership.
+Preserve stable installer identity and existing install/app-data ownership.
 
-- [ ] Detect `/AUTOUPDATE` case-insensitively without persistent mode state.
+- [ ] Detect `/AUTOUPDATE` case-insensitively without persisted mode state.
 - [ ] Keep normal interactive `[Run]` launch behavior.
-- [ ] Add silent auto-update `[Run]` behavior that relaunches `{app}\DTXMania.Game.Windows.exe` after successful installation.
-- [ ] Ensure normal install cannot double-launch.
-- [ ] Correct `MyAppURL` from the old owner to `https://github.com/cwchanap/DTXManiaCX` while touching the installer.
-- [ ] Ensure the Inno script still compiles in the release workflow.
+- [ ] Add silent auto-update relaunch behavior after successful install.
+- [ ] Prevent normal install double-launch.
+- [ ] Correct stale `MyAppURL` to `https://github.com/cwchanap/DTXManiaCX`.
+- [ ] Keep the previous-directory/previous-privilege behavior proven in Task 0; do not introduce explicit mode/directory arguments unless the approved Task-0 result requires them.
+- [ ] Ensure release workflow still compiles the script.
 
-Do not change stable `AppId`, install location, default skin replacement, or per-user custom-data ownership.
-
-### Commit
-
-```text
-feat: add inno auto-update mode
-```
+**Commit:** `feat: add inno auto-update mode`
 
 ---
 
-## Task 5 — Compose updater and title-only UX
+## Task 5 — Compose service and title-only update UX
 
-### IStageGame / BaseGame
+### Composition
 
-- [ ] Add default `IGameUpdateService GameUpdateService => DisabledGameUpdateService.Instance` to `IStageGame`.
-- [ ] `BaseGame` owns one service instance.
-- [ ] Use the real service only when:
+Add the disabled updater default on `IStageGame`. `BaseGame` owns one service instance.
 
-```text
-OperatingSystem.IsWindows()
-&& string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DTXMANIA_LAUNCH_TOKEN"))
+Create a pure composition predicate:
+
+```csharp
+ShouldEnable(bool isWindows, string? launchToken)
 ```
 
-- [ ] All non-Windows and launch-token-owned processes use the disabled singleton.
-- [ ] Do not add a user config setting or another updater environment variable.
-- [ ] Add composition tests for Windows/no-token, Windows/token, and non-Windows decisions using a narrow testable helper if direct OS testing is awkward.
+Test exactly:
 
-This keeps E2E/video-recorder/MCP/benchmark launches off `api.github.com` and prevents update UI from perturbing automation.
+- Windows + empty token -> enabled;
+- Windows + token -> disabled;
+- non-Windows -> disabled.
 
-### Start hook
+Use one game-side launch-token environment-variable constant from both BaseGame/updater composition and `JsonRpcServer`; do not introduce another game-code literal or a cross-project shared package.
 
-- [ ] Call `CheckOnce()` from `TitleStage.OnFirstUpdate()`.
-- [ ] Do not wait for `OnTransitionCompleted()`.
-- [ ] Re-entry calls are harmless because the service gate is idempotent.
+Call `CheckOnce()` from `TitleStage.OnFirstUpdate()`; the service owns the one-shot gate.
 
-### Notification
+### Notification UX
 
-`GameUpdateNotification` owns only update UI state/input/drawing. Reuse Title's font/SpriteBatch/white pixel and private geometry below the crash banner.
+Follow `CrashReportNotification`'s input convention, not the earlier mouse-only variant.
 
-#### Available / Failed
-
-Update actions are **mouse hit-test only**.
-
-- [ ] Mouse `UPDATE NOW`, `LATER`, `RETRY` work and consume only the click frame.
-- [ ] Never consume/bind `Activate`, Enter, Move commands, or Back in Available/Failed.
-- [ ] Required regression: Available banner visible + title `Activate` -> GAME START still receives the action.
-
-#### Downloading / LaunchingInstaller
-
-- [ ] Consume title menu movement/activation so Start/Config cannot be entered immediately before installer launch.
-- [ ] Back/Escape must still fall through to Title's existing exit path.
-- [ ] No cancel-update flow.
-
-#### Priority
+Closed available banner:
 
 ```text
-1. CrashReportNotification
-2. GameUpdateNotification
-3. normal TitleStage menu
+UPDATE AVAILABLE — vX.Y.Z
+Press F9 or click to review
 ```
 
-Crash consumption means updater does not inspect the same frame.
+- [ ] closed banner consumes no title `Activate`, movement, or Back;
+- [ ] raw edge-triggered non-remappable F9 opens the panel and consumes that frame;
+- [ ] banner click is the mouse equivalent;
+- [ ] required regression: banner visible + title Activate still selects GAME START.
 
-- [ ] `InstallerLaunched` causes exactly one `_game.RequestExit()` from the game thread.
+Open panel:
 
-### Commit
+- [ ] use existing remappable input commands for focus/action;
+- [ ] Available actions: Update Now / Later;
+- [ ] Failed actions: Retry / Later;
+- [ ] Back closes the review panel while idle/failed, matching the focused component pattern;
+- [ ] crash panel remains first priority.
 
-```text
-feat: add title-stage update notification
-```
+Downloading/launching:
+
+- [ ] render `DOWNLOADING UPDATE — vX.Y.Z (N%)` when percent is known, otherwise omit percent;
+- [ ] prevent Start/Config navigation/activation during the operation;
+- [ ] no cancel-update subsystem;
+- [ ] normal title Back/exit remains available as specified by the final focused component behavior.
+
+### Installer terminal state
+
+At the top-level `TitleStage.OnUpdate()` lifecycle, independently of the `_titlePhase == Normal && _currentPhase == Normal` input gate:
+
+- [ ] observe `InstallerLaunched`;
+- [ ] request game exit exactly once.
+
+Do not hide this terminal-state observation inside `GameUpdateNotification.HandleInput()`.
+
+**Commit:** `feat: add title-stage update notification`
 
 ---
 
-## Task 6 — Verification gate
+## Task 6 — Full verification and regression re-check
 
-Run focused tests first, then platform full suites.
+Run focused updater tests and both applicable full test suites.
 
-**macOS:**
+macOS:
 
 ```bash
 dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj
 ```
 
-**Windows:**
+Windows:
 
 ```powershell
 dotnet test DTXMania.Test/DTXMania.Test.csproj
 ```
 
-Also verify:
+Verify:
 
-- [ ] release workflow stamps `APP_VERSION` on Windows + macOS publish;
-- [ ] automation-owned launches have disabled updater/no GitHub access;
-- [ ] Available banner does not steal Enter/GAME START;
-- [ ] redirect download hashes final content;
+- [ ] both release publish legs stamp `APP_VERSION`;
+- [ ] launch-token-owned game processes use disabled updater/no GitHub;
+- [ ] passive failures are player-silent but diagnostically logged;
+- [ ] equal version normalization does not offer an update;
+- [ ] loopback 302 test hashes the final body;
+- [ ] stale temp file is replaced on a fresh attempt;
+- [ ] closed banner does not steal Enter/GAME START;
+- [ ] F9/click opens update panel;
+- [ ] progress text appears when Content-Length exists;
+- [ ] `InstallerLaunched` exits from `OnUpdate` once;
 - [ ] Inno compile succeeds.
 
-### Real Windows smoke test — hard stop
-
-Use two real release-like builds:
-
-```text
-install older version
- -> launch old game
- -> reach Title
- -> offer newer release / or invoke verified updater path
- -> download + verify
- -> launch installer with exact arguments
- -> old game exits/releases files
- -> installer upgrades successfully
- -> new game relaunches
- -> Title/Startup version show new X.Y.Z
-```
-
-If `/CLOSEAPPLICATIONS` plus Title's exit request is unreliable, **stop implementation and revise HPA-187**. Do not add a helper process or packaging migration within this ticket.
+Finally repeat the Task-0 current-user **and** all-users real upgrade/relaunch flows with the completed product path. If either mode regresses, stop and revise rather than adding a helper updater inside this PR.
 
 ## Done when
 
-- one `ApplicationVersion` reader serves Title, Startup, crash reporting, and updater comparison;
-- normal Windows launches check once; `DTXMANIA_LAUNCH_TOKEN` launches never check;
-- update banner is Title-only and does not steal normal Activate/Enter;
-- exact release asset is redirect-downloaded and SHA-256 verified before installer launch;
-- Inno silent auto-update upgrades and relaunches reliably in a real Windows smoke test;
+- Task 0 and final smoke tests prove both supported installer modes;
+- one normalized application-version source serves every current consumer;
+- normal Windows launches check once and harness-owned launches never check;
+- update UI is Title-only, keyboard/controller accessible through F9, and never steals closed-banner GAME START input;
+- redirect-downloaded installer is fresh-file SHA-256 verified with lightweight progress text;
+- elevation/start failures are retryable without exiting the game;
+- proven Inno auto-update upgrades and relaunches the same installation;
 - PR remains one focused implementation PR.
