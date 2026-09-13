@@ -6,7 +6,7 @@ using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.UI;
-using DTXMania.Game.Lib.Utilities;
+using DTXMania.Game.Lib.Update;
 using DTXMania.Game;
 using System;
 using System.Collections.Generic;
@@ -823,8 +823,7 @@ namespace DTXMania.Game.Lib.Stage
         private void DrawVersionInfo()
         {
             // Draw version info in top-left corner (DTXMania pattern)
-            var version = AppVersion.GetDisplayVersion();
-            var versionText = $"DTXManiaCX v{version} - MonoGame Edition";
+            string versionText = $"DTXManiaCX v{ApplicationVersion.DisplayWithPrerelease} - MonoGame Edition";
 
             // Optional: skipped entirely when the font isn't available.
             _versionFont?.DrawString(_spriteBatch, versionText, new Vector2(4, 4), Color.White);

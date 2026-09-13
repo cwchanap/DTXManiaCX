@@ -1,6 +1,6 @@
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage;
-using DTXMania.Game.Lib.Utilities;
+using DTXMania.Game.Lib.Update;
 using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -61,7 +61,7 @@ namespace DTXMania.Test.Stage
             var stage = CreateStage();
             var font = new Mock<IFont>();
             ReflectionHelpers.SetPrivateField(stage, "_versionFont", font.Object);
-            var version = AppVersion.GetDisplayVersion();
+            var version = ApplicationVersion.DisplayWithPrerelease;
 
             ReflectionHelpers.InvokePrivateMethod(stage, "DrawVersionInfo");
 

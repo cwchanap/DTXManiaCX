@@ -5,12 +5,12 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using DTXMania.Game.Lib.Stage;
+using DTXMania.Game.Lib.Update;
 
 namespace DTXMania.Game.Lib.Diagnostics.CrashReporting;
 
@@ -428,7 +428,7 @@ internal sealed class CrashReportStore
         return new CrashReportSummary(
             reportId,
             capturedAtUtc,
-            GetBuildId(),
+            ApplicationVersion.BuildId,
             RuntimeInformation.OSDescription,
             RuntimeInformation.ProcessArchitecture.ToString(),
             GetStageOrMilestone(data.Context),
@@ -477,18 +477,6 @@ internal sealed class CrashReportStore
         }
 
         return startupMilestone ?? "Unknown";
-    }
-
-    private static string GetBuildId()
-    {
-        var assembly = typeof(CrashReportStore).Assembly;
-        var informationalVersion = assembly
-            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
-            ?.InformationalVersion;
-
-        return string.IsNullOrWhiteSpace(informationalVersion)
-            ? assembly.GetName().Version?.ToString() ?? "Unknown"
-            : informationalVersion;
     }
 
     private static string CreateReportId(DateTimeOffset capturedAtUtc)
