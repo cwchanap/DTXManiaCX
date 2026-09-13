@@ -17,6 +17,7 @@ namespace DTXMania.Test.UI
     /// <summary>
     /// Unit tests for SongListDisplay component
     /// </summary>
+    [Trait("Category", "UI")]
     public class SongListDisplayTests
     {
         [Fact]
