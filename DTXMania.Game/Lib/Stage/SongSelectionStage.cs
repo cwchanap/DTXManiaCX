@@ -2050,13 +2050,13 @@ namespace DTXMania.Game.Lib.Stage
                 : SongLibraryEmptyState.NoSupportedCharts;
         }
 
-        internal static string? GetLibraryEmptyStateMessage(SongLibraryEmptyState state) => state switch
+        internal static string ResolveLibraryEmptyMessage(SongLibraryEmptyState state) => state switch
         {
             SongLibraryEmptyState.NoActiveRoots =>
-                "No song folders available — add one in CONFIG > Song Folders",
+                "Song folder missing or unreadable - fix it in CONFIG > Song Folders",
             SongLibraryEmptyState.NoSupportedCharts =>
-                "No supported charts found — check CONFIG > Song Folders",
-            _ => null,
+                "No charts here - add DTX files or change CONFIG > Song Folders",
+            _ => string.Empty,
         };
 
         private static bool ContainsPublishedScore(IEnumerable<SongListNode> nodes)
@@ -2583,8 +2583,30 @@ namespace DTXMania.Game.Lib.Stage
             // Draw background
             DrawBackground();
 
-            // Draw UI (PreviewImagePanel will handle its own drawing including delay)
-            _uiManager?.Draw(_spriteBatch, deltaTime);
+            bool showLibraryRecoveryMessage =
+                _activeTab == SongSelectionTab.AllSongs
+                && _filteredView == null
+                && _libraryEmptyState != SongLibraryEmptyState.HasSongs
+                && _font != null
+                && (_searchFilterModal == null || !_searchFilterModal.IsOpen);
+
+            // SongListDisplay has a generic centered "No songs found" fallback. Hide only
+            // that component while the stage owns the more useful library-recovery message;
+            // Recent, Bookmarks, and filter-empty rendering keep their existing behavior.
+            bool songListWasVisible = _songListDisplay?.Visible ?? false;
+            if (showLibraryRecoveryMessage && _songListDisplay != null)
+                _songListDisplay.Visible = false;
+
+            try
+            {
+                // Draw UI (PreviewImagePanel will handle its own drawing including delay)
+                _uiManager?.Draw(_spriteBatch, deltaTime);
+            }
+            finally
+            {
+                if (showLibraryRecoveryMessage && _songListDisplay != null)
+                    _songListDisplay.Visible = songListWasVisible;
+            }
 
             // Draw empty-state message when the active filter returns no results.
             // Only on the All Songs tab (filter is All-Songs-only) and skipped while the
@@ -2598,22 +2620,18 @@ namespace DTXMania.Game.Lib.Stage
                     ResolveStatusTextColor(CurrentTheme));
             }
 
-            // Do not collapse an intentionally empty root set into the same message as a
-            // configured folder containing no supported charts. Configuration and scanning
-            // recovery actions differ, so the Song Select state must make that distinction.
-            if (_activeTab == SongSelectionTab.AllSongs
-                && _filteredView == null
-                && _libraryEmptyState != SongLibraryEmptyState.HasSongs
-                && _font != null
-                && (_searchFilterModal == null || !_searchFilterModal.IsOpen))
+            if (showLibraryRecoveryMessage)
             {
-                var msg = GetLibraryEmptyStateMessage(_libraryEmptyState);
-                if (!string.IsNullOrEmpty(msg))
-                {
-                    _font.DrawString(_spriteBatch, msg,
-                        new Vector2(SongSelectionUILayout.SongBars.UnselectedBarX + 100, SongSelectionUILayout.SongBars.SelectedBarY),
-                        ResolveStatusTextColor(CurrentTheme));
-                }
+                string msg = TextHelper.TruncateToWidth(
+                    ResolveLibraryEmptyMessage(_libraryEmptyState),
+                    SongSelectionUILayout.SongBars.EmptyMessageMaxWidth,
+                    _font);
+                _font.DrawString(_spriteBatch, msg,
+                    new Vector2(
+                        SongSelectionUILayout.SongBars.UnselectedBarX
+                            + SongSelectionUILayout.SongBars.EmptyMessageOffsetX,
+                        SongSelectionUILayout.SongBars.SelectedBarY),
+                    ResolveStatusTextColor(CurrentTheme));
             }
 
             // Draw the tab bar (skip while the search modal is open to avoid overlap).
@@ -3265,7 +3283,7 @@ namespace DTXMania.Game.Lib.Stage
                 return;
             }
 
-            // Use RenderTargetManager to properly dispose the RenderTarget
+            // Use RenderTargetManager to properly dispose RenderTarget
             _game.GraphicsManager.RenderTargetManager.RemoveRenderTarget("SongSelectionStage_Main");
             _stageRenderTarget = null;
         }
@@ -3577,7 +3595,7 @@ namespace DTXMania.Game.Lib.Stage
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine(
-                    $"SongSelectionStage: Error disposing preview sound: {ex.Message}");
+                    $"SongSelectionStage: Error disposing preview sound instance: {ex.Message}");
             }
             finally
             {
@@ -3642,7 +3660,7 @@ namespace DTXMania.Game.Lib.Stage
             }
             catch (Exception)
             {
-                // Game start sound failed, continue
+                // Cursor sound failed, continue
             }
         }
 
