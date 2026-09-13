@@ -2053,9 +2053,9 @@ namespace DTXMania.Game.Lib.Stage
         internal static string ResolveLibraryEmptyMessage(SongLibraryEmptyState state) => state switch
         {
             SongLibraryEmptyState.NoActiveRoots =>
-                "Song folder missing or unreadable - fix it in CONFIG > Song Folders",
+                "No usable song folder - see CONFIG > Song Folders",
             SongLibraryEmptyState.NoSupportedCharts =>
-                "No charts here - add DTX files or change CONFIG > Song Folders",
+                "No supported charts - see CONFIG > Song Folders",
             _ => string.Empty,
         };
 

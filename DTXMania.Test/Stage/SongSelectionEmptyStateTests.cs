@@ -14,10 +14,10 @@ namespace DTXMania.Test.Stage
         [Theory]
         [InlineData(
             (int)SongSelectionStage.SongLibraryEmptyState.NoActiveRoots,
-            "Song folder missing or unreadable - fix it in CONFIG > Song Folders")]
+            "No usable song folder - see CONFIG > Song Folders")]
         [InlineData(
             (int)SongSelectionStage.SongLibraryEmptyState.NoSupportedCharts,
-            "No charts here - add DTX files or change CONFIG > Song Folders")]
+            "No supported charts - see CONFIG > Song Folders")]
         public void ResolveLibraryEmptyMessage_EmptyState_ShouldExplainCorrectRecovery(
             int stateValue,
             string expected)
@@ -55,13 +55,16 @@ namespace DTXMania.Test.Stage
             font.Setup(value => value.MeasureString(It.IsAny<string>()))
                 .Returns<string>(text => new Vector2(text.Length * 8f, 14f));
             var state = (SongSelectionStage.SongLibraryEmptyState)stateValue;
+            var message = SongSelectionStage.ResolveLibraryEmptyMessage(state);
 
             var rendered = TextHelper.TruncateToWidth(
-                SongSelectionStage.ResolveLibraryEmptyMessage(state),
+                message,
                 SongSelectionUILayout.SongBars.EmptyMessageMaxWidth,
                 font.Object);
 
             Assert.NotEmpty(rendered);
+            Assert.Equal(message, rendered);
+            Assert.Contains("CONFIG > Song Folders", rendered);
             Assert.True(
                 font.Object.MeasureString(rendered).X <= SongSelectionUILayout.SongBars.EmptyMessageMaxWidth,
                 $"rendered recovery copy \"{rendered}\" must fit the song-bar width budget");
