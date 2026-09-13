@@ -7,6 +7,7 @@ using System.Runtime.Serialization;
 using System.Threading.Tasks;
 using DTXMania.Game;
 using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.Update;
 
 namespace DTXMania.Test.TestData
 {
@@ -21,6 +22,8 @@ namespace DTXMania.Test.TestData
             SetPrivateField(game, "_pendingScreenshot", null);
             SetPrivateField(game, "_totalGameTime", totalGameTime);
             SetPrivateField(game, "_lastStageTransitionTime", lastStageTransitionTime);
+            // Constructor bypass leaves the update service unset; title update paths read it.
+            SetPrivateField(game, "_gameUpdateService", DisabledGameUpdateService.Instance);
             return game;
         }
 

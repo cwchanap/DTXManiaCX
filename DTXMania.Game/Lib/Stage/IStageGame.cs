@@ -5,6 +5,7 @@ using DTXMania.Game.Lib.Graphics;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.UI.Components;
+using DTXMania.Game.Lib.Update;
 using Microsoft.Extensions.Logging;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -69,6 +70,15 @@ namespace DTXMania.Game.Lib.Stage
         /// its <see cref="IGameCrashDiagnostics"/>.
         /// </summary>
         ICrashReportInbox CrashReportInbox => EmptyCrashReportInbox.Instance;
+
+        /// <summary>
+        /// The process-owned Windows auto-update facade the title stage surfaces to the player.
+        /// The default implementation is the disabled singleton so existing <see cref="IStageGame"/>
+        /// implementations and test stubs remain valid without modification; the concrete <see
+        /// cref="Game"/> (<c>BaseGame</c>) overrides this with one production <see
+        /// cref="Update.GameUpdateService"/> for its lifetime when the updater is enabled.
+        /// </summary>
+        IGameUpdateService GameUpdateService => DisabledGameUpdateService.Instance;
 
         /// <summary>
         /// Requests a screenshot capture to occur on the next Draw() call, returning the

@@ -7,6 +7,7 @@ using DTXMania.Game.Lib.Graphics;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage;
+using DTXMania.Game.Lib.Update;
 using DTXMania.Game.Lib.UI.Components;
 using DTXMania.Test.TestData;
 using Microsoft.Extensions.Logging;
@@ -133,6 +134,19 @@ namespace DTXMania.Test.Stage
             IStageGame stageGame = new MinimalStageGameStub();
 
             Assert.Same(EmptyCrashReportInbox.Instance, stageGame.CrashReportInbox);
+        }
+
+        [Fact]
+        public void IStageGame_GameUpdateService_ShouldReturnDisabledSingleton_WhenImplementationDoesNotOverrideIt()
+        {
+            // GameUpdateService is a default interface member whose body returns the disabled
+            // null-object service. An IStageGame stub that does NOT override it (like
+            // MinimalStageGameStub below) must compile and observe the disabled updater without
+            // modification — this keeps the existing test stubs valid for the new property.
+            IStageGame stageGame = new MinimalStageGameStub();
+
+            Assert.Same(DisabledGameUpdateService.Instance, stageGame.GameUpdateService);
+            Assert.Equal(GameUpdateState.NotChecked, stageGame.GameUpdateService.GetSnapshot().State);
         }
 
         [Fact]
