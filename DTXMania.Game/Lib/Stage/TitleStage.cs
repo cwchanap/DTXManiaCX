@@ -348,7 +348,7 @@ namespace DTXMania.Game.Lib.Stage
         {
             try
             {
-                // Use ResourceManager to load menu texture with proper skin path resolution
+                // Use ResourceManager to load background texture with proper skin path resolution
                 var criticalPathTrace = ResolveCriticalPathTrace();
                 TryBeginAggregate(
                     criticalPathTrace,
@@ -822,7 +822,8 @@ namespace DTXMania.Game.Lib.Stage
         private void DrawVersionInfo()
         {
             // Draw version info in top-left corner (DTXMania pattern)
-            const string versionText = "DTXManiaCX v1.0.0 - MonoGame Edition";
+            var version = typeof(TitleStage).Assembly.GetName().Version?.ToString(3) ?? "unknown";
+            var versionText = $"DTXManiaCX v{version} - MonoGame Edition";
 
             // Optional: skipped entirely when the font isn't available.
             _versionFont?.DrawString(_spriteBatch, versionText, new Vector2(4, 4), Color.White);
