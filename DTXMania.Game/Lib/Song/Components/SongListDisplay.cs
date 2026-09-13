@@ -852,6 +852,37 @@ namespace DTXMania.Game.Lib.Song.Components
             return Math.Max(1, baseAcceleration); // Ensure minimum acceleration of 1
         }
 
+        /// <summary>
+        /// Resolves the logical song shown in one of the fixed 13 bar slots.
+        /// Small lists occupy only as many slots as they have nodes, keeping the
+        /// selected node at the center and leaving the remaining slots empty instead
+        /// of repeating the same songs/RANDOM row around the wheel. Navigation still
+        /// wraps infinitely; lists that fill the viewport keep the legacy projection.
+        /// </summary>
+        internal static bool TryResolveVisibleSongIndex(
+            int centerSongIndex,
+            int barIndex,
+            int songCount,
+            out int songIndex)
+        {
+            songIndex = -1;
+            if (songCount <= 0 || barIndex < 0 || barIndex >= VISIBLE_ITEMS)
+                return false;
+
+            int offset = barIndex - CENTER_INDEX;
+            if (songCount < VISIBLE_ITEMS)
+            {
+                int firstOffset = -Math.Min(CENTER_INDEX, (songCount - 1) / 2);
+                int lastOffset = firstOffset + songCount - 1;
+                if (offset < firstOffset || offset > lastOffset)
+                    return false;
+            }
+
+            int rawIndex = centerSongIndex + offset;
+            songIndex = ((rawIndex % songCount) + songCount) % songCount;
+            return true;
+        }
+
         private void DrawSongItems(SpriteBatch spriteBatch, Rectangle bounds)
         {
             if (_currentList.Count == 0)
@@ -886,11 +917,14 @@ namespace DTXMania.Game.Lib.Song.Components
             // Draw 13 visible bars using DTXManiaNX current implementation (vertical list layout)
             for (int barIndex = 0; barIndex < VISIBLE_ITEMS; barIndex++)
             {
-                // Calculate which song should be displayed at this bar position
-                int songIndex = centerSongIndex + (barIndex - CENTER_INDEX);
-
-                // Implement infinite looping: wrap song index using modulo arithmetic
-                songIndex = ((songIndex % _currentList.Count) + _currentList.Count) % _currentList.Count;
+                if (!TryResolveVisibleSongIndex(
+                        centerSongIndex,
+                        barIndex,
+                        _currentList.Count,
+                        out int songIndex))
+                {
+                    continue;
+                }
 
                 var node = _currentList[songIndex];
 
@@ -1538,10 +1572,14 @@ namespace DTXMania.Game.Lib.Song.Components
 
             for (int barIndex = 0; barIndex < VISIBLE_ITEMS; barIndex++)
             {
-                int songIndex = centerSongIndex + (barIndex - CENTER_INDEX);
-
-                // Implement infinite looping: wrap song index using modulo arithmetic
-                songIndex = ((songIndex % _currentList.Count) + _currentList.Count) % _currentList.Count;
+                if (!TryResolveVisibleSongIndex(
+                        centerSongIndex,
+                        barIndex,
+                        _currentList.Count,
+                        out int songIndex))
+                {
+                    continue;
+                }
 
                 newVisibleIndices.Add(songIndex);
                 var cacheKey = GetBarInfoCacheKey(
