@@ -29,9 +29,9 @@ namespace DTXMania.Game.Lib.Stage
         private const int ActionCount = 2;
 
         /// <summary>
-        /// The two review actions. Index 0 is the primary action ("Update Now" while
-        /// <see cref="GameUpdateState.Available"/>, "Retry" while <see cref="GameUpdateState.Failed"/>);
-        /// index 1 is always "Later". The enum values are contiguous from 0 so they cast to and from
+        /// The two review actions. Index 0 is the primary action ("UPDATE NOW" while
+        /// <see cref="GameUpdateState.Available"/>, "RETRY" while <see cref="GameUpdateState.Failed"/>);
+        /// index 1 is always "LATER". The enum values are contiguous from 0 so they cast to and from
         /// the int focus index used by keyboard navigation and hit-testing.
         /// </summary>
         private enum UpdateAction
@@ -86,8 +86,8 @@ namespace DTXMania.Game.Lib.Stage
             }
 
             return snapshot.DownloadPercent is { } percent
-                ? $"DOWNLOADING UPDATE — {snapshot.AvailableVersion} ({percent}%)"
-                : $"DOWNLOADING UPDATE — {snapshot.AvailableVersion}";
+                ? $"DOWNLOADING UPDATE — v{snapshot.AvailableVersion} ({percent}%)"
+                : $"DOWNLOADING UPDATE — v{snapshot.AvailableVersion}";
         }
 
         /// <summary>
@@ -231,12 +231,12 @@ namespace DTXMania.Game.Lib.Stage
             switch ((UpdateAction)_actionFocus)
             {
                 case UpdateAction.Primary:
-                    // "Update Now" / "Retry": the download status banner takes over from the panel.
+                    // "UPDATE NOW" / "RETRY": the download status banner takes over from the panel.
                     _service.BeginUpdate();
                     ClosePanel();
                     break;
                 case UpdateAction.Later:
-                    // "Later": declines an Available offer for the rest of the process (the service
+                    // "LATER": declines an Available offer for the rest of the process (the service
                     // no-ops in the retryable-Failed state, where Later simply closes the panel).
                     _service.DismissForProcess();
                     ClosePanel();
@@ -344,8 +344,8 @@ namespace DTXMania.Game.Lib.Stage
         [ExcludeFromCodeCoverage]
         private void DrawActions(SpriteBatch spriteBatch, GameUpdateSnapshot snapshot, IFont? font, Texture2D whitePixel)
         {
-            var primaryLabel = snapshot.State == GameUpdateState.Failed ? "Retry" : "Update Now";
-            var labels = new[] { primaryLabel, "Later" };
+            var primaryLabel = snapshot.State == GameUpdateState.Failed ? "RETRY" : "UPDATE NOW";
+            var labels = new[] { primaryLabel, "LATER" };
 
             var color = new Color(40, 78, 48, 230);
             var focusedColor = new Color(80, 160, 96, 240);

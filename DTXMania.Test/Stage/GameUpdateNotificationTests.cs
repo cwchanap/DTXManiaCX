@@ -279,7 +279,7 @@ public sealed class GameUpdateNotificationTests
     {
         var notification = new GameUpdateNotification(CreateService(Snap(GameUpdateState.Downloading, percent: 43)));
 
-        Assert.Equal("DOWNLOADING UPDATE — 1.2.3 (43%)", notification.StatusText);
+        Assert.Equal("DOWNLOADING UPDATE — v1.2.3 (43%)", notification.StatusText);
     }
 
     [Fact]
@@ -287,7 +287,7 @@ public sealed class GameUpdateNotificationTests
     {
         var notification = new GameUpdateNotification(CreateService(Snap(GameUpdateState.Downloading)));
 
-        Assert.Equal("DOWNLOADING UPDATE — 1.2.3", notification.StatusText);
+        Assert.Equal("DOWNLOADING UPDATE — v1.2.3", notification.StatusText);
     }
 
     [Fact]

@@ -66,7 +66,8 @@ public class GameUpdateServiceDownloadTests
         byte[] installerBytes,
         string? advertisedDigest = null,
         Exception? starterThrows = null,
-        Func<Process?>? starterResult = null)
+        Func<Process?>? starterResult = null,
+        Action? onLaunchAttempt = null)
     {
         var handler = new FakeHandler(request =>
         {
@@ -81,6 +82,7 @@ public class GameUpdateServiceDownloadTests
         var starts = new List<ProcessStartInfo>();
         var launcher = new WindowsUpdateInstallerLauncher(info =>
         {
+            onLaunchAttempt?.Invoke();
             starts.Add(info);
             if (starterThrows is not null)
             {
@@ -107,6 +109,39 @@ public class GameUpdateServiceDownloadTests
         }
 
         Assert.True(condition(), "condition was not met within the timeout");
+    }
+
+    [Fact]
+    public void BeginUpdate_WhileVerifiedFileIsHeldForLaunch_ShouldDenyOtherOpenersWriteAccess()
+    {
+        // Runs inside the fake launcher, i.e. exactly inside the verify→launch hold: a write-open
+        // must hit a sharing violation while the service still holds the downloaded file.
+        Exception? observed = null;
+        var bytes = InstallerBytes();
+        var (service, _, _) = CreateOfferedService(bytes, onLaunchAttempt: () =>
+        {
+            try
+            {
+                using var probe = File.Open(TempPath, FileMode.Open, FileAccess.Write);
+            }
+            catch (Exception exception)
+            {
+                observed = exception;
+            }
+        });
+
+        try
+        {
+            service.BeginUpdate();
+            service.UpdateTask.GetAwaiter().GetResult();
+
+            Assert.Equal(GameUpdateState.InstallerLaunched, service.GetSnapshot().State);
+            Assert.IsType<IOException>(observed); // no write sharing between verify and launch
+        }
+        finally
+        {
+            File.Delete(TempPath); // also proves the handle was released once the flow completed
+        }
     }
 
     [Fact]

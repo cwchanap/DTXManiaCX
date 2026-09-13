@@ -123,18 +123,29 @@ public sealed class GameUpdateService : IGameUpdateService
                 return;
             }
 
-            if (await DownloadAndVerifyAsync(response, offered, tempPath).ConfigureAwait(false) is not (true, var percent))
+            var (verifiedFile, percent) = await DownloadAndVerifyAsync(response, offered, tempPath).ConfigureAwait(false);
+            if (verifiedFile is null)
             {
                 return; // digest mismatch already published
             }
 
-            if (!_launcher.Launch(tempPath))
+            // TOCTOU hold: the verified bytes' handle stays open (FileShare.Read) until the
+            // launcher has started (or refused) the process, denying every other process
+            // write access between verification and launch.
+            try
             {
-                Publish(UpdateFailed(offered, "launch_failed"));
-                return;
-            }
+                if (!_launcher.Launch(tempPath))
+                {
+                    Publish(UpdateFailed(offered, "launch_failed"));
+                    return;
+                }
 
-            Publish(offered with { State = GameUpdateState.InstallerLaunched, DownloadPercent = percent });
+                Publish(offered with { State = GameUpdateState.InstallerLaunched, DownloadPercent = percent });
+            }
+            finally
+            {
+                await verifiedFile.DisposeAsync().ConfigureAwait(false);
+            }
         }
         catch (Exception exception)
         {
@@ -148,48 +159,67 @@ public sealed class GameUpdateService : IGameUpdateService
     }
 
     /// <summary>
-    /// Returns (true, lastPublishedPercent) on a digest match — percent stays
-    /// null when no Content-Length was available — and (false, null) on mismatch.
+    /// Streams the installer to the version-scoped temp path and SHA-256-verifies
+    /// the final bytes. Returns the still-open file handle on a digest match —
+    /// opened with FileShare.Read so no other process can write (or substitute)
+    /// the file after verification; the caller must dispose it only after the
+    /// launcher has run. Returns (null, null) on a digest mismatch (handle already
+    /// disposed, failed snapshot published). Percent stays null when no
+    /// Content-Length was available.
     /// </summary>
-    private async Task<(bool Verified, int? Percent)> DownloadAndVerifyAsync(HttpResponseMessage response, GameUpdateSnapshot offered, string tempPath)
+    private async Task<(FileStream? VerifiedFile, int? Percent)> DownloadAndVerifyAsync(HttpResponseMessage response, GameUpdateSnapshot offered, string tempPath)
     {
         long? totalBytes = response.Content.Headers.ContentLength;
         await using var source = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
-        await using var file = new FileStream(
-            tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None,
+        var file = new FileStream(
+            tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.Read,
             bufferSize: 81920, FileOptions.Asynchronous | FileOptions.SequentialScan);
-        using var hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-
-        var buffer = new byte[81920];
-        var digest = offered.Sha256Digest!.Substring(DigestPrefix.Length);
-        long written = 0;
-        int? lastPercent = null;
-        int read;
-        while ((read = await source.ReadAsync(buffer).ConfigureAwait(false)) > 0)
+        FileStream? verifiedFile = null;
+        try
         {
-            await file.WriteAsync(buffer.AsMemory(0, read)).ConfigureAwait(false);
-            hasher.AppendData(buffer, 0, read);
-            written += read;
+            using var hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
 
-            if (totalBytes is > 0)
+            var buffer = new byte[81920];
+            var digest = offered.Sha256Digest!.Substring(DigestPrefix.Length);
+            long written = 0;
+            int? lastPercent = null;
+            int read;
+            while ((read = await source.ReadAsync(buffer).ConfigureAwait(false)) > 0)
             {
-                var percent = (int)Math.Clamp(written * 100 / totalBytes.Value, 0, 100);
-                if (percent != lastPercent)
+                await file.WriteAsync(buffer.AsMemory(0, read)).ConfigureAwait(false);
+                hasher.AppendData(buffer, 0, read);
+                written += read;
+
+                if (totalBytes is > 0)
                 {
-                    lastPercent = percent;
-                    Publish(offered with { State = GameUpdateState.Downloading, DownloadPercent = percent });
+                    var percent = (int)Math.Clamp(written * 100 / totalBytes.Value, 0, 100);
+                    if (percent != lastPercent)
+                    {
+                        lastPercent = percent;
+                        Publish(offered with { State = GameUpdateState.Downloading, DownloadPercent = percent });
+                    }
                 }
             }
-        }
 
-        var actual = Convert.ToHexString(hasher.GetHashAndReset()).ToLowerInvariant();
-        if (!string.Equals(actual, digest, StringComparison.OrdinalIgnoreCase))
+            var actual = Convert.ToHexString(hasher.GetHashAndReset()).ToLowerInvariant();
+            if (!string.Equals(actual, digest, StringComparison.OrdinalIgnoreCase))
+            {
+                Publish(UpdateFailed(offered, "digest_mismatch"));
+                return (null, null);
+            }
+
+            // Flush the managed buffer so the launched installer reads complete bytes.
+            await file.FlushAsync().ConfigureAwait(false);
+            verifiedFile = file;
+            return (file, lastPercent);
+        }
+        finally
         {
-            Publish(UpdateFailed(offered, "digest_mismatch"));
-            return (false, null);
+            if (verifiedFile is null)
+            {
+                await file.DisposeAsync().ConfigureAwait(false);
+            }
         }
-
-        return (true, lastPercent);
     }
 
     private static void TryDeleteStaleInstaller(string path)
