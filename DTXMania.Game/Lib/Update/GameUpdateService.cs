@@ -37,6 +37,13 @@ public sealed class GameUpdateService : IGameUpdateService
     private readonly WindowsUpdateInstallerLauncher _launcher;
     private readonly ILogger<GameUpdateService>? _logger;
     private readonly object _checkGate = new();
+
+    // Publish() writes _snapshot on thread-pool threads (both async paths use
+    // ConfigureAwait(false)) while the game thread reads it every frame through
+    // GetSnapshot(), so every access is serialized through this gate for a
+    // memory-order guarantee — without it the title could observe a stale state,
+    // including missing InstallerCommitted.
+    private readonly object _snapshotGate = new();
     private GameUpdateSnapshot _snapshot = GameUpdateSnapshot.NotChecked;
     private Task? _checkTask;
     private Task _updateTask = Task.CompletedTask;
@@ -60,7 +67,13 @@ public sealed class GameUpdateService : IGameUpdateService
     /// <summary>The in-flight (or most recent) BeginUpdate task, for awaiting in tests.</summary>
     internal Task UpdateTask => _updateTask;
 
-    public GameUpdateSnapshot GetSnapshot() => _snapshot;
+    public GameUpdateSnapshot GetSnapshot()
+    {
+        lock (_snapshotGate)
+        {
+            return _snapshot;
+        }
+    }
 
     public Task CheckOnce()
     {
@@ -83,7 +96,7 @@ public sealed class GameUpdateService : IGameUpdateService
 
     public void BeginUpdate()
     {
-        var offered = _snapshot;
+        var offered = GetSnapshot();
         if (offered.State is not (GameUpdateState.Available or GameUpdateState.Failed)
             || string.IsNullOrEmpty(offered.InstallerUrl)
             || string.IsNullOrEmpty(offered.Sha256Digest))
@@ -100,12 +113,13 @@ public sealed class GameUpdateService : IGameUpdateService
         // Declines the offer in either reviewable state — a fresh offer AND a
         // retryable failure — so Later genuinely suppresses the banner/panel for
         // the rest of the process instead of leaving Failed re-surfacing.
-        if (_snapshot.State is not (GameUpdateState.Available or GameUpdateState.Failed))
+        var snapshot = GetSnapshot();
+        if (snapshot.State is not (GameUpdateState.Available or GameUpdateState.Failed))
         {
             return;
         }
 
-        Publish(new GameUpdateSnapshot(GameUpdateState.UpToDate, _snapshot.AvailableVersion, null, null, "dismissed"));
+        Publish(new GameUpdateSnapshot(GameUpdateState.UpToDate, snapshot.AvailableVersion, null, null, "dismissed"));
     }
 
     /// <summary>
@@ -354,7 +368,10 @@ public sealed class GameUpdateService : IGameUpdateService
 
     private void Publish(GameUpdateSnapshot snapshot)
     {
-        _snapshot = snapshot;
+        lock (_snapshotGate)
+        {
+            _snapshot = snapshot;
+        }
         if (snapshot.State is GameUpdateState.Checking or GameUpdateState.Downloading)
         {
             return;
