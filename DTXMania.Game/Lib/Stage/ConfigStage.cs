@@ -1857,7 +1857,8 @@ namespace DTXMania.Game.Lib.Stage
                     bool selected = !_focusOnMenu && i == category.SelectedIndex;
                     var font = selected ? _boldFont : _font;
 
-                    font.DrawString(_spriteBatch, item.Name, ConfigUILayout.ItemNamePos(rowTopY),
+                    var displayName = TextHelper.TruncateToWidth(item.Name, ConfigUILayout.ItemNameMaxWidth, font);
+                    font.DrawString(_spriteBatch, displayName, ConfigUILayout.ItemNamePos(rowTopY),
                         selected ? SelectedNameText : LightText);
 
                     var value = GetItemValueText(item);

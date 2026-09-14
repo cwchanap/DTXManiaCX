@@ -63,6 +63,9 @@ namespace DTXMania.Game.Lib.UI.Layout
         public const int ItemNameOffsetX = 20;
         public const int ItemValueOffsetX = 270;
         public const int ItemTextOffsetY = 24;
+        // Name text left-aligns at ItemListX+ItemNameOffsetX (440) and must stay left of the
+        // value column (ItemListX+ItemValueOffsetX = 690): (270 - 20) - 8 gap = 242.
+        public const int ItemNameMaxWidth = ItemValueOffsetX - ItemNameOffsetX - 8;
         // Value text left-aligns at ItemListX+ItemValueOffsetX (690) and must stay left of the
         // description panel (x=800), so cap its width. 800 - 690 - 4 margin = 106.
         public const int ItemValueMaxWidth = 106;

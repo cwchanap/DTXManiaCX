@@ -77,6 +77,7 @@ public class ConfigUILayoutTests
         Assert.Equal(new Rectangle(420, 189, 538, 80), ConfigUILayout.ItemBoxRect(189, ConfigUILayout.ItemBoxNormalWidth));
         Assert.Equal(new Vector2(440, 213), ConfigUILayout.ItemNamePos(189));
         Assert.Equal(new Vector2(690, 213), ConfigUILayout.ItemValuePos(189));
+        Assert.Equal(242, ConfigUILayout.ItemNameMaxWidth);
         Assert.Equal(106, ConfigUILayout.ItemValueMaxWidth);
         Assert.Equal(new Rectangle(413, 193, 497, 68), ConfigUILayout.ItemCursorRect);
     }
