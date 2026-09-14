@@ -64,17 +64,21 @@ public class GameUpdateServiceDownloadTests
     }
 
     /// <summary>
-    /// The attempt the fake starter returns when no failure is being exercised: the
-    /// installer process survived the elevation-decision window, so the launch is
-    /// committed and the service may publish InstallerLaunched.
+    /// The exit observation the fake starter returns when no failure is being
+    /// exercised: the installer process's first exit is 0 — a committed elevated
+    /// respawn or a finished no-elevation install — so the service ends at
+    /// InstallerCommitted.
     /// </summary>
-    private static InstallerLaunchAttempt CommittedAttempt => new(Started: true, ExitCode: 0, StillRunning: true);
+    private static Task<int>? CommittedExit => Task.FromResult(0);
+
+    /// <summary>A first-exit observation that stays pending until the test completes it.</summary>
+    private static Task<int> PendingExit(TaskCompletionSource<int> gate) => gate.Task;
 
     private static (GameUpdateService Service, FakeHandler Handler, List<ProcessStartInfo> Starts) CreateOfferedService(
         byte[] installerBytes,
         string? advertisedDigest = null,
         Exception? starterThrows = null,
-        InstallerLaunchAttempt? starterAttempt = null,
+        Func<Task<int>?>? starterObservation = null,
         Action? onLaunchAttempt = null)
     {
         var handler = new FakeHandler(request =>
@@ -97,7 +101,7 @@ public class GameUpdateServiceDownloadTests
                 throw starterThrows;
             }
 
-            return starterAttempt ?? CommittedAttempt;
+            return starterObservation is null ? CommittedExit : starterObservation();
         });
 
         var service = new GameUpdateService(new HttpClient(handler), logger: null, launcher);
@@ -144,7 +148,7 @@ public class GameUpdateServiceDownloadTests
             service.BeginUpdate();
             service.UpdateTask.GetAwaiter().GetResult();
 
-            Assert.Equal(GameUpdateState.InstallerLaunched, service.GetSnapshot().State);
+            Assert.Equal(GameUpdateState.InstallerCommitted, service.GetSnapshot().State);
             Assert.IsType<IOException>(observed); // no write sharing between verify and launch
         }
         finally
@@ -165,7 +169,7 @@ public class GameUpdateServiceDownloadTests
             service.BeginUpdate();
             service.UpdateTask.GetAwaiter().GetResult();
 
-            Assert.Equal(GameUpdateState.InstallerLaunched, service.GetSnapshot().State);
+            Assert.Equal(GameUpdateState.InstallerCommitted, service.GetSnapshot().State);
             Assert.Equal(bytes, File.ReadAllBytes(TempPath));
             Assert.Single(starts);
         }
@@ -187,7 +191,7 @@ public class GameUpdateServiceDownloadTests
             service.UpdateTask.GetAwaiter().GetResult();
 
             var snapshot = service.GetSnapshot();
-            Assert.Equal(GameUpdateState.InstallerLaunched, snapshot.State);
+            Assert.Equal(GameUpdateState.InstallerCommitted, snapshot.State);
             Assert.Equal(NewerDisplay, snapshot.AvailableVersion);
             Assert.Equal(100, snapshot.DownloadPercent); // ByteArrayContent always carries Content-Length
 
@@ -232,7 +236,7 @@ public class GameUpdateServiceDownloadTests
             service.BeginUpdate();
             service.UpdateTask.GetAwaiter().GetResult();
 
-            Assert.Equal(GameUpdateState.InstallerLaunched, service.GetSnapshot().State);
+            Assert.Equal(GameUpdateState.InstallerCommitted, service.GetSnapshot().State);
             Assert.Equal(goodBytes, File.ReadAllBytes(TempPath));
             Assert.Single(starts);
         }
@@ -259,7 +263,7 @@ public class GameUpdateServiceDownloadTests
             return new HttpResponseMessage(HttpStatusCode.OK) { Content = RawStreamContent.WithLength(stream, bytes.Length) };
         });
         var service = new GameUpdateService(
-            new HttpClient(handler), null, new WindowsUpdateInstallerLauncher(_ => CommittedAttempt));
+            new HttpClient(handler), null, new WindowsUpdateInstallerLauncher(_ => CommittedExit));
         service.CheckOnce().GetAwaiter().GetResult();
 
         try
@@ -271,7 +275,7 @@ public class GameUpdateServiceDownloadTests
             releaseGate.TrySetResult();
             await service.UpdateTask;
 
-            Assert.Equal(GameUpdateState.InstallerLaunched, service.GetSnapshot().State);
+            Assert.Equal(GameUpdateState.InstallerCommitted, service.GetSnapshot().State);
             Assert.Equal(100, service.GetSnapshot().DownloadPercent);
         }
         finally
@@ -299,7 +303,7 @@ public class GameUpdateServiceDownloadTests
         });
         var logger = new CollectingLogger();
         var service = new GameUpdateService(
-            new HttpClient(handler), logger, new WindowsUpdateInstallerLauncher(_ => CommittedAttempt));
+            new HttpClient(handler), logger, new WindowsUpdateInstallerLauncher(_ => CommittedExit));
         service.CheckOnce().GetAwaiter().GetResult();
 
         try
@@ -308,7 +312,7 @@ public class GameUpdateServiceDownloadTests
             service.UpdateTask.GetAwaiter().GetResult();
 
             var snapshot = service.GetSnapshot();
-            Assert.True(snapshot.State == GameUpdateState.InstallerLaunched,
+            Assert.True(snapshot.State == GameUpdateState.InstallerCommitted,
                 $"state={snapshot.State} reason={snapshot.ReasonCode} log=[{string.Join(" | ", logger.Messages)}]");
             Assert.Null(snapshot.DownloadPercent);
         }
@@ -321,7 +325,7 @@ public class GameUpdateServiceDownloadTests
     [Theory]
     [InlineData(740)]  // ERROR_ELEVATION_REQUIRED
     [InlineData(1223)] // ERROR_CANCELLED — UAC declined
-    public void BeginUpdate_WhenLauncherReportsElevationFailure_ShouldFailRetryableWithoutInstallerLaunched(int win32Error)
+    public void BeginUpdate_WhenLauncherReportsElevationFailure_ShouldFailRetryableWithoutLaunching(int win32Error)
     {
         var bytes = InstallerBytes();
         var (service, _, starts) = CreateOfferedService(bytes, starterThrows: new Win32Exception(win32Error));
@@ -349,15 +353,15 @@ public class GameUpdateServiceDownloadTests
     [Theory]
     [InlineData(1)]
     [InlineData(1223)]
-    public void BeginUpdate_WhenBootstrapperExitsNonzeroInsideElevationWindow_ShouldFailRetryableWithoutInstallerLaunched(int exitCode)
+    public void BeginUpdate_WhenBootstrapperExitsNonzero_ShouldFailRetryableWithoutCommitting(int exitCode)
     {
         // The Task-0 all-users cancel path: Process.Start succeeded, but the Inno
-        // bootstrapper's internal UAC handoff was refused and the process exited
-        // nonzero inside the decision window. The service must publish a retryable
-        // Failed — never InstallerLaunched — so the running game stays alive.
+        // bootstrapper's internal UAC handoff was refused — the process exits
+        // nonzero. The service must publish a retryable Failed — never
+        // InstallerCommitted — so the running game stays alive.
         var bytes = InstallerBytes();
         var (service, _, starts) = CreateOfferedService(
-            bytes, starterAttempt: new InstallerLaunchAttempt(Started: true, ExitCode: exitCode));
+            bytes, starterObservation: () => Task.FromResult(exitCode));
 
         try
         {
@@ -369,6 +373,105 @@ public class GameUpdateServiceDownloadTests
             Assert.Equal("launch_failed", snapshot.ReasonCode);
             Assert.Equal(InstallerUrl, snapshot.InstallerUrl); // retryable: offer survives
             Assert.Single(starts);
+        }
+        finally
+        {
+            File.Delete(TempPath);
+        }
+    }
+
+    [Fact]
+    public async Task BeginUpdate_WhenBootstrapperExitsNonzeroLate_ShouldStillFailRetryable()
+    {
+        // The review-pinned case: the UAC prompt stays UNANSWERED past any bounded
+        // window, then is cancelled. While undecided the service sits at
+        // InstallerLaunched (game alive — Inno /CLOSEAPPLICATIONS owns closing it
+        // once an install proceeds); the late nonzero exit still resolves to a
+        // retryable Failed, never InstallerCommitted.
+        var bytes = InstallerBytes();
+        var gate = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var (service, _, starts) = CreateOfferedService(
+            bytes, starterObservation: () => PendingExit(gate));
+
+        try
+        {
+            service.BeginUpdate();
+            await WaitUntilAsync(() => service.GetSnapshot().State == GameUpdateState.InstallerLaunched);
+            Assert.False(service.UpdateTask.IsCompleted); // still waiting on the first exit
+
+            gate.TrySetResult(1); // late refusal
+            await service.UpdateTask;
+
+            var snapshot = service.GetSnapshot();
+            Assert.Equal(GameUpdateState.Failed, snapshot.State);
+            Assert.Equal("launch_failed", snapshot.ReasonCode);
+            Assert.Equal(InstallerUrl, snapshot.InstallerUrl); // retryable: offer survives
+            Assert.Single(starts);
+        }
+        finally
+        {
+            gate.TrySetResult(1);
+            File.Delete(TempPath);
+        }
+    }
+
+    [Fact]
+    public async Task BeginUpdate_WhenInstallerExitStaysPendingThenExitsZero_ShouldCommitOnlyAtExit()
+    {
+        // A still-running process is undecided, not committed: InstallerLaunched is
+        // the in-flight state and only the observed exit 0 promotes to
+        // InstallerCommitted (the title's exit signal).
+        var bytes = InstallerBytes();
+        var gate = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var (service, _, _) = CreateOfferedService(
+            bytes, starterObservation: () => PendingExit(gate));
+
+        try
+        {
+            service.BeginUpdate();
+            await WaitUntilAsync(() => service.GetSnapshot().State == GameUpdateState.InstallerLaunched);
+            Assert.False(service.UpdateTask.IsCompleted);
+
+            gate.TrySetResult(0); // committed handoff / finished install
+            await service.UpdateTask;
+
+            Assert.Equal(GameUpdateState.InstallerCommitted, service.GetSnapshot().State);
+        }
+        finally
+        {
+            gate.TrySetResult(0);
+            File.Delete(TempPath);
+        }
+    }
+
+    [Fact]
+    public void DismissForProcess_WhenFailed_ShouldSuppressTheOfferForTheProcess()
+    {
+        // Later from the retryable Failed panel must dismiss the offer too —
+        // otherwise the failure banner re-surfaces the next frame.
+        var bytes = InstallerBytes();
+        var (service, handler, starts) = CreateOfferedService(bytes);
+        handler.Respond = _ => new HttpResponseMessage(HttpStatusCode.NotFound);
+
+        try
+        {
+            service.BeginUpdate();
+            service.UpdateTask.GetAwaiter().GetResult();
+            Assert.Equal(GameUpdateState.Failed, service.GetSnapshot().State);
+
+            service.DismissForProcess();
+
+            var snapshot = service.GetSnapshot();
+            Assert.Equal(GameUpdateState.UpToDate, snapshot.State);
+            Assert.Equal("dismissed", snapshot.ReasonCode);
+            Assert.Null(snapshot.InstallerUrl); // offer cleared — banner/panel stay hidden
+
+            var requests = handler.Requests.Count;
+            service.BeginUpdate(); // dismissed: a dismissed failure must not retry
+            service.UpdateTask.GetAwaiter().GetResult();
+            Assert.Equal(GameUpdateState.UpToDate, service.GetSnapshot().State);
+            Assert.Equal(requests, handler.Requests.Count);
+            Assert.Empty(starts);
         }
         finally
         {
@@ -401,7 +504,7 @@ public class GameUpdateServiceDownloadTests
     }
 
     [Fact]
-    public void BeginUpdate_WhenInstallerAlreadyLaunched_ShouldIgnoreRepeatCalls()
+    public void BeginUpdate_WhenInstallerAlreadyCommitted_ShouldIgnoreRepeatCalls()
     {
         var bytes = InstallerBytes();
         var (service, handler, starts) = CreateOfferedService(bytes);
@@ -447,7 +550,7 @@ public class GameUpdateServiceDownloadTests
         var service = new GameUpdateService(
             httpClient,
             logger: null,
-            new WindowsUpdateInstallerLauncher(info => { starts.Add(info); return CommittedAttempt; }));
+            new WindowsUpdateInstallerLauncher(info => { starts.Add(info); return CommittedExit; }));
 
         try
         {
@@ -458,7 +561,7 @@ public class GameUpdateServiceDownloadTests
             service.BeginUpdate();
             await service.UpdateTask;
 
-            Assert.Equal(GameUpdateState.InstallerLaunched, service.GetSnapshot().State);
+            Assert.Equal(GameUpdateState.InstallerCommitted, service.GetSnapshot().State);
             Assert.Equal(100, service.GetSnapshot().DownloadPercent);
             Assert.Equal(2, server.ServedRequests); // /asset 302, then /real — redirect really followed
             Assert.Single(starts);

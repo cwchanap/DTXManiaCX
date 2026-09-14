@@ -73,22 +73,31 @@ namespace DTXMania.Game.Lib.Stage
             _service.GetSnapshot().State is GameUpdateState.Available or GameUpdateState.Failed;
 
         /// <summary>
-        /// The status line rendered while an install operation is in flight: exactly
-        /// "DOWNLOADING UPDATE — vX.Y.Z (N%)" when the percent is known, or
-        /// "DOWNLOADING UPDATE — vX.Y.Z" when it is not. Null in every other state.
+        /// The status line rendered while an install operation is in flight:
+        /// "DOWNLOADING UPDATE — vX.Y.Z (N%)" when the percent is known,
+        /// "DOWNLOADING UPDATE — vX.Y.Z" when it is not, and
+        /// "INSTALLING UPDATE — vX.Y.Z" once the installer handoff is in flight or
+        /// committed. The launched/committed states consume title input, so they
+        /// must never be an invisible input-eater. Null in every other state.
         /// </summary>
         internal string? StatusText => StatusTextFor(_service.GetSnapshot());
 
         internal static string? StatusTextFor(GameUpdateSnapshot snapshot)
         {
-            if (snapshot.State != GameUpdateState.Downloading || snapshot.AvailableVersion is null)
+            if (snapshot.AvailableVersion is null)
             {
                 return null;
             }
 
-            return snapshot.DownloadPercent is { } percent
-                ? $"DOWNLOADING UPDATE — v{snapshot.AvailableVersion} ({percent}%)"
-                : $"DOWNLOADING UPDATE — v{snapshot.AvailableVersion}";
+            return snapshot.State switch
+            {
+                GameUpdateState.Downloading => snapshot.DownloadPercent is { } percent
+                    ? $"DOWNLOADING UPDATE — v{snapshot.AvailableVersion} ({percent}%)"
+                    : $"DOWNLOADING UPDATE — v{snapshot.AvailableVersion}",
+                GameUpdateState.InstallerLaunched or GameUpdateState.InstallerCommitted =>
+                    $"INSTALLING UPDATE — v{snapshot.AvailableVersion}",
+                _ => null,
+            };
         }
 
         /// <summary>
@@ -108,10 +117,12 @@ namespace DTXMania.Game.Lib.Stage
             var snapshot = _service.GetSnapshot();
             var state = snapshot.State;
 
-            // An install operation is in flight: consume the frame so the title's Start/Config
-            // navigation and activation cannot run, but let Back fall through to the title's exit
-            // path (there is deliberately no cancel-update flow).
-            if (state is GameUpdateState.Downloading or GameUpdateState.InstallerLaunched)
+            // An install operation is in flight (downloading, handoff undecided, or committed
+            // and about to exit): consume the frame so the title's Start/Config navigation and
+            // activation cannot run, but let Back fall through to the title's exit path (there is
+            // deliberately no cancel-update flow).
+            if (state is GameUpdateState.Downloading or GameUpdateState.InstallerLaunched
+                or GameUpdateState.InstallerCommitted)
             {
                 _isOpen = false;
                 return inputManager?.IsBackActionTriggered() != true;
@@ -242,8 +253,9 @@ namespace DTXMania.Game.Lib.Stage
                     ClosePanel();
                     break;
                 case UpdateAction.Later:
-                    // "LATER": declines an Available offer for the rest of the process (the service
-                    // no-ops in the retryable-Failed state, where Later simply closes the panel).
+                    // "LATER": declines the offer for the rest of the process — the service
+                    // dismisses in both reviewable states (Available AND retryable Failed), so
+                    // the failure banner cannot re-surface on the next frame.
                     _service.DismissForProcess();
                     ClosePanel();
                     break;

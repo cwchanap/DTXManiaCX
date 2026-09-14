@@ -69,9 +69,9 @@ namespace DTXMania.Game.Lib.Stage
         // the update service is process-owned, only the component state is stage-owned).
         private GameUpdateNotification _updateNotification;
 
-        // Guards the terminal InstallerLaunched exit observation below so the game requests exit
+        // Guards the terminal InstallerCommitted exit observation below so the game requests exit
         // exactly once even if OnUpdate keeps running. Deliberately NOT reset on deactivation:
-        // the launched-installer state is terminal for the process.
+        // the committed-installer state is terminal for the process.
         private bool _installerExitRequested;
 
         #endregion
@@ -196,8 +196,13 @@ namespace DTXMania.Game.Lib.Stage
             // Terminal update state is observed OUTSIDE the Normal-phase input gate below: the exit
             // must fire even during FadeIn or while the crash panel owns input, and exactly once.
             // Deliberately not inside GameUpdateNotification.HandleInput.
+            // The exit signal is InstallerCommitted — the observed bootstrapper exit 0 — NEVER
+            // InstallerLaunched: a started process may still be parked on an unanswered internal
+            // UAC prompt, so exiting on launch would kill the game even when elevation is then
+            // cancelled. While the handoff is undecided Inno's /CLOSEAPPLICATIONS owns closing
+            // the game once an install actually proceeds.
             if (!_installerExitRequested &&
-                _game.GameUpdateService.GetSnapshot().State == GameUpdateState.InstallerLaunched)
+                _game.GameUpdateService.GetSnapshot().State == GameUpdateState.InstallerCommitted)
             {
                 _installerExitRequested = true;
                 _game.RequestExit();

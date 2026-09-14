@@ -97,7 +97,10 @@ public sealed class GameUpdateService : IGameUpdateService
 
     public void DismissForProcess()
     {
-        if (_snapshot.State != GameUpdateState.Available)
+        // Declines the offer in either reviewable state — a fresh offer AND a
+        // retryable failure — so Later genuinely suppresses the banner/panel for
+        // the rest of the process instead of leaving Failed re-surfacing.
+        if (_snapshot.State is not (GameUpdateState.Available or GameUpdateState.Failed))
         {
             return;
         }
@@ -111,6 +114,11 @@ public sealed class GameUpdateService : IGameUpdateService
     /// failure — or a refused process start — publishes a retryable Failed; the
     /// launcher is only ever called with verified bytes, and each retry starts
     /// from a fresh temp file (best-effort stale delete before every attempt).
+    /// After a successful start the installer process's first exit is the only
+    /// terminal signal: nonzero (a refused/cancelled internal elevation, whenever
+    /// it happens) publishes retryable Failed and keeps the game alive; zero
+    /// publishes InstallerCommitted. While the handoff is undecided the game must
+    /// NOT exit — Inno's /CLOSEAPPLICATIONS closes it once an install proceeds.
     /// </summary>
     private async Task RunUpdateAsync(GameUpdateSnapshot offered)
     {
@@ -140,20 +148,36 @@ public sealed class GameUpdateService : IGameUpdateService
             // process write/delete access between verification and launch, while CreateProcess
             // can still map the image (its FILE_SHARE_READ|FILE_SHARE_DELETE share permits our
             // read access; FILE_SHARE_READ permits its read+execute access).
+            Task<int>? exitObservation;
             try
             {
-                if (!_launcher.Launch(tempPath))
-                {
-                    Publish(UpdateFailed(offered, "launch_failed"));
-                    return;
-                }
-
-                Publish(offered with { State = GameUpdateState.InstallerLaunched, DownloadPercent = percent });
+                exitObservation = _launcher.Launch(tempPath);
             }
             finally
             {
                 await verifiedFile.DisposeAsync().ConfigureAwait(false);
             }
+
+            if (exitObservation is null)
+            {
+                Publish(UpdateFailed(offered, "launch_failed"));
+                return;
+            }
+
+            // Handoff in flight — the game stays alive here. The bootstrapper may
+            // still be parked on an unanswered internal UAC prompt, so neither
+            // process creation nor continued liveness is commitment; the title
+            // stage must not exit on this state.
+            Publish(offered with { State = GameUpdateState.InstallerLaunched, DownloadPercent = percent });
+
+            // The started process's first exit resolves the handoff whenever the
+            // player answers the elevation prompt: nonzero = refused/cancelled
+            // (retryable, game alive), zero = committed elevated respawn or a
+            // finished no-elevation install.
+            var exitCode = await exitObservation.ConfigureAwait(false);
+            Publish(exitCode == 0
+                ? offered with { State = GameUpdateState.InstallerCommitted, DownloadPercent = percent }
+                : UpdateFailed(offered, "launch_failed"));
         }
         catch (Exception exception)
         {
@@ -337,7 +361,12 @@ public sealed class GameUpdateService : IGameUpdateService
         }
 
         var detail = snapshot.ReasonCode
-            ?? (snapshot.State == GameUpdateState.InstallerLaunched ? "installer_launched" : $"available_v{snapshot.AvailableVersion}");
+            ?? (snapshot.State switch
+            {
+                GameUpdateState.InstallerLaunched => "installer_launched",
+                GameUpdateState.InstallerCommitted => "installer_committed",
+                _ => $"available_v{snapshot.AvailableVersion}"
+            });
         _logger?.LogInformation("Game update: {ReasonCode}", detail);
     }
 }

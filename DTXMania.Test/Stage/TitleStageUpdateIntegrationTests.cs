@@ -28,8 +28,10 @@ namespace DTXMania.Test.Stage;
 /// Title-stage integration seams for the Windows auto-update (HPA-187 task 5):
 /// CheckOnce fires from OnTransitionCompleted (not ctor/OnFirstUpdate), the closed banner leaves
 /// the title menu fully usable, a downloading/launched install blocks Start/Config but not the
-/// exit path, and the terminal InstallerLaunched state requests exit exactly once from the top
+/// exit path, and the terminal InstallerCommitted state requests exit exactly once from the top
 /// of OnUpdate — even while the crash panel already owns input (controller ruling 2).
+/// InstallerLaunched alone must NEVER exit: a started bootstrapper may still be parked on an
+/// unanswered UAC prompt, so only the observed exit-0 commit may terminate the game.
 /// The F9 edge-trigger / frame-consumption contract itself lives in GameUpdateNotificationTests;
 /// OnUpdate polls the real keyboard, so title-level tests here exercise the consumption wiring
 /// through Activate/Back instead.
@@ -121,9 +123,9 @@ public sealed class TitleStageUpdateIntegrationTests
     }
 
     [Fact]
-    public void OnUpdate_WhenInstallerLaunched_ShouldRequestExitExactlyOnce()
+    public void OnUpdate_WhenInstallerCommitted_ShouldRequestExitExactlyOnce()
     {
-        var service = MockService(Snap(GameUpdateState.InstallerLaunched));
+        var service = MockService(Snap(GameUpdateState.InstallerCommitted));
         var stage = CreateStage(new StubStageGame { GameUpdateService = service.Object });
         SetPhaseNormal(stage);
 
@@ -134,12 +136,29 @@ public sealed class TitleStageUpdateIntegrationTests
     }
 
     [Fact]
-    public void OnUpdate_WhenInstallerLaunchedWhileCrashPanelOpen_ShouldStillRequestExit()
+    public void OnUpdate_WhenInstallerLaunched_ShouldNotRequestExit()
+    {
+        // Contract pin: InstallerLaunched means the elevation/install handoff is still
+        // undecided — the bootstrapper may be parked on an unanswered UAC prompt that
+        // can still be cancelled. The game must stay alive; only InstallerCommitted
+        // (observed exit 0) or Inno's /CLOSEAPPLICATIONS may terminate it.
+        var service = MockService(Snap(GameUpdateState.InstallerLaunched));
+        var stage = CreateStage(new StubStageGame { GameUpdateService = service.Object });
+        SetPhaseNormal(stage);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "OnUpdate", 0.016);
+        ReflectionHelpers.InvokePrivateMethod(stage, "OnUpdate", 0.016);
+
+        Assert.Equal(0, GetGame(stage).ExitRequests);
+    }
+
+    [Fact]
+    public void OnUpdate_WhenInstallerCommittedWhileCrashPanelOpen_ShouldStillRequestExit()
     {
         // Controller ruling 2 regression: the terminal-state observation lives at the very top of
         // OnUpdate — above the Normal-phase input gate and above the crash notification's
         // frame-consuming early-return — so the exit is requested even with the panel open.
-        var service = MockService(Snap(GameUpdateState.InstallerLaunched));
+        var service = MockService(Snap(GameUpdateState.InstallerCommitted));
         var stage = CreateStage(new StubStageGame { GameUpdateService = service.Object });
         SetPhaseNormal(stage);
         var crashNotification = new CrashReportNotification(CreateInboxWithOneReport());

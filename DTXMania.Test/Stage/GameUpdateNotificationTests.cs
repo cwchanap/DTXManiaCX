@@ -241,16 +241,23 @@ public sealed class GameUpdateNotificationTests
     }
 
     [Fact]
-    public void OpenPanel_WhenLaterActivatedAfterFailure_ShouldCloseWithoutOfferingRetry()
+    public void OpenPanel_WhenLaterActivatedAfterFailure_ShouldDismissAndHideBanner()
     {
+        // Later must genuinely suppress the failed offer — otherwise the panel
+        // closes and the UPDATE FAILED banner re-surfaces on the next frame.
         var (service, notification) = CreateOpenTracked(Snap(GameUpdateState.Failed));
+        service.Setup(x => x.DismissForProcess())
+            .Callback(() => service.Setup(x => x.GetSnapshot())
+                .Returns(new GameUpdateSnapshot(GameUpdateState.UpToDate, "1.2.3", null, null, "dismissed")));
         notification.HandleInput(NoKeys, NoKeys, CreateInput(InputCommandType.MoveRight), null, false); // focus Later
 
         var consumed = Activate(notification);
 
         Assert.True(consumed);
         service.Verify(x => x.BeginUpdate(), Times.Never); // "Later" must not retry
+        service.Verify(x => x.DismissForProcess(), Times.Once);
         Assert.False(notification.IsOpen);
+        Assert.False(notification.IsBannerVisible); // suppressed for the rest of the process
     }
 
     [Fact]
@@ -300,10 +307,12 @@ public sealed class GameUpdateNotificationTests
         Assert.False(consumed);
     }
 
-    [Fact]
-    public void InstallerLaunched_WhenAnyInput_ShouldConsumeExceptBack()
+    [Theory]
+    [InlineData(GameUpdateState.InstallerLaunched)]
+    [InlineData(GameUpdateState.InstallerCommitted)]
+    public void InstallerHandoff_WhenAnyInput_ShouldConsumeExceptBack(GameUpdateState state)
     {
-        var notification = new GameUpdateNotification(CreateService(Snap(GameUpdateState.InstallerLaunched)));
+        var notification = new GameUpdateNotification(CreateService(Snap(state)));
 
         Assert.True(notification.HandleInput(NoKeys, NoKeys, CreateInput(InputCommandType.Activate), null, false));
         Assert.False(notification.HandleInput(NoKeys, NoKeys, CreateBackInput(), null, false));
@@ -330,15 +339,25 @@ public sealed class GameUpdateNotificationTests
     }
 
     [Fact]
-    public void StatusText_WhenNotDownloading_ShouldBeNull()
+    public void StatusText_WhenNotInFlight_ShouldBeNull()
     {
         var available = new GameUpdateNotification(CreateService(Snap(GameUpdateState.Available)));
         var failed = new GameUpdateNotification(CreateService(Snap(GameUpdateState.Failed)));
-        var launched = new GameUpdateNotification(CreateService(Snap(GameUpdateState.InstallerLaunched)));
 
         Assert.Null(available.StatusText);
         Assert.Null(failed.StatusText); // failure shows the retry banner, not the status line
-        Assert.Null(launched.StatusText);
+    }
+
+    [Theory]
+    [InlineData(GameUpdateState.InstallerLaunched)]
+    [InlineData(GameUpdateState.InstallerCommitted)]
+    public void StatusText_WhenInstallerHandoffInFlight_ShouldShowInstallingLine(GameUpdateState state)
+    {
+        // The launched/committed states consume title input, so they must render a
+        // visible status line rather than sit as an invisible input-eater.
+        var notification = new GameUpdateNotification(CreateService(Snap(state)));
+
+        Assert.Equal("INSTALLING UPDATE — v1.2.3", notification.StatusText);
     }
 
     // ---------------------------------------------------------------------------------------------
