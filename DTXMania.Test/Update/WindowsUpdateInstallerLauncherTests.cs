@@ -4,6 +4,7 @@ using System;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
+using System.Threading.Tasks;
 using DTXMania.Game.Lib.Update;
 using Xunit;
 
@@ -30,100 +31,109 @@ public class WindowsUpdateInstallerLauncherTests
     }
 
     [Fact]
-    public void Launch_WhenProcessStillRunningAtDeadline_ShouldReturnTrue()
+    public async Task Launch_WhenProcessExitObserved_ShouldReturnTaskCompletingWithExitCode()
     {
-        // In-progress install needing no internal elevation (the current-user path):
-        // the bootstrapper IS the installer and stays alive past the decision window.
-        var launcher = new WindowsUpdateInstallerLauncher(
-            _ => new InstallerLaunchAttempt(Started: true, ExitCode: 0, StillRunning: true));
+        // The first-exit observation is the only terminal signal the launcher reports;
+        // Launch itself never decides commitment.
+        var launcher = new WindowsUpdateInstallerLauncher(_ => Task.FromResult(0));
 
-        Assert.True(launcher.Launch(InstallerPath));
-    }
+        var observation = launcher.Launch(InstallerPath);
 
-    [Fact]
-    public void Launch_WhenProcessExitsZeroInsideWindow_ShouldReturnTrue()
-    {
-        // The unelevated bootstrapper exits 0 once it has respawned itself elevated
-        // (UAC accepted) — the elevated copy carries on the all-users install.
-        var launcher = new WindowsUpdateInstallerLauncher(
-            _ => new InstallerLaunchAttempt(Started: true, ExitCode: 0));
-
-        Assert.True(launcher.Launch(InstallerPath));
+        Assert.NotNull(observation);
+        Assert.Equal(0, await observation);
     }
 
     [Theory]
     [InlineData(1)]
     [InlineData(2)]
     [InlineData(1223)]
-    public void Launch_WhenProcessExitsNonzeroInsideWindow_ShouldReturnFalse(int exitCode)
+    public async Task Launch_WhenProcessExitsNonzero_ShouldReturnTaskCompletingWithExitCode(int exitCode)
     {
         // The Task-0 all-users path: the bootstrapper's internal UAC prompt was
-        // cancelled or failed AFTER Process.Start already returned a process. Any
-        // nonzero early exit is a refused launch — retryable, never InstallerLaunched,
-        // never a game exit. (The real Windows cancel run must observe a nonzero code.)
-        var launcher = new WindowsUpdateInstallerLauncher(
-            _ => new InstallerLaunchAttempt(Started: true, ExitCode: exitCode));
+        // cancelled or failed AFTER Process.Start already returned a process. The
+        // launcher surfaces the code unfiltered — the service maps nonzero to a
+        // retryable Failed, never InstallerCommitted, never a game exit.
+        var launcher = new WindowsUpdateInstallerLauncher(_ => Task.FromResult(exitCode));
 
-        Assert.False(launcher.Launch(InstallerPath));
+        var observation = launcher.Launch(InstallerPath);
+
+        Assert.NotNull(observation);
+        Assert.Equal(exitCode, await observation);
+    }
+
+    [Fact]
+    public void Launch_WhenExitObservationStillPending_ShouldReturnIncompleteTask()
+    {
+        // A still-running process is simply undecided — an unanswered internal UAC
+        // prompt has no deadline, so there is deliberately no timeout that would
+        // pretend the handoff resolved.
+        var gate = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var launcher = new WindowsUpdateInstallerLauncher(_ => gate.Task);
+
+        var observation = launcher.Launch(InstallerPath);
+
+        Assert.NotNull(observation);
+        Assert.False(observation.IsCompleted);
+
+        gate.TrySetResult(1); // late refusal still resolves the same observation
+        Assert.Equal(1, observation.Result);
     }
 
     [Theory]
     [InlineData(740)]  // ERROR_ELEVATION_REQUIRED
     [InlineData(1223)] // ERROR_CANCELLED
-    public void Launch_WhenStarterThrows_ShouldReturnFalseWithoutThrowing(int win32Error)
+    public void Launch_WhenStarterThrows_ShouldReturnNullWithoutThrowing(int win32Error)
     {
         // Synchronous process-creation failures still map to a refused launch.
         var launcher = new WindowsUpdateInstallerLauncher(_ => throw new Win32Exception(win32Error));
 
-        Assert.False(launcher.Launch(InstallerPath));
+        Assert.Null(launcher.Launch(InstallerPath));
     }
 
     [Fact]
-    public void Launch_WhenStartReportsNoProcess_ShouldReturnFalse()
+    public void Launch_WhenStartReportsNoProcess_ShouldReturnNull()
     {
-        var launcher = new WindowsUpdateInstallerLauncher(_ => default);
+        var launcher = new WindowsUpdateInstallerLauncher(_ => null);
 
-        Assert.False(launcher.Launch(InstallerPath));
+        Assert.Null(launcher.Launch(InstallerPath));
     }
 
     // ---------------------------------------------------------------------------------------------
-    // Real-process regression: exercise the actual WaitForExit/ExitCode plumbing in
+    // Real-process regression: exercise the actual WaitForExitAsync/ExitCode plumbing in
     // CreateDefaultStarter against a real executable on whichever OS the tests run.
     // The final all-users UAC-cancel behaviour still needs the manual Windows Task-0
-    // re-run — CI cannot click a consent prompt — but the early-exit signal the
-    // launcher maps is pinned here against a real process.
+    // re-run — CI cannot click a consent prompt — but the first-exit signal the
+    // launcher surfaces is pinned here against a real process.
     // ---------------------------------------------------------------------------------------------
 
     [Fact]
-    public void DefaultStarter_WhenRealProcessExitsNonzero_ShouldReportExitCode()
+    public async Task DefaultStarter_WhenRealProcessExitsNonzero_ShouldCompleteWithExitCode()
     {
-        var starter = WindowsUpdateInstallerLauncher.CreateDefaultStarter(TimeSpan.FromSeconds(10));
+        var starter = WindowsUpdateInstallerLauncher.CreateDefaultStarter();
 
-        var attempt = starter(RealProcessStartInfo(exitCommand: "exit 42"));
+        var observation = starter(RealProcessStartInfo(exitCommand: "exit 42"));
 
-        Assert.True(attempt.Started);
-        Assert.False(attempt.StillRunning);
-        Assert.Equal(42, attempt.ExitCode);
+        Assert.NotNull(observation);
+        Assert.Equal(42, await observation);
     }
 
     [Fact]
-    public void DefaultStarter_WhenRealProcessOutlivesWindow_ShouldReportStillRunning()
+    public async Task DefaultStarter_WhenRealProcessOutlivesEarlyObservation_ShouldStayIncompleteThenCompleteWithCode()
     {
-        var starter = WindowsUpdateInstallerLauncher.CreateDefaultStarter(TimeSpan.FromMilliseconds(300));
+        var starter = WindowsUpdateInstallerLauncher.CreateDefaultStarter();
 
-        var attempt = starter(RealProcessStartInfo(exitCommand: null));
+        var observation = starter(RealProcessStartInfo(exitCommand: null));
 
-        Assert.True(attempt.Started);
-        Assert.True(attempt.StillRunning);
-        // The real process is left running past the window (it self-terminates shortly
-        // after); the starter deliberately does not kill a committed install.
+        Assert.NotNull(observation);
+        Assert.False(observation.IsCompleted); // still running — undecided, not committed
+        Assert.Equal(0, await observation);    // exits cleanly a couple of seconds later
     }
 
     /// <summary>
     /// A real executable: cmd.exe on Windows, /bin/sh elsewhere. With
     /// <paramref name="exitCommand"/> the process exits immediately with that command's
-    /// code; without it the process sleeps a few seconds so the bounded wait expires
-    /// while it is still running.
+    /// code; without it the process sleeps a few seconds so the observation stays
+    /// incomplete while it is running.
     /// </summary>
     private static ProcessStartInfo RealProcessStartInfo(string? exitCommand)
     {

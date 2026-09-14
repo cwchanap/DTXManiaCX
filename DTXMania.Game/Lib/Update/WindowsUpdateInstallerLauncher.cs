@@ -5,102 +5,71 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Security;
+using System.Threading.Tasks;
 
 namespace DTXMania.Game.Lib.Update;
 
 /// <summary>
-/// Outcome of a single installer-start attempt. <see cref="Started"/> is <c>false</c> when
-/// process creation reported no process. When the process exited inside the bounded
-/// elevation-decision window, <see cref="StillRunning"/> is <c>false</c> and
-/// <see cref="ExitCode"/> carries the bootstrapper's internal UAC result: 0 means it
-/// respawned elevated (accepted) or finished; a nonzero code means the elevation was
-/// cancelled or failed. When the process was still running at the deadline,
-/// <see cref="StillRunning"/> is <c>true</c> — no internal elevation was needed, so a
-/// real install is in progress and the launch is committed.
-/// </summary>
-internal readonly record struct InstallerLaunchAttempt(bool Started, int ExitCode, bool StillRunning = false);
-
-/// <summary>
 /// Process-start seam faked in unit tests so the update service never spins a real
-/// installer. The default implementation starts the process AND observes it through the
-/// bounded elevation-decision window, because <see cref="Process.Start"/> returning a
-/// process does not prove the installer committed: the Inno bootstrapper starts
-/// unelevated (the .iss uses <c>PrivilegesRequired=lowest</c> with the dialog override,
-/// so the manifest is <c>asInvoker</c>) and re-launches itself elevated via UAC from
-/// inside the started process when it reuses a previous all-users install.
+/// installer. Returns the started process's first-exit observation — a task that
+/// completes with the process exit code — or <c>null</c> when process creation
+/// produced no process. Only the exit code is a terminal signal: the Inno
+/// bootstrapper starts unelevated (the .iss uses <c>PrivilegesRequired=lowest</c>
+/// with the dialog override, so the manifest is <c>asInvoker</c>) and may sit on
+/// an unanswered internal UAC prompt for an unbounded time, so liveness alone can
+/// never distinguish "install in progress" from "elevation still undecided".
+/// A nonzero exit is a refused/cancelled elevation whenever it happens; a zero
+/// exit is a committed elevated respawn or a finished no-elevation install; a
+/// still-running process is simply undecided.
 /// </summary>
-internal delegate InstallerLaunchAttempt WindowsInstallerProcessStarter(ProcessStartInfo startInfo);
+internal delegate Task<int>? WindowsInstallerProcessStarter(ProcessStartInfo startInfo);
 
 /// <summary>
 /// Starts the verified Inno installer on Windows using the Task-0-proven baseline
-/// contract. Never a shell, never a wait for install completion, and a committed start
-/// is required before the service may publish <see cref="GameUpdateState.InstallerLaunched"/>:
-/// process creation alone is not commitment, because the bootstrapper's internal
-/// elevation prompt resolves after <see cref="Process.Start"/> has already returned.
-/// Every refused start — a synchronous start exception (e.g. <see cref="Win32Exception"/>)
-/// or a quick nonzero bootstrapper exit — maps to <c>false</c> so the service publishes a
-/// retryable <see cref="GameUpdateState.Failed"/> and the running game stays alive.
+/// contract. Never a shell and never a bounded wait that pretends to settle the
+/// elevation outcome: <see cref="Launch"/> returns the started process's
+/// first-exit observation, and the caller maps that terminal signal —
+/// nonzero → retryable <see cref="GameUpdateState.Failed"/>, zero →
+/// <see cref="GameUpdateState.InstallerCommitted"/>. A refused start (a synchronous
+/// exception such as <see cref="Win32Exception"/>, or no process) returns
+/// <c>null</c> so the service publishes a retryable <see cref="GameUpdateState.Failed"/>
+/// and the running game stays alive.
 /// </summary>
 internal sealed class WindowsUpdateInstallerLauncher
 {
     /// <summary>The exact installer argument contract proven manually in Task 0.</summary>
     internal const string BaselineArguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /AUTOUPDATE";
 
-    /// <summary>
-    /// The bounded window in which the started process is observed for an early exit —
-    /// the only signal that resolves the bootstrapper's internal elevation handoff.
-    /// A current-user install needs no elevation, so the bootstrapper IS the installer
-    /// and stays running past the window; an all-users install respawns elevated (or
-    /// dies on UAC refusal) quickly, inside it. 60s generously covers a distracted
-    /// player's UAC response while remaining far shorter than a real install.
-    /// </summary>
-    internal static readonly TimeSpan DefaultElevationDecisionTimeout = TimeSpan.FromSeconds(60);
-
     private readonly WindowsInstallerProcessStarter _starter;
 
     public WindowsUpdateInstallerLauncher()
-        : this(starter: null, elevationDecisionTimeout: null)
+        : this(starter: null)
     {
     }
 
-    internal WindowsUpdateInstallerLauncher(
-        WindowsInstallerProcessStarter? starter,
-        TimeSpan? elevationDecisionTimeout = null)
+    internal WindowsUpdateInstallerLauncher(WindowsInstallerProcessStarter? starter)
     {
-        _starter = starter ?? CreateDefaultStarter(elevationDecisionTimeout ?? DefaultElevationDecisionTimeout);
+        _starter = starter ?? CreateDefaultStarter();
     }
 
     /// <summary>
-    /// Starts the installer at <paramref name="installerPath"/> and observes the bounded
-    /// elevation-decision window. Returns <c>true</c> only when the launch is committed:
-    /// the process survived the window (an in-progress install needing no elevation), or
-    /// it exited inside the window with code 0 (the bootstrapper successfully respawned
-    /// elevated). A refused start, a null process, or a nonzero early exit returns
-    /// <c>false</c>; the caller must never wait for install completion.
+    /// Starts the installer at <paramref name="installerPath"/> and returns a task
+    /// that completes with the started process's first exit code. Never blocks
+    /// waiting on the process; the task may legitimately stay incomplete for the
+    /// whole duration of a no-elevation install, during which Inno's
+    /// /CLOSEAPPLICATIONS owns closing the game. Returns <c>null</c> when the start
+    /// itself was refused — a synchronous start exception or no process produced.
     /// </summary>
-    public bool Launch(string installerPath)
+    public Task<int>? Launch(string installerPath)
     {
-        InstallerLaunchAttempt attempt;
         try
         {
-            attempt = _starter(CreateStartInfo(installerPath));
+            return _starter(CreateStartInfo(installerPath));
         }
         catch (Exception exception) when (IsLaunchException(exception))
         {
-            return false;
+            return null;
         }
-
-        if (!attempt.Started)
-        {
-            return false;
-        }
-
-        if (attempt.StillRunning)
-        {
-            return true;
-        }
-
-        return attempt.ExitCode == 0;
     }
 
     internal static ProcessStartInfo CreateStartInfo(string installerPath)
@@ -119,29 +88,28 @@ internal sealed class WindowsUpdateInstallerLauncher
         return info;
     }
 
-    internal static WindowsInstallerProcessStarter CreateDefaultStarter(TimeSpan elevationDecisionTimeout)
+    internal static WindowsInstallerProcessStarter CreateDefaultStarter()
     {
         return info =>
         {
             var process = Process.Start(info);
-            if (process is null)
-            {
-                return default;
-            }
-
-            using (process)
-            {
-                var timeoutMilliseconds = (int)Math.Min(elevationDecisionTimeout.TotalMilliseconds, int.MaxValue);
-                if (!process.WaitForExit(timeoutMilliseconds))
-                {
-                    // Still running: the in-progress install itself. Deliberately NOT
-                    // killed (unlike a stalled handoff) — it is the committed update.
-                    return new InstallerLaunchAttempt(Started: true, ExitCode: 0, StillRunning: true);
-                }
-
-                return new InstallerLaunchAttempt(Started: true, process.ExitCode);
-            }
+            return process is null ? null : ObserveFirstExitAsync(process);
         };
+    }
+
+    /// <summary>
+    /// Completes with the process's first exit code, then disposes the handle.
+    /// Deliberately not cancelled or timed out: a pending UAC prompt has no
+    /// deadline, and a refused elevation surfaces as the nonzero exit whenever
+    /// the player answers it.
+    /// </summary>
+    private static async Task<int> ObserveFirstExitAsync(Process process)
+    {
+        using (process)
+        {
+            await process.WaitForExitAsync().ConfigureAwait(false);
+            return process.ExitCode;
+        }
     }
 
     internal static bool IsLaunchException(Exception exception) =>

@@ -152,9 +152,13 @@ Digest mismatch or I/O/network failure after explicit Update produces a bounded 
 
 Launch the verified installer directly; never invoke a command shell. Catch `Win32Exception`/process-start failures, including elevation cancellation, as retryable failure. A failed start must never publish `InstallerLaunched` and must never exit the game.
 
-Process creation alone is not a committed launch: with `PrivilegesRequired=lowest` + `PrivilegesRequiredOverridesAllowed=dialog` the bootstrapper starts unelevated and re-launches itself elevated via UAC from inside the started process when it reuses a previous all-users install, so `Process.Start` can return a process before that outcome is known. The launcher therefore observes the started process through a bounded elevation-decision window: a quick nonzero exit is a refused elevation (retryable failure, game stays alive), a quick exit 0 is a successful elevated respawn, and a process still running at the deadline is an in-progress install that needed no elevation. The wait never extends to install completion.
+Neither process creation nor continued liveness is a committed launch: with `PrivilegesRequired=lowest` + `PrivilegesRequiredOverridesAllowed=dialog` the bootstrapper starts unelevated and re-launches itself elevated via UAC from inside the started process when it reuses a previous all-users install, so `Process.Start` can return a process that is still parked on an unanswered UAC prompt — with no deadline that can be safely assumed. The only terminal signal is the started process's first exit, which the launcher surfaces as an unbounded observation:
 
-The final process-start semantics and arguments are those proven by Task 0. Do not infer install privilege mode from path unless Task 0 forces a revised design.
+- nonzero exit (whenever it happens) is a refused/cancelled elevation or failed install — publish retryable `Failed` (`launch_failed`), game stays alive;
+- exit 0 is a committed elevated respawn (or a finished no-elevation install) — publish `InstallerCommitted`, the state on which `TitleStage` requests game exit;
+- still running is undecided, never commitment — the game stays alive at `InstallerLaunched`, and Inno's `/CLOSEAPPLICATIONS` owns closing it once an install actually proceeds.
+
+The final process-start semantics and arguments are those proven by Task 0 — in particular that a cancelled all-users UAC prompt produces a nonzero exit code. Do not infer install privilege mode from path unless Task 0 forces a revised design.
 
 ## Inno Setup changes
 
@@ -187,7 +191,7 @@ A fixed raw, edge-triggered, non-remappable **F9** shortcut or banner click open
 
 ### Open panel
 
-The panel uses existing remappable title/input commands for focus/action and follows the same boolean frame-ownership pattern as the crash panel. Actions are `UPDATE NOW` / `LATER`, or `RETRY` / `LATER` after explicit failure.
+The panel uses existing remappable title/input commands for focus/action and follows the same boolean frame-ownership pattern as the crash panel. Actions are `UPDATE NOW` / `LATER`, or `RETRY` / `LATER` after explicit failure. `LATER` dismisses the offer for the rest of the process in both states — from `Failed` it suppresses the retry banner, not just closes the panel.
 
 Priority remains:
 
@@ -201,7 +205,7 @@ While downloading/launching, prevent Start/Config navigation/activation. Back/Es
 
 ### Installer terminal state
 
-`InstallerLaunched` is observed from `TitleStage.OnUpdate()` independently of the phase-gated input path. It must request game exit exactly once even if title input handling is temporarily outside `Normal` phase.
+`InstallerCommitted` is observed from `TitleStage.OnUpdate()` independently of the phase-gated input path. It must request game exit exactly once even if title input handling is temporarily outside `Normal` phase. `InstallerLaunched` alone must never exit the game — it is the undecided handoff state.
 
 ## Testing contract
 
@@ -219,7 +223,7 @@ Cover:
 - closed update banner + title Activate still selects GAME START;
 - raw F9/banner click opens and consumes only that frame;
 - crash panel remains first priority;
-- `InstallerLaunched` is observed from `OnUpdate` and requests exit once;
+- `InstallerCommitted` is observed from `OnUpdate` and requests exit once, while `InstallerLaunched` never exits;
 - Task 0 and final Windows regression smoke tests cover current-user and all-users installs.
 
 ## Out of scope
@@ -246,6 +250,6 @@ Cover:
 - A newer release is offered only with the exact installer and valid SHA-256 digest.
 - Closed update banner never steals title Activate; F9/click explicitly opens update controls.
 - Download follows real HTTP redirects, cleans stale temp state, and displays lightweight percentage when available.
-- Failed/elevation-cancelled installer start is retryable and does not exit the game.
-- Successful installer launch is observed from `OnUpdate`; the proven Inno flow upgrades and relaunches the same installation.
+- Failed/elevation-cancelled installer handoff is retryable and does not exit the game — including a UAC prompt cancelled after any wait.
+- A committed installer exit is observed from `OnUpdate`; the proven Inno flow upgrades and relaunches the same installation.
 - `LATER` remains process-local and app-data/custom skins remain untouched.

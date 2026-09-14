@@ -146,9 +146,9 @@ Do not reuse crash `ExternalLauncher`; copying its narrow injected process-start
 - [ ] Build the process start from the exact contract proven in Task 0.
 - [ ] Never invoke a shell.
 - [ ] Catch `Win32Exception`/process-start failure, including elevation cancellation, as retryable `Failed`.
-- [ ] Observe the started process through a bounded elevation-decision window: the unelevated bootstrapper resolves its internal all-users UAC handoff inside it (early nonzero exit = refused, early exit 0 = respawned elevated, still running = committed install).
-- [ ] Failed or cancelled start does not publish `InstallerLaunched` and does not exit the game.
-- [ ] Committed start publishes `InstallerLaunched`; service does not call game APIs or wait for install completion.
+- [ ] Observe the started process's FIRST exit without a deadline — liveness is never commitment because an unanswered internal UAC prompt has no safe timeout: nonzero exit (whenever it happens) = refused elevation → retryable `Failed`; exit 0 = committed elevated respawn or finished no-elevation install → `InstallerCommitted`; still running = undecided, game stays alive at `InstallerLaunched` while Inno `/CLOSEAPPLICATIONS` owns closing it once an install proceeds.
+- [ ] Failed or cancelled handoff does not publish `InstallerCommitted` and does not exit the game.
+- [ ] Committed exit publishes `InstallerCommitted`; service does not call game APIs.
 
 **Commit:** `feat: download and verify windows updates`
 
@@ -227,7 +227,7 @@ Downloading/launching:
 
 At the top-level `TitleStage.OnUpdate()` lifecycle, independently of the `_titlePhase == Normal && _currentPhase == Normal` input gate:
 
-- [ ] observe `InstallerLaunched`;
+- [ ] observe `InstallerCommitted` (never `InstallerLaunched` — an undecided handoff must not exit);
 - [ ] request game exit exactly once.
 
 Do not hide this terminal-state observation inside `GameUpdateNotification.HandleInput()`.
@@ -263,7 +263,7 @@ Verify:
 - [ ] closed banner does not steal Enter/GAME START;
 - [ ] F9/click opens update panel;
 - [ ] progress text appears when Content-Length exists;
-- [ ] `InstallerLaunched` exits from `OnUpdate` once;
+- [ ] `InstallerCommitted` exits from `OnUpdate` once; `InstallerLaunched` does not exit;
 - [ ] Inno compile succeeds.
 
 Finally repeat the Task-0 current-user **and** all-users real upgrade/relaunch flows with the completed product path. If either mode regresses, stop and revise rather than adding a helper updater inside this PR.
@@ -275,6 +275,6 @@ Finally repeat the Task-0 current-user **and** all-users real upgrade/relaunch f
 - normal Windows launches check once and harness-owned launches never check;
 - update UI is Title-only, keyboard/controller accessible through F9, and never steals closed-banner GAME START input;
 - redirect-downloaded installer is fresh-file SHA-256 verified with lightweight progress text;
-- elevation/start failures are retryable without exiting the game;
+- elevation/start/handoff failures are retryable without exiting the game;
 - proven Inno auto-update upgrades and relaunches the same installation;
 - PR remains one focused implementation PR.

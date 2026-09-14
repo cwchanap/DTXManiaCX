@@ -35,12 +35,23 @@ public enum GameUpdateState
     Failed,
 
     /// <summary>
-    /// The verified installer committed past its elevation gate — the process was
-    /// created and either respawned elevated or is still running the install. The
-    /// service waits only for that bounded decision window, never for install
-    /// completion.
+    /// The verified installer process was started and its elevation/install handoff
+    /// is in flight. Nothing is committed yet — the unelevated bootstrapper may
+    /// still be sitting on an unanswered internal UAC prompt — so the game stays
+    /// alive and Inno's /CLOSEAPPLICATIONS owns closing it once an install actually
+    /// proceeds. The state is exited only through <see cref="InstallerCommitted"/>
+    /// (clean first exit) or <see cref="Failed"/> (nonzero first exit).
     /// </summary>
-    InstallerLaunched
+    InstallerLaunched,
+
+    /// <summary>
+    /// The started installer process exited 0: the all-users elevation handoff
+    /// succeeded (the bootstrapper respawned elevated) or a no-elevation install
+    /// ran to completion. This is the terminal signal on which the title stage
+    /// requests game exit — a refused/cancelled elevation exits nonzero instead and
+    /// maps to <see cref="Failed"/>.
+    /// </summary>
+    InstallerCommitted
 }
 
 /// <summary>
@@ -86,7 +97,10 @@ public interface IGameUpdateService
 
     /// <summary>
     /// Declines the currently offered update for the rest of the process
-    /// (memory only — nothing persisted).
+    /// (memory only — nothing persisted). Applies in either reviewable state —
+    /// <see cref="GameUpdateState.Available"/> or retryable
+    /// <see cref="GameUpdateState.Failed"/> — so the banner/panel stays suppressed
+    /// for the rest of the process.
     /// </summary>
     void DismissForProcess();
 }
