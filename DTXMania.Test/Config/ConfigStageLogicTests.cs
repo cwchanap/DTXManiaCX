@@ -2029,6 +2029,57 @@ public class ConfigStageLogicTests
     }
 
     [Fact]
+    public void DrawItemList_WhenNameExceedsAvailableWidth_ShouldEllipsizeToFitTheNameColumn()
+    {
+        // A name wider than the name column's budget (ItemNameMaxWidth) must be ellipsized so it
+        // stays left of the value column (x=690) instead of colliding with the value text. The
+        // per-character mock font makes the overflow deterministic: 8px/char.
+        const string longName = "Random Select Sub-BOXes With An Extremely Long Label That Overflows";
+        var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice();
+        using (inputManager)
+        {
+            stage.InitializeDrawingState();
+            ReflectionHelpers.SetPrivateField(stage, "_categories", new List<ConfigCategory>
+            {
+                new("System", "Test category", new List<IConfigItem>
+                {
+                    new ReadOnlyConfigItem(longName, () => "On")
+                    {
+                        Description = "Long name rendering test."
+                    }
+                })
+            });
+            ReflectionHelpers.SetPrivateField(stage, "_currentCategoryIndex", 0);
+            ReflectionHelpers.SetPrivateField(stage, "_focusOnMenu", false);
+
+            const float charWidth = 8f;
+            var font = new Mock<IFont>();
+            font.Setup(f => f.MeasureString(It.IsAny<string>()))
+                .Returns<string>(s => new Vector2(s.Length * charWidth, 14f));
+            ReflectionHelpers.SetPrivateField(stage, "_font", font.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_boldFont", font.Object);
+
+            var draws = new List<(string Text, Vector2 Position)>();
+            font.Setup(f => f.DrawString(It.IsAny<SpriteBatch>(), It.IsAny<string>(),
+                    It.IsAny<Vector2>(), It.IsAny<Color>()))
+                .Callback<SpriteBatch, string, Vector2, Color>((_, text, pos, _) => draws.Add((text, pos)));
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "DrawItemList");
+
+            // The long name must be ellipsized (ends with "...") and fit the name column.
+            var nameDraw = draws.Single(d => d.Text.StartsWith("Random", StringComparison.Ordinal));
+            Assert.EndsWith("...", nameDraw.Text);
+            Assert.True(font.Object.MeasureString(nameDraw.Text).X <= ConfigUILayout.ItemNameMaxWidth + 0.01f,
+                $"ellipsized name width must fit ItemNameMaxWidth ({ConfigUILayout.ItemNameMaxWidth})");
+
+            // The name is left-aligned at the name column (440), clear of the value column (690).
+            var expectedNameX = ConfigUILayout.ItemListX + ConfigUILayout.ItemNameOffsetX;
+            Assert.True(Math.Abs(nameDraw.Position.X - expectedNameX) < 0.01f,
+                $"name drawn at x={nameDraw.Position.X}; expected the name column at x={expectedNameX}");
+        }
+    }
+
+    [Fact]
     public void DrawHeaderFooter_WhenTexturesMissing_ShouldFallbackToPanelFills()
     {
         var (stage, inputManager) = CreateRenderSpyStageWithGraphicsDevice();
