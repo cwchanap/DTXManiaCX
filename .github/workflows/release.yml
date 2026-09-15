@@ -68,6 +68,27 @@ jobs:
               tail -n1
           }
 
+          # Clients parse each tag component via ApplicationVersion.Parse
+          # (int.TryParse), so a component outside Int32 range — e.g.
+          # v2147483648.0.0 — satisfies the format check but produces a release
+          # every client discards as invalid_tag.
+          tag_components_within_int32() {
+            local release_tag="$1"
+            local major minor patch component
+            IFS=. read -r major minor patch <<< "${release_tag#v}"
+            for component in "$major" "$minor" "$patch"; do
+              # Strip leading zeros so length reflects magnitude (int.TryParse
+              # ignores them too). The >10-digit check must short-circuit
+              # before 10#$component arithmetic, keeping it inside int64 range.
+              component="${component#"${component%%[!0]*}"}"
+              component="${component:-0}"
+              if (( ${#component} > 10 )) ||
+                 (( ${#component} == 10 && 10#$component > 2147483647 )); then
+                return 1
+              fi
+            done
+          }
+
           resolve_tag_sha() {
             local release_tag="$1"
             local qualified_tag="tags/${release_tag}"
@@ -84,6 +105,14 @@ jobs:
             base_version="$(latest_semver_tag)"
             base_version="${base_version#v}"
             base_version="${base_version:-0.0.0}"
+
+            # Reject an out-of-range base before the arithmetic below: its
+            # components feed 10# parsing, and a bumped candidate derived from
+            # an unusable base is unusable itself.
+            if ! tag_components_within_int32 "v${base_version}"; then
+              echo "::error::Latest release tag 'v${base_version}' has a version component outside Int32 range (0-2147483647); cannot compute the next version." >&2
+              return 1
+            fi
 
             local major minor patch
             IFS=. read -r major minor patch <<< "$base_version"
@@ -110,7 +139,17 @@ jobs:
                 ;;
             esac
 
-            printf 'v%s.%s.%s\n' "$major" "$minor" "$patch"
+            # Validate the candidate before ensure_tag can persist it: once
+            # created, an out-of-range tag becomes latest_semver_tag on later
+            # runs and poisons every future version selection.
+            local release_tag
+            release_tag="v${major}.${minor}.${patch}"
+            if ! tag_components_within_int32 "$release_tag"; then
+              echo "::error::Computed release tag '${release_tag}' has a version component outside Int32 range (0-2147483647); refusing to create it." >&2
+              return 1
+            fi
+
+            printf '%s\n' "$release_tag"
           }
 
           ensure_tag() {
@@ -146,7 +185,12 @@ jobs:
             local bump="$1"
             local attempt release_tag
             for attempt in 1 2 3 4 5; do
-              release_tag="$(next_release_tag "$bump")"
+              # A validation failure (invalid bump, unusable base/candidate)
+              # is fatal, not a tag conflict — next_release_tag already
+              # reported the ::error::.
+              if ! release_tag="$(next_release_tag "$bump")"; then
+                return 1
+              fi
               if ensure_tag "$release_tag" "$COMMIT_SHA"; then
                 printf '%s\n' "$release_tag"
                 return 0
@@ -155,27 +199,6 @@ jobs:
             done
             echo "::error::Could not create a unique ${bump} release tag after 5 attempts." >&2
             return 1
-          }
-
-          # Clients parse each tag component via ApplicationVersion.Parse
-          # (int.TryParse), so a component outside Int32 range — e.g.
-          # v2147483648.0.0 — satisfies the format check but produces a release
-          # every client discards as invalid_tag.
-          tag_components_within_int32() {
-            local release_tag="$1"
-            local major minor patch component
-            IFS=. read -r major minor patch <<< "${release_tag#v}"
-            for component in "$major" "$minor" "$patch"; do
-              # Strip leading zeros so length reflects magnitude (int.TryParse
-              # ignores them too). The >10-digit check must short-circuit
-              # before 10#$component arithmetic, keeping it inside int64 range.
-              component="${component#"${component%%[!0]*}"}"
-              component="${component:-0}"
-              if (( ${#component} > 10 )) ||
-                 (( ${#component} == 10 && 10#$component > 2147483647 )); then
-                return 1
-              fi
-            done
           }
 
           if [[ "$EVENT_NAME" == "schedule" ]]; then
@@ -236,10 +259,10 @@ jobs:
             target_sha="$COMMIT_SHA"
           fi
 
-          # The format checks above admit components outside Int32 range. Guard
-          # the resolved tag once here so no tag source — explicit INPUT_TAG,
-          # dispatch bump, or scheduled bump — spends both installer legs on a
-          # release no client can consume.
+          # Bump-generated candidates are validated in next_release_tag before
+          # ensure_tag can create them. An explicit INPUT_TAG already exists in
+          # the repo, so keep this guard as the last check that no tag source
+          # spends both installer legs on a release no client can consume.
           if [[ "$should_release" == "true" ]] && ! tag_components_within_int32 "$release_tag"; then
             echo "::error::Release tag '${release_tag}' has a version component outside Int32 range (0-2147483647)." >&2
             exit 1
