@@ -157,6 +157,27 @@ jobs:
             return 1
           }
 
+          # Clients parse each tag component via ApplicationVersion.Parse
+          # (int.TryParse), so a component outside Int32 range — e.g.
+          # v2147483648.0.0 — satisfies the format check but produces a release
+          # every client discards as invalid_tag.
+          tag_components_within_int32() {
+            local release_tag="$1"
+            local major minor patch component
+            IFS=. read -r major minor patch <<< "${release_tag#v}"
+            for component in "$major" "$minor" "$patch"; do
+              # Strip leading zeros so length reflects magnitude (int.TryParse
+              # ignores them too). The >10-digit check must short-circuit
+              # before 10#$component arithmetic, keeping it inside int64 range.
+              component="${component#"${component%%[!0]*}"}"
+              component="${component:-0}"
+              if (( ${#component} > 10 )) ||
+                 (( ${#component} == 10 && 10#$component > 2147483647 )); then
+                return 1
+              fi
+            done
+          }
+
           if [[ "$EVENT_NAME" == "schedule" ]]; then
             latest_tag="$(latest_semver_tag)"
             if [[ -n "$latest_tag" ]]; then
@@ -213,6 +234,15 @@ jobs:
             # while installer jobs are queued.
             checkout_ref="$COMMIT_SHA"
             target_sha="$COMMIT_SHA"
+          fi
+
+          # The format checks above admit components outside Int32 range. Guard
+          # the resolved tag once here so no tag source — explicit INPUT_TAG,
+          # dispatch bump, or scheduled bump — spends both installer legs on a
+          # release no client can consume.
+          if [[ "$should_release" == "true" ]] && ! tag_components_within_int32 "$release_tag"; then
+            echo "::error::Release tag '${release_tag}' has a version component outside Int32 range (0-2147483647)." >&2
+            exit 1
           fi
 
           prerelease=false
