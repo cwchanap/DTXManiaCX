@@ -46,7 +46,7 @@ namespace DTXMania.Test.Stage
         }
 
         private static async Task WaitForQueueCountAsync(
-            SongSelectionStage stage, string fieldName, int timeoutMs = 3000)
+            SongSelectionStage stage, string fieldName, int timeoutMs = 10000)
         {
             var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
             while (true)
@@ -531,20 +531,36 @@ namespace DTXMania.Test.Stage
             SetPrivateField(stage, "_activeTab", SongSelectionTab.RecentPlays); // -> Bookmarks
             SetPrivateField(stage, "_activationVersion", 0);
 
+            // Gate the bookmark loader so the test does not depend on the SongManager
+            // singleton's database state or on real DB I/O latency.
+            var loadStarted = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var releaseLoad = new TaskCompletionSource<List<SongListNode>>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            SetPrivateField(stage, "_loadBookmarkedNodesAsync",
+                new Func<Task<List<SongListNode>>>(() =>
+                {
+                    loadStarted.TrySetResult(true);
+                    return releaseLoad.Task;
+                }));
+
             // Stale bookmark list from before the toggle.
             SetPrivateField(stage, "_bookmarkNodes",
                 new List<SongListNode> { new() { Type = NodeType.Score, Title = "Stale" } });
 
             // In-flight bookmark write that has not yet committed.
-            var tcs = new TaskCompletionSource<bool>();
+            var tcs = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
             var pending = GetPrivateField<System.Collections.Concurrent.ConcurrentDictionary<int, Task>>(stage, "_pendingBookmarkWrites");
             pending[42] = tcs.Task;
 
             InvokePrivateMethod(stage, "SwitchToNextTab");
 
-            // Load is deferred until the pending write settles; stale list remains.
+            // Load is deferred until the pending write settles; stale list remains and the
+            // loader has not been invoked.
             var nodes = GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes");
             Assert.Single(nodes);
+            Assert.False(loadStarted.Task.IsCompleted);
 
             // Settle the write. Its worker continuation only queues a reload request, so the
             // stage-owned cache stays unchanged until the update path consumes that request.
@@ -553,10 +569,13 @@ namespace DTXMania.Test.Stage
 
             nodes = GetPrivateField<List<SongListNode>>(stage, "_bookmarkNodes");
             Assert.Single(nodes);
+            Assert.False(loadStarted.Task.IsCompleted);
 
-            // First update-thread pass begins the deferred load; the second applies its
-            // completion (the no-DB loader returns an empty list).
+            // First update-thread pass begins the deferred load; releasing it enqueues the
+            // completion which the second pass applies.
             InvokePrivateMethod(stage, "ConsumePendingTabLoadWork");
+            await loadStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            releaseLoad.SetResult(new List<SongListNode>());
             await WaitForQueueCountAsync(stage, "_pendingTabLoadCompletions");
             InvokePrivateMethod(stage, "ConsumePendingTabLoadWork");
 
