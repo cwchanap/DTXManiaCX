@@ -121,7 +121,12 @@ namespace DTXMania.Game.Platform
                             ref shellItemId,
                             out defaultFolder);
                         if (createResult >= 0)
-                            ThrowIfFailed(dialog.SetDefaultFolder(defaultFolder));
+                        {
+                            // The configured root is only a navigation hint. If
+                            // Windows rejects a stale/reparse-point default, keep
+                            // the picker usable so the player can choose a new root.
+                            _ = dialog.SetDefaultFolder(defaultFolder);
+                        }
                     }
 
                     lock (_dialogLock)
@@ -205,7 +210,7 @@ namespace DTXMania.Game.Platform
             private static void ReleaseComObject(object? value)
             {
                 if (value != null && Marshal.IsComObject(value))
-                    _ = Marshal.FinalReleaseComObject(value);
+                    _ = Marshal.ReleaseComObject(value);
             }
 
             [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = true)]
