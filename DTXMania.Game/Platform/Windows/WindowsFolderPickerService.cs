@@ -5,6 +5,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows.Forms;
 using DTXMania.Game.Lib.Stage.Config;
 
 namespace DTXMania.Game.Platform
@@ -82,14 +83,17 @@ namespace DTXMania.Game.Platform
 
             private readonly object _dialogLock = new();
             private readonly IntPtr _ownerWindow;
+            // Created on the dispatcher STA thread; BeginInvoke marshals close
+            // requests onto that thread's message pump.
+            private readonly Control _staInvoker;
             private IFileOpenDialog? _dialog;
-            private IFileOpenDialog? _deferredDialogRelease;
-            private int _closesInFlight;
             private bool _closeRequested;
 
             internal WindowsFolderPickerDialog(IntPtr ownerWindow)
             {
                 _ownerWindow = ownerWindow;
+                _staInvoker = new Control();
+                _ = _staInvoker.Handle;
             }
 
             public FolderPickerResult Show(string? initialDirectory)
@@ -175,20 +179,12 @@ namespace DTXMania.Game.Platform
                     {
                         if (ReferenceEquals(_dialog, dialog))
                             _dialog = null;
-
-                        if (dialog != null)
-                        {
-                            // A Close() that captured _dialog before it was
-                            // cleared may still be using this RCW. Only release
-                            // once no Close call is in flight; otherwise Dispose
-                            // (which runs on this STA thread) releases it after
-                            // the in-flight calls drain.
-                            if (_closesInFlight == 0)
-                                ReleaseComObject(dialog);
-                            else
-                                _deferredDialogRelease = dialog;
-                        }
                     }
+
+                    // The RCW is only ever used on this STA thread: Close()
+                    // posts to _staInvoker instead of calling into the dialog
+                    // object, so nothing races this release.
+                    ReleaseComObject(dialog);
 
                     if (selectedPath != IntPtr.Zero)
                         Marshal.FreeCoTaskMem(selectedPath);
@@ -199,21 +195,37 @@ namespace DTXMania.Game.Platform
 
             public void Close()
             {
-                IFileOpenDialog? dialog;
                 lock (_dialogLock)
                 {
                     _closeRequested = true;
-                    dialog = _dialog;
-                    if (dialog == null)
-                        return;
-
-                    // Pin the RCW for the duration of the marshaled call so
-                    // Show's cleanup cannot release it concurrently. The lock
-                    // is deliberately not held during Close: the call is
-                    // marshaled to the STA thread, which may be blocked on
-                    // _dialogLock once Show has returned.
-                    _closesInFlight++;
                 }
+
+                // IFileOpenDialog is STA-bound: calling into it here would be
+                // marshaled to the dispatcher thread and can outlive its
+                // message pump once Show has returned. Post the request
+                // instead so the STA services it only while it is pumping.
+                try
+                {
+                    _ = _staInvoker.BeginInvoke(new Action(CloseOnDispatcherThread));
+                }
+                catch (InvalidOperationException)
+                {
+                    // The dispatcher thread or the invoker handle is gone. The
+                    // request has already been completed as cancelled by the
+                    // dispatcher.
+                }
+            }
+
+            private void CloseOnDispatcherThread()
+            {
+                IFileOpenDialog? dialog;
+                lock (_dialogLock)
+                {
+                    dialog = _dialog;
+                }
+
+                if (dialog == null)
+                    return;
 
                 try
                 {
@@ -224,27 +236,12 @@ namespace DTXMania.Game.Platform
                     // Best effort. The request has already been completed as
                     // cancelled by the dispatcher.
                 }
-                finally
-                {
-                    lock (_dialogLock)
-                    {
-                        _closesInFlight--;
-                    }
-                }
             }
 
             public void Dispose()
             {
                 Close();
-
-                IFileOpenDialog? deferred;
-                lock (_dialogLock)
-                {
-                    deferred = _closesInFlight == 0 ? _deferredDialogRelease : null;
-                    _deferredDialogRelease = null;
-                }
-
-                ReleaseComObject(deferred);
+                _staInvoker.Dispose();
             }
 
             private static void ThrowIfFailed(int hresult)
