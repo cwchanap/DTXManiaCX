@@ -59,35 +59,31 @@ namespace DTXMania.Game.Platform
             public IStaFolderPickerDialog CreateDialog() =>
                 new WindowsFolderPickerDialog(_ownerWindow);
 
-            public void CloseOnDispatcher(IStaFolderPickerDialog dialog)
-            {
-                // WindowsFolderPickerDialog posts WM_CLOSE to the native window;
-                // Windows dispatches that message on the dialog's STA thread.
-                dialog.Close();
-            }
+            public void CloseOnDispatcher(IStaFolderPickerDialog dialog) => dialog.Close();
         }
 
         /// <summary>
-        /// A closeable native SHBrowseForFolder dialog. FolderBrowserDialog does
-        /// not expose its modal window handle, so its ShowDialog call cannot be
-        /// released deterministically after cancellation. The callback here
-        /// captures that native handle and posts WM_CLOSE to its owning STA.
+        /// Modern Windows Common Item Dialog configured for folder selection.
+        /// It keeps normal Explorer navigation (including other drives) while
+        /// remaining closeable through the existing dispatcher contract.
         /// </summary>
         private sealed class WindowsFolderPickerDialog : IStaFolderPickerDialog
         {
-            private const uint BifReturnOnlyFileSystemDirectories = 0x0001;
-            private const uint BifEditBox = 0x0010;
-            private const uint BifNewDialogStyle = 0x0040;
-            private const uint BffmInitialized = 1;
-            private const uint BffmSetSelectionW = 0x0400 + 103;
-            private const uint WmClose = 0x0010;
-            private const int MaxPathLength = 260;
+            private const uint FosPickFolders = 0x00000020;
+            private const uint FosForceFileSystem = 0x00000040;
+            private const uint FosPathMustExist = 0x00000800;
+            private const uint SigdnFileSystemPath = 0x80058000;
+            private const int ErrorCancelled = unchecked((int)0x800704C7);
+
+            private static readonly Guid FileOpenDialogClassId =
+                new("DC1C5A9C-E88A-4DDE-A5A1-60F82A20AEF7");
+            private static readonly Guid ShellItemInterfaceId =
+                new("43826D1E-E718-42EE-BC55-A1E261C37BFE");
 
             private readonly object _dialogLock = new();
             private readonly IntPtr _ownerWindow;
-            private IntPtr _dialogHandle;
+            private IFileOpenDialog? _dialog;
             private bool _closeRequested;
-            private string? _initialDirectory;
 
             internal WindowsFolderPickerDialog(IntPtr ownerWindow)
             {
@@ -96,153 +92,238 @@ namespace DTXMania.Game.Platform
 
             public FolderPickerResult Show(string? initialDirectory)
             {
+                IFileOpenDialog? dialog = null;
+                IShellItem? defaultFolder = null;
+                IShellItem? selectedItem = null;
+                IntPtr selectedPath = IntPtr.Zero;
+
                 try
                 {
-                    _initialDirectory = !string.IsNullOrWhiteSpace(initialDirectory) &&
-                        Directory.Exists(initialDirectory)
-                        ? initialDirectory
-                        : null;
+                    var dialogType = Type.GetTypeFromCLSID(FileOpenDialogClassId, throwOnError: true)
+                        ?? throw new InvalidOperationException(
+                            "The Windows folder picker could not be created.");
+                    dialog = (IFileOpenDialog)(Activator.CreateInstance(dialogType)
+                        ?? throw new InvalidOperationException(
+                            "The Windows folder picker could not be created."));
 
-                    var callback = new BrowseCallback(HandleBrowseCallback);
-                    var displayName = Marshal.AllocHGlobal((MaxPathLength + 1) * sizeof(char));
-                    var handle = GCHandle.Alloc(this);
-                    try
+                    ThrowIfFailed(dialog.GetOptions(out var options));
+                    ThrowIfFailed(dialog.SetOptions(
+                        options | FosPickFolders | FosForceFileSystem | FosPathMustExist));
+                    ThrowIfFailed(dialog.SetTitle("Choose song folder"));
+
+                    if (!string.IsNullOrWhiteSpace(initialDirectory) &&
+                        Directory.Exists(initialDirectory))
                     {
-                        var browseInfo = new BrowseInfo
-                        {
-                            OwnerWindow = _ownerWindow,
-                            DisplayName = displayName,
-                            Title = "Choose song folder",
-                            Flags = BifReturnOnlyFileSystemDirectories |
-                                BifEditBox |
-                                BifNewDialogStyle,
-                            Callback = callback,
-                            CallbackData = GCHandle.ToIntPtr(handle),
-                        };
+                        var shellItemId = ShellItemInterfaceId;
+                        var createResult = SHCreateItemFromParsingName(
+                            initialDirectory,
+                            IntPtr.Zero,
+                            ref shellItemId,
+                            out defaultFolder);
+                        if (createResult >= 0)
+                            ThrowIfFailed(dialog.SetDefaultFolder(defaultFolder));
+                    }
 
-                        var itemIdList = SHBrowseForFolder(ref browseInfo);
-                        if (itemIdList == IntPtr.Zero)
+                    lock (_dialogLock)
+                    {
+                        _dialog = dialog;
+                        if (_closeRequested)
                             return FolderPickerResult.Cancelled();
+                    }
 
-                        try
-                        {
-                            var path = new char[MaxPathLength + 1];
-                            return SHGetPathFromIDList(itemIdList, path)
-                                ? FolderPickerResult.Selected(new string(path).TrimEnd('\0'))
-                                : FolderPickerResult.Failed(
-                                    "The selected folder path could not be extracted from the picker result.");
-                        }
-                        finally
-                        {
-                            Marshal.FreeCoTaskMem(itemIdList);
-                        }
-                    }
-                    finally
-                    {
-                        handle.Free();
-                        Marshal.FreeHGlobal(displayName);
-                        lock (_dialogLock)
-                            _dialogHandle = IntPtr.Zero;
-                    }
+                    var showResult = dialog.Show(_ownerWindow);
+                    if (showResult == ErrorCancelled)
+                        return FolderPickerResult.Cancelled();
+                    ThrowIfFailed(showResult);
+
+                    ThrowIfFailed(dialog.GetResult(out selectedItem));
+                    ThrowIfFailed(selectedItem.GetDisplayName(
+                        SigdnFileSystemPath,
+                        out selectedPath));
+
+                    var path = Marshal.PtrToStringUni(selectedPath);
+                    return !string.IsNullOrWhiteSpace(path)
+                        ? FolderPickerResult.Selected(path)
+                        : FolderPickerResult.Failed(
+                            "The selected folder path could not be extracted from the picker result.");
+                }
+                catch (COMException exception) when (exception.HResult == ErrorCancelled)
+                {
+                    return FolderPickerResult.Cancelled();
                 }
                 catch (Exception exception)
                 {
                     return FolderPickerResult.Failed(exception.Message);
                 }
+                finally
+                {
+                    lock (_dialogLock)
+                    {
+                        if (ReferenceEquals(_dialog, dialog))
+                            _dialog = null;
+                    }
+
+                    if (selectedPath != IntPtr.Zero)
+                        Marshal.FreeCoTaskMem(selectedPath);
+                    ReleaseComObject(selectedItem);
+                    ReleaseComObject(defaultFolder);
+                    ReleaseComObject(dialog);
+                }
             }
 
             public void Close()
             {
+                IFileOpenDialog? dialog;
                 lock (_dialogLock)
                 {
                     _closeRequested = true;
-                    PostCloseMessage(_dialogHandle);
+                    dialog = _dialog;
+                }
+
+                if (dialog == null)
+                    return;
+
+                try
+                {
+                    _ = dialog.Close(ErrorCancelled);
+                }
+                catch (COMException)
+                {
+                    // Best effort. The request has already been completed as
+                    // cancelled by the dispatcher.
                 }
             }
 
             public void Dispose() => Close();
 
-            private int HandleBrowseCallback(
-                IntPtr windowHandle,
-                uint message,
-                IntPtr lParam,
-                IntPtr callbackData)
+            private static void ThrowIfFailed(int hresult)
             {
-                if (message != BffmInitialized)
-                    return 0;
-
-                lock (_dialogLock)
-                {
-                    _dialogHandle = windowHandle;
-                    if (_closeRequested)
-                    {
-                        PostCloseMessage(windowHandle);
-                    }
-                    else if (!string.IsNullOrWhiteSpace(_initialDirectory))
-                    {
-                        var path = Marshal.StringToHGlobalUni(_initialDirectory);
-                        try
-                        {
-                            SendMessage(windowHandle, BffmSetSelectionW, (IntPtr)1, path);
-                        }
-                        finally
-                        {
-                            Marshal.FreeHGlobal(path);
-                        }
-                    }
-                }
-
-                return 0;
+                if (hresult < 0)
+                    Marshal.ThrowExceptionForHR(hresult);
             }
 
-            private static void PostCloseMessage(IntPtr windowHandle)
+            private static void ReleaseComObject(object? value)
             {
-                if (windowHandle != IntPtr.Zero)
-                    PostMessage(windowHandle, WmClose, IntPtr.Zero, IntPtr.Zero);
+                if (value != null && Marshal.IsComObject(value))
+                    _ = Marshal.FinalReleaseComObject(value);
             }
 
-            [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-            private struct BrowseInfo
+            [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = true)]
+            private static extern int SHCreateItemFromParsingName(
+                [MarshalAs(UnmanagedType.LPWStr)] string path,
+                IntPtr bindingContext,
+                ref Guid interfaceId,
+                [MarshalAs(UnmanagedType.Interface)] out IShellItem item);
+
+            [ComImport]
+            [Guid("D57C7288-D4AD-4768-BE02-9D969532D960")]
+            [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+            private interface IFileOpenDialog
             {
-                internal IntPtr OwnerWindow;
-                internal IntPtr RootItemIdList;
-                internal IntPtr DisplayName;
-                [MarshalAs(UnmanagedType.LPWStr)]
-                internal string? Title;
-                internal uint Flags;
-                internal BrowseCallback? Callback;
-                internal IntPtr CallbackData;
-                internal int ImageIndex;
+                [PreserveSig]
+                int Show(IntPtr parent);
+
+                [PreserveSig]
+                int SetFileTypes(uint fileTypeCount, IntPtr filterSpec);
+
+                [PreserveSig]
+                int SetFileTypeIndex(uint fileTypeIndex);
+
+                [PreserveSig]
+                int GetFileTypeIndex(out uint fileTypeIndex);
+
+                [PreserveSig]
+                int Advise(IntPtr events, out uint cookie);
+
+                [PreserveSig]
+                int Unadvise(uint cookie);
+
+                [PreserveSig]
+                int SetOptions(uint options);
+
+                [PreserveSig]
+                int GetOptions(out uint options);
+
+                [PreserveSig]
+                int SetDefaultFolder(IShellItem shellItem);
+
+                [PreserveSig]
+                int SetFolder(IShellItem shellItem);
+
+                [PreserveSig]
+                int GetFolder(out IShellItem shellItem);
+
+                [PreserveSig]
+                int GetCurrentSelection(out IShellItem shellItem);
+
+                [PreserveSig]
+                int SetFileName([MarshalAs(UnmanagedType.LPWStr)] string fileName);
+
+                [PreserveSig]
+                int GetFileName(out IntPtr fileName);
+
+                [PreserveSig]
+                int SetTitle([MarshalAs(UnmanagedType.LPWStr)] string title);
+
+                [PreserveSig]
+                int SetOkButtonLabel([MarshalAs(UnmanagedType.LPWStr)] string text);
+
+                [PreserveSig]
+                int SetFileNameLabel([MarshalAs(UnmanagedType.LPWStr)] string label);
+
+                [PreserveSig]
+                int GetResult(out IShellItem shellItem);
+
+                [PreserveSig]
+                int AddPlace(IShellItem shellItem, uint alignment);
+
+                [PreserveSig]
+                int SetDefaultExtension(
+                    [MarshalAs(UnmanagedType.LPWStr)] string defaultExtension);
+
+                [PreserveSig]
+                int Close(int hresult);
+
+                [PreserveSig]
+                int SetClientGuid(ref Guid clientGuid);
+
+                [PreserveSig]
+                int ClearClientData();
+
+                [PreserveSig]
+                int SetFilter(IntPtr filter);
+
+                [PreserveSig]
+                int GetResults(out IntPtr shellItems);
+
+                [PreserveSig]
+                int GetSelectedItems(out IntPtr shellItems);
             }
 
-            [UnmanagedFunctionPointer(CallingConvention.StdCall)]
-            private delegate int BrowseCallback(
-                IntPtr windowHandle,
-                uint message,
-                IntPtr lParam,
-                IntPtr callbackData);
+            [ComImport]
+            [Guid("43826D1E-E718-42EE-BC55-A1E261C37BFE")]
+            [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+            private interface IShellItem
+            {
+                [PreserveSig]
+                int BindToHandler(
+                    IntPtr bindingContext,
+                    ref Guid handlerId,
+                    ref Guid interfaceId,
+                    out IntPtr result);
 
-            [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
-            private static extern IntPtr SHBrowseForFolder(ref BrowseInfo browseInfo);
+                [PreserveSig]
+                int GetParent(out IShellItem parent);
 
-            [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
-            [return: MarshalAs(UnmanagedType.Bool)]
-            private static extern bool SHGetPathFromIDList(IntPtr itemIdList, [Out] char[] path);
+                [PreserveSig]
+                int GetDisplayName(uint displayNameType, out IntPtr displayName);
 
-            [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-            private static extern IntPtr SendMessage(
-                IntPtr windowHandle,
-                uint message,
-                IntPtr wParam,
-                IntPtr lParam);
+                [PreserveSig]
+                int GetAttributes(uint attributeMask, out uint attributes);
 
-            [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-            [return: MarshalAs(UnmanagedType.Bool)]
-            private static extern bool PostMessage(
-                IntPtr windowHandle,
-                uint message,
-                IntPtr wParam,
-                IntPtr lParam);
+                [PreserveSig]
+                int Compare(IShellItem shellItem, uint hint, out int order);
+            }
         }
     }
 }
