@@ -30,4 +30,8 @@
     <ProjectReference Include="..\DTXMania.VideoRecorder\DTXMania.VideoRecorder.csproj" />
   </ItemGroup>
 
+  <ItemGroup Condition="'$(OS)' != 'Windows_NT'">
+    <Compile Remove="Platform/WindowsFolderPickerServiceTests.cs" />
+  </ItemGroup>
+
 </Project>
