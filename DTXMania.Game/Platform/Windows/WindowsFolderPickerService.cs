@@ -83,6 +83,8 @@ namespace DTXMania.Game.Platform
             private readonly object _dialogLock = new();
             private readonly IntPtr _ownerWindow;
             private IFileOpenDialog? _dialog;
+            private IFileOpenDialog? _deferredDialogRelease;
+            private int _closesInFlight;
             private bool _closeRequested;
 
             internal WindowsFolderPickerDialog(IntPtr ownerWindow)
@@ -137,6 +139,13 @@ namespace DTXMania.Game.Platform
                     }
 
                     var showResult = dialog.Show(_ownerWindow);
+
+                    lock (_dialogLock)
+                    {
+                        if (ReferenceEquals(_dialog, dialog))
+                            _dialog = null;
+                    }
+
                     if (showResult == ErrorCancelled)
                         return FolderPickerResult.Cancelled();
                     ThrowIfFailed(showResult);
@@ -166,13 +175,25 @@ namespace DTXMania.Game.Platform
                     {
                         if (ReferenceEquals(_dialog, dialog))
                             _dialog = null;
+
+                        if (dialog != null)
+                        {
+                            // A Close() that captured _dialog before it was
+                            // cleared may still be using this RCW. Only release
+                            // once no Close call is in flight; otherwise Dispose
+                            // (which runs on this STA thread) releases it after
+                            // the in-flight calls drain.
+                            if (_closesInFlight == 0)
+                                ReleaseComObject(dialog);
+                            else
+                                _deferredDialogRelease = dialog;
+                        }
                     }
 
                     if (selectedPath != IntPtr.Zero)
                         Marshal.FreeCoTaskMem(selectedPath);
                     ReleaseComObject(selectedItem);
                     ReleaseComObject(defaultFolder);
-                    ReleaseComObject(dialog);
                 }
             }
 
@@ -183,10 +204,16 @@ namespace DTXMania.Game.Platform
                 {
                     _closeRequested = true;
                     dialog = _dialog;
-                }
+                    if (dialog == null)
+                        return;
 
-                if (dialog == null)
-                    return;
+                    // Pin the RCW for the duration of the marshaled call so
+                    // Show's cleanup cannot release it concurrently. The lock
+                    // is deliberately not held during Close: the call is
+                    // marshaled to the STA thread, which may be blocked on
+                    // _dialogLock once Show has returned.
+                    _closesInFlight++;
+                }
 
                 try
                 {
@@ -197,9 +224,28 @@ namespace DTXMania.Game.Platform
                     // Best effort. The request has already been completed as
                     // cancelled by the dispatcher.
                 }
+                finally
+                {
+                    lock (_dialogLock)
+                    {
+                        _closesInFlight--;
+                    }
+                }
             }
 
-            public void Dispose() => Close();
+            public void Dispose()
+            {
+                Close();
+
+                IFileOpenDialog? deferred;
+                lock (_dialogLock)
+                {
+                    deferred = _closesInFlight == 0 ? _deferredDialogRelease : null;
+                    _deferredDialogRelease = null;
+                }
+
+                ReleaseComObject(deferred);
+            }
 
             private static void ThrowIfFailed(int hresult)
             {
