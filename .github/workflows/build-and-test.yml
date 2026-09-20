@@ -39,6 +39,27 @@ jobs:
     - name: Build Windows project
       run: dotnet build DTXMania.Game/DTXMania.Game.Windows.csproj --configuration Debug --no-restore
 
+    - name: Compile Windows installer script
+      shell: pwsh
+      run: |
+        choco install innosetup --no-progress -y
+        if ($LASTEXITCODE -ne 0) { throw "Failed to install Inno Setup" }
+
+        $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+        if (-not (Test-Path $iscc)) { throw "ISCC.exe not found at $iscc" }
+
+        # Compile against tiny throwaway payloads. This exercises the real Inno
+        # parser and [Code] compiler without duplicating the release publish.
+        $smokeRoot = Join-Path $env:RUNNER_TEMP "dtxmania-installer-smoke"
+        $sourceDir = Join-Path $smokeRoot "app"
+        $skinDir = Join-Path $smokeRoot "skin"
+        New-Item -ItemType Directory -Force -Path $sourceDir, $skinDir | Out-Null
+        Set-Content -Path (Join-Path $sourceDir "payload.txt") -Value "installer smoke"
+        Set-Content -Path (Join-Path $skinDir "Theme.ini") -Value "[Theme]"
+
+        & $iscc "/DMyAppVersion=0.0.0-ci" "/DSourceDir=$sourceDir" "/DSystemSkinDir=$skinDir" "installer\windows\dtxmania.iss"
+        if ($LASTEXITCODE -ne 0) { throw "Windows installer script failed to compile" }
+
     - name: Run tests on Windows
       env:
         ALSOFT_DRIVERS: 'null'
