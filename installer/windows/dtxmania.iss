@@ -105,9 +105,9 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}
 Filename: "{app}\{#MyAppExeName}"; Flags: nowait runasoriginaluser; Check: IsAutoUpdateInstall
 
 [Code]
-; True only for a silent (/SILENT or /VERYSILENT) install launched with the
-; case-insensitive /AUTOUPDATE flag. Read fresh from the command line every
-; run; nothing is written to the registry or disk.
+// True only for a silent (/SILENT or /VERYSILENT) install launched with the
+// case-insensitive /AUTOUPDATE flag. Read fresh from the command line every
+// run; nothing is written to the registry or disk.
 function IsAutoUpdateInstall: Boolean;
 var
   I: Integer;
