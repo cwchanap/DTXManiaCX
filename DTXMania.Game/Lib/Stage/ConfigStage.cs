@@ -277,16 +277,21 @@ namespace DTXMania.Game.Lib.Stage
             _activeSongOperation = null;
             _songOperationCts = null;
 
-            _previousKeyboardState = Keyboard.GetState();
-            _currentKeyboardState = Keyboard.GetState();
+            // Baseline includes keys still held by injected input, so a key held across the
+            // transition into Config doesn't read as a fresh press on the first update.
+            _currentKeyboardState = InjectedKeyboardState.Merge(
+                Keyboard.GetState(), default, _game.InputManager?.ModularInputManager).Current;
+            _previousKeyboardState = _currentKeyboardState;
         }
 
         protected override void OnUpdate(double deltaTime)
         {
             DrainSongOperationUpdates();
 
-            _previousKeyboardState = _currentKeyboardState;
-            _currentKeyboardState = Keyboard.GetState();
+            // Overlay panels edge-detect on these raw states, and GameApi/MCP keys are injected
+            // into ModularInputManager rather than the hardware keyboard, so fold them in here.
+            (_currentKeyboardState, _previousKeyboardState) = InjectedKeyboardState.Merge(
+                Keyboard.GetState(), _currentKeyboardState, _game.InputManager?.ModularInputManager);
 
             if (_activePanel?.IsActive == true)
             {

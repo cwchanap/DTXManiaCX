@@ -39,6 +39,10 @@ namespace DTXMania.Game.Lib.Input
         // Queue of key codes whose press events were just dequeued this frame (for event-driven command dispatch).
         // ConcurrentQueue used for thread safety when ClearInjectedState is called from stage transitions.
         private readonly ConcurrentQueue<int> _injectedPressEvents;
+        // Key codes with an injected press processed during the most recent Update(). Unlike
+        // _injectedPressEvents (drained by InputManagerCompat) this is read without consuming, and
+        // unlike _injectedKeyStates it keeps a key whose release arrived in the same batch.
+        private readonly HashSet<int> _injectedKeysPressedThisFrame = new();
 
         // Buttons that transitioned to pressed this frame (any source + injected).
         // Rebuilt every Update(); drained by ConsumePressedButtons() for binding-capture UIs.
@@ -329,6 +333,18 @@ namespace DTXMania.Game.Lib.Input
         }
 
         /// <summary>
+        /// Key codes currently held by injected (MCP/API) input. Read-only view; not consumed.
+        /// </summary>
+        public IReadOnlyCollection<int> InjectedKeysDown => _injectedKeyStates.Keys;
+
+        /// <summary>
+        /// Key codes that received an injected (MCP/API) press during the most recent Update(),
+        /// including keys whose release was processed in the same frame (a tap shorter than one
+        /// frame). Read-only view; not consumed, so any number of readers see the same set.
+        /// </summary>
+        public IReadOnlyCollection<int> InjectedKeysPressedThisFrame => _injectedKeysPressedThisFrame;
+
+        /// <summary>
         /// Drains and returns the buttons that transitioned to pressed during the most recent
         /// Update(), from any input source (keyboard now; MIDI/gamepad once those sources exist)
         /// plus injected inputs. The internal buffer is cleared, so a second call in the same
@@ -513,6 +529,7 @@ namespace DTXMania.Game.Lib.Input
             while (_injectedButtonQueue.TryDequeue(out _)) { }
             _injectedKeyStates.Clear();
             while (_injectedPressEvents.TryDequeue(out _)) { }
+            _injectedKeysPressedThisFrame.Clear();
             // Injected MIDI notes flow through MidiInputSource's own pending/accepted-press state,
             // which is separate from the button queue above. Reset it here so all injected input
             // types are cleared from the same centralized cleanup path.
@@ -570,6 +587,7 @@ namespace DTXMania.Game.Lib.Input
         private void ProcessInjectedInputs()
         {
             while (_injectedPressEvents.TryDequeue(out _)) { }
+            _injectedKeysPressedThisFrame.Clear();
 
             while (_injectedButtonQueue.TryDequeue(out var injected))
             {
@@ -592,6 +610,7 @@ namespace DTXMania.Game.Lib.Input
                         // Record every press event so InputManagerCompat can fire one command per inject,
                         // regardless of how many frames the key stays held.
                         _injectedPressEvents.Enqueue(keyCode);
+                        _injectedKeysPressedThisFrame.Add(keyCode);
                     }
                     else
                     {

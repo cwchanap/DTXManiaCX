@@ -212,6 +212,120 @@ public class ConfigStageLogicTests
     }
 
     [Fact]
+    public void SongFoldersPanel_InjectedSubFrameTaps_ShouldMoveCursorThroughStageUpdate()
+    {
+        var (stage, configManager, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            var panel = OpenSongFoldersPanel(stage, configManager);
+
+            // Each tap's press and release drain in one input update, as on a slow frame.
+            TapInjectedKey(stage, inputManager, Keys.Down);
+            Assert.Equal(1, panel.SelectedRowIndex);
+
+            // Down was already in the last frame's merged state; the new tap must still edge.
+            TapInjectedKey(stage, inputManager, Keys.Down);
+            Assert.Equal(2, panel.SelectedRowIndex);
+
+            TapInjectedKey(stage, inputManager, Keys.Up);
+            Assert.Equal(1, panel.SelectedRowIndex);
+        }
+    }
+
+    [Fact]
+    public void SongFoldersPanel_InjectedKeyHeldAcrossFrames_ShouldMoveCursorOnce()
+    {
+        var (stage, configManager, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            var panel = OpenSongFoldersPanel(stage, configManager);
+
+            Assert.True(inputManager.ModularInputManager.InjectButton("Key.Down", isPressed: true));
+            for (var frame = 0; frame < 3; frame++)
+                RunInputAndStageFrame(stage, inputManager);
+            Assert.True(inputManager.ModularInputManager.InjectButton("Key.Down", isPressed: false));
+            RunInputAndStageFrame(stage, inputManager);
+
+            Assert.Equal(1, panel.SelectedRowIndex);
+        }
+    }
+
+    [Fact]
+    public void SongFoldersPanel_InjectedEnterOnCancelRow_ShouldCloseOverlay()
+    {
+        var (stage, configManager, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            var panel = OpenSongFoldersPanel(stage, configManager);
+
+            TapInjectedKey(stage, inputManager, Keys.Up);
+            Assert.Equal(panel.TotalRowCount - 1, panel.SelectedRowIndex);
+
+            TapInjectedKey(stage, inputManager, Keys.Enter);
+
+            Assert.False(panel.IsActive);
+            Assert.Null(ReflectionHelpers.GetPrivateField<IConfigOverlayPanel>(stage, "_activePanel"));
+            Assert.Equal(["/tmp/custom dtx", "/tmp/community charts"], configManager.Config.SongRoots);
+        }
+    }
+
+    [Fact]
+    public void SongFoldersPanel_InjectedEscape_ShouldCloseOverlayWithoutLeavingConfig()
+    {
+        var (stage, configManager, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            var panel = OpenSongFoldersPanel(stage, configManager);
+
+            Assert.True(inputManager.ModularInputManager.InjectButton("Key.Escape", isPressed: true));
+            RunInputAndStageFrame(stage, inputManager);
+
+            Assert.False(panel.IsActive);
+            Assert.Null(ReflectionHelpers.GetPrivateField<IConfigOverlayPanel>(stage, "_activePanel"));
+
+            // Later frames run stage input again; the still-held Escape the panel consumed must not
+            // also back the stage out of the item list.
+            RunInputAndStageFrame(stage, inputManager);
+            Assert.True(inputManager.ModularInputManager.InjectButton("Key.Escape", isPressed: false));
+            RunInputAndStageFrame(stage, inputManager);
+            Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_focusOnMenu"));
+        }
+    }
+
+    [Fact]
+    public void SystemKeyAssignPanel_InjectedSubFrameTaps_ShouldNavigateThroughStageUpdate()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            var panel = OpenSystemKeyAssignPanel(stage);
+
+            TapInjectedKey(stage, inputManager, Keys.Down);
+            TapInjectedKey(stage, inputManager, Keys.Down);
+
+            Assert.Equal(2, ReflectionHelpers.GetPrivateField<int>(panel, "_selectedIndex"));
+        }
+    }
+
+    [Fact]
+    public void SystemKeyAssignPanel_InjectedKeyWhileAwaitingCapture_ShouldBindIt()
+    {
+        var (stage, _, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            var panel = OpenSystemKeyAssignPanel(stage);
+
+            // Row 0 is MoveUp; Enter starts capture and the next fresh key is bound to it.
+            TapInjectedKey(stage, inputManager, Keys.Enter);
+            TapInjectedKey(stage, inputManager, Keys.W);
+
+            var mapping = panel.GetWorkingMappingSnapshot();
+            Assert.Equal(InputCommandType.MoveUp, mapping[Keys.W]);
+            Assert.DoesNotContain(Keys.Enter, mapping.Where(kvp => kvp.Value == InputCommandType.MoveUp).Select(kvp => kvp.Key));
+        }
+    }
+
+    [Fact]
     public void MoveRightPressedOnResolution_ShouldMutateConfigViaSetter()
     {
         var (stage, configManager, inputManager) = CreateStage();
@@ -2735,6 +2849,51 @@ public class ConfigStageLogicTests
     {
         ReflectionHelpers.SetPrivateField(stage, "_currentKeyboardState", current);
         ReflectionHelpers.SetPrivateField(stage, "_previousKeyboardState", previous);
+    }
+
+    private static SongFolderPanel OpenSongFoldersPanel(ConfigStage stage, ConfigManager configManager)
+    {
+        configManager.Config.SongRoots.Clear();
+        configManager.Config.SongRoots.Add("/tmp/custom dtx");
+        configManager.Config.SongRoots.Add("/tmp/community charts");
+        InitializeStageMenu(stage, includePanels: true);
+        SelectItemForEditing(stage, "Song Folders");
+        SetKeyboardStates(stage, new KeyboardState(Keys.Enter), new KeyboardState());
+        ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+        SetKeyboardStates(stage, new KeyboardState(), new KeyboardState());
+
+        var panel = ReflectionHelpers.GetPrivateField<SongFolderPanel>(stage, "_songFolderPanel");
+        Assert.NotNull(panel);
+        Assert.Same(panel, ReflectionHelpers.GetPrivateField<IConfigOverlayPanel>(stage, "_activePanel"));
+        Assert.Equal(0, panel!.SelectedRowIndex);
+        return panel;
+    }
+
+    private static SystemKeyAssignPanel OpenSystemKeyAssignPanel(ConfigStage stage)
+    {
+        InitializeStageMenu(stage, includePanels: true);
+        var panel = ReflectionHelpers.GetPrivateField<SystemKeyAssignPanel>(stage, "_systemPanel");
+        Assert.NotNull(panel);
+        ReflectionHelpers.InvokePrivateMethod(stage, "OpenPanel", panel);
+        SetKeyboardStates(stage, new KeyboardState(), new KeyboardState());
+        return panel!;
+    }
+
+    /// <summary>
+    /// Injects a press and release through the GameApi path (ModularInputManager.InjectButton),
+    /// then runs one input update and one stage update, so both edges drain in the same frame.
+    /// </summary>
+    private static void TapInjectedKey(ConfigStage stage, InputManagerCompat inputManager, Keys key)
+    {
+        Assert.True(inputManager.ModularInputManager.InjectButton($"Key.{key}", isPressed: true));
+        Assert.True(inputManager.ModularInputManager.InjectButton($"Key.{key}", isPressed: false));
+        RunInputAndStageFrame(stage, inputManager);
+    }
+
+    private static void RunInputAndStageFrame(ConfigStage stage, InputManagerCompat inputManager)
+    {
+        inputManager.Update(0.016);
+        ReflectionHelpers.InvokePrivateMethod(stage, "OnUpdate", 0.016);
     }
 
     private sealed class ForcedCommandInputManager : InputManagerCompat
