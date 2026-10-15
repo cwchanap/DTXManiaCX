@@ -41,9 +41,11 @@ public class NoteRendererLogicTests
     }
 
     [Theory]
-    [InlineData(50, 6276.923077)]
-    [InlineData(100, 3138.461538)]
-    [InlineData(400, 784.615385)]
+    // (JudgementY + half a chip) / px-per-ms: a centred chip is still half-visible
+    // until its centre is 32px above the top edge.
+    [InlineData(50, 6634.965035)]
+    [InlineData(100, 3317.482517)]
+    [InlineData(400, 829.370629)]
     public void SetScrollSpeed_ShouldDeriveLookAheadFromNxVelocity(
         int scrollSpeedSetting,
         double expectedLookAheadMs)

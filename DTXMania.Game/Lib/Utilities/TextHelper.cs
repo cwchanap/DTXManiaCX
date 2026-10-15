@@ -143,7 +143,7 @@ namespace DTXMania.Game.Lib.Utilities
             // The last segment alone is too wide: keep the longest suffix of it that fits.
             var lastSegment = segments.Length > 0 ? segments[^1] : path;
             int[] elementStarts = StringInfo.ParseCombiningCharacters(lastSegment);
-            int left = 1;
+            int left = 0;
             int right = elementStarts.Length;
             var suffixFit = string.Empty;
             while (left <= right)

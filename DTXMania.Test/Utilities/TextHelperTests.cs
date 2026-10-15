@@ -203,6 +203,19 @@ namespace DTXMania.Test.Utilities
             Assert.Equal("...erName", result);
         }
 
+        [Fact]
+        public void TruncatePathToWidth_WhenOnlyTheWholeLastSegmentFits_ShouldKeepItWhole()
+        {
+            var font = CreateFixedWidthFont().Object;
+
+            // Neither "<root>.../a" nor "<root>.../b" fits in 32px, but "...a" / "...b" do.
+            var first = TextHelper.TruncatePathToWidth(System.IO.Path.Combine(PathRoot, "shared123", "a"), 32f, font);
+            var second = TextHelper.TruncatePathToWidth(System.IO.Path.Combine(PathRoot, "shared123", "b"), 32f, font);
+
+            Assert.Equal("...a", first);
+            Assert.Equal("...b", second);
+        }
+
         private static string PathRoot => System.IO.Path.GetPathRoot(System.IO.Path.GetTempPath())!;
 
         private static string Sep => System.IO.Path.DirectorySeparatorChar.ToString();
