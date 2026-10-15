@@ -928,16 +928,47 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
     }
 
     [Fact]
-    public void GetSongRootDisplayName_WhenRootsShareAFolderName_ShouldUseFullPath()
+    public void DisambiguateSongRootTitles_WhenTitlesCollide_ShouldUseFullPath()
     {
         var first = Path.Combine(_testRoot, "DriveA", "Songs");
-        var second = Path.Combine(_testRoot, "DriveB", "Songs");
+        var second = Path.Combine(_testRoot, "DriveB", "songs");
         var unique = Path.Combine(_testRoot, "Other");
-        var roots = new[] { first, second, unique };
 
-        Assert.Equal(first, SongManager.GetSongRootDisplayName(first, roots));
-        Assert.Equal(second, SongManager.GetSongRootDisplayName(second, roots));
-        Assert.Equal("Other", SongManager.GetSongRootDisplayName(unique, roots));
+        var titles = SongManager.DisambiguateSongRootTitles(
+            new[] { first, second, unique },
+            new[] { "Songs", "songs", "Other" });
+
+        Assert.Equal(new[] { first, second, "Other" }, titles);
+    }
+
+    [Fact]
+    public async Task EnumerateAndRebuild_WhenRootsShareABoxDefTitle_ShouldShowFullPaths()
+    {
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        var secondRoot = Path.Combine(_testRoot, "MoreSongs");
+        Directory.CreateDirectory(secondRoot);
+        await File.WriteAllTextAsync(Path.Combine(_songsRoot, "box.def"), "#TITLE: Favorites");
+        await File.WriteAllTextAsync(Path.Combine(secondRoot, "box.def"), "#TITLE: Favorites");
+        WriteChart("Songs/A/basic.dtx", "First Song", 20);
+        WriteChart("MoreSongs/B/basic.dtx", "Second Song", 30);
+        var roots = new[] { _songsRoot, secondRoot };
+
+        await _manager.EnumerateAndImportSongsAsync(roots, progress: null, CancellationToken.None);
+        AssertRootsShowFullPaths();
+
+        // The database rebuild path must disambiguate the same way.
+        await _manager.BuildSongListFromDatabasePublicAsync(roots);
+        AssertRootsShowFullPaths();
+
+        void AssertRootsShowFullPaths()
+        {
+            Assert.Equal(2, _manager.RootSongs.Count);
+            Assert.Equal(SongPathIdentity.Normalize(_songsRoot), _manager.RootSongs[0].Title);
+            Assert.Equal(SongPathIdentity.Normalize(secondRoot), _manager.RootSongs[1].Title);
+            Assert.Equal(
+                SongPathIdentity.Normalize(_songsRoot) + " > First Song",
+                Assert.Single(_manager.RootSongs[0].Children).BreadcrumbPath);
+        }
     }
 
     [Fact]
