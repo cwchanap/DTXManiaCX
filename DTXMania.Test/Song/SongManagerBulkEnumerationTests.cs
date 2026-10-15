@@ -851,6 +851,61 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
     }
 
     [Fact]
+    public async Task EnumerateAndRebuild_WithMultipleRoots_ShouldGroupEachRootIntoItsOwnBox()
+    {
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        var secondRoot = Path.Combine(_testRoot, "MoreSongs");
+        var emptyRoot = Path.Combine(_testRoot, "EmptySongs");
+        Directory.CreateDirectory(secondRoot);
+        Directory.CreateDirectory(emptyRoot);
+        WriteChart("Songs/A/basic.dtx", "First Song", 20);
+        WriteChart("MoreSongs/DTXFiles.Pack/B/basic.dtx", "Second Song", 30);
+        var roots = new[] { _songsRoot, secondRoot, emptyRoot };
+
+        await _manager.EnumerateAndImportSongsAsync(roots, progress: null, CancellationToken.None);
+        AssertGroupedByRoot();
+
+        // The database rebuild path must produce the same per-root grouping.
+        await _manager.BuildSongListFromDatabasePublicAsync(roots);
+        AssertGroupedByRoot();
+
+        void AssertGroupedByRoot()
+        {
+            Assert.Equal(2, _manager.RootSongs.Count);
+
+            var firstBox = _manager.RootSongs[0];
+            Assert.Equal(NodeType.Box, firstBox.Type);
+            Assert.Equal("Songs", firstBox.Title);
+            var firstSong = Assert.Single(firstBox.Children);
+            Assert.Equal("First Song", firstSong.Title);
+            Assert.Same(firstBox, firstSong.Parent);
+            Assert.Equal("Songs > First Song", firstSong.BreadcrumbPath);
+
+            var secondBox = _manager.RootSongs[1];
+            Assert.Equal(NodeType.Box, secondBox.Type);
+            Assert.Equal("MoreSongs", secondBox.Title);
+            var pack = Assert.Single(secondBox.Children);
+            Assert.Equal(NodeType.Box, pack.Type);
+            var secondSong = Assert.Single(pack.Children);
+            Assert.Equal("Second Song", secondSong.Title);
+            Assert.Equal("MoreSongs > DTXFiles.Pack > Second Song", secondSong.BreadcrumbPath);
+        }
+    }
+
+    [Fact]
+    public void GetSongRootDisplayName_WhenRootsShareAFolderName_ShouldUseFullPath()
+    {
+        var first = Path.Combine(_testRoot, "DriveA", "Songs");
+        var second = Path.Combine(_testRoot, "DriveB", "Songs");
+        var unique = Path.Combine(_testRoot, "Other");
+        var roots = new[] { first, second, unique };
+
+        Assert.Equal(first, SongManager.GetSongRootDisplayName(first, roots));
+        Assert.Equal(second, SongManager.GetSongRootDisplayName(second, roots));
+        Assert.Equal("Other", SongManager.GetSongRootDisplayName(unique, roots));
+    }
+
+    [Fact]
     public async Task BuildHierarchyFromDatabaseOnceAsync_ShouldGroupOnlyBySongId()
     {
         await _manager.InitializeDatabaseServiceAsync(_databasePath);

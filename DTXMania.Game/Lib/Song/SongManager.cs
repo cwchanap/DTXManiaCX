@@ -723,15 +723,24 @@ namespace DTXMania.Game.Lib.Song
             CancellationToken cancellationToken)
         {
             var builder = CreateBatchBuilder(searchPaths);
+            var groupByRoot = builder.ActiveRoots.Count > 1;
             foreach (var root in builder.ActiveRoots)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                var rootBox = groupByRoot
+                    ? await CreateSongRootBoxNodeAsync(
+                        root,
+                        builder.ActiveRoots,
+                        cancellationToken).ConfigureAwait(false)
+                    : null;
                 await EnumerateDirectoryIntoBatchAsync(
                     root,
-                    parent: null,
+                    rootBox,
                     builder,
                     progress,
                     cancellationToken).ConfigureAwait(false);
+                if (rootBox != null && rootBox.Children.Count > 0)
+                    AddNodeToBatch(builder, parent: null, rootBox);
             }
 
             return builder.Complete();
@@ -1763,6 +1772,7 @@ namespace DTXMania.Game.Lib.Song
                 }
 
                 var activeChartCount = 0;
+                var groupByRoot = availableRoots.Length > 1;
 
                 foreach (var normalizedRoot in availableRoots)
                 {
@@ -1783,7 +1793,22 @@ namespace DTXMania.Game.Lib.Song
 
                     // Build the folder hierarchy structure from file paths
                     var pathNodes = await BuildHierarchyFromCharts(normalizedRoot, relevantCharts);
-                    newRootNodes.AddRange(pathNodes);
+                    if (!groupByRoot)
+                    {
+                        newRootNodes.AddRange(pathNodes);
+                        continue;
+                    }
+
+                    if (pathNodes.Count == 0)
+                        continue;
+
+                    var rootBox = await CreateSongRootBoxNodeAsync(
+                        normalizedRoot,
+                        availableRoots,
+                        CancellationToken.None).ConfigureAwait(false);
+                    foreach (var node in pathNodes)
+                        AttachSubtree(rootBox, node);
+                    newRootNodes.Add(rootBox);
                 }
 
                 PublishDatabaseHierarchy(
@@ -2722,6 +2747,65 @@ namespace DTXMania.Game.Lib.Song
             }
 
             return boxNode;
+        }
+
+        /// <summary>
+        /// Creates the top-level BOX that holds one configured song root when more than
+        /// one root is active, so each folder browses as its own entry instead of every
+        /// root's songs being merged into a single root page. A box.def in the root
+        /// supplies title/colours like any other BOX; otherwise the folder name is used,
+        /// or the full path when two roots share a folder name.
+        /// </summary>
+        private async Task<SongListNode> CreateSongRootBoxNodeAsync(
+            string root,
+            IReadOnlyList<string> activeRoots,
+            CancellationToken cancellationToken)
+        {
+            var boxDefPath = Path.Combine(root, "box.def");
+            var boxDefinition = File.Exists(boxDefPath)
+                ? await ParseBoxDefinitionAsync(boxDefPath, cancellationToken).ConfigureAwait(false)
+                : null;
+            var boxNode = CreateBoxNodeFromDirectory(new DirectoryInfo(root), parent: null, boxDefinition);
+            if (string.IsNullOrWhiteSpace(boxDefinition?.Title))
+            {
+                boxNode.Title = GetSongRootDisplayName(root, activeRoots);
+                boxNode.BreadcrumbPath = boxNode.Title;
+            }
+
+            return boxNode;
+        }
+
+        internal static string GetSongRootDisplayName(string root, IReadOnlyList<string> activeRoots)
+        {
+            var folderName = GetSongRootFolderName(root);
+            var sharesFolderName = activeRoots.Count(other =>
+                string.Equals(GetSongRootFolderName(other), folderName, StringComparison.OrdinalIgnoreCase)) > 1;
+            return sharesFolderName ? root : folderName;
+        }
+
+        private static string GetSongRootFolderName(string root)
+        {
+            var folderName = Path.GetFileName(Path.TrimEndingDirectorySeparator(root));
+            return string.IsNullOrEmpty(folderName) ? root : folderName;
+        }
+
+        /// <summary>
+        /// Re-parents an already-built subtree and refreshes every descendant breadcrumb,
+        /// since <see cref="SongListNode.AddChild"/> only updates the direct child.
+        /// </summary>
+        private static void AttachSubtree(SongListNode parent, SongListNode node)
+        {
+            parent.AddChild(node);
+            RefreshDescendantBreadcrumbs(node);
+        }
+
+        private static void RefreshDescendantBreadcrumbs(SongListNode node)
+        {
+            foreach (var child in node.Children)
+            {
+                child.BreadcrumbPath = $"{node.BreadcrumbPath} > {child.Title}";
+                RefreshDescendantBreadcrumbs(child);
+            }
         }
 
         private bool TryParseColor(string colorValue, out System.Drawing.Color color)
