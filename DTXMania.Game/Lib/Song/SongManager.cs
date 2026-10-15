@@ -723,15 +723,16 @@ namespace DTXMania.Game.Lib.Song
             CancellationToken cancellationToken)
         {
             var builder = CreateBatchBuilder(searchPaths);
-            var groupByRoot = builder.ActiveRoots.Count > 1;
+            var rootHeaders = builder.ActiveRoots.Count > 1
+                ? await ResolveSongRootHeadersAsync(
+                    builder.ActiveRoots,
+                    cancellationToken).ConfigureAwait(false)
+                : null;
             foreach (var root in builder.ActiveRoots)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var rootBox = groupByRoot
-                    ? await CreateSongRootBoxNodeAsync(
-                        root,
-                        builder.ActiveRoots,
-                        cancellationToken).ConfigureAwait(false)
+                var rootBox = rootHeaders != null
+                    ? CreateSongRootBoxNode(root, rootHeaders[root])
                     : null;
                 await EnumerateDirectoryIntoBatchAsync(
                     root,
@@ -1779,7 +1780,11 @@ namespace DTXMania.Game.Lib.Song
                 }
 
                 var activeChartCount = 0;
-                var groupByRoot = availableRoots.Length > 1;
+                var rootHeaders = availableRoots.Length > 1
+                    ? await ResolveSongRootHeadersAsync(
+                        availableRoots,
+                        CancellationToken.None).ConfigureAwait(false)
+                    : null;
 
                 foreach (var normalizedRoot in availableRoots)
                 {
@@ -1800,7 +1805,7 @@ namespace DTXMania.Game.Lib.Song
 
                     // Build the folder hierarchy structure from file paths
                     var pathNodes = await BuildHierarchyFromCharts(normalizedRoot, relevantCharts);
-                    if (!groupByRoot)
+                    if (rootHeaders == null)
                     {
                         newRootNodes.AddRange(pathNodes);
                         continue;
@@ -1809,10 +1814,7 @@ namespace DTXMania.Game.Lib.Song
                     if (pathNodes.Count == 0)
                         continue;
 
-                    var rootBox = await CreateSongRootBoxNodeAsync(
-                        normalizedRoot,
-                        availableRoots,
-                        CancellationToken.None).ConfigureAwait(false);
+                    var rootBox = CreateSongRootBoxNode(normalizedRoot, rootHeaders[normalizedRoot]);
                     foreach (var node in pathNodes)
                         AttachSubtree(rootBox, node);
                     newRootNodes.Add(rootBox);
@@ -2757,38 +2759,72 @@ namespace DTXMania.Game.Lib.Song
         }
 
         /// <summary>
+        /// Reads each active root's box.def once and settles the title its top-level BOX
+        /// shows: the box.def #TITLE when set, otherwise the folder name. Titles that would
+        /// collide fall back to the root's full path so every root stays distinguishable.
+        /// </summary>
+        private async Task<IReadOnlyDictionary<string, (BoxDefinition? Definition, string Title)>>
+            ResolveSongRootHeadersAsync(
+                IReadOnlyList<string> activeRoots,
+                CancellationToken cancellationToken)
+        {
+            var definitions = new BoxDefinition?[activeRoots.Count];
+            var titles = new string[activeRoots.Count];
+            for (var index = 0; index < activeRoots.Count; index++)
+            {
+                var boxDefPath = Path.Combine(activeRoots[index], "box.def");
+                definitions[index] = File.Exists(boxDefPath)
+                    ? await ParseBoxDefinitionAsync(boxDefPath, cancellationToken).ConfigureAwait(false)
+                    : null;
+                titles[index] = string.IsNullOrWhiteSpace(definitions[index]?.Title)
+                    ? GetSongRootFolderName(activeRoots[index])
+                    : definitions[index]!.Title!;
+            }
+
+            var displayTitles = DisambiguateSongRootTitles(activeRoots, titles);
+            var headers = new Dictionary<string, (BoxDefinition?, string)>(StringComparer.Ordinal);
+            for (var index = 0; index < activeRoots.Count; index++)
+                headers[activeRoots[index]] = (definitions[index], displayTitles[index]);
+
+            return headers;
+        }
+
+        /// <summary>
         /// Creates the top-level BOX that holds one configured song root when more than
         /// one root is active, so each folder browses as its own entry instead of every
         /// root's songs being merged into a single root page. A box.def in the root
-        /// supplies title/colours like any other BOX; otherwise the folder name is used,
-        /// or the full path when two roots share a folder name.
+        /// supplies colours like any other BOX; the title comes from
+        /// <see cref="ResolveSongRootHeadersAsync"/>.
         /// </summary>
-        private async Task<SongListNode> CreateSongRootBoxNodeAsync(
+        private SongListNode CreateSongRootBoxNode(
             string root,
-            IReadOnlyList<string> activeRoots,
-            CancellationToken cancellationToken)
+            (BoxDefinition? Definition, string Title) header)
         {
-            var boxDefPath = Path.Combine(root, "box.def");
-            var boxDefinition = File.Exists(boxDefPath)
-                ? await ParseBoxDefinitionAsync(boxDefPath, cancellationToken).ConfigureAwait(false)
-                : null;
-            var boxNode = CreateBoxNodeFromDirectory(new DirectoryInfo(root), parent: null, boxDefinition);
+            var boxNode = CreateBoxNodeFromDirectory(new DirectoryInfo(root), parent: null, header.Definition);
             boxNode.IsSongRoot = true;
-            if (string.IsNullOrWhiteSpace(boxDefinition?.Title))
-            {
-                boxNode.Title = GetSongRootDisplayName(root, activeRoots);
-                boxNode.BreadcrumbPath = boxNode.Title;
-            }
-
+            boxNode.Title = header.Title;
+            boxNode.BreadcrumbPath = header.Title;
             return boxNode;
         }
 
-        internal static string GetSongRootDisplayName(string root, IReadOnlyList<string> activeRoots)
+        /// <summary>
+        /// Returns <paramref name="titles"/> with every title that more than one root
+        /// would show (case-insensitively) replaced by that root's full path.
+        /// </summary>
+        internal static IReadOnlyList<string> DisambiguateSongRootTitles(
+            IReadOnlyList<string> roots,
+            IReadOnlyList<string> titles)
         {
-            var folderName = GetSongRootFolderName(root);
-            var sharesFolderName = activeRoots.Count(other =>
-                string.Equals(GetSongRootFolderName(other), folderName, StringComparison.OrdinalIgnoreCase)) > 1;
-            return sharesFolderName ? root : folderName;
+            var result = new string[roots.Count];
+            for (var index = 0; index < roots.Count; index++)
+            {
+                var title = titles[index];
+                var collides = titles.Count(other =>
+                    string.Equals(other, title, StringComparison.OrdinalIgnoreCase)) > 1;
+                result[index] = collides ? roots[index] : title;
+            }
+
+            return result;
         }
 
         private static string GetSongRootFolderName(string root)
