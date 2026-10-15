@@ -176,8 +176,8 @@ public sealed class SongFolderPanelAdditionalTests
         var panel = CreatePanel(new[] { first.Path, second.Path });
         panel.Activate();
 
-        // Select the first root (index 0) and trigger Move Up (action offset 2).
-        ActivateActionFromCurrent(panel, pressesToAction: 2);
+        // The first root (index 0) is selected by default; Move Up is row 2 + 2.
+        ActivateActionFromCurrent(panel, pressesToAction: 4);
 
         Assert.Equal(new[] { first.Path, second.Path }, panel.DraftRoots);
         Assert.True(panel.IsActive);
@@ -194,6 +194,7 @@ public sealed class SongFolderPanelAdditionalTests
         // Select the second root (index 1), then navigate to Move Down (action
         // index 3 -> row index 2 + 3 = 5, so 4 Down presses from index 1).
         Press(panel, Keys.Down);
+        Press(panel, Keys.Enter);
         ActivateActionFromCurrent(panel, pressesToAction: 4);
 
         Assert.Equal(new[] { first.Path, second.Path }, panel.DraftRoots);

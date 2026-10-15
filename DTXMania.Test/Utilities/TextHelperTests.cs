@@ -147,5 +147,72 @@ namespace DTXMania.Test.Utilities
 
             Assert.Equal("...", result);
         }
+
+        [Fact]
+        public void TruncatePathToWidth_WhenPathIsNullOrFontMissing_ShouldReturnInputUnchanged()
+        {
+            Assert.Null(TextHelper.TruncatePathToWidth(null!, 10f, new Mock<IFont>().Object));
+            Assert.Equal(string.Empty, TextHelper.TruncatePathToWidth(string.Empty, 10f, new Mock<IFont>().Object));
+            Assert.Equal("C:\\Songs", TextHelper.TruncatePathToWidth("C:\\Songs", 1f, null!));
+        }
+
+        [Fact]
+        public void TruncatePathToWidth_WhenPathFits_ShouldReturnPathUnchanged()
+        {
+            var path = System.IO.Path.Combine(PathRoot, "Songs");
+
+            Assert.Equal(path, TextHelper.TruncatePathToWidth(path, 1000f, CreateFixedWidthFont().Object));
+        }
+
+        [Fact]
+        public void TruncatePathToWidth_WhenPathIsTooWide_ShouldKeepRootAndTrailingSegments()
+        {
+            var path = System.IO.Path.Combine(PathRoot, "Users", "player", "AppData", "Local", "Games", "SongsA");
+            var expected = PathRoot + "..." + Sep + "Games" + Sep + "SongsA";
+            // Room for the expected label but not for one more segment ("Local" + separator).
+            var maxWidth = (expected.Length * 8f) + 4f;
+
+            var result = TextHelper.TruncatePathToWidth(path, maxWidth, CreateFixedWidthFont().Object);
+
+            Assert.Equal(expected, result);
+        }
+
+        [Fact]
+        public void TruncatePathToWidth_WhenPathsShareALongPrefix_ShouldKeepThemDistinguishable()
+        {
+            var shared = System.IO.Path.Combine(PathRoot, "Users", "player", "AppData", "Local", "Temp", "run");
+            var font = CreateFixedWidthFont().Object;
+
+            var first = TextHelper.TruncatePathToWidth(System.IO.Path.Combine(shared, "SongsA"), 200f, font);
+            var second = TextHelper.TruncatePathToWidth(System.IO.Path.Combine(shared, "SongsB"), 200f, font);
+
+            Assert.EndsWith(Sep + "SongsA", first, StringComparison.Ordinal);
+            Assert.EndsWith(Sep + "SongsB", second, StringComparison.Ordinal);
+            Assert.True(first.Length * 8f <= 200f);
+            Assert.True(second.Length * 8f <= 200f);
+        }
+
+        [Fact]
+        public void TruncatePathToWidth_WhenLastSegmentAloneIsTooWide_ShouldEllipsizeItsStart()
+        {
+            var path = System.IO.Path.Combine(PathRoot, "dir", "VeryLongFolderName");
+
+            // "..." plus six characters (72px) is the widest suffix that fits.
+            var result = TextHelper.TruncatePathToWidth(path, 75f, CreateFixedWidthFont().Object);
+
+            Assert.Equal("...erName", result);
+        }
+
+        private static string PathRoot => System.IO.Path.GetPathRoot(System.IO.Path.GetTempPath())!;
+
+        private static string Sep => System.IO.Path.DirectorySeparatorChar.ToString();
+
+        private static Mock<IFont> CreateFixedWidthFont()
+        {
+            var font = new Mock<IFont>();
+            font.Setup(f => f.MeasureString(It.IsAny<string>()))
+                .Returns<string>(s => new Vector2(s.Length * 8f, 14f));
+            return font;
+        }
     }
 }

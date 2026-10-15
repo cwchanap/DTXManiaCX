@@ -76,13 +76,120 @@ public sealed class SongFolderPanelTests
         var panel = CreatePanel(new[] { first.Path, second.Path });
         panel.Activate();
 
-        Press(panel, Keys.Down); // select the second root
+        Press(panel, Keys.Down);
+        Press(panel, Keys.Enter); // select the second root
         ActivateActionFromCurrent(panel, pressesToAction: 3); // Move Up
         Assert.Equal(new[] { second.Path, first.Path }, panel.DraftRoots);
 
         Press(panel, Keys.Down); // Move Down
         Press(panel, Keys.Enter);
         Assert.Equal(new[] { first.Path, second.Path }, panel.DraftRoots);
+    }
+
+    [Fact]
+    public void Remove_WhenMiddleRootSelectedWithEnter_ShouldRemoveThatRootAfterNavigatingPastLaterRoots()
+    {
+        using var first = TemporaryDirectory.Create();
+        using var second = TemporaryDirectory.Create();
+        using var third = TemporaryDirectory.Create();
+        var panel = CreatePanel(new[] { first.Path, second.Path, third.Path });
+        panel.Activate();
+
+        Press(panel, Keys.Down);
+        Press(panel, Keys.Enter); // select the second root
+        // Walking down to Remove crosses the third root; that must not retarget it.
+        ActivateActionFromCurrent(panel, pressesToAction: 3);
+
+        Assert.Equal(new[] { first.Path, third.Path }, panel.DraftRoots);
+        Assert.True(panel.IsActive);
+    }
+
+    [Fact]
+    public void Remove_WhenFirstRootIsDefaultSelection_ShouldRemoveFirstRoot()
+    {
+        using var first = TemporaryDirectory.Create();
+        using var second = TemporaryDirectory.Create();
+        using var third = TemporaryDirectory.Create();
+        var panel = CreatePanel(new[] { first.Path, second.Path, third.Path });
+        panel.Activate();
+
+        ActivateAction(panel, rootCount: 3, actionOffset: 1);
+
+        Assert.Equal(new[] { second.Path, third.Path }, panel.DraftRoots);
+    }
+
+    [Fact]
+    public void Draw_WhenRootsShareALongPrefix_ShouldFitEachRowAndKeepFolderNamesVisible()
+    {
+        var sharedPrefix = Path.Combine(Path.GetTempPath(), new string('p', 90), "nested", "run");
+        var firstRoot = Path.Combine(sharedPrefix, "SongsA");
+        var secondRoot = Path.Combine(sharedPrefix, "SongsB");
+        var panel = CreatePanel(new[] { firstRoot, secondRoot });
+        panel.Activate();
+
+        var font = new Mock<IFont>();
+        font.Setup(value => value.MeasureString(It.IsAny<string>()))
+            .Returns<string>(value => new Vector2(value.Length * 8f, 27f));
+        font.SetupGet(value => value.LineSpacing).Returns(27f);
+        var spriteBatch = CreateUninitializedSpriteBatch();
+
+        try
+        {
+            panel.Draw(spriteBatch, font.Object, boldFont: null, whitePixel: null,
+                virtualWidth: 1280, virtualHeight: 720);
+
+            var labels = font.Invocations
+                .Where(invocation => invocation.Method.Name == nameof(IFont.DrawString))
+                .Select(invocation => (string)invocation.Arguments[1])
+                .ToArray();
+            var firstLabel = Assert.Single(labels, label => label.StartsWith("1. ", StringComparison.Ordinal));
+            var secondLabel = Assert.Single(labels, label => label.StartsWith("2. ", StringComparison.Ordinal));
+
+            // Rows span 720px with a 36px text indent and 16px right inset.
+            Assert.All(new[] { firstLabel, secondLabel }, label => Assert.True(
+                label.Length * 8f <= 688f, $"Root label overflows its row: {label}"));
+            Assert.EndsWith(Path.DirectorySeparatorChar + "SongsA", firstLabel, StringComparison.Ordinal);
+            Assert.EndsWith(Path.DirectorySeparatorChar + "SongsB", secondLabel, StringComparison.Ordinal);
+            Assert.Contains("...", firstLabel, StringComparison.Ordinal);
+        }
+        finally
+        {
+            GC.SuppressFinalize(spriteBatch);
+        }
+    }
+
+    [Fact]
+    public void Draw_ShouldLabelRootTargetedActionsWithTheSelectedRootNumber()
+    {
+        using var first = TemporaryDirectory.Create();
+        using var second = TemporaryDirectory.Create();
+        var panel = CreatePanel(new[] { first.Path, second.Path });
+        panel.Activate();
+        Press(panel, Keys.Down);
+        Press(panel, Keys.Enter); // select the second root
+
+        var font = new Mock<IFont>();
+        font.Setup(value => value.MeasureString(It.IsAny<string>())).Returns(Vector2.One);
+        var spriteBatch = CreateUninitializedSpriteBatch();
+
+        try
+        {
+            panel.Draw(spriteBatch, font.Object, boldFont: null, whitePixel: null,
+                virtualWidth: 1280, virtualHeight: 720);
+
+            var labels = font.Invocations
+                .Where(invocation => invocation.Method.Name == nameof(IFont.DrawString))
+                .Select(invocation => (string)invocation.Arguments[1])
+                .ToArray();
+            Assert.Contains("Remove (#2)", labels);
+            Assert.Contains("Move Up (#2)", labels);
+            Assert.Contains("Move Down (#2)", labels);
+            Assert.Contains("Add Folder", labels);
+        }
+        finally
+        {
+            GC.SuppressFinalize(spriteBatch);
+        }
     }
 
     [Fact]
@@ -97,7 +204,8 @@ public sealed class SongFolderPanelTests
 
         Assert.Contains(firstMissingPath, panel.StatusMessage);
 
-        Press(panel, Keys.Down); // select the second root
+        Press(panel, Keys.Down);
+        Press(panel, Keys.Enter); // select the second root
         ActivateActionFromCurrent(panel, pressesToAction: 3); // Move Up
 
         Assert.Equal(new[] { secondMissingPath, firstMissingPath }, panel.DraftRoots);

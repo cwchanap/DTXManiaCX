@@ -48,6 +48,7 @@ namespace DTXMania.Game.Lib.Stage.Config
         private static readonly Color BoardBorderColor = new(74, 62, 150, 235);
         private static readonly Color RowColor = new(30, 34, 60, 220);
         private static readonly Color SelectionColor = new(120, 92, 30, 190);
+        private static readonly Color TargetRootRowColor = new(54, 50, 92, 230);
         private static readonly Color PrimaryTextColor = new(235, 238, 248);
         private static readonly Color SelectedTextColor = new(255, 238, 120);
         private static readonly Color WarningTextColor = new(255, 196, 96);
@@ -59,6 +60,10 @@ namespace DTXMania.Game.Lib.Stage.Config
         private const int RowPadding = 20;
         private const int RowViewportTopOffset = 74;
         private const int ViewportRowCapacity = 9;
+        private const int TargetRootMarkerWidth = 6;
+        private const int RowTextOffsetX = 36;
+        // Rows span boardX+20 .. boardX+BoardWidth-20; keep a 16px inset on the right.
+        private const int RowTextMaxWidth = BoardWidth - 20 - 16 - RowTextOffsetX;
 
         private IReadOnlyList<string> _configuredRoots;
         private readonly IFolderPickerService _folderPicker;
@@ -165,16 +170,17 @@ namespace DTXMania.Game.Lib.Stage.Config
             if (_pickerCancellation != null)
                 return;
 
+            // Navigation only moves the cursor. The root targeted by Remove/Move is
+            // chosen explicitly with ENTER, because the action rows sit below every
+            // root and walking down to them would otherwise retarget the last root.
             if (IsJustPressed(current, previous, Keys.Up))
             {
                 _selectedIndex = (_selectedIndex - 1 + RowCount) % RowCount;
-                RememberSelectedRoot();
                 EnsureSelectedRowVisible();
             }
             else if (IsJustPressed(current, previous, Keys.Down))
             {
                 _selectedIndex = (_selectedIndex + 1) % RowCount;
-                RememberSelectedRoot();
                 EnsureSelectedRowVisible();
             }
             else if (IsJustPressed(current, previous, Keys.Enter))
@@ -529,12 +535,6 @@ namespace DTXMania.Game.Lib.Stage.Config
             CloseSilently();
         }
 
-        private void RememberSelectedRoot()
-        {
-            if (_selectedIndex < _draftRoots.Count)
-                _selectedRootIndex = _selectedIndex;
-        }
-
         private void EnsureSelectedRowVisible()
         {
             if (_selectedIndex < _firstVisibleRowIndex)
@@ -608,9 +608,22 @@ namespace DTXMania.Game.Lib.Stage.Config
             _ => string.Empty,
         };
 
-        private string GetRowLabel(int rowIndex) => rowIndex < _draftRoots.Count
-            ? _draftRoots[rowIndex]
-            : GetActionLabel(Actions[rowIndex - _draftRoots.Count]);
+        private string GetRowLabel(int rowIndex)
+        {
+            if (rowIndex < _draftRoots.Count)
+                return _draftRoots[rowIndex];
+
+            var action = Actions[rowIndex - _draftRoots.Count];
+            var label = GetActionLabel(action);
+            return IsRootTargetedAction(action) && _draftRoots.Count > 0
+                ? $"{label} (#{TargetRootIndex + 1})"
+                : label;
+        }
+
+        private int TargetRootIndex => Math.Clamp(_selectedRootIndex, 0, Math.Max(0, _draftRoots.Count - 1));
+
+        private static bool IsRootTargetedAction(ActionRow action) =>
+            action is ActionRow.Remove or ActionRow.MoveUp or ActionRow.MoveDown;
 
         private void DrawRow(
             SpriteBatch spriteBatch,
@@ -625,18 +638,40 @@ namespace DTXMania.Game.Lib.Stage.Config
             string label)
         {
             var selected = rowIndex == _selectedIndex;
+            var isTargetRoot = rowIndex < _draftRoots.Count && rowIndex == TargetRootIndex;
             if (whitePixel != null)
             {
                 spriteBatch.Draw(whitePixel,
                     new Rectangle(boardX + 20, y, boardWidth - 40, rowHeight - 4),
-                    selected ? SelectionColor : RowColor);
+                    selected ? SelectionColor : isTargetRoot ? TargetRootRowColor : RowColor);
+                if (isTargetRoot)
+                {
+                    spriteBatch.Draw(whitePixel,
+                        new Rectangle(boardX + 20, y, TargetRootMarkerWidth, rowHeight - 4),
+                        SelectedTextColor);
+                }
             }
 
+            var rowFont = selected ? boldFont ?? font : font;
             var displayLabel = rowIndex < _draftRoots.Count
-                ? $"{rowIndex + 1}. {label}"
+                ? FormatRootLabel(rowFont, rowIndex, label)
                 : label;
-            (selected ? boldFont ?? font : font)?.DrawString(spriteBatch, displayLabel,
-                new Vector2(boardX + 36, y + 8), selected ? SelectedTextColor : PrimaryTextColor);
+            rowFont?.DrawString(spriteBatch, displayLabel,
+                new Vector2(boardX + RowTextOffsetX, y + 8), selected ? SelectedTextColor : PrimaryTextColor);
+        }
+
+        /// <summary>
+        /// Numbered root label shortened to the row width. Long roots usually share a prefix,
+        /// so the path keeps its tail (the folder name) and collapses the leading directories.
+        /// </summary>
+        private static string FormatRootLabel(IFont? font, int rowIndex, string root)
+        {
+            var prefix = $"{rowIndex + 1}. ";
+            if (font == null)
+                return prefix + root;
+
+            var availableWidth = RowTextMaxWidth - font.MeasureString(prefix).X;
+            return prefix + TextHelper.TruncatePathToWidth(root, availableWidth, font);
         }
 
         private static void DrawCenteredText(

@@ -1,4 +1,6 @@
+using System;
 using System.Globalization;
+using System.IO;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTXMania.Game.Lib.Resources;
@@ -96,6 +98,71 @@ namespace DTXMania.Game.Lib.Utilities
             }
 
             return bestFit;
+        }
+
+        /// <summary>
+        /// Shorten a filesystem path to fit within <paramref name="maxWidth"/> while keeping its
+        /// distinguishing tail visible: the root is kept and leading directories collapse into
+        /// "..." (e.g. <c>C:\...\Games\SongsA</c>). When even the last segment alone is too wide,
+        /// its start is ellipsized instead (<c>...ongsA</c>). Returns the original path unchanged
+        /// when it already fits or when the inputs are null/empty.
+        /// </summary>
+        /// <param name="path">Path to shorten.</param>
+        /// <param name="maxWidth">Maximum rendered width in pixels.</param>
+        /// <param name="font">IFont used to measure the text.</param>
+        public static string TruncatePathToWidth(string path, float maxWidth, IFont font)
+        {
+            if (string.IsNullOrEmpty(path) || font == null)
+                return path;
+
+            if (font.MeasureString(path).X <= maxWidth)
+                return path;
+
+            var separators = new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar };
+            var lastSeparatorIndex = path.LastIndexOfAny(separators);
+            var separator = lastSeparatorIndex >= 0 ? path[lastSeparatorIndex] : Path.DirectorySeparatorChar;
+            var root = Path.GetPathRoot(path) ?? string.Empty;
+            var segments = path.Substring(root.Length)
+                .Split(separators, StringSplitOptions.RemoveEmptyEntries);
+
+            string bestFit = null;
+            var tail = string.Empty;
+            for (var index = segments.Length - 1; index >= 0; index--)
+            {
+                tail = tail.Length == 0 ? segments[index] : segments[index] + separator + tail;
+                var candidate = root + "..." + separator + tail;
+                if (font.MeasureString(candidate).X > maxWidth)
+                    break;
+
+                bestFit = candidate;
+            }
+
+            if (bestFit != null)
+                return bestFit;
+
+            // The last segment alone is too wide: keep the longest suffix of it that fits.
+            var lastSegment = segments.Length > 0 ? segments[^1] : path;
+            int[] elementStarts = StringInfo.ParseCombiningCharacters(lastSegment);
+            int left = 1;
+            int right = elementStarts.Length;
+            var suffixFit = string.Empty;
+            while (left <= right)
+            {
+                int dropped = left + (right - left) / 2;
+                int charIndex = dropped < elementStarts.Length ? elementStarts[dropped] : lastSegment.Length;
+                var candidate = "..." + lastSegment.Substring(charIndex);
+                if (font.MeasureString(candidate).X <= maxWidth)
+                {
+                    suffixFit = candidate;
+                    right = dropped - 1;
+                }
+                else
+                {
+                    left = dropped + 1;
+                }
+            }
+
+            return suffixFit;
         }
     }
 }
