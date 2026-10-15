@@ -52,6 +52,24 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void CollectRandomCandidates_WhenDisabled_ShouldLookThroughSongRootBoxesOnly()
+        {
+            var rootSong = CreateScoreNode("Root Song");
+            var nestedSong = CreateScoreNode("Nested Song");
+            var songRoot = CreateBoxNode("SongsA", rootSong, CreateBoxNode("Pack", nestedSong));
+            songRoot.IsSongRoot = true;
+            var otherRootSong = CreateScoreNode("Other Root Song");
+            var otherRoot = CreateBoxNode("SongsB", otherRootSong);
+            otherRoot.IsSongRoot = true;
+
+            var candidates = SongSelectionStage.CollectRandomCandidates(
+                new List<SongListNode> { songRoot, otherRoot },
+                includeSubBoxes: false);
+
+            Assert.Equal(new[] { rootSong, otherRootSong }, candidates);
+        }
+
+        [Fact]
         public void CollectRandomCandidates_WhenEnabled_ShouldIncludeDirectAndDescendantScores()
         {
             var directSong = CreateScoreNode("Direct Song");

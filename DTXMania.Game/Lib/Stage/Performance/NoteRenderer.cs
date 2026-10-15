@@ -169,7 +169,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
             var scrollSpeedMultiplier = scrollSpeedSetting / 100.0;
 
             _scrollPixelsPerMs = PerformanceUILayout.NoteBaseScrollPixelsPerMs * scrollSpeedMultiplier;
-            EffectiveLookAheadMs = JudgementY / _scrollPixelsPerMs;
+            // Chips are centred on their time position, so one is still half-visible
+            // until its centre is half a sprite above the top edge.
+            EffectiveLookAheadMs = (JudgementY + DrumChipsSpriteHeight / 2.0) / _scrollPixelsPerMs;
         }
 
         /// <summary>

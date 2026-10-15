@@ -880,16 +880,51 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
             Assert.Equal("First Song", firstSong.Title);
             Assert.Same(firstBox, firstSong.Parent);
             Assert.Equal("Songs > First Song", firstSong.BreadcrumbPath);
+            Assert.True(firstBox.IsSongRoot);
 
             var secondBox = _manager.RootSongs[1];
             Assert.Equal(NodeType.Box, secondBox.Type);
             Assert.Equal("MoreSongs", secondBox.Title);
+            Assert.True(secondBox.IsSongRoot);
             var pack = Assert.Single(secondBox.Children);
             Assert.Equal(NodeType.Box, pack.Type);
+            Assert.False(pack.IsSongRoot);
             var secondSong = Assert.Single(pack.Children);
             Assert.Equal("Second Song", secondSong.Title);
             Assert.Equal("MoreSongs > DTXFiles.Pack > Second Song", secondSong.BreadcrumbPath);
         }
+    }
+
+    [Fact]
+    public async Task FinalizePendingNodes_WhenEveryChartInARootIsRejected_ShouldDropItsEmptyBoxes()
+    {
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        var secondRoot = Path.Combine(_testRoot, "MoreSongs");
+        Directory.CreateDirectory(secondRoot);
+        WriteChart("Songs/A/basic.dtx", "Kept Song", 20);
+        WriteChart("MoreSongs/DTXFiles.Pack/B/basic.dtx", "Rejected Song", 30);
+
+        var batch = await _manager.BuildEnumerationBatchAsync(
+            new[] { _songsRoot, secondRoot }, null, CancellationToken.None);
+        Assert.Equal(2, batch.RootNodes.Count);
+        var import = await _manager.DatabaseService!.ImportSongsAsync(
+            new SongBulkImportRequest(
+                batch.ActiveRoots,
+                batch.DiscoveredChartPaths,
+                batch.Candidates),
+            progress: null,
+            CancellationToken.None);
+        var rejectedPrefix = SongPathIdentity.Normalize(secondRoot);
+        var keptCharts = import.ChartsByPath
+            .Where(pair => !pair.Key.StartsWith(rejectedPrefix, StringComparison.OrdinalIgnoreCase))
+            .ToDictionary(pair => pair.Key, pair => pair.Value);
+
+        _manager.FinalizePendingNodes(batch, keptCharts);
+
+        // The rejected root's pack box and root box both end up empty and are dropped.
+        var keptBox = Assert.Single(batch.RootNodes);
+        Assert.Equal("Songs", keptBox.Title);
+        Assert.Equal("Kept Song", Assert.Single(keptBox.Children).Title);
     }
 
     [Fact]

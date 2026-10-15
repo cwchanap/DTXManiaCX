@@ -145,6 +145,13 @@ namespace DTXMania.Game.Lib.Song
         public bool IsExpanded { get; set; }
 
         /// <summary>
+        /// True for the top-level BOX that wraps one configured song folder when more
+        /// than one folder is active. Root-page Random looks through these boxes, since
+        /// they stand in for the root page a single folder would have had.
+        /// </summary>
+        public bool IsSongRoot { get; set; }
+
+        /// <summary>
         /// Sort order within parent
         /// </summary>
         public int SortOrder { get; set; }

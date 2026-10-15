@@ -2320,7 +2320,7 @@ namespace DTXMania.Game.Lib.Stage
             {
                 if (node.Type == NodeType.Score)
                     candidates.Add(node);
-                else if (includeSubBoxes && node.Type == NodeType.Box)
+                else if (node.Type == NodeType.Box && (includeSubBoxes || node.IsSongRoot))
                     candidates.AddRange(CollectRandomCandidates(node.Children, includeSubBoxes));
             }
 

@@ -1594,13 +1594,20 @@ namespace DTXMania.Game.Lib.Song
             SongEnumerationBatch batch,
             SongListNode placeholder)
         {
-            if (placeholder.Parent != null)
+            var node = placeholder;
+            while (node.Parent != null)
             {
-                placeholder.Parent.RemoveChild(placeholder);
-                return;
+                var parent = node.Parent;
+                parent.RemoveChild(node);
+                // A BOX whose last chart was rejected would be published empty and
+                // could not be entered, so drop it too and keep walking up.
+                if (parent.Type != NodeType.Box || parent.Children.Count > 0)
+                    return;
+
+                node = parent;
             }
 
-            batch.RootNodes.Remove(placeholder);
+            batch.RootNodes.Remove(node);
         }
 
         internal void PublishEnumeration(SongEnumerationBatch batch)
@@ -2766,6 +2773,7 @@ namespace DTXMania.Game.Lib.Song
                 ? await ParseBoxDefinitionAsync(boxDefPath, cancellationToken).ConfigureAwait(false)
                 : null;
             var boxNode = CreateBoxNodeFromDirectory(new DirectoryInfo(root), parent: null, boxDefinition);
+            boxNode.IsSongRoot = true;
             if (string.IsNullOrWhiteSpace(boxDefinition?.Title))
             {
                 boxNode.Title = GetSongRootDisplayName(root, activeRoots);
