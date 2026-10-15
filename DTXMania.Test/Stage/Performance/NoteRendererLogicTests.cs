@@ -154,6 +154,20 @@ public class NoteRendererLogicTests
     }
 
     [Theory]
+    [InlineData(561.0)]
+    [InlineData(300.4)]
+    [InlineData(12.75)]
+    public void GetCenteredTopY_ForChipSprite_ShouldShareCenterWithMeasureLine(double y)
+    {
+        // NX draws 64px chips at y - 32 and 2px bar lines at y - 1, so both are centred on y.
+        var chipTop = NoteRenderer.GetCenteredTopY(y, 64);
+        var measureLine = PerformanceUILayout.MeasureLine.GetDestinationRect(y);
+
+        Assert.Equal(measureLine.Top + (measureLine.Height / 2.0), chipTop + 32.0);
+        Assert.Equal(Math.Floor(y) - 32, chipTop);
+    }
+
+    [Theory]
     [InlineData(0.0)]
     [InlineData(-0.5)]
     public void MeasureLinePastGraceMs_NonPositiveScroll_ShouldReturnZero(
