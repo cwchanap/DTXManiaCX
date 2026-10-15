@@ -2,6 +2,7 @@ using System;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Input.Midi;
+using Microsoft.Xna.Framework.Input;
 using Xunit;
 
 namespace DTXMania.Test.Input;
@@ -220,5 +221,55 @@ public class ModularInputManagerInjectionTests : IDisposable
         {
             manager.Dispose();
         }
+    }
+
+    [Fact]
+    public void InjectedKeysPressedThisFrame_WhenPressAndReleaseDrainInSameUpdate_ShouldKeepThePress()
+    {
+        Assert.True(_manager.InjectButton("Key.Down", isPressed: true));
+        Assert.True(_manager.InjectButton("Key.Down", isPressed: false));
+
+        _manager.Update(0.016);
+
+        Assert.Contains((int)Keys.Down, _manager.InjectedKeysPressedThisFrame);
+        Assert.DoesNotContain((int)Keys.Down, _manager.InjectedKeysDown);
+    }
+
+    [Fact]
+    public void InjectedKeysPressedThisFrame_WhenKeyStaysHeld_ShouldClearOnNextUpdateWhileKeyStaysDown()
+    {
+        Assert.True(_manager.InjectButton("Key.Enter", isPressed: true));
+        _manager.Update(0.016);
+
+        Assert.Contains((int)Keys.Enter, _manager.InjectedKeysPressedThisFrame);
+        Assert.Contains((int)Keys.Enter, _manager.InjectedKeysDown);
+
+        _manager.Update(0.016);
+
+        Assert.Empty(_manager.InjectedKeysPressedThisFrame);
+        Assert.Contains((int)Keys.Enter, _manager.InjectedKeysDown);
+    }
+
+    [Fact]
+    public void InjectedKeysPressedThisFrame_ShouldNotBeConsumedByCompatPressEventDrain()
+    {
+        Assert.True(_manager.InjectButton("Key.Up", isPressed: true));
+        _manager.Update(0.016);
+
+        Assert.Single(_manager.DrainInjectedPressEvents());
+
+        Assert.Contains((int)Keys.Up, _manager.InjectedKeysPressedThisFrame);
+    }
+
+    [Fact]
+    public void ClearInjectedState_ShouldClearInjectedKeyViews()
+    {
+        Assert.True(_manager.InjectButton("Key.Escape", isPressed: true));
+        _manager.Update(0.016);
+
+        _manager.ClearInjectedState();
+
+        Assert.Empty(_manager.InjectedKeysPressedThisFrame);
+        Assert.Empty(_manager.InjectedKeysDown);
     }
 }
