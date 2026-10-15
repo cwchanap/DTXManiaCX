@@ -277,18 +277,18 @@ namespace DTXMania.Game.Lib.Stage.Performance
             if (noteY > JudgementY + DropGracePeriod)
                 return;
 
-            // Skip notes that are too far above the screen
-            if (noteY < -DefaultNoteSize.Y)
+            // Skip notes whose sprite is entirely above the screen
+            if (noteY < -DrumChipsSpriteHeight / 2.0)
                 return;
 
             // Get lane position and color
             var lanePosition = _lanePositions[note.LaneIndex];
             var noteColor = _laneColors[note.LaneIndex];
 
-            // Create note rectangle
+            // Create note rectangle, vertically centred on noteY
             var noteRect = new Rectangle(
                 (int)lanePosition.X,
-                (int)noteY,
+                GetCenteredTopY(noteY, DefaultNoteSize.Y),
                 (int)DefaultNoteSize.X,
                 (int)DefaultNoteSize.Y
             );
@@ -305,7 +305,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     // Calculate sprite position centered on the lane
                     var spriteWidth = GetSpriteWidthForColumn(spriteColumn);
                     var centeredX = noteRect.X + (DefaultNoteSize.X - spriteWidth) / 2;
-                    var spritePosition = new Vector2(centeredX, noteRect.Y);
+                    var spritePosition = new Vector2(centeredX, GetCenteredTopY(noteY, DrumChipsSpriteHeight));
                     
                     // Get custom source rectangle for variable-width sprites
                     var sourceRect = GetCustomSpriteSourceRectangleForColumn(spriteColumn);
@@ -398,8 +398,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             var yOffset = _scrollPixelsPerMs * timeDifference;
             var noteY = JudgementY - yOffset;
 
-            // Skip notes that have passed the drop grace period or are too far above screen
-            if (noteY > JudgementY + DropGracePeriod || noteY < -DefaultNoteSize.Y)
+            // Skip notes that have passed the drop grace period or are entirely above screen
+            if (noteY > JudgementY + DropGracePeriod || noteY < -DrumChipsSpriteHeight / 2.0)
                 return;
 
             // Only draw overlay if we have drum chips texture with valid, non-disposed texture
@@ -414,9 +414,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             // Calculate sprite position centered on the lane
             var lanePosition = _lanePositions[note.LaneIndex];
             var spriteWidth = GetSpriteWidthForColumn(spriteColumn);
-            var noteRect = new Rectangle((int)lanePosition.X, (int)noteY, (int)DefaultNoteSize.X, (int)DefaultNoteSize.Y);
-            var centeredX = noteRect.X + (DefaultNoteSize.X - spriteWidth) / 2;
-            var spritePosition = new Vector2(centeredX, noteRect.Y);
+            var centeredX = lanePosition.X + (DefaultNoteSize.X - spriteWidth) / 2;
+            var spritePosition = new Vector2(centeredX, GetCenteredTopY(noteY, DrumChipsSpriteHeight));
 
             // Get custom source rectangle for variable-width sprites
             var sourceRect = GetCustomSpriteSourceRectangleForColumn(spriteColumn);
@@ -457,6 +456,17 @@ namespace DTXMania.Game.Lib.Stage.Performance
             var timeDifference = noteTimeMs - currentSongTimeMs;
             var yOffset = _scrollPixelsPerMs * timeDifference;
             return JudgementY - yOffset;
+        }
+
+        /// <summary>
+        /// Top edge for a sprite of <paramref name="height"/> whose vertical centre sits on
+        /// <paramref name="centerY"/>. NX draws drum chips at <c>y - 32</c> so the chip
+        /// (centred in its 64px cell) crosses the judgement line and its measure line on
+        /// its centre; flooring matches <see cref="PerformanceUILayout.MeasureLine"/>.
+        /// </summary>
+        internal static int GetCenteredTopY(double centerY, double height)
+        {
+            return (int)Math.Floor(centerY - (height / 2.0));
         }
 
         /// <summary>
