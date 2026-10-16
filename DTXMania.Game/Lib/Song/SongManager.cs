@@ -2809,20 +2809,35 @@ namespace DTXMania.Game.Lib.Song
 
         /// <summary>
         /// Returns <paramref name="titles"/> with every title that more than one root
-        /// would show (case-insensitively) replaced by that root's full path.
+        /// would show (case-insensitively) replaced by that root's full path. Repeats
+        /// until the shown titles are unique, since a fallback path can itself match
+        /// another root's box.def title; roots are distinct, so this always settles.
         /// </summary>
         internal static IReadOnlyList<string> DisambiguateSongRootTitles(
             IReadOnlyList<string> roots,
             IReadOnlyList<string> titles)
         {
-            var result = new string[roots.Count];
-            for (var index = 0; index < roots.Count; index++)
+            var result = titles.ToArray();
+            bool changed;
+            do
             {
-                var title = titles[index];
-                var collides = titles.Count(other =>
-                    string.Equals(other, title, StringComparison.OrdinalIgnoreCase)) > 1;
-                result[index] = collides ? roots[index] : title;
+                changed = false;
+                var collisions = result
+                    .GroupBy(title => title, StringComparer.OrdinalIgnoreCase)
+                    .Where(group => group.Count() > 1)
+                    .Select(group => group.Key)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                for (var index = 0; index < result.Length; index++)
+                {
+                    if (!collisions.Contains(result[index]) ||
+                        string.Equals(result[index], roots[index], StringComparison.Ordinal))
+                        continue;
+
+                    result[index] = roots[index];
+                    changed = true;
+                }
             }
+            while (changed);
 
             return result;
         }
