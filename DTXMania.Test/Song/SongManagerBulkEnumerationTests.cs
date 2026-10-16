@@ -942,6 +942,21 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
     }
 
     [Fact]
+    public void DisambiguateSongRootTitles_WhenAFallbackPathMatchesAnotherTitle_ShouldKeepTitlesUnique()
+    {
+        var first = Path.Combine(_testRoot, "DriveA", "Songs");
+        var second = Path.Combine(_testRoot, "DriveB", "Songs");
+        var third = Path.Combine(_testRoot, "Custom");
+
+        // The third root's box.def #TITLE is the first root's full path.
+        var titles = SongManager.DisambiguateSongRootTitles(
+            new[] { first, second, third },
+            new[] { "Songs", "Songs", first });
+
+        Assert.Equal(new[] { first, second, third }, titles);
+    }
+
+    [Fact]
     public async Task EnumerateAndRebuild_WhenRootsShareABoxDefTitle_ShouldShowFullPaths()
     {
         await _manager.InitializeDatabaseServiceAsync(_databasePath);
