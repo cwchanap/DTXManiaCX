@@ -66,7 +66,8 @@ namespace DTXMania.Test.Song
         [Fact]
         public async Task ParseAsync_WithDrumNotes_ShouldParseAllMappedChannels()
         {
-            // Test all mapped drum channels
+            // Test all mapped drum channels; canonical channel-to-lane contract
+            // (gameplay order: LC, HH, LP, SN, HT, DB, LT, FT, CY, RD)
             var content =
                 "#BPM: 120.0\n" +
                 "#00011: 01000000\n" +  // HH Close (0x11 -> Lane 1)
@@ -74,10 +75,10 @@ namespace DTXMania.Test.Song
                 "#00013: 01000000\n" +  // Bass Drum (0x13 -> Lane 5)
                 "#00014: 01000000\n" +  // High Tom (0x14 -> Lane 4)
                 "#00015: 01000000\n" +  // Low Tom (0x15 -> Lane 6)
-                "#00016: 01000000\n" +  // Ride (0x16 -> Lane 9)
+                "#00016: 01000000\n" +  // Crash (0x16 -> Lane 8)
                 "#00017: 01000000\n" +  // Floor Tom (0x17 -> Lane 7)
                 "#00018: 01000000\n" +  // HH Open (0x18 -> Lane 1)
-                "#00019: 01000000\n" +  // Right Cymbal (0x19 -> Lane 8)
+                "#00019: 01000000\n" +  // Ride (0x19 -> Lane 9)
                 "#0001A: 01000000\n" +  // Left Crash (0x1A -> Lane 0)
                 "#0001B: 01000000\n" +  // Left Pedal (0x1B -> Lane 2)
                 "#0001C: 01000000\n";   // Left Bass Drum (0x1C -> Lane 2)
@@ -85,8 +86,31 @@ namespace DTXMania.Test.Song
 
             var chart = await DTXChartParser.ParseAsync(path);
 
-            Assert.True(chart.Notes.Count > 0);
-            Assert.True(chart.TotalNotes > 0);
+            var expectedLanes = new Dictionary<int, int>
+            {
+                { 0x1A, 0 }, // LC
+                { 0x11, 1 }, // HH Close
+                { 0x18, 1 }, // HH Open (shared lane with 0x11)
+                { 0x1B, 2 }, // LP
+                { 0x1C, 2 }, // Left Bass Drum (shared lane with 0x1B)
+                { 0x12, 3 }, // SN
+                { 0x14, 4 }, // HT
+                { 0x13, 5 }, // DB
+                { 0x15, 6 }, // LT
+                { 0x17, 7 }, // FT
+                { 0x16, 8 }, // CY
+                { 0x19, 9 }, // RD
+            };
+
+            Assert.Equal(expectedLanes.Count, chart.TotalNotes);
+            foreach (var (channel, expectedLane) in expectedLanes)
+            {
+                var notes = chart.Notes.Where(n => n.Channel == channel).ToList();
+                Assert.True(notes.Count == 1,
+                    $"Channel 0x{channel:X2} should resolve to exactly one note, found {notes.Count}");
+                Assert.True(notes[0].LaneIndex == expectedLane,
+                    $"Channel 0x{channel:X2} should map to lane {expectedLane}, got {notes[0].LaneIndex}");
+            }
         }
 
         [Fact]
