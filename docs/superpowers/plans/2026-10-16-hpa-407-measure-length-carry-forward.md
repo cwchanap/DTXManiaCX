@@ -41,7 +41,13 @@
 
 - [ ] **Step 1: Add failing carry-forward coverage**
 
-Add a focused test that sets `CarryMeasureLengthsForward = true`, applies `SetMeasureLength(0, 0.75)`, rebuilds through at least bar 2, and asserts bar 1 still uses `0.75`.
+Add a focused test that sets `CarryMeasureLengthsForward = true`, applies `SetMeasureLength(0, 0.75)`, rebuilds through at least bar 2, and directly asserts:
+
+```csharp
+Assert.Equal(0.75, map.GetMeasureLengthMultiplier(1));
+```
+
+Also assert the corresponding `CalculateTimeMs(...)` result so both the compiled multiplier-anchor contract and elapsed timing are pinned.
 
 Add a second assertion/test with a later explicit multiplier (for example `SetMeasureLength(2, 1.0)`) to prove the carried value stops at the override.
 
@@ -114,6 +120,17 @@ Assert the bar-2 note resolves to `3000 ms` and the bar-2 measure boundary match
 
 Add one theory for `.bms`, `.bme`, `.bml` with the same content and assert the bar-2 note/boundary resolves to `3500 ms`.
 
+Add one focused `.dtx` composition fixture proving a carried multiplier still applies when a later bar contains a mid-bar tempo change:
+
+```text
+#BPM:120
+#00002:0.75
+#00103:0060
+#00211:01
+```
+
+Channel `03` value `60` is hexadecimal 96 BPM at the halfway tick of bar 1. Assert the bar-2 note resolves to `3187.5 ms` (`1500 + 750 + 937.5`), which pins both carry-forward and tempo integration together.
+
 - [ ] **Step 2: Run focused parser timing tests and verify DTX-family cases fail**
 
 Run:
@@ -124,7 +141,7 @@ dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~
 
 If the filter is too narrow for the new test names, run the whole `DTXChartParserTests` class instead.
 
-Expected before parser wiring: DTX-family held-length cases fail; BMS-family reset cases remain green.
+Expected before parser wiring: DTX-family held-length cases, including the carry-plus-tempo composition case, fail; BMS-family reset cases remain green.
 
 - [ ] **Step 3: Configure the timing map from the source extension**
 
