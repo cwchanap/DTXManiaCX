@@ -17,6 +17,7 @@
 - Do not change channel `03`/`08`, note parsing, rendering, audio, judgement, or persistence.
 - `.dtx`, `.gda`, `.g2d` carry the last valid measure multiplier forward.
 - `.bms`, `.bme`, `.bml` reset missing-bar multipliers to `1.0`.
+- Only the BMS-family extensions reset: other suffixes passed directly to `ParseAsync` carry forward. Do not change the library scanner's supported-extension list.
 - Invalid/non-positive/non-finite `02` values keep existing ignored-value behavior.
 
 ## Review Focus
@@ -24,6 +25,7 @@
 - A DTX-family chart with one `02` row must keep that multiplier across multiple missing bars.
 - A later valid `02` in a DTX-family chart must replace the carried value from that bar onward.
 - BMS/BME/BML must not accidentally inherit a prior bar's multiplier.
+- Direct `ParseAsync` calls for any other suffix use the DTX-style carry-forward fallback.
 - Bars before the first DTX-family `02` remain at `1.0`.
 - Existing tempo-change integration must continue composing with the effective measure multiplier.
 
@@ -102,7 +104,7 @@ git commit -m "fix: support persistent DTX measure lengths"
 
 **Interfaces:**
 - Consumes: `ChartTimingMap.CarryMeasureLengthsForward` from Task 1.
-- Produces: parser selection where `.dtx`/`.gda`/`.g2d` set the flag to `true`; `.bms`/`.bme`/`.bml` leave/set it `false`.
+- Produces: parser selection where only `.bms`/`.bme`/`.bml` set the flag to `false`; `.dtx`/`.gda`/`.g2d` and other direct-parser paths set it to `true`.
 
 - [ ] **Step 1: Generalize the timing fixture helper and add failing parser theories**
 
@@ -116,7 +118,7 @@ Add one theory for `.dtx`, `.gda`, `.g2d` using content equivalent to:
 #00211:01
 ```
 
-Assert the bar-2 note resolves to `3000 ms` and the bar-2 measure boundary matches it.
+Assert the bar-2 note resolves to `3000 ms` and the bar-2 measure boundary matches it. Include one direct-parser fixture with an unlisted extension (e.g. `.txt`) asserting the same result; do not add it to `SupportedExtensions`.
 
 Add one theory for `.bms`, `.bme`, `.bml` with the same content and assert the bar-2 note/boundary resolves to `3500 ms`.
 
@@ -131,30 +133,32 @@ Add one focused `.dtx` composition fixture proving a carried multiplier still ap
 
 Channel `03` value `60` is hexadecimal 96 BPM at the halfway tick of bar 1. Assert the bar-2 note resolves to `3187.5 ms` (`1500 + 750 + 937.5`), which pins both carry-forward and tempo integration together.
 
+Name all new parser test methods with `Measure` so the focused filter in Step 2 discovers them.
+
 - [ ] **Step 2: Run focused parser timing tests and verify DTX-family cases fail**
 
 Run:
 
 ```bash
-dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~DTXChartParserTests&Name~Measure"
+dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~DTXChartParserTests&FullyQualifiedName~Measure"
 ```
 
-If the filter is too narrow for the new test names, run the whole `DTXChartParserTests` class instead.
+Verify the filter discovers the new `Measure` cases (a zero-tests result is a failure of this verification step). If test discovery differs by environment, run the whole `DTXChartParserTests` class rather than accepting zero tests.
 
-Expected before parser wiring: DTX-family held-length cases, including the carry-plus-tempo composition case, fail; BMS-family reset cases remain green.
+Expected before parser wiring: DTX-family held-length cases, including the carry-plus-tempo composition and unlisted-extension cases, fail; BMS-family reset cases remain green.
 
 - [ ] **Step 3: Configure the timing map from the source extension**
 
 In `DTXChartParser.ParseAsync`, immediately after each fresh `ParsedChart(filePath)` is created for an encoding attempt, set `chart.TimingMap.CarryMeasureLengthsForward` based on the lower-cased extension.
 
-Use a small private helper or equivalent expression. Keep the classification exact:
+Use the **BMS-family resets; everything else carries** predicate (case-insensitive suffix):
 
-```text
-.dtx .gda .g2d => true
-.bms .bme .bml => false
+```csharp
+chart.TimingMap.CarryMeasureLengthsForward =
+    Path.GetExtension(filePath).ToLowerInvariant() is not (".bms" or ".bme" or ".bml");
 ```
 
-Do not add a new enum or move extension parsing into `ParsedChart`.
+This follows NX's default and handles direct `ParseAsync` calls on unlisted suffixes; it does **not** change the song library's supported extensions. Do not add a new enum or move extension parsing into `ParsedChart`.
 
 - [ ] **Step 4: Run parser and timing-map tests**
 
