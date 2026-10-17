@@ -2,17 +2,17 @@
 
 ## Summary
 
-HPA-405 fixes a narrow semantic mismatch in CX's 10-lane drum mapping. `DTXChartParser` currently places DTX channel `0x16` in RD and `0x19` in CY, but the DTX contract used by DTXWeb is the opposite: `0x16` is crash/CY and `0x19` is ride/RD.
+HPA-405 fixes a narrow semantic mismatch in CX's 10-lane drum mapping. `DTXChartParser` currently places DTX channel `0x16` in RD and `0x19` in CY, while the legacy DTX contract defines `0x16` as Cymbal/crash and `0x19` as RideCymbal.
 
-The renderer already contains the correct channel-specific art geometry: channel `0x16` selects the 74 px crash chip and `0x19` selects the 58 px ride chip. The bug is therefore limited to the parser's channel-to-lane assignment, the lane-keyed overlay fallback, and stale comments/tests that encode the swapped meaning.
+The correction is still a two-entry parser swap, but review found two obsolete secondary mapping paths that would otherwise continue to contradict the parser. This PR should delete those dead paths instead of repairing them. It also removes one vacuous sample-file mapping test and updates two direct-`Note` fixtures that still encode the reversed crash/ride pairing.
 
-This remains one small bug-fix PR and intentionally does not begin Tab Mode implementation.
+This remains one bounded bug-fix/cleanup PR and intentionally does not begin Tab Mode implementation or repair the separate drum-binding UI mismatch.
 
 ## Canonical lane contract
 
 CX keeps the existing gameplay lane order:
 
-| Lane | Label | Primary DTX channel for this change |
+| Lane | Label | DTX channel(s) |
 | ---: | --- | --- |
 | 0 | LC | `0x1A` |
 | 1 | HH | `0x11` / `0x18` |
@@ -25,28 +25,23 @@ CX keeps the existing gameplay lane order:
 | 8 | CY | `0x16` |
 | 9 | RD | `0x19` |
 
-The authoritative correction is therefore:
+The authoritative correction is:
 
 - `0x16 -> lane 8 (CY / crash)`
 - `0x19 -> lane 9 (RD / ride)`
 
 `Note.Channel` remains the authored DTX channel. Only `LaneIndex` changes for these two channels.
 
-## Evidence from current code
+## Evidence
 
-Current `main` has the two parser entries reversed in `DTXChartParser.ChannelToLaneMap`.
+The legacy `DTXManiaNX` `EChannel` enum defines `Cymbal = 22` (`0x16`) and `RideCymbal = 25` (`0x19`). CX's own gameplay geometry agrees: `PerformanceUILayout` gives lane 8/CY the wide 70 px RC lane and lane 9/RD the narrow 38 px ride lane.
 
-DTXWeb's notation mapping independently defines:
+CX's channel-based chip lookup also already has the correct numeric art mapping:
 
-- `16` as `CY` / crash;
-- `19` as `RD` / ride.
+- `0x16 -> sprite column 6`, the 74 px crash chip;
+- `0x19 -> sprite column 1`, the 58 px ride chip.
 
-CX's own note sprite geometry already agrees with that meaning:
-
-- sprite column 6 is channel `0x16`, width 74, labelled CY/right crash;
-- sprite column 1 is channel `0x19`, width 58, labelled RD/ride.
-
-The channel-based note draw path therefore needs no numerical mapping change. Only its stale `RideCymbal` / `RightCymbal` comments should be corrected.
+Today the parser sends those channels to the opposite lanes, so the crash chip can be drawn in the narrow ride lane and the ride chip in the crash lane. The user-visible fix is that crash/ride chips fit the intended lane and the existing per-pad AutoPlay `Cymbal`/`Ride` lane toggles control the intended notes.
 
 ## Production changes
 
@@ -56,73 +51,99 @@ In `DTXMania.Game/Lib/Song/DTXChartParser.cs`:
 
 - change `0x16` from lane 9 to lane 8;
 - change `0x19` from lane 8 to lane 9;
-- correct the comments to `Cymbal/Right Crash -> CY` and `Ride -> RD`.
+- correct the comments to crash/CY and ride/RD;
+- leave every other channel entry unchanged.
 
-No other channel entry changes.
+### Channel-based renderer path
 
-### Lane-keyed renderer fallback
+`NoteRenderer.GetSpriteColumnForChannel` keeps its numeric behavior because it is already correct. Only stale `RightCymbal` / `RideCymbal` naming around `0x19` / `0x16` is corrected.
 
-`NoteRenderer.DrawOverlayEffect` resolves art by lane through `GetSpriteColumnForLane`. After the parser correction, its CY/RD entries must match the same contract:
+### Remove dead lane-keyed overlay mapping
 
-- lane 8 (CY) -> sprite column 6 (`0x16`, crash);
-- lane 9 (RD) -> sprite column 1 (`0x19`, ride).
+`NoteRenderer.DrawOverlayEffect` has no production caller, and its only mapping dependency is `GetSpriteColumnForLane`. Keeping that lane-to-art table creates a second mapping that must be synchronized with the parser for no runtime benefit.
 
-`GetSpriteColumnForChannel` keeps its current numeric mapping (`0x16 -> 6`, `0x19 -> 1`) because that path is already correct. Rename only misleading comments/docs around those entries.
+Delete:
 
-### Mapping documentation
+- `NoteRenderer.DrawOverlayEffect`;
+- `NoteRenderer.GetSpriteColumnForLane`;
+- their dedicated tests in `NoteRendererLogicTests`.
 
-Correct stale mapping comments in the directly affected files, including `Note.cs`. In particular, the `Note.LaneIndex` summary must say `0x17=7 (FT), 0x16=8 (CY), 0x19=9 (RD)`.
+Do not replace them with another lane-to-channel table.
 
-Do not opportunistically rewrite unrelated lane/input documentation.
+### Remove dead `InputLane` mapping table
+
+`InputLane` / `InputLaneExtensions` is not used by the gameplay input path. `FromChannel` and `ToLaneIndex` are test-only; `FromLaneIndex` is used only by `JudgementEvent.ToString()` to produce a debug label. The table contradicts the parser (including `0x16 -> lane 7`).
+
+Delete the enum/extensions and their tests. Change `JudgementEvent.ToString()` to print the already-owned integer as `Lane {Lane}` instead of consulting another semantic map.
+
+This deletion is intentionally in HPA-405 because leaving the table would make the test suite assert two incompatible channel-to-lane contracts immediately after this fix.
+
+### Mapping documentation and stale fixtures
+
+Correct `Note.LaneIndex` documentation so the tail reads `0x17=7 (FT), 0x16=8 (CY), 0x19=9 (RD)`.
+
+Update direct-note fixtures that still pair lane 8 with `0x19`:
+
+- `JudgementManagerTests`: lane 8 uses `0x16`;
+- `ChartManagerTests`: lane 8 uses `0x16`.
+
+These fixtures do not parse channels, so they would keep passing while documenting the old semantic pairing unless corrected explicitly.
 
 ## Test strategy
 
 ### Parser regression
 
-Strengthen the existing self-contained `ParseAsync_WithDrumNotes_ShouldParseAllMappedChannels` test so it asserts the lane for each authored drum channel instead of only asserting that notes were parsed. The key red assertions on current `main` are:
+Strengthen `ParseAsync_WithDrumNotes_ShouldParseAllMappedChannels` into a self-contained expected channel-to-lane table covering every mapped drum channel. The red assertions on current `main` are:
 
-- channel `0x16` has `LaneIndex == 8`;
-- channel `0x19` has `LaneIndex == 9`.
+- `0x16` has `LaneIndex == 8`;
+- `0x19` has `LaneIndex == 9`.
 
-Keep assertions for the other mapped channels in the same table so this test becomes the executable source of truth for `ChannelToLaneMap` without depending on an external sample chart.
+This becomes the executable source of truth for `DTXChartParser.ChannelToLaneMap`.
 
-Update the older sample-chart mapping assertion in `DTXChartParserTests` to the same canonical lane order so it no longer documents a contradictory mapping when that fixture is present.
+Keep `Note_GetLaneName_ReturnsCorrectNames`; swap only its CY/RD channel examples so lane 8 uses `0x16` and lane 9 uses `0x19`.
 
-`Note_GetLaneName_ReturnsCorrectNames` keeps the same lane-name behavior; only its channel examples for CY/RD change.
+Delete `ParseAsync_ValidDtxFile_SetsCorrectChannelMapping`: `sample.dtx` is not copied by either active test project, so the test returns before asserting anything, and its mapping table is independently stale. The new temp-file table test replaces it.
 
-### Renderer regression
+The other `_sampleDtxPath` tests are a separate test-harness cleanup and remain out of scope.
 
-Update the existing `GetSpriteColumnForLane_ShouldReturnExpectedMapping` theory:
+### Dead-code deletion regression
 
-- lane 8 expects column 6;
-- lane 9 expects column 1.
+After deleting `InputLane` / `InputLaneExtensions`, keep the existing `JudgementEvent.ToString()` behavior tests and pin that the output includes `Lane <n>` for a normal lane as well as an unknown lane.
 
-Preserve all other lane and invalid-lane cases.
+After deleting the unused renderer overlay API, remove only tests whose sole purpose is `DrawOverlayEffect` or `GetSpriteColumnForLane`; keep channel-based sprite mapping coverage.
 
-Channel-based sprite mapping tests, if touched by comment cleanup, must continue to prove `0x16 -> 6` and `0x19 -> 1`.
+## Binding-lane mismatch discovered during review
+
+The drum binding/config UI uses a different semantic lane table from gameplay. `InputRouter` forwards a binding's integer lane directly to `JudgementManager`, so there is no real second coordinate system that translates those names at runtime.
+
+That bug predates HPA-405 and is not made worse by this parser swap. Fixing it here would mix user-input/config behavior into a chart parser correction, so it remains separate. Reclaimed ticket **HPA-443 — [Input] Align drum binding lanes with gameplay lane identities** owns that repair and blocks HPA-411 Tab Mode gameplay integration.
+
+HPA-443 covers `KeyBindings` names/defaults, `DrumKitLayout` zone lane IDs, and the false "KeyBindings numbering" assumptions in `SongSelectionStage`.
 
 ## Out of scope
 
-- `InputLaneExtensions.FromChannel` / `JudgementTypes` cleanup;
-- key-binding or physical-pad remapping;
-- lane enum/model refactors;
+- HPA-443 drum-binding/config lane repair;
 - changing `GetSpriteColumnForChannel` numeric behavior;
+- lane model/enum redesign beyond deleting the unused contradictory `InputLane` table;
 - DTXWeb changes;
 - DTXManiaNX changes;
 - Tab Mode notation, glyphs, rendering, config, or HUD work;
-- compatibility shims for the previously incorrect mapping.
+- compatibility shims for the previously incorrect parser mapping;
+- broad cleanup of the remaining vacuous `_sampleDtxPath` tests.
 
-There are no released-user compatibility requirements for preserving the bug; saved scores/config do not own authored channel-to-lane parsing.
+There are no released-user compatibility requirements for preserving the parser bug; saved scores/config do not own authored channel-to-lane parsing.
 
 ## Acceptance
 
 HPA-405 is complete when:
 
-- parsing channel `0x16` yields lane 8 / `CY`;
-- parsing channel `0x19` yields lane 9 / `RD`;
-- lane 8 overlay lookup uses the crash chip column 6;
-- lane 9 overlay lookup uses the ride chip column 1;
-- all other drum channel mappings remain unchanged;
-- stale crash/ride mapping comments in the touched parser/note/renderer surface are corrected;
-- focused parser/renderer tests and the normal game test suite pass;
-- no Tab Mode or input-mapping refactor is included.
+- parsing `0x16` yields lane 8 / CY;
+- parsing `0x19` yields lane 9 / RD;
+- all other parser channel mappings remain unchanged;
+- channel-based chip mapping remains `0x16 -> column 6` and `0x19 -> column 1`;
+- unused `DrawOverlayEffect` / `GetSpriteColumnForLane` and the contradictory `InputLane` mapping table are removed rather than repaired;
+- the vacuous sample mapping test is removed and the self-contained parser table covers the mapping;
+- direct lane-8 fixtures use `0x16`, not `0x19`;
+- stale crash/ride comments in the touched parser/note/renderer surface are corrected;
+- focused tests and the full Mac-safe game test suite pass;
+- HPA-443 remains separate and blocks HPA-411.
