@@ -695,8 +695,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// 
         /// noteOrder: ['13', '19', '12', '14', '15', '17', '16', '11', '1C', '1A', '18', '1B']
         /// Column positions:
-        ///   0='13' BassDrum,      1='19' RightCymbal,     2='12' Snare,          3='14' HighTom,
-        ///   4='15' LowTom,        5='17' FloorTom,        6='16' RideCymbal,     7='11' HiHatClose,
+        ///   0='13' BassDrum,      1='19' RideCymbal,      2='12' Snare,          3='14' HighTom,
+        ///   4='15' LowTom,        5='17' FloorTom,        6='16' CrashCymbal,    7='11' HiHatClose,
         ///   8='1C' LeftCrash,     9='1A' LeftCrash,       10='18' HiHatOpen,     11='1B' LeftPedal
         /// </summary>
         /// <param name="channel">DTX channel (hex value)</param>
@@ -706,12 +706,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
             return channel switch
             {
                 0x13 => 0,  // '13' BassDrum -> Column 0
-                0x19 => 1,  // '19' RightCymbal -> Column 1
+                0x19 => 1,  // '19' Ride/RD -> Column 1
                 0x12 => 2,  // '12' Snare -> Column 2
                 0x14 => 3,  // '14' HighTom -> Column 3
                 0x15 => 4,  // '15' LowTom -> Column 4
                 0x17 => 5,  // '17' FloorTom -> Column 5
-                0x16 => 6,  // '16' RideCymbal -> Column 6
+                0x16 => 6,  // '16' Crash/CY -> Column 6
                 0x11 => 7,  // '11' HiHatClose -> Column 7
                 0x1C => 8,  // '1C' LeftCrash -> Column 8
                 0x1A => 9,  // '1A' LeftCrash -> Column 9

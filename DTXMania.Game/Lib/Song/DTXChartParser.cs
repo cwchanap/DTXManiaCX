@@ -61,10 +61,10 @@ namespace DTXMania.Game.Lib.Song
             { 0x13, 5 }, // Bass Drum -> Lane 5 (DB)
             { 0x14, 4 }, // High Tom -> Lane 4 (HT)
             { 0x15, 6 }, // Low Tom -> Lane 6 (LT)
-            { 0x16, 9 }, // Cymbal (often Ride) -> Lane 9 (RD)
+            { 0x16, 8 }, // Crash/Cymbal -> Lane 8 (CY)
             { 0x17, 7 }, // Floor Tom -> Lane 7 (FT)
             { 0x18, 1 }, // HiHat Open -> Lane 1 (HH) - same lane as HiHat Close
-            { 0x19, 8 }, // Right Crash/Cymbal -> Lane 8 (CY)
+            { 0x19, 9 }, // Ride -> Lane 9 (RD)
             { 0x1A, 0 }, // Left Crash -> Lane 0 (LC)
             { 0x1B, 2 }, // Left Pedal -> Lane 2 (LP)
             { 0x1C, 2 }, // Left Bass Drum -> Lane 2 (LP) - left pedal lane

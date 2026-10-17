@@ -114,61 +114,6 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task ParseAsync_ValidDtxFile_SetsCorrectChannelMapping()
-        {
-            // Arrange
-            if (!File.Exists(_sampleDtxPath))
-            {
-                return;
-            }
-
-            // Act
-            var chart = await DTXChartParser.ParseAsync(_sampleDtxPath);
-
-            // Assert
-            Assert.NotNull(chart);
-            
-            // Check channel to lane mapping
-            foreach (var note in chart.Notes)
-            {
-                // Verify that channel and lane index match expected mapping
-                switch (note.Channel)
-                {
-                    case 0x11: // LC
-                        Assert.Equal(0, note.LaneIndex);
-                        break;
-                    case 0x12: // LP
-                        Assert.Equal(1, note.LaneIndex);
-                        break;
-                    case 0x13: // HH
-                        Assert.Equal(2, note.LaneIndex);
-                        break;
-                    case 0x14: // SD
-                        Assert.Equal(3, note.LaneIndex);
-                        break;
-                    case 0x15: // BD
-                        Assert.Equal(4, note.LaneIndex);
-                        break;
-                    case 0x16: // HT
-                        Assert.Equal(5, note.LaneIndex);
-                        break;
-                    case 0x17: // LT
-                        Assert.Equal(6, note.LaneIndex);
-                        break;
-                    case 0x18: // FT
-                        Assert.Equal(7, note.LaneIndex);
-                        break;
-                    case 0x19: // CY
-                        Assert.Equal(8, note.LaneIndex);
-                        break;
-                    default:
-                        Assert.Fail($"Unexpected channel: {note.Channel:X2}");
-                        break;
-                }
-            }
-        }
-
-        [Fact]
         public async Task ParseAsync_NonExistentFile_ThrowsFileNotFoundException()
         {
             // Arrange
@@ -201,8 +146,8 @@ namespace DTXMania.Test.Song
             Assert.Equal("DB", new Note(5, 0, 0, 0x13, "01").GetLaneName());  // Bass Drum (0x13 → Lane 5)
             Assert.Equal("LT", new Note(6, 0, 0, 0x15, "01").GetLaneName());  // Low Tom (0x15 → Lane 6)
             Assert.Equal("FT", new Note(7, 0, 0, 0x17, "01").GetLaneName());  // Floor Tom (0x17 → Lane 7)
-            Assert.Equal("CY", new Note(8, 0, 0, 0x19, "01").GetLaneName());  // Right Cymbal (0x19 → Lane 8)
-            Assert.Equal("RD", new Note(9, 0, 0, 0x16, "01").GetLaneName());  // Ride (0x16 → Lane 9)
+            Assert.Equal("CY", new Note(8, 0, 0, 0x16, "01").GetLaneName());  // Crash/CY (0x16 → Lane 8)
+            Assert.Equal("RD", new Note(9, 0, 0, 0x19, "01").GetLaneName());  // Ride/RD (0x19 → Lane 9)
             Assert.Equal("??", new Note(10, 0, 0, 0xFF, "01").GetLaneName()); // Invalid lane (unmapped channel)
         }
 

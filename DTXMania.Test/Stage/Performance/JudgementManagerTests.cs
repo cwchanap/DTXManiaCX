@@ -280,7 +280,7 @@ namespace DTXMania.Test.Stage.Performance
                 0x13, // Lane 5: Bass Drum (now in correct position)
                 0x15, // Lane 6: Low Tom (now in correct position)
                 0x17, // Lane 7: Floor Tom
-                0x19  // Lane 8: Right Cymbal (primary for lane 8)
+                0x16  // Lane 8: Crash/CY (primary for lane 8)
             };
 
             for (int lane = 0; lane < 9; lane++)

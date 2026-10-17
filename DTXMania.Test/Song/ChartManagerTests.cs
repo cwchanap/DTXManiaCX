@@ -250,7 +250,7 @@ namespace DTXMania.Test.Song
             
             // Measure 2 (4000-6000ms at 120 BPM)
             chart.AddNote(new Note(0, 2, 0, 0x11, "01"));    // Left Cymbal at 4000ms
-            chart.AddNote(new Note(8, 2, 96, 0x19, "01"));   // Right Cymbal at 5000ms
+            chart.AddNote(new Note(8, 2, 96, 0x16, "01"));   // Crash/CY at 5000ms
 
             chart.FinalizeChart();
             return chart;
