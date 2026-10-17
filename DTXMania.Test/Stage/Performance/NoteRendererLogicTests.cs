@@ -392,39 +392,6 @@ public class NoteRendererLogicTests
     }
 
     [Fact]
-    public void DrawOverlayEffect_WhenRendererIsNotReady_ShouldReturnWithoutThrowing()
-    {
-        var renderer = CreateRenderer();
-
-        var exception = Record.Exception(() =>
-            renderer.DrawOverlayEffect((SpriteBatch)RuntimeHelpers.GetUninitializedObject(typeof(SpriteBatch)), 0, 0, Vector2.Zero));
-
-        Assert.Null(exception);
-    }
-
-    [Fact]
-    public void DrawOverlayEffect_WhenOverlayFrameIndexIsInvalid_ShouldReturnWithoutThrowing()
-    {
-        var renderer = CreateReadyRendererWithValidSpriteTexture();
-
-        var exception = Record.Exception(() =>
-            renderer.DrawOverlayEffect((SpriteBatch)RuntimeHelpers.GetUninitializedObject(typeof(SpriteBatch)), 0, -1, Vector2.Zero));
-
-        Assert.Null(exception);
-    }
-
-    [Fact]
-    public void DrawOverlayEffect_WhenLaneIndexIsInvalid_ShouldReturnWithoutThrowing()
-    {
-        var renderer = CreateReadyRendererWithValidSpriteTexture();
-
-        var exception = Record.Exception(() =>
-            renderer.DrawOverlayEffect((SpriteBatch)RuntimeHelpers.GetUninitializedObject(typeof(SpriteBatch)), PerformanceUILayout.LaneCount, 0, Vector2.Zero));
-
-        Assert.Null(exception);
-    }
-
-    [Fact]
     public void CheckAndReloadResources_WhenDrumTextureIsMissing_ShouldAttemptReloadAndLeaveTextureNull()
     {
         var renderer = CreateRenderer();
@@ -470,27 +437,6 @@ public class NoteRendererLogicTests
         var renderer = CreateRenderer();
 
         var result = ReflectionHelpers.InvokePrivateMethod<int>(renderer, "GetSpriteColumnForChannel", channel);
-
-        Assert.Equal(expectedColumn, result);
-    }
-
-    [Theory]
-    [InlineData(0, 9)]
-    [InlineData(1, 10)]
-    [InlineData(2, 11)]
-    [InlineData(3, 2)]
-    [InlineData(4, 3)]
-    [InlineData(5, 0)]
-    [InlineData(6, 4)]
-    [InlineData(7, 5)]
-    [InlineData(8, 1)]
-    [InlineData(9, 6)]
-    [InlineData(99, -1)]
-    public void GetSpriteColumnForLane_ShouldReturnExpectedMapping(int laneIndex, int expectedColumn)
-    {
-        var renderer = CreateRenderer();
-
-        var result = ReflectionHelpers.InvokePrivateMethod<int>(renderer, "GetSpriteColumnForLane", laneIndex);
 
         Assert.Equal(expectedColumn, result);
     }

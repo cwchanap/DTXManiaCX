@@ -524,30 +524,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
             }
         }
 
-        /// <summary>
-        /// Draws overlay effect for a specific lane (rows 0, 1, 10)
-        /// Used for hit effects or special visual feedback
-        /// </summary>
-        /// <param name="spriteBatch">SpriteBatch for drawing</param>
-        /// <param name="laneIndex">Lane index (0-9)</param>
-        /// <param name="overlayFrameIndex">Overlay frame index (0-2)</param>
-        /// <param name="position">Position to draw the overlay</param>
-        public void DrawOverlayEffect(SpriteBatch spriteBatch, int laneIndex, int overlayFrameIndex, Vector2 position)
-        {
-            if (!IsReady || spriteBatch == null || _drumChipsTexture == null || _drumChipsTexture.Texture == null || _drumChipsTexture.Texture.IsDisposed)
-                return;
-
-            if (overlayFrameIndex < 0 || overlayFrameIndex >= OverlayAnimationRows.Length)
-                return;
-
-            var spriteColumn = GetSpriteColumnForLane(laneIndex);
-            if (spriteColumn < 0)
-                return;
-
-            var spriteRow = OverlayAnimationRows[overlayFrameIndex];
-            _drumChipsTexture.DrawSprite(spriteBatch, spriteRow, spriteColumn, position, 0.5f); // Note overlays at overlay depth
-        }
-
         #endregion
 
         #region Private Methods
@@ -718,32 +694,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 0x18 => 10, // '18' HiHatOpen -> Column 10
                 0x1B => 11, // '1B' LeftPedal -> Column 11
                 _ => -1     // Invalid channel
-            };
-        }
-
-        /// <summary>
-        /// Legacy method - Maps DTX lane index to sprite sheet column
-        /// Kept for compatibility with overlay effects
-        /// Updated for CORRECT lane order: LC, HH, LP, SN, HT, DB, LT, FT, CY
-        /// </summary>
-        /// <param name="laneIndex">DTX lane index (0-9)</param>
-        /// <returns>Sprite column index or -1 if invalid</returns>
-        private int GetSpriteColumnForLane(int laneIndex)
-        {
-            // Use fallback mapping based on primary channel for each lane
-            return laneIndex switch
-            {
-                0 => 9,  // Lane 0: 0x1A (Left Crash) -> Column 9
-                1 => 10, // Lane 1: 0x18 (Hi-Hat Open) -> Column 10 (primary for lane 1)
-                2 => 11, // Lane 2: 0x1B (Left Pedal) -> Column 11
-                3 => 2,  // Lane 3: 0x12 (Snare) -> Column 2 (now in correct position)
-                4 => 3,  // Lane 4: 0x14 (High Tom) -> Column 3
-                5 => 0,  // Lane 5: 0x13 (Bass Drum) -> Column 0 (now in correct position)
-                6 => 4,  // Lane 6: 0x15 (Low Tom) -> Column 4 (now in correct position)
-                7 => 5,  // Lane 7: 0x17 (Floor Tom) -> Column 5
-                8 => 1,  // Lane 8: 0x19 (Right Cymbal) -> Column 1 (primary for lane 8)
-                9 => 6,  // Lane 9: RD (Ride) -> Column 6
-                _ => -1  // Invalid lane (lanes 0-9 supported)
             };
         }
 
