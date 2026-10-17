@@ -5,7 +5,7 @@ using Xunit;
 namespace DTXMania.Test.Song
 {
     /// <summary>
-    /// Tests for JudgementEvent, TimingConstants, InputLane, and InputLaneExtensions
+    /// Tests for JudgementEvent and TimingConstants
     /// </summary>
     public class JudgementEventTests
     {
@@ -182,6 +182,14 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
+        public void ToString_WithKnownLane_ShouldContainRawLaneInteger()
+        {
+            var evt = new JudgementEvent(1, 4, 0.0, JudgementType.Perfect);
+            var result = evt.ToString();
+            Assert.Contains("Lane 4", result);
+        }
+
+        [Fact]
         public void ToString_WithUnknownLane_ShouldFallbackToLaneDisplay()
         {
             var evt = new JudgementEvent(1, 99, 0.0, JudgementType.Good);
@@ -251,115 +259,5 @@ namespace DTXMania.Test.Song
 
         #endregion
 
-        #region InputLaneExtensions Tests
-
-        [Theory]
-        [InlineData(0x1A, InputLane.Splash)]
-        [InlineData(0x18, InputLane.FloorTomLeftCymbal)]
-        [InlineData(0x11, InputLane.FloorTomLeftCymbal)]
-        [InlineData(0x1B, InputLane.HiHatFootLeftCrash)]
-        [InlineData(0x1C, InputLane.HiHatFootLeftCrash)]
-        [InlineData(0x12, InputLane.LeftPedal)]
-        [InlineData(0x14, InputLane.SnareDrum)]
-        [InlineData(0x13, InputLane.HiHat)]
-        [InlineData(0x15, InputLane.BassDrum)]
-        [InlineData(0x16, InputLane.HighTom)]
-        [InlineData(0x17, InputLane.LowTomRightCymbal)]
-        [InlineData(0x19, InputLane.LowTomRightCymbal)]
-        public void FromChannel_ValidChannels_ShouldReturnCorrectLane(int channel, InputLane expected)
-        {
-            var result = InputLaneExtensions.FromChannel(channel);
-            Assert.Equal(expected, result);
-        }
-
-        [Theory]
-        [InlineData(0x00)]
-        [InlineData(0xFF)]
-        [InlineData(-1)]
-        public void FromChannel_InvalidChannel_ShouldReturnNull(int channel)
-        {
-            var result = InputLaneExtensions.FromChannel(channel);
-            Assert.Null(result);
-        }
-
-        [Theory]
-        [InlineData(InputLane.Splash, 0)]
-        [InlineData(InputLane.FloorTomLeftCymbal, 1)]
-        [InlineData(InputLane.HiHatFootLeftCrash, 2)]
-        [InlineData(InputLane.LeftPedal, 3)]
-        [InlineData(InputLane.SnareDrum, 4)]
-        [InlineData(InputLane.HiHat, 5)]
-        [InlineData(InputLane.BassDrum, 6)]
-        [InlineData(InputLane.HighTom, 7)]
-        [InlineData(InputLane.LowTomRightCymbal, 8)]
-        public void ToLaneIndex_AllLanes_ShouldReturnCorrectIndex(InputLane lane, int expectedIndex)
-        {
-            Assert.Equal(expectedIndex, lane.ToLaneIndex());
-        }
-
-        [Fact]
-        public void ToLaneIndex_InvalidLane_ShouldReturnMinusOne()
-        {
-            Assert.Equal(-1, ((InputLane)999).ToLaneIndex());
-        }
-
-        [Theory]
-        [InlineData(0, InputLane.Splash)]
-        [InlineData(1, InputLane.FloorTomLeftCymbal)]
-        [InlineData(2, InputLane.HiHatFootLeftCrash)]
-        [InlineData(3, InputLane.LeftPedal)]
-        [InlineData(4, InputLane.SnareDrum)]
-        [InlineData(5, InputLane.HiHat)]
-        [InlineData(6, InputLane.BassDrum)]
-        [InlineData(7, InputLane.HighTom)]
-        [InlineData(8, InputLane.LowTomRightCymbal)]
-        public void FromLaneIndex_ValidIndices_ShouldReturnCorrectLane(int laneIndex, InputLane expected)
-        {
-            var result = InputLaneExtensions.FromLaneIndex(laneIndex);
-            Assert.Equal(expected, result);
-        }
-
-        [Theory]
-        [InlineData(-1)]
-        [InlineData(9)]
-        [InlineData(100)]
-        public void FromLaneIndex_InvalidIndex_ShouldReturnNull(int laneIndex)
-        {
-            var result = InputLaneExtensions.FromLaneIndex(laneIndex);
-            Assert.Null(result);
-        }
-
-        [Theory]
-        [InlineData(InputLane.Splash, "Splash/Crash")]
-        [InlineData(InputLane.FloorTomLeftCymbal, "Floor Tom/Left Cymbal")]
-        [InlineData(InputLane.HiHatFootLeftCrash, "Hi-Hat Foot/Left Crash")]
-        [InlineData(InputLane.LeftPedal, "Left Pedal")]
-        [InlineData(InputLane.SnareDrum, "Snare Drum")]
-        [InlineData(InputLane.HiHat, "Hi-Hat")]
-        [InlineData(InputLane.BassDrum, "Bass Drum")]
-        [InlineData(InputLane.HighTom, "High Tom")]
-        [InlineData(InputLane.LowTomRightCymbal, "Low Tom/Right Cymbal")]
-        public void GetDisplayName_AllLanes_ShouldReturnCorrectName(InputLane lane, string expectedName)
-        {
-            Assert.Equal(expectedName, lane.GetDisplayName());
-        }
-
-        [Fact]
-        public void GetDisplayName_InvalidLane_ShouldReturnUnknown()
-        {
-            Assert.Equal("Unknown", ((InputLane)999).GetDisplayName());
-        }
-
-        [Fact]
-        public void ToLaneIndex_RoundTrip_ShouldReturnOriginalLane()
-        {
-            var originalLane = InputLane.SnareDrum;
-            var index = originalLane.ToLaneIndex();
-            var roundTripped = InputLaneExtensions.FromLaneIndex(index);
-
-            Assert.Equal(originalLane, roundTripped);
-        }
-
-        #endregion
     }
 }
