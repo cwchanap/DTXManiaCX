@@ -531,11 +531,67 @@ namespace DTXMania.Test.Song
             Assert.True(double.IsFinite(chart.DurationMs));
         }
 
-        private static async Task<ParsedChart> ParseTimingFixtureAsync(string contents)
+        [Theory]
+        [InlineData(".dtx")]
+        [InlineData(".gda")]
+        [InlineData(".g2d")]
+        [InlineData(".txt")]
+        public async Task ParseAsync_MeasureLengthCarriesForwardInNonBmsCharts(
+            string extension)
+        {
+            var chart = await ParseTimingFixtureAsync(
+                "#BPM:120\n" +
+                "#00002:0.75\n" +
+                "#00211:01\n",
+                extension);
+
+            var note = Assert.Single(chart.Notes);
+            Assert.Equal(3000.0, note.TimeMs, precision: 3);
+            Assert.Equal(note.TimeMs,
+                Assert.Single(chart.MeasureLines.Where(line => line.Bar == 2)).TimeMs,
+                precision: 3);
+        }
+
+        [Theory]
+        [InlineData(".bms")]
+        [InlineData(".bme")]
+        [InlineData(".bml")]
+        public async Task ParseAsync_MeasureLengthResetsPerBarInBmsCharts(
+            string extension)
+        {
+            var chart = await ParseTimingFixtureAsync(
+                "#BPM:120\n" +
+                "#00002:0.75\n" +
+                "#00211:01\n",
+                extension);
+
+            var note = Assert.Single(chart.Notes);
+            Assert.Equal(3500.0, note.TimeMs, precision: 3);
+            Assert.Equal(note.TimeMs,
+                Assert.Single(chart.MeasureLines.Where(line => line.Bar == 2)).TimeMs,
+                precision: 3);
+        }
+
+        [Fact]
+        public async Task ParseAsync_MeasureLengthCarryForward_ShouldComposeWithMidBarTempoChange()
+        {
+            var chart = await ParseTimingFixtureAsync(
+                "#BPM:120\n" +
+                "#00002:0.75\n" +
+                "#00103:0060\n" +
+                "#00211:01\n");
+
+            var note = Assert.Single(chart.Notes);
+            Assert.Equal(3187.5, note.TimeMs, precision: 3);
+        }
+
+        private static async Task<ParsedChart> ParseTimingFixtureAsync(
+            string contents,
+            string extension = ".dtx")
         {
             var tempDirectory = Path.Combine(Path.GetTempPath(), $"dtx-timing-{Guid.NewGuid():N}");
             Directory.CreateDirectory(tempDirectory);
-            var dtxPath = Path.Combine(tempDirectory, "fixture.dtx");
+            var dtxPath = Path.Combine(tempDirectory, $"fixture{extension}");
 
             try
             {

@@ -182,6 +182,11 @@ namespace DTXMania.Game.Lib.Song
             foreach (var encoding in encodings)
             {
                 chart = new ParsedChart(filePath);
+                // BMS-family charts reset #xxx02 measure lengths each bar; every
+                // other suffix (DTX/GDA/G2D and unlisted direct-parse paths)
+                // carries the active length forward, matching DTXManiaNX.
+                chart.TimingMap.CarryMeasureLengthsForward =
+                    Path.GetExtension(filePath).ToLowerInvariant() is not (".bms" or ".bme" or ".bml");
                 wavDefinitions = new Dictionary<string, string>();
                 wavVolumes = new Dictionary<string, int>();
                 wavPans = new Dictionary<string, int>();
