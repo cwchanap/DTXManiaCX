@@ -1114,7 +1114,7 @@ namespace DTXMania.Game.Lib.Song.Components
             int nPanelH = SongSelectionUILayout.DifficultyGrid.CellHeight;
 
             // Difficulty level (e.g. "3.80"). NX: tDrawDifficulty(nBoxX + nPanelW - 77, nBoxY + nPanelH - 35).
-            var levelText = (chartInfo.Level / 10.0f).ToString("F2", CultureInfo.InvariantCulture);
+            var levelText = ChartLevelFormatter.Format((int)chartInfo.Level, chartInfo.LevelDec);
             if (_difficultyNumberTexture != null)
             {
                 DrawDifficultyNumberBitmap(spriteBatch,
@@ -1784,6 +1784,7 @@ namespace DTXMania.Game.Lib.Song.Components
         public class ChartLevelInfo
         {
             public float Level { get; set; }
+            public int LevelDec { get; set; }
             public int InstrumentColumn { get; set; }  // 0=Drums, 1=Guitar, 2=Bass (NX column order: DM/GF/BA)
             public string InstrumentName { get; set; }
             public DTXMania.Game.Lib.Song.Entities.SongChart Chart { get; set; }
@@ -1811,10 +1812,9 @@ namespace DTXMania.Game.Lib.Song.Components
                 {
                     chartLevels.Add(new ChartLevelInfo
                     {
-                        // DrumLevel is tenths-encoded (e.g. 36 == 3.60), matching the level
-                        // convention in SkillPanelDisplay/SongScore. DrawDifficultyCellContent
-                        // divides by 10 to render the display value.
+                        // Preserve the raw DTX level encoding and its separate decimal field.
                         Level = chart.DrumLevel,
+                        LevelDec = chart.DrumLevelDec,
                         InstrumentColumn = 0, // Drums column
                         InstrumentName = "DRUMS",
                         Chart = chart
@@ -1827,6 +1827,7 @@ namespace DTXMania.Game.Lib.Song.Components
                     chartLevels.Add(new ChartLevelInfo
                     {
                         Level = chart.GuitarLevel,
+                        LevelDec = chart.GuitarLevelDec,
                         InstrumentColumn = 1, // Guitar column (NX: middle / GF)
                         InstrumentName = "GUITAR",
                         Chart = chart
@@ -1839,6 +1840,7 @@ namespace DTXMania.Game.Lib.Song.Components
                     chartLevels.Add(new ChartLevelInfo
                     {
                         Level = chart.BassLevel,
+                        LevelDec = chart.BassLevelDec,
                         InstrumentColumn = 2, // Bass column (NX: right / BA)
                         InstrumentName = "BASS",
                         Chart = chart
