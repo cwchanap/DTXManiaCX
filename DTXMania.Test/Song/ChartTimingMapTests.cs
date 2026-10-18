@@ -88,6 +88,36 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
+        public void GetMeasureLengthMultiplier_CarryForwardEnabled_ShouldCarryMultiplierAcrossBars()
+        {
+            var map = new ChartTimingMap();
+            map.CarryMeasureLengthsForward = true;
+            map.SetMeasureLength(0, 0.75);
+            map.Rebuild(120.0, throughBar: 2);
+
+            Assert.Equal(0.75, map.GetMeasureLengthMultiplier(1));
+            Assert.Equal(0.75, map.GetMeasureLengthMultiplier(2));
+            Assert.Equal(1500.0, map.CalculateTimeMs(1, 0), 3);
+            Assert.Equal(3000.0, map.CalculateTimeMs(2, 0), 3);
+        }
+
+        [Fact]
+        public void GetMeasureLengthMultiplier_CarryForwardEnabled_ShouldStopAtLaterOverride()
+        {
+            var map = new ChartTimingMap();
+            map.CarryMeasureLengthsForward = true;
+            map.SetMeasureLength(0, 0.75);
+            map.SetMeasureLength(2, 1.0);
+            map.Rebuild(120.0, throughBar: 3);
+
+            Assert.Equal(0.75, map.GetMeasureLengthMultiplier(1));
+            Assert.Equal(1.0, map.GetMeasureLengthMultiplier(2));
+            Assert.Equal(1.0, map.GetMeasureLengthMultiplier(3));
+            Assert.Equal(3000.0, map.CalculateTimeMs(2, 0), 3);
+            Assert.Equal(5000.0, map.CalculateTimeMs(3, 0), 3);
+        }
+
+        [Fact]
         public void CalculateTimeMs_ShortMeasure_ShouldShiftFollowingBar()
         {
             var map = new ChartTimingMap();

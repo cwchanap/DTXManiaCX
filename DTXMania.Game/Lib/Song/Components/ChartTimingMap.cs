@@ -12,6 +12,8 @@ namespace DTXMania.Game.Lib.Song.Components
         private readonly Dictionary<(int Bar, int Tick), double> _tempoChanges = new();
         private readonly List<TimingAnchor> _anchors = new();
 
+        internal bool CarryMeasureLengthsForward { get; set; }
+
         private int _throughBar = -1;
 
         internal static (int Bar, int Tick) NormalizePosition(int bar, int tick)
@@ -71,14 +73,16 @@ namespace DTXMania.Game.Lib.Song.Components
             var tempoChangeIndex = 0;
             var currentTimeMs = 0.0;
             var currentBpm = baseBpm;
+            var activeMeasureLengthMultiplier = 1.0;
 
             for (var bar = 0; bar <= throughBar; bar++)
             {
-                var measureLengthMultiplier = _measureLengths.TryGetValue(
-                    bar,
-                    out var configuredMultiplier)
-                    ? configuredMultiplier
-                    : 1.0;
+                if (_measureLengths.TryGetValue(bar, out var configuredMultiplier))
+                    activeMeasureLengthMultiplier = configuredMultiplier;
+                else if (!CarryMeasureLengthsForward)
+                    activeMeasureLengthMultiplier = 1.0;
+
+                var measureLengthMultiplier = activeMeasureLengthMultiplier;
 
                 _anchors.Add(new TimingAnchor(
                     bar,
