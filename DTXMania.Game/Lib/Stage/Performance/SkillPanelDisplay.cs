@@ -7,6 +7,7 @@ using System.Globalization;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.UI.Layout;
 
@@ -228,13 +229,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         ///   level &lt;  100 → displayed = level/10 + levelDec/100  (e.g. 80+50 → 8.50)
         /// </summary>
         public static string FormatLevelText(int level, int levelDec)
-        {
-            if (level <= 0) return "--";
-            double actual = level >= 100
-                ? level / 100.0
-                : (level / 10.0) + (levelDec / 100.0);
-            return actual.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
-        }
+            => ChartLevelFormatter.Format(level, levelDec);
 
         /// <summary>
         /// Maps a difficulty label to its 60x60 source cell in 7_Difficulty.png (scene 7 of the
