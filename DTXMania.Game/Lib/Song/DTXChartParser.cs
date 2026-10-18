@@ -367,7 +367,6 @@ namespace DTXMania.Game.Lib.Song
             IDictionary<string, string> videoDefinitions)
         {
             string line;
-            bool inDataSection = false;
 
             while ((line = await reader.ReadLineAsync()) != null)
             {
@@ -383,21 +382,17 @@ namespace DTXMania.Game.Lib.Song
                 if (TryHandleVideoDefinition(line, videoDefinitions))
                     continue;
 
-                // Check if we've reached the data section
-                if (line.StartsWith('*') || line.StartsWith('[') || IsTimelineData(line))
+                // DTX headers and timeline rows can be interleaved. In particular,
+                // DTXCreator may place #xxxC2 rows before its #WAVxx definitions.
+                // Dispatch each line by its own shape rather than permanently
+                // switching to timeline-only parsing after the first measure row.
+                if (IsTimelineData(line))
                 {
-                    inDataSection = true;
-                }
-
-                if (!inDataSection)
-                {
-                    // Parse header commands
-                    ParseHeaderCommand(line, chart, wavDefinitions, wavVolumes, wavPans);
+                    ParseMeasureData(line, chart, pendingTempoDirectives);
                 }
                 else
                 {
-                    // Parse measure data
-                    ParseMeasureData(line, chart, pendingTempoDirectives);
+                    ParseHeaderCommand(line, chart, wavDefinitions, wavVolumes, wavPans);
                 }
             }
         }
