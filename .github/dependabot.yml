@@ -9,6 +9,12 @@ updates:
       time: "09:00"
       timezone: "America/Vancouver"
     open-pull-requests-limit: 5
+    # DTXMania.Game stays on Sqlite 9.x until EF Core (Sqlite/Tools) moves to 10
+    # together; mixing Data.Sqlite 10 with EF Core 9 is unsupported. VideoRecorder
+    # uses raw Sqlite only and is already on 10.x.
+    ignore:
+      - dependency-name: "Microsoft.Data.Sqlite"
+        versions: ["10.x"]
     groups:
       dotnet-minor-and-patch:
         patterns:
