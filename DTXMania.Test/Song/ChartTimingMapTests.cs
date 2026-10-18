@@ -80,6 +80,7 @@ namespace DTXMania.Test.Song
         public void GetMeasureLengthMultiplier_ShouldReadCompiledBarStartAnchor()
         {
             var map = new ChartTimingMap();
+            map.CarryMeasureLengthsForward = false;
             map.SetMeasureLength(0, 0.75);
             map.Rebuild(120.0, throughBar: 1);
 
@@ -107,14 +108,27 @@ namespace DTXMania.Test.Song
             var map = new ChartTimingMap();
             map.CarryMeasureLengthsForward = true;
             map.SetMeasureLength(0, 0.75);
-            map.SetMeasureLength(2, 1.0);
+            map.SetMeasureLength(2, 1.5);
             map.Rebuild(120.0, throughBar: 3);
 
             Assert.Equal(0.75, map.GetMeasureLengthMultiplier(1));
-            Assert.Equal(1.0, map.GetMeasureLengthMultiplier(2));
-            Assert.Equal(1.0, map.GetMeasureLengthMultiplier(3));
+            Assert.Equal(1.5, map.GetMeasureLengthMultiplier(2));
+            Assert.Equal(1.5, map.GetMeasureLengthMultiplier(3));
             Assert.Equal(3000.0, map.CalculateTimeMs(2, 0), 3);
-            Assert.Equal(5000.0, map.CalculateTimeMs(3, 0), 3);
+            Assert.Equal(6000.0, map.CalculateTimeMs(3, 0), 3);
+        }
+
+        [Fact]
+        public void CarryMeasureLengthsForward_ToggledAfterRebuild_ShouldInvalidateAnchors()
+        {
+            var map = new ChartTimingMap();
+            map.SetMeasureLength(0, 0.75);
+            map.Rebuild(120.0, throughBar: 1);
+
+            map.CarryMeasureLengthsForward = false;
+
+            Assert.Throws<ArgumentOutOfRangeException>(
+                () => map.GetMeasureLengthMultiplier(1));
         }
 
         [Fact]

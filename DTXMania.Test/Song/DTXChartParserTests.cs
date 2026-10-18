@@ -536,6 +536,7 @@ namespace DTXMania.Test.Song
         [InlineData(".gda")]
         [InlineData(".g2d")]
         [InlineData(".txt")]
+        [InlineData(".DTX")]
         public async Task ParseAsync_MeasureLengthCarriesForwardInNonBmsCharts(
             string extension)
         {
@@ -556,6 +557,7 @@ namespace DTXMania.Test.Song
         [InlineData(".bms")]
         [InlineData(".bme")]
         [InlineData(".bml")]
+        [InlineData(".BMS")]
         public async Task ParseAsync_MeasureLengthResetsPerBarInBmsCharts(
             string extension)
         {
