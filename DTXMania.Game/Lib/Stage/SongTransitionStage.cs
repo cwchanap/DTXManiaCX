@@ -584,7 +584,16 @@ namespace DTXMania.Game.Lib.Stage
                    chart.BassLevel > 0 ? chart.BassLevel : 0;
         }
         
-        
+        private int GetCurrentDifficultyLevelDec()
+        {
+            var chart = _selectedSong?.GetCurrentDifficultyChart(_selectedDifficulty);
+            if (chart == null)
+                return 0;
+
+            return chart.DrumLevel > 0 ? chart.DrumLevelDec :
+                   chart.GuitarLevel > 0 ? chart.GuitarLevelDec :
+                   chart.BassLevel > 0 ? chart.BassLevelDec : 0;
+        }
 
         #endregion
 
@@ -1022,8 +1031,8 @@ namespace DTXMania.Game.Lib.Stage
                 if (difficultyLevel <= 0)
                     return;
                 
-                // Format the level number similar to SongStatusPanel (divide by 10 for decimal format)
-                var levelText = (difficultyLevel / 10.0f).ToString("F2"); // Show 38 as "3.80", 60 as "6.00", etc.
+                // Use the same DTX level encoding rules as Song Select and Results.
+                var levelText = ChartLevelFormatter.Format((int)difficultyLevel, GetCurrentDifficultyLevelDec());
                 
                 // Use layout configuration for position and color
                 var position = SongTransitionUILayout.DifficultyLevelNumber.Position;
