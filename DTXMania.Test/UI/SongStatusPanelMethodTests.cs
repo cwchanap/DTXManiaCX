@@ -217,6 +217,40 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
+        public void GetAvailableChartsWithLevels_PreservesHundredthsAndInstrumentDecimals()
+        {
+            var panel = new SongStatusPanel();
+            var chart = new SongChart
+            {
+                FilePath = "levels.dtx",
+                HasDrumChart = true,
+                DrumLevel = 815,
+                HasGuitarChart = true,
+                GuitarLevel = 78,
+                GuitarLevelDec = 33,
+                HasBassChart = true,
+                BassLevel = 80,
+                BassLevelDec = 50
+            };
+            var song = new SongListNode
+            {
+                Type = NodeType.Score,
+                DatabaseSong = new SongEntity { Charts = new List<SongChart> { chart } }
+            };
+            panel.UpdateSongInfo(song, 0);
+
+            var levels = InvokePrivateMethod<List<SongStatusPanel.ChartLevelInfo>>(
+                panel, "GetAvailableChartsWithLevels");
+
+            Assert.Contains(levels, c => c.InstrumentName == "DRUMS"
+                && ChartLevelFormatter.Format((int)c.Level, c.LevelDec) == "8.15");
+            Assert.Contains(levels, c => c.InstrumentName == "GUITAR"
+                && ChartLevelFormatter.Format((int)c.Level, c.LevelDec) == "8.13");
+            Assert.Contains(levels, c => c.InstrumentName == "BASS"
+                && ChartLevelFormatter.Format((int)c.Level, c.LevelDec) == "8.50");
+        }
+
+        [Fact]
         public void IsChartSelected_NullChartInfo_ShouldReturnFalse()
         {
             var panel = new SongStatusPanel();
