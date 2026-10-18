@@ -12,7 +12,17 @@ namespace DTXMania.Game.Lib.Song.Components
         private readonly Dictionary<(int Bar, int Tick), double> _tempoChanges = new();
         private readonly List<TimingAnchor> _anchors = new();
 
-        internal bool CarryMeasureLengthsForward { get; set; }
+        private bool _carryMeasureLengthsForward = true;
+
+        internal bool CarryMeasureLengthsForward
+        {
+            get => _carryMeasureLengthsForward;
+            set
+            {
+                _carryMeasureLengthsForward = value;
+                InvalidateAnchors();
+            }
+        }
 
         private int _throughBar = -1;
 

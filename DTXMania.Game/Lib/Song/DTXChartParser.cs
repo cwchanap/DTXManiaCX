@@ -170,6 +170,11 @@ namespace DTXMania.Game.Lib.Song
             // DecoderFallbackException (strict-encoding decode failures, forward-looking).
             // Programmer errors (NullReferenceException, IndexOutOfRangeException, etc.)
             // propagate immediately rather than being swallowed as "encoding failures."
+            // BMS-family charts reset #xxx02 measure lengths each bar; every
+            // other suffix (DTX/GDA/G2D and unlisted direct-parse paths)
+            // carries the active length forward, matching DTXManiaNX.
+            var carryMeasureLengthsForward = !ResetsMeasureLengthsPerBar(filePath);
+
             ParsedChart chart = null!;
             Dictionary<string, string> wavDefinitions = null!; // WAV ID -> file path
             Dictionary<string, int> wavVolumes = null!;        // WAV ID -> volume (0-100)
@@ -182,11 +187,7 @@ namespace DTXMania.Game.Lib.Song
             foreach (var encoding in encodings)
             {
                 chart = new ParsedChart(filePath);
-                // BMS-family charts reset #xxx02 measure lengths each bar; every
-                // other suffix (DTX/GDA/G2D and unlisted direct-parse paths)
-                // carries the active length forward, matching DTXManiaNX.
-                chart.TimingMap.CarryMeasureLengthsForward =
-                    Path.GetExtension(filePath).ToLowerInvariant() is not (".bms" or ".bme" or ".bml");
+                chart.TimingMap.CarryMeasureLengthsForward = carryMeasureLengthsForward;
                 wavDefinitions = new Dictionary<string, string>();
                 wavVolumes = new Dictionary<string, int>();
                 wavPans = new Dictionary<string, int>();
@@ -326,6 +327,14 @@ namespace DTXMania.Game.Lib.Song
             var extension = Path.GetExtension(filePath).ToLowerInvariant();
             return Array.Exists(_supportedExtensions, ext => ext == extension);
         }
+
+        /// <summary>
+        /// Whether the file at <paramref name="filePath"/> belongs to the
+        /// BMS family whose channel 02 measure lengths reset each bar.
+        /// All other suffixes carry the active length forward (NX default).
+        /// </summary>
+        private static bool ResetsMeasureLengthsPerBar(string filePath) =>
+            Path.GetExtension(filePath).ToLowerInvariant() is ".bms" or ".bme" or ".bml";
 
         #endregion
 
