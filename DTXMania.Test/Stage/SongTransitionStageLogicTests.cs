@@ -63,6 +63,25 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void GetCurrentDifficultyLevelDec_PreservesSelectedInstrumentDecimals()
+        {
+            var stage = CreateStage();
+            ReflectionHelpers.SetPrivateField(stage, "_selectedSong", CreateSongNode(new SongChart
+            {
+                DrumLevel = 0,
+                GuitarLevel = 78,
+                GuitarLevelDec = 33,
+                HasGuitarChart = true
+            }));
+            ReflectionHelpers.SetPrivateField(stage, "_selectedDifficulty", 0);
+
+            var level = InvokePrivateMethod<float>(stage, "GetCurrentDifficultyLevel");
+            var levelDec = InvokePrivateMethod<int>(stage, "GetCurrentDifficultyLevelDec");
+
+            Assert.Equal("8.13", ChartLevelFormatter.Format((int)level, levelDec));
+        }
+
+        [Fact]
         public void UpdatePhase_WhenFadeInDurationElapsed_ShouldEnterNormalPhase()
         {
             var stage = CreateStage();
