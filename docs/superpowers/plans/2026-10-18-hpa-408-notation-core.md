@@ -63,7 +63,7 @@
 - [ ] Run focused tests and verify nonzero discovery:
 
 ```bash
-dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName`Notation"
+dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~Notation"
 ```
 
 - [ ] Run the full locally supported test suite:
