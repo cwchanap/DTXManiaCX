@@ -9,6 +9,11 @@ updates:
       time: "09:00"
       timezone: "America/Vancouver"
     open-pull-requests-limit: 5
+    # EF Core 10 targets net10.0 only (verified: NU1202 on net8.0); Game is net8.0.
+    # Revisit when the repo retargets to net10 and bumps the EF Core family together.
+    ignore:
+      - dependency-name: "Microsoft.Data.Sqlite"
+        versions: ["10.x"]
     groups:
       dotnet-minor-and-patch:
         patterns:
