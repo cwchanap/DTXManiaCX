@@ -8,7 +8,7 @@ The MCP project hosts the Model Context Protocol (MCP) bridge that lets AI copil
 - `Tools/` – Definitions of MCP tools (`game_click`, `game_drag`, `game_get_state`, etc.) and the dispatcher that calls into the JSON-RPC layer.
 
 ## Prerequisites
-- .NET 8 SDK (`dotnet --version` should report 8.x).
+- .NET 10 SDK (`dotnet --version` should report 10.x).
 - A DTXManiaCX build exposing the JSON-RPC bridge at `http://localhost:8080/jsonrpc` (current default in `GameInteractionService`).
 - An MCP client implementation (for example Anthropic's Claude Desktop, `@modelcontextprotocol/client`, or another MCP-compatible IDE integration).
 

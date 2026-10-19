@@ -140,12 +140,12 @@ internal static class RecorderPlatformPreflight
         if (debugOutputResolution.TargetFramework is null)
         {
             // Target-framework resolution failed (project missing, IO error,
-            // or no <TargetFramework> element). The net10.0 fallback below is
-            // retained only to name a diagnostic location in
+            // or no <TargetFramework> element). The bin/Debug fallback below
+            // is retained only to name a diagnostic location in
             // MacRuntimeDirectory and the gate detail; the runtime/output
             // gates are deliberately not evaluated so a stale
-            // bin/Debug/net10.0 directory cannot satisfy preflight when the
-            // current project's TFM is unreadable.
+            // bin/Debug/<previous-TFM> directory cannot satisfy preflight
+            // when the current project's TFM is unreadable.
             macGates.Add(new RecorderPreflightGate(
                 "Target framework",
                 Passed: false,
@@ -250,12 +250,15 @@ internal static class RecorderPlatformPreflight
     /// project file or target framework cannot be read,
     /// <see cref="DebugOutputResolution.TargetFramework"/> is null and the
     /// returned <see cref="DebugOutputResolution.Directory"/> falls back to
-    /// a best-effort <c>net10.0</c> path so downstream diagnostic strings
-    /// (gate detail, <see cref="RecorderPlatformPreflightResult.MacRuntimeDirectory"/>)
-    /// still name a location; the caller must add a failed gate in that case
-    /// rather than relying on the fallback directory to satisfy runtime/output
-    /// gates, since a stale <c>bin/Debug/net10.0</c> directory could otherwise
-    /// pass those <see cref="File.Exists"/> checks.
+    /// the <c>bin/Debug</c> root — deliberately not a fabricated TFM
+    /// subdirectory, which would hardcode a framework name that drifts on
+    /// every retarget and is wrong for TFMs like <c>net10.0-windows</c>.
+    /// The fallback keeps downstream diagnostic strings (gate detail,
+    /// <see cref="RecorderPlatformPreflightResult.MacRuntimeDirectory"/>)
+    /// naming a real location; the caller must add a failed gate in that
+    /// case rather than relying on the fallback directory to satisfy
+    /// runtime/output gates, since a stale <c>bin/Debug/&lt;TFM&gt;</c>
+    /// directory could otherwise pass those <see cref="File.Exists"/> checks.
     /// </summary>
     private static DebugOutputResolution ResolveDebugOutputDirectory(
         string projectPath,
@@ -264,7 +267,7 @@ internal static class RecorderPlatformPreflight
         var targetFramework = ReadTargetFramework(projectPath);
         var binDebug = Path.Combine(projectDirectory, "bin", "Debug");
         return new DebugOutputResolution(
-            Path.Combine(binDebug, targetFramework ?? "net10.0"),
+            targetFramework is null ? binDebug : Path.Combine(binDebug, targetFramework),
             targetFramework);
     }
 

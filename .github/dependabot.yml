@@ -9,6 +9,17 @@ updates:
       time: "09:00"
       timezone: "America/Vancouver"
     open-pull-requests-limit: 5
+    # EF Core majors are TFM-coupled: EF Core N+1 packages require net(N+1).0,
+    # so a major bump cannot merge until the repo retargets. Block majors to
+    # keep Dependabot from proposing them; minor/patch still group-update.
+    # Revisit when the repo moves to the next target framework.
+    ignore:
+      - dependency-name: "Microsoft.EntityFrameworkCore.Sqlite"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "Microsoft.EntityFrameworkCore.Tools"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "Microsoft.Data.Sqlite"
+        update-types: ["version-update:semver-major"]
     groups:
       dotnet-minor-and-patch:
         patterns:
