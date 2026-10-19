@@ -9,6 +9,10 @@ namespace DTXMania.VideoRecorder.Tests;
 
 public sealed class ProgramTests
 {
+    // Single source for the generated fixture's TFM: the fake game project's
+    // csproj and the staged bin/Debug output path both derive from this.
+    private const string MacGameTargetFramework = "net10.0";
+
     [Fact]
     public async Task RunRecordAsync_FailedPreflight_RejectsBeforeSandboxDiagnosticsOrObs()
     {
@@ -182,14 +186,14 @@ public sealed class ProgramTests
         File.WriteAllText(
             projectPath,
             "<Project Sdk=\"Microsoft.NET.Sdk\">"
-                + "<PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup>"
+                + $"<PropertyGroup><TargetFramework>{MacGameTargetFramework}</TargetFramework></PropertyGroup>"
                 + "</Project>");
         var debugOutputDirectory = Path.Combine(
             root,
             "DTXMania.Game",
             "bin",
             "Debug",
-            "net10.0");
+            MacGameTargetFramework);
         Directory.CreateDirectory(debugOutputDirectory);
         // dotnet run --no-build on a net10.0 WinExe with UseAppHost=true
         // executes the native apphost (no extension on macOS), not the DLL.

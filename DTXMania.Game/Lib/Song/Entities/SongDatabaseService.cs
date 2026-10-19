@@ -1852,7 +1852,11 @@ namespace DTXMania.Game.Lib.Song.Entities
             IQueryable<SongScore> scores = context.SongScores
                 .Where(s => s.LastPlayedAt != null);
             if (activeChartIds != null)
-                scores = scores.Where(s => activeChartIds.Contains(s.ChartId));
+                // EF Core 10 translates a parameterized collection as one SQL
+                // parameter per element, which exceeds SQLite's variable limit
+                // for large libraries. EF.Parameter forces the single JSON
+                // parameter (json_each) translation for this unbounded set.
+                scores = scores.Where(s => EF.Parameter(activeChartIds).Contains(s.ChartId));
             var orderedIds = await scores
                 .Select(s => new { s.Chart.SongId, s.LastPlayedAt })
                 .GroupBy(s => s.SongId)
@@ -3061,19 +3065,23 @@ namespace DTXMania.Game.Lib.Song.Entities
                 
                 if (stalePaths.Count > 0)
                 {
+                    // EF Core 10 translates a parameterized collection as one
+                    // SQL parameter per element; EF.Parameter forces the single
+                    // JSON parameter (json_each) translation so a large stale
+                    // set cannot exceed SQLite's variable limit.
                     // Remove associated scores first
                     var staleScores = await context.SongScores
-                        .Where(s => stalePaths.Contains(s.ChartId))
+                        .Where(s => EF.Parameter(stalePaths).Contains(s.ChartId))
                         .ToListAsync();
-                    
+
                     if (staleScores.Count > 0)
                     {
                         context.SongScores.RemoveRange(staleScores);
                     }
-                    
+
                     // Remove the charts
                     var staleCharts = await context.SongCharts
-                        .Where(c => stalePaths.Contains(c.Id))
+                        .Where(c => EF.Parameter(stalePaths).Contains(c.Id))
                         .ToListAsync();
                     
                     if (staleCharts.Count > 0)

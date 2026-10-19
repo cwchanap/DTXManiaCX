@@ -9,6 +9,9 @@ public sealed class GameProcessDriverTests
 {
     private const string SetVariableName = "DTX_AUTOMATION_SET";
     private const string RemovedVariableName = "DTX_AUTOMATION_REMOVE";
+    // Single source for the generated child fixture's TFM: the generated
+    // csproj and the bin/Debug apphost path both derive from this.
+    private const string ChildTargetFramework = "net10.0";
 
     [Fact(Timeout = 60_000)]
     public async Task Start_ProjectTarget_ShouldSetOwnedEnvironmentAndDrainOutput()
@@ -445,11 +448,11 @@ public sealed class GameProcessDriverTests
         var projectPath = Path.Combine(root, "Child.csproj");
         File.WriteAllText(
             projectPath,
-            """
+            $"""
             <Project Sdk="Microsoft.NET.Sdk">
               <PropertyGroup>
                 <OutputType>Exe</OutputType>
-                <TargetFramework>net10.0</TargetFramework>
+                <TargetFramework>{ChildTargetFramework}</TargetFramework>
                 <ImplicitUsings>enable</ImplicitUsings>
               </PropertyGroup>
             </Project>
@@ -513,7 +516,7 @@ public sealed class GameProcessDriverTests
     private static string GetBuiltAppHostPath(string root)
     {
         var fileName = OperatingSystem.IsWindows() ? "Child.exe" : "Child";
-        return Path.Combine(root, "bin", "Debug", "net10.0", fileName);
+        return Path.Combine(root, "bin", "Debug", ChildTargetFramework, fileName);
     }
 
     private sealed class ChildFixture(string root, string projectPath) : IDisposable
