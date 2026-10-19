@@ -78,7 +78,7 @@ At minimum prove:
 - Quantized entry timestamps remain monotonic and correct for BPM changes within a bar.
 - 3/4 held over successive bars through HPA-407: measureTicks 144 in both; a note at canonical tick 96 resolves to 2250 ms in bar 1, not double-scaled.
 - A later explicit bar-length override is respected; default 4/4 still yields 192 ticks.
-- Real-parser → finalized chart → builder fixtures cover 7/8 eighths/16ths and 5/4 eighth-note triplets: assert evenly spaced authored notation slots (e.g. 7/8 seventh notes at 0,24,48,...,144 and 5/4 15-slot row at 0,16,32,...,224) and a detected 48-tick triplet. Assert parser `Note.Tick` and `TimeMs` retain legacy values despite accurate notation onsets.
+- Real-parser → finalized chart → builder fixtures cover 7/8 eighths/16ths and 5/4 eighth-note triplets: assert evenly spaced authored notation slots (e.g. 7/8 eighth notes at 0,24,48,...,144 and 5/4 15-slot row at 0,16,32,...,224) and a detected 48-tick triplet. Assert parser `Note.Tick` and `TimeMs` retain legacy values despite accurate notation onsets.
 - Hand-built `Note` instances without `PairCount` use the canonical-tick fallback, including normalized oversized test positions.
 - Open+closed hi-hat in one chord stay distinct; bass+left-bass at one onset retain both original `Note` references.
 - A chart with no compiled events returns an empty result. A bar with no playable notes but within compiled `MeasureLines` gets rests.
