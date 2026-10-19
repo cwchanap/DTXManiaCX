@@ -449,7 +449,7 @@ public sealed class GameProcessDriverTests
             <Project Sdk="Microsoft.NET.Sdk">
               <PropertyGroup>
                 <OutputType>Exe</OutputType>
-                <TargetFramework>net8.0</TargetFramework>
+                <TargetFramework>net10.0</TargetFramework>
                 <ImplicitUsings>enable</ImplicitUsings>
               </PropertyGroup>
             </Project>
@@ -513,7 +513,7 @@ public sealed class GameProcessDriverTests
     private static string GetBuiltAppHostPath(string root)
     {
         var fileName = OperatingSystem.IsWindows() ? "Child.exe" : "Child";
-        return Path.Combine(root, "bin", "Debug", "net8.0", fileName);
+        return Path.Combine(root, "bin", "Debug", "net10.0", fileName);
     }
 
     private sealed class ChildFixture(string root, string projectPath) : IDisposable

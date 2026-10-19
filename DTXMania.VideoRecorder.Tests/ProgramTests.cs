@@ -182,16 +182,16 @@ public sealed class ProgramTests
         File.WriteAllText(
             projectPath,
             "<Project Sdk=\"Microsoft.NET.Sdk\">"
-                + "<PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup>"
+                + "<PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup>"
                 + "</Project>");
         var debugOutputDirectory = Path.Combine(
             root,
             "DTXMania.Game",
             "bin",
             "Debug",
-            "net8.0");
+            "net10.0");
         Directory.CreateDirectory(debugOutputDirectory);
-        // dotnet run --no-build on a net8.0 WinExe with UseAppHost=true
+        // dotnet run --no-build on a net10.0 WinExe with UseAppHost=true
         // executes the native apphost (no extension on macOS), not the DLL.
         // Stage the apphost with the executable bit so the "Debug output"
         // gate passes, matching a real Debug build's output.
