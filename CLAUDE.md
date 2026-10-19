@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-DTXManiaCX is a port of DTXMania (a drum simulation game) to .NET 8 using MonoGame for cross-platform compatibility (Windows/Mac). The original DTXMania used DirectX.
+DTXManiaCX is a port of DTXMania (a drum simulation game) to .NET 10 using MonoGame for cross-platform compatibility (Windows/Mac). The original DTXMania used DirectX.
 
-- **Framework**: .NET 8.0, MonoGame 3.8.*
+- **Framework**: .NET 10.0, MonoGame 3.8.*
 - **Windows**: MonoGame.Framework.WindowsDX
 - **Mac**: MonoGame.Framework.DesktopGL
 
@@ -51,7 +51,7 @@ dotnet run --project MCP/MCP.csproj -- --test  # Test mode without MCP client
 
 ### End-to-End Tests
 ```bash
-# Support tests only (in-process, no game launch) - Windows only (E2E project targets net8.0-windows7.0)
+# Support tests only (in-process, no game launch) - Windows only (E2E project targets net10.0-windows7.0)
 dotnet test DTXMania.E2E/DTXMania.E2E.csproj --filter "Category=E2E-Support"
 
 # Full gameplay smoke (launches the game out-of-process, drives it via JSON-RPC)
@@ -62,7 +62,7 @@ DTXMANIA_E2E_GAME_PROJECT=DTXMania.Game/DTXMania.Game.Mac.csproj \
 ### Test Projects
 - `DTXMania.Test.csproj` - Full test suite (Windows CI, references all tests)
 - `DTXMania.Test.Mac.csproj` - Mac-safe subset with `EnableDefaultCompileItems=false` and explicit `Compile Include` that excludes: `Graphics/RenderTargetManagerTests.cs`, `Graphics/GPURenderingSnapshotTests.cs`, `Resources/ResourceManagerTests.cs`, `Performance/StressTestRunner.cs`, `QA/ComprehensiveQATestSuite.cs`, `StressTestConsole/**/*.cs`, `UI/SongBarRendererTests.cs`, `UI/SongBarRendererLogicTests.cs`, `UI/SongStatusPanelTests.cs`, `UI/SongStatusPanelLogicTests.cs`, `Stage/Performance/PerformanceStageCleanupVerificationTests.cs`, `Helpers/TestGraphicsDeviceService.cs`. Defines `MAC_BUILD` constant.
-- `DTXMania.E2E.csproj` - End-to-end tests (`net8.0-windows7.0`). References the matching game `.csproj` for shared types but runs the game out-of-process. Two trait categories: `E2E` (full gameplay smoke, launches the game) and `E2E-Support` (in-process unit tests for the harness itself: fixtures, JSON-RPC client, telemetry).
+- `DTXMania.E2E.csproj` - End-to-end tests (`net10.0-windows7.0`). References the matching game `.csproj` for shared types but runs the game out-of-process. Two trait categories: `E2E` (full gameplay smoke, launches the game) and `E2E-Support` (in-process unit tests for the harness itself: fixtures, JSON-RPC client, telemetry).
 
 ## Architecture Overview
 

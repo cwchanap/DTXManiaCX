@@ -43,12 +43,12 @@ process runs arm64, that the game project is the Mac project, that the
 native apphost exists and is executable, and that the bundled FFmpeg pair
 exists and is executable:
 
-- `DTXMania.Game/bin/Debug/net8.0/DTXMania.Game.Mac` (native arm64 apphost;
-  `dotnet run --no-build` on a net8.0 `WinExe` with `UseAppHost=true`
+- `DTXMania.Game/bin/Debug/net10.0/DTXMania.Game.Mac` (native arm64 apphost;
+  `dotnet run --no-build` on a net10.0 `WinExe` with `UseAppHost=true`
   executes this binary, not the managed DLL, so preflight gates its
   existence and executable bit)
-- `DTXMania.Game/bin/Debug/net8.0/runtimes/osx-arm64/MMTools/ffmpeg`
-- `DTXMania.Game/bin/Debug/net8.0/runtimes/osx-arm64/MMTools/ffprobe`
+- `DTXMania.Game/bin/Debug/net10.0/runtimes/osx-arm64/MMTools/ffmpeg`
+- `DTXMania.Game/bin/Debug/net10.0/runtimes/osx-arm64/MMTools/ffprobe`
 
 The apphost gate is named "Debug output" in `doctor` output. Manually
 inspecting the apphost with `file` and confirming it is `arm64` (the `file`
@@ -145,10 +145,10 @@ dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj --configuration Debug
 dotnet build DTXMania.VideoRecorder/DTXMania.VideoRecorder.csproj --configuration Debug
 
 # check host, project, apphost, runtime pair, config, and OBS connectivity
-DTXMania.VideoRecorder/bin/Debug/net8.0/dtx-video doctor
+DTXMania.VideoRecorder/bin/Debug/net10.0/dtx-video doctor
 
 # record one chart
-DTXMania.VideoRecorder/bin/Debug/net8.0/dtx-video record \
+DTXMania.VideoRecorder/bin/Debug/net10.0/dtx-video record \
   --chart <chart.dtx> --output <publish directory>
 ```
 
