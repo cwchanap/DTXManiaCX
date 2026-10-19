@@ -45,6 +45,8 @@ Distinct channel/head combinations must survive chord deduplication: open and cl
 1. CX canonical bar coordinates: `Note.Tick` and `ChartTimingMap.CalculateTimeMs(bar, tick)` use 0..192 **independent of measure-length multiplier**. The timing map itself applies the multiplier.
 2. Notation coordinates: `measureTicks = Round(192 * effectiveMultiplier)` (use positive-tick JavaScript-compatible midpoint rounding). Convert a source tick to an onset via `Round(sourceTick * measureTicks / 192)`; this is the DTXWeb-style scaled measure geometry.
 
+The HPA-408 Linear issue loosely says to scale ticks and stamp `TimeMs` through `CalculateTimeMs`; this specification supersedes that wording. Only canonical coordinates may be passed to the timing map.
+
 Do **not** pass a scaled notation tick unchanged to `CalculateTimeMs`. That would multiply the length twice. For a rest/synthetic entry at notation tick `t`, convert to canonical tick `t * 192.0 / measureTicks`, then ask the existing map for its time. For a source-note onset, prefer the finalized `Note.TimeMs` (or the original canonical tick) so rounding of notation coordinates cannot move judgement-time correspondence. If multiple authored onsets collapse to one quantized onset, use the earliest source time deterministically and keep all note IDs.
 
 Example: at 120 BPM, bar 0 and bar 1 inherit `#00002:0.75`, so bar 1 begins at 1500 ms and a source note at (bar 1, canonical tick 96) is at 2250 ms. Its notation coordinate is tick 72 in a 144-tick bar. Calling `CalculateTimeMs(1, 72)` would incorrectly yield 2062.5 ms.
@@ -80,7 +82,7 @@ At minimum prove:
 - A chart with no compiled events returns an empty result. A bar with no playable notes but within compiled `MeasureLines` gets rests.
 - Build after `ChartManager` assignment preserves the same actual IDs used by gameplay. No independent IDs assigned by notation.
 
-Run `dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter FullyQualifiedName`Notation` locally and the full Mac suite; Windows CI must run the regular full `DTXMania.Test` suite before implementation merge. Verify that the new test names are discovered (a zero-test filtered run is not proof).
+Run `dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~Notation"` locally and the full Mac suite; Windows CI must run the regular full `DTXMania.Test` suite before implementation merge. Verify that the new test names are discovered (a zero-test filtered run is not proof).
 
 ## Out of scope
 
