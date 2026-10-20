@@ -139,11 +139,12 @@ namespace DTXMania.Game.Lib.Resources
         /// Pick the closest available SpriteFont asset for the requested
         /// (family, size, style). "ShareTechMono" selects the Latin monospace
         /// telemetry family (14/18px, no Bold) and "Orbitron" the Latin display
-        /// family (14/18/24/32/40px, no Bold); every other path uses the CJK-capable
-        /// NotoSerifJP family (14/24/48px, Bold only at 14), so pre-existing
-        /// callers keep their behavior. When no Bold asset is closer than the
-        /// closest Regular one, the Regular asset wins and the returned style
-        /// reflects the downgrade.
+        /// family (14/18/24/32/40px, no Bold); "Bravura-Notation" selects the
+        /// SMuFL music-glyph family (single 40pt asset, no Bold); every other
+        /// path uses the CJK-capable NotoSerifJP family (14/24/48px, Bold only
+        /// at 14), so pre-existing callers keep their behavior. When no Bold
+        /// asset is closer than the closest Regular one, the Regular asset wins
+        /// and the returned style reflects the downgrade.
         /// </summary>
         internal static (string assetName, FontStyle resolvedStyle) GetBestSpriteFontAssetName(string fontPath, int requestedSize, FontStyle style)
         {
@@ -174,6 +175,17 @@ namespace DTXMania.Game.Lib.Resources
                     (size: 24, assetName: "Orbitron-24"),
                     (size: 32, assetName: "Orbitron-32"),
                     (size: 40, assetName: "Orbitron-40")
+                };
+                boldVariants = Array.Empty<(int, string)>();
+            }
+            else if (string.Equals(familyKey, "Bravura-Notation", StringComparison.OrdinalIgnoreCase))
+            {
+                // Single pinned asset: the notation font is only generated at
+                // 40pt (Bravura-Notation.spritefont), so every requested size
+                // resolves to it.
+                availableRegular = new[]
+                {
+                    (size: 40, assetName: "Bravura-Notation")
                 };
                 boldVariants = Array.Empty<(int, string)>();
             }
@@ -757,6 +769,16 @@ namespace DTXMania.Game.Lib.Resources
             {
                 // Build cache of supported characters including Japanese ranges
                 BuildCharacterRangeCache();
+
+                // The range scan only probes curated ranges; union in the
+                // SpriteFont's actual character set so SupportsCharacter stays
+                // accurate for glyphs the scan never tests (e.g. the SMuFL
+                // Private Use Area). Characters is null on uninitialized
+                // SpriteFonts, which tests build via GetUninitializedObject.
+                if (_spriteFont.Characters != null)
+                {
+                    _supportedCharacters.UnionWith(_spriteFont.Characters);
+                }
             }
 
             _characterCacheBuilt = true;
