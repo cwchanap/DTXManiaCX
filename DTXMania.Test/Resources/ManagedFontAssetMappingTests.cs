@@ -62,6 +62,31 @@ namespace DTXMania.Test.Resources
             Assert.Equal(FontStyle.Regular, style);
         }
 
+        /// <summary>
+        /// The notation font family (HPA-409) ships a single pinned 40pt asset,
+        /// so every requested size resolves to it regardless of the size asked for.
+        /// </summary>
+        [Theory]
+        [InlineData(40, "Bravura-Notation")]
+        [InlineData(18, "Bravura-Notation")]
+        [InlineData(56, "Bravura-Notation")]
+        public void GetBestSpriteFontAssetName_BravuraNotationFamily_ShouldSnapToSingleNotationAsset(
+            int size, string expectedAsset)
+        {
+            var (asset, style) = ManagedFont.GetBestSpriteFontAssetName("Bravura-Notation", size, FontStyle.Regular);
+
+            Assert.Equal(expectedAsset, asset);
+            Assert.Equal(FontStyle.Regular, style);
+        }
+
+        [Fact]
+        public void GetBestSpriteFontAssetName_BravuraNotationFamily_ShouldBeCaseInsensitive()
+        {
+            var (asset, _) = ManagedFont.GetBestSpriteFontAssetName("bravura-notation", 40, FontStyle.Regular);
+
+            Assert.Equal("Bravura-Notation", asset);
+        }
+
         [Fact]
         public void GetBestSpriteFontAssetName_ShareTechMonoFamily_ShouldIgnoreBoldRequest()
         {
