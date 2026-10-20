@@ -164,6 +164,46 @@ namespace DTXMania.Test.Song.Notation
         }
 
         [Fact]
+        public async Task MixedSubdivisionsInLongBar_ShouldKeepRestTimesOnTheCanonicalGrid()
+        {
+            // 10x bar. A hat authored at slot 4/29 (canonical 26, notation 265) and a snare at 1/7
+            // (canonical 27, notation 274). The rest at notation tick 271 converts to canonical 27.1;
+            // truncating to the canonical grid keeps it at the snare's tick instead of after it.
+            ParsedChart parsed = await ParseDtxAsync(Dtx(
+                "#BPM: 120",
+                "#00002: 10",
+                $"#00011: {new string('0', 8) + "01" + new string('0', 48)}",
+                $"#00012: {"00" + "01" + new string('0', 10)}"));
+
+            NotationMeasure measure = Assert.Single(NotationChartBuilder.Build(parsed).Measures);
+
+            Assert.Equal(1920, measure.MeasureTicks);
+            Assert.True(measure.Entries
+                .Zip(measure.Entries.Skip(1), (a, b) => a.TimeMs <= b.TimeMs)
+                .All(ok => ok));
+
+            NotationEntry rest = Assert.Single(measure.Entries.Where(e => e.IsRest && e.StartTick == 271));
+            NotationEntry snare = measure.Entries.Single(e => !e.IsRest && e.StartTick == 274);
+            Assert.Equal(2812.5, rest.TimeMs, 6);
+            Assert.Equal(snare.TimeMs, rest.TimeMs, 6);
+        }
+
+        [Fact]
+        public async Task CarriedHugeMultiplier_ShouldCapEveryInheritedBar()
+        {
+            // Bar 1 inherits the 100000x length; uncapped it would emit ~100k rests per bar.
+            ParsedChart parsed = await ParseDtxAsync(Dtx(
+                "#BPM: 120",
+                "#00002: 100000",
+                "#00111: 01"));
+
+            NotationChart chart = NotationChartBuilder.Build(parsed);
+
+            Assert.All(chart.Measures, m => Assert.Equal(12288, m.MeasureTicks));
+            Assert.All(chart.Measures, m => Assert.True(m.Entries.Count <= 64));
+        }
+
+        [Fact]
         public async Task FourFourBar_ShouldYieldOneHundredNinetyTwoTicks()
         {
             ParsedChart parsed = await ParseDtxAsync(Dtx("#BPM: 120", "#00011: 0001"));   // hat on pair 1 of 2 (tick 96)
@@ -273,6 +313,35 @@ namespace DTXMania.Test.Song.Notation
             Assert.Equal(1, measure.MeasureTicks);
             NotationEntry chord = Assert.Single(measure.Entries, e => !e.IsRest);
             Assert.Equal(0, chord.StartTick);
+        }
+
+        [Fact]
+        public void HugeMultiplier_ShouldCapMeasureTicksAndBoundRests()
+        {
+            var parsed = new ParsedChart();
+            parsed.TimingMap.SetMeasureLength(0, 100000);   // 192 * 100000 = 19.2M ticks without the cap
+            parsed.AddNote(new Note(0, 0, 96, 0x11, "01"));
+            parsed.FinalizeChart();
+
+            NotationMeasure measure = Assert.Single(NotationChartBuilder.Build(parsed).Measures);
+
+            Assert.Equal(12288, measure.MeasureTicks);   // 64x: 256 beats, the BeatMarkers ceiling
+            Assert.True(measure.Entries.Count <= 64);
+            Assert.Equal(6144, measure.Entries.Single(e => !e.IsRest).StartTick);
+        }
+
+        [Fact]
+        public void OverflowingMultiplier_ShouldCapInsteadOfCollapsingToOneTick()
+        {
+            var parsed = new ParsedChart();
+            parsed.TimingMap.SetMeasureLength(0, 1.0e12);   // 192 * 1e12 overflows the int conversion
+            parsed.AddNote(new Note(0, 0, 96, 0x11, "01"));
+            parsed.FinalizeChart();
+
+            NotationMeasure measure = Assert.Single(NotationChartBuilder.Build(parsed).Measures);
+
+            Assert.Equal(12288, measure.MeasureTicks);
+            Assert.Equal(6144, measure.Entries.Single(e => !e.IsRest).StartTick);
         }
 
         [Fact]

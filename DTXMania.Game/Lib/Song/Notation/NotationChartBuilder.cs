@@ -58,11 +58,16 @@ namespace DTXMania.Game.Lib.Song.Notation
             return new NotationChart(measures);
         }
 
+        // A 64x bar is 256 beats, the same ceiling FinalizeChart uses for beat markers. The clamp runs on the
+        // multiplier so 192 * multiplier stays inside int range, and it bounds rest entries: a carried-forward
+        // huge #xxx02 can no longer emit ~multiplier/1 rests in every inherited bar.
+        private const double MaxMeasureLengthMultiplier = 64.0;
+
         // Round(192 * effective multiplier), at least one tick so a degenerate multiplier still yields a bar.
-        // ponytail: no cap on measureTicks. The real ceiling is rest explosion, not int overflow: a carried-forward
-        // #00002: 100000 makes ~100k rest entries per bar. Cap or guard measureTicks before wiring at chart load (HPA-411).
         private static int MeasureTicksFor(double multiplier) =>
-            Math.Max(1, (int)Math.Round(ChartTimingMap.TicksPerMeasure * multiplier, MidpointRounding.AwayFromZero));
+            Math.Max(1, (int)Math.Round(
+                ChartTimingMap.TicksPerMeasure * Math.Min(multiplier, MaxMeasureLengthMultiplier),
+                MidpointRounding.AwayFromZero));
 
         // Parsed notes use their authored slot fraction. Hand-built notes use canonical tick / 192. The multiply comes
         // before the divide, so the quotient is one correctly rounded double and exact half-ticks round up as written.
@@ -77,7 +82,9 @@ namespace DTXMania.Game.Lib.Song.Notation
         }
 
         // A source note takes the earliest TimeMs of its chord, which is never the scaled notation tick.
-        // A rest has no source note, so its canonical start goes through the timing map, which applies the multiplier.
+        // A rest has no source note, so its canonical start goes through the timing map, which applies the
+        // multiplier. The position truncates to a canonical tick like CalculatePairTick does for notes, so a
+        // rest cannot timestamp after the next note in bars where notation ticks outnumber canonical ones.
         private static NotationMeasure WithTimes(ChartTimingMap timing, NotationMeasure measure)
         {
             var entries = new NotationEntry[measure.Entries.Count];
@@ -85,7 +92,9 @@ namespace DTXMania.Game.Lib.Song.Notation
             {
                 NotationEntry entry = measure.Entries[i];
                 double timeMs = entry.IsRest
-                    ? timing.CalculateTimeMs(measure.Index, entry.StartTick * (double)ChartTimingMap.TicksPerMeasure / measure.MeasureTicks)
+                    ? timing.CalculateTimeMs(
+                        measure.Index,
+                        (int)(entry.StartTick * (double)ChartTimingMap.TicksPerMeasure / measure.MeasureTicks))
                     : entry.Heads.SelectMany(head => head.Notes).Min(note => note.TimeMs);
                 entries[i] = entry with { TimeMs = timeMs };
             }
