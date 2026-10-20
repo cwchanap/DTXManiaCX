@@ -70,9 +70,12 @@ internal static class RecorderPlatformPreflight
     /// Debug output apphost (<c>&lt;AssemblyName&gt;.exe</c>) in the exact
     /// <c>bin/Debug/&lt;TargetFramework&gt;</c> directory
     /// <c>--no-build</c> will launch, with no native-runtime, version, or
-    /// architecture rejection; macOS must be 13+ on Apple Silicon with the
+    /// architecture rejection; macOS must be 14+ on Apple Silicon with the
     /// Mac project and a usable bundled runtime in the exact Debug output
-    /// directory <c>--no-build</c> will launch.
+    /// directory <c>--no-build</c> will launch. The 14+ floor is the .NET 10
+    /// supported-macOS minimum — macOS 13 was never a .NET 10 target — and it
+    /// subsumes the ScreenCaptureKit application-audio requirement of
+    /// macOS 13+.
     /// </summary>
     internal static RecorderPlatformPreflightResult Evaluate(
         RecorderPlatformFacts facts,
@@ -124,8 +127,8 @@ internal static class RecorderPlatformPreflight
         var macGates = new List<RecorderPreflightGate>
         {
             new RecorderPreflightGate(
-                "macOS >= 13",
-                facts.OsVersion.Major >= 13,
+                "macOS >= 14",
+                facts.OsVersion.Major >= 14,
                 $"found macOS {facts.OsVersion}"),
             new RecorderPreflightGate(
                 "Apple Silicon (arm64)",
@@ -322,7 +325,7 @@ internal static class RecorderPlatformPreflight
     {
         // On .NET 5+ (this project targets net10.0), Environment.OSVersion
         // returns the macOS product version directly (e.g. macOS 26 reports
-        // 26.5.2), not the Darwin kernel version. The "macOS >= 13" gate
+        // 26.5.2), not the Darwin kernel version. The "macOS >= 14" gate
         // therefore compares product versions without any Darwin conversion.
         return Environment.OSVersion.Version;
     }
