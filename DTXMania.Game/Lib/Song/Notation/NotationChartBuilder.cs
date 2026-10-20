@@ -59,7 +59,8 @@ namespace DTXMania.Game.Lib.Song.Notation
         }
 
         // Round(192 * effective multiplier), at least one tick so a degenerate multiplier still yields a bar.
-        // ponytail: no cap on bar size; multipliers above ~11 million overflow int. Cap here if a chart ever carries one.
+        // ponytail: no cap on measureTicks. The real ceiling is rest explosion, not int overflow: a carried-forward
+        // #00002: 100000 makes ~100k rest entries per bar. Cap or guard measureTicks before wiring at chart load (HPA-411).
         private static int MeasureTicksFor(double multiplier) =>
             Math.Max(1, (int)Math.Round(ChartTimingMap.TicksPerMeasure * multiplier, MidpointRounding.AwayFromZero));
 
