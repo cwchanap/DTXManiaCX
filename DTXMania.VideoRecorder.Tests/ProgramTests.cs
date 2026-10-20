@@ -70,7 +70,7 @@ public sealed class ProgramTests
             var facts = new RecorderPlatformFacts(
                 IsWindows: false,
                 IsMacOS: true,
-                OsVersion: new Version(14, 0),
+                OsVersion: new Version(15, 0),
                 ProcessArchitecture: Architecture.Arm64);
             var preflight = RecorderPlatformPreflight.Evaluate(
                 facts,
@@ -85,7 +85,7 @@ public sealed class ProgramTests
 
             Assert.True(passed);
             var output = writer.ToString();
-            Assert.Contains("macOS >= 14: passed", output);
+            Assert.Contains("macOS >= 15: passed", output);
             Assert.Contains("Bundled ffmpeg: passed", output);
             Assert.DoesNotContain("Windows: ", output);
             Assert.DoesNotContain("Windows-only", output);
