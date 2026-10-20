@@ -6,7 +6,7 @@
 
 ## What the implementing agent should know
 
-The merged HPA-408 notation core already defines the three notehead shapes. CX does **not** currently have a generic SpriteFont loader: \`ManagedFont.GetBestSpriteFontAssetName\` chooses among fixed families and silently falls back to NotoSerifJP on asset load failures. The existing Windows/Mac game projects independently copy OFL licenses to \`Licenses/\`. The font cannot be considered working merely because \`LoadFont\` returned an object.
+The merged HPA-408 notation core already defines the three notehead shapes. CX does **not** currently have a generic SpriteFont loader: `ManagedFont.GetBestSpriteFontAssetName` chooses among fixed families and silently falls back to NotoSerifJP on asset load failures. The existing Windows/Mac game projects independently copy OFL licenses to `Licenses/`. The font cannot be considered working merely because `LoadFont` returned an object.
 
 Keep changes confined to the font assets/content manifest, font-family case, notation glyph contract, packaging entries and focused tests. Do not create a separate branch/PR for a preliminary spike or add a new renderer abstraction.
 
@@ -14,7 +14,7 @@ Keep changes confined to the font assets/content manifest, font-family case, not
 
 - Pin a stable official Steinberg Bravura release. Download its unmodified regular OTF, OFL license and glyph metadata for verification. Record the release/tag and the origin of the binaries in the spec or source comments.
 - Compare every SMuFL name/code point in the spec to the metadata, especially notehead shape, rests, flags, tuplets and time-signature digits. Update the table if needed; do not trust the issue's memory-based values blindly.
-- Add one \`Bravura-Notation.spritefont\` (nominal 40 px), restricting regions to the intended glyphs. Add the explicit \`Content.mgcb\` build entry. Use no automatic default-replacement glyph.
+- Add one `Bravura-Notation.spritefont` (nominal 40 px), restricting regions to the intended glyphs. Add the explicit `Content.mgcb` build entry. Use no automatic default-replacement glyph.
 - **Spike gate:** build the content pipeline on an available desktop platform and visually render a specimen with one symbol per kind. Check PUA glyph retention, no tofu, baseline/cropping, notehead center and font-scale adequacy. Remove temporary spike-only harness after collecting a screenshot/short verification note. No new permanent debug screen.
 - If unusable, choose a **single** pre-rasterized atlas alternative instead of trying to keep both systems. Explain the evidence and adjust this plan/spec. Generated raster atlas is technical conversion of existing font glyphs, not original art generation.
 
@@ -22,17 +22,17 @@ Keep changes confined to the font assets/content manifest, font-family case, not
 
 ## Task 2 — Integrate with existing resource lifetime
 
-- Add an exact Bravura-Notation family/size case in \`ManagedFont.GetBestSpriteFontAssetName\`, leaving existing font selection intact. Use the established \`IResourceManager.LoadFont("Bravura-Notation", 40)\` call contract.
-- Add \`NotationGlyphs.cs\` with small internal enum, code-point mapping, \`NoteheadShape\` adapter, measured anchor offsets, and required glyph-character set.
-- Provide a narrow validation helper that checks the **actual** \`IFont.SpriteFont.Characters\` for all required glyphs. If \`LoadFont\` silently returned NotoSerifJP or a partial/incorrect font, reject it and release the acquired font reference. Do not globally disable normal fallback for other UI fonts.
-- Keep the public surface as small as possible (internal notation types). No \`PerformanceStage\` modifications or new config field in this task; document the small load/validate usage for HPA-410/HPA-411.
+- Add an exact Bravura-Notation family/size case in `ManagedFont.GetBestSpriteFontAssetName`, leaving existing font selection intact. Use the established `IResourceManager.LoadFont("Bravura-Notation", 40)` call contract.
+- Add `NotationGlyphs.cs` with small internal enum, code-point mapping, `NoteheadShape` adapter, measured anchor offsets, and required glyph-character set.
+- Provide a narrow validation helper that checks the **actual** `IFont.SpriteFont.Characters` for all required glyphs. If `LoadFont` silently returned NotoSerifJP or a partial/incorrect font, reject it and release the acquired font reference. Do not globally disable normal fallback for other UI fonts.
+- Keep the public surface as small as possible (internal notation types). No `PerformanceStage` modifications or new config field in this task; document the small load/validate usage for HPA-410/HPA-411.
 
 **Exit:** normal resource loading yields Bravura; missing/partial font is detected rather than rendered incorrectly; no change to existing font consumers.
 
 ## Task 3 — Packaging and regression tests
 
-- Ship the original license notice as \`Content/Bravura-OFL.txt\`. Add \`Licenses/Bravura-OFL.txt\` copy entries to both \`DTXMania.Game.Windows.csproj\` and \`DTXMania.Game.Mac.csproj\` using the existing Orbitron/ShareTechMono convention. Ensure published installer/portable/app outputs carry it.
-- Add pure tests (e.g. \`DTXMania.Test/Song/Notation/NotationGlyphsTests.cs\` and an existing \`Resources/ManagedFontAssetMappingTests\` case) to assert:
+- Ship the original license notice as `Content/Bravura-OFL.txt`. Add `Licenses/Bravura-OFL.txt` copy entries to both `DTXMania.Game.Windows.csproj` and `DTXMania.Game.Mac.csproj` using the existing Orbitron/ShareTechMono convention. Ensure published installer/portable/app outputs carry it.
+- Add pure tests (e.g. `DTXMania.Test/Song/Notation/NotationGlyphsTests.cs` and an existing `Resources/ManagedFontAssetMappingTests` case) to assert:
   - all required glyphs and code points; all three notehead shapes;
   - a deterministic, documented anchor for each glyph used to attach to the staff;
   - exact Bravura family and asset selection, without changing existing family tests;
@@ -48,7 +48,7 @@ Keep changes confined to the font assets/content manifest, font-family case, not
 - [ ] Only the required PUA glyphs included; no full-PUA texture atlas
 - [ ] MonoGame glyph specimen captured; alignment/anchors measured
 - [ ] Font-family mapping added; actual glyph presence checked after load (silent fallback covered)
-- [ ] HPA-408 \`NoteheadShape\` reused; no duplicate DTX channel mapping
+- [ ] HPA-408 `NoteheadShape` reused; no duplicate DTX channel mapping
 - [ ] Focused tests and Mac/Windows builds/CI are green
 - [ ] No renderer, gameplay, config, HUD, or timing logic included
 - [ ] HPA-409 marked done only after implementation PR merges, not at docs approval
@@ -57,14 +57,14 @@ Keep changes confined to the font assets/content manifest, font-family case, not
 
 Run from the repository root, using the installed SDK and project's documented restore/build setup:
 
-\`\`\`bash
+```bash
 dotnet tool restore
 dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~Notation|FullyQualifiedName~ManagedFontAssetMapping"
 dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj
 dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj --no-incremental
-\`\`\`
+```
 
-Also build the Windows game and execute \`DTXMania.Test.csproj\` on Windows CI. Inspect a built/published output for the Bravura content XNB and \`Licenses/Bravura-OFL.txt\`. Run a one-off graphics smoke to confirm actual glyphs; the tests above should discover at least one test rather than silently executing zero.
+Also build the Windows game and execute `DTXMania.Test.csproj` on Windows CI. Inspect a built/published output for the Bravura content XNB and `Licenses/Bravura-OFL.txt`. Run a one-off graphics smoke to confirm actual glyphs; the tests above should discover at least one test rather than silently executing zero.
 
 ## Do not do
 
