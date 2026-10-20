@@ -20,9 +20,10 @@ namespace DTXMania.Test.Song.Notation
     /// The real-render smoke (compiled SpriteFont drawn through
     /// IFont.DrawString, px per staff-space ≈ 13.4–13.65, baseline offset
     /// ≈ (−0.36, +108) px, anchors visually verified) was performed once in
-    /// the HPA-409 spike; see .superpowers/sdd/2026-10-19-hpa-409-bravura-
-    /// notation-font/spike/ for the recorded specimen and measurements. It is
-    /// deliberately not a permanent test: the Mac suite excludes GPU tests.
+    /// the HPA-409 spike against pinned Bravura 1.482 metadata; the measured
+    /// values above (and the release pin in the design spec) are the durable
+    /// record. It is deliberately not a permanent test: the Mac suite
+    /// excludes GPU tests.
     /// </summary>
     [Trait("Category", "Song")]
     public class NotationGlyphsTests
