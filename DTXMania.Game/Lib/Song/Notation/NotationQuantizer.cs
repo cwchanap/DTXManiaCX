@@ -23,7 +23,7 @@ namespace DTXMania.Game.Lib.Song.Notation
     /// <list type="bullet">
     /// <item>An onset span of 1-2 ticks becomes a note of that raw length.</item>
     /// <item>A 1-2 tick remainder after an onset's note, or a 1-2 tick gap with no rest to absorb it, is dropped.</item>
-    /// <item>A 1-2 tick remainder after rests folds into the last rest, which can then be non-binary (5 or 7 ticks).</item>
+    /// <item>A 1-2 tick remainder after rests folds into the last rest, which can then be non-binary, e.g. 5 or 7 ticks (any binary length +1/+2).</item>
     /// </list>
     /// </remarks>
     internal static class NotationQuantizer
@@ -36,8 +36,8 @@ namespace DTXMania.Game.Lib.Song.Notation
 
         /// <summary>
         /// Quantizes one bar. Onsets may share a tick and merge into one chord, with heads unique by position.
-        /// Every source note is kept on its head, in input order. Heads inside a chord are ordered by staff step,
-        /// then notehead shape, so the output does not depend on input order.
+        /// Every source note is kept in its head's <see cref="NotationHead.Notes"/>, in input order. Heads inside a chord
+        /// are ordered by staff step, then notehead shape, so head order does not depend on onset input order.
         /// </summary>
         /// <exception cref="ArgumentOutOfRangeException">
         /// measureTicks is below 1, or an onset tick is outside [0, measureTicks). Such an onset would be lost silently.

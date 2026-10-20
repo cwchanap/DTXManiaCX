@@ -481,7 +481,7 @@ namespace DTXMania.Test.Song.Notation
         }
 
         [Fact]
-        public void Quantize_ShouldBeDeterministicRegardlessOfOnsetOrder()
+        public void Quantize_ShouldOrderHeadsIndependentlyOfOnsetOrder()
         {
             NotationOnset[] forward = { OnsetAt(0, 0x13), OnsetAt(0, 0x11), SnareAt(48), OnsetAt(48, 0x19) };
             NotationOnset[] reversed = forward.Reverse().ToArray();

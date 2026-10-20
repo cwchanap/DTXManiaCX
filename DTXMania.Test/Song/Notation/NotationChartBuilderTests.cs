@@ -271,7 +271,7 @@ namespace DTXMania.Test.Song.Notation
             NotationMeasure measure = Assert.Single(NotationChartBuilder.Build(parsed).Measures);
 
             Assert.Equal(1, measure.MeasureTicks);
-            NotationEntry chord = Assert.Single(measure.Entries.Where(e => !e.IsRest));
+            NotationEntry chord = Assert.Single(measure.Entries, e => !e.IsRest);
             Assert.Equal(0, chord.StartTick);
         }
 
@@ -324,7 +324,7 @@ namespace DTXMania.Test.Song.Notation
 
             NotationMeasure measure = Assert.Single(NotationChartBuilder.Build(parsed).Measures);
 
-            NotationEntry chord = Assert.Single(measure.Entries.Where(e => !e.IsRest));
+            NotationEntry chord = Assert.Single(measure.Entries, e => !e.IsRest);
             Assert.Equal(0, chord.StartTick);
             Assert.Equal(first.TimeMs, chord.TimeMs);
             Assert.Equal(new[] { first, second }, Assert.Single(chord.Heads).Notes);
