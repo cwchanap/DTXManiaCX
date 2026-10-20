@@ -48,6 +48,16 @@ namespace DTXMania.Game.Lib.Song.Components
         /// </summary>
         public string Value { get; set; } = "";
 
+        /// <summary>
+        /// Zero-based index of this note's authored slot within its measure row. Notation only; gameplay uses <see cref="Tick"/>.
+        /// </summary>
+        internal int PairIndex { get; set; }
+
+        /// <summary>
+        /// Number of authored slots in the measure row. Zero marks a hand-built note with no slot data.
+        /// </summary>
+        internal int PairCount { get; set; }
+
         #endregion
 
         #region Constructors

@@ -26,6 +26,16 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
+        public void ParameterizedConstructor_ShouldLeaveSlotMetadataUnset()
+        {
+            // PairCount 0 marks a hand-built note with no authored slot; notation falls back to Tick.
+            var note = new Note(0, 1, 96, 0x11, "01");
+
+            Assert.Equal(0, note.PairIndex);
+            Assert.Equal(0, note.PairCount);
+        }
+
+        [Fact]
         public void ParameterizedConstructor_ShouldSetAllProperties()
         {
             var note = new Note(laneIndex: 3, bar: 2, tick: 96, channel: 0x14, value: "0A");
