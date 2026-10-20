@@ -107,8 +107,8 @@ dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj
 - **Status:** Steps 1–3 are implemented on `docs/hpa-408-notation-core-20261018`. This section records verification only. The Windows CI result is recorded on the PR. HPA-408 stays open until the PR merges.
 - **Scope** (`git diff --name-only feeb18df..HEAD`): `Lib/Song/Notation/{DrumStaffMapping,NotationModel,NotationQuantizer,NotationChartBuilder}.cs`; `Note.cs` (internal `PairIndex`, `PairCount`); `DTXChartParser.cs` (one object initializer at the existing `new Note(...)` site); tests in `DTXMania.Test/Song/Notation/`; one parser test in `DTXChartParserAdditionalTests.cs`; one default test in `NoteTests.cs`. Unchanged: `CalculatePairTick`, `Note.Tick`/`TimeMs`, `FinalizeChart()`, `ChartTimingMap`, gameplay code, csproj files, assets. `Notation/` has no MonoGame, config, or UI references. Mapping keys on `Channel`, never `LaneIndex`.
 - **Tests (Mac, `DTXMania.Test.Mac.csproj`):**
-  - `--filter "FullyQualifiedName~Notation"`: `Passed! - Failed: 0, Passed: 113, Skipped: 0, Total: 113`. `--list-tests` discovers 113 (23 mapping, 70 quantizer, 20 builder).
-  - Full suite, runs 1 and 2: `Passed! - Failed: 0, Passed: 8850, Skipped: 0, Total: 8850`, exit 0 both times. The SQLitePCL `ObjectDisposedException` did not reproduce in either run.
+  - `--filter "FullyQualifiedName~Notation"`: `Passed! - Failed: 0, Passed: 117, Skipped: 0, Total: 117` after the review fixes (23 mapping, 70 quantizer, 24 builder; was 113/20 builder before the two bound/ordering tests).
+  - Full suite on the merged net10.0 tree: `Passed! - Failed: 0, Passed: 8868, Skipped: 0, Total: 8868`, exit 0. Earlier runs on the pre-merge net8.0 tree: `Passed: 8850` twice. The SQLitePCL `ObjectDisposedException` did not reproduce.
   - `dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj --no-incremental`: 0 errors, 147 warnings, none in notation or changed production files.
   - Analyzer: the two xUnit2031 warnings from this slice in `NotationChartBuilderTests.cs` (lines 274, 327) are fixed with the `Assert.Single` predicate overload. Eight xUnit2031 warnings remain in test files this slice does not touch. The repo has no warnings-as-errors setting.
   - Windows CI `DTXMania.Test.csproj`: result is recorded on the PR.
@@ -117,18 +117,16 @@ dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj
 - **Deliberate divergences from DTXWeb:**
   1. Chord heads sort by (StaffStep, Shape), not lane order.
   2. An onset outside `[0, measureTicks)` throws `ArgumentOutOfRangeException`. TS silently drops `tick == measureTicks`.
-  3. `measureTicks` is an integer, computed in the builder as `Round(192 * multiplier, AwayFromZero)` and floored at 1 (pinned by `DegenerateMultiplier_ShouldFloorMeasureTicksAtOne`). Only the quantizer API throws for `measureTicks` below 1.
+  3. `measureTicks` is an integer, computed in the builder as `Round(192 * multiplier, AwayFromZero)`, floored at 1 (pinned by `DegenerateMultiplier_ShouldFloorMeasureTicksAtOne`) and capped at a 64x multiplier (12,288 ticks = 256 beats, the `MaxBeatMarkersPerMeasure` ceiling) so oversized `#xxx02` values can neither overflow the `int` conversion nor emit unbounded rests. Only the quantizer API throws for `measureTicks` below 1.
   4. No `beatsPerMeasure` or `tempoEvents`. Lengths and times come from the CX `ChartTimingMap`.
   5. The TS empty-bar early return is folded into the main loop (same output).
   6. `'00'` skipping and non-playable filtering are not in the quantizer. The builder keeps every source note.
-  7. A chord's entry takes the earliest source `TimeMs`. Rests use `CalculateTimeMs` on the canonical tick.
+  7. A chord's entry takes the earliest source `TimeMs`. Rests use `CalculateTimeMs` on their canonical start truncated to the integer grid — the same truncation `CalculatePairTick` applies to notes — so entry times stay non-decreasing even when notation ticks outnumber canonical ones.
   8. Rounded onsets clamp to `measureTicks - 1`. A note that rounds to the bar end lands on the last notation tick, up to one tick early, and is kept.
   9. Onsets are `Round(PairIndex * measureTicks / PairCount)`, multiplying before dividing, rounding half away from zero. DTXWeb computes `position * measureTicks` in floating point, so at exact half-tick positions the two can differ (e.g. 168-tick bar, 112-slot row, slot 17: C# 26, TS 25). The C# result is the exact one.
 - **Documented 1–2-tick exceptions (kept from DTXWeb, covered by tests):** a 1–2-tick onset span becomes a 1- or 2-tick note. A 1–2-tick remainder after a note with no rest to absorb it is dropped. A 1–2-tick remainder after rests folds into the last rest, which can then be non-binary, e.g. 5 or 7 ticks.
 - **Follow-ups for HPA-411 (not in this PR):**
   - Unfinalized charts (notes, no `MeasureLines`) return an empty chart silently. Notes beyond the compiled horizon throw a bare `IndexOutOfRangeException`. Add explicit guards before wiring.
-  - No cap on `measureTicks`. Multipliers above about 11 million overflow `int`, so the result is unspecified (it can collapse to 1 tick), and very large bars emit millions of rests. Cap it before wiring at chart load.
 - **Notes for HPA-410 (not in this PR):**
-  - Rest `TimeMs` can run less than one canonical tick ahead of the next note in bars longer than 2.5×. Rest times use the exact notation position, while note times come from the truncated `Note.Tick`. Spec-literal.
   - Real charts use 4-tick (48-per-bar) onsets that the ported algorithm cannot express as triplets: 232 off-grid onsets and 233 non-binary rests across 135 real charts. A 12-tick-group follow-up is possible once rendering shows it matters.
   - `NotationEntry` and `NotationHead` are records, but their collection members compare by reference. Don't use them as dictionary keys or compare them with `==`.
