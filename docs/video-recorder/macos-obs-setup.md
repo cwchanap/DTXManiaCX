@@ -4,14 +4,15 @@ This runbook covers manual, one-time operator setup for running the
 `dtx-video` recorder on Apple Silicon macOS. The `dtx-video` CLI commands
 (`dtx-video doctor`, `dtx-video record --chart <chart.dtx> --output <dir>`)
 are unchanged from Windows, but the recorder now performs environment
-reading, target resolution, and platform preflight (arm64, macOS 13+,
+reading, target resolution, and platform preflight (arm64, macOS 14+,
 bundled FFmpeg pair) before recording.
 
 ## Prerequisites
 
-- Apple Silicon Mac (`arm64`) running macOS 13 or newer. The bundled
+- Apple Silicon Mac (`arm64`) running macOS 14 or newer. The bundled
   application-audio path (ScreenCaptureKit / macOS Audio Capture) requires
-  macOS 13+, so older systems are rejected before any recording starts.
+  macOS 13+, and .NET 10 supports macOS 14+, so preflight rejects anything
+  older before any recording starts.
 - Native arm64 .NET SDK 10+. Run `dotnet --info` and confirm it reports
   `Architecture: arm64` and an arm64 macOS runtime identifier (`osx-arm64`)
   in the installed runtimes. An x64 SDK running under Rosetta launches the
@@ -170,7 +171,7 @@ DTXMania.VideoRecorder/bin/Debug/net10.0/dtx-video record \
   settings.
 - Black or silent capture — re-check the ScreenCaptureKit source is scoped
   to the DTXManiaCX window and Screen Recording permission is granted.
-- No application audio — confirm macOS 13+, the macOS Audio Capture source
+- No application audio — confirm macOS 14+, the macOS Audio Capture source
   exists, and Desktop Audio/microphone tracks are disabled.
 - Recorder launches but no video appears — confirm OBS is idle before the
   recorder starts and the raw output directory matches
