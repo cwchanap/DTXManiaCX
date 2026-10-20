@@ -34,6 +34,7 @@ namespace DTXMania.Test.Resources
         [Theory]
         [InlineData("Orbitron-OFL.txt")]
         [InlineData("ShareTechMono-OFL.txt")]
+        [InlineData("Bravura-OFL.txt")]
         public void OfLLicenseFile_ShouldExistInContentDirectory(string fileName)
         {
             var path = Path.Combine(ContentDir, fileName);
@@ -54,8 +55,10 @@ namespace DTXMania.Test.Resources
 
             Assert.Contains("Orbitron-OFL.txt", content);
             Assert.Contains("ShareTechMono-OFL.txt", content);
+            Assert.Contains("Bravura-OFL.txt", content);
             Assert.Contains("Licenses\\Orbitron-OFL.txt", content);
             Assert.Contains("Licenses\\ShareTechMono-OFL.txt", content);
+            Assert.Contains("Licenses\\Bravura-OFL.txt", content);
             Assert.Contains("CopyToOutputDirectory", content);
         }
     }

@@ -132,6 +132,21 @@ public class ManagedFontCoverageTests
         Assert.True(linesThatFit <= 1, "With boundsHeight=20 and lineSpacing=16, at most 1 line fits");
     }
 
+    [Fact]
+    public void SupportsCharacter_WithPuaGlyphInSpriteFontCharacters_ShouldBeSupported()
+    {
+        // HPA-409 regression: the legacy range scan never probes the SMuFL
+        // Private Use Area (E000-F8FF), so the cache must union
+        // SpriteFont.Characters; otherwise notation glyphs report as
+        // unsupported and Bravura-Notation silently falls back. Exercised
+        // through the IFont.SupportsCharacter seam, GPU-free.
+        var spriteFont = CreateSpriteFont([('A', 10), ('\uE0A4', 12)]); // E0A4 = NoteheadBlack
+        IFont font = new ManagedFont(spriteFont, "Bravura-Notation", 40);
+
+        Assert.True(font.SupportsCharacter('\uE0A4'), "PUA glyph present in Characters must be supported");
+        Assert.False(font.SupportsCharacter('\uE0A5'), "PUA code point absent from Characters must stay unsupported");
+    }
+
     #region Helpers
 
     private static SpriteFont CreateSpriteFont((char character, int width)[] glyphs, int lineSpacing = 16, char? defaultCharacter = null)
