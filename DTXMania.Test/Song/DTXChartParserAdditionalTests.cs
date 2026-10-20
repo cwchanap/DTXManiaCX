@@ -64,6 +64,74 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
+        public async Task ParseAsync_WhenWavDefinitionsFollowTimelineRows_ShouldResolveThirtySecondBgmAndDrum()
+        {
+            // Reproduces DTXCreator output with #xxxC2 rows before the WAV table.
+            // BGM 1A is in the final cell of a 32-pair row (tick 186);
+            // drum 0G is in the second cell (tick 6).
+            var content =
+                "#BPM: 185\n" +
+                "#000C2: 02\n" +
+                "#013C2: 01\n" +
+                "#WAV1A: bgm.ogg\n" +
+                "#VOLUME1A: 75\n" +
+                "#WAV0G: hihat.ogg\n" +
+                "#VOLUME0G: 60\n" +
+                "#PAN0G: -25\n" +
+                "#00001: " + new string('0', 62) + "1A\n" +
+                "#00011: 000G" + new string('0', 60) + "\n";
+            var path = CreateTempDtx(content);
+            File.WriteAllText(Path.Combine(_tempDir, "bgm.ogg"), "fake");
+            File.WriteAllText(Path.Combine(_tempDir, "hihat.ogg"), "fake");
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            var bgm = Assert.Single(chart.BGMEvents);
+            Assert.Equal("1A", bgm.WavId);
+            Assert.Equal(186, bgm.Tick);
+            Assert.Equal((186.0 / 192.0) * 4.0 * 60000.0 / 185.0, bgm.TimeMs, 3);
+            Assert.Equal(Path.Combine(_tempDir, "bgm.ogg"), bgm.AudioFilePath);
+            Assert.Equal(chart.WavDefinitions["1A"], bgm.AudioFilePath);
+            Assert.Equal(0.75f, chart.GetVolume("1A"));
+
+            var drum = Assert.Single(chart.Notes);
+            Assert.Equal(0x11, drum.Channel);
+            Assert.Equal("0G", drum.Value);
+            Assert.Equal(6, drum.Tick);
+            Assert.Equal((6.0 / 192.0) * 4.0 * 60000.0 / 185.0, drum.TimeMs, 3);
+            Assert.Equal(Path.Combine(_tempDir, "hihat.ogg"), chart.WavDefinitions["0G"]);
+            Assert.Equal(0.60f, chart.GetVolume("0G"));
+            Assert.Equal(-0.25f, chart.GetPan("0G"));
+        }
+
+        [Fact]
+        public async Task ParseAsync_WhenWavDefinitionsFollowChipRows_ShouldResolveForwardReferences()
+        {
+            // Definitions authored after their chip rows must still resolve before
+            // finalization, including alternate WAV volume/pan header spellings.
+            var content =
+                "#BPM: 120\n" +
+                "#00001: 01\n" +
+                "#00012: 02\n" +
+                "#WAV01: bgm.ogg\n" +
+                "#WAV02: snare.ogg\n" +
+                "#WAVVOL01: 35\n" +
+                "#WAVPAN02: -50\n";
+            var path = CreateTempDtx(content);
+            File.WriteAllText(Path.Combine(_tempDir, "bgm.ogg"), "fake");
+            File.WriteAllText(Path.Combine(_tempDir, "snare.ogg"), "fake");
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            Assert.Equal(Path.Combine(_tempDir, "bgm.ogg"),
+                Assert.Single(chart.BGMEvents).AudioFilePath);
+            Assert.Equal(Path.Combine(_tempDir, "snare.ogg"),
+                chart.WavDefinitions[Assert.Single(chart.Notes).Value]);
+            Assert.Equal(0.35f, chart.GetVolume("01"));
+            Assert.Equal(-0.50f, chart.GetPan("02"));
+        }
+
+        [Fact]
         public async Task ParseAsync_WithDrumNotes_ShouldParseAllMappedChannels()
         {
             // Test all mapped drum channels; canonical channel-to-lane contract

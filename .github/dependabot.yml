@@ -9,11 +9,17 @@ updates:
       time: "09:00"
       timezone: "America/Vancouver"
     open-pull-requests-limit: 5
-    # EF Core 10 targets net10.0 only (verified: NU1202 on net8.0); Game is net8.0.
-    # Revisit when the repo retargets to net10 and bumps the EF Core family together.
+    # EF Core majors are TFM-coupled: EF Core N+1 packages require net(N+1).0,
+    # so a major bump cannot merge until the repo retargets. Block majors to
+    # keep Dependabot from proposing them; minor/patch still group-update.
+    # Revisit when the repo moves to the next target framework.
     ignore:
+      - dependency-name: "Microsoft.EntityFrameworkCore.Sqlite"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "Microsoft.EntityFrameworkCore.Tools"
+        update-types: ["version-update:semver-major"]
       - dependency-name: "Microsoft.Data.Sqlite"
-        versions: ["10.x"]
+        update-types: ["version-update:semver-major"]
     groups:
       dotnet-minor-and-patch:
         patterns:

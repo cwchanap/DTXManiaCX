@@ -7,6 +7,12 @@ namespace DTXMania.VideoRecorder.Tests.Diagnostics;
 
 public sealed class RecorderPlatformPreflightTests
 {
+    // Single source for the generated fixture TFMs: the fake game projects
+    // must carry the same TargetFramework values as the real projects, and
+    // every bin/Debug path helper derives from these.
+    private const string MacTargetFramework = "net10.0";
+    private const string WindowsTargetFramework = "net10.0-windows";
+
     [Fact]
     public void Evaluate_WindowsFactsWithDebugOutput_ReportsProjectAndDebugOutputGates()
     {
@@ -38,7 +44,7 @@ public sealed class RecorderPlatformPreflightTests
     {
         // Regression: CreateOptions applies --no-build --configuration Debug
         // to Windows as well, so dotnet run --no-build executes the native
-        // apphost (DTXMania.Game.Windows.exe) from bin/Debug/net8.0-windows.
+        // apphost (DTXMania.Game.Windows.exe) from bin/Debug/net10.0-windows.
         // A clean Windows checkout has the project but no bin/Debug output;
         // preflight must reject it on the "Debug output" gate BEFORE the
         // recorder sandbox is created, with the Windows recovery command.
@@ -124,15 +130,19 @@ public sealed class RecorderPlatformPreflightTests
     }
 
     [Fact]
-    public void Evaluate_MacOs12Arm64_FailsVersionGate()
+    public void Evaluate_MacOs14Arm64_FailsVersionGate()
     {
+        // macOS 14 was .NET 10's supported floor at GA, but it reached Apple
+        // EOL in September 2026 and dropped off Microsoft's support matrix.
+        // The currently supported .NET 10 minimum is macOS 15, so preflight
+        // must reject macOS 14 on the version gate.
         var repo = CreateMacRuntimeRepo();
         try
         {
-            var result = EvaluateMac(repo, new Version(12, 0), Architecture.Arm64);
+            var result = EvaluateMac(repo, new Version(14, 0), Architecture.Arm64);
 
-            var gate = FailedGate(result, "macOS >= 13");
-            Assert.Contains("macOS 12", gate.Detail);
+            var gate = FailedGate(result, "macOS >= 15");
+            Assert.Contains("macOS 14", gate.Detail);
         }
         finally
         {
@@ -141,12 +151,12 @@ public sealed class RecorderPlatformPreflightTests
     }
 
     [Fact]
-    public void Evaluate_MacOs13X64_FailsArchitectureGate()
+    public void Evaluate_MacOs15X64_FailsArchitectureGate()
     {
         var repo = CreateMacRuntimeRepo();
         try
         {
-            var result = EvaluateMac(repo, new Version(13, 0), Architecture.X64);
+            var result = EvaluateMac(repo, new Version(15, 0), Architecture.X64);
 
             var gate = FailedGate(result, "Apple Silicon (arm64)");
             Assert.Contains("X64", gate.Detail);
@@ -158,14 +168,14 @@ public sealed class RecorderPlatformPreflightTests
     }
 
     [Fact]
-    public void Evaluate_MacOs13Arm64WithWrongProject_FailsTargetGate()
+    public void Evaluate_MacOs15Arm64WithWrongProject_FailsTargetGate()
     {
         var repo = CreateMacRuntimeRepo();
         WriteProject(repo, GameProjectPaths.Windows);
         try
         {
             var result = RecorderPlatformPreflight.Evaluate(
-                Facts(isWindows: false, isMacOS: true, new Version(13, 0), Architecture.Arm64),
+                Facts(isWindows: false, isMacOS: true, new Version(15, 0), Architecture.Arm64),
                 CreateTarget(repo, GameProjectPaths.Windows));
 
             Assert.False(result.Passed);
@@ -179,13 +189,13 @@ public sealed class RecorderPlatformPreflightTests
     }
 
     [Fact]
-    public void Evaluate_MacOs13Arm64WithoutFfmpeg_FailsRuntimeGateWithRecoveryCommand()
+    public void Evaluate_MacOs15Arm64WithoutFfmpeg_FailsRuntimeGateWithRecoveryCommand()
     {
         var repo = CreateFakeRepo(GameProjectPaths.Mac);
         WriteRuntimeBinary(repo, "ffprobe", executable: true);
         try
         {
-            var result = EvaluateMac(repo, new Version(13, 0), Architecture.Arm64);
+            var result = EvaluateMac(repo, new Version(15, 0), Architecture.Arm64);
 
             var gate = FailedGate(result, "Bundled ffmpeg");
             Assert.Contains(RecorderPlatformPreflight.MacRuntimeRecoveryCommand, gate.Detail);
@@ -199,13 +209,13 @@ public sealed class RecorderPlatformPreflightTests
     }
 
     [Fact]
-    public void Evaluate_MacOs13Arm64WithoutFfprobe_FailsRuntimeGateWithRecoveryCommand()
+    public void Evaluate_MacOs15Arm64WithoutFfprobe_FailsRuntimeGateWithRecoveryCommand()
     {
         var repo = CreateFakeRepo(GameProjectPaths.Mac);
         WriteRuntimeBinary(repo, "ffmpeg", executable: true);
         try
         {
-            var result = EvaluateMac(repo, new Version(13, 0), Architecture.Arm64);
+            var result = EvaluateMac(repo, new Version(15, 0), Architecture.Arm64);
 
             var gate = FailedGate(result, "Bundled ffprobe");
             Assert.Contains(RecorderPlatformPreflight.MacRuntimeRecoveryCommand, gate.Detail);
@@ -219,7 +229,7 @@ public sealed class RecorderPlatformPreflightTests
     }
 
     [SkippableFact]
-    public void Evaluate_MacOs13Arm64WithNonExecutablePair_FailsRuntimeGates()
+    public void Evaluate_MacOs15Arm64WithNonExecutablePair_FailsRuntimeGates()
     {
         Skip.IfNot(UnixFileModeSupported, "Unix file mode is not representable on this host.");
 
@@ -228,7 +238,7 @@ public sealed class RecorderPlatformPreflightTests
         WriteRuntimeBinary(repo, "ffprobe", executable: false);
         try
         {
-            var result = EvaluateMac(repo, new Version(13, 0), Architecture.Arm64);
+            var result = EvaluateMac(repo, new Version(15, 0), Architecture.Arm64);
 
             Assert.False(result.Passed);
             Assert.Contains(RecorderPlatformPreflight.MacRuntimeRecoveryCommand,
@@ -243,7 +253,7 @@ public sealed class RecorderPlatformPreflightTests
     }
 
     [Fact]
-    public void Evaluate_MacOs13Arm64WithExecutablePair_Passes()
+    public void Evaluate_MacOs15Arm64WithExecutablePair_Passes()
     {
         var repo = CreateFakeRepo(GameProjectPaths.Mac);
         WriteApphost(repo, GameProjectPaths.Mac);
@@ -251,7 +261,7 @@ public sealed class RecorderPlatformPreflightTests
         WriteRuntimeBinary(repo, "ffprobe", executable: true);
         try
         {
-            var result = EvaluateMac(repo, new Version(13, 0), Architecture.Arm64);
+            var result = EvaluateMac(repo, new Version(15, 0), Architecture.Arm64);
 
             Assert.True(result.Passed);
             Assert.All(result.Gates, gate => Assert.True(gate.Passed));
@@ -264,9 +274,9 @@ public sealed class RecorderPlatformPreflightTests
     }
 
     [Fact]
-    public void Evaluate_MacOs13Arm64WithManagedDllButNoApphost_FailsDebugOutputGate()
+    public void Evaluate_MacOs15Arm64WithManagedDllButNoApphost_FailsDebugOutputGate()
     {
-        // Regression: the Mac project is a net8.0 WinExe with the SDK default
+        // Regression: the Mac project is a net10.0 WinExe with the SDK default
         // UseAppHost=true, so dotnet run --no-build executes the native
         // apphost (DTXMania.Game.Mac, no extension), not the managed DLL.
         // A previous version of the "Debug output" gate checked only the
@@ -281,7 +291,7 @@ public sealed class RecorderPlatformPreflightTests
         WriteRuntimeBinary(repo, "ffprobe", executable: true);
         try
         {
-            var result = EvaluateMac(repo, new Version(13, 0), Architecture.Arm64);
+            var result = EvaluateMac(repo, new Version(15, 0), Architecture.Arm64);
 
             Assert.False(result.Passed);
             var debugGate = FailedGate(result, "Debug output");
@@ -300,7 +310,7 @@ public sealed class RecorderPlatformPreflightTests
     }
 
     [SkippableFact]
-    public void Evaluate_MacOs13Arm64WithNonExecutableApphost_FailsDebugOutputGate()
+    public void Evaluate_MacOs15Arm64WithNonExecutableApphost_FailsDebugOutputGate()
     {
         // The apphost exists but is not executable. dotnet run --no-build
         // would fail to launch it, so preflight must reject it the same way
@@ -314,7 +324,7 @@ public sealed class RecorderPlatformPreflightTests
         WriteRuntimeBinary(repo, "ffprobe", executable: true);
         try
         {
-            var result = EvaluateMac(repo, new Version(13, 0), Architecture.Arm64);
+            var result = EvaluateMac(repo, new Version(15, 0), Architecture.Arm64);
 
             Assert.False(result.Passed);
             var debugGate = FailedGate(result, "Debug output");
@@ -327,28 +337,29 @@ public sealed class RecorderPlatformPreflightTests
     }
 
     [Fact]
-    public void Evaluate_MacOs13Arm64WithStaleTfmRuntimeOnly_FailsDebugOutputGate()
+    public void Evaluate_MacOs15Arm64WithStaleTfmRuntimeOnly_FailsDebugOutputGate()
     {
-        // Project targets net8.0, but only a stale previous-TFM runtime exists.
-        // The old enumerator-based resolution would accept the stale runtime;
-        // the TFM-pinned resolver must reject it because the current Debug
-        // output directory has no build output.
+        // Project targets net10.0, but only a stale previous-TFM runtime
+        // exists (net8.0 — the TFM every pre-retarget checkout actually left
+        // in bin/Debug). The old enumerator-based resolution would accept
+        // the stale runtime; the TFM-pinned resolver must reject it because
+        // the current Debug output directory has no build output.
         var repo = CreateFakeRepo(GameProjectPaths.Mac);
         var staleRuntime = Path.Combine(
-            repo, "DTXMania.Game", "bin", "Debug", "net7.0", "runtimes", "osx-arm64", "MMTools");
+            repo, "DTXMania.Game", "bin", "Debug", "net8.0", "runtimes", "osx-arm64", "MMTools");
         WriteExecutableFile(Path.Combine(staleRuntime, "ffmpeg"));
         WriteExecutableFile(Path.Combine(staleRuntime, "ffprobe"));
         try
         {
-            var result = EvaluateMac(repo, new Version(13, 0), Architecture.Arm64);
+            var result = EvaluateMac(repo, new Version(15, 0), Architecture.Arm64);
 
             Assert.False(result.Passed);
             var debugGate = FailedGate(result, "Debug output");
-            Assert.Contains("net8.0", debugGate.Detail);
+            Assert.Contains(MacTargetFramework, debugGate.Detail);
             // The resolved runtime directory must follow the current TFM, not
-            // the stale one, so a stale net7.0 runtime cannot satisfy gates.
-            Assert.Contains("net8.0", result.MacRuntimeDirectory!);
-            Assert.DoesNotContain("net7.0", result.MacRuntimeDirectory!);
+            // the stale one, so a stale net8.0 runtime cannot satisfy gates.
+            Assert.Contains(MacTargetFramework, result.MacRuntimeDirectory!);
+            Assert.DoesNotContain("net8.0", result.MacRuntimeDirectory!);
         }
         finally
         {
@@ -357,15 +368,15 @@ public sealed class RecorderPlatformPreflightTests
     }
 
     [Fact]
-    public void Evaluate_MacOs13Arm64WithUnreadableTargetFramework_FailsTargetFrameworkGateBeforeRuntimeGates()
+    public void Evaluate_MacOs15Arm64WithUnreadableTargetFramework_FailsTargetFrameworkGateBeforeRuntimeGates()
     {
         // Project file exists but carries no readable <TargetFramework>, while
-        // a stale bin/Debug/net8.0 build output (apphost + bundled
-        // ffmpeg/ffprobe) is present. The net8.0 fallback must NOT let the
+        // a stale bin/Debug build output (apphost + bundled
+        // ffmpeg/ffprobe) is present. The bin/Debug fallback must NOT let the
         // runtime/output gates pass: preflight fails on a dedicated
         // "Target framework" gate, and the runtime/output gates are not
-        // evaluated, so a stale net8.0 directory cannot satisfy preflight
-        // when the current project's TFM is unreadable.
+        // evaluated, so a stale previous-TFM directory cannot satisfy
+        // preflight when the current project's TFM is unreadable.
         var repo = CreateFakeRepo(GameProjectPaths.Mac);
         OverwriteProjectWithoutTargetFramework(repo, GameProjectPaths.Mac);
         WriteApphost(repo, GameProjectPaths.Mac);
@@ -373,22 +384,24 @@ public sealed class RecorderPlatformPreflightTests
         WriteRuntimeBinary(repo, "ffprobe", executable: true);
         try
         {
-            var result = EvaluateMac(repo, new Version(13, 0), Architecture.Arm64);
+            var result = EvaluateMac(repo, new Version(15, 0), Architecture.Arm64);
 
             Assert.False(result.Passed);
 
             var tfmGate = FailedGate(result, "Target framework");
             Assert.Contains(GameProjectPaths.Mac, tfmGate.Detail);
-            Assert.Contains("net8.0", tfmGate.Detail);
+            // The gate detail normalizes separators, so bin/Debug appears
+            // verbatim on every host OS.
+            Assert.Contains("bin/Debug", tfmGate.Detail);
 
             // The runtime/output gates must be absent (not merely failing) so
-            // a stale net8.0 directory cannot green-light preflight.
+            // a stale previous-TFM directory cannot green-light preflight.
             Assert.DoesNotContain(result.Gates, gate => gate.Name == "Debug output");
             Assert.DoesNotContain(result.Gates, gate => gate.Name == "Bundled ffmpeg");
             Assert.DoesNotContain(result.Gates, gate => gate.Name == "Bundled ffprobe");
 
             // The fallback directory is still surfaced for diagnostics.
-            Assert.Contains("net8.0", result.MacRuntimeDirectory!);
+            Assert.Contains(Path.Combine("bin", "Debug"), result.MacRuntimeDirectory!);
         }
         finally
         {
@@ -397,14 +410,14 @@ public sealed class RecorderPlatformPreflightTests
     }
 
     [SkippableFact]
-    public void Evaluate_MacOs13Arm64WithPermissionDeniedProject_FailsTargetFrameworkGateBeforeRuntimeGates()
+    public void Evaluate_MacOs15Arm64WithPermissionDeniedProject_FailsTargetFrameworkGateBeforeRuntimeGates()
     {
         // Regression: File.ReadAllText throws UnauthorizedAccessException (not
         // IOException) when the project file exists but is unreadable due to
         // file permissions. ReadTargetFramework must catch it and return null
         // so Evaluate reports a failed "Target framework" gate rather than
         // propagating the exception and crashing preflight after the sandbox
-        // is created. Stages a valid <TargetFramework> plus a stale net8.0
+        // is created. Stages a valid <TargetFramework> plus a stale Debug
         // build output (apphost + bundled ffmpeg/ffprobe) so the only thing
         // preventing TFM resolution is the permission denial.
         Skip.IfNot(UnixFileModeSupported, "Unix file mode is not representable on this host.");
@@ -424,23 +437,23 @@ public sealed class RecorderPlatformPreflightTests
             Skip.If(CanReadDespiteModeNone(projectPath),
                 "Test host bypasses file read permissions (running as root).");
 
-            var result = EvaluateMac(repo, new Version(13, 0), Architecture.Arm64);
+            var result = EvaluateMac(repo, new Version(15, 0), Architecture.Arm64);
 
             Assert.False(result.Passed);
 
             var tfmGate = FailedGate(result, "Target framework");
             Assert.Contains(GameProjectPaths.Mac, tfmGate.Detail);
-            Assert.Contains("net8.0", tfmGate.Detail);
+            Assert.Contains("bin/Debug", tfmGate.Detail);
 
             // The runtime/output gates must be absent (not merely failing) so
-            // a stale net8.0 directory cannot green-light preflight when the
-            // current project's TFM is unreadable.
+            // a stale previous-TFM directory cannot green-light preflight when
+            // the current project's TFM is unreadable.
             Assert.DoesNotContain(result.Gates, gate => gate.Name == "Debug output");
             Assert.DoesNotContain(result.Gates, gate => gate.Name == "Bundled ffmpeg");
             Assert.DoesNotContain(result.Gates, gate => gate.Name == "Bundled ffprobe");
 
             // The fallback directory is still surfaced for diagnostics.
-            Assert.Contains("net8.0", result.MacRuntimeDirectory!);
+            Assert.Contains(Path.Combine("bin", "Debug"), result.MacRuntimeDirectory!);
         }
         finally
         {
@@ -523,12 +536,9 @@ public sealed class RecorderPlatformPreflightTests
         var projectPath = Resolve(root, relativeProjectPath);
         Directory.CreateDirectory(Path.GetDirectoryName(projectPath)!);
         // The fake project carries the same TargetFramework the real project
-        // does (net8.0-windows for Windows, net8.0 for Mac), so the
-        // TFM-pinned Debug output resolver exercises the production path
-        // rather than the unreadable-project fallback.
-        var targetFramework = relativeProjectPath == GameProjectPaths.Windows
-            ? "net8.0-windows"
-            : "net8.0";
+        // does, so the TFM-pinned Debug output resolver exercises the
+        // production path rather than the unreadable-project fallback.
+        var targetFramework = TargetFrameworkFor(relativeProjectPath);
         File.WriteAllText(
             projectPath,
             "<Project Sdk=\"Microsoft.NET.Sdk\">"
@@ -536,38 +546,43 @@ public sealed class RecorderPlatformPreflightTests
                 + "</Project>");
     }
 
+    private static string TargetFrameworkFor(string relativeProjectPath)
+        => relativeProjectPath == GameProjectPaths.Windows
+            ? WindowsTargetFramework
+            : MacTargetFramework;
+
     private static string Resolve(string root, string relativeProjectPath)
         => Path.Combine(new[] { root }.Concat(relativeProjectPath.Split('/')).ToArray());
 
     private static string RuntimeDirectory(string repo)
-        => Path.Combine(repo, "DTXMania.Game", "bin", "Debug", "net8.0", "runtimes", "osx-arm64", "MMTools");
+        => Path.Combine(repo, "DTXMania.Game", "bin", "Debug", MacTargetFramework, "runtimes", "osx-arm64", "MMTools");
 
     private static void WriteApphost(string repo, string relativeProjectPath)
     {
-        // dotnet run --no-build on a net8.0 WinExe with UseAppHost=true
+        // dotnet run --no-build on a net10.0 WinExe with UseAppHost=true
         // executes the native apphost (named after the assembly, no extension
         // on macOS), not the managed DLL. Tests must therefore stage the
         // apphost — the artifact the "Debug output" gate certifies.
         var projectPath = Resolve(repo, relativeProjectPath);
         var assemblyName = Path.GetFileNameWithoutExtension(projectPath);
         var debugDir = Path.Combine(
-            Path.GetDirectoryName(projectPath)!, "bin", "Debug", "net8.0");
+            Path.GetDirectoryName(projectPath)!, "bin", "Debug", TargetFrameworkFor(relativeProjectPath));
         WriteExecutableFile(Path.Combine(debugDir, assemblyName));
     }
 
     private static void WriteWindowsApphost(string repo, string relativeProjectPath)
     {
-        // dotnet run --no-build on a net8.0-windows WinExe with
+        // dotnet run --no-build on a net10.0-windows WinExe with
         // UseAppHost=true executes the native apphost (named after the
         // assembly with a .exe extension on Windows). Tests stage the apphost
-        // in the TFM-pinned bin/Debug/net8.0-windows directory — the artifact
+        // in the TFM-pinned bin/Debug/net10.0-windows directory — the artifact
         // the Windows "Debug output" gate certifies. On Unix test hosts the
         // executable bit is set so IsExecutable (which keys off the host OS,
         // not the synthetic facts) treats it as usable.
         var projectPath = Resolve(repo, relativeProjectPath);
         var assemblyName = Path.GetFileNameWithoutExtension(projectPath);
         var debugDir = Path.Combine(
-            Path.GetDirectoryName(projectPath)!, "bin", "Debug", "net8.0-windows");
+            Path.GetDirectoryName(projectPath)!, "bin", "Debug", TargetFrameworkFor(relativeProjectPath));
         WriteExecutableFile(Path.Combine(debugDir, assemblyName + ".exe"));
     }
 
@@ -576,7 +591,7 @@ public sealed class RecorderPlatformPreflightTests
         var projectPath = Resolve(repo, relativeProjectPath);
         var assemblyName = Path.GetFileNameWithoutExtension(projectPath);
         var debugDir = Path.Combine(
-            Path.GetDirectoryName(projectPath)!, "bin", "Debug", "net8.0");
+            Path.GetDirectoryName(projectPath)!, "bin", "Debug", TargetFrameworkFor(relativeProjectPath));
         var path = Path.Combine(debugDir, assemblyName);
         Directory.CreateDirectory(debugDir);
         File.WriteAllText(path, "stub");
@@ -591,7 +606,7 @@ public sealed class RecorderPlatformPreflightTests
         var projectPath = Resolve(repo, relativeProjectPath);
         var assemblyName = Path.GetFileNameWithoutExtension(projectPath);
         var debugDir = Path.Combine(
-            Path.GetDirectoryName(projectPath)!, "bin", "Debug", "net8.0");
+            Path.GetDirectoryName(projectPath)!, "bin", "Debug", TargetFrameworkFor(relativeProjectPath));
         Directory.CreateDirectory(debugDir);
         File.WriteAllText(Path.Combine(debugDir, assemblyName + ".dll"), "stub");
     }

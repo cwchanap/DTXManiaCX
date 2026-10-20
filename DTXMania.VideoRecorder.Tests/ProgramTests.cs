@@ -9,6 +9,10 @@ namespace DTXMania.VideoRecorder.Tests;
 
 public sealed class ProgramTests
 {
+    // Single source for the generated fixture's TFM: the fake game project's
+    // csproj and the staged bin/Debug output path both derive from this.
+    private const string MacGameTargetFramework = "net10.0";
+
     [Fact]
     public async Task RunRecordAsync_FailedPreflight_RejectsBeforeSandboxDiagnosticsOrObs()
     {
@@ -66,7 +70,7 @@ public sealed class ProgramTests
             var facts = new RecorderPlatformFacts(
                 IsWindows: false,
                 IsMacOS: true,
-                OsVersion: new Version(14, 0),
+                OsVersion: new Version(15, 0),
                 ProcessArchitecture: Architecture.Arm64);
             var preflight = RecorderPlatformPreflight.Evaluate(
                 facts,
@@ -81,7 +85,7 @@ public sealed class ProgramTests
 
             Assert.True(passed);
             var output = writer.ToString();
-            Assert.Contains("macOS >= 13: passed", output);
+            Assert.Contains("macOS >= 15: passed", output);
             Assert.Contains("Bundled ffmpeg: passed", output);
             Assert.DoesNotContain("Windows: ", output);
             Assert.DoesNotContain("Windows-only", output);
@@ -182,16 +186,16 @@ public sealed class ProgramTests
         File.WriteAllText(
             projectPath,
             "<Project Sdk=\"Microsoft.NET.Sdk\">"
-                + "<PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup>"
+                + $"<PropertyGroup><TargetFramework>{MacGameTargetFramework}</TargetFramework></PropertyGroup>"
                 + "</Project>");
         var debugOutputDirectory = Path.Combine(
             root,
             "DTXMania.Game",
             "bin",
             "Debug",
-            "net8.0");
+            MacGameTargetFramework);
         Directory.CreateDirectory(debugOutputDirectory);
-        // dotnet run --no-build on a net8.0 WinExe with UseAppHost=true
+        // dotnet run --no-build on a net10.0 WinExe with UseAppHost=true
         // executes the native apphost (no extension on macOS), not the DLL.
         // Stage the apphost with the executable bit so the "Debug output"
         // gate passes, matching a real Debug build's output.

@@ -30,10 +30,10 @@ internal sealed record RecorderPlatformPreflightResult(
 /// accepted as evidence. Because <c>record</c> launches with
 /// <c>dotnet run --no-build --configuration Debug</c> on every platform,
 /// preflight certifies the exact Debug output artifact that launch will
-/// execute. The Mac project is a net8.0 <c>WinExe</c> with the SDK default
+/// execute. The Mac project is a net10.0 <c>WinExe</c> with the SDK default
 /// <c>UseAppHost=true</c>, so <c>dotnet run --no-build</c> executes the
 /// native apphost (<c>&lt;AssemblyName&gt;</c>, no extension on macOS) — not
-/// the managed DLL. The Windows project is a net8.0-windows <c>WinExe</c>
+/// the managed DLL. The Windows project is a net10.0-windows <c>WinExe</c>
 /// with the same SDK default, so its apphost is
 /// <c>&lt;AssemblyName&gt;.exe</c>. The "Debug output" gate therefore
 /// certifies the apphost itself (existence + executable bit on macOS;
@@ -70,9 +70,13 @@ internal static class RecorderPlatformPreflight
     /// Debug output apphost (<c>&lt;AssemblyName&gt;.exe</c>) in the exact
     /// <c>bin/Debug/&lt;TargetFramework&gt;</c> directory
     /// <c>--no-build</c> will launch, with no native-runtime, version, or
-    /// architecture rejection; macOS must be 13+ on Apple Silicon with the
+    /// architecture rejection; macOS must be 15+ on Apple Silicon with the
     /// Mac project and a usable bundled runtime in the exact Debug output
-    /// directory <c>--no-build</c> will launch.
+    /// directory <c>--no-build</c> will launch. The 15+ floor is .NET 10's
+    /// currently supported macOS minimum — macOS 14 reached Apple EOL in
+    /// September 2026 and macOS 13 was never a .NET 10 target — and it
+    /// subsumes the ScreenCaptureKit application-audio requirement of
+    /// macOS 13+.
     /// </summary>
     internal static RecorderPlatformPreflightResult Evaluate(
         RecorderPlatformFacts facts,
@@ -113,7 +117,7 @@ internal static class RecorderPlatformPreflight
         var debugOutputResolution = ResolveDebugOutputDirectory(projectPath, projectDirectory);
         var debugOutputDirectory = debugOutputResolution.Directory;
         var runtimeDirectory = Path.Combine(debugOutputDirectory, "runtimes", "osx-arm64", "MMTools");
-        // dotnet run --no-build on a net8.0 WinExe with UseAppHost=true (the
+        // dotnet run --no-build on a net10.0 WinExe with UseAppHost=true (the
         // SDK default for executable projects) executes the native apphost,
         // not the managed DLL. The apphost is named after the assembly with
         // no extension on macOS. Certify the apphost itself so a
@@ -124,8 +128,8 @@ internal static class RecorderPlatformPreflight
         var macGates = new List<RecorderPreflightGate>
         {
             new RecorderPreflightGate(
-                "macOS >= 13",
-                facts.OsVersion.Major >= 13,
+                "macOS >= 15",
+                facts.OsVersion.Major >= 15,
                 $"found macOS {facts.OsVersion}"),
             new RecorderPreflightGate(
                 "Apple Silicon (arm64)",
@@ -140,12 +144,12 @@ internal static class RecorderPlatformPreflight
         if (debugOutputResolution.TargetFramework is null)
         {
             // Target-framework resolution failed (project missing, IO error,
-            // or no <TargetFramework> element). The net8.0 fallback below is
-            // retained only to name a diagnostic location in
+            // or no <TargetFramework> element). The bin/Debug fallback below
+            // is retained only to name a diagnostic location in
             // MacRuntimeDirectory and the gate detail; the runtime/output
             // gates are deliberately not evaluated so a stale
-            // bin/Debug/net8.0 directory cannot satisfy preflight when the
-            // current project's TFM is unreadable.
+            // bin/Debug/<previous-TFM> directory cannot satisfy preflight
+            // when the current project's TFM is unreadable.
             macGates.Add(new RecorderPreflightGate(
                 "Target framework",
                 Passed: false,
@@ -179,7 +183,7 @@ internal static class RecorderPlatformPreflight
             .EndsWith(GameProjectPaths.Mac, StringComparison.Ordinal);
 
     /// <summary>
-    /// Windows-only gates. <c>dotnet run --no-build</c> on a net8.0-windows
+    /// Windows-only gates. <c>dotnet run --no-build</c> on a net10.0-windows
     /// <c>WinExe</c> with the SDK default <c>UseAppHost=true</c> executes the
     /// native apphost (<c>&lt;AssemblyName&gt;.exe</c>), not the managed DLL.
     /// The "Debug output" gate certifies that apphost in the TFM-pinned
@@ -222,7 +226,7 @@ internal static class RecorderPlatformPreflight
 
     /// <summary>
     /// Derives the native apphost file name that
-    /// <c>dotnet run --no-build</c> executes for a net8.0 <c>WinExe</c>
+    /// <c>dotnet run --no-build</c> executes for a net10.0 <c>WinExe</c>
     /// project with the SDK default <c>UseAppHost=true</c>. The apphost is
     /// named after the assembly with no extension on macOS. This matches the
     /// default MSBuild assembly name for a single-target project that does
@@ -233,7 +237,7 @@ internal static class RecorderPlatformPreflight
 
     /// <summary>
     /// Derives the native Windows apphost file name that
-    /// <c>dotnet run --no-build</c> executes for a net8.0-windows
+    /// <c>dotnet run --no-build</c> executes for a net10.0-windows
     /// <c>WinExe</c> project with the SDK default <c>UseAppHost=true</c>:
     /// <c>&lt;AssemblyName&gt;.exe</c>.
     /// </summary>
@@ -250,12 +254,15 @@ internal static class RecorderPlatformPreflight
     /// project file or target framework cannot be read,
     /// <see cref="DebugOutputResolution.TargetFramework"/> is null and the
     /// returned <see cref="DebugOutputResolution.Directory"/> falls back to
-    /// a best-effort <c>net8.0</c> path so downstream diagnostic strings
-    /// (gate detail, <see cref="RecorderPlatformPreflightResult.MacRuntimeDirectory"/>)
-    /// still name a location; the caller must add a failed gate in that case
-    /// rather than relying on the fallback directory to satisfy runtime/output
-    /// gates, since a stale <c>bin/Debug/net8.0</c> directory could otherwise
-    /// pass those <see cref="File.Exists"/> checks.
+    /// the <c>bin/Debug</c> root — deliberately not a fabricated TFM
+    /// subdirectory, which would hardcode a framework name that drifts on
+    /// every retarget and is wrong for TFMs like <c>net10.0-windows</c>.
+    /// The fallback keeps downstream diagnostic strings (gate detail,
+    /// <see cref="RecorderPlatformPreflightResult.MacRuntimeDirectory"/>)
+    /// naming a real location; the caller must add a failed gate in that
+    /// case rather than relying on the fallback directory to satisfy
+    /// runtime/output gates, since a stale <c>bin/Debug/&lt;TFM&gt;</c>
+    /// directory could otherwise pass those <see cref="File.Exists"/> checks.
     /// </summary>
     private static DebugOutputResolution ResolveDebugOutputDirectory(
         string projectPath,
@@ -264,7 +271,7 @@ internal static class RecorderPlatformPreflight
         var targetFramework = ReadTargetFramework(projectPath);
         var binDebug = Path.Combine(projectDirectory, "bin", "Debug");
         return new DebugOutputResolution(
-            Path.Combine(binDebug, targetFramework ?? "net8.0"),
+            targetFramework is null ? binDebug : Path.Combine(binDebug, targetFramework),
             targetFramework);
     }
 
@@ -317,9 +324,9 @@ internal static class RecorderPlatformPreflight
 
     private static Version CaptureOsVersion()
     {
-        // On .NET 5+ (this project targets net8.0), Environment.OSVersion
+        // On .NET 5+ (this project targets net10.0), Environment.OSVersion
         // returns the macOS product version directly (e.g. macOS 26 reports
-        // 26.5.2), not the Darwin kernel version. The "macOS >= 13" gate
+        // 26.5.2), not the Darwin kernel version. The "macOS >= 15" gate
         // therefore compares product versions without any Darwin conversion.
         return Environment.OSVersion.Version;
     }

@@ -266,16 +266,7 @@ namespace DTXMania.Game.Lib.Stage.Result
         /// Returns "--" when level <= 0. Uses InvariantCulture for consistent formatting.
         /// </summary>
         public static string FormatLevel(int level, int levelDec)
-        {
-            if (level <= 0)
-                return "--";
-
-            var actualLevel = level >= 100
-                ? level / 100.0
-                : (level / 10.0) + (Math.Max(0, levelDec) / 100.0);
-
-            return actualLevel.ToString("0.00", CultureInfo.InvariantCulture);
-        }
+            => ChartLevelFormatter.Format(level, levelDec);
 
         /// <summary>
         /// Picks the difficulty-tier name to show next to the level value. Mirrors

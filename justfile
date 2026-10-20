@@ -150,7 +150,7 @@ test-trait filter:
 test-cov:
     dotnet test {{ mac_test }} --collect:"XPlat Code Coverage" --settings coverlet.runsettings --results-directory ./TestResults
 
-# ── E2E (the E2E project targets net8.0-windows7.0, so Windows-only) ──
+# ── E2E (the E2E project targets net10.0-windows7.0, so Windows-only) ──
 
 # Cross-platform automation library tests (no gameplay launch)
 automation-test:

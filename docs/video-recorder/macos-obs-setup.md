@@ -4,15 +4,17 @@ This runbook covers manual, one-time operator setup for running the
 `dtx-video` recorder on Apple Silicon macOS. The `dtx-video` CLI commands
 (`dtx-video doctor`, `dtx-video record --chart <chart.dtx> --output <dir>`)
 are unchanged from Windows, but the recorder now performs environment
-reading, target resolution, and platform preflight (arm64, macOS 13+,
+reading, target resolution, and platform preflight (arm64, macOS 15+,
 bundled FFmpeg pair) before recording.
 
 ## Prerequisites
 
-- Apple Silicon Mac (`arm64`) running macOS 13 or newer. The bundled
-  application-audio path (ScreenCaptureKit / macOS Audio Capture) requires
-  macOS 13+, so older systems are rejected before any recording starts.
-- Native arm64 .NET SDK 8+. Run `dotnet --info` and confirm it reports
+- Apple Silicon Mac (`arm64`) running macOS 15 or newer. .NET 10's
+  currently supported macOS floor is 15 (macOS 14 reached Apple EOL in
+  September 2026), and the bundled application-audio path
+  (ScreenCaptureKit / macOS Audio Capture) requires macOS 13+, so
+  preflight rejects anything older before any recording starts.
+- Native arm64 .NET SDK 10+. Run `dotnet --info` and confirm it reports
   `Architecture: arm64` and an arm64 macOS runtime identifier (`osx-arm64`)
   in the installed runtimes. An x64 SDK running under Rosetta launches the
   recorder as an x64 process, which the preflight architecture gate rejects.
@@ -43,12 +45,12 @@ process runs arm64, that the game project is the Mac project, that the
 native apphost exists and is executable, and that the bundled FFmpeg pair
 exists and is executable:
 
-- `DTXMania.Game/bin/Debug/net8.0/DTXMania.Game.Mac` (native arm64 apphost;
-  `dotnet run --no-build` on a net8.0 `WinExe` with `UseAppHost=true`
+- `DTXMania.Game/bin/Debug/net10.0/DTXMania.Game.Mac` (native arm64 apphost;
+  `dotnet run --no-build` on a net10.0 `WinExe` with `UseAppHost=true`
   executes this binary, not the managed DLL, so preflight gates its
   existence and executable bit)
-- `DTXMania.Game/bin/Debug/net8.0/runtimes/osx-arm64/MMTools/ffmpeg`
-- `DTXMania.Game/bin/Debug/net8.0/runtimes/osx-arm64/MMTools/ffprobe`
+- `DTXMania.Game/bin/Debug/net10.0/runtimes/osx-arm64/MMTools/ffmpeg`
+- `DTXMania.Game/bin/Debug/net10.0/runtimes/osx-arm64/MMTools/ffprobe`
 
 The apphost gate is named "Debug output" in `doctor` output. Manually
 inspecting the apphost with `file` and confirming it is `arm64` (the `file`
@@ -145,10 +147,10 @@ dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj --configuration Debug
 dotnet build DTXMania.VideoRecorder/DTXMania.VideoRecorder.csproj --configuration Debug
 
 # check host, project, apphost, runtime pair, config, and OBS connectivity
-DTXMania.VideoRecorder/bin/Debug/net8.0/dtx-video doctor
+DTXMania.VideoRecorder/bin/Debug/net10.0/dtx-video doctor
 
 # record one chart
-DTXMania.VideoRecorder/bin/Debug/net8.0/dtx-video record \
+DTXMania.VideoRecorder/bin/Debug/net10.0/dtx-video record \
   --chart <chart.dtx> --output <publish directory>
 ```
 
@@ -170,7 +172,7 @@ DTXMania.VideoRecorder/bin/Debug/net8.0/dtx-video record \
   settings.
 - Black or silent capture — re-check the ScreenCaptureKit source is scoped
   to the DTXManiaCX window and Screen Recording permission is granted.
-- No application audio — confirm macOS 13+, the macOS Audio Capture source
+- No application audio — confirm macOS 15+, the macOS Audio Capture source
   exists, and Desktop Audio/microphone tracks are disabled.
 - Recorder launches but no video appears — confirm OBS is idle before the
   recorder starts and the raw output directory matches
