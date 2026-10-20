@@ -22,10 +22,10 @@
 - `DTXMania.Game/Lib/Song/Notation/NotationModel.cs`
 - `DTXMania.Test/Song/Notation/DrumStaffMappingTests.cs`
 
-- [ ] Read current DTXWeb mapping and model files as the ground truth. Map the twelve DTX `Note.Channel` values to staff step + head shape (normal/x/circled-x) via one exhaustive switch; unexpected `Note.Channel` throws clearly.
-- [ ] Define structurally immutable result types just large enough for HPA-410: chart, measure, entry (note/rest), chord heads with `IReadOnlyList<Note>` source references (not copied IDs), triplet group. The referenced `Note` objects remain gameplay-owned and mutable.
-- [ ] Add focused mapping tests, including distinguish 0x11/0x18, 0x1B/0x1C, and 0x16/0x19/0x1A.
-- [ ] Ensure no production dependency on MonoGame, VexFlow, config, or UI.
+- [x] Read current DTXWeb mapping and model files as the ground truth. Map the twelve DTX `Note.Channel` values to staff step + head shape (normal/x/circled-x) via one exhaustive switch; unexpected `Note.Channel` throws clearly.
+- [x] Define structurally immutable result types just large enough for HPA-410: chart, measure, entry (note/rest), chord heads with `IReadOnlyList<Note>` source references (not copied IDs), triplet group. The referenced `Note` objects remain gameplay-owned and mutable.
+- [x] Add focused mapping tests, including distinguish 0x11/0x18, 0x1B/0x1C, and 0x16/0x19/0x1A.
+- [x] Ensure no production dependency on MonoGame, VexFlow, config, or UI.
 
 **Done when:** data types are simple and stable, and the mapping tests pass.
 
@@ -35,11 +35,11 @@
 - `DTXMania.Game/Lib/Song/Notation/NotationQuantizer.cs`
 - `DTXMania.Test/Song/Notation/NotationQuantizerTests.cs`
 
-- [ ] Translate the algorithm in `DTXWeb/packages/common/src/lib/notation/quantize.ts`, not just its output examples: greedy 192..3 binary durations; chord assembly at a common onset; ordered triplet candidate detection for groups of 24/48/96/192; leading/inner/trailing rest fill; sub-3-tick remainder policy.
-- [ ] Accept integer notation tick onsets and already-mapped heads with source `Note` references. Quantizer should not know `ParsedChart`, BPM, `SpriteFont`, or geometry.
-- [ ] Deduplicate identical displayed heads only while retaining **all** underlying `Note` references; keep x and circled-x at the same staff step distinct.
-- [ ] Adapt DTXWeb's relevant `quantize.test.ts` cases as xUnit tests/theories; include tuplets after leading rests, consecutive groups, 3/4 and 2/4, empty bars, off-grid spans, and invariant tests for entries within measure boundaries.
-- [ ] Preserve TS behavior when rests cannot exactly cover tiny 1–2-tick gaps; document those known exceptions instead of adding invented 1-tick glyph durations.
+- [x] Translate the algorithm in `DTXWeb/packages/common/src/lib/notation/quantize.ts`, not just its output examples: greedy 192..3 binary durations; chord assembly at a common onset; ordered triplet candidate detection for groups of 24/48/96/192; leading/inner/trailing rest fill; sub-3-tick remainder policy.
+- [x] Accept integer notation tick onsets and already-mapped heads with source `Note` references. Quantizer should not know `ParsedChart`, BPM, `SpriteFont`, or geometry.
+- [x] Deduplicate identical displayed heads only while retaining **all** underlying `Note` references; keep x and circled-x at the same staff step distinct.
+- [x] Adapt DTXWeb's relevant `quantize.test.ts` cases as xUnit tests/theories; include tuplets after leading rests, consecutive groups, 3/4 and 2/4, empty bars, off-grid spans, and invariant tests for entries within measure boundaries.
+- [x] Preserve TS behavior when rests cannot exactly cover tiny 1–2-tick gaps; document those known exceptions instead of adding invented 1-tick glyph durations.
 
 **Done when:** quantization is deterministic, pure (does not mutate source notes), and covered by the core ported cases.
 
@@ -53,46 +53,46 @@
 - `DTXMania.Game/Lib/Song/Components/Note.cs` — two `internal` original-slot fields (`PairIndex`, `PairCount`); `PairCount == 0` indicates a hand-built note with no slot metadata.
 - `DTXMania.Game/Lib/Song/DTXChartParser.cs` — assign `PairIndex = i` and `PairCount = pairCount` at the existing `new Note(...)` construction site. Preserve existing `Tick`, `TimeMs`, constructor behavior and note filtering.
 
-- [ ] Consume a `ParsedChart` already processed by `FinalizeChart()`. Use `MeasureLines` to determine the compiled measure horizon, and `TimingMap.GetMeasureLengthMultiplier(bar)` to read effective carry-forward lengths.
-- [ ] Group parsed notes by normalized `Bar`/`Tick` in one pass; map with `Note.Channel` (fail fast for unexpected channel). Convert onsets from the original *authored slot fraction*, `Round(PairIndex * measureTicks / PairCount, AwayFromZero)`. For hand-built notes without slot metadata, use their normalized canonical tick fraction (`Tick / 192`). Never reconstruct parsed onsets from truncated `Note.Tick`. Include rest-only intermediate measures.
-- [ ] Timestamp source onsets from their finalized `Note.TimeMs`; synthetic rest entries via canonical tick conversion (`notationTick * 192.0 / measureTicks`) followed by `TimingMap.CalculateTimeMs`. Never hand the scaled notation tick directly to `CalculateTimeMs`.
-- [ ] Attach **source `Note` references** to heads (no copied IDs). Test `ParsedChart.FinalizeChart() -> NotationChartBuilder.Build(parsed) -> ChartManager(parsed)` and prove retained references expose the subsequently assigned IDs; optionally also assert the reverse build order. Neither quantizer nor builder may assign/renumber IDs. HPA-411 resolves `note.Id` only after the `ChartManager` has initialized gameplay.
-- [ ] An empty chart without timing anchors returns an empty notation result; do not change `ParsedChart.FinalizeChart()` just to materialize empty measures.
-- [ ] Add **real-parser** integration fixtures (DTX text → `DTXChartParser` → finalized chart → builder): 7/8 eighths/16ths (7 or 14 cells), plus 5/4 eighth-triplet slots (15 cells). Assert notation onsets are exact musical multiples (7/8 eighths: 0,24,48,...,144; 5/4 triplet row: 0,16,32,...,224) and a 48-tick triplet is detected. Pin unchanged parser `Tick` and resolved `TimeMs` alongside the new notation outputs.
-- [ ] Include other integration fixtures with held 0.75 measure length across bars, a later override, in-bar tempo change, 4/4, hand-built note fallback, and simultaneous channels with identical head positions.
+- [x] Consume a `ParsedChart` already processed by `FinalizeChart()`. Use `MeasureLines` to determine the compiled measure horizon, and `TimingMap.GetMeasureLengthMultiplier(bar)` to read effective carry-forward lengths.
+- [x] Group parsed notes by normalized `Bar`/`Tick` in one pass; map with `Note.Channel` (fail fast for unexpected channel). Convert onsets from the original *authored slot fraction*, `Round(PairIndex * measureTicks / PairCount, AwayFromZero)`. For hand-built notes without slot metadata, use their normalized canonical tick fraction (`Tick / 192`). Never reconstruct parsed onsets from truncated `Note.Tick`. Include rest-only intermediate measures.
+- [x] Timestamp source onsets from their finalized `Note.TimeMs`; synthetic rest entries via canonical tick conversion (`notationTick * 192.0 / measureTicks`) followed by `TimingMap.CalculateTimeMs`. Never hand the scaled notation tick directly to `CalculateTimeMs`.
+- [x] Attach **source `Note` references** to heads (no copied IDs). Test `ParsedChart.FinalizeChart() -> NotationChartBuilder.Build(parsed) -> ChartManager(parsed)` and prove retained references expose the subsequently assigned IDs; optionally also assert the reverse build order. Neither quantizer nor builder may assign/renumber IDs. HPA-411 resolves `note.Id` only after the `ChartManager` has initialized gameplay.
+- [x] An empty chart without timing anchors returns an empty notation result; do not change `ParsedChart.FinalizeChart()` just to materialize empty measures.
+- [x] Add **real-parser** integration fixtures (DTX text → `DTXChartParser` → finalized chart → builder): 7/8 eighths/16ths (7 or 14 cells), plus 5/4 eighth-triplet slots (15 cells). Assert notation onsets are exact musical multiples (7/8 eighths: 0,24,48,...,144; 5/4 triplet row: 0,16,32,...,224) and a 48-tick triplet is detected. Pin unchanged parser `Tick` and resolved `TimeMs` alongside the new notation outputs.
+- [x] Include other integration fixtures with held 0.75 measure length across bars, a later override, in-bar tempo change, 4/4, hand-built note fallback, and simultaneous channels with identical head positions.
 
 **Done when:** notation places odd-meter notes exactly on authored slots while preserving existing gameplay `Note.TimeMs`, and `Note` references survive chord merging without an initialization-order dependency.
 
 ## Step 4 — Verification, documentation, and PR polish (roughly half day)
 
-- [ ] Run focused tests and verify nonzero discovery:
+- [x] Run focused tests and verify nonzero discovery:
 
 ```bash
 dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~Notation"
 ```
 
-- [ ] Run the full locally supported test suite:
+- [x] Run the full locally supported test suite:
 
 ```bash
 dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj
 ```
 
-- [ ] On Windows CI, run `dotnet test DTXMania.Test/DTXMania.Test.csproj`; inspect failures. There is no need for graphic snapshots or a running game for this slice.
-- [ ] Inspect generated models for duplicate timing/mapping sources, accidental parser timing changes, and unnecessary abstractions. Keep four small notation files + tests and the narrow `Note`/parser slot metadata change.
-- [ ] Update this plan's checklist / PR summary with tested commands, source parity caveats, and any deliberate variance from DTXWeb. Do not add product screens or art as verification.
+- [ ] On Windows CI, run `dotnet test DTXMania.Test/DTXMania.Test.csproj`; inspect failures. There is no need for graphic snapshots or a running game for this slice. _Awaits Windows CI; not run on this Mac._
+- [x] Inspect generated models for duplicate timing/mapping sources, accidental parser timing changes, and unnecessary abstractions. Keep four small notation files + tests and the narrow `Note`/parser slot metadata change.
+- [x] Update this plan's checklist / PR summary with tested commands, source parity caveats, and any deliberate variance from DTXWeb. Do not add product screens or art as verification.
 - [ ] Mark HPA-408 complete **only after** implementation PR merges; HPA-410 then becomes eligible once HPA-409 is also completed.
 
 ## Acceptance checklist for reviewer
 
-- [ ] Only `Lib/Song/Notation/`, its tests/docs, and the two slot-metadata additions in `Note.cs`/`DTXChartParser.cs` are changed.
-- [ ] Twelve playable DTX channels use the correct staff and head shapes based on `Channel`, never `LaneIndex`; unexpected channels throw rather than disappearing silently.
-- [ ] Quantization covers chords, binary notes/rests, triplets (24/48/96/192), and off-grid remainder semantics matching the DTXWeb port.
-- [ ] Effective bar lengths come from the existing CX timing map; there is no second BPM or channel-02 implementation.
-- [ ] Authored slot fractions, not truncated `Note.Tick`, determine notation onsets. Real-parser fixtures prove 7/8 and 5/4 slots/triplets remain aligned; `Note.Tick` and gameplay `TimeMs` stay unchanged.
-- [ ] A 0.75 bar's canonical source tick 96 maps to notation tick 72 and keeps its actual gameplay timestamp (e.g. bar 1 at 2250 ms when starting after a 1500 ms bar at 120 BPM).
-- [ ] Multiple source notes mapped to one visible head retain all original `Note` references; building notation before `ChartManager` is safe, and ID lookups reflect its later assignment.
-- [ ] Empty chart and rest-only intermediate measures behave consistently.
-- [ ] Mac unit tests and the full Windows CI test project are green.
+- [x] Only `Lib/Song/Notation/`, its tests/docs, and the two slot-metadata additions in `Note.cs`/`DTXChartParser.cs` are changed.
+- [x] Twelve playable DTX channels use the correct staff and head shapes based on `Channel`, never `LaneIndex`; unexpected channels throw rather than disappearing silently.
+- [x] Quantization covers chords, binary notes/rests, triplets (24/48/96/192), and off-grid remainder semantics matching the DTXWeb port.
+- [x] Effective bar lengths come from the existing CX timing map; there is no second BPM or channel-02 implementation.
+- [x] Authored slot fractions, not truncated `Note.Tick`, determine notation onsets. Real-parser fixtures prove 7/8 and 5/4 slots/triplets remain aligned; `Note.Tick` and gameplay `TimeMs` stay unchanged.
+- [x] A 0.75 bar's canonical source tick 96 maps to notation tick 72 and keeps its actual gameplay timestamp (e.g. bar 1 at 2250 ms when starting after a 1500 ms bar at 120 BPM).
+- [x] Multiple source notes mapped to one visible head retain all original `Note` references; building notation before `ChartManager` is safe, and ID lookups reflect its later assignment.
+- [x] Empty chart and rest-only intermediate measures behave consistently.
+- [ ] Mac unit tests and the full Windows CI test project are green. _Mac part verified (see notes below); Windows part awaits CI._
 
 ## Future tickets (not this PR)
 
@@ -101,3 +101,30 @@ dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj
 - **HPA-443**: Fix input binding coordinate mismatch before gameplay integration.
 - **HPA-411**: Wire tab-mode selection and judgement coloring using `Note` references; never snapshot a note ID before gameplay initialization.
 - **HPA-509**: Tab-mode HUD.
+
+## Implementation status / verification notes
+
+- **Status:** Steps 1–3 are implemented and committed on `docs/hpa-408-notation-core-20261018` (`06ca2b18`, `1fdc4eb5`, `f2e0649a`, `e9a879d1`). This commit records verification only. Nothing is pushed. Windows CI is pending. HPA-408 stays open until the PR merges.
+- **Scope** (`git diff --name-only feeb18df..HEAD`): `Lib/Song/Notation/{DrumStaffMapping,NotationModel,NotationQuantizer,NotationChartBuilder}.cs`; `Note.cs` (internal `PairIndex`, `PairCount`); `DTXChartParser.cs` (one object initializer at the existing `new Note(...)` site); tests in `DTXMania.Test/Song/Notation/`; one parser test in `DTXChartParserAdditionalTests.cs`; one default test in `NoteTests.cs`. Unchanged: `CalculatePairTick`, `Note.Tick`/`TimeMs`, `FinalizeChart()`, `ChartTimingMap`, gameplay code, csproj files, assets. `Notation/` has no MonoGame, config, or UI references. Mapping keys on `Channel`, never `LaneIndex`.
+- **Tests (Mac, `DTXMania.Test.Mac.csproj`):**
+  - `--filter "FullyQualifiedName~Notation"`: `Passed! - Failed: 0, Passed: 113, Skipped: 0, Total: 113`. `--list-tests` discovers 113 (23 mapping, 70 quantizer, 20 builder).
+  - Full suite, runs 1 and 2: `Passed! - Failed: 0, Passed: 8850, Skipped: 0, Total: 8850`, exit 0 both times. The SQLitePCL `ObjectDisposedException` did not reproduce in either run.
+  - `dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj --no-incremental`: 0 errors, 147 warnings, none in notation or changed production files.
+  - Analyzer warnings from this slice: two xUnit2031 in `NotationChartBuilderTests.cs` (lines 274, 327). The repo has no warnings-as-errors setting.
+  - Windows CI `DTXMania.Test.csproj`: awaits CI.
+- **Source:** DTXWeb `cwchanap/DTXWeb@c639a11787a5377dcebcca621225ad5b5c100f43`, `packages/common/src/lib/notation/{drumMapping.ts,model.ts,quantize.ts}`. The staff table matches `drumMapping.ts` for all 12 lanes.
+- **Parity (C# quantizer vs `quantize.ts`):** 43,000 seeded measures over three seeds (20261019: 3,000; 7: 20,000; 4242: 20,000), 0 mismatches. A negative control with one corrupted duration reports 1 mismatch. The harness is not committed. Retained seed-4242 artifacts re-run through `compare.ts` in this verification (quantizer unchanged since `1fdc4eb5`): `cases=20000 entriesCompared=216648 tupletsCompared=6048 mismatches=0`.
+- **Deliberate divergences from DTXWeb:**
+  1. Chord heads sort by (StaffStep, Shape), not lane order.
+  2. An onset outside `[0, measureTicks)` throws `ArgumentOutOfRangeException`. TS silently drops `tick == measureTicks`.
+  3. `measureTicks` is an integer, computed in the builder as `Round(192 * multiplier, AwayFromZero)`. Below 1 throws.
+  4. No `beatsPerMeasure` or `tempoEvents`. Lengths and times come from the CX `ChartTimingMap`.
+  5. The TS empty-bar early return is folded into the main loop (same output).
+  6. `'00'` skipping and non-playable filtering are not in the quantizer. The builder keeps every source note.
+  7. A chord's entry takes the earliest source `TimeMs`. Rests use `CalculateTimeMs` on the canonical tick.
+  8. Rounded onsets clamp to `measureTicks - 1`. A note that rounds to the bar end lands on the last notation tick, up to one tick early, and is kept.
+- **Documented 1–2-tick exceptions (kept from DTXWeb, covered by tests):** a 1–2-tick onset span becomes a 1- or 2-tick note. A 1–2-tick remainder after a note with no rest to absorb it is dropped. A 1–2-tick remainder after rests folds into the last rest, which can then be 5 or 7 ticks.
+- **Follow-ups for HPA-411 (not in this PR):**
+  - Unfinalized charts (notes, no `MeasureLines`) return an empty chart silently. Notes beyond the compiled horizon throw a bare `IndexOutOfRangeException`. Add explicit guards before wiring.
+  - No cap on `measureTicks`. Multipliers above about 11 million overflow `int`, so the result is unspecified (it can collapse to 1 tick), and very large bars emit millions of rests.
+  - Rest `TimeMs` can run less than one canonical tick ahead of the next note in bars longer than 2.5×. Rest times use the exact notation position, while note times come from the truncated `Note.Tick`. Spec-literal; document for HPA-410.
