@@ -130,18 +130,19 @@ public sealed class RecorderPlatformPreflightTests
     }
 
     [Fact]
-    public void Evaluate_MacOs13Arm64_FailsVersionGate()
+    public void Evaluate_MacOs14Arm64_FailsVersionGate()
     {
-        // macOS 13 was the pre-net10 floor (ScreenCaptureKit application
-        // audio). It is below the .NET 10 supported-macOS minimum of 14, so
-        // preflight must now reject it on the version gate.
+        // macOS 14 was .NET 10's supported floor at GA, but it reached Apple
+        // EOL in September 2026 and dropped off Microsoft's support matrix.
+        // The currently supported .NET 10 minimum is macOS 15, so preflight
+        // must reject macOS 14 on the version gate.
         var repo = CreateMacRuntimeRepo();
         try
         {
-            var result = EvaluateMac(repo, new Version(13, 0), Architecture.Arm64);
+            var result = EvaluateMac(repo, new Version(14, 0), Architecture.Arm64);
 
-            var gate = FailedGate(result, "macOS >= 14");
-            Assert.Contains("macOS 13", gate.Detail);
+            var gate = FailedGate(result, "macOS >= 15");
+            Assert.Contains("macOS 14", gate.Detail);
         }
         finally
         {
@@ -150,12 +151,12 @@ public sealed class RecorderPlatformPreflightTests
     }
 
     [Fact]
-    public void Evaluate_MacOs14X64_FailsArchitectureGate()
+    public void Evaluate_MacOs15X64_FailsArchitectureGate()
     {
         var repo = CreateMacRuntimeRepo();
         try
         {
-            var result = EvaluateMac(repo, new Version(14, 0), Architecture.X64);
+            var result = EvaluateMac(repo, new Version(15, 0), Architecture.X64);
 
             var gate = FailedGate(result, "Apple Silicon (arm64)");
             Assert.Contains("X64", gate.Detail);
@@ -167,14 +168,14 @@ public sealed class RecorderPlatformPreflightTests
     }
 
     [Fact]
-    public void Evaluate_MacOs14Arm64WithWrongProject_FailsTargetGate()
+    public void Evaluate_MacOs15Arm64WithWrongProject_FailsTargetGate()
     {
         var repo = CreateMacRuntimeRepo();
         WriteProject(repo, GameProjectPaths.Windows);
         try
         {
             var result = RecorderPlatformPreflight.Evaluate(
-                Facts(isWindows: false, isMacOS: true, new Version(14, 0), Architecture.Arm64),
+                Facts(isWindows: false, isMacOS: true, new Version(15, 0), Architecture.Arm64),
                 CreateTarget(repo, GameProjectPaths.Windows));
 
             Assert.False(result.Passed);
@@ -188,13 +189,13 @@ public sealed class RecorderPlatformPreflightTests
     }
 
     [Fact]
-    public void Evaluate_MacOs14Arm64WithoutFfmpeg_FailsRuntimeGateWithRecoveryCommand()
+    public void Evaluate_MacOs15Arm64WithoutFfmpeg_FailsRuntimeGateWithRecoveryCommand()
     {
         var repo = CreateFakeRepo(GameProjectPaths.Mac);
         WriteRuntimeBinary(repo, "ffprobe", executable: true);
         try
         {
-            var result = EvaluateMac(repo, new Version(14, 0), Architecture.Arm64);
+            var result = EvaluateMac(repo, new Version(15, 0), Architecture.Arm64);
 
             var gate = FailedGate(result, "Bundled ffmpeg");
             Assert.Contains(RecorderPlatformPreflight.MacRuntimeRecoveryCommand, gate.Detail);
@@ -208,13 +209,13 @@ public sealed class RecorderPlatformPreflightTests
     }
 
     [Fact]
-    public void Evaluate_MacOs14Arm64WithoutFfprobe_FailsRuntimeGateWithRecoveryCommand()
+    public void Evaluate_MacOs15Arm64WithoutFfprobe_FailsRuntimeGateWithRecoveryCommand()
     {
         var repo = CreateFakeRepo(GameProjectPaths.Mac);
         WriteRuntimeBinary(repo, "ffmpeg", executable: true);
         try
         {
-            var result = EvaluateMac(repo, new Version(14, 0), Architecture.Arm64);
+            var result = EvaluateMac(repo, new Version(15, 0), Architecture.Arm64);
 
             var gate = FailedGate(result, "Bundled ffprobe");
             Assert.Contains(RecorderPlatformPreflight.MacRuntimeRecoveryCommand, gate.Detail);
@@ -228,7 +229,7 @@ public sealed class RecorderPlatformPreflightTests
     }
 
     [SkippableFact]
-    public void Evaluate_MacOs14Arm64WithNonExecutablePair_FailsRuntimeGates()
+    public void Evaluate_MacOs15Arm64WithNonExecutablePair_FailsRuntimeGates()
     {
         Skip.IfNot(UnixFileModeSupported, "Unix file mode is not representable on this host.");
 
@@ -237,7 +238,7 @@ public sealed class RecorderPlatformPreflightTests
         WriteRuntimeBinary(repo, "ffprobe", executable: false);
         try
         {
-            var result = EvaluateMac(repo, new Version(14, 0), Architecture.Arm64);
+            var result = EvaluateMac(repo, new Version(15, 0), Architecture.Arm64);
 
             Assert.False(result.Passed);
             Assert.Contains(RecorderPlatformPreflight.MacRuntimeRecoveryCommand,
@@ -252,7 +253,7 @@ public sealed class RecorderPlatformPreflightTests
     }
 
     [Fact]
-    public void Evaluate_MacOs14Arm64WithExecutablePair_Passes()
+    public void Evaluate_MacOs15Arm64WithExecutablePair_Passes()
     {
         var repo = CreateFakeRepo(GameProjectPaths.Mac);
         WriteApphost(repo, GameProjectPaths.Mac);
@@ -260,7 +261,7 @@ public sealed class RecorderPlatformPreflightTests
         WriteRuntimeBinary(repo, "ffprobe", executable: true);
         try
         {
-            var result = EvaluateMac(repo, new Version(14, 0), Architecture.Arm64);
+            var result = EvaluateMac(repo, new Version(15, 0), Architecture.Arm64);
 
             Assert.True(result.Passed);
             Assert.All(result.Gates, gate => Assert.True(gate.Passed));
@@ -273,7 +274,7 @@ public sealed class RecorderPlatformPreflightTests
     }
 
     [Fact]
-    public void Evaluate_MacOs14Arm64WithManagedDllButNoApphost_FailsDebugOutputGate()
+    public void Evaluate_MacOs15Arm64WithManagedDllButNoApphost_FailsDebugOutputGate()
     {
         // Regression: the Mac project is a net10.0 WinExe with the SDK default
         // UseAppHost=true, so dotnet run --no-build executes the native
@@ -290,7 +291,7 @@ public sealed class RecorderPlatformPreflightTests
         WriteRuntimeBinary(repo, "ffprobe", executable: true);
         try
         {
-            var result = EvaluateMac(repo, new Version(14, 0), Architecture.Arm64);
+            var result = EvaluateMac(repo, new Version(15, 0), Architecture.Arm64);
 
             Assert.False(result.Passed);
             var debugGate = FailedGate(result, "Debug output");
@@ -309,7 +310,7 @@ public sealed class RecorderPlatformPreflightTests
     }
 
     [SkippableFact]
-    public void Evaluate_MacOs14Arm64WithNonExecutableApphost_FailsDebugOutputGate()
+    public void Evaluate_MacOs15Arm64WithNonExecutableApphost_FailsDebugOutputGate()
     {
         // The apphost exists but is not executable. dotnet run --no-build
         // would fail to launch it, so preflight must reject it the same way
@@ -323,7 +324,7 @@ public sealed class RecorderPlatformPreflightTests
         WriteRuntimeBinary(repo, "ffprobe", executable: true);
         try
         {
-            var result = EvaluateMac(repo, new Version(14, 0), Architecture.Arm64);
+            var result = EvaluateMac(repo, new Version(15, 0), Architecture.Arm64);
 
             Assert.False(result.Passed);
             var debugGate = FailedGate(result, "Debug output");
@@ -336,7 +337,7 @@ public sealed class RecorderPlatformPreflightTests
     }
 
     [Fact]
-    public void Evaluate_MacOs14Arm64WithStaleTfmRuntimeOnly_FailsDebugOutputGate()
+    public void Evaluate_MacOs15Arm64WithStaleTfmRuntimeOnly_FailsDebugOutputGate()
     {
         // Project targets net10.0, but only a stale previous-TFM runtime
         // exists (net8.0 — the TFM every pre-retarget checkout actually left
@@ -350,7 +351,7 @@ public sealed class RecorderPlatformPreflightTests
         WriteExecutableFile(Path.Combine(staleRuntime, "ffprobe"));
         try
         {
-            var result = EvaluateMac(repo, new Version(14, 0), Architecture.Arm64);
+            var result = EvaluateMac(repo, new Version(15, 0), Architecture.Arm64);
 
             Assert.False(result.Passed);
             var debugGate = FailedGate(result, "Debug output");
@@ -367,7 +368,7 @@ public sealed class RecorderPlatformPreflightTests
     }
 
     [Fact]
-    public void Evaluate_MacOs14Arm64WithUnreadableTargetFramework_FailsTargetFrameworkGateBeforeRuntimeGates()
+    public void Evaluate_MacOs15Arm64WithUnreadableTargetFramework_FailsTargetFrameworkGateBeforeRuntimeGates()
     {
         // Project file exists but carries no readable <TargetFramework>, while
         // a stale bin/Debug build output (apphost + bundled
@@ -383,7 +384,7 @@ public sealed class RecorderPlatformPreflightTests
         WriteRuntimeBinary(repo, "ffprobe", executable: true);
         try
         {
-            var result = EvaluateMac(repo, new Version(14, 0), Architecture.Arm64);
+            var result = EvaluateMac(repo, new Version(15, 0), Architecture.Arm64);
 
             Assert.False(result.Passed);
 
@@ -409,7 +410,7 @@ public sealed class RecorderPlatformPreflightTests
     }
 
     [SkippableFact]
-    public void Evaluate_MacOs14Arm64WithPermissionDeniedProject_FailsTargetFrameworkGateBeforeRuntimeGates()
+    public void Evaluate_MacOs15Arm64WithPermissionDeniedProject_FailsTargetFrameworkGateBeforeRuntimeGates()
     {
         // Regression: File.ReadAllText throws UnauthorizedAccessException (not
         // IOException) when the project file exists but is unreadable due to
@@ -436,7 +437,7 @@ public sealed class RecorderPlatformPreflightTests
             Skip.If(CanReadDespiteModeNone(projectPath),
                 "Test host bypasses file read permissions (running as root).");
 
-            var result = EvaluateMac(repo, new Version(14, 0), Architecture.Arm64);
+            var result = EvaluateMac(repo, new Version(15, 0), Architecture.Arm64);
 
             Assert.False(result.Passed);
 
