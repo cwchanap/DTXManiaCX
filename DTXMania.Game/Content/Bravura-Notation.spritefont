@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+Bravura notation glyph font (SIL OFL) for the scrolling drum staff notation
+strip. SMuFL Private Use Area glyphs only - see
+docs/superpowers/specs/2026-10-19-hpa-409-bravura-notation-font-design.md.
+
+Pinned source: https://github.com/steinbergmedia/bravura/releases/tag/bravura-1.482
+(font version 1.482, unmodified Bravura.otf).
+
+<Size> is in points. Individual SMuFL code points are single-character regions
+plus the two small contiguous rest/digit ranges. No DefaultCharacter, so a
+missing glyph fails loudly instead of rendering a replacement.
+-->
+<XnaContent xmlns:Graphics="Microsoft.Xna.Framework.Content.Pipeline.Graphics">
+  <Asset Type="Graphics:FontDescription">
+    <FontName>Bravura.otf</FontName>
+    <Size>40</Size>
+    <Spacing>0</Spacing>
+    <UseKerning>false</UseKerning>
+    <Style>Regular</Style>
+    <CharacterRegions>
+      <!-- unpitchedPercussionClef1 -->
+      <CharacterRegion>
+        <Start>&#xE069;</Start>
+        <End>&#xE069;</End>
+      </CharacterRegion>
+      <!-- timeSig0..timeSig9 -->
+      <CharacterRegion>
+        <Start>&#xE080;</Start>
+        <End>&#xE089;</End>
+      </CharacterRegion>
+      <!-- noteheadWhole, noteheadHalf, noteheadBlack -->
+      <CharacterRegion>
+        <Start>&#xE0A2;</Start>
+        <End>&#xE0A2;</End>
+      </CharacterRegion>
+      <CharacterRegion>
+        <Start>&#xE0A3;</Start>
+        <End>&#xE0A3;</End>
+      </CharacterRegion>
+      <CharacterRegion>
+        <Start>&#xE0A4;</Start>
+        <End>&#xE0A4;</End>
+      </CharacterRegion>
+      <!-- noteheadXWhole, noteheadXHalf, noteheadXBlack -->
+      <CharacterRegion>
+        <Start>&#xE0A7;</Start>
+        <End>&#xE0A7;</End>
+      </CharacterRegion>
+      <CharacterRegion>
+        <Start>&#xE0A8;</Start>
+        <End>&#xE0A8;</End>
+      </CharacterRegion>
+      <CharacterRegion>
+        <Start>&#xE0A9;</Start>
+        <End>&#xE0A9;</End>
+      </CharacterRegion>
+      <!-- noteheadCircleXWhole, noteheadCircleXHalf, noteheadCircleX -->
+      <CharacterRegion>
+        <Start>&#xE0B1;</Start>
+        <End>&#xE0B1;</End>
+      </CharacterRegion>
+      <CharacterRegion>
+        <Start>&#xE0B2;</Start>
+        <End>&#xE0B2;</End>
+      </CharacterRegion>
+      <CharacterRegion>
+        <Start>&#xE0B3;</Start>
+        <End>&#xE0B3;</End>
+      </CharacterRegion>
+      <!-- flag8thUp, flag16thUp, flag32ndUp, flag64thUp -->
+      <CharacterRegion>
+        <Start>&#xE240;</Start>
+        <End>&#xE240;</End>
+      </CharacterRegion>
+      <CharacterRegion>
+        <Start>&#xE242;</Start>
+        <End>&#xE242;</End>
+      </CharacterRegion>
+      <CharacterRegion>
+        <Start>&#xE244;</Start>
+        <End>&#xE244;</End>
+      </CharacterRegion>
+      <CharacterRegion>
+        <Start>&#xE246;</Start>
+        <End>&#xE246;</End>
+      </CharacterRegion>
+      <!-- restWhole .. rest64th -->
+      <CharacterRegion>
+        <Start>&#xE4E3;</Start>
+        <End>&#xE4E9;</End>
+      </CharacterRegion>
+      <!-- tuplet3 -->
+      <CharacterRegion>
+        <Start>&#xE883;</Start>
+        <End>&#xE883;</End>
+      </CharacterRegion>
+    </CharacterRegions>
+  </Asset>
+</XnaContent>
