@@ -1515,6 +1515,33 @@ namespace DTXMania.Test.Song
 
         #endregion
 
+        #region Authored Slot Metadata
+
+        [Fact]
+        public async Task ParseAsync_ShouldRecordAuthoredSlotWithoutChangingTickOrTime()
+        {
+            var content =
+                "#BPM: 120.0\n" +
+                "#00002: 0.875\n" +
+                "#00011: 01010101010101\n";  // seven authored slots in a 7/8 bar
+            var path = CreateTempDtx(content);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            Assert.Equal(7, chart.Notes.Count);
+            for (var i = 0; i < chart.Notes.Count; i++)
+            {
+                Assert.Equal(i, chart.Notes[i].PairIndex);
+                Assert.Equal(7, chart.Notes[i].PairCount);
+            }
+
+            // Gameplay Tick stays the truncated canonical position, and TimeMs stays derived from it.
+            Assert.Equal(new[] { 0, 27, 54, 82, 109, 137, 164 }, chart.Notes.Select(n => n.Tick).ToArray());
+            Assert.Equal(246.09375, chart.Notes[1].TimeMs, 6);
+        }
+
+        #endregion
+
         private static T InvokePrivateStaticMethod<T>(string methodName, params object[] args)
         {
             var method = typeof(DTXChartParser).GetMethod(methodName, BindingFlags.Static | BindingFlags.NonPublic);

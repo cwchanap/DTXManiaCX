@@ -852,8 +852,12 @@ namespace DTXMania.Game.Lib.Song
                 }
 #endif
 
-                // Create note
-                var note = new Note(laneIndex, measure, tick, channel, pair);
+                // Create note, recording its authored slot: Tick above is truncated, so notation needs the exact position
+                var note = new Note(laneIndex, measure, tick, channel, pair)
+                {
+                    PairIndex = i,
+                    PairCount = pairCount
+                };
                 chart.AddNote(note);
             }
         }
