@@ -94,6 +94,14 @@ No scrolling, measure placement, beaming, staff/beam/stem drawing thickness, rea
 
 ## Sources
 
+### Pinned source (HPA-409 Task 1 spike)
+
+- Release tag: [`bravura-1.482`](https://github.com/steinbergmedia/bravura/releases/tag/bravura-1.482) (2026-08-24); metadata `fontVersion: 1.482`
+- `DTXMania.Game/Content/Bravura.otf` = unmodified release asset `Bravura.otf` (https://github.com/steinbergmedia/bravura/releases/download/bravura-1.482/Bravura.otf)
+- `DTXMania.Game/Content/Bravura-OFL.txt` = unmodified release asset `OFL.txt` (https://github.com/steinbergmedia/bravura/releases/download/bravura-1.482/OFL.txt)
+- `redist/Bravura.json` = unmodified release asset `Bravura.json`, kept for Task 2's anchor-constant table at `.superpowers/sdd/2026-10-19-hpa-409-bravura-notation-font/Bravura.json` (gitignored path; all 32 required code points verified present in its `glyphBBoxes`)
+- Spike calibration at 40 pt (MonoGame 3.8.6 DesktopGL): effective ≈13.4 px/staff-space (ink-measured 13.0–14.0; theoretical 40 pt @ 96 dpi = 13.33), SMuFL origin vs `IFont.DrawString` draw position ≈ (−0.4, +108.0) px, max per-glyph deviation 0.76 px; evidence PNGs + `measurements.txt` alongside the pinned JSON
+
 - CX font pipeline: `DTXMania.Game/Lib/Resources/{ResourceManager.cs,ManagedFont.cs,IFont.cs}`
 - CX content and packaging: `DTXMania.Game/Content/Content.mgcb`, `DTXMania.Game/DTXMania.Game.{Mac,Windows}.csproj`
 - SMuFL official specification: https://smufl.formats.music/latest/
