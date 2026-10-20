@@ -79,7 +79,7 @@ dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj
 
 - [ ] On Windows CI, run `dotnet test DTXMania.Test/DTXMania.Test.csproj`; inspect failures. There is no need for graphic snapshots or a running game for this slice. _Awaits Windows CI; not run on this Mac._
 - [x] Inspect generated models for duplicate timing/mapping sources, accidental parser timing changes, and unnecessary abstractions. Keep four small notation files + tests and the narrow `Note`/parser slot metadata change.
-- [x] Update this plan's checklist / PR summary with tested commands, source parity caveats, and any deliberate variance from DTXWeb. Do not add product screens or art as verification.
+- [x] Plan checklist updated with tested commands, source parity caveats, and any deliberate variance from DTXWeb; PR summary left for the PR author. Do not add product screens or art as verification.
 - [ ] Mark HPA-408 complete **only after** implementation PR merges; HPA-410 then becomes eligible once HPA-409 is also completed.
 
 ## Acceptance checklist for reviewer
@@ -104,27 +104,31 @@ dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj
 
 ## Implementation status / verification notes
 
-- **Status:** Steps 1–3 are implemented and committed on `docs/hpa-408-notation-core-20261018` (`06ca2b18`, `1fdc4eb5`, `f2e0649a`, `e9a879d1`). This commit records verification only. Nothing is pushed. Windows CI is pending. HPA-408 stays open until the PR merges.
+- **Status:** Steps 1–3 are implemented on `docs/hpa-408-notation-core-20261018`. This section records verification only. The Windows CI result is recorded on the PR. HPA-408 stays open until the PR merges.
 - **Scope** (`git diff --name-only feeb18df..HEAD`): `Lib/Song/Notation/{DrumStaffMapping,NotationModel,NotationQuantizer,NotationChartBuilder}.cs`; `Note.cs` (internal `PairIndex`, `PairCount`); `DTXChartParser.cs` (one object initializer at the existing `new Note(...)` site); tests in `DTXMania.Test/Song/Notation/`; one parser test in `DTXChartParserAdditionalTests.cs`; one default test in `NoteTests.cs`. Unchanged: `CalculatePairTick`, `Note.Tick`/`TimeMs`, `FinalizeChart()`, `ChartTimingMap`, gameplay code, csproj files, assets. `Notation/` has no MonoGame, config, or UI references. Mapping keys on `Channel`, never `LaneIndex`.
 - **Tests (Mac, `DTXMania.Test.Mac.csproj`):**
   - `--filter "FullyQualifiedName~Notation"`: `Passed! - Failed: 0, Passed: 113, Skipped: 0, Total: 113`. `--list-tests` discovers 113 (23 mapping, 70 quantizer, 20 builder).
   - Full suite, runs 1 and 2: `Passed! - Failed: 0, Passed: 8850, Skipped: 0, Total: 8850`, exit 0 both times. The SQLitePCL `ObjectDisposedException` did not reproduce in either run.
   - `dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj --no-incremental`: 0 errors, 147 warnings, none in notation or changed production files.
-  - Analyzer warnings from this slice: two xUnit2031 in `NotationChartBuilderTests.cs` (lines 274, 327). The repo has no warnings-as-errors setting.
-  - Windows CI `DTXMania.Test.csproj`: awaits CI.
+  - Analyzer: the two xUnit2031 warnings from this slice in `NotationChartBuilderTests.cs` (lines 274, 327) are fixed with the `Assert.Single` predicate overload. Eight xUnit2031 warnings remain in test files this slice does not touch. The repo has no warnings-as-errors setting.
+  - Windows CI `DTXMania.Test.csproj`: result is recorded on the PR.
 - **Source:** DTXWeb `cwchanap/DTXWeb@c639a11787a5377dcebcca621225ad5b5c100f43`, `packages/common/src/lib/notation/{drumMapping.ts,model.ts,quantize.ts}`. The staff table matches `drumMapping.ts` for all 12 lanes.
-- **Parity (C# quantizer vs `quantize.ts`):** 43,000 seeded measures over three seeds (20261019: 3,000; 7: 20,000; 4242: 20,000), 0 mismatches. A negative control with one corrupted duration reports 1 mismatch. The harness is not committed. Retained seed-4242 artifacts re-run through `compare.ts` in this verification (quantizer unchanged since `1fdc4eb5`): `cases=20000 entriesCompared=216648 tupletsCompared=6048 mismatches=0`.
+- **Parity (C# quantizer vs `quantize.ts`):** Seeds 20261019 (3,000 measures), 7 (20,000), and 4242 (20,000) were compared in Step 2, with 0 mismatches. Seed 4242 was re-run in Step 4 through `compare.ts`: `cases=20000 entriesCompared=216648 tupletsCompared=6048 mismatches=0`. The final review re-ran seeds 4242, 7, 20261019, and a new seed 99 (20,000) against the committed code: 63,000 cases, 0 mismatches. A negative control reported 1 mismatch. The harness is not committed. `compare.ts` compares entry kind, start, and duration, and tuplets. It does not compare chord head order. No quantizer logic has changed since Step 2.
 - **Deliberate divergences from DTXWeb:**
   1. Chord heads sort by (StaffStep, Shape), not lane order.
   2. An onset outside `[0, measureTicks)` throws `ArgumentOutOfRangeException`. TS silently drops `tick == measureTicks`.
-  3. `measureTicks` is an integer, computed in the builder as `Round(192 * multiplier, AwayFromZero)`. Below 1 throws.
+  3. `measureTicks` is an integer, computed in the builder as `Round(192 * multiplier, AwayFromZero)` and floored at 1 (pinned by `DegenerateMultiplier_ShouldFloorMeasureTicksAtOne`). Only the quantizer API throws for `measureTicks` below 1.
   4. No `beatsPerMeasure` or `tempoEvents`. Lengths and times come from the CX `ChartTimingMap`.
   5. The TS empty-bar early return is folded into the main loop (same output).
   6. `'00'` skipping and non-playable filtering are not in the quantizer. The builder keeps every source note.
   7. A chord's entry takes the earliest source `TimeMs`. Rests use `CalculateTimeMs` on the canonical tick.
   8. Rounded onsets clamp to `measureTicks - 1`. A note that rounds to the bar end lands on the last notation tick, up to one tick early, and is kept.
-- **Documented 1–2-tick exceptions (kept from DTXWeb, covered by tests):** a 1–2-tick onset span becomes a 1- or 2-tick note. A 1–2-tick remainder after a note with no rest to absorb it is dropped. A 1–2-tick remainder after rests folds into the last rest, which can then be 5 or 7 ticks.
+  9. Onsets are `Round(PairIndex * measureTicks / PairCount)`, multiplying before dividing, rounding half away from zero. DTXWeb computes `position * measureTicks` in floating point, so at exact half-tick positions the two can differ (e.g. 168-tick bar, 112-slot row, slot 17: C# 26, TS 25). The C# result is the exact one.
+- **Documented 1–2-tick exceptions (kept from DTXWeb, covered by tests):** a 1–2-tick onset span becomes a 1- or 2-tick note. A 1–2-tick remainder after a note with no rest to absorb it is dropped. A 1–2-tick remainder after rests folds into the last rest, which can then be non-binary, e.g. 5 or 7 ticks.
 - **Follow-ups for HPA-411 (not in this PR):**
   - Unfinalized charts (notes, no `MeasureLines`) return an empty chart silently. Notes beyond the compiled horizon throw a bare `IndexOutOfRangeException`. Add explicit guards before wiring.
-  - No cap on `measureTicks`. Multipliers above about 11 million overflow `int`, so the result is unspecified (it can collapse to 1 tick), and very large bars emit millions of rests.
-  - Rest `TimeMs` can run less than one canonical tick ahead of the next note in bars longer than 2.5×. Rest times use the exact notation position, while note times come from the truncated `Note.Tick`. Spec-literal; document for HPA-410.
+  - No cap on `measureTicks`. Multipliers above about 11 million overflow `int`, so the result is unspecified (it can collapse to 1 tick), and very large bars emit millions of rests. Cap it before wiring at chart load.
+- **Notes for HPA-410 (not in this PR):**
+  - Rest `TimeMs` can run less than one canonical tick ahead of the next note in bars longer than 2.5×. Rest times use the exact notation position, while note times come from the truncated `Note.Tick`. Spec-literal.
+  - Real charts use 4-tick (48-per-bar) onsets that the ported algorithm cannot express as triplets: 232 off-grid onsets and 233 non-binary rests across 135 real charts. A 12-tick-group follow-up is possible once rendering shows it matters.
+  - `NotationEntry` and `NotationHead` are records, but their collection members compare by reference. Don't use them as dictionary keys or compare them with `==`.
