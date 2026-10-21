@@ -1,70 +1,76 @@
 # HPA-410 — Scrolling Notation Strip Renderer (Implementation Plan)
 
-**Companion design:** [HPA-410 design](../specs/2026-10-20-hpa-410-notation-strip-design.md)  
-**Linear:** https://linear.app/cwchanap/issue/HPA-410/tab-mode-scrolling-notation-strip-renderer  
-**Delivery:** Continue **this same draft design PR** for implementation after review. One issue = one implementation PR; <=3 engineer days. Docs only at initial review.
+**Companion spec:** [HPA-410 design](../specs/2026-10-20-hpa-410-notation-strip-design.md)  
+**Issue:** https://linear.app/cwchanap/issue/HPA-410/tab-mode-scrolling-notation-strip-renderer  
+**Delivery:** Implement in **this existing docs-draft PR** after review; no second PR, <=3 engineer days. Documentation-only until implementation starts.
 
-## Current baseline (inspect before editing)
+## Baseline to reuse (inspect the actual code before changes)
 
-- HPA-408 merged as [#195](https://github.com/cwchanap/DTXManiaCX/pull/195). Its immutable notation records, `TimeMs`, source-`Note` references, `DrumStaffMapping` and quantizer already exist in `DTXMania.Game/Lib/Song/Notation/`.
-- HPA-409 merged as [#199](https://github.com/cwchanap/DTXManiaCX/pull/199). Use `NotationGlyphs` and the actual Bravura-Notation SpriteFont; the release-specific glyph bboxes, stem anchors and baseline calibration are in its spec. Do **not** introduce a second glyph table, font parser or graphics backend.
-- `PerformanceUILayout` is at `DTXMania.Game/Lib/UI/Layout/PerformanceUILayout.cs`. `NoteRenderer` is at `DTXMania.Game/Lib/Stage/Performance/NoteRenderer.cs`; its velocity formula and 1x1 rectangle rendering are precedents.
-- `ParsedChart.MeasureLines` and `NotationEntry.TimeMs` are already finalized timing sources. A chart may have many rest-only measures and note entries after the current time; index/cull the layout window.
-- The repository currently targets its main-branch .NET SDK/framework choice (now net10.0 in game projects); **do not retarget** it under HPA-410.
+- HPA-408 (#195): `Lib/Song/Notation/NotationModel.cs`, `NotationChartBuilder`, `NotationQuantizer`, `DrumStaffMapping`.
+- HPA-409 (#199): `NotationGlyphs`, `Content/Bravura-Notation.spritefont` (currently **40pt**), `ManagedFont` family mapping, pinned Bravura anchor metadata and the 40pt historical calibration.
+- `PerformanceUILayout` lives at `DTXMania.Game/Lib/UI/Layout/PerformanceUILayout.cs`; the existing stage uses 1280×720 virtual pixels and **`SpriteSortMode.BackToFront`** (larger `layerDepth` draws farther back).
+- `ParsedChart.MeasureLines` and `NotationChart.Measures` form the aligned measure intervals, with the last measure line a **terminal bound**. `NoteRenderer` has scroll/speed validation and white-pixel drawing precedents, but its `GetActiveNotes` index is not a notation source.
+- Reuse `IResourceManager.LoadFont`, the nine-argument `IFont.DrawString`, `NotationGlyphs.IsComplete(font.SupportsCharacter)`, and `ShareTechMono-14` for the key-label font.
+- Do not retarget SDK/frameworks under this issue. Run tests using the current main-branch project settings.
 
-## Task 1 — Pure frame layout + tests (roughly 1 day)
+## Task 0 — Real-GPU specimen before geometry tests (up to ~0.5 day)
 
-1. Add a small `PerformanceUILayout.NotationStrip` nested class using the **explicit geometry table in the companion spec**: strip y=290..580, label column x=0..190, musical clipping x=195..1280, hit line x=220, E4 line y=510 and 20px/staff space, stem 2px, beam 5px/8px separation, and the stated theme colours. Do not reopen mockup interpretation. Scale Bravura from HPA-409's measured font pixels/staff-space to these 20px spaces; apply the existing one global font-origin/baseline calibration.
-2. Add `Lib/Stage/Performance/NotationStripLayout.cs`. Consume a prepared `NotationChart` and the existing list of `MeasureLine` boundaries. Compute `x=220+(entry.TimeMs-nowMs)*PerformanceUILayout.NoteBaseScrollPixelsPerMs*(speedPercent/100.0)`, `y` from `Position.StaffStep`; reject nonpositive speeds as `NoteRenderer.SetScrollSpeed` does. Use HPA-409's `FromTicks/Notehead/Rest/Flag/GetMetrics`, including tuplets' `SlotTicks*3/2` displayed duration.
-3. Return only the minimal typed placements needed to render: glyph + position, staff/ledger/barline/hit-line/stem/beam segments, and label positions. Names/types are implementation choices; avoid generic scene graphs or a drawing command framework. Preserve chord heads and group them under one rhythmic stem. The layout calculation does not touch GPU, fonts or mutable judgement data.
-4. Use ordered entry times (optionally a single flattened index prepared with the chart) to find the visible span without scanning the entire chart each frame. Include a small margin for whole-head width, flags and beams; hard-clip moving musical ink to x=195..1280 so the fixed key column is never overdrawn. Barlines use `MeasureLine.TimeMs`, **only indices 0 through Count-2**, skipping the final terminal boundary (as `NotationChartBuilder` does), never synthetic BPM math.
-5. Tests in `DTXMania.Test/Stage/Performance/NotationStripLayoutTests.cs` (or closest existing stage test folder): past/future/hit x, x1.0/x2.0/x0.5 speed, 12-channel positions via HPA-408 mapping, notehead shape, ledger lines, chords, rest-only bars, speed validation, measure-line timing, the pinned y/boundary constants and both edge windows. Prove at least one chart where a BPM/measure-length change would break a naive constant-time bar layout; assert the final terminal barline is never drawn.
+1. Change the **single** `Content/Bravura-Notation.spritefont` bake from 40pt to initial **60pt**. Update `ManagedFont.GetBestSpriteFontAssetName`'s Bravura resolved size, its descriptive 40pt comments, and `DTXMania.Test/Resources/ManagedFontAssetMappingTests.cs`. Do not add a second Bravura asset, a runtime size selector or new font abstraction.
+2. Using a temporary desktop graphics/dev path (the existing headless GPU snapshot tests cannot load `.xnb` content), draw **through real `IFont.DrawString` in a `BackToFront` SpriteBatch**, not Deferred. Show five staff lines, ShareTechMono labels, a bar of 16ths at 160 BPM at user speed 100% and 50%, whole and shorter rests, a triplet crossing a beat, and a colored opaque left mask.
+3. Verify effective Bravura pixels/staff space and global origin/baseline at native drawing scale 1. The 60pt asset should produce ~20px/staff space; if not, adjust *one global* bake size or staff-space constant and record the measured result in these docs **before Task 1**. Verify glyph sharpness, depth mask order, y positions and the 100%-speed density rule: 16ths at 160 BPM are at least `1.5 × 23.6 = 35.4px` apart (initial `0.38px/ms` gives ~35.6px). At 50%, overlapping is an expected trade-off, not grounds for time warping.
+4. Retain the final verification screenshot **after Task 3**, not necessarily the temporary Task 0 harness; record the concrete size and baseline decision immediately in the PR discussion. Remove temporary harness from the implementation diff.
 
-**Exit:** deterministic placement assertions pass on Mac without opening a graphics window.
+**Exit:** pin one working font asset and renderer constants from actual draw results, not unit-test assumptions. If the native glyph size cannot be made usable quickly, keep one font path and document the minimal single-font fallback; do not start a second rendering engine.
 
-## Task 2 — Engraving rules, bounded rendering primitives + tests (roughly 1 day)
+## Task 1 — Pure layout, window by measure, test x separately (~0.75 day)
 
-1. Add flat stems and rhythm grouping to the **same** layout component. Treat chords as one onset and create one shared up-stem from the lowest head's `StemUpSE` anchor up to `highestStaffStep + 7` diatonic steps (3.5 staff spaces beyond the highest head); **not** a fixed absolute C6 endpoint. Pin test cases for C5/step 5 → top step 12 and B5/step 11 → top step 18. Beam only adjacent note entries within the same notation quarter beat (48 ticks), bar and tuplet group. Never beam across a rest. For a single short entry, select the appropriate HPA-409 up-flag.
-2. For mixed eighths and 16ths, draw shared primary beams plus the secondary short/partial beam on the shorter entry. Apply the same bounded level logic through 32nd/64th values, without a general VexFlow engraver or arbitrary beam slopes. Tuplets get a single `3` centered above their existing `NotationTuplet` range; triplet durations display via the HPA-409 documented base-tick rule.
-3. Implement basic staff lines, ledger lines, measure lines and the vertical hit marker as pixel rectangles. Place heads/rests/flags and attach stems with `NotationGlyphs.GetMetrics` anchor data, adjusting only the **global** point-size/baseline calibration recorded by HPA-409. Key labels are fixed at the mapped staff steps on the left, not inferred from gameplay lane IDs.
-4. Add focused cases for: one isolated eighth -> flag; two eighths -> one beam; eighth+16th+16th -> primary with a secondary pair; notes separated by a rest; beat/bar boundary; a 3-note tuplet; 32nd/64th flag/beam levels; culling midway through a beam/tuplet; no dangling decoration or label overlap.
+1. Add `PerformanceUILayout.NotationStrip` nested constants from the design table: strip y=290..580, E4 baseline y=510, 20px staff spaces, key mask cutoff x=195, hit x=220, distinct depth values, colors, `ScrollPixelsPerMs=0.38` and final native font size measured in Task 0.
+2. Add `Lib/Stage/Performance/NotationStripLayout.cs` with one pure `ToScreenX(timeMs, nowMs, speedPercent)` formula. Reject nonpositive speed like `NoteRenderer.SetScrollSpeed`. Keep engraving positions as `(TimeMs, dxPx, yPx)` anchors independent of `nowMs` and speed; a beam spanning notes retains both endpoint times.
+3. Find visible **measures** by binary search over existing ordered `MeasureLines[i+1].TimeMs`; traverse up to the first measure whose start lies beyond the visible right edge. For each selected measure, produce its whole group of note/rest/beam candidates, rather than iterating every note every frame. No flattened chart index, look-behind or partial-group culling state. Front opaque key column masks ink at x<195; screen bounds cover the right edge. Optional per-primitive skip only if entire projected primitive is offscreen.
+4. Draw barlines from each selected `MeasureLines[measure.Index].TimeMs`; terminal `MeasureLines[^1]` is only a measure **end bound** (no independent special-case barline pass).
+5. Focused headless tests: normal/half/double speed and hit/past/future, staff and label step coordinates, positive speed check, time-based barline alignment with BPM changes and variable-length bars, visible measure start/end selection and terminal boundary not drawn.
 
-**Exit:** the renderer has a simple, inspectable set of correctly positioned visual primitives for representative measures.
+**Exit:** a small GPU-free, measure-indexed placement contract; don't open a test-only graphics device.
 
-## Task 3 — Thin SpriteBatch renderer and verification (roughly 0.5–1 day)
+## Task 2 — Focused engraving tests (~0.75–1 day)
 
-1. Add `Lib/Stage/Performance/NotationStripRenderer.cs`. Acquire `IFont` via `IResourceManager.LoadFont("Bravura-Notation",40)`; validate with `NotationGlyphs.IsComplete(font.SupportsCharacter)` to reject silent default-font substitution. Reuse existing one-pixel/white texture creation and reference-counted release/disposal patterns; don't leak the font when validation fails.
-2. Draw generated primitives using the stage's existing `SpriteBatch` conventions and `IFont.DrawString`, not direct `SpriteFont.DrawString`. Draw lines with `SpriteBatch.Draw`; avoid custom render targets/shaders. Draw consistently in virtual 1280x720 space. Ensure musical ink cannot overlap key labels when moving left of the fixed hit marker.
-3. Expose a small constructor/ready/draw/dispose API suitable for HPA-411 to instantiate **after** its chart has been finalized and to call each `OnDraw`. Do **not** modify `PerformanceStage` or introduce config gates now. HPA-411 will handle selection, lifecycle, runtime font-failure fallback, per-note judgement colours and E2E.
-4. Run a one-off/manual 1280x720 specimen using the compiled Bravura glyphs through `IFont.DrawString`; inspect screen position, scaling, all cymbal/open-head variants, rests, flags, beaming, tuplet number and key-column clipping. **Retain a screenshot** as a GitHub PR attachment or a small committed image under `docs/superpowers/evidence/` and link it from the PR body alongside concise pass/fail observations; never rely on a transient artifact URL. Remove any temporary harness/test stage before implementation merge.
+1. Use HPA-408 heads, shapes, quantized durations and tuplets; select glyphs with HPA-409 `FromTicks/Notehead/Rest/Flag`. Chords share one up-stem: begin at lowest head's Bravura `StemUpSE`; top = `highestHead.StaffStep + 7` diatonic steps. Pin low/middle/high and mixed chord tests; whole notes have no stem.
+2. Map resting position by value: **whole rest on D5 line / step 6**, all other rests at **B4 / step 4**, using HPA-409 bbox offsets. Test empty-bar whole rests and shorter rests.
+3. For ordinary (non-tuplet) entries, group adjacent short **notes** inside a 48-tick beat, without crossing bar/rest boundaries. Support primary and secondary/partial beams through 64ths and isolated flags; avoid sloped beams or VexFlow.
+4. For each `NotationTuplet`, disregard the ordinary beat boundary: preserve the whole group even if its start tick is 24 and it crosses tick 48. Derive display `NoteValue` from `SlotTicks * 3 / 2`; draw one tuplet `3`. Add a cross-beat triplet regression.
+5. Add short ledger lines when staff steps fall outside 0..8; derive key-column label y from `DrumStaffMapping.GetPosition` and a small label/channel lookup (not a duplicated staff mapping). Overlapping heads remain allowed.
 
-**Exit:** production renderer compiles, the glyphs draw correctly on a real MonoGame desktop context, and it can be called by the next ticket without changing existing lanes.
+**Exit:** independent, deterministic engraving tests for representative rhythms and grouped durations on Mac + Windows.
 
-## Verification
+## Task 3 — Thin BackToFront renderer, ownership and final evidence (~0.5–0.75 day)
 
-Suggested commands from repository root (use installed SDK and existing tool restore):
+1. Add `Lib/Stage/Performance/NotationStripRenderer.cs`: load the **one** Bravura font at the chosen native size, verify all symbols with `NotationGlyphs.IsComplete(font.SupportsCharacter)`, acquire bundled `ShareTechMono-14` label font and an existing-style 1×1 texture. On any failure release everything already acquired; follow `NoteRenderer`/resource manager ownership patterns.
+2. Use the existing `SpriteBatch` and explicit depths for background **0.95**, staff/bars **0.80**, hit marker **0.72**, beams/stems **0.65**, Bravura glyphs **0.55**, left opaque column mask **0.40** and labels **0.30**. **Always** use the nine-argument `IFont.DrawString` for glyphs and labels so none default to depth 0. Draw rectangle primitives using depth-aware `SpriteBatch.Draw`.
+3. Expose only constructor / `IsReady` / `Draw(SpriteBatch, nowMs, speedPercent)` / `Dispose` for HPA-411. No `PerformanceStage` or config changes; HPA-411 later handles activation, chart readiness, judgement tint, fallback and E2E.
+4. Re-run a final real-Bravura/ShareTechMono specimen **in a BackToFront batch** including the 160 BPM 16ths at 100% and 50%, whole and short rests, cross-beat triplets, stems, flags, clipping via key mask and correct font scale. **Retain screenshot durably** as a GitHub PR attachment or a small checked-in `docs/superpowers/evidence/` file. Link it and summarize pass/fail and final font measurements in the PR body. Remove temporary development harness.
+
+**Exit:** renderer can be called by HPA-411 and is validated visually, without changing existing lanes.
+
+## Commands and exit criteria
 
 ```bash
 dotnet tool restore
-dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~NotationStrip|FullyQualifiedName~NotationGlyphs"
+dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~NotationStrip|FullyQualifiedName~NotationGlyphs|FullyQualifiedName~ManagedFontAssetMapping"
 dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj
 dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj --no-incremental
 ```
 
-Also run the Windows `DTXMania.Test.csproj` and Windows game build in CI. Check **nonzero** test discovery and confirm the new focused tests actually execute. A GPU-free test passing is not proof that SpriteFont actually draws; capture the manual visual verification separately.
+Run Windows `DTXMania.Test.csproj` and Windows game build on CI. Verify the focused filter runs **nonzero** tests. Compile and inspect the font content asset on supported desktops: passing pure tests does not prove `IFont` real GPU rendering.
 
-## PR acceptance checklist
+- [ ] Task 0 specimen locks one baked Bravura size, origin calibration, default density and depth composition before heavy tests
+- [ ] No reliance on draw-call order; all Bravura and label draw calls have explicit layer depth
+- [ ] Measure window and terminal boundary use current `NotationChart.Measures` / `MeasureLines`; no chart-wide per-frame scan
+- [ ] Correct rest placement; tuplets that cross a beat stay in the same group
+- [ ] Chords, ledger lines, flags and beams use existing HPA-408/409 contracts
+- [ ] Clean resource lifetime on successful and invalid/missing font load
+- [ ] Final screenshot is retained, linked and explained in PR
+- [ ] Mac + Windows test/build verification; no lane gameplay integration or new framework
 
-- [ ] Strip follows the pinned y=290..580 / 20px staff-space / x=195 clipping geometry; fixed x=220 hit line, time-derived coordinates with the **existing** scroll-speed scale
-- [ ] Five staff lines and labels; mapped notes/chords, needed ledger lines, rests, measure boundaries and hit marker
-- [ ] Stem-up reaches highest mapped head +7 staff steps; flags, primary/secondary/partial beams and tuplets cover supported rhythmic values
-- [ ] Geometry from existing HPA-408 model and HPA-409 Bravura glyph metrics (no duplicated mapping or timing calculations)
-- [ ] Left-column/left-and-right-edge clipping/culling and cheap bounded per-frame traversal; skip terminal `MeasureLines[^1]`
-- [ ] Pure layout tests pass on Mac + Windows; Mac and Windows game builds/CI pass
-- [ ] Manual IFont-rendered specimen checked, screenshot retained durably and linked in PR
-- [ ] Clean resource lifetime on successful and failed font validation
-- [ ] No gameplay/config/HUD/judgement/parser/API architecture changes; one implementation PR only
+## Keep out of scope
 
-## Agent guardrails
-
-Implement the minimal visible strip, rather than a generic music notation library. Do not start HPA-411/HPA-509 early; no new animation assets or SFX; no extra caching until profiling shows a need; no separate spike PR. If you find a real incompatibility in glyph anchors or timing, record it in this PR and revise the spec before enlarging implementation scope. Avoid unrelated cleanups.
+No new config, UI/HUD, E2E mode, judgement integration, pixel-art work, cache framework, scissor batch reopening, more than one font asset/backend, or large engine refactor. One ticket, one PR, <=3 engineer days.
