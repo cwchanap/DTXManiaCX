@@ -1,7 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Text.Json;
+using System.Xml.Linq;
 using DTXMania.Game.Lib.Song.Notation;
+using DTXMania.Test.TestData;
 using Xunit;
 
 namespace DTXMania.Test.Song.Notation
@@ -76,12 +80,43 @@ namespace DTXMania.Test.Song.Notation
         [Fact]
         public void NotationGlyphEnum_ShouldContainExactlyTheBakedGlyphSet()
         {
-            // The 32 code points above must be exactly what the SpriteFont bakes:
-            // no extra members (they would fail SupportsCharacter validation) and
-            // no duplicates (distinct SMuFL code points).
+            // The enum must cover exactly the code points baked into
+            // Bravura-Notation.spritefont: no extra members (they would fail
+            // SupportsCharacter validation) and no duplicates (distinct SMuFL
+            // code points). Read the real asset descriptor instead of just
+            // counting enum members, so a drifted table fails loudly.
+            var bakedCodePoints = LoadBakedSpriteFontCodePoints();
             var members = Enum.GetValues<NotationGlyph>();
+            var enumCodePoints = members.Select(glyph => (int)NotationGlyphs.ToChar(glyph)).ToHashSet();
+
             Assert.Equal(32, members.Length);
-            Assert.Equal(32, new HashSet<char>(members.Select(NotationGlyphs.ToChar)).Count);
+            Assert.Equal(members.Length, enumCodePoints.Count);
+            Assert.True(
+                enumCodePoints.SetEquals(bakedCodePoints),
+                "Enum code points differ from Bravura-Notation.spritefont regions: " +
+                $"missing in enum [{string.Join(", ", bakedCodePoints.Except(enumCodePoints).Select(c => $"0x{c:X4}"))}], " +
+                $"missing in spritefont [{string.Join(", ", enumCodePoints.Except(bakedCodePoints).Select(c => $"0x{c:X4}"))}]");
+        }
+
+        // Expands the spritefont's <CharacterRegion> Start/End ranges into the
+        // full set of baked code points.
+        private static HashSet<int> LoadBakedSpriteFontCodePoints()
+        {
+            var path = Path.Combine(RepoPaths.GameContentDir, "Bravura-Notation.spritefont");
+            var doc = XDocument.Load(path);
+            var codePoints = new HashSet<int>();
+
+            foreach (var region in doc.Descendants("CharacterRegion"))
+            {
+                int start = (int)region.Element("Start")!.Value[0];
+                int end = (int)region.Element("End")!.Value[0];
+                for (int code = start; code <= end; code++)
+                {
+                    codePoints.Add(code);
+                }
+            }
+
+            return codePoints;
         }
 
         // ------------------------------------------------------------------
@@ -119,6 +154,20 @@ namespace DTXMania.Test.Song.Notation
             var expected = Enum.Parse<NotationGlyph>(expectedGlyphName);
 
             Assert.Equal(expected, NotationGlyphs.Notehead(shape, value));
+        }
+
+        [Fact]
+        public void Notehead_WithUndefinedNoteValue_ShouldThrow()
+        {
+            Assert.Throws<ArgumentOutOfRangeException>(
+                () => NotationGlyphs.Notehead(NoteheadShape.Normal, (NoteValue)999));
+        }
+
+        [Fact]
+        public void Notehead_WithUndefinedShape_ShouldThrow()
+        {
+            Assert.Throws<ArgumentOutOfRangeException>(
+                () => NotationGlyphs.Notehead((NoteheadShape)999, NoteValue.Quarter));
         }
 
         // ------------------------------------------------------------------
@@ -186,7 +235,7 @@ namespace DTXMania.Test.Song.Notation
         [InlineData(2, "SixtyFourth")]  // sub-ladder fallback
         public void FromTicks_ShouldMapDurationsOntoTheValueLadder(int ticks, string expectedValueName)
         {
-            Assert.Equal(Enum.Parse<NoteValue>(expectedValueName), NoteValue.FromTicks(ticks));
+            Assert.Equal(Enum.Parse<NoteValue>(expectedValueName), NotationGlyphs.FromTicks(ticks));
         }
 
         [Theory]
@@ -195,79 +244,98 @@ namespace DTXMania.Test.Song.Notation
         [InlineData(-192)]
         public void FromTicks_ShouldRejectNonPositiveTicks(int ticks)
         {
-            Assert.Throws<ArgumentOutOfRangeException>(() => NoteValue.FromTicks(ticks));
+            Assert.Throws<ArgumentOutOfRangeException>(() => NotationGlyphs.FromTicks(ticks));
         }
 
         // ------------------------------------------------------------------
         // Tuplet display: the renderer derives the displayed base as
-        // SlotTicks * 3 / 2 BEFORE FromTicks (DTXWeb rule), so a 48-tick
-        // triplet slot displays as a 72-tick quarter.
+        // SlotTicks * 3 / 2 BEFORE FromTicks (DTXWeb rule), so a 32-tick
+        // triplet slot displays as a 48-tick quarter.
         // ------------------------------------------------------------------
 
         [Theory]
-        [InlineData(96, "Half")]    // half triplet slot → 144 ticks
-        [InlineData(48, "Quarter")] // quarter triplet slot → 72 ticks
-        [InlineData(24, "Eighth")]  // eighth triplet slot → 36 ticks
+        [InlineData(64, "Half")]        // 64-tick slot → 96 ticks displayed
+        [InlineData(32, "Quarter")]     // 32-tick slot → 48 ticks displayed
+        [InlineData(16, "Eighth")]      // 16-tick slot → 24 ticks displayed
+        [InlineData(8, "Sixteenth")]    // 8-tick slot → 12 ticks displayed
         public void FromTicks_AfterTupletDisplayedBaseConversion_ShouldShowTripletBaseValue(
             int slotTicks, string expectedValueName)
         {
-            Assert.Equal(Enum.Parse<NoteValue>(expectedValueName), NoteValue.FromTicks(slotTicks * 3 / 2));
+            // SlotTicks only ever comes out of the quantizer as 8/16/32/64
+            // (TripletGroupTicks 24/48/96/192 ÷ 3).
+            Assert.Equal(Enum.Parse<NoteValue>(expectedValueName), NotationGlyphs.FromTicks(slotTicks * 3 / 2));
         }
 
         // ------------------------------------------------------------------
-        // Pinned Bravura 1.482 metrics (redist/Bravura.json): bBox width and
-        // SW origin in staff spaces, plus stemUpSE/stemUpNW anchors. Constants
-        // below are copied from the pinned release, independently of the
-        // implementation's own table.
+        // Pinned Bravura 1.482 metrics: bBox corners and stemUpSE/stemUpNW
+        // anchors in staff spaces, loaded from the checked-in excerpt of the
+        // official release metadata (TestData/Bravura-1.482.json). An
+        // independent source — not a second copy of the production table — so
+        // a mistyped constant in NotationGlyphs fails here.
         // ------------------------------------------------------------------
 
-        private static readonly IReadOnlyDictionary<string, NotationGlyphMetrics> PinnedBravura1482Metrics =
-            new Dictionary<string, NotationGlyphMetrics>
-            {
-                ["UnpitchedPercussionClef1"] = new(1.528f, new GlyphPoint(0f, -1f), null, null),
-                ["TimeSig0"] = new(1.72f, new GlyphPoint(0.08f, -1f), null, null),
-                ["TimeSig1"] = new(1.176f, new GlyphPoint(0.08f, -1f), null, null),
-                ["TimeSig2"] = new(1.624f, new GlyphPoint(0.08f, -1.028f), null, null),
-                ["TimeSig3"] = new(1.524f, new GlyphPoint(0.08f, -1.004f), null, null),
-                ["TimeSig4"] = new(1.72f, new GlyphPoint(0.08f, -1f), null, null),
-                ["TimeSig5"] = new(1.452f, new GlyphPoint(0.08f, -1.004f), null, null),
-                ["TimeSig6"] = new(1.576f, new GlyphPoint(0.08f, -0.996f), null, null),
-                ["TimeSig7"] = new(1.604f, new GlyphPoint(0.08f, -1f), null, null),
-                ["TimeSig8"] = new(1.584f, new GlyphPoint(0.08f, -1.036f), null, null),
-                ["TimeSig9"] = new(1.576f, new GlyphPoint(0.08f, -0.996f), null, null),
-                ["NoteheadWhole"] = new(1.688f, new GlyphPoint(0f, -0.5f), null, null),
-                ["NoteheadHalf"] = new(1.18f, new GlyphPoint(0f, -0.5f), new GlyphPoint(1.18f, 0.168f), null),
-                ["NoteheadBlack"] = new(1.18f, new GlyphPoint(0f, -0.5f), new GlyphPoint(1.18f, 0.168f), null),
-                ["NoteheadXWhole"] = new(1.508f, new GlyphPoint(0f, -0.5f), null, null),
-                ["NoteheadXHalf"] = new(1.336f, new GlyphPoint(0f, -0.5f), new GlyphPoint(1.336f, 0.412f), null),
-                ["NoteheadXBlack"] = new(1.16f, new GlyphPoint(0f, -0.5f), new GlyphPoint(1.16f, 0.444f), null),
-                ["NoteheadCircleXWhole"] = new(0.996f, new GlyphPoint(0f, -0.5f), null, null),
-                ["NoteheadCircleXHalf"] = new(1f, new GlyphPoint(0f, -0.5f), new GlyphPoint(1f, 0f), null),
-                ["NoteheadCircleX"] = new(0.996f, new GlyphPoint(0f, -0.5f), new GlyphPoint(0.996f, 0f), null),
-                ["Flag8thUp"] = new(1.056f, new GlyphPoint(0f, -3.24f), null, new GlyphPoint(0f, -0.04f)),
-                ["Flag16thUp"] = new(1.116f, new GlyphPoint(0f, -3.252f), null, new GlyphPoint(0f, -0.088f)),
-                ["Flag32ndUp"] = new(1.044f, new GlyphPoint(0f, -3.248f), null, new GlyphPoint(0f, 0.376f)),
-                ["Flag64thUp"] = new(1.044f, new GlyphPoint(0f, -3.248f), null, new GlyphPoint(0f, 1.172f)),
-                ["RestWhole"] = new(1.128f, new GlyphPoint(0f, -0.54f), null, null),
-                ["RestHalf"] = new(1.128f, new GlyphPoint(0f, -0.008f), null, null),
-                ["RestQuarter"] = new(1.076f, new GlyphPoint(0.004f, -1.5f), null, null),
-                ["Rest8th"] = new(0.988f, new GlyphPoint(0f, -1.004f), null, null),
-                ["Rest16th"] = new(1.28f, new GlyphPoint(0f, -2f), null, null),
-                ["Rest32nd"] = new(1.452f, new GlyphPoint(0f, -2f), null, null),
-                ["Rest64th"] = new(1.692f, new GlyphPoint(0f, -3.012f), null, null),
-                ["Tuplet3"] = new(1.184f, new GlyphPoint(0.04f, -0.032f), null, null)
-            };
+        private static readonly IReadOnlyDictionary<NotationGlyph, NotationGlyphMetrics> PinnedBravura1482Metrics =
+            LoadPinnedBravura1482Metrics();
 
-        public static IEnumerable<object[]> PinnedMetricGlyphNames() =>
-            PinnedBravura1482Metrics.Keys.Select(name => new object[] { name });
+        private static IReadOnlyDictionary<NotationGlyph, NotationGlyphMetrics> LoadPinnedBravura1482Metrics()
+        {
+            var path = Path.Combine(RepoPaths.TestDataDir, "Bravura-1.482.json");
+            using var doc = JsonDocument.Parse(File.ReadAllText(path));
+            var root = doc.RootElement;
+            var bboxes = root.GetProperty("glyphBBoxes");
+            var anchors = root.GetProperty("glyphsWithAnchors");
+
+            var metrics = new Dictionary<NotationGlyph, NotationGlyphMetrics>();
+            foreach (var entry in bboxes.EnumerateObject())
+            {
+                // Enum member names are the SMuFL names with an upper-case first letter.
+                var glyph = Enum.Parse<NotationGlyph>(entry.Name, ignoreCase: true);
+                GlyphPoint? stemUpSE = null, stemUpNW = null;
+                if (anchors.TryGetProperty(entry.Name, out var glyphAnchors))
+                {
+                    if (glyphAnchors.TryGetProperty("stemUpSE", out var se))
+                    {
+                        stemUpSE = ToGlyphPoint(se);
+                    }
+                    if (glyphAnchors.TryGetProperty("stemUpNW", out var nw))
+                    {
+                        stemUpNW = ToGlyphPoint(nw);
+                    }
+                }
+
+                metrics[glyph] = new NotationGlyphMetrics(
+                    ToGlyphPoint(entry.Value.GetProperty("bBoxSW")),
+                    ToGlyphPoint(entry.Value.GetProperty("bBoxNE")),
+                    stemUpSE,
+                    stemUpNW);
+            }
+
+            return metrics;
+        }
+
+        private static GlyphPoint ToGlyphPoint(JsonElement point) =>
+            new(point[0].GetSingle(), point[1].GetSingle());
+
+        [Fact]
+        public void PinnedBravuraMetadata_ShouldCoverEveryGlyphInTheEnum()
+        {
+            var enumGlyphs = Enum.GetValues<NotationGlyph>().ToHashSet();
+
+            Assert.True(PinnedBravura1482Metrics.Keys.ToHashSet().SetEquals(enumGlyphs),
+                "Pinned metadata and NotationGlyph enum have drifted apart.");
+        }
+
+        public static IEnumerable<object[]> AllGlyphsForMetrics() =>
+            // Iterate the enum, not the dictionary, so a missing pinned entry fails here.
+            Enum.GetValues<NotationGlyph>().Select(glyph => new object[] { glyph.ToString() });
 
         [Theory]
-        [MemberData(nameof(PinnedMetricGlyphNames))]
+        [MemberData(nameof(AllGlyphsForMetrics))]
         public void GetMetrics_ShouldMatchPinnedBravura1482Metadata(string glyphName)
         {
             var glyph = Enum.Parse<NotationGlyph>(glyphName);
 
-            Assert.Equal(PinnedBravura1482Metrics[glyphName], NotationGlyphs.GetMetrics(glyph));
+            Assert.Equal(PinnedBravura1482Metrics[glyph], NotationGlyphs.GetMetrics(glyph));
         }
 
         // ------------------------------------------------------------------

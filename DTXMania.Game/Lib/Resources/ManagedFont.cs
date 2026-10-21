@@ -7,6 +7,7 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using DTXMania.Game.Lib.Utilities;
 using XnaColor = Microsoft.Xna.Framework.Color;
@@ -32,8 +33,10 @@ namespace DTXMania.Game.Lib.Resources
         protected readonly object _lockObject = new object();
         protected char _defaultCharacter = '?';
 
-        // Character support cache for performance
-        protected readonly HashSet<char> _supportedCharacters = new HashSet<char>();
+        // Character support cache for performance. Points at a HashSet shared
+        // with every ManagedFont wrapping the same SpriteFont (see
+        // BuildCharacterCache) — never mutate it.
+        protected HashSet<char> _supportedCharacters = new HashSet<char>();
         protected bool _characterCacheBuilt = false;
 
         // Text rendering cache for performance (similar to CPrivateFastFont)
@@ -78,7 +81,11 @@ namespace DTXMania.Game.Lib.Resources
         }
 
         /// <summary>
-        /// Create a font from system font name or font file path
+        /// Create a font from system font name or font file path. The returned
+        /// font reports the baked asset's size and style, which may differ from
+        /// the request when the family snaps to a different-sized SpriteFont
+        /// (e.g. every size of the single-asset Bravura-Notation family reports
+        /// the pinned 40pt).
         /// </summary>
         public static ManagedFont CreateFont(GraphicsDevice graphicsDevice, string fontPath, int size, FontStyle style = FontStyle.Regular)
         {
@@ -87,21 +94,18 @@ namespace DTXMania.Game.Lib.Resources
                 if (_contentManager == null)
                     throw new InvalidOperationException("Font factory not initialized. Call InitializeFontFactory first.");
 
-                var (_, resolvedStyle) = GetBestSpriteFontAssetName(fontPath, size, style);
-                var spriteFont = GetBestSizeSpriteFont(fontPath, size, style);
-                return new ManagedFont(spriteFont, fontPath, size, resolvedStyle);
+                var (assetName, resolvedStyle, resolvedSize) = GetBestSpriteFontAssetName(fontPath, size, style);
+                var spriteFont = LoadSpriteFontAsset(assetName, size, style);
+                return new ManagedFont(spriteFont, fontPath, resolvedSize, resolvedStyle);
             }
         }
 
         /// <summary>
-        /// Get the best SpriteFont for the requested size and style.
-        /// Prefers a Bold-variant asset when style=Bold and one exists at that size.
-        /// Falls back to the closest Regular-size asset otherwise.
+        /// Load (or reuse the cached) SpriteFont for a resolved asset name.
+        /// Falls back to the default NotoSerifJP asset on load failure.
         /// </summary>
-        private static SpriteFont GetBestSizeSpriteFont(string fontPath, int requestedSize, FontStyle style)
+        private static SpriteFont LoadSpriteFontAsset(string assetName, int requestedSize, FontStyle style)
         {
-            var (assetName, _) = GetBestSpriteFontAssetName(fontPath, requestedSize, style);
-
             if (!_loadedFonts.TryGetValue(assetName, out var spriteFont))
             {
                 try
@@ -146,7 +150,10 @@ namespace DTXMania.Game.Lib.Resources
         /// asset is closer than the closest Regular one, the Regular asset wins
         /// and the returned style reflects the downgrade.
         /// </summary>
-        internal static (string assetName, FontStyle resolvedStyle) GetBestSpriteFontAssetName(string fontPath, int requestedSize, FontStyle style)
+        /// <returns>The asset to load plus its baked size and style. The baked
+        /// size, not the requested one, is what the resulting IFont reports.
+        /// </returns>
+        internal static (string assetName, FontStyle resolvedStyle, int resolvedSize) GetBestSpriteFontAssetName(string fontPath, int requestedSize, FontStyle style)
         {
             (int size, string assetName)[] availableRegular;
             (int size, string assetName)[] boldVariants;
@@ -217,11 +224,11 @@ namespace DTXMania.Game.Lib.Resources
                 // Otherwise prefer the right-sized Regular over the wrong-sized Bold.
                 if (Math.Abs(closestBold.size - requestedSize) <= Math.Abs(closestRegular.size - requestedSize))
                 {
-                    return (closestBold.assetName, FontStyle.Bold);
+                    return (closestBold.assetName, FontStyle.Bold, closestBold.size);
                 }
             }
 
-            return (closestRegular.assetName, FontStyle.Regular);
+            return (closestRegular.assetName, FontStyle.Regular, closestRegular.size);
         }
 
         /// <summary>
@@ -761,162 +768,32 @@ namespace DTXMania.Game.Lib.Resources
 
         // Windows-specific font loading methods moved to platform-specific implementations
 
+        // One supported-character set per SpriteFont, shared by every
+        // ManagedFont that wraps it — NotoSerifJP alone carries ~22k entries,
+        // so per-instance copies were significant. Entries die with the
+        // SpriteFont via ConditionalWeakTable.
+        private static readonly ConditionalWeakTable<SpriteFont, HashSet<char>> _spriteFontCharacterSets = new();
+        private static readonly HashSet<char> EmptyCharacters = new HashSet<char>();
+
+        /// <summary>
+        /// Populate the supported-character cache from <see cref="SpriteFont.Characters"/>,
+        /// the authoritative baked glyph list. Replaces the old curated-range
+        /// MeasureString probe, which threw an ArgumentException per missing
+        /// character on fonts without a default character (Bravura-Notation,
+        /// ~880 throws per build) and reported characters as supported that
+        /// would render as the default glyph on fonts that do have one.
+        /// </summary>
         protected void BuildCharacterCache()
         {
-            _supportedCharacters.Clear();
-
-            if (_spriteFont != null)
-            {
-                // Build cache of supported characters including Japanese ranges
-                BuildCharacterRangeCache();
-
-                // The range scan only probes curated ranges; union in the
-                // SpriteFont's actual character set so SupportsCharacter stays
-                // accurate for glyphs the scan never tests (e.g. the SMuFL
-                // Private Use Area). Characters is null on uninitialized
-                // SpriteFonts, which tests build via GetUninitializedObject.
-                if (_spriteFont.Characters != null)
-                {
-                    _supportedCharacters.UnionWith(_spriteFont.Characters);
-                }
-            }
-
+            _supportedCharacters = _spriteFont != null ? GetCharacterSet(_spriteFont) : EmptyCharacters;
             _characterCacheBuilt = true;
         }
 
-        protected void BuildCharacterRangeCache()
-        {
-            // Basic ASCII (0x20-0x7E)
-            TestCharacterRange(0x0020, 0x007E, "Basic ASCII");
-
-            // Latin-1 Supplement (0x80-0xFF)
-            TestCharacterRange(0x0080, 0x00FF, "Latin-1 Supplement");
-
-            // Japanese Hiragana (0x3040-0x309F)
-            TestCharacterRange(0x3040, 0x309F, "Hiragana");
-
-            // Japanese Katakana (0x30A0-0x30FF)
-            TestCharacterRange(0x30A0, 0x30FF, "Katakana");
-
-            // CJK Unified Ideographs (Common Kanji) - Test a subset for performance
-            TestCommonKanjiCharacters();
-
-            // Halfwidth and Fullwidth Forms (0xFF00-0xFFEF)
-            TestCharacterRange(0xFF00, 0xFFEF, "Halfwidth and Fullwidth Forms");
-
-            // Common punctuation and symbols
-            TestCharacterRange(0x2000, 0x206F, "General Punctuation");
-            TestCharacterRange(0x3000, 0x303F, "CJK Symbols and Punctuation");
-
-            Debug.WriteLine($"ManagedFont: Character cache built with {_supportedCharacters.Count} supported characters");
-        }
-
-        protected void TestCharacterRange(int startCode, int endCode, string rangeName)
-        {
-            int supportedCount = 0;
-            for (int code = startCode; code <= endCode; code++)
-            {
-                char c = (char)code;
-                if (TestCharacterSupport(c))
-                {
-                    _supportedCharacters.Add(c);
-                    supportedCount++;
-                }
-            }
-            Debug.WriteLine($"ManagedFont: {rangeName} range - {supportedCount}/{endCode - startCode + 1} characters supported");
-        }
-
-        protected void TestCommonKanjiCharacters()
-        {
-            // Test a subset of common Kanji characters for performance
-            // These are some of the most frequently used Kanji
-            var commonKanji = new[]
-            {
-                // Numbers
-                '一', '二', '三', '四', '五', '六', '七', '八', '九', '十',
-                // Common words
-                '人', '日', '本', '国', '年', '大', '学', '生', '会', '社',
-                '時', '間', '分', '月', '火', '水', '木', '金', '土', '曜',
-                '今', '明', '昨', '来', '行', '見', '聞', '言', '話', '読',
-                '書', '食', '飲', '買', '売', '作', '使', '思', '知', '好'
-            };
-
-            int supportedCount = 0;
-            foreach (char kanji in commonKanji)
-            {
-                if (TestCharacterSupport(kanji))
-                {
-                    _supportedCharacters.Add(kanji);
-                    supportedCount++;
-                }
-            }
-            Debug.WriteLine($"ManagedFont: Common Kanji - {supportedCount}/{commonKanji.Length} characters supported");
-        }
-
-        protected virtual bool TestCharacterSupport(char character)
-        {
-            if (_spriteFont == null) return false;
-
-            try
-            {
-                // Try to measure the character - if it throws, it's not supported
-                var size = _spriteFont.MeasureString(character.ToString());
-                
-                // Additional validation: check if the character actually renders something
-                // For Japanese characters, even small measurements are valid
-                bool hasSize = size.X > 0 && size.Y > 0;
-                
-                if (!hasSize)
-                {
-                    // Try alternative test: attempt to draw the character to see if it fails
-                    // This is a more reliable test for character support
-                    return TryDrawCharacter(character);
-                }
-                
-                return hasSize;
-            }
-            catch
-            {
-                // Character not supported
-                return false;
-            }
-        }
-        
-        private bool TryDrawCharacter(char character)
-        {
-            try
-            {
-                // Create a minimal test to see if the character is drawable
-                // We don't actually draw it, just see if SpriteFont accepts it
-                var testString = character.ToString();
-                
-                // If the character is in the valid Unicode range for Japanese text, assume it's supported
-                // This handles cases where MeasureString might return 0 but the character is actually valid
-                if (IsJapaneseCharacter(character))
-                {
-                    return true; // Assume Japanese characters in our font file are supported
-                }
-                
-                return false;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-        
-        private bool IsJapaneseCharacter(char character)
-        {
-            int codePoint = (int)character;
-            
-            // Check if character is in Japanese Unicode ranges defined in our .spritefont file
-            return (codePoint >= 12289 && codePoint <= 12351) ||  // Japanese punctuation and symbols
-                   (codePoint >= 12352 && codePoint <= 12447) ||  // Hiragana
-                   (codePoint >= 12448 && codePoint <= 12543) ||  // Katakana
-                   (codePoint >= 19968 && codePoint <= 40959) ||  // CJK Unified Ideographs (Kanji)
-                   (codePoint >= 63744 && codePoint <= 64255) ||  // CJK Compatibility Ideographs
-                   (codePoint >= 65280 && codePoint <= 65519);    // Additional Japanese symbols
-        }
+        private static HashSet<char> GetCharacterSet(SpriteFont spriteFont) =>
+            _spriteFontCharacterSets.GetValue(spriteFont, font =>
+                // Characters is null on uninitialized SpriteFonts, which tests
+                // build via GetUninitializedObject.
+                font.Characters != null ? new HashSet<char>(font.Characters) : EmptyCharacters);
 
         private string SanitizeText(string text)
         {
@@ -926,7 +803,9 @@ namespace DTXMania.Game.Lib.Resources
 
             foreach (char c in text)
             {
-                if (SupportsCharacter(c))
+                // '\r' is skipped and '\n' handled by SpriteFont itself; keep
+                // them so sanitizing cannot mangle line breaks.
+                if (c is '\n' or '\r' || SupportsCharacter(c))
                 {
                     result.Append(c);
                 }
@@ -934,7 +813,14 @@ namespace DTXMania.Game.Lib.Resources
                 {
                     // Try to find a suitable replacement for Japanese characters
                     char replacement = GetCharacterReplacement(c);
-                    result.Append(replacement);
+                    // Glyph-only fonts (e.g. Bravura-Notation) have no default
+                    // character: when even the replacement is unsupported the
+                    // character must be dropped, or the draw/measure retry
+                    // throws the same ArgumentException it just caught.
+                    if (SupportsCharacter(replacement))
+                    {
+                        result.Append(replacement);
+                    }
                 }
             }
 

@@ -12,7 +12,9 @@ namespace DTXMania.Test.Resources
         {
             // These tests pin the default (NotoSerifJP) family behavior; the
             // Orbitron family is covered by ManagedFontAssetMappingTests.
-            return ManagedFont.GetBestSpriteFontAssetName("NotoSerifJP", size, style);
+            var (assetName, resolvedStyle, _) =
+                ManagedFont.GetBestSpriteFontAssetName("NotoSerifJP", size, style);
+            return (assetName, resolvedStyle);
         }
 
         [Fact]

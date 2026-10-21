@@ -201,7 +201,14 @@ namespace DTXMania.Game.Lib.Resources
             // Normalize path for case-insensitive comparison (Windows compatibility)
             // Don't add directory separator to file paths
             var normalizedPath = NormalizeFilePath(path);
-            var cacheKey = $"{normalizedPath}|{size}|{style}";
+
+            // Key on the resolved baked asset, not the requested size/style:
+            // requested sizes that snap to the same SpriteFont (e.g. every
+            // size of the single-asset Bravura-Notation family, or a Bold
+            // request with no Bold variant) share one cache entry instead of
+            // building a ManagedFont and character cache per request.
+            var (resolvedAsset, resolvedStyle, _) = ManagedFont.GetBestSpriteFontAssetName(normalizedPath, size, style);
+            var cacheKey = $"{normalizedPath}|{resolvedAsset}|{resolvedStyle}";
 
             // Check cache first
             if (_fontCache.TryGetValue(cacheKey, out var cachedFont))

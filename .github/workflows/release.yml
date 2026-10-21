@@ -344,7 +344,8 @@ jobs:
           # if either file is missing from the publish output.
           $licenses = @(
             'publish/win/Licenses/Orbitron-OFL.txt',
-            'publish/win/Licenses/ShareTechMono-OFL.txt'
+            'publish/win/Licenses/ShareTechMono-OFL.txt',
+            'publish/win/Licenses/Bravura-OFL.txt'
           )
           foreach ($f in $licenses) {
             if (-not (Test-Path $f)) { throw "Missing OFL license file: $f" }
@@ -566,7 +567,7 @@ jobs:
           # include the copyright notice and license text. The .csproj copies
           # them to Licenses/ via None + CopyToOutputDirectory. Fail the build
           # if either file is missing from the publish output.
-          for f in publish/mac/Licenses/Orbitron-OFL.txt publish/mac/Licenses/ShareTechMono-OFL.txt; do
+          for f in publish/mac/Licenses/Orbitron-OFL.txt publish/mac/Licenses/ShareTechMono-OFL.txt publish/mac/Licenses/Bravura-OFL.txt; do
             if [ ! -f "$f" ]; then echo "::error::Missing OFL license file: $f" >&2; exit 1; fi
             echo "Found: $f"
           done

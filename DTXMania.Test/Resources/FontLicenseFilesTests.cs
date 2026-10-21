@@ -1,5 +1,5 @@
-using System;
 using System.IO;
+using DTXMania.Test.TestData;
 using Xunit;
 
 namespace DTXMania.Test.Resources
@@ -12,24 +12,7 @@ namespace DTXMania.Test.Resources
         // the source files exist and the .csproj files declare them for
         // output copying so they ship in every artifact.
 
-        private static string FindRepoRoot()
-        {
-            var dir = new DirectoryInfo(AppContext.BaseDirectory);
-            while (dir != null)
-            {
-                if (Directory.Exists(Path.Combine(dir.FullName, "DTXMania.Game")) &&
-                    Directory.Exists(Path.Combine(dir.FullName, "System")))
-                {
-                    return dir.FullName;
-                }
-                dir = dir.Parent;
-            }
-
-            throw new InvalidOperationException(
-                "Could not locate repository root from " + AppContext.BaseDirectory + ".");
-        }
-
-        private static string ContentDir => Path.Combine(FindRepoRoot(), "DTXMania.Game", "Content");
+        private static string ContentDir => RepoPaths.GameContentDir;
 
         [Theory]
         [InlineData("Orbitron-OFL.txt")]
@@ -48,7 +31,7 @@ namespace DTXMania.Test.Resources
         [InlineData("DTXMania.Game.Mac.csproj")]
         public void Csproj_ShouldDeclareOfLLicenseFilesForOutputCopying(string csprojName)
         {
-            var csprojPath = Path.Combine(FindRepoRoot(), "DTXMania.Game", csprojName);
+            var csprojPath = Path.Combine(RepoPaths.FindRepoRoot(), "DTXMania.Game", csprojName);
             Assert.True(File.Exists(csprojPath), $"Missing: {csprojPath}");
 
             var content = File.ReadAllText(csprojPath);
