@@ -158,13 +158,13 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         private void DrawStaffLines(SpriteBatch spriteBatch)
         {
-            for (int y = NotationStrip.StaffTopY; y <= NotationStrip.StaffBottomY; y += NotationStrip.DiatonicStep)
+            foreach (float y in NotationStripLayout.GetStaffLineYs())
             {
                 DrawRect(
                     spriteBatch,
                     new Rectangle(
                         NotationStrip.StripLeft,
-                        y,
+                        (int)y,
                         NotationStrip.StripRight - NotationStrip.StripLeft,
                         (int)NotationStrip.StaffLineThickness),
                     NotationStrip.StaffColor,

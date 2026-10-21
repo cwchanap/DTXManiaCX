@@ -48,6 +48,15 @@ namespace DTXMania.Game.Lib.Stage.Performance
         }
 
         /// <summary>
+        /// The five staff line ys, top to bottom: F5=430, D5=450, B4=470, G4=490, E4=510 —
+        /// the even diatonic steps at one staff-space (20px) pitch, not every diatonic step.
+        /// </summary>
+        public static IReadOnlyList<float> GetStaffLineYs()
+        {
+            return new[] { 8, 6, 4, 2, 0 }.Select(StaffStepToY).ToArray();
+        }
+
+        /// <summary>
         /// Selects the whole measures visible in [leftMs, rightMs): binary search over measure end
         /// times (MeasureLines[i+1].TimeMs) for the first measure crossing the left edge, then walk
         /// forward until a measure starts at or beyond the right edge. The terminal MeasureLines[^1]
