@@ -14,7 +14,7 @@ missing glyph fails loudly instead of rendering a replacement.
 <XnaContent xmlns:Graphics="Microsoft.Xna.Framework.Content.Pipeline.Graphics">
   <Asset Type="Graphics:FontDescription">
     <FontName>Bravura.otf</FontName>
-    <Size>40</Size>
+    <Size>60</Size>
     <Spacing>0</Spacing>
     <UseKerning>false</UseKerning>
     <Style>Regular</Style>
