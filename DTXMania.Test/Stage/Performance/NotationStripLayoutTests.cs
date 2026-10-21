@@ -80,6 +80,16 @@ public class NotationStripLayoutTests
         Assert.Equal(expectedY, y);
     }
 
+    [Fact]
+    public void GetStaffLineYs_ShouldReturnFiveLinesAtStaffSpacePitch()
+    {
+        // The staff is FIVE lines at 20px (one staff space) pitch: F5..E4 top to bottom,
+        // i.e. only the even diatonic steps 8,6,4,2,0 — not every 10px diatonic step.
+        var ys = NotationStripLayout.GetStaffLineYs();
+
+        Assert.Equal(new float[] { 430, 450, 470, 490, 510 }, ys);
+    }
+
     [Theory]
     // Snare sits on C5 (step 5), ride on F5 (step 8), bass on F4 (step 1) per DrumStaffMapping.
     [InlineData(0x12, 460)]
