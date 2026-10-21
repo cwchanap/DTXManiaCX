@@ -533,6 +533,74 @@ namespace DTXMania.Game.Lib.UI.Layout
         public const int ScrollSpeedIndicatorY = 40;
 
         #endregion
+
+        #region Notation Strip (HPA-410)
+
+        /// <summary>
+        /// Scrolling notation strip: fixed virtual-space geometry, colors, layer depths and scroll rate.
+        /// </summary>
+        public static class NotationStrip
+        {
+            // Strip bounds in 1280x720 virtual space.
+            public const int StripLeft = 0;
+            public const int StripRight = ScreenWidth;
+            public const int StripTop = 290;
+            public const int StripBottom = 580;
+
+            // Opaque instrument-key column on the left; it masks moving ink at draw time.
+            public const int KeyColumnWidth = 195;
+            public const int LabelRightX = 174;
+            public const int MovingInkStartX = KeyColumnWidth;
+
+            // Hit marker (fixed vertical line at "now").
+            public const int HitMarkerX = 220;
+            public const int HitMarkerWidth = 2;
+
+            // Staff geometry: 20px per staff space, 10px per diatonic step (E4 = step 0).
+            public const int StaffSpace = 20;
+            public const int DiatonicStep = 10;
+            public const int E4LineY = 510;
+            public const int G4LineY = 490;
+            public const int B4LineY = 470;
+            public const int D5LineY = 450;
+            public const int F5LineY = 430;
+            public const int StaffTopY = F5LineY;
+            public const int StaffBottomY = E4LineY;
+
+            // Primitive thicknesses in px.
+            public const float StaffLineThickness = 1f;
+            public const float BarlineThickness = 1f;
+            public const float StemThickness = 2f;
+            public const float BeamThickness = 5f;
+            public const float BeamLevelSpacing = 8f;
+
+            /// <summary>
+            /// Horizontal scroll rate at speed 100: px per chart ms.
+            /// </summary>
+            public const double ScrollPixelsPerMs = 0.38;
+
+            // Native font sizes (Bravura bake pinned at 60pt ~ 20px/staff-space in Task 0).
+            public const float BravuraFontSizePt = 60f;
+            public const float LabelFontSize = 14f;
+
+            public static readonly Color BackgroundColor = new Color(0x10, 0x15, 0x1D);
+            public static readonly Color StaffColor = new Color(0x71, 0x80, 0x96);
+            public static readonly Color BarlineColor = new Color(0x71, 0x80, 0x96);
+            public static readonly Color NotationColor = new Color(0xF2, 0xF4, 0xF8);
+            public static readonly Color LabelColor = new Color(0xCA, 0xD3, 0xDE);
+            public static readonly Color HitMarkerColor = new Color(0xF0, 0xC1, 0x5A);
+
+            // Layer depths (BackToFront, larger = farther).
+            public const float DepthBackground = 0.95f;
+            public const float DepthStaffAndBarlines = 0.80f;
+            public const float DepthHitMarker = 0.72f;
+            public const float DepthBeamsAndStems = 0.65f;
+            public const float DepthGlyphs = 0.55f;
+            public const float DepthKeyMask = 0.40f;
+            public const float DepthLabels = 0.30f;
+        }
+
+        #endregion
         
         #region Performance Component Constants
         
