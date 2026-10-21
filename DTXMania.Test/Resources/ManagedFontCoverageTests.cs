@@ -147,6 +147,33 @@ public class ManagedFontCoverageTests
         Assert.False(font.SupportsCharacter('\uE0A5'), "PUA code point absent from Characters must stay unsupported");
     }
 
+    [Fact]
+    public void SanitizeText_WhenNoReplacementCharacterExists_ShouldDropUnsupportedCharacters()
+    {
+        // Bravura-Notation bakes SMuFL PUA glyphs only, with no
+        // DefaultCharacter: unsupported text must be dropped rather than
+        // appended as an unsupported '?' that rethrows inside the draw/measure
+        // catch block.
+        var spriteFont = CreateSpriteFont([('\uE0A4', 12), ('\uE4E5', 10)]);
+        var font = new ManagedFont(spriteFont, "Bravura-Notation", 40);
+
+        var sanitized = InvokePrivate<string>(font, "SanitizeText", "A\uE0A4B\uE4E5C");
+
+        Assert.Equal("\uE0A4\uE4E5", sanitized);
+    }
+
+    [Fact]
+    public void MeasureString_WhenGlyphOnlyFontCannotRepresentText_ShouldReturnZero()
+    {
+        // Same glyph-only case through the public MeasureString path: the
+        // first call throws ArgumentException, the retry must get the fully
+        // sanitized (empty) string instead of throwing again.
+        var spriteFont = CreateSpriteFont([('\uE0A4', 12)]);
+        var font = new ManagedFont(spriteFont, "Bravura-Notation", 40);
+
+        Assert.Equal(Vector2.Zero, font.MeasureString("ABC"));
+    }
+
     #region Helpers
 
     private static SpriteFont CreateSpriteFont((char character, int width)[] glyphs, int lineSpacing = 16, char? defaultCharacter = null)

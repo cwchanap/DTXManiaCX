@@ -65,26 +65,6 @@ public class ManagedFontLogicTests
         }
     }
 
-    private class TestableManagedFont : ManagedFont
-    {
-        private HashSet<char>? _testCharacters;
-
-        public TestableManagedFont(SpriteFont spriteFont, string sourcePath, int fontSize)
-            : base(spriteFont, sourcePath, fontSize)
-        {
-        }
-
-        public void SetTestCharacters(HashSet<char> testCharacters)
-        {
-            _testCharacters = testCharacters;
-        }
-
-        protected override bool TestCharacterSupport(char character)
-        {
-            return _testCharacters?.Contains(character) ?? false;
-        }
-    }
-
     [Fact]
     public void InitializeFontFactory_WhenContentManagerIsNull_ShouldThrowArgumentNullException()
     {
@@ -255,8 +235,9 @@ public class ManagedFontLogicTests
 
             Assert.Same(spriteFont, font.SpriteFont);
             Assert.Equal("CachedFont", font.SourcePath);
-            Assert.Equal(20, font.Size);
-            // Size 20 Bold has no Bold-20 asset; resolves to Regular-24
+            // Size 20 Bold has no Bold-20 asset; resolves to Regular-24, and
+            // the font reports the baked asset size, not the requested one.
+            Assert.Equal(24, font.Size);
             Assert.Equal(FontStyle.Regular, font.Style);
             Assert.True(ReflectionHelpers.GetPrivateField<bool>(font, "_characterCacheBuilt"));
         }
@@ -478,12 +459,10 @@ public class ManagedFontLogicTests
     [Fact]
     public void SanitizeText_ShouldReplaceUnsupportedCharactersUsingFallbackRules()
     {
-        var spriteFont = CreateSpriteFont([('A', 10), ('?', 8)], defaultCharacter: '?');
-        var font = new TestableManagedFont(spriteFont, "TestFont", 16);
-        font.SetTestCharacters(new HashSet<char> { 'A', '?', '.', '-', '"', '\'', 'ア' });
-        // Reset cache so it rebuilds with the test characters
-        ReflectionHelpers.SetPrivateField(font, "_characterCacheBuilt", false);
-        ReflectionHelpers.SetPrivateField(font, "_supportedCharacters", new HashSet<char>());
+        var spriteFont = CreateSpriteFont(
+            [('A', 10), ('?', 8), ('.', 4), ('-', 6), ('"', 6), ('\'', 4), ('ア', 10)],
+            defaultCharacter: '?');
+        var font = new ManagedFont(spriteFont, "TestFont", 16);
 
         var sanitized = InvokePrivate<string>(font, "SanitizeText", "Ａ…—\u201C\u201Dあ");
 
@@ -493,11 +472,8 @@ public class ManagedFontLogicTests
     [Fact]
     public void GetCharacterReplacement_ShouldUseHiraganaKatakanaAndHalfwidthFallbacks()
     {
-        var spriteFont = CreateSpriteFont([('?', 8)], defaultCharacter: '?');
-        var font = new TestableManagedFont(spriteFont, "TestFont", 16);
-        font.SetTestCharacters(new HashSet<char> { 'ア', 'あ', 'A', '?', '.' });
-        ReflectionHelpers.SetPrivateField(font, "_characterCacheBuilt", false);
-        ReflectionHelpers.SetPrivateField(font, "_supportedCharacters", new HashSet<char>());
+        var spriteFont = CreateSpriteFont([('ア', 10), ('あ', 10), ('A', 10), ('?', 8), ('.', 4)], defaultCharacter: '?');
+        var font = new ManagedFont(spriteFont, "TestFont", 16);
 
         Assert.Equal('ア', InvokePrivate<char>(font, "GetCharacterReplacement", 'あ'));
         Assert.Equal('あ', InvokePrivate<char>(font, "GetCharacterReplacement", 'ア'));
@@ -621,17 +597,6 @@ public class ManagedFontLogicTests
     }
 
     [Fact]
-    public void TryDrawCharacter_AndIsJapaneseCharacter_ShouldRecognizeJapaneseRanges()
-    {
-        var font = CreateManagedFont();
-
-        Assert.True(InvokePrivate<bool>(font, "TryDrawCharacter", 'あ'));
-        Assert.False(InvokePrivate<bool>(font, "TryDrawCharacter", 'A'));
-        Assert.True(InvokePrivate<bool>(font, "IsJapaneseCharacter", '漢'));
-        Assert.False(InvokePrivate<bool>(font, "IsJapaneseCharacter", 'A'));
-    }
-
-    [Fact]
     public void GetKerning_ShouldAlwaysReturnZero()
     {
         var font = CreateManagedFont();
@@ -640,94 +605,10 @@ public class ManagedFontLogicTests
     }
 
     [Fact]
-    public void BuildCharacterRangeCache_ShouldPopulateCharacterRangesAndLogResults()
-    {
-        var spriteFont = (SpriteFont)RuntimeHelpers.GetUninitializedObject(typeof(SpriteFont));
-        var testChars = new HashSet<char> { 'A', 'B', '1', '2' };
-        var font = new TestableManagedFont(spriteFont, "test", 16);
-        font.SetTestCharacters(testChars);
-        ReflectionHelpers.SetPrivateField(font, "_characterCacheBuilt", false);
-        ReflectionHelpers.SetPrivateField(font, "_supportedCharacters", new HashSet<char>());
-
-        InvokePrivate<object?>(font, "BuildCharacterRangeCache");
-
-        var supportedCharacters = ReflectionHelpers.GetPrivateField<HashSet<char>>(font, "_supportedCharacters");
-        Assert.NotNull(supportedCharacters);
-        // Verify all test-supported characters were found
-        Assert.Contains('A', supportedCharacters);
-        Assert.Contains('B', supportedCharacters);
-        Assert.Contains('1', supportedCharacters);
-        Assert.Contains('2', supportedCharacters);
-        Assert.Equal(4, supportedCharacters.Count);
-        // Verify unsupported character is absent
-        Assert.DoesNotContain('Z', supportedCharacters);
-    }
-
-    [Fact]
-    public void TestCharacterRange_ShouldCallTestCharacterSupportForEachCharacterInRange()
-    {
-        var spriteFont = (SpriteFont)RuntimeHelpers.GetUninitializedObject(typeof(SpriteFont));
-        var testChars = new HashSet<char> { 'A', 'B', 'C' };
-        var font = new TestableManagedFont(spriteFont, "test", 16);
-        font.SetTestCharacters(testChars);
-        ReflectionHelpers.SetPrivateField(font, "_supportedCharacters", new HashSet<char>());
-
-        InvokePrivate<object?>(font, "TestCharacterRange", 0x41, 0x43, "Test Range");
-
-        var supportedCharacters = ReflectionHelpers.GetPrivateField<HashSet<char>>(font, "_supportedCharacters");
-        Assert.NotNull(supportedCharacters);
-        // All three characters in range 0x41-0x43 ('A'-'C') are supported
-        Assert.Contains('A', supportedCharacters);
-        Assert.Contains('B', supportedCharacters);
-        Assert.Contains('C', supportedCharacters);
-        Assert.Equal(3, supportedCharacters.Count);
-    }
-
-    [Fact]
-    public void TestCommonKanjiCharacters_ShouldCallTestCharacterSupportForEachKanjiCharacter()
-    {
-        var spriteFont = (SpriteFont)RuntimeHelpers.GetUninitializedObject(typeof(SpriteFont));
-        var testChars = new HashSet<char> { '一', '二', '三' };
-        var font = new TestableManagedFont(spriteFont, "test", 16);
-        font.SetTestCharacters(testChars);
-        ReflectionHelpers.SetPrivateField(font, "_supportedCharacters", new HashSet<char>());
-
-        InvokePrivate<object?>(font, "TestCommonKanjiCharacters");
-
-        var supportedCharacters = ReflectionHelpers.GetPrivateField<HashSet<char>>(font, "_supportedCharacters");
-        Assert.NotNull(supportedCharacters);
-        // Verify all test-supported kanji were found
-        Assert.Contains('一', supportedCharacters);
-        Assert.Contains('二', supportedCharacters);
-        Assert.Contains('三', supportedCharacters);
-        Assert.Equal(3, supportedCharacters.Count);
-        // Verify unsupported kanji is absent
-        Assert.DoesNotContain('四', supportedCharacters);
-    }
-
-    [Fact]
-    public void IsJapaneseCharacter_ShouldRecognizeAllJapaneseUnicodeRanges()
-    {
-        var font = CreateManagedFont();
-
-        // Test various Unicode ranges
-        Assert.True(InvokePrivate<bool>(font, "IsJapaneseCharacter", 'あ'));
-        Assert.True(InvokePrivate<bool>(font, "IsJapaneseCharacter", 'ア'));
-        Assert.True(InvokePrivate<bool>(font, "IsJapaneseCharacter", '漢'));
-        Assert.True(InvokePrivate<bool>(font, "IsJapaneseCharacter", '「'));
-        Assert.True(InvokePrivate<bool>(font, "IsJapaneseCharacter", (char)0xFF00));
-        Assert.False(InvokePrivate<bool>(font, "IsJapaneseCharacter", 'A'));
-        Assert.False(InvokePrivate<bool>(font, "IsJapaneseCharacter", '@'));
-    }
-
-    [Fact]
     public void GetCharacterReplacement_ShouldReplaceFullwidthCharactersWithHalfwidth()
     {
-        var spriteFont = CreateSpriteFont([('?', 8), (' ', 6)], defaultCharacter: '?');
-        var font = new TestableManagedFont(spriteFont, "TestFont", 16);
-        font.SetTestCharacters(new HashSet<char> { 'A', '?', ' ' });
-        ReflectionHelpers.SetPrivateField(font, "_characterCacheBuilt", false);
-        ReflectionHelpers.SetPrivateField(font, "_supportedCharacters", new HashSet<char>());
+        var spriteFont = CreateSpriteFont([('A', 10), ('?', 8), (' ', 6)], defaultCharacter: '?');
+        var font = new ManagedFont(spriteFont, "TestFont", 16);
 
         var replacement = InvokePrivate<char>(font, "GetCharacterReplacement", 'Ａ');
 
@@ -743,11 +624,12 @@ public class ManagedFontLogicTests
     [InlineData('\u201D', '"', '"')]
     public void GetCharacterReplacement_ShouldReplaceUnsupportedChars(char inputChar, char supportedReplacement, char expectedReplacement)
     {
-        var spriteFont = CreateSpriteFont([('?', 8)], defaultCharacter: '?');
-        var font = new TestableManagedFont(spriteFont, "TestFont", 16);
-        font.SetTestCharacters(new HashSet<char> { supportedReplacement, '?', '"', '\'' });
-        ReflectionHelpers.SetPrivateField(font, "_characterCacheBuilt", false);
-        ReflectionHelpers.SetPrivateField(font, "_supportedCharacters", new HashSet<char>());
+        var glyphs = new[] { supportedReplacement, '?', '"', '\'' }
+            .Distinct()
+            .Select(c => (character: c, width: 8))
+            .ToArray();
+        var spriteFont = CreateSpriteFont(glyphs, defaultCharacter: '?');
+        var font = new ManagedFont(spriteFont, "TestFont", 16);
 
         var replacement = InvokePrivate<char>(font, "GetCharacterReplacement", inputChar);
 
@@ -829,12 +711,10 @@ public class ManagedFontLogicTests
     }
 
     [Fact]
-    public void BuildCharacterCache_WithSpriteFont_ShouldPopulateFromCharacterRanges()
+    public void BuildCharacterCache_WithSpriteFont_ShouldPopulateFromSpriteFontCharacters()
     {
         var spriteFont = CreateSpriteFont([('A', 10), ('B', 10), ('X', 10), ('?', 8)], defaultCharacter: '?');
-        var testChars = new HashSet<char> { 'A', 'B', 'X' };
-        var font = new TestableManagedFont(spriteFont, "TestFont", 16);
-        font.SetTestCharacters(testChars);
+        var font = new ManagedFont(spriteFont, "TestFont", 16);
         ReflectionHelpers.SetPrivateField(font, "_characterCacheBuilt", false);
         ReflectionHelpers.SetPrivateField(font, "_supportedCharacters", new HashSet<char>());
 
@@ -845,6 +725,7 @@ public class ManagedFontLogicTests
         Assert.Contains('A', supported);
         Assert.Contains('B', supported);
         Assert.Contains('X', supported);
+        Assert.Contains('?', supported);
     }
 
     [Fact]
@@ -857,51 +738,6 @@ public class ManagedFontLogicTests
 
         var cacheBuilt = ReflectionHelpers.GetPrivateField<bool>(font, "_characterCacheBuilt");
         Assert.True(cacheBuilt);
-    }
-
-    [Fact]
-    public void TestCharacterSupport_WithNullSpriteFont_ShouldReturnFalse()
-    {
-        var font = CreateManagedFont();
-        ReflectionHelpers.SetPrivateField(font, "_spriteFont", null);
-
-        var result = InvokePrivate<bool>(font, "TestCharacterSupport", 'A');
-
-        Assert.False(result);
-    }
-
-    [Fact]
-    public void TestCharacterSupport_WhenMeasureStringThrows_ShouldReturnFalse()
-    {
-        var font = CreateManagedFont();
-        var spriteFont = CreateUninitializedSpriteFont();
-        ReflectionHelpers.SetPrivateField(font, "_spriteFont", spriteFont);
-
-        var result = InvokePrivate<bool>(font, "TestCharacterSupport", 'A');
-
-        Assert.False(result);
-    }
-
-    [Fact]
-    public void TestCharacterSupport_WhenMeasureStringReturnsZeroSize_ForNonJapaneseCharacter_ShouldReturnFalse()
-    {
-        var spriteFont = CreateSpriteFont([('Z', 0)], lineSpacing: 16);
-        var font = new ManagedFont(spriteFont, "ZeroWidthFont", 16);
-
-        var result = InvokePrivate<bool>(font, "TestCharacterSupport", 'Z');
-
-        Assert.False(result);
-    }
-
-    [Fact]
-    public void TestCharacterSupport_WhenMeasureStringReturnsZeroSize_ForJapaneseCharacter_ShouldReturnTrue()
-    {
-        var spriteFont = CreateSpriteFont([('あ', 0)], lineSpacing: 16);
-        var font = new ManagedFont(spriteFont, "ZeroWidthJpFont", 16);
-
-        var result = InvokePrivate<bool>(font, "TestCharacterSupport", 'あ');
-
-        Assert.True(result);
     }
 
     [Fact]

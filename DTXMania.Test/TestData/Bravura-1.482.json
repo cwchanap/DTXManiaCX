@@ -1,0 +1,390 @@
+{
+  "_source": "https://github.com/steinbergmedia/bravura/releases/download/bravura-1.482/Bravura.json (unmodified release asset, filtered to the 32 SMuFL glyphs baked into DTXMania.Game/Content/Bravura-Notation.spritefont)",
+  "_note": "glyphsWithAnchors is filtered to the stemUpSE/stemUpNW anchors the notation contract consumes.",
+  "fontName": "Bravura",
+  "fontVersion": 1.482,
+  "glyphBBoxes": {
+    "flag16thUp": {
+      "bBoxNE": [
+        1.116,
+        0.008
+      ],
+      "bBoxSW": [
+        0.0,
+        -3.252
+      ]
+    },
+    "flag32ndUp": {
+      "bBoxNE": [
+        1.044,
+        0.596
+      ],
+      "bBoxSW": [
+        0.0,
+        -3.248
+      ]
+    },
+    "flag64thUp": {
+      "bBoxNE": [
+        1.044,
+        1.388
+      ],
+      "bBoxSW": [
+        0.0,
+        -3.248
+      ]
+    },
+    "flag8thUp": {
+      "bBoxNE": [
+        1.056,
+        0.036
+      ],
+      "bBoxSW": [
+        0.0,
+        -3.24
+      ]
+    },
+    "noteheadBlack": {
+      "bBoxNE": [
+        1.18,
+        0.5
+      ],
+      "bBoxSW": [
+        0.0,
+        -0.5
+      ]
+    },
+    "noteheadCircleX": {
+      "bBoxNE": [
+        0.996,
+        0.5
+      ],
+      "bBoxSW": [
+        0.0,
+        -0.5
+      ]
+    },
+    "noteheadCircleXHalf": {
+      "bBoxNE": [
+        1.0,
+        0.5
+      ],
+      "bBoxSW": [
+        0.0,
+        -0.5
+      ]
+    },
+    "noteheadCircleXWhole": {
+      "bBoxNE": [
+        0.996,
+        0.5
+      ],
+      "bBoxSW": [
+        0.0,
+        -0.5
+      ]
+    },
+    "noteheadHalf": {
+      "bBoxNE": [
+        1.18,
+        0.5
+      ],
+      "bBoxSW": [
+        0.0,
+        -0.5
+      ]
+    },
+    "noteheadWhole": {
+      "bBoxNE": [
+        1.688,
+        0.5
+      ],
+      "bBoxSW": [
+        0.0,
+        -0.5
+      ]
+    },
+    "noteheadXBlack": {
+      "bBoxNE": [
+        1.16,
+        0.5
+      ],
+      "bBoxSW": [
+        0.0,
+        -0.5
+      ]
+    },
+    "noteheadXHalf": {
+      "bBoxNE": [
+        1.336,
+        0.5
+      ],
+      "bBoxSW": [
+        0.0,
+        -0.5
+      ]
+    },
+    "noteheadXWhole": {
+      "bBoxNE": [
+        1.508,
+        0.5
+      ],
+      "bBoxSW": [
+        0.0,
+        -0.5
+      ]
+    },
+    "rest16th": {
+      "bBoxNE": [
+        1.28,
+        0.716
+      ],
+      "bBoxSW": [
+        0.0,
+        -2.0
+      ]
+    },
+    "rest32nd": {
+      "bBoxNE": [
+        1.452,
+        1.704
+      ],
+      "bBoxSW": [
+        0.0,
+        -2.0
+      ]
+    },
+    "rest64th": {
+      "bBoxNE": [
+        1.692,
+        1.72
+      ],
+      "bBoxSW": [
+        0.0,
+        -3.012
+      ]
+    },
+    "rest8th": {
+      "bBoxNE": [
+        0.988,
+        0.696
+      ],
+      "bBoxSW": [
+        0.0,
+        -1.004
+      ]
+    },
+    "restHalf": {
+      "bBoxNE": [
+        1.128,
+        0.568
+      ],
+      "bBoxSW": [
+        0.0,
+        -0.008
+      ]
+    },
+    "restQuarter": {
+      "bBoxNE": [
+        1.08,
+        1.492
+      ],
+      "bBoxSW": [
+        0.004,
+        -1.5
+      ]
+    },
+    "restWhole": {
+      "bBoxNE": [
+        1.128,
+        0.036
+      ],
+      "bBoxSW": [
+        0.0,
+        -0.54
+      ]
+    },
+    "timeSig0": {
+      "bBoxNE": [
+        1.8,
+        1.004
+      ],
+      "bBoxSW": [
+        0.08,
+        -1.0
+      ]
+    },
+    "timeSig1": {
+      "bBoxNE": [
+        1.256,
+        1.004
+      ],
+      "bBoxSW": [
+        0.08,
+        -1.0
+      ]
+    },
+    "timeSig2": {
+      "bBoxNE": [
+        1.704,
+        1.016
+      ],
+      "bBoxSW": [
+        0.08,
+        -1.028
+      ]
+    },
+    "timeSig3": {
+      "bBoxNE": [
+        1.604,
+        0.996
+      ],
+      "bBoxSW": [
+        0.08,
+        -1.004
+      ]
+    },
+    "timeSig4": {
+      "bBoxNE": [
+        1.8,
+        1.004
+      ],
+      "bBoxSW": [
+        0.08,
+        -1.0
+      ]
+    },
+    "timeSig5": {
+      "bBoxNE": [
+        1.532,
+        0.984
+      ],
+      "bBoxSW": [
+        0.08,
+        -1.004
+      ]
+    },
+    "timeSig6": {
+      "bBoxNE": [
+        1.656,
+        1.004
+      ],
+      "bBoxSW": [
+        0.08,
+        -0.996
+      ]
+    },
+    "timeSig7": {
+      "bBoxNE": [
+        1.684,
+        0.996
+      ],
+      "bBoxSW": [
+        0.08,
+        -1.0
+      ]
+    },
+    "timeSig8": {
+      "bBoxNE": [
+        1.664,
+        1.036
+      ],
+      "bBoxSW": [
+        0.08,
+        -1.036
+      ]
+    },
+    "timeSig9": {
+      "bBoxNE": [
+        1.656,
+        1.004
+      ],
+      "bBoxSW": [
+        0.08,
+        -0.996
+      ]
+    },
+    "tuplet3": {
+      "bBoxNE": [
+        1.224,
+        1.5
+      ],
+      "bBoxSW": [
+        0.04,
+        -0.032
+      ]
+    },
+    "unpitchedPercussionClef1": {
+      "bBoxNE": [
+        1.528,
+        1.0
+      ],
+      "bBoxSW": [
+        0.0,
+        -1.0
+      ]
+    }
+  },
+  "glyphsWithAnchors": {
+    "flag16thUp": {
+      "stemUpNW": [
+        0.0,
+        -0.088
+      ]
+    },
+    "flag32ndUp": {
+      "stemUpNW": [
+        0.0,
+        0.376
+      ]
+    },
+    "flag64thUp": {
+      "stemUpNW": [
+        0.0,
+        1.172
+      ]
+    },
+    "flag8thUp": {
+      "stemUpNW": [
+        0.0,
+        -0.04
+      ]
+    },
+    "noteheadBlack": {
+      "stemUpSE": [
+        1.18,
+        0.168
+      ]
+    },
+    "noteheadCircleX": {
+      "stemUpSE": [
+        0.996,
+        0.0
+      ]
+    },
+    "noteheadCircleXHalf": {
+      "stemUpSE": [
+        1.0,
+        0.0
+      ]
+    },
+    "noteheadHalf": {
+      "stemUpSE": [
+        1.18,
+        0.168
+      ]
+    },
+    "noteheadXBlack": {
+      "stemUpSE": [
+        1.16,
+        0.444
+      ]
+    },
+    "noteheadXHalf": {
+      "stemUpSE": [
+        1.336,
+        0.412
+      ]
+    }
+  }
+}

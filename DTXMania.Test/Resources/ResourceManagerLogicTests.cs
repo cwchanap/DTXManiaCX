@@ -370,7 +370,7 @@ namespace DTXMania.Test.Resources
             var resourceManager = CreateResourceManager();
             var fontCache = GetPrivateField<ConcurrentDictionary<string, IFont>>(resourceManager, "_fontCache");
             var cachedFont = CreateFontMock();
-            var fontKey = $"{NormalizeFilePathForTest("Fonts/Test.ttf")}|24|Regular";
+            var fontKey = $"{NormalizeFilePathForTest("Fonts/Test.ttf")}|NotoSerifJP-24|Regular";
             fontCache[fontKey] = cachedFont.Object;
 
             var loadedFont = resourceManager.LoadFont("Fonts/Test.ttf", 24);
@@ -400,7 +400,9 @@ namespace DTXMania.Test.Resources
                 style = fontStyle;
                 return reloadedFont.Object;
             };
-            var disposedFontKey = $"{NormalizeFilePathForTest("Fonts/Test.ttf")}|24|Bold";
+            // Keyed on the resolved asset: "Test.ttf" resolves to the default
+            // family, and size 24 Bold snaps back to the Regular-24 asset.
+            var disposedFontKey = $"{NormalizeFilePathForTest("Fonts/Test.ttf")}|NotoSerifJP-24|Regular";
             fontCache[disposedFontKey] = disposedFont.Object;
 
             var loadedFont = resourceManager.LoadFont("Fonts/Test.ttf", 24, FontStyle.Bold);

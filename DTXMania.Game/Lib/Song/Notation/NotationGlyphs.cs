@@ -93,9 +93,10 @@ namespace DTXMania.Game.Lib.Song.Notation
 
     /// <summary>
     /// Glyph geometry the notation renderer consumes, copied verbatim from the pinned Bravura metadata.
+    /// The SMuFL glyph origin is always (0,0); the bounding box is expressed as offsets from it.
     /// </summary>
-    /// <param name="Width">bBox width in staff spaces (bBoxNE.x - bBoxSW.x).</param>
-    /// <param name="Origin">bBox south-west corner relative to the glyph origin (bBoxSW).</param>
+    /// <param name="BBoxSW">bBox south-west corner relative to the glyph origin (SMuFL bBoxSW).</param>
+    /// <param name="BBoxNE">bBox north-east corner relative to the glyph origin (SMuFL bBoxNE).</param>
     /// <param name="StemUpSE">
     /// stemUpSE attachment where a stem-up meets the glyph's south-east edge; null when the glyph has
     /// no up-stem anchor (whole noteheads carry no stem, non-noteheads never do).
@@ -104,10 +105,17 @@ namespace DTXMania.Game.Lib.Song.Notation
     /// stemUpNW attachment where a stem-up meets the glyph's north-west edge; only flag glyphs expose it.
     /// </param>
     internal readonly record struct NotationGlyphMetrics(
-        float Width,
-        GlyphPoint Origin,
+        GlyphPoint BBoxSW,
+        GlyphPoint BBoxNE,
         GlyphPoint? StemUpSE,
-        GlyphPoint? StemUpNW);
+        GlyphPoint? StemUpNW)
+    {
+        /// <summary>bBox width in staff spaces (BBoxNE.X - BBoxSW.X).</summary>
+        public float Width => BBoxNE.X - BBoxSW.X;
+
+        /// <summary>bBox height in staff spaces (BBoxNE.Y - BBoxSW.Y).</summary>
+        public float Height => BBoxNE.Y - BBoxSW.Y;
+    }
 
     /// <summary>
     /// Pure glyph contract for the notation view: glyph → PUA char mapping, duration →
@@ -123,48 +131,49 @@ namespace DTXMania.Game.Lib.Song.Notation
     internal static class NotationGlyphs
     {
         // Glyph geometry copied from Bravura 1.482 (Steinberg's pinned bravura-1.482 release),
-        // redist/Bravura.json: glyphBBoxes bBoxSW/bBoxNE and glyphsWithAnchors stemUpSE/stemUpNW,
-        // all in staff spaces. Width = bBoxNE.x - bBoxSW.x; Origin = bBoxSW. Values are verbatim
-        // metadata, not hand-tuned pixels; update them only from the same pinned release.
+        // redist/Bravura.json (excerpt checked in at DTXMania.Test/TestData/Bravura-1.482.json):
+        // glyphBBoxes bBoxSW/bBoxNE and glyphsWithAnchors stemUpSE/stemUpNW, all in staff
+        // spaces. Values are verbatim metadata, not hand-tuned pixels; update them only
+        // from the same pinned release.
         private static readonly IReadOnlyDictionary<NotationGlyph, NotationGlyphMetrics> BravuraMetrics = new Dictionary<NotationGlyph, NotationGlyphMetrics>
         {
-            [NotationGlyph.UnpitchedPercussionClef1] = new(1.528f, new GlyphPoint(0f, -1f), null, null),
+            [NotationGlyph.UnpitchedPercussionClef1] = new(new GlyphPoint(0f, -1f), new GlyphPoint(1.528f, 1f), null, null),
 
-            [NotationGlyph.TimeSig0] = new(1.72f, new GlyphPoint(0.08f, -1f), null, null),
-            [NotationGlyph.TimeSig1] = new(1.176f, new GlyphPoint(0.08f, -1f), null, null),
-            [NotationGlyph.TimeSig2] = new(1.624f, new GlyphPoint(0.08f, -1.028f), null, null),
-            [NotationGlyph.TimeSig3] = new(1.524f, new GlyphPoint(0.08f, -1.004f), null, null),
-            [NotationGlyph.TimeSig4] = new(1.72f, new GlyphPoint(0.08f, -1f), null, null),
-            [NotationGlyph.TimeSig5] = new(1.452f, new GlyphPoint(0.08f, -1.004f), null, null),
-            [NotationGlyph.TimeSig6] = new(1.576f, new GlyphPoint(0.08f, -0.996f), null, null),
-            [NotationGlyph.TimeSig7] = new(1.604f, new GlyphPoint(0.08f, -1f), null, null),
-            [NotationGlyph.TimeSig8] = new(1.584f, new GlyphPoint(0.08f, -1.036f), null, null),
-            [NotationGlyph.TimeSig9] = new(1.576f, new GlyphPoint(0.08f, -0.996f), null, null),
+            [NotationGlyph.TimeSig0] = new(new GlyphPoint(0.08f, -1f), new GlyphPoint(1.8f, 1.004f), null, null),
+            [NotationGlyph.TimeSig1] = new(new GlyphPoint(0.08f, -1f), new GlyphPoint(1.256f, 1.004f), null, null),
+            [NotationGlyph.TimeSig2] = new(new GlyphPoint(0.08f, -1.028f), new GlyphPoint(1.704f, 1.016f), null, null),
+            [NotationGlyph.TimeSig3] = new(new GlyphPoint(0.08f, -1.004f), new GlyphPoint(1.604f, 0.996f), null, null),
+            [NotationGlyph.TimeSig4] = new(new GlyphPoint(0.08f, -1f), new GlyphPoint(1.8f, 1.004f), null, null),
+            [NotationGlyph.TimeSig5] = new(new GlyphPoint(0.08f, -1.004f), new GlyphPoint(1.532f, 0.984f), null, null),
+            [NotationGlyph.TimeSig6] = new(new GlyphPoint(0.08f, -0.996f), new GlyphPoint(1.656f, 1.004f), null, null),
+            [NotationGlyph.TimeSig7] = new(new GlyphPoint(0.08f, -1f), new GlyphPoint(1.684f, 0.996f), null, null),
+            [NotationGlyph.TimeSig8] = new(new GlyphPoint(0.08f, -1.036f), new GlyphPoint(1.664f, 1.036f), null, null),
+            [NotationGlyph.TimeSig9] = new(new GlyphPoint(0.08f, -0.996f), new GlyphPoint(1.656f, 1.004f), null, null),
 
-            [NotationGlyph.NoteheadWhole] = new(1.688f, new GlyphPoint(0f, -0.5f), null, null),
-            [NotationGlyph.NoteheadHalf] = new(1.18f, new GlyphPoint(0f, -0.5f), new GlyphPoint(1.18f, 0.168f), null),
-            [NotationGlyph.NoteheadBlack] = new(1.18f, new GlyphPoint(0f, -0.5f), new GlyphPoint(1.18f, 0.168f), null),
-            [NotationGlyph.NoteheadXWhole] = new(1.508f, new GlyphPoint(0f, -0.5f), null, null),
-            [NotationGlyph.NoteheadXHalf] = new(1.336f, new GlyphPoint(0f, -0.5f), new GlyphPoint(1.336f, 0.412f), null),
-            [NotationGlyph.NoteheadXBlack] = new(1.16f, new GlyphPoint(0f, -0.5f), new GlyphPoint(1.16f, 0.444f), null),
-            [NotationGlyph.NoteheadCircleXWhole] = new(0.996f, new GlyphPoint(0f, -0.5f), null, null),
-            [NotationGlyph.NoteheadCircleXHalf] = new(1f, new GlyphPoint(0f, -0.5f), new GlyphPoint(1f, 0f), null),
-            [NotationGlyph.NoteheadCircleX] = new(0.996f, new GlyphPoint(0f, -0.5f), new GlyphPoint(0.996f, 0f), null),
+            [NotationGlyph.NoteheadWhole] = new(new GlyphPoint(0f, -0.5f), new GlyphPoint(1.688f, 0.5f), null, null),
+            [NotationGlyph.NoteheadHalf] = new(new GlyphPoint(0f, -0.5f), new GlyphPoint(1.18f, 0.5f), new GlyphPoint(1.18f, 0.168f), null),
+            [NotationGlyph.NoteheadBlack] = new(new GlyphPoint(0f, -0.5f), new GlyphPoint(1.18f, 0.5f), new GlyphPoint(1.18f, 0.168f), null),
+            [NotationGlyph.NoteheadXWhole] = new(new GlyphPoint(0f, -0.5f), new GlyphPoint(1.508f, 0.5f), null, null),
+            [NotationGlyph.NoteheadXHalf] = new(new GlyphPoint(0f, -0.5f), new GlyphPoint(1.336f, 0.5f), new GlyphPoint(1.336f, 0.412f), null),
+            [NotationGlyph.NoteheadXBlack] = new(new GlyphPoint(0f, -0.5f), new GlyphPoint(1.16f, 0.5f), new GlyphPoint(1.16f, 0.444f), null),
+            [NotationGlyph.NoteheadCircleXWhole] = new(new GlyphPoint(0f, -0.5f), new GlyphPoint(0.996f, 0.5f), null, null),
+            [NotationGlyph.NoteheadCircleXHalf] = new(new GlyphPoint(0f, -0.5f), new GlyphPoint(1f, 0.5f), new GlyphPoint(1f, 0f), null),
+            [NotationGlyph.NoteheadCircleX] = new(new GlyphPoint(0f, -0.5f), new GlyphPoint(0.996f, 0.5f), new GlyphPoint(0.996f, 0f), null),
 
-            [NotationGlyph.Flag8thUp] = new(1.056f, new GlyphPoint(0f, -3.24f), null, new GlyphPoint(0f, -0.04f)),
-            [NotationGlyph.Flag16thUp] = new(1.116f, new GlyphPoint(0f, -3.252f), null, new GlyphPoint(0f, -0.088f)),
-            [NotationGlyph.Flag32ndUp] = new(1.044f, new GlyphPoint(0f, -3.248f), null, new GlyphPoint(0f, 0.376f)),
-            [NotationGlyph.Flag64thUp] = new(1.044f, new GlyphPoint(0f, -3.248f), null, new GlyphPoint(0f, 1.172f)),
+            [NotationGlyph.Flag8thUp] = new(new GlyphPoint(0f, -3.24f), new GlyphPoint(1.056f, 0.036f), null, new GlyphPoint(0f, -0.04f)),
+            [NotationGlyph.Flag16thUp] = new(new GlyphPoint(0f, -3.252f), new GlyphPoint(1.116f, 0.008f), null, new GlyphPoint(0f, -0.088f)),
+            [NotationGlyph.Flag32ndUp] = new(new GlyphPoint(0f, -3.248f), new GlyphPoint(1.044f, 0.596f), null, new GlyphPoint(0f, 0.376f)),
+            [NotationGlyph.Flag64thUp] = new(new GlyphPoint(0f, -3.248f), new GlyphPoint(1.044f, 1.388f), null, new GlyphPoint(0f, 1.172f)),
 
-            [NotationGlyph.RestWhole] = new(1.128f, new GlyphPoint(0f, -0.54f), null, null),
-            [NotationGlyph.RestHalf] = new(1.128f, new GlyphPoint(0f, -0.008f), null, null),
-            [NotationGlyph.RestQuarter] = new(1.076f, new GlyphPoint(0.004f, -1.5f), null, null),
-            [NotationGlyph.Rest8th] = new(0.988f, new GlyphPoint(0f, -1.004f), null, null),
-            [NotationGlyph.Rest16th] = new(1.28f, new GlyphPoint(0f, -2f), null, null),
-            [NotationGlyph.Rest32nd] = new(1.452f, new GlyphPoint(0f, -2f), null, null),
-            [NotationGlyph.Rest64th] = new(1.692f, new GlyphPoint(0f, -3.012f), null, null),
+            [NotationGlyph.RestWhole] = new(new GlyphPoint(0f, -0.54f), new GlyphPoint(1.128f, 0.036f), null, null),
+            [NotationGlyph.RestHalf] = new(new GlyphPoint(0f, -0.008f), new GlyphPoint(1.128f, 0.568f), null, null),
+            [NotationGlyph.RestQuarter] = new(new GlyphPoint(0.004f, -1.5f), new GlyphPoint(1.08f, 1.492f), null, null),
+            [NotationGlyph.Rest8th] = new(new GlyphPoint(0f, -1.004f), new GlyphPoint(0.988f, 0.696f), null, null),
+            [NotationGlyph.Rest16th] = new(new GlyphPoint(0f, -2f), new GlyphPoint(1.28f, 0.716f), null, null),
+            [NotationGlyph.Rest32nd] = new(new GlyphPoint(0f, -2f), new GlyphPoint(1.452f, 1.704f), null, null),
+            [NotationGlyph.Rest64th] = new(new GlyphPoint(0f, -3.012f), new GlyphPoint(1.692f, 1.72f), null, null),
 
-            [NotationGlyph.Tuplet3] = new(1.184f, new GlyphPoint(0.04f, -0.032f), null, null)
+            [NotationGlyph.Tuplet3] = new(new GlyphPoint(0.04f, -0.032f), new GlyphPoint(1.224f, 1.5f), null, null)
         };
 
         /// <summary>Converts a glyph to the PUA character baked into Bravura-Notation.spritefont.</summary>
@@ -185,7 +194,9 @@ namespace DTXMania.Game.Lib.Song.Notation
         /// head of the shape (E0A2/E0A3, E0A7/E0A8, E0B1/E0B2); quarter and shorter use the black
         /// variants (E0A4, E0A9, E0B3).
         /// </summary>
-        /// <exception cref="ArgumentOutOfRangeException">The shape is not a <see cref="NoteheadShape"/>.</exception>
+        /// <exception cref="ArgumentOutOfRangeException">
+        /// The shape is not a <see cref="NoteheadShape"/>, or the value is not a <see cref="NoteValue"/>.
+        /// </exception>
         public static NotationGlyph Notehead(NoteheadShape shape, NoteValue value) => (shape, value) switch
         {
             (NoteheadShape.Normal, NoteValue.Whole) => NotationGlyph.NoteheadWhole,
@@ -194,6 +205,8 @@ namespace DTXMania.Game.Lib.Song.Notation
             (NoteheadShape.X, NoteValue.Half) => NotationGlyph.NoteheadXHalf,
             (NoteheadShape.CircledX, NoteValue.Whole) => NotationGlyph.NoteheadCircleXWhole,
             (NoteheadShape.CircledX, NoteValue.Half) => NotationGlyph.NoteheadCircleXHalf,
+            (_, < NoteValue.Whole or > NoteValue.SixtyFourth) =>
+                throw new ArgumentOutOfRangeException(nameof(value), value, "Unknown note value."),
             (NoteheadShape.Normal, _) => NotationGlyph.NoteheadBlack,
             (NoteheadShape.X, _) => NotationGlyph.NoteheadXBlack,
             (NoteheadShape.CircledX, _) => NotationGlyph.NoteheadCircleX,
@@ -254,35 +267,37 @@ namespace DTXMania.Game.Lib.Song.Notation
             return true;
         }
 
-        extension(NoteValue)
-        {
-            /// <summary>
-            /// Maps notation ticks to the longest <see cref="NoteValue"/> that fits, following
-            /// DTXWeb's descending table (192/96/48/24/12/6/3): the greatest supported tick count
-            /// ≤ ticks wins, and anything below 3 (1–2 tick fallbacks, 5-tick folded rests) lands
-            /// on <see cref="NoteValue.SixtyFourth"/>.
-            /// Tuplet display: the renderer derives the displayed base as SlotTicks * 3 / 2 BEFORE
-            /// calling this method (DTXWeb rule), so a 48-tick triplet slot shows as a 72-tick quarter.
-            /// </summary>
-            /// <exception cref="ArgumentOutOfRangeException">Ticks is not positive.</exception>
-            public static NoteValue FromTicks(int ticks)
-            {
-                if (ticks <= 0)
-                {
-                    throw new ArgumentOutOfRangeException(nameof(ticks), ticks, "Duration ticks must be positive.");
-                }
+        // NoteValue is declared longest-first, index-aligned with
+        // NotationQuantizer.BinaryTicks — FromTicks walks the shared ladder
+        // rather than duplicating the 192/96/48/24/12/6/3 constants.
+        private static readonly NoteValue[] NoteValuesDescending = Enum.GetValues<NoteValue>();
 
-                return ticks switch
-                {
-                    >= 192 => NoteValue.Whole,
-                    >= 96 => NoteValue.Half,
-                    >= 48 => NoteValue.Quarter,
-                    >= 24 => NoteValue.Eighth,
-                    >= 12 => NoteValue.Sixteenth,
-                    >= 6 => NoteValue.ThirtySecond,
-                    _ => NoteValue.SixtyFourth
-                };
+        /// <summary>
+        /// Maps notation ticks to the longest <see cref="NoteValue"/> that fits, following
+        /// DTXWeb's descending rule over <see cref="NotationQuantizer.BinaryTicks"/> (192/96/48/24/12/6/3):
+        /// the greatest supported tick count ≤ ticks wins, and anything below 3 (1–2 tick
+        /// fallbacks, 5-tick folded rests) lands on <see cref="NoteValue.SixtyFourth"/>.
+        /// Tuplet display: the renderer derives the displayed base as SlotTicks * 3 / 2 BEFORE
+        /// calling this method (DTXWeb rule), so a 32-tick triplet slot shows as a 48-tick quarter.
+        /// </summary>
+        /// <exception cref="ArgumentOutOfRangeException">Ticks is not positive.</exception>
+        public static NoteValue FromTicks(int ticks)
+        {
+            if (ticks <= 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(ticks), ticks, "Duration ticks must be positive.");
             }
+
+            var binaryTicks = NotationQuantizer.BinaryTicks;
+            for (int i = 0; i < binaryTicks.Length && i < NoteValuesDescending.Length; i++)
+            {
+                if (ticks >= binaryTicks[i])
+                {
+                    return NoteValuesDescending[i];
+                }
+            }
+
+            return NoteValue.SixtyFourth;
         }
     }
 }

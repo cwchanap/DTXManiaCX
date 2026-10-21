@@ -28,8 +28,10 @@ namespace DTXMania.Game.Lib.Song.Notation
     /// </remarks>
     internal static class NotationQuantizer
     {
-        // Largest first. There is no 8-tick entry: the 24-tick triplet group covers 8-tick slots.
-        private static readonly int[] BinaryTicks = { 192, 96, 48, 24, 12, 6, 3 };
+        // Largest first, index-aligned with <see cref="NoteValue"/>'s declaration order
+        // (Whole..SixtyFourth). Internal so NotationGlyphs.FromTicks shares the ladder.
+        // There is no 8-tick entry: the 24-tick triplet group covers 8-tick slots.
+        internal static readonly int[] BinaryTicks = { 192, 96, 48, 24, 12, 6, 3 };
 
         // Ascending. Each group splits into three slots of groupTicks / 3.
         private static readonly int[] TripletGroupTicks = { 24, 48, 96, 192 };

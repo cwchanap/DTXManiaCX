@@ -21,7 +21,7 @@ namespace DTXMania.Test.Resources
         public void GetBestSpriteFontAssetName_DefaultFamily_ShouldSnapToNotoSerif(
             string fontPath, int size, string expectedAsset)
         {
-            var (asset, style) = ManagedFont.GetBestSpriteFontAssetName(fontPath, size, FontStyle.Regular);
+            var (asset, style, _) = ManagedFont.GetBestSpriteFontAssetName(fontPath, size, FontStyle.Regular);
 
             Assert.Equal(expectedAsset, asset);
             Assert.Equal(FontStyle.Regular, style);
@@ -39,7 +39,7 @@ namespace DTXMania.Test.Resources
         public void GetBestSpriteFontAssetName_OrbitronFamily_ShouldSnapToOrbitron(
             int size, string expectedAsset)
         {
-            var (asset, style) = ManagedFont.GetBestSpriteFontAssetName("Orbitron", size, FontStyle.Regular);
+            var (asset, style, _) = ManagedFont.GetBestSpriteFontAssetName("Orbitron", size, FontStyle.Regular);
 
             Assert.Equal(expectedAsset, asset);
             Assert.Equal(FontStyle.Regular, style);
@@ -56,7 +56,7 @@ namespace DTXMania.Test.Resources
         public void GetBestSpriteFontAssetName_ShareTechMonoFamily_ShouldSnapToShareTechMono(
             int size, string expectedAsset)
         {
-            var (asset, style) = ManagedFont.GetBestSpriteFontAssetName("ShareTechMono", size, FontStyle.Regular);
+            var (asset, style, _) = ManagedFont.GetBestSpriteFontAssetName("ShareTechMono", size, FontStyle.Regular);
 
             Assert.Equal(expectedAsset, asset);
             Assert.Equal(FontStyle.Regular, style);
@@ -73,16 +73,18 @@ namespace DTXMania.Test.Resources
         public void GetBestSpriteFontAssetName_BravuraNotationFamily_ShouldSnapToSingleNotationAsset(
             int size, string expectedAsset)
         {
-            var (asset, style) = ManagedFont.GetBestSpriteFontAssetName("Bravura-Notation", size, FontStyle.Regular);
+            var (asset, style, resolvedSize) = ManagedFont.GetBestSpriteFontAssetName("Bravura-Notation", size, FontStyle.Regular);
 
             Assert.Equal(expectedAsset, asset);
             Assert.Equal(FontStyle.Regular, style);
+            // The single 40pt asset reports its own baked size regardless of request.
+            Assert.Equal(40, resolvedSize);
         }
 
         [Fact]
         public void GetBestSpriteFontAssetName_BravuraNotationFamily_ShouldBeCaseInsensitive()
         {
-            var (asset, _) = ManagedFont.GetBestSpriteFontAssetName("bravura-notation", 40, FontStyle.Regular);
+            var (asset, _, _) = ManagedFont.GetBestSpriteFontAssetName("bravura-notation", 40, FontStyle.Regular);
 
             Assert.Equal("Bravura-Notation", asset);
         }
@@ -91,7 +93,7 @@ namespace DTXMania.Test.Resources
         public void GetBestSpriteFontAssetName_ShareTechMonoFamily_ShouldIgnoreBoldRequest()
         {
             // The mono telemetry face ships Regular only.
-            var (asset, style) = ManagedFont.GetBestSpriteFontAssetName("ShareTechMono", 14, FontStyle.Bold);
+            var (asset, style, _) = ManagedFont.GetBestSpriteFontAssetName("ShareTechMono", 14, FontStyle.Bold);
 
             Assert.Equal("ShareTechMono-14", asset);
             Assert.Equal(FontStyle.Regular, style);
@@ -100,7 +102,7 @@ namespace DTXMania.Test.Resources
         [Fact]
         public void GetBestSpriteFontAssetName_ShareTechMonoFamily_ShouldBeCaseInsensitive()
         {
-            var (asset, _) = ManagedFont.GetBestSpriteFontAssetName("sharetechmono", 14, FontStyle.Regular);
+            var (asset, _, _) = ManagedFont.GetBestSpriteFontAssetName("sharetechmono", 14, FontStyle.Regular);
 
             Assert.Equal("ShareTechMono-14", asset);
         }
@@ -108,7 +110,7 @@ namespace DTXMania.Test.Resources
         [Fact]
         public void GetBestSpriteFontAssetName_OrbitronFamily_ShouldBeCaseInsensitive()
         {
-            var (asset, _) = ManagedFont.GetBestSpriteFontAssetName("orbitron", 18, FontStyle.Regular);
+            var (asset, _, _) = ManagedFont.GetBestSpriteFontAssetName("orbitron", 18, FontStyle.Regular);
 
             Assert.Equal("Orbitron-18", asset);
         }
@@ -121,7 +123,7 @@ namespace DTXMania.Test.Resources
         public void GetBestSpriteFontAssetName_PathFormRequest_ShouldResolveFamily(
             string fontPath, int size, string expectedAsset)
         {
-            var (asset, style) = ManagedFont.GetBestSpriteFontAssetName(fontPath, size, FontStyle.Regular);
+            var (asset, style, _) = ManagedFont.GetBestSpriteFontAssetName(fontPath, size, FontStyle.Regular);
 
             Assert.Equal(expectedAsset, asset);
             Assert.Equal(FontStyle.Regular, style);
@@ -132,7 +134,7 @@ namespace DTXMania.Test.Resources
         {
             // Orbitron has no baked Bold variant; requests resolve to the
             // nearest Regular asset with the style downgraded.
-            var (asset, style) = ManagedFont.GetBestSpriteFontAssetName("Orbitron", 18, FontStyle.Bold);
+            var (asset, style, _) = ManagedFont.GetBestSpriteFontAssetName("Orbitron", 18, FontStyle.Bold);
 
             Assert.Equal("Orbitron-18", asset);
             Assert.Equal(FontStyle.Regular, style);
@@ -141,7 +143,7 @@ namespace DTXMania.Test.Resources
         [Fact]
         public void GetBestSpriteFontAssetName_NotoSerifBold14_ShouldKeepBoldVariant()
         {
-            var (asset, style) = ManagedFont.GetBestSpriteFontAssetName("NotoSerifJP", 14, FontStyle.Bold);
+            var (asset, style, _) = ManagedFont.GetBestSpriteFontAssetName("NotoSerifJP", 14, FontStyle.Bold);
 
             Assert.Equal("NotoSerifJP-Bold", asset);
             Assert.Equal(FontStyle.Bold, style);
@@ -150,7 +152,7 @@ namespace DTXMania.Test.Resources
         [Fact]
         public void GetBestSpriteFontAssetName_NotoSerifBold24_ShouldPreferRightSizedRegular()
         {
-            var (asset, style) = ManagedFont.GetBestSpriteFontAssetName("NotoSerifJP", 24, FontStyle.Bold);
+            var (asset, style, _) = ManagedFont.GetBestSpriteFontAssetName("NotoSerifJP", 24, FontStyle.Bold);
 
             Assert.Equal("NotoSerifJP-24", asset);
             Assert.Equal(FontStyle.Regular, style);
