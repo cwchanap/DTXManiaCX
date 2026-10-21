@@ -85,7 +85,7 @@ namespace DTXMania.Game.Lib.Resources
         /// font reports the baked asset's size and style, which may differ from
         /// the request when the family snaps to a different-sized SpriteFont
         /// (e.g. every size of the single-asset Bravura-Notation family reports
-        /// the pinned 40pt).
+        /// the pinned 60pt).
         /// </summary>
         public static ManagedFont CreateFont(GraphicsDevice graphicsDevice, string fontPath, int size, FontStyle style = FontStyle.Regular)
         {
@@ -144,7 +144,7 @@ namespace DTXMania.Game.Lib.Resources
         /// (family, size, style). "ShareTechMono" selects the Latin monospace
         /// telemetry family (14/18px, no Bold) and "Orbitron" the Latin display
         /// family (14/18/24/32/40px, no Bold); "Bravura-Notation" selects the
-        /// SMuFL music-glyph family (single 40pt asset, no Bold); every other
+        /// SMuFL music-glyph family (single 60pt asset, no Bold); every other
         /// path uses the CJK-capable NotoSerifJP family (14/24/48px, Bold only
         /// at 14), so pre-existing callers keep their behavior. When no Bold
         /// asset is closer than the closest Regular one, the Regular asset wins
@@ -188,11 +188,12 @@ namespace DTXMania.Game.Lib.Resources
             else if (string.Equals(familyKey, "Bravura-Notation", StringComparison.OrdinalIgnoreCase))
             {
                 // Single pinned asset: the notation font is only generated at
-                // 40pt (Bravura-Notation.spritefont), so every requested size
-                // resolves to it.
+                // 60pt (Bravura-Notation.spritefont), so every requested size
+                // resolves to it. 60pt measures ~20px/staff-space (HPA-410 Task 0
+                // specimen), matching the layout's 20px staff-space constant.
                 availableRegular = new[]
                 {
-                    (size: 40, assetName: "Bravura-Notation")
+                    (size: 60, assetName: "Bravura-Notation")
                 };
                 boldVariants = Array.Empty<(int, string)>();
             }

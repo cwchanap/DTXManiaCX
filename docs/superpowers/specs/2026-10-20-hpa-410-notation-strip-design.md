@@ -72,3 +72,13 @@ Implement `Lib/Stage/Performance/NotationStripLayout.cs` with immutable chart in
 ## Non-goals
 
 No stage integration, mode/config change, scoring/input/HUD/editing/timing change, generic engraving framework, dynamic beam angles, separate font variants, GPU cache, custom shaders, scissor state reopening or second drawing backend. Keep this at one PR and <=3 engineer days; defer optional polish rather than expanding scope.
+
+## Task 0 measured results (2026-10-20)
+
+Measured from a real-GPU specimen: a temporary DesktopGL `Game` (not committed) drawing through the nine-arg `IFont.DrawString` in a `SpriteSortMode.BackToFront` batch into a 1280x720 `RenderTarget2D`, saved to `.superpowers/sdd/2026-10-20-hpa-410-notation-strip/task0-specimen.png` (kept for Task 3 reference; harness removed).
+
+- **Bake size: 60pt confirmed, no geometry change.** Pixels/staff-space at scale 1 measured **20.00** from the clef bBox height (40px / 2.0 spaces) and **20.05** from the quarter rest (60px / 2.992 spaces); width-based checks gave 20.29/19.52 (±0.5px scan rounding). The 20px-space / 10px-step layout constants stand.
+- **Origin/baseline rule:** the SpriteFont places glyphs in its line box, so the SMuFL baseline sits at `drawY + SpriteFont.LineSpacing / 2` — **161px at 60pt** (LineSpacing=322; measured 161.0 clef / 160.8 quarter rest). `NotationStripRenderer` must draw each glyph at `staffY - LineSpacing / 2` to put its origin on the staff position. Left bearing is 0 for glyphs whose bBoxSW.X is 0 (clef starts exactly at drawX).
+- **Density:** 16ths at 160 BPM / user 100% render at 35.63px spacing (93.75ms x 0.38), satisfying the >= 35.4px rule; visually clean. At 50% (17.8px) noteheads overlap as accepted — no time warping.
+- **Mask/depth observation:** opaque `#2A3341` key-column mask at depth 0.40 fully hides staff lines and ink at x < 195; lane labels (ShareTechMono-14, depth 0.30) draw in front of the mask and stay legible. BackToFront with the contracted depths behaved exactly as specified.
+- **Sharpness:** Bravura glyphs are crisp at native 60pt scale 1 (no upscale blur). ShareTechMono-14 downscaled to 0.7 (~10px labels) remains sharp. Lane labels are 10px apart on the staff grid, so adjacent ~10px labels just touch — acceptable; revisit only in optional Task 3 polish.

@@ -63,8 +63,9 @@ namespace DTXMania.Test.Resources
         }
 
         /// <summary>
-        /// The notation font family (HPA-409) ships a single pinned 40pt asset,
-        /// so every requested size resolves to it regardless of the size asked for.
+        /// The notation font family (HPA-409) ships a single pinned 60pt asset
+        /// (60pt ≈ 20px/staff-space, HPA-410 Task 0), so every requested size
+        /// resolves to it regardless of the size asked for.
         /// </summary>
         [Theory]
         [InlineData(40, "Bravura-Notation")]
@@ -77,8 +78,8 @@ namespace DTXMania.Test.Resources
 
             Assert.Equal(expectedAsset, asset);
             Assert.Equal(FontStyle.Regular, style);
-            // The single 40pt asset reports its own baked size regardless of request.
-            Assert.Equal(40, resolvedSize);
+            // The single 60pt asset reports its own baked size regardless of request.
+            Assert.Equal(60, resolvedSize);
         }
 
         [Fact]
