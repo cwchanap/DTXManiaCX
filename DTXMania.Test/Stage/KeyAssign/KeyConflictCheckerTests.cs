@@ -50,7 +50,7 @@ public class KeyConflictCheckerTests
     {
         var drumBindings = new Dictionary<string, int>
         {
-            ["Key.S"] = 4   // Snare
+            ["Key.S"] = 3   // Snare
         };
         var result = KeyConflictChecker.CheckDrumConflict(drumBindings, Keys.S);
         Assert.NotNull(result);

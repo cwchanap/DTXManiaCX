@@ -197,12 +197,12 @@ namespace DTXMania.Test.Stage.DrumConfig
         public void ClearLaneInConfig_ClearsAllButtonsForLane()
         {
             var (stage, cm, input) = CreateWiredStage();
-            // Lane 4 has the default "Key.S" in the runtime; add a second binding too.
-            ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "Key.Q", 4);
+            // Lane 3 has the default "Key.S" in the runtime; add a second binding too.
+            ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "Key.Q", 3);
 
-            ReflectionHelpers.InvokePrivateMethod(stage, "ClearLaneInConfig", 4);
+            ReflectionHelpers.InvokePrivateMethod(stage, "ClearLaneInConfig", 3);
 
-            Assert.Empty(input.ModularInputManager.KeyBindings.GetButtonsForLane(4));
+            Assert.Empty(input.ModularInputManager.KeyBindings.GetButtonsForLane(3));
             Assert.False(cm.Config.KeyBindings.ContainsKey("Key.S"));
             Assert.False(cm.Config.KeyBindings.ContainsKey("Key.Q"));
         }
@@ -219,7 +219,7 @@ namespace DTXMania.Test.Stage.DrumConfig
 
             // "Z" is not a default key, so resetting drops it; defaults restored.
             Assert.False(cm.Config.KeyBindings.ContainsKey("Key.Z"));
-            Assert.Equal(4, cm.Config.KeyBindings["Key.S"]); // default Snare binding restored
+            Assert.Equal(3, cm.Config.KeyBindings["Key.S"]); // default Snare binding restored
         }
 
         [Fact]
@@ -697,14 +697,14 @@ namespace DTXMania.Test.Stage.DrumConfig
                 () => input.ModularInputManager.KeyBindings.ButtonToLane,
                 () => input.GetKeyMappingSnapshot());
             ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
-            popup.Open(4); // lane 4 has the default "Key.S" binding in the runtime
-            ReflectionHelpers.SetPrivateField(stage, "_selectedLane", 4);
+            popup.Open(3); // lane 3 has the default "Key.S" binding in the runtime
+            ReflectionHelpers.SetPrivateField(stage, "_selectedLane", 3);
 
             var clearCenter = popup.GetClearRect(1280, 720).Center;
             ReflectionHelpers.InvokePrivateMethod(stage, "UpdatePopup",
                 0.0, MouseAt(clearCenter.X, clearCenter.Y, true), true, false);
 
-            Assert.Empty(input.ModularInputManager.KeyBindings.GetButtonsForLane(4));
+            Assert.Empty(input.ModularInputManager.KeyBindings.GetButtonsForLane(3));
             Assert.False(cm.Config.KeyBindings.ContainsKey("Key.S"));
         }
 
@@ -712,14 +712,14 @@ namespace DTXMania.Test.Stage.DrumConfig
         public void UpdatePopup_LeftClickOnChipRemove_RemovesOnlyThatBindingFromConfig()
         {
             var (stage, cm, input) = CreateWiredStage(1280, 720);
-            // Lane 4 defaults to "Key.S"; add "Key.Q" to the same lane via the edit helper.
-            ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "Key.Q", 4);
+            // Lane 3 defaults to "Key.S"; add "Key.Q" to the same lane via the edit helper.
+            ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "Key.Q", 3);
             var popup = new DrumCapturePopup(
                 () => input.ModularInputManager.KeyBindings.ButtonToLane,
                 () => input.GetKeyMappingSnapshot());
             ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
-            popup.Open(4);
-            ReflectionHelpers.SetPrivateField(stage, "_selectedLane", 4);
+            popup.Open(3);
+            ReflectionHelpers.SetPrivateField(stage, "_selectedLane", 3);
 
             var removeRect = popup.GetBindingChips(1280, 720)
                 .Single(c => c.ButtonId == "Key.S").Remove;
@@ -728,7 +728,7 @@ namespace DTXMania.Test.Stage.DrumConfig
 
             Assert.False(cm.Config.KeyBindings.ContainsKey("Key.S"));
             Assert.True(cm.Config.KeyBindings.ContainsKey("Key.Q"));
-            Assert.Equal(4, cm.Config.KeyBindings["Key.Q"]);
+            Assert.Equal(3, cm.Config.KeyBindings["Key.Q"]);
         }
 
         [Fact]
@@ -890,7 +890,7 @@ namespace DTXMania.Test.Stage.DrumConfig
             // foreach+break interaction that the popup test cannot reach.
             var (stage, cm, _) = CreateWiredStage(1280, 720);
             var popup = ReflectionHelpers.GetPrivateField<DrumCapturePopup>(stage, "_popup")!;
-            popup.Open(4); // Snare
+            popup.Open(3); // Snare (lane value is irrelevant to this stage-level ordering test)
 
             // Seed this frame's press buffer directly (skipping Update()/keyboard): reserved Enter
             // first, then a valid unbound key Q. Order determines which is resolved.
@@ -1038,7 +1038,7 @@ namespace DTXMania.Test.Stage.DrumConfig
             ReflectionHelpers.InvokePrivateMethod(stage, "ResetDrumBindingsToDefault");
 
             // Defaults restored; system map unchanged because no eviction occurred.
-            Assert.Equal(4, cm.Config.KeyBindings["Key.S"]);
+            Assert.Equal(3, cm.Config.KeyBindings["Key.S"]);
             Assert.Equal(systemBefore.Count, input.GetKeyMappingSnapshot().Count);
             Assert.Equal("PageUp", cm.Config.SystemKeyBindings["SystemKey.IncreaseScrollSpeed"]);
         }
