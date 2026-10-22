@@ -384,9 +384,15 @@ namespace DTXMania.Test.Input
         #region GetLaneName Tests
 
         [Theory]
-        [InlineData(0, "Splash/Crash")]
-        [InlineData(4, "Snare Drum")]
-        [InlineData(6, "Bass Drum")]
+        [InlineData(0, "Left Cymbal")]
+        [InlineData(1, "Hi-Hat")]
+        [InlineData(2, "Left Pedal")]
+        [InlineData(3, "Snare")]
+        [InlineData(4, "High Tom")]
+        [InlineData(5, "Bass Drum")]
+        [InlineData(6, "Low Tom")]
+        [InlineData(7, "Floor Tom")]
+        [InlineData(8, "Cymbal")]
         [InlineData(9, "Ride")]
         public void GetLaneName_KnownLane_ShouldReturnCorrectName(int lane, string expectedName)
         {
@@ -403,6 +409,23 @@ namespace DTXMania.Test.Input
         #endregion
 
         #region LoadDefaultBindings Tests
+
+        [Theory]
+        [InlineData("Key.A", 0)]            // Left Cymbal
+        [InlineData("Key.J", 1)]            // Hi-Hat
+        [InlineData("Key.G", 2)]            // Left Pedal
+        [InlineData("Key.S", 3)]            // Snare
+        [InlineData("Key.K", 4)]            // High Tom
+        [InlineData("Key.Space", 5)]        // Bass Drum
+        [InlineData("Key.L", 6)]            // Low Tom
+        [InlineData("Key.F", 7)]            // Floor Tom
+        [InlineData("Key.D", 8)]            // Cymbal
+        [InlineData("Key.OemSemicolon", 9)] // Ride
+        public void LoadDefaultBindings_ShouldMapDefaultKeysToCanonicalLanes(string buttonId, int expectedLane)
+        {
+            var bindings = new KeyBindings();
+            Assert.Equal(expectedLane, bindings.GetLane(buttonId));
+        }
 
         [Fact]
         public void LoadDefaultBindings_ShouldResetToDefaults()
@@ -424,15 +447,15 @@ namespace DTXMania.Test.Input
             bindings.UnbindButton("Key.Space");   // remove bass drum key
 
             // Precondition: mutations are in effect
-            Assert.NotEqual(4, bindings.GetLane("Key.S"));
+            Assert.NotEqual(3, bindings.GetLane("Key.S"));
             Assert.Equal(-1, bindings.GetLane("Key.Space"));
 
             bindings.LoadDefaultBindings();
 
-            // Lane 4 (Snare Drum) should map to "Key.S"
-            Assert.Equal(4, bindings.GetLane("Key.S"));
-            // Lane 6 (Bass Drum) should map to "Key.Space"
-            Assert.Equal(6, bindings.GetLane("Key.Space"));
+            // Lane 3 (Snare) should map to "Key.S"
+            Assert.Equal(3, bindings.GetLane("Key.S"));
+            // Lane 5 (Bass Drum) should map to "Key.Space"
+            Assert.Equal(5, bindings.GetLane("Key.Space"));
         }
 
         #endregion

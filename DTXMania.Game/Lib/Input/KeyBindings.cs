@@ -39,31 +39,21 @@ namespace DTXMania.Game.Lib.Input
         /// <summary>
         /// Loads default keyboard bindings
         /// Aligned with DTXChartParser channel-to-lane mapping
+        /// (0 LC, 1 HH, 2 LP, 3 SN, 4 HT, 5 DB, 6 LT, 7 FT, 8 CY, 9 RD)
         /// </summary>
         public void LoadDefaultBindings()
         {
             _buttonToLane.Clear();
 
-            // Default keyboard bindings aligned with actual working behavior
-            // Lane 0: 1A (Splash/Crash)
-            _buttonToLane["Key.A"] = 0;         // Splash/Crash
-            // Lane 1: 18&11 (Floor Tom & Left Cymbal)
-            _buttonToLane["Key.F"] = 1;         // Floor Tom & Left Cymbal
-            // Lane 2: 1B&1C (Hi-Hat Foot & Left Crash)
-            _buttonToLane["Key.D"] = 2;         // Hi-Hat Foot & Left Crash
-            // Lane 3: 12 (Left Pedal)
-            _buttonToLane["Key.G"] = 3;         // Left Pedal
-            // Lane 4: 14 (Snare Drum) - S key for snare (working behavior)
-            _buttonToLane["Key.S"] = 4;         // Snare Drum
-            // Lane 5: 13 (Hi-Hat)
-            _buttonToLane["Key.J"] = 5;         // Hi-Hat
-            // Lane 6: 15 (Bass Drum)
-            _buttonToLane["Key.Space"] = 6;     // Bass Drum
-            // Lane 7: 16 (High Tom)
-            _buttonToLane["Key.K"] = 7;         // High Tom
-            // Lane 8: 17&19 (Low Tom & Right Cymbal)
-            _buttonToLane["Key.L"] = 8;         // Low Tom & Right Cymbal
-            // Lane 9: 1A (Ride)
+            _buttonToLane["Key.A"] = 0;            // Left Cymbal
+            _buttonToLane["Key.J"] = 1;            // Hi-Hat
+            _buttonToLane["Key.G"] = 2;            // Left Pedal
+            _buttonToLane["Key.S"] = 3;            // Snare
+            _buttonToLane["Key.K"] = 4;            // High Tom
+            _buttonToLane["Key.Space"] = 5;        // Bass Drum
+            _buttonToLane["Key.L"] = 6;            // Low Tom
+            _buttonToLane["Key.F"] = 7;            // Floor Tom
+            _buttonToLane["Key.D"] = 8;            // Cymbal
             _buttonToLane["Key.OemSemicolon"] = 9; // Ride
         }
 
@@ -294,7 +284,9 @@ namespace DTXMania.Game.Lib.Input
         }
 
         /// <summary>
-        /// Gets lane names for display
+        /// Gets the canonical friendly lane name for display
+        /// (single source shared by ConfigStage AutoPlay menu, DrumCapturePopup,
+        /// KeyConflictChecker and the drum-kit zones)
         /// </summary>
         /// <param name="lane">Lane index (0-9)</param>
         /// <returns>Human-readable lane name</returns>
@@ -302,16 +294,16 @@ namespace DTXMania.Game.Lib.Input
         {
             return lane switch
             {
-                0 => "Splash/Crash",        // 1A
-                1 => "Floor Tom/Left Cymbal", // 18&11
-                2 => "Hi-Hat Foot/Left Crash", // 1B&1C
-                3 => "Left Pedal",           // 12
-                4 => "Snare Drum",           // 14
-                5 => "Hi-Hat",               // 13
-                6 => "Bass Drum",            // 15
-                7 => "High Tom",             // 16
-                8 => "Low Tom/Right Cymbal", // 17&19
-                9 => "Ride",                 // 1A
+                0 => "Left Cymbal",
+                1 => "Hi-Hat",
+                2 => "Left Pedal",
+                3 => "Snare",
+                4 => "High Tom",
+                5 => "Bass Drum",
+                6 => "Low Tom",
+                7 => "Floor Tom",
+                8 => "Cymbal",
+                9 => "Ride",
                 _ => $"Lane {lane}"
             };
         }

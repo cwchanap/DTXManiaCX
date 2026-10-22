@@ -756,11 +756,9 @@ namespace DTXMania.Game.Lib.Stage
                 value => _configManager.SetMetronome(value))
             { Description = "Accents each measure start and clicks later quarter-note beats during gameplay." };
 
-            var autoPlayLaneLabels = new[]
-            {
-                "Left Cymbal", "Hi-Hat", "Left Pedal", "Snare", "High Tom",
-                "Bass Drum", "Low Tom", "Floor Tom", "Cymbal", "Ride"
-            };
+            var autoPlayLaneLabels = Enumerable.Range(0, 10)
+                .Select(KeyBindings.GetLaneName)
+                .ToArray();
             var enabledAutoPlayLaneCount = () => Enumerable.Range(0, autoPlayLaneLabels.Length)
                 .Count(lane => _configManager.Config.AutoPlayLanes.Contains(lane));
 

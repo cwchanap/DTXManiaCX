@@ -257,7 +257,7 @@ public class ConfigManagerTests : IDisposable
         Assert.Contains(6, manager.Config.UnboundDrumLanes);
         Assert.Equal(6, manager.Config.KeyBindings["MIDI.36"]);
         Assert.Equal(6, manager.Config.KeyBindings["Pad.A"]);
-        Assert.DoesNotContain("Key.Space", manager.Config.KeyBindings.Keys);
+        Assert.DoesNotContain("Key.L", manager.Config.KeyBindings.Keys);
 
         var reloadedManager = CreateManager(dir);
         reloadedManager.LoadConfig();
@@ -269,7 +269,7 @@ public class ConfigManagerTests : IDisposable
         var targetBindings = new KeyBindings();
         reloadedManager.LoadKeyBindings(targetBindings);
 
-        Assert.Equal(-1, targetBindings.GetLane("Key.Space"));
+        Assert.Equal(-1, targetBindings.GetLane("Key.L"));
         Assert.Equal(6, targetBindings.GetLane("MIDI.36"));
         Assert.Equal(6, targetBindings.GetLane("Pad.A"));
     }
@@ -282,13 +282,13 @@ public class ConfigManagerTests : IDisposable
         manager.LoadConfig();
         var sourceBindings = new KeyBindings();
         sourceBindings.UnbindButton("Key.Space");
-        sourceBindings.BindButton("Key.B", 6);
+        sourceBindings.BindButton("Key.B", 5);
 
         manager.SetKeyBindings(sourceBindings);
 
-        Assert.DoesNotContain(6, manager.Config.UnboundDrumLanes);
+        Assert.DoesNotContain(5, manager.Config.UnboundDrumLanes);
         Assert.Contains("Key.Space", manager.Config.UnboundDrumButtons);
-        Assert.Equal(6, manager.Config.KeyBindings["Key.B"]);
+        Assert.Equal(5, manager.Config.KeyBindings["Key.B"]);
 
         manager.FlushPendingSave();
 
@@ -299,13 +299,13 @@ public class ConfigManagerTests : IDisposable
         reloadedManager.LoadConfig();
 
         Assert.Contains("Key.Space", reloadedManager.Config.UnboundDrumButtons);
-        Assert.DoesNotContain(6, reloadedManager.Config.UnboundDrumLanes);
+        Assert.DoesNotContain(5, reloadedManager.Config.UnboundDrumLanes);
 
         var targetBindings = new KeyBindings();
         reloadedManager.LoadKeyBindings(targetBindings);
 
         Assert.Equal(-1, targetBindings.GetLane("Key.Space"));
-        Assert.Equal(6, targetBindings.GetLane("Key.B"));
+        Assert.Equal(5, targetBindings.GetLane("Key.B"));
     }
 
     [Fact]

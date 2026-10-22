@@ -309,7 +309,7 @@ public class SystemKeyBindingsPersistenceTests : IDisposable
     public void ConfigManager_LoadSystemKeyBindings_UnboundDrumLane_ShouldAllowFormerDefaultDrumKeyAsSystemBinding()
     {
         var manager = new ConfigManager();
-        manager.Config.UnboundDrumLanes.Add(6);
+        manager.Config.UnboundDrumLanes.Add(5);
         manager.Config.SystemKeyBindings["SystemKey.Back"] = "Space";
 
         var inputMgr = new InputManager();
@@ -348,10 +348,10 @@ public class SystemKeyBindingsPersistenceTests : IDisposable
         manager.Config.SystemKeyBindings["SystemKey.MoveUp"] = "S";
         manager.Config.KeyBindings.Remove("Key.S");
 
-        // Reset drums: re-load default bindings (S -> snare, lane 4) into Config.
+        // Reset drums: re-load default bindings (S -> snare, lane 3) into Config.
         var defaultKb = new KeyBindings(); // LoadDefaultBindings() called in ctor
         manager.SetKeyBindings(defaultKb);
-        Assert.Equal(4, manager.Config.KeyBindings["Key.S"]);
+        Assert.Equal(3, manager.Config.KeyBindings["Key.S"]);
 
         // Eviction: the stage removes S from the system snapshot and persists the rest.
         // Here the snapshot has no key for MoveUp (S was the only one and it was evicted).
@@ -421,7 +421,7 @@ public class SystemKeyBindingsPersistenceTests : IDisposable
         // Scenario: player bound PageUp to a drum lane. The default PageUp -> IncreaseScrollSpeed
         // should be removed so pressing PageUp during performance doesn't change scroll speed.
         var manager = new ConfigManager();
-        manager.Config.KeyBindings["Key.PageUp"] = 4; // bind PageUp to Snare Drum lane
+        manager.Config.KeyBindings["Key.PageUp"] = 4; // bind PageUp to a drum lane
 
         var inputMgr = new InputManager();
         manager.LoadSystemKeyBindings(inputMgr);
@@ -484,7 +484,7 @@ public class SystemKeyBindingsPersistenceTests : IDisposable
         // the constructor default PageUp -> IncreaseScrollSpeed must NOT survive.
         var manager = new ConfigManager();
         manager.Config.SystemKeyBindings["SystemKey.IncreaseScrollSpeed"] = "F1";
-        manager.Config.KeyBindings["Key.F1"] = 4; // F1 mapped to Snare Drum lane
+        manager.Config.KeyBindings["Key.F1"] = 4; // F1 mapped to a drum lane
 
         var inputMgr = new InputManager();
         manager.LoadSystemKeyBindings(inputMgr);
