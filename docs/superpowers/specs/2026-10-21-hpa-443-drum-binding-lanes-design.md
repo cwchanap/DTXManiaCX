@@ -28,6 +28,7 @@ Keep `DTXChartParser.ChannelToLaneMap` and note/judgement handling unchanged. HP
 - Keep `Note.GetLaneName()` as the existing canonical short-name mapping. Prefer a minimal static `Note.GetLaneName(int lane)` overload with the instance member delegating to it (or an equivalent small shared non-UI helper).
 - `KeyBindings.GetLaneName(int)` delegates to the canonical mapping for valid lanes; retain `Lane {n}` for invalid indices. `DrumKitLayout` and capture/conflict messages already consume `KeyBindings.GetLaneName`.
 - Do **not** make the input layer depend on `PerformanceUILayout`; do not add a second independent lane-name table. Keep existing `PerformanceUILayout.LaneType` / `LaneNames` intact and cover their agreement with the canonical order in tests.
+- **Accepted UI wording change:** the drum-binding capture popup and conflict warning now show canonical two-letter codes (for example, `Configure: HH` and `... drum lane: CY`) instead of verbose instrument names. Keep this deliberate for consistency with gameplay; do not reintroduce a separate friendly-name lookup table. Only extend the single canonical helper with long labels if there is an explicit UX requirement later.
 
 ### Default keyboard bindings
 Remap the existing ten keyboard keys by instrument rather than keeping their obsolete integer targets. One key per canonical lane:
@@ -65,16 +66,18 @@ Update `DrumKitLayout.Zones` to have the canonical lane at the **visually corres
 
 The current extra `HiHatPedal` zone has no distinct gameplay lane. Replace that interactive zone with a cymbal-shaped CY zone in a free upper-right area (roughly x=920–980, y=170–200 in 1280x720 design coordinates); confirm the final location does not overlap Ride or the toms. Keep existing art reuse, hit radii, focus count/order and click/focus semantics. The decorative kit art need not be remodeled. Do not map two visual zones to LP or omit CY merely to avoid the one necessary geometry change.
 
+Once removed, `DrumZoneShape.HiHatPedal` is dead. Delete that enum member **and** its `DrumKitRenderer.ShapeTexture` arm, unused `_hihat` field, associated texture load/release, and the renderer unit-test expectation and mock fixture for that shape. Keep the existing cymbal asset and any on-disk `DrumPadHiHat` skin file/constant: asset deletion and broad art cleanup are out of scope.
+
 ### Song Selection
-Switch the Low Tom tab shortcut from old lane 8 to canonical LT/6, and the Floor Tom bookmark shortcut from old lane 1 to canonical FT/7. Delete comments describing a separate `KeyBindings` numbering system. The existing event subscription, modal suppression, tab cycling and bookmark logic are otherwise unchanged.
+Switch the Low Tom tab shortcut from old lane 8 to canonical LT/6, and the Floor Tom bookmark shortcut from old lane 1 to canonical FT/7. **Use the existing** `(int)PerformanceUILayout.LaneType.LT` and `(int)PerformanceUILayout.LaneType.FT` rather than hardcoded `6` and `7`; `SongSelectionStage` already imports `DTXMania.Game.Lib.UI.Layout`. Unlike the input layer, a stage may use this layout enum. Delete comments describing a separate `KeyBindings` numbering system. The existing event subscription, modal suppression, tab cycling and bookmark logic are otherwise unchanged.
 
 ### Existing saved bindings
 No migration for pre-fix numeric lane values; this is an unreleased hobby migration with no backward-compatibility requirement. New/default mappings become canonical. Developers with an old persisted drum mapping can use the existing Reset-to-defaults UI to regenerate it. Do not silently remap arbitrary user-authored keys, add an auto-migration, or change SQLite persistence.
 
 ## Acceptance / proof
 1. Each default keyboard binding resolves to exactly the expected lane; all ten canonical lanes are represented.
-2. `KeyBindings.GetLaneName`, `Note.GetLaneName`, existing layout lane names, and parsed DTX notes agree on the ten integer identities.
-3. Each kit zone's instrument, shape, lane/name, and center hit test agree; zones cover each gameplay lane once. Keyboard focus, hover, capture, and Reset still work.
+2. `KeyBindings.GetLaneName`, `Note.GetLaneName`, existing layout lane names, and parsed DTX notes agree on the ten integer identities. The config capture/conflict text intentionally uses two-letter codes (`HH`, `CY`, etc.), not full instrument names.
+3. Each kit zone's instrument, shape, lane/name, and center hit test agree; zones cover each gameplay lane once. Keyboard focus, hover, capture, and Reset still work. No dead `HiHatPedal` shape or renderer-only hi-hat texture loading remains.
 4. An `InputRouter` key/pad press produces the same `LaneHitEventArgs.Lane` used by `Note.LaneIndex` / `JudgementManager` for that drum, with no runtime translation.
 5. Low Tom switches song tabs and Floor Tom toggles bookmarks using lanes 6 and 7; the former 8 and 1 targets do not trigger those actions.
 6. Unit tests work without a `GraphicsDevice`; existing drum-config E2E persists the corrected first-zone HH/1 binding.
