@@ -14,10 +14,13 @@ namespace DTXMania.Test.Helpers
 
         public GraphicsDevice? GraphicsDevice { get; private set; }
 
-        public TestGraphicsDeviceService()
+        /// <param name="forceEnable">Create a real device even when DTXMANIACX_ENABLE_GRAPHICS_TESTS
+        /// is unset; lets a fixture opt in without mutating process-global env state (xUnit runs
+        /// collections in parallel, so other classes must not observe that write).</param>
+        public TestGraphicsDeviceService(bool forceEnable = false)
         {
             _game = null;
-            if (!IsGraphicsTestEnabled())
+            if (!forceEnable && !IsGraphicsTestEnabled())
             {
                 GraphicsDevice = null;
                 return;
