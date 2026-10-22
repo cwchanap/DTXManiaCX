@@ -19,25 +19,21 @@ namespace DTXMania.Test.Stage.Performance;
 /// Draw pipeline — white-texture creation, SpriteBatch rect draws and the nine-argument
 /// IFont.DrawString calls — on a real GraphicsDevice, so the file is Windows-only and excluded
 /// from the Mac test project (same convention as Graphics/GPURenderingSnapshotTests.cs).
-/// CI does not set DTXMANIACX_ENABLE_GRAPHICS_TESTS, so the fixture opts in for its own
-/// lifetime; if a device still cannot be created the tests fail visibly (xUnit 2.x surfaces
+/// CI does not set DTXMANIACX_ENABLE_GRAPHICS_TESTS, so the fixture constructs its device with
+/// forceEnable:true (no process-global env mutation — parallel collections read that var); if a
+/// device still cannot be created the tests fail visibly (xUnit 2.x surfaces
 /// SkipException as a failure) rather than silently passing, which would hide the coverage
 /// this file exists to provide.
 /// </summary>
 [Collection("GraphicsTests")]
 public class NotationStripRendererDrawTests : IDisposable
 {
-    private const string GraphicsTestEnvVar = "DTXMANIACX_ENABLE_GRAPHICS_TESTS";
-
     private readonly TestGraphicsDeviceService _graphicsService;
     private readonly SpriteBatch? _spriteBatch;
-    private readonly string? _previousEnvValue;
 
     public NotationStripRendererDrawTests()
     {
-        _previousEnvValue = Environment.GetEnvironmentVariable(GraphicsTestEnvVar);
-        Environment.SetEnvironmentVariable(GraphicsTestEnvVar, "1");
-        _graphicsService = new TestGraphicsDeviceService();
+        _graphicsService = new TestGraphicsDeviceService(forceEnable: true);
         _spriteBatch = _graphicsService.GraphicsDevice is { IsDisposed: false } device
             ? new SpriteBatch(device)
             : null;
@@ -47,7 +43,6 @@ public class NotationStripRendererDrawTests : IDisposable
     {
         _spriteBatch?.Dispose();
         _graphicsService.Dispose();
-        Environment.SetEnvironmentVariable(GraphicsTestEnvVar, _previousEnvValue);
     }
 
     private void SkipWhenNoDevice()
