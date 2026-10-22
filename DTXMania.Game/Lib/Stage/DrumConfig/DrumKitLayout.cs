@@ -23,12 +23,9 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
         public float CenterY { get; }
         public float RadiusX { get; }
         public float RadiusY { get; }
-        /// <summary>Draw the piece mirrored left-to-right (e.g. the left bass pedal faces the other way).</summary>
-        public bool FlipHorizontal { get; }
 
         public DrumZone(int lane, string name, DrumZoneShape shape,
-                        float centerX, float centerY, float radiusX, float radiusY,
-                        bool flipHorizontal = false)
+                        float centerX, float centerY, float radiusX, float radiusY)
         {
             Lane = lane;
             Name = name;
@@ -37,7 +34,6 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             CenterY = centerY;
             RadiusX = radiusX;
             RadiusY = radiusY;
-            FlipHorizontal = flipHorizontal;
         }
 
         /// <summary>Ellipse containment test in design space.</summary>
@@ -61,18 +57,17 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
         public static IReadOnlyList<DrumZone> Zones { get; } = new[]
         {
             // Positions roughly follow the mounts on the connected rack skeleton (drumkit_skeleton.png).
-            new DrumZone(5, KeyBindings.GetLaneName(5), DrumZoneShape.Cymbal,     160f, 178f, 70f, 30f),  // Hi-Hat (left stand)
-            new DrumZone(0, KeyBindings.GetLaneName(0), DrumZoneShape.Cymbal,     330f,  92f, 72f, 28f),  // Splash/Crash (left arm)
+            new DrumZone(1, KeyBindings.GetLaneName(1), DrumZoneShape.Cymbal,     160f, 178f, 70f, 30f),  // Hi-Hat (left stand)
+            new DrumZone(0, KeyBindings.GetLaneName(0), DrumZoneShape.Cymbal,     330f,  92f, 72f, 28f),  // Left Cymbal (left arm)
             new DrumZone(9, KeyBindings.GetLaneName(9), DrumZoneShape.Cymbal,    1130f, 110f, 75f, 28f),  // Ride (right arm)
-            new DrumZone(7, KeyBindings.GetLaneName(7), DrumZoneShape.Drum,       545f, 300f, 46f, 46f),  // High Tom
-            new DrumZone(8, KeyBindings.GetLaneName(8), DrumZoneShape.Drum,       735f, 300f, 50f, 50f),  // Low Tom
-            new DrumZone(4, KeyBindings.GetLaneName(4), DrumZoneShape.Drum,       380f, 430f, 54f, 54f),  // Snare
-            new DrumZone(1, KeyBindings.GetLaneName(1), DrumZoneShape.Drum,      1015f, 430f, 60f, 60f),  // Floor Tom (right)
-            // Lane 6 ("Bass Drum") is the clickable right bass pedal; the bass drum itself is drawn as decoration.
-            new DrumZone(6, KeyBindings.GetLaneName(6), DrumZoneShape.Pedal,      712f, 600f, 52f, 36f),  // Bass pedal (right)
+            new DrumZone(4, KeyBindings.GetLaneName(4), DrumZoneShape.Drum,       545f, 300f, 46f, 46f),  // High Tom
+            new DrumZone(6, KeyBindings.GetLaneName(6), DrumZoneShape.Drum,       735f, 300f, 50f, 50f),  // Low Tom
+            new DrumZone(3, KeyBindings.GetLaneName(3), DrumZoneShape.Drum,       380f, 430f, 54f, 54f),  // Snare
+            new DrumZone(7, KeyBindings.GetLaneName(7), DrumZoneShape.Drum,      1015f, 430f, 60f, 60f),  // Floor Tom (right)
+            // Lane 5 ("Bass Drum") is the clickable right bass pedal; the bass drum itself is drawn as decoration.
+            new DrumZone(5, KeyBindings.GetLaneName(5), DrumZoneShape.Pedal,      712f, 600f, 52f, 36f),  // Bass pedal (right)
             new DrumZone(2, KeyBindings.GetLaneName(2), DrumZoneShape.HiHatPedal, 175f, 598f, 52f, 42f),  // Hi-Hat Foot (left)
-            // Left pedal mirrors the right one so its beater faces the other way.
-            new DrumZone(3, KeyBindings.GetLaneName(3), DrumZoneShape.Pedal,      560f, 600f, 52f, 36f, flipHorizontal: true), // Left Pedal
+            new DrumZone(8, KeyBindings.GetLaneName(8), DrumZoneShape.Cymbal,     950f, 185f, 75f, 28f),  // Cymbal (right arm, upper)
         };
 
         internal static int GetLaneForZoneIndex(int zoneIndex)

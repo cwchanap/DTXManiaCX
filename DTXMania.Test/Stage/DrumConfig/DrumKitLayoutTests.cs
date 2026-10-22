@@ -32,7 +32,7 @@ namespace DTXMania.Test.Stage.DrumConfig
             for (int zoneIndex = 0; zoneIndex < expectedLanes.Length; zoneIndex++)
                 Assert.Equal(expectedLanes[zoneIndex], DrumKitLayout.GetLaneForZoneIndex(zoneIndex));
 
-            Assert.Equal(5, DrumKitLayout.GetLaneForZoneIndex(0));
+            Assert.Equal(1, DrumKitLayout.GetLaneForZoneIndex(0)); // first focused zone is HH/1
             Assert.Equal(9, DrumKitLayout.GetLaneForZoneIndex(2));
         }
 
@@ -45,7 +45,8 @@ namespace DTXMania.Test.Stage.DrumConfig
                 Assert.Equal(zoneIndex, DrumKitLayout.FindZoneIndexByLane(lane));
             }
 
-            Assert.Equal(5, DrumKitLayout.FindZoneIndexByLane(4));
+            Assert.Equal(5, DrumKitLayout.FindZoneIndexByLane(3)); // snare sits at focus index 5
+            Assert.Equal(0, DrumKitLayout.FindZoneIndexByLane(1)); // HH stands first in focus order
         }
 
         [Fact]
@@ -66,15 +67,43 @@ namespace DTXMania.Test.Stage.DrumConfig
         [Fact]
         public void Zone_NameMatchesKeyBindingsLaneName()
         {
-            var snare = DrumKitLayout.Zones.Single(z => z.Lane == 4);
-            Assert.Equal(KeyBindings.GetLaneName(4), snare.Name);
+            var snare = DrumKitLayout.Zones.Single(z => z.Lane == 3);
+            Assert.Equal(KeyBindings.GetLaneName(3), snare.Name);
         }
 
         [Fact]
-        public void HitTest_AtSnareCenter_ReturnsLane4()
+        public void FirstFocusedZone_IsHiHatLane1()
         {
-            var snare = DrumKitLayout.Zones.Single(z => z.Lane == 4);
-            Assert.Equal(4, DrumKitLayout.HitTest(snare.CenterX, snare.CenterY));
+            Assert.Equal(1, DrumKitLayout.Zones[0].Lane);
+        }
+
+        [Fact]
+        public void Zone_ShapesMatchTheirInstruments()
+        {
+            Assert.Equal(DrumZoneShape.Cymbal, DrumKitLayout.Zones.Single(z => z.Lane == 1).Shape);          // HH stand
+            Assert.Equal(DrumZoneShape.Cymbal, DrumKitLayout.Zones.Single(z => z.Lane == 0).Shape);          // Left crash
+            Assert.Equal(DrumZoneShape.Cymbal, DrumKitLayout.Zones.Single(z => z.Lane == 9).Shape);          // Ride
+            Assert.Equal(DrumZoneShape.Drum, DrumKitLayout.Zones.Single(z => z.Lane == 4).Shape);            // High tom
+            Assert.Equal(DrumZoneShape.Drum, DrumKitLayout.Zones.Single(z => z.Lane == 6).Shape);            // Low tom
+            Assert.Equal(DrumZoneShape.Drum, DrumKitLayout.Zones.Single(z => z.Lane == 3).Shape);            // Snare
+            Assert.Equal(DrumZoneShape.Drum, DrumKitLayout.Zones.Single(z => z.Lane == 7).Shape);            // Floor tom
+            Assert.Equal(DrumZoneShape.Pedal, DrumKitLayout.Zones.Single(z => z.Lane == 5).Shape);           // Right bass pedal
+            Assert.Equal(DrumZoneShape.HiHatPedal, DrumKitLayout.Zones.Single(z => z.Lane == 2).Shape);      // Hi-hat foot pedal
+            Assert.Equal(DrumZoneShape.Cymbal, DrumKitLayout.Zones.Single(z => z.Lane == 8).Shape);          // Right crash (replaces the old mirrored left pedal)
+        }
+
+        [Fact]
+        public void HitTest_AtEveryZoneCenter_ReturnsThatZonesLane()
+        {
+            foreach (var zone in DrumKitLayout.Zones)
+                Assert.Equal(zone.Lane, DrumKitLayout.HitTest(zone.CenterX, zone.CenterY));
+        }
+
+        [Fact]
+        public void HitTest_AtSnareCenter_ReturnsLane3()
+        {
+            var snare = DrumKitLayout.Zones.Single(z => z.Lane == 3);
+            Assert.Equal(3, DrumKitLayout.HitTest(snare.CenterX, snare.CenterY));
         }
 
         [Fact]
@@ -86,7 +115,7 @@ namespace DTXMania.Test.Stage.DrumConfig
         [Fact]
         public void Zone_Contains_EllipseContainmentInDesignSpace()
         {
-            var snare = DrumKitLayout.Zones.Single(z => z.Lane == 4);
+            var snare = DrumKitLayout.Zones.Single(z => z.Lane == 3);
             
             // Center should be contained
             Assert.True(snare.Contains(snare.CenterX, snare.CenterY));
@@ -130,8 +159,8 @@ namespace DTXMania.Test.Stage.DrumConfig
         [Fact]
         public void Zone_AllPropertiesAreReadableForEveryZone()
         {
-            // Reads every struct property (Lane/Name/Shape/Center/Radius/FlipHorizontal) so the
-            // auto-property accessors stay covered, including the rarely-read FlipHorizontal.
+            // Reads every struct property (Lane/Name/Shape/Center/Radius) so the
+            // auto-property accessors stay covered.
             foreach (var zone in DrumKitLayout.Zones)
             {
                 Assert.InRange(zone.Lane, 0, DrumKitLayout.ZoneCount - 1);
@@ -140,18 +169,25 @@ namespace DTXMania.Test.Stage.DrumConfig
                 _ = zone.Shape;
                 _ = zone.CenterX;
                 _ = zone.CenterY;
-                _ = zone.FlipHorizontal;
             }
         }
 
         [Fact]
-        public void Zone_LeftPedalIsFlippedAndRightPedalIsNot()
+        public void Zones_BoundingBoxesDoNotOverlap()
         {
-            // The left pedal (lane 3) mirrors the right so its beater faces the other way.
-            var leftPedal = DrumKitLayout.Zones.Single(z => z.Lane == 3);
-            var rightPedal = DrumKitLayout.Zones.Single(z => z.Lane == 6);
-            Assert.True(leftPedal.FlipHorizontal);
-            Assert.False(rightPedal.FlipHorizontal);
+            // Axis-aligned bounding-box separation is a conservative no-overlap guarantee:
+            // if the boxes are apart, the hit ellipses (and drawn sprites) cannot collide.
+            for (int i = 0; i < DrumKitLayout.Zones.Count; i++)
+            {
+                for (int j = i + 1; j < DrumKitLayout.Zones.Count; j++)
+                {
+                    var a = DrumKitLayout.Zones[i];
+                    var b = DrumKitLayout.Zones[j];
+                    var separated = System.Math.Abs(a.CenterX - b.CenterX) >= a.RadiusX + b.RadiusX ||
+                                    System.Math.Abs(a.CenterY - b.CenterY) >= a.RadiusY + b.RadiusY;
+                    Assert.True(separated, $"Zones '{a.Name}' and '{b.Name}' overlap");
+                }
+            }
         }
     }
 }
