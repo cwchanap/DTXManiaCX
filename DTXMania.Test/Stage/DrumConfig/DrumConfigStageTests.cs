@@ -322,7 +322,7 @@ namespace DTXMania.Test.Stage.DrumConfig
             ReflectionHelpers.InvokePrivateMethod(stage, "ActivateFocusedElement");
 
             Assert.True(popup.IsOpen);
-            Assert.Equal(5, popup.Lane);
+            Assert.Equal(1, popup.Lane);
         }
 
         [Fact]
@@ -460,7 +460,7 @@ namespace DTXMania.Test.Stage.DrumConfig
             ReflectionHelpers.InvokePrivateMethod(stage, "UpdateSelection", MouseAt(380, 430, true), true);
 
             Assert.True(popup.IsOpen);
-            Assert.Equal(4, popup.Lane); // clicked snare lane ID
+            Assert.Equal(3, popup.Lane); // clicked snare lane ID
             Assert.Equal(5, ReflectionHelpers.GetPrivateField<int>(stage, "_focusedElementIndex"));
         }
 
@@ -636,7 +636,7 @@ namespace DTXMania.Test.Stage.DrumConfig
             ReflectionHelpers.InvokePrivateMethod(stage, "UpdateSelection", MouseAt(5, 5, false), false);
 
             Assert.True(popup.IsOpen);
-            Assert.Equal(4, popup.Lane);
+            Assert.Equal(3, popup.Lane);
             Assert.Equal(5, ReflectionHelpers.GetPrivateField<int>(stage, "_focusedElementIndex"));
         }
 
@@ -846,7 +846,7 @@ namespace DTXMania.Test.Stage.DrumConfig
             Assert.True(popup.IsOpen);
             Assert.Equal(5, popup.Lane);
             Assert.Equal(5, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedLane"));
-            Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_focusedElementIndex"));
+            Assert.Equal(7, ReflectionHelpers.GetPrivateField<int>(stage, "_focusedElementIndex")); // bass pedal zone
             Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_skipCaptureThisFrame"));
         }
 
