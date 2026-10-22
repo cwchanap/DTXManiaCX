@@ -162,8 +162,8 @@ namespace DTXMania.Test.Stage
             AttachCoreUi(stage, display);
             SetPrivateField(stage, "_activeTab", SongSelectionTab.AllSongs);
 
-            // Low Tom is lane 8 in the lane-hit (KeyBindings) scheme.
-            InvokePrivateMethod(stage, "HandleLaneHitForTabSwitch", 8);
+            // Low Tom is lane 6 in the canonical lane scheme (LT).
+            InvokePrivateMethod(stage, "HandleLaneHitForTabSwitch", 6);
 
             Assert.Equal(SongSelectionTab.RecentPlays, GetPrivateField<SongSelectionTab>(stage, "_activeTab"));
         }
@@ -176,7 +176,7 @@ namespace DTXMania.Test.Stage
             AttachCoreUi(stage, display);
             SetPrivateField(stage, "_activeTab", SongSelectionTab.AllSongs);
 
-            InvokePrivateMethod(stage, "HandleLaneHitForTabSwitch", 4); // Snare
+            InvokePrivateMethod(stage, "HandleLaneHitForTabSwitch", 8); // Right Cymbal (CY) — former tab-switch lane under the old numbering
 
             Assert.Equal(SongSelectionTab.AllSongs, GetPrivateField<SongSelectionTab>(stage, "_activeTab"));
         }
@@ -234,7 +234,7 @@ namespace DTXMania.Test.Stage
             modal.Open(SongFilterCriteria.Default);
             SetPrivateField(stage, "_searchFilterModal", modal);
 
-            var args = new DTXMania.Game.Lib.Input.LaneHitEventArgs(8, default);
+            var args = new DTXMania.Game.Lib.Input.LaneHitEventArgs(6, default);
             InvokePrivateMethod(stage, "OnTabSwitchLaneHit", stage, args);
 
             Assert.Equal(SongSelectionTab.AllSongs,
@@ -249,7 +249,7 @@ namespace DTXMania.Test.Stage
             AttachCoreUi(stage, display);
             SetPrivateField(stage, "_activeTab", SongSelectionTab.AllSongs);
 
-            var args = new DTXMania.Game.Lib.Input.LaneHitEventArgs(8, default);
+            var args = new DTXMania.Game.Lib.Input.LaneHitEventArgs(6, default);
             InvokePrivateMethod(stage, "OnTabSwitchLaneHit", stage, args);
 
             Assert.Equal(SongSelectionTab.RecentPlays,

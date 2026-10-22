@@ -190,15 +190,9 @@ namespace DTXMania.Game.Lib.Stage
         private const int CENTER_INDEX = SongSelectionUILayout.SongBars.CenterIndex;
         private const int RecentPlaysLimit = 20;        // Max rows shown on the Recent tab.
 
-        // Low Tom in the lane-hit (KeyBindings) numbering; shared with Right Cymbal.
-        // NOTE: distinct from the visual PerformanceUILayout.LaneType.LT (=6).
-        private const int LowTomLaneIndex = 8;
+        private const int LowTomLaneIndex = (int)PerformanceUILayout.LaneType.LT;
 
-        // Floor Tom in the lane-hit (KeyBindings) numbering; toggles a bookmark on the
-        // highlighted song. Lane 1 is shared by Floor Tom and Left Cymbal (channels 18 & 11),
-        // so either pad triggers the toggle. Distinct from the tab-switch pad (Low Tom = lane 8,
-        // itself shared with Right Cymbal).
-        private const int FloorTomLaneIndex = 1;
+        private const int FloorTomLaneIndex = (int)PerformanceUILayout.LaneType.FT;
 
         // RenderTarget management for stage-level resource pooling
         private RenderTarget2D _stageRenderTarget;

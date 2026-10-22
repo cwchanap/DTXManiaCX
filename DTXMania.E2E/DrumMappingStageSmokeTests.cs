@@ -17,9 +17,9 @@ namespace DTXMania.E2E;
 [Trait("Category", "E2E")]
 public sealed class DrumMappingStageSmokeTests
 {
-    // Authored visual zone 0 is the Hi-Hat (lane 5). We append "Key.Z", a key not otherwise bound
-    // and not reserved for navigation, so the capture is accepted (append model).
-    private const int DefaultFocusedLane = 5;
+    // Authored visual zone 0 is the Hi-Hat (canonical lane 1). We append "Key.Z", a key not
+    // otherwise bound and not reserved for navigation, so the capture is accepted (append model).
+    private const int DefaultFocusedLane = 1;
     private const string BindKey = "Z";
     private const string ExpectedBindingId = "Key.Z";
 
@@ -56,7 +56,7 @@ public sealed class DrumMappingStageSmokeTests
             // the fade transition + OnActivate (popup/focus/skip-flag init) before we send input.
             await Task.Delay(500, cancellation.Token);
 
-            // Activate authored visual zone 0 (Hi-Hat / lane 5) to open its capture popup.
+            // Activate authored visual zone 0 (Hi-Hat / canonical lane 1) to open its capture popup.
             await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
             // Let the popup open and the one-frame capture-skip clear before sending the bind key.
             await Task.Delay(700, cancellation.Token);
@@ -144,7 +144,7 @@ public sealed class DrumMappingStageSmokeTests
             // Settle past the fade + OnActivate (focus/skip-flag init) before sending input.
             await Task.Delay(500, cancellation.Token);
 
-            // Focus starts on authored visual zone 0 (Hi-Hat / lane 5). Open its capture popup
+            // Focus starts on authored visual zone 0 (Hi-Hat / canonical lane 1). Open its capture popup
             // and bind the non-default key.
             await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
             await Task.Delay(700, cancellation.Token);
