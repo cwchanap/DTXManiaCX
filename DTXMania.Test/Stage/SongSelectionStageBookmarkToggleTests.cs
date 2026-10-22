@@ -137,7 +137,7 @@ namespace DTXMania.Test.Stage
             var display = DisplayWithSelection(node);
             AttachCoreUi(stage, display);
 
-            InvokePrivateMethod(stage, "HandleLaneHitForBookmark", 1); // Floor Tom = lane 1
+            InvokePrivateMethod(stage, "HandleLaneHitForBookmark", 7); // Floor Tom = lane 7 (canonical FT)
 
             Assert.True(node.DatabaseSong!.IsBookmarked);
         }
@@ -150,7 +150,7 @@ namespace DTXMania.Test.Stage
             var display = DisplayWithSelection(node);
             AttachCoreUi(stage, display);
 
-            InvokePrivateMethod(stage, "HandleLaneHitForBookmark", 4); // Snare
+            InvokePrivateMethod(stage, "HandleLaneHitForBookmark", 1); // Hi-Hat (HH) — former Floor Tom lane under the old numbering
 
             Assert.False(node.DatabaseSong!.IsBookmarked);
         }
