@@ -10,8 +10,12 @@ coverage:
       default:
         target: 85%
         threshold: 0%
-        # GPU-bound draw paths (e.g. HPA-410 NotationStripRenderer) cannot
-        # execute on headless CI runners, so patch coverage is reported but
-        # does not fail; the project gate above still enforces 85%.
-        informational: true
+        informational: false
         if_not_found: failure
+
+# NotationStripRenderer's draw bodies need a real GraphicsDevice that headless
+# CI cannot create (DesktopGL/SDL), so they can never contribute patch coverage.
+# This scoped exclusion keeps the mandatory 85% patch gate for all other code;
+# the renderer's ctor/dispose/Draw-guard contract still runs in CI tests.
+ignore:
+  - "DTXMania.Game/Lib/Stage/Performance/NotationStripRenderer.cs"
