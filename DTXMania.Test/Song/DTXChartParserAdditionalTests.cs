@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
+using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
 using Xunit;
@@ -35,6 +36,26 @@ namespace DTXMania.Test.Song
             File.WriteAllText(path, content);
             return path;
         }
+
+        /// <summary>
+        /// DTX fixture with one note on every mapped drum channel, shared by the
+        /// parser-only channel table regression and the parser-to-default-key
+        /// contract regression (HPA-443).
+        /// </summary>
+        private const string AllDrumChannelsChart =
+            "#BPM: 120.0\n" +
+            "#00011: 01000000\n" +  // HH Close (0x11 -> Lane 1)
+            "#00012: 01000000\n" +  // Snare (0x12 -> Lane 3)
+            "#00013: 01000000\n" +  // Bass Drum (0x13 -> Lane 5)
+            "#00014: 01000000\n" +  // High Tom (0x14 -> Lane 4)
+            "#00015: 01000000\n" +  // Low Tom (0x15 -> Lane 6)
+            "#00016: 01000000\n" +  // Crash (0x16 -> Lane 8)
+            "#00017: 01000000\n" +  // Floor Tom (0x17 -> Lane 7)
+            "#00018: 01000000\n" +  // HH Open (0x18 -> Lane 1)
+            "#00019: 01000000\n" +  // Ride (0x19 -> Lane 9)
+            "#0001A: 01000000\n" +  // Left Crash (0x1A -> Lane 0)
+            "#0001B: 01000000\n" +  // Left Pedal (0x1B -> Lane 2)
+            "#0001C: 01000000\n";   // Left Bass Drum (0x1C -> Lane 2)
 
         #region ParseAsync Tests with Various Content
 
@@ -136,21 +157,7 @@ namespace DTXMania.Test.Song
         {
             // Test all mapped drum channels; canonical channel-to-lane contract
             // (gameplay order: LC, HH, LP, SN, HT, DB, LT, FT, CY, RD)
-            var content =
-                "#BPM: 120.0\n" +
-                "#00011: 01000000\n" +  // HH Close (0x11 -> Lane 1)
-                "#00012: 01000000\n" +  // Snare (0x12 -> Lane 3)
-                "#00013: 01000000\n" +  // Bass Drum (0x13 -> Lane 5)
-                "#00014: 01000000\n" +  // High Tom (0x14 -> Lane 4)
-                "#00015: 01000000\n" +  // Low Tom (0x15 -> Lane 6)
-                "#00016: 01000000\n" +  // Crash (0x16 -> Lane 8)
-                "#00017: 01000000\n" +  // Floor Tom (0x17 -> Lane 7)
-                "#00018: 01000000\n" +  // HH Open (0x18 -> Lane 1)
-                "#00019: 01000000\n" +  // Ride (0x19 -> Lane 9)
-                "#0001A: 01000000\n" +  // Left Crash (0x1A -> Lane 0)
-                "#0001B: 01000000\n" +  // Left Pedal (0x1B -> Lane 2)
-                "#0001C: 01000000\n";   // Left Bass Drum (0x1C -> Lane 2)
-            var path = CreateTempDtx(content);
+            var path = CreateTempDtx(AllDrumChannelsChart);
 
             var chart = await DTXChartParser.ParseAsync(path);
 
@@ -178,6 +185,45 @@ namespace DTXMania.Test.Song
                     $"Channel 0x{channel:X2} should resolve to exactly one note, found {notes.Count}");
                 Assert.True(notes[0].LaneIndex == expectedLane,
                     $"Channel 0x{channel:X2} should map to lane {expectedLane}, got {notes[0].LaneIndex}");
+            }
+        }
+
+        [Fact]
+        public async Task ParseAsync_WithDrumNotes_LaneIndexShouldMatchDefaultKeyBindingLane()
+        {
+            // Contract regression (HPA-443): every parsed note's LaneIndex must
+            // equal the lane bound to that instrument's default keyboard key,
+            // so parsed charts are playable with untouched default bindings.
+            var path = CreateTempDtx(AllDrumChannelsChart);
+
+            var chart = await DTXChartParser.ParseAsync(path);
+
+            var bindings = new KeyBindings();
+            var channelToDefaultKey = new Dictionary<int, string>
+            {
+                { 0x1A, "Key.A" },            // LC -> lane 0
+                { 0x11, "Key.J" },            // HH Close -> lane 1
+                { 0x18, "Key.J" },            // HH Open (paired with 0x11)
+                { 0x1B, "Key.G" },            // LP -> lane 2
+                { 0x1C, "Key.G" },            // Left Bass (paired with 0x1B)
+                { 0x12, "Key.S" },            // SN -> lane 3
+                { 0x14, "Key.K" },            // HT -> lane 4
+                { 0x13, "Key.Space" },        // DB -> lane 5
+                { 0x15, "Key.L" },            // LT -> lane 6
+                { 0x17, "Key.F" },            // FT -> lane 7
+                { 0x16, "Key.D" },            // CY -> lane 8
+                { 0x19, "Key.OemSemicolon" }, // RD -> lane 9
+            };
+
+            foreach (var (channel, defaultKey) in channelToDefaultKey)
+            {
+                var note = Assert.Single(chart.Notes.Where(n => n.Channel == channel));
+                var boundLane = bindings.GetLane(defaultKey);
+                Assert.True(boundLane >= 0,
+                    $"Default key '{defaultKey}' should be bound to a lane");
+                Assert.True(note.LaneIndex == boundLane,
+                    $"Channel 0x{channel:X2} parsed to lane {note.LaneIndex} " +
+                    $"but default key '{defaultKey}' is bound to lane {boundLane}");
             }
         }
 
