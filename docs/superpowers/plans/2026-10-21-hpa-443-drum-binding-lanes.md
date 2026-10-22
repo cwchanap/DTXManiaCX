@@ -1,81 +1,92 @@
-# HPA-443 — Drum Binding Lane Identity Alignment (Implementation Plan)
+# HPA-443 — Align Drum Binding Lane Identities (Implementation Plan)
 
-> For the implementation agent: make code changes on **this PR branch**; do not open a second PR. Read the paired design spec before coding.
+> Agent instruction: implement **in this existing PR branch**, not another PR. Read [the paired design](../specs/2026-10-21-hpa-443-drum-binding-lanes-design.md) first. One ticket, one PR, ~1–2 engineer days.
 
-**Issue:** https://linear.app/cwchanap/issue/HPA-443/input-align-drum-binding-lanes-with-gameplay-lane-identities  
-**Spec:** `docs/superpowers/specs/2026-10-21-hpa-443-drum-binding-lanes-design.md`  
-**Target:** .NET 10 (`net10.0`) / MonoGame / xUnit; one bounded PR, 1–2 engineer days.
+**Stack:** .NET 10, MonoGame, xUnit.  
+**Linear:** https://linear.app/cwchanap/issue/HPA-443/input-align-drum-binding-lanes-with-gameplay-lane-identities
 
-## Existing code to reuse
-- `DTXMania.Game/Lib/Song/Components/Note.cs` — canonical lane-to-short-label switch; `DTXChartParser.cs` channel-to-lane mapping (already correct).
-- `DTXMania.Game/Lib/UI/Layout/PerformanceUILayout.cs` — existing `LaneType` / `LaneNames` values.
-- `DTXMania.Game/Lib/Input/KeyBindings.cs` and `InputRouter.cs` — bindings and lane forwarding (no translation).
-- `DTXMania.Game/Lib/Stage/DrumConfig/DrumKitLayout.cs` — ten clickable zones, pure geometry.
-- `DTXMania.Game/Lib/Stage/DrumConfig/DrumKitRenderer.cs` — existing cymbal/drum/pedal textures; no new assets.
-- `DTXMania.Game/Lib/Stage/SongSelectionStage.cs` — LowTom/ FloorTom shortcuts.
+## Invariants / exclusions
 
-## Invariants
-- Lane IDs remain `0 LC, 1 HH, 2 LP, 3 SN, 4 HT, 5 DB, 6 LT, 7 FT, 8 CY, 9 RD`.
-- Parser mapping, judgement, timing, AutoPlay, scorer and visual lane renderer remain untouched.
-- Preserve button IDs (`Key.*`, `MIDI.*`, `Pad.*`) and `InputRouter` contract; no extra translation layer or config migration.
-- Keep focus navigation, popup flow and Reset behavior. One zone per lane, including a CY cymbal.
-- Capture/conflict UI intentionally uses canonical two-letter labels (for example, `Configure: HH`, `... drum lane: CY`). Do not recreate a second long-name table to preserve old copy.
-- Song Selection shortcuts must reference existing `PerformanceUILayout.LaneType`, not independent hardcoded lane IDs.
-- HPA-411 and HPA-509 remain completely out of scope.
+Gameplay lanes are `0 LC, 1 HH, 2 LP, 3 SN, 4 HT, 5 DB, 6 LT, 7 FT, 8 CY, 9 RD`. `DTXChartParser.ChannelToLaneMap` is already correct and `InputRouter` forwards binding IDs unchanged. **Do not** change parser, judgement/scoring, AutoPlay execution, `InputRouter`, `Note.cs`, `PerformanceUILayout.LaneNames`, configuration persistence, device APIs, or Tab Mode (HPA-411/HPA-509). No translation, saved-binding migration, new art/SFX, or new input abstraction.
 
-## Task 1 — Canonical names and default keyboard mappings
-**Modify:** `DTXMania.Game/Lib/Song/Components/Note.cs`, `DTXMania.Game/Lib/Input/KeyBindings.cs`, `DTXMania.Test/Input/KeyBindingsTests.cs`.
+`KeyBindings.GetLaneName` becomes the single **friendly** UI label source reused by ConfigStage and DrumConfig. Keep short notation `Note.GetLaneName` separate: those are different presentation needs, not duplicate friendly-name tables.
 
-- [ ] Add a static lane-name access path to the existing `Note` switch (or one very small shared non-UI helper) and make the existing instance method reuse it; let `KeyBindings.GetLaneName` reuse that path. Preserve its invalid-index `Lane N` fallback.
-- [ ] Update `LoadDefaultBindings` to **A=LC/0, J=HH/1, G=LP/2, S=SN/3, K=HT/4, Space=DB/5, L=LT/6, F=FT/7, D=CY/8, ;=RD/9**. Repair all false comments, particularly the `0x1A` duplicate and old lane numbering.
-- [ ] Update old `GetLaneName` and default/reset assertions that currently expect Snare=4 or Bass=6. Add a `[Theory]` over all ten key/lane/name pairs, not only a count-of-lanes test.
-- [ ] Add one direct agreement assertion against the existing gameplay short names (`Note.GetLaneName` / `PerformanceUILayout.LaneNames`) for all 0..9.
-- [ ] Update expectations for `DrumCapturePopup` and `KeyConflictChecker`, if any string-level tests assert old long names: the accepted UX is canonical short codes, not a second friendly-name table.
-- [ ] Keep existing `KeyBindings` events, binding data shape and MIDI parsing unchanged.
+## Task 1 — Friendly names, default keyboard bindings, and dependent tests
 
-## Task 2 — Make visual drum-kit zones physically truthful
-**Modify:** `DTXMania.Game/Lib/Stage/DrumConfig/DrumKitLayout.cs`, `DTXMania.Test/Stage/DrumConfig/DrumKitLayoutTests.cs`, `DTXMania.Game/Lib/Stage/DrumConfig/DrumKitRenderer.cs`, `DTXMania.Test/Stage/DrumConfig/DrumKitRendererTests.cs`.
+**Production:**
+- `DTXMania.Game/Lib/Input/KeyBindings.cs`
+- `DTXMania.Game/Lib/Stage/ConfigStage.cs`
 
-- [ ] Reassign old zone lanes by the **visual instruments**, not by translating the old integer mechanically: HH=1, LC=0, RD=9, HT=4, LT=6, SN=3, FT=7, right bass pedal=5, left mirrored bass pedal=2.
-- [ ] Replace the extra `HiHatPedal` interactive zone with a CY/8 cymbal at a non-overlapping upper-right coordinate (see spec); reuse `DrumZoneShape.Cymbal` and current renderer texture. Avoid new art and a complete layout redesign.
-- [ ] Delete the now-unused `DrumZoneShape.HiHatPedal` member. In `DrumKitRenderer`, delete its `ShapeTexture` case, `_hihat` field, constructor `TexturePath.DrumPadHiHat` load, and dispose-time reference release. Update the shape-to-texture test and its `NewRendererWithShapes` mock setup to match. Do not delete image assets or unrelated asset path constants.
-- [ ] Keep `Zones` in the same focus order where practical. Preserve zone count=10, Reset focus index=10, `AdvanceFocus` semantics and 1:1 mapping.
-- [ ] Update the test using `GetLaneForZoneIndex(0)`: first zone HH becomes 1 (formerly 5). Update Snare center to lane 3, bass pedal to lane 5, mirrored left pedal to lane 2; assert all ten shape/name/lane identities and center hit tests.
-- [ ] Add/retain checks that all zone lanes are distinct, cover 0..9, and have no accidental center overlap. Review screenshot only if manual game graphics are available. Do not create new graphics test harness.
+**Tests to check/update:**
+- `DTXMania.Test/Input/KeyBindingsTests.cs`
+- `DTXMania.Test/Input/ModularInputManagerTests.cs`
+- `DTXMania.Test/Stage/DrumConfig/DrumConfigStageTests.cs`
+- `DTXMania.Test/Config/SystemKeyBindingsPersistenceTests.cs`
+- `DTXMania.Test/Config/ConfigStageLogicTests.cs` (existing friendly-name assertions should pass without alteration)
 
-## Task 3 — Make Song Selection shortcuts use canonical IDs
-**Modify:** `DTXMania.Game/Lib/Stage/SongSelectionStage.cs`, `DTXMania.Test/Stage/SongSelectionStageTabTests.cs`; locate and update any existing bookmark-focused tests that assert old values.
+- [ ] Move the canonical long-label array from `ConfigStage.cs` (around 759–763) into `KeyBindings`, replacing its wrong lane-name switch; keep invalid `Lane {n}` fallback. In ConfigStage, build AutoPlay labels from `Enumerable.Range(0, 10).Select(KeyBindings.GetLaneName).ToArray()`. No `Input → Song` dependency.
+- [ ] Change only the default values in `KeyBindings.LoadDefaultBindings`: **A=0, J=1, G=2, S=3, K=4, Space=5, L=6, F=7, D=8, ;=9**. Remove stale DTX channel descriptions and the duplicated `0x1A` comment. Preserve IDs and events.
+- [ ] In `KeyBindingsTests`, pin all ten default key→lane pairs in one parameterized test, and verify the friendly names on all ten canonical lanes.
+- [ ] In `ModularInputManagerTests`, update the existing constructor/default mapping assertions near lines 116–139 and default mapping theory near 323–331. Remove the redundant `GetLaneName_ValidLanes_ReturnsCorrectNames` theory near 421–429; the canonical friendly-name test belongs in `KeyBindingsTests`. Check other constructor-default assumptions such as the `Key.Space` expectation.
+- [ ] In `DrumConfigStageTests`, update default Snare/S lane assumptions (near 200–222 and 700–715), including popup clear/chip-remove and reset tests; preserve intentionally custom lane bindings.
+- [ ] In `SystemKeyBindingsPersistenceTests`, update the reset assertion near 354 from S/4 to S/3. Leave the system-key conflict behavior intact.
+- [ ] Confirm ConfigStage's existing AutoPlay menu tests still see `Left Cymbal, Hi-Hat, ..., Ride` (friendly labels) and retain their old behavior.
 
-- [ ] Replace `LowTomLaneIndex = 8` and `FloorTomLaneIndex = 1` with `(int)PerformanceUILayout.LaneType.LT` and `(int)PerformanceUILayout.LaneType.FT`, respectively. The stage already imports `DTXMania.Game.Lib.UI.Layout`; use the available canonical enum, **not** new numeric constants. Remove the false 'KeyBindings numbering' explanation.
-- [ ] Update tab-switch and bookmark tests to use lanes 6 and 7; assert 8 does not switch tabs, and 1 does not toggle bookmarks. Keep search-modal suppression and tab order unchanged.
-- [ ] Confirm the pipeline still delivers the raw lane integer via `InputRouter`; do **not** introduce a runtime conversion from `KeyBindings` to parser lanes.
+## Task 2 — Explicit parser-to-default-key contract regression
 
-## Task 4 — Regression and integration verification
-**Modify, only as needed:** `DTXMania.E2E/DrumMappingStageSmokeTests.cs`, `DTXMania.Test/Input/*` and affected focused tests.
+**Modify:** `DTXMania.Test/Song/DTXChartParserAdditionalTests.cs`.
 
-- [ ] Change existing E2E first-zone assumption from HH/5 to HH/1. It should still bind `Key.Z`, exit and verify the SQLite-persisted lane, plus confirm Reset removes it.
-- [ ] Add a small `InputRouter` or comparable existing test proving an instrument's key emits its canonical lane without translation; a representative Snare/S=3, Bass/Space=5 and CY/D=8 is enough.
-- [ ] Search existing tests/comments for hardcoded old assumptions (Snare=4, Bass=6, LowTom=8, FloorTom=1, HH=5). Update **only** assertions about user-configured input, zone identification or song shortcuts; leave deliberate parser/gameplay lane uses unchanged.
-- [ ] Verify code does not silently rewrite old persisted user bindings. The existing UI Reset-to-defaults behavior suffices; no migration/back-compat work.
+- [ ] Reuse the authored all-channels DTX fixture from `ParseAsync_WithDrumNotes_ShouldParseAllMappedChannels` (around line 135), extracting a small shared local fixture constant/helper if needed, to avoid writing another large test chart.
+- [ ] Add a focused test comparing each parsed note's actual `LaneIndex` to `new KeyBindings().GetLane(defaultKey)` for the instrument. Include all mapped channels, notably **0x12 ↔ Key.S**, **0x13 ↔ Key.Space**, **0x16 ↔ Key.D**, the paired Hi-Hat channels 0x11/0x18 ↔ Key.J, and LP channels 0x1B/0x1C ↔ Key.G. This would fail on the pre-fix bindings.
+- [ ] Keep the existing parser-only channel table regression unchanged in meaning.
+- [ ] **Do not** add an extra `InputRouter` event test: `DTXMania.Test/Input/InputRouterTests.cs` already directly verifies `LaneHitEventArgs.Lane` forwards a deliberately assigned lane without translation. Do not rewrite explicit `Key.S=4` assignments in unrelated unit tests.
 
-### Test commands
-Use the relevant test project for the host OS (on macOS, the repository has `DTXMania.Test/DTXMania.Test.Mac.csproj`):
+## Task 3 — Correct DrumConfig kit, preserve hi-hat pedal
 
-```bash
-dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~KeyBindingsTests|FullyQualifiedName~DrumKitLayoutTests|FullyQualifiedName~SongSelectionStageTabTests|FullyQualifiedName~InputRouter"
+**Production:**
+- `DTXMania.Game/Lib/Stage/DrumConfig/DrumKitLayout.cs`
+- `DTXMania.Game/Lib/Stage/DrumConfig/DrumKitRenderer.cs`
+
+**Tests:**
+- `DTXMania.Test/Stage/DrumConfig/DrumKitLayoutTests.cs`
+- Inspect `DTXMania.Test/Stage/DrumConfig/DrumKitRendererTests.cs` only if a changed signature requires updates; keep its `HiHatPedal` shape/texture assertions.
+
+- [ ] Reassign the authored visual zones to the **actual instrument**: HH stand=1, left crash=0, ride=9, high tom=4, low tom=6, snare=3, floor tom=7, right kick pedal=5, **hi-hat foot pedal=2**. First focused zone remains HH and should now be lane 1.
+- [ ] Replace the **mirrored left bass pedal** (old last zone, x≈560/y≈600) with a CY/8 cymbal zone in an open upper-right spot (roughly x=920–980/y=170–200). Reuse `DrumZoneShape.Cymbal` and the existing cymbal sprite. Verify overlap/hit-testing and adjust the proposed coordinate only if necessary.
+- [ ] Keep `DrumZoneShape.HiHatPedal`, `_hihat` load/release, and its renderer test. Delete the now-unused `DrumZone.FlipHorizontal` property and constructor parameter, renderer flip conditional (draw unflipped), and flip-specific unit test. Retain `DrumZone.Name` as existing data, without additional unused-name tests.
+- [ ] Preserve ten zones, their focus ordering/Reset index, and `Zones_CoverAllTenLanesExactlyOnce`. Add one parameterized/looping test verifying **`HitTest(zone.CenterX, zone.CenterY) == zone.Lane` for all ten zones**; refresh existing assertions for names/shape and corrected default snare/HH zone IDs. Do not create a GPU test harness.
+- [ ] **Required visual verification before merge:** reset saved drum bindings, launch DrumConfig, take **one screenshot** using the existing DTXMania MCP `game_screenshot` or a manual screenshot if the MCP bridge is unavailable. Attach/link it in the PR, confirming the CY art, labels and no overlap. If the environment cannot launch a graphical game, report that limitation and leave visual acceptance pending rather than claiming it passed.
+
+## Task 4 — Song Selection and E2E, then final verification
+
+**Production:**
+- `DTXMania.Game/Lib/Stage/SongSelectionStage.cs`
+
+**Tests:**
+- `DTXMania.Test/Stage/SongSelectionStageTabTests.cs`
+- `DTXMania.Test/Stage/SongSelectionStageBookmarkToggleTests.cs`
+- `DTXMania.E2E/DrumMappingStageSmokeTests.cs`
+
+- [ ] Replace old constants `LowTomLaneIndex = 8` and `FloorTomLaneIndex = 1` with **`(int)PerformanceUILayout.LaneType.LT`** and **`(int)PerformanceUILayout.LaneType.FT`**. The layout namespace is already imported; remove old 'KeyBindings numbering' commentary.
+- [ ] Update tab tests to assert LT/6 switches and CY/8 does not, while preserving search-modal behavior.
+- [ ] Update bookmark shortcut test to assert FT/7 toggles while old HH/1 does not. Leave direct `ToggleBookmarkForSelectedSong` behavior untouched.
+- [ ] Update E2E `DefaultFocusedLane` to HH/1 instead of HH/5. Existing bind/Reset persistence assertions still apply.
+
+### Test commands (macOS)
+
+```sh
+dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~KeyBindingsTests|FullyQualifiedName~ModularInputManagerTests|FullyQualifiedName~DrumConfigStageTests|FullyQualifiedName~SystemKeyBindingsPersistenceTests|FullyQualifiedName~ConfigStageLogicTests|FullyQualifiedName~DTXChartParserAdditionalTests|FullyQualifiedName~DrumKitLayoutTests|FullyQualifiedName~DrumKitRendererTests|FullyQualifiedName~SongSelectionStageTabTests|FullyQualifiedName~SongSelectionStageBookmarkToggleTests"
 dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj
 ```
 
-If a Windows CI environment is available, use its existing solution/test commands instead of inventing new build infrastructure. The existing `DrumMappingStageSmokeTests` are graphics/process E2E; use the repository's normal E2E launch path in a suitable runner. Do not require E2E to run headlessly on a machine without a graphics device.
+On Windows run the repository's matching supported test/CI command. DrumMapping E2E needs a real game process/display; follow its existing launch workflow, and do not treat a skipped graphics-only run as a pass.
 
-## Review / done checklist
-- [ ] One canonical lane identity throughout parser, names, keyboard, visual zones and song shortcuts.
-- [ ] Defaults include **all ten** drum lanes, and full mapping is asserted by tests.
-- [ ] Drum kit's named, drawn and clicked pieces match the binding lane; CY zone exists and LP is not duplicated. The dead `HiHatPedal` enum branch, `_hihat` texture management and test expectations are removed.
-- [ ] A physical MIDI/pad mapping still forwards its stored lane integer unchanged.
-- [ ] Focus, capture, config persistence, conflict messages and Reset are not regressed.
-- [ ] Song selection responds to LT/6 and FT/7 via the existing `LaneType` enum, not the legacy IDs or a new copy of the numeric table.
-- [ ] CI/focused tests pass. Review any unrelated test hardcodes before changing them.
-- [ ] PR touches only the listed files (plus directly relevant focused tests), with no Tab Mode, parser, score or input architecture refactor.
+## Final review checklist
 
-**Commit/PR approach:** one implementation branch/PR for HPA-443, including this spec/plan and production/test work. Use small commits as desired; do not fragment into separate PRs.
+- [ ] One friendly-name table in `KeyBindings`, reused by ConfigStage and DrumConfig. `Note.cs` untouched.
+- [ ] All ten default keyboard→lane identities pinned; parsed notes independently agree with each instrument's default key.
+- [ ] A kit zone exists per lane; the LP hi-hat pedal remains, redundant mirrored pedal is replaced by CY, flip-only code removed, all ten center hit tests pass.
+- [ ] Song Selection uses canonical LT/FT enum values and tests pin the behavior.
+- [ ] Dependent tests named above are updated **only where defaults/zone semantics changed**. Existing explicit custom bindings are untouched.
+- [ ] Unit + CI gates pass; one reviewed DrumConfig screenshot attached before merge.
+- [ ] All production/tests/docs stay in this one HPA-443 PR. No HPA-411/509 implementation, migration, translation layer, new assets or unrelated refactor.
