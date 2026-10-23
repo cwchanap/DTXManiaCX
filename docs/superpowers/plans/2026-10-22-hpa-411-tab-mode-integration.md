@@ -33,13 +33,13 @@ Before coding, check `NotationStripRenderer.Draw` and `DrawEngravedGlyph`: tint 
 
 **Tinting — minimal change to existing notation code**
 - Extend only **notehead** `NotationStripGlyphAnchor` instances emitted by `NotationStripLayout.EngraveEntryGlyphs` to include the source `NotationHead.Notes` references. Keep other glyphs and all engraving geometry unchanged.
-- Let `NotationStripRenderer.Draw` optionally consume the stage-owned read-only result map. Resolve color for each head using source `Note.Id` and the existing judgement colors: unresolved = neutral, Miss = red, hits = matching popup color; simultaneous heads must not appear resolved while any component note remains unjudged. Apply the minimal x-based fade between hit marker 220 and mask boundary 195 for **resolved heads only**.
+- Add an optional `IReadOnlyDictionary<int, JudgementType>? results = null` parameter to the existing `NotationStripRenderer.Draw(SpriteBatch, double, int)` call; `null` preserves HPA-410 rendering and existing tests without a mutable renderer property. Resolve color for each head using source `Note.Id` and the existing judgement colors: unresolved = neutral, Miss = red, hits = matching popup color; simultaneous heads must not appear resolved while any component note remains unjudged. Apply the minimal x-based fade between hit marker 220 and mask boundary 195 for **resolved heads only**.
 - No per-frame dictionary rebuild from all chart notes, no cache, no alternate color table, no per-note animation scheduler, no touch to Quantizer/ChartManager/NoteRenderer internals beyond direct integration calls.
 
 **Tests**
 - Pure resolver/layout tests for NoteRef identity, simultaneous sources, Miss, neutral rests/flags, fade positions, source reference IDs assigned by ChartManager.
 - Deterministic stage tests for 1x chart construction, success/failure fallback, frozen requested vs effective mode, renderer disposal on repeated activations, no lane rendering in Tab, and preserved baseline Lanes gates. Use existing test seams; only introduce a tiny seam if GPU-free tests truly need it.
-- A manual 1280x720 Tab specimen of real chart + AutoPlay and Lanes visual regression check. Do **not** invent screenshots or claim a GPU test ran headlessly.
+- A manual 1280x720 Tab specimen of real chart + AutoPlay and Lanes visual regression check. Specifically verify that the ~25px (~66ms at 100% / 0.38px/ms) post-hit fade is perceptible rather than an instant disappearance; record observations and defer cosmetic widening to HPA-509 if needed. Do **not** invent screenshots or claim a GPU test ran headlessly.
 
 **Checkpoint:** Tab notes and actual judgements render correctly; fallback stays playable.
 
