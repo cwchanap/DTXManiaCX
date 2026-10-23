@@ -1,64 +1,52 @@
 # HPA-411 — Tab-mode configuration and gameplay integration (design)
 
 **Linear:** https://linear.app/cwchanap/issue/HPA-411/tab-mode-config-option-and-gameplay-integration  
-**Parent:** HPA-394 · **Prerequisites:** HPA-410 + HPA-443 (Done, on `main`)  
-**Delivery:** this draft PR becomes the **single implementation PR** after review; target <=3 engineer days.  
-**Follow-up:** HPA-509 owns the dedicated Tab HUD and pad/label presentation.
+**Parent:** HPA-394 · **Prerequisites:** HPA-410 + HPA-443 (Done, on \`main\`)  
+**Delivery:** implement on this same draft PR, <=3 engineer days.  
+**Follow-up:** HPA-509 owns the dedicated Tab HUD, label/pad feedback, and the visibility/geometry decision for notehead judgement tint and fade.
 
-## Goal
+## Goal and verified reuse
 
-Make the finished HPA-408/409/410 notation strip playable as an **opt-in** alternative to classic falling lanes. The switch must be cosmetic: **same Note objects, timing, judgement, input, AutoPlay, score, gauge, skill, and song completion**. Lanes remains the default. Do not introduce a new engine, data owner, or custom rendering framework.
+Enable the existing HPA-408/409/410 scrolling notation as an **opt-in, playable** alternative to falling lanes. Same source \`Note\` objects, chart/song clock, input, scoring, judgement, AutoPlay, gauge and Result behavior. Lanes remains the default. No new rendering engine or parallel gameplay state.
 
-## Verified reuse and boundaries
+- Extend \`DrumsLaneDisplayMode\`'s existing \`ConfigData\` / \`ConfigManager\` / \`IConfigManager\` / \`ConfigStage\` pattern. SQLite \`config.db\` stores preferences; \`Config.ini\` is imported only for a fresh database/isolated E2E fixture.
+- \`PerformanceStage.FreezeRunConfiguration\` and \`PerformanceVisualGates\` already freeze display policy per activation. An all-zero/uninitialized stage must select Lanes.
+- \`ChartManager\` assigns IDs and finalizes source notes. \`NotationChartBuilder.Build(_parsedChart)\` uses existing model and remains pure; build once after \`new ChartManager(_parsedChart)\`, not per frame.
+- Reuse \`NotationStripRenderer\` unchanged except the **one** background-depth correction below. Its constructor catches font load errors, validates Bravura glyph coverage and exposes \`IsReady\`. No new font resource/cache abstraction.
+- Preserve \`PerformanceStage.OnDraw\`'s four existing sprite batches and \`OnJudgementMade\` event fan-out. \`GameTelemetrySnapshot\` is the producer; \`DTXMania.Automation/Telemetry/GameStateSnapshot\` is the consumer.
+- Existing \`JudgementManager.GetNoteRuntimeData(Note.Id)?.JudgementEvent\` already owns each judgement (including Miss). **Do not** add a second stage-owned judgement-results dictionary or alter the renderer API in HPA-411.
 
-- `Lib/Config/DrumsLaneDisplayMode.cs`, `ConfigData`, `ConfigManager`, `IConfigManager`, and `ConfigStage` are the complete enum/label/UI/persistence precedent. Config is stored in **SQLite** (`config.db`); `Config.ini` is only imported at first launch for fresh E2E sandboxes.
-- `PerformanceStage.FreezeRunConfiguration` snapshots visual policy once per activation in `PerformanceVisualGates`. The all-zero/uninitialized gates must keep today's Lanes behavior (headless reflection tests).
-- `NotationChartBuilder.Build(ParsedChart)` consumes finalized chart timing and retains references to source `Note` objects. `ChartManager` assigns `Note.Id` on those objects. Build the notation chart exactly once **after** `new ChartManager(_parsedChart)`, never in `OnUpdate`/`OnDraw`.
-- `NotationStripRenderer(IResourceManager, NotationChart, IReadOnlyList<MeasureLine>)` already owns fonts, glyph validation, lazy pixel texture and disposal. `IsReady` and `Draw(SpriteBatch, nowMs, speedPercent)` are the integration seam. `NotationStripLayout` already handles music positions, measure culling, and immutable engraving coordinates. Reuse these; do not fork them.
-- `PerformanceStage.OnDraw` has separate `BackToFront` base, alpha-overlay, UI, and additive-effect passes. Preserve existing batch lifecycle and judgement text/UI passes. Strip primitives use explicit existing layer depths.
-- `JudgementEvent.NoteRef` is the runtime `Note.Id`; `OnJudgementMade` is already the event fan-out. Keep its existing forwards unchanged.
-- `GameTelemetrySnapshot` is the producer, `DTXMania.Automation/Telemetry/GameStateSnapshot` the E2E consumer, and `AutomationContractTests` pins the camel-case JSON contract.
+## Config and mode lifetime
 
-## Config and run policy
+Add \`DrumsNoteDisplayStyle { Lanes = 0, Tab = 1 }\` beside \`DrumsLaneDisplayMode\` with labels "LANES"/"TAB"; \`ConfigData.NoteDisplayStyle\` defaults to Lanes. Read the \`NoteDisplayStyle\` key by **name**, case-insensitively, refusing numeric/unknown values; save the canonical enum name. Reuse the deferred-save \`IConfigManager.SetNoteDisplayStyle\` convention and add a "Note Display" selector next to "Lane Display" in the Drums config panel. No new table or migration. This option is independent of the existing \`LaneDisplayMode\`.
 
-Create `DrumsNoteDisplayStyle { Lanes = 0, Tab = 1 }` and the minimal two display labels ("LANES", "TAB") beside `DrumsLaneDisplayMode`, without changing `LaneDisplayMode` semantics. `ConfigData.NoteDisplayStyle` defaults to `Lanes`. Read `NoteDisplayStyle` case-insensitively, ignore invalid persisted values and keep Lanes; save canonical enum names. `IConfigManager.SetNoteDisplayStyle` follows the existing deferred-save/unchanged-value pattern. Add a "Note Display" dropdown next to "Lane Display" in the Drums config panel. No new storage table/migration.
+Freeze the **requested** style in \`PerformanceVisualGates\`; live config edits do not flip the run. The **effective** style is derived from the nullable \`_notationStrip\` renderer reference: non-null means Tab (retain it only after \`IsReady\`); null means Lanes. Do not introduce a second active-style field. Cleanup nulls the reference **before** disposing it. Telemetry reports effective style, not requested style; keep the requested Tab preference on fallback.
 
-Snapshot the requested style in `PerformanceVisualGates` on stage activation. The zero/default enum value is Lanes, so existing uninitialized tests remain unaffected. Track a separate **effective active style** as Lanes until the Tab renderer successfully initializes. If requested Tab cannot build its chart or validate/acquire Bravura, log a reason, dispose partial resources, run in Lanes for the whole current song, and keep scoring/input working; do **not** rewrite the user's persisted preference. Telemetry reports the *effective* style, not merely the request. Deactivation clears renderer, judgement colors and active style. Avoid accepting a stale async activation into a newer stage generation; follow the existing activation/cancellation conventions.
+Chart parsing may \`await ParseAsync\` and resume off-thread. Build the pure \`NotationChart\` after \`ChartManager\`, but **defer resource/font construction to the game's update thread**. Use the minimal pending-chart/one-shot-attempt state required to initialize once, never a per-frame retry. Respect existing generation/cancellation checks before publishing pending work, and discard it during cleanup. A failed notation build or unavailable Bravura logs a specific reason, disposes partial resources and keeps **playable Lanes** for that song; don't fail audio/gameplay loading. Until the one-shot attempt finishes, Lanes remains active.
 
-The style stays frozen until next performance; ordinary user scroll-speed changes must continue to work. Pass current scroll speed to the strip's existing `Draw` method at render time, using the same timing and percentage semantics as the falling lanes.
+The existing strip draws with the same logical song clock as falling notes and the current (live) scroll-speed percentage. No per-frame rebuilding.
 
-## Drawing and judgement tint
+## Rendering: playable interim layout
 
-In the **base** drawing pass:
-- Always draw the background. In Lanes preserve the existing draw path unchanged.
-- In active Tab, replace `DrawLaneBackgrounds`, `DrawMeasureLines`, `DrawNotes`, and `DrawJudgementLine` with **one** `NotationStripRenderer.Draw` using the live song-clock position. Skip `DrawNoteOverlays` in the separate overlay pass (no falling-lane overlays).
-- Retain the existing HUD, pad presentation, judgement popups, scroll indicator and additive feedback for now; **HPA-509** replaces/repositions the HUD, removes pad drawings and lights the instrument-label column. Do not pre-implement HPA-509.
+In the base \`SpriteSortMode.BackToFront\` batch keep \`DrawBackground\`, \`DrawJudgementTexts\`, gameplay feedback, and standard scoring. In effective Tab mode, call \`_notationStrip.Draw(spriteBatch, nowMs, speedPercent)\` **instead of** \`DrawLaneBackgrounds\`, \`DrawMeasureLines\`, \`DrawNotes\`, \`DrawJudgementLine\`. Skip \`DrawNoteOverlays\` in the separate overlay pass only for Tab. Keep all existing Lanes draw paths untouched.
 
-The current HPA-410 engraving anchors do **not** carry note identity: `NotationStripGlyphAnchor` is currently (TimeMs, Glyph, DxPx, YPx) and the renderer applies one static color. Make the **smallest extension** needed to carry source-note references on **notehead glyphs only**, using `NotationEntry.Heads[].Notes` already provided by the notation model. Stems, beams, flags, rests, barlines and tuplet glyphs retain neutral ink. Do not duplicate source notes, invent another `NoteId`, or mutate the quantizer.
+**Essential interim Tab visibility gate:** the current skill panel covers x=22–279/y=250–689, hiding the Tab hit marker x=220 and key labels. The vertical progress bar and skill-meter graph obscure x=853–1151 of notation look-ahead. Only in effective Tab, skip \`DrawSkillPanel\`, \`_skillPanelDisplay.Draw\`, \`DrawProgressBar\` and \`_skillMeterDisplay.Draw\`. Continue to **update** underlying metrics; retain the score, combo, life gauge, judgement/timing popups, pad hit feedback and other unrelated UI for now. HPA-509 provides the finished replacement HUD/progress/counts and label flash. Do not relocate HUD elements here.
 
-Stage owns a run-scoped `Dictionary<int, JudgementType>` updated in existing `OnJudgementMade` with `NoteRef`; pass it to the renderer via an optional `IReadOnlyDictionary<int, JudgementType>? results = null` parameter on `Draw(SpriteBatch, double, int)`. `null` keeps existing HPA-410 call sites and tests unchanged; do not add a settable renderer property. Use one small pure color resolver, based on the existing judgement popup colors rather than a second unexplained palette. Missing/unresolved note IDs stay neutral; a head representing multiple notes is tinted only when all of its source notes are resolved, with deterministic worst-judgement precedence. Miss is red; Perfect/Great/Good/Poor use the matching judgement colors. A short, **position-based** alpha fade starts as judged noteheads cross x=220 and finishes as they reach the already-masked key column at x=195; no timers or retained per-frame animation objects. Unjudged notes, rests and structural marks should not fade due to this mechanic. Ensure the renderer's `BackToFront` depths and opaque key-column mask remain unchanged.
+**Depth fix:** \`PerformanceUILayout.NotationStrip.DepthBackground\` must change from 0.95f to **0.90f** because chart BGA video draws at 0.95f in the *same* back-to-front batch; equal depths have unstable order. A strip background at 0.90f occludes video correctly and remains behind the 0.80f staff/lines. No other strip geometry changes.
 
-Important: pad/label flash feedback, new gauge/progress bar, and redesigned score/skill placement belong to HPA-509. This ticket introduces no art/SFX assets.
+**Explicit deferral — judgement tint/fade:** the opaque key mask spans x=0–195, while the hit marker is x=220 and the strip scroll rate at 100% is 0.38 px/ms. Miss occurs only >200ms late, when its head is at x<144 (already hidden); at 50% it is x<182 (also hidden). On-time heads only remain in the 25px visible-after-hit region for ~66ms, before masking. Tint/fade, notehead-anchor identity, and a color resolver cannot satisfy the previously proposed visible-Miss acceptance. Defer these to HPA-509 with a decision on how late/Miss feedback is displayed (visible head space **or** separate feedback); existing judgement popups remain authoritative in HPA-411. Do not widen/move the mask/hit marker as an unreviewed extra change in this ticket.
 
-## Telemetry and tests
+## Validation
 
-Expose `NoteDisplayStyle` as a string on `GameTelemetrySnapshot` during Performance, and consume the serialized `noteDisplayStyle` in `GameStateSnapshot` for E2E. Test that a requested Tab run reports Tab, and a failed initialization reports Lanes; stage transition snapshots do not need invented values.
+1. Config unit tests: default Lanes; selector labels; name-only case-insensitive reading; invalid/numeric value ignored; unchanged setter, delayed SQLite save, persisted reload; existing \`IConfigManager\` test mocks.
+2. Deterministic stage tests: requested style frozen per run, zero/default Lanes, one-time pending/init attempt, failure fallback/no persisted change, cleanup resets/disposes renderer. Test state decisions/telemetry, **not GPU pixels**; \`OnDraw\` and \`NotationStripRendererDrawTests\` require a graphics device and are not headless CI targets.
+3. **Early manual graphics checkpoint, directly after initial strip wiring**: capture a real 1280x720 gameplay specimen (use existing \`game_screenshot\` integration when available). Confirm hit marker, key labels and oncoming notation are not hidden behind lane HUD; confirm BGA cannot overpaint the notation background. Run a Lanes visual regression. Do not claim a screenshot/headless rendering test without evidence.
+4. Wire \`noteDisplayStyle\` effective value through \`GameTelemetrySnapshot\`, \`GameStateSnapshot\` and the \`AutomationContractTests\` JSON contract. Add one \`Category=E2E\` Tab AutoPlay smoke with fresh-sandbox \`E2EFixtureBuilder.Build\` optional style parameter, asserting active Tab during Performance and a successful Result. Reuse existing Windows CI, no new workflow.
 
-Focus on:
-1. Config default, labels, case-insensitive parse, invalid-value default, deferred setter and real SQLite save/reload (plus existing ConfigStage UI tests/mocks).
-2. Frozen run style across config edits and zero/default `PerformanceVisualGates`; one-time chart/renderer creation and cleanup/fallback. Tests should use existing deterministic stage and renderer fakes where possible, no new graphics harness.
-3. Pure NoteRef-to-color behavior: hits, Miss, unresolved notes, simultaneous heads, neutral structural marks, and fade boundary x=220/195; one renderer integration test if a headless seam exists. Visually check the ~25px / 66ms-at-100%-speed fade window in the manual gameplay specimen; if the fade reads as instant, note it for optional HPA-509 polish rather than enlarging this ticket.
-4. Automation JSON wire contract and **one** fresh-sandbox E2E AutoPlay smoke with `NoteDisplayStyle=Tab`, actual active style telemetry and successful clear. Use current `E2EFixtureBuilder` and the established `Category=E2E` job, not a new CI workflow. A screenshot/manual gameplay check should verify notation is visible at 1280x720, the mode is actually Tab, and Lanes still looks unchanged.
+## Scope / acceptance
 
-## Out of scope
-
-HPA-509 HUD/pad/label redesign; chart parser, notation quantizer, music glyph assets, input mapping, judgement/scoring/AutoPlay behavior, performance caching, new abstraction layers, settings migration framework, and legacy DTXManiaNX changes. Any polish beyond the focused goal should be deferred rather than exceed 3 engineer days.
-
-## Acceptance
-
-- Default/new and invalid config launch in unchanged Lanes; Tab can be selected and persisted/reloaded.
-- A Tab run draws real moving notation replacing lane elements without throwing, while the existing HUD and gameplay work.
-- Perfect/Great/Good/Poor/Miss visibly tint the correct **source notehead** and resolved noteheads fade only after the hit marker; no cross-song state leaks.
-- Missing Bravura/invalid notation causes a logged, clean fallback **to active Lanes**, without persisting a preference change.
-- API/E2E confirms the actual active mode and a Tab AutoPlay run reaches Result without score/judgement regression.
-- One implementation PR <=3 engineer days, Mac + Windows build/unit tests and Windows E2E passing; report any platform not actually executed.
+- Selectable persisted Tab, unchanged default Lanes; the requested style stays frozen for an entire run.
+- Real notation replaces falling lanes in Tab and its **hit marker/key labels remain readable** at 1280×720; existing score, judgement and AutoPlay still work, while the four legacy HUD overlays are suppressed **only for Tab**.
+- Chart video stays behind the opaque strip background; one-time font/notation failure logs a reason and falls back to active Lanes without rewriting the saved preference.
+- Effective-mode telemetry and Tab AutoPlay E2E pass; no Lanes visual/score regression. Build/test Mac and Windows, reporting unexecuted platforms honestly.
+- Keep one PR and <=3 engineer days. Out of scope: judgement notehead tint/fade/geometry (HPA-509), completed Tab HUD, gauge/progress/pad/label redesign, extra assets, parser/quantizer/input/judgement changes, DTXManiaNX changes.
