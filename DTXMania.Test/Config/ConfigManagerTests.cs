@@ -86,6 +86,7 @@ public class ConfigManagerTests : IDisposable
         Assert.NotNull(typeof(IConfigManager).GetMethod("SetAutoPlayLane"));
         Assert.NotNull(typeof(IConfigManager).GetMethod("SetAllAutoPlayLanes"));
         Assert.NotNull(typeof(IConfigManager).GetMethod("SetLaneDisplayMode"));
+        Assert.NotNull(typeof(IConfigManager).GetMethod("SetNoteDisplayStyle"));
         Assert.NotNull(typeof(IConfigManager).GetMethod("SetShowJudgementLine"));
         Assert.NotNull(typeof(IConfigManager).GetMethod("SetEnableLaneFlush"));
         Assert.NotNull(typeof(IConfigManager).GetMethod("SetShowCombo"));
@@ -540,6 +541,63 @@ ScreenHeight=720
 
         manager.FlushPendingSave();
         manager.SetLaneDisplayMode(DrumsLaneDisplayMode.LaneOff);
+        Assert.False(HasPendingSave(manager));
+    }
+
+    [Theory]
+    [InlineData("NoteDisplayStyle=tab", DrumsNoteDisplayStyle.Tab)]
+    [InlineData("NoteDisplayStyle=TAB", DrumsNoteDisplayStyle.Tab)]
+    [InlineData("NoteDisplayStyle=LANES", DrumsNoteDisplayStyle.Lanes)]
+    [InlineData("NoteDisplayStyle=1", DrumsNoteDisplayStyle.Lanes)]
+    [InlineData("NoteDisplayStyle=garbage", DrumsNoteDisplayStyle.Lanes)]
+    public void ConfigManager_ParseNoteDisplayStyle_ShouldAcceptNamesOnly(
+        string line, DrumsNoteDisplayStyle expectedStyle)
+    {
+        var dir = NewTestDir();
+        File.WriteAllText(Path.Combine(dir, "Config.ini"), $"[Game]\n{line}\n", Encoding.UTF8);
+
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
+
+        Assert.Equal(expectedStyle, manager.Config.NoteDisplayStyle);
+    }
+
+    [Theory]
+    [InlineData(DrumsNoteDisplayStyle.Lanes)]
+    [InlineData(DrumsNoteDisplayStyle.Tab)]
+    public void SetNoteDisplayStyle_ShouldPersistDefinedModes(DrumsNoteDisplayStyle style)
+    {
+        var dir = NewTestDir();
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
+
+        manager.SetNoteDisplayStyle(style);
+        manager.FlushPendingSave();
+
+        Assert.Equal(style, manager.Config.NoteDisplayStyle);
+        Assert.Equal(style.ToString(), ReadRows(dir)["NoteDisplayStyle"]);
+    }
+
+    [Fact]
+    public void SetNoteDisplayStyle_ShouldNormalizeUndefinedValuesAndSkipNoOps()
+    {
+        var dir = NewTestDir();
+        var manager = CreateManager(dir);
+        manager.LoadConfig();
+
+        manager.SetNoteDisplayStyle((DrumsNoteDisplayStyle)99);
+        Assert.Equal(DrumsNoteDisplayStyle.Lanes, manager.Config.NoteDisplayStyle);
+        Assert.False(HasPendingSave(manager));
+
+        manager.SetNoteDisplayStyle(DrumsNoteDisplayStyle.Lanes);
+        Assert.False(HasPendingSave(manager));
+
+        manager.SetNoteDisplayStyle(DrumsNoteDisplayStyle.Tab);
+        Assert.Equal(DrumsNoteDisplayStyle.Tab, manager.Config.NoteDisplayStyle);
+        Assert.True(HasPendingSave(manager));
+
+        manager.FlushPendingSave();
+        manager.SetNoteDisplayStyle(DrumsNoteDisplayStyle.Tab);
         Assert.False(HasPendingSave(manager));
     }
 

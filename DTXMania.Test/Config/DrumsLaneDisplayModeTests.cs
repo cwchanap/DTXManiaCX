@@ -46,4 +46,10 @@ public class DrumsLaneDisplayModeTests
             new[] { "ALL ON", "LANE OFF", "LINE OFF", "ALL OFF" },
             DrumsLaneDisplayModeExtensions.Labels);
     }
+
+    [Fact]
+    public void ToLabel_WhenModeIsUndefined_ShouldFallBackToEnumName()
+    {
+        Assert.Equal("99", DrumsLaneDisplayModeExtensions.ToLabel((DrumsLaneDisplayMode)99));
+    }
 }

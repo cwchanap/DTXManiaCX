@@ -30,6 +30,7 @@ public class ConfigDataTests
         Assert.False(config.Metronome);
         Assert.False(config.RandomSelectFromSubBox);
         Assert.Equal(DrumsLaneDisplayMode.AllOn, config.LaneDisplayMode);
+        Assert.Equal(DrumsNoteDisplayStyle.Lanes, config.NoteDisplayStyle);
         Assert.True(config.ShowJudgementLine);
         Assert.False(config.EnableLaneFlush);
         Assert.True(config.ShowCombo);

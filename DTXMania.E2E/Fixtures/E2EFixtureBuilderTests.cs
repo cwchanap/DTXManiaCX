@@ -167,6 +167,39 @@ public sealed class E2EFixtureBuilderTests
     }
 
     [Fact]
+    public void Build_WithTabNoteDisplayStyle_ShouldImportTabThroughConfigManager()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "dtx-e2e-fixture-" + Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            // HPA-411 Tab smoke bootstrap: the fresh INI carries the requested style;
+            // the game imports it into the authoritative config.db on first launch.
+            var fixture = E2EFixtureBuilder.Build(
+                root,
+                Directory.GetCurrentDirectory(),
+                apiPort: 18080,
+                noteDisplayStyle: DrumsNoteDisplayStyle.Tab);
+
+            var config = File.ReadAllText(fixture.LegacyConfigPath);
+            Assert.Contains("NoteDisplayStyle=Tab", config);
+
+            var configManager = new ConfigManager(
+                fixture.ConfigDatabasePath,
+                fixture.LegacyConfigPath);
+            configManager.LoadConfig();
+
+            Assert.Equal(DrumsNoteDisplayStyle.Tab, configManager.Config.NoteDisplayStyle);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Build_WithPlaybackProfile_ShouldWriteCanonicalSpeedPitchAndDeterministicAudio()
     {
         var firstRoot = Path.Combine(Path.GetTempPath(), "dtx-e2e-fixture-" + Guid.NewGuid().ToString("N"));

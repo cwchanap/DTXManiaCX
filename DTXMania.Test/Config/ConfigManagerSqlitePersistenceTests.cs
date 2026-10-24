@@ -355,6 +355,53 @@ namespace DTXMania.Test.Config
         }
 
         [Fact]
+        public void NoteDisplayStyle_RoundTrip_ShouldPersistCanonicalName()
+        {
+            var manager = CreateManager();
+            manager.LoadConfig();
+
+            manager.SetNoteDisplayStyle(DrumsNoteDisplayStyle.Tab);
+            manager.FlushPendingSave();
+
+            var rows = ReadRows();
+            Assert.Equal("Tab", rows["NoteDisplayStyle"]);
+            Assert.NotEqual("1", rows["NoteDisplayStyle"]);
+            Assert.NotEqual("TAB", rows["NoteDisplayStyle"]);
+
+            var reloaded = CreateManager();
+            reloaded.LoadConfig();
+
+            Assert.Equal(DrumsNoteDisplayStyle.Tab, reloaded.Config.NoteDisplayStyle);
+        }
+
+        [Fact]
+        public void NoteDisplayStyle_WhenMissing_ShouldRetainLanesDefault()
+        {
+            new SqliteConfigStore(DbPath).Save(
+                new Dictionary<string, string> { ["ScreenWidth"] = "1280" });
+
+            var manager = CreateManager();
+            manager.LoadConfig();
+
+            Assert.Equal(DrumsNoteDisplayStyle.Lanes, manager.Config.NoteDisplayStyle);
+        }
+
+        [Theory]
+        [InlineData("1")]
+        [InlineData("LANE OFF")]
+        [InlineData("unrecognized")]
+        public void NoteDisplayStyle_WhenUnrecognized_ShouldRetainLanesDefault(string value)
+        {
+            new SqliteConfigStore(DbPath).Save(
+                new Dictionary<string, string> { ["NoteDisplayStyle"] = value });
+
+            var manager = CreateManager();
+            manager.LoadConfig();
+
+            Assert.Equal(DrumsNoteDisplayStyle.Lanes, manager.Config.NoteDisplayStyle);
+        }
+
+        [Fact]
         public void RandomSelectFromSubBox_RoundTrip_ShouldPersistOnlyCanonicalKey()
         {
             var manager = CreateManager();

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.Serialization;
+using System.Threading;
 using System.Threading.Tasks;
 using DTXMania.Game;
 using DTXMania.Game.Lib;
@@ -12,6 +13,7 @@ using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Entities;
+using DTXMania.Game.Lib.Song.Notation;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Game.Lib.UI;
@@ -179,6 +181,31 @@ public class PerformanceStageDeterministicTests
         stage.PopulateTelemetry(telemetry);
 
         Assert.False(telemetry.AutoPlayEnabled);
+    }
+
+    [Fact]
+    public void PopulateTelemetry_WhenNotationStripReady_ShouldReportTabStyle()
+    {
+        var stage = CreateStage();
+        ReflectionHelpers.SetPrivateField(stage, "_notationStrip", CreateReadyNotationStrip());
+
+        var telemetry = new GameTelemetrySnapshot();
+
+        stage.PopulateTelemetry(telemetry);
+
+        Assert.Equal(nameof(DrumsNoteDisplayStyle.Tab), telemetry.NoteDisplayStyle);
+    }
+
+    [Fact]
+    public void PopulateTelemetry_WhenNotationStripMissing_ShouldReportLanesStyle()
+    {
+        var stage = CreateStage();
+
+        var telemetry = new GameTelemetrySnapshot();
+
+        stage.PopulateTelemetry(telemetry);
+
+        Assert.Equal(nameof(DrumsNoteDisplayStyle.Lanes), telemetry.NoteDisplayStyle);
     }
 
     [Fact]
@@ -505,6 +532,7 @@ public class PerformanceStageDeterministicTests
             Risky = 3,
             NoFail = true,
             LaneDisplayMode = DrumsLaneDisplayMode.AllOff,
+            NoteDisplayStyle = DrumsNoteDisplayStyle.Tab,
             ShowJudgementLine = false,
             EnableLaneFlush = true,
             ShowCombo = false,
@@ -525,6 +553,7 @@ public class PerformanceStageDeterministicTests
         config.Risky = 0;
         config.NoFail = false;
         config.LaneDisplayMode = DrumsLaneDisplayMode.AllOn;
+        config.NoteDisplayStyle = DrumsNoteDisplayStyle.Lanes;
         config.ShowJudgementLine = true;
         config.EnableLaneFlush = false;
         config.ShowCombo = true;
@@ -547,7 +576,281 @@ public class PerformanceStageDeterministicTests
         Assert.True((bool)gateType.GetProperty("HideCombo")!.GetValue(visualGates)!);
         Assert.True((bool)gateType.GetProperty("EnableLaneFlush")!.GetValue(visualGates)!);
         Assert.True((bool)gateType.GetProperty("ShowHitTimingFeedback")!.GetValue(visualGates)!);
+        // The requested note display style is frozen too: live config edits must not
+        // change the style this run was started with.
+        Assert.Equal(
+            DrumsNoteDisplayStyle.Tab,
+            (DrumsNoteDisplayStyle)gateType.GetProperty("RequestedNoteDisplayStyle")!.GetValue(visualGates)!);
     }
+
+    [Fact]
+    public void VisualGates_BeforeFreeze_ShouldDefaultRequestedNoteDisplayStyleToLanes()
+    {
+        // default(PerformanceVisualGates) must mean Lanes so runs started without a
+        // frozen configuration keep the classic lane presentation.
+        var stage = CreateStage();
+
+        var visualGates = ReflectionHelpers.GetPrivateField<object>(stage, "_visualGates");
+        var value = visualGates!.GetType().GetProperty("RequestedNoteDisplayStyle")!.GetValue(visualGates);
+
+        Assert.Equal(DrumsNoteDisplayStyle.Lanes, (DrumsNoteDisplayStyle)value!);
+    }
+
+    #region HPA-411 Tab mode integration
+
+    [Fact]
+    public void FreezeRunConfiguration_WhenTabRequested_ShouldFreezeStyleWhileEffectiveModeStaysLanesUntilStripPublish()
+    {
+        var stage = CreateStageWithConfig(new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab });
+
+        var visualGates = ReflectionHelpers.GetPrivateField<object>(stage, "_visualGates");
+        var requested = visualGates!.GetType().GetProperty("RequestedNoteDisplayStyle")!.GetValue(visualGates);
+
+        // Requested Tab is frozen, but the effective mode is the strip reference alone:
+        // until the one-shot construction publishes it, the run stays in Lanes.
+        Assert.Equal(DrumsNoteDisplayStyle.Tab, (DrumsNoteDisplayStyle)requested!);
+        Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_notationStrip"));
+    }
+
+    [Fact]
+    public void TabLifecycle_WithDefaultConfig_ShouldNeverStagePendingChartAndKeepEffectiveLanes()
+    {
+        var stage = CreateStage();
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", CreateFinalizedTabChart());
+
+        ReflectionHelpers.InvokePrivateMethod(
+            stage, "TryStageNotationChart", 0, CancellationToken.None);
+        ReflectionHelpers.InvokePrivateMethod(stage, "TryConstructNotationStrip");
+
+        Assert.Null(GetPendingNotationChart(stage));
+        Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_notationStrip"));
+    }
+
+    [Fact]
+    public void TryStageNotationChart_WhenTabRequested_ShouldStagePendingChartForCurrentGeneration()
+    {
+        var stage = CreateStageWithConfig(new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab });
+        var chart = CreateFinalizedTabChart();
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
+
+        ReflectionHelpers.InvokePrivateMethod(
+            stage, "TryStageNotationChart", 0, CancellationToken.None);
+
+        var pending = GetPendingNotationChart(stage);
+        Assert.NotNull(pending);
+        Assert.Equal(
+            0,
+            (int)pending!.GetType().GetProperty("Generation")!.GetValue(pending)!);
+        Assert.Same(
+            chart.MeasureLines,
+            pending.GetType().GetProperty("MeasureLines")!.GetValue(pending));
+        Assert.NotNull(pending.GetType().GetProperty("Chart")!.GetValue(pending));
+    }
+
+    [Fact]
+    public void TryStageNotationChart_WhenRequestedLanes_ShouldNotStagePendingChart()
+    {
+        var stage = CreateStageWithConfig(new ConfigData());
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", CreateFinalizedTabChart());
+
+        ReflectionHelpers.InvokePrivateMethod(
+            stage, "TryStageNotationChart", 0, CancellationToken.None);
+
+        Assert.Null(GetPendingNotationChart(stage));
+    }
+
+    [Fact]
+    public void TryStageNotationChart_WhenGenerationIsStale_ShouldNotStagePendingChart()
+    {
+        var stage = CreateStageWithConfig(new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab });
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", CreateFinalizedTabChart());
+
+        ReflectionHelpers.InvokePrivateMethod(
+            stage, "TryStageNotationChart", 7, CancellationToken.None);
+
+        Assert.Null(GetPendingNotationChart(stage));
+    }
+
+    [Fact]
+    public void TryStageNotationChart_WhenCancelled_ShouldNotStagePendingChart()
+    {
+        var stage = CreateStageWithConfig(new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab });
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", CreateFinalizedTabChart());
+
+        ReflectionHelpers.InvokePrivateMethod(
+            stage, "TryStageNotationChart", 0, new CancellationToken(canceled: true));
+
+        Assert.Null(GetPendingNotationChart(stage));
+    }
+
+    [Fact]
+    public void TryStageNotationChart_WhenBuilderRejectsAChannel_ShouldLogAndLeaveNoPendingChart()
+    {
+        var stage = CreateStageWithConfig(new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab });
+        var chart = new ParsedChart("tab-invalid-channel.dtx");
+        chart.MeasureLines.Add(new MeasureLine { Bar = 0, TimeMs = 0 });
+        chart.MeasureLines.Add(new MeasureLine { Bar = 1, TimeMs = 2000 });
+        chart.Notes.Add(new Note { Channel = 0x99, Bar = 0, Tick = 0 });
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
+
+        ReflectionHelpers.InvokePrivateMethod(
+            stage, "TryStageNotationChart", 0, CancellationToken.None);
+
+        // The build failure is caught locally: no pending chart, gameplay in Lanes.
+        Assert.Null(GetPendingNotationChart(stage));
+    }
+
+    [Fact]
+    public void TryConstructNotationStrip_WhenFontsAreReady_ShouldPublishStripAndConsumePendingChart()
+    {
+        var stage = CreateTabStageWithPendingChart(CreateNotationResourceManager(completeBravura: true).Object);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "TryConstructNotationStrip");
+
+        var strip = ReflectionHelpers.GetPrivateField<NotationStripRenderer>(stage, "_notationStrip");
+        Assert.NotNull(strip);
+        Assert.True(strip!.IsReady);
+        Assert.Null(GetPendingNotationChart(stage));
+    }
+
+    [Fact]
+    public void TryConstructNotationStrip_WhenBravuraIsIncomplete_ShouldFallBackToLanesForTheSong()
+    {
+        var stage = CreateTabStageWithPendingChart(CreateNotationResourceManager(completeBravura: false).Object);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "TryConstructNotationStrip");
+
+        Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_notationStrip"));
+        Assert.Null(GetPendingNotationChart(stage));
+    }
+
+    [Fact]
+    public void TryConstructNotationStrip_WhenActivationGenerationChanged_ShouldDiscardPendingChartWithoutConstructing()
+    {
+        var stage = CreateTabStageWithPendingChart(CreateNotationResourceManager(completeBravura: true).Object);
+        ReflectionHelpers.SetPrivateField(stage, "_activationGeneration", 1);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "TryConstructNotationStrip");
+
+        Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_notationStrip"));
+        Assert.Null(GetPendingNotationChart(stage));
+    }
+
+    [Fact]
+    public void TryConstructNotationStrip_WhenStaleChartPrecedesCurrentGenerationChart_ShouldStillConstructStrip()
+    {
+        var stage = CreateTabStageWithPendingChart(CreateNotationResourceManager(completeBravura: true).Object);
+        ReflectionHelpers.SetPrivateField(stage, "_activationGeneration", 1);
+
+        // A chart left over from the previous activation is discarded without
+        // consuming this activation's construction — the song must not be stuck in
+        // Lanes with no log line.
+        ReflectionHelpers.InvokePrivateMethod(stage, "TryConstructNotationStrip");
+        Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_notationStrip"));
+        Assert.Null(GetPendingNotationChart(stage));
+
+        ReflectionHelpers.InvokePrivateMethod(
+            stage, "TryStageNotationChart", 1, CancellationToken.None);
+        ReflectionHelpers.InvokePrivateMethod(stage, "TryConstructNotationStrip");
+
+        Assert.NotNull(ReflectionHelpers.GetPrivateField<NotationStripRenderer>(stage, "_notationStrip"));
+    }
+
+    [Fact]
+    public void TryConstructNotationStrip_WhenPendingChartConsumed_ShouldNotRetryAfterFailure()
+    {
+        var stage = CreateTabStageWithPendingChart(CreateNotationResourceManager(completeBravura: false).Object);
+        ReflectionHelpers.InvokePrivateMethod(stage, "TryConstructNotationStrip");
+
+        // A later frame stages nothing new; the consumed chart must not re-run.
+        ReflectionHelpers.InvokePrivateMethod(stage, "TryConstructNotationStrip");
+
+        Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_notationStrip"));
+        Assert.Null(GetPendingNotationChart(stage));
+    }
+
+    [Fact]
+    public void CleanupComponents_WhenTabWasActive_ShouldClearPendingStateAndDisposeStrip()
+    {
+        // The font's RemoveReference fires inside the renderer's Dispose: sampling the
+        // stage fields there proves pending state and the effective-mode reference are
+        // cleared BEFORE the renderer is disposed, not just by the time cleanup returns.
+        PerformanceStage? stage = null;
+        var clearedBeforeDispose = new List<bool>();
+        var resourceManager = CreateNotationResourceManager(
+            completeBravura: true,
+            onFontRemoveReference: () => clearedBeforeDispose.Add(
+                stage != null &&
+                GetPendingNotationChart(stage) == null &&
+                ReflectionHelpers.GetPrivateField<object>(stage, "_notationStrip") == null));
+        stage = CreateTabStageWithPendingChart(resourceManager.Object);
+        ReflectionHelpers.InvokePrivateMethod(stage, "TryConstructNotationStrip");
+        var strip = ReflectionHelpers.GetPrivateField<NotationStripRenderer>(stage, "_notationStrip");
+        Assert.NotNull(strip);
+
+        // A staged-but-unconsumed chart must also be discarded by cleanup.
+        ReflectionHelpers.InvokePrivateMethod(
+            stage, "TryStageNotationChart", 0, CancellationToken.None);
+        Assert.NotNull(GetPendingNotationChart(stage));
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "CleanupComponents");
+
+        Assert.NotEmpty(clearedBeforeDispose);
+        Assert.All(clearedBeforeDispose, Assert.True);
+        Assert.Null(GetPendingNotationChart(stage));
+        Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_notationStrip"));
+        Assert.False(strip!.IsReady);
+    }
+
+    private static PerformanceStage CreateStageWithConfig(ConfigData config)
+    {
+        var game = ReflectionHelpers.CreateGame();
+        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(config));
+        var stage = CreateStage(game);
+        ReflectionHelpers.InvokePrivateMethod(stage, "FreezeRunConfiguration");
+        return stage;
+    }
+
+    private static PerformanceStage CreateTabStageWithPendingChart(IResourceManager resourceManager)
+    {
+        var stage = CreateStageWithConfig(new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab });
+        ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager);
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", CreateFinalizedTabChart());
+
+        ReflectionHelpers.InvokePrivateMethod(
+            stage, "TryStageNotationChart", 0, CancellationToken.None);
+        Assert.NotNull(GetPendingNotationChart(stage));
+        return stage;
+    }
+
+    private static ParsedChart CreateFinalizedTabChart()
+    {
+        var chart = new ParsedChart("tab-mode.dtx");
+        chart.AddNote(new Note(0, 0, 96, 0x11, "01"));
+        chart.FinalizeChart();
+        return chart;
+    }
+
+    private static Mock<IResourceManager> CreateNotationResourceManager(
+        bool completeBravura,
+        Action? onFontRemoveReference = null)
+    {
+        var font = new Mock<IFont>();
+        font.Setup(f => f.SupportsCharacter(It.IsAny<char>())).Returns(completeBravura);
+        font.Setup(f => f.LineSpacing).Returns(74f);
+        if (onFontRemoveReference != null)
+            font.Setup(f => f.RemoveReference()).Callback(onFontRemoveReference);
+        var resourceManager = new Mock<IResourceManager>();
+        resourceManager
+            .Setup(r => r.LoadFont(It.IsAny<string>(), It.IsAny<int>()))
+            .Returns(font.Object);
+        return resourceManager;
+    }
+
+    private static object? GetPendingNotationChart(PerformanceStage stage) =>
+        ReflectionHelpers.GetPrivateField<object>(stage, "_pendingNotationChart");
+
+    #endregion
 
     [Fact]
     public async Task InitializeGameplayAsync_WithVisualGateSettingsInConfig_ShouldFreezeVisualGates()
@@ -4901,6 +5204,22 @@ public class PerformanceStageDeterministicTests
     private static void SetAutoPlayLanes(PerformanceStage stage, params int[] lanes)
     {
         ReflectionHelpers.SetPrivateField(stage, "_autoPlayLanes", new HashSet<int>(lanes));
+    }
+
+    /// <summary>
+    /// A notation strip whose fonts pass the coverage check via mocks, so it mirrors
+    /// the IsReady-retained renderer the stage keeps while Tab is effective.
+    /// </summary>
+    private static NotationStripRenderer CreateReadyNotationStrip()
+    {
+        var font = new Mock<IFont>();
+        font.Setup(f => f.SupportsCharacter(It.IsAny<char>())).Returns(true);
+        var resources = new Mock<IResourceManager>();
+        resources.Setup(r => r.LoadFont(It.IsAny<string>(), It.IsAny<int>())).Returns(font.Object);
+        return new NotationStripRenderer(
+            resources.Object,
+            new NotationChart(Array.Empty<NotationMeasure>()),
+            new List<MeasureLine> { new MeasureLine { Bar = 0, TimeMs = 0 } });
     }
 
     private static HashSet<int> GetAutoPlayLanes(PerformanceStage stage)

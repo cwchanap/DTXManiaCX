@@ -78,6 +78,7 @@ namespace DTXMania.Game.Lib.Config
         public GaugeDamageLevel DamageLevel { get; set; } = GaugeDamageLevel.Normal;
         public bool AutoAddGauge { get; set; } = true;
         public DrumsLaneDisplayMode LaneDisplayMode { get; set; } = DrumsLaneDisplayMode.AllOn;
+        public DrumsNoteDisplayStyle NoteDisplayStyle { get; set; } = DrumsNoteDisplayStyle.Lanes;
         public bool ShowJudgementLine { get; set; } = true;
         public bool EnableLaneFlush { get; set; } = false;
         public bool ShowCombo { get; set; } = true;

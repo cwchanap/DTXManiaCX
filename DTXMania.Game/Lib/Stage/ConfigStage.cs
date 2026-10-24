@@ -695,19 +695,26 @@ namespace DTXMania.Game.Lib.Stage
                 () => _configManager.Config.LaneDisplayMode.ToLabel(),
                 DrumsLaneDisplayModeExtensions.Labels.ToArray(),
                 value => _configManager.SetLaneDisplayMode(DrumsLaneDisplayModeExtensions.FromLabel(value)))
-            { Description = "Controls drum lane background and measure line visibility." };
+            { Description = "Controls drum lane background and measure line visibility. No effect when Note Display is TAB." };
+
+            var noteDisplayStyleItem = new DropdownConfigItem(
+                "Note Display",
+                () => _configManager.Config.NoteDisplayStyle.ToLabel(),
+                DrumsNoteDisplayStyleExtensions.Labels.ToArray(),
+                value => _configManager.SetNoteDisplayStyle(DrumsNoteDisplayStyleExtensions.FromLabel(value)))
+            { Description = "Selects how notes are presented during gameplay." };
 
             var judgeLineItem = new ToggleConfigItem(
                 "Judge Line",
                 () => _configManager.Config.ShowJudgementLine,
                 value => _configManager.SetShowJudgementLine(value))
-            { Description = "Toggles the judgement line during gameplay." };
+            { Description = "Toggles the judgement line during gameplay. No effect when Note Display is TAB." };
 
             var laneFlushItem = new ToggleConfigItem(
                 "Lane Flush",
                 () => _configManager.Config.EnableLaneFlush,
                 value => _configManager.SetEnableLaneFlush(value))
-            { Description = "Toggles the lane flash effect when a drum is hit." };
+            { Description = "Toggles the lane flash effect when a drum is hit. No effect when Note Display is TAB." };
 
             var comboItem = new ToggleConfigItem(
                 "Combo",
@@ -842,7 +849,7 @@ namespace DTXMania.Game.Lib.Stage
 
             var drumItems = new List<IConfigItem>
             {
-                scrollSpeedItem, laneDisplayItem, judgeLineItem, laneFlushItem, comboItem,
+                scrollSpeedItem, laneDisplayItem, noteDisplayStyleItem, judgeLineItem, laneFlushItem, comboItem,
                 hitTimingFeedbackItem,
                 playSpeedItem, pitchItem, metronomeItem, autoPlayItem
             };
