@@ -1,6 +1,4 @@
-using System;
 using System.Collections.Generic;
-using System.Linq;
 
 namespace DTXMania.Game.Lib.Config
 {
@@ -14,18 +12,16 @@ namespace DTXMania.Game.Lib.Config
 
     public static class DrumsLaneDisplayModeExtensions
     {
-        private static readonly (DrumsLaneDisplayMode Mode, string Label)[] OptionTable =
-        {
+        private static readonly EnumOptionTable<DrumsLaneDisplayMode> OptionTable = new(
             (DrumsLaneDisplayMode.AllOn, "ALL ON"),
             (DrumsLaneDisplayMode.LaneOff, "LANE OFF"),
             (DrumsLaneDisplayMode.LineOff, "LINE OFF"),
-            (DrumsLaneDisplayMode.AllOff, "ALL OFF"),
-        };
+            (DrumsLaneDisplayMode.AllOff, "ALL OFF"));
 
-        public static IReadOnlyList<(DrumsLaneDisplayMode Mode, string Label)> Options => OptionTable;
+        public static IReadOnlyList<(DrumsLaneDisplayMode Mode, string Label)> Options =>
+            OptionTable.Options;
 
-        public static IReadOnlyList<string> Labels { get; } =
-            OptionTable.Select(option => option.Label).ToArray();
+        public static IReadOnlyList<string> Labels => OptionTable.Labels;
 
         public static bool ShowsLaneBackground(this DrumsLaneDisplayMode mode) =>
             mode is DrumsLaneDisplayMode.AllOn or DrumsLaneDisplayMode.LineOff;
@@ -34,9 +30,9 @@ namespace DTXMania.Game.Lib.Config
             mode is DrumsLaneDisplayMode.AllOn or DrumsLaneDisplayMode.LaneOff;
 
         public static string ToLabel(this DrumsLaneDisplayMode mode) =>
-            OptionTable.First(option => option.Mode == mode).Label;
+            OptionTable.ToLabel(mode);
 
         public static DrumsLaneDisplayMode FromLabel(string label) =>
-            OptionTable.First(option => string.Equals(option.Label, label, StringComparison.OrdinalIgnoreCase)).Mode;
+            OptionTable.FromLabel(label);
     }
 }

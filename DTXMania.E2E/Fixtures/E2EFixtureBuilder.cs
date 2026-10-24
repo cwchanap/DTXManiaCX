@@ -10,6 +10,11 @@ public static class E2EFixtureBuilder
     public const string AudioFileName = "autoplay-tone.wav";
     public const string ArtifactRootEnvironmentVariable = "DTXMANIA_E2E_ARTIFACT_ROOT";
 
+    // Committed rawvideo fixture shared with ChartBackgroundVideoSmokeTests; staged only
+    // when a caller opts into background video so the strip-over-BGA layering is visible
+    // in performance screenshots.
+    public const string BackgroundVideoFileName = "tiny-raw-bgr24.avi";
+
     // Minimal valid 8x32 white PNG shipped into the sandbox skin so it mirrors the
     // bundled System skin, which ships this same file at System/Graphics/hit_fx.png
     // (kept in sync by DTXMania.Test/Resources/DefaultSkinAssetsTests). Mirrors
@@ -24,7 +29,8 @@ public static class E2EFixtureBuilder
         int playSpeedPercent = PlaySpeedRange.Default,
         int pitchSemitones = PitchRange.Default,
         bool enableAutoPlayLanes = true,
-        DrumsNoteDisplayStyle noteDisplayStyle = DrumsNoteDisplayStyle.Lanes)
+        DrumsNoteDisplayStyle noteDisplayStyle = DrumsNoteDisplayStyle.Lanes,
+        bool includeBackgroundVideo = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(runRoot);
         ArgumentException.ThrowIfNullOrWhiteSpace(repoRoot);
@@ -50,9 +56,16 @@ public static class E2EFixtureBuilder
                 enableAutoPlayLanes,
                 noteDisplayStyle),
             Encoding.UTF8);
-        File.WriteAllText(paths.ChartPath, BuildChart(), Encoding.UTF8);
+        File.WriteAllText(paths.ChartPath, BuildChart(includeBackgroundVideo), Encoding.UTF8);
         var audioPath = Path.Combine(paths.SongDirectory, AudioFileName);
         WriteDeterministicWave(audioPath);
+        if (includeBackgroundVideo)
+        {
+            File.Copy(
+                Path.Combine(repoRoot, "DTXMania.Test", "TestData", "Video", BackgroundVideoFileName),
+                Path.Combine(paths.SongDirectory, BackgroundVideoFileName),
+                overwrite: true);
+        }
         // Ship hit_fx.png so the sandbox skin matches the bundled System skin.
         File.WriteAllBytes(
             Path.Combine(paths.SkinRoot, "Graphics", "hit_fx.png"),
@@ -158,9 +171,9 @@ public static class E2EFixtureBuilder
         return string.Join('\n', lines);
     }
 
-    private static string BuildChart()
+    private static string BuildChart(bool includeBackgroundVideo = false)
     {
-        return string.Join('\n', new[]
+        var lines = new List<string>
         {
             $"#TITLE: {SongTitle}",
             "#ARTIST: CI",
@@ -168,6 +181,13 @@ public static class E2EFixtureBuilder
             "#DLEVEL: 10",
             $"#WAV01: {AudioFileName}",
             $"#PREVIEW: {AudioFileName}",
+        };
+        if (includeBackgroundVideo)
+        {
+            lines.Add($"#AVI01: {BackgroundVideoFileName}");
+        }
+        lines.AddRange(new[]
+        {
             string.Empty,
             "; Short deterministic AutoPlay pattern with generated local audio.",
             "#00001: 0100000000000000",
@@ -177,8 +197,16 @@ public static class E2EFixtureBuilder
             "#00111: 0100000000000000",
             "#00112: 0001000000000000",
             "#00113: 0000010000000000",
-            string.Empty
         });
+        if (includeBackgroundVideo)
+        {
+            // Channel 54 = #AVI trigger: start at bar 0, retrigger at bar 1 so the
+            // video is active whenever a mid-song screenshot lands.
+            lines.Add("#00054: 01");
+            lines.Add("#00154: 01");
+        }
+        lines.Add(string.Empty);
+        return string.Join('\n', lines);
     }
 
     private static void WriteDeterministicWave(string path)

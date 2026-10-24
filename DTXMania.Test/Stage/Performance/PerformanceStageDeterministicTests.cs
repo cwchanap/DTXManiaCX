@@ -624,7 +624,6 @@ public class PerformanceStageDeterministicTests
 
         Assert.Null(GetPendingNotationChart(stage));
         Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_notationStrip"));
-        Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_notationRendererAttempted"));
     }
 
     [Fact]
@@ -712,7 +711,6 @@ public class PerformanceStageDeterministicTests
         Assert.NotNull(strip);
         Assert.True(strip!.IsReady);
         Assert.Null(GetPendingNotationChart(stage));
-        Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_notationRendererAttempted"));
     }
 
     [Fact]
@@ -724,7 +722,6 @@ public class PerformanceStageDeterministicTests
 
         Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_notationStrip"));
         Assert.Null(GetPendingNotationChart(stage));
-        Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_notationRendererAttempted"));
     }
 
     [Fact]
@@ -737,27 +734,56 @@ public class PerformanceStageDeterministicTests
 
         Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_notationStrip"));
         Assert.Null(GetPendingNotationChart(stage));
-        Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_notationRendererAttempted"));
     }
 
     [Fact]
-    public void TryConstructNotationStrip_WhenAttemptAlreadyConsumed_ShouldNotRetryAfterFailure()
+    public void TryConstructNotationStrip_WhenStaleChartPrecedesCurrentGenerationChart_ShouldStillConstructStrip()
+    {
+        var stage = CreateTabStageWithPendingChart(CreateNotationResourceManager(completeBravura: true).Object);
+        ReflectionHelpers.SetPrivateField(stage, "_activationGeneration", 1);
+
+        // A chart left over from the previous activation is discarded without
+        // consuming this activation's construction — the song must not be stuck in
+        // Lanes with no log line.
+        ReflectionHelpers.InvokePrivateMethod(stage, "TryConstructNotationStrip");
+        Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_notationStrip"));
+        Assert.Null(GetPendingNotationChart(stage));
+
+        ReflectionHelpers.InvokePrivateMethod(
+            stage, "TryStageNotationChart", 1, CancellationToken.None);
+        ReflectionHelpers.InvokePrivateMethod(stage, "TryConstructNotationStrip");
+
+        Assert.NotNull(ReflectionHelpers.GetPrivateField<NotationStripRenderer>(stage, "_notationStrip"));
+    }
+
+    [Fact]
+    public void TryConstructNotationStrip_WhenPendingChartConsumed_ShouldNotRetryAfterFailure()
     {
         var stage = CreateTabStageWithPendingChart(CreateNotationResourceManager(completeBravura: false).Object);
         ReflectionHelpers.InvokePrivateMethod(stage, "TryConstructNotationStrip");
 
-        // A later frame stages nothing new; the consumed attempt must not re-run.
+        // A later frame stages nothing new; the consumed chart must not re-run.
         ReflectionHelpers.InvokePrivateMethod(stage, "TryConstructNotationStrip");
 
         Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_notationStrip"));
         Assert.Null(GetPendingNotationChart(stage));
-        Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_notationRendererAttempted"));
     }
 
     [Fact]
     public void CleanupComponents_WhenTabWasActive_ShouldClearPendingStateAndDisposeStrip()
     {
-        var stage = CreateTabStageWithPendingChart(CreateNotationResourceManager(completeBravura: true).Object);
+        // The font's RemoveReference fires inside the renderer's Dispose: sampling the
+        // stage fields there proves pending state and the effective-mode reference are
+        // cleared BEFORE the renderer is disposed, not just by the time cleanup returns.
+        PerformanceStage? stage = null;
+        var clearedBeforeDispose = new List<bool>();
+        var resourceManager = CreateNotationResourceManager(
+            completeBravura: true,
+            onFontRemoveReference: () => clearedBeforeDispose.Add(
+                stage != null &&
+                GetPendingNotationChart(stage) == null &&
+                ReflectionHelpers.GetPrivateField<object>(stage, "_notationStrip") == null));
+        stage = CreateTabStageWithPendingChart(resourceManager.Object);
         ReflectionHelpers.InvokePrivateMethod(stage, "TryConstructNotationStrip");
         var strip = ReflectionHelpers.GetPrivateField<NotationStripRenderer>(stage, "_notationStrip");
         Assert.NotNull(strip);
@@ -769,11 +795,10 @@ public class PerformanceStageDeterministicTests
 
         ReflectionHelpers.InvokePrivateMethod(stage, "CleanupComponents");
 
-        // Pending state and the effective-mode reference clear BEFORE the renderer
-        // is disposed; the one-shot attempt re-arms for the next activation.
+        Assert.NotEmpty(clearedBeforeDispose);
+        Assert.All(clearedBeforeDispose, Assert.True);
         Assert.Null(GetPendingNotationChart(stage));
         Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_notationStrip"));
-        Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_notationRendererAttempted"));
         Assert.False(strip!.IsReady);
     }
 
@@ -806,11 +831,15 @@ public class PerformanceStageDeterministicTests
         return chart;
     }
 
-    private static Mock<IResourceManager> CreateNotationResourceManager(bool completeBravura)
+    private static Mock<IResourceManager> CreateNotationResourceManager(
+        bool completeBravura,
+        Action? onFontRemoveReference = null)
     {
         var font = new Mock<IFont>();
         font.Setup(f => f.SupportsCharacter(It.IsAny<char>())).Returns(completeBravura);
         font.Setup(f => f.LineSpacing).Returns(74f);
+        if (onFontRemoveReference != null)
+            font.Setup(f => f.RemoveReference()).Callback(onFontRemoveReference);
         var resourceManager = new Mock<IResourceManager>();
         resourceManager
             .Setup(r => r.LoadFont(It.IsAny<string>(), It.IsAny<int>()))

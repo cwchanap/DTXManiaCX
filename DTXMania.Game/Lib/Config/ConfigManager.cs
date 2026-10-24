@@ -577,35 +577,17 @@ namespace DTXMania.Game.Lib.Config
                         Config.Risky = RiskyRange.Clamp(risky);
                     break;
                 case "DamageLevel":
-                {
-                    var matchedName = Enum.GetNames<GaugeDamageLevel>()
-                        .FirstOrDefault(name =>
-                            string.Equals(name, value, StringComparison.OrdinalIgnoreCase));
-
-                    if (matchedName != null)
-                        Config.DamageLevel = Enum.Parse<GaugeDamageLevel>(matchedName);
+                    if (TryParseEnumName(value, out GaugeDamageLevel damageLevel))
+                        Config.DamageLevel = damageLevel;
                     break;
-                }
                 case "LaneDisplayMode":
-                {
-                    var matchedName = Enum.GetNames<DrumsLaneDisplayMode>()
-                        .FirstOrDefault(name =>
-                            string.Equals(name, value, StringComparison.OrdinalIgnoreCase));
-
-                    if (matchedName != null)
-                        Config.LaneDisplayMode = Enum.Parse<DrumsLaneDisplayMode>(matchedName);
+                    if (TryParseEnumName(value, out DrumsLaneDisplayMode laneDisplayMode))
+                        Config.LaneDisplayMode = laneDisplayMode;
                     break;
-                }
                 case "NoteDisplayStyle":
-                {
-                    var matchedName = Enum.GetNames<DrumsNoteDisplayStyle>()
-                        .FirstOrDefault(name =>
-                            string.Equals(name, value, StringComparison.OrdinalIgnoreCase));
-
-                    if (matchedName != null)
-                        Config.NoteDisplayStyle = Enum.Parse<DrumsNoteDisplayStyle>(matchedName);
+                    if (TryParseEnumName(value, out DrumsNoteDisplayStyle noteDisplayStyle))
+                        Config.NoteDisplayStyle = noteDisplayStyle;
                     break;
-                }
                 case "ShowJudgementLine":
                     if (TryParseBool(value, out var showJudgementLine))
                         Config.ShowJudgementLine = showJudgementLine;
@@ -1418,6 +1400,28 @@ namespace DTXMania.Game.Lib.Config
                 return true;
             }
             return false;
+        }
+
+        /// <summary>
+        /// Case-insensitive enum-name parse for config values. Matches declared names
+        /// only — numeric strings never produce a value, so a hand-edited config key
+        /// can only select a member that actually exists.
+        /// </summary>
+        private static bool TryParseEnumName<TEnum>(string value, out TEnum result)
+            where TEnum : struct, Enum
+        {
+            var matchedName = Enum.GetNames<TEnum>()
+                .FirstOrDefault(name =>
+                    string.Equals(name, value, StringComparison.OrdinalIgnoreCase));
+
+            if (matchedName == null)
+            {
+                result = default;
+                return false;
+            }
+
+            result = Enum.Parse<TEnum>(matchedName);
+            return true;
         }
 
         private static void RemoveSystemKeyBinding(InputManager inputManager, InputCommandType command)

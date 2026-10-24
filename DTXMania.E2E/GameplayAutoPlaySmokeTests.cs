@@ -108,52 +108,16 @@ public sealed class GameplayAutoPlaySmokeTests
 
         try
         {
-            process.Start(E2EGameLaunch.CreateOptions(fixture));
-            await process.WaitForStartupAsync(
-                client.GetHealthAsync,
-                TimeSpan.FromSeconds(60),
-                TimeSpan.FromMilliseconds(500),
-                cancellation.Token);
-
-            await WaitForStageAsync(client, "Title", TimeSpan.FromSeconds(45), cancellation.Token);
-            await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
-            await WaitForStageAsync(client, "SongSelect", TimeSpan.FromSeconds(45), cancellation.Token);
+            await NavigateToSongSelectAsync(bundle, fixture, cancellation.Token);
             await SaveScreenshotAsync(client, fixture, "song-select-fullautoplay.png", cancellation.Token);
+            await StartSongAsync(client, cancellation.Token);
 
-            await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
-            await Task.Delay(500, cancellation.Token);
-            await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
-
-            var fullyJudged = await Eventually.UntilAsync(
-                token => client.GetGameStateAsync(token),
-                state =>
-                    state.PerformanceReady &&
-                    state.AutoPlayEnabled &&
-                    state.TotalNotes > 0 &&
-                    state.TotalJudgements == state.TotalNotes,
-                TimeSpan.FromSeconds(120),
-                TimeSpan.FromMilliseconds(250),
-                "all chart notes automatically judged",
-                cancellation.Token);
+            var fullyJudged = await WaitForAllNotesJudgedAsync(client, cancellation.Token);
 
             Assert.True(fullyJudged.AutoPlayEnabled);
             Assert.Equal(fullyJudged.TotalNotes, fullyJudged.TotalJudgements);
 
-            await WaitForStageAsync(client, "Result", TimeSpan.FromSeconds(120), cancellation.Token);
-            // StageCompleted is NOT screenshot readiness: it is published as soon
-            // as Result has a PerformanceSummary, roughly 1.15 seconds before the
-            // reveal completes on an un-fast-forwarded result. Keep this wait for
-            // its existing journey-completion purpose; the game-owned screenshot
-            // file is awaited independently below.
-            var resultState = await Eventually.UntilAsync(
-                token => client.GetGameStateAsync(token),
-                state =>
-                    string.Equals(state.StageType, "Result", StringComparison.Ordinal) &&
-                    state.StageCompleted,
-                TimeSpan.FromSeconds(30),
-                TimeSpan.FromMilliseconds(250),
-                "Result stage completion",
-                cancellation.Token);
+            var resultState = await WaitForCompletedResultAsync(client, cancellation.Token);
 
             Assert.Equal(E2EFixtureBuilder.SongTitle, resultState.SelectedSongTitle);
             // AutoPlayEnabled is only reported while the Performance stage owns
@@ -233,8 +197,7 @@ public sealed class GameplayAutoPlaySmokeTests
         finally
         {
             E2EArtifactWriter.CopyFixtureFiles(fixture);
-            await E2EArtifactWriter.WriteTextAsync(fixture, "game-stdout-fullautoplay.log", process.StandardOutput);
-            await E2EArtifactWriter.WriteTextAsync(fixture, "game-stderr-fullautoplay.log", process.StandardError);
+            await WriteRunLogsAsync(fixture, process, "fullautoplay");
         }
     }
 
@@ -253,57 +216,42 @@ public sealed class GameplayAutoPlaySmokeTests
             repoRoot,
             apiPort,
             noteDisplayStyle: DrumsNoteDisplayStyle.Tab,
-            enableAutoPlayLanes: true);
+            enableAutoPlayLanes: true,
+            // The performance-tab.png capture then doubles as strip-over-BGA evidence.
+            includeBackgroundVideo: true);
         await using var bundle = E2EGameLaunch.CreateClientBundle(fixture);
         var process = bundle.Process;
         var client = bundle.Client;
 
         try
         {
-            process.Start(E2EGameLaunch.CreateOptions(fixture));
-            await process.WaitForStartupAsync(
-                client.GetHealthAsync,
-                TimeSpan.FromSeconds(60),
-                TimeSpan.FromMilliseconds(500),
-                cancellation.Token);
+            await NavigateToSongSelectAsync(bundle, fixture, cancellation.Token);
+            await StartSongAsync(client, cancellation.Token);
 
-            await WaitForStageAsync(client, "Title", TimeSpan.FromSeconds(45), cancellation.Token);
-            await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
-            await WaitForStageAsync(client, "SongSelect", TimeSpan.FromSeconds(45), cancellation.Token);
-
-            await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
-            await Task.Delay(500, cancellation.Token);
-            await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
-
-            // Polling until Tab is part of the predicate asserts ACTUAL effective Tab
-            // during Performance; a silent fallback to Lanes fails the poll timeout.
-            var tabRun = await Eventually.UntilAsync(
+            // Photograph the strip while the first bars are still scrolling past the
+            // hit marker — after the last judgement the staff is empty.
+            await Eventually.UntilAsync(
                 token => client.GetGameStateAsync(token),
                 state =>
                     state.PerformanceReady &&
                     state.AutoPlayEnabled &&
                     string.Equals(state.NoteDisplayStyle, nameof(DrumsNoteDisplayStyle.Tab), StringComparison.Ordinal) &&
-                    state.TotalNotes > 0 &&
-                    state.TotalJudgements == state.TotalNotes,
+                    state.TotalNotes > 0,
                 TimeSpan.FromSeconds(120),
                 TimeSpan.FromMilliseconds(250),
-                "all chart notes automatically judged while Tab notation is effective",
+                "effective Tab performance underway",
                 cancellation.Token);
+            await SaveScreenshotAsync(client, fixture, "performance-tab.png", cancellation.Token);
+
+            // Polling until Tab is part of the predicate asserts ACTUAL effective Tab
+            // through the last judgement; a silent fallback to Lanes fails the poll.
+            var tabRun = await WaitForAllNotesJudgedAsync(
+                client, cancellation.Token, nameof(DrumsNoteDisplayStyle.Tab));
 
             Assert.Equal(nameof(DrumsNoteDisplayStyle.Tab), tabRun.NoteDisplayStyle);
             Assert.Equal(tabRun.TotalNotes, tabRun.TotalJudgements);
-            await SaveScreenshotAsync(client, fixture, "performance-tab.png", cancellation.Token);
 
-            await WaitForStageAsync(client, "Result", TimeSpan.FromSeconds(120), cancellation.Token);
-            var resultState = await Eventually.UntilAsync(
-                token => client.GetGameStateAsync(token),
-                state =>
-                    string.Equals(state.StageType, "Result", StringComparison.Ordinal) &&
-                    state.StageCompleted,
-                TimeSpan.FromSeconds(30),
-                TimeSpan.FromMilliseconds(250),
-                "Result stage completion",
-                cancellation.Token);
+            var resultState = await WaitForCompletedResultAsync(client, cancellation.Token);
 
             Assert.Equal(E2EFixtureBuilder.SongTitle, resultState.SelectedSongTitle);
             // Judgement totals are unchanged by the display style: every note judged.
@@ -320,8 +268,7 @@ public sealed class GameplayAutoPlaySmokeTests
         finally
         {
             E2EArtifactWriter.CopyFixtureFiles(fixture);
-            await E2EArtifactWriter.WriteTextAsync(fixture, "game-stdout-tabautoplay.log", process.StandardOutput);
-            await E2EArtifactWriter.WriteTextAsync(fixture, "game-stderr-tabautoplay.log", process.StandardError);
+            await WriteRunLogsAsync(fixture, process, "tabautoplay");
         }
     }
 
@@ -527,6 +474,98 @@ public sealed class GameplayAutoPlaySmokeTests
         int DisplayOrder,
         int PitchSemitones,
         string HistoryLine);
+
+    /// <summary>
+    /// Shared journey head used by the AutoPlay smokes: launch the game process,
+    /// wait for the API, then advance Title → SongSelect. Callers add their own
+    /// stage artifacts before <see cref="StartSongAsync"/>.
+    /// </summary>
+    private static async Task NavigateToSongSelectAsync(
+        E2EClientBundle bundle,
+        E2EFixture fixture,
+        CancellationToken cancellationToken)
+    {
+        bundle.Process.Start(E2EGameLaunch.CreateOptions(fixture));
+        await bundle.Process.WaitForStartupAsync(
+            bundle.Client.GetHealthAsync,
+            TimeSpan.FromSeconds(60),
+            TimeSpan.FromMilliseconds(500),
+            cancellationToken);
+
+        await WaitForStageAsync(bundle.Client, "Title", TimeSpan.FromSeconds(45), cancellationToken);
+        await bundle.Client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellationToken);
+        await WaitForStageAsync(bundle.Client, "SongSelect", TimeSpan.FromSeconds(45), cancellationToken);
+    }
+
+    /// <summary>Selects the highlighted song and difficulty, entering Performance.</summary>
+    private static async Task StartSongAsync(
+        JsonRpcGameClient client,
+        CancellationToken cancellationToken)
+    {
+        await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellationToken);
+        await Task.Delay(500, cancellationToken);
+        await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellationToken);
+    }
+
+    /// <summary>
+    /// Waits until every chart note has been automatically judged. When
+    /// <paramref name="requiredNoteDisplayStyle"/> is set the run must report that
+    /// effective display style through the last judgement — a mid-song fallback
+    /// fails the poll timeout rather than silently passing.
+    /// </summary>
+    private static async Task<GameStateSnapshot> WaitForAllNotesJudgedAsync(
+        JsonRpcGameClient client,
+        CancellationToken cancellationToken,
+        string? requiredNoteDisplayStyle = null)
+    {
+        return await Eventually.UntilAsync(
+            token => client.GetGameStateAsync(token),
+            state =>
+                state.PerformanceReady &&
+                state.AutoPlayEnabled &&
+                (requiredNoteDisplayStyle == null ||
+                    string.Equals(state.NoteDisplayStyle, requiredNoteDisplayStyle, StringComparison.Ordinal)) &&
+                state.TotalNotes > 0 &&
+                state.TotalJudgements == state.TotalNotes,
+            TimeSpan.FromSeconds(120),
+            TimeSpan.FromMilliseconds(250),
+            requiredNoteDisplayStyle == null
+                ? "all chart notes automatically judged"
+                : $"all chart notes automatically judged while {requiredNoteDisplayStyle} notation is effective",
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Waits for the completed Result stage. StageCompleted is NOT screenshot
+    /// readiness: it is published as soon as Result has a PerformanceSummary,
+    /// roughly 1.15 seconds before the reveal completes on an un-fast-forwarded
+    /// result. Callers awaiting a game-owned screenshot file poll for it
+    /// independently; this wait exists for journey completion only.
+    /// </summary>
+    private static async Task<GameStateSnapshot> WaitForCompletedResultAsync(
+        JsonRpcGameClient client,
+        CancellationToken cancellationToken)
+    {
+        await WaitForStageAsync(client, "Result", TimeSpan.FromSeconds(120), cancellationToken);
+        return await Eventually.UntilAsync(
+            token => client.GetGameStateAsync(token),
+            state =>
+                string.Equals(state.StageType, "Result", StringComparison.Ordinal) &&
+                state.StageCompleted,
+            TimeSpan.FromSeconds(30),
+            TimeSpan.FromMilliseconds(250),
+            "Result stage completion",
+            cancellationToken);
+    }
+
+    private static async Task WriteRunLogsAsync(
+        E2EFixture fixture,
+        GameProcessDriver process,
+        string artifactSuffix)
+    {
+        await E2EArtifactWriter.WriteTextAsync(fixture, $"game-stdout-{artifactSuffix}.log", process.StandardOutput);
+        await E2EArtifactWriter.WriteTextAsync(fixture, $"game-stderr-{artifactSuffix}.log", process.StandardError);
+    }
 
     private static async Task<GameStateSnapshot> WaitForStageAsync(
         JsonRpcGameClient client,

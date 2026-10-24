@@ -216,7 +216,6 @@ namespace DTXMania.Game.Lib.Stage
             int Generation);
 
         private PendingNotationChart? _pendingNotationChart;
-        private bool _notationRendererAttempted;
         private NotationStripRenderer? _notationStrip;
         
         // Note: Using global stage transition debouncing from BaseGame
@@ -411,20 +410,26 @@ namespace DTXMania.Game.Lib.Stage
                 return;
 
 
-            // BackToFront depth order:
-            // Background (1.0f) → Lanes (0.8f) → Measure lines (0.78f) →
-            // fallback notes (0.70f) → JudgementLine (0.6f) →
-            // Pads (0.1f) → sprite notes (0.05f).
+            // BackToFront depth order (larger depth = farther back):
+            //   Background (1.0f) → chart video (0.95f) → strip background (0.90f) →
+            //   Lanes (0.8f) / strip staff+barlines (0.80f) → Measure lines (0.78f) →
+            //   strip hit marker (0.72f) → fallback notes (0.70f) →
+            //   strip beams/stems (0.65f) → JudgementLine (0.6f) → strip glyphs (0.55f) →
+            //   strip key mask (0.40f) → strip labels (0.30f) → Pads (0.1f) →
+            //   sprite notes (0.05f).
+            // The strip layers come from PerformanceUILayout.NotationStrip; the chart
+            // video (0.95f) must stay behind the strip's opaque background (0.90f) so
+            // BGA video can never paint over the notation.
 
-            // Base pass: Background → Lanes → Pads → Notes → Judgement Line → Judgement Texts
+            // Base pass: Background → playfield (Lanes or Tab strip) → Judgement Texts
             _spriteBatch.Begin(SpriteSortMode.BackToFront, BlendState.AlphaBlend);
-            
+
             // Draw background (furthest back - highest depth value)
             DrawBackground();
 
-            // HPA-411 Tab: the notation strip replaces lane backgrounds, measure lines,
-            // notes and the judgement line in this batch (same song clock and live
-            // scroll speed); its sprites carry their own explicit depths.
+            // HPA-411 Tab: the notation strip replaces the whole lane playfield — lane
+            // backgrounds, measure lines, pads, falling notes and the judgement line
+            // draw only in Lanes (same song clock and live scroll speed either way).
             if (_notationStrip != null)
             {
                 DrawNotationStrip();
@@ -436,19 +441,16 @@ namespace DTXMania.Game.Lib.Stage
 
                 // Draw scrolling measure boundaries above lanes and behind gameplay objects
                 DrawMeasureLines();
-            }
 
-            // Draw pad indicators (above lane backgrounds, below notes)
-            DrawPads();
-            
+                // Draw pad indicators (above lane backgrounds, below notes)
+                DrawPads();
 
-            // Draw scrolling notes (replaced by the notation strip in Tab mode)
-            if (_notationStrip == null)
+                // Draw scrolling notes
                 DrawNotes();
 
-            // Draw judgement line (replaced by the notation strip in Tab mode)
-            if (_notationStrip == null)
+                // Draw judgement line
                 DrawJudgementLine();
+            }
 
             // Draw judgement text popups
             DrawJudgementTexts();
@@ -482,8 +484,10 @@ namespace DTXMania.Game.Lib.Stage
             // Effects pass: Hit effects with additive blending (drawn on top of everything)
             _spriteBatch.Begin(SpriteSortMode.Deferred, BlendState.Additive);
 
-            // Draw hit effects with additive blending
-            DrawHitEffects();
+            // Draw hit effects with additive blending — sparks land at lane positions,
+            // so they apply only in Lanes mode and never over the notation strip.
+            if (_notationStrip == null)
+                DrawHitEffects();
 
             _spriteBatch.End();
         }
@@ -634,10 +638,8 @@ namespace DTXMania.Game.Lib.Stage
 
             // HPA-411: clear the pending Tab state and the strip reference BEFORE
             // disposing the renderer — the reference is the effective-mode flag, so it
-            // must read null before Dispose runs. The one-shot attempt resets for the
-            // next activation.
+            // must read null before Dispose runs.
             _pendingNotationChart = null;
-            _notationRendererAttempted = false;
             NotationStripRenderer? notationStrip = _notationStrip;
             _notationStrip = null;
             notationStrip?.Dispose();
@@ -1047,13 +1049,16 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private void TryStageNotationChart(int generation, CancellationToken cancellationToken)
         {
+            // Snapshot the chart once: this can run on a thread-pool continuation while
+            // cleanup nulls the field, and a torn read would misreport as a build failure.
+            ParsedChart? chart = _parsedChart;
             if (_visualGates.RequestedNoteDisplayStyle != DrumsNoteDisplayStyle.Tab ||
-                _parsedChart == null)
+                chart == null)
                 return;
 
             try
             {
-                NotationChart notationChart = NotationChartBuilder.Build(_parsedChart);
+                NotationChart notationChart = NotationChartBuilder.Build(chart);
 
                 // Guard current activation/cancellation before publishing pending work.
                 if (generation != _activationGeneration || cancellationToken.IsCancellationRequested)
@@ -1061,7 +1066,7 @@ namespace DTXMania.Game.Lib.Stage
 
                 _pendingNotationChart = new PendingNotationChart(
                     notationChart,
-                    _parsedChart.MeasureLines,
+                    chart.MeasureLines,
                     generation);
             }
             catch (Exception ex)
@@ -1075,19 +1080,21 @@ namespace DTXMania.Game.Lib.Stage
         /// <summary>
         /// One-shot HPA-411 Tab renderer construction, run on the game thread from
         /// <see cref="OnUpdate"/> because the renderer owns the Bravura and label font
-        /// loads. Consumes the pending notation chart at most once per activation —
-        /// there are no per-frame retries, so any failure keeps Lanes for this song.
+        /// loads. Each staged chart is consumed at most once — clearing the pending
+        /// reference is what prevents retries, so a failure keeps Lanes for this song.
+        /// A stale-generation chart is discarded without consuming the current
+        /// activation's staged chart.
         /// </summary>
         private void TryConstructNotationStrip()
         {
-            if (_notationRendererAttempted || _pendingNotationChart is not { } pending)
+            if (_pendingNotationChart is not { } pending)
                 return;
 
-            // Consume the one-shot attempt regardless of outcome, then guard the
-            // current activation before using the staged chart.
-            _notationRendererAttempted = true;
+            // Consume the staged chart regardless of outcome. Construction is skipped
+            // when a strip is already published or the chart belongs to a stale
+            // activation — neither burns the current activation's staging slot.
             _pendingNotationChart = null;
-            if (pending.Generation != _activationGeneration)
+            if (_notationStrip != null || pending.Generation != _activationGeneration)
                 return;
 
             try
@@ -1382,16 +1389,15 @@ namespace DTXMania.Game.Lib.Stage
         /// <summary>
         /// Draws the HPA-411 notation strip in the base BackToFront batch with the same
         /// logical song clock as the falling notes and the live scroll-speed percentage.
+        /// The strip is the entire Tab playfield, so it stays on screen whenever it
+        /// exists — loading, the READY countdown, pause and the exit fade — at the
+        /// clock's current logical position (0 before transport starts).
         /// </summary>
         private void DrawNotationStrip()
         {
-            if (_songTimer == null || _currentGameTime == null)
-                return;
-
-            if (!_songTimer.IsPlaying && !_songTimer.IsPaused)
-                return;
-
-            var currentTimeMs = _songTimer.GetCurrentMs(_currentGameTime);
+            var currentTimeMs = (_songTimer != null && _currentGameTime != null)
+                ? _songTimer.GetCurrentMs(_currentGameTime)
+                : 0.0;
             var speedPercent = _game?.ConfigManager?.Config?.ScrollSpeed ?? ScrollSpeedRange.Default;
             _notationStrip?.Draw(_spriteBatch, currentTimeMs, speedPercent);
         }
@@ -2009,7 +2015,9 @@ namespace DTXMania.Game.Lib.Stage
                 // Trigger pad press effect
                 _padRenderer?.TriggerPadPress(e.Lane, true);
 
-                if (_visualGates.EnableLaneFlush)
+                // Lane flush flashes the lane rectangles, which the notation strip
+                // replaces entirely — triggering it in Tab mode is dead state churn.
+                if (_visualGates.EnableLaneFlush && _notationStrip == null)
                     _noteRenderer?.TriggerLaneFlash(e.Lane);
             }
 
@@ -2450,38 +2458,38 @@ namespace DTXMania.Game.Lib.Stage
         private void DrawUIElements()
         {
             // HPA-411 Tab: the skill panel covers the strip's hit marker and key labels,
-            // and the progress bar/skill meter obscure the notation look-ahead, so exactly
-            // these four draws are skipped while Tab is effective. Their underlying
+            // and the progress bar/skill meter obscure the notation look-ahead, so all
+            // four draws are skipped while Tab is effective. Their underlying
             // metric/state updates keep running; every other HUD element is unchanged.
             bool notationTabActive = _notationStrip != null;
 
             // Draw shutters first (overlay elements)
             DrawShutters();
-            
-            // Draw skill panel
+
             if (!notationTabActive)
+            {
+                // Draw skill panel
                 DrawSkillPanel();
-            
+
+                // Draw progress bar
+                DrawProgressBar();
+
+                _skillPanelDisplay?.Draw(_spriteBatch);
+                _skillMeterDisplay?.Draw(_spriteBatch);
+            }
+
             // Draw gauge elements
             DrawGaugeElements();
-            
-            // Draw progress bar
-            if (!notationTabActive)
-                DrawProgressBar();
-            
+
             // Draw existing UI components as fallback
             // Legacy gauge display removed - using asset-based gauge only
-            
+
             _scoreDisplay?.Draw(_spriteBatch);
             if (!_visualGates.HideCombo)
                 _comboDisplay?.Draw(_spriteBatch);
-            if (!notationTabActive)
-                _skillPanelDisplay?.Draw(_spriteBatch);
-            if (!notationTabActive)
-                _skillMeterDisplay?.Draw(_spriteBatch);
-            
+
             _uiManager?.Draw(_spriteBatch, 0);
-            
+
             // Draw overlays last (topmost)
             DrawOverlays();
         }
