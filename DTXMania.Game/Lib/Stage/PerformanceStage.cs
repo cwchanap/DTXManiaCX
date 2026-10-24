@@ -2803,6 +2803,11 @@ namespace DTXMania.Game.Lib.Stage
             telemetry.GoodCount = _judgementManager?.GetJudgementCount(JudgementType.Good) ?? 0;
             telemetry.PoorCount = _judgementManager?.GetJudgementCount(JudgementType.Poor) ?? 0;
             telemetry.MissCount = _judgementManager?.GetJudgementCount(JudgementType.Miss) ?? 0;
+            // HPA-411 effective style: the strip reference is nulled before disposal and
+            // only retained after IsReady, so a live reference means Tab is actually active.
+            telemetry.NoteDisplayStyle = (_notationStrip != null
+                ? DrumsNoteDisplayStyle.Tab
+                : DrumsNoteDisplayStyle.Lanes).ToString();
             // Snapshot the reference once (atomic read) then read its immutable fields, so
             // the API thread can never observe a torn combination across two different hits.
             var lastHit = _lastLaneHit;

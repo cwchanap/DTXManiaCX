@@ -13,6 +13,7 @@ using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Entities;
+using DTXMania.Game.Lib.Song.Notation;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Game.Lib.UI;
@@ -180,6 +181,31 @@ public class PerformanceStageDeterministicTests
         stage.PopulateTelemetry(telemetry);
 
         Assert.False(telemetry.AutoPlayEnabled);
+    }
+
+    [Fact]
+    public void PopulateTelemetry_WhenNotationStripReady_ShouldReportTabStyle()
+    {
+        var stage = CreateStage();
+        ReflectionHelpers.SetPrivateField(stage, "_notationStrip", CreateReadyNotationStrip());
+
+        var telemetry = new GameTelemetrySnapshot();
+
+        stage.PopulateTelemetry(telemetry);
+
+        Assert.Equal(nameof(DrumsNoteDisplayStyle.Tab), telemetry.NoteDisplayStyle);
+    }
+
+    [Fact]
+    public void PopulateTelemetry_WhenNotationStripMissing_ShouldReportLanesStyle()
+    {
+        var stage = CreateStage();
+
+        var telemetry = new GameTelemetrySnapshot();
+
+        stage.PopulateTelemetry(telemetry);
+
+        Assert.Equal(nameof(DrumsNoteDisplayStyle.Lanes), telemetry.NoteDisplayStyle);
     }
 
     [Fact]
@@ -5149,6 +5175,22 @@ public class PerformanceStageDeterministicTests
     private static void SetAutoPlayLanes(PerformanceStage stage, params int[] lanes)
     {
         ReflectionHelpers.SetPrivateField(stage, "_autoPlayLanes", new HashSet<int>(lanes));
+    }
+
+    /// <summary>
+    /// A notation strip whose fonts pass the coverage check via mocks, so it mirrors
+    /// the IsReady-retained renderer the stage keeps while Tab is effective.
+    /// </summary>
+    private static NotationStripRenderer CreateReadyNotationStrip()
+    {
+        var font = new Mock<IFont>();
+        font.Setup(f => f.SupportsCharacter(It.IsAny<char>())).Returns(true);
+        var resources = new Mock<IResourceManager>();
+        resources.Setup(r => r.LoadFont(It.IsAny<string>(), It.IsAny<int>())).Returns(font.Object);
+        return new NotationStripRenderer(
+            resources.Object,
+            new NotationChart(Array.Empty<NotationMeasure>()),
+            new List<MeasureLine> { new MeasureLine { Bar = 0, TimeMs = 0 } });
     }
 
     private static HashSet<int> GetAutoPlayLanes(PerformanceStage stage)

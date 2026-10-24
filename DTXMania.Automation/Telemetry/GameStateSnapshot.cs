@@ -80,6 +80,8 @@ public sealed class GameStateSnapshot
 
     public bool StageCompleted => GetTelemetryBool("stageCompleted") ?? false;
 
+    public string? NoteDisplayStyle => GetTelemetryString("noteDisplayStyle");
+
     private string? GetTelemetryString(string propertyName) =>
         Telemetry.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String
             ? value.GetString()
