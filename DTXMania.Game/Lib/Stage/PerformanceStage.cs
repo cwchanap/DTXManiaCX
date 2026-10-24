@@ -210,7 +210,7 @@ namespace DTXMania.Game.Lib.Stage
         // is derived from the _notationStrip reference alone — non-null means Tab, null
         // means Lanes; there is no second active-style flag, and until the one-shot
         // attempt finishes (or once it has failed) Lanes stays active.
-        private readonly record struct PendingNotationChart(
+        private sealed record PendingNotationChart(
             NotationChart Chart,
             IReadOnlyList<MeasureLine> MeasureLines,
             int Generation);
