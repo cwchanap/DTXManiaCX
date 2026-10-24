@@ -122,6 +122,9 @@ namespace DTXMania.Game.Lib.Config
         /// <summary>Sets the drum lane display mode and marks a deferred save pending.</summary>
         void SetLaneDisplayMode(DrumsLaneDisplayMode value);
 
+        /// <summary>Sets the drum note display style and marks a deferred save pending.</summary>
+        void SetNoteDisplayStyle(DrumsNoteDisplayStyle value);
+
         /// <summary>Sets Judge Line visibility and marks a deferred save pending when the value changes. No event raised.</summary>
         void SetShowJudgementLine(bool value);
 

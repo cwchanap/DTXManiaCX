@@ -198,7 +198,8 @@ namespace DTXMania.Game.Lib.Stage
             bool HideJudgementLine,
             bool HideCombo,
             bool EnableLaneFlush,
-            bool ShowHitTimingFeedback);
+            bool ShowHitTimingFeedback,
+            DrumsNoteDisplayStyle RequestedNoteDisplayStyle);
         
         // Note: Using global stage transition debouncing from BaseGame
 
@@ -485,13 +486,15 @@ namespace DTXMania.Game.Lib.Stage
         {
             var config = _game?.ConfigManager?.Config;
             var laneDisplayMode = config?.LaneDisplayMode ?? DrumsLaneDisplayMode.AllOn;
+            var noteDisplayStyle = config?.NoteDisplayStyle ?? DrumsNoteDisplayStyle.Lanes;
             _visualGates = new PerformanceVisualGates(
                 HideLaneBackground: !laneDisplayMode.ShowsLaneBackground(),
                 HideMeasureLines: !laneDisplayMode.ShowsMeasureLines(),
                 HideJudgementLine: !(config?.ShowJudgementLine ?? true),
                 HideCombo: !(config?.ShowCombo ?? true),
                 EnableLaneFlush: config?.EnableLaneFlush ?? false,
-                ShowHitTimingFeedback: config?.ShowHitTimingFeedback ?? false);
+                ShowHitTimingFeedback: config?.ShowHitTimingFeedback ?? false,
+                RequestedNoteDisplayStyle: noteDisplayStyle);
 
             // Defensive copy: the run owns its lane set. Later config edits
             // (UI toggles, mid-song SetAutoPlayLane) must not alter which

@@ -1184,6 +1184,8 @@ namespace DTXMania.Test.Stage.DrumConfig
 
             public void SetLaneDisplayMode(DrumsLaneDisplayMode value) { }
 
+            public void SetNoteDisplayStyle(DrumsNoteDisplayStyle value) { }
+
             public void SetShowJudgementLine(bool value) { }
 
             public void SetEnableLaneFlush(bool value) { }

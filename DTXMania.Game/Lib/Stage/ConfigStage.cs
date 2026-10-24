@@ -697,6 +697,13 @@ namespace DTXMania.Game.Lib.Stage
                 value => _configManager.SetLaneDisplayMode(DrumsLaneDisplayModeExtensions.FromLabel(value)))
             { Description = "Controls drum lane background and measure line visibility." };
 
+            var noteDisplayStyleItem = new DropdownConfigItem(
+                "Note Display",
+                () => _configManager.Config.NoteDisplayStyle.ToLabel(),
+                DrumsNoteDisplayStyleExtensions.Labels.ToArray(),
+                value => _configManager.SetNoteDisplayStyle(DrumsNoteDisplayStyleExtensions.FromLabel(value)))
+            { Description = "Selects how notes are presented during gameplay." };
+
             var judgeLineItem = new ToggleConfigItem(
                 "Judge Line",
                 () => _configManager.Config.ShowJudgementLine,
@@ -842,7 +849,7 @@ namespace DTXMania.Game.Lib.Stage
 
             var drumItems = new List<IConfigItem>
             {
-                scrollSpeedItem, laneDisplayItem, judgeLineItem, laneFlushItem, comboItem,
+                scrollSpeedItem, laneDisplayItem, noteDisplayStyleItem, judgeLineItem, laneFlushItem, comboItem,
                 hitTimingFeedbackItem,
                 playSpeedItem, pitchItem, metronomeItem, autoPlayItem
             };
