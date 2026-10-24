@@ -590,8 +590,10 @@ namespace DTXMania.Game.Lib.UI.Layout
             public static readonly Color LabelColor = new Color(0xCA, 0xD3, 0xDE);
             public static readonly Color HitMarkerColor = new Color(0xF0, 0xC1, 0x5A);
 
-            // Layer depths (BackToFront, larger = farther).
-            public const float DepthBackground = 0.95f;
+            // Layer depths (BackToFront, larger = farther). The strip background sits at
+            // 0.90 so it occludes the HPA-11 chart video (0.95f, same BackToFront batch;
+            // equal depths have unstable order) while staying behind the 0.80f staff.
+            public const float DepthBackground = 0.90f;
             public const float DepthStaffAndBarlines = 0.80f;
             public const float DepthHitMarker = 0.72f;
             public const float DepthBeamsAndStems = 0.65f;
