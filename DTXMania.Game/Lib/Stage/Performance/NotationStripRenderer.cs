@@ -35,6 +35,21 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private readonly NotationChart _chart;
         private readonly IReadOnlyList<MeasureLine> _measureLines;
 
+        // Engraving is pure over the immutable chart, so each measure is engraved at
+        // most once; re-engraving every visible measure each frame was steady GC churn.
+        private readonly Dictionary<int, NotationStripMeasureEngraving> _engravingCache = new();
+
+        // Staff line ys, key-column labels and barline anchors are pure functions of the
+        // immutable chart constants; precompute them once instead of reallocating the
+        // LINQ-built arrays/lists every frame.
+        private readonly IReadOnlyList<float> _staffLineYs;
+        private readonly IReadOnlyList<NotationStripLabelAnchor> _keyColumnLabels;
+        private readonly NotationStripAnchor[] _barlineAnchors;
+
+        // SMuFL glyph chars are a small fixed set; cache one string per char so drawing
+        // a glyph doesn't allocate a fresh single-char string every frame.
+        private readonly Dictionary<char, string> _glyphStrings = new();
+
         private IFont _bravuraFont;
         private IFont _labelFont;
         private Texture2D _whiteTexture;
@@ -59,6 +74,18 @@ namespace DTXMania.Game.Lib.Stage.Performance
             _resourceManager = resourceManager ?? throw new ArgumentNullException(nameof(resourceManager));
             _chart = chart ?? throw new ArgumentNullException(nameof(chart));
             _measureLines = measureLines ?? throw new ArgumentNullException(nameof(measureLines));
+
+            _staffLineYs = NotationStripLayout.GetStaffLineYs();
+            _keyColumnLabels = NotationStripLayout.GetKeyColumnLabels();
+            // One barline anchor per measure; MeasureLines[^1] is only an end bound.
+            _barlineAnchors = new NotationStripAnchor[Math.Max(0, measureLines.Count - 1)];
+            for (int i = 0; i < _barlineAnchors.Length; i++)
+            {
+                _barlineAnchors[i] = new NotationStripAnchor(
+                    measureLines[i].TimeMs,
+                    dxPx: 0f,
+                    yPx: NotationStrip.StaffTopY);
+            }
 
             try
             {
@@ -158,7 +185,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         private void DrawStaffLines(SpriteBatch spriteBatch)
         {
-            foreach (float y in NotationStripLayout.GetStaffLineYs())
+            foreach (float y in _staffLineYs)
             {
                 DrawRect(
                     spriteBatch,
@@ -179,8 +206,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
             double nowMs,
             int speedPercent)
         {
-            foreach (var anchor in NotationStripLayout.GetVisibleBarlineAnchors(_measureLines, leftMs, rightMs))
+            var window = NotationStripLayout.SelectVisibleMeasures(_measureLines, leftMs, rightMs);
+            for (int i = window.FirstIndex; i <= window.LastIndexInclusive; i++)
             {
+                var anchor = _barlineAnchors[i];
                 int x = (int)NotationStripLayout.ToScreenX(anchor.TimeMs, nowMs, speedPercent);
                 if (x + NotationStrip.BarlineThickness < NotationStrip.StripLeft || x > NotationStrip.StripRight)
                     continue;
@@ -221,7 +250,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
             int last = Math.Min(window.LastIndexInclusive, _chart.Measures.Count - 1);
             for (int i = window.FirstIndex; i <= last; i++)
             {
-                var engraving = NotationStripLayout.EngraveMeasure(_chart.Measures[i]);
+                if (!_engravingCache.TryGetValue(i, out var engraving))
+                {
+                    engraving = NotationStripLayout.EngraveMeasure(_chart.Measures[i]);
+                    _engravingCache[i] = engraving;
+                }
 
                 foreach (var rect in engraving.Rects)
                     DrawEngravedRect(spriteBatch, rect, nowMs, speedPercent);
@@ -268,7 +301,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             float y = glyph.YPx - _bravuraFont.LineSpacing / 2f;
             _bravuraFont.DrawString(
                 spriteBatch,
-                glyph.Glyph.ToString(),
+                GlyphText(glyph.Glyph),
                 new Vector2(x, y),
                 NotationStrip.NotationColor,
                 0f,
@@ -276,6 +309,16 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 Vector2.One,
                 SpriteEffects.None,
                 NotationStrip.DepthGlyphs);
+        }
+
+        private string GlyphText(char glyph)
+        {
+            if (!_glyphStrings.TryGetValue(glyph, out var text))
+            {
+                text = glyph.ToString();
+                _glyphStrings[glyph] = text;
+            }
+            return text;
         }
 
         private void DrawKeyColumnMask(SpriteBatch spriteBatch)
@@ -294,7 +337,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         private void DrawLabels(SpriteBatch spriteBatch)
         {
-            foreach (var label in NotationStripLayout.GetKeyColumnLabels())
+            foreach (var label in _keyColumnLabels)
             {
                 float textWidth = _labelFont.MeasureString(label.Text).X * LabelFontScale;
                 var position = new Vector2(

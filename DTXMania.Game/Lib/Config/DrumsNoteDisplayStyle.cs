@@ -1,6 +1,4 @@
-using System;
 using System.Collections.Generic;
-using System.Linq;
 
 namespace DTXMania.Game.Lib.Config
 {
@@ -12,21 +10,19 @@ namespace DTXMania.Game.Lib.Config
 
     public static class DrumsNoteDisplayStyleExtensions
     {
-        private static readonly (DrumsNoteDisplayStyle Style, string Label)[] OptionTable =
-        {
+        private static readonly EnumOptionTable<DrumsNoteDisplayStyle> OptionTable = new(
             (DrumsNoteDisplayStyle.Lanes, "LANES"),
-            (DrumsNoteDisplayStyle.Tab, "TAB"),
-        };
+            (DrumsNoteDisplayStyle.Tab, "TAB"));
 
-        public static IReadOnlyList<(DrumsNoteDisplayStyle Style, string Label)> Options => OptionTable;
+        public static IReadOnlyList<(DrumsNoteDisplayStyle Style, string Label)> Options =>
+            OptionTable.Options;
 
-        public static IReadOnlyList<string> Labels { get; } =
-            OptionTable.Select(option => option.Label).ToArray();
+        public static IReadOnlyList<string> Labels => OptionTable.Labels;
 
         public static string ToLabel(this DrumsNoteDisplayStyle style) =>
-            OptionTable.First(option => option.Style == style).Label;
+            OptionTable.ToLabel(style);
 
         public static DrumsNoteDisplayStyle FromLabel(string label) =>
-            OptionTable.First(option => string.Equals(option.Label, label, StringComparison.OrdinalIgnoreCase)).Style;
+            OptionTable.FromLabel(label);
     }
 }

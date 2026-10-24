@@ -33,4 +33,10 @@ public class DrumsNoteDisplayStyleTests
             new[] { "LANES", "TAB" },
             DrumsNoteDisplayStyleExtensions.Labels);
     }
+
+    [Fact]
+    public void ToLabel_WhenStyleIsUndefined_ShouldFallBackToEnumName()
+    {
+        Assert.Equal("99", DrumsNoteDisplayStyleExtensions.ToLabel((DrumsNoteDisplayStyle)99));
+    }
 }
