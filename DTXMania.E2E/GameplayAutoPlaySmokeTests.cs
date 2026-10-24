@@ -13,6 +13,10 @@ namespace DTXMania.E2E;
 [Trait("Category", "E2E")]
 public sealed class GameplayAutoPlaySmokeTests
 {
+    // Bar-1 boundary of the generated 120 BPM fixture chart: the second channel-54
+    // #AVI trigger lands here, restarting the one-second background video.
+    private const double BarOneVideoRetriggerSongTimeMs = 2000.0;
+
     [Fact(Timeout = 420_000)]
     public async Task GameplaySmoke_ShouldPersistIndependentSpeedBucketsAndReuseBucketAcrossPitches()
     {
@@ -228,18 +232,24 @@ public sealed class GameplayAutoPlaySmokeTests
             await NavigateToSongSelectAsync(bundle, fixture, cancellation.Token);
             await StartSongAsync(client, cancellation.Token);
 
-            // Photograph the strip while the first bars are still scrolling past the
-            // hit marker — after the last judgement the staff is empty.
+            // Photograph the strip mid-song: PerformanceReady is already true during
+            // READY (before StartSong), when channel-54 video triggers have not been
+            // scheduled and the frame cannot prove strip-over-BGA order. Wait for the
+            // song clock to advance past the bar-1 #AVI retrigger (2000ms at 120 BPM;
+            // the one-second video then stays active until ~3000ms) while unjudged
+            // notes remain — after the last judgement the staff is empty.
             await Eventually.UntilAsync(
                 token => client.GetGameStateAsync(token),
                 state =>
                     state.PerformanceReady &&
                     state.AutoPlayEnabled &&
                     string.Equals(state.NoteDisplayStyle, nameof(DrumsNoteDisplayStyle.Tab), StringComparison.Ordinal) &&
-                    state.TotalNotes > 0,
+                    state.TotalNotes > 0 &&
+                    state.TotalJudgements < state.TotalNotes &&
+                    state.CurrentSongTimeMs >= BarOneVideoRetriggerSongTimeMs,
                 TimeSpan.FromSeconds(120),
-                TimeSpan.FromMilliseconds(250),
-                "effective Tab performance underway",
+                TimeSpan.FromMilliseconds(100),
+                "effective Tab mid-song with unjudged notes past the video retrigger",
                 cancellation.Token);
             await SaveScreenshotAsync(client, fixture, "performance-tab.png", cancellation.Token);
 
