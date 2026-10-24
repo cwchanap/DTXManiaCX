@@ -4,6 +4,7 @@ using DTXMania.Automation.Support;
 using DTXMania.Automation.Telemetry;
 using DTXMania.E2E.Fixtures;
 using DTXMania.E2E.Support;
+using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Song.Entities;
 using Microsoft.EntityFrameworkCore;
 
@@ -234,6 +235,93 @@ public sealed class GameplayAutoPlaySmokeTests
             E2EArtifactWriter.CopyFixtureFiles(fixture);
             await E2EArtifactWriter.WriteTextAsync(fixture, "game-stdout-fullautoplay.log", process.StandardOutput);
             await E2EArtifactWriter.WriteTextAsync(fixture, "game-stderr-fullautoplay.log", process.StandardError);
+        }
+    }
+
+    [Fact(Timeout = 240_000)]
+    public async Task GameplayTabAutoPlay_ShouldJudgeEveryNoteInEffectiveTabModeAndComplete()
+    {
+        // HPA-411 black-box proof: persisted NoteDisplayStyle=Tab produces an effective
+        // Tab run — reported live through the noteDisplayStyle telemetry field — with
+        // the same AutoPlay judgements and Result completion as the Lanes smoke.
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(210));
+        var repoRoot = E2EGameLaunch.ResolveRepoRoot();
+        var runRoot = Path.Combine(Path.GetTempPath(), "dtxmaniacx-e2e-tabdisplay-" + Guid.NewGuid().ToString("N"));
+        var apiPort = E2EGameLaunch.ResolveApiPort();
+        var fixture = E2EFixtureBuilder.Build(
+            runRoot,
+            repoRoot,
+            apiPort,
+            noteDisplayStyle: DrumsNoteDisplayStyle.Tab,
+            enableAutoPlayLanes: true);
+        await using var bundle = E2EGameLaunch.CreateClientBundle(fixture);
+        var process = bundle.Process;
+        var client = bundle.Client;
+
+        try
+        {
+            process.Start(E2EGameLaunch.CreateOptions(fixture));
+            await process.WaitForStartupAsync(
+                client.GetHealthAsync,
+                TimeSpan.FromSeconds(60),
+                TimeSpan.FromMilliseconds(500),
+                cancellation.Token);
+
+            await WaitForStageAsync(client, "Title", TimeSpan.FromSeconds(45), cancellation.Token);
+            await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
+            await WaitForStageAsync(client, "SongSelect", TimeSpan.FromSeconds(45), cancellation.Token);
+
+            await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
+            await Task.Delay(500, cancellation.Token);
+            await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
+
+            // Polling until Tab is part of the predicate asserts ACTUAL effective Tab
+            // during Performance; a silent fallback to Lanes fails the poll timeout.
+            var tabRun = await Eventually.UntilAsync(
+                token => client.GetGameStateAsync(token),
+                state =>
+                    state.PerformanceReady &&
+                    state.AutoPlayEnabled &&
+                    string.Equals(state.NoteDisplayStyle, nameof(DrumsNoteDisplayStyle.Tab), StringComparison.Ordinal) &&
+                    state.TotalNotes > 0 &&
+                    state.TotalJudgements == state.TotalNotes,
+                TimeSpan.FromSeconds(120),
+                TimeSpan.FromMilliseconds(250),
+                "all chart notes automatically judged while Tab notation is effective",
+                cancellation.Token);
+
+            Assert.Equal(nameof(DrumsNoteDisplayStyle.Tab), tabRun.NoteDisplayStyle);
+            Assert.Equal(tabRun.TotalNotes, tabRun.TotalJudgements);
+            await SaveScreenshotAsync(client, fixture, "performance-tab.png", cancellation.Token);
+
+            await WaitForStageAsync(client, "Result", TimeSpan.FromSeconds(120), cancellation.Token);
+            var resultState = await Eventually.UntilAsync(
+                token => client.GetGameStateAsync(token),
+                state =>
+                    string.Equals(state.StageType, "Result", StringComparison.Ordinal) &&
+                    state.StageCompleted,
+                TimeSpan.FromSeconds(30),
+                TimeSpan.FromMilliseconds(250),
+                "Result stage completion",
+                cancellation.Token);
+
+            Assert.Equal(E2EFixtureBuilder.SongTitle, resultState.SelectedSongTitle);
+            // Judgement totals are unchanged by the display style: every note judged.
+            Assert.Equal(resultState.TotalNotes, resultState.TotalJudgements);
+            Assert.True(resultState.ClearFlag);
+            Assert.Equal("SongComplete", resultState.CompletionReason);
+            await E2EArtifactWriter.WriteJsonAsync(fixture, "final-state-tabautoplay.json", resultState);
+        }
+        catch
+        {
+            await SaveScreenshotAsync(client, fixture, "failure-tabautoplay.png", CancellationToken.None);
+            throw;
+        }
+        finally
+        {
+            E2EArtifactWriter.CopyFixtureFiles(fixture);
+            await E2EArtifactWriter.WriteTextAsync(fixture, "game-stdout-tabautoplay.log", process.StandardOutput);
+            await E2EArtifactWriter.WriteTextAsync(fixture, "game-stderr-tabautoplay.log", process.StandardError);
         }
     }
 

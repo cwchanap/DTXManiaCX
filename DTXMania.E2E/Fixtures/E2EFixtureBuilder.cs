@@ -23,7 +23,8 @@ public static class E2EFixtureBuilder
         int apiPort,
         int playSpeedPercent = PlaySpeedRange.Default,
         int pitchSemitones = PitchRange.Default,
-        bool enableAutoPlayLanes = true)
+        bool enableAutoPlayLanes = true,
+        DrumsNoteDisplayStyle noteDisplayStyle = DrumsNoteDisplayStyle.Lanes)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(runRoot);
         ArgumentException.ThrowIfNullOrWhiteSpace(repoRoot);
@@ -46,7 +47,8 @@ public static class E2EFixtureBuilder
                 apiPort,
                 PlaySpeedRange.SnapAndClamp(playSpeedPercent),
                 PitchRange.SnapAndClamp(pitchSemitones),
-                enableAutoPlayLanes),
+                enableAutoPlayLanes,
+                noteDisplayStyle),
             Encoding.UTF8);
         File.WriteAllText(paths.ChartPath, BuildChart(), Encoding.UTF8);
         var audioPath = Path.Combine(paths.SongDirectory, AudioFileName);
@@ -110,7 +112,8 @@ public static class E2EFixtureBuilder
         int apiPort,
         int playSpeedPercent,
         int pitchSemitones,
-        bool enableAutoPlayLanes)
+        bool enableAutoPlayLanes,
+        DrumsNoteDisplayStyle noteDisplayStyle)
     {
         var lines = new List<string>
         {
@@ -131,7 +134,9 @@ public static class E2EFixtureBuilder
             "[Game]",
             "ScrollSpeed=100",
             $"PlaySpeedPercent={playSpeedPercent}",
-            $"PitchSemitones={pitchSemitones}"
+            $"PitchSemitones={pitchSemitones}",
+            // Canonical enum name: the game reads this key by name, case-insensitively.
+            $"NoteDisplayStyle={noteDisplayStyle}"
         };
 
         // Sparse per-lane rows generated from the lane index: full AutoPlay is

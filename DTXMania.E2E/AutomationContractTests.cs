@@ -190,6 +190,7 @@ public sealed class AutomationContractTests
             GreatCount = 15,
             GoodCount = 3,
             PoorCount = 1,
+            NoteDisplayStyle = "Tab",
         };
 
         var camelCase = new JsonSerializerOptions
@@ -238,6 +239,7 @@ public sealed class AutomationContractTests
         Assert.Equal("Cleared", state.CompletionReason);
         Assert.Equal("Saved", state.ScoreSaveStatus);
         Assert.Equal("synthetic-save-error", state.ScoreSaveError);
+        Assert.Equal("Tab", state.NoteDisplayStyle);
         Assert.Equal(200, state.TotalJudgements);
     }
 
