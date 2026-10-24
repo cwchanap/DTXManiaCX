@@ -1348,6 +1348,7 @@ public class ConfigStageLogicTests
             Assert.Collection(categories[1].Items,
                 i => Assert.Equal("Scroll Speed", i.Name),
                 i => Assert.Equal("Lane Display", i.Name),
+                i => Assert.Equal("Note Display", i.Name),
                 i => Assert.Equal("Judge Line", i.Name),
                 i => Assert.Equal("Lane Flush", i.Name),
                 i => Assert.Equal("Combo", i.Name),
@@ -1454,6 +1455,52 @@ public class ConfigStageLogicTests
 
         mockConfig.Verify(
             manager => manager.SetLaneDisplayMode(expectedMode),
+            Times.Once);
+    }
+
+    [Theory]
+    [InlineData(DrumsNoteDisplayStyle.Lanes, "LANES")]
+    [InlineData(DrumsNoteDisplayStyle.Tab, "TAB")]
+    public void NoteDisplayItem_ShouldDisplayMatchingLabel(
+        DrumsNoteDisplayStyle style,
+        string expectedLabel)
+    {
+        var (stage, configManager, inputManager) = CreateStage();
+        using (inputManager)
+        {
+            configManager.Config.NoteDisplayStyle = style;
+            InitializeStageMenu(stage, includePanels: false);
+            var categories = ReflectionHelpers.GetPrivateField<List<ConfigCategory>>(stage, "_categories");
+            var item = categories!.Single(category => category.Name == "Drums")
+                .Items.Single(configItem => configItem.Name == "Note Display");
+
+            Assert.Equal($"Note Display: {expectedLabel}", item.GetDisplayText());
+        }
+    }
+
+    [Theory]
+    [InlineData(DrumsNoteDisplayStyle.Lanes, Keys.Left, DrumsNoteDisplayStyle.Tab)]
+    [InlineData(DrumsNoteDisplayStyle.Lanes, Keys.Right, DrumsNoteDisplayStyle.Tab)]
+    [InlineData(DrumsNoteDisplayStyle.Lanes, Keys.Enter, DrumsNoteDisplayStyle.Tab)]
+    [InlineData(DrumsNoteDisplayStyle.Tab, Keys.Left, DrumsNoteDisplayStyle.Lanes)]
+    [InlineData(DrumsNoteDisplayStyle.Tab, Keys.Right, DrumsNoteDisplayStyle.Lanes)]
+    [InlineData(DrumsNoteDisplayStyle.Tab, Keys.Enter, DrumsNoteDisplayStyle.Lanes)]
+    public void NoteDisplayItem_WhenAdjusted_ShouldDispatchLabelToEnumSetter(
+        DrumsNoteDisplayStyle startingStyle,
+        Keys key,
+        DrumsNoteDisplayStyle expectedStyle)
+    {
+        using var inputManager = new InputManagerCompat(new ConfigManager(), new TestMidiDeviceBackend());
+        var (stage, mockConfig) = CreateStageWithMockConfig(inputManager);
+        mockConfig.Object.Config.NoteDisplayStyle = startingStyle;
+        InitializeStageMenu(stage, includePanels: false);
+        SelectItemForEditing(stage, "Note Display");
+        SetKeyboardStates(stage, new KeyboardState(key), new KeyboardState());
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
+
+        mockConfig.Verify(
+            manager => manager.SetNoteDisplayStyle(expectedStyle),
             Times.Once);
     }
 

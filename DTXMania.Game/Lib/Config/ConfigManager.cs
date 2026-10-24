@@ -596,6 +596,16 @@ namespace DTXMania.Game.Lib.Config
                         Config.LaneDisplayMode = Enum.Parse<DrumsLaneDisplayMode>(matchedName);
                     break;
                 }
+                case "NoteDisplayStyle":
+                {
+                    var matchedName = Enum.GetNames<DrumsNoteDisplayStyle>()
+                        .FirstOrDefault(name =>
+                            string.Equals(name, value, StringComparison.OrdinalIgnoreCase));
+
+                    if (matchedName != null)
+                        Config.NoteDisplayStyle = Enum.Parse<DrumsNoteDisplayStyle>(matchedName);
+                    break;
+                }
                 case "ShowJudgementLine":
                     if (TryParseBool(value, out var showJudgementLine))
                         Config.ShowJudgementLine = showJudgementLine;
@@ -817,6 +827,7 @@ namespace DTXMania.Game.Lib.Config
             entries["DamageLevel"] = Config.DamageLevel.ToString();
             entries["AutoAddGauge"] = Config.AutoAddGauge.ToString();
             entries["LaneDisplayMode"] = Config.LaneDisplayMode.ToString();
+            entries["NoteDisplayStyle"] = Config.NoteDisplayStyle.ToString();
             entries["ShowJudgementLine"] = Config.ShowJudgementLine.ToString();
             entries["EnableLaneFlush"] = Config.EnableLaneFlush.ToString();
             entries["ShowCombo"] = Config.ShowCombo.ToString();
@@ -1079,6 +1090,19 @@ namespace DTXMania.Game.Lib.Config
                 return;
 
             Config.LaneDisplayMode = value;
+            MarkDirty();
+        }
+
+        /// <summary>Sets drum note display style, normalizing undefined values to Lanes, and marks a deferred save when changed.</summary>
+        public void SetNoteDisplayStyle(DrumsNoteDisplayStyle value)
+        {
+            if (!Enum.IsDefined(value))
+                value = DrumsNoteDisplayStyle.Lanes;
+
+            if (value == Config.NoteDisplayStyle)
+                return;
+
+            Config.NoteDisplayStyle = value;
             MarkDirty();
         }
 

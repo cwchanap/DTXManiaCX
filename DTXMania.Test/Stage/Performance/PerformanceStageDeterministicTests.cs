@@ -505,6 +505,7 @@ public class PerformanceStageDeterministicTests
             Risky = 3,
             NoFail = true,
             LaneDisplayMode = DrumsLaneDisplayMode.AllOff,
+            NoteDisplayStyle = DrumsNoteDisplayStyle.Tab,
             ShowJudgementLine = false,
             EnableLaneFlush = true,
             ShowCombo = false,
@@ -525,6 +526,7 @@ public class PerformanceStageDeterministicTests
         config.Risky = 0;
         config.NoFail = false;
         config.LaneDisplayMode = DrumsLaneDisplayMode.AllOn;
+        config.NoteDisplayStyle = DrumsNoteDisplayStyle.Lanes;
         config.ShowJudgementLine = true;
         config.EnableLaneFlush = false;
         config.ShowCombo = true;
@@ -547,6 +549,24 @@ public class PerformanceStageDeterministicTests
         Assert.True((bool)gateType.GetProperty("HideCombo")!.GetValue(visualGates)!);
         Assert.True((bool)gateType.GetProperty("EnableLaneFlush")!.GetValue(visualGates)!);
         Assert.True((bool)gateType.GetProperty("ShowHitTimingFeedback")!.GetValue(visualGates)!);
+        // The requested note display style is frozen too: live config edits must not
+        // change the style this run was started with.
+        Assert.Equal(
+            DrumsNoteDisplayStyle.Tab,
+            (DrumsNoteDisplayStyle)gateType.GetProperty("RequestedNoteDisplayStyle")!.GetValue(visualGates)!);
+    }
+
+    [Fact]
+    public void VisualGates_BeforeFreeze_ShouldDefaultRequestedNoteDisplayStyleToLanes()
+    {
+        // default(PerformanceVisualGates) must mean Lanes so runs started without a
+        // frozen configuration keep the classic lane presentation.
+        var stage = CreateStage();
+
+        var visualGates = ReflectionHelpers.GetPrivateField<object>(stage, "_visualGates");
+        var value = visualGates!.GetType().GetProperty("RequestedNoteDisplayStyle")!.GetValue(visualGates);
+
+        Assert.Equal(DrumsNoteDisplayStyle.Lanes, (DrumsNoteDisplayStyle)value!);
     }
 
     [Fact]
