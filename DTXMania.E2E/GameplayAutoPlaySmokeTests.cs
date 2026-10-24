@@ -251,7 +251,15 @@ public sealed class GameplayAutoPlaySmokeTests
                 TimeSpan.FromMilliseconds(100),
                 "effective Tab mid-song with unjudged notes past the video retrigger",
                 cancellation.Token);
-            await SaveScreenshotAsync(client, fixture, "performance-tab.png", cancellation.Token);
+            // performance-tab.png is this test's required visual evidence — unlike
+            // the best-effort diagnostic captures, a skipped capture must fail here
+            // rather than let the run pass without the artifact it exists to produce.
+            var tabScreenshotPath = await SaveScreenshotAsync(
+                client, fixture, "performance-tab.png", cancellation.Token);
+            Assert.NotNull(tabScreenshotPath);
+            Assert.True(
+                new FileInfo(tabScreenshotPath).Length > 0,
+                "performance-tab.png must be a non-empty PNG.");
 
             // Polling until Tab is part of the predicate asserts ACTUAL effective Tab
             // through the last judgement; a silent fallback to Lanes fails the poll.
@@ -597,7 +605,12 @@ public sealed class GameplayAutoPlaySmokeTests
     /// as a PNG artifact. Used both for proactive stage screenshots (e.g. SongSelect
     /// status-panel visual verification) and for failure diagnostics.
     /// </summary>
-    private static async Task SaveScreenshotAsync(
+    /// <returns>
+    /// The artifact path when a PNG was written, or null when the capture was
+    /// skipped (empty data or an exception). Callers for whom the image is
+    /// required evidence — not a best-effort diagnostic — must assert on it.
+    /// </returns>
+    private static async Task<string?> SaveScreenshotAsync(
         JsonRpcGameClient client,
         E2EFixture fixture,
         string fileName,
@@ -612,11 +625,13 @@ public sealed class GameplayAutoPlaySmokeTests
                 cancellationToken, timeoutCts.Token);
             var imageData = await client.TakeScreenshotBase64Async(cancellation.Token);
             if (string.IsNullOrWhiteSpace(imageData))
-                return;
+                return null;
 
             var imageBytes = Convert.FromBase64String(imageData);
             Directory.CreateDirectory(fixture.ArtifactRoot);
-            await File.WriteAllBytesAsync(Path.Combine(fixture.ArtifactRoot, fileName), imageBytes, cancellation.Token);
+            var screenshotPath = Path.Combine(fixture.ArtifactRoot, fileName);
+            await File.WriteAllBytesAsync(screenshotPath, imageBytes, cancellation.Token);
+            return screenshotPath;
         }
         catch (Exception ex)
         {
@@ -624,6 +639,7 @@ public sealed class GameplayAutoPlaySmokeTests
             // but log the reason so a missing CI artifact is explainable (e.g. the test's own
             // cancellation budget surfaced here as OperationCanceledException).
             Console.WriteLine($"[E2E] Screenshot capture skipped for '{fileName}': {ex.GetType().Name}: {ex.Message}");
+            return null;
         }
     }
 
