@@ -82,6 +82,7 @@ namespace DTXMania.Game.Lib.Stage
         private SkillManager? _skillManager;
         private SkillPanelDisplay? _skillPanelDisplay;
         private SkillMeterDisplay? _skillMeterDisplay;
+        private TabHudDisplay? _tabHudDisplay;
         private NxAttackEffectManager _nxAttackEffectManager = null!;
         private JudgementTextPopupManager _fontJudgementTextPopupManager = null!;
         private SpriteJudgementTextPopupManager _spriteJudgementTextPopupManager = null!;
@@ -584,6 +585,14 @@ namespace DTXMania.Game.Lib.Stage
             _skillPanelDisplay = new SkillPanelDisplay(_resourceManager, graphicsDevice, skillChart, difficultyLabel);
             _skillMeterDisplay = new SkillMeterDisplay(_resourceManager, graphicsDevice);
 
+            // HPA-509: Tab-mode HUD. Presentation only — it renders read-only
+            // snapshots of the live values the managers above own.
+            _tabHudDisplay = new TabHudDisplay(
+                graphicsDevice,
+                skillChart,
+                _selectedSong?.DisplayTitle ?? _selectedSong?.Title,
+                _selectedSong?.DatabaseSong?.DisplayArtist);
+
             // Initialize Phase 2 components
             _audioLoader = new AudioLoader(_resourceManager);
             _noteRenderer = new NoteRenderer(graphicsDevice, _resourceManager);
@@ -653,6 +662,8 @@ namespace DTXMania.Game.Lib.Stage
             _skillPanelDisplay = null;
             _skillMeterDisplay?.Dispose();
             _skillMeterDisplay = null;
+            _tabHudDisplay?.Dispose();
+            _tabHudDisplay = null;
 
 
             // Cleanup Phase 2 components
@@ -2460,7 +2471,10 @@ namespace DTXMania.Game.Lib.Stage
             // HPA-411 Tab: the skill panel covers the strip's hit marker and key labels,
             // and the progress bar/skill meter obscure the notation look-ahead, so all
             // four draws are skipped while Tab is effective. Their underlying
-            // metric/state updates keep running; every other HUD element is unchanged.
+            // metric/state updates keep running. HPA-509 Tab: the legacy-position
+            // gauge/score/combo draws are skipped for the same reason — the Tab HUD
+            // renders those values in its own regions instead. Only the legacy-position
+            // draws are gated; the managers keep updating either way.
             bool notationTabActive = _notationStrip != null;
 
             // Draw shutters first (overlay elements)
@@ -2478,21 +2492,56 @@ namespace DTXMania.Game.Lib.Stage
                 _skillMeterDisplay?.Draw(_spriteBatch);
             }
 
-            // Draw gauge elements
-            DrawGaugeElements();
+            if (notationTabActive)
+            {
+                // HPA-509: compact Tab HUD (header/combo/LIFE/progress/stats).
+                _tabHudDisplay?.Draw(_spriteBatch, BuildTabHudFrameState());
+            }
+            else
+            {
+                // Draw gauge elements
+                DrawGaugeElements();
 
-            // Draw existing UI components as fallback
-            // Legacy gauge display removed - using asset-based gauge only
+                // Draw existing UI components as fallback
+                // Legacy gauge display removed - using asset-based gauge only
 
-            _scoreDisplay?.Draw(_spriteBatch);
-            if (!_visualGates.HideCombo)
-                _comboDisplay?.Draw(_spriteBatch);
+                _scoreDisplay?.Draw(_spriteBatch);
+                if (!_visualGates.HideCombo)
+                    _comboDisplay?.Draw(_spriteBatch);
+            }
 
             _uiManager?.Draw(_spriteBatch, 0);
 
             // Draw overlays last (topmost)
             DrawOverlays();
         }
+
+        /// <summary>
+        /// Snapshot the live Tab HUD values from the existing gameplay owners
+        /// (HPA-509). Read-only: score/combo/counts come from the displays that
+        /// update them, life/progress from the stage's already-clamped fields, time
+        /// from the existing song clock, achievement from SkillPanelDisplay. The
+        /// level-weighted game skill is derived inside TabHudDisplay via the shared
+        /// SongScore formula — no value is recalculated or duplicated here.
+        /// </summary>
+        private TabHudFrameState BuildTabHudFrameState() => new TabHudFrameState
+        {
+            Score = _scoreDisplay?.Score ?? 0,
+            Combo = _comboDisplay?.Combo ?? 0,
+            Life = _currentGaugeValue,
+            Progress = _currentProgressValue,
+            ElapsedMs = (_songTimer != null && _currentGameTime != null)
+                ? _songTimer.GetCurrentMs(_currentGameTime)
+                : 0.0,
+            TotalMs = _parsedChart?.DurationMs ?? 0.0,
+            Achievement = _skillPanelDisplay?.Skill ?? 0.0,
+            PerfectCount = _skillPanelDisplay?.PerfectCount ?? 0,
+            GreatCount = _skillPanelDisplay?.GreatCount ?? 0,
+            GoodCount = _skillPanelDisplay?.GoodCount ?? 0,
+            PoorCount = _skillPanelDisplay?.PoorCount ?? 0,
+            MissCount = _skillPanelDisplay?.MissCount ?? 0,
+            MaxCombo = _skillPanelDisplay?.MaxCombo ?? 0,
+        };
         
         /// <summary>
         /// Draws shutter animation using DTXManiaNX layout

@@ -603,7 +603,72 @@ namespace DTXMania.Game.Lib.UI.Layout
         }
 
         #endregion
-        
+
+        #region Tab-mode HUD (HPA-509)
+
+        /// <summary>
+        /// Tab-mode HUD layout (HPA-509). All Tab-specific bounds, colors, font sizes
+        /// and depths live here; the Lanes and NotationStrip constants stay untouched.
+        /// Bounds are the 1280×720 starting regions from the design spec — legibility
+        /// targets, not pixel-perfect assertions for dynamic font metrics.
+        /// </summary>
+        public static class TabHud
+        {
+            // Header: clamped/ellipsized title + artist on the left, score digits right.
+            public const int HeaderLeft = 20;
+            public const int HeaderRight = 1260;
+            public const int HeaderTop = 8;
+            public const int HeaderBottom = 90;
+
+            // Hit feedback: combo above the fixed strip hit marker (transient
+            // judgement + fast/slow text join this region in the Task 2 pass).
+            public const int HitFeedbackCenterX = NotationStrip.HitMarkerX;
+            public const int HitFeedbackTop = 125;
+            public const int HitFeedbackBottom = 250;
+
+            // LIFE: label in the left key column + horizontal gauge, between the
+            // hit feedback and the strip.
+            public const int LifeLeft = NotationStrip.KeyColumnWidth;
+            public const int LifeRight = 1260;
+            public const int LifeTop = 260;
+            public const int LifeBottom = 283;
+
+            // Progress: elapsed/total on the left + thin horizontal fill, directly
+            // below the strip.
+            public const int ProgressLeft = NotationStrip.KeyColumnWidth;
+            public const int ProgressRight = 1260;
+            public const int ProgressTop = 586;
+            public const int ProgressBottom = 617;
+
+            // Stats row: compact judgement/skill tiles along the bottom.
+            public const int StatsLeft = 16;
+            public const int StatsRight = 1264;
+            public const int StatsTop = 628;
+            public const int StatsBottom = 704;
+
+            // Font sizes: NotoSerifJP is baked at 14/24/48 pt, so request those
+            // sizes directly (ManagedFont snaps requests to the closest bake).
+            public const int TitleFontSizePt = 24;
+            public const int ScoreFontSizePt = 48;
+            public const int ComboFontSizePt = 48;
+            public const int TileFontSizePt = 14;
+
+            // Key flashes draw in the base BackToFront batch (Task 2 consumer)
+            // between the key mask (0.40) and labels (0.30) so a filled flash stays
+            // behind its label.
+            public const float DepthKeyFlash = 0.35f;
+
+            // Colors follow the notation strip palette.
+            public static readonly Color PrimaryTextColor = NotationStrip.NotationColor;
+            public static readonly Color SecondaryTextColor = NotationStrip.LabelColor;
+            public static readonly Color AccentColor = NotationStrip.HitMarkerColor;
+            public static readonly Color ComboColor = Color.White;
+            public static readonly Color BarBackColor = new Color(0x20, 0x28, 0x33);
+            public static readonly Color LifeFillColor = new Color(0x3C, 0xB8, 0x64);
+        }
+
+        #endregion
+
         #region Performance Component Constants
         
         /// <summary>

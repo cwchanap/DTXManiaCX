@@ -21,32 +21,28 @@ namespace DTXMania.Test.UI
         [Fact]
         public void FormatDuration_UnderOneHour_ShouldReturnMSSFormat()
         {
-            var panel = new SongStatusPanel();
-            var result = InvokePrivateMethod<string>(panel, "FormatDuration", 90.0);
+            var result = SongStatusPanel.FormatDuration(90.0);
             Assert.Equal("1:30", result);
         }
 
         [Fact]
         public void FormatDuration_ExactlyOneHour_ShouldReturnHMMSSFormat()
         {
-            var panel = new SongStatusPanel();
-            var result = InvokePrivateMethod<string>(panel, "FormatDuration", 3600.0);
+            var result = SongStatusPanel.FormatDuration(3600.0);
             Assert.Equal("1:00:00", result);
         }
 
         [Fact]
         public void FormatDuration_OverOneHour_ShouldReturnHMMSSFormat()
         {
-            var panel = new SongStatusPanel();
-            var result = InvokePrivateMethod<string>(panel, "FormatDuration", 5430.0);
+            var result = SongStatusPanel.FormatDuration(5430.0);
             Assert.Equal("1:30:30", result);
         }
 
         [Fact]
         public void FormatDuration_Zero_ShouldReturnZeroMinutes()
         {
-            var panel = new SongStatusPanel();
-            var result = InvokePrivateMethod<string>(panel, "FormatDuration", 0.0);
+            var result = SongStatusPanel.FormatDuration(0.0);
             Assert.Equal("0:00", result);
         }
 

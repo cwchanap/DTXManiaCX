@@ -1697,10 +1697,12 @@ namespace DTXMania.Game.Lib.Song.Components
         /// <summary>
         /// Formats a duration in seconds to a human-readable string format.
         /// Returns format "M:SS" for durations under 1 hour, "H:MM:SS" for durations 1 hour or longer.
+        /// Internal static so other screens (e.g. the HPA-509 Tab HUD) reuse the same
+        /// formatter instead of forking a second one.
         /// </summary>
         /// <param name="durationInSeconds">Duration in seconds to format</param>
         /// <returns>Formatted duration string</returns>
-        private string FormatDuration(double durationInSeconds)
+        internal static string FormatDuration(double durationInSeconds)
         {
             var duration = TimeSpan.FromSeconds(durationInSeconds);
             return duration.TotalHours >= 1 
