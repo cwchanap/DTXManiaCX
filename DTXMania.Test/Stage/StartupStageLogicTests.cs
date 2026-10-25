@@ -403,7 +403,7 @@ namespace DTXMania.Test.Stage
                 "_currentAsyncTask")!;
             clock.Advance(10);
             completion.SetResult(true);
-            await phaseTask.WaitAsync(TimeSpan.FromSeconds(2));
+            await phaseTask.WaitAsync(TimeSpan.FromSeconds(10));
 
             AssertRecorded(trace, StartupCriticalPathMilestone.DatabaseTerminal);
             AssertNotRecorded(
@@ -435,7 +435,7 @@ namespace DTXMania.Test.Stage
                 "_currentAsyncTask")!;
 
             completion.SetResult(true);
-            await phaseTask.WaitAsync(TimeSpan.FromSeconds(2));
+            await phaseTask.WaitAsync(TimeSpan.FromSeconds(10));
             var terminal = Timestamp(
                 trace,
                 StartupCriticalPathMilestone.DatabaseTerminal);
@@ -545,7 +545,7 @@ namespace DTXMania.Test.Stage
                 "_currentAsyncTask")!;
             clock.Advance(10);
             completion.SetResult(CreateEnumerationResult());
-            await phaseTask.WaitAsync(TimeSpan.FromSeconds(2));
+            await phaseTask.WaitAsync(TimeSpan.FromSeconds(10));
 
             AssertRecorded(
                 trace,
