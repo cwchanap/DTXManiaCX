@@ -219,13 +219,8 @@ public class SongStatusPanelLogicTests
     [Fact]
     public void FormatDuration_ShouldFormatShortAndLongDurations()
     {
-        var panel = new SongStatusPanel();
-
-        var shortText = InvokePrivate<string>(panel, "FormatDuration", 125.0);
-        var longText = InvokePrivate<string>(panel, "FormatDuration", 3725.0);
-
-        Assert.Equal("2:05", shortText);
-        Assert.Equal("1:02:05", longText);
+        Assert.Equal("2:05", SongStatusPanel.FormatDuration(125.0));
+        Assert.Equal("1:02:05", SongStatusPanel.FormatDuration(3725.0));
     }
 
     [Fact]
