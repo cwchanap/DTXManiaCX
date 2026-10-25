@@ -174,7 +174,7 @@ namespace DTXMania.Test.Stage.Performance
         [InlineData(0.0)]  // exact zero
         [InlineData(0.4)]  // rounds to 0 → neutral (sub-millisecond)
         [InlineData(-0.4)] // rounds to 0 → neutral (sub-millisecond)
-        public void ProcessJudgement_RoundedZeroDelta_ShouldIncrementNeither(int delta)
+        public void ProcessJudgement_RoundedZeroDelta_ShouldIncrementNeither(double delta)
         {
             var display = CreateDisplay();
 

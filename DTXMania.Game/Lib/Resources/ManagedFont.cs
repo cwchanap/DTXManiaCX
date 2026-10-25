@@ -562,14 +562,25 @@ namespace DTXMania.Game.Lib.Resources
         public void DrawStringWithShadow(SpriteBatch spriteBatch, string text, Vector2 position,
                                         XnaColor textColor, XnaColor shadowColor, Vector2 shadowOffset)
         {
+            DrawStringWithShadow(spriteBatch, text, position, textColor, shadowColor, shadowOffset, 0f);
+        }
+
+        [ExcludeFromCodeCoverage]
+        public void DrawStringWithShadow(SpriteBatch spriteBatch, string text, Vector2 position,
+                                        XnaColor textColor, XnaColor shadowColor, Vector2 shadowOffset,
+                                        float layerDepth)
+        {
             if (_disposed || _spriteFont == null || string.IsNullOrEmpty(text))
                 return;
 
-            // Draw shadow first
-            DrawString(spriteBatch, text, position + shadowOffset, shadowColor);
+            // Shadow first, a hair behind the text: BackToFront batches sort unstably
+            // on equal depths, so the pair must not share a plane.
+            DrawString(spriteBatch, text, position + shadowOffset, shadowColor,
+                       0f, Vector2.Zero, Vector2.One, SpriteEffects.None, Math.Min(layerDepth + 0.01f, 1f));
 
             // Draw main text on top
-            DrawString(spriteBatch, text, position, textColor);
+            DrawString(spriteBatch, text, position, textColor,
+                       0f, Vector2.Zero, Vector2.One, SpriteEffects.None, layerDepth);
         }
 
         public void DrawStringWrapped(SpriteBatch spriteBatch, string text, XnaRectangle bounds,

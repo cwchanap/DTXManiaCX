@@ -788,6 +788,14 @@ public class PerformanceStageDeterministicTests
         var strip = ReflectionHelpers.GetPrivateField<NotationStripRenderer>(stage, "_notationStrip");
         Assert.NotNull(strip);
 
+        // Plant a real Tab HUD display so the cleanup assertion below can actually
+        // fail: an unset field is null before AND after cleanup.
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_tabHudDisplay",
+            new TabHudDisplay(CreateUninitialized<GraphicsDevice>(), null, "t", "a"));
+        Assert.NotNull(ReflectionHelpers.GetPrivateField<object>(stage, "_tabHudDisplay"));
+
         // A staged-but-unconsumed chart must also be discarded by cleanup.
         ReflectionHelpers.InvokePrivateMethod(
             stage, "TryStageNotationChart", 0, CancellationToken.None);
@@ -5304,6 +5312,19 @@ public class PerformanceStageDeterministicTests
         // opt-in predicate as the Lanes timing display. Stat tiles stay ungated.
         Assert.Equal("Perfect", tabHud.PopupForTesting!.Text);
         Assert.Null(tabHud.PopupTimingForTesting.Text);
+    }
+
+    [Fact]
+    public void BuildTabHudFrameState_WhenShowComboDisabled_ShouldGateTheTabCombo()
+    {
+        // ShowCombo=false hides the Lanes combo draw; the Tab HUD combo must obey
+        // the same frozen gate instead of drawing unconditionally (final review).
+        var stage = CreateStageWithConfig(new ConfigData { ShowCombo = false });
+
+        var state = ReflectionHelpers.InvokePrivateMethod<TabHudFrameState>(
+            stage, "BuildTabHudFrameState");
+
+        Assert.True(state.HideCombo);
     }
 
     [Fact]

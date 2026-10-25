@@ -662,11 +662,22 @@ namespace DTXMania.Game.Lib.UI.Layout
             // and labels (0.30) so a filled flash stays behind its label.
             public const float DepthKeyFlash = 0.35f;
 
+            // UI-pass draw depths (BackToFront, larger = farther). The Tab HUD shares
+            // that batch with the strip's hundreds of glyphs and MonoGame's sort is
+            // unstable on equal depths, so every Tab draw names an explicit plane:
+            // bar back behind fill (same planes as the legacy gauge 0.19/0.18), text
+            // front-most; each shadow rides at DepthText + 0.01 (ManagedFont's
+            // derivation) so the pair never shares a plane.
+            public const float DepthBarBack = 0.19f;
+            public const float DepthBarFill = 0.18f;
+            public const float DepthText = 0.16f;
+
             // Key flash slot geometry: one bar per lane row behind the right-aligned
             // label, refreshed (overwritten) by input/judgement, decayed by the shared
-            // Animation.FlashDecayRate.
+            // Animation.FlashDecayRate. Height matches the ~10px label rows; a taller
+            // bar bleeds onto the neighboring lane's label.
             public const int KeyFlashLeft = 6;
-            public const int KeyFlashHeight = 18;
+            public const int KeyFlashHeight = 10;
             public const float KeyFlashAlpha = 0.45f;
 
             // Flash colors: hits flash the hit-marker gold, Miss flashes red
