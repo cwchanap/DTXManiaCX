@@ -27,6 +27,7 @@ using DTXMania.Game.Lib.Song.Notation;
 using DTXMania.Game.Lib.Utilities;
 // The UI layout namespace also declares a MeasureLine class; notation inputs use the chart-component one.
 using MeasureLine = DTXMania.Game.Lib.Song.Components.MeasureLine;
+using TabHud = DTXMania.Game.Lib.UI.Layout.PerformanceUILayout.TabHud;
 
 namespace DTXMania.Game.Lib.Stage
 {
@@ -434,6 +435,11 @@ namespace DTXMania.Game.Lib.Stage
             if (_notationStrip != null)
             {
                 DrawNotationStrip();
+
+                // HPA-509: key flashes belong in the base BackToFront batch, directly
+                // after the strip, at DepthKeyFlash (0.35) so they render behind the
+                // strip labels (0.30) but above the key mask (0.40).
+                _tabHudDisplay?.DrawKeyFlashes(_spriteBatch);
             }
             else
             {
@@ -1214,6 +1220,9 @@ namespace DTXMania.Game.Lib.Stage
             _fontJudgementTextPopupManager?.Update(deltaTime);
             _hitTimingFeedbackDisplay?.Update(deltaTime);
 
+            // HPA-509 Tab: advance the popup slot and key flash decay
+            _tabHudDisplay?.Update(deltaTime);
+
             // Update pad renderer
             _padRenderer?.Update(deltaTime);
 
@@ -1974,6 +1983,11 @@ namespace DTXMania.Game.Lib.Stage
             // input registered, even before the song clock starts.
             _padRenderer?.TriggerPadPress(e.Lane, false); // false = key-down, not judged hit
 
+            // HPA-509 Tab: manual input refreshes the lane's key flash immediately,
+            // even without a judged note (judgement later overwrites the same slot).
+            if (_notationStrip != null)
+                _tabHudDisplay?.TriggerKeyFlash(e.Lane, TabHud.KeyFlashHitColor);
+
             // Only record gameplay telemetry and chip sounds while the chart is actively playing.
             // During loading, the ready countdown, or after stop, the song clock is not advancing,
             // so telemetry must not capture these non-gameplay hits.
@@ -2032,14 +2046,40 @@ namespace DTXMania.Game.Lib.Stage
                     _noteRenderer?.TriggerLaneFlash(e.Lane);
             }
 
-            // Spawn judgement text popup for all judgements
-            _spriteJudgementTextPopupManager?.SpawnPopup(e);
-
-            if (_visualGates.ShowHitTimingFeedback
+            // HPA-509: per-hit fast/slow visibility, computed once and shared by the
+            // Lanes timing spawn and the Tab popup's fast/slow line. The cumulative
+            // Fast/Slow stat tiles stay always-visible and independent of this gate.
+            bool showPerHitTiming = _visualGates.ShowHitTimingFeedback
                 && e.IsHit()
-                && !FrozenAutoPlayLanes.Contains(e.Lane))
+                && !FrozenAutoPlayLanes.Contains(e.Lane);
+
+            if (_notationStrip == null)
             {
-                _hitTimingFeedbackDisplay?.Spawn(e);
+                // Lanes: spawn judgement text popup for all judgements (unchanged).
+                _spriteJudgementTextPopupManager?.SpawnPopup(e);
+
+                if (showPerHitTiming)
+                {
+                    _hitTimingFeedbackDisplay?.Spawn(e);
+                }
+            }
+            else
+            {
+                // HPA-509 Tab: the legacy popups draw at Lanes positions, so their
+                // spawns are gated (DrawJudgementTexts stays untouched and finds no
+                // transients) and the Tab HUD's own newest-wins slot is fed instead.
+                // Every judgement also refreshes the lane's key flash: gold for hits,
+                // red for Miss, so instrument identity survives rapid popup replaces.
+                _tabHudDisplay?.TriggerKeyFlash(
+                    e.Lane,
+                    e.IsHit() ? TabHud.KeyFlashHitColor : TabHud.KeyFlashMissColor);
+
+                if (_tabHudDisplay != null
+                    && JudgementTextPopupManager.JudgementTexts.TryGetValue(e.Type, out var word)
+                    && JudgementTextPopupManager.JudgementColors.TryGetValue(e.Type, out var color))
+                {
+                    _tabHudDisplay.NotifyJudgement(word, color, showPerHitTiming, e.DeltaMs);
+                }
             }
         }
 
@@ -2541,6 +2581,8 @@ namespace DTXMania.Game.Lib.Stage
             PoorCount = _skillPanelDisplay?.PoorCount ?? 0,
             MissCount = _skillPanelDisplay?.MissCount ?? 0,
             MaxCombo = _skillPanelDisplay?.MaxCombo ?? 0,
+            FastCount = _skillPanelDisplay?.FastCount ?? 0,
+            SlowCount = _skillPanelDisplay?.SlowCount ?? 0,
         };
         
         /// <summary>

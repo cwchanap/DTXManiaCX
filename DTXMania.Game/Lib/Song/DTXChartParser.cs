@@ -71,6 +71,15 @@ namespace DTXMania.Game.Lib.Song
         };
 
         /// <summary>
+        /// Narrow read-only channel→lane lookup (HPA-509): backs the notation
+        /// strip's label anchors without exposing or copying the mapping table.
+        /// </summary>
+        internal static bool TryGetLane(int channel, out int lane)
+        {
+            return ChannelToLaneMap.TryGetValue(channel, out lane);
+        }
+
+        /// <summary>
         /// Ticks per measure in DTX format
         /// </summary>
         private const int TicksPerMeasure = 192;

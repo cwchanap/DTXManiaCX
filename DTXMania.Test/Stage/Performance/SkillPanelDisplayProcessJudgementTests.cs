@@ -146,6 +146,104 @@ namespace DTXMania.Test.Stage.Performance
 
         #endregion
 
+        #region Fast/Slow Count Tests (HPA-509)
+
+        [Fact]
+        public void ProcessJudgement_NegativeDelta_ShouldIncrementFastCountOnly()
+        {
+            var display = CreateDisplay();
+
+            display.ProcessJudgement(new JudgementEvent(0, 0, -12.4, JudgementType.Perfect), 0);
+
+            Assert.Equal(1, display.FastCount);
+            Assert.Equal(0, display.SlowCount);
+        }
+
+        [Fact]
+        public void ProcessJudgement_PositiveDelta_ShouldIncrementSlowCountOnly()
+        {
+            var display = CreateDisplay();
+
+            display.ProcessJudgement(new JudgementEvent(0, 0, 23.6, JudgementType.Great), 0);
+
+            Assert.Equal(0, display.FastCount);
+            Assert.Equal(1, display.SlowCount);
+        }
+
+        [Theory]
+        [InlineData(0.0)]  // exact zero
+        [InlineData(0.4)]  // rounds to 0 → neutral (sub-millisecond)
+        [InlineData(-0.4)] // rounds to 0 → neutral (sub-millisecond)
+        public void ProcessJudgement_RoundedZeroDelta_ShouldIncrementNeither(int delta)
+        {
+            var display = CreateDisplay();
+
+            display.ProcessJudgement(new JudgementEvent(0, 0, delta, JudgementType.Good), 0);
+
+            Assert.Equal(0, display.FastCount);
+            Assert.Equal(0, display.SlowCount);
+            Assert.Equal(1, display.GoodCount);
+        }
+
+        [Fact]
+        public void ProcessJudgement_Miss_ShouldNeverCountFastOrSlow()
+        {
+            var display = CreateDisplay();
+
+            display.ProcessJudgement(new JudgementEvent(0, 0, -50, JudgementType.Miss), 0);
+            display.ProcessJudgement(new JudgementEvent(1, 0, 50, JudgementType.Miss), 0);
+
+            Assert.Equal(2, display.MissCount);
+            Assert.Equal(0, display.FastCount);
+            Assert.Equal(0, display.SlowCount);
+        }
+
+        [Fact]
+        public void ProcessJudgement_PoorHit_ShouldCountTowardFastOrSlow()
+        {
+            // Poor is a registered hit, so its delta classifies like any other hit.
+            var display = CreateDisplay();
+
+            display.ProcessJudgement(new JudgementEvent(0, 0, 15, JudgementType.Poor), 0);
+            display.ProcessJudgement(new JudgementEvent(1, 0, -15, JudgementType.Poor), 0);
+
+            Assert.Equal(2, display.PoorCount);
+            Assert.Equal(1, display.FastCount);
+            Assert.Equal(1, display.SlowCount);
+        }
+
+        [Fact]
+        public void ProcessJudgement_AutoPlayRoundedZeroDeltas_ShouldIncrementNeither()
+        {
+            // AutoPlay contributes rounded-zero offsets; the always-visible totals
+            // must therefore stay untouched by an AutoPlay run.
+            var display = CreateDisplay();
+
+            display.ProcessJudgement(new JudgementEvent(0, 0, 0, JudgementType.Perfect), 0);
+            display.ProcessJudgement(new JudgementEvent(1, 0, 0.2, JudgementType.Perfect), 0);
+            display.ProcessJudgement(new JudgementEvent(2, 0, -0.2, JudgementType.Perfect), 0);
+
+            Assert.Equal(3, display.PerfectCount);
+            Assert.Equal(0, display.FastCount);
+            Assert.Equal(0, display.SlowCount);
+        }
+
+        [Fact]
+        public void ProcessJudgement_FastSlow_ShouldAccumulateAcrossEvents()
+        {
+            var display = CreateDisplay();
+
+            display.ProcessJudgement(new JudgementEvent(0, 0, -12, JudgementType.Perfect), 0);
+            display.ProcessJudgement(new JudgementEvent(1, 0, -8, JudgementType.Great), 0);
+            display.ProcessJudgement(new JudgementEvent(2, 0, 31, JudgementType.Good), 0);
+            display.ProcessJudgement(new JudgementEvent(3, 0, 0, JudgementType.Miss), 0);
+
+            Assert.Equal(2, display.FastCount);
+            Assert.Equal(1, display.SlowCount);
+        }
+
+        #endregion
+
         #region GetSmallRateSourceRectangle Tests
 
         [Theory]

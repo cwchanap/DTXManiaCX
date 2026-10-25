@@ -52,6 +52,15 @@ namespace DTXMania.Game.Lib.Stage.Performance
         public int GoodCount { get; private set; }
         public int PoorCount { get; private set; }
         public int MissCount { get; private set; }
+
+        // HPA-509: cumulative fast/slow totals for the Tab stats row. Successful judged
+        // hits only (never Miss), classified by the shared rounded ProjectDelta so
+        // sub-millisecond deltas rendered as 0 stay neutral — AutoPlay contributes
+        // rounded-zero offsets and therefore increments neither. Always visible;
+        // independent of the per-hit timing feedback preference.
+        public int FastCount { get; private set; }
+        public int SlowCount { get; private set; }
+
         public int MaxCombo { get; private set; }
         public int ProcessedJudgementCount => GetProcessedJudgementCount(
             PerfectCount,
@@ -142,6 +151,15 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 case JudgementType.Miss:
                     MissCount++;
                     break;
+            }
+
+            if (judgementEvent.IsHit())
+            {
+                var projection = PerformanceUILayout.HitTimingFeedback.ProjectDelta(judgementEvent.DeltaMs);
+                if (projection.RoundedMilliseconds < 0)
+                    FastCount++;
+                else if (projection.RoundedMilliseconds > 0)
+                    SlowCount++;
             }
 
             MaxCombo = Math.Max(MaxCombo, maxCombo);
