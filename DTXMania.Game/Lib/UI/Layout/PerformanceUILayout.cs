@@ -619,6 +619,10 @@ namespace DTXMania.Game.Lib.UI.Layout
             public const int HeaderRight = 1260;
             public const int HeaderTop = 8;
             public const int HeaderBottom = 90;
+            // Horizontal gap between the score's left edge and the title/artist
+            // truncation bound; vertical gap of the artist line under the title.
+            public const float HeaderTextGap = 24f;
+            public const int HeaderArtistGap = 4;
 
             // Hit feedback: combo above the fixed strip hit marker, then the newest-wins
             // judgement popup and per-hit fast/slow text below it (Task 2).
@@ -626,13 +630,17 @@ namespace DTXMania.Game.Lib.UI.Layout
             public const int HitFeedbackTop = 125;
             public const int HitFeedbackBottom = 250;
 
-            // Judgement popup slot: fixed word position that rises 30px toward the fixed
-            // fast/slow line above it; both centered on the hit marker.
+            // Judgement popup slot: fixed word position that rises 30px over its
+            // lifetime. The fast/slow line rides PopupTimingGap above the word's
+            // current position so the rise can never overlap it; both centered on
+            // the hit marker.
             public const int PopupWordTop = 220;
-            public const int PopupTimingTop = 196;
+            public const int PopupTimingGap = 4;
 
             // LIFE: label in the left key column + horizontal gauge, between the
             // hit feedback and the strip.
+            public const int LifeLabelLeft = 16;
+            public const int LifeLabelInsetY = 2;
             public const int LifeLeft = NotationStrip.KeyColumnWidth;
             public const int LifeRight = 1260;
             public const int LifeTop = 260;
@@ -644,12 +652,17 @@ namespace DTXMania.Game.Lib.UI.Layout
             public const int ProgressRight = 1260;
             public const int ProgressTop = 586;
             public const int ProgressBottom = 617;
+            public const int ProgressTextInsetY = 2;
+            public const int ProgressBarGap = 12;
+            public const int ProgressBarInsetY = 8;
 
             // Stats row: compact judgement/skill tiles along the bottom.
             public const int StatsLeft = 16;
             public const int StatsRight = 1264;
             public const int StatsTop = 628;
             public const int StatsBottom = 704;
+            public const int StatsValueGap = 6;
+            public const int StatsTileGap = 8;
 
             // Font sizes: NotoSerifJP is baked at 14/24/48 pt, so request those
             // sizes directly (ManagedFont snaps requests to the closest bake).

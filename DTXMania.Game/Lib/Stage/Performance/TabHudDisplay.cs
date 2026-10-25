@@ -2,7 +2,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using Microsoft.Xna.Framework;
@@ -122,7 +121,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
             catch (Exception ex)
             {
                 // Log and skip the HUD draw — no fallback/minimal Tab HUD mode.
-                Debug.WriteLine($"TabHudDisplay: failed to acquire fonts/primitive: {ex.Message}");
+                // Console.WriteLine (not Debug.WriteLine) keeps the failure
+                // diagnosable in Release builds, matching LogPerformanceError.
+                Console.WriteLine($"[PerformanceError] TabHudDisplay: failed to acquire fonts/primitive: {ex.Message}");
                 Dispose(true);
             }
         }
@@ -261,11 +262,14 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 var timingColor = _popupTimingIsSlow ? TabHud.TimingSlowColor : TabHud.TimingFastColor;
                 Vector2 size = _tileFont.MeasureString(_popupTimingText);
+                // The line rides a fixed gap above the word's current position so
+                // the popup's 30px rise can never sweep through it.
+                float timingTop = position.Y - size.Y - TabHud.PopupTimingGap;
                 DrawShadowed(
                     spriteBatch,
                     _tileFont,
                     _popupTimingText,
-                    new Vector2(TabHud.HitFeedbackCenterX - size.X / 2f, TabHud.PopupTimingTop),
+                    new Vector2(TabHud.HitFeedbackCenterX - size.X / 2f, timingTop),
                     timingColor * _popup.Alpha);
             }
         }
@@ -280,7 +284,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 new Vector2(TabHud.HeaderRight - scoreSize.X, TabHud.HeaderTop), TabHud.PrimaryTextColor);
 
             // Title + artist on the left, ellipsized to the space left of the score.
-            float textMaxWidth = TabHud.HeaderRight - scoreSize.X - TabHud.HeaderLeft - 24f;
+            float textMaxWidth = TabHud.HeaderRight - scoreSize.X - TabHud.HeaderLeft - TabHud.HeaderTextGap;
             string title = TextHelper.TruncateToWidth(_title, textMaxWidth, _titleFont!);
             DrawShadowed(spriteBatch, _titleFont, title, new Vector2(TabHud.HeaderLeft, TabHud.HeaderTop), TabHud.PrimaryTextColor);
             string artist = TextHelper.TruncateToWidth(_artist, textMaxWidth, _tileFont!);
@@ -288,7 +292,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 spriteBatch,
                 _tileFont,
                 artist,
-                new Vector2(TabHud.HeaderLeft, TabHud.HeaderTop + _titleFont.LineSpacing + 4),
+                new Vector2(TabHud.HeaderLeft, TabHud.HeaderTop + _titleFont.LineSpacing + TabHud.HeaderArtistGap),
                 TabHud.SecondaryTextColor);
         }
 
@@ -316,7 +320,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 spriteBatch,
                 _tileFont!,
                 "LIFE",
-                new Vector2(16, TabHud.LifeTop + 2),
+                new Vector2(TabHud.LifeLabelLeft, TabHud.LifeTop + TabHud.LifeLabelInsetY),
                 TabHud.SecondaryTextColor);
 
             var backRect = new Rectangle(
@@ -346,16 +350,16 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 " / " +
                 SongStatusPanel.FormatDuration(Math.Max(0, totalMs / 1000.0));
             Vector2 timeSize = _tileFont!.MeasureString(timeText);
-            Vector2 timePosition = new(TabHud.ProgressLeft, TabHud.ProgressTop + 2);
+            Vector2 timePosition = new(TabHud.ProgressLeft, TabHud.ProgressTop + TabHud.ProgressTextInsetY);
             DrawShadowed(spriteBatch, _tileFont, timeText, timePosition, TabHud.SecondaryTextColor);
 
             // Thin horizontal fill to the right of the elapsed/total text.
-            int barX = (int)(TabHud.ProgressLeft + timeSize.X + 12);
+            int barX = (int)(TabHud.ProgressLeft + timeSize.X + TabHud.ProgressBarGap);
             var backRect = new Rectangle(
                 barX,
-                TabHud.ProgressTop + 8,
+                TabHud.ProgressTop + TabHud.ProgressBarInsetY,
                 Math.Max(0, TabHud.ProgressRight - barX),
-                TabHud.ProgressBottom - TabHud.ProgressTop - 16);
+                TabHud.ProgressBottom - TabHud.ProgressTop - 2 * TabHud.ProgressBarInsetY);
             FillRectangle(spriteBatch, backRect, TabHud.BarBackColor, TabHud.DepthBarBack);
 
             float clamped = Clamp01(progress);
@@ -392,17 +396,22 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 ("MISS", SkillPanelDisplay.FormatJudgementCount(state.MissCount).Trim()),
                 ("MAX COMBO", state.MaxCombo.ToString(CultureInfo.InvariantCulture)),
                 ("FAST/SLOW", $"{state.FastCount.ToString(CultureInfo.InvariantCulture)}/{state.SlowCount.ToString(CultureInfo.InvariantCulture)}"),
-                ("ACHIEVEMENT", SkillPanelDisplay.FormatSkillText(state.Achievement).Trim() + "%"),
+                ("ACHIEVE", SkillPanelDisplay.FormatSkillText(state.Achievement).Trim() + "%"),
                 ("SKILL", SkillPanelDisplay.FormatSkillText(gameSkill).Trim()),
             };
 
             float tileWidth = (TabHud.StatsRight - TabHud.StatsLeft) / (float)tiles.Length;
             float labelY = TabHud.StatsTop;
-            float valueY = TabHud.StatsTop + _tileFont!.LineSpacing + 6;
+            float valueY = TabHud.StatsTop + _tileFont!.LineSpacing + TabHud.StatsValueGap;
             for (int i = 0; i < tiles.Length; i++)
             {
                 float x = TabHud.StatsLeft + i * tileWidth;
-                DrawShadowed(spriteBatch, _tileFont!, tiles[i].Label, new Vector2(x, labelY), TabHud.SecondaryTextColor);
+                // Constrain every label inside its own tile: an unconstrained long
+                // label bleeds into the next tile (ACHIEVEMENT previously merged
+                // with SKILL at ~139px/tile).
+                string label = TextHelper.TruncateToWidth(
+                    tiles[i].Label, tileWidth - TabHud.StatsTileGap, _tileFont!);
+                DrawShadowed(spriteBatch, _tileFont!, label, new Vector2(x, labelY), TabHud.SecondaryTextColor);
                 DrawShadowed(spriteBatch, _titleFont!, tiles[i].Value, new Vector2(x, valueY), TabHud.PrimaryTextColor);
             }
         }
