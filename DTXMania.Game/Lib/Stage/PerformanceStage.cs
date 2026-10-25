@@ -1228,9 +1228,6 @@ namespace DTXMania.Game.Lib.Stage
             _fontJudgementTextPopupManager?.Update(deltaTime);
             _hitTimingFeedbackDisplay?.Update(deltaTime);
 
-            // HPA-509 Tab: advance the popup slot and key flash decay
-            _tabHudDisplay?.Update(deltaTime);
-
             // Update pad renderer
             _padRenderer?.Update(deltaTime);
 
@@ -2384,6 +2381,11 @@ namespace DTXMania.Game.Lib.Stage
             _comboDisplay?.Update(deltaTime);
             _skillPanelDisplay?.Update(deltaTime);
             _skillMeterDisplay?.Update(deltaTime);
+
+            // HPA-509 Tab: advance the popup slot and key flash decay on every
+            // frame — UpdateGameplay returns early during loading and the READY
+            // countdown, which would leave a triggered flash lit at full alpha.
+            _tabHudDisplay?.Update(deltaTime);
 
             // Update gauge display
         }
