@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
@@ -35,13 +36,16 @@ namespace DTXMania.Game.Lib.Stage.Performance
         public int PoorCount { get; init; }
         public int MissCount { get; init; }
         public int MaxCombo { get; init; }
+        public int FastCount { get; init; }
+        public int SlowCount { get; init; }
     }
 
     /// <summary>
     /// Compact Tab-mode HUD renderer (HPA-509): title/artist + score header, combo
-    /// above the strip hit marker, horizontal LIFE, progress with elapsed/total and
-    /// a bottom stats row. Presentation only — every value arrives via
-    /// <see cref="TabHudFrameState"/>; the level-weighted game skill reuses the shared
+    /// above the strip hit marker, newest-wins judgement popup + per-hit fast/slow
+    /// line, horizontal LIFE, progress with elapsed/total and a bottom stats row.
+    /// Presentation only — every value arrives via <see cref="TabHudFrameState"/>;
+    /// the level-weighted game skill reuses the shared
     /// <see cref="SongScore.CalculateGameSkill"/> formula on the same chart values
     /// SkillPanelDisplay draws. Managed fonts are used for both score and combo
     /// (the Lanes sprite score is hard-positioned and the combo sprite digits exceed
@@ -62,12 +66,35 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private Texture2D? _whiteTexture;
         private bool _disposed;
 
+        // Newest-wins judgement popup slot (HPA-509): each OnJudgementMade replaces
+        // the previous popup — no queue/stack — reusing JudgementTextPopup's own
+        // fade/rise/expiry. The fixed fast/slow line rides above it.
+        private JudgementTextPopup? _popup;
+        private Color _popupColor;
+        private string? _popupTimingText;
+        private bool _popupTimingIsSlow;
+
+        // Per-lane key flash slots (HPA-509): one timer+color per lane, overwritten by
+        // manual input / judged hits (gold) / Miss (red) — never a queue. Label y per
+        // lane comes from the strip label anchors so flashes sit behind their label.
+        private readonly float[] _flashTimers = new float[PerformanceUILayout.LaneCount];
+        private readonly Color[] _flashColors = new Color[PerformanceUILayout.LaneCount];
+        private readonly float[] _flashYsByLane = new float[PerformanceUILayout.LaneCount];
+
         public TabHudDisplay(GraphicsDevice graphicsDevice, SongChart? chart, string? title, string? artist)
         {
             _graphicsDevice = graphicsDevice ?? throw new ArgumentNullException(nameof(graphicsDevice));
             _chart = chart;
             _title = title ?? string.Empty;
             _artist = artist ?? string.Empty;
+
+            // Lane→label-y anchors for the flash slots; all ten primary labels map
+            // one-to-one onto lanes 0-9 (verified by test), so a plain array suffices.
+            foreach (var anchor in NotationStripLayout.GetKeyColumnLabels())
+            {
+                if (anchor.Lane >= 0 && anchor.Lane < _flashYsByLane.Length)
+                    _flashYsByLane[anchor.Lane] = anchor.YPx;
+            }
 
             try
             {
@@ -99,9 +126,134 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
             DrawHeader(spriteBatch, state.Score);
             DrawCombo(spriteBatch, state.Combo);
+            DrawTransientFeedback(spriteBatch);
             DrawLife(spriteBatch, state.Life);
             DrawProgress(spriteBatch, state.Progress, state.ElapsedMs, state.TotalMs);
             DrawStatsRow(spriteBatch, state);
+        }
+
+        /// <summary>
+        /// Advance the popup slot and key flash decay. Called from the stage's update
+        /// path next to the other presentation components.
+        /// </summary>
+        public void Update(double deltaTime)
+        {
+            if (_popup != null && !_popup.Update(deltaTime))
+            {
+                _popup = null;
+                _popupTimingText = null;
+            }
+
+            float decay = (float)deltaTime * PerformanceUILayout.Animation.FlashDecayRate;
+            for (int lane = 0; lane < _flashTimers.Length; lane++)
+            {
+                if (_flashTimers[lane] > 0f)
+                    _flashTimers[lane] = MathF.Max(0f, _flashTimers[lane] - decay);
+            }
+        }
+
+        /// <summary>
+        /// Replace the judgement popup slot (newest wins) and optionally show the
+        /// per-hit fast/slow line, gated by the stage's existing timing-feedback
+        /// predicate. Word/color come from JudgementTextPopupManager's shared tables;
+        /// fast/slow classification uses the shared rounded ProjectDelta.
+        /// </summary>
+        public void NotifyJudgement(string word, Color color, bool showTiming, double deltaMs)
+        {
+            // No _disposed guard: this is pure presentation state (no GPU resources)
+            // and the draw paths separately skip when fonts failed to acquire.
+            // Half-width centering needs a font; without one (acquisition failed) the
+            // draw is skipped anyway, so fall back to the raw center x.
+            float halfWidth = _titleFont != null ? _titleFont.MeasureString(word).X / 2f : 0f;
+            _popup = new JudgementTextPopup(
+                word,
+                new Vector2(TabHud.HitFeedbackCenterX - halfWidth, TabHud.PopupWordTop));
+            _popupColor = color;
+
+            if (showTiming)
+            {
+                var projection = PerformanceUILayout.HitTimingFeedback.ProjectDelta(deltaMs);
+                _popupTimingText = projection.Text;
+                _popupTimingIsSlow = projection.IsSlow;
+            }
+            else
+            {
+                _popupTimingText = null;
+            }
+        }
+
+        /// <summary>
+        /// Refresh (overwrite) a lane's key flash slot — manual input, judged hit or
+        /// Miss. No queue: the newest event for a lane wins.
+        /// </summary>
+        public void TriggerKeyFlash(int lane, Color color)
+        {
+            if (lane < 0 || lane >= _flashTimers.Length)
+                return;
+
+            _flashTimers[lane] = 1f;
+            _flashColors[lane] = color;
+        }
+
+        /// <summary>
+        /// Draw the per-lane key flash bars in the BASE BackToFront pass, immediately
+        /// after the notation strip: depth 0.35 sits between the key mask (0.40) and
+        /// the labels (0.30) so each flash renders behind its label. The cached white
+        /// pixel keeps the label legible (semi-transparent fill, no texture swap).
+        /// </summary>
+        [ExcludeFromCodeCoverage]
+        public void DrawKeyFlashes(SpriteBatch spriteBatch)
+        {
+            if (_disposed || spriteBatch == null || _whiteTexture == null)
+                return;
+
+            for (int lane = 0; lane < _flashTimers.Length; lane++)
+            {
+                float timer = _flashTimers[lane];
+                if (timer <= 0f)
+                    continue;
+
+                var rect = new Rectangle(
+                    TabHud.KeyFlashLeft,
+                    (int)(_flashYsByLane[lane] - TabHud.KeyFlashHeight / 2f),
+                    PerformanceUILayout.NotationStrip.LabelRightX - TabHud.KeyFlashLeft,
+                    TabHud.KeyFlashHeight);
+                spriteBatch.Draw(
+                    _whiteTexture,
+                    rect,
+                    null,
+                    _flashColors[lane] * (TabHud.KeyFlashAlpha * timer),
+                    0f,
+                    Vector2.Zero,
+                    SpriteEffects.None,
+                    TabHud.DepthKeyFlash);
+            }
+        }
+
+        /// <summary>
+        /// Draw the newest-wins judgement word (fading/rising via the reused popup)
+        /// and the fixed per-hit fast/slow line above it.
+        /// </summary>
+        [ExcludeFromCodeCoverage]
+        private void DrawTransientFeedback(SpriteBatch spriteBatch)
+        {
+            if (_popup == null || !_popup.IsActive || _titleFont == null || _tileFont == null)
+                return;
+
+            var position = _popup.CurrentPosition;
+            DrawShadowed(spriteBatch, _titleFont, _popup.Text, position, _popupColor * _popup.Alpha);
+
+            if (_popupTimingText != null)
+            {
+                var timingColor = _popupTimingIsSlow ? TabHud.TimingSlowColor : TabHud.TimingFastColor;
+                Vector2 size = _tileFont.MeasureString(_popupTimingText);
+                DrawShadowed(
+                    spriteBatch,
+                    _tileFont,
+                    _popupTimingText,
+                    new Vector2(TabHud.HitFeedbackCenterX - size.X / 2f, TabHud.PopupTimingTop),
+                    timingColor * _popup.Alpha);
+            }
         }
 
         [ExcludeFromCodeCoverage]
@@ -210,8 +362,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 _chart?.DrumLevel ?? 0,
                 _chart?.DrumLevelDec ?? 0);
 
-            // Task 1 renders eight tiles; the Fast/Slow tile arrives with Task 2
-            // (its counters do not exist yet). Poor is presented as OK.
+            // Task 2 adds the Fast/Slow tile — totals are always visible, independent
+            // of the per-hit timing preference. Poor is presented as OK.
             (string Label, string Value)[] tiles =
             {
                 ("PERFECT", SkillPanelDisplay.FormatJudgementCount(state.PerfectCount)),
@@ -220,6 +372,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 ("OK", SkillPanelDisplay.FormatJudgementCount(state.PoorCount)),
                 ("MISS", SkillPanelDisplay.FormatJudgementCount(state.MissCount)),
                 ("MAX COMBO", state.MaxCombo.ToString(CultureInfo.InvariantCulture)),
+                ("FAST/SLOW", $"{state.FastCount.ToString(CultureInfo.InvariantCulture)}/{state.SlowCount.ToString(CultureInfo.InvariantCulture)}"),
                 ("ACHIEVEMENT", SkillPanelDisplay.FormatSkillText(state.Achievement).Trim() + "%"),
                 ("SKILL", SkillPanelDisplay.FormatSkillText(gameSkill).Trim()),
             };
@@ -271,6 +424,13 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 return 0f;
             return Math.Clamp(value, 0f, 1f);
         }
+
+        // HPA-509 test accessors: flash slots and the popup slot are plain state
+        // (no GPU involvement), so tests observe them directly.
+        internal JudgementTextPopup? PopupForTesting => _popup;
+        internal (string? Text, bool IsSlow) PopupTimingForTesting => (_popupTimingText, _popupTimingIsSlow);
+        internal IReadOnlyList<float> FlashTimersForTesting => _flashTimers;
+        internal IReadOnlyList<Color> FlashColorsForTesting => _flashColors;
 
         public void Dispose()
         {

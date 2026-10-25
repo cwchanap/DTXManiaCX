@@ -5206,6 +5206,136 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_autoPlayLanes", new HashSet<int>(lanes));
     }
 
+    #region HPA-509 Tab/Lanes spawn gating (OnJudgementMade)
+
+    private static object BuildVisualGates(bool showHitTimingFeedback, DrumsNoteDisplayStyle style)
+    {
+        var gatesType = typeof(PerformanceStage).GetNestedType(
+            "PerformanceVisualGates", System.Reflection.BindingFlags.NonPublic);
+        Assert.NotNull(gatesType);
+        return Activator.CreateInstance(
+            gatesType!,
+            false, false, false, false, false,
+            showHitTimingFeedback,
+            style)!;
+    }
+
+    [Fact]
+    public void OnJudgementMade_WhenTabEffective_ShouldSkipBothLegacySpawnsAndFeedTabHud()
+    {
+        var stage = CreateStage();
+        ReflectionHelpers.SetPrivateField(stage, "_notationStrip", CreateReadyNotationStrip());
+        ReflectionHelpers.SetPrivateField(stage, "_visualGates", BuildVisualGates(true, DrumsNoteDisplayStyle.Tab));
+        var spritePopups = new List<SpriteJudgementTextPopup>();
+        var fontPopups = new List<JudgementTextPopup>();
+        var fontManager = JudgementTextPopupManager.CreateForTesting(
+            CreateUninitialized<GraphicsDevice>(), new Mock<IResourceManager>().Object, activePopups: fontPopups);
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_spriteJudgementTextPopupManager",
+            SpriteJudgementTextPopupManager.CreateForTesting(new MutableTexture(), fontManager.SpawnPopup, spritePopups));
+        var timingDisplay = HitTimingFeedbackDisplay.CreateForTesting(new MutableTexture());
+        ReflectionHelpers.SetPrivateField(stage, "_hitTimingFeedbackDisplay", timingDisplay);
+        using var tabHud = new TabHudDisplay(CreateUninitialized<GraphicsDevice>(), null, "t", "a");
+        ReflectionHelpers.SetPrivateField(stage, "_tabHudDisplay", tabHud);
+
+        ReflectionHelpers.InvokePrivateMethod(
+            stage, "OnJudgementMade", null, new JudgementEvent(1, 3, -12, JudgementType.Perfect));
+
+        // Both legacy transients must stay empty in effective Tab — the draws are
+        // untouched, so gating the spawns empties all three legacy paths.
+        Assert.Empty(spritePopups);
+        Assert.Empty(fontPopups);
+        Assert.Equal(0, timingDisplay.ActiveLaneCountForTesting);
+
+        // The Tab HUD slot is fed instead: popup word + per-hit fast/slow line
+        // (predicate passes) + gold key flash on the judged lane.
+        Assert.Equal("Perfect", tabHud.PopupForTesting!.Text);
+        Assert.Equal("-12", tabHud.PopupTimingForTesting.Text);
+        Assert.False(tabHud.PopupTimingForTesting.IsSlow);
+        Assert.Equal(1f, tabHud.FlashTimersForTesting[3]);
+        Assert.Equal(PerformanceUILayout.TabHud.KeyFlashHitColor, tabHud.FlashColorsForTesting[3]);
+    }
+
+    [Fact]
+    public void OnJudgementMade_WhenTabMiss_ShouldFeedRedFlashWithoutTimingLine()
+    {
+        var stage = CreateStage();
+        ReflectionHelpers.SetPrivateField(stage, "_notationStrip", CreateReadyNotationStrip());
+        ReflectionHelpers.SetPrivateField(stage, "_visualGates", BuildVisualGates(true, DrumsNoteDisplayStyle.Tab));
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_spriteJudgementTextPopupManager",
+            SpriteJudgementTextPopupManager.CreateForTesting(new MutableTexture()));
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_hitTimingFeedbackDisplay",
+            HitTimingFeedbackDisplay.CreateForTesting(new MutableTexture()));
+        using var tabHud = new TabHudDisplay(CreateUninitialized<GraphicsDevice>(), null, "t", "a");
+        ReflectionHelpers.SetPrivateField(stage, "_tabHudDisplay", tabHud);
+
+        ReflectionHelpers.InvokePrivateMethod(
+            stage, "OnJudgementMade", null, new JudgementEvent(1, 5, 0, JudgementType.Miss));
+
+        // Miss: no timing line (not a hit), red lane flash — instrument identity
+        // survives even though the newest popup replaces it.
+        Assert.Equal("Miss", tabHud.PopupForTesting!.Text);
+        Assert.Null(tabHud.PopupTimingForTesting.Text);
+        Assert.Equal(1f, tabHud.FlashTimersForTesting[5]);
+        Assert.Equal(PerformanceUILayout.TabHud.KeyFlashMissColor, tabHud.FlashColorsForTesting[5]);
+    }
+
+    [Fact]
+    public void OnJudgementMade_WhenTabAndTimingFeedbackHidden_ShouldOmitPerHitTimingLineOnly()
+    {
+        var stage = CreateStage();
+        ReflectionHelpers.SetPrivateField(stage, "_notationStrip", CreateReadyNotationStrip());
+        ReflectionHelpers.SetPrivateField(stage, "_visualGates", BuildVisualGates(false, DrumsNoteDisplayStyle.Tab));
+        using var tabHud = new TabHudDisplay(CreateUninitialized<GraphicsDevice>(), null, "t", "a");
+        ReflectionHelpers.SetPrivateField(stage, "_tabHudDisplay", tabHud);
+
+        ReflectionHelpers.InvokePrivateMethod(
+            stage, "OnJudgementMade", null, new JudgementEvent(1, 3, -12, JudgementType.Perfect));
+
+        // The popup still appears, but the per-hit fast/slow line obeys the same
+        // opt-in predicate as the Lanes timing display. Stat tiles stay ungated.
+        Assert.Equal("Perfect", tabHud.PopupForTesting!.Text);
+        Assert.Null(tabHud.PopupTimingForTesting.Text);
+    }
+
+    [Fact]
+    public void OnJudgementMade_WhenLanesEffective_ShouldKeepBothLegacySpawns()
+    {
+        var stage = CreateStage();
+        ReflectionHelpers.SetPrivateField(stage, "_visualGates", BuildVisualGates(true, DrumsNoteDisplayStyle.Lanes));
+        var spritePopups = new List<SpriteJudgementTextPopup>();
+        var fontPopups = new List<JudgementTextPopup>();
+        var fontManager = JudgementTextPopupManager.CreateForTesting(
+            CreateUninitialized<GraphicsDevice>(), new Mock<IResourceManager>().Object, activePopups: fontPopups);
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_spriteJudgementTextPopupManager",
+            SpriteJudgementTextPopupManager.CreateForTesting(new MutableTexture(), fontManager.SpawnPopup, spritePopups));
+        var timingDisplay = HitTimingFeedbackDisplay.CreateForTesting(new MutableTexture());
+        ReflectionHelpers.SetPrivateField(stage, "_hitTimingFeedbackDisplay", timingDisplay);
+        using var tabHud = new TabHudDisplay(CreateUninitialized<GraphicsDevice>(), null, "t", "a");
+        ReflectionHelpers.SetPrivateField(stage, "_tabHudDisplay", tabHud);
+
+        ReflectionHelpers.InvokePrivateMethod(
+            stage, "OnJudgementMade", null, new JudgementEvent(1, 3, -12, JudgementType.Perfect));
+        ReflectionHelpers.InvokePrivateMethod(
+            stage, "OnJudgementMade", null, new JudgementEvent(2, 3, 0, JudgementType.Miss));
+
+        // Lanes keeps the exact legacy behavior: every judgement spawns a sprite
+        // popup, hits also spawn the timing run; the Tab slot is never fed.
+        Assert.Equal(2, spritePopups.Count);
+        Assert.Empty(fontPopups); // valid sprite texture → no font fallback
+        Assert.Equal(1, timingDisplay.ActiveLaneCountForTesting); // Miss never spawns timing
+        Assert.Null(tabHud.PopupForTesting);
+    }
+
+    #endregion
+
     /// <summary>
     /// A notation strip whose fonts pass the coverage check via mocks, so it mirrors
     /// the IsReady-retained renderer the stage keeps while Tab is effective.

@@ -620,11 +620,16 @@ namespace DTXMania.Game.Lib.UI.Layout
             public const int HeaderTop = 8;
             public const int HeaderBottom = 90;
 
-            // Hit feedback: combo above the fixed strip hit marker (transient
-            // judgement + fast/slow text join this region in the Task 2 pass).
+            // Hit feedback: combo above the fixed strip hit marker, then the newest-wins
+            // judgement popup and per-hit fast/slow text below it (Task 2).
             public const int HitFeedbackCenterX = NotationStrip.HitMarkerX;
             public const int HitFeedbackTop = 125;
             public const int HitFeedbackBottom = 250;
+
+            // Judgement popup slot: fixed word position that rises 30px toward the fixed
+            // fast/slow line above it; both centered on the hit marker.
+            public const int PopupWordTop = 220;
+            public const int PopupTimingTop = 196;
 
             // LIFE: label in the left key column + horizontal gauge, between the
             // hit feedback and the strip.
@@ -653,10 +658,25 @@ namespace DTXMania.Game.Lib.UI.Layout
             public const int ComboFontSizePt = 48;
             public const int TileFontSizePt = 14;
 
-            // Key flashes draw in the base BackToFront batch (Task 2 consumer)
-            // between the key mask (0.40) and labels (0.30) so a filled flash stays
-            // behind its label.
+            // Key flashes draw in the base BackToFront batch between the key mask (0.40)
+            // and labels (0.30) so a filled flash stays behind its label.
             public const float DepthKeyFlash = 0.35f;
+
+            // Key flash slot geometry: one bar per lane row behind the right-aligned
+            // label, refreshed (overwritten) by input/judgement, decayed by the shared
+            // Animation.FlashDecayRate.
+            public const int KeyFlashLeft = 6;
+            public const int KeyFlashHeight = 18;
+            public const float KeyFlashAlpha = 0.45f;
+
+            // Flash colors: hits flash the hit-marker gold, Miss flashes red
+            // (judgement wording/colors come from the popup manager tables).
+            public static readonly Color KeyFlashHitColor = NotationStrip.HitMarkerColor;
+            public static readonly Color KeyFlashMissColor = Color.Red;
+
+            // Per-hit fast/slow text tints match the Lanes HitTimingFeedbackDisplay.
+            public static readonly Color TimingFastColor = Color.Cyan;
+            public static readonly Color TimingSlowColor = Color.Red;
 
             // Colors follow the notation strip palette.
             public static readonly Color PrimaryTextColor = NotationStrip.NotationColor;

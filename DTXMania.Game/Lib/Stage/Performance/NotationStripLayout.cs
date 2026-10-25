@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Notation;
 using DTXMania.Game.Lib.UI.Layout;
@@ -207,13 +208,18 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         /// <summary>
         /// Key-column instrument labels in display order (staff top to bottom), one per DTX drum
-        /// lane; y comes from <see cref="DrumStaffMapping"/> via GetChannelLabelY. The HH and BD
-        /// labels also stand in for their variant channels (open hi-hat 0x18, left bass 0x1C).
+        /// lane; y comes from <see cref="DrumStaffMapping"/> via GetChannelLabelY and Lane comes
+        /// from the parser's channel→lane lookup (HPA-509), so flash selection uses lane identity
+        /// rather than label text. The HH and BD labels also stand in for their variant channels
+        /// (open hi-hat 0x18, left bass 0x1C — lane 2 flashes LP, not the engraved BD line).
         /// </summary>
         internal static IReadOnlyList<NotationStripLabelAnchor> GetKeyColumnLabels()
         {
             return LabelDisplayOrder
-                .Select(pair => new NotationStripLabelAnchor(pair.Label, GetChannelLabelY(pair.Channel)))
+                .Select(pair => new NotationStripLabelAnchor(
+                    pair.Label,
+                    GetChannelLabelY(pair.Channel),
+                    DTXChartParser.TryGetLane(pair.Channel, out var lane) ? lane : -1))
                 .ToArray();
         }
 
@@ -488,8 +494,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
         float TopPx,
         float HeightPx);
 
-    /// <summary>Key-column instrument label; the renderer right-aligns Text at LabelRightX.</summary>
-    internal readonly record struct NotationStripLabelAnchor(string Text, float YPx);
+    /// <summary>
+    /// Key-column instrument label; the renderer right-aligns Text at LabelRightX.
+    /// Lane is the DTX drum lane the label answers to (HPA-509): key flashes and
+    /// judgements select their label by this identity, never by label text.
+    /// </summary>
+    internal readonly record struct NotationStripLabelAnchor(string Text, float YPx, int Lane);
 
     /// <summary>Engraving for one measure: glyph placements plus filled rectangles.</summary>
     internal sealed record NotationStripMeasureEngraving(

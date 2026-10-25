@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Notation;
 using DTXMania.Game.Lib.Stage.Performance;
@@ -448,6 +449,77 @@ public class NotationStripEngravingTests
         Assert.Equal(expected.Select(e => e.Item1), labels.Select(l => l.Text));
         for (int i = 0; i < expected.Length; i++)
             Assert.Equal(expected[i].Item2, labels[i].YPx, 3);
+    }
+
+    [Fact]
+    public void GetKeyColumnLabels_AllTenLanes_ShouldMapOneToOneOntoLanes0Through9()
+    {
+        var labels = NotationStripLayout.GetKeyColumnLabels();
+
+        // 0–9 bijection: every lane has exactly one primary label and vice versa.
+        Assert.Equal(10, labels.Count);
+        Assert.Equal(Enumerable.Range(0, 10), labels.Select(l => l.Lane).OrderBy(l => l));
+    }
+
+    [Theory]
+    [InlineData("LC", 0)]
+    [InlineData("HH", 1)]
+    [InlineData("LP", 2)]
+    [InlineData("SN", 3)]
+    [InlineData("HT", 4)]
+    [InlineData("BD", 5)]
+    [InlineData("LT", 6)]
+    [InlineData("FT", 7)]
+    [InlineData("CY", 8)]
+    [InlineData("RD", 9)]
+    public void GetKeyColumnLabels_EachInstrument_ShouldCarryItsCanonicalLane(string text, int expectedLane)
+    {
+        var labels = NotationStripLayout.GetKeyColumnLabels();
+
+        var anchor = labels.Single(l => l.Text == text);
+        Assert.Equal(expectedLane, anchor.Lane);
+    }
+
+    [Fact]
+    public void TryGetLane_LeftBassChannel_ShouldResolveToLpLane2()
+    {
+        // 0x1C left bass is engraved at the BD staff position but is lane 2 input:
+        // its flash must light the LP label, never the engraved BD line.
+        Assert.True(DTXChartParser.TryGetLane(0x1C, out int lane));
+        Assert.Equal(2, lane);
+
+        // Same lane as the LP primary channel's anchor identity.
+        var lp = NotationStripLayout.GetKeyColumnLabels().Single(l => l.Text == "LP");
+        Assert.Equal(lp.Lane, lane);
+    }
+
+    [Theory]
+    [InlineData(0x11, 1)] // hi-hat close
+    [InlineData(0x12, 3)] // snare
+    [InlineData(0x13, 5)] // bass drum
+    [InlineData(0x14, 4)] // high tom
+    [InlineData(0x15, 6)] // low tom
+    [InlineData(0x16, 8)] // crash
+    [InlineData(0x17, 7)] // floor tom
+    [InlineData(0x18, 1)] // hi-hat open (HH variant)
+    [InlineData(0x19, 9)] // ride
+    [InlineData(0x1A, 0)] // left crash
+    [InlineData(0x1B, 2)] // left pedal
+    [InlineData(0x1C, 2)] // left bass (LP lane)
+    public void TryGetLane_KnownChannels_ShouldReturnParserLane(int channel, int expectedLane)
+    {
+        Assert.True(DTXChartParser.TryGetLane(channel, out int lane));
+        Assert.Equal(expectedLane, lane);
+    }
+
+    [Theory]
+    [InlineData(0x10)]
+    [InlineData(0x20)]
+    [InlineData(0x99)]
+    public void TryGetLane_UnknownChannels_ShouldReturnFalse(int channel)
+    {
+        Assert.False(DTXChartParser.TryGetLane(channel, out int lane));
+        Assert.Equal(0, lane);
     }
 
     #endregion
