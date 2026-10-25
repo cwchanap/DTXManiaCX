@@ -221,5 +221,18 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         #endregion
+
+        [Fact]
+        public void Clamp01_ShouldClampToUnitRangeAndRejectNonFiniteValues()
+        {
+            Assert.Equal(0f, TabHudDisplay.Clamp01(-0.5f));
+            Assert.Equal(0f, TabHudDisplay.Clamp01(0f));
+            Assert.Equal(0.5f, TabHudDisplay.Clamp01(0.5f));
+            Assert.Equal(1f, TabHudDisplay.Clamp01(1f));
+            Assert.Equal(1f, TabHudDisplay.Clamp01(2f));
+            Assert.Equal(0f, TabHudDisplay.Clamp01(float.NaN));
+            Assert.Equal(0f, TabHudDisplay.Clamp01(float.PositiveInfinity));
+            Assert.Equal(0f, TabHudDisplay.Clamp01(float.NegativeInfinity));
+        }
     }
 }

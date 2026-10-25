@@ -102,6 +102,14 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     _flashYsByLane[anchor.Lane] = anchor.YPx;
             }
 
+            // Font/primitive acquisition needs a live GraphicsDevice, so it can
+            // never run under headless coverage — excluded like the Draw paths.
+            AcquireDrawResources();
+        }
+
+        [ExcludeFromCodeCoverage]
+        private void AcquireDrawResources()
+        {
             try
             {
                 _titleFont = ManagedFont.CreateFont(_graphicsDevice, "NotoSerifJP", PerformanceUILayout.TabHud.TitleFontSizePt, FontStyle.Bold);
@@ -428,7 +436,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             spriteBatch.Draw(_whiteTexture!, rect, null, color, 0f, Vector2.Zero, SpriteEffects.None, depth);
         }
 
-        private static float Clamp01(float value)
+        internal static float Clamp01(float value)
         {
             // The stage already clamps progress; guard anyway so a NaN (e.g. a
             // zero-duration chart) can never become a garbage fill width.
