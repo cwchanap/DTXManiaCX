@@ -23,8 +23,12 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v6
       with:
-        dotnet-version: '10.0.x'
-    
+        # Pinned to an exact SDK: floating '10.0.x' resolves via aka.ms channel
+        # links, which currently redirect to a storage origin that denies public
+        # access (dotnet/core#10660). An exact version makes dotnet-install
+        # build the URL directly against builds.dotnet.microsoft.com.
+        dotnet-version: '10.0.403'
+
     - name: Cache NuGet packages
       uses: actions/cache@v6
       with:
@@ -32,7 +36,7 @@ jobs:
         key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
         restore-keys: |
           ${{ runner.os }}-nuget-
-    
+
     - name: Restore dependencies
       run: dotnet restore DTXMania.Game/DTXMania.Game.Windows.csproj
 
@@ -165,8 +169,10 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v6
       with:
-        dotnet-version: '10.0.x'
-    
+        # Pinned: floating '10.0.x' resolves via broken aka.ms channel links
+        # (dotnet/core#10660). Revert to '10.0.x' once aka.ms is fixed.
+        dotnet-version: '10.0.403'
+
     - name: Cache NuGet packages
       uses: actions/cache@v6
       with:
@@ -302,7 +308,9 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v6
       with:
-        dotnet-version: '10.0.x'
+        # Pinned: floating '10.0.x' resolves via broken aka.ms channel links
+        # (dotnet/core#10660). Revert to '10.0.x' once aka.ms is fixed.
+        dotnet-version: '10.0.403'
 
     - name: Cache NuGet packages
       uses: actions/cache@v6
@@ -361,7 +369,9 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v6
       with:
-        dotnet-version: '10.0.x'
+        # Pinned: floating '10.0.x' resolves via broken aka.ms channel links
+        # (dotnet/core#10660). Revert to '10.0.x' once aka.ms is fixed.
+        dotnet-version: '10.0.403'
 
     - name: Cache native FFmpeg runtime (macOS)
       if: runner.os == 'macOS'
