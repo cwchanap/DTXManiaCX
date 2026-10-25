@@ -799,6 +799,9 @@ public class PerformanceStageDeterministicTests
         Assert.All(clearedBeforeDispose, Assert.True);
         Assert.Null(GetPendingNotationChart(stage));
         Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_notationStrip"));
+        // HPA-509: the Tab HUD display (fonts + white primitive) is disposed and
+        // released by the same cleanup path used on stop, game-over and fallback.
+        Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_tabHudDisplay"));
         Assert.False(strip!.IsReady);
     }
 

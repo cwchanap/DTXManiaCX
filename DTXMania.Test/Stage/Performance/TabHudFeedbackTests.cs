@@ -131,6 +131,9 @@ namespace DTXMania.Test.Stage.Performance
             Assert.NotNull(popup);
             Assert.Equal("Perfect", popup!.Text);
             Assert.True(popup.IsActive);
+            // Font-less fallback: the headless display has no _titleFont, so centering
+            // falls back to the raw center x (halfWidth 0); measured half-width centering
+            // only happens when fonts acquired.
             Assert.Equal(TabHud.HitFeedbackCenterX, popup.CurrentPosition.X);
             Assert.Equal(TabHud.PopupWordTop, popup.CurrentPosition.Y);
         }
