@@ -364,13 +364,15 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
             // Task 2 adds the Fast/Slow tile — totals are always visible, independent
             // of the per-hit timing preference. Poor is presented as OK.
+            // Trim the legacy 4-wide judgement padding so every value's left edge
+            // aligns with its label like the other tiles (HPA-509 polish).
             (string Label, string Value)[] tiles =
             {
-                ("PERFECT", SkillPanelDisplay.FormatJudgementCount(state.PerfectCount)),
-                ("GREAT", SkillPanelDisplay.FormatJudgementCount(state.GreatCount)),
-                ("GOOD", SkillPanelDisplay.FormatJudgementCount(state.GoodCount)),
-                ("OK", SkillPanelDisplay.FormatJudgementCount(state.PoorCount)),
-                ("MISS", SkillPanelDisplay.FormatJudgementCount(state.MissCount)),
+                ("PERFECT", SkillPanelDisplay.FormatJudgementCount(state.PerfectCount).Trim()),
+                ("GREAT", SkillPanelDisplay.FormatJudgementCount(state.GreatCount).Trim()),
+                ("GOOD", SkillPanelDisplay.FormatJudgementCount(state.GoodCount).Trim()),
+                ("OK", SkillPanelDisplay.FormatJudgementCount(state.PoorCount).Trim()),
+                ("MISS", SkillPanelDisplay.FormatJudgementCount(state.MissCount).Trim()),
                 ("MAX COMBO", state.MaxCombo.ToString(CultureInfo.InvariantCulture)),
                 ("FAST/SLOW", $"{state.FastCount.ToString(CultureInfo.InvariantCulture)}/{state.SlowCount.ToString(CultureInfo.InvariantCulture)}"),
                 ("ACHIEVEMENT", SkillPanelDisplay.FormatSkillText(state.Achievement).Trim() + "%"),
