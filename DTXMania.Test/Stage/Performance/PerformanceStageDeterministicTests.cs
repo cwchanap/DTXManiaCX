@@ -5358,6 +5358,40 @@ public class PerformanceStageDeterministicTests
         Assert.Null(tabHud.PopupForTesting);
     }
 
+    [Fact]
+    public void OnLaneHitForPadFeedback_WhenNotationStripActive_ShouldFlashTabHudLane()
+    {
+        var stage = CreateStage();
+        ReflectionHelpers.SetPrivateField(stage, "_notationStrip", CreateReadyNotationStrip());
+        using var tabHud = new TabHudDisplay(CreateUninitialized<GraphicsDevice>(), null, "t", "a");
+        ReflectionHelpers.SetPrivateField(stage, "_tabHudDisplay", tabHud);
+
+        ReflectionHelpers.InvokePrivateMethod(
+            stage,
+            "OnLaneHitForPadFeedback",
+            stage,
+            new LaneHitEventArgs(3, new ButtonState("Key.S", true)));
+
+        Assert.Equal(1f, tabHud.FlashTimersForTesting[3]);
+        Assert.Equal(PerformanceUILayout.TabHud.KeyFlashHitColor, tabHud.FlashColorsForTesting[3]);
+    }
+
+    [Fact]
+    public void OnLaneHitForPadFeedback_WhenNotationStripMissing_ShouldNotFlashTabHudLane()
+    {
+        var stage = CreateStage();
+        using var tabHud = new TabHudDisplay(CreateUninitialized<GraphicsDevice>(), null, "t", "a");
+        ReflectionHelpers.SetPrivateField(stage, "_tabHudDisplay", tabHud);
+
+        ReflectionHelpers.InvokePrivateMethod(
+            stage,
+            "OnLaneHitForPadFeedback",
+            stage,
+            new LaneHitEventArgs(3, new ButtonState("Key.S", true)));
+
+        Assert.Equal(0f, tabHud.FlashTimersForTesting[3]);
+    }
+
     #endregion
 
     /// <summary>

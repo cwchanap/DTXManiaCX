@@ -593,11 +593,7 @@ namespace DTXMania.Game.Lib.Stage
 
             // HPA-509: Tab-mode HUD. Presentation only — it renders read-only
             // snapshots of the live values the managers above own.
-            _tabHudDisplay = new TabHudDisplay(
-                graphicsDevice,
-                skillChart,
-                _selectedSong?.DisplayTitle ?? _selectedSong?.Title,
-                _selectedSong?.DatabaseSong?.DisplayArtist);
+            _tabHudDisplay = CreateTabHudDisplay(graphicsDevice, skillChart);
 
             // Initialize Phase 2 components
             _audioLoader = new AudioLoader(_resourceManager);
@@ -622,6 +618,18 @@ namespace DTXMania.Game.Lib.Stage
             // Create a reusable white texture for fallback rendering
             _fallbackWhiteTexture = new Texture2D(graphicsDevice, 1, 1);
             _fallbackWhiteTexture.SetData(new[] { Color.White });
+        }
+
+        // Needs the live GraphicsDevice from InitializeComponents — unreachable
+        // under headless coverage like the other renderer constructions above.
+        [ExcludeFromCodeCoverage]
+        private TabHudDisplay CreateTabHudDisplay(GraphicsDevice graphicsDevice, SongChart? chart)
+        {
+            return new TabHudDisplay(
+                graphicsDevice,
+                chart,
+                _selectedSong?.DisplayTitle ?? _selectedSong?.Title,
+                _selectedSong?.DatabaseSong?.DisplayArtist);
         }
 
         private void CleanupComponents()
