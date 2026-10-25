@@ -38,6 +38,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
         public int MaxCombo { get; init; }
         public int FastCount { get; init; }
         public int SlowCount { get; init; }
+
+        /// <summary>
+        /// Run-gate snapshot: the frozen ShowCombo=false must hide the Tab combo
+        /// exactly like the Lanes combo draw (HPA-509 final review).
+        /// </summary>
+        public bool HideCombo { get; init; }
     }
 
     /// <summary>
@@ -125,7 +131,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 return;
 
             DrawHeader(spriteBatch, state.Score);
-            DrawCombo(spriteBatch, state.Combo);
+            DrawCombo(spriteBatch, state);
             DrawTransientFeedback(spriteBatch);
             DrawLife(spriteBatch, state.Life);
             DrawProgress(spriteBatch, state.Progress, state.ElapsedMs, state.TotalMs);
@@ -279,12 +285,13 @@ namespace DTXMania.Game.Lib.Stage.Performance
         }
 
         [ExcludeFromCodeCoverage]
-        private void DrawCombo(SpriteBatch spriteBatch, int combo)
+        private void DrawCombo(SpriteBatch spriteBatch, in TabHudFrameState state)
         {
-            if (combo <= 0)
+            // Same gate as the Lanes combo draw: ShowCombo=false hides it entirely.
+            if (state.HideCombo || state.Combo <= 0)
                 return;
 
-            string text = combo.ToString(CultureInfo.InvariantCulture);
+            string text = state.Combo.ToString(CultureInfo.InvariantCulture);
             Vector2 size = _comboFont!.MeasureString(text);
             Vector2 position = new(
                 TabHud.HitFeedbackCenterX - size.X / 2f,
@@ -309,7 +316,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 TabHud.LifeTop,
                 TabHud.LifeRight - TabHud.LifeLeft,
                 TabHud.LifeBottom - TabHud.LifeTop);
-            FillRectangle(spriteBatch, backRect, TabHud.BarBackColor);
+            FillRectangle(spriteBatch, backRect, TabHud.BarBackColor, TabHud.DepthBarBack);
 
             float clamped = Clamp01(life);
             if (clamped > 0f)
@@ -317,7 +324,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 FillRectangle(
                     spriteBatch,
                     new Rectangle(backRect.X, backRect.Y, (int)(backRect.Width * clamped), backRect.Height),
-                    TabHud.LifeFillColor);
+                    TabHud.LifeFillColor,
+                    TabHud.DepthBarFill);
             }
         }
 
@@ -340,7 +348,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 TabHud.ProgressTop + 8,
                 Math.Max(0, TabHud.ProgressRight - barX),
                 TabHud.ProgressBottom - TabHud.ProgressTop - 16);
-            FillRectangle(spriteBatch, backRect, TabHud.BarBackColor);
+            FillRectangle(spriteBatch, backRect, TabHud.BarBackColor, TabHud.DepthBarBack);
 
             float clamped = Clamp01(progress);
             if (clamped > 0f && backRect.Width > 0)
@@ -348,7 +356,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 FillRectangle(
                     spriteBatch,
                     new Rectangle(backRect.X, backRect.Y, (int)(backRect.Width * clamped), backRect.Height),
-                    TabHud.AccentColor);
+                    TabHud.AccentColor,
+                    TabHud.DepthBarFill);
             }
         }
 
@@ -409,13 +418,14 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 position,
                 color,
                 PerformanceUILayout.Visual.StandardShadowColor,
-                PerformanceUILayout.Visual.StandardShadowOffset);
+                PerformanceUILayout.Visual.StandardShadowOffset,
+                TabHud.DepthText);
         }
 
         [ExcludeFromCodeCoverage]
-        private void FillRectangle(SpriteBatch spriteBatch, Rectangle rect, Color color)
+        private void FillRectangle(SpriteBatch spriteBatch, Rectangle rect, Color color, float depth)
         {
-            spriteBatch.Draw(_whiteTexture!, rect, color);
+            spriteBatch.Draw(_whiteTexture!, rect, null, color, 0f, Vector2.Zero, SpriteEffects.None, depth);
         }
 
         private static float Clamp01(float value)

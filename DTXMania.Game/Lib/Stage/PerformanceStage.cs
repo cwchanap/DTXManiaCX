@@ -2583,6 +2583,7 @@ namespace DTXMania.Game.Lib.Stage
             MaxCombo = _skillPanelDisplay?.MaxCombo ?? 0,
             FastCount = _skillPanelDisplay?.FastCount ?? 0,
             SlowCount = _skillPanelDisplay?.SlowCount ?? 0,
+            HideCombo = _visualGates.HideCombo,
         };
         
         /// <summary>
