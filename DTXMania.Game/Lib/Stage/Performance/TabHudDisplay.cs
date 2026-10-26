@@ -57,7 +57,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
     /// the Tab hit-feedback height). Fonts are built once and released on dispose;
     /// the white-pixel primitive is the stage's shared fallback texture, borrowed
     /// and never disposed here. When acquisition fails <see cref="IsReady"/> stays
-    /// false and the stage falls back to the Lanes HUD instead of drawing nothing.
+    /// false and the stage rolls the strip back to a consistent Lanes fallback.
     /// </summary>
     public class TabHudDisplay : IDisposable
     {
