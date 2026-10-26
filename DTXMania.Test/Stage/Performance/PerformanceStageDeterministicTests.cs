@@ -770,6 +770,42 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public void TryConstructNotationStrip_WhenTabHudCannotAcquireResources_ShouldRollStripBackToLanes()
+    {
+        var stage = CreateTabStageWithPendingChart(CreateNotationResourceManager(completeBravura: true).Object);
+        // A stub SpriteBatch returns a non-null but uninitialized GraphicsDevice,
+        // so HUD construction is attempted and its font acquisition fails
+        // deterministically — no GPU needed.
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_spriteBatch",
+            CreateSpriteBatchStub(new Viewport(0, 0, 1280, 720)));
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "TryConstructNotationStrip");
+
+        // The whole Tab decision rolls back to consistent Lanes — a strip kept
+        // without its HUD would draw the Lanes widgets over the strip's hit
+        // marker and key labels. Pending chart stays consumed either way.
+        Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_notationStrip"));
+        Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_tabHudDisplay"));
+        Assert.Null(GetPendingNotationChart(stage));
+    }
+
+    [Fact]
+    public void TryConstructNotationStrip_WhenNoGraphicsDevice_ShouldKeepPublishedStrip()
+    {
+        var stage = CreateTabStageWithPendingChart(CreateNotationResourceManager(completeBravura: true).Object);
+
+        // No SpriteBatch at all (plain headless path): the HUD cannot even be
+        // attempted, which must not unpublish the strip.
+        ReflectionHelpers.InvokePrivateMethod(stage, "TryConstructNotationStrip");
+
+        Assert.NotNull(ReflectionHelpers.GetPrivateField<NotationStripRenderer>(stage, "_notationStrip"));
+        Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_tabHudDisplay"));
+        Assert.Null(GetPendingNotationChart(stage));
+    }
+
+    [Fact]
     public void CleanupComponents_WhenTabWasActive_ShouldClearPendingStateAndDisposeStrip()
     {
         // The font's RemoveReference fires inside the renderer's Dispose: sampling the

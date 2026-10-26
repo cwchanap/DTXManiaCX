@@ -221,9 +221,9 @@ namespace DTXMania.Game.Lib.Stage
         private NotationStripRenderer? _notationStrip;
 
         // HPA-509: the Tab HUD draws only while both the strip and its own resources
-        // are live. A HUD whose fonts/primitive failed to load leaves this false, so
-        // the Lanes UI stack (skill panel, gauge, score, combo, judgement popups)
-        // is drawn as the fallback instead of a strip with no feedback at all.
+        // are live. A HUD whose fonts/primitive failed to load rolls the strip back
+        // to Lanes in TryConstructNotationStrip, so a false read here already means
+        // the consistent Lanes stack — never a strip under Lanes widgets.
         private bool IsTabHudActive => _notationStrip != null && _tabHudDisplay?.IsReady == true;
         
         // Note: Using global stage transition debouncing from BaseGame
@@ -626,20 +626,27 @@ namespace DTXMania.Game.Lib.Stage
             _fallbackWhiteTexture.SetData(new[] { Color.White });
         }
 
+        // HPA-509: the three outcomes of a Tab HUD build. NotAttempted means no
+        // GraphicsDevice existed to try with (headless coverage) and the strip
+        // keeps its publish; Ready keeps the publish; Failed — the HUD threw or
+        // acquired no resources — rolls the strip back so the song plays as a
+        // consistent full-Lanes fallback instead of a strip under Lanes widgets.
+        private enum TabHudBuildResult { NotAttempted, Ready, Failed }
+
         // HPA-509: build the Tab HUD once the strip has published. Deliberately
-        // outside the strip's own try/catch — a HUD failure must not unpublish the
-        // strip; IsTabHudActive stays false and the Lanes HUD draws instead.
-        // Needs a live GraphicsDevice — unreachable under headless coverage like
-        // the other renderer constructions in InitializeComponents.
+        // outside the strip's own try/catch so a HUD failure reports cleanly; the
+        // caller decides the strip's fate from the result. Needs a live
+        // GraphicsDevice — the attempt itself is unreachable under headless
+        // coverage like the other renderer constructions in InitializeComponents.
         [ExcludeFromCodeCoverage]
-        private void ConstructTabHud()
+        private TabHudBuildResult ConstructTabHud()
         {
             var graphicsDevice = _spriteBatch?.GraphicsDevice;
             if (graphicsDevice == null)
             {
                 LogPerformanceError(
-                    "PerformanceStage: no GraphicsDevice for the Tab HUD; the Lanes HUD stays active for this song.");
-                return;
+                    "PerformanceStage: no GraphicsDevice for the Tab HUD; the strip stays published for this song.");
+                return TabHudBuildResult.NotAttempted;
             }
 
             try
@@ -650,13 +657,17 @@ namespace DTXMania.Game.Lib.Stage
                     _selectedSong?.DisplayTitle ?? _selectedSong?.Title,
                     _selectedSong?.DatabaseSong?.DisplayArtist,
                     _fallbackWhiteTexture);
+                return _tabHudDisplay.IsReady
+                    ? TabHudBuildResult.Ready
+                    : TabHudBuildResult.Failed;
             }
             catch (Exception ex)
             {
                 LogPerformanceError(
-                    "PerformanceStage: Tab HUD construction failed; the Lanes HUD stays active for this song.",
+                    "PerformanceStage: Tab HUD construction failed.",
                     ex);
                 _tabHudDisplay = null;
+                return TabHudBuildResult.Failed;
             }
         }
 
@@ -1159,7 +1170,20 @@ namespace DTXMania.Game.Lib.Stage
                 if (renderer.IsReady)
                 {
                     _notationStrip = renderer;
-                    ConstructTabHud();
+                    if (ConstructTabHud() == TabHudBuildResult.Failed)
+                    {
+                        // HPA-509 review: a strip without its HUD draws the
+                        // Lanes widgets back over the strip's hit marker and
+                        // key labels — an unreadable mixed mode. Roll the whole
+                        // decision back to a consistent Lanes fallback (null
+                        // the reference BEFORE disposing, like CleanupComponents).
+                        _notationStrip = null;
+                        renderer.Dispose();
+                        _tabHudDisplay?.Dispose();
+                        _tabHudDisplay = null;
+                        LogPerformanceError(
+                            "PerformanceStage: Tab HUD unavailable; Tab display falls back to Lanes for this song.");
+                    }
                     return;
                 }
 
@@ -2088,8 +2112,8 @@ namespace DTXMania.Game.Lib.Stage
                 && !FrozenAutoPlayLanes.Contains(e.Lane);
 
             // The Lanes-vs-Tab split keys on the HUD's readiness, not the strip alone:
-            // a Tab HUD that failed to load leaves the legacy popup path active so the
-            // player still sees judgement feedback (HPA-509 review).
+            // a Tab HUD that failed to load rolls the strip back to Lanes, so the
+            // legacy popup path stays consistent with what is on screen (HPA-509 review).
             if (!IsTabHudActive)
             {
                 // Lanes: spawn judgement text popup for all judgements (unchanged).
@@ -2565,9 +2589,10 @@ namespace DTXMania.Game.Lib.Stage
             // gauge/score/combo draws are skipped for the same reason — the Tab HUD
             // renders those values in its own regions instead. Only the legacy-position
             // draws are gated; the managers keep updating either way.
-            // The decision keys on the HUD's readiness: a strip whose HUD failed to
-            // load keeps the whole Lanes stack — including judgement popups via
-            // OnJudgementMade — instead of drawing no feedback at all (HPA-509 review).
+            // The decision keys on the HUD's readiness, which now implies the strip:
+            // a HUD that failed to load rolls the strip back in
+            // TryConstructNotationStrip, so an inactive Tab HUD means consistent
+            // Lanes — including judgement popups via OnJudgementMade (HPA-509 review).
             bool tabHudActive = IsTabHudActive;
 
             // Draw shutters first (overlay elements)
