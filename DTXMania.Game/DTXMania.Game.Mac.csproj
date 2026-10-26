@@ -37,9 +37,9 @@
   <ItemGroup>
     <PackageReference Include="FFMpegCore" Version="5.5.0" />
     <PackageReference Include="Melanchall.DryWetMidi" Version="8.0.3" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.13" />
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.13" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="10.0.13">
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.14" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.14" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="10.0.14">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
@@ -47,7 +47,7 @@
     <PackageReference Include="MonoGame.Framework.DesktopGL" Version="3.8.*" />
     <PackageReference Include="MonoGame.Content.Builder.Task" Version="3.8.*" />
     <PackageReference Include="NVorbis" Version="0.10.5" />
-    <PackageReference Include="System.Drawing.Common" Version="10.0.13" />
+    <PackageReference Include="System.Drawing.Common" Version="10.0.14" />
   </ItemGroup>
 
   <!-- SIL Open Font License files for Orbitron, ShareTechMono and Bravura.
