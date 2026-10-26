@@ -54,9 +54,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
     /// <see cref="SongScore.CalculateGameSkill"/> formula on the same chart values
     /// SkillPanelDisplay draws. Managed fonts are used for both score and combo
     /// (the Lanes sprite score is hard-positioned and the combo sprite digits exceed
-    /// the Tab hit-feedback height). Fonts and the white-pixel primitive are built
-    /// once and released on dispose; on acquisition failure the HUD draw is skipped
-    /// (log only — no second/minimal HUD mode).
+    /// the Tab hit-feedback height). Fonts are built once and released on dispose;
+    /// the white-pixel primitive is the stage's shared fallback texture, borrowed
+    /// and never disposed here. When acquisition fails <see cref="IsReady"/> stays
+    /// false and the stage falls back to the Lanes HUD instead of drawing nothing.
     /// </summary>
     public class TabHudDisplay : IDisposable
     {
@@ -64,11 +65,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private readonly SongChart? _chart;
         private readonly string _title;
         private readonly string _artist;
+        private readonly Texture2D? _whiteTexture;
         private ManagedFont? _titleFont;
         private ManagedFont? _scoreFont;
-        private ManagedFont? _comboFont;
         private ManagedFont? _tileFont;
-        private Texture2D? _whiteTexture;
+        private bool _resourcesReady;
         private bool _disposed;
 
         // Newest-wins judgement popup slot (HPA-509): each OnJudgementMade replaces
@@ -86,12 +87,35 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private readonly Color[] _flashColors = new Color[PerformanceUILayout.LaneCount];
         private readonly float[] _flashYsByLane = new float[PerformanceUILayout.LaneCount];
 
-        public TabHudDisplay(GraphicsDevice graphicsDevice, SongChart? chart, string? title, string? artist)
+        // Per-frame string caches (HPA-509 review): rebuilt only when the underlying
+        // value changes — the same convention ScoreDisplay and ComboDisplay use.
+        private int _lastScore = -1;
+        private string _cachedScoreText = string.Empty;
+        private float _cachedScoreWidth;
+        private float _lastHeaderTextMaxWidth = -1f;
+        private string _cachedTitle = string.Empty;
+        private string _cachedArtist = string.Empty;
+        private int _lastCombo = -1;
+        private string _cachedComboText = string.Empty;
+        private Vector2 _cachedComboSize;
+        private int _lastElapsedSec = -1;
+        private int _lastTotalSec = -1;
+        private string _cachedTimeText = string.Empty;
+        private float _cachedTimeWidth;
+        private string[]? _cachedStatLabels;
+        private (int, int, int, int, int, int, int, int, double, double)? _lastStatsKey;
+        private readonly string[] _cachedStatValues = new string[9];
+        private string? _cachedTimingText;
+        private Vector2 _cachedTimingSize;
+
+        public TabHudDisplay(GraphicsDevice graphicsDevice, SongChart? chart, string? title, string? artist,
+            Texture2D? whiteTexture = null)
         {
             _graphicsDevice = graphicsDevice ?? throw new ArgumentNullException(nameof(graphicsDevice));
             _chart = chart;
             _title = title ?? string.Empty;
             _artist = artist ?? string.Empty;
+            _whiteTexture = whiteTexture;
 
             // Lane→label-y anchors for the flash slots; all ten primary labels map
             // one-to-one onto lanes 0-9 (verified by test), so a plain array suffices.
@@ -101,9 +125,29 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     _flashYsByLane[anchor.Lane] = anchor.YPx;
             }
 
-            // Font/primitive acquisition needs a live GraphicsDevice, so it can
-            // never run under headless coverage — excluded like the Draw paths.
+            // Font acquisition needs a live GraphicsDevice, so it can never run
+            // under headless coverage — excluded like the Draw paths.
             AcquireDrawResources();
+        }
+
+        /// <summary>
+        /// True once every draw resource (fonts + the shared white pixel) is held
+        /// and the display has not been disposed. The stage keys its single
+        /// Tab-HUD/Lanes decision on this flag — a HUD that failed to load falls
+        /// back to the normal Lanes display (HPA-509 review).
+        /// </summary>
+        public bool IsReady => _resourcesReady && !_disposed;
+
+        /// <summary>
+        /// Test seam: deterministic tests mark a GPU-less display ready so the
+        /// stage's Tab routing paths can run without a real GraphicsDevice. The
+        /// ctor's failed acquisition leaves the display disposed, so the seam
+        /// restores both sides of the readiness state.
+        /// </summary>
+        internal void MarkResourcesReadyForTesting()
+        {
+            _resourcesReady = true;
+            _disposed = false;
         }
 
         [ExcludeFromCodeCoverage]
@@ -113,17 +157,16 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 _titleFont = ManagedFont.CreateFont(_graphicsDevice, "NotoSerifJP", PerformanceUILayout.TabHud.TitleFontSizePt, FontStyle.Bold);
                 _scoreFont = ManagedFont.CreateFont(_graphicsDevice, "NotoSerifJP", PerformanceUILayout.TabHud.ScoreFontSizePt, FontStyle.Bold);
-                _comboFont = ManagedFont.CreateFont(_graphicsDevice, "NotoSerifJP", PerformanceUILayout.TabHud.ComboFontSizePt, FontStyle.Bold);
                 _tileFont = ManagedFont.CreateFont(_graphicsDevice, "NotoSerifJP", PerformanceUILayout.TabHud.TileFontSizePt, FontStyle.Bold);
-                _whiteTexture = new Texture2D(_graphicsDevice, 1, 1);
-                _whiteTexture.SetData(new[] { Color.White });
+                _resourcesReady = _whiteTexture != null
+                    && _titleFont != null && _scoreFont != null && _tileFont != null;
             }
             catch (Exception ex)
             {
-                // Log and skip the HUD draw — no fallback/minimal Tab HUD mode.
-                // Console.WriteLine (not Debug.WriteLine) keeps the failure
+                // Log and let the stage fall back to the Lanes HUD (IsReady stays
+                // false). Console.WriteLine (not Debug.WriteLine) keeps the failure
                 // diagnosable in Release builds, matching LogPerformanceError.
-                Console.WriteLine($"[PerformanceError] TabHudDisplay: failed to acquire fonts/primitive: {ex.Message}");
+                Console.WriteLine($"[PerformanceError] TabHudDisplay: failed to acquire fonts: {ex.Message}");
                 Dispose(true);
             }
         }
@@ -136,7 +179,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         public void Draw(SpriteBatch spriteBatch, in TabHudFrameState state)
         {
             if (_disposed || spriteBatch == null || _whiteTexture == null ||
-                _titleFont == null || _scoreFont == null || _comboFont == null || _tileFont == null)
+                _titleFont == null || _scoreFont == null || _tileFont == null)
                 return;
 
             DrawHeader(spriteBatch, state.Score);
@@ -182,7 +225,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             float halfWidth = _titleFont != null ? _titleFont.MeasureString(word).X / 2f : 0f;
             _popup = new JudgementTextPopup(
                 word,
-                new Vector2(TabHud.HitFeedbackCenterX - halfWidth, TabHud.PopupWordTop));
+                new Vector2(TabHud.HitFeedbackCenterX - halfWidth, TabHud.PopupWordTop),
+                TabHud.PopupRiseDistance);
             _popupColor = color;
 
             if (showTiming)
@@ -260,16 +304,20 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
             if (_popupTimingText != null)
             {
+                if (_popupTimingText != _cachedTimingText)
+                {
+                    _cachedTimingSize = _tileFont.MeasureString(_popupTimingText);
+                    _cachedTimingText = _popupTimingText;
+                }
                 var timingColor = _popupTimingIsSlow ? TabHud.TimingSlowColor : TabHud.TimingFastColor;
-                Vector2 size = _tileFont.MeasureString(_popupTimingText);
                 // The line rides a fixed gap above the word's current position so
-                // the popup's 30px rise can never sweep through it.
-                float timingTop = position.Y - size.Y - TabHud.PopupTimingGap;
+                // the popup's shortened Tab rise can never sweep through it.
+                float timingTop = position.Y - _cachedTimingSize.Y - TabHud.PopupTimingGap;
                 DrawShadowed(
                     spriteBatch,
                     _tileFont,
                     _popupTimingText,
-                    new Vector2(TabHud.HitFeedbackCenterX - size.X / 2f, timingTop),
+                    new Vector2(TabHud.HitFeedbackCenterX - _cachedTimingSize.X / 2f, timingTop),
                     timingColor * _popup.Alpha);
             }
         }
@@ -278,21 +326,29 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private void DrawHeader(SpriteBatch spriteBatch, int score)
         {
             // Score right-aligned inside the header.
-            string scoreText = score.ToString(CultureInfo.InvariantCulture);
-            Vector2 scoreSize = _scoreFont!.MeasureString(scoreText);
-            DrawShadowed(spriteBatch, _scoreFont, scoreText,
-                new Vector2(TabHud.HeaderRight - scoreSize.X, TabHud.HeaderTop), TabHud.PrimaryTextColor);
+            if (score != _lastScore)
+            {
+                _cachedScoreText = score.ToString(CultureInfo.InvariantCulture);
+                _cachedScoreWidth = _scoreFont!.MeasureString(_cachedScoreText).X;
+                _lastScore = score;
+            }
+            DrawShadowed(spriteBatch, _scoreFont!, _cachedScoreText,
+                new Vector2(TabHud.HeaderRight - _cachedScoreWidth, TabHud.HeaderTop), TabHud.PrimaryTextColor);
 
             // Title + artist on the left, ellipsized to the space left of the score.
-            float textMaxWidth = TabHud.HeaderRight - scoreSize.X - TabHud.HeaderLeft - TabHud.HeaderTextGap;
-            string title = TextHelper.TruncateToWidth(_title, textMaxWidth, _titleFont!);
-            DrawShadowed(spriteBatch, _titleFont, title, new Vector2(TabHud.HeaderLeft, TabHud.HeaderTop), TabHud.PrimaryTextColor);
-            string artist = TextHelper.TruncateToWidth(_artist, textMaxWidth, _tileFont!);
+            float textMaxWidth = TabHud.HeaderRight - _cachedScoreWidth - TabHud.HeaderLeft - TabHud.HeaderTextGap;
+            if (textMaxWidth != _lastHeaderTextMaxWidth)
+            {
+                _cachedTitle = TextHelper.TruncateToWidth(_title, textMaxWidth, _titleFont!);
+                _cachedArtist = TextHelper.TruncateToWidth(_artist, textMaxWidth, _tileFont!);
+                _lastHeaderTextMaxWidth = textMaxWidth;
+            }
+            DrawShadowed(spriteBatch, _titleFont!, _cachedTitle, new Vector2(TabHud.HeaderLeft, TabHud.HeaderTop), TabHud.PrimaryTextColor);
             DrawShadowed(
                 spriteBatch,
-                _tileFont,
-                artist,
-                new Vector2(TabHud.HeaderLeft, TabHud.HeaderTop + _titleFont.LineSpacing + TabHud.HeaderArtistGap),
+                _tileFont!,
+                _cachedArtist,
+                new Vector2(TabHud.HeaderLeft, TabHud.HeaderTop + _titleFont!.LineSpacing + TabHud.HeaderArtistGap),
                 TabHud.SecondaryTextColor);
         }
 
@@ -303,12 +359,16 @@ namespace DTXMania.Game.Lib.Stage.Performance
             if (state.HideCombo || state.Combo <= 0)
                 return;
 
-            string text = state.Combo.ToString(CultureInfo.InvariantCulture);
-            Vector2 size = _comboFont!.MeasureString(text);
+            if (state.Combo != _lastCombo)
+            {
+                _cachedComboText = state.Combo.ToString(CultureInfo.InvariantCulture);
+                _cachedComboSize = _scoreFont!.MeasureString(_cachedComboText);
+                _lastCombo = state.Combo;
+            }
             Vector2 position = new(
-                TabHud.HitFeedbackCenterX - size.X / 2f,
+                TabHud.HitFeedbackCenterX - _cachedComboSize.X / 2f,
                 TabHud.HitFeedbackTop);
-            DrawShadowed(spriteBatch, _comboFont, text, position, TabHud.ComboColor);
+            DrawShadowed(spriteBatch, _scoreFont!, _cachedComboText, position, TabHud.ComboColor);
         }
 
         [ExcludeFromCodeCoverage]
@@ -344,21 +404,35 @@ namespace DTXMania.Game.Lib.Stage.Performance
         [ExcludeFromCodeCoverage]
         private void DrawProgress(SpriteBatch spriteBatch, float progress, double elapsedMs, double totalMs)
         {
-            // Elapsed/total reusing the Song Select duration formatter (m:ss).
-            string timeText =
-                SongStatusPanel.FormatDuration(Math.Max(0, elapsedMs / 1000.0)) +
-                " / " +
-                SongStatusPanel.FormatDuration(Math.Max(0, totalMs / 1000.0));
-            Vector2 timeSize = _tileFont!.MeasureString(timeText);
-            Vector2 timePosition = new(TabHud.ProgressLeft, TabHud.ProgressTop + TabHud.ProgressTextInsetY);
-            DrawShadowed(spriteBatch, _tileFont, timeText, timePosition, TabHud.SecondaryTextColor);
+            // FormatDuration throws on NaN/overflow, so non-finite or absurd
+            // millisecond inputs (e.g. a chart with a degenerate BPM) collapse to
+            // zero first; elapsed is then clamped to the chart total so the header
+            // can never read past the song's end (HPA-509 review).
+            double totalSec = ToSafeSeconds(totalMs);
+            int eSec = (int)Math.Min(ToSafeSeconds(elapsedMs), totalSec);
+            int tSec = (int)totalSec;
+            if (eSec != _lastElapsedSec || tSec != _lastTotalSec)
+            {
+                _cachedTimeText =
+                    SongStatusPanel.FormatDuration(eSec) +
+                    " / " +
+                    SongStatusPanel.FormatDuration(tSec);
+                _cachedTimeWidth = _tileFont!.MeasureString(_cachedTimeText).X;
+                _lastElapsedSec = eSec;
+                _lastTotalSec = tSec;
+            }
+            // Right-aligned so the fill's fixed left edge can never shift with the
+            // proportional-width text.
+            Vector2 timePosition = new(
+                TabHud.ProgressBarLeft - TabHud.ProgressBarGap - _cachedTimeWidth,
+                TabHud.ProgressTop + TabHud.ProgressTextInsetY);
+            DrawShadowed(spriteBatch, _tileFont!, _cachedTimeText, timePosition, TabHud.SecondaryTextColor);
 
-            // Thin horizontal fill to the right of the elapsed/total text.
-            int barX = (int)(TabHud.ProgressLeft + timeSize.X + TabHud.ProgressBarGap);
+            // Thin horizontal fill, fixed at ProgressBarLeft.
             var backRect = new Rectangle(
-                barX,
+                TabHud.ProgressBarLeft,
                 TabHud.ProgressTop + TabHud.ProgressBarInsetY,
-                Math.Max(0, TabHud.ProgressRight - barX),
+                Math.Max(0, TabHud.ProgressRight - TabHud.ProgressBarLeft),
                 TabHud.ProgressBottom - TabHud.ProgressTop - 2 * TabHud.ProgressBarInsetY);
             FillRectangle(spriteBatch, backRect, TabHud.BarBackColor, TabHud.DepthBarBack);
 
@@ -387,39 +461,65 @@ namespace DTXMania.Game.Lib.Stage.Performance
             // of the per-hit timing preference. Poor is presented as OK.
             // Trim the legacy 4-wide judgement padding so every value's left edge
             // aligns with its label like the other tiles (HPA-509 polish).
-            (string Label, string Value)[] tiles =
+            var statsKey = (state.PerfectCount, state.GreatCount, state.GoodCount, state.PoorCount,
+                state.MissCount, state.MaxCombo, state.FastCount, state.SlowCount,
+                state.Achievement, gameSkill);
+            if (statsKey != _lastStatsKey)
             {
-                ("PERFECT", SkillPanelDisplay.FormatJudgementCount(state.PerfectCount).Trim()),
-                ("GREAT", SkillPanelDisplay.FormatJudgementCount(state.GreatCount).Trim()),
-                ("GOOD", SkillPanelDisplay.FormatJudgementCount(state.GoodCount).Trim()),
-                ("OK", SkillPanelDisplay.FormatJudgementCount(state.PoorCount).Trim()),
-                ("MISS", SkillPanelDisplay.FormatJudgementCount(state.MissCount).Trim()),
-                ("MAX COMBO", state.MaxCombo.ToString(CultureInfo.InvariantCulture)),
-                ("FAST/SLOW", $"{state.FastCount.ToString(CultureInfo.InvariantCulture)}/{state.SlowCount.ToString(CultureInfo.InvariantCulture)}"),
-                ("ACHIEVE", SkillPanelDisplay.FormatSkillText(state.Achievement).Trim() + "%"),
-                ("SKILL", SkillPanelDisplay.FormatSkillText(gameSkill).Trim()),
-            };
+                _cachedStatValues[0] = SkillPanelDisplay.FormatJudgementCount(state.PerfectCount).Trim();
+                _cachedStatValues[1] = SkillPanelDisplay.FormatJudgementCount(state.GreatCount).Trim();
+                _cachedStatValues[2] = SkillPanelDisplay.FormatJudgementCount(state.GoodCount).Trim();
+                _cachedStatValues[3] = SkillPanelDisplay.FormatJudgementCount(state.PoorCount).Trim();
+                _cachedStatValues[4] = SkillPanelDisplay.FormatJudgementCount(state.MissCount).Trim();
+                _cachedStatValues[5] = state.MaxCombo.ToString(CultureInfo.InvariantCulture);
+                _cachedStatValues[6] = $"{state.FastCount.ToString(CultureInfo.InvariantCulture)}/{state.SlowCount.ToString(CultureInfo.InvariantCulture)}";
+                _cachedStatValues[7] = SkillPanelDisplay.FormatSkillText(state.Achievement).Trim() + "%";
+                _cachedStatValues[8] = SkillPanelDisplay.FormatSkillText(gameSkill).Trim();
+                _lastStatsKey = statsKey;
+            }
 
-            float tileWidth = (TabHud.StatsRight - TabHud.StatsLeft) / (float)tiles.Length;
+            float tileWidth = (TabHud.StatsRight - TabHud.StatsLeft) / (float)_cachedStatValues.Length;
+            // The label strings and tile width are both fixed, so the truncation is
+            // computed once and reused every frame.
+            _cachedStatLabels ??= BuildStatLabels(tileWidth - TabHud.StatsTileGap);
             float labelY = TabHud.StatsTop;
             float valueY = TabHud.StatsTop + _tileFont!.LineSpacing + TabHud.StatsValueGap;
-            for (int i = 0; i < tiles.Length; i++)
+            for (int i = 0; i < _cachedStatValues.Length; i++)
             {
                 float x = TabHud.StatsLeft + i * tileWidth;
-                // Constrain every label inside its own tile: an unconstrained long
-                // label bleeds into the next tile (ACHIEVEMENT previously merged
-                // with SKILL at ~139px/tile).
-                string label = TextHelper.TruncateToWidth(
-                    tiles[i].Label, tileWidth - TabHud.StatsTileGap, _tileFont!);
-                DrawShadowed(spriteBatch, _tileFont!, label, new Vector2(x, labelY), TabHud.SecondaryTextColor);
-                DrawShadowed(spriteBatch, _titleFont!, tiles[i].Value, new Vector2(x, valueY), TabHud.PrimaryTextColor);
+                DrawShadowed(spriteBatch, _tileFont!, _cachedStatLabels[i], new Vector2(x, labelY), TabHud.SecondaryTextColor);
+                DrawShadowed(spriteBatch, _titleFont!, _cachedStatValues[i], new Vector2(x, valueY), TabHud.PrimaryTextColor);
             }
+        }
+
+        [ExcludeFromCodeCoverage]
+        private string[] BuildStatLabels(float maxWidth)
+        {
+            // Constrain every label inside its own tile: an unconstrained long
+            // label bleeds into the next tile (ACHIEVEMENT previously merged
+            // with SKILL at ~139px/tile).
+            return new[]
+            {
+                TextHelper.TruncateToWidth("PERFECT", maxWidth, _tileFont!),
+                TextHelper.TruncateToWidth("GREAT", maxWidth, _tileFont!),
+                TextHelper.TruncateToWidth("GOOD", maxWidth, _tileFont!),
+                TextHelper.TruncateToWidth("OK", maxWidth, _tileFont!),
+                TextHelper.TruncateToWidth("MISS", maxWidth, _tileFont!),
+                TextHelper.TruncateToWidth("MAX COMBO", maxWidth, _tileFont!),
+                TextHelper.TruncateToWidth("FAST/SLOW", maxWidth, _tileFont!),
+                TextHelper.TruncateToWidth("ACHIEVE", maxWidth, _tileFont!),
+                TextHelper.TruncateToWidth("SKILL", maxWidth, _tileFont!),
+            };
         }
 
         /// <summary>
         /// Draw Tab HUD text with the shared shadow convention. The Tab HUD sits
         /// directly over the BGA (unlike the Lanes HUD over the lane panel), so
-        /// unshadowed text goes illegible on bright videos.
+        /// unshadowed text goes illegible on bright videos. Two explicit draw calls
+        /// with their own planes replace DrawStringWithShadow — passing a depth
+        /// through the shared helper shifted every legacy caller's shadow (HPA-509
+        /// review). The shadow color tracks the text's alpha so fading popups do
+        /// not leave a fixed-opacity ghost.
         /// </summary>
         [ExcludeFromCodeCoverage]
         private static void DrawShadowed(
@@ -429,13 +529,26 @@ namespace DTXMania.Game.Lib.Stage.Performance
             Vector2 position,
             Color color)
         {
-            font.DrawStringWithShadow(
+            Color shadow = PerformanceUILayout.Visual.StandardShadowColor * (color.A / 255f);
+            font.DrawString(
+                spriteBatch,
+                text,
+                position + PerformanceUILayout.Visual.StandardShadowOffset,
+                shadow,
+                0f,
+                Vector2.Zero,
+                Vector2.One,
+                SpriteEffects.None,
+                TabHud.DepthTextShadow);
+            font.DrawString(
                 spriteBatch,
                 text,
                 position,
                 color,
-                PerformanceUILayout.Visual.StandardShadowColor,
-                PerformanceUILayout.Visual.StandardShadowOffset,
+                0f,
+                Vector2.Zero,
+                Vector2.One,
+                SpriteEffects.None,
                 TabHud.DepthText);
         }
 
@@ -443,6 +556,18 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private void FillRectangle(SpriteBatch spriteBatch, Rectangle rect, Color color, float depth)
         {
             spriteBatch.Draw(_whiteTexture!, rect, null, color, 0f, Vector2.Zero, SpriteEffects.None, depth);
+        }
+
+        /// <summary>
+        /// Milliseconds → bounded seconds for <see cref="SongStatusPanel.FormatDuration"/>:
+        /// non-finite inputs return 0 and the result is clamped well below
+        /// TimeSpan.FromSeconds' range so a degenerate chart can never throw.
+        /// </summary>
+        internal static double ToSafeSeconds(double ms)
+        {
+            if (!double.IsFinite(ms))
+                return 0.0;
+            return Math.Clamp(ms / 1000.0, 0.0, 359999.0);
         }
 
         internal static float Clamp01(float value)
@@ -478,14 +603,13 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 _titleFont = null;
                 _scoreFont?.Dispose();
                 _scoreFont = null;
-                _comboFont?.Dispose();
-                _comboFont = null;
                 _tileFont?.Dispose();
                 _tileFont = null;
-                _whiteTexture?.Dispose();
-                _whiteTexture = null;
+                // _whiteTexture belongs to the stage (the shared fallback pixel) —
+                // this class borrows it and must not dispose it.
             }
 
+            _resourcesReady = false;
             _disposed = true;
         }
     }

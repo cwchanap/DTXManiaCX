@@ -19,6 +19,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         private readonly string _text;
         private readonly Vector2 _initialPosition;
+        private readonly float _riseDistance;
         private float _alpha;
         private float _yOffset;
         private float _elapsedTime;
@@ -42,10 +43,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         #region Constructor
 
-        public JudgementTextPopup(string text, Vector2 position)
+        public JudgementTextPopup(string text, Vector2 position, float riseDistance = RiseDistance)
         {
             _text = text ?? string.Empty;
             _initialPosition = position;
+            _riseDistance = riseDistance;
             _alpha = 1.0f;
             _yOffset = 0f;
             _elapsedTime = 0f;
@@ -76,7 +78,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 // Animation complete
                 _isActive = false;
                 _alpha = 0f;
-                _yOffset = RiseDistance;
+                _yOffset = _riseDistance;
                 return false;
             }
 
@@ -84,7 +86,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             _alpha = 1.0f - progress;
 
             // Update y offset (rise up)
-            _yOffset = progress * RiseDistance;
+            _yOffset = progress * _riseDistance;
 
             return true;
         }

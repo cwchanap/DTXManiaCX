@@ -479,7 +479,7 @@ namespace DTXMania.Test.UI
         public void TabHud_HitFeedback_ShouldCenterOnStripHitMarker()
         {
             Assert.Equal(PerformanceUILayout.NotationStrip.HitMarkerX, PerformanceUILayout.TabHud.HitFeedbackCenterX);
-            Assert.Equal(125, PerformanceUILayout.TabHud.HitFeedbackTop);
+            Assert.Equal(90, PerformanceUILayout.TabHud.HitFeedbackTop);
             Assert.Equal(250, PerformanceUILayout.TabHud.HitFeedbackBottom);
         }
 

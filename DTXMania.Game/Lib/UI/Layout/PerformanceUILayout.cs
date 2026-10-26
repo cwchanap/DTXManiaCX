@@ -625,17 +625,22 @@ namespace DTXMania.Game.Lib.UI.Layout
             public const int HeaderArtistGap = 4;
 
             // Hit feedback: combo above the fixed strip hit marker, then the newest-wins
-            // judgement popup and per-hit fast/slow text below it (Task 2).
+            // judgement popup and per-hit fast/slow text below it (Task 2). The combo
+            // origin sits at the header boundary: the 48pt digits land ~28px below
+            // their origin (~49px tall, ink bottom ≈167), so anything lower carries
+            // the rising popup's fast/slow line into the digits (HPA-509 review).
             public const int HitFeedbackCenterX = NotationStrip.HitMarkerX;
-            public const int HitFeedbackTop = 125;
+            public const int HitFeedbackTop = 90;
             public const int HitFeedbackBottom = 250;
 
-            // Judgement popup slot: fixed word position that rises 30px over its
-            // lifetime. The fast/slow line rides PopupTimingGap above the word's
-            // current position so the rise can never overlap it; both centered on
-            // the hit marker.
+            // Judgement popup slot: fixed word position that rises PopupRiseDistance
+            // over its lifetime — shorter than the Lanes 30px so the word and the
+            // fast/slow line riding above it can never reach the combo band. The
+            // fast/slow line rides PopupTimingGap above the word's current position
+            // so the rise can never overlap it; both centered on the hit marker.
             public const int PopupWordTop = 220;
             public const int PopupTimingGap = 4;
+            public const float PopupRiseDistance = 14f;
 
             // LIFE: label in the left key column + horizontal gauge, between the
             // hit feedback and the strip.
@@ -647,8 +652,11 @@ namespace DTXMania.Game.Lib.UI.Layout
             public const int LifeBottom = 283;
 
             // Progress: elapsed/total on the left + thin horizontal fill, directly
-            // below the strip.
+            // below the strip. The fill starts at a fixed x so its left edge never
+            // shifts with the proportional-width time text, which is right-aligned
+            // just left of it (HPA-509 review).
             public const int ProgressLeft = NotationStrip.KeyColumnWidth;
+            public const int ProgressBarLeft = 310;
             public const int ProgressRight = 1260;
             public const int ProgressTop = 586;
             public const int ProgressBottom = 617;
@@ -665,10 +673,10 @@ namespace DTXMania.Game.Lib.UI.Layout
             public const int StatsTileGap = 8;
 
             // Font sizes: NotoSerifJP is baked at 14/24/48 pt, so request those
-            // sizes directly (ManagedFont snaps requests to the closest bake).
+            // sizes directly (ManagedFont snaps requests to the closest bake). The
+            // score header and combo digits share the one 48pt instance.
             public const int TitleFontSizePt = 24;
             public const int ScoreFontSizePt = 48;
-            public const int ComboFontSizePt = 48;
             public const int TileFontSizePt = 14;
 
             // Key flashes draw in the base BackToFront batch between the key mask (0.40)
@@ -678,11 +686,11 @@ namespace DTXMania.Game.Lib.UI.Layout
             // UI-pass draw depths (BackToFront, larger = farther). The Tab HUD shares
             // that batch with the strip's hundreds of glyphs and MonoGame's sort is
             // unstable on equal depths, so every Tab draw names an explicit plane:
-            // bar back behind fill (same planes as the legacy gauge 0.19/0.18), text
-            // front-most; each shadow rides at DepthText + 0.01 (ManagedFont's
-            // derivation) so the pair never shares a plane.
+            // bar back behind fill (same planes as the legacy gauge 0.19/0.18), each
+            // text shadow on DepthTextShadow just behind its text on DepthText.
             public const float DepthBarBack = 0.19f;
             public const float DepthBarFill = 0.18f;
+            public const float DepthTextShadow = 0.17f;
             public const float DepthText = 0.16f;
 
             // Key flash slot geometry: one bar per lane row behind the right-aligned

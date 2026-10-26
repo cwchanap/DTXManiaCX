@@ -1,4 +1,5 @@
 using System.Linq;
+using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Game.Lib.UI.Layout;
 using Microsoft.Xna.Framework;
@@ -17,13 +18,31 @@ namespace DTXMania.Test.Stage.Performance
     /// paths skip, and the plain-state slots remain fully exercisable.
     /// </summary>
     [Trait("Category", "Unit")]
+    [Collection("ManagedFont")]
     public class TabHudFeedbackTests
     {
-        private static TabHudDisplay CreateDisplay() => new(
-            CreateUninitialized<GraphicsDevice>(),
-            chart: null,
-            title: "Test Song",
-            artist: "CI");
+        private static TabHudDisplay CreateDisplay()
+        {
+            // The ctor touches ManagedFont's process-global factory; pin it to the
+            // pristine state (same seam the sibling ManagedFont-collection tests
+            // use) so the uninitialized-GraphicsDevice path is deterministic
+            // regardless of which tests ran first.
+            var state = ManagedFont.CaptureFontFactoryStateForTesting();
+            try
+            {
+                ManagedFont.ResetFontFactoryForTesting();
+                return new TabHudDisplay(
+                    CreateUninitialized<GraphicsDevice>(),
+                    chart: null,
+                    title: "Test Song",
+                    artist: "CI");
+            }
+            finally
+            {
+                ManagedFont.RestoreFontFactoryStateForTesting(
+                    state.ContentManager, state.DefaultFont, state.LoadedFonts);
+            }
+        }
 
         #region Key flash slots
 
@@ -220,6 +239,57 @@ namespace DTXMania.Test.Stage.Performance
             Assert.True(popup.CurrentPosition.Y < initialY);
         }
 
+        [Fact]
+        public void NotifyJudgement_TabPopup_ShouldUseReducedRiseDistance()
+        {
+            using var display = CreateDisplay();
+            display.NotifyJudgement("Perfect", Color.Yellow, showTiming: false, deltaMs: 0);
+            var popup = display.PopupForTesting!;
+
+            display.Update(1.0); // run the 0.6s fade to completion
+
+            // The Tab popup rises only PopupRiseDistance — shorter than the shared
+            // Lanes 30px — so the word and the fast/slow line riding above it can
+            // never reach the combo digits (HPA-509 review).
+            Assert.Equal(TabHud.PopupWordTop - TabHud.PopupRiseDistance, popup.CurrentPosition.Y);
+        }
+
+        #endregion
+
+        #region Readiness
+
+        [Fact]
+        public void IsReady_WhenDrawResourcesFailToAcquire_ShouldBeFalse()
+        {
+            // The stage keys its Tab-HUD/Lanes decision on this flag — a display
+            // whose fonts could not load must report unready so the Lanes HUD
+            // draws as the fallback (HPA-509 review).
+            using var display = CreateDisplay();
+
+            Assert.False(display.IsReady);
+        }
+
+        [Fact]
+        public void MarkResourcesReadyForTesting_ShouldFlipIsReady()
+        {
+            using var display = CreateDisplay();
+
+            display.MarkResourcesReadyForTesting();
+
+            Assert.True(display.IsReady);
+        }
+
+        [Fact]
+        public void Dispose_ShouldClearIsReady()
+        {
+            var display = CreateDisplay();
+            display.MarkResourcesReadyForTesting();
+
+            display.Dispose();
+
+            Assert.False(display.IsReady);
+        }
+
         #endregion
 
         [Fact]
@@ -233,6 +303,19 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Equal(0f, TabHudDisplay.Clamp01(float.NaN));
             Assert.Equal(0f, TabHudDisplay.Clamp01(float.PositiveInfinity));
             Assert.Equal(0f, TabHudDisplay.Clamp01(float.NegativeInfinity));
+        }
+
+        [Fact]
+        public void ToSafeSeconds_ShouldRejectNonFiniteAndClampExtremes()
+        {
+            // FormatDuration throws on NaN/overflow; the HUD collapses degenerate
+            // chart timings to bounded seconds before formatting (HPA-509 review).
+            Assert.Equal(0.0, TabHudDisplay.ToSafeSeconds(double.NaN));
+            Assert.Equal(0.0, TabHudDisplay.ToSafeSeconds(double.PositiveInfinity));
+            Assert.Equal(0.0, TabHudDisplay.ToSafeSeconds(double.NegativeInfinity));
+            Assert.Equal(0.0, TabHudDisplay.ToSafeSeconds(-5000));
+            Assert.Equal(1.5, TabHudDisplay.ToSafeSeconds(1500));
+            Assert.Equal(359999.0, TabHudDisplay.ToSafeSeconds(1e15));
         }
     }
 }

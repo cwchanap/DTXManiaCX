@@ -5248,6 +5248,7 @@ public class PerformanceStageDeterministicTests
         var timingDisplay = HitTimingFeedbackDisplay.CreateForTesting(new MutableTexture());
         ReflectionHelpers.SetPrivateField(stage, "_hitTimingFeedbackDisplay", timingDisplay);
         using var tabHud = new TabHudDisplay(CreateUninitialized<GraphicsDevice>(), null, "t", "a");
+        tabHud.MarkResourcesReadyForTesting();
         ReflectionHelpers.SetPrivateField(stage, "_tabHudDisplay", tabHud);
 
         ReflectionHelpers.InvokePrivateMethod(
@@ -5283,6 +5284,7 @@ public class PerformanceStageDeterministicTests
             "_hitTimingFeedbackDisplay",
             HitTimingFeedbackDisplay.CreateForTesting(new MutableTexture()));
         using var tabHud = new TabHudDisplay(CreateUninitialized<GraphicsDevice>(), null, "t", "a");
+        tabHud.MarkResourcesReadyForTesting();
         ReflectionHelpers.SetPrivateField(stage, "_tabHudDisplay", tabHud);
 
         ReflectionHelpers.InvokePrivateMethod(
@@ -5303,6 +5305,7 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_notationStrip", CreateReadyNotationStrip());
         ReflectionHelpers.SetPrivateField(stage, "_visualGates", BuildVisualGates(false, DrumsNoteDisplayStyle.Tab));
         using var tabHud = new TabHudDisplay(CreateUninitialized<GraphicsDevice>(), null, "t", "a");
+        tabHud.MarkResourcesReadyForTesting();
         ReflectionHelpers.SetPrivateField(stage, "_tabHudDisplay", tabHud);
 
         ReflectionHelpers.InvokePrivateMethod(
@@ -5312,6 +5315,90 @@ public class PerformanceStageDeterministicTests
         // opt-in predicate as the Lanes timing display. Stat tiles stay ungated.
         Assert.Equal("Perfect", tabHud.PopupForTesting!.Text);
         Assert.Null(tabHud.PopupTimingForTesting.Text);
+    }
+
+    [Fact]
+    public void OnJudgementMade_WhenTabHudNotReady_ShouldFallBackToLegacySpawns()
+    {
+        // Strip published but HUD resources dead: the judgement routing falls back
+        // to the Lanes popup path so the player still sees feedback — the strip is
+        // not left with a silent HUD (HPA-509 review).
+        var stage = CreateStage();
+        ReflectionHelpers.SetPrivateField(stage, "_notationStrip", CreateReadyNotationStrip());
+        ReflectionHelpers.SetPrivateField(stage, "_visualGates", BuildVisualGates(true, DrumsNoteDisplayStyle.Tab));
+        var spritePopups = new List<SpriteJudgementTextPopup>();
+        var fontPopups = new List<JudgementTextPopup>();
+        var fontManager = JudgementTextPopupManager.CreateForTesting(
+            CreateUninitialized<GraphicsDevice>(), new Mock<IResourceManager>().Object, activePopups: fontPopups);
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_spriteJudgementTextPopupManager",
+            SpriteJudgementTextPopupManager.CreateForTesting(new MutableTexture(), fontManager.SpawnPopup, spritePopups));
+        var timingDisplay = HitTimingFeedbackDisplay.CreateForTesting(new MutableTexture());
+        ReflectionHelpers.SetPrivateField(stage, "_hitTimingFeedbackDisplay", timingDisplay);
+        using var tabHud = new TabHudDisplay(CreateUninitialized<GraphicsDevice>(), null, "t", "a");
+        // Deliberately NOT marked ready — the same state a real font-load failure leaves.
+        ReflectionHelpers.SetPrivateField(stage, "_tabHudDisplay", tabHud);
+
+        ReflectionHelpers.InvokePrivateMethod(
+            stage, "OnJudgementMade", null, new JudgementEvent(1, 3, -12, JudgementType.Perfect));
+
+        Assert.Single(spritePopups);
+        Assert.Equal(1, timingDisplay.ActiveLaneCountForTesting);
+        Assert.Null(tabHud.PopupForTesting);
+    }
+
+    [Fact]
+    public void OnJudgementMade_WhenTabPartialAutoPlayLane_ShouldKeepPlayerPopupAndTiming()
+    {
+        // Partial autoplay: an automated lane's judgement must not replace the
+        // player's popup — its word carries no timing and would wipe the player's
+        // fast/slow line within milliseconds of a chord (HPA-509 review). The
+        // automated lane still flashes so the strip stays alive.
+        var stage = CreateStage();
+        ReflectionHelpers.SetPrivateField(stage, "_notationStrip", CreateReadyNotationStrip());
+        ReflectionHelpers.SetPrivateField(stage, "_autoPlayLanes", new HashSet<int> { 3 });
+        ReflectionHelpers.SetPrivateField(stage, "_visualGates", BuildVisualGates(true, DrumsNoteDisplayStyle.Tab));
+        using var tabHud = new TabHudDisplay(CreateUninitialized<GraphicsDevice>(), null, "t", "a");
+        tabHud.MarkResourcesReadyForTesting();
+        ReflectionHelpers.SetPrivateField(stage, "_tabHudDisplay", tabHud);
+
+        ReflectionHelpers.InvokePrivateMethod(
+            stage, "OnJudgementMade", null, new JudgementEvent(1, 5, -12, JudgementType.Perfect));
+        var playerPopup = tabHud.PopupForTesting;
+        Assert.NotNull(playerPopup);
+
+        // Autoplay resolves its own lane during the same chord.
+        ReflectionHelpers.InvokePrivateMethod(
+            stage, "OnJudgementMade", null, new JudgementEvent(0, 3, 0, JudgementType.Perfect));
+
+        Assert.Same(playerPopup, tabHud.PopupForTesting);
+        Assert.Equal("-12", tabHud.PopupTimingForTesting.Text);
+        Assert.False(tabHud.PopupTimingForTesting.IsSlow);
+        Assert.Equal(1f, tabHud.FlashTimersForTesting[3]);
+    }
+
+    [Fact]
+    public void OnJudgementMade_WhenTabFullAutoPlay_ShouldFeedPopupFromAutomatedLanes()
+    {
+        // Full autoplay keeps the popup feed — with no player there is nothing to
+        // protect, and the strip mirrors what the Lanes HUD would show.
+        var stage = CreateStage();
+        ReflectionHelpers.SetPrivateField(stage, "_notationStrip", CreateReadyNotationStrip());
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_autoPlayLanes",
+            new HashSet<int>(Enumerable.Range(0, PerformanceUILayout.LaneCount)));
+        ReflectionHelpers.SetPrivateField(stage, "_visualGates", BuildVisualGates(true, DrumsNoteDisplayStyle.Tab));
+        using var tabHud = new TabHudDisplay(CreateUninitialized<GraphicsDevice>(), null, "t", "a");
+        tabHud.MarkResourcesReadyForTesting();
+        ReflectionHelpers.SetPrivateField(stage, "_tabHudDisplay", tabHud);
+
+        ReflectionHelpers.InvokePrivateMethod(
+            stage, "OnJudgementMade", null, new JudgementEvent(0, 3, 0, JudgementType.Perfect));
+
+        Assert.Equal("Perfect", tabHud.PopupForTesting!.Text);
+        Assert.Equal(1f, tabHud.FlashTimersForTesting[3]);
     }
 
     [Fact]
