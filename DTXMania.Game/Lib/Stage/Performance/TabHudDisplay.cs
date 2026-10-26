@@ -461,24 +461,28 @@ namespace DTXMania.Game.Lib.Stage.Performance
             // of the per-hit timing preference. Poor is presented as OK.
             // Trim the legacy 4-wide judgement padding so every value's left edge
             // aligns with its label like the other tiles (HPA-509 polish).
+            float tileWidth = (TabHud.StatsRight - TabHud.StatsLeft) / (float)_cachedStatValues.Length;
+            float valueMaxWidth = tileWidth - TabHud.StatsTileGap;
             var statsKey = (state.PerfectCount, state.GreatCount, state.GoodCount, state.PoorCount,
                 state.MissCount, state.MaxCombo, state.FastCount, state.SlowCount,
                 state.Achievement, gameSkill);
             if (statsKey != _lastStatsKey)
             {
-                _cachedStatValues[0] = SkillPanelDisplay.FormatJudgementCount(state.PerfectCount).Trim();
-                _cachedStatValues[1] = SkillPanelDisplay.FormatJudgementCount(state.GreatCount).Trim();
-                _cachedStatValues[2] = SkillPanelDisplay.FormatJudgementCount(state.GoodCount).Trim();
-                _cachedStatValues[3] = SkillPanelDisplay.FormatJudgementCount(state.PoorCount).Trim();
-                _cachedStatValues[4] = SkillPanelDisplay.FormatJudgementCount(state.MissCount).Trim();
-                _cachedStatValues[5] = state.MaxCombo.ToString(CultureInfo.InvariantCulture);
-                _cachedStatValues[6] = $"{state.FastCount.ToString(CultureInfo.InvariantCulture)}/{state.SlowCount.ToString(CultureInfo.InvariantCulture)}";
-                _cachedStatValues[7] = SkillPanelDisplay.FormatSkillText(state.Achievement).Trim() + "%";
-                _cachedStatValues[8] = SkillPanelDisplay.FormatSkillText(gameSkill).Trim();
+                // Values get the same tile-width bound as labels — a four-digit
+                // FAST/SLOW pair at 24pt would otherwise bleed into ACHIEVE
+                // (PR #203 review).
+                _cachedStatValues[0] = TextHelper.TruncateToWidth(SkillPanelDisplay.FormatJudgementCount(state.PerfectCount).Trim(), valueMaxWidth, _titleFont!);
+                _cachedStatValues[1] = TextHelper.TruncateToWidth(SkillPanelDisplay.FormatJudgementCount(state.GreatCount).Trim(), valueMaxWidth, _titleFont!);
+                _cachedStatValues[2] = TextHelper.TruncateToWidth(SkillPanelDisplay.FormatJudgementCount(state.GoodCount).Trim(), valueMaxWidth, _titleFont!);
+                _cachedStatValues[3] = TextHelper.TruncateToWidth(SkillPanelDisplay.FormatJudgementCount(state.PoorCount).Trim(), valueMaxWidth, _titleFont!);
+                _cachedStatValues[4] = TextHelper.TruncateToWidth(SkillPanelDisplay.FormatJudgementCount(state.MissCount).Trim(), valueMaxWidth, _titleFont!);
+                _cachedStatValues[5] = TextHelper.TruncateToWidth(state.MaxCombo.ToString(CultureInfo.InvariantCulture), valueMaxWidth, _titleFont!);
+                _cachedStatValues[6] = TextHelper.TruncateToWidth($"{state.FastCount.ToString(CultureInfo.InvariantCulture)}/{state.SlowCount.ToString(CultureInfo.InvariantCulture)}", valueMaxWidth, _titleFont!);
+                _cachedStatValues[7] = TextHelper.TruncateToWidth(SkillPanelDisplay.FormatSkillText(state.Achievement).Trim() + "%", valueMaxWidth, _titleFont!);
+                _cachedStatValues[8] = TextHelper.TruncateToWidth(SkillPanelDisplay.FormatSkillText(gameSkill).Trim(), valueMaxWidth, _titleFont!);
                 _lastStatsKey = statsKey;
             }
 
-            float tileWidth = (TabHud.StatsRight - TabHud.StatsLeft) / (float)_cachedStatValues.Length;
             // The label strings and tile width are both fixed, so the truncation is
             // computed once and reused every frame.
             _cachedStatLabels ??= BuildStatLabels(tileWidth - TabHud.StatsTileGap);
