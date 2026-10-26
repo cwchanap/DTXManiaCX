@@ -322,7 +322,19 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
         with:
-          dotnet-version: '10.0.x'
+          # Pinned: floating '10.0.x' resolves via broken aka.ms channel links
+          # (dotnet/core#10660). Revert to '10.0.x' once aka.ms is fixed.
+          dotnet-version: '10.0.403'
+
+      - name: Pin resolved SDK
+        shell: bash
+        run: |
+          # dotnet-version installs the SDK but does not force later dotnet
+          # commands to select it — without a global.json the CLI picks the
+          # newest SDK on the runner. CI-only pin (delete with the
+          # dotnet-version pin once aka.ms is fixed).
+          printf '{ "sdk": { "version": "10.0.403", "rollForward": "disable" } }\n' > global.json
+          dotnet --version
 
       - name: Restore dependencies
         run: dotnet restore DTXMania.Game/DTXMania.Game.Windows.csproj
@@ -517,7 +529,19 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
         with:
-          dotnet-version: '10.0.x'
+          # Pinned: floating '10.0.x' resolves via broken aka.ms channel links
+          # (dotnet/core#10660). Revert to '10.0.x' once aka.ms is fixed.
+          dotnet-version: '10.0.403'
+
+      - name: Pin resolved SDK
+        shell: bash
+        run: |
+          # dotnet-version installs the SDK but does not force later dotnet
+          # commands to select it — without a global.json the CLI picks the
+          # newest SDK on the runner. CI-only pin (delete with the
+          # dotnet-version pin once aka.ms is fixed).
+          printf '{ "sdk": { "version": "10.0.403", "rollForward": "disable" } }\n' > global.json
+          dotnet --version
 
       - name: Restore dependencies
         run: dotnet restore DTXMania.Game/DTXMania.Game.Mac.csproj
