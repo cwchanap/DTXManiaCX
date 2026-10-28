@@ -112,6 +112,24 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
+        public void GetNineSlice_WhenSourceIsNotSquare_ShouldSplitEachAxisByItsOwnQuarter()
+        {
+            var sources = new Rectangle[9];
+            var destinations = new Rectangle[9];
+
+            TabModeArt.GetNineSlice(new Rectangle(16, 12, 864, 70), 256, 64, 24, sources, destinations);
+
+            // 256x64 plate: 64 px borders on X, 16 px on Y.
+            Assert.Equal(new Rectangle(0, 0, 64, 16), sources[0]);
+            Assert.Equal(new Rectangle(64, 16, 128, 32), sources[4]);
+            Assert.Equal(new Rectangle(192, 48, 64, 16), sources[8]);
+            foreach (var source in sources)
+            {
+                Assert.True(source.Width > 0 && source.Height > 0, $"invalid source {source}");
+            }
+        }
+
+        [Fact]
         public void GetNineSlice_WhenRectIsShorterThanTwoCorners_ShouldClampCornerToHalfHeight()
         {
             var sources = new Rectangle[9];
