@@ -509,7 +509,12 @@ def render_prompts(manifest_path, descriptors_path, base_style, out_path):
         # Transparent assets may replace the shared style, whose background clause
         # would contradict their family prompt.
         asset_base_style = desc.get("base_style", base_style)
-        dims = ("%dx%d" % (entry["width"], entry["height"])) if entry.get("width") else "TBD by author"
+        cells = recipe.get("cells") or []
+        if recipe.get("type") == "sheet" and len(cells) == 1 and "source" in cells[0]:
+            # A single sourced cell is what the image fills; the canvas adds margins.
+            dims = "%dx%d" % (cells[0]["w"], cells[0]["h"])
+        else:
+            dims = ("%dx%d" % (entry["width"], entry["height"])) if entry.get("width") else "TBD by author"
         prompt = " ".join(part for part in [asset_base_style, family_prompt, desc.get("desc", "")] if part)
         sections.append(
             "## `%s`\n\n- **Target size:** %s (generate at 2x or larger)\n- **Prompt:**\n\n> %s\n"

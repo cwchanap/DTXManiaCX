@@ -74,6 +74,23 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
+        public void Load_WhenFileTextureIsOnePixelWide_ShouldReleaseItWithoutDisposing()
+        {
+            var thinLine = Texture(1, 290);
+            var resourceManager = new Mock<IResourceManager>();
+            resourceManager.Setup(r => r.LoadTexture("Graphics/7_Tab_hitline.png")).Returns(thinLine.Object);
+
+            var art = TabModeArt.Load(resourceManager.Object, SkinTheme.Parse(new[]
+            {
+                "Tab.HitLineTexture=Graphics/7_Tab_hitline.png",
+            }));
+
+            Assert.Null(art.HitLine);
+            thinLine.Verify(t => t.RemoveReference(), Times.Once);
+            thinLine.Verify(t => t.Dispose(), Times.Never);
+        }
+
+        [Fact]
         public void Release_ShouldRemoveEveryHeldReference()
         {
             var strip = Texture(1280, 290);
