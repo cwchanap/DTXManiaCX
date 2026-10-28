@@ -38,6 +38,26 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
+        public void Load_WhenResourceManagerOrThemeIsMissing_ShouldReturnNone()
+        {
+            Assert.Same(TabModeArt.None, TabModeArt.Load(null, ThemeWithAllArt()));
+            Assert.Same(TabModeArt.None, TabModeArt.Load(new Mock<IResourceManager>().Object, null));
+        }
+
+        [Fact]
+        public void Load_WhenLoadTextureReturnsNull_ShouldLeaveSlotEmpty()
+        {
+            var resourceManager = new Mock<IResourceManager>();
+            resourceManager.Setup(r => r.LoadTexture(It.IsAny<string>())).Returns((ITexture)null);
+
+            var art = TabModeArt.Load(resourceManager.Object, ThemeWithAllArt());
+
+            Assert.Null(art.Strip);
+            Assert.Null(art.Panel);
+            Assert.Null(art.HitLine);
+        }
+
+        [Fact]
         public void Load_WhenThemeNamesValidTextures_ShouldHoldEachSlot()
         {
             var strip = Texture(1280, 290);
@@ -73,10 +93,12 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Null(art.HitLine);
         }
 
-        [Fact]
-        public void Load_WhenFileTextureIsOnePixelWide_ShouldReleaseItWithoutDisposing()
+        [Theory]
+        [InlineData(1, 290)]
+        [InlineData(1280, 1)]
+        public void Load_WhenFileTextureIsOnePixelThin_ShouldReleaseItWithoutDisposing(int width, int height)
         {
-            var thinLine = Texture(1, 290);
+            var thinLine = Texture(width, height);
             var resourceManager = new Mock<IResourceManager>();
             resourceManager.Setup(r => r.LoadTexture("Graphics/7_Tab_hitline.png")).Returns(thinLine.Object);
 
@@ -88,6 +110,23 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Null(art.HitLine);
             thinLine.Verify(t => t.RemoveReference(), Times.Once);
             thinLine.Verify(t => t.Dispose(), Times.Never);
+        }
+
+        [Fact]
+        public void Release_WhenSomeSlotsAreEmpty_ShouldReleaseOnlyHeldTextures()
+        {
+            var panel = Texture(128, 128);
+            var resourceManager = new Mock<IResourceManager>();
+            resourceManager.Setup(r => r.LoadTexture("Graphics/7_Tab_panel.png")).Returns(panel.Object);
+            var art = TabModeArt.Load(resourceManager.Object, SkinTheme.Parse(new[]
+            {
+                "Tab.PanelTexture=Graphics/7_Tab_panel.png",
+            }));
+
+            art.Release();
+            TabModeArt.None.Release();
+
+            panel.Verify(t => t.RemoveReference(), Times.Once);
         }
 
         [Fact]
