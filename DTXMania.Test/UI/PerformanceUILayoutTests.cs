@@ -484,6 +484,18 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
+        public void TabHud_ScorePanel_ShouldFitCaptionGapAndSevenWidestDigits()
+        {
+            // Bundled Orbitron advances: 32pt "0"/"8" ~36 px each, 14pt "SCORE" ~78 px.
+            const int widestScoreWidth = 7 * 36;
+            const int captionWidth = 78 + 2 * PerformanceUILayout.TabHud.CaptionPadX;
+            int inner = PerformanceUILayout.TabHud.HeaderRight - PerformanceUILayout.TabHud.ScorePanelLeft
+                - 2 * PerformanceUILayout.TabHud.PanelPaddingX;
+
+            Assert.True(inner >= captionWidth + PerformanceUILayout.TabHud.ScoreCaptionGap + widestScoreWidth);
+        }
+
+        [Fact]
         public void TabHud_HitFeedback_ShouldCenterOnStripHitMarker()
         {
             Assert.Equal(PerformanceUILayout.NotationStrip.HitMarkerX, PerformanceUILayout.TabHud.HitFeedbackCenterX);
