@@ -545,6 +545,20 @@ class PromptsTests(unittest.TestCase):
         self.assertIn("Panel base prompt.", text)
         self.assertIn("The A panel.", text)
 
+    def test_prompts_use_per_asset_base_style_override(self):
+        manifest = self._write("manifest.json", {"assets": {
+            "Graphics/beam.png": {"width": 4, "height": 8, "optional": False,
+                                  "recipe": {"type": "copy", "source": "beam.png"}}}})
+        descriptors = self._write("descriptors.json", {
+            "families": {},
+            "assets": {"Graphics/beam.png": {"base_style": "TRANSPARENT STYLE.", "desc": "A beam."}}})
+        out = os.path.join(self.tmp.name, "PROMPTS.md")
+        skingen.render_prompts(manifest, descriptors, "BASE STYLE.", out)
+        with open(out, encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn("TRANSPARENT STYLE. A beam.", text)
+        self.assertNotIn("BASE STYLE.", text)
+
     def test_prompts_skips_hueshift_derived_assets(self):
         manifest = self._write("manifest.json", {"assets": {
             "Graphics/derived.png": {"width": 4, "height": 4, "optional": False,

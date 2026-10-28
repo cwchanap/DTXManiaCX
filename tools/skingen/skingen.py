@@ -506,8 +506,11 @@ def render_prompts(manifest_path, descriptors_path, base_style, out_path):
                 missing.append(rel)
             continue
         family_prompt = families.get(desc.get("family", ""), "")
+        # Transparent assets may replace the shared style, whose background clause
+        # would contradict their family prompt.
+        asset_base_style = desc.get("base_style", base_style)
         dims = ("%dx%d" % (entry["width"], entry["height"])) if entry.get("width") else "TBD by author"
-        prompt = " ".join(part for part in [base_style, family_prompt, desc.get("desc", "")] if part)
+        prompt = " ".join(part for part in [asset_base_style, family_prompt, desc.get("desc", "")] if part)
         sections.append(
             "## `%s`\n\n- **Target size:** %s (generate at 2x or larger)\n- **Prompt:**\n\n> %s\n"
             % (rel, dims, prompt))

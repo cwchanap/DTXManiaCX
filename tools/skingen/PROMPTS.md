@@ -432,21 +432,21 @@ Workflow: generate each image with your image AI, save into `tools/skingen/sourc
 - **Target size:** 64x290 (generate at 2x or larger)
 - **Prompt:**
 
-> Synthwave arcade game UI asset, dark slate background #0F172A, neon cyan #22D3EE and magenta #E879F9 accents, thin glowing grid lines and subtle scanlines, chamfered corners, soft neon outer glow, crisp vector-like edges, flat dark surfaces (#1E293B), high contrast, no text, no watermark, no logo. Additive-blend effect sprite on black background: bright neon burst/flare with hot white core and cyan-to-magenta falloff, designed to read at small size during fast gameplay. Tab mode hit-line beam 64x290 on transparent background: near-white core, cyan glow, faint magenta halo, brighter nodes at both ends. Referenced by Theme.ini Tab.HitLineTexture.
+> Synthwave arcade game UI asset, neon cyan #22D3EE and magenta #E879F9 accents, soft neon outer glow, crisp vector-like edges, high contrast, no text, no watermark, no logo. Single vertical neon light beam on transparent background (alpha-blended, not additive), centered and running the full height. Tab mode hit-line beam 64x290: near-white core, cyan glow, faint magenta halo, brighter nodes at both ends. Referenced by Theme.ini Tab.HitLineTexture.
 
 ## `Graphics/7_Tab_panel.png`
 
 - **Target size:** 128x128 (generate at 2x or larger)
 - **Prompt:**
 
-> Synthwave arcade game UI asset, dark slate background #0F172A, neon cyan #22D3EE and magenta #E879F9 accents, thin glowing grid lines and subtle scanlines, chamfered corners, soft neon outer glow, crisp vector-like edges, flat dark surfaces (#1E293B), high contrast, no text, no watermark, no logo. UI panel plate on transparent background: rounded-chamfered rectangle, #1E293B surface at ~92% opacity, 1px neon cyan edge stroke with soft outer glow, faint inner grid texture. Tab mode HUD panel, nine-slice with quarter-size corners: 45-degree chamfered corners with cyan accent marks, thin cyan edge, even ~88% navy fill. Referenced by Theme.ini Tab.PanelTexture.
+> Synthwave arcade game UI asset, neon cyan #22D3EE and magenta #E879F9 accents, soft neon outer glow, crisp vector-like edges, high contrast, no text, no watermark, no logo. Nine-slice UI panel plate on transparent background: rectangle with 45-degree chamfered corners whose details stay inside the outer quarter of each side, #0B1220 fill at ~88% opacity, thin neon cyan edge with soft glow, even center with no motifs, symmetric. Tab mode HUD panel (title, score, stats, LIFE): small brighter cyan accent marks at the chamfered corners. Referenced by Theme.ini Tab.PanelTexture.
 
 ## `Graphics/7_Tab_strip.png`
 
 - **Target size:** 1280x290 (generate at 2x or larger)
 - **Prompt:**
 
-> Synthwave arcade game UI asset, dark slate background #0F172A, neon cyan #22D3EE and magenta #E879F9 accents, thin glowing grid lines and subtle scanlines, chamfered corners, soft neon outer glow, crisp vector-like edges, flat dark surfaces (#1E293B), high contrast, no text, no watermark, no logo. Full-screen 1280x720 scene background: deep #0F172A space with a perspective neon grid floor receding to a glowing horizon, faint scanlines, subtle vignette. Keep the center-third calm so UI can sit on top. Tab mode notation-strip backplate 1280x290, opaque: near-black navy, faint vertical grid ticks, cyan haze at the bottom edge, magenta wash at the right end; no horizontal lines (the game draws the staff). Referenced by Theme.ini Tab.StripTexture.
+> Synthwave arcade game UI asset, dark slate background #0F172A, neon cyan #22D3EE and magenta #E879F9 accents, thin glowing grid lines and subtle scanlines, chamfered corners, soft neon outer glow, crisp vector-like edges, flat dark surfaces (#1E293B), high contrast, no text, no watermark, no logo. Very wide opaque backplate for the scrolling Tab-mode notation strip: near-black navy, calm and low-contrast so notation drawn on top stays readable; no horizontal lines, frame, divider or symbols (the game draws the staff). Tab mode notation-strip backplate 1280x290: near-black navy, faint vertical grid ticks, cyan haze at the bottom edge, magenta wash at the right end; no horizontal lines (the game draws the staff). Referenced by Theme.ini Tab.StripTexture.
 
 ## `Graphics/7_WailingFire.png`
 
