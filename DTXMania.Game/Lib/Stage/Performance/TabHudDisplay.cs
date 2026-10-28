@@ -54,7 +54,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
     /// <see cref="TabHudFrameState"/>; the level-weighted game skill reuses the shared
     /// <see cref="SongScore.CalculateGameSkill"/> formula on the same chart values
     /// SkillPanelDisplay draws. Colors come from the theme-resolved
-    /// <see cref="TabModePalette"/>. Fonts are built once and released on dispose;
+    /// <see cref="TabModePalette"/>; panels use the skin's nine-slice
+    /// <see cref="TabModeArt.Panel"/> when present. Fonts are built once and released on dispose;
     /// the white-pixel primitive is the stage's shared fallback texture, borrowed
     /// and never disposed here. When acquisition fails <see cref="IsReady"/> stays
     /// false and the stage rolls the strip back to a consistent Lanes fallback.
@@ -70,6 +71,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private readonly string _title;
         private readonly string _artist;
         private readonly Texture2D? _whiteTexture;
+        private readonly TabModeArt _art;
         private ManagedFont? _comboFont;
         private ManagedFont? _scoreFont;
         private ManagedFont? _titleFont;
@@ -116,7 +118,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private Vector2 _cachedTimingSize;
 
         public TabHudDisplay(GraphicsDevice graphicsDevice, SongChart? chart, string? title, string? artist,
-            Texture2D? whiteTexture = null, TabModePalette? palette = null)
+            Texture2D? whiteTexture = null, TabModePalette? palette = null, TabModeArt? art = null)
         {
             _graphicsDevice = graphicsDevice ?? throw new ArgumentNullException(nameof(graphicsDevice));
             _chart = chart;
@@ -124,6 +126,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             _artist = artist ?? string.Empty;
             _whiteTexture = whiteTexture;
             Palette = palette ?? TabModePalette.Default;
+            _art = art ?? TabModeArt.None;
 
             // Lane→key-cap anchors for the flash slots; all ten primary labels map
             // one-to-one onto lanes 0-9 (verified by test), so a plain array suffices.
@@ -622,7 +625,23 @@ namespace DTXMania.Game.Lib.Stage.Performance
         [ExcludeFromCodeCoverage]
         private void DrawPanel(SpriteBatch spriteBatch, Rectangle rect, int chamfer)
         {
-            DrawChamfered(spriteBatch, rect, chamfer, Palette.Panel, Palette.Accent * TabHud.PanelBorderAlpha);
+            var panel = _art.Panel?.Texture;
+            if (panel == null)
+            {
+                DrawChamfered(spriteBatch, rect, chamfer, Palette.Panel, Palette.Accent * TabHud.PanelBorderAlpha);
+                return;
+            }
+
+            // Skin panel art: the border and glow are baked, so the whole plate sits
+            // on the panel plane.
+            Span<Rectangle> sources = stackalloc Rectangle[9];
+            Span<Rectangle> destinations = stackalloc Rectangle[9];
+            TabModeArt.GetNineSlice(rect, panel.Width, panel.Height, TabHud.PanelArtCorner, sources, destinations);
+            for (int i = 0; i < 9; i++)
+            {
+                if (destinations[i].Width > 0 && destinations[i].Height > 0)
+                    spriteBatch.Draw(panel, destinations[i], sources[i], Color.White, 0f, Vector2.Zero, SpriteEffects.None, TabHud.DepthPanel);
+            }
         }
 
         /// <summary>
