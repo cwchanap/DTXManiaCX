@@ -27,7 +27,6 @@ using DTXMania.Game.Lib.Song.Notation;
 using DTXMania.Game.Lib.Utilities;
 // The UI layout namespace also declares a MeasureLine class; notation inputs use the chart-component one.
 using MeasureLine = DTXMania.Game.Lib.Song.Components.MeasureLine;
-using TabHud = DTXMania.Game.Lib.UI.Layout.PerformanceUILayout.TabHud;
 
 namespace DTXMania.Game.Lib.Stage
 {
@@ -639,7 +638,7 @@ namespace DTXMania.Game.Lib.Stage
         // GraphicsDevice — the attempt itself is unreachable under headless
         // coverage like the other renderer constructions in InitializeComponents.
         [ExcludeFromCodeCoverage]
-        private TabHudBuildResult ConstructTabHud()
+        private TabHudBuildResult ConstructTabHud(TabModePalette palette)
         {
             var graphicsDevice = _spriteBatch?.GraphicsDevice;
             if (graphicsDevice == null)
@@ -656,7 +655,8 @@ namespace DTXMania.Game.Lib.Stage
                     _selectedSong?.GetCurrentDifficultyChart(_selectedDifficulty),
                     _selectedSong?.DisplayTitle ?? _selectedSong?.Title,
                     _selectedSong?.DatabaseSong?.DisplayArtist,
-                    _fallbackWhiteTexture);
+                    _fallbackWhiteTexture,
+                    palette);
                 return _tabHudDisplay.IsReady
                     ? TabHudBuildResult.Ready
                     : TabHudBuildResult.Failed;
@@ -1163,14 +1163,17 @@ namespace DTXMania.Game.Lib.Stage
 
             try
             {
+                // One theme read styles both halves of Tab mode (strip + HUD).
+                var palette = TabModePalette.Resolve(_resourceManager?.CurrentTheme);
                 var renderer = new NotationStripRenderer(
                     _resourceManager,
                     pending.Chart,
-                    pending.MeasureLines);
+                    pending.MeasureLines,
+                    palette);
                 if (renderer.IsReady)
                 {
                     _notationStrip = renderer;
-                    if (ConstructTabHud() == TabHudBuildResult.Failed)
+                    if (ConstructTabHud(palette) == TabHudBuildResult.Failed)
                     {
                         // HPA-509 review: a strip without its HUD draws the
                         // Lanes widgets back over the strip's hit marker and
@@ -2044,7 +2047,7 @@ namespace DTXMania.Game.Lib.Stage
             // HPA-509 Tab: manual input refreshes the lane's key flash immediately,
             // even without a judged note (judgement later overwrites the same slot).
             if (_notationStrip != null)
-                _tabHudDisplay?.TriggerKeyFlash(e.Lane, TabHud.KeyFlashHitColor);
+                _tabHudDisplay?.TriggerKeyFlash(e.Lane);
 
             // Only record gameplay telemetry and chip sounds while the chart is actively playing.
             // During loading, the ready countdown, or after stop, the song clock is not advancing,
@@ -2129,11 +2132,10 @@ namespace DTXMania.Game.Lib.Stage
                 // HPA-509 Tab: the legacy popups draw at Lanes positions, so their
                 // spawns are gated (DrawJudgementTexts stays untouched and finds no
                 // transients) and the Tab HUD's own newest-wins slot is fed instead.
-                // Every judgement also refreshes the lane's key flash: gold for hits,
-                // red for Miss, so instrument identity survives rapid popup replaces.
-                _tabHudDisplay?.TriggerKeyFlash(
-                    e.Lane,
-                    e.IsHit() ? TabHud.KeyFlashHitColor : TabHud.KeyFlashMissColor);
+                // Every judgement also refreshes the lane's key cap: its lane color for
+                // hits, danger for Miss, so instrument identity survives rapid popup
+                // replaces.
+                _tabHudDisplay?.TriggerKeyFlash(e.Lane, isMiss: !e.IsHit());
 
                 // Partial autoplay: an automated lane's judgement must not replace
                 // the player's popup — its word carries no timing and would wipe the
@@ -2142,13 +2144,8 @@ namespace DTXMania.Game.Lib.Stage
                 // the popup, matching what the Lanes HUD shows.
                 bool automatedPartialLane = FrozenAutoPlayLanes.Contains(e.Lane)
                     && FrozenAutoPlayLanes.Count < PerformanceUILayout.LaneCount;
-                if (!automatedPartialLane
-                    && _tabHudDisplay != null
-                    && JudgementTextPopupManager.JudgementTexts.TryGetValue(e.Type, out var word)
-                    && JudgementTextPopupManager.JudgementColors.TryGetValue(e.Type, out var color))
-                {
-                    _tabHudDisplay.NotifyJudgement(word, color, showPerHitTiming, e.DeltaMs);
-                }
+                if (!automatedPartialLane)
+                    _tabHudDisplay?.NotifyJudgement(e.Type, showPerHitTiming, e.DeltaMs);
             }
         }
 

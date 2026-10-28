@@ -19,6 +19,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
     /// (larger depth = farther back). All placement math is delegated to the GPU-free
     /// <see cref="NotationStripLayout"/>; glyphs and labels always go through the nine-argument
     /// IFont.DrawString so no text can default to depth 0 and bypass the key-column mask.
+    /// Colors come from the theme-resolved <see cref="TabModePalette"/>: an opaque navy strip
+    /// framed by accent rules, a glowing accent hit marker, and lane-colored key caps.
     /// HPA-411 owns activation, chart readiness, judgement tinting and fallbacks.
     /// </summary>
     internal sealed class NotationStripRenderer : IDisposable
@@ -34,6 +36,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private readonly IResourceManager _resourceManager;
         private readonly NotationChart _chart;
         private readonly IReadOnlyList<MeasureLine> _measureLines;
+        private readonly TabModePalette _palette;
 
         // Engraving is pure over the immutable chart, so each measure is engraved at
         // most once; re-engraving every visible measure each frame was steady GC churn.
@@ -44,7 +47,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
         // LINQ-built arrays/lists every frame.
         private readonly IReadOnlyList<float> _staffLineYs;
         private readonly IReadOnlyList<NotationStripLabelAnchor> _keyColumnLabels;
+        private readonly Rectangle[] _keyCapRects;
         private readonly NotationStripAnchor[] _barlineAnchors;
+
+        // Label draw positions depend only on the fixed label font, so they are measured
+        // once on the first draw instead of every frame.
+        private Vector2[] _labelPositions;
 
         // SMuFL glyph chars are a small fixed set; cache one string per char so drawing
         // a glyph doesn't allocate a fresh single-char string every frame.
@@ -66,17 +74,23 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <param name="resourceManager">Resource manager used to load the fonts.</param>
         /// <param name="chart">The finalized notation chart to engrave.</param>
         /// <param name="measureLines">Compiled measure boundaries; MeasureLines[^1] is the terminal end bound.</param>
+        /// <param name="palette">Theme-resolved Tab colors; null uses the built-in defaults.</param>
         public NotationStripRenderer(
             IResourceManager resourceManager,
             NotationChart chart,
-            IReadOnlyList<MeasureLine> measureLines)
+            IReadOnlyList<MeasureLine> measureLines,
+            TabModePalette palette = null)
         {
             _resourceManager = resourceManager ?? throw new ArgumentNullException(nameof(resourceManager));
             _chart = chart ?? throw new ArgumentNullException(nameof(chart));
             _measureLines = measureLines ?? throw new ArgumentNullException(nameof(measureLines));
+            _palette = palette ?? TabModePalette.Default;
 
             _staffLineYs = NotationStripLayout.GetStaffLineYs();
             _keyColumnLabels = NotationStripLayout.GetKeyColumnLabels();
+            _keyCapRects = new Rectangle[_keyColumnLabels.Count];
+            for (int i = 0; i < _keyCapRects.Length; i++)
+                _keyCapRects[i] = NotationStripLayout.GetKeyCapRect(_keyColumnLabels[i]);
             // One barline anchor per measure; MeasureLines[^1] is only an end bound.
             _barlineAnchors = new NotationStripAnchor[Math.Max(0, measureLines.Count - 1)];
             for (int i = 0; i < _barlineAnchors.Length; i++)
@@ -127,6 +141,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             DrawHitMarker(spriteBatch);
             DrawMeasures(spriteBatch, leftMs, rightMs, nowMs, speedPercent);
             DrawKeyColumnMask(spriteBatch);
+            DrawFrame(spriteBatch);
+            DrawKeyCaps(spriteBatch);
             DrawLabels(spriteBatch);
         }
 
@@ -179,7 +195,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     NotationStrip.StripTop,
                     NotationStrip.StripRight - NotationStrip.StripLeft,
                     NotationStrip.StripBottom - NotationStrip.StripTop),
-                NotationStrip.BackgroundColor,
+                _palette.StripBackground,
                 NotationStrip.DepthBackground);
         }
 
@@ -194,7 +210,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                         (int)y,
                         NotationStrip.StripRight - NotationStrip.StripLeft,
                         (int)NotationStrip.StaffLineThickness),
-                    NotationStrip.StaffColor,
+                    _palette.TextFaint * NotationStrip.StaffLineAlpha,
                     NotationStrip.DepthStaffAndBarlines);
             }
         }
@@ -221,21 +237,28 @@ namespace DTXMania.Game.Lib.Stage.Performance
                         NotationStrip.StaffTopY,
                         (int)NotationStrip.BarlineThickness,
                         NotationStrip.StaffBottomY - NotationStrip.StaffTopY),
-                    NotationStrip.BarlineColor,
+                    _palette.TextTertiary,
                     NotationStrip.DepthStaffAndBarlines);
             }
         }
 
         private void DrawHitMarker(SpriteBatch spriteBatch)
         {
+            int height = NotationStrip.StripBottom - NotationStrip.StripTop;
+            int glowLeft = NotationStrip.HitMarkerX + NotationStrip.HitMarkerWidth / 2 - NotationStrip.HitMarkerGlowWidth / 2;
+            DrawRect(
+                spriteBatch,
+                new Rectangle(glowLeft, NotationStrip.StripTop, NotationStrip.HitMarkerGlowWidth, height),
+                _palette.Accent * NotationStrip.HitMarkerGlowAlpha,
+                NotationStrip.DepthHitMarkerGlow);
             DrawRect(
                 spriteBatch,
                 new Rectangle(
                     NotationStrip.HitMarkerX,
                     NotationStrip.StripTop,
                     NotationStrip.HitMarkerWidth,
-                    NotationStrip.StripBottom - NotationStrip.StripTop),
-                NotationStrip.HitMarkerColor,
+                    height),
+                _palette.Accent,
                 NotationStrip.DepthHitMarker);
         }
 
@@ -283,7 +306,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 (int)rect.TopPx,
                 Math.Max(1, (int)(rightX - leftX)),
                 Math.Max(1, (int)rect.HeightPx));
-            DrawRect(spriteBatch, destination, NotationStrip.NotationColor, NotationStrip.DepthBeamsAndStems);
+            DrawRect(spriteBatch, destination, _palette.TextPrimary, NotationStrip.DepthBeamsAndStems);
         }
 
         private void DrawEngravedGlyph(
@@ -303,7 +326,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 spriteBatch,
                 GlyphText(glyph.Glyph),
                 new Vector2(x, y),
-                NotationStrip.NotationColor,
+                _palette.TextPrimary,
                 0f,
                 Vector2.Zero,
                 Vector2.One,
@@ -323,7 +346,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         private void DrawKeyColumnMask(SpriteBatch spriteBatch)
         {
-            // Opaque mask in front of all moving ink; the labels draw on top of it.
+            // Opaque mask in front of all moving ink; the caps and labels draw on top of it.
             DrawRect(
                 spriteBatch,
                 new Rectangle(
@@ -331,26 +354,94 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     NotationStrip.StripTop,
                     NotationStrip.KeyColumnWidth,
                     NotationStrip.StripBottom - NotationStrip.StripTop),
-                NotationStrip.BackgroundColor,
+                _palette.KeyColumn,
                 NotationStrip.DepthKeyMask);
         }
 
+        private void DrawFrame(SpriteBatch spriteBatch)
+        {
+            // Accent rules along the strip's top and bottom edges and the key-column
+            // divider, each over a soft wider glow — the skin's neon panel edge.
+            int width = NotationStrip.StripRight - NotationStrip.StripLeft;
+            int glowPad = (NotationStrip.FrameGlowThickness - NotationStrip.FrameLineThickness) / 2;
+            Color line = _palette.Accent;
+            Color glow = _palette.Accent * NotationStrip.FrameGlowAlpha;
+            for (int edge = 0; edge < 2; edge++)
+            {
+                int y = edge == 0 ? NotationStrip.StripTop : NotationStrip.StripBottom - NotationStrip.FrameLineThickness;
+                DrawRect(spriteBatch, new Rectangle(NotationStrip.StripLeft, y - glowPad, width, NotationStrip.FrameGlowThickness), glow, NotationStrip.DepthFrame);
+                DrawRect(spriteBatch, new Rectangle(NotationStrip.StripLeft, y, width, NotationStrip.FrameLineThickness), line, NotationStrip.DepthFrame);
+            }
+
+            int dividerX = NotationStrip.KeyColumnWidth - 1;
+            int dividerHeight = NotationStrip.StripBottom - NotationStrip.StripTop;
+            DrawRect(spriteBatch, new Rectangle(dividerX - glowPad, NotationStrip.StripTop, NotationStrip.FrameGlowThickness, dividerHeight), glow, NotationStrip.DepthFrame);
+            DrawRect(spriteBatch, new Rectangle(dividerX, NotationStrip.StripTop, 1, dividerHeight), line * 0.6f, NotationStrip.DepthFrame);
+        }
+
+        private void DrawKeyCaps(SpriteBatch spriteBatch)
+        {
+            for (int i = 0; i < _keyColumnLabels.Count; i++)
+            {
+                var label = _keyColumnLabels[i];
+                var cap = _keyCapRects[i];
+                Color laneColor = LaneColor(label.Lane);
+
+                DrawRect(spriteBatch, cap, laneColor * NotationStrip.KeyCapFillAlpha, NotationStrip.DepthKeyCap);
+                DrawOutline(spriteBatch, cap, laneColor * NotationStrip.KeyCapBorderAlpha, NotationStrip.DepthKeyCapBorder);
+
+                // Outer caps sit on staff-line rows; a faint leader carries the row across
+                // the inner column (through the gap between its caps) to the staff edge.
+                if (label.Outer)
+                {
+                    int leaderLeft = cap.Right + 2;
+                    DrawRect(
+                        spriteBatch,
+                        new Rectangle(leaderLeft, (int)label.YPx, NotationStrip.KeyColumnWidth - 1 - leaderLeft, 1),
+                        laneColor * NotationStrip.KeyCapBorderAlpha * 0.6f,
+                        NotationStrip.DepthKeyCap);
+                }
+            }
+        }
+
+        private void DrawOutline(SpriteBatch spriteBatch, Rectangle r, Color color, float depth)
+        {
+            DrawRect(spriteBatch, new Rectangle(r.X, r.Y, r.Width, 1), color, depth);
+            DrawRect(spriteBatch, new Rectangle(r.X, r.Bottom - 1, r.Width, 1), color, depth);
+            DrawRect(spriteBatch, new Rectangle(r.X, r.Y + 1, 1, r.Height - 2), color, depth);
+            DrawRect(spriteBatch, new Rectangle(r.Right - 1, r.Y + 1, 1, r.Height - 2), color, depth);
+        }
+
+        private Color LaneColor(int lane) =>
+            lane >= 0 && lane < LaneCount ? GetLaneColor(lane) : _palette.TextTertiary;
+
         private void DrawLabels(SpriteBatch spriteBatch)
         {
-            foreach (var label in _keyColumnLabels)
+            var scale = new Vector2(NotationStrip.KeyCapLabelScale);
+            if (_labelPositions == null)
             {
-                float textWidth = _labelFont.MeasureString(label.Text).X * LabelFontScale;
-                var position = new Vector2(
-                    NotationStrip.LabelRightX - textWidth,
-                    label.YPx - _labelFont.LineSpacing * LabelFontScale / 2f);
+                _labelPositions = new Vector2[_keyColumnLabels.Count];
+                for (int i = 0; i < _labelPositions.Length; i++)
+                {
+                    // Centered in the cap; LineSpacing centers the font's full cell.
+                    var size = _labelFont.MeasureString(_keyColumnLabels[i].Text) * NotationStrip.KeyCapLabelScale;
+                    var cap = _keyCapRects[i];
+                    _labelPositions[i] = new Vector2(
+                        MathF.Round(cap.X + (cap.Width - size.X) / 2f),
+                        MathF.Round(_keyColumnLabels[i].YPx - _labelFont.LineSpacing * NotationStrip.KeyCapLabelScale / 2f));
+                }
+            }
+
+            for (int i = 0; i < _keyColumnLabels.Count; i++)
+            {
                 _labelFont.DrawString(
                     spriteBatch,
-                    label.Text,
-                    position,
-                    NotationStrip.LabelColor,
+                    _keyColumnLabels[i].Text,
+                    _labelPositions[i],
+                    _palette.TextPrimary,
                     0f,
                     Vector2.Zero,
-                    new Vector2(LabelFontScale),
+                    scale,
                     SpriteEffects.None,
                     NotationStrip.DepthLabels);
             }

@@ -1,5 +1,6 @@
 using System.Linq;
 using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Game.Lib.UI.Layout;
 using Microsoft.Xna.Framework;
@@ -21,7 +22,7 @@ namespace DTXMania.Test.Stage.Performance
     [Collection("ManagedFont")]
     public class TabHudFeedbackTests
     {
-        private static TabHudDisplay CreateDisplay()
+        private static TabHudDisplay CreateDisplay(TabModePalette? palette = null)
         {
             // The ctor touches ManagedFont's process-global factory; pin it to the
             // pristine state (same seam the sibling ManagedFont-collection tests
@@ -35,7 +36,8 @@ namespace DTXMania.Test.Stage.Performance
                     CreateUninitialized<GraphicsDevice>(),
                     chart: null,
                     title: "Test Song",
-                    artist: "CI");
+                    artist: "CI",
+                    palette: palette);
             }
             finally
             {
@@ -51,10 +53,10 @@ namespace DTXMania.Test.Stage.Performance
         {
             using var display = CreateDisplay();
 
-            display.TriggerKeyFlash(3, TabHud.KeyFlashHitColor);
+            display.TriggerKeyFlash(3);
 
             Assert.Equal(1f, display.FlashTimersForTesting[3]);
-            Assert.Equal(TabHud.KeyFlashHitColor, display.FlashColorsForTesting[3]);
+            Assert.Equal(PerformanceUILayout.GetLaneColor(3), display.FlashColorsForTesting[3]);
             Assert.All(display.FlashTimersForTesting.Where((_, lane) => lane != 3), t => Assert.Equal(0f, t));
         }
 
@@ -63,13 +65,13 @@ namespace DTXMania.Test.Stage.Performance
         {
             using var display = CreateDisplay();
 
-            display.TriggerKeyFlash(5, TabHud.KeyFlashHitColor);
-            display.TriggerKeyFlash(5, TabHud.KeyFlashMissColor);
+            display.TriggerKeyFlash(5);
+            display.TriggerKeyFlash(5, isMiss: true);
 
             // Newest wins, same slot — never a queue or second flash.
             Assert.Equal(1, display.FlashTimersForTesting.Count(t => t > 0f));
             Assert.Equal(1f, display.FlashTimersForTesting[5]);
-            Assert.Equal(TabHud.KeyFlashMissColor, display.FlashColorsForTesting[5]);
+            Assert.Equal(display.Palette.Danger, display.FlashColorsForTesting[5]);
         }
 
         [Fact]
@@ -77,8 +79,8 @@ namespace DTXMania.Test.Stage.Performance
         {
             using var display = CreateDisplay();
 
-            display.TriggerKeyFlash(2, TabHud.KeyFlashHitColor);
-            display.TriggerKeyFlash(5, TabHud.KeyFlashHitColor);
+            display.TriggerKeyFlash(2);
+            display.TriggerKeyFlash(5);
 
             Assert.Equal(1f, display.FlashTimersForTesting[2]);
             Assert.Equal(1f, display.FlashTimersForTesting[5]);
@@ -86,14 +88,24 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void TriggerKeyFlash_MissColor_ShouldBeRed()
+        public void TriggerKeyFlash_Miss_ShouldUseThePaletteDangerColor()
         {
-            Assert.Equal(Color.Red, TabHud.KeyFlashMissColor);
+            var palette = TabModePalette.Resolve(SkinTheme.Parse(new[] { "UI.Danger=#FF0000" }));
+            using var display = CreateDisplay(palette);
 
+            display.TriggerKeyFlash(1, isMiss: true);
+
+            Assert.Equal(new Color(0xFF, 0x00, 0x00), display.FlashColorsForTesting[1]);
+        }
+
+        [Fact]
+        public void KeyCaps_ShouldGiveEveryLaneItsLabelsKeyCap()
+        {
             using var display = CreateDisplay();
-            display.TriggerKeyFlash(1, TabHud.KeyFlashMissColor);
 
-            Assert.Equal(Color.Red, display.FlashColorsForTesting[1]);
+            // Flashes light the cap the strip label sits in; every lane has one.
+            foreach (var label in NotationStripLayout.GetKeyColumnLabels())
+                Assert.Equal(NotationStripLayout.GetKeyCapRect(label), display.KeyCapsByLaneForTesting[label.Lane]);
         }
 
         [Theory]
@@ -103,7 +115,7 @@ namespace DTXMania.Test.Stage.Performance
         {
             using var display = CreateDisplay();
 
-            display.TriggerKeyFlash(lane, TabHud.KeyFlashHitColor);
+            display.TriggerKeyFlash(lane);
 
             Assert.All(display.FlashTimersForTesting, t => Assert.Equal(0f, t));
         }
@@ -112,8 +124,8 @@ namespace DTXMania.Test.Stage.Performance
         public void Update_ShouldDecayFlashTimersToZeroWithoutGoingNegative()
         {
             using var display = CreateDisplay();
-            display.TriggerKeyFlash(0, TabHud.KeyFlashHitColor);
-            display.TriggerKeyFlash(9, TabHud.KeyFlashHitColor);
+            display.TriggerKeyFlash(0);
+            display.TriggerKeyFlash(9);
 
             display.Update(0.05); // 0.05 * FlashDecayRate(8) = 0.4
 
@@ -144,13 +156,14 @@ namespace DTXMania.Test.Stage.Performance
         {
             using var display = CreateDisplay();
 
-            display.NotifyJudgement("Perfect", Color.Yellow, showTiming: false, deltaMs: 0);
+            display.NotifyJudgement(JudgementType.Perfect, showTiming: false, deltaMs: 0);
 
             var popup = display.PopupForTesting;
             Assert.NotNull(popup);
-            Assert.Equal("Perfect", popup!.Text);
+            Assert.Equal("PERFECT", popup!.Text);
+            Assert.Equal(display.Palette.Perfect, display.PopupColorForTesting);
             Assert.True(popup.IsActive);
-            // Font-less fallback: the headless display has no _titleFont, so centering
+            // Font-less fallback: the headless display has no _valueFont, so centering
             // falls back to the raw center x (halfWidth 0); measured half-width centering
             // only happens when fonts acquired.
             Assert.Equal(TabHud.HitFeedbackCenterX, popup.CurrentPosition.X);
@@ -162,12 +175,12 @@ namespace DTXMania.Test.Stage.Performance
         {
             using var display = CreateDisplay();
 
-            display.NotifyJudgement("Perfect", Color.Yellow, showTiming: false, deltaMs: 0);
+            display.NotifyJudgement(JudgementType.Perfect, showTiming: false, deltaMs: 0);
             var first = display.PopupForTesting;
-            display.NotifyJudgement("Great", Color.LightGreen, showTiming: false, deltaMs: 0);
+            display.NotifyJudgement(JudgementType.Great, showTiming: false, deltaMs: 0);
 
             Assert.NotSame(first, display.PopupForTesting);
-            Assert.Equal("Great", display.PopupForTesting!.Text);
+            Assert.Equal("GREAT", display.PopupForTesting!.Text);
         }
 
         [Fact]
@@ -175,10 +188,11 @@ namespace DTXMania.Test.Stage.Performance
         {
             using var display = CreateDisplay();
 
-            display.NotifyJudgement("Perfect", Color.Yellow, showTiming: false, deltaMs: 0);
-            display.NotifyJudgement("Miss", Color.Red, showTiming: false, deltaMs: 0);
+            display.NotifyJudgement(JudgementType.Perfect, showTiming: false, deltaMs: 0);
+            display.NotifyJudgement(JudgementType.Miss, showTiming: false, deltaMs: 0);
 
-            Assert.Equal("Miss", display.PopupForTesting!.Text);
+            Assert.Equal("MISS", display.PopupForTesting!.Text);
+            Assert.Equal(display.Palette.Miss, display.PopupColorForTesting);
         }
 
         [Fact]
@@ -186,16 +200,16 @@ namespace DTXMania.Test.Stage.Performance
         {
             using var display = CreateDisplay();
 
-            display.NotifyJudgement("Great", Color.LightGreen, showTiming: true, deltaMs: -12.4);
+            display.NotifyJudgement(JudgementType.Great, showTiming: true, deltaMs: -12.4);
             Assert.Equal("-12", display.PopupTimingForTesting.Text);
             Assert.False(display.PopupTimingForTesting.IsSlow);
 
-            display.NotifyJudgement("Great", Color.LightGreen, showTiming: true, deltaMs: 12.4);
+            display.NotifyJudgement(JudgementType.Great, showTiming: true, deltaMs: 12.4);
             Assert.Equal("12", display.PopupTimingForTesting.Text);
             Assert.True(display.PopupTimingForTesting.IsSlow);
 
             // Rounded to 0 → neutral text, never labelled fast or slow (AutoPlay).
-            display.NotifyJudgement("Great", Color.LightGreen, showTiming: true, deltaMs: 0.4);
+            display.NotifyJudgement(JudgementType.Great, showTiming: true, deltaMs: 0.4);
             Assert.Equal("0", display.PopupTimingForTesting.Text);
             Assert.False(display.PopupTimingForTesting.IsSlow);
         }
@@ -205,8 +219,8 @@ namespace DTXMania.Test.Stage.Performance
         {
             using var display = CreateDisplay();
 
-            display.NotifyJudgement("Great", Color.LightGreen, showTiming: true, deltaMs: -5);
-            display.NotifyJudgement("Miss", Color.Red, showTiming: false, deltaMs: 0);
+            display.NotifyJudgement(JudgementType.Great, showTiming: true, deltaMs: -5);
+            display.NotifyJudgement(JudgementType.Miss, showTiming: false, deltaMs: 0);
 
             Assert.Null(display.PopupTimingForTesting.Text);
             Assert.False(display.PopupTimingForTesting.IsSlow);
@@ -216,7 +230,7 @@ namespace DTXMania.Test.Stage.Performance
         public void Update_WhenPopupExpires_ShouldClearSlotAndTimingLine()
         {
             using var display = CreateDisplay();
-            display.NotifyJudgement("Great", Color.LightGreen, showTiming: true, deltaMs: -5);
+            display.NotifyJudgement(JudgementType.Great, showTiming: true, deltaMs: -5);
 
             display.Update(0.7); // JudgementTextPopup fades out over 0.6s
 
@@ -228,7 +242,7 @@ namespace DTXMania.Test.Stage.Performance
         public void Update_WhilePopupActive_ShouldRisePopupAndKeepSlot()
         {
             using var display = CreateDisplay();
-            display.NotifyJudgement("Great", Color.LightGreen, showTiming: false, deltaMs: 0);
+            display.NotifyJudgement(JudgementType.Great, showTiming: false, deltaMs: 0);
             float initialY = display.PopupForTesting!.CurrentPosition.Y;
 
             display.Update(0.3);
@@ -243,7 +257,7 @@ namespace DTXMania.Test.Stage.Performance
         public void NotifyJudgement_TabPopup_ShouldUseReducedRiseDistance()
         {
             using var display = CreateDisplay();
-            display.NotifyJudgement("Perfect", Color.Yellow, showTiming: false, deltaMs: 0);
+            display.NotifyJudgement(JudgementType.Perfect, showTiming: false, deltaMs: 0);
             var popup = display.PopupForTesting!;
 
             display.Update(1.0); // run the 0.6s fade to completion

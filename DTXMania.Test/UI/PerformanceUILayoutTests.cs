@@ -469,10 +469,18 @@ namespace DTXMania.Test.UI
         [Fact]
         public void TabHud_Header_ShouldMatchSpecBounds()
         {
-            Assert.Equal(20, PerformanceUILayout.TabHud.HeaderLeft);
-            Assert.Equal(1260, PerformanceUILayout.TabHud.HeaderRight);
-            Assert.Equal(8, PerformanceUILayout.TabHud.HeaderTop);
-            Assert.Equal(90, PerformanceUILayout.TabHud.HeaderBottom);
+            Assert.Equal(16, PerformanceUILayout.TabHud.HeaderLeft);
+            Assert.Equal(1264, PerformanceUILayout.TabHud.HeaderRight);
+            Assert.Equal(12, PerformanceUILayout.TabHud.HeaderTop);
+            Assert.Equal(82, PerformanceUILayout.TabHud.HeaderBottom);
+        }
+
+        [Fact]
+        public void TabHud_HeaderPanels_ShouldNotOverlapAndKeepRowsInside()
+        {
+            Assert.True(PerformanceUILayout.TabHud.TitlePanelRight < PerformanceUILayout.TabHud.ScorePanelLeft);
+            Assert.InRange(PerformanceUILayout.TabHud.HeaderTitleCenterY, PerformanceUILayout.TabHud.HeaderTop, PerformanceUILayout.TabHud.HeaderBottom);
+            Assert.InRange(PerformanceUILayout.TabHud.HeaderArtistCenterY, PerformanceUILayout.TabHud.HeaderTitleCenterY, PerformanceUILayout.TabHud.HeaderBottom);
         }
 
         [Fact]
@@ -494,9 +502,10 @@ namespace DTXMania.Test.UI
         public void TabHud_Life_ShouldStartAtKeyColumnAndSitAboveStrip()
         {
             Assert.Equal(PerformanceUILayout.NotationStrip.KeyColumnWidth, PerformanceUILayout.TabHud.LifeLeft);
-            Assert.Equal(1260, PerformanceUILayout.TabHud.LifeRight);
-            Assert.Equal(260, PerformanceUILayout.TabHud.LifeTop);
-            Assert.Equal(283, PerformanceUILayout.TabHud.LifeBottom);
+            Assert.Equal(1264, PerformanceUILayout.TabHud.LifeRight);
+            Assert.Equal(258, PerformanceUILayout.TabHud.LifeTop);
+            Assert.Equal(282, PerformanceUILayout.TabHud.LifeBottom);
+            Assert.True(PerformanceUILayout.TabHud.LifeLabelRight < PerformanceUILayout.TabHud.LifeLeft);
             Assert.True(PerformanceUILayout.TabHud.LifeTop >= PerformanceUILayout.TabHud.HitFeedbackBottom);
             Assert.True(PerformanceUILayout.TabHud.LifeBottom <= PerformanceUILayout.NotationStrip.StripTop);
         }
@@ -505,9 +514,9 @@ namespace DTXMania.Test.UI
         public void TabHud_Progress_ShouldStartAtKeyColumnAndSitBelowStrip()
         {
             Assert.Equal(PerformanceUILayout.NotationStrip.KeyColumnWidth, PerformanceUILayout.TabHud.ProgressLeft);
-            Assert.Equal(1260, PerformanceUILayout.TabHud.ProgressRight);
-            Assert.Equal(586, PerformanceUILayout.TabHud.ProgressTop);
-            Assert.Equal(617, PerformanceUILayout.TabHud.ProgressBottom);
+            Assert.Equal(1264, PerformanceUILayout.TabHud.ProgressRight);
+            Assert.Equal(588, PerformanceUILayout.TabHud.ProgressTop);
+            Assert.Equal(614, PerformanceUILayout.TabHud.ProgressBottom);
             Assert.True(PerformanceUILayout.TabHud.ProgressTop >= PerformanceUILayout.NotationStrip.StripBottom);
         }
 
@@ -516,8 +525,8 @@ namespace DTXMania.Test.UI
         {
             Assert.Equal(16, PerformanceUILayout.TabHud.StatsLeft);
             Assert.Equal(1264, PerformanceUILayout.TabHud.StatsRight);
-            Assert.Equal(628, PerformanceUILayout.TabHud.StatsTop);
-            Assert.Equal(704, PerformanceUILayout.TabHud.StatsBottom);
+            Assert.Equal(624, PerformanceUILayout.TabHud.StatsTop);
+            Assert.Equal(708, PerformanceUILayout.TabHud.StatsBottom);
             Assert.True(PerformanceUILayout.TabHud.StatsTop >= PerformanceUILayout.TabHud.ProgressBottom);
         }
 
@@ -543,15 +552,31 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
-        public void TabHud_DepthKeyFlash_ShouldOrderBetweenKeyMaskAndLabels()
+        public void TabHud_DepthKeyFlash_ShouldOrderBetweenKeyCapFillAndBorder()
         {
             Assert.Equal(0.35f, PerformanceUILayout.TabHud.DepthKeyFlash);
             Assert.True(
-                PerformanceUILayout.NotationStrip.DepthKeyMask > PerformanceUILayout.TabHud.DepthKeyFlash,
-                "BackToFront: key mask (0.40) must draw behind the key flash (0.35)");
+                PerformanceUILayout.NotationStrip.DepthKeyMask > PerformanceUILayout.NotationStrip.DepthKeyCap,
+                "BackToFront: key mask (0.40) must draw behind the key caps (0.38)");
             Assert.True(
-                PerformanceUILayout.TabHud.DepthKeyFlash > PerformanceUILayout.NotationStrip.DepthLabels,
-                "BackToFront: key flash (0.35) must draw behind the labels (0.30) so labels stay legible");
+                PerformanceUILayout.NotationStrip.DepthKeyCap > PerformanceUILayout.TabHud.DepthKeyFlash,
+                "BackToFront: the cap fill (0.38) must draw behind the key flash (0.35)");
+            Assert.True(
+                PerformanceUILayout.TabHud.DepthKeyFlash > PerformanceUILayout.NotationStrip.DepthKeyCapBorder,
+                "BackToFront: the key flash (0.35) must draw behind the cap border (0.33)");
+            Assert.True(
+                PerformanceUILayout.NotationStrip.DepthKeyCapBorder > PerformanceUILayout.NotationStrip.DepthLabels,
+                "BackToFront: the cap border (0.33) must draw behind the labels (0.30) so labels stay legible");
+        }
+
+        [Fact]
+        public void TabHud_UiPassDepths_ShouldStackPanelBehindBarsBehindText()
+        {
+            Assert.True(PerformanceUILayout.TabHud.DepthPanel > PerformanceUILayout.TabHud.DepthPanelBorder);
+            Assert.True(PerformanceUILayout.TabHud.DepthPanelBorder > PerformanceUILayout.TabHud.DepthBarBack);
+            Assert.True(PerformanceUILayout.TabHud.DepthBarBack > PerformanceUILayout.TabHud.DepthBarFill);
+            Assert.True(PerformanceUILayout.TabHud.DepthBarFill > PerformanceUILayout.TabHud.DepthTextShadow);
+            Assert.True(PerformanceUILayout.TabHud.DepthTextShadow > PerformanceUILayout.TabHud.DepthText);
         }
 
         #endregion

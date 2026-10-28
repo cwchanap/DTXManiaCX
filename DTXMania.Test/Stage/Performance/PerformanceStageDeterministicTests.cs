@@ -5297,16 +5297,16 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(0, timingDisplay.ActiveLaneCountForTesting);
 
         // The Tab HUD slot is fed instead: popup word + per-hit fast/slow line
-        // (predicate passes) + gold key flash on the judged lane.
-        Assert.Equal("Perfect", tabHud.PopupForTesting!.Text);
+        // (predicate passes) + a lane-colored key-cap flash on the judged lane.
+        Assert.Equal("PERFECT", tabHud.PopupForTesting!.Text);
         Assert.Equal("-12", tabHud.PopupTimingForTesting.Text);
         Assert.False(tabHud.PopupTimingForTesting.IsSlow);
         Assert.Equal(1f, tabHud.FlashTimersForTesting[3]);
-        Assert.Equal(PerformanceUILayout.TabHud.KeyFlashHitColor, tabHud.FlashColorsForTesting[3]);
+        Assert.Equal(PerformanceUILayout.GetLaneColor(3), tabHud.FlashColorsForTesting[3]);
     }
 
     [Fact]
-    public void OnJudgementMade_WhenTabMiss_ShouldFeedRedFlashWithoutTimingLine()
+    public void OnJudgementMade_WhenTabMiss_ShouldFeedDangerFlashWithoutTimingLine()
     {
         var stage = CreateStage();
         ReflectionHelpers.SetPrivateField(stage, "_notationStrip", CreateReadyNotationStrip());
@@ -5326,12 +5326,12 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.InvokePrivateMethod(
             stage, "OnJudgementMade", null, new JudgementEvent(1, 5, 0, JudgementType.Miss));
 
-        // Miss: no timing line (not a hit), red lane flash — instrument identity
+        // Miss: no timing line (not a hit), danger lane flash — instrument identity
         // survives even though the newest popup replaces it.
-        Assert.Equal("Miss", tabHud.PopupForTesting!.Text);
+        Assert.Equal("MISS", tabHud.PopupForTesting!.Text);
         Assert.Null(tabHud.PopupTimingForTesting.Text);
         Assert.Equal(1f, tabHud.FlashTimersForTesting[5]);
-        Assert.Equal(PerformanceUILayout.TabHud.KeyFlashMissColor, tabHud.FlashColorsForTesting[5]);
+        Assert.Equal(tabHud.Palette.Danger, tabHud.FlashColorsForTesting[5]);
     }
 
     [Fact]
@@ -5349,7 +5349,7 @@ public class PerformanceStageDeterministicTests
 
         // The popup still appears, but the per-hit fast/slow line obeys the same
         // opt-in predicate as the Lanes timing display. Stat tiles stay ungated.
-        Assert.Equal("Perfect", tabHud.PopupForTesting!.Text);
+        Assert.Equal("PERFECT", tabHud.PopupForTesting!.Text);
         Assert.Null(tabHud.PopupTimingForTesting.Text);
     }
 
@@ -5433,7 +5433,7 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.InvokePrivateMethod(
             stage, "OnJudgementMade", null, new JudgementEvent(0, 3, 0, JudgementType.Perfect));
 
-        Assert.Equal("Perfect", tabHud.PopupForTesting!.Text);
+        Assert.Equal("PERFECT", tabHud.PopupForTesting!.Text);
         Assert.Equal(1f, tabHud.FlashTimersForTesting[3]);
     }
 
@@ -5496,7 +5496,7 @@ public class PerformanceStageDeterministicTests
             new LaneHitEventArgs(3, new ButtonState("Key.S", true)));
 
         Assert.Equal(1f, tabHud.FlashTimersForTesting[3]);
-        Assert.Equal(PerformanceUILayout.TabHud.KeyFlashHitColor, tabHud.FlashColorsForTesting[3]);
+        Assert.Equal(PerformanceUILayout.GetLaneColor(3), tabHud.FlashColorsForTesting[3]);
     }
 
     [Fact]
