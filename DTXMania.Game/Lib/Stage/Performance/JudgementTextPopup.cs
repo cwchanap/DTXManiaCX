@@ -109,18 +109,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private readonly Action<IFont, SpriteBatch, string, int, int, Color> _drawText;
         private bool _disposed = false;
 
-        // Text colors for different judgement types. internal (HPA-509) so the Tab HUD
-        // reuses the exact wording/colors — including Poor→OK — without copying; never mutated.
-        internal static readonly Dictionary<JudgementType, Color> JudgementColors = new Dictionary<JudgementType, Color>
-        {
-            { JudgementType.Perfect, Color.Yellow },
-            { JudgementType.Great, Color.LightGreen },
-            { JudgementType.Good, Color.LightBlue },
-            { JudgementType.Poor, Color.Orange },
-            { JudgementType.Miss, Color.Red }
-        };
-
-        // Text display strings for judgement types (internal for the same HPA-509 reuse)
+        // Text display strings for judgement types. internal (HPA-509) so the Tab HUD
+        // reuses the exact wording — including Poor→OK — without copying; never mutated.
         internal static readonly Dictionary<JudgementType, string> JudgementTexts = new Dictionary<JudgementType, string>
         {
             { JudgementType.Perfect, "Perfect" },

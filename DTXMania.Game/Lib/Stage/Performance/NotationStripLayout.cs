@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Microsoft.Xna.Framework;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Notation;
@@ -212,6 +213,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// from the parser's channel→lane lookup (HPA-509), so flash selection uses lane identity
         /// rather than label text. The HH and BD labels also stand in for their variant channels
         /// (open hi-hat 0x18, left bass 0x1C — lane 2 flashes LP, not the engraved BD line).
+        /// Rows are only one diatonic step (10px) apart, so labels alternate between two
+        /// key-cap columns: space rows (odd steps) sit in the inner column beside the staff,
+        /// line rows (even steps) in the outer column, giving each column a 20px pitch.
         /// </summary>
         internal static IReadOnlyList<NotationStripLabelAnchor> GetKeyColumnLabels()
         {
@@ -219,8 +223,25 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 .Select(pair => new NotationStripLabelAnchor(
                     pair.Label,
                     GetChannelLabelY(pair.Channel),
-                    DTXChartParser.TryGetLane(pair.Channel, out var lane) ? lane : -1))
+                    DTXChartParser.TryGetLane(pair.Channel, out var lane) ? lane : -1,
+                    Outer: DrumStaffMapping.GetPosition(pair.Channel).StaffStep % 2 == 0))
                 .ToArray();
+        }
+
+        /// <summary>
+        /// The key cap a label sits in: a fixed-size box centered on the label row, in the
+        /// inner or outer key-column lane. The Tab HUD lights the same box on hits.
+        /// </summary>
+        internal static Rectangle GetKeyCapRect(NotationStripLabelAnchor label)
+        {
+            int right = label.Outer
+                ? PerformanceUILayout.NotationStrip.KeyCapOuterRightX
+                : PerformanceUILayout.NotationStrip.KeyCapInnerRightX;
+            return new Rectangle(
+                right - PerformanceUILayout.NotationStrip.KeyCapWidth,
+                (int)label.YPx - PerformanceUILayout.NotationStrip.KeyCapHeight / 2,
+                PerformanceUILayout.NotationStrip.KeyCapWidth,
+                PerformanceUILayout.NotationStrip.KeyCapHeight);
         }
 
         // Key-column display order, staff top to bottom (LC B5 .. LP D4). Each entry pairs the
@@ -495,11 +516,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
         float HeightPx);
 
     /// <summary>
-    /// Key-column instrument label; the renderer right-aligns Text at LabelRightX.
-    /// Lane is the DTX drum lane the label answers to (HPA-509): key flashes and
-    /// judgements select their label by this identity, never by label text.
+    /// Key-column instrument label; the renderer centers Text in its key cap
+    /// (<see cref="NotationStripLayout.GetKeyCapRect"/>). Lane is the DTX drum lane the
+    /// label answers to (HPA-509): key flashes and judgements select their label by this
+    /// identity, never by label text. Outer marks a staff-line row drawn in the outer column.
     /// </summary>
-    internal readonly record struct NotationStripLabelAnchor(string Text, float YPx, int Lane);
+    internal readonly record struct NotationStripLabelAnchor(string Text, float YPx, int Lane, bool Outer);
 
     /// <summary>Engraving for one measure: glyph placements plus filled rectangles.</summary>
     internal sealed record NotationStripMeasureEngraving(

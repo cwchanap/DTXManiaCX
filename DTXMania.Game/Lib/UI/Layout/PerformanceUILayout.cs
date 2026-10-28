@@ -549,12 +549,30 @@ namespace DTXMania.Game.Lib.UI.Layout
 
             // Opaque instrument-key column on the left; it masks moving ink at draw time.
             public const int KeyColumnWidth = 195;
-            public const int LabelRightX = 174;
             public const int MovingInkStartX = KeyColumnWidth;
 
-            // Hit marker (fixed vertical line at "now").
+            // Key caps: labels alternate between two columns so the 10px diatonic rows
+            // never crowd — space rows in the inner column beside the staff, line rows in
+            // the outer column with a leader running to the staff edge.
+            public const int KeyCapWidth = 36;
+            public const int KeyCapHeight = 16;
+            public const int KeyCapInnerRightX = 186;
+            public const int KeyCapOuterRightX = 144;
+            public const float KeyCapLabelScale = 0.85f;
+            public const float KeyCapFillAlpha = 0.16f;
+            public const float KeyCapBorderAlpha = 0.6f;
+
+            // Neon frame: accent rules along the strip's top and bottom edges plus the
+            // key-column divider, each with a soft wider glow behind the crisp line.
+            public const int FrameLineThickness = 2;
+            public const int FrameGlowThickness = 6;
+            public const float FrameGlowAlpha = 0.18f;
+
+            // Hit marker (fixed vertical line at "now") with a soft accent glow band.
             public const int HitMarkerX = 220;
             public const int HitMarkerWidth = 2;
+            public const int HitMarkerGlowWidth = 14;
+            public const float HitMarkerGlowAlpha = 0.16f;
 
             // Staff geometry: 20px per staff space, 10px per diatonic step (E4 = step 0).
             public const int StaffSpace = 20;
@@ -583,22 +601,24 @@ namespace DTXMania.Game.Lib.UI.Layout
             public const float BravuraFontSizePt = 60f;
             public const float LabelFontSize = 14f;
 
-            public static readonly Color BackgroundColor = new Color(0x10, 0x15, 0x1D);
-            public static readonly Color StaffColor = new Color(0x71, 0x80, 0x96);
-            public static readonly Color BarlineColor = new Color(0x71, 0x80, 0x96);
-            public static readonly Color NotationColor = new Color(0xF2, 0xF4, 0xF8);
-            public static readonly Color LabelColor = new Color(0xCA, 0xD3, 0xDE);
-            public static readonly Color HitMarkerColor = new Color(0xF0, 0xC1, 0x5A);
+            // Colors come from TabModePalette (theme-resolved); only alphas live here.
+            public const float StaffLineAlpha = 0.75f;
 
             // Layer depths (BackToFront, larger = farther). The strip background sits at
             // 0.90 so it occludes the HPA-11 chart video (0.95f, same BackToFront batch;
             // equal depths have unstable order) while staying behind the 0.80f staff.
             public const float DepthBackground = 0.90f;
             public const float DepthStaffAndBarlines = 0.80f;
+            public const float DepthHitMarkerGlow = 0.73f;
             public const float DepthHitMarker = 0.72f;
             public const float DepthBeamsAndStems = 0.65f;
             public const float DepthGlyphs = 0.55f;
             public const float DepthKeyMask = 0.40f;
+            // Frame rules, key caps and leaders sit on the mask; the Tab HUD key flash
+            // (0.35) lands between the cap fill and its border so the label stays on top.
+            public const float DepthFrame = 0.39f;
+            public const float DepthKeyCap = 0.38f;
+            public const float DepthKeyCapBorder = 0.33f;
             public const float DepthLabels = 0.30f;
         }
 
@@ -607,49 +627,66 @@ namespace DTXMania.Game.Lib.UI.Layout
         #region Tab-mode HUD (HPA-509)
 
         /// <summary>
-        /// Tab-mode HUD layout (HPA-509). All Tab-specific bounds, colors, font sizes
-        /// and depths live here; the Lanes and NotationStrip constants stay untouched.
-        /// Bounds are the 1280×720 starting regions from the design spec — legibility
-        /// targets, not pixel-perfect assertions for dynamic font metrics.
+        /// Tab-mode HUD layout (HPA-509). All Tab-specific bounds, font sizes and depths
+        /// live here; colors come from the theme-resolved TabModePalette. The look follows
+        /// the CX Neon skin: chamfered translucent navy panels with accent rules, Orbitron
+        /// display type, ShareTechMono telemetry, captions in small accent pills.
+        /// Bounds are 1280×720 starting regions — legibility targets, not pixel-perfect
+        /// assertions for dynamic font metrics.
         /// </summary>
         public static class TabHud
         {
-            // Header: clamped/ellipsized title + artist on the left, score digits right.
-            public const int HeaderLeft = 20;
-            public const int HeaderRight = 1260;
-            public const int HeaderTop = 8;
-            public const int HeaderBottom = 90;
-            // Horizontal gap between the score's left edge and the title/artist
-            // truncation bound; vertical gap of the artist line under the title.
-            public const float HeaderTextGap = 24f;
-            public const int HeaderArtistGap = 4;
+            // Panels: chamfer size (px cut at each corner) and border/glow strength.
+            public const int PanelChamfer = 8;
+            public const float PanelBorderAlpha = 0.45f;
+            public const int PanelPaddingX = 16;
 
-            // Hit feedback: combo above the fixed strip hit marker, then the newest-wins
-            // judgement popup and per-hit fast/slow text below it (Task 2). The combo
-            // origin sits at the header boundary: the 48pt digits land ~28px below
-            // their origin (~49px tall, ink bottom ≈167), so anything lower carries
-            // the rising popup's fast/slow line into the digits (HPA-509 review).
+            // Caption pills (SCORE / LIFE / COMBO): small accent-outlined tags.
+            public const int CaptionPadX = 8;
+            public const int CaptionHeight = 22;
+            public const int CaptionChamfer = 4;
+
+            // Header: title/artist panel on the left, SCORE panel on the right.
+            public const int HeaderLeft = 16;
+            public const int HeaderRight = 1264;
+            public const int HeaderTop = 12;
+            public const int HeaderBottom = 82;
+            public const int TitlePanelRight = 880;
+            public const int ScorePanelLeft = 900;
+            // Title/artist rows are placed by their line centers (not tops) so the
+            // Orbitron and the taller-celled CJK serif both sit inside the panel.
+            public const int HeaderTitleCenterY = HeaderTop + 26;
+            public const int HeaderArtistCenterY = HeaderTop + 54;
+            public const int ScoreCaptionGap = 12;
+            public const int ScoreDigits = 7;
+
+            // Hit feedback: combo + COMBO caption above the fixed strip hit marker, then
+            // the newest-wins judgement popup with its per-hit fast/slow line above it.
+            // The rising word (and the line riding above it) never reaches the caption.
             public const int HitFeedbackCenterX = NotationStrip.HitMarkerX;
             public const int HitFeedbackTop = 90;
             public const int HitFeedbackBottom = 250;
+            public const int ComboCaptionGap = 0;
 
             // Judgement popup slot: fixed word position that rises PopupRiseDistance
             // over its lifetime — shorter than the Lanes 30px so the word and the
             // fast/slow line riding above it can never reach the combo band. The
-            // fast/slow line rides PopupTimingGap above the word's current position
-            // so the rise can never overlap it; both centered on the hit marker.
-            public const int PopupWordTop = 220;
-            public const int PopupTimingGap = 4;
-            public const float PopupRiseDistance = 14f;
+            // fast/slow line rides PopupTimingGap above the word's current position.
+            public const int PopupWordTop = 218;
+            public const int PopupTimingGap = 2;
+            public const float PopupRiseDistance = 12f;
 
-            // LIFE: label in the left key column + horizontal gauge, between the
-            // hit feedback and the strip.
-            public const int LifeLabelLeft = 16;
-            public const int LifeLabelInsetY = 2;
+            // LIFE: caption pill right-aligned in the key column beside a segmented
+            // gauge running from the key-column edge to the right playfield edge.
+            public const int LifeLabelRight = NotationStrip.KeyCapInnerRightX;
             public const int LifeLeft = NotationStrip.KeyColumnWidth;
-            public const int LifeRight = 1260;
-            public const int LifeTop = 260;
-            public const int LifeBottom = 283;
+            public const int LifeRight = 1264;
+            public const int LifeTop = 258;
+            public const int LifeBottom = 282;
+            public const int LifeSegmentCount = 48;
+            public const int LifeSegmentGap = 3;
+            public const int LifeInset = 4;
+            public const float LifeUnlitAlpha = 0.14f;
 
             // Progress: elapsed/total on the left + thin horizontal fill, directly
             // below the strip. The fill starts at a fixed x so its left edge never
@@ -657,66 +694,61 @@ namespace DTXMania.Game.Lib.UI.Layout
             // just left of it (HPA-509 review).
             public const int ProgressLeft = NotationStrip.KeyColumnWidth;
             public const int ProgressBarLeft = 310;
-            public const int ProgressRight = 1260;
-            public const int ProgressTop = 586;
-            public const int ProgressBottom = 617;
-            public const int ProgressTextInsetY = 2;
+            public const int ProgressRight = 1264;
+            public const int ProgressTop = 588;
+            public const int ProgressBottom = 614;
             public const int ProgressBarGap = 12;
-            public const int ProgressBarInsetY = 8;
+            public const int ProgressBarHeight = 6;
+            public const float ProgressTrackAlpha = 0.35f;
 
-            // Stats row: compact judgement/skill tiles along the bottom.
+            // Stats row: one panel along the bottom split into judgement/skill tiles.
             public const int StatsLeft = 16;
             public const int StatsRight = 1264;
-            public const int StatsTop = 628;
-            public const int StatsBottom = 704;
-            public const int StatsValueGap = 6;
+            public const int StatsTop = 624;
+            public const int StatsBottom = 708;
+            public const int StatsLabelInsetY = 14;
+            public const int StatsValueGap = 4;
             public const int StatsTileGap = 8;
+            public const int StatsTilePadX = 10;
+            public const int StatsDividerInsetY = 14;
+            public const float StatsDividerAlpha = 0.35f;
 
-            // Font sizes: NotoSerifJP is baked at 14/24/48 pt, so request those
-            // sizes directly (ManagedFont snaps requests to the closest bake). The
-            // score header and combo digits share the one 48pt instance.
+            // Font families/sizes. Latin text uses the skin's Orbitron display face and
+            // ShareTechMono telemetry face (stat labels too: Orbitron's wide caps overflow
+            // a 1/9-width tile); title/artist fall back to the CJK-capable NotoSerifJP
+            // when they hold non-ASCII text. Sizes are baked SpriteFont point sizes.
+            public const string DisplayFontFamily = "Orbitron";
+            public const string MonoFontFamily = "ShareTechMono";
+            public const string SerifFontFamily = "NotoSerifJP";
+            public const int ComboFontSizePt = 40;
+            public const int ScoreFontSizePt = 32;
             public const int TitleFontSizePt = 24;
-            public const int ScoreFontSizePt = 48;
-            public const int TileFontSizePt = 14;
+            public const int ValueFontSizePt = 18;
+            public const int CaptionFontSizePt = 14;
+            public const int MonoFontSizePt = 14;
+            public const int SerifTitleFontSizePt = 24;
+            public const int SerifSmallFontSizePt = 14;
 
-            // Key flashes draw in the base BackToFront batch between the key mask (0.40)
-            // and labels (0.30) so a filled flash stays behind its label.
+            // Big-number glow: accent copies offset by GlowOffset in four directions.
+            public const float GlowOffset = 1.5f;
+            public const float GlowAlpha = 0.35f;
+
+            // Key flashes draw in the base BackToFront batch between the key-cap fill
+            // (0.38) and its border (0.33), so a lit cap keeps its outline and label.
             public const float DepthKeyFlash = 0.35f;
+            public const float KeyFlashAlpha = 0.85f;
 
             // UI-pass draw depths (BackToFront, larger = farther). The Tab HUD shares
             // that batch with the strip's hundreds of glyphs and MonoGame's sort is
             // unstable on equal depths, so every Tab draw names an explicit plane:
-            // bar back behind fill (same planes as the legacy gauge 0.19/0.18), each
-            // text shadow on DepthTextShadow just behind its text on DepthText.
+            // panel fill behind its border, bar back behind fill (same planes as the
+            // legacy gauge 0.19/0.18), each text shadow just behind its text.
+            public const float DepthPanel = 0.215f;
+            public const float DepthPanelBorder = 0.205f;
             public const float DepthBarBack = 0.19f;
             public const float DepthBarFill = 0.18f;
             public const float DepthTextShadow = 0.17f;
             public const float DepthText = 0.16f;
-
-            // Key flash slot geometry: one bar per lane row behind the right-aligned
-            // label, refreshed (overwritten) by input/judgement, decayed by the shared
-            // Animation.FlashDecayRate. Height matches the ~10px label rows; a taller
-            // bar bleeds onto the neighboring lane's label.
-            public const int KeyFlashLeft = 6;
-            public const int KeyFlashHeight = 10;
-            public const float KeyFlashAlpha = 0.45f;
-
-            // Flash colors: hits flash the hit-marker gold, Miss flashes red
-            // (judgement wording/colors come from the popup manager tables).
-            public static readonly Color KeyFlashHitColor = NotationStrip.HitMarkerColor;
-            public static readonly Color KeyFlashMissColor = Color.Red;
-
-            // Per-hit fast/slow text tints match the Lanes HitTimingFeedbackDisplay.
-            public static readonly Color TimingFastColor = Color.Cyan;
-            public static readonly Color TimingSlowColor = Color.Red;
-
-            // Colors follow the notation strip palette.
-            public static readonly Color PrimaryTextColor = NotationStrip.NotationColor;
-            public static readonly Color SecondaryTextColor = NotationStrip.LabelColor;
-            public static readonly Color AccentColor = NotationStrip.HitMarkerColor;
-            public static readonly Color ComboColor = Color.White;
-            public static readonly Color BarBackColor = new Color(0x20, 0x28, 0x33);
-            public static readonly Color LifeFillColor = new Color(0x3C, 0xB8, 0x64);
         }
 
         #endregion

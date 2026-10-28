@@ -481,6 +481,52 @@ public class NotationStripEngravingTests
     }
 
     [Fact]
+    public void GetKeyColumnLabels_StaffLineRows_ShouldSitInTheOuterColumn()
+    {
+        var labels = NotationStripLayout.GetKeyColumnLabels();
+
+        // Even staff steps (A5 ledger, F5 and D5 lines) go outer; spaces stay inner.
+        Assert.Equal(new[] { "CY", "RD", "LT" }, labels.Where(l => l.Outer).Select(l => l.Text));
+    }
+
+    [Fact]
+    public void GetKeyCapRect_SameColumnCaps_ShouldNeverOverlap()
+    {
+        var labels = NotationStripLayout.GetKeyColumnLabels();
+
+        foreach (var column in labels.GroupBy(l => l.Outer))
+        {
+            var caps = column.Select(NotationStripLayout.GetKeyCapRect).OrderBy(r => r.Y).ToArray();
+            for (int i = 1; i < caps.Length; i++)
+                Assert.True(caps[i - 1].Bottom <= caps[i].Y, $"caps {caps[i - 1]} and {caps[i]} overlap");
+        }
+    }
+
+    [Fact]
+    public void GetKeyCapRect_ShouldCenterOnItsRowInsideTheKeyColumn()
+    {
+        foreach (var label in NotationStripLayout.GetKeyColumnLabels())
+        {
+            var cap = NotationStripLayout.GetKeyCapRect(label);
+
+            Assert.Equal(label.YPx, cap.Center.Y, 0);
+            Assert.True(cap.X >= 0);
+            Assert.True(cap.Right < PerformanceUILayout.NotationStrip.KeyColumnWidth);
+            Assert.InRange(cap.Y, PerformanceUILayout.NotationStrip.StripTop, PerformanceUILayout.NotationStrip.StripBottom);
+        }
+    }
+
+    [Fact]
+    public void GetKeyCapRect_OuterColumn_ShouldClearTheInnerColumn()
+    {
+        var labels = NotationStripLayout.GetKeyColumnLabels();
+        int innerLeft = labels.Where(l => !l.Outer).Min(l => NotationStripLayout.GetKeyCapRect(l).X);
+        int outerRight = labels.Where(l => l.Outer).Max(l => NotationStripLayout.GetKeyCapRect(l).Right);
+
+        Assert.True(outerRight < innerLeft);
+    }
+
+    [Fact]
     public void TryGetLane_LeftBassChannel_ShouldResolveToLpLane2()
     {
         // 0x1C left bass is engraved at the BD staff position but is lane 2 input:
