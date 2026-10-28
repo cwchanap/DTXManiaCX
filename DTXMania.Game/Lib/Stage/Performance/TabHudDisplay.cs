@@ -376,7 +376,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             // like the Lanes score counter.
             var scorePanel = new Rectangle(TabHud.ScorePanelLeft, TabHud.HeaderTop, TabHud.HeaderRight - TabHud.ScorePanelLeft, height);
             DrawPanel(spriteBatch, scorePanel, TabHud.PanelChamfer);
-            DrawCaption(spriteBatch, "SCORE", scorePanel.X + TabHud.PanelPaddingX, scorePanel.Center.Y, alignRight: false);
+            int captionRight = DrawCaption(spriteBatch, "SCORE", scorePanel.X + TabHud.PanelPaddingX, scorePanel.Center.Y, alignRight: false);
 
             if (score != _lastScore)
             {
@@ -384,8 +384,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 _cachedScoreWidth = _scoreFont!.MeasureString(_cachedScoreText).X;
                 _lastScore = score;
             }
+            // Right-aligned, but never closer than ScoreCaptionGap to the caption pill.
             var scorePosition = new Vector2(
-                scorePanel.Right - TabHud.PanelPaddingX - _cachedScoreWidth,
+                MathF.Max(captionRight + TabHud.ScoreCaptionGap, scorePanel.Right - TabHud.PanelPaddingX - _cachedScoreWidth),
                 scorePanel.Center.Y - _scoreFont!.LineSpacing / 2f);
             DrawGlowing(spriteBatch, _scoreFont!, _cachedScoreText, scorePosition, Palette.TextPrimary);
         }
@@ -602,9 +603,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// in the display face, anchored at <paramref name="x"/> (its left edge, or its
         /// right edge when <paramref name="alignRight"/>), centered on <paramref name="centerY"/>.
         /// The fill is opaque so a bright backdrop never shows through the caption.
+        /// Returns the pill's right edge.
         /// </summary>
         [ExcludeFromCodeCoverage]
-        private void DrawCaption(SpriteBatch spriteBatch, string text, int x, int centerY, bool alignRight)
+        private int DrawCaption(SpriteBatch spriteBatch, string text, int x, int centerY, bool alignRight)
         {
             var size = _captionFont!.MeasureString(text);
             int width = (int)MathF.Ceiling(size.X) + 2 * TabHud.CaptionPadX;
@@ -620,6 +622,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 text,
                 new Vector2(pill.X + TabHud.CaptionPadX, MathF.Round(centerY - _captionFont!.LineSpacing / 2f)),
                 Palette.TextPrimary);
+            return pill.Right;
         }
 
         [ExcludeFromCodeCoverage]

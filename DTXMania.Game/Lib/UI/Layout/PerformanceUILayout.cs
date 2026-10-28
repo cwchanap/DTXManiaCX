@@ -653,8 +653,10 @@ namespace DTXMania.Game.Lib.UI.Layout
             public const int HeaderRight = 1264;
             public const int HeaderTop = 12;
             public const int HeaderBottom = 82;
-            public const int TitlePanelRight = 880;
-            public const int ScorePanelLeft = 900;
+            // The SCORE panel fits its caption pill, ScoreCaptionGap and seven of the
+            // widest 32pt Orbitron digits (~251 px) inside its padding.
+            public const int TitlePanelRight = 840;
+            public const int ScorePanelLeft = 860;
             // Title/artist rows are placed by their line centers (not tops) so the
             // Orbitron and the taller-celled CJK serif both sit inside the panel.
             public const int HeaderTitleCenterY = HeaderTop + 26;
