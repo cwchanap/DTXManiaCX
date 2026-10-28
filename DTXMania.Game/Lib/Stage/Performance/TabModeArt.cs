@@ -9,10 +9,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
     /// <summary>
     /// Optional skin art for Tab mode, named by the active skin's Theme.ini:
     /// <c>Tab.StripTexture</c> (opaque strip backplate), <c>Tab.PanelTexture</c>
-    /// (nine-slice HUD panel with quarter-size corners) and <c>Tab.HitLineTexture</c>
+    /// (nine-slice HUD panel with quarter-size borders) and <c>Tab.HitLineTexture</c>
     /// (vertical hit-line beam). Each slot is independent: a missing key, a missing
-    /// file or LoadTexture's 1x1 fallback leaves it null and the strip/HUD keep their
-    /// procedural drawing, so skins without Tab art look exactly as before.
+    /// file or LoadTexture's 1x1 fallback leaves it null and the strip/HUD draw that
+    /// part procedurally (in the theme palette) instead.
     /// The stage owns the instance and calls <see cref="Release"/> on teardown.
     /// </summary>
     public sealed class TabModeArt
@@ -80,8 +80,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         /// <summary>
         /// Nine-slice patches for drawing a <paramref name="sourceWidth"/> x
-        /// <paramref name="sourceHeight"/> panel texture with quarter-width corners
-        /// into <paramref name="destination"/>: corners keep their aspect at
+        /// <paramref name="sourceHeight"/> panel texture with quarter-size borders
+        /// (a quarter of the width on X, a quarter of the height on Y) into
+        /// <paramref name="destination"/>: corners are drawn at
         /// <paramref name="destinationCorner"/> px (clamped to half the destination),
         /// edges stretch along one axis and the center along both. Writes nine
         /// row-major source/destination pairs.
@@ -94,11 +95,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
             Span<Rectangle> sources,
             Span<Rectangle> destinations)
         {
-            int sourceCorner = sourceWidth / 4;
+            int sourceCornerX = sourceWidth / 4;
+            int sourceCornerY = sourceHeight / 4;
             int corner = Math.Min(destinationCorner, Math.Min(destination.Width, destination.Height) / 2);
 
-            Span<int> sx = stackalloc int[] { 0, sourceCorner, sourceWidth - sourceCorner, sourceWidth };
-            Span<int> sy = stackalloc int[] { 0, sourceCorner, sourceHeight - sourceCorner, sourceHeight };
+            Span<int> sx = stackalloc int[] { 0, sourceCornerX, sourceWidth - sourceCornerX, sourceWidth };
+            Span<int> sy = stackalloc int[] { 0, sourceCornerY, sourceHeight - sourceCornerY, sourceHeight };
             Span<int> dx = stackalloc int[] { destination.Left, destination.Left + corner, destination.Right - corner, destination.Right };
             Span<int> dy = stackalloc int[] { destination.Top, destination.Top + corner, destination.Bottom - corner, destination.Bottom };
 
