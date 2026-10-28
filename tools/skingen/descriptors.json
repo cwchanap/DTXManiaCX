@@ -7,7 +7,10 @@
     "badge": "Emblem on transparent background: bold chamfered shield/plate with a large glowing rank letter, metallic-free flat neon styling.",
     "effect": "Additive-blend effect sprite on black background: bright neon burst/flare with hot white core and cyan-to-magenta falloff, designed to read at small size during fast gameplay.",
     "drumkit": "Stylized drum-kit piece on transparent background: dark matte body with neon cyan rim highlights, slight top-down 3/4 view, flat-shaded, no photorealism.",
-    "overlay": "Full-screen 1280x720 overlay on transparent/black background as described; must not obscure the lane area's readability."
+    "overlay": "Full-screen 1280x720 overlay on transparent/black background as described; must not obscure the lane area's readability.",
+    "tab-strip": "Very wide opaque backplate for the scrolling Tab-mode notation strip: near-black navy, calm and low-contrast so notation drawn on top stays readable; no horizontal lines, frame, divider or symbols (the game draws the staff).",
+    "tab-panel": "Nine-slice UI panel plate on transparent background: rectangle with 45-degree chamfered corners whose details stay inside the outer quarter of each side, #0B1220 fill at ~88% opacity, thin neon cyan edge with soft glow, even center with no motifs, symmetric.",
+    "tab-hitline": "Single vertical neon light beam on transparent background (alpha-blended, not additive), centered and running the full height."
   },
   "assets": {
     "Graphics/1_background.jpg":  {"family": "stage-background", "desc": "Startup/boot: dimmest variant, near-black, a single thin cyan horizon line, no grid floor yet."},
@@ -108,9 +111,9 @@
     "Graphics/7_progress_fill.png": {"family": "effect", "desc": "Progress fill strip: soft cyan bar."},
     "Graphics/7_SkillPanel.png":   {"family": "panel", "desc": "Skill panel plate (also reused on result stage)."},
     "Graphics/7_SkillPanel_perf.png": {"family": "panel", "desc": "Performance-stage skill panel plate (no baked LEVEL/PLAY rows; the play screen draws the difficulty badge + level digits there). Referenced by Theme.ini Performance.SkillPanelTexture."},
-    "Graphics/7_Tab_strip.png":   {"family": "stage-background", "desc": "Tab mode notation-strip backplate 1280x290, opaque: near-black navy, faint vertical grid ticks, cyan haze at the bottom edge, magenta wash at the right end; no horizontal lines (the game draws the staff). Referenced by Theme.ini Tab.StripTexture."},
-    "Graphics/7_Tab_panel.png":   {"family": "panel", "desc": "Tab mode HUD panel, nine-slice with quarter-size corners: 45-degree chamfered corners with cyan accent marks, thin cyan edge, even ~88% navy fill. Referenced by Theme.ini Tab.PanelTexture."},
-    "Graphics/7_Tab_hitline.png": {"family": "effect", "desc": "Tab mode hit-line beam 64x290 on transparent background: near-white core, cyan glow, faint magenta halo, brighter nodes at both ends. Referenced by Theme.ini Tab.HitLineTexture."},
+    "Graphics/7_Tab_strip.png":   {"family": "tab-strip", "desc": "Tab mode notation-strip backplate 1280x290: near-black navy, faint vertical grid ticks, cyan haze at the bottom edge, magenta wash at the right end; no horizontal lines (the game draws the staff). Referenced by Theme.ini Tab.StripTexture."},
+    "Graphics/7_Tab_panel.png":   {"family": "tab-panel", "base_style": "Synthwave arcade game UI asset, neon cyan #22D3EE and magenta #E879F9 accents, soft neon outer glow, crisp vector-like edges, high contrast, no text, no watermark, no logo.", "desc": "Tab mode HUD panel (title, score, stats, LIFE): small brighter cyan accent marks at the chamfered corners. Referenced by Theme.ini Tab.PanelTexture."},
+    "Graphics/7_Tab_hitline.png": {"family": "tab-hitline", "base_style": "Synthwave arcade game UI asset, neon cyan #22D3EE and magenta #E879F9 accents, soft neon outer glow, crisp vector-like edges, high contrast, no text, no watermark, no logo.", "desc": "Tab mode hit-line beam 64x290: near-white core, cyan glow, faint magenta halo, brighter nodes at both ends. Referenced by Theme.ini Tab.HitLineTexture."},
     "Graphics/7_Graph_main.png":   {"family": "panel", "desc": "Skill meter vertical frame."},
     "Graphics/7_Graph_Gauge.png":  {"family": "effect", "desc": "Skill meter vertical fill bar."},
     "Graphics/7_panel_icons.jpg":  {"family": "badge", "desc": "Panel icon strip: small instrument/mode glyph chips."},
