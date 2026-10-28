@@ -69,12 +69,19 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 return null;
             }
 
-            if (texture != null && texture.Width > 1 && texture.Height > 1)
+            if (texture == null)
+                return null;
+            if (texture.Width > 1 && texture.Height > 1)
                 return texture;
 
             // LoadTexture's 1x1 fallback is uncached, so disposing it is the only
             // way to release its GPU texture (same rule as the skill-panel loader).
-            texture?.Dispose();
+            // Any other rejected size is a real file shared through the cache:
+            // drop only our reference.
+            if (texture.Width == 1 && texture.Height == 1)
+                texture.Dispose();
+            else
+                texture.RemoveReference();
             return null;
         }
 

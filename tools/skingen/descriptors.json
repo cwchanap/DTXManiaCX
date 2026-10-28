@@ -53,7 +53,7 @@
     "Graphics/5_level number.png": {"family": "bitmap-font", "desc": "Level digits sheet 250x28: glyphs 0-9 (20x28 cells), '.', '-', '?'. Generate one glyph per image."},
     "Graphics/5_skill number.png": {"family": "bitmap-font", "desc": "Achievement digits sheet 138x20: 0-9 (12x20), '.', '%'."},
     "Graphics/5_skill max.png":    {"family": "badge", "desc": "MAX badge 53x20: glowing magenta MAX plate."},
-    "Graphics/5_bpm font.png":     {"family": "bitmap-font", "desc": "BPM digits sheet 132x20: 0-9 (12x20), ':'."},
+    "Graphics/5_bpm font.png":     {"family": "bitmap-font", "desc": "BPM digits sheet 264x40: 0-9 (24x40), ':'."},
     "Graphics/5_skill icon.png":   {"family": "badge", "desc": "Rank icon strip 350x53, ten 35px cells: SS S A B C D E F + FC badge + Excellent badge; generate each cell separately."},
     "Graphics/6_Difficulty.png":   {"family": "badge", "desc": "Difficulty label sheet 262x600 (50px rows): MASTER/BASIC/ADVANCED/EXTREME/REAL wordplates; generate each row separately, uniform typography."},
     "Graphics/6_LevelNumber.png":  {"family": "bitmap-font", "desc": "Transition level digits sheet."},

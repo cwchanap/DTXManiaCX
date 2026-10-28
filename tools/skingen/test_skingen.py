@@ -559,6 +559,19 @@ class PromptsTests(unittest.TestCase):
         self.assertIn("TRANSPARENT STYLE. A beam.", text)
         self.assertNotIn("BASE STYLE.", text)
 
+    def test_prompts_size_single_cell_sheets_by_their_cell(self):
+        manifest = self._write("manifest.json", {"assets": {
+            "Graphics/plate.png": {"width": 600, "height": 190, "optional": False,
+                                   "recipe": {"type": "sheet", "cells": [
+                                       {"source": "plate.png", "x": 40, "y": 0, "w": 520, "h": 190}]}}}})
+        descriptors = self._write("descriptors.json", {
+            "families": {}, "assets": {"Graphics/plate.png": {"desc": "A plate."}}})
+        out = os.path.join(self.tmp.name, "PROMPTS.md")
+        skingen.render_prompts(manifest, descriptors, "S", out)
+        with open(out, encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn("**Target size:** 520x190", text)
+
     def test_prompts_skips_hueshift_derived_assets(self):
         manifest = self._write("manifest.json", {"assets": {
             "Graphics/derived.png": {"width": 4, "height": 4, "optional": False,

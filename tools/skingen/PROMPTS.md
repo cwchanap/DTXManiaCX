@@ -152,7 +152,7 @@ Workflow: generate each image with your image AI, save into `tools/skingen/sourc
 - **Target size:** 264x40 (generate at 2x or larger)
 - **Prompt:**
 
-> Synthwave arcade game UI asset, dark slate background #0F172A, neon cyan #22D3EE and magenta #E879F9 accents, thin glowing grid lines and subtle scanlines, chamfered corners, soft neon outer glow, crisp vector-like edges, flat dark surfaces (#1E293B), high contrast, no text, no watermark, no logo. Single glyph on transparent background: geometric Orbitron-like digit/symbol, uniform stroke, filled #F1F5F9 with a tight cyan outer glow. One glyph per image; compose assembles the sheet. BPM digits sheet 132x20: 0-9 (12x20), ':'.
+> Synthwave arcade game UI asset, dark slate background #0F172A, neon cyan #22D3EE and magenta #E879F9 accents, thin glowing grid lines and subtle scanlines, chamfered corners, soft neon outer glow, crisp vector-like edges, flat dark surfaces (#1E293B), high contrast, no text, no watermark, no logo. Single glyph on transparent background: geometric Orbitron-like digit/symbol, uniform stroke, filled #F1F5F9 with a tight cyan outer glow. One glyph per image; compose assembles the sheet. BPM digits sheet 264x40: 0-9 (24x40), ':'.
 
 ## `Graphics/5_comment bar.png`
 
@@ -877,7 +877,7 @@ Workflow: generate each image with your image AI, save into `tools/skingen/sourc
 
 ## `Graphics/ScreenResult Excellent.png`
 
-- **Target size:** 600x190 (generate at 2x or larger)
+- **Target size:** 520x190 (generate at 2x or larger)
 - **Prompt:**
 
 > Synthwave arcade game UI asset, dark slate background #0F172A, neon cyan #22D3EE and magenta #E879F9 accents, thin glowing grid lines and subtle scanlines, chamfered corners, soft neon outer glow, crisp vector-like edges, flat dark surfaces (#1E293B), high contrast, no text, no watermark, no logo. Emblem on transparent background: bold chamfered shield/plate with a large glowing rank letter, metallic-free flat neon styling. EXCELLENT word plate: magenta-white, most celebratory.
@@ -891,7 +891,7 @@ Workflow: generate each image with your image AI, save into `tools/skingen/sourc
 
 ## `Graphics/ScreenResult fullcombo.png`
 
-- **Target size:** 600x190 (generate at 2x or larger)
+- **Target size:** 520x190 (generate at 2x or larger)
 - **Prompt:**
 
 > Synthwave arcade game UI asset, dark slate background #0F172A, neon cyan #22D3EE and magenta #E879F9 accents, thin glowing grid lines and subtle scanlines, chamfered corners, soft neon outer glow, crisp vector-like edges, flat dark surfaces (#1E293B), high contrast, no text, no watermark, no logo. Emblem on transparent background: bold chamfered shield/plate with a large glowing rank letter, metallic-free flat neon styling. FULL COMBO word plate: gold-cyan.
