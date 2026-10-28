@@ -149,7 +149,7 @@ Workflow: generate each image with your image AI, save into `tools/skingen/sourc
 
 ## `Graphics/5_bpm font.png`
 
-- **Target size:** 132x20 (generate at 2x or larger)
+- **Target size:** 264x40 (generate at 2x or larger)
 - **Prompt:**
 
 > Synthwave arcade game UI asset, dark slate background #0F172A, neon cyan #22D3EE and magenta #E879F9 accents, thin glowing grid lines and subtle scanlines, chamfered corners, soft neon outer glow, crisp vector-like edges, flat dark surfaces (#1E293B), high contrast, no text, no watermark, no logo. Single glyph on transparent background: geometric Orbitron-like digit/symbol, uniform stroke, filled #F1F5F9 with a tight cyan outer glow. One glyph per image; compose assembles the sheet. BPM digits sheet 132x20: 0-9 (12x20), ':'.
@@ -366,7 +366,7 @@ Workflow: generate each image with your image AI, save into `tools/skingen/sourc
 
 ## `Graphics/7_JacketPanel.png`
 
-- **Target size:** 349x347 (generate at 2x or larger)
+- **Target size:** 349x380 (generate at 2x or larger)
 - **Prompt:**
 
 > Synthwave arcade game UI asset, dark slate background #0F172A, neon cyan #22D3EE and magenta #E879F9 accents, thin glowing grid lines and subtle scanlines, chamfered corners, soft neon outer glow, crisp vector-like edges, flat dark surfaces (#1E293B), high contrast, no text, no watermark, no logo. UI panel plate on transparent background: rounded-chamfered rectangle, #1E293B surface at ~92% opacity, 1px neon cyan edge stroke with soft outer glow, faint inner grid texture. Result jacket frame plate.
@@ -419,6 +419,34 @@ Workflow: generate each image with your image AI, save into `tools/skingen/sourc
 - **Prompt:**
 
 > Synthwave arcade game UI asset, dark slate background #0F172A, neon cyan #22D3EE and magenta #E879F9 accents, thin glowing grid lines and subtle scanlines, chamfered corners, soft neon outer glow, crisp vector-like edges, flat dark surfaces (#1E293B), high contrast, no text, no watermark, no logo. UI panel plate on transparent background: rounded-chamfered rectangle, #1E293B surface at ~92% opacity, 1px neon cyan edge stroke with soft outer glow, faint inner grid texture. Skill panel plate (also reused on result stage).
+
+## `Graphics/7_SkillPanel_perf.png`
+
+- **Target size:** 257x439 (generate at 2x or larger)
+- **Prompt:**
+
+> Synthwave arcade game UI asset, dark slate background #0F172A, neon cyan #22D3EE and magenta #E879F9 accents, thin glowing grid lines and subtle scanlines, chamfered corners, soft neon outer glow, crisp vector-like edges, flat dark surfaces (#1E293B), high contrast, no text, no watermark, no logo. UI panel plate on transparent background: rounded-chamfered rectangle, #1E293B surface at ~92% opacity, 1px neon cyan edge stroke with soft outer glow, faint inner grid texture. Performance-stage skill panel plate (no baked LEVEL/PLAY rows; the play screen draws the difficulty badge + level digits there). Referenced by Theme.ini Performance.SkillPanelTexture.
+
+## `Graphics/7_Tab_hitline.png`
+
+- **Target size:** 64x290 (generate at 2x or larger)
+- **Prompt:**
+
+> Synthwave arcade game UI asset, dark slate background #0F172A, neon cyan #22D3EE and magenta #E879F9 accents, thin glowing grid lines and subtle scanlines, chamfered corners, soft neon outer glow, crisp vector-like edges, flat dark surfaces (#1E293B), high contrast, no text, no watermark, no logo. Additive-blend effect sprite on black background: bright neon burst/flare with hot white core and cyan-to-magenta falloff, designed to read at small size during fast gameplay. Tab mode hit-line beam 64x290 on transparent background: near-white core, cyan glow, faint magenta halo, brighter nodes at both ends. Referenced by Theme.ini Tab.HitLineTexture.
+
+## `Graphics/7_Tab_panel.png`
+
+- **Target size:** 128x128 (generate at 2x or larger)
+- **Prompt:**
+
+> Synthwave arcade game UI asset, dark slate background #0F172A, neon cyan #22D3EE and magenta #E879F9 accents, thin glowing grid lines and subtle scanlines, chamfered corners, soft neon outer glow, crisp vector-like edges, flat dark surfaces (#1E293B), high contrast, no text, no watermark, no logo. UI panel plate on transparent background: rounded-chamfered rectangle, #1E293B surface at ~92% opacity, 1px neon cyan edge stroke with soft outer glow, faint inner grid texture. Tab mode HUD panel, nine-slice with quarter-size corners: 45-degree chamfered corners with cyan accent marks, thin cyan edge, even ~88% navy fill. Referenced by Theme.ini Tab.PanelTexture.
+
+## `Graphics/7_Tab_strip.png`
+
+- **Target size:** 1280x290 (generate at 2x or larger)
+- **Prompt:**
+
+> Synthwave arcade game UI asset, dark slate background #0F172A, neon cyan #22D3EE and magenta #E879F9 accents, thin glowing grid lines and subtle scanlines, chamfered corners, soft neon outer glow, crisp vector-like edges, flat dark surfaces (#1E293B), high contrast, no text, no watermark, no logo. Full-screen 1280x720 scene background: deep #0F172A space with a perspective neon grid floor receding to a glowing horizon, faint scanlines, subtle vignette. Keep the center-third calm so UI can sit on top. Tab mode notation-strip backplate 1280x290, opaque: near-black navy, faint vertical grid ticks, cyan haze at the bottom edge, magenta wash at the right end; no horizontal lines (the game draws the staff). Referenced by Theme.ini Tab.StripTexture.
 
 ## `Graphics/7_WailingFire.png`
 
@@ -849,7 +877,7 @@ Workflow: generate each image with your image AI, save into `tools/skingen/sourc
 
 ## `Graphics/ScreenResult Excellent.png`
 
-- **Target size:** 520x190 (generate at 2x or larger)
+- **Target size:** 600x190 (generate at 2x or larger)
 - **Prompt:**
 
 > Synthwave arcade game UI asset, dark slate background #0F172A, neon cyan #22D3EE and magenta #E879F9 accents, thin glowing grid lines and subtle scanlines, chamfered corners, soft neon outer glow, crisp vector-like edges, flat dark surfaces (#1E293B), high contrast, no text, no watermark, no logo. Emblem on transparent background: bold chamfered shield/plate with a large glowing rank letter, metallic-free flat neon styling. EXCELLENT word plate: magenta-white, most celebratory.
@@ -863,7 +891,7 @@ Workflow: generate each image with your image AI, save into `tools/skingen/sourc
 
 ## `Graphics/ScreenResult fullcombo.png`
 
-- **Target size:** 520x190 (generate at 2x or larger)
+- **Target size:** 600x190 (generate at 2x or larger)
 - **Prompt:**
 
 > Synthwave arcade game UI asset, dark slate background #0F172A, neon cyan #22D3EE and magenta #E879F9 accents, thin glowing grid lines and subtle scanlines, chamfered corners, soft neon outer glow, crisp vector-like edges, flat dark surfaces (#1E293B), high contrast, no text, no watermark, no logo. Emblem on transparent background: bold chamfered shield/plate with a large glowing rank letter, metallic-free flat neon styling. FULL COMBO word plate: gold-cyan.

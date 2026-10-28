@@ -2512,6 +2512,33 @@
       },
       "width": 257
     },
+    "Graphics/7_Tab_hitline.png": {
+      "height": 290,
+      "optional": false,
+      "recipe": {
+        "source": "7_Tab_hitline.png",
+        "type": "copy"
+      },
+      "width": 64
+    },
+    "Graphics/7_Tab_panel.png": {
+      "height": 128,
+      "optional": false,
+      "recipe": {
+        "source": "7_Tab_panel.png",
+        "type": "copy"
+      },
+      "width": 128
+    },
+    "Graphics/7_Tab_strip.png": {
+      "height": 290,
+      "optional": false,
+      "recipe": {
+        "source": "7_Tab_strip.png",
+        "type": "copy"
+      },
+      "width": 1280
+    },
     "Graphics/7_WailingFire.png": {
       "height": 720,
       "optional": false,

@@ -219,6 +219,9 @@ namespace DTXMania.Game.Lib.Stage
         private PendingNotationChart? _pendingNotationChart;
         private NotationStripRenderer? _notationStrip;
 
+        // Skin art borrowed by the strip and the Tab HUD; released on cleanup.
+        private TabModeArt? _tabModeArt;
+
         // HPA-509: the Tab HUD draws only while both the strip and its own resources
         // are live. A HUD whose fonts/primitive failed to load rolls the strip back
         // to Lanes in TryConstructNotationStrip, so a false read here already means
@@ -638,7 +641,7 @@ namespace DTXMania.Game.Lib.Stage
         // GraphicsDevice — the attempt itself is unreachable under headless
         // coverage like the other renderer constructions in InitializeComponents.
         [ExcludeFromCodeCoverage]
-        private TabHudBuildResult ConstructTabHud(TabModePalette palette)
+        private TabHudBuildResult ConstructTabHud(TabModePalette palette, TabModeArt art)
         {
             var graphicsDevice = _spriteBatch?.GraphicsDevice;
             if (graphicsDevice == null)
@@ -656,7 +659,8 @@ namespace DTXMania.Game.Lib.Stage
                     _selectedSong?.DisplayTitle ?? _selectedSong?.Title,
                     _selectedSong?.DatabaseSong?.DisplayArtist,
                     _fallbackWhiteTexture,
-                    palette);
+                    palette,
+                    art);
                 return _tabHudDisplay.IsReady
                     ? TabHudBuildResult.Ready
                     : TabHudBuildResult.Failed;
@@ -705,6 +709,8 @@ namespace DTXMania.Game.Lib.Stage
             NotationStripRenderer? notationStrip = _notationStrip;
             _notationStrip = null;
             notationStrip?.Dispose();
+            _tabModeArt?.Release();
+            _tabModeArt = null;
 
             // Cleanup score and combo displays
             _scoreDisplay?.Dispose();
@@ -1161,38 +1167,48 @@ namespace DTXMania.Game.Lib.Stage
             if (_notationStrip != null || pending.Generation != _activationGeneration)
                 return;
 
+            // The skin art is published with the strip; every path that does not
+            // publish falls through to the release below.
+            var art = TabModeArt.None;
             try
             {
                 // One theme read styles both halves of Tab mode (strip + HUD).
-                var palette = TabModePalette.Resolve(_resourceManager?.CurrentTheme);
+                var theme = _resourceManager?.CurrentTheme;
+                var palette = TabModePalette.Resolve(theme);
+                art = TabModeArt.Load(_resourceManager, theme);
                 var renderer = new NotationStripRenderer(
                     _resourceManager,
                     pending.Chart,
                     pending.MeasureLines,
-                    palette);
+                    palette,
+                    art);
                 if (renderer.IsReady)
                 {
                     _notationStrip = renderer;
-                    if (ConstructTabHud(palette) == TabHudBuildResult.Failed)
+                    if (ConstructTabHud(palette, art) != TabHudBuildResult.Failed)
                     {
-                        // HPA-509 review: a strip without its HUD draws the
-                        // Lanes widgets back over the strip's hit marker and
-                        // key labels — an unreadable mixed mode. Roll the whole
-                        // decision back to a consistent Lanes fallback (null
-                        // the reference BEFORE disposing, like CleanupComponents).
-                        _notationStrip = null;
-                        renderer.Dispose();
-                        _tabHudDisplay?.Dispose();
-                        _tabHudDisplay = null;
-                        LogPerformanceError(
-                            "PerformanceStage: Tab HUD unavailable; Tab display falls back to Lanes for this song.");
+                        _tabModeArt = art;
+                        return;
                     }
-                    return;
-                }
 
-                LogPerformanceError(
-                    "PerformanceStage: Bravura notation fonts unavailable; Tab display falls back to Lanes for this song.");
-                renderer.Dispose();
+                    // HPA-509 review: a strip without its HUD draws the
+                    // Lanes widgets back over the strip's hit marker and
+                    // key labels — an unreadable mixed mode. Roll the whole
+                    // decision back to a consistent Lanes fallback (null
+                    // the reference BEFORE disposing, like CleanupComponents).
+                    _notationStrip = null;
+                    renderer.Dispose();
+                    _tabHudDisplay?.Dispose();
+                    _tabHudDisplay = null;
+                    LogPerformanceError(
+                        "PerformanceStage: Tab HUD unavailable; Tab display falls back to Lanes for this song.");
+                }
+                else
+                {
+                    LogPerformanceError(
+                        "PerformanceStage: Bravura notation fonts unavailable; Tab display falls back to Lanes for this song.");
+                    renderer.Dispose();
+                }
             }
             catch (Exception ex)
             {
@@ -1200,6 +1216,8 @@ namespace DTXMania.Game.Lib.Stage
                     "PerformanceStage: notation renderer construction failed; staying in Lanes for this song.",
                     ex);
             }
+
+            art.Release();
         }
 
         private void InitializeMetronome()

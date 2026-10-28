@@ -20,7 +20,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
     /// <see cref="NotationStripLayout"/>; glyphs and labels always go through the nine-argument
     /// IFont.DrawString so no text can default to depth 0 and bypass the key-column mask.
     /// Colors come from the theme-resolved <see cref="TabModePalette"/>: an opaque navy strip
-    /// framed by accent rules, a glowing accent hit marker, and lane-colored key caps.
+    /// framed by accent rules, a glowing accent hit marker, and lane-colored key caps. Skin
+    /// art from <see cref="TabModeArt"/> replaces the strip fill and the hit marker when the
+    /// theme provides it.
     /// HPA-411 owns activation, chart readiness, judgement tinting and fallbacks.
     /// </summary>
     internal sealed class NotationStripRenderer : IDisposable
@@ -37,6 +39,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private readonly NotationChart _chart;
         private readonly IReadOnlyList<MeasureLine> _measureLines;
         private readonly TabModePalette _palette;
+        private readonly TabModeArt _art;
 
         // Engraving is pure over the immutable chart, so each measure is engraved at
         // most once; re-engraving every visible measure each frame was steady GC churn.
@@ -75,16 +78,19 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <param name="chart">The finalized notation chart to engrave.</param>
         /// <param name="measureLines">Compiled measure boundaries; MeasureLines[^1] is the terminal end bound.</param>
         /// <param name="palette">Theme-resolved Tab colors; null uses the built-in defaults.</param>
+        /// <param name="art">Optional skin art (borrowed; the stage releases it); null draws procedurally.</param>
         public NotationStripRenderer(
             IResourceManager resourceManager,
             NotationChart chart,
             IReadOnlyList<MeasureLine> measureLines,
-            TabModePalette palette = null)
+            TabModePalette palette = null,
+            TabModeArt art = null)
         {
             _resourceManager = resourceManager ?? throw new ArgumentNullException(nameof(resourceManager));
             _chart = chart ?? throw new ArgumentNullException(nameof(chart));
             _measureLines = measureLines ?? throw new ArgumentNullException(nameof(measureLines));
             _palette = palette ?? TabModePalette.Default;
+            _art = art ?? TabModeArt.None;
 
             _staffLineYs = NotationStripLayout.GetStaffLineYs();
             _keyColumnLabels = NotationStripLayout.GetKeyColumnLabels();
@@ -186,17 +192,22 @@ namespace DTXMania.Game.Lib.Stage.Performance
             spriteBatch.Draw(_whiteTexture, destination, null, color, 0f, Vector2.Zero, SpriteEffects.None, depth);
         }
 
+        private static Rectangle StripBounds => new(
+            NotationStrip.StripLeft,
+            NotationStrip.StripTop,
+            NotationStrip.StripRight - NotationStrip.StripLeft,
+            NotationStrip.StripBottom - NotationStrip.StripTop);
+
         private void DrawBackground(SpriteBatch spriteBatch)
         {
-            DrawRect(
-                spriteBatch,
-                new Rectangle(
-                    NotationStrip.StripLeft,
-                    NotationStrip.StripTop,
-                    NotationStrip.StripRight - NotationStrip.StripLeft,
-                    NotationStrip.StripBottom - NotationStrip.StripTop),
-                _palette.StripBackground,
-                NotationStrip.DepthBackground);
+            var strip = _art.Strip?.Texture;
+            if (strip != null)
+            {
+                spriteBatch.Draw(strip, StripBounds, null, Color.White, 0f, Vector2.Zero, SpriteEffects.None, NotationStrip.DepthBackground);
+                return;
+            }
+
+            DrawRect(spriteBatch, StripBounds, _palette.StripBackground, NotationStrip.DepthBackground);
         }
 
         private void DrawStaffLines(SpriteBatch spriteBatch)
@@ -245,6 +256,24 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private void DrawHitMarker(SpriteBatch spriteBatch)
         {
             int height = NotationStrip.StripBottom - NotationStrip.StripTop;
+            var beam = _art.HitLine?.Texture;
+            if (beam != null)
+            {
+                // The beam art spans the strip height at its own aspect, centered on the marker.
+                int beamWidth = Math.Max(1, (int)MathF.Round(beam.Width * height / (float)beam.Height));
+                int beamLeft = NotationStrip.HitMarkerX + NotationStrip.HitMarkerWidth / 2 - beamWidth / 2;
+                spriteBatch.Draw(
+                    beam,
+                    new Rectangle(beamLeft, NotationStrip.StripTop, beamWidth, height),
+                    null,
+                    Color.White,
+                    0f,
+                    Vector2.Zero,
+                    SpriteEffects.None,
+                    NotationStrip.DepthHitMarker);
+                return;
+            }
+
             int glowLeft = NotationStrip.HitMarkerX + NotationStrip.HitMarkerWidth / 2 - NotationStrip.HitMarkerGlowWidth / 2;
             DrawRect(
                 spriteBatch,
@@ -347,6 +376,22 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private void DrawKeyColumnMask(SpriteBatch spriteBatch)
         {
             // Opaque mask in front of all moving ink; the caps and labels draw on top of it.
+            // With strip art the mask is the art's own left slice, so the column keeps
+            // the backplate's texture.
+            var strip = _art.Strip?.Texture;
+            if (strip != null)
+            {
+                int stripWidth = NotationStrip.StripRight - NotationStrip.StripLeft;
+                var source = new Rectangle(0, 0, strip.Width * NotationStrip.KeyColumnWidth / stripWidth, strip.Height);
+                var destination = new Rectangle(
+                    NotationStrip.StripLeft,
+                    NotationStrip.StripTop,
+                    NotationStrip.KeyColumnWidth,
+                    NotationStrip.StripBottom - NotationStrip.StripTop);
+                spriteBatch.Draw(strip, destination, source, Color.White, 0f, Vector2.Zero, SpriteEffects.None, NotationStrip.DepthKeyMask);
+                return;
+            }
+
             DrawRect(
                 spriteBatch,
                 new Rectangle(

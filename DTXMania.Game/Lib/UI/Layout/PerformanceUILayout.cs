@@ -640,6 +640,8 @@ namespace DTXMania.Game.Lib.UI.Layout
             public const int PanelChamfer = 8;
             public const float PanelBorderAlpha = 0.45f;
             public const int PanelPaddingX = 16;
+            // On-screen corner size for skin panel art (TabModeArt.Panel nine-slice).
+            public const int PanelArtCorner = 32;
 
             // Caption pills (SCORE / LIFE / COMBO): small accent-outlined tags.
             public const int CaptionPadX = 8;
