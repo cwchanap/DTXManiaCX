@@ -78,9 +78,6 @@ namespace DTXMania.Game.Lib.Stage
         // Filesystem change detection result (cached to avoid duplicate checks)
         private bool? _needsEnumeration = null;
 
-        // Debug/testing flags
-        private readonly bool _forceEnumeration = true; // TODO: Remove this or make configurable
-
         // Loading simulation (since we don't have actual song loading yet)
         private readonly Dictionary<StartupPhase, (string message, double duration)> _phaseInfo;
         private double _phaseStartTime;
@@ -107,7 +104,11 @@ namespace DTXMania.Game.Lib.Stage
 
         private ISkinTheme Theme => _resourceManager?.CurrentTheme ?? SkinTheme.Empty;
 
-        protected virtual bool ForceEnumeration => _forceEnumeration;
+        /// <summary>
+        /// When false (production), SongManager's freshness check decides between a
+        /// full scan and the songs.db cache, so an unchanged library skips the scan.
+        /// </summary>
+        protected virtual bool ForceEnumeration => false;
 
         #endregion
 
