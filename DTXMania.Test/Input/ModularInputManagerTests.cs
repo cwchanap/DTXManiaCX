@@ -643,6 +643,10 @@ namespace DTXMania.Test.Input
                 _inputManager.KeyBindings.BindButton($"TestButton{i}", i % 10); // 10-lane layout
             }
 
+            // Warm up first: the cold first Update pays JIT and first-frame setup, which
+            // can exceed the budget on a loaded CI runner and says nothing about bindings.
+            _inputManager.Update();
+
             // Act
             _inputManager.Update();
 
