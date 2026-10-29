@@ -43,14 +43,16 @@ class PatternTests(unittest.TestCase):
 
 
 class ChartTests(unittest.TestCase):
-    def test_every_bar_should_click_the_metronome_with_an_accented_downbeat(self):
+    def test_metronome_should_click_every_beat_and_stop_on_the_final_crash(self):
         for song in practicegen.SONGS:
             with self.subTest(song.slug):
                 lines = practicegen.render_chart(song).splitlines()
                 clicks = [line for line in lines if re.match(r"#\d{3}01:", line)]
 
-                bar_count = practicegen.COUNT_IN_BARS + len(song.bars) + 1
-                self.assertEqual(clicks, ["#%03d01: 01020202" % bar for bar in range(bar_count)])
+                ending_bar = practicegen.COUNT_IN_BARS + len(song.bars)
+                self.assertEqual(
+                    clicks,
+                    ["#%03d01: 01020202" % bar for bar in range(ending_bar)] + ["#%03d01: 01" % ending_bar])
 
     def test_count_in_bars_should_hold_only_the_metronome(self):
         lines = practicegen.render_chart(practicegen.SONGS[0]).splitlines()
