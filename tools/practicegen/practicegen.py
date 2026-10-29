@@ -50,7 +50,7 @@ CHANNELS = {
 }
 TIMEKEEPING_LANES = ("HH", "HO", "RD")
 
-BOX_DEF = "#TITLE: Practice\n#GENRE: Practice\n"
+BOX_DEF = "#TITLE: Practice song\n#GENRE: Practice\n"
 
 
 def steps(row):
