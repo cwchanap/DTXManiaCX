@@ -4668,7 +4668,9 @@ namespace DTXMania.Game.Lib.Song
         /// Resolves the difficulty-tier label shown by the performance-stage difficulty badge for a
         /// chart. Prefers the persisted <see cref="SongChart.DifficultyLabel"/>, then the SET.def
         /// #LnLABEL recovered by matching the chart's file name (e.g. "bas.dtx" -> "BASIC"), and
-        /// finally a synthetic "Level N" placeholder when no authentic label is available.
+        /// finally a synthetic "Level N" placeholder when no authentic label is available. N is
+        /// the SET.def #Ln slot when the chart came from one, as the scan labels it, else the
+        /// one-based slot index.
         /// </summary>
         internal static string ResolveDifficultyLabel(SongChart chart, IReadOnlyDictionary<string, string> setDefLabels, int scoreIndex)
         {
@@ -4682,7 +4684,7 @@ namespace DTXMania.Game.Lib.Song
                     return label;
             }
 
-            return $"Level {scoreIndex + 1}";
+            return $"Level {(chart.DifficultyLevel > 0 ? chart.DifficultyLevel : scoreIndex + 1)}";
         }
 
         /// <summary>

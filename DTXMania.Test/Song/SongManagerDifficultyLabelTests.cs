@@ -126,6 +126,16 @@ namespace DTXMania.Test.Song
 
         [Trait("Category", "Unit")]
         [Fact]
+        public void ResolveDifficultyLabel_UnlabeledSetDefSlot_ShouldFallBackToTheSlotLevel()
+        {
+            // An unlabeled #L3FILE persists DifficultyLevel 3; the scan shows it as "Level 3".
+            var chart = new SongChart { FilePath = "/songs/song/ext.dtx", DifficultyLabel = "", DifficultyLevel = 3 };
+
+            Assert.Equal("Level 3", SongManager.ResolveDifficultyLabel(chart, null!, 0));
+        }
+
+        [Trait("Category", "Unit")]
+        [Fact]
         public void ResolveDifficultyLabel_NullSetDefLabels_ShouldFallBackToLevelN()
         {
             var chart = new SongChart { FilePath = "/songs/song/bas.dtx", DifficultyLabel = "" };
