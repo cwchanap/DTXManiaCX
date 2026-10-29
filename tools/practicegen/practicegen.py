@@ -246,8 +246,11 @@ def render_chart(song):
     metronome = ACCENT_CLICK[0] + BEAT_CLICK[0] * (BEATS_PER_BAR - 1)
     bars = [{}] * COUNT_IN_BARS + list(song.bars) + [ENDING]
     for number, pattern in enumerate(bars):
+        # The ending bar clicks only with the final crash: the chart lasts until its
+        # latest BGM event, so later clicks would hold off the result screen.
+        clicks = ACCENT_CLICK[0] if pattern is ENDING else metronome
         lines.append("")
-        lines.append("#%03d01: %s" % (number, metronome))
+        lines.append("#%03d01: %s" % (number, clicks))
         lines += ["#%03d%s: %s" % (number, channel, pairs) for channel, pairs in bar_rows(pattern)]
     return "\n".join(lines) + "\n"
 
