@@ -92,6 +92,7 @@ public sealed class BundledSongsTests : IDisposable
             chart.BGMEvents.Zip(chart.BGMEvents.Skip(1), (previous, next) => next.TimeMs - previous.TimeMs),
             gapMs => Assert.Equal(beatMs, gapMs, precision: 3));
         // One click per beat from 0 ms through the last click, not just a lone final click.
+        Assert.Equal(0.0, chart.BGMEvents[0].TimeMs, precision: 3);
         Assert.Equal((int)Math.Round(chart.BGMEvents[^1].TimeMs / beatMs) + 1, chart.BGMEvents.Count);
         Assert.True(
             chart.BGMEvents[^1].TimeMs >= chart.Notes[^1].TimeMs,
