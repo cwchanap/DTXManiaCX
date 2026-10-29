@@ -69,6 +69,7 @@ namespace DTXMania.Game.Lib.Stage
         private Task _currentAsyncTask;
         private CancellationTokenSource _cancellationTokenSource;
         private string[] _songPaths = Constants.SongPaths.Default;
+        private readonly string _bundledSongsRoot = BundledSongs.Root;
 
         // Which phase's kick-off has already run (each phase's operation runs once,
         // no matter how late the first update of that phase arrives).
@@ -819,7 +820,7 @@ namespace DTXMania.Game.Lib.Stage
                     var config = _configManager.Config;
                     if (config != null)
                     {
-                        _songPaths = config.SongRoots.ToArray();
+                        _songPaths = BundledSongs.AppendTo(config.SongRoots, _bundledSongsRoot);
 
                         // Basic validation - check if config loaded successfully
                         bool isValid = config.ScreenWidth > 0 &&

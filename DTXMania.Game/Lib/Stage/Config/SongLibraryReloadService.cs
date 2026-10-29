@@ -25,7 +25,7 @@ internal sealed class SongLibraryReloadService : ISongLibraryReloadService
     internal SongLibraryReloadService()
         : this((roots, progress, token) =>
             SongManager.Instance.EnumerateAndImportSongsAsync(
-                roots.ToArray(),
+                BundledSongs.AppendTo(roots, BundledSongs.Root),
                 progress,
                 token))
     {

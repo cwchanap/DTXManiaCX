@@ -264,6 +264,17 @@ namespace DTXMania.Game.Lib.Song
                 exception.HResult);
         }
 
+        /// <summary>
+        /// Returns whether two roots name the same directory under this policy's
+        /// normalization and case rules. Unnormalizable paths are never equal.
+        /// </summary>
+        internal bool AreSameRoot(string first, string second)
+        {
+            return TryNormalize(first, out var normalizedFirst, out _) &&
+                TryNormalize(second, out var normalizedSecond, out _) &&
+                PathsEqual(normalizedFirst, normalizedSecond);
+        }
+
         private bool PathsEqual(string first, string second)
         {
             var firstSegments = Split(first);

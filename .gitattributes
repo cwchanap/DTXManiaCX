@@ -16,6 +16,8 @@
 *.yml    text eol=lf
 *.yaml   text eol=lf
 *.md     text eol=lf
+*.dtx    text eol=lf
+*.def    text eol=lf
 
 # Shell scripts should remain LF
 *.sh     text eol=lf
