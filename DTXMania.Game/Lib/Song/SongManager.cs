@@ -1871,15 +1871,8 @@ namespace DTXMania.Game.Lib.Song
 
             // Persisted Song.Id is the grouping authority. Title/artist are display
             // metadata and can legitimately collide across different directories.
-            // Groups follow the order a scan publishes them in, so a cached launch
-            // lists songs exactly like the launch that enumerated them.
             var songGroups = charts
                 .GroupBy(item => item.song.Id)
-                .OrderBy(
-                    group => group
-                        .Select(item => GetScanOrderKey(searchPath, item.chart.FilePath))
-                        .Min(SongPathIdentity.CanonicalComparer),
-                    SongPathIdentity.CanonicalComparer)
                 .ToList();
 
             foreach (var songGroup in songGroups)
@@ -1918,33 +1911,12 @@ namespace DTXMania.Game.Lib.Song
                     else
                     {
                         // Song is directly in the search path root
-                        songNode.BreadcrumbPath = songNode.Title;
                         rootNodes.Add(songNode);
                     }
                 }
             }
 
             return rootNodes;
-        }
-
-        /// <summary>
-        /// Sort key reproducing <see cref="EnumerateDirectoryIntoBatchAsync"/>'s visit
-        /// order: in every folder, subfolders (ordinal) come before the folder's own
-        /// chart files (ordinal), so directory segments are tagged "0" and the file
-        /// segment "1". The separator sorts below any path character, keeping a
-        /// folder ahead of a longer sibling that shares its name as a prefix.
-        /// </summary>
-        private static string GetScanOrderKey(string root, string? chartPath)
-        {
-            if (string.IsNullOrEmpty(chartPath))
-                return string.Empty;
-
-            var segments = Path.GetRelativePath(root, chartPath)
-                .Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar });
-            return string.Join(
-                '\0',
-                segments.Select((segment, index) =>
-                    (index < segments.Length - 1 ? "0" : "1") + segment));
         }
 
         /// <summary>
@@ -4511,70 +4483,71 @@ namespace DTXMania.Game.Lib.Song
                     primaryChart,
                     hydratePersistedScores: false);
 
-                songNode.DatabaseSongId = song.Id;
-
-                // The factory seeded slots from only the primary chart. Rebuild the
-                // complete metadata layout from scratch, even for a single chart, so the
-                // slots and labels match what enumeration publishes and unused
-                // instrument slots from that chart cannot survive the ordered pass.
-                songNode.Scores = new SongScore[5];
-                songNode.PublishScoreVariants(
-                    Array.Empty<KeyValuePair<ScoreVariantKey, SongScore>>());
-
-                // Recover the authentic difficulty-tier labels (BASIC/ADVANCED/EXTREME/...) from the
-                // SET.def when the persisted chart label is empty, so the performance-stage difficulty
-                // badge selects the matching cell instead of always falling back to the DTX cell.
-                // Legacy databases stored an empty SongChart.DifficultyLabel.
-                // Only hit disk when at least one chart is missing its label — avoids re-reading
-                // SET.def for every song on startup when labels are already persisted.
-                var setDefLabels = charts.Any(c => string.IsNullOrWhiteSpace(c.DifficultyLabel))
-                    ? GetSetDefLabelsByFile(Path.GetDirectoryName(primaryChart.FilePath) ?? "")
-                    : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
-                int scoreIndex = 0;
-                // Order the charts by the same criteria SongChartHelper.GetCurrentDifficultyChart
-                // uses to map a difficulty index to a chart (drum charts with a positive level,
-                // ascending by DrumLevel), so DifficultyLabels[scoreIndex] corresponds to the chart
-                // selected for that difficulty. Without this, an arbitrary database ordering could
-                // place an EXTREME chart's label in slot 0 while difficulty 0 loads the BASIC chart,
-                // making the performance-stage badge show the wrong difficulty cell. Non-drum charts
-                // (DrumLevel == 0) sort after drum charts, matching the drum-first selection fallback.
-                foreach (var chart in orderedCharts.Take(5)) // Limit to 5 difficulties
+                // If there are multiple charts, populate the difficulties
+                if (charts.Length > 1)
                 {
-                    if (scoreIndex >= songNode.Scores.Length) break;
+                    // The factory seeded slots from only the primary chart. Rebuild the
+                    // complete multi-chart metadata layout from scratch so unused
+                    // instrument slots from that chart cannot survive the ordered pass.
+                    songNode.Scores = new SongScore[5];
+                    songNode.PublishScoreVariants(
+                        Array.Empty<KeyValuePair<ScoreVariantKey, SongScore>>());
 
-                    // Determine the primary instrument and difficulty for this chart
-                    var primaryInstrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.DRUMS;
-                    int difficultyLevel = 50;
+                    // Recover the authentic difficulty-tier labels (BASIC/ADVANCED/EXTREME/...) from the
+                    // SET.def when the persisted chart label is empty, so the performance-stage difficulty
+                    // badge selects the matching cell instead of always falling back to the DTX cell.
+                    // Legacy databases stored an empty SongChart.DifficultyLabel.
+                    // Only hit disk when at least one chart is missing its label — avoids re-reading
+                    // SET.def for every multi-chart song on startup when labels are already persisted.
+                    var setDefLabels = charts.Any(c => string.IsNullOrWhiteSpace(c.DifficultyLabel))
+                        ? GetSetDefLabelsByFile(Path.GetDirectoryName(primaryChart.FilePath) ?? "")
+                        : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-                    if (chart.HasDrumChart && chart.DrumLevel > 0)
+                    int scoreIndex = 0;
+                    // Order the charts by the same criteria SongChartHelper.GetCurrentDifficultyChart
+                    // uses to map a difficulty index to a chart (drum charts with a positive level,
+                    // ascending by DrumLevel), so DifficultyLabels[scoreIndex] corresponds to the chart
+                    // selected for that difficulty. Without this, an arbitrary database ordering could
+                    // place an EXTREME chart's label in slot 0 while difficulty 0 loads the BASIC chart,
+                    // making the performance-stage badge show the wrong difficulty cell. Non-drum charts
+                    // (DrumLevel == 0) sort after drum charts, matching the drum-first selection fallback.
+                    foreach (var chart in orderedCharts.Take(5)) // Limit to 5 difficulties
                     {
-                        primaryInstrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.DRUMS;
-                        difficultyLevel = chart.DrumLevel;
+                        if (scoreIndex >= songNode.Scores.Length) break;
+
+                        // Determine the primary instrument and difficulty for this chart
+                        var primaryInstrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.DRUMS;
+                        int difficultyLevel = 50;
+
+                        if (chart.HasDrumChart && chart.DrumLevel > 0)
+                        {
+                            primaryInstrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.DRUMS;
+                            difficultyLevel = chart.DrumLevel;
+                        }
+                        else if (chart.HasGuitarChart && chart.GuitarLevel > 0)
+                        {
+                            primaryInstrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.GUITAR;
+                            difficultyLevel = chart.GuitarLevel;
+                        }
+                        else if (chart.HasBassChart && chart.BassLevel > 0)
+                        {
+                            primaryInstrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.BASS;
+                            difficultyLevel = chart.BassLevel;
+                        }
+
+                        string difficultyLabelText = ResolveDifficultyLabel(chart, setDefLabels, scoreIndex);
+
+                        songNode.SetScore(scoreIndex, new DTXMania.Game.Lib.Song.Entities.SongScore
+                        {
+                            ChartId = chart.Id,
+                            Instrument = primaryInstrument,
+                            DifficultyLevel = difficultyLevel,
+                            DifficultyLabel = difficultyLabelText
+                        });
+
+                        songNode.DifficultyLabels[scoreIndex] = difficultyLabelText;
+                        scoreIndex++;
                     }
-                    else if (chart.HasGuitarChart && chart.GuitarLevel > 0)
-                    {
-                        primaryInstrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.GUITAR;
-                        difficultyLevel = chart.GuitarLevel;
-                    }
-                    else if (chart.HasBassChart && chart.BassLevel > 0)
-                    {
-                        primaryInstrument = DTXMania.Game.Lib.Song.Entities.EInstrumentPart.BASS;
-                        difficultyLevel = chart.BassLevel;
-                    }
-
-                    string difficultyLabelText = ResolveDifficultyLabel(chart, setDefLabels, scoreIndex);
-
-                    songNode.SetScore(scoreIndex, new DTXMania.Game.Lib.Song.Entities.SongScore
-                    {
-                        ChartId = chart.Id,
-                        Instrument = primaryInstrument,
-                        DifficultyLevel = difficultyLevel,
-                        DifficultyLabel = difficultyLabelText
-                    });
-
-                    songNode.DifficultyLabels[scoreIndex] = difficultyLabelText;
-                    scoreIndex++;
                 }
 
                 // Metadata slots are now final. Publish every eagerly loaded persisted

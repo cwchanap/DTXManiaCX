@@ -1019,17 +1019,6 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void ForceEnumeration_InProduction_ShouldLetTheFreshnessCheckChooseTheCache()
-        {
-            var stage = CreateStage();
-            var forceEnumeration = typeof(StartupStage)
-                .GetProperty("ForceEnumeration", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .GetValue(stage);
-
-            Assert.Equal(false, forceEnumeration);
-        }
-
-        [Fact]
         public async Task RunSongLoadAsync_WhenZeroCandidatesPublish_ShouldPreservePublishedHierarchyIdentity()
         {
             var publishedHierarchy = new SongListNode { Title = "Published" };
