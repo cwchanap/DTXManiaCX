@@ -935,14 +935,23 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
             #L3LABEL EXTREME
             #L3FILE DTXFiles.Charts/extreme.dtx
             """);
+        WriteChart("Songs/Unlabeled Set/only.dtx", "Unlabeled Set", 45);
+        await File.WriteAllTextAsync(
+            Path.Combine(_songsRoot, "Unlabeled Set", "set.def"),
+            "#TITLE Unlabeled Set\n#L3FILE only.dtx\n");
         var roots = new[] { _songsRoot };
 
         await _manager.EnumerateAndImportSongsAsync(roots, progress: null, CancellationToken.None);
         var enumerated = DescribeHierarchy(_manager.RootSongs);
         Assert.Contains(enumerated, line => line.StartsWith("Score 'Nested Set'"));
-        await _manager.BuildSongListFromDatabasePublicAsync(roots);
 
-        Assert.Equal(enumerated, DescribeHierarchy(_manager.RootSongs));
+        // A cached launch is a new process that starts with an empty library.
+        SongManager.ResetInstanceForTesting();
+        var cached = SongManager.Instance;
+        await cached.InitializeDatabaseServiceAsync(_databasePath);
+        await cached.BuildSongListFromDatabasePublicAsync(roots);
+
+        Assert.Equal(enumerated, DescribeHierarchy(cached.RootSongs));
     }
 
     [Fact]
