@@ -1903,8 +1903,13 @@ namespace DTXMania.Game.Lib.Song
                 if (string.IsNullOrEmpty(fullDirectoryPath))
                     continue;
 
+                // A set.def song lives where its set.def is, even when the charts sit in
+                // a child folder, matching where the scan published it.
+                var songDirectoryPath = FindOwningSetDefDirectory(searchPath, fullDirectoryPath)
+                    ?? fullDirectoryPath;
+
                 // Create folder hierarchy for this song
-                var parentNode = await EnsureFolderHierarchy(searchPath, fullDirectoryPath, folderNodeCache, rootNodes);
+                var parentNode = await EnsureFolderHierarchy(searchPath, songDirectoryPath, folderNodeCache, rootNodes);
 
                 // Create the song node
                 var songNode = CreateSongNodeFromDatabaseEntities(firstSong, allCharts);
@@ -1945,6 +1950,30 @@ namespace DTXMania.Game.Lib.Song
                 '\0',
                 segments.Select((segment, index) =>
                     (index < segments.Length - 1 ? "0" : "1") + segment));
+        }
+
+        /// <summary>
+        /// Returns the folder above <paramref name="directory"/> (from
+        /// <paramref name="root"/> down) whose set.def claims its charts, or null.
+        /// <see cref="EnumerateDirectoryIntoBatchAsync"/> stops descending at the first
+        /// folder holding a set.def and publishes everything it references there.
+        /// </summary>
+        private static string? FindOwningSetDefDirectory(string root, string directory)
+        {
+            var relative = Path.GetRelativePath(root, directory);
+            if (relative == ".")
+                return null;
+
+            var current = root;
+            foreach (var segment in relative.Split(
+                Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
+            {
+                if (File.Exists(Path.Combine(current, "set.def")))
+                    return current;
+                current = Path.Combine(current, segment);
+            }
+
+            return null;
         }
 
         /// <summary>

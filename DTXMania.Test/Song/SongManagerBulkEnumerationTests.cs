@@ -923,10 +923,23 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
             #L3LABEL EXTREME
             #L3FILE extreme.dtx
             """);
+        // A set.def may keep its charts in a child folder, even a BOX-shaped one.
+        WriteChart("Songs/Nested Set/DTXFiles.Charts/basic.dtx", "Nested Set", 35);
+        WriteChart("Songs/Nested Set/DTXFiles.Charts/extreme.dtx", "Nested Set", 95);
+        await File.WriteAllTextAsync(
+            Path.Combine(_songsRoot, "Nested Set", "set.def"),
+            """
+            #TITLE Nested Set
+            #L1LABEL BASIC
+            #L1FILE DTXFiles.Charts/basic.dtx
+            #L3LABEL EXTREME
+            #L3FILE DTXFiles.Charts/extreme.dtx
+            """);
         var roots = new[] { _songsRoot };
 
         await _manager.EnumerateAndImportSongsAsync(roots, progress: null, CancellationToken.None);
         var enumerated = DescribeHierarchy(_manager.RootSongs);
+        Assert.Contains(enumerated, line => line.StartsWith("Score 'Nested Set'"));
         await _manager.BuildSongListFromDatabasePublicAsync(roots);
 
         Assert.Equal(enumerated, DescribeHierarchy(_manager.RootSongs));
