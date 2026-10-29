@@ -896,6 +896,56 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
     }
 
     [Fact]
+    public async Task EnumerateAndRebuild_WithOneRootAndBundledSongs_ShouldMergeBothIntoTopLevel()
+    {
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        var bundledRoot = WriteBundledPracticeBox();
+        WriteChart("Songs/A/basic.dtx", "First Song", 20);
+        var roots = new[] { _songsRoot, bundledRoot };
+
+        await _manager.EnumerateAndImportSongsAsync(roots, progress: null, CancellationToken.None);
+        AssertMergedIntoTopLevel();
+
+        await _manager.BuildSongListFromDatabasePublicAsync(roots);
+        AssertMergedIntoTopLevel();
+
+        // A lone configured root keeps its songs at the top level, beside the bundled box.
+        void AssertMergedIntoTopLevel()
+        {
+            Assert.Equal(2, _manager.RootSongs.Count);
+            Assert.Equal("First Song", _manager.RootSongs[0].Title);
+            AssertBundledPracticeBox(_manager.RootSongs[1]);
+        }
+    }
+
+    [Fact]
+    public async Task EnumerateAndRebuild_WithMultipleRootsAndBundledSongs_ShouldBoxOnlyConfiguredRoots()
+    {
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        var secondRoot = Path.Combine(_testRoot, "MoreSongs");
+        var bundledRoot = WriteBundledPracticeBox();
+        WriteChart("Songs/A/basic.dtx", "First Song", 20);
+        WriteChart("MoreSongs/B/basic.dtx", "Second Song", 30);
+        var roots = new[] { _songsRoot, secondRoot, bundledRoot };
+
+        await _manager.EnumerateAndImportSongsAsync(roots, progress: null, CancellationToken.None);
+        AssertOnlyConfiguredRootsBoxed();
+
+        await _manager.BuildSongListFromDatabasePublicAsync(roots);
+        AssertOnlyConfiguredRootsBoxed();
+
+        void AssertOnlyConfiguredRootsBoxed()
+        {
+            Assert.Equal(3, _manager.RootSongs.Count);
+            Assert.Equal("Songs", _manager.RootSongs[0].Title);
+            Assert.True(_manager.RootSongs[0].IsSongRoot);
+            Assert.Equal("MoreSongs", _manager.RootSongs[1].Title);
+            Assert.True(_manager.RootSongs[1].IsSongRoot);
+            AssertBundledPracticeBox(_manager.RootSongs[2]);
+        }
+    }
+
+    [Fact]
     public async Task FinalizePendingNodes_WhenEveryChartInARootIsRejected_ShouldDropItsEmptyBoxes()
     {
         await _manager.InitializeDatabaseServiceAsync(_databasePath);
@@ -2418,6 +2468,27 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
             $"#DLEVEL: {drumLevel}"
         });
         return SongPathIdentity.Normalize(path);
+    }
+
+    /// <summary>
+    /// Writes a bundled-songs root holding a "Practice" box.def folder and points the
+    /// manager at it, mirroring the shipped DTXMania.Game/BundledSongs layout.
+    /// </summary>
+    private string WriteBundledPracticeBox()
+    {
+        var bundledRoot = Path.Combine(_testRoot, "Bundled");
+        WriteChart("Bundled/Practice/pop/pop.dtx", "Practice Song", 15);
+        File.WriteAllText(Path.Combine(bundledRoot, "Practice", "box.def"), "#TITLE: Practice");
+        _manager.BundledSongsRoot = bundledRoot;
+        return bundledRoot;
+    }
+
+    private static void AssertBundledPracticeBox(SongListNode node)
+    {
+        Assert.Equal(NodeType.Box, node.Type);
+        Assert.Equal("Practice", node.Title);
+        Assert.False(node.IsSongRoot);
+        Assert.Equal("Practice Song", Assert.Single(node.Children).Title);
     }
 
     private static IEnumerable<SongListNode> FlattenScoreNodes(

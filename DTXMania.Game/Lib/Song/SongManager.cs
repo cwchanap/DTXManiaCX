@@ -80,6 +80,12 @@ namespace DTXMania.Game.Lib.Song
         internal SongRootPolicy RootPolicy { get; set; } =
             SongRootPolicy.ForCurrentPlatform();
 
+        /// <summary>
+        /// The root whose folders merge into the library's top level rather than
+        /// getting a root BOX. Callers decide whether to scan it at all.
+        /// </summary>
+        internal string BundledSongsRoot { get; set; } = BundledSongs.Root;
+
         internal Func<string, Task<(SongEntity song, SongChart chart)>>
             ParseSongEntitiesCoreAsync { get; set; } =
                 DTXChartParser.ParseSongEntitiesAsync;
@@ -723,16 +729,15 @@ namespace DTXMania.Game.Lib.Song
             CancellationToken cancellationToken)
         {
             var builder = CreateBatchBuilder(searchPaths);
-            var rootHeaders = builder.ActiveRoots.Count > 1
-                ? await ResolveSongRootHeadersAsync(
-                    builder.ActiveRoots,
-                    cancellationToken).ConfigureAwait(false)
-                : null;
+            var rootHeaders = await ResolveSongRootHeadersOrNullAsync(
+                builder.ActiveRoots,
+                cancellationToken).ConfigureAwait(false);
             foreach (var root in builder.ActiveRoots)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var rootBox = rootHeaders != null
-                    ? CreateSongRootBoxNode(root, rootHeaders[root])
+                var rootBox = rootHeaders != null &&
+                    rootHeaders.TryGetValue(root, out var header)
+                    ? CreateSongRootBoxNode(root, header)
                     : null;
                 await EnumerateDirectoryIntoBatchAsync(
                     root,
@@ -1780,11 +1785,9 @@ namespace DTXMania.Game.Lib.Song
                 }
 
                 var activeChartCount = 0;
-                var rootHeaders = availableRoots.Length > 1
-                    ? await ResolveSongRootHeadersAsync(
-                        availableRoots,
-                        CancellationToken.None).ConfigureAwait(false)
-                    : null;
+                var rootHeaders = await ResolveSongRootHeadersOrNullAsync(
+                    availableRoots,
+                    CancellationToken.None).ConfigureAwait(false);
 
                 foreach (var normalizedRoot in availableRoots)
                 {
@@ -1805,7 +1808,8 @@ namespace DTXMania.Game.Lib.Song
 
                     // Build the folder hierarchy structure from file paths
                     var pathNodes = await BuildHierarchyFromCharts(normalizedRoot, relevantCharts);
-                    if (rootHeaders == null)
+                    if (rootHeaders == null ||
+                        !rootHeaders.TryGetValue(normalizedRoot, out var header))
                     {
                         newRootNodes.AddRange(pathNodes);
                         continue;
@@ -1814,7 +1818,7 @@ namespace DTXMania.Game.Lib.Song
                     if (pathNodes.Count == 0)
                         continue;
 
-                    var rootBox = CreateSongRootBoxNode(normalizedRoot, rootHeaders[normalizedRoot]);
+                    var rootBox = CreateSongRootBoxNode(normalizedRoot, header);
                     foreach (var node in pathNodes)
                         AttachSubtree(rootBox, node);
                     newRootNodes.Add(rootBox);
@@ -2756,6 +2760,25 @@ namespace DTXMania.Game.Lib.Song
             }
 
             return boxNode;
+        }
+
+        /// <summary>
+        /// Resolves the root BOX headers when more than one configured root is active,
+        /// otherwise null so a lone root merges into the top level. The bundled songs
+        /// root never gets a header: its own BOX folders sit beside the user's library
+        /// rather than pushing a single configured root one level deeper.
+        /// </summary>
+        private async Task<IReadOnlyDictionary<string, (BoxDefinition? Definition, string Title)>?>
+            ResolveSongRootHeadersOrNullAsync(
+                IReadOnlyList<string> activeRoots,
+                CancellationToken cancellationToken)
+        {
+            var headerRoots = activeRoots
+                .Where(root => !RootPolicy.AreSameRoot(root, BundledSongsRoot))
+                .ToArray();
+            return headerRoots.Length > 1
+                ? await ResolveSongRootHeadersAsync(headerRoots, cancellationToken).ConfigureAwait(false)
+                : null;
         }
 
         /// <summary>
@@ -4645,6 +4668,7 @@ namespace DTXMania.Game.Lib.Song
                     FinalizePendingNodes(batch, chartsByPath);
                 PublishEnumerationCore = PublishEnumeration;
                 RootPolicy = SongRootPolicy.ForCurrentPlatform();
+                BundledSongsRoot = BundledSongs.Root;
                 snapshot = CreateSnapshotLocked();
             }
 

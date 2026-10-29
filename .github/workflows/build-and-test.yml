@@ -131,7 +131,7 @@ jobs:
       with:
         python-version: '3.11'
 
-    - name: Run skingen/sfxgen tool unit tests
+    - name: Run skingen/sfxgen/practicegen tool unit tests
       shell: bash
       run: |
         # Mirror the macOS job: the CX Neon asset pipelines (tools/skingen,
@@ -143,6 +143,7 @@ jobs:
         pip install "Pillow>=10,<12"
         python -m unittest discover -s tools/skingen -p "test_*.py" -v
         python -m unittest discover -s tools/sfxgen -p "test_*.py" -v
+        python -m unittest discover -s tools/practicegen -p "test_*.py" -v
 
     - name: Validate committed CX Neon pack (integrity gate)
       shell: bash
@@ -286,7 +287,7 @@ jobs:
       with:
         python-version: '3.11'
 
-    - name: Run skingen/sfxgen tool unit tests
+    - name: Run skingen/sfxgen/practicegen tool unit tests
       shell: bash
       run: |
         # The CX Neon asset pipelines (tools/skingen, tools/sfxgen) ship Python
@@ -297,6 +298,7 @@ jobs:
         pip install "Pillow>=10,<12"
         python -m unittest discover -s tools/skingen -p "test_*.py" -v
         python -m unittest discover -s tools/sfxgen -p "test_*.py" -v
+        python -m unittest discover -s tools/practicegen -p "test_*.py" -v
 
     - name: Validate committed CX Neon pack (integrity gate)
       shell: bash

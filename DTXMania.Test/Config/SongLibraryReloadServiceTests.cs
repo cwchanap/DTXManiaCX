@@ -118,7 +118,12 @@ public sealed class SongLibraryReloadServiceTests : IDisposable
         Assert.True(result.RequiresRestart);
         Assert.False(result.RetainsCurrentSnapshot);
         Assert.Contains("finalization failed after commit", result.FailureMessage);
-        Assert.Single(await manager.DatabaseService!.GetSongsAsync());
+        // The default service scans the bundled practice songs after the configured roots.
+        var titles = (await manager.DatabaseService!.GetSongsAsync())
+            .Select(song => song.Title)
+            .ToList();
+        Assert.Contains("Committed Reload", titles);
+        Assert.Contains("Pop 8-Beat", titles);
     }
 
     [Fact]

@@ -71,6 +71,10 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 ; where {app}\System does not yet exist). Per-user custom skins live under
 ; %LOCALAPPDATA%\DTXManiaCX\System\{SkinName}\ and are never touched here.
 Type: filesandordirs; Name: "{app}\System"
+; Same for the bundled practice charts (part of the publish output): a chart
+; renamed or dropped in a newer release would otherwise linger as a duplicate
+; song. Scores live in %LOCALAPPDATA%\DTXManiaCX\songs.db, not in this folder.
+Type: filesandordirs; Name: "{app}\BundledSongs"
 
 [Files]
 ; Self-contained game files from the win-x64 publish output
