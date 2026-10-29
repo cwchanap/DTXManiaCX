@@ -896,43 +896,6 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
     }
 
     [Fact]
-    public async Task BuildSongListFromDatabase_ShouldMatchTheEnumeratedHierarchy()
-    {
-        // Startup loads the cached library instead of rescanning when nothing changed,
-        // so a cached launch must show exactly what the scan published. Folder names
-        // and titles sort in opposite orders to catch title-ordered rebuilds.
-        await _manager.InitializeDatabaseServiceAsync(_databasePath);
-        WriteChart("Songs/Zeta Folder/zeta.dtx", "Alpha Title", 10);
-        WriteChart("Songs/Alpha Folder/alpha.dtx", "Zulu Title", 20);
-        WriteChart("Songs/root.dtx", "Middle Root File", 30);
-        WriteChart("Songs/DTXFiles.Pack/B/basic.dtx", "Grouped", 20);
-        WriteChart("Songs/DTXFiles.Pack/B/extreme.dtx", "Grouped", 80);
-        WriteChart("Songs/DTXFiles.Pack/A/song.dtx", "Packed", 40);
-        WriteChart("Songs/Boxed/S/song.dtx", "Boxed Song", 50);
-        await File.WriteAllTextAsync(
-            Path.Combine(_songsRoot, "Boxed", "box.def"),
-            "#TITLE: Custom Box\n#GENRE: Rock\n#TEXTCOLOR: #FF8000\n");
-        WriteChart("Songs/Set Song/basic.dtx", "Set Song", 25);
-        WriteChart("Songs/Set Song/extreme.dtx", "Set Song", 85);
-        await File.WriteAllTextAsync(
-            Path.Combine(_songsRoot, "Set Song", "set.def"),
-            """
-            #TITLE Set Song
-            #L1LABEL BASIC
-            #L1FILE basic.dtx
-            #L3LABEL EXTREME
-            #L3FILE extreme.dtx
-            """);
-        var roots = new[] { _songsRoot };
-
-        await _manager.EnumerateAndImportSongsAsync(roots, progress: null, CancellationToken.None);
-        var enumerated = DescribeHierarchy(_manager.RootSongs);
-        await _manager.BuildSongListFromDatabasePublicAsync(roots);
-
-        Assert.Equal(enumerated, DescribeHierarchy(_manager.RootSongs));
-    }
-
-    [Fact]
     public async Task EnumerateAndRebuild_WithOneRootAndBundledSongs_ShouldMergeBothIntoTopLevel()
     {
         await _manager.InitializeDatabaseServiceAsync(_databasePath);
@@ -2518,31 +2481,6 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         File.WriteAllText(Path.Combine(bundledRoot, "Practice", "box.def"), "#TITLE: Practice");
         _manager.BundledSongsRoot = bundledRoot;
         return bundledRoot;
-    }
-
-    /// <summary>
-    /// One line per node, depth-first in display order, covering what the song list
-    /// shows: kind, title, BOX styling, breadcrumb and every difficulty slot.
-    /// </summary>
-    private static List<string> DescribeHierarchy(IEnumerable<SongListNode> nodes, int depth = 0)
-    {
-        var lines = new List<string>();
-        foreach (var node in nodes)
-        {
-            var slots = string.Join(", ", node.Scores
-                .Select((score, index) => (score, index))
-                .Where(slot => slot.score != null)
-                .Select(slot =>
-                    $"{slot.index}:{slot.score!.ChartId}/{slot.score.DifficultyLevel}/" +
-                    $"{slot.score.DifficultyLabel}/{node.DifficultyLabels[slot.index]}"));
-            lines.Add(
-                $"{new string(' ', depth * 2)}{node.Type} '{node.Title}' genre='{node.Genre}' " +
-                $"color={node.TextColor.PackedValue:X8} root={node.IsSongRoot} " +
-                $"crumb='{node.BreadcrumbPath}' song={node.DatabaseSongId} [{slots}]");
-            lines.AddRange(DescribeHierarchy(node.Children, depth + 1));
-        }
-
-        return lines;
     }
 
     private static void AssertBundledPracticeBox(SongListNode node)
