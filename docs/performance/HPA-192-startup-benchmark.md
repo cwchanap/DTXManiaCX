@@ -1128,3 +1128,14 @@ This report stops at measured candidate intervals and a conservative sizing
 budget. It does not authorize or describe product implementation mechanics.
 
 decision=stop reason=broader_runtime_or_packaging_design_required
+
+## 2026-10-30 cached startup and scenario C
+
+Since cwchanap/DTXManiaCX#209, startup no longer forces a scan: an unchanged
+library loads from `songs.db`. Scenario C (the warm seed, unchanged corpus)
+therefore reports `HPA192_STARTUP path=cache` with zero scan counts, while A
+and B still scan. The critical-path trace records its `enumeration_*`
+milestones around that cache rebuild, which counts as `hierarchy_ms`, so the
+same line schema and residual checks apply. The summarizer now expects
+`path=enumeration` for A and B and `path=cache` for C. Scenario C results from
+before this change measured a forced rescan and are not comparable.

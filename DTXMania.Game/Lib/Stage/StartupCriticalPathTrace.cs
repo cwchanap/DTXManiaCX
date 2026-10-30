@@ -667,6 +667,34 @@ internal sealed class StartupCriticalPathTrace : IStartupSongLoadTimingObserver
         }
     }
 
+    /// <summary>
+    /// Cache-path counterpart of the enumeration terminal: when the freshness check
+    /// skips the scan, the songs.db rebuild is the song load, so it closes the
+    /// Enumeration* milestones and counts as hierarchy time (no scan phases ran).
+    /// </summary>
+    internal void RecordCacheLoadTerminal(TimeSpan hierarchyDuration)
+    {
+        RecordExactlyOnce(StartupCriticalPathMilestone.EnumerationTerminal);
+
+        lock (_sync)
+        {
+            if (_terminalOutcome != TerminalOutcome.Open)
+                return;
+            if (_enumerationResultRecorded)
+            {
+                FailLocked(
+                    "duplicate_enumeration_result",
+                    "enumeration_result",
+                    cancellation: false);
+                return;
+            }
+
+            _enumerationResultRecorded = true;
+            _enumerationHierarchyTicks = hierarchyDuration.Ticks;
+            SetLastMilestoneLocked("cache_result");
+        }
+    }
+
     internal void RecordTitleCompletionLookup(bool cacheHit)
     {
         lock (_sync)

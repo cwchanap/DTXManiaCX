@@ -566,6 +566,72 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void CacheSongLoad_WhenSynchronous_ShouldRecordAllFourMoments()
+        {
+            var (stage, trace, _) = CreateDiagnosticControlledStage();
+            stage.NextNeedsEnumerationResult = false;
+            stage.ForceEnumerationForTest = false;
+            SetPhaseForUpdate(stage, StartupPhase.EnumerateSongs);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
+
+            AssertRecordedInOrder(
+                trace,
+                StartupCriticalPathMilestone.EnumerationInvoke,
+                StartupCriticalPathMilestone.EnumerationTerminal,
+                StartupCriticalPathMilestone.EnumerationTaskReturn,
+                StartupCriticalPathMilestone.EnumerationObserved);
+            Assert.True(ReflectionHelpers.GetPrivateField<bool>(
+                trace,
+                "_enumerationTaskReturnedTerminal"));
+            Assert.True(ReflectionHelpers.GetPrivateField<bool>(
+                trace,
+                "_enumerationResultRecorded"));
+        }
+
+        [Fact]
+        public async Task CacheSongLoad_WhenDelayed_ShouldSeparateReturnTerminalAndObserved()
+        {
+            var (stage, trace, clock) = CreateDiagnosticControlledStage();
+            var completion = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            stage.NextNeedsEnumerationResult = false;
+            stage.ForceEnumerationForTest = false;
+            stage.NextBuildHierarchyTask = completion.Task;
+            SetPhaseForUpdate(stage, StartupPhase.EnumerateSongs);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
+
+            AssertRecorded(
+                trace,
+                StartupCriticalPathMilestone.EnumerationInvoke,
+                StartupCriticalPathMilestone.EnumerationTaskReturn);
+            AssertNotRecorded(
+                trace,
+                StartupCriticalPathMilestone.EnumerationTerminal,
+                StartupCriticalPathMilestone.EnumerationObserved);
+
+            var phaseTask = ReflectionHelpers.GetPrivateField<Task>(
+                stage,
+                "_currentAsyncTask")!;
+            clock.Advance(10);
+            completion.SetResult();
+            await phaseTask.WaitAsync(TimeSpan.FromSeconds(10));
+            clock.Advance(10);
+            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
+
+            AssertRecordedInOrder(
+                trace,
+                StartupCriticalPathMilestone.EnumerationInvoke,
+                StartupCriticalPathMilestone.EnumerationTaskReturn,
+                StartupCriticalPathMilestone.EnumerationTerminal,
+                StartupCriticalPathMilestone.EnumerationObserved);
+            Assert.False(ReflectionHelpers.GetPrivateField<bool>(
+                trace,
+                "_enumerationTaskReturnedTerminal"));
+        }
+
+        [Fact]
         public void EnumerationTask_WhenFaulted_ShouldPublishFailureAfterCleanup()
         {
             var (stage, trace, _) = CreateDiagnosticControlledStage();
@@ -2050,6 +2116,7 @@ namespace DTXMania.Test.Stage
             public Task<SongEnumerationResult>? NextEnumerationTask { get; set; }
 
             public Exception? BuildHierarchyException { get; set; }
+            public Task? NextBuildHierarchyTask { get; set; }
 
             protected override bool ForceEnumeration =>
                 ForceEnumerationForTest;
@@ -2173,7 +2240,7 @@ namespace DTXMania.Test.Stage
                     return Task.FromException(BuildHierarchyException);
                 }
                 PublishedHierarchy = new SongListNode { Title = "Rebuilt" };
-                return Task.CompletedTask;
+                return NextBuildHierarchyTask ?? Task.CompletedTask;
             }
 
             protected override void MarkSongManagerInitialized()

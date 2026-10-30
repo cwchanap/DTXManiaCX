@@ -424,7 +424,8 @@ validate_startup_line() {
     line="$(only_line "$path" HPA192_STARTUP)"
     parse_ordered_line "$line" HPA192_STARTUP startup startup_field_names ||
         reject startup_schema
-    [[ "$startup_path" == enumeration ]] || reject startup_path
+    [[ "$startup_path" == enumeration || "$startup_path" == cache ]] ||
+        reject startup_path
     [[ "$startup_outcome" == success ]] || reject startup_outcome
     [[ "$startup_error" == none ]] || reject startup_error
 
@@ -895,6 +896,7 @@ validate_cross_line_and_clocks() {
 }
 
 validate_attempt_identity_and_outcome() {
+    local expected_path
     local expected_parsed
     local expected_groups
     local expected_database_charts
@@ -902,17 +904,28 @@ validate_attempt_identity_and_outcome() {
     local expected_scenario
 
     case "$scenario" in
-        A|C)
+        A)
+            expected_path=enumeration
             expected_parsed=100
             expected_groups=27
             expected_database_charts=100
             expected_database_songs=27
             ;;
         B)
+            expected_path=enumeration
             expected_parsed=0
             expected_groups=0
             expected_database_charts=0
             expected_database_songs=0
+            ;;
+        C)
+            # The warm seed is unchanged, so startup loads songs.db without a
+            # scan; its enumeration_* spans then time that cache rebuild.
+            expected_path=cache
+            expected_parsed=0
+            expected_groups=0
+            expected_database_charts=100
+            expected_database_songs=27
             ;;
         *)
             reject unplanned_scenario
@@ -921,6 +934,7 @@ validate_attempt_identity_and_outcome() {
 
     expected_scenario="${expected_scenarios[$((slot - 1))]}"
     [[ "$scenario" == "$expected_scenario" ]] || reject scenario_slot
+    [[ "$startup_path" == "$expected_path" ]] || reject startup_path
     [[ "$startup_discovered" == "$expected_parsed" &&
        "$startup_parsed" == "$expected_parsed" &&
        "$startup_groups" == "$expected_groups" &&

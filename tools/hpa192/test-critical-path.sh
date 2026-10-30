@@ -47,6 +47,8 @@ write_result() {
     local added=100
     local database_charts=100
     local database_songs=27
+    local startup_path=enumeration
+    local startup_phases="discovery_parse_ms=30 persistence_ms=20 cleanup_ms=5 hierarchy_ms=10"
     local config_hash
     local chart_paths_hash
 
@@ -65,6 +67,13 @@ write_result() {
             chart_paths_hash="$(hash_for 2)"
             ;;
         C)
+            # The warm seed loads from songs.db: no scan, the whole song-load
+            # span (less the 5 ms residual) is cache-rebuild hierarchy time.
+            parsed=0
+            groups=0
+            added=0
+            startup_path=cache
+            startup_phases="discovery_parse_ms=0 persistence_ms=0 cleanup_ms=0 hierarchy_ms=65"
             config_hash="$(hash_for f)"
             chart_paths_hash="$(hash_for 4)"
             ;;
@@ -78,7 +87,7 @@ write_result() {
         printf '%s\n' \
             "HPA192_ATTEMPT scenario=$scenario slot=$slot attempt=$attempt launch_start_unix_us=1000000 launch_start_monotonic_us=5000000 observation_unix_us=1370000 observation_monotonic_us=5370000 exit_code=0 timed_out=0 forced_cleanup=0 game_api_enabled=0 database_charts=$database_charts database_songs=$database_songs game_sha256=$(hash_for a) runner_sha256=$(hash_for b) summarizer_sha256=$(hash_for c) corpus_manifest_sha256=$(hash_for d) corpus_observed_sha256=$(hash_for d) system_manifest_sha256=$(hash_for e) config_sha256=$config_hash config_observed_sha256=$config_hash empty_manifest_sha256=$(hash_for 2) empty_observed_sha256=$(hash_for 2) seed_manifest_sha256=$(hash_for 3) seed_observed_sha256=$(hash_for 3) chart_paths_sha256=$chart_paths_hash expected_chart_paths_sha256=$chart_paths_hash"
         printf '%s\n' \
-            "HPA192_STARTUP path=enumeration outcome=success total_ms=170 db_init_ms=20 discovery_parse_ms=30 persistence_ms=20 cleanup_ms=5 hierarchy_ms=10 discovered=$parsed parsed=$parsed groups=$groups added=$added updated=0 preserved=0 skipped=0 conflicts=0 stale=0 error=none"
+            "HPA192_STARTUP path=$startup_path outcome=success total_ms=170 db_init_ms=20 $startup_phases discovered=$parsed parsed=$parsed groups=$groups added=$added updated=0 preserved=0 skipped=0 conflicts=0 stale=0 error=none"
         printf '%s\n' \
             "HPA192_TIMING entry_to_config_ms=8 config_to_load_content_ms=12 load_content_to_startup_ms=10 startup_to_first_draw_ms=24 startup_to_summary_ms=170 summary_to_title_ms=40 entry_to_title_ms=240 entry_unix_us=1100000 title_unix_us=1340000"
         printf '%s\n' \
@@ -291,7 +300,9 @@ create_runner_fixture() {
     full_result="$fixture_root/raw-B.result.txt"
     write_result "$full_result" B 2 1
     awk '!/^HPA192_ATTEMPT /' "$full_result" >"$fixture_raw/B.txt"
-    cp "$fixture_raw/A.txt" "$fixture_raw/C.txt"
+    full_result="$fixture_root/raw-C.result.txt"
+    write_result "$full_result" C 3 1
+    awk '!/^HPA192_ATTEMPT /' "$full_result" >"$fixture_raw/C.txt"
 
     cat >"$fixture_fakebin/dotnet" <<'FAKE_DOTNET'
 #!/usr/bin/env bash
@@ -1877,6 +1888,30 @@ wrong_group_count="$(copy_and_replace wrong-group-count "$good" \
     "groups=27" \
     "groups=26")"
 assert_rejected wrong_group_count scenario_counts "$wrong_group_count"
+
+# Breaks caught: scenario C (warm seed) must load from the songs.db cache with
+# no scan, while A and B (fresh databases) must scan.
+good_cache="$temp_root/good-cache.result.txt"
+write_result "$good_cache" C 3 1
+run_validate "$good_cache" >"$temp_root/good-cache.stdout" ||
+    fail "valid scenario C cache artifact was rejected"
+grep -Fq "status=accepted scenario=C slot=3" "$temp_root/good-cache.stdout" ||
+    fail "valid scenario C cache artifact was not accepted"
+
+cache_scanned="$(copy_and_replace cache-scanned "$good_cache" \
+    "path=cache" \
+    "path=enumeration")"
+assert_rejected cache_scanned startup_path "$cache_scanned"
+
+fresh_cached="$(copy_and_replace fresh-cached "$good" \
+    "path=enumeration" \
+    "path=cache")"
+assert_rejected fresh_cached startup_path "$fresh_cached"
+
+cache_discovered="$(copy_and_replace cache-discovered "$good_cache" \
+    "discovered=0 parsed=0" \
+    "discovered=100 parsed=100")"
+assert_rejected cache_discovered scenario_counts "$cache_discovered"
 
 nonzero_exit="$(copy_and_replace nonzero-exit "$good" \
     "exit_code=0" \
