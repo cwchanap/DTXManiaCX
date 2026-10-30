@@ -1201,26 +1201,16 @@ public class SongManagerCoverageTests : IDisposable
             BassLevel = instrument == EInstrumentPart.BASS ? expectedLevel : 0
         };
 
-        var charts = new[]
-        {
-            primaryChart,
-            new SongChart
-            {
-                FilePath = Path.Combine(_testRoot, "supporting.dtx"),
-                HasDrumChart = true,
-                DrumLevel = 35
-            }
-        };
-        
+        // A song with a drum chart gives slots to drum charts only (gameplay plays drums),
+        // so the string part is the song's only chart here.
+        var charts = new[] { primaryChart };
+
         var result = ReflectionHelpers.InvokePrivateMethod<SongListNode?>(_manager, "CreateSongNodeFromDatabaseEntities", song, charts);
 
         Assert.NotNull(result);
-        // Charts are ordered drum-first (see CreateSongNodeFromDatabaseEntities), so the string-part
-        // chart sorts after the supporting drum chart. Locate its score by instrument rather than a
-        // fixed index to verify the requested part is still detected with its level.
-        var stringPartScore = result!.Scores.FirstOrDefault(s => s != null && s.Instrument == instrument);
-        Assert.NotNull(stringPartScore);
-        Assert.Equal(expectedLevel, stringPartScore!.DifficultyLevel);
+        var stringPartScore = Assert.Single(result!.Scores, s => s != null);
+        Assert.Equal(instrument, stringPartScore.Instrument);
+        Assert.Equal(expectedLevel, stringPartScore.DifficultyLevel);
     }
 
     [Fact]

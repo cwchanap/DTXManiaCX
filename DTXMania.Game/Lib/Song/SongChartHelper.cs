@@ -17,10 +17,26 @@ namespace DTXMania.Game.Lib.Song
         internal static IOrderedEnumerable<DTXMania.Game.Lib.Song.Entities.SongChart> OrderByDifficultySlot(
             this IEnumerable<DTXMania.Game.Lib.Song.Entities.SongChart> charts) =>
             charts
-                .OrderBy(chart => chart.HasDrumChart && chart.DrumLevel > 0 ? 0 : 1)
+                .OrderBy(chart => HasDrumLevel(chart) ? 0 : 1)
                 .ThenBy(chart => chart.DrumLevel)
                 .ThenBy(chart => chart.DifficultyLevel)
                 .ThenBy(chart => chart.FilePath, SongPathIdentity.CanonicalComparer);
+
+        /// <summary>
+        /// The charts that fill a song's difficulty slots, in slot order. Gameplay plays
+        /// only drum charts (<see cref="GetCurrentDifficultyChart"/>), so once a song has
+        /// one, charts without a drum level get no slot.
+        /// </summary>
+        internal static List<DTXMania.Game.Lib.Song.Entities.SongChart> GetDifficultySlotCharts(
+            this IEnumerable<DTXMania.Game.Lib.Song.Entities.SongChart> charts)
+        {
+            var ordered = charts.OrderByDifficultySlot().ToList();
+            var drumCharts = ordered.Where(HasDrumLevel).ToList();
+            return drumCharts.Count > 0 ? drumCharts : ordered;
+        }
+
+        private static bool HasDrumLevel(DTXMania.Game.Lib.Song.Entities.SongChart chart) =>
+            chart.HasDrumChart && chart.DrumLevel > 0;
 
         /// <summary>
         /// Gets the chart for the current difficulty level
@@ -47,7 +63,7 @@ namespace DTXMania.Game.Lib.Song
                 return allCharts[0];
 
             // For simplicity, assume drums mode and map difficulty to chart index
-            var drumCharts = allCharts.Where(chart => chart.HasDrumChart && chart.DrumLevel > 0)
+            var drumCharts = allCharts.Where(HasDrumLevel)
                                      .OrderByDifficultySlot()
                                      .ToList();
 

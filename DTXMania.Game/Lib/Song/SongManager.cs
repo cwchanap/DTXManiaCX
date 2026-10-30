@@ -1562,7 +1562,7 @@ namespace DTXMania.Game.Lib.Song
                 // rebuilds them on a cached launch: sort every chart, then fill the slots.
                 var slot = 0;
                 foreach (var chart in resolvedCharts
-                    .OrderByDifficultySlot()
+                    .GetDifficultySlotCharts()
                     .Take(placeholder.Scores.Length))
                 {
                     var (instrument, difficultyLevel) =
@@ -4522,7 +4522,7 @@ namespace DTXMania.Game.Lib.Song
 
                 // Use the first chart for the primary file path
                 var primaryChart = charts[0];
-                var orderedCharts = charts.OrderByDifficultySlot().ToArray();
+                var orderedCharts = charts.GetDifficultySlotCharts();
 
                 // Create the song node using the first chart
                 var songNode = SongListNode.CreateSongNode(
@@ -4551,7 +4551,7 @@ namespace DTXMania.Game.Lib.Song
                     : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
                 int scoreIndex = 0;
-                // Slots follow SongChartHelper.OrderByDifficultySlot, the order
+                // Slots follow SongChartHelper.GetDifficultySlotCharts, the order
                 // GetCurrentDifficultyChart maps a difficulty index into and the scan's
                 // FinalizePendingNodes publishes, so DifficultyLabels[scoreIndex] belongs to the
                 // chart that difficulty plays. Without this, an arbitrary database ordering could

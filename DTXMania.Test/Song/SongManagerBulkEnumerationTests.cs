@@ -947,6 +947,12 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         await File.WriteAllTextAsync(
             Path.Combine(_songsRoot, "Inverted Set", "set.def"),
             "#TITLE Inverted Set\n#L1LABEL HARD\n#L1FILE hard.dtx\n#L3LABEL EASY\n#L3FILE easy.dtx\n");
+        // Gameplay plays drum charts only, so a guitar-only chart takes no slot.
+        WriteChart("Songs/Mixed/drum-a.dtx", "Mixed", 30);
+        WriteChart("Songs/Mixed/drum-b.dtx", "Mixed", 60);
+        File.WriteAllLines(
+            Path.Combine(_songsRoot, "Mixed", "guitar.dtx"),
+            new[] { "#TITLE: Mixed", "#ARTIST: Fixture Artist", "#BPM: 120", "#GLEVEL: 40" });
         // A set.def that lists one file in two slots; songs.db keeps that chart once.
         WriteChart("Songs/Repeated Set/basic.dtx", "Repeated Set", 25);
         WriteChart("Songs/Repeated Set/extreme.dtx", "Repeated Set", 85);
@@ -975,12 +981,16 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         // Each difficulty slot shows the chart that difficulty plays.
         static void AssertSlotsMatchPlayedCharts(IEnumerable<SongListNode> roots)
         {
-            var inverted = roots.Single(node => node.Title == "Inverted");
-            for (var difficulty = 0; difficulty < 2; difficulty++)
+            foreach (var (title, slots) in new[] { ("Inverted", 2), ("Inverted Set", 2), ("Mixed", 2) })
             {
-                Assert.Equal(
-                    inverted.GetCurrentDifficultyChart(difficulty).Id,
-                    inverted.Scores[difficulty].ChartId);
+                var song = roots.Single(node => node.Title == title);
+                Assert.Equal(slots, song.Scores.Count(score => score != null));
+                for (var difficulty = 0; difficulty < slots; difficulty++)
+                {
+                    Assert.Equal(
+                        song.GetCurrentDifficultyChart(difficulty).Id,
+                        song.Scores[difficulty].ChartId);
+                }
             }
         }
     }
