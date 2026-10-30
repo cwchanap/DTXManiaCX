@@ -1758,17 +1758,14 @@ namespace DTXMania.Game.Lib.Song.Components
             if (instrumentCharts.Count == 1)
                 return instrumentCharts[0];
 
-            // Sort charts by difficulty level (ASCENDING - easiest first) 
-            var sortedCharts = instrumentCharts.OrderBy(chart =>
+            // Sort charts by difficulty level (ASCENDING - easiest first). Drums use the
+            // slot order gameplay selects by, so the panel describes the chart that plays.
+            var sortedCharts = currentInstrument.ToUpperInvariant() switch
             {
-                return currentInstrument.ToUpperInvariant() switch
-                {
-                    "DRUMS" => chart.DrumLevel,
-                    "GUITAR" => chart.GuitarLevel,
-                    "BASS" => chart.BassLevel,
-                    _ => chart.DrumLevel
-                };
-            }).ToList();
+                "GUITAR" => instrumentCharts.OrderBy(chart => chart.GuitarLevel).ToList(),
+                "BASS" => instrumentCharts.OrderBy(chart => chart.BassLevel).ToList(),
+                _ => instrumentCharts.OrderByDifficultySlot().ToList()
+            };
 
             // Map difficulty index to chart index
             // For all instruments: 0=basic (lowest), 1=advanced, 2=extreme, 3=master, 4=ultimate (highest)
