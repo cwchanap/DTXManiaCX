@@ -947,6 +947,12 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         await File.WriteAllTextAsync(
             Path.Combine(_songsRoot, "Inverted Set", "set.def"),
             "#TITLE Inverted Set\n#L1LABEL HARD\n#L1FILE hard.dtx\n#L3LABEL EASY\n#L3FILE easy.dtx\n");
+        // A set.def that lists one file in two slots; songs.db keeps that chart once.
+        WriteChart("Songs/Repeated Set/basic.dtx", "Repeated Set", 25);
+        WriteChart("Songs/Repeated Set/extreme.dtx", "Repeated Set", 85);
+        await File.WriteAllTextAsync(
+            Path.Combine(_songsRoot, "Repeated Set", "set.def"),
+            "#TITLE Repeated Set\n#L1FILE basic.dtx\n#L2FILE basic.dtx\n#L3FILE extreme.dtx\n");
         // Six charts for five slots, the easiest one last by file name.
         foreach (var (file, level) in new[] { ("a", 60), ("b", 50), ("c", 40), ("d", 30), ("e", 20), ("f", 10) })
             WriteChart($"Songs/Six Charts/{file}.dtx", "Six Charts", level);

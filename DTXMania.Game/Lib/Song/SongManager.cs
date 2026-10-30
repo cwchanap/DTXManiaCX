@@ -1542,7 +1542,9 @@ namespace DTXMania.Game.Lib.Song
             {
                 var placeholder = pending.Placeholder;
                 var resolvedCharts = new List<SongChart>();
-                foreach (var path in pending.OrderedChartPaths)
+                // A set.def may list one file in several slots; songs.db keeps it once.
+                foreach (var path in pending.OrderedChartPaths
+                    .Distinct(SongPathIdentity.CanonicalComparer))
                 {
                     if (chartsByPath.TryGetValue(path, out var chart))
                         resolvedCharts.Add(chart);
