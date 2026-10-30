@@ -1542,51 +1542,40 @@ namespace DTXMania.Game.Lib.Song
             {
                 var placeholder = pending.Placeholder;
                 var resolvedCharts = new List<SongChart>();
-                for (var index = 0;
-                    index < pending.OrderedChartPaths.Count &&
-                    index < placeholder.Scores.Length;
-                    index++)
+                foreach (var path in pending.OrderedChartPaths.Take(placeholder.Scores.Length))
                 {
-                    var path = pending.OrderedChartPaths[index];
-                    if (!chartsByPath.TryGetValue(path, out var chart))
-                    {
-                        placeholder.Scores[index] = null!;
-                        continue;
-                    }
+                    if (chartsByPath.TryGetValue(path, out var chart))
+                        resolvedCharts.Add(chart);
+                }
 
+                placeholder.Scores = new SongScoreEntity[placeholder.Scores.Length];
+                if (resolvedCharts.Count == 0)
+                {
+                    RemovePlaceholder(batch, placeholder);
+                    continue;
+                }
+
+                // Slots take the difficulty order GetCurrentDifficultyChart plays them in,
+                // not discovery order, exactly as CreateSongNodeFromDatabaseEntities
+                // rebuilds them on a cached launch.
+                var slot = 0;
+                foreach (var chart in resolvedCharts.OrderByDifficultySlot())
+                {
                     var (instrument, difficultyLevel) =
                         GetPrimaryInstrumentAndDifficulty(chart);
-                    var label = placeholder.DifficultyLabels[index];
-                    if (string.IsNullOrWhiteSpace(label))
-                    {
-                        label = ResolveDifficultyLabel(
-                            chart,
-                            new Dictionary<string, string>(),
-                            index);
-                        placeholder.DifficultyLabels[index] = label;
-                    }
-
-                    placeholder.SetScore(index, new SongScoreEntity
+                    var label = ResolveDifficultyLabel(
+                        chart,
+                        new Dictionary<string, string>(),
+                        slot);
+                    placeholder.DifficultyLabels[slot] = label;
+                    placeholder.SetScore(slot, new SongScoreEntity
                     {
                         ChartId = chart.Id,
                         Instrument = instrument,
                         DifficultyLevel = difficultyLevel,
                         DifficultyLabel = label
                     });
-                    resolvedCharts.Add(chart);
-                    if (placeholder.DatabaseSong == null ||
-                        placeholder.DatabaseSongId == null)
-                    {
-                        placeholder.DatabaseSong = chart.Song;
-                        placeholder.DatabaseChart = chart;
-                        placeholder.DatabaseSongId = chart.SongId;
-                    }
-                }
-
-                if (resolvedCharts.Count == 0)
-                {
-                    RemovePlaceholder(batch, placeholder);
-                    continue;
+                    slot++;
                 }
 
                 placeholder.DatabaseSong = resolvedCharts[0].Song;
@@ -4529,10 +4518,7 @@ namespace DTXMania.Game.Lib.Song
 
                 // Use the first chart for the primary file path
                 var primaryChart = charts[0];
-                var orderedCharts = charts
-                    .OrderBy(c => (c.HasDrumChart && c.DrumLevel > 0) ? 0 : 1)
-                    .ThenBy(c => c.DrumLevel)
-                    .ToArray();
+                var orderedCharts = charts.OrderByDifficultySlot().ToArray();
 
                 // Create the song node using the first chart
                 var songNode = SongListNode.CreateSongNode(
@@ -4561,13 +4547,12 @@ namespace DTXMania.Game.Lib.Song
                     : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
                 int scoreIndex = 0;
-                // Order the charts by the same criteria SongChartHelper.GetCurrentDifficultyChart
-                // uses to map a difficulty index to a chart (drum charts with a positive level,
-                // ascending by DrumLevel), so DifficultyLabels[scoreIndex] corresponds to the chart
-                // selected for that difficulty. Without this, an arbitrary database ordering could
+                // Slots follow SongChartHelper.OrderByDifficultySlot, the order
+                // GetCurrentDifficultyChart maps a difficulty index into and the scan's
+                // FinalizePendingNodes publishes, so DifficultyLabels[scoreIndex] belongs to the
+                // chart that difficulty plays. Without this, an arbitrary database ordering could
                 // place an EXTREME chart's label in slot 0 while difficulty 0 loads the BASIC chart,
-                // making the performance-stage badge show the wrong difficulty cell. Non-drum charts
-                // (DrumLevel == 0) sort after drum charts, matching the drum-first selection fallback.
+                // making the performance-stage badge show the wrong difficulty cell.
                 foreach (var chart in orderedCharts.Take(5)) // Limit to 5 difficulties
                 {
                     if (scoreIndex >= songNode.Scores.Length) break;
