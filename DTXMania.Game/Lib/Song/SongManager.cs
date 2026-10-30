@@ -1542,7 +1542,7 @@ namespace DTXMania.Game.Lib.Song
             {
                 var placeholder = pending.Placeholder;
                 var resolvedCharts = new List<SongChart>();
-                foreach (var path in pending.OrderedChartPaths.Take(placeholder.Scores.Length))
+                foreach (var path in pending.OrderedChartPaths)
                 {
                     if (chartsByPath.TryGetValue(path, out var chart))
                         resolvedCharts.Add(chart);
@@ -1557,9 +1557,11 @@ namespace DTXMania.Game.Lib.Song
 
                 // Slots take the difficulty order GetCurrentDifficultyChart plays them in,
                 // not discovery order, exactly as CreateSongNodeFromDatabaseEntities
-                // rebuilds them on a cached launch.
+                // rebuilds them on a cached launch: sort every chart, then fill the slots.
                 var slot = 0;
-                foreach (var chart in resolvedCharts.OrderByDifficultySlot())
+                foreach (var chart in resolvedCharts
+                    .OrderByDifficultySlot()
+                    .Take(placeholder.Scores.Length))
                 {
                     var (instrument, difficultyLevel) =
                         GetPrimaryInstrumentAndDifficulty(chart);
