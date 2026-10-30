@@ -939,11 +939,20 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         await File.WriteAllTextAsync(
             Path.Combine(_songsRoot, "Unlabeled Set", "set.def"),
             "#TITLE Unlabeled Set\n#L3FILE only.dtx\n");
+        // File names and #Ln slots that sort opposite to the drum levels.
+        WriteChart("Songs/Inverted/a-hard.dtx", "Inverted", 80);
+        WriteChart("Songs/Inverted/z-easy.dtx", "Inverted", 20);
+        WriteChart("Songs/Inverted Set/hard.dtx", "Inverted Set", 90);
+        WriteChart("Songs/Inverted Set/easy.dtx", "Inverted Set", 30);
+        await File.WriteAllTextAsync(
+            Path.Combine(_songsRoot, "Inverted Set", "set.def"),
+            "#TITLE Inverted Set\n#L1LABEL HARD\n#L1FILE hard.dtx\n#L3LABEL EASY\n#L3FILE easy.dtx\n");
         var roots = new[] { _songsRoot };
 
         await _manager.EnumerateAndImportSongsAsync(roots, progress: null, CancellationToken.None);
         var enumerated = DescribeHierarchy(_manager.RootSongs);
         Assert.Contains(enumerated, line => line.StartsWith("Score 'Nested Set'"));
+        AssertSlotsMatchPlayedCharts(_manager.RootSongs);
 
         // A cached launch is a new process that starts with an empty library.
         SongManager.ResetInstanceForTesting();
@@ -952,6 +961,19 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         await cached.BuildSongListFromDatabasePublicAsync(roots);
 
         Assert.Equal(enumerated, DescribeHierarchy(cached.RootSongs));
+        AssertSlotsMatchPlayedCharts(cached.RootSongs);
+
+        // Each difficulty slot shows the chart that difficulty plays.
+        static void AssertSlotsMatchPlayedCharts(IEnumerable<SongListNode> roots)
+        {
+            var inverted = roots.Single(node => node.Title == "Inverted");
+            for (var difficulty = 0; difficulty < 2; difficulty++)
+            {
+                Assert.Equal(
+                    inverted.GetCurrentDifficultyChart(difficulty).Id,
+                    inverted.Scores[difficulty].ChartId);
+            }
+        }
     }
 
     [Fact]
