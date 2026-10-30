@@ -71,6 +71,29 @@ public class StartupCriticalPathTraceTests
     }
 
     [Fact]
+    public void Publish_WhenSongLoadUsedTheCache_ShouldWriteTheSameSuccessLine()
+    {
+        var fixture = CreateFixture();
+        CompleteValidTrace(fixture, songLoadFromCache: true);
+        using var writer = new TrackingWriter();
+
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Equal(ExpectedSuccessLine + "\n", writer.ToString());
+    }
+
+    [Fact]
+    public void RecordCacheLoadTerminal_WhenEnumerationResultRecorded_ShouldFailDuplicateEnumerationResult()
+    {
+        var fixture = CreateFixture();
+        fixture.Trace.RecordEnumerationResult(CreateEnumerationResult());
+        fixture.Trace.RecordCacheLoadTerminal(TimeSpan.FromMilliseconds(6));
+
+        using var writer = new TrackingWriter();
+        Assert.True(fixture.Trace.TryPublishTerminal(writer));
+        Assert.Contains("error=duplicate_enumeration_result", writer.ToString());
+    }
+
+    [Fact]
     public void Publish_WhenLifecycleMilestoneDuplicates_ShouldWriteFailureOnly()
     {
         var fixture = CreateFixture();
@@ -472,7 +495,8 @@ public class StartupCriticalPathTraceTests
         StartupCriticalPathMilestone? omitMilestone = null,
         StartupCriticalPathMilestone? secondOmittedMilestone = null,
         IReadOnlyDictionary<StartupCriticalPathMilestone, long>? timestampOverrides = null,
-        StartupCriticalPathAggregate? omitAggregate = null)
+        StartupCriticalPathAggregate? omitAggregate = null,
+        bool songLoadFromCache = false)
     {
         void ExactlyOnce(StartupCriticalPathMilestone milestone, long timestamp)
         {
@@ -570,8 +594,16 @@ public class StartupCriticalPathTraceTests
 
         ExactlyOnce(StartupCriticalPathMilestone.EnumerationInvoke, 60);
         At(fixture, 61, () => fixture.Trace.RecordEnumerationTaskReturned(wasTerminal: false));
-        fixture.Trace.RecordEnumerationResult(CreateEnumerationResult());
-        ExactlyOnce(StartupCriticalPathMilestone.EnumerationTerminal, 70);
+        if (songLoadFromCache)
+        {
+            // 6 ms of rebuild matches the 6 ms of scan phases in CreateEnumerationResult.
+            At(fixture, 70, () => fixture.Trace.RecordCacheLoadTerminal(TimeSpan.FromMilliseconds(6)));
+        }
+        else
+        {
+            fixture.Trace.RecordEnumerationResult(CreateEnumerationResult());
+            ExactlyOnce(StartupCriticalPathMilestone.EnumerationTerminal, 70);
+        }
         FirstPair(
             StartupCriticalPathMilestone.EnumerationObserved,
             StartupCriticalPathMilestone.EnumerationObserved,

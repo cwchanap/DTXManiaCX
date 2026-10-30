@@ -1111,6 +1111,19 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
 
+        private static void TryRecordCacheLoadTerminal(
+            StartupCriticalPathTrace? trace,
+            TimeSpan hierarchyDuration)
+        {
+            try
+            {
+                trace?.RecordCacheLoadTerminal(hierarchyDuration);
+            }
+            catch
+            {
+            }
+        }
+
         private static void TryFailCriticalPath(
             StartupCriticalPathTrace? trace,
             string error,
@@ -1193,7 +1206,8 @@ namespace DTXMania.Game.Lib.Stage
                 {
                     await BuildCacheHierarchyForActivationAsync(
                             activationGeneration,
-                            cancellationToken)
+                            cancellationToken,
+                            isSongLoad: true)
                         .ConfigureAwait(false);
                     return;
                 }
@@ -1303,21 +1317,46 @@ namespace DTXMania.Game.Lib.Stage
 
         private async Task BuildCacheHierarchyForActivationAsync(
             long activationGeneration,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            bool isSongLoad = false)
         {
-            var hierarchy = Stopwatch.StartNew();
+            // When the freshness check skipped the scan, this rebuild is the song
+            // load, so it records the critical-path Enumeration* milestones. The
+            // stopwatch runs inside them so its time never exceeds their span.
+            var criticalPathTrace = isSongLoad ? ResolveCriticalPathTrace() : null;
+            Stopwatch hierarchy;
             Task hierarchyTask;
+            bool completedSynchronously;
             lock (_activationGate)
             {
                 EnsureCurrentActivation(
                     activationGeneration,
                     cancellationToken);
+                TryRecordExactlyOnce(
+                    criticalPathTrace,
+                    StartupCriticalPathMilestone.EnumerationInvoke);
+                hierarchy = Stopwatch.StartNew();
                 hierarchyTask =
                     BuildHierarchyFromDatabaseOnceCoreAsync(_songPaths);
+                // SQLite often completes the rebuild synchronously; its terminal
+                // then precedes the task return, as on the scan path.
+                completedSynchronously = hierarchyTask.IsCompleted;
+                if (completedSynchronously)
+                {
+                    hierarchy.Stop();
+                    TryRecordCacheLoadTerminal(criticalPathTrace, hierarchy.Elapsed);
+                }
+                TryRecordEnumerationTaskReturned(
+                    criticalPathTrace,
+                    completedSynchronously);
             }
 
             await hierarchyTask.ConfigureAwait(false);
-            hierarchy.Stop();
+            if (!completedSynchronously)
+            {
+                hierarchy.Stop();
+                TryRecordCacheLoadTerminal(criticalPathTrace, hierarchy.Elapsed);
+            }
             lock (_activationGate)
             {
                 EnsureCurrentActivation(
