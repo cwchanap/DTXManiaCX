@@ -163,6 +163,22 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
+        public void GetCurrentDifficultyChart_TiedDrumLevels_ShouldPickTheChartGameplayPlays()
+        {
+            var panel = new SongStatusPanel();
+            var second = new SongChart { Id = 1, FilePath = "b.dtx", HasDrumChart = true, DrumLevel = 50 };
+            var first = new SongChart { Id = 2, FilePath = "a.dtx", HasDrumChart = true, DrumLevel = 50 };
+            var song = new SongEntity { Charts = new List<SongChart> { second, first } };
+            var node = new SongListNode { Type = NodeType.Score, DatabaseSong = song };
+
+            for (var difficulty = 0; difficulty < 2; difficulty++)
+            {
+                var shown = InvokePrivateMethod<SongChart?>(panel, "GetCurrentDifficultyChart", node, difficulty);
+                Assert.Same(node.GetCurrentDifficultyChart(difficulty), shown);
+            }
+        }
+
+        [Fact]
         public void GetCurrentDifficultyChart_MultipleDrumCharts_ShouldSortAndPickByDifficulty()
         {
             var panel = new SongStatusPanel();
