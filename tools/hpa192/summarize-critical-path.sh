@@ -937,6 +937,12 @@ validate_attempt_identity_and_outcome() {
     expected_scenario="${expected_scenarios[$((slot - 1))]}"
     [[ "$scenario" == "$expected_scenario" ]] || reject scenario_slot
     [[ "$startup_path" == "$expected_path" ]] || reject startup_path
+    # The cache path rebuilds from songs.db; all of its time is hierarchy.
+    if [[ "$startup_path" == cache ]]; then
+        [[ "$startup_discovery_parse_ms" == 0 &&
+           "$startup_persistence_ms" == 0 &&
+           "$startup_cleanup_ms" == 0 ]] || reject cache_scan_phases
+    fi
     [[ "$startup_discovered" == "$expected_parsed" &&
        "$startup_parsed" == "$expected_parsed" &&
        "$startup_groups" == "$expected_groups" &&

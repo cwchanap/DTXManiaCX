@@ -632,6 +632,56 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void CacheSongLoad_WhenRebuildFaultsSynchronously_ShouldPublishFailure()
+        {
+            var (stage, trace, _) = CreateDiagnosticControlledStage();
+            stage.NextNeedsEnumerationResult = false;
+            stage.ForceEnumerationForTest = false;
+            stage.NextBuildHierarchyTask =
+                Task.FromException(new IOException("cache unavailable"));
+            SetPhaseForUpdate(stage, StartupPhase.EnumerateSongs);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
+
+            Assert.False(ReflectionHelpers.GetPrivateField<bool>(
+                trace,
+                "_enumerationResultRecorded"));
+            Assert.Contains(
+                "outcome=failure error=enumeration_failure " +
+                "last_milestone=EnumerationTerminal",
+                PublishTerminal(trace));
+        }
+
+        [Fact]
+        public async Task CacheSongLoad_WhenDelayedRebuildFaults_ShouldPublishFailure()
+        {
+            var (stage, trace, _) = CreateDiagnosticControlledStage();
+            var completion = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            stage.NextNeedsEnumerationResult = false;
+            stage.ForceEnumerationForTest = false;
+            stage.NextBuildHierarchyTask = completion.Task;
+            SetPhaseForUpdate(stage, StartupPhase.EnumerateSongs);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
+            var phaseTask = ReflectionHelpers.GetPrivateField<Task>(
+                stage,
+                "_currentAsyncTask")!;
+            completion.SetException(new IOException("cache unavailable"));
+            await Assert.ThrowsAsync<IOException>(
+                () => phaseTask.WaitAsync(TimeSpan.FromSeconds(10)));
+            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
+
+            AssertRecorded(
+                trace,
+                StartupCriticalPathMilestone.EnumerationTerminal);
+            Assert.Contains(
+                "outcome=failure error=enumeration_failure " +
+                "last_milestone=EnumerationTerminal",
+                PublishTerminal(trace));
+        }
+
+        [Fact]
         public void EnumerationTask_WhenFaulted_ShouldPublishFailureAfterCleanup()
         {
             var (stage, trace, _) = CreateDiagnosticControlledStage();

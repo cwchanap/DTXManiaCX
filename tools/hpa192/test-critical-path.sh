@@ -1924,6 +1924,12 @@ cache_discovered="$(copy_and_replace cache-discovered "$good_cache" \
     "discovered=100 parsed=100")"
 assert_rejected cache_discovered scenario_counts "$cache_discovered"
 
+# Same phase total as good_cache, so only the cache-phase rule can catch it.
+cache_scan_time="$(copy_and_replace cache-scan-time "$good_cache" \
+    "discovery_parse_ms=0 persistence_ms=0 cleanup_ms=0 hierarchy_ms=65" \
+    "discovery_parse_ms=10 persistence_ms=0 cleanup_ms=0 hierarchy_ms=55")"
+assert_rejected cache_scan_time cache_scan_phases "$cache_scan_time"
+
 nonzero_exit="$(copy_and_replace nonzero-exit "$good" \
     "exit_code=0" \
     "exit_code=1")"

@@ -1113,11 +1113,24 @@ namespace DTXMania.Game.Lib.Stage
 
         private static void TryRecordCacheLoadTerminal(
             StartupCriticalPathTrace? trace,
+            Task hierarchyTask,
             TimeSpan hierarchyDuration)
         {
             try
             {
-                trace?.RecordCacheLoadTerminal(hierarchyDuration);
+                if (hierarchyTask.IsCompletedSuccessfully)
+                {
+                    trace?.RecordCacheLoadTerminal(hierarchyDuration);
+                }
+                else
+                {
+                    // A failed rebuild ends the trace the way a failed scan does.
+                    ((IStartupSongLoadTimingObserver?)trace)?.RecordEnumerationTerminal(
+                        null,
+                        hierarchyTask.IsCanceled
+                            ? StartupOperationOutcome.Cancellation
+                            : StartupOperationOutcome.Failure);
+                }
             }
             catch
             {
@@ -1344,18 +1357,30 @@ namespace DTXMania.Game.Lib.Stage
                 if (completedSynchronously)
                 {
                     hierarchy.Stop();
-                    TryRecordCacheLoadTerminal(criticalPathTrace, hierarchy.Elapsed);
+                    TryRecordCacheLoadTerminal(
+                        criticalPathTrace,
+                        hierarchyTask,
+                        hierarchy.Elapsed);
                 }
                 TryRecordEnumerationTaskReturned(
                     criticalPathTrace,
                     completedSynchronously);
             }
 
-            await hierarchyTask.ConfigureAwait(false);
-            if (!completedSynchronously)
+            try
             {
-                hierarchy.Stop();
-                TryRecordCacheLoadTerminal(criticalPathTrace, hierarchy.Elapsed);
+                await hierarchyTask.ConfigureAwait(false);
+            }
+            finally
+            {
+                if (!completedSynchronously)
+                {
+                    hierarchy.Stop();
+                    TryRecordCacheLoadTerminal(
+                        criticalPathTrace,
+                        hierarchyTask,
+                        hierarchy.Elapsed);
+                }
             }
             lock (_activationGate)
             {
