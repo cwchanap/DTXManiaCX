@@ -161,6 +161,7 @@ critical_field_names=(
     title_game_start_fallback_ran
     title_game_start_fallback_ms
     title_sound_load_count
+    title_crash_inbox_ms
     title_activation_unattributed_ms
     title_backbuffer_published
 )
@@ -733,7 +734,8 @@ validate_temporal_contract() {
         critical_title_cursor_sound_ms -
         critical_title_decide_sound_ms -
         critical_title_game_start_sound_ms -
-        critical_title_game_start_fallback_ms
+        critical_title_game_start_fallback_ms -
+        critical_title_crash_inbox_ms
     ))
     [[ "$expected" -ge 0 &&
        "$critical_title_activation_unattributed_ms" -eq "$expected" ]] ||

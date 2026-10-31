@@ -90,6 +90,10 @@ validate_path_relationships() {
         fail "game binary resolves outside GAME_DIR"
     [[ "$game_dir" == "$result_root/build" ]] ||
         fail "GAME_DIR must be the exact immutable RESULT_ROOT/build child"
+    # The game scans its shipped BundledSongs folder as an extra song root, so
+    # a build that still carries it adds those charts to every scenario.
+    [[ ! -e "$game_dir/BundledSongs" && ! -L "$game_dir/BundledSongs" ]] ||
+        fail "GAME_DIR contains BundledSongs; delete it before freezing the build"
     if paths_overlap "$result_root" "$corpus"; then
         fail "RESULT_ROOT overlaps the frozen corpus"
     fi
