@@ -1139,3 +1139,37 @@ milestones around that cache rebuild, which counts as `hierarchy_ms`, so the
 same line schema and residual checks apply. The summarizer now expects
 `path=enumeration` for A and B and `path=cache` for C. Scenario C results from
 before this change measured a forced rescan and are not comparable.
+
+### Freezing a benchmark build
+
+A normal Release build copies the shipped practice songs to
+`build/BundledSongs`, and startup always scans that folder as an extra song
+root. Left in place, it adds four charts to every scenario, so the seed can
+never hold exactly 100 charts and 27 songs and B can never report 0/0. Delete
+it before recording `fixed-inputs.txt`:
+
+```bash
+dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj -c Release \
+  -o "$RESULT_ROOT/build"
+rm -rf "$RESULT_ROOT/build/BundledSongs"
+```
+
+`benchmark-critical-path.sh` refuses a `GAME_DIR` that still contains
+`BundledSongs`, before it writes or launches anything.
+
+The game's success line also gained `title_crash_inbox_ms` (between
+`title_sound_load_count` and `title_activation_unattributed_ms`), and the game
+subtracts it from `title_activation_unattributed_ms`. The summarizer's schema
+and title-activation residual now include it; before that, every real launch
+was rejected as `critical_schema`.
+
+These changes were checked with the real runner and a real Release build on
+Linux under Xvfb, using a synthetic corpus of 592 files (100 charts in 27
+`SET.def` songs) whose manifest stood in for the committed one. With
+`BundledSongs` in the build, `main`'s runner failed `prepare-seed` with "seed
+database counts are not 100 charts and 27 songs". With the folder deleted,
+`prepare-seed` produced a 100/27 seed, and the matrix accepted slots 1 A,
+2 B (0/0) and 3 C (`path=cache`). It stopped at slot 4 B on
+`load_content_rounding`: on that slow container the two load-content markers
+differed by 2 ms against a 1 ms allowance. This is not a cache-path problem,
+and the check is unchanged. These are not benchmark results.

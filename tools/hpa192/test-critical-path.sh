@@ -91,7 +91,7 @@ write_result() {
         printf '%s\n' \
             "HPA192_TIMING entry_to_config_ms=8 config_to_load_content_ms=12 load_content_to_startup_ms=10 startup_to_first_draw_ms=24 startup_to_summary_ms=170 summary_to_title_ms=40 entry_to_title_ms=240 entry_unix_us=1100000 title_unix_us=1340000"
         printf '%s\n' \
-            "HPA192_CRITICAL_PATH outcome=success error=none entry_unix_us=1100000 title_backbuffer_unix_us=1360000 entry_to_title_backbuffer_ms=260 load_content_complete_from_entry_ms=20 startup_construct_begin_from_entry_ms=21 startup_construct_end_from_entry_ms=22 startup_activate_begin_from_entry_ms=23 startup_activation_from_entry_ms=30 startup_activate_end_from_entry_ms=31 load_content_return_from_entry_ms=32 base_initialize_return_from_entry_ms=33 input_manager_begin_from_entry_ms=34 input_manager_end_from_entry_ms=35 saved_bindings_begin_from_entry_ms=36 saved_bindings_end_from_entry_ms=37 graphics_initialize_begin_from_entry_ms=38 graphics_initialize_end_from_entry_ms=39 render_target_begin_from_entry_ms=40 render_target_end_from_entry_ms=41 initialize_complete_from_entry_ms=50 post_load_unattributed_ms=16 startup_first_update_begin_from_entry_ms=51 startup_first_update_end_from_entry_ms=52 startup_first_draw_begin_from_entry_ms=53 startup_first_draw_end_from_entry_ms=54 startup_updates_before_first_draw=1 startup_game_time_before_first_draw_ms=5 startup_draws_before_transition=1 db_invoke_from_entry_ms=60 db_task_return_from_entry_ms=61 db_terminal_from_entry_ms=80 db_observed_from_entry_ms=81 db_task_returned_terminal=0 enumeration_invoke_from_entry_ms=90 enumeration_task_return_from_entry_ms=91 enumeration_terminal_from_entry_ms=160 enumeration_observed_from_entry_ms=161 enumeration_task_returned_terminal=0 enumeration_unattributed_ms=5 db_service_setup_ms=1 db_corruption_probe_ms=1 db_invalid_recovery_count=0 db_invalid_recovery_ms=0 db_ensure_created_count=1 db_ensure_created_ms=1 db_encoding_pragmas_ms=1 db_version_work_ms=1 db_schema_ensures_ms=1 db_init_unattributed_ms=14 summary_request_from_entry_ms=200 title_construct_begin_from_entry_ms=201 title_construct_end_from_entry_ms=202 transition_start_from_entry_ms=203 transition_complete_from_entry_ms=220 transition_update_count=1 transition_game_time_ms=10 startup_deactivate_begin_from_entry_ms=220 startup_deactivate_end_from_entry_ms=221 title_activate_begin_from_entry_ms=222 title_activate_end_from_entry_ms=240 title_first_update_begin_from_entry_ms=241 title_first_update_end_from_entry_ms=242 title_stage_draw_begin_from_entry_ms=243 title_stage_draw_end_from_entry_ms=250 title_backbuffer_blit_begin_from_entry_ms=251 title_backbuffer_blit_end_from_entry_ms=260 summary_to_title_unattributed_ms=6 title_gpu_setup_ms=1 title_background_ms=1 title_menu_ms=1 title_font_ms=1 title_cursor_sound_ms=1 title_decide_sound_ms=1 title_game_start_sound_ms=1 title_game_start_fallback_ran=0 title_game_start_fallback_ms=0 title_sound_load_count=3 title_activation_unattributed_ms=11 title_backbuffer_published=1"
+            "HPA192_CRITICAL_PATH outcome=success error=none entry_unix_us=1100000 title_backbuffer_unix_us=1360000 entry_to_title_backbuffer_ms=260 load_content_complete_from_entry_ms=20 startup_construct_begin_from_entry_ms=21 startup_construct_end_from_entry_ms=22 startup_activate_begin_from_entry_ms=23 startup_activation_from_entry_ms=30 startup_activate_end_from_entry_ms=31 load_content_return_from_entry_ms=32 base_initialize_return_from_entry_ms=33 input_manager_begin_from_entry_ms=34 input_manager_end_from_entry_ms=35 saved_bindings_begin_from_entry_ms=36 saved_bindings_end_from_entry_ms=37 graphics_initialize_begin_from_entry_ms=38 graphics_initialize_end_from_entry_ms=39 render_target_begin_from_entry_ms=40 render_target_end_from_entry_ms=41 initialize_complete_from_entry_ms=50 post_load_unattributed_ms=16 startup_first_update_begin_from_entry_ms=51 startup_first_update_end_from_entry_ms=52 startup_first_draw_begin_from_entry_ms=53 startup_first_draw_end_from_entry_ms=54 startup_updates_before_first_draw=1 startup_game_time_before_first_draw_ms=5 startup_draws_before_transition=1 db_invoke_from_entry_ms=60 db_task_return_from_entry_ms=61 db_terminal_from_entry_ms=80 db_observed_from_entry_ms=81 db_task_returned_terminal=0 enumeration_invoke_from_entry_ms=90 enumeration_task_return_from_entry_ms=91 enumeration_terminal_from_entry_ms=160 enumeration_observed_from_entry_ms=161 enumeration_task_returned_terminal=0 enumeration_unattributed_ms=5 db_service_setup_ms=1 db_corruption_probe_ms=1 db_invalid_recovery_count=0 db_invalid_recovery_ms=0 db_ensure_created_count=1 db_ensure_created_ms=1 db_encoding_pragmas_ms=1 db_version_work_ms=1 db_schema_ensures_ms=1 db_init_unattributed_ms=14 summary_request_from_entry_ms=200 title_construct_begin_from_entry_ms=201 title_construct_end_from_entry_ms=202 transition_start_from_entry_ms=203 transition_complete_from_entry_ms=220 transition_update_count=1 transition_game_time_ms=10 startup_deactivate_begin_from_entry_ms=220 startup_deactivate_end_from_entry_ms=221 title_activate_begin_from_entry_ms=222 title_activate_end_from_entry_ms=240 title_first_update_begin_from_entry_ms=241 title_first_update_end_from_entry_ms=242 title_stage_draw_begin_from_entry_ms=243 title_stage_draw_end_from_entry_ms=250 title_backbuffer_blit_begin_from_entry_ms=251 title_backbuffer_blit_end_from_entry_ms=260 summary_to_title_unattributed_ms=6 title_gpu_setup_ms=1 title_background_ms=1 title_menu_ms=1 title_font_ms=1 title_cursor_sound_ms=1 title_decide_sound_ms=1 title_game_start_sound_ms=1 title_game_start_fallback_ran=0 title_game_start_fallback_ms=0 title_sound_load_count=3 title_crash_inbox_ms=1 title_activation_unattributed_ms=10 title_backbuffer_published=1"
     } >"$path"
 }
 
@@ -817,6 +817,17 @@ run_runner_layout_tests() {
         assert_rejected_before_launch_without_tree_changes \
             disjoint-external-game \
             "$fixture_result"
+
+        # Break caught: benchmarking a normal build whose shipped
+        # BundledSongs root adds practice charts to every scenario.
+        create_runner_fixture bundled-songs
+        mkdir -p "$fixture_game/BundledSongs/Pop"
+        printf 'practice\n' >"$fixture_game/BundledSongs/Pop/pop.dtx"
+        assert_rejected_before_launch_without_tree_changes \
+            bundled-songs \
+            "$fixture_result"
+        grep -q 'GAME_DIR contains BundledSongs' "$fixture_root/prepare.stderr" ||
+            layout_failure "BundledSongs build was rejected for another reason"
 
         # Break caught: accepting a run without Task 10's exact control file.
         create_runner_fixture missing-fixed-inputs
@@ -1682,8 +1693,8 @@ assert_rejected enumeration_off_by_five enumeration_residual \
     "$enumeration_off_by_five"
 
 title_activation_off_by_one="$(copy_and_replace title-activation-off-by-one "$good" \
-    "title_activation_unattributed_ms=11" \
-    "title_activation_unattributed_ms=10")"
+    "title_activation_unattributed_ms=10" \
+    "title_activation_unattributed_ms=9")"
 assert_rejected title_activation_off_by_one title_activation_residual \
     "$title_activation_off_by_one"
 
