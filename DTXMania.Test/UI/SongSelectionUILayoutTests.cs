@@ -1,6 +1,11 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
 using DTXMania.Game.Lib.Config;
+using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.UI.Layout;
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
 using Xunit;
 
 namespace DTXMania.Test.UI
@@ -8,6 +13,107 @@ namespace DTXMania.Test.UI
     [Trait("Category", "UI")]
     public class SongSelectionUILayoutTests
     {
+        [Fact]
+        public void PlaybackProfile_Bounds_ShouldClearNativeBpmArtAndPreviewAndDifficultyHeader()
+        {
+            var position = SongSelectionUILayout.UILabels.PlaybackProfile.Position;
+            var size = SongSelectionUILayout.UILabels.PlaybackProfile.Size;
+            var bounds = new Rectangle((int)position.X, (int)position.Y, (int)size.X, (int)size.Y);
+
+            Assert.Equal(new Rectangle(20, 342, 224, 24), bounds);
+            // 5_BPM.png is drawn at native height 67, NOT the logical BPMSection.Height (50).
+            Assert.Equal(67, SongSelectionUILayout.BPMSection.SkinTextureHeight);
+            Assert.True(bounds.Top >= SongSelectionUILayout.BPMSection.Y + SongSelectionUILayout.BPMSection.SkinTextureHeight);
+            Assert.True(bounds.Right < 250); // preview-frame left edge
+            Assert.True(bounds.Bottom <= 368); // difficulty texture header, not first cell
+        }
+
+        [Fact]
+        public void PlaybackProfile_AllSupportedValues_ShouldFitBandWithRealSpriteFontMetrics()
+        {
+            var (assetName, _, _) = ManagedFont.GetBestSpriteFontAssetName(
+                SongSelectionUILayout.Background.DefaultFontName,
+                SongSelectionUILayout.Background.DefaultFontSize, FontStyle.Regular);
+            var font = ReadSpriteFontMetrics(Path.Combine(AppContext.BaseDirectory, "Content", assetName + ".xnb"));
+            var glyphs = font.GetGlyphs();
+            float maximumWidth = 0;
+            int combinations = 0;
+            for (int speed = PlaySpeedRange.Min; speed <= PlaySpeedRange.Max; speed += PlaySpeedRange.Step)
+            for (int pitch = PitchRange.Min; pitch <= PitchRange.Max; pitch += PitchRange.Step)
+            {
+                var text = PlaybackProfileFormatter.Format(speed, pitch);
+                var size = font.MeasureString(text) * SongSelectionUILayout.UILabels.PlaybackProfile.TextScale;
+                maximumWidth = Math.Max(maximumWidth, size.X);
+                Assert.True(size.X <= 224, $"{assetName}: '{text}' width {size.X} exceeds profile band");
+                Assert.True(20 + size.X < 250, $"'{text}' overlaps the preview frame");
+                // DrawString uses cropping offsets for ink; MeasureString.Y includes unused line spacing.
+                foreach (char character in text)
+                {
+                    if (char.IsWhiteSpace(character))
+                        continue;
+                    var glyph = glyphs.TryGetValue(character, out var mappedGlyph)
+                        ? mappedGlyph : glyphs[font.DefaultCharacter!.Value];
+                    float inkBottom = (glyph.Cropping.Y + glyph.BoundsInTexture.Height)
+                        * SongSelectionUILayout.UILabels.PlaybackProfile.TextScale + 2; // shadow
+                    Assert.True(inkBottom <= 24, $"'{character}' ink plus shadow exceeds band: {inkBottom}");
+                }
+                combinations++;
+            }
+            Assert.Equal(525, combinations);
+            Assert.True(maximumWidth > 200, "Real font metrics must be loaded, not a zero-width mock");
+        }
+
+        private static SpriteFont ReadSpriteFontMetrics(string path)
+        {
+            // shortcut: supports the project's uncompressed XNB v5 fonts; upgrade if compression changes.
+            using var reader = new BinaryReader(File.OpenRead(path));
+            Assert.Equal("XNB", new string(reader.ReadChars(3)));
+            reader.ReadByte(); // platform
+            Assert.Equal(5, reader.ReadByte());
+            Assert.Equal(0, reader.ReadByte() & 0xC0);
+            Assert.Equal(reader.BaseStream.Length, reader.ReadInt32());
+            var typeReaders = new string[reader.Read7BitEncodedInt()];
+            for (int i = 0; i < typeReaders.Length; i++)
+            {
+                typeReaders[i] = reader.ReadString();
+                Assert.Equal(0, reader.ReadInt32());
+            }
+            Assert.Equal(0, reader.Read7BitEncodedInt()); // shared resources
+            Assert.Contains(".SpriteFontReader,", typeReaders[reader.Read7BitEncodedInt() - 1]);
+            Assert.Contains(".Texture2DReader", typeReaders[reader.Read7BitEncodedInt() - 1]);
+            reader.ReadInt32(); // surface format
+            reader.ReadInt32(); // atlas width
+            reader.ReadInt32(); // atlas height
+            int mipCount = reader.ReadInt32();
+            for (int i = 0; i < mipCount; i++)
+                reader.BaseStream.Seek(reader.ReadInt32(), SeekOrigin.Current);
+
+            var rectangles = new List<Rectangle>[2];
+            for (int list = 0; list < 2; list++)
+            {
+                Assert.Contains(".Rectangle,", typeReaders[reader.Read7BitEncodedInt() - 1]);
+                rectangles[list] = new List<Rectangle>();
+                int count = reader.ReadInt32();
+                for (int i = 0; i < count; i++)
+                    rectangles[list].Add(new Rectangle(reader.ReadInt32(), reader.ReadInt32(), reader.ReadInt32(), reader.ReadInt32()));
+            }
+            Assert.Contains("System.Char,", typeReaders[reader.Read7BitEncodedInt() - 1]);
+            int characterCount = reader.ReadInt32();
+            var characters = new List<char>();
+            for (int i = 0; i < characterCount; i++)
+                characters.Add(reader.ReadChar()); // variable-width UTF-8
+            int lineSpacing = reader.ReadInt32();
+            float spacing = reader.ReadSingle();
+            Assert.Contains(".Vector3,", typeReaders[reader.Read7BitEncodedInt() - 1]);
+            int kerningCount = reader.ReadInt32();
+            var kerning = new List<Vector3>();
+            for (int i = 0; i < kerningCount; i++)
+                kerning.Add(new Vector3(reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle()));
+            char? defaultCharacter = reader.ReadBoolean() ? reader.ReadChar() : null;
+            // MeasureString needs only the real glyph metrics, not a GPU atlas upload.
+            return new SpriteFont(null!, rectangles[0], rectangles[1], characters, lineSpacing, spacing, kerning, defaultCharacter);
+        }
+
         [Fact]
         public void StatusPanel_Position_ShouldMatchConstants()
         {

@@ -52,6 +52,8 @@ namespace DTXMania.Game.Lib.UI.Layout
             public const int Y = 275; // NX authentic: nBPM位置Y = 275
             public const int Width = 200;
             public const int Height = 50;
+            // 5_BPM.png is drawn at natural size, independent of the logical section bounds.
+            public const int SkinTextureHeight = 67;
 
             public static Vector2 Position => new Vector2(X, Y);
             public static Vector2 Size => new Vector2(Width, Height);
@@ -548,14 +550,14 @@ namespace DTXMania.Game.Lib.UI.Layout
                 public static Vector2 Size => new Vector2(Width, Height);
             }
 
-            // Active playback profile. Occupies the band between the preview image
-            // (bottom Y=326) and the status panel (top Y=350).
+            // Foreground band below the native BPM plate and left of the preview frame.
             public static class PlaybackProfile
             {
-                public const int X = 50;
-                public const int Y = 326;
-                public const int Width = 640;
+                public const int X = 20;
+                public const int Y = 342;
+                public const int Width = 224;
                 public const int Height = 24;
+                public const float TextScale = 0.9f;
 
                 public static Vector2 Position => new Vector2(X, Y);
                 public static Vector2 Size => new Vector2(Width, Height);

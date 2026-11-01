@@ -684,7 +684,7 @@ namespace DTXMania.Game.Lib.Stage
 
             // Active speed/pitch profile. Text is populated by SynchronizeActivePlaySpeed
             // from the same config snapshot used by speed-scoped score consumers.
-            _playbackProfileLabel = new UILabel("")
+            _playbackProfileLabel = new PlaybackProfileLabel()
             {
                 Position = SongSelectionUILayout.UILabels.PlaybackProfile.Position,
                 Size = SongSelectionUILayout.UILabels.PlaybackProfile.Size,
@@ -793,11 +793,11 @@ namespace DTXMania.Game.Lib.Stage
             // Add components to panel
             _mainPanel.AddChild(_titleLabel);
             _mainPanel.AddChild(_breadcrumbLabel);
-            _mainPanel.AddChild(_playbackProfileLabel);
             _mainPanel.AddChild(_songListDisplay);
             _mainPanel.AddChild(_statusPanel);
             _mainPanel.AddChild(_playHistoryPanel);
             _mainPanel.AddChild(_previewImagePanel);
+            _mainPanel.AddChild(_playbackProfileLabel);
 
             // Search/filter modal (guarded: text input is unavailable in headless/test environments)
             try
@@ -3085,6 +3085,16 @@ namespace DTXMania.Game.Lib.Stage
             {
                 if (node?.RecentPlaySpeedPercent.HasValue == true)
                     node.Title = FormatRecentPlayDisplayTitle(node);
+            }
+        }
+
+        // The shared baked 16px UI font cannot be resized by LoadFont; scale only this label's ink.
+        private sealed class PlaybackProfileLabel : UILabel
+        {
+            protected override void DrawText(SpriteBatch spriteBatch, SpriteFont font, string text, Vector2 position, Color color)
+            {
+                spriteBatch.DrawString(font, text, position, color, 0f, Vector2.Zero,
+                    SongSelectionUILayout.UILabels.PlaybackProfile.TextScale, SpriteEffects.None, 0f);
             }
         }
 
