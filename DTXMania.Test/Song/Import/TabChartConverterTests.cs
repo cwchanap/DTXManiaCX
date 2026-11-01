@@ -166,6 +166,24 @@ namespace DTXMania.Test.Song.Import
         }
 
         [Fact]
+        public void ConvertToDtx_DrumTrackWithNoLaneHits_ShouldThrowUnplayableTab()
+        {
+            var xml = DrumScore(Measure(Hit("half", Cowbell) + Hit("half", Cowbell)));
+
+            Assert.Throws<UnplayableTabException>(() => TabChartConverter.ConvertToDtx(Bytes(xml), "cowbell"));
+        }
+
+        [Fact]
+        public void ConvertToDtx_999TabBars_ShouldKeepTheLastBar()
+        {
+            var measures = Enumerable.Repeat(Measure(Hit("whole", Kick)), 999).ToArray();
+
+            var lines = Convert(DrumScore(measures));
+
+            Assert.Equal("01", lines["99913"]);
+        }
+
+        [Fact]
         public void ConvertToDtx_MoreBarsThanDtxCanNumber_ShouldThrowUnplayableTab()
         {
             // 999 tab bars + the count-in fill bars 000-999; one more cannot be written.
@@ -184,6 +202,20 @@ namespace DTXMania.Test.Song.Import
                 Enumerable.Range(0, 16).Select(__ => Tempo(bpm++) + Hit("16th", Kick))))).ToArray();
 
             Assert.Throws<UnplayableTabException>(() => TabChartConverter.ConvertToDtx(Bytes(DrumScore(measures)), "tempos"));
+        }
+
+        [Fact]
+        public void ConvertToDtx_AsManyTemposAsBpmIds_ShouldUseBpmZZ()
+        {
+            // 81 bars x 16 sixteenths: the base #BPM plus 1,295 changes, exactly #BPM01-#BPMZZ.
+            var bpm = 40;
+            var measures = Enumerable.Range(0, 81).Select(_ => Measure(string.Concat(
+                Enumerable.Range(0, 16).Select(__ => Tempo(bpm++) + Hit("16th", Kick))))).ToArray();
+
+            var lines = Convert(DrumScore(measures));
+
+            Assert.Equal("40", lines["BPM"]);
+            Assert.True(lines.ContainsKey("BPMZZ"));
         }
 
         [Fact]
