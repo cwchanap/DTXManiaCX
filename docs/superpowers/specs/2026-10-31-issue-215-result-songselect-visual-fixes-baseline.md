@@ -61,8 +61,11 @@ at ~(37,76,0) — effectively invisible. Defect 2 confirmed on-pixel.
 
 ## PlaybackProfileFormatter width vs 224px slot — DOES NOT FIT
 
-- Formatter max-width string: `PLAY 0.50x · PITCH +12 st` (speed "0.50x" is the
-  widest speed form; "±12 st" the widest pitch form).
+- Formatter max-width string: `PLAY 1.50x · PITCH +12 st` (NotoSerifJP digits
+  are tabular, so every speed form ties at the same width; "+12 st" is the
+  widest pitch form — the plus sign is ~5px wider than the hyphen, so
+  `1.50x/-12` measures 233.9px). All 525 speed×pitch combinations were
+  enumerated (re-verified in fix round 1).
 - SongSelect label font: `LoadFont("Arial", 16)` → **NotoSerifJP** baked 14pt
   asset (family fallback), i.e. the "16px UI font" renders ≈18.7px em.
 - Ground truth: the default string `PLAY 1.00x · PITCH +0 st` measures **228px**
@@ -70,10 +73,23 @@ at ~(37,76,0) — effectively invisible. Defect 2 confirmed on-pixel.
   to that ink (em ≈19.1px; strict 14pt@96dpi = 18.67px gives 222px):
   default ≈ 228px, max ≈ **238px** (233.9px for `1.50x/-12`, 238.3px for `0.50x/+12`).
 - Verdict: the full supported range **exceeds the proposed 224px slot** by
-  ~10–14px; even the default string is ≥224px. Per spec B, Task 2 must apply a
-  small local font/geometry adjustment (e.g. ~0.9× text scale ≈214px, or a
-  slightly wider slot — X=16..244 still clears the preview frame at X=250 by
-  6px but only fits ≈228px). Decision deferred to Task 2 with this measurement.
+  ~10–14px; even the default string is ≥224px.
+- **Decided correction (spec B, small local font adjustment): draw the label
+  text at 0.9× scale of the baked 14pt NotoSerifJP asset; geometry unchanged
+  from the spec** — slot X=20, Y=342, W=224, H=24 (band X=20..244, Y=342..366:
+  left edge X=20 stays, top Y=342 sits on the 67px BPM plate bottom, bottom
+  366 precedes difficulty-header top 368). Expected max text width under the
+  correction: **≈215px** (238.3 × 0.9 = 214.5; default string 228 → ≈205px),
+  i.e. ≈9px slot slack and ink right edge ≈X=235, ≈15px clear of the
+  preview-frame left X=250 — still within the slot at the ±5px worst case
+  (220px ≤ 224px). No truncation, no `PlaybackProfileFormatter` change.
+  Why the alternatives were rejected: with the left edge pinned at X=20 and
+  the frame at X=250 the widest possible slot is 229px < 238px max text (a
+  wider slot would also have to move the left edge off X=20), while a plain
+  `LoadFont` size change is a no-op here — `ManagedFont.GetBestSpriteFontAssetName`
+  snaps every NotoSerifJP request to the baked {14, 24, 48} set (15–18 → the
+  same 14pt asset; 24 would render ≈409px). The only small local font move is
+  therefore a per-label draw scale (~0.9×), to be implemented in Task 2.
 - Caveat: no headless SpriteFont/MeasureString facility exists in the tests
   (all mocks); widths are PIL advances on the shipped TTF calibrated to real
   rendered ink (±5px). MonoGame's own MeasureString may differ by a few px —
@@ -84,8 +100,10 @@ at ~(37,76,0) — effectively invisible. Defect 2 confirmed on-pixel.
 - `DTXManiaNX/Code/Stage/08.Result/CActResultParameterPanel.cs`:
   level drawn as a **60×60 badge** (`tx難易度パネル` region at
   `14+n本体X, 266+n本体Y`) with per-digit 16px-advance bitmap digits at
-  `(18|26)+n本体X, 290+n本体Y`; playing skill drawn as right-padded text
-  `string.Format("{0,6:##0.00}", dbPerformanceSkill)` at `58+n本体X, 277+n本体Y`
+  `(18|26)+n本体X, 290+n本体Y`; playing skill drawn as left-padded text
+  `string.Format("{0,6:##0.00}", dbPerformanceSkill)` (a positive alignment
+  width pads on the left, i.e. the value is right-aligned within 6 chars) at
+  `58+n本体X, 277+n本体Y`
   (+ separate `%` bitmap at 217,287); game skill same format at (88,363).
   CX replaced badge+padded-bitmap with plain left-aligned text at nearby X —
   the badge/padding semantics were not retained.
