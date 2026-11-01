@@ -910,6 +910,110 @@ public class SongListDisplayLogicTests
         Assert.Same(otherSel, GetField<ITexture?>(display, "_barOtherSelectedTexture"));
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void LoadSkinBarTextures_ShouldLoadDefaultPreviewOnlyWhenAssetExists(bool exists)
+    {
+        var display = new SongListDisplay();
+        var rm = new Mock<IResourceManager>();
+        var preview = CreateTexture(400, 400);
+        rm.Setup(x => x.ResourceExists(TexturePath.ResultDefaultPreview)).Returns(exists);
+        rm.Setup(x => x.LoadTexture(TexturePath.ResultDefaultPreview)).Returns(preview.Object);
+        SetField(display, "_resourceManager", rm.Object);
+
+        InvokePrivate<object?>(display, "LoadSkinBarTextures");
+
+        Assert.Same(exists ? preview.Object : null, GetField<ITexture?>(display, "_defaultBarPreview"));
+        rm.Verify(x => x.LoadTexture(TexturePath.ResultDefaultPreview), exists ? Times.Once() : Times.Never());
+        display.Dispose();
+        preview.Verify(x => x.RemoveReference(), exists ? Times.Once() : Times.Never());
+        preview.Verify(x => x.Dispose(), Times.Never);
+    }
+
+    [Fact]
+    public void DefaultBarPreview_WhenRefreshingAndReinitializing_ShouldReleaseOnlyAtReinitialization()
+    {
+        var display = new SongListDisplay();
+        var rm = new Mock<IResourceManager>();
+        var preview = CreateTexture(400, 400);
+        rm.Setup(x => x.ResourceExists(TexturePath.ResultDefaultPreview)).Returns(true);
+        rm.Setup(x => x.LoadTexture(TexturePath.ResultDefaultPreview)).Returns(preview.Object);
+        SetField(display, "_resourceManager", rm.Object);
+        InvokePrivate<object?>(display, "LoadSkinBarTextures");
+
+        display.RefreshDisplay();
+        preview.Verify(x => x.RemoveReference(), Times.Never);
+        display.InitializeEnhancedRendering(null, rm.Object, null);
+        display.Dispose();
+
+        preview.Verify(x => x.RemoveReference(), Times.Once);
+        preview.Verify(x => x.AddReference(), Times.Never);
+        preview.Verify(x => x.Dispose(), Times.Never);
+        rm.Verify(x => x.LoadTexture(TexturePath.ResultDefaultPreview), Times.Once);
+    }
+
+    [Theory]
+    [InlineData(true, BarType.Score, false, true)]
+    [InlineData(false, BarType.Score, false, true)]
+    [InlineData(true, BarType.Score, true, false)]
+    [InlineData(false, BarType.Score, true, false)]
+    [InlineData(true, BarType.Box, false, false)]
+    [InlineData(false, BarType.Other, false, false)]
+    public void DrawBarInfoWithPerspective_ShouldPreferRealPreviewAndUseDefaultOnlyForScores(
+        bool selected, BarType barType, bool hasPreview, bool usesDefault)
+    {
+        var display = new SongListDisplay();
+        var fallback = CreateTexture(400, 400);
+        var realPreview = CreateTexture();
+        var rm = new Mock<IResourceManager>(MockBehavior.Strict);
+        SetField(display, "_resourceManager", rm.Object);
+        SetField(display, "_defaultBarPreview", fallback.Object);
+        var barInfo = new SongBarInfo
+        {
+            SongNode = new SongListNode { Type = NodeType.Score },
+            BarType = barType,
+            PreviewImage = hasPreview ? realPreview.Object : null
+        };
+        var bounds = selected ? new Rectangle(665, 269, 510, 48) : new Rectangle(673, 100, 510, 48);
+        var slot = selected ? new Rectangle(672, 266, 44, 44) : new Rectangle(704, 102, 44, 44);
+
+        InvokePrivate<object?>(display, "DrawBarInfoWithPerspective", null!, barInfo, bounds, selected, selected, 1f, 0.5f);
+
+        fallback.Verify(x => x.Draw(null!, slot, null, Color.White * 0.5f, 0f, Vector2.Zero, SpriteEffects.None, 0f), usesDefault ? Times.Once() : Times.Never());
+        realPreview.Verify(x => x.Draw(null!, slot, null, Color.White * 0.5f, 0f, Vector2.Zero, SpriteEffects.None, 0f), hasPreview ? Times.Once() : Times.Never());
+        Assert.Same(hasPreview ? realPreview.Object : null, barInfo.PreviewImage);
+        fallback.Verify(x => x.AddReference(), Times.Never);
+        fallback.Verify(x => x.RemoveReference(), Times.Never);
+        rm.VerifyNoOtherCalls();
+    }
+
+    [Theory]
+    [InlineData(true, NodeType.Score, true, true)]
+    [InlineData(false, NodeType.Score, true, true)]
+    [InlineData(true, NodeType.Box, true, false)]
+    [InlineData(false, NodeType.Random, true, false)]
+    [InlineData(false, NodeType.BackBox, true, false)]
+    [InlineData(true, NodeType.Score, false, false)]
+    public void DrawBasicSongItemWithPerspective_ShouldUseDefaultOnlyForSkinScoreBars(
+        bool selected, NodeType nodeType, bool hasSkin, bool usesDefault)
+    {
+        var display = new SongListDisplay { ManagedFont = CreateManagedFont().Object };
+        var fallback = CreateTexture(400, 400);
+        var skin = CreateTexture();
+        SetField(display, "_defaultBarPreview", fallback.Object);
+        SetField(display, "_skinBarTexturesLoaded", hasSkin);
+        SetField(display, "_barScoreTexture", skin.Object);
+        SetField(display, "_barScoreSelectedTexture", skin.Object);
+        var bounds = selected ? new Rectangle(665, 269, 510, 48) : new Rectangle(673, 100, 510, 48);
+        var slot = selected ? new Rectangle(672, 266, 44, 44) : new Rectangle(704, 102, 44, 44);
+
+        InvokePrivate<object?>(display, "DrawBasicSongItemWithPerspective", null!,
+            new SongListNode { Type = nodeType }, bounds, selected, selected, 0, 1f, 0.5f);
+
+        fallback.Verify(x => x.Draw(null!, slot, null, Color.White * 0.5f, 0f, Vector2.Zero, SpriteEffects.None, 0f), usesDefault ? Times.Once() : Times.Never());
+    }
+
     [Fact]
     public void LoadSkinBarTextures_WhenResourceManagerMissing_ShouldNotEnableSkinFlag()
     {
