@@ -40,6 +40,9 @@ namespace DTXMania.Game.Lib.Song.Import
 
         private const int BpmChannel = 0x08;
 
+        /// <summary>DTXChartParser reads three decimal bar digits, so bars 000-999.</summary>
+        private const int MaxChartBars = 1000;
+
         /// <summary>General MIDI drum note to DTX drum channel.</summary>
         private static readonly Dictionary<int, int> GmNoteToChannel = new()
         {
@@ -97,6 +100,9 @@ namespace DTXMania.Game.Lib.Song.Import
             var tempoMap = midi.GetTempoMap();
             var notes = midi.GetNotes().ToList();
             var bars = GetBars(tempoMap, notes.Count == 0 ? 0 : notes.Max(n => n.Time));
+            if (bars.Count > MaxChartBars)
+                throw new InvalidDataException(
+                    $"The tab is {bars.Count - 1} bars long after repeats; at most {MaxChartBars - 1} fit in a chart.");
 
             var title = CleanHeaderText(score.Title);
             var artist = CleanHeaderText(score.Artist);

@@ -166,6 +166,15 @@ namespace DTXMania.Test.Song.Import
         }
 
         [Fact]
+        public void ConvertToDtx_MoreBarsThanDtxCanNumber_ShouldThrowInvalidData()
+        {
+            // 999 tab bars + the count-in fill bars 000-999; one more cannot be written.
+            var measures = Enumerable.Repeat(Measure(Hit("whole", Kick)), 1000).ToArray();
+
+            Assert.Throws<InvalidDataException>(() => TabChartConverter.ConvertToDtx(Bytes(DrumScore(measures)), "long"));
+        }
+
+        [Fact]
         public void ConvertToDtx_TitleAndArtist_ShouldBecomeDtxHeaders()
         {
             var lines = Convert(Document("Canon", "Pachelbel", DrumPart(Measure(Hit("whole", Kick)))));
