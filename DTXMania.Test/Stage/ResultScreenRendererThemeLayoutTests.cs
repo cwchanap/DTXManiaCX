@@ -1,3 +1,5 @@
+using System;
+using System.IO;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage.Result;
 using DTXMania.Game.Lib.UI.Layout;
@@ -404,9 +406,9 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void ResolveValueColor_WithEmptyTheme_ShouldKeepNxWhite()
+        public void ResolveValueColor_WithEmptyTheme_ShouldContrastWithBrightNxPanel()
         {
-            Assert.Equal(Color.White, ResultScreenRenderer.ResolveValueColor(SkinTheme.Empty));
+            Assert.Equal(new Color(0x30, 0x30, 0x30), ResultScreenRenderer.ResolveValueColor(SkinTheme.Empty));
         }
 
         [Fact]
@@ -646,26 +648,68 @@ namespace DTXMania.Test.Stage
             Assert.Equal(new Rectangle(824, 304, 432, 96), bounds);
         }
 
-        /// <summary>
-        /// Line box of the baked NotoSerifJP-24 asset the NX value font resolves
-        /// to (LoadFont("NotoSerifJP", 20) snaps to the 24px bake), measured in
-        /// the issue-215 art baseline. Level/skill/game-skill rows must each get
-        /// a full line box, not merely a fixed ΔY.
-        /// </summary>
-        private const float NxValueFontLineHeight = 28f;
-
         [Fact]
         public void SkillPanel_DefaultValueRows_ShouldSeparateGlyphBounds()
         {
+            // NX has no dedicated value font: DrawModelText uses the normal font/scale.
+            var theme = SkinTheme.Empty;
+            var (assetName, _, _) = ManagedFont.GetBestSpriteFontAssetName(
+                "NotoSerifJP", ResultScreenRenderer.ResolveNormalFontSize(theme), FontStyle.Regular);
+            var lineHeight = ReadSpriteFontLineSpacing(Path.Combine(AppContext.BaseDirectory, "Content", assetName + ".xnb"))
+                * ResultScreenRenderer.ResolveNormalFontScale(theme);
             var levelToSkill = ResultUILayout.SkillPanel.PlayingSkillPosition.Y
                 - ResultUILayout.SkillPanel.LevelPosition.Y;
             var skillToGameSkill = ResultUILayout.SkillPanel.GameSkillPosition.Y
                 - ResultUILayout.SkillPanel.PlayingSkillPosition.Y;
 
-            Assert.True(levelToSkill >= NxValueFontLineHeight,
-                $"level/playing-skill rows overlap glyph bounds: ΔY={levelToSkill} < line height {NxValueFontLineHeight}");
-            Assert.True(skillToGameSkill >= NxValueFontLineHeight,
-                $"playing-skill/game-skill rows overlap glyph bounds: ΔY={skillToGameSkill} < line height {NxValueFontLineHeight}");
+            Assert.True(levelToSkill >= lineHeight,
+                $"level/playing-skill rows overlap glyph bounds: ΔY={levelToSkill} < {assetName} line height {lineHeight}");
+            Assert.True(skillToGameSkill >= lineHeight,
+                $"playing-skill/game-skill rows overlap glyph bounds: ΔY={skillToGameSkill} < {assetName} line height {lineHeight}");
+        }
+
+        private static int ReadSpriteFontLineSpacing(string path)
+        {
+            // Read the built asset's SpriteFontReader payload without uploading its atlas to a GPU.
+            // shortcut: supports the project's uncompressed XNB v5 fonts; use a full XNB reader if compression changes.
+            using var reader = new BinaryReader(File.OpenRead(path));
+            Assert.Equal("XNB", new string(reader.ReadChars(3)));
+            reader.ReadByte(); // platform
+            Assert.Equal(5, reader.ReadByte());
+            Assert.Equal(0, reader.ReadByte() & 0xC0); // neither LZX nor LZ4
+            Assert.Equal(reader.BaseStream.Length, reader.ReadInt32());
+            var typeReaders = new string[reader.Read7BitEncodedInt()];
+            for (var i = 0; i < typeReaders.Length; i++)
+            {
+                typeReaders[i] = reader.ReadString();
+                Assert.Equal(0, reader.ReadInt32()); // reader version
+            }
+            Assert.Equal(0, reader.Read7BitEncodedInt()); // shared resources
+            Assert.Contains(".SpriteFontReader,", typeReaders[reader.Read7BitEncodedInt() - 1]);
+            Assert.Contains(".Texture2DReader", typeReaders[reader.Read7BitEncodedInt() - 1]);
+            reader.ReadInt32(); // surface format
+            reader.ReadInt32(); // atlas width
+            reader.ReadInt32(); // atlas height
+            var mipCount = reader.ReadInt32();
+            for (var i = 0; i < mipCount; i++)
+            {
+                var byteCount = reader.ReadInt32();
+                reader.BaseStream.Seek(byteCount, SeekOrigin.Current);
+            }
+            // Glyph rectangles and cropping rectangles precede the character map.
+            for (var list = 0; list < 2; list++)
+            {
+                Assert.Contains(".Rectangle,", typeReaders[reader.Read7BitEncodedInt() - 1]);
+                var count = reader.ReadInt32();
+                reader.BaseStream.Seek(count * 4L * sizeof(int), SeekOrigin.Current);
+            }
+            Assert.Contains("System.Char,", typeReaders[reader.Read7BitEncodedInt() - 1]);
+            var characterCount = reader.ReadInt32();
+            for (var i = 0; i < characterCount; i++)
+                reader.ReadChar(); // XNB chars use variable-width UTF-8, not UInt16.
+            var lineSpacing = reader.ReadInt32();
+            Assert.True(lineSpacing > 0, $"Invalid SpriteFont line spacing in {path}");
+            return lineSpacing;
         }
     }
 }

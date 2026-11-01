@@ -569,11 +569,11 @@ namespace DTXMania.Game.Lib.Stage.Result
 
         /// <summary>
         /// Colour for the numeric values that are not judgement counts (level,
-        /// play %, skill). NX draws them plain white; skins with their own
-        /// neutral ramp keep them on the same step as the rest of the screen.
+        /// play %, skill). Charcoal contrasts with the bright NX panel artwork;
+        /// skins with their own neutral ramp can override it.
         /// </summary>
         internal static Color ResolveValueColor(ISkinTheme theme) =>
-            theme.GetColor("Result.ValueText", Color.White);
+            theme.GetColor("Result.ValueText", new Color(0x30, 0x30, 0x30));
 
         /// <summary>
         /// Song title color: "Result.TitleText" → NX white.

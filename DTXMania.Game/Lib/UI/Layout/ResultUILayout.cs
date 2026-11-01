@@ -79,8 +79,8 @@ namespace DTXMania.Game.Lib.UI.Layout
         {
             public static readonly Vector2 PanelPosition = new(180, 260);
             // Stacked rows: each needs a full line box of the baked
-            // NotoSerifJP-24 value font (~28px) below the previous one.
-            public static readonly Vector2 LevelPosition = new(198, 525);
+            // NotoSerifJP-24 value font (46px LineSpacing) below the previous one.
+            public static readonly Vector2 LevelPosition = new(198, 509);
             public static readonly Vector2 PlayingSkillPosition = new(238, 555);
             public static readonly Vector2 GameSkillPosition = new(268, 623);
             public static readonly Vector2 PerfectCountPosition = new(260, 332);

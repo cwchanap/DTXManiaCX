@@ -337,7 +337,7 @@ namespace DTXMania.Test.UI
             Assert.Equal(new Vector2(467, 287), ResultUILayout.Jacket.PanelPosition);
             Assert.Equal(new Rectangle(519, 338, 245, 245), ResultUILayout.Jacket.PreviewDestination);
             Assert.Equal(new Vector2(180, 260), ResultUILayout.SkillPanel.PanelPosition);
-            Assert.Equal(new Vector2(198, 525), ResultUILayout.SkillPanel.LevelPosition);
+            Assert.Equal(new Vector2(198, 509), ResultUILayout.SkillPanel.LevelPosition);
             Assert.Equal(new Vector2(238, 555), ResultUILayout.SkillPanel.PlayingSkillPosition);
             Assert.Equal(new Vector2(268, 623), ResultUILayout.SkillPanel.GameSkillPosition);
             Assert.Equal(new Vector2(260, 332), ResultUILayout.SkillPanel.PerfectCountPosition);
