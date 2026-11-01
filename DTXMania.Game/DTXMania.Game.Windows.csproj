@@ -21,6 +21,7 @@
   
   
   <ItemGroup>
+    <PackageReference Include="AlphaTab" Version="1.9.0" />
     <PackageReference Include="FFMpegCore" Version="5.5.0" />
     <PackageReference Include="MMTools.Executables.Windows.X64" Version="1.0.6" />
     <PackageReference Include="Melanchall.DryWetMidi" Version="8.0.3" />
@@ -34,7 +35,7 @@
     <PackageReference Include="MonoGame.Framework.WindowsDX" Version="3.8.*" />
     <PackageReference Include="MonoGame.Content.Builder.Task" Version="3.8.*" />
     <PackageReference Include="NVorbis" Version="0.10.5" />
-    <PackageReference Include="System.Drawing.Common" Version="10.0.13" />
+    <PackageReference Include="System.Drawing.Common" Version="10.0.14" />
   </ItemGroup>
 
   <!-- SIL Open Font License files for Orbitron, ShareTechMono and Bravura.
