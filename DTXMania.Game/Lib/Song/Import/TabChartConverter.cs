@@ -82,14 +82,16 @@ namespace DTXMania.Game.Lib.Song.Import
         /// </summary>
         /// <param name="data">Raw Guitar Pro or MusicXML file bytes.</param>
         /// <param name="fallbackTitle">#TITLE used when the tab has no title.</param>
-        /// <exception cref="InvalidDataException">The tab has no percussion track.</exception>
+        /// <exception cref="UnplayableTabException">
+        /// The tab has no drum track, or is too long or has too many tempos for a DTX chart.
+        /// </exception>
         public static string ConvertToDtx(byte[] data, string fallbackTitle)
         {
             var settings = new Settings();
             var score = ScoreLoader.LoadScoreFromBytes(data, settings);
 
             var drumTrack = score.Tracks.FirstOrDefault(t => t.Staves.Any(s => s.IsPercussion))
-                ?? throw new InvalidDataException("The tab file has no drum track.");
+                ?? throw new UnplayableTabException("The tab file has no drum track.");
 
             // Muting does not stop the MIDI generator emitting a track, so every
             // other track is removed and all generated notes belong to the drums.
@@ -104,7 +106,7 @@ namespace DTXMania.Game.Lib.Song.Import
             var notes = midi.GetNotes().ToList();
             var bars = GetBars(tempoMap, notes.Count == 0 ? 0 : notes.Max(n => n.Time));
             if (bars.Count > MaxChartBars)
-                throw new InvalidDataException(
+                throw new UnplayableTabException(
                     $"The tab is {bars.Count - 1} bars long after repeats; at most {MaxChartBars - 1} fit in a chart.");
 
             var title = CleanHeaderText(score.Title);
@@ -129,7 +131,7 @@ namespace DTXMania.Game.Lib.Song.Import
             foreach (var change in tempoChanges.Where(c => !bpmIds.ContainsKey(c.Bpm)))
             {
                 if (bpmIds.Count == MaxBpmIds)
-                    throw new InvalidDataException($"The tab has more than {MaxBpmIds} distinct tempos.");
+                    throw new UnplayableTabException($"The tab has more than {MaxBpmIds} distinct tempos.");
                 bpmIds[change.Bpm] = bpmIds.Count + 1;
                 dtx.AppendLine($"#BPM{ToBase36(bpmIds[change.Bpm])}: {FormatNumber(change.Bpm)}");
             }
@@ -269,5 +271,16 @@ namespace DTXMania.Game.Lib.Song.Import
 
         private static string FormatNumber(double value, string format = "0.###") =>
             value.ToString(format, CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>
+    /// A tab that cannot become a drum chart as the file stands: no drum
+    /// track, more bars than DTX can number, or more tempos than #BPM ids.
+    /// The song scan skips such a file until it changes instead of retrying
+    /// it like a read or parse error.
+    /// </summary>
+    public sealed class UnplayableTabException : Exception
+    {
+        public UnplayableTabException(string message) : base(message) { }
     }
 }

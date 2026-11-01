@@ -64,6 +64,7 @@ public sealed class TabImportSmokeTests
                 token => client.GetGameStateAsync(token),
                 state => string.Equals(state.StageType, "Performance", StringComparison.Ordinal)
                     && state.PerformanceReady
+                    && string.Equals(state.NoteDisplayStyle, nameof(DrumsNoteDisplayStyle.Tab), StringComparison.Ordinal)
                     && state.CurrentSongTimeMs >= 2500,
                 TimeSpan.FromSeconds(60),
                 TimeSpan.FromMilliseconds(100),

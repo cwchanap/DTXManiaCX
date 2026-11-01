@@ -1941,6 +1941,91 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
     }
 
     [Fact]
+    public async Task NeedsEnumerationAsync_WhenTabHasNoDrumTrack_ShouldLoadFromCacheUntilTheTabChanges()
+    {
+        // HPA-693: a guitar-only tab is skipped by the scan. That is a stable
+        // outcome, so an unchanged restart must still load from cache, while
+        // editing the tab to add drums must still be picked up.
+        var songsRoot = Path.Combine(_testRoot, "TabSongs");
+        var chartPath = Path.Combine(songsRoot, "Drums", "song.dtx");
+        var tabPath = Path.Combine(songsRoot, "Guitar", "guitar.musicxml");
+        Directory.CreateDirectory(Path.GetDirectoryName(chartPath)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(tabPath)!);
+        await File.WriteAllTextAsync(chartPath, """
+            #TITLE: Drum Song
+            #BPM: 120
+            #DLEVEL: 50
+            #00113: 01
+            """);
+        await File.WriteAllTextAsync(tabPath, MusicXmlTab(withDrums: false));
+        var oldTime = DateTime.UtcNow.AddMinutes(-10);
+        foreach (var path in new[] { chartPath, tabPath })
+        {
+            File.SetLastWriteTimeUtc(path, oldTime);
+            File.SetCreationTimeUtc(path, oldTime);
+        }
+        foreach (var directory in new[] { songsRoot, Path.GetDirectoryName(chartPath)!, Path.GetDirectoryName(tabPath)! })
+        {
+            Directory.SetLastWriteTimeUtc(directory, oldTime);
+            Directory.SetCreationTimeUtc(directory, oldTime);
+        }
+
+        await _manager.InitializeDatabaseServiceAsync(_databasePath);
+        var canonicalRoot = _manager.RootPolicy
+            .Validate(new[] { songsRoot }).CanonicalRoots.Single();
+
+        var firstScan = await _manager.EnumerateAndImportSongsAsync(
+            new[] { songsRoot }, null, CancellationToken.None);
+        Assert.Single(firstScan.Batch.Candidates);
+        Assert.Empty(firstScan.Batch.Errors);
+        Assert.Single(FlattenScoreNodes(_manager.RootSongs));
+        Assert.False(await _manager.NeedsEnumerationAsync(new[] { songsRoot }));
+
+        // Editing the tab to add drums is a change the next startup must scan.
+        var watermark = await _manager.DatabaseService!
+            .GetLastSuccessfulEnumerationUtcAsync(canonicalRoot);
+        await File.WriteAllTextAsync(tabPath, MusicXmlTab(withDrums: true));
+        File.SetLastWriteTimeUtc(tabPath, watermark!.Value.AddSeconds(10));
+        Assert.True(await _manager.NeedsEnumerationAsync(new[] { songsRoot }));
+
+        // Back-date the edit so the restart after the rescan sees no newer file.
+        File.SetLastWriteTimeUtc(tabPath, oldTime);
+        var secondScan = await _manager.EnumerateAndImportSongsAsync(
+            new[] { songsRoot }, null, CancellationToken.None);
+        Assert.Equal(2, secondScan.Batch.Candidates.Count);
+        Assert.Equal(2, FlattenScoreNodes(_manager.RootSongs).Count());
+        Assert.False(await _manager.NeedsEnumerationAsync(new[] { songsRoot }));
+    }
+
+    /// <summary>
+    /// A one-bar MusicXML tab with a guitar part and, optionally, a drum part
+    /// holding one kick (midi-unpitched is 1-based, so 37 = GM 36).
+    /// </summary>
+    private static string MusicXmlTab(bool withDrums)
+    {
+        const string attributes =
+            "<attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time>";
+        var drumPartList = withDrums
+            ? "<score-part id=\"P2\"><part-name>Drumset</part-name>" +
+              "<score-instrument id=\"P2-I37\"><instrument-name>Kick</instrument-name></score-instrument>" +
+              "<midi-instrument id=\"P2-I37\"><midi-channel>10</midi-channel><midi-unpitched>37</midi-unpitched></midi-instrument>" +
+              "</score-part>"
+            : "";
+        var drumPart = withDrums
+            ? "<part id=\"P2\"><measure number=\"1\">" + attributes + "<clef><sign>percussion</sign></clef></attributes>" +
+              "<note><unpitched><display-step>F</display-step><display-octave>4</display-octave></unpitched>" +
+              "<duration>4</duration><instrument id=\"P2-I37\"/><type>whole</type></note></measure></part>"
+            : "";
+        return "<?xml version=\"1.0\" encoding=\"UTF-8\"?><score-partwise version=\"4.0\">" +
+            "<work><work-title>Tab Song</work-title></work><part-list>" +
+            "<score-part id=\"P1\"><part-name>Guitar</part-name></score-part>" + drumPartList +
+            "</part-list><part id=\"P1\"><measure number=\"1\">" + attributes +
+            "<clef><sign>G</sign><line>2</line></clef></attributes>" +
+            "<note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note>" +
+            "</measure></part>" + drumPart + "</score-partwise>";
+    }
+
+    [Fact]
     public async Task NeedsEnumerationAsync_WhenRecoverableErrorInOneRoot_ShouldStillAdvanceCleanRoot()
     {
         // Regression (review item 2): when one root has a recoverable error

@@ -84,6 +84,14 @@ namespace DTXMania.Game.Lib.Song
         public required List<SongListNode> RootNodes { get; init; }
         public required List<PendingSongNode> PendingSongs { get; init; }
         public required List<SongEnumerationError> Errors { get; init; }
+
+        /// <summary>
+        /// Tab files skipped because they hold no playable drum part (HPA-693).
+        /// Not errors: they are not retried and get no database row.
+        /// </summary>
+        public HashSet<string> RejectedChartPaths { get; init; } =
+            new(SongPathIdentity.CanonicalComparer);
+
         public required TimeSpan DiscoveryAndParsingDuration { get; init; }
         public bool IsComplete { get; init; }
     }
