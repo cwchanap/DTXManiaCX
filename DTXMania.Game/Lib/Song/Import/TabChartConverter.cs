@@ -83,7 +83,8 @@ namespace DTXMania.Game.Lib.Song.Import
         /// <param name="data">Raw Guitar Pro or MusicXML file bytes.</param>
         /// <param name="fallbackTitle">#TITLE used when the tab has no title.</param>
         /// <exception cref="UnplayableTabException">
-        /// The tab has no drum track, or is too long or has too many tempos for a DTX chart.
+        /// The tab has no drum track or no hits on a DTX drum lane, or is too long or
+        /// has too many tempos for a DTX chart.
         /// </exception>
         public static string ConvertToDtx(byte[] data, string fallbackTitle)
         {
@@ -104,6 +105,9 @@ namespace DTXMania.Game.Lib.Song.Import
             var midi = GenerateMidi(score, settings);
             var tempoMap = midi.GetTempoMap();
             var notes = midi.GetNotes().ToList();
+            if (!notes.Any(n => GmNoteToChannel.ContainsKey(n.NoteNumber)))
+                throw new UnplayableTabException("The tab's drum track has no hits on a DTX drum lane.");
+
             var bars = GetBars(tempoMap, notes.Count == 0 ? 0 : notes.Max(n => n.Time));
             if (bars.Count > MaxChartBars)
                 throw new UnplayableTabException(
