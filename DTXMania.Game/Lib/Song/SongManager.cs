@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using System.Diagnostics;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Song.Entities;
+using DTXMania.Game.Lib.Song.Import;
 using Microsoft.EntityFrameworkCore;
 using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 using SongScoreEntity = DTXMania.Game.Lib.Song.Entities.SongScore;
@@ -883,6 +884,10 @@ namespace DTXMania.Game.Lib.Song
                     hierarchy.Elapsed);
                 outcome = StartupOperationOutcome.Success;
 
+                // Rejected tabs are written for every scanned root, before the
+                // watermark, so the next freshness check counts them.
+                await SetRejectedChartCountsAsync(batch).ConfigureAwait(false);
+
                 // Persist the backed-off START watermark (not the completion time)
                 // so that mid-scan edits remain newer than the watermark and are
                 // detected by the next freshness check. NoActiveRoots and failure
@@ -983,6 +988,8 @@ namespace DTXMania.Game.Lib.Song
             public List<SongListNode> RootNodes { get; } = new();
             public List<PendingSongNode> PendingSongs { get; } = new();
             public List<SongEnumerationError> Errors { get; } = new();
+            public HashSet<string> RejectedChartPaths { get; } =
+                new(SongPathIdentity.CanonicalComparer);
 
             public SongEnumerationBatch Complete()
             {
@@ -995,6 +1002,7 @@ namespace DTXMania.Game.Lib.Song
                     RootNodes = RootNodes,
                     PendingSongs = PendingSongs,
                     Errors = Errors,
+                    RejectedChartPaths = RejectedChartPaths,
                     DiscoveryAndParsingDuration = _stopwatch.Elapsed,
                     IsComplete = true
                 };
@@ -1193,6 +1201,10 @@ namespace DTXMania.Game.Lib.Song
                 {
                     throw;
                 }
+                catch (UnplayableTabException exception)
+                {
+                    RejectUnplayableTab(builder, normalizedPath, exception);
+                }
                 catch (Exception exception)
                 {
                     builder.Errors.Add(new SongEnumerationError(
@@ -1376,6 +1388,10 @@ namespace DTXMania.Game.Lib.Song
                 {
                     throw;
                 }
+                catch (UnplayableTabException exception)
+                {
+                    RejectUnplayableTab(builder, path, exception);
+                }
                 catch (Exception exception)
                 {
                     builder.Errors.Add(new SongEnumerationError(
@@ -1467,6 +1483,24 @@ namespace DTXMania.Game.Lib.Song
                 DifficultyLevel = difficultyLevel,
                 DifficultyLabel = label
             });
+        }
+
+        /// <summary>
+        /// A tab with no playable drum part is a stable result, not a
+        /// recoverable error (HPA-693): it does not hold back its root's
+        /// watermark, and dropping it from the discovered paths removes any
+        /// row left from when the tab had drums. The freshness check adds the
+        /// persisted per-root rejected count to the database chart count,
+        /// because the inventory still counts the file.
+        /// </summary>
+        private static void RejectUnplayableTab(
+            SongEnumerationBatchBuilder builder,
+            string path,
+            UnplayableTabException exception)
+        {
+            builder.DiscoveredChartPaths.Remove(path);
+            builder.RejectedChartPaths.Add(path);
+            Debug.WriteLine($"SongManager: Skipping tab without a playable drum part: {path} ({exception.Message})");
         }
 
         private static (
@@ -3975,8 +4009,11 @@ namespace DTXMania.Game.Lib.Song
                 // charts (one row per chart file), not score rows, so it matches
                 // the one-file-per-chart filesystem contract even when a chart
                 // has many score variants.
+                // Tabs the last scan rejected (HPA-693) are in the inventory
+                // but have no database row, so their persisted count is added.
                 var currentFileCount = inventory.Charts.Count;
-                var databaseChartCount = await GetActiveDatabaseChartCountAsync(availableRoots);
+                var databaseChartCount = await GetActiveDatabaseChartCountAsync(availableRoots)
+                    + await GetRejectedChartCountAsync(availableRoots).ConfigureAwait(false);
 
                 Debug.WriteLine($"SongManager: Current chart files: {currentFileCount}, Database charts: {databaseChartCount}");
 
@@ -4461,6 +4498,38 @@ namespace DTXMania.Game.Lib.Song
             return batch.ActiveRoots
                 .Where(root => !dirtyRoots.Contains(root))
                 .ToArray();
+        }
+
+        /// <summary>
+        /// Persists, for every root of a published scan, how many tabs it
+        /// rejected for having no playable drum part (HPA-693). Roots with none
+        /// are written as 0 so a tab that gained drums stops counting.
+        /// </summary>
+        private async Task SetRejectedChartCountsAsync(SongEnumerationBatch batch)
+        {
+            var databaseService = GetDatabaseServiceSnapshot();
+            if (databaseService == null)
+                return;
+
+            var counts = new Dictionary<string, int>(SongPathIdentity.CanonicalComparer);
+            foreach (var root in batch.ActiveRoots)
+                counts.TryAdd(root, 0);
+            foreach (var path in batch.RejectedChartPaths)
+            {
+                var root = FindContainingRoot(path, batch.ActiveRoots);
+                if (root != null)
+                    counts[root]++;
+            }
+
+            await databaseService.SetRejectedChartCountsAsync(counts).ConfigureAwait(false);
+        }
+
+        private async Task<int> GetRejectedChartCountAsync(IReadOnlyList<string> roots)
+        {
+            var databaseService = GetDatabaseServiceSnapshot();
+            return databaseService == null
+                ? 0
+                : await databaseService.GetRejectedChartCountAsync(roots).ConfigureAwait(false);
         }
 
         /// <summary>

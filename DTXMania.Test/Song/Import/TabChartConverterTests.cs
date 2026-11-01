@@ -158,24 +158,24 @@ namespace DTXMania.Test.Song.Import
         }
 
         [Fact]
-        public void ConvertToDtx_ScoreWithoutDrumTrack_ShouldThrowInvalidData()
+        public void ConvertToDtx_ScoreWithoutDrumTrack_ShouldThrowUnplayableTab()
         {
             var xml = Document("Song", "Band", Part("PG", "Guitar", Measure(GuitarNote("E", 2), clef: "G")));
 
-            Assert.Throws<InvalidDataException>(() => TabChartConverter.ConvertToDtx(Bytes(xml), "fallback"));
+            Assert.Throws<UnplayableTabException>(() => TabChartConverter.ConvertToDtx(Bytes(xml), "fallback"));
         }
 
         [Fact]
-        public void ConvertToDtx_MoreBarsThanDtxCanNumber_ShouldThrowInvalidData()
+        public void ConvertToDtx_MoreBarsThanDtxCanNumber_ShouldThrowUnplayableTab()
         {
             // 999 tab bars + the count-in fill bars 000-999; one more cannot be written.
             var measures = Enumerable.Repeat(Measure(Hit("whole", Kick)), 1000).ToArray();
 
-            Assert.Throws<InvalidDataException>(() => TabChartConverter.ConvertToDtx(Bytes(DrumScore(measures)), "long"));
+            Assert.Throws<UnplayableTabException>(() => TabChartConverter.ConvertToDtx(Bytes(DrumScore(measures)), "long"));
         }
 
         [Fact]
-        public void ConvertToDtx_MoreTemposThanBpmIds_ShouldThrowInvalidData()
+        public void ConvertToDtx_MoreTemposThanBpmIds_ShouldThrowUnplayableTab()
         {
             // 82 bars x 16 sixteenths, each with its own tempo. The first is the base
             // #BPM; the other 1,311 changes need ids, but only #BPM01-#BPMZZ (1,295) exist.
@@ -183,7 +183,7 @@ namespace DTXMania.Test.Song.Import
             var measures = Enumerable.Range(0, 82).Select(_ => Measure(string.Concat(
                 Enumerable.Range(0, 16).Select(__ => Tempo(bpm++) + Hit("16th", Kick))))).ToArray();
 
-            Assert.Throws<InvalidDataException>(() => TabChartConverter.ConvertToDtx(Bytes(DrumScore(measures)), "tempos"));
+            Assert.Throws<UnplayableTabException>(() => TabChartConverter.ConvertToDtx(Bytes(DrumScore(measures)), "tempos"));
         }
 
         [Fact]
@@ -256,8 +256,9 @@ namespace DTXMania.Test.Song.Import
 
                 Assert.Equal(4, chart.Notes.Count);
                 Assert.Equal(120, chart.Bpm);
-                // Bar 001 starts after the 2 s count-in bar at 120 BPM.
-                Assert.All(chart.Notes, note => Assert.True(note.TimeMs >= 2000 - 1));
+                // Bar 001 starts after the 2 s count-in bar at 120 BPM; beat 3 is 1 s later.
+                var times = chart.Notes.Select(note => note.TimeMs).OrderBy(time => time).ToArray();
+                Assert.Equal(new[] { 2000.0, 2000.0, 3000.0, 3000.0 }, times.Select(time => Math.Round(time)));
             }
             finally
             {
@@ -289,7 +290,7 @@ namespace DTXMania.Test.Song.Import
             var path = WriteTempTab(Document("Guitar Only", "Band", Part("PG", "Guitar", Measure(GuitarNote("E", 2), clef: "G"))));
             try
             {
-                await Assert.ThrowsAsync<InvalidDataException>(() => DTXChartParser.ParseSongEntitiesAsync(path));
+                await Assert.ThrowsAsync<UnplayableTabException>(() => DTXChartParser.ParseSongEntitiesAsync(path));
             }
             finally
             {

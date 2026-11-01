@@ -2504,6 +2504,90 @@ namespace DTXMania.Game.Lib.Song.Entities
         }
 
         /// <summary>
+        /// Key prefix for the per-root count of tab files the last scan
+        /// rejected for having no playable drum part (HPA-693). The freshness
+        /// check adds it to the database chart count, because the chart
+        /// inventory counts those files but they get no chart row.
+        /// </summary>
+        private const string RejectedChartCountRootKeyPrefix = "RejectedChartCount:Root:";
+
+        private static string BuildRejectedChartCountKey(string normalizedRoot) =>
+            RejectedChartCountRootKeyPrefix +
+                SongPathIdentity.GetStableRootKey(normalizedRoot);
+
+        /// <summary>
+        /// Stores how many tabs the scan rejected under each root. A failed
+        /// write is conservative: the next freshness check sees a count
+        /// mismatch and rescans.
+        /// </summary>
+        public async Task SetRejectedChartCountsAsync(
+            IReadOnlyDictionary<string, int> countsByRoot)
+        {
+            try
+            {
+                using var context = CreateContext();
+                foreach (var (root, count) in countsByRoot)
+                {
+                    if (!SongPathIdentity.TryNormalize(root, out var normalizedRoot))
+                        continue;
+
+                    await context.Database.ExecuteSqlRawAsync(
+                        "INSERT OR REPLACE INTO __EnumerationMetadata (Key, Value) VALUES ({0}, {1})",
+                        BuildRejectedChartCountKey(normalizedRoot),
+                        count.ToString(CultureInfo.InvariantCulture));
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine(
+                    $"SongDatabaseService: Warning - Could not persist rejected chart counts: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Total rejected tab count stored for <paramref name="canonicalRoots"/>;
+        /// a root with no stored count adds 0.
+        /// </summary>
+        public async Task<int> GetRejectedChartCountAsync(
+            IReadOnlyList<string> canonicalRoots)
+        {
+            try
+            {
+                using var context = CreateContext();
+                var keys = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var root in canonicalRoots)
+                {
+                    if (SongPathIdentity.TryNormalize(root, out var normalizedRoot))
+                        keys.Add(BuildRejectedChartCountKey(normalizedRoot));
+                }
+
+                var total = 0;
+                foreach (var key in keys)
+                {
+                    var values = await context.Database.SqlQueryRaw<string>(
+                        "SELECT Value FROM __EnumerationMetadata WHERE Key = {0} LIMIT 1",
+                        key).ToListAsync();
+                    if (int.TryParse(
+                            values.FirstOrDefault(),
+                            NumberStyles.Integer,
+                            CultureInfo.InvariantCulture,
+                            out var count))
+                    {
+                        total += count;
+                    }
+                }
+
+                return total;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine(
+                    $"SongDatabaseService: Warning - Could not read rejected chart counts: {ex.Message}");
+                return 0;
+            }
+        }
+
+        /// <summary>
         /// Atomically persists the global enumeration watermark and every
         /// active-root watermark in a single database transaction. Either all
         /// values are written or none are — a crash or failure mid-write cannot
