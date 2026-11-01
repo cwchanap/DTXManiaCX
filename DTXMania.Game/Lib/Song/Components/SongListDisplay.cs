@@ -126,6 +126,7 @@ namespace DTXMania.Game.Lib.Song.Components
         private ITexture _barBoxSelectedTexture;
         private ITexture _barOtherTexture;
         private ITexture _barOtherSelectedTexture;
+        private ITexture _defaultBarPreview;
         private bool _skinBarTexturesLoaded;
 
         // Phase 2 enhancements: Bar information caching
@@ -488,6 +489,17 @@ namespace DTXMania.Game.Lib.Song.Components
             _barRenderer?.Dispose();
             _resourceManager = resourceManager;
 
+            // Release previous textures before loading new ones (reference counting)
+            ReleaseManagedTexture(ref _commentBarTexture);
+            ReleaseManagedTexture(ref _scrollbarTexture);
+            ReleaseManagedTexture(ref _barScoreTexture);
+            ReleaseManagedTexture(ref _barScoreSelectedTexture);
+            ReleaseManagedTexture(ref _barBoxTexture);
+            ReleaseManagedTexture(ref _barBoxSelectedTexture);
+            ReleaseManagedTexture(ref _barOtherTexture);
+            ReleaseManagedTexture(ref _barOtherSelectedTexture);
+            ReleaseManagedTexture(ref _defaultBarPreview);
+
             if (sharedRenderTarget != null)
             {
                 _barRenderer = new SongBarRenderer(graphicsDevice, resourceManager, sharedRenderTarget);
@@ -519,16 +531,6 @@ namespace DTXMania.Game.Lib.Song.Components
             {
                 songBar.InitializeGraphicsGenerator(graphicsDevice, sharedRenderTarget);
             }
-
-            // Release previous textures before loading new ones (reference counting)
-            ReleaseManagedTexture(ref _commentBarTexture);
-            ReleaseManagedTexture(ref _scrollbarTexture);
-            ReleaseManagedTexture(ref _barScoreTexture);
-            ReleaseManagedTexture(ref _barScoreSelectedTexture);
-            ReleaseManagedTexture(ref _barBoxTexture);
-            ReleaseManagedTexture(ref _barBoxSelectedTexture);
-            ReleaseManagedTexture(ref _barOtherTexture);
-            ReleaseManagedTexture(ref _barOtherSelectedTexture);
 
             // Load comment bar texture
             LoadCommentBarTexture();
@@ -620,6 +622,8 @@ namespace DTXMania.Game.Lib.Song.Components
                 _barOtherTexture = _resourceManager.LoadTexture(TexturePath.BarOther);
             if (barOtherSelectedExists)
                 _barOtherSelectedTexture = _resourceManager.LoadTexture(TexturePath.BarOtherSelected);
+            if (_resourceManager.ResourceExists(TexturePath.ResultDefaultPreview))
+                _defaultBarPreview = _resourceManager.LoadTexture(TexturePath.ResultDefaultPreview);
 
             // Require both selected and unselected textures to be loaded for consistent visuals
             // If only one exists, we'd have inconsistent rendering (skin texture vs programmatic fallback)
@@ -1034,7 +1038,8 @@ namespace DTXMania.Game.Lib.Song.Components
             }
 
             // Draw preview image (NX-authentic position: selected barX+7/barY-3, unselected barX+31/barY+2)
-            if (barInfo.PreviewImage != null)
+            var previewImage = barInfo.PreviewImage ?? (barInfo.BarType == BarType.Score ? _defaultBarPreview : null);
+            if (previewImage != null)
             {
                 int previewOffsetX = isCenter
                     ? SongSelectionUILayout.SongBars.SelectedBarPreviewImageOffsetX
@@ -1048,7 +1053,7 @@ namespace DTXMania.Game.Lib.Song.Components
                     itemBounds.Y + previewOffsetY,
                     imageSize,
                     imageSize);
-                barInfo.PreviewImage.Draw(spriteBatch, imageDestRect, null, opacity, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+                previewImage.Draw(spriteBatch, imageDestRect, null, opacity, 0f, Vector2.Zero, SpriteEffects.None, 0f);
             }
 
             // Draw title (NX-authentic X offset: selected=barX+55, unselected=barX+78)
@@ -1135,6 +1140,22 @@ namespace DTXMania.Game.Lib.Song.Components
             {
                 var destRect = CalculateBarTextureBounds(itemBounds, isCenter, basicSkinTexture.Width, basicSkinTexture.Height);
                 basicSkinTexture.Draw(spriteBatch, destRect, null, Color.White * opacityFactor, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+                if (basicBarType == BarType.Score && _defaultBarPreview != null)
+                {
+                    int previewOffsetX = isCenter
+                        ? SongSelectionUILayout.SongBars.SelectedBarPreviewImageOffsetX
+                        : SongSelectionUILayout.SongBars.UnselectedBarPreviewImageOffsetX;
+                    int previewOffsetY = isCenter
+                        ? SongSelectionUILayout.SongBars.SelectedBarPreviewImageOffsetY
+                        : SongSelectionUILayout.SongBars.UnselectedBarPreviewImageOffsetY;
+                    int imageSize = SongSelectionUILayout.SongBars.PreviewImageSize;
+                    var imageDestRect = new Rectangle(
+                        itemBounds.X + previewOffsetX,
+                        itemBounds.Y + previewOffsetY,
+                        imageSize,
+                        imageSize);
+                    _defaultBarPreview.Draw(spriteBatch, imageDestRect, null, Color.White * opacityFactor, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+                }
             }
             else if (_whitePixel != null)
             {
@@ -1766,6 +1787,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 ReleaseManagedTexture(ref _barBoxSelectedTexture);
                 ReleaseManagedTexture(ref _barOtherTexture);
                 ReleaseManagedTexture(ref _barOtherSelectedTexture);
+                ReleaseManagedTexture(ref _defaultBarPreview);
                 ReleaseManagedTexture(ref _commentBarTexture);
                 _skinBarTexturesLoaded = false;
             }
