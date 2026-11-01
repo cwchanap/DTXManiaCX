@@ -78,8 +78,10 @@ namespace DTXMania.Game.Lib.UI.Layout
         public static class SkillPanel
         {
             public static readonly Vector2 PanelPosition = new(180, 260);
-            public static readonly Vector2 LevelPosition = new(198, 550);
-            public static readonly Vector2 PlayingSkillPosition = new(238, 537);
+            // Stacked rows: each needs a full line box of the baked
+            // NotoSerifJP-24 value font (~28px) below the previous one.
+            public static readonly Vector2 LevelPosition = new(198, 525);
+            public static readonly Vector2 PlayingSkillPosition = new(238, 555);
             public static readonly Vector2 GameSkillPosition = new(268, 623);
             public static readonly Vector2 PerfectCountPosition = new(260, 332);
             public static readonly Vector2 GreatCountPosition = new(260, 362);
@@ -114,10 +116,23 @@ namespace DTXMania.Game.Lib.UI.Layout
 
         public static class PlaybackPresentation
         {
-            public static readonly Vector2 ProfilePosition = new(830, 310);
-            public static readonly Vector2 ScoreBucketPosition = new(830, 336);
-            public static readonly Vector2 SaveStatusPosition = new(830, 370);
-            public static readonly Rectangle SaveGuidanceBounds = new(830, 394, 420, 60);
+            // One group origin on the NX top-left truss band (below the score,
+            // above the skill panel); every row derives from it by offset.
+            // The bright truss art there requires the dark backdrop below.
+            public static readonly Vector2 GroupOrigin = new(30, 108);
+            public static readonly Vector2 ProfileOffset = new(0, 0);
+            public static readonly Vector2 ScoreBucketOffset = new(0, 26);
+            public static readonly Vector2 SaveStatusOffset = new(0, 60);
+            public static readonly Vector2 SaveGuidanceOffset = new(0, 84);
+            public static readonly Point SaveGuidanceSize = new(420, 60);
+
+            // Line box of the small playback font; the status row's bottom
+            // (offset 60 + RowHeight) meets the guidance top (offset 84).
+            public const int RowHeight = 24;
+            // Backdrop margin around the covered rows; its bottom must stay
+            // above the skill panel top edge (Y=260).
+            public const int BackdropPadding = 6;
+            public static readonly Color BackdropColor = Color.Black * 0.6f;
 
             public static readonly Color ProfileColor = Color.LightSteelBlue;
             public static readonly Color ScoreBucketColor = Color.LightGray;

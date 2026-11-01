@@ -435,8 +435,10 @@ namespace DTXMania.Game.Lib.Stage
 
         internal virtual ResultScreenRenderer CreateResultRenderer()
         {
+            // _whitePixel is borrowed (stage-owned): the renderer draws the
+            // playback backdrop with it but never disposes it.
             return new ResultScreenRenderer(_resourceManager, _smallResultFont, _resultFont, _largeResultFont,
-                _valueResultFont, _countResultFont);
+                _valueResultFont, _countResultFont, _whitePixel);
         }
 
         private void CleanupComponents()

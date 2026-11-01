@@ -337,8 +337,8 @@ namespace DTXMania.Test.UI
             Assert.Equal(new Vector2(467, 287), ResultUILayout.Jacket.PanelPosition);
             Assert.Equal(new Rectangle(519, 338, 245, 245), ResultUILayout.Jacket.PreviewDestination);
             Assert.Equal(new Vector2(180, 260), ResultUILayout.SkillPanel.PanelPosition);
-            Assert.Equal(new Vector2(198, 550), ResultUILayout.SkillPanel.LevelPosition);
-            Assert.Equal(new Vector2(238, 537), ResultUILayout.SkillPanel.PlayingSkillPosition);
+            Assert.Equal(new Vector2(198, 525), ResultUILayout.SkillPanel.LevelPosition);
+            Assert.Equal(new Vector2(238, 555), ResultUILayout.SkillPanel.PlayingSkillPosition);
             Assert.Equal(new Vector2(268, 623), ResultUILayout.SkillPanel.GameSkillPosition);
             Assert.Equal(new Vector2(260, 332), ResultUILayout.SkillPanel.PerfectCountPosition);
             Assert.Equal(new Vector2(260, 362), ResultUILayout.SkillPanel.GreatCountPosition);
@@ -362,18 +362,25 @@ namespace DTXMania.Test.UI
         [Fact]
         public void PlaybackPresentation_RowsAndGuidance_ShouldNotOverlap()
         {
-            Assert.True(ResultUILayout.PlaybackPresentation.ProfilePosition.Y
-                < ResultUILayout.PlaybackPresentation.ScoreBucketPosition.Y);
-            Assert.True(ResultUILayout.PlaybackPresentation.ScoreBucketPosition.Y
-                < ResultUILayout.PlaybackPresentation.SaveStatusPosition.Y);
-            Assert.True(ResultUILayout.PlaybackPresentation.SaveStatusPosition.Y
-                < ResultUILayout.PlaybackPresentation.SaveGuidanceBounds.Top);
-            Assert.True(ResultUILayout.PlaybackPresentation.SaveGuidanceBounds.Left
-                >= ResultUILayout.Jacket.PreviewDestination.Right);
-            Assert.True(ResultUILayout.PlaybackPresentation.SaveGuidanceBounds.Right
-                <= ResultUILayout.NXViewport.Width);
-            Assert.True(ResultUILayout.PlaybackPresentation.SaveGuidanceBounds.Bottom
-                <= ResultUILayout.NXViewport.Height);
+            Assert.True(ResultUILayout.PlaybackPresentation.ProfileOffset.Y
+                < ResultUILayout.PlaybackPresentation.ScoreBucketOffset.Y);
+            Assert.True(ResultUILayout.PlaybackPresentation.ScoreBucketOffset.Y
+                < ResultUILayout.PlaybackPresentation.SaveStatusOffset.Y);
+            Assert.True(ResultUILayout.PlaybackPresentation.SaveStatusOffset.Y
+                       + ResultUILayout.PlaybackPresentation.RowHeight
+                <= ResultUILayout.PlaybackPresentation.SaveGuidanceOffset.Y);
+            // The NX-default group stays inside the viewport and above the
+            // skill panel's top edge.
+            var nxGuidance = new Rectangle(
+                (int)ResultUILayout.PlaybackPresentation.GroupOrigin.X
+                    + (int)ResultUILayout.PlaybackPresentation.SaveGuidanceOffset.X,
+                (int)ResultUILayout.PlaybackPresentation.GroupOrigin.Y
+                    + (int)ResultUILayout.PlaybackPresentation.SaveGuidanceOffset.Y,
+                ResultUILayout.PlaybackPresentation.SaveGuidanceSize.X,
+                ResultUILayout.PlaybackPresentation.SaveGuidanceSize.Y);
+            Assert.True(nxGuidance.Right <= ResultUILayout.NXViewport.Width);
+            Assert.True(nxGuidance.Bottom
+                < (int)ResultUILayout.SkillPanel.PanelPosition.Y);
         }
 
         [Fact]
