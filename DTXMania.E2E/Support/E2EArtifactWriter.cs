@@ -34,7 +34,9 @@ public static class E2EArtifactWriter
 
         Directory.CreateDirectory(fixture.ArtifactRoot);
         File.Copy(fixture.LegacyConfigPath, Path.Combine(fixture.ArtifactRoot, "bootstrap-Config.ini"), overwrite: true);
-        File.Copy(fixture.ChartPath, Path.Combine(fixture.ArtifactRoot, "autoplay-smoke.dtx"), overwrite: true);
+        // A test may swap the generated .dtx for another chart format (HPA-693 tab import).
+        if (File.Exists(fixture.ChartPath))
+            File.Copy(fixture.ChartPath, Path.Combine(fixture.ArtifactRoot, "autoplay-smoke.dtx"), overwrite: true);
         File.Copy(fixture.AudioPath, Path.Combine(fixture.ArtifactRoot, E2EFixtureBuilder.AudioFileName), overwrite: true);
     }
 
