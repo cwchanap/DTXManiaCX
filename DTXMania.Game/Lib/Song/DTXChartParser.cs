@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using System.Diagnostics;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Entities;
+using DTXMania.Game.Lib.Song.Import;
 
 namespace DTXMania.Game.Lib.Song
 {
@@ -21,7 +22,9 @@ namespace DTXMania.Game.Lib.Song
     {
         #region Private Fields
 
-        private static readonly string[] _supportedExtensions = { ".dtx", ".gda", ".g2d", ".bms", ".bme", ".bml" };
+        // Guitar Pro / MusicXML tabs are converted to DTX text in memory (HPA-693).
+        private static readonly string[] _supportedExtensions =
+            new[] { ".dtx", ".gda", ".g2d", ".bms", ".bme", ".bml" }.Concat(TabChartConverter.Extensions).ToArray();
         private static bool _encodingProviderRegistered;
 
         /// <summary>
@@ -192,6 +195,7 @@ namespace DTXMania.Game.Lib.Song
 
             Exception lastException = null;
             bool parsed = false;
+            var convertedDtx = ConvertTabFile(filePath);
 
             foreach (var encoding in encodings)
             {
@@ -207,7 +211,7 @@ namespace DTXMania.Game.Lib.Song
                     var bpmDefinitions = new Dictionary<string, double>();
                     var pendingTempoDirectives = new List<PendingTempoDirective>();
 
-                    using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    using var stream = OpenChartStream(filePath, convertedDtx);
                     using var reader = new StreamReader(stream, encoding);
 
                     await ParseFileContentWithTimingAsync(
@@ -344,6 +348,20 @@ namespace DTXMania.Game.Lib.Song
         /// </summary>
         private static bool ResetsMeasureLengthsPerBar(string filePath) =>
             Path.GetExtension(filePath).ToLowerInvariant() is ".bms" or ".bme" or ".bml";
+
+        /// <summary>
+        /// Converts a Guitar Pro / MusicXML tab to UTF-8 DTX bytes once per parse
+        /// (HPA-693); null for DTX-family files, which are read from disk.
+        /// </summary>
+        private static byte[] ConvertTabFile(string filePath) =>
+            TabChartConverter.IsTabFile(filePath)
+                ? Encoding.UTF8.GetBytes(TabChartConverter.ConvertFileToDtx(filePath))
+                : null;
+
+        private static Stream OpenChartStream(string filePath, byte[] convertedDtx) =>
+            convertedDtx != null
+                ? new MemoryStream(convertedDtx, writable: false)
+                : new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
 
         #endregion
 
@@ -1052,6 +1070,7 @@ namespace DTXMania.Game.Lib.Song
 
             DTXMania.Game.Lib.Song.Entities.Song bestSong = null;
             SongChart bestChart = null;
+            var convertedDtx = ConvertTabFile(filePath);
 
             foreach (var encoding in encodings)
             {
@@ -1060,7 +1079,7 @@ namespace DTXMania.Game.Lib.Song
                     var tempSong = new DTXMania.Game.Lib.Song.Entities.Song();
                     var tempChart = new SongChart();
 
-                    using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    using var stream = OpenChartStream(filePath, convertedDtx);
                     using var reader = new StreamReader(stream, encoding);
 
                     await ParseHeaderLinesToEntitiesAsync(reader, tempSong, tempChart);
