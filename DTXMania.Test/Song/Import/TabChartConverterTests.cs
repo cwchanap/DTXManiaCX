@@ -175,6 +175,18 @@ namespace DTXMania.Test.Song.Import
         }
 
         [Fact]
+        public void ConvertToDtx_MoreTemposThanBpmIds_ShouldThrowInvalidData()
+        {
+            // 82 bars x 16 sixteenths, each with its own tempo. The first is the base
+            // #BPM; the other 1,311 changes need ids, but only #BPM01-#BPMZZ (1,295) exist.
+            var bpm = 40;
+            var measures = Enumerable.Range(0, 82).Select(_ => Measure(string.Concat(
+                Enumerable.Range(0, 16).Select(__ => Tempo(bpm++) + Hit("16th", Kick))))).ToArray();
+
+            Assert.Throws<InvalidDataException>(() => TabChartConverter.ConvertToDtx(Bytes(DrumScore(measures)), "tempos"));
+        }
+
+        [Fact]
         public void ConvertToDtx_TitleAndArtist_ShouldBecomeDtxHeaders()
         {
             var lines = Convert(Document("Canon", "Pachelbel", DrumPart(Measure(Hit("whole", Kick)))));
@@ -187,9 +199,11 @@ namespace DTXMania.Test.Song.Import
         [Fact]
         public void ConvertToDtx_UntitledScore_ShouldUseFallbackTitle()
         {
-            var lines = Convert(Document("", "", DrumPart(Measure(Hit("whole", Kick)))), "my-tab");
+            // A line break in the file name must not inject a chart row.
+            var lines = Convert(Document("", "", DrumPart(Measure(Hit("whole", Kick)))), "my\n#00116: 01 tab");
 
-            Assert.Equal("my-tab", lines["TITLE"]);
+            Assert.Equal("my #00116: 01 tab", lines["TITLE"]);
+            Assert.False(lines.ContainsKey("00116"));
             Assert.False(lines.ContainsKey("ARTIST"));
         }
 
@@ -262,6 +276,20 @@ namespace DTXMania.Test.Song.Import
                 Assert.Equal("Tab Song", song.Title);
                 Assert.Equal("Tab Band", song.Artist);
                 Assert.Equal(50, chart.DrumLevel);
+            }
+            finally
+            {
+                File.Delete(path);
+            }
+        }
+
+        [Fact]
+        public async Task ParseSongEntitiesAsync_TabWithoutDrumTrack_ShouldThrowSoTheScanSkipsIt()
+        {
+            var path = WriteTempTab(Document("Guitar Only", "Band", Part("PG", "Guitar", Measure(GuitarNote("E", 2), clef: "G"))));
+            try
+            {
+                await Assert.ThrowsAsync<InvalidDataException>(() => DTXChartParser.ParseSongEntitiesAsync(path));
             }
             finally
             {

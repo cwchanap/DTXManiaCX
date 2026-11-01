@@ -308,7 +308,9 @@ namespace DTXMania.Game.Lib.Song
             {
                 await ParseFileHeaderToEntitiesAsync(filePath, song, chart);
             }
-            catch (Exception ex)
+            // A tab that cannot be converted (e.g. no drum track) has no playable
+            // chart, so it propagates and the song scan skips the file (HPA-693).
+            catch (Exception ex) when (!TabChartConverter.IsTabFile(filePath))
             {
                 Debug.WriteLine($"DTXChartParser: Failed to parse file header for {filePath}: {ex.Message}");
                 // Return entities with basic file info even if parsing fails
