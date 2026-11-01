@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Runtime.Serialization;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage.Performance;
@@ -44,28 +45,106 @@ public class ResultScreenRendererTests
         smallFont.Verify(x => x.DrawString(
             It.IsAny<SpriteBatch>(),
             "PLAY 0.75x · PITCH +3 st",
-            ResultUILayout.PlaybackPresentation.ProfilePosition,
+            ResultScreenRenderer.ResolvePlaybackProfilePosition(SkinTheme.Empty),
             ResultUILayout.PlaybackPresentation.ProfileColor),
             Times.Once);
         smallFont.Verify(x => x.DrawString(
             It.IsAny<SpriteBatch>(),
             "SCORE BUCKET: 0.75x · ALL PITCHES",
-            ResultUILayout.PlaybackPresentation.ScoreBucketPosition,
+            ResultScreenRenderer.ResolvePlaybackScoreBucketPosition(SkinTheme.Empty),
             ResultUILayout.PlaybackPresentation.ScoreBucketColor),
             Times.Once);
         smallFont.Verify(x => x.DrawString(
             It.IsAny<SpriteBatch>(),
             "SCORE SAVE: FAILED",
-            ResultUILayout.PlaybackPresentation.SaveStatusPosition,
+            ResultScreenRenderer.ResolvePlaybackSaveStatusPosition(SkinTheme.Empty),
             ResultUILayout.PlaybackPresentation.FailedColor),
             Times.Once);
         smallFont.Verify(x => x.DrawStringWrapped(
             It.IsAny<SpriteBatch>(),
                 "PRESS ENTER TO RETRY · BACK TO LEAVE WITHOUT SAVING · database busy",
-            ResultUILayout.PlaybackPresentation.SaveGuidanceBounds,
+            ResultScreenRenderer.ResolvePlaybackSaveGuidanceBounds(SkinTheme.Empty),
             ResultUILayout.PlaybackPresentation.GuidanceColor,
             TextAlignment.Left),
             Times.Once);
+    }
+
+    [Fact]
+    public void DrawModelText_WithThemedPlaybackOrigin_ShouldPlaceWholeGroupAtThemedCoordinates()
+    {
+        var resources = new Mock<IResourceManager>();
+        resources
+            .Setup(r => r.CurrentTheme)
+            .Returns(SkinTheme.Parse(new[] { "Result.PlaybackInfoX=830", "Result.PlaybackInfoY=310" }));
+        var smallFont = new Mock<IFont>();
+        var renderer = new ResultScreenRenderer(resources.Object, smallFont.Object, null, null);
+        var model = ResultScreenModel.Create(
+            new PerformanceSummary(),
+            null,
+            0,
+            null,
+            null);
+        var drawModelText = typeof(ResultScreenRenderer).GetMethod(
+            "DrawModelText",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+        drawModelText!.Invoke(renderer, new object?[] { null, model });
+
+        smallFont.Verify(x => x.DrawString(
+            It.IsAny<SpriteBatch>(),
+            It.IsAny<string>(),
+            new Vector2(830f, 310f),
+            ResultUILayout.PlaybackPresentation.ProfileColor),
+            Times.Once);
+        smallFont.Verify(x => x.DrawString(
+            It.IsAny<SpriteBatch>(),
+            It.IsAny<string>(),
+            new Vector2(830f, 336f),
+            ResultUILayout.PlaybackPresentation.ScoreBucketColor),
+            Times.Once);
+        smallFont.Verify(x => x.DrawString(
+            It.IsAny<SpriteBatch>(),
+            It.IsAny<string>(),
+            new Vector2(830f, 370f),
+            ResultUILayout.PlaybackPresentation.NotStartedColor),
+            Times.Once);
+    }
+
+    [Fact]
+    public void Dispose_WithBorrowedPlaybackBackdropTexture_ShouldNotDisposeIt()
+    {
+        var resources = new Mock<IResourceManager>();
+#pragma warning disable SYSLIB0050
+        var pixel = (TrackingTexture2D)FormatterServices.GetUninitializedObject(typeof(TrackingTexture2D));
+#pragma warning restore SYSLIB0050
+        var renderer = new ResultScreenRenderer(resources.Object, null, null, null, null, null, pixel);
+        var model = ResultScreenModel.Create(
+            new PerformanceSummary { ClearFlag = true, TotalNotes = 1 },
+            null,
+            0,
+            null,
+            null);
+
+        renderer.Load(model);
+        renderer.Dispose();
+
+        // The pixel is borrowed from ResultStage: loading and disposing the
+        // renderer must not dispose it (the stage still owns its lifetime).
+        Assert.False(pixel.WasDisposed);
+    }
+
+    private sealed class TrackingTexture2D : Texture2D
+    {
+        public TrackingTexture2D() : base(null!, 1, 1)
+        {
+        }
+
+        public bool WasDisposed { get; private set; }
+
+        protected override void Dispose(bool disposing)
+        {
+            WasDisposed = true;
+        }
     }
 
     [Theory]

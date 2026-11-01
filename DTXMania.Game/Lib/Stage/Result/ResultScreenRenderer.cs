@@ -19,6 +19,9 @@ namespace DTXMania.Game.Lib.Stage.Result
         private readonly IFont? _largeFont;
         private readonly IFont? _valueFont;
         private readonly IFont? _countFont;
+        // Borrowed from ResultStage._whitePixel: drawn behind the playback
+        // group only; never disposed or reference-tracked by this renderer.
+        private readonly Texture2D? _playbackBackdropTexture;
         private readonly List<ITexture> _loadedTextures = new();
 
         private ITexture? _backgroundTexture;
@@ -38,7 +41,8 @@ namespace DTXMania.Game.Lib.Stage.Result
             IFont? normalFont,
             IFont? largeFont,
             IFont? valueFont = null,
-            IFont? countFont = null)
+            IFont? countFont = null,
+            Texture2D? playbackBackdropTexture = null)
         {
             _resources = resources ?? throw new ArgumentNullException(nameof(resources));
             _smallFont = smallFont;
@@ -46,6 +50,7 @@ namespace DTXMania.Game.Lib.Stage.Result
             _largeFont = largeFont;
             _valueFont = valueFont;
             _countFont = countFont;
+            _playbackBackdropTexture = playbackBackdropTexture;
         }
 
         public static Matrix CreateViewportTransform(Viewport viewport)
@@ -499,6 +504,70 @@ namespace DTXMania.Game.Lib.Stage.Result
             theme.GetColor("Result.PercentText", Color.White);
 
         /// <summary>
+        /// Playback/save group origin: "Result.PlaybackInfoX" / "Result.PlaybackInfoY"
+        /// → NX (30,108), the truss band below the score. All four playback rows
+        /// derive from this single origin via their baked offsets; a skin such as
+        /// CX Neon pins the legacy (830,310) group over its dark background.
+        /// </summary>
+        internal static Vector2 ResolvePlaybackGroupOrigin(ISkinTheme theme) => new(
+            theme.GetInt("Result.PlaybackInfoX", (int)ResultUILayout.PlaybackPresentation.GroupOrigin.X),
+            theme.GetInt("Result.PlaybackInfoY", (int)ResultUILayout.PlaybackPresentation.GroupOrigin.Y));
+
+        /// <summary>
+        /// Playback profile row: group origin + (0,0).
+        /// </summary>
+        internal static Vector2 ResolvePlaybackProfilePosition(ISkinTheme theme) =>
+            ResolvePlaybackGroupOrigin(theme) + ResultUILayout.PlaybackPresentation.ProfileOffset;
+
+        /// <summary>
+        /// Score bucket row: group origin + (0,26).
+        /// </summary>
+        internal static Vector2 ResolvePlaybackScoreBucketPosition(ISkinTheme theme) =>
+            ResolvePlaybackGroupOrigin(theme) + ResultUILayout.PlaybackPresentation.ScoreBucketOffset;
+
+        /// <summary>
+        /// Save status row: group origin + (0,60).
+        /// </summary>
+        internal static Vector2 ResolvePlaybackSaveStatusPosition(ISkinTheme theme) =>
+            ResolvePlaybackGroupOrigin(theme) + ResultUILayout.PlaybackPresentation.SaveStatusOffset;
+
+        /// <summary>
+        /// Wrapped retry-guidance rectangle: group origin + (0,84), 420x60.
+        /// </summary>
+        internal static Rectangle ResolvePlaybackSaveGuidanceBounds(ISkinTheme theme)
+        {
+            var origin = ResolvePlaybackGroupOrigin(theme);
+            var offset = ResultUILayout.PlaybackPresentation.SaveGuidanceOffset;
+            var size = ResultUILayout.PlaybackPresentation.SaveGuidanceSize;
+            return new Rectangle(
+                (int)origin.X + (int)offset.X,
+                (int)origin.Y + (int)offset.Y,
+                size.X,
+                size.Y);
+        }
+
+        /// <summary>
+        /// Backdrop plate behind the playback group: covers the three rows, and
+        /// additionally the full 420x60 guidance block only when its text is
+        /// present; the bottom stays clear of the skill panel top edge (Y=260).
+        /// </summary>
+        internal static Rectangle ResolvePlaybackBackdropBounds(ISkinTheme theme, bool hasGuidance)
+        {
+            var origin = ResolvePlaybackGroupOrigin(theme);
+            var pad = ResultUILayout.PlaybackPresentation.BackdropPadding;
+            var bottomOffset = hasGuidance
+                ? ResultUILayout.PlaybackPresentation.SaveGuidanceOffset.Y
+                    + ResultUILayout.PlaybackPresentation.SaveGuidanceSize.Y
+                : ResultUILayout.PlaybackPresentation.SaveStatusOffset.Y
+                    + ResultUILayout.PlaybackPresentation.RowHeight;
+            return new Rectangle(
+                (int)origin.X - pad,
+                (int)origin.Y - pad,
+                ResultUILayout.PlaybackPresentation.SaveGuidanceSize.X + pad * 2,
+                (int)bottomOffset + pad * 2);
+        }
+
+        /// <summary>
         /// Colour for the numeric values that are not judgement counts (level,
         /// play %, skill). NX draws them plain white; skins with their own
         /// neutral ramp keep them on the same step as the rest of the screen.
@@ -600,30 +669,31 @@ namespace DTXMania.Game.Lib.Stage.Result
                     artistPosition.X, ResolveArtistCenterX(theme), _smallFont.MeasureString(model.Artist).X);
             DrawText(spriteBatch, _smallFont, model.Artist, artistPosition, ResolveArtistColor(theme));
 
+            DrawPlaybackBackdrop(spriteBatch, model);
             DrawText(
                 spriteBatch,
                 _smallFont,
                 model.PlaybackProfileText,
-                ResultUILayout.PlaybackPresentation.ProfilePosition,
+                ResolvePlaybackProfilePosition(theme),
                 ResultUILayout.PlaybackPresentation.ProfileColor);
             DrawText(
                 spriteBatch,
                 _smallFont,
                 model.ScoreBucketText,
-                ResultUILayout.PlaybackPresentation.ScoreBucketPosition,
+                ResolvePlaybackScoreBucketPosition(theme),
                 ResultUILayout.PlaybackPresentation.ScoreBucketColor);
             DrawText(
                 spriteBatch,
                 _smallFont,
                 model.SaveStatusText,
-                ResultUILayout.PlaybackPresentation.SaveStatusPosition,
+                ResolvePlaybackSaveStatusPosition(theme),
                 ResolveSaveStatusColor(model.SavePresentation.State));
             if (_smallFont != null && !string.IsNullOrEmpty(model.SaveGuidanceText))
             {
                 _smallFont.DrawStringWrapped(
                     spriteBatch,
                     model.SaveGuidanceText,
-                    ResultUILayout.PlaybackPresentation.SaveGuidanceBounds,
+                    ResolvePlaybackSaveGuidanceBounds(theme),
                     ResultUILayout.PlaybackPresentation.GuidanceColor);
             }
 
@@ -676,6 +746,24 @@ namespace DTXMania.Game.Lib.Stage.Result
                     new Vector2(row.percentPos.X, row.percentPos.Y + countYOffset),
                     percentRightX, percentColor, 1.0f);
             }
+        }
+
+        /// <summary>
+        /// Dark plate behind the playback group text (bright NX truss art);
+        /// drawn before the rows. The pixel texture is borrowed, so this is a
+        /// no-op when it was not supplied.
+        /// </summary>
+        [ExcludeFromCodeCoverage]
+        private void DrawPlaybackBackdrop(SpriteBatch spriteBatch, ResultScreenModel model)
+        {
+            if (spriteBatch == null || _playbackBackdropTexture == null)
+                return;
+
+            var theme = _resources.CurrentTheme ?? SkinTheme.Empty;
+            spriteBatch.Draw(
+                _playbackBackdropTexture,
+                ResolvePlaybackBackdropBounds(theme, !string.IsNullOrEmpty(model.SaveGuidanceText)),
+                ResultUILayout.PlaybackPresentation.BackdropColor);
         }
 
         internal static Color ResolveSaveStatusColor(ResultSaveState state)

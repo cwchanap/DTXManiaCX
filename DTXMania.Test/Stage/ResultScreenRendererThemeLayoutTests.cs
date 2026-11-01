@@ -533,5 +533,139 @@ namespace DTXMania.Test.Stage
             Assert.Equal(new Color(0x94, 0xA3, 0xB8),
                 ResultScreenRenderer.ResolveLevelLabelColor(theme));
         }
+
+        [Fact]
+        public void ResolvePlaybackGroupOrigin_WithEmptyTheme_ShouldKeepNxOrigin()
+        {
+            Assert.Equal(ResultUILayout.PlaybackPresentation.GroupOrigin,
+                ResultScreenRenderer.ResolvePlaybackGroupOrigin(SkinTheme.Empty));
+        }
+
+        [Fact]
+        public void ResolvePlaybackGroupOrigin_WithThemedXOnly_ShouldShiftXOnly()
+        {
+            var theme = SkinTheme.Parse(new[] { "Result.PlaybackInfoX=830" });
+
+            var origin = ResultScreenRenderer.ResolvePlaybackGroupOrigin(theme);
+
+            Assert.Equal(new Vector2(830f, ResultUILayout.PlaybackPresentation.GroupOrigin.Y), origin);
+        }
+
+        [Fact]
+        public void ResolvePlaybackGroupOrigin_WithThemedYOnly_ShouldShiftYOnly()
+        {
+            var theme = SkinTheme.Parse(new[] { "Result.PlaybackInfoY=310" });
+
+            var origin = ResultScreenRenderer.ResolvePlaybackGroupOrigin(theme);
+
+            Assert.Equal(new Vector2(ResultUILayout.PlaybackPresentation.GroupOrigin.X, 310f), origin);
+        }
+
+        [Fact]
+        public void ResolvePlaybackProfilePosition_WithEmptyTheme_ShouldKeepNxPosition()
+        {
+            Assert.Equal(new Vector2(30f, 108f),
+                ResultScreenRenderer.ResolvePlaybackProfilePosition(SkinTheme.Empty));
+        }
+
+        [Fact]
+        public void ResolvePlaybackScoreBucketPosition_WithEmptyTheme_ShouldKeepNxPosition()
+        {
+            Assert.Equal(new Vector2(30f, 134f),
+                ResultScreenRenderer.ResolvePlaybackScoreBucketPosition(SkinTheme.Empty));
+        }
+
+        [Fact]
+        public void ResolvePlaybackScoreBucketPosition_WithThemedXY_ShouldShiftWholeGroup()
+        {
+            // CX Neon pins the legacy (830,310) group via theme keys.
+            var theme = SkinTheme.Parse(new[] { "Result.PlaybackInfoX=830", "Result.PlaybackInfoY=310" });
+
+            Assert.Equal(new Vector2(830f, 336f),
+                ResultScreenRenderer.ResolvePlaybackScoreBucketPosition(theme));
+        }
+
+        [Fact]
+        public void ResolvePlaybackSaveStatusPosition_WithEmptyTheme_ShouldKeepNxPosition()
+        {
+            Assert.Equal(new Vector2(30f, 168f),
+                ResultScreenRenderer.ResolvePlaybackSaveStatusPosition(SkinTheme.Empty));
+        }
+
+        [Fact]
+        public void ResolvePlaybackSaveGuidanceBounds_WithEmptyTheme_ShouldKeepNxBounds()
+        {
+            Assert.Equal(new Rectangle(30, 192, 420, 60),
+                ResultScreenRenderer.ResolvePlaybackSaveGuidanceBounds(SkinTheme.Empty));
+        }
+
+        [Fact]
+        public void ResolvePlaybackSaveGuidanceBounds_WithThemedXY_ShouldShiftWholeGroup()
+        {
+            var theme = SkinTheme.Parse(new[] { "Result.PlaybackInfoX=830", "Result.PlaybackInfoY=310" });
+
+            Assert.Equal(new Rectangle(830, 394, 420, 60),
+                ResultScreenRenderer.ResolvePlaybackSaveGuidanceBounds(theme));
+        }
+
+        [Fact]
+        public void ResolvePlaybackBackdropBounds_WithoutGuidance_ShouldCoverRowsOnly()
+        {
+            var bounds = ResultScreenRenderer.ResolvePlaybackBackdropBounds(SkinTheme.Empty, hasGuidance: false);
+
+            // Origin (30,108) + 6px margin; rows bottom = status 60 + line 24.
+            Assert.Equal(new Rectangle(24, 102, 432, 96), bounds);
+        }
+
+        [Fact]
+        public void ResolvePlaybackBackdropBounds_WithGuidance_ShouldCoverGuidanceBlock()
+        {
+            var bounds = ResultScreenRenderer.ResolvePlaybackBackdropBounds(SkinTheme.Empty, hasGuidance: true);
+
+            // Extends over the guidance block (84 + 60) only when present.
+            Assert.Equal(new Rectangle(24, 102, 432, 156), bounds);
+        }
+
+        [Fact]
+        public void ResolvePlaybackBackdropBounds_WithNxOriginAndGuidance_ShouldClearSkillPanelTop()
+        {
+            var bounds = ResultScreenRenderer.ResolvePlaybackBackdropBounds(SkinTheme.Empty, hasGuidance: true);
+
+            Assert.True(bounds.Bottom < (int)ResultUILayout.SkillPanel.PanelPosition.Y,
+                $"backdrop bottom {bounds.Bottom} must stay above the skill panel top " +
+                $"{(int)ResultUILayout.SkillPanel.PanelPosition.Y}");
+        }
+
+        [Fact]
+        public void ResolvePlaybackBackdropBounds_WithThemedOrigin_ShouldShiftWholeGroup()
+        {
+            var theme = SkinTheme.Parse(new[] { "Result.PlaybackInfoX=830", "Result.PlaybackInfoY=310" });
+
+            var bounds = ResultScreenRenderer.ResolvePlaybackBackdropBounds(theme, hasGuidance: false);
+
+            Assert.Equal(new Rectangle(824, 304, 432, 96), bounds);
+        }
+
+        /// <summary>
+        /// Line box of the baked NotoSerifJP-24 asset the NX value font resolves
+        /// to (LoadFont("NotoSerifJP", 20) snaps to the 24px bake), measured in
+        /// the issue-215 art baseline. Level/skill/game-skill rows must each get
+        /// a full line box, not merely a fixed ΔY.
+        /// </summary>
+        private const float NxValueFontLineHeight = 28f;
+
+        [Fact]
+        public void SkillPanel_DefaultValueRows_ShouldSeparateGlyphBounds()
+        {
+            var levelToSkill = ResultUILayout.SkillPanel.PlayingSkillPosition.Y
+                - ResultUILayout.SkillPanel.LevelPosition.Y;
+            var skillToGameSkill = ResultUILayout.SkillPanel.GameSkillPosition.Y
+                - ResultUILayout.SkillPanel.PlayingSkillPosition.Y;
+
+            Assert.True(levelToSkill >= NxValueFontLineHeight,
+                $"level/playing-skill rows overlap glyph bounds: ΔY={levelToSkill} < line height {NxValueFontLineHeight}");
+            Assert.True(skillToGameSkill >= NxValueFontLineHeight,
+                $"playing-skill/game-skill rows overlap glyph bounds: ΔY={skillToGameSkill} < line height {NxValueFontLineHeight}");
+        }
     }
 }
