@@ -43,6 +43,9 @@ namespace DTXMania.Game.Lib.Song.Import
         /// <summary>DTXChartParser reads three decimal bar digits, so bars 000-999.</summary>
         private const int MaxChartBars = 1000;
 
+        /// <summary>Two base-36 digits give #BPM01-#BPMZZ.</summary>
+        private const int MaxBpmIds = 36 * 36 - 1;
+
         /// <summary>General MIDI drum note to DTX drum channel.</summary>
         private static readonly Dictionary<int, int> GmNoteToChannel = new()
         {
@@ -114,7 +117,7 @@ namespace DTXMania.Game.Lib.Song.Import
 
             var dtx = new StringBuilder();
             dtx.AppendLine("; Converted from a Guitar Pro / MusicXML tab by DTXManiaCX");
-            dtx.AppendLine($"#TITLE: {(title.Length > 0 ? title : fallbackTitle)}");
+            dtx.AppendLine($"#TITLE: {(title.Length > 0 ? title : CleanHeaderText(fallbackTitle))}");
             if (artist.Length > 0)
                 dtx.AppendLine($"#ARTIST: {artist}");
             dtx.AppendLine("#GENRE: Imported tab");
@@ -125,6 +128,8 @@ namespace DTXMania.Game.Lib.Song.Import
             var bpmIds = new Dictionary<double, int>();
             foreach (var change in tempoChanges.Where(c => !bpmIds.ContainsKey(c.Bpm)))
             {
+                if (bpmIds.Count == MaxBpmIds)
+                    throw new InvalidDataException($"The tab has more than {MaxBpmIds} distinct tempos.");
                 bpmIds[change.Bpm] = bpmIds.Count + 1;
                 dtx.AppendLine($"#BPM{ToBase36(bpmIds[change.Bpm])}: {FormatNumber(change.Bpm)}");
             }
