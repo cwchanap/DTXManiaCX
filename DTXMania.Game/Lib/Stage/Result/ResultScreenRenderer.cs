@@ -548,8 +548,8 @@ namespace DTXMania.Game.Lib.Stage.Result
 
         /// <summary>
         /// Backdrop plate behind the playback group: covers the three rows, and
-        /// additionally the full 420x60 guidance block only when its text is
-        /// present; the bottom stays clear of the skill panel top edge (Y=260).
+        /// additionally the guidance block only when its text is present.
+        /// The NX right edge clears FAILED; the bottom clears the skill panel.
         /// </summary>
         internal static Rectangle ResolvePlaybackBackdropBounds(ISkinTheme theme, bool hasGuidance)
         {
@@ -560,10 +560,13 @@ namespace DTXMania.Game.Lib.Stage.Result
                     + ResultUILayout.PlaybackPresentation.SaveGuidanceSize.Y
                 : ResultUILayout.PlaybackPresentation.SaveStatusOffset.Y
                     + ResultUILayout.PlaybackPresentation.RowHeight;
+            var width = ResultUILayout.PlaybackPresentation.SaveGuidanceSize.X + pad * 2;
+            if (origin == ResultUILayout.PlaybackPresentation.GroupOrigin)
+                width = (int)(ResultUILayout.ResultPlate.FailedTextPosition.X - origin.X) + pad;
             return new Rectangle(
                 (int)origin.X - pad,
                 (int)origin.Y - pad,
-                ResultUILayout.PlaybackPresentation.SaveGuidanceSize.X + pad * 2,
+                width,
                 (int)bottomOffset + pad * 2);
         }
 

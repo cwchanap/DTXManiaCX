@@ -1014,6 +1014,38 @@ public class SongListDisplayLogicTests
         fallback.Verify(x => x.Draw(null!, slot, null, Color.White * 0.5f, 0f, Vector2.Zero, SpriteEffects.None, 0f), usesDefault ? Times.Once() : Times.Never());
     }
 
+    [Theory]
+    [InlineData(true, 1f)]
+    [InlineData(false, 1f)]
+    [InlineData(false, 0.8f)]
+    public void DrawBasicSongItemWithPerspective_ShouldKeepTitleClearOfThumbnail(bool selected, float scale)
+    {
+        var font = CreateManagedFont();
+        var display = new SongListDisplay { ManagedFont = font.Object };
+        var preview = CreateTexture(400, 400);
+        var skin = CreateTexture();
+        Rectangle thumbnail = default;
+        Vector2 title = default;
+        preview.Setup(x => x.Draw(null!, It.IsAny<Rectangle>(), null, It.IsAny<Color>(),
+                0f, Vector2.Zero, SpriteEffects.None, 0f))
+            .Callback<SpriteBatch, Rectangle, Rectangle?, Color, float, Vector2, SpriteEffects, float>(
+                (_, bounds, _, _, _, _, _, _) => thumbnail = bounds);
+        font.Setup(x => x.DrawString(null!, "Song", It.IsAny<Vector2>(), It.IsAny<Color>()))
+            .Callback<SpriteBatch, string, Vector2, Color>((_, _, position, _) => title = position);
+        SetField(display, "_defaultBarPreview", preview.Object);
+        SetField(display, "_skinBarTexturesLoaded", true);
+        SetField(display, "_barScoreTexture", skin.Object);
+        SetField(display, "_barScoreSelectedTexture", skin.Object);
+
+        InvokePrivate<object?>(display, "DrawBasicSongItemWithPerspective", null!,
+            new SongListNode { Type = NodeType.Score, Title = "Song" },
+            new Rectangle(665, 269, 510, 48), selected, selected, 0, scale, 1f);
+
+        Assert.Equal(44, thumbnail.Width);
+        Assert.True(title.X >= thumbnail.Right, $"Title X={title.X} overlaps thumbnail {thumbnail}");
+        Assert.Equal(selected ? 720f : 743f, title.X);
+    }
+
     [Fact]
     public void LoadSkinBarTextures_WhenResourceManagerMissing_ShouldNotEnableSkinFlag()
     {

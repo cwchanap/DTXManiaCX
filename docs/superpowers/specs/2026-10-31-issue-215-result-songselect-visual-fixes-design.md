@@ -22,15 +22,16 @@ This is a **presentation defect**, not an issue with the values or their underly
 
 ### A. Result: separate level and playing-skill rows
 
-Change **only the built-in fallback** Y positions in `ResultUILayout.SkillPanel`:
+Final fallback level Y=509 (playing skill Y=555) follows the plan's exit-gate clause: the real compiled font has 46px line spacing.
+Evidence also justifies changing the existing `Result.ValueText` default White→#303030; CXNeon's explicit override is unaffected, while dark third-party skins without the key inherit charcoal (accepted risk).
 
 | Element | Current default | New default | CXNeon existing override |
 | --- | --- | --- | --- |
-| Chart level | (198, 550) | **(198, 525)** | Y=525 |
+| Chart level | (198, 550) | **(198, 509)** | Y=525 |
 | Playing skill | (238, 537) | **(238, 555)** | Y=555 |
 | Game skill | (268, 623) | unchanged | Y=632 |
 
-Keep both X values, fonts, number formatting and the existing independent `Result.LevelX/Y` / `Result.PlayingSkillX/Y` keys. The new default separation is 30px; test **non-overlapping rendered text bounds (using the actual value-font line height)**, not just `ΔY==30`. The stacked presentation intentionally differs from NX's original side-by-side badge layout and must be verified against the bundled art.
+Keep both X values, fonts, number formatting and the existing independent `Result.LevelX/Y` / `Result.PlayingSkillX/Y` keys. The final default separation is 46px; test **non-overlapping rendered text bounds (using the actual value-font line height)**, not just `ΔY==46`. The stacked presentation intentionally differs from NX's original side-by-side badge layout and must be verified against the bundled art.
 
 ### B. SongSelect: profile always foreground in a clear left band
 
@@ -52,7 +53,7 @@ Add **two optional theme keys**, `Result.PlaybackInfoX` and `Result.PlaybackInfo
 | Failure guidance rect | (0, 84), 420x60 | (30,192,420,60) | (830,394,420,60) |
 
 - The NX group is below the existing score (30,58), above the skill-panel start Y=260 and clear of right-side character art. However, `8_background.jpg` is **bright at X=30..450, Y=108..252**; `LightSteelBlue`/`LightGray` text and status colours need sufficient contrast against the white truss and pale yellow beam.
-- Draw **one translucent dark rectangle behind the group** within the Result renderer, using the existing stage-owned 1×1 `ResultStage._whitePixel` passed as a *borrowed* optional texture to `ResultScreenRenderer`. Do not allocate/own another texture or separate renderer. Use a modest inset/margin and size the backdrop to the normal three rows, extending to cover the full 420×60 guidance bounds **only when guidance is present**. Keep its bottom clear of the skill panel at Y=260, honor existing result reveal behaviour, and draw it before group text. One backdrop supports wrapped guidance without repeated text-shadow draws.
+- Draw **one translucent dark rectangle behind the group** within the Result renderer, using the existing stage-owned 1×1 `ResultStage._whitePixel` passed as a *borrowed* optional texture to `ResultScreenRenderer`. Do not allocate/own another texture or separate renderer. Use a modest inset/margin and size the backdrop to the normal three rows, extending vertically for the 420×60 guidance bounds **only when guidance is present**. The NX fallback plate ends at X=420 to clear FAILED; CXNeon's theme-derived origin retains the full width. Keep its bottom clear of the skill panel at Y=260, honor existing result reveal behaviour, and draw it before group text. One backdrop supports wrapped guidance without repeated text-shadow draws.
 - CXNeon sets `Result.PlaybackInfoX=830` / `Result.PlaybackInfoY=310` in `System/CXNeon/Theme.ini`, retaining the existing group location. Check whether the common translucent backdrop is acceptable on its dark background; introduce a theme-colour override **only if screenshots show it is necessary**.
 - Keep the existing `ResultUILayout.PlaybackPresentation` colours, save-state mapping, score and per-row offsets; use the same `GetInt` coordinate convention as other Result resolvers, not a new layout/parser API. Do not introduce independent keys for each line or new persisted settings. Longer error text still wraps within the existing guidance rectangle.
 
@@ -68,7 +69,7 @@ Add **two optional theme keys**, `Result.PlaybackInfoX` and `Result.PlaybackInfo
 
 Use the existing GameApi/desktop screenshot path; no new harness. For each implementation task (Result, SongSelect label, song-bar fallback), capture and inspect a **1280×720 default-NX** screenshot **before proceeding to the next task**. The final sweep adds CXNeon, a second window size and links/attaches evidence to the PR. Check full-frame composition rather than isolated coordinates.
 
-1. Result with a normal saved score: level and play values occupy independent glyph bounds at Y=525/555; group and backing are readable on pale NX artwork and do not collide with rank, plate or skill panel. CXNeon's original group coordinates remain unchanged.
+1. Result with a normal saved score: level and play values occupy independent glyph bounds at Y=509/555; group and backing are readable on pale NX artwork and do not collide with rank, plate or skill panel. CXNeon's original group coordinates remain unchanged.
 2. Result with **failed save**: backdrop extends around wrapped retry guidance only when needed, status colours remain meaningful, no text/box overlaps the skill panel; non-failed status has the shorter backing.
 3. SongSelect with default and extreme supported speed/pitch values: full label is visible despite `SongListDisplay`'s background, no overlap with the **native 67px** BPM texture, preview frame, status values or difficulty header. Search modal remains in front.
 4. Song wheel without `#PREIMAGE`, with missing file and with genuine preview: selected/unselected score bars display the correct bundled fallback or actual jacket (including fast scroll and basic path where feasible); lamps/title unaffected and folders/other bars unchanged. Check NX's bright default art still reads as intentional at 44×44.

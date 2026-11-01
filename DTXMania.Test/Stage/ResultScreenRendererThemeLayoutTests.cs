@@ -615,8 +615,8 @@ namespace DTXMania.Test.Stage
         {
             var bounds = ResultScreenRenderer.ResolvePlaybackBackdropBounds(SkinTheme.Empty, hasGuidance: false);
 
-            // Origin (30,108) + 6px margin; rows bottom = status 60 + line 24.
-            Assert.Equal(new Rectangle(24, 102, 432, 96), bounds);
+            // Origin (30,108) + 6px margin, capped at FAILED X=420.
+            Assert.Equal(new Rectangle(24, 102, 396, 96), bounds);
         }
 
         [Fact]
@@ -625,7 +625,26 @@ namespace DTXMania.Test.Stage
             var bounds = ResultScreenRenderer.ResolvePlaybackBackdropBounds(SkinTheme.Empty, hasGuidance: true);
 
             // Extends over the guidance block (84 + 60) only when present.
-            Assert.Equal(new Rectangle(24, 102, 432, 156), bounds);
+            Assert.Equal(new Rectangle(24, 102, 396, 156), bounds);
+        }
+
+        [Theory]
+        [InlineData(false, false)]
+        [InlineData(false, true)]
+        [InlineData(true, false)]
+        [InlineData(true, true)]
+        public void ResolvePlaybackBackdropBounds_ShouldNotIntersectFailedBanner(bool cxNeon, bool hasGuidance)
+        {
+            var theme = cxNeon
+                ? SkinTheme.Parse(new[] { "Result.PlaybackInfoX=830", "Result.PlaybackInfoY=310",
+                    "Result.FailedTextX=601", "Result.FailedTextY=100" })
+                : SkinTheme.Empty;
+            var position = ResultScreenRenderer.ResolveFailedTextPosition(theme);
+            var failedBanner = new Rectangle((int)position.X, (int)position.Y, 200, 60);
+
+            var backdrop = ResultScreenRenderer.ResolvePlaybackBackdropBounds(theme, hasGuidance);
+
+            Assert.False(backdrop.Intersects(failedBanner), $"{backdrop} intersects FAILED {failedBanner}");
         }
 
         [Fact]

@@ -1136,11 +1136,12 @@ namespace DTXMania.Game.Lib.Song.Components
                 _ => BarType.Other
             };
             var basicSkinTexture = GetSkinBarTexture(basicBarType, isCenter);
+            var hasPreview = basicSkinTexture != null && basicBarType == BarType.Score && _defaultBarPreview != null;
             if (basicSkinTexture != null)
             {
                 var destRect = CalculateBarTextureBounds(itemBounds, isCenter, basicSkinTexture.Width, basicSkinTexture.Height);
                 basicSkinTexture.Draw(spriteBatch, destRect, null, Color.White * opacityFactor, 0f, Vector2.Zero, SpriteEffects.None, 0f);
-                if (basicBarType == BarType.Score && _defaultBarPreview != null)
+                if (hasPreview)
                 {
                     int previewOffsetX = isCenter
                         ? SongSelectionUILayout.SongBars.SelectedBarPreviewImageOffsetX
@@ -1154,7 +1155,7 @@ namespace DTXMania.Game.Lib.Song.Components
                         itemBounds.Y + previewOffsetY,
                         imageSize,
                         imageSize);
-                    _defaultBarPreview.Draw(spriteBatch, imageDestRect, null, Color.White * opacityFactor, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+                    _defaultBarPreview!.Draw(spriteBatch, imageDestRect, null, Color.White * opacityFactor, 0f, Vector2.Zero, SpriteEffects.None, 0f);
                 }
             }
             else if (_whitePixel != null)
@@ -1193,7 +1194,10 @@ namespace DTXMania.Game.Lib.Song.Components
             var text = GetDisplayText(node);
             var baseTextColor = isCenter ? Color.White : (isSelected ? _selectedTextColor : _textColor);
             var textColor = baseTextColor * opacityFactor;
-            var textPos = new Vector2(itemBounds.X + (int)(10 * scaleFactor), itemBounds.Y + (int)(5 * scaleFactor));
+            var titleOffsetX = hasPreview
+                ? (isCenter ? SongSelectionUILayout.SongBars.SelectedBarTitleOffsetX : SongSelectionUILayout.SongBars.UnselectedBarTitleOffsetX)
+                : (int)(10 * scaleFactor);
+            var textPos = new Vector2(itemBounds.X + titleOffsetX, itemBounds.Y + (int)(5 * scaleFactor));
             var textScale = new Vector2(scaleFactor, scaleFactor);
 
             if (_font != null)
@@ -1224,9 +1228,9 @@ namespace DTXMania.Game.Lib.Song.Components
                 {
                     var fallbackColor = (isSelected ? Color.Yellow : Color.Gray) * 0.5f * opacityFactor;
                     var textBounds = new Rectangle(
-                        itemBounds.X + (int)(10 * scaleFactor),
-                        itemBounds.Y + (int)(5 * scaleFactor),
-                        itemBounds.Width - (int)(20 * scaleFactor),
+                        (int)textPos.X,
+                        (int)textPos.Y,
+                        itemBounds.Width - titleOffsetX - (int)(10 * scaleFactor),
                         itemBounds.Height - (int)(10 * scaleFactor)
                     );
                     spriteBatch.Draw(_whitePixel, textBounds, fallbackColor);
