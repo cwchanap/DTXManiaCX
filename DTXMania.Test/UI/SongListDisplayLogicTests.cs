@@ -1062,6 +1062,8 @@ public class SongListDisplayLogicTests
             var realPreview = CreateTexture();
             var skin = CreateTexture();
             var rm = new Mock<IResourceManager>(MockBehavior.Strict);
+            rm.SetupAdd(x => x.ResourceLoadFailed += It.IsAny<EventHandler<ResourceLoadFailedEventArgs>>());
+            rm.SetupRemove(x => x.ResourceLoadFailed -= It.IsAny<EventHandler<ResourceLoadFailedEventArgs>>());
             rm.Setup(x => x.LoadTexture(previewPath)).Returns(realPreview.Object);
             SetField(display, "_resourceManager", rm.Object);
             SetField(display, "_defaultBarPreview", fallback.Object);
@@ -1092,6 +1094,8 @@ public class SongListDisplayLogicTests
             fallback.Verify(x => x.Draw(It.IsAny<SpriteBatch>(), It.IsAny<Rectangle>(), null,
                 It.IsAny<Color>(), 0f, Vector2.Zero, SpriteEffects.None, 0f), Times.Never);
             rm.Verify(x => x.LoadTexture(previewPath), Times.Once);
+            rm.VerifyAdd(x => x.ResourceLoadFailed += It.IsAny<EventHandler<ResourceLoadFailedEventArgs>>(), Times.Once);
+            rm.VerifyRemove(x => x.ResourceLoadFailed -= It.IsAny<EventHandler<ResourceLoadFailedEventArgs>>(), Times.Once);
             rm.VerifyNoOtherCalls();
         }
         finally
@@ -1294,6 +1298,8 @@ public class SongListDisplayLogicTests
             var path = Path.Combine(dir, "jacket.png");
             File.WriteAllBytes(path, new byte[16]);
             var rm = new Mock<IResourceManager>(MockBehavior.Strict);
+            rm.SetupAdd(x => x.ResourceLoadFailed += It.IsAny<EventHandler<ResourceLoadFailedEventArgs>>());
+            rm.SetupRemove(x => x.ResourceLoadFailed -= It.IsAny<EventHandler<ResourceLoadFailedEventArgs>>());
             rm.Setup(x => x.LoadTexture(path)).Throws(new InvalidOperationException("io"));
 
             Assert.Null(SongBarRenderer.LoadResolvedPreviewImage(rm.Object, path));
@@ -1316,6 +1322,103 @@ public class SongListDisplayLogicTests
 
         Assert.Empty(cache);
         preview.Verify(x => x.RemoveReference(), Times.Once);
+    }
+
+    [Fact]
+    public void ResolveBasicScorePreview_DuringFastScroll_ShouldStillServeCachedJacket()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var resolvedPath = Path.GetFullPath(Path.Combine(dir, "jacket.png"));
+        var display = new SongListDisplay();
+        var rm = new Mock<IResourceManager>(MockBehavior.Strict);
+        var cached = CreateTexture();
+        SetField(display, "_resourceManager", rm.Object);
+        // Three rapid inputs inside the window put the wheel in fast-scroll mode.
+        SetField(display, "_consecutiveInputCount", 3);
+        SetField(display, "_lastInputTime", DateTime.UtcNow);
+        var node = new SongListNode
+        {
+            Type = NodeType.Score,
+            Title = "Song",
+            DatabaseChart = new SongChart
+            {
+                FilePath = Path.Combine(dir, "song.dtx"),
+                PreviewImage = "jacket.png"
+            }
+        };
+        GetField<Dictionary<string, ITexture>>(display, "_basicPreviewCache")[resolvedPath] = cached.Object;
+
+        var result = InvokePrivate<ITexture?>(display, "ResolveBasicScorePreview", node);
+
+        Assert.Same(cached.Object, result);
+        rm.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public void ResolveBasicScorePreview_WhenPreviewPathHasInvalidChars_ShouldReturnNullWithoutThrowing()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var display = new SongListDisplay();
+        var rm = new Mock<IResourceManager>(MockBehavior.Strict);
+        SetField(display, "_resourceManager", rm.Object);
+        var node = new SongListNode
+        {
+            Type = NodeType.Score,
+            Title = "Song",
+            DatabaseChart = new SongChart
+            {
+                FilePath = Path.Combine(dir, "song.dtx"),
+                PreviewImage = "bad\0jacket.png"
+            }
+        };
+
+        var result = InvokePrivate<ITexture?>(display, "ResolveBasicScorePreview", node);
+
+        Assert.Null(result);
+        rm.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public void ResolveBasicScorePreview_WhenLoadReportsFailure_ShouldReturnNullAndNotRetry()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var previewPath = Path.GetFullPath(Path.Combine(dir, "jacket.png"));
+            File.WriteAllBytes(previewPath, new byte[16]);
+            var display = new SongListDisplay();
+            var rm = new Mock<IResourceManager>(MockBehavior.Strict);
+            var fallbackTexture = CreateTexture(1, 1);
+            rm.SetupAdd(x => x.ResourceLoadFailed += It.IsAny<EventHandler<ResourceLoadFailedEventArgs>>());
+            rm.SetupRemove(x => x.ResourceLoadFailed -= It.IsAny<EventHandler<ResourceLoadFailedEventArgs>>());
+            rm.Setup(x => x.LoadTexture(previewPath))
+                .Callback(() => rm.Raise(x => x.ResourceLoadFailed += null,
+                    new ResourceLoadFailedEventArgs(previewPath, new Exception("decode"))))
+                .Returns(fallbackTexture.Object);
+            SetField(display, "_resourceManager", rm.Object);
+            var node = new SongListNode
+            {
+                Type = NodeType.Score,
+                Title = "Song",
+                DatabaseChart = new SongChart
+                {
+                    FilePath = Path.Combine(dir, "song.dtx"),
+                    PreviewImage = "jacket.png"
+                }
+            };
+
+            Assert.Null(InvokePrivate<ITexture?>(display, "ResolveBasicScorePreview", node));
+            // Second call hits the cached failure marker instead of reloading.
+            Assert.Null(InvokePrivate<ITexture?>(display, "ResolveBasicScorePreview", node));
+
+            rm.Verify(x => x.LoadTexture(previewPath), Times.Once);
+            fallbackTexture.Verify(x => x.Dispose(), Times.Once);
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
     }
 
     [Fact]

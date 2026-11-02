@@ -87,6 +87,22 @@ public class ResultScreenModelTests
     }
 
     [Fact]
+    public void SetSavePresentation_FailedWithLongError_ShouldTruncateWithMarker()
+    {
+        var model = ResultScreenModel.Create(Summary(), null, 0, null, null);
+        var longError = new string('x', 200);
+
+        model.SetSavePresentation(new ResultSavePresentation(
+            ResultSaveState.Failed,
+            longError));
+
+        Assert.Equal(
+            "PRESS ENTER TO RETRY · BACK TO LEAVE WITHOUT SAVING · "
+                + new string('x', 64) + "…",
+            model.SaveGuidanceText);
+    }
+
+    [Fact]
     public void SetSavePresentation_NonFailure_ShouldClearPreviousGuidance()
     {
         var model = ResultScreenModel.Create(

@@ -680,32 +680,35 @@ namespace DTXMania.Game.Lib.Stage.Result
                     artistPosition.X, ResolveArtistCenterX(theme), _smallFont.MeasureString(model.Artist).X);
             DrawText(spriteBatch, _smallFont, model.Artist, artistPosition, ResolveArtistColor(theme));
 
+            // The whole playback group (plate + labels) shares the panel
+            // reveal alpha so the light label text does not appear over the
+            // bright NX background before the plate fades in.
             DrawPlaybackBackdrop(spriteBatch, model, panelAlpha);
             DrawText(
                 spriteBatch,
                 _smallFont,
                 model.PlaybackProfileText,
                 ResolvePlaybackProfilePosition(theme),
-                ResultUILayout.PlaybackPresentation.ProfileColor);
+                ResultUILayout.PlaybackPresentation.ProfileColor * panelAlpha);
             DrawText(
                 spriteBatch,
                 _smallFont,
                 model.ScoreBucketText,
                 ResolvePlaybackScoreBucketPosition(theme),
-                ResultUILayout.PlaybackPresentation.ScoreBucketColor);
+                ResultUILayout.PlaybackPresentation.ScoreBucketColor * panelAlpha);
             DrawText(
                 spriteBatch,
                 _smallFont,
                 model.SaveStatusText,
                 ResolvePlaybackSaveStatusPosition(theme),
-                ResolveSaveStatusColor(model.SavePresentation.State));
+                ResolveSaveStatusColor(model.SavePresentation.State) * panelAlpha);
             if (_smallFont != null && !string.IsNullOrEmpty(model.SaveGuidanceText))
             {
                 _smallFont.DrawStringWrapped(
                     spriteBatch,
                     model.SaveGuidanceText,
                     ResolvePlaybackSaveGuidanceBounds(theme),
-                    ResultUILayout.PlaybackPresentation.GuidanceColor);
+                    ResultUILayout.PlaybackPresentation.GuidanceColor * panelAlpha);
             }
 
             DrawValue(spriteBatch, valueFont, model.ChartLevelText, ResolveLevelPosition(theme),

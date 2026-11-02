@@ -187,9 +187,22 @@ namespace DTXMania.Game.Lib.Stage.Result
 
             const string retryText =
                 "PRESS ENTER TO RETRY · BACK TO LEAVE WITHOUT SAVING";
-            return string.IsNullOrWhiteSpace(presentation.ErrorText)
-                ? retryText
-                : $"{retryText} · {presentation.ErrorText.Trim()}";
+            if (string.IsNullOrWhiteSpace(presentation.ErrorText))
+                return retryText;
+
+            // Bound the appended detail: the guidance block clips lines past
+            // its fixed height, so an unbounded error would silently lose its
+            // tail. The marker makes the truncation visible.
+            const int maxErrorTextLength = 64;
+            var errorText = presentation.ErrorText.Trim();
+            if (errorText.Length > maxErrorTextLength)
+            {
+                var cut = maxErrorTextLength;
+                if (char.IsHighSurrogate(errorText[cut - 1]))
+                    cut--;
+                errorText = errorText.Substring(0, cut).TrimEnd() + "…";
+            }
+            return $"{retryText} · {errorText}";
         }
 
         public static ResultRank ComputeRank(double playingSkill)
