@@ -1281,9 +1281,9 @@ namespace DTXMania.Game.Lib.Song.Components
             if (_basicPreviewCache.TryGetValue(resolvedPath, out var cached))
                 return cached;
 
-            var texture = _barRenderer != null
-                ? _barRenderer.GeneratePreviewImageTexture(node)
-                : SongBarRenderer.LoadResolvedPreviewImage(_resourceManager, resolvedPath);
+            // The resource manager already caches per path, so loading directly
+            // shares the texture with the renderer's cache instead of doubling it.
+            var texture = SongBarRenderer.LoadResolvedPreviewImage(_resourceManager, resolvedPath);
             if (texture == null)
                 return null;
 
