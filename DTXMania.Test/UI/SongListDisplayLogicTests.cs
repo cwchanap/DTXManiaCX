@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using DTXMania.Game.Lib.Resources;
@@ -1044,6 +1045,122 @@ public class SongListDisplayLogicTests
         Assert.Equal(44, thumbnail.Width);
         Assert.True(title.X >= thumbnail.Right, $"Title X={title.X} overlaps thumbnail {thumbnail}");
         Assert.Equal(selected ? 720f : 743f, title.X);
+    }
+
+    [Fact]
+    public void DrawBasicSongItemWithPerspective_WhenSongHasRealPreview_ShouldDrawItInsteadOfDefault()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var previewPath = Path.GetFullPath(Path.Combine(dir, "jacket.png"));
+            File.WriteAllBytes(previewPath, new byte[16]);
+
+            var display = new SongListDisplay { ManagedFont = CreateManagedFont().Object };
+            var fallback = CreateTexture(400, 400);
+            var realPreview = CreateTexture();
+            var skin = CreateTexture();
+            var rm = new Mock<IResourceManager>(MockBehavior.Strict);
+            rm.Setup(x => x.LoadTexture(previewPath)).Returns(realPreview.Object);
+            SetField(display, "_resourceManager", rm.Object);
+            SetField(display, "_defaultBarPreview", fallback.Object);
+            SetField(display, "_skinBarTexturesLoaded", true);
+            SetField(display, "_barScoreTexture", skin.Object);
+            SetField(display, "_barScoreSelectedTexture", skin.Object);
+            var node = new SongListNode
+            {
+                Type = NodeType.Score,
+                Title = "Song",
+                DatabaseChart = new SongChart
+                {
+                    FilePath = Path.Combine(dir, "song.dtx"),
+                    PreviewImage = "jacket.png"
+                }
+            };
+            var bounds = new Rectangle(665, 269, 510, 48);
+            var slot = new Rectangle(672, 266, 44, 44);
+
+            InvokePrivate<object?>(display, "DrawBasicSongItemWithPerspective", null!,
+                node, bounds, true, true, 0, 1f, 0.5f);
+            // Second draw must hit the display's preview cache rather than reloading.
+            InvokePrivate<object?>(display, "DrawBasicSongItemWithPerspective", null!,
+                node, bounds, true, true, 0, 1f, 0.5f);
+
+            realPreview.Verify(x => x.Draw(null!, slot, null, Color.White * 0.5f,
+                0f, Vector2.Zero, SpriteEffects.None, 0f), Times.Exactly(2));
+            fallback.Verify(x => x.Draw(It.IsAny<SpriteBatch>(), It.IsAny<Rectangle>(), null,
+                It.IsAny<Color>(), 0f, Vector2.Zero, SpriteEffects.None, 0f), Times.Never);
+            rm.Verify(x => x.LoadTexture(previewPath), Times.Once);
+            rm.VerifyNoOtherCalls();
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void DrawBasicSongItemWithPerspective_DuringFastScroll_ShouldKeepDefaultPreview()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var previewPath = Path.GetFullPath(Path.Combine(dir, "jacket.png"));
+            File.WriteAllBytes(previewPath, new byte[16]);
+
+            var display = new SongListDisplay { ManagedFont = CreateManagedFont().Object };
+            var fallback = CreateTexture(400, 400);
+            var skin = CreateTexture();
+            var rm = new Mock<IResourceManager>(MockBehavior.Strict);
+            SetField(display, "_resourceManager", rm.Object);
+            SetField(display, "_defaultBarPreview", fallback.Object);
+            SetField(display, "_skinBarTexturesLoaded", true);
+            SetField(display, "_barScoreTexture", skin.Object);
+            SetField(display, "_barScoreSelectedTexture", skin.Object);
+            // Three rapid inputs inside the window put the wheel in fast-scroll mode.
+            SetField(display, "_consecutiveInputCount", 3);
+            SetField(display, "_lastInputTime", DateTime.UtcNow);
+            var node = new SongListNode
+            {
+                Type = NodeType.Score,
+                Title = "Song",
+                DatabaseChart = new SongChart
+                {
+                    FilePath = Path.Combine(dir, "song.dtx"),
+                    PreviewImage = "jacket.png"
+                }
+            };
+            var bounds = new Rectangle(665, 269, 510, 48);
+            var slot = new Rectangle(672, 266, 44, 44);
+
+            InvokePrivate<object?>(display, "DrawBasicSongItemWithPerspective", null!,
+                node, bounds, true, true, 0, 1f, 0.5f);
+
+            fallback.Verify(x => x.Draw(null!, slot, null, Color.White * 0.5f,
+                0f, Vector2.Zero, SpriteEffects.None, 0f), Times.Once);
+            rm.Verify(x => x.LoadTexture(It.IsAny<string>()), Times.Never);
+            rm.VerifyNoOtherCalls();
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void RefreshDisplay_ShouldReleaseBasicPreviewCache()
+    {
+        var display = new SongListDisplay();
+        var preview = CreateTexture();
+        var cache = GetField<Dictionary<string, ITexture>>(display, "_basicPreviewCache");
+        cache["preview"] = preview.Object;
+
+        display.RefreshDisplay();
+
+        Assert.Empty(cache);
+        preview.Verify(x => x.RemoveReference(), Times.Once);
     }
 
     [Fact]

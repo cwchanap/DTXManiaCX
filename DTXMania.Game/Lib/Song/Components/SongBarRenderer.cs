@@ -549,7 +549,12 @@ namespace DTXMania.Game.Lib.Song.Components
             return _resourceManager.LoadTexture(resolvedPreviewImagePath);
         }
 
-        private static string GetResolvedPreviewImagePath(SongListNode songNode)
+        /// <summary>
+        /// Resolve a node's preview image to an absolute path, or null when the
+        /// chart carries no preview reference. Shared with fallback draw paths
+        /// that have no SongBarRenderer instance.
+        /// </summary>
+        internal static string GetResolvedPreviewImagePath(SongListNode songNode)
         {
             var chart = songNode?.DatabaseChart;
             var filePath = chart?.FilePath;
@@ -563,6 +568,33 @@ namespace DTXMania.Game.Lib.Song.Components
                 return null;
 
             return Path.GetFullPath(Path.Combine(songDirectory, previewImage));
+        }
+
+        /// <summary>
+        /// Load a resolved preview image through a resource manager without a
+        /// renderer instance, applying the same existence and size guards as the
+        /// enhanced path. The caller owns the returned reference.
+        /// </summary>
+        internal static ITexture LoadResolvedPreviewImage(IResourceManager resourceManager, string resolvedPreviewImagePath)
+        {
+            if (resourceManager == null || string.IsNullOrEmpty(resolvedPreviewImagePath) || !File.Exists(resolvedPreviewImagePath))
+                return null;
+
+            if (new FileInfo(resolvedPreviewImagePath).Length > MAX_PREVIEW_IMAGE_SIZE_BYTES)
+            {
+                System.Diagnostics.Debug.WriteLine($"Skipping large preview image: {resolvedPreviewImagePath}");
+                return null;
+            }
+
+            try
+            {
+                return resourceManager.LoadTexture(resolvedPreviewImagePath);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to load preview image: {ex.Message}");
+                return null;
+            }
         }
 
         private string GetTitleCacheKey(SongListNode songNode)
