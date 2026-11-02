@@ -203,6 +203,67 @@ public class SongBarRendererLogicTests
     }
 
     [Fact]
+    public void GeneratePreviewImageTexture_WhenPreviewFileAppearsAfterMiss_ShouldRetryAndLoad()
+    {
+        // A missing jacket is not a load failure, so the path must not be
+        // negative-cached: once the file exists the next attempt loads it.
+        var renderer = CreateRenderer();
+        var resourceManager = new Mock<IResourceManager>();
+        ReflectionHelpers.SetPrivateField(renderer, "_resourceManager", resourceManager.Object);
+        var tempDir = Directory.CreateTempSubdirectory("dtxmania-songbar-appearing");
+        try
+        {
+            var previewPath = Path.Combine(tempDir.FullName, "jacket.png");
+            var songNode = CreateScoreNode(filePath: Path.Combine(tempDir.FullName, "chart.dtx"), previewImage: "jacket.png");
+
+            Assert.Null(renderer.GeneratePreviewImageTexture(songNode));
+
+            File.WriteAllText(previewPath, "preview");
+            var loaded = CreateTextureMock();
+            var loadedTexture = loaded.Object;
+            resourceManager.Setup(x => x.TryLoadTexture(previewPath, out loadedTexture)).Returns(true);
+
+            Assert.Same(loaded.Object, renderer.GeneratePreviewImageTexture(songNode));
+            resourceManager.Verify(x => x.TryLoadTexture(previewPath, out It.Ref<ITexture>.IsAny), Times.Once);
+        }
+        finally
+        {
+            tempDir.Delete(true);
+        }
+    }
+
+    [Fact]
+    public void GeneratePreviewImageTexture_WhenOversizedPreviewIsReplaced_ShouldRetryAndLoad()
+    {
+        // The size guard rejects the file without negative-caching the path,
+        // so a jacket swapped in later is picked up on the next generation.
+        var renderer = CreateRenderer();
+        var resourceManager = new Mock<IResourceManager>();
+        ReflectionHelpers.SetPrivateField(renderer, "_resourceManager", resourceManager.Object);
+        var tempDir = Directory.CreateTempSubdirectory("dtxmania-songbar-shrunk");
+        try
+        {
+            var previewPath = Path.Combine(tempDir.FullName, "jacket.png");
+            File.WriteAllBytes(previewPath, new byte[8 * 1024 * 1024 + 1]);
+            var songNode = CreateScoreNode(filePath: Path.Combine(tempDir.FullName, "chart.dtx"), previewImage: "jacket.png");
+
+            Assert.Null(renderer.GeneratePreviewImageTexture(songNode));
+
+            File.WriteAllText(previewPath, "preview");
+            var loaded = CreateTextureMock();
+            var loadedTexture = loaded.Object;
+            resourceManager.Setup(x => x.TryLoadTexture(previewPath, out loadedTexture)).Returns(true);
+
+            Assert.Same(loaded.Object, renderer.GeneratePreviewImageTexture(songNode));
+            resourceManager.Verify(x => x.TryLoadTexture(previewPath, out It.Ref<ITexture>.IsAny), Times.Once);
+        }
+        finally
+        {
+            tempDir.Delete(true);
+        }
+    }
+
+    [Fact]
     public void ClearCache_ShouldClearFailedPreviewPaths()
     {
         var renderer = CreateRenderer();
