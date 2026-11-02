@@ -1688,6 +1688,146 @@ namespace DTXMania.Test.Resources
             Assert.True(File.Exists(systemFilePath));
         }
 
+        [Fact]
+        public void TryLoadTexture_WhenFileMissing_ShouldReturnFalseWithFallback()
+        {
+            var resourceManager = CreateTestableResourceManager(_customSkinRoot, _defaultSkinRoot);
+            var fallbackTexture = CreateTextureMock();
+            resourceManager.CreateFallbackTextureHandler = _ => fallbackTexture.Object;
+
+            var loaded = resourceManager.TryLoadTexture("Graphics/missing.png", out var texture);
+
+            Assert.False(loaded);
+            Assert.Same(fallbackTexture.Object, texture);
+        }
+
+        [Fact]
+        public void TryLoadTexture_WhenFileValid_ShouldReturnTrueWithTexture()
+        {
+            var resourceManager = CreateTestableResourceManager(_customSkinRoot, _defaultSkinRoot);
+            var loadedTexture = CreateTextureMock();
+
+            Directory.CreateDirectory(Path.Combine(_customSkinRoot, "Graphics"));
+            File.WriteAllText(Path.Combine(_customSkinRoot, "Graphics", "present.png"), "png");
+
+            resourceManager.CreateTextureCoreHandler = (_, _, _) => loadedTexture.Object;
+
+            var loaded = resourceManager.TryLoadTexture("Graphics/present.png", out var texture);
+
+            Assert.True(loaded);
+            Assert.Same(loadedTexture.Object, texture);
+        }
+
+        [Fact]
+        public void TryLoadTexture_WhenDecodeThrows_ShouldReturnFalseWithFallback()
+        {
+            var resourceManager = CreateTestableResourceManager(_customSkinRoot, _defaultSkinRoot);
+            var fallbackTexture = CreateTextureMock();
+
+            Directory.CreateDirectory(Path.Combine(_customSkinRoot, "Graphics"));
+            File.WriteAllText(Path.Combine(_customSkinRoot, "Graphics", "corrupt.png"), "not a png");
+
+            resourceManager.CreateTextureCoreHandler = (_, _, _) => throw new InvalidDataException("bad image");
+            resourceManager.CreateFallbackTextureHandler = _ => fallbackTexture.Object;
+
+            var loaded = resourceManager.TryLoadTexture("Graphics/corrupt.png", out var texture);
+
+            Assert.False(loaded);
+            Assert.Same(fallbackTexture.Object, texture);
+        }
+
+        [Fact]
+        public void TryLoadTexture_WhenCached_ShouldReturnTrueWithoutEvent()
+        {
+            var resourceManager = CreateResourceManager(_customSkinRoot, _defaultSkinRoot);
+            var textureCache = GetPrivateField<ConcurrentDictionary<string, ITexture>>(resourceManager, "_textureCache");
+            var cachedTexture = CreateTextureMock();
+            textureCache[NormalizeFilePathForTest("Graphics/cached.png") + "|False"] = cachedTexture.Object;
+
+            ResourceLoadFailedEventArgs? eventArgs = null;
+            resourceManager.ResourceLoadFailed += (_, args) => eventArgs = args;
+
+            var loaded = resourceManager.TryLoadTexture("Graphics/cached.png", out var texture);
+
+            Assert.True(loaded);
+            Assert.Same(cachedTexture.Object, texture);
+            Assert.Null(eventArgs);
+        }
+
+        [Fact]
+        public void TryLoadTexture_WhenOtherPathFails_ShouldStillReturnTrue()
+        {
+            // A concurrent/embedded failure for a different path must not mark
+            // this load failed — the detection matches the requested path.
+            var resourceManager = CreateTestableResourceManager(_customSkinRoot, _defaultSkinRoot);
+            var loadedTexture = CreateTextureMock();
+            var fallbackSound = CreateSoundMock();
+
+            Directory.CreateDirectory(Path.Combine(_customSkinRoot, "Graphics"));
+            File.WriteAllText(Path.Combine(_customSkinRoot, "Graphics", "present.png"), "png");
+
+            resourceManager.CreateFallbackSoundHandler = _ => fallbackSound.Object;
+            resourceManager.CreateTextureCoreHandler = (_, _, _) =>
+            {
+                // Raises ResourceLoadFailed for a different path mid-load.
+                resourceManager.LoadSound("Sounds/definitely-missing.wav");
+                return loadedTexture.Object;
+            };
+
+            var loaded = resourceManager.TryLoadTexture("Graphics/present.png", out var texture);
+
+            Assert.True(loaded);
+            Assert.Same(loadedTexture.Object, texture);
+        }
+
+        [Fact]
+        public void TryLoadSound_WhenFileMissing_ShouldReturnFalseWithFallback()
+        {
+            var resourceManager = CreateTestableResourceManager(_customSkinRoot, _defaultSkinRoot);
+            var fallbackSound = CreateSoundMock();
+            resourceManager.CreateFallbackSoundHandler = _ => fallbackSound.Object;
+
+            var loaded = resourceManager.TryLoadSound("Sounds/missing.ogg", out var sound);
+
+            Assert.False(loaded);
+            Assert.Same(fallbackSound.Object, sound);
+        }
+
+        [Fact]
+        public void TryLoadSound_WhenFileValid_ShouldReturnTrueWithSound()
+        {
+            var resourceManager = CreateTestableResourceManager(_customSkinRoot, _defaultSkinRoot);
+            var loadedSound = CreateSoundMock();
+
+            Directory.CreateDirectory(Path.Combine(_customSkinRoot, "Sounds"));
+            File.WriteAllText(Path.Combine(_customSkinRoot, "Sounds", "present.ogg"), "ogg");
+
+            resourceManager.CreateSoundCoreHandler = (_, _) => loadedSound.Object;
+
+            var loaded = resourceManager.TryLoadSound("Sounds/present.ogg", out var sound);
+
+            Assert.True(loaded);
+            Assert.Same(loadedSound.Object, sound);
+        }
+
+        [Fact]
+        public void TryLoadSound_WhenDecodeThrows_ShouldReturnFalseWithFallback()
+        {
+            var resourceManager = CreateTestableResourceManager(_customSkinRoot, _defaultSkinRoot);
+            var fallbackSound = CreateSoundMock();
+
+            Directory.CreateDirectory(Path.Combine(_customSkinRoot, "Sounds"));
+            File.WriteAllText(Path.Combine(_customSkinRoot, "Sounds", "corrupt.ogg"), "not audio");
+
+            resourceManager.CreateSoundCoreHandler = (_, _) => throw new InvalidDataException("bad audio");
+            resourceManager.CreateFallbackSoundHandler = _ => fallbackSound.Object;
+
+            var loaded = resourceManager.TryLoadSound("Sounds/corrupt.ogg", out var sound);
+
+            Assert.False(loaded);
+            Assert.Same(fallbackSound.Object, sound);
+        }
+
         public void Dispose()
         {
             try
