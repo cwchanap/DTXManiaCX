@@ -151,21 +151,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 return cachedTexture;
             }
 
-            // Check file size before attempting to load - skip large files (>500KB)
-            if (File.Exists(resolvedPreviewImagePath))
-            {
-                var fileInfo = new FileInfo(resolvedPreviewImagePath);
-                if (fileInfo.Length > MAX_PREVIEW_IMAGE_SIZE_BYTES)
-                {
-                    System.Diagnostics.Debug.WriteLine($"Skipping large preview image: {resolvedPreviewImagePath} ({fileInfo.Length} bytes)");
-                    return null;
-                }
-            }
-            else
-            {
-                return null;
-            }
-
+            // Existence, size, and decode-failure guards live in the shared load helper.
             var texture = LoadPreviewImage(resolvedPreviewImagePath);
 
             if (texture != null)
@@ -543,10 +529,7 @@ namespace DTXMania.Game.Lib.Song.Components
 
         private ITexture LoadPreviewImage(string resolvedPreviewImagePath)
         {
-            if (string.IsNullOrEmpty(resolvedPreviewImagePath) || !File.Exists(resolvedPreviewImagePath))
-                return null;
-
-            return _resourceManager.LoadTexture(resolvedPreviewImagePath);
+            return LoadResolvedPreviewImage(_resourceManager, resolvedPreviewImagePath);
         }
 
         /// <summary>
@@ -567,28 +550,64 @@ namespace DTXMania.Game.Lib.Song.Components
             if (string.IsNullOrEmpty(songDirectory))
                 return null;
 
-            return Path.GetFullPath(Path.Combine(songDirectory, previewImage));
+            try
+            {
+                // A #PREIMAGE value with platform-invalid characters throws here;
+                // callers fall back to the skin default instead of failing the draw.
+                return Path.GetFullPath(Path.Combine(songDirectory, previewImage));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Invalid preview image path '{previewImage}': {ex.Message}");
+                return null;
+            }
         }
 
         /// <summary>
         /// Load a resolved preview image through a resource manager without a
         /// renderer instance, applying the same existence and size guards as the
-        /// enhanced path. The caller owns the returned reference.
+        /// enhanced path. Returns null when the manager reports the load as
+        /// failed (LoadTexture returns a 1x1 white fallback rather than null),
+        /// so callers fall back to the skin default instead of caching or
+        /// drawing the placeholder. The caller owns the returned reference.
         /// </summary>
         internal static ITexture LoadResolvedPreviewImage(IResourceManager resourceManager, string resolvedPreviewImagePath)
         {
             if (resourceManager == null || string.IsNullOrEmpty(resolvedPreviewImagePath) || !File.Exists(resolvedPreviewImagePath))
                 return null;
 
-            if (new FileInfo(resolvedPreviewImagePath).Length > MAX_PREVIEW_IMAGE_SIZE_BYTES)
-            {
-                System.Diagnostics.Debug.WriteLine($"Skipping large preview image: {resolvedPreviewImagePath}");
-                return null;
-            }
-
             try
             {
-                return resourceManager.LoadTexture(resolvedPreviewImagePath);
+                if (new FileInfo(resolvedPreviewImagePath).Length > MAX_PREVIEW_IMAGE_SIZE_BYTES)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Skipping large preview image: {resolvedPreviewImagePath}");
+                    return null;
+                }
+
+                var loadFailed = false;
+                EventHandler<ResourceLoadFailedEventArgs> onLoadFailed = (_, e) =>
+                {
+                    if (e.Path == resolvedPreviewImagePath)
+                        loadFailed = true;
+                };
+                resourceManager.ResourceLoadFailed += onLoadFailed;
+                ITexture texture = null;
+                try
+                {
+                    texture = resourceManager.LoadTexture(resolvedPreviewImagePath);
+                }
+                finally
+                {
+                    resourceManager.ResourceLoadFailed -= onLoadFailed;
+                }
+
+                if (loadFailed)
+                {
+                    texture?.Dispose();
+                    return null;
+                }
+
+                return texture;
             }
             catch (Exception ex)
             {

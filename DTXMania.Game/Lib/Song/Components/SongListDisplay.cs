@@ -1270,23 +1270,23 @@ namespace DTXMania.Game.Lib.Song.Components
             if (_barInfoCache.TryGetValue(cacheKey, out var barInfo) && barInfo.PreviewImage != null)
                 return barInfo.PreviewImage;
 
-            // Match the enhanced path: skip preview file loads during fast scroll.
-            if (IsFastScrollMode())
-                return null;
-
             var resolvedPath = SongBarRenderer.GetResolvedPreviewImagePath(node);
             if (string.IsNullOrEmpty(resolvedPath))
                 return null;
 
+            // Cached jackets stay visible during fast scroll; the gate below
+            // only blocks new file loads. A null entry marks a known-failed
+            // load so a corrupt jacket is not retried every frame.
             if (_basicPreviewCache.TryGetValue(resolvedPath, out var cached))
                 return cached;
+
+            // Match the enhanced path: skip preview file loads during fast scroll.
+            if (IsFastScrollMode())
+                return null;
 
             // The resource manager already caches per path, so loading directly
             // shares the texture with the renderer's cache instead of doubling it.
             var texture = SongBarRenderer.LoadResolvedPreviewImage(_resourceManager, resolvedPath);
-            if (texture == null)
-                return null;
-
             _basicPreviewCache[resolvedPath] = texture;
             return texture;
         }
