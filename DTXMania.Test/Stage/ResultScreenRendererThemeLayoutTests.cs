@@ -755,6 +755,39 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void ResolvePlaybackBackdropBounds_WhenResultNotFailed_ShouldNotCapAtBannerPosition()
+        {
+            // The FAILED banner is only drawn on failed results; on a cleared
+            // result (which can still carry a failed save) its position must
+            // not narrow the plate.
+            var bounds = ResultScreenRenderer.ResolvePlaybackBackdropBounds(
+                SkinTheme.Empty, hasGuidance: true, plateKind: ResultPlateKind.StageCleared);
+
+            Assert.Equal(new Rectangle(24, 102, 432, 153), bounds);
+        }
+
+        [Fact]
+        public void ResolvePlaybackSaveGuidanceBounds_WhenResultNotFailed_ShouldKeepFullWidth()
+        {
+            // Same cleared-result case for the wrap rectangle derived from the
+            // backdrop: the full 420px block is available again.
+            Assert.Equal(new Rectangle(30, 195, 420, 54),
+                ResultScreenRenderer.ResolvePlaybackSaveGuidanceBounds(
+                    SkinTheme.Empty, plateKind: ResultPlateKind.StageCleared));
+        }
+
+        [Fact]
+        public void ResolvePlaybackBackdropBounds_WhenResultFailed_ShouldStillCapAtBannerPosition()
+        {
+            // Control case: on a failed result the banner is drawn, so the NX
+            // position cap stays — same geometry as the pre-parameter behavior.
+            var bounds = ResultScreenRenderer.ResolvePlaybackBackdropBounds(
+                SkinTheme.Empty, hasGuidance: true, plateKind: ResultPlateKind.Failed);
+
+            Assert.Equal(new Rectangle(24, 102, 396, 153), bounds);
+        }
+
+        [Fact]
         public void ResolvePlaybackBackdropBounds_WithNxOriginAndGuidance_ShouldClearSkillPanelTop()
         {
             var bounds = ResultScreenRenderer.ResolvePlaybackBackdropBounds(SkinTheme.Empty, hasGuidance: true);

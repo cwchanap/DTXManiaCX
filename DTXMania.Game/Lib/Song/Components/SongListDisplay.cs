@@ -133,8 +133,20 @@ namespace DTXMania.Game.Lib.Song.Components
         // init failed or no shared render target). Keyed by resolved preview
         // path; each entry holds the single caller-owned reference returned by
         // SongBarRenderer.LoadResolvedPreviewImage. Populated in Update only.
-        private readonly Dictionary<string, ITexture> _basicPreviewCache = new();
-        private readonly HashSet<string> _failedBasicPreviewPaths = new();
+        // SkinPathComparer matches SongBarRenderer's failed-path set: on
+        // Windows a casing variant of the same file must share the entry.
+        // The cache is FIFO-bounded — four visible windows of jackets — so a
+        // long scroll session cannot grow it without limit; eviction drops
+        // this cache's reference, and the ResourceManager reclaims the
+        // texture itself via CollectUnusedResources once no holder remains.
+        private const int MaxBasicPreviewCacheEntries = VISIBLE_ITEMS * 4;
+        private readonly Dictionary<string, ITexture> _basicPreviewCache = new(AppPaths.SkinPathComparer);
+        private readonly Queue<string> _basicPreviewCacheOrder = new();
+        private readonly HashSet<string> _failedBasicPreviewPaths = new(AppPaths.SkinPathComparer);
+        // UpdateBasicPreviewTextures resumes its visible-window scan here so
+        // permanently rejected paths cannot starve later rows of the
+        // per-frame load budget.
+        private int _basicPreviewScanStart;
 
         // Phase 2 enhancements: Bar information caching
         private readonly Dictionary<string, SongBarInfo> _barInfoCache;        // Texture generation priority queue to prevent draw phase generation
@@ -1761,8 +1773,16 @@ namespace DTXMania.Game.Lib.Song.Components
             int processedCount = 0;
             int centerSongIndex = _currentScrollCounter / SCROLL_UNIT;
 
-            for (int barIndex = 0; barIndex < VISIBLE_ITEMS; barIndex++)
+            // Resume where the last pass stopped: guard rejections (missing
+            // file, size caps) are not cached, so restarting at the first bar
+            // every frame would let a run of unfulfillable previews consume
+            // the whole load budget and starve later rows forever.
+            int startBarIndex = _basicPreviewScanStart % VISIBLE_ITEMS;
+            int lastScannedBarIndex = startBarIndex;
+            for (int i = 0; i < VISIBLE_ITEMS; i++)
             {
+                int barIndex = (startBarIndex + i) % VISIBLE_ITEMS;
+                lastScannedBarIndex = barIndex;
                 if (!TryResolveVisibleSongIndex(
                         centerSongIndex,
                         barIndex,
@@ -1791,6 +1811,8 @@ namespace DTXMania.Game.Lib.Song.Components
                 if (texture != null)
                 {
                     _basicPreviewCache[previewPath] = texture;
+                    _basicPreviewCacheOrder.Enqueue(previewPath);
+                    EvictBasicPreviewOverflow();
                 }
                 else if (cacheableFailure)
                 {
@@ -1801,6 +1823,33 @@ namespace DTXMania.Game.Lib.Song.Components
 
                 if (processedCount >= maxLoadsPerFrame || stopwatch.Elapsed.TotalMilliseconds > 8.0)
                     break;
+            }
+            _basicPreviewScanStart = (lastScannedBarIndex + 1) % VISIBLE_ITEMS;
+        }
+
+        /// <summary>
+        /// Evict the oldest basic-path previews while the cache exceeds its
+        /// bound. Eviction drops this cache's reference; the ResourceManager
+        /// path cache keeps the entry at refcount 0, so a follow-up
+        /// CollectUnusedResources is what actually frees the GPU texture —
+        /// it only reaps entries no holder references.
+        /// </summary>
+        private void EvictBasicPreviewOverflow()
+        {
+            var evicted = false;
+            while (_basicPreviewCache.Count > MaxBasicPreviewCacheEntries
+                && _basicPreviewCacheOrder.Count > 0)
+            {
+                var oldestPath = _basicPreviewCacheOrder.Dequeue();
+                if (_basicPreviewCache.Remove(oldestPath, out var evictedTexture))
+                {
+                    evictedTexture?.RemoveReference();
+                    evicted = true;
+                }
+            }
+            if (evicted)
+            {
+                _resourceManager.CollectUnusedResources();
             }
         }
 
@@ -1842,15 +1891,24 @@ namespace DTXMania.Game.Lib.Song.Components
         /// caller-owned reference returned by LoadResolvedPreviewImage, so
         /// eviction is a RemoveReference, matching the other managed textures.
         /// The negative cache clears with it so a corrected jacket can retry.
+        /// Dropped references only lower the refcount — CollectUnusedResources
+        /// performs the actual reclamation for entries nothing else holds.
         /// </summary>
         private void ReleaseBasicPreviewCache()
         {
+            var released = _basicPreviewCache.Count;
             foreach (var texture in _basicPreviewCache.Values)
             {
                 texture?.RemoveReference();
             }
             _basicPreviewCache.Clear();
+            _basicPreviewCacheOrder.Clear();
             _failedBasicPreviewPaths.Clear();
+            _basicPreviewScanStart = 0;
+            if (released > 0)
+            {
+                _resourceManager?.CollectUnusedResources();
+            }
         }
 
         private static string GetBarInfoCacheKey(
