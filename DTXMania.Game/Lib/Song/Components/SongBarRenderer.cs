@@ -44,7 +44,8 @@ namespace DTXMania.Game.Lib.Song.Components
         private readonly CacheManager<string, ITexture> _previewImageCache;
         // CacheManager cannot hold nulls, so failed loads get their own
         // negative cache — otherwise every bar-info regeneration re-reads
-        // and re-decodes a corrupt or oversized jacket file.
+        // and re-decodes a corrupt jacket file. Only attempted loads are
+        // cached; a missing or guard-rejected file stays retryable.
         private readonly HashSet<string> _failedPreviewPaths;
         private readonly CacheManager<string, ITexture> _clearLampCache;
 
@@ -164,14 +165,14 @@ namespace DTXMania.Game.Lib.Song.Components
                 return null;
 
             // Existence, size, and decode-failure guards live in the shared load helper.
-            var texture = LoadPreviewImage(resolvedPreviewImagePath);
+            var texture = LoadPreviewImage(resolvedPreviewImagePath, out var cacheableFailure);
 
             if (texture != null)
             {
                 _previewImageCache.Add(cacheKey, texture);
                 texture.AddReference(); // Cache holds one reference, caller gets another
             }
-            else
+            else if (cacheableFailure)
             {
                 _failedPreviewPaths.Add(cacheKey);
             }
@@ -534,7 +535,7 @@ namespace DTXMania.Game.Lib.Song.Components
             try
             {
                 var resolvedPreviewImagePath = GetResolvedPreviewImagePath(songNode);
-                return LoadPreviewImage(resolvedPreviewImagePath);
+                return LoadPreviewImage(resolvedPreviewImagePath, out _);
             }
             catch (Exception ex)
             {
@@ -544,9 +545,9 @@ namespace DTXMania.Game.Lib.Song.Components
             return null;
         }
 
-        private ITexture LoadPreviewImage(string resolvedPreviewImagePath)
+        private ITexture LoadPreviewImage(string resolvedPreviewImagePath, out bool cacheableFailure)
         {
-            return LoadResolvedPreviewImage(_resourceManager, resolvedPreviewImagePath);
+            return LoadResolvedPreviewImage(_resourceManager, resolvedPreviewImagePath, out cacheableFailure);
         }
 
         /// <summary>
@@ -587,9 +588,14 @@ namespace DTXMania.Game.Lib.Song.Components
         /// failed (LoadTexture returns a 1x1 white fallback rather than null),
         /// so callers fall back to the skin default instead of caching or
         /// drawing the placeholder. The caller owns the returned reference.
+        /// <paramref name="cacheableFailure"/> is set only once the load is
+        /// genuinely attempted — a failure the caller may negative-cache.
+        /// Guard rejections (missing file, size cap, a race between Exists and
+        /// stat) leave it false so the path stays retryable.
         /// </summary>
-        internal static ITexture LoadResolvedPreviewImage(IResourceManager resourceManager, string resolvedPreviewImagePath)
+        internal static ITexture LoadResolvedPreviewImage(IResourceManager resourceManager, string resolvedPreviewImagePath, out bool cacheableFailure)
         {
+            cacheableFailure = false;
             if (resourceManager == null || string.IsNullOrEmpty(resolvedPreviewImagePath) || !File.Exists(resolvedPreviewImagePath))
                 return null;
 
@@ -600,6 +606,10 @@ namespace DTXMania.Game.Lib.Song.Components
                     System.Diagnostics.Debug.WriteLine($"Skipping large preview image: {resolvedPreviewImagePath}");
                     return null;
                 }
+
+                // From here the load is genuinely attempted, so any failure is
+                // safe to negative-cache.
+                cacheableFailure = true;
 
                 // TryLoadTexture reports the failure LoadTexture hides behind
                 // its 1x1 fallback. The fallback is uncached and caller-owned,

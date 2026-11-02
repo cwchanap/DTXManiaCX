@@ -539,13 +539,13 @@ namespace DTXMania.Game.Lib.Stage.Result
         /// origin the backdrop is itself capped by the FAILED banner, so the
         /// full 420px block would spill glyphs onto it.
         /// </summary>
-        internal static Rectangle ResolvePlaybackSaveGuidanceBounds(ISkinTheme theme)
+        internal static Rectangle ResolvePlaybackSaveGuidanceBounds(ISkinTheme theme, float failedBannerHeight = 0f)
         {
             var origin = ResolvePlaybackGroupOrigin(theme);
             var offset = ResultUILayout.PlaybackPresentation.SaveGuidanceOffset;
             var size = ResultUILayout.PlaybackPresentation.SaveGuidanceSize;
             var x = (int)origin.X + (int)offset.X;
-            var backdrop = ResolvePlaybackBackdropBounds(theme, hasGuidance: true);
+            var backdrop = ResolvePlaybackBackdropBounds(theme, hasGuidance: true, failedBannerHeight);
             var width = Math.Min(
                 size.X,
                 backdrop.Right - ResultUILayout.PlaybackPresentation.BackdropPadding - x);
@@ -560,8 +560,11 @@ namespace DTXMania.Game.Lib.Stage.Result
         /// Backdrop plate behind the playback group: covers the three rows, and
         /// additionally the guidance block only when its text is present.
         /// The NX right edge clears FAILED; the bottom clears the skill panel.
+        /// <paramref name="failedBannerHeight"/> is the drawn height of the
+        /// FAILED banner (its font's line spacing); 0 treats the banner as
+        /// its anchor point.
         /// </summary>
-        internal static Rectangle ResolvePlaybackBackdropBounds(ISkinTheme theme, bool hasGuidance)
+        internal static Rectangle ResolvePlaybackBackdropBounds(ISkinTheme theme, bool hasGuidance, float failedBannerHeight = 0f)
         {
             var origin = ResolvePlaybackGroupOrigin(theme);
             var pad = ResultUILayout.PlaybackPresentation.BackdropPadding;
@@ -572,28 +575,32 @@ namespace DTXMania.Game.Lib.Stage.Result
                     + ResultUILayout.PlaybackPresentation.RowHeight;
             var width = ResultUILayout.PlaybackPresentation.SaveGuidanceSize.X + pad * 2;
             var left = (int)origin.X - pad;
+            var top = (int)origin.Y - pad;
+            var height = (int)bottomOffset + pad * 2;
             // The backdrop's right edge must not run under the FAILED banner
             // text, which has no scrim of its own. Cap it at the theme-
             // resolved FAILED position whenever the banner sits right of the
-            // backdrop's left edge — the NX defaults reduce to the same 396px
-            // cap as before, but a skin that relocates FAILED or nudges the
-            // playback group keeps the clearance automatically.
-            var failedTextX = ResolveFailedTextPosition(theme).X;
-            if (failedTextX > left)
-                width = Math.Min(width, (int)failedTextX - left);
-            return new Rectangle(
-                left,
-                (int)origin.Y - pad,
-                width,
-                (int)bottomOffset + pad * 2);
+            // backdrop's left edge AND its vertical span overlaps the plate —
+            // a banner parked above or below the group cannot collide, so it
+            // must not narrow the backdrop (or the guidance that derives from
+            // it). The NX defaults reduce to the same 396px cap as before,
+            // but a skin that relocates FAILED or nudges the playback group
+            // keeps the clearance automatically.
+            var failedTextPosition = ResolveFailedTextPosition(theme);
+            var overlapsVertically =
+                failedTextPosition.Y < top + height
+                && failedTextPosition.Y + failedBannerHeight > top;
+            if (failedTextPosition.X > left && overlapsVertically)
+                width = Math.Min(width, (int)failedTextPosition.X - left);
+            return new Rectangle(left, top, width, height);
         }
 
         /// <summary>
-        /// Colour for the numeric values that are not judgement counts (level,
-        /// play %, skill). The built-in default stays white — the historical
-        /// value — so skins with dark panel art keep readable digits; the NX
-        /// default skin pins charcoal via System/Theme.ini because its panel
-        /// artwork is bright.
+        /// Colour for the numeric values that are not judgement counts (play %,
+        /// skill; the level resolves separately through <see cref="ResolveLevelColor"/>).
+        /// The built-in default stays white — the historical value — so skins
+        /// with dark panel art keep readable digits; the NX default skin pins
+        /// charcoal via System/Theme.ini because its panel artwork is bright.
         /// </summary>
         internal static Color ResolveValueColor(ISkinTheme theme) =>
             theme.GetColor("Result.ValueText", Color.White);
@@ -656,6 +663,23 @@ namespace DTXMania.Game.Lib.Stage.Result
         internal static Color ResolveLevelLabelColor(ISkinTheme theme) =>
             theme.GetColor("Result.LevelLabelText", Color.LightGray);
 
+        /// <summary>
+        /// Chart level color: "Result.LevelText" → falls back to
+        /// <see cref="ResolveValueColor"/>. On the NX skin the level sits on the
+        /// skill panel's dark header band rather than the bright judgement
+        /// bars, so that skin pins a light color while the other values stay
+        /// charcoal. Skins without the key keep their existing value color.
+        /// </summary>
+        internal static Color ResolveLevelColor(ISkinTheme theme) =>
+            theme.GetColor("Result.LevelText", ResolveValueColor(theme));
+
+        /// <summary>
+        /// Drawn height of the FAILED banner (the large font's line spacing);
+        /// 0 when no large font is loaded, which reduces the vertical-overlap
+        /// test to the banner's anchor point.
+        /// </summary>
+        private float FailedBannerHeight => _largeFont?.LineSpacing ?? 0f;
+
         [ExcludeFromCodeCoverage]
         private void DrawModelText(SpriteBatch spriteBatch, ResultScreenModel model, float panelAlpha = 1.0f)
         {
@@ -716,7 +740,7 @@ namespace DTXMania.Game.Lib.Stage.Result
             if (_smallFont != null && model.SaveErrorText.Length > 0)
             {
                 var statusPosition = ResolvePlaybackSaveStatusPosition(theme);
-                var errorBudget = ResolvePlaybackBackdropBounds(theme, hasGuidance: true).Right
+                var errorBudget = ResolvePlaybackBackdropBounds(theme, hasGuidance: true, FailedBannerHeight).Right
                     - ResultUILayout.PlaybackPresentation.BackdropPadding
                     - statusPosition.X
                     - _smallFont.MeasureString(saveStatusText).X
@@ -736,12 +760,12 @@ namespace DTXMania.Game.Lib.Stage.Result
                 _smallFont.DrawStringWrapped(
                     spriteBatch,
                     model.SaveGuidanceText,
-                    ResolvePlaybackSaveGuidanceBounds(theme),
+                    ResolvePlaybackSaveGuidanceBounds(theme, FailedBannerHeight),
                     ResultUILayout.PlaybackPresentation.GuidanceColor * panelAlpha);
             }
 
             DrawValue(spriteBatch, valueFont, model.ChartLevelText, ResolveLevelPosition(theme),
-                valueRightX, ResolveValueColor(theme), valueScale);
+                valueRightX, ResolveLevelColor(theme), valueScale);
 
             // Difficulty-tier name ("BASIC"/"MASTER"/...) beside the level value,
             // in the count font so it reads as an annotation of the number.
@@ -805,7 +829,7 @@ namespace DTXMania.Game.Lib.Stage.Result
             var theme = _resources.CurrentTheme ?? SkinTheme.Empty;
             spriteBatch.Draw(
                 _playbackBackdropTexture,
-                ResolvePlaybackBackdropBounds(theme, !string.IsNullOrEmpty(model.SaveGuidanceText)),
+                ResolvePlaybackBackdropBounds(theme, !string.IsNullOrEmpty(model.SaveGuidanceText), FailedBannerHeight),
                 ResultUILayout.PlaybackPresentation.BackdropColor * panelAlpha);
         }
 

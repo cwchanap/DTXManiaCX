@@ -548,6 +548,34 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void ResolveLevelColor_WithEmptyTheme_ShouldKeepHistoricalWhite()
+        {
+            Assert.Equal(Color.White, ResultScreenRenderer.ResolveLevelColor(SkinTheme.Empty));
+        }
+
+        [Fact]
+        public void ResolveLevelColor_WithoutLevelKey_ShouldInheritValueColor()
+        {
+            // Skins that styled the level via Result.ValueText (e.g. CX Neon's
+            // #DBEBF0) keep it — the level key is an opt-in split, not a reset.
+            var theme = SkinTheme.Parse(new[] { "Result.ValueText=#DBEBF0" });
+
+            Assert.Equal(new Color(0xDB, 0xEB, 0xF0), ResultScreenRenderer.ResolveLevelColor(theme));
+        }
+
+        [Fact]
+        public void ResolveLevelColor_WithNxThemePins_ShouldUseLightLevelOnDarkBand()
+        {
+            // The NX skin pairs charcoal judgement values with a light level:
+            // the level is drawn on the panel's dark header band, not the
+            // bright bars the charcoal is tuned for.
+            var theme = SkinTheme.Parse(new[] { "Result.ValueText=#303030", "Result.LevelText=#FFFFFF" });
+
+            Assert.Equal(Color.White, ResultScreenRenderer.ResolveLevelColor(theme));
+            Assert.Equal(new Color(0x30, 0x30, 0x30), ResultScreenRenderer.ResolveValueColor(theme));
+        }
+
+        [Fact]
         public void ResolvePlaybackGroupOrigin_WithEmptyTheme_ShouldKeepNxOrigin()
         {
             Assert.Equal(ResultUILayout.PlaybackPresentation.GroupOrigin,
@@ -678,9 +706,52 @@ namespace DTXMania.Test.Stage
             var position = ResultScreenRenderer.ResolveFailedTextPosition(theme);
             var failedBanner = new Rectangle((int)position.X, (int)position.Y, 200, 60);
 
-            var backdrop = ResultScreenRenderer.ResolvePlaybackBackdropBounds(theme, hasGuidance);
+            var backdrop = ResultScreenRenderer.ResolvePlaybackBackdropBounds(
+                theme, hasGuidance, failedBannerHeight: failedBanner.Height);
 
             Assert.False(backdrop.Intersects(failedBanner), $"{backdrop} intersects FAILED {failedBanner}");
+        }
+
+        [Fact]
+        public void ResolvePlaybackSaveGuidanceBounds_WhenFailedBannerClearsBackdropVertically_ShouldKeepFullWidth()
+        {
+            // A FAILED banner parked below the group cannot collide with the
+            // plate, so its X edge must not narrow the backdrop or the guidance.
+            var theme = SkinTheme.Parse(new[]
+            {
+                "Result.PlaybackInfoX=830", "Result.PlaybackInfoY=310",
+                "Result.FailedTextX=900", "Result.FailedTextY=500"
+            });
+            const float bannerHeight = 60f;
+
+            var backdrop = ResultScreenRenderer.ResolvePlaybackBackdropBounds(
+                theme, hasGuidance: true, failedBannerHeight: bannerHeight);
+            var guidance = ResultScreenRenderer.ResolvePlaybackSaveGuidanceBounds(
+                theme, failedBannerHeight: bannerHeight);
+
+            Assert.Equal(new Rectangle(824, 304, 432, 153), backdrop);
+            Assert.Equal(new Rectangle(830, 397, 420, 54), guidance);
+        }
+
+        [Fact]
+        public void ResolvePlaybackBackdropBounds_WhenFailedBannerOverlapsVertically_ShouldCapAtBannerX()
+        {
+            // Same geometry but the banner's span crosses the plate: the cap
+            // still applies so glyphs stay off the unscrimmed banner.
+            var theme = SkinTheme.Parse(new[]
+            {
+                "Result.PlaybackInfoX=830", "Result.PlaybackInfoY=310",
+                "Result.FailedTextX=900", "Result.FailedTextY=330"
+            });
+            const float bannerHeight = 60f;
+
+            var backdrop = ResultScreenRenderer.ResolvePlaybackBackdropBounds(
+                theme, hasGuidance: true, failedBannerHeight: bannerHeight);
+            var guidance = ResultScreenRenderer.ResolvePlaybackSaveGuidanceBounds(
+                theme, failedBannerHeight: bannerHeight);
+
+            Assert.Equal(new Rectangle(824, 304, 76, 153), backdrop);
+            Assert.Equal(64, guidance.Width);
         }
 
         [Fact]

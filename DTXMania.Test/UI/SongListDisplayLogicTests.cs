@@ -1255,11 +1255,17 @@ public class SongListDisplayLogicTests
     {
         var rm = new Mock<IResourceManager>(MockBehavior.Strict);
 
-        Assert.Null(SongBarRenderer.LoadResolvedPreviewImage(null, "preview.png"));
-        Assert.Null(SongBarRenderer.LoadResolvedPreviewImage(rm.Object, null));
-        Assert.Null(SongBarRenderer.LoadResolvedPreviewImage(rm.Object, ""));
+        // Guard rejections are not load attempts, so callers must not
+        // negative-cache them.
+        Assert.Null(SongBarRenderer.LoadResolvedPreviewImage(null, "preview.png", out var cacheable));
+        Assert.False(cacheable);
+        Assert.Null(SongBarRenderer.LoadResolvedPreviewImage(rm.Object, null, out cacheable));
+        Assert.False(cacheable);
+        Assert.Null(SongBarRenderer.LoadResolvedPreviewImage(rm.Object, "", out cacheable));
+        Assert.False(cacheable);
         Assert.Null(SongBarRenderer.LoadResolvedPreviewImage(rm.Object,
-            Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".png")));
+            Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".png"), out cacheable));
+        Assert.False(cacheable);
         rm.VerifyNoOtherCalls();
     }
 
@@ -1273,7 +1279,8 @@ public class SongListDisplayLogicTests
             File.WriteAllBytes(path, new byte[8 * 1024 * 1024 + 1]);
             var rm = new Mock<IResourceManager>(MockBehavior.Strict);
 
-            Assert.Null(SongBarRenderer.LoadResolvedPreviewImage(rm.Object, path));
+            Assert.Null(SongBarRenderer.LoadResolvedPreviewImage(rm.Object, path, out var cacheable));
+            Assert.False(cacheable);
             rm.VerifyNoOtherCalls();
         }
         finally
@@ -1295,7 +1302,10 @@ public class SongListDisplayLogicTests
             rm.Setup(x => x.TryLoadTexture(path, out It.Ref<ITexture>.IsAny))
                 .Throws(new InvalidOperationException("io"));
 
-            Assert.Null(SongBarRenderer.LoadResolvedPreviewImage(rm.Object, path));
+            // An attempted load that threw is a real load failure — safe to
+            // negative-cache so the throw is not repeated every regeneration.
+            Assert.Null(SongBarRenderer.LoadResolvedPreviewImage(rm.Object, path, out var cacheable));
+            Assert.True(cacheable);
         }
         finally
         {
