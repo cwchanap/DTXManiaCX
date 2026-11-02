@@ -536,16 +536,17 @@ namespace DTXMania.Game.Lib.Stage.Result
         /// Wrapped retry-guidance rectangle: group origin + (0,87), height 54
         /// (two lines of the small playback font). The wrap width is capped so
         /// the text's right edge stays inside the playback backdrop; at the NX
-        /// origin the backdrop is itself capped by the FAILED banner, so the
-        /// full 420px block would spill glyphs onto it.
+        /// origin the backdrop is itself capped by the FAILED banner on failed
+        /// results, so the full 420px block would spill glyphs onto it.
         /// </summary>
-        internal static Rectangle ResolvePlaybackSaveGuidanceBounds(ISkinTheme theme, float failedBannerHeight = 0f)
+        internal static Rectangle ResolvePlaybackSaveGuidanceBounds(
+            ISkinTheme theme, float failedBannerHeight = 0f, ResultPlateKind plateKind = ResultPlateKind.Failed)
         {
             var origin = ResolvePlaybackGroupOrigin(theme);
             var offset = ResultUILayout.PlaybackPresentation.SaveGuidanceOffset;
             var size = ResultUILayout.PlaybackPresentation.SaveGuidanceSize;
             var x = (int)origin.X + (int)offset.X;
-            var backdrop = ResolvePlaybackBackdropBounds(theme, hasGuidance: true, failedBannerHeight);
+            var backdrop = ResolvePlaybackBackdropBounds(theme, hasGuidance: true, failedBannerHeight, plateKind);
             var width = Math.Min(
                 size.X,
                 backdrop.Right - ResultUILayout.PlaybackPresentation.BackdropPadding - x);
@@ -562,9 +563,13 @@ namespace DTXMania.Game.Lib.Stage.Result
         /// The NX right edge clears FAILED; the bottom clears the skill panel.
         /// <paramref name="failedBannerHeight"/> is the drawn height of the
         /// FAILED banner (its font's line spacing); 0 treats the banner as
-        /// its anchor point.
+        /// its anchor point. The banner cap only applies when
+        /// <paramref name="plateKind"/> is <see cref="ResultPlateKind.Failed"/> —
+        /// the banner is not drawn on cleared results, so a failed save must
+        /// not narrow the plate.
         /// </summary>
-        internal static Rectangle ResolvePlaybackBackdropBounds(ISkinTheme theme, bool hasGuidance, float failedBannerHeight = 0f)
+        internal static Rectangle ResolvePlaybackBackdropBounds(
+            ISkinTheme theme, bool hasGuidance, float failedBannerHeight = 0f, ResultPlateKind plateKind = ResultPlateKind.Failed)
         {
             var origin = ResolvePlaybackGroupOrigin(theme);
             var pad = ResultUILayout.PlaybackPresentation.BackdropPadding;
@@ -585,13 +590,17 @@ namespace DTXMania.Game.Lib.Stage.Result
             // must not narrow the backdrop (or the guidance that derives from
             // it). The NX defaults reduce to the same 396px cap as before,
             // but a skin that relocates FAILED or nudges the playback group
-            // keeps the clearance automatically.
-            var failedTextPosition = ResolveFailedTextPosition(theme);
-            var overlapsVertically =
-                failedTextPosition.Y < top + height
-                && failedTextPosition.Y + failedBannerHeight > top;
-            if (failedTextPosition.X > left && overlapsVertically)
-                width = Math.Min(width, (int)failedTextPosition.X - left);
+            // keeps the clearance automatically. The whole check is gated on
+            // the plate kind: the banner is only drawn on failed results.
+            if (plateKind == ResultPlateKind.Failed)
+            {
+                var failedTextPosition = ResolveFailedTextPosition(theme);
+                var overlapsVertically =
+                    failedTextPosition.Y < top + height
+                    && failedTextPosition.Y + failedBannerHeight > top;
+                if (failedTextPosition.X > left && overlapsVertically)
+                    width = Math.Min(width, (int)failedTextPosition.X - left);
+            }
             return new Rectangle(left, top, width, height);
         }
 
@@ -740,7 +749,7 @@ namespace DTXMania.Game.Lib.Stage.Result
             if (_smallFont != null && model.SaveErrorText.Length > 0)
             {
                 var statusPosition = ResolvePlaybackSaveStatusPosition(theme);
-                var errorBudget = ResolvePlaybackBackdropBounds(theme, hasGuidance: true, FailedBannerHeight).Right
+                var errorBudget = ResolvePlaybackBackdropBounds(theme, hasGuidance: true, FailedBannerHeight, model.PlateKind).Right
                     - ResultUILayout.PlaybackPresentation.BackdropPadding
                     - statusPosition.X
                     - _smallFont.MeasureString(saveStatusText).X
@@ -760,7 +769,7 @@ namespace DTXMania.Game.Lib.Stage.Result
                 _smallFont.DrawStringWrapped(
                     spriteBatch,
                     model.SaveGuidanceText,
-                    ResolvePlaybackSaveGuidanceBounds(theme, FailedBannerHeight),
+                    ResolvePlaybackSaveGuidanceBounds(theme, FailedBannerHeight, model.PlateKind),
                     ResultUILayout.PlaybackPresentation.GuidanceColor * panelAlpha);
             }
 
@@ -829,7 +838,7 @@ namespace DTXMania.Game.Lib.Stage.Result
             var theme = _resources.CurrentTheme ?? SkinTheme.Empty;
             spriteBatch.Draw(
                 _playbackBackdropTexture,
-                ResolvePlaybackBackdropBounds(theme, !string.IsNullOrEmpty(model.SaveGuidanceText), FailedBannerHeight),
+                ResolvePlaybackBackdropBounds(theme, !string.IsNullOrEmpty(model.SaveGuidanceText), FailedBannerHeight, model.PlateKind),
                 ResultUILayout.PlaybackPresentation.BackdropColor * panelAlpha);
         }
 

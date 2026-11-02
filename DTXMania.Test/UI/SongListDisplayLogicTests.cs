@@ -1625,6 +1625,266 @@ public class SongListDisplayLogicTests
         jacket.Verify(x => x.RemoveReference(), Times.Once);
     }
 
+    [Theory]
+    [InlineData("png")]
+    [InlineData("jpeg")]
+    [InlineData("gif")]
+    [InlineData("bmp")]
+    public void LoadResolvedPreviewImage_WhenDeclaredDimensionsExceedBudget_ShouldReturnNullWithoutLoading(string format)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            // A tiny encoded file can still declare huge dimensions; the
+            // decoded footprint (20000×20000×4 ≈ 1.5 GiB) must be rejected
+            // before the decoder allocates it.
+            var path = Path.Combine(dir, "jacket.img");
+            File.WriteAllBytes(path, BuildImageHeader(format, 20000, 20000));
+            var rm = new Mock<IResourceManager>(MockBehavior.Strict);
+
+            Assert.Null(SongBarRenderer.LoadResolvedPreviewImage(rm.Object, path, out var cacheable));
+            // Guard rejections stay retryable rather than negative-caching.
+            Assert.False(cacheable);
+            rm.VerifyNoOtherCalls();
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Theory]
+    [InlineData("png", 400, 400)]
+    [InlineData("jpeg", 400, 400)]
+    [InlineData("gif", 300, 200)]
+    [InlineData("bmp", 300, 200)]
+    public void LoadResolvedPreviewImage_WithReasonableDimensions_ShouldAttemptLoad(string format, int width, int height)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var path = Path.Combine(dir, "jacket.img");
+            File.WriteAllBytes(path, BuildImageHeader(format, width, height));
+            var rm = new Mock<IResourceManager>(MockBehavior.Strict);
+            var texture = CreateTexture(400, 400).Object;
+            rm.Setup(x => x.TryLoadTexture(path, out texture)).Returns(true);
+
+            Assert.Same(texture, SongBarRenderer.LoadResolvedPreviewImage(rm.Object, path, out _));
+            rm.Verify(x => x.TryLoadTexture(path, out texture), Times.Once);
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void UpdatePendingTextures_WhenRejectionsRunAhead_ShouldStillReachLaterRows()
+    {
+        // Missing preview files are retryable guard rejections — never
+        // negative-cached — so each visible row consumes a load-attempt slot
+        // on every pass. The scan must resume where it stopped or a run of
+        // unfulfillable previews starves the rows behind them.
+        var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var validPath = Path.GetFullPath(Path.Combine(dir, "jacket.png"));
+            File.WriteAllBytes(validPath, new byte[16]);
+
+            var display = new SongListDisplay();
+            var jacket = CreateTexture(400, 400);
+            var rm = new Mock<IResourceManager>(MockBehavior.Strict);
+            var jacketResult = jacket.Object;
+            rm.Setup(x => x.TryLoadTexture(validPath, out jacketResult)).Returns(true);
+            SetField(display, "_resourceManager", rm.Object);
+
+            // 13 score rows fill the window; only song 6's preview exists.
+            // Centered at index 0 the first pass scans songs 8-12 then 0-5 —
+            // six guard rejections that exhaust the stationary frame budget.
+            var nodes = new List<SongListNode>();
+            for (var i = 0; i < 13; i++)
+            {
+                nodes.Add(new SongListNode
+                {
+                    Type = NodeType.Score,
+                    Title = $"Song {i}",
+                    DatabaseChart = new SongChart
+                    {
+                        FilePath = Path.Combine(dir, $"song{i}.dtx"),
+                        PreviewImage = i == 6 ? "jacket.png" : $"missing{i}.png"
+                    }
+                });
+            }
+            display.CurrentList = nodes;
+
+            InvokePrivate<object?>(display, "UpdatePendingTextures");
+            rm.Verify(x => x.TryLoadTexture(validPath, out jacketResult), Times.Never);
+
+            InvokePrivate<object?>(display, "UpdatePendingTextures");
+            rm.Verify(x => x.TryLoadTexture(validPath, out jacketResult), Times.Once);
+            Assert.Same(jacket.Object,
+                GetField<Dictionary<string, ITexture>>(display, "_basicPreviewCache")[validPath]);
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void UpdatePendingTextures_WhenBasicPreviewCacheOverflows_ShouldEvictOldestAndReclaim()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var previewPath = Path.GetFullPath(Path.Combine(dir, "jacket.png"));
+            File.WriteAllBytes(previewPath, new byte[16]);
+            const int cacheCap = SongSelectionUILayout.SongBars.VisibleItems * 4;
+
+            var display = new SongListDisplay();
+            var jacket = CreateTexture(400, 400);
+            var rm = new Mock<IResourceManager>(MockBehavior.Strict);
+            var jacketResult = jacket.Object;
+            rm.Setup(x => x.TryLoadTexture(previewPath, out jacketResult)).Returns(true);
+            rm.Setup(x => x.CollectUnusedResources());
+            SetField(display, "_resourceManager", rm.Object);
+            display.CurrentList = new List<SongListNode>
+            {
+                new SongListNode
+                {
+                    Type = NodeType.Score,
+                    Title = "Song",
+                    DatabaseChart = new SongChart
+                    {
+                        FilePath = Path.Combine(dir, "song.dtx"),
+                        PreviewImage = "jacket.png"
+                    }
+                }
+            };
+
+            // Fill the cache to its bound so the next load must evict.
+            var cache = GetField<Dictionary<string, ITexture>>(display, "_basicPreviewCache");
+            var order = GetField<Queue<string>>(display, "_basicPreviewCacheOrder");
+            var evicted = CreateTexture(400, 400);
+            cache["oldest.png"] = evicted.Object;
+            order.Enqueue("oldest.png");
+            for (var i = 1; i < cacheCap; i++)
+            {
+                cache[$"cached{i}.png"] = CreateTexture().Object;
+                order.Enqueue($"cached{i}.png");
+            }
+
+            InvokePrivate<object?>(display, "UpdatePendingTextures");
+
+            Assert.Equal(cacheCap, cache.Count);
+            Assert.False(cache.ContainsKey("oldest.png"));
+            Assert.Same(jacket.Object, cache[previewPath]);
+            evicted.Verify(x => x.RemoveReference(), Times.Once);
+            // Dropping the reference is not enough — the ResourceManager
+            // must reap the zero-refcount texture to free GPU memory.
+            rm.Verify(x => x.CollectUnusedResources(), Times.Once);
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void RefreshDisplay_WhenBasicPreviewCached_ShouldReclaimUnusedResources()
+    {
+        var display = new SongListDisplay();
+        var rm = new Mock<IResourceManager>(MockBehavior.Strict);
+        rm.Setup(x => x.CollectUnusedResources());
+        SetField(display, "_resourceManager", rm.Object);
+        var jacket = CreateTexture();
+        GetField<Dictionary<string, ITexture>>(display, "_basicPreviewCache")["preview.png"] = jacket.Object;
+
+        display.RefreshDisplay();
+
+        Assert.Empty(GetField<Dictionary<string, ITexture>>(display, "_basicPreviewCache"));
+        jacket.Verify(x => x.RemoveReference(), Times.Once);
+        rm.Verify(x => x.CollectUnusedResources(), Times.Once);
+    }
+
+    /// <summary>
+    /// Minimal headers carrying real frame dimensions for the formats the
+    /// decoded-size guard parses — enough bytes for the sniff, not a valid image.
+    /// </summary>
+    private static byte[] BuildImageHeader(string format, int width, int height)
+    {
+        switch (format)
+        {
+            case "png":
+            {
+                var bytes = new byte[33];
+                bytes[0] = 0x89; bytes[1] = 0x50; bytes[2] = 0x4E; bytes[3] = 0x47;
+                bytes[4] = 0x0D; bytes[5] = 0x0A; bytes[6] = 0x1A; bytes[7] = 0x0A;
+                bytes[12] = (byte)'I'; bytes[13] = (byte)'H'; bytes[14] = (byte)'D'; bytes[15] = (byte)'R';
+                WriteBigEndian(bytes, 16, width);
+                WriteBigEndian(bytes, 20, height);
+                return bytes;
+            }
+            case "jpeg":
+            {
+                var bytes = new List<byte>
+                {
+                    0xFF, 0xD8,             // SOI
+                    0xFF, 0xE0, 0x00, 0x10  // APP0, 16-byte segment
+                };
+                bytes.AddRange(new byte[14]);
+                bytes.AddRange(new byte[]
+                {
+                    0xFF, 0xC0,             // SOF0
+                    0x00, 0x11,             // 17-byte segment
+                    0x08,                   // sample precision
+                    (byte)(height >> 8), (byte)height,
+                    (byte)(width >> 8), (byte)width
+                });
+                return bytes.ToArray();
+            }
+            case "gif":
+            {
+                var bytes = new byte[13];
+                bytes[0] = (byte)'G'; bytes[1] = (byte)'I'; bytes[2] = (byte)'F';
+                bytes[3] = (byte)'8'; bytes[4] = (byte)'9'; bytes[5] = (byte)'a';
+                bytes[6] = (byte)width; bytes[7] = (byte)(width >> 8);
+                bytes[8] = (byte)height; bytes[9] = (byte)(height >> 8);
+                return bytes;
+            }
+            case "bmp":
+            {
+                var bytes = new byte[30];
+                bytes[0] = (byte)'B'; bytes[1] = (byte)'M';
+                WriteLittleEndian(bytes, 18, width);
+                WriteLittleEndian(bytes, 22, height);
+                return bytes;
+            }
+            default:
+                throw new ArgumentOutOfRangeException(nameof(format), format, null);
+        }
+    }
+
+    private static void WriteBigEndian(byte[] bytes, int offset, int value)
+    {
+        bytes[offset] = (byte)(value >> 24);
+        bytes[offset + 1] = (byte)(value >> 16);
+        bytes[offset + 2] = (byte)(value >> 8);
+        bytes[offset + 3] = (byte)value;
+    }
+
+    private static void WriteLittleEndian(byte[] bytes, int offset, int value)
+    {
+        bytes[offset] = (byte)value;
+        bytes[offset + 1] = (byte)(value >> 8);
+        bytes[offset + 2] = (byte)(value >> 16);
+        bytes[offset + 3] = (byte)(value >> 24);
+    }
+
     [Fact]
     public void InitializeEnhancedRendering_WhenRenderTargetMissing_ShouldStillLoadSkinBarTextures()
     {

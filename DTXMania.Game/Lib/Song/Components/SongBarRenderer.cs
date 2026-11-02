@@ -31,6 +31,13 @@ namespace DTXMania.Game.Lib.Song.Components
         // once and then live in the texture cache, so refusing to load them
         // just hides legitimate art behind the skin's "no preview" tile.
         private const int MAX_PREVIEW_IMAGE_SIZE_BYTES = 8 * 1024 * 1024; // 8 MiB
+        // The encoded-size cap does not bound decoded size: a highly
+        // compressible file can stay under it while declaring dimensions that
+        // explode on decode (width × height × 4 bytes). Header-declared
+        // dimensions are checked against this decoded budget before the file
+        // reaches Texture2D.FromStream. 256 MiB admits an 8192×8192 jacket —
+        // already at the GPU texture ceiling on common hardware.
+        private const long MAX_PREVIEW_IMAGE_DECODED_BYTES = 256L * 1024 * 1024;
 
         #endregion
 
@@ -607,6 +614,18 @@ namespace DTXMania.Game.Lib.Song.Components
                     return null;
                 }
 
+                // Decoded-size guard: reject headers declaring a pixel buffer
+                // over the decoded budget before the decode runs. Like the
+                // other guard rejections this stays retryable; files whose
+                // format or dimensions cannot be read pass through to the
+                // decoder, which rejects them as before.
+                if (TryReadImageDimensions(resolvedPreviewImagePath, out var imageWidth, out var imageHeight)
+                    && (long)imageWidth * imageHeight > MAX_PREVIEW_IMAGE_DECODED_BYTES / 4)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Skipping oversized decoded preview image ({imageWidth}x{imageHeight}): {resolvedPreviewImagePath}");
+                    return null;
+                }
+
                 // From here the load is genuinely attempted, so any failure is
                 // safe to negative-cache.
                 cacheableFailure = true;
@@ -629,6 +648,137 @@ namespace DTXMania.Game.Lib.Song.Components
                 return null;
             }
         }
+
+        /// <summary>
+        /// Read a file's declared pixel dimensions from its header without
+        /// decoding it, covering the formats Texture2D.FromStream accepts for
+        /// jacket art (PNG, GIF, BMP, JPEG). Returns false for unrecognized or
+        /// unparseable files so the decoder can decide.
+        /// </summary>
+        private static bool TryReadImageDimensions(string path, out int width, out int height)
+        {
+            width = 0;
+            height = 0;
+            try
+            {
+                using var stream = File.OpenRead(path);
+                var header = new byte[32];
+                var read = stream.Read(header, 0, header.Length);
+                if (read < 10)
+                    return false;
+
+                // PNG: 8-byte signature, then the first chunk must be IHDR —
+                // length (4B BE), type (4B), width/height (4B BE each).
+                if (read >= 24
+                    && header[0] == 0x89 && header[1] == 0x50 && header[2] == 0x4E && header[3] == 0x47
+                    && header[4] == 0x0D && header[5] == 0x0A && header[6] == 0x1A && header[7] == 0x0A
+                    && header[12] == 'I' && header[13] == 'H' && header[14] == 'D' && header[15] == 'R')
+                {
+                    width = ReadBigEndianInt32(header, 16);
+                    height = ReadBigEndianInt32(header, 20);
+                    return width > 0 && height > 0;
+                }
+
+                // GIF: "GIF87a"/"GIF89a", logical screen width/height as
+                // little-endian uint16 at offsets 6 and 8.
+                if (read >= 10
+                    && header[0] == 'G' && header[1] == 'I' && header[2] == 'F'
+                    && header[3] == '8' && (header[4] == '7' || header[4] == '9') && header[5] == 'a')
+                {
+                    width = header[6] | (header[7] << 8);
+                    height = header[8] | (header[9] << 8);
+                    return width > 0 && height > 0;
+                }
+
+                // BMP: "BM", width/height as little-endian int32 at 18/22
+                // inside the BITMAPINFOHEADER; a negative height marks a
+                // top-down row order.
+                if (read >= 26 && header[0] == 'B' && header[1] == 'M')
+                {
+                    width = ReadLittleEndianInt32(header, 18);
+                    var rawHeight = ReadLittleEndianInt32(header, 22);
+                    height = rawHeight == int.MinValue ? 0 : Math.Abs(rawHeight);
+                    return width > 0 && height > 0;
+                }
+
+                // JPEG: SOI then length-prefixed marker segments; the frame
+                // dimensions live in the first SOF segment.
+                if (header[0] == 0xFF && header[1] == 0xD8)
+                    return TryReadJpegDimensions(stream, out width, out height);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Could not read preview image header '{path}': {ex.Message}");
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Walk JPEG marker segments until the first SOF segment and return
+        /// its frame dimensions. Each segment is skipped by its declared
+        /// length, so payload bytes are never mistaken for markers; SOF
+        /// always precedes the entropy-coded scan data.
+        /// </summary>
+        private static bool TryReadJpegDimensions(Stream stream, out int width, out int height)
+        {
+            width = 0;
+            height = 0;
+            stream.Seek(2, SeekOrigin.Begin); // skip the SOI marker
+            while (stream.Position < stream.Length)
+            {
+                // A segment boundary must start with a marker prefix; anything
+                // else means the stream is not well-formed JPEG.
+                if (stream.ReadByte() != 0xFF)
+                    return false;
+                int marker;
+                do
+                {
+                    marker = stream.ReadByte(); // skip marker fill bytes
+                } while (marker == 0xFF);
+                if (marker <= 0)
+                    return false;
+                // Standalone markers (SOI, EOI, TEM, RST0-7) carry no payload.
+                if (marker == 0xD8 || marker == 0xD9 || marker == 0x01
+                    || (marker >= 0xD0 && marker <= 0xD7))
+                    continue;
+
+                var lengthHi = stream.ReadByte();
+                var lengthLo = stream.ReadByte();
+                if (lengthHi < 0 || lengthLo < 0)
+                    return false;
+                var segmentLength = (lengthHi << 8) | lengthLo; // includes its own 2 bytes
+                if (segmentLength < 2)
+                    return false;
+
+                // SOF markers are C0-CF except DHT (C4), reserved JPG (C8),
+                // and DAC (CC).
+                if (marker >= 0xC0 && marker <= 0xCF
+                    && marker != 0xC4 && marker != 0xC8 && marker != 0xCC)
+                {
+                    if (segmentLength < 7)
+                        return false;
+                    stream.ReadByte(); // sample precision
+                    var hHi = stream.ReadByte();
+                    var hLo = stream.ReadByte();
+                    var wHi = stream.ReadByte();
+                    var wLo = stream.ReadByte();
+                    if ((hHi | hLo | wHi | wLo) < 0)
+                        return false;
+                    height = (hHi << 8) | hLo;
+                    width = (wHi << 8) | wLo;
+                    return width > 0 && height > 0;
+                }
+
+                stream.Seek(segmentLength - 2, SeekOrigin.Current);
+            }
+            return false;
+        }
+
+        private static int ReadBigEndianInt32(byte[] bytes, int offset) =>
+            (bytes[offset] << 24) | (bytes[offset + 1] << 16) | (bytes[offset + 2] << 8) | bytes[offset + 3];
+
+        private static int ReadLittleEndianInt32(byte[] bytes, int offset) =>
+            bytes[offset] | (bytes[offset + 1] << 8) | (bytes[offset + 2] << 16) | (bytes[offset + 3] << 24);
 
         private string GetTitleCacheKey(SongListNode songNode)
         {
