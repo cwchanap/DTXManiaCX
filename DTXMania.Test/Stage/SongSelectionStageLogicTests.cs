@@ -1312,7 +1312,8 @@ namespace DTXMania.Test.Stage
                 SetPrivateField(stage, "_previewPlayDelay", 5.0);
                 SetPrivateField(stage, "_isPreviewDelayActive", false);
 
-                resourceManager.Setup(x => x.LoadSound(previewPath)).Returns(loadedSound.Object);
+                var loaded = loadedSound.Object;
+                resourceManager.Setup(x => x.TryLoadSound(previewPath, out loaded)).Returns(true);
 
                 var song = CreateScoreNode(
                     "Song",
@@ -1327,7 +1328,7 @@ namespace DTXMania.Test.Stage
                 InvokePrivateMethod(stage, "LoadPreviewSound", song);
 
                 previousSound.Verify(x => x.RemoveReference(), Times.Once);
-                resourceManager.Verify(x => x.LoadSound(previewPath), Times.Once);
+                resourceManager.Verify(x => x.TryLoadSound(previewPath, out It.Ref<ISound>.IsAny), Times.Once);
                 Assert.Same(loadedSound.Object, GetPrivateField<ISound>(stage, "_previewSound"));
                 Assert.Equal(0.0, GetPrivateField<double>(stage, "_previewPlayDelay"));
                 Assert.True(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
@@ -1388,7 +1389,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void TryLoadPreviewSoundFile_WhenLoadFailureEventFires_ShouldReleaseLoadedSound()
+        public void TryLoadPreviewSoundFile_WhenLoadFails_ShouldReleaseLoadedSound()
         {
             var stage = CreateStage();
             var resourceManager = new Mock<IResourceManager>();
@@ -1399,12 +1400,10 @@ namespace DTXMania.Test.Stage
             AttachResourceManager(stage, resourceManager.Object);
             SetPrivateField(stage, "_previewSound", previousSound.Object);
 
+            var fallback = failedSound.Object;
             resourceManager
-                .Setup(x => x.LoadSound(previewPath))
-                .Callback(() => resourceManager.Raise(
-                    x => x.ResourceLoadFailed += null,
-                    new ResourceLoadFailedEventArgs(previewPath, new InvalidOperationException("load failed"))))
-                .Returns(failedSound.Object);
+                .Setup(x => x.TryLoadSound(previewPath, out fallback))
+                .Returns(false);
 
             var loaded = InvokePrivateMethod<bool>(stage, "TryLoadPreviewSoundFile", previewPath);
 
@@ -1823,7 +1822,8 @@ namespace DTXMania.Test.Stage
 
             AttachResourceManager(stage, resourceManager.Object);
             SetPrivateField(stage, "_previewSound", previousSound.Object);
-            resourceManager.Setup(x => x.LoadSound(previewPath)).Returns(loadedSound.Object);
+            var loadedSound_ = loadedSound.Object;
+            resourceManager.Setup(x => x.TryLoadSound(previewPath, out loadedSound_)).Returns(true);
 
             var loaded = InvokePrivateMethod<bool>(stage, "TryLoadPreviewSoundFile", previewPath);
 
@@ -1844,7 +1844,7 @@ namespace DTXMania.Test.Stage
 
             AttachResourceManager(stage, resourceManager.Object);
             SetPrivateField(stage, "_previewSound", previousSound.Object);
-            resourceManager.Setup(x => x.LoadSound(previewPath)).Throws(new IOException("boom"));
+            resourceManager.Setup(x => x.TryLoadSound(previewPath, out It.Ref<ISound>.IsAny)).Throws(new IOException("boom"));
 
             var loaded = InvokePrivateMethod<bool>(stage, "TryLoadPreviewSoundFile", previewPath);
 
@@ -1883,7 +1883,7 @@ namespace DTXMania.Test.Stage
                     DrumLevel = 20
                 }));
 
-                resourceManager.Verify(x => x.LoadSound(It.IsAny<string>()), Times.Never);
+                resourceManager.Verify(x => x.TryLoadSound(It.IsAny<string>(), out It.Ref<ISound>.IsAny), Times.Never);
                 Assert.Same(existingPreviewSound.Object, GetPrivateField<ISound>(stage, "_previewSound"));
                 Assert.True(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
             }
@@ -2272,7 +2272,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void TryLoadPreviewSoundFile_WhenLoadFailureEventRaised_ShouldReturnFalseAndDisposeLoadedSound()
+        public void TryLoadPreviewSoundFile_WhenLoadFails_ShouldReturnFalseAndReleaseFallback()
         {
             var stage = CreateStage();
             var resourceManager = new Mock<IResourceManager>();
@@ -2280,12 +2280,10 @@ namespace DTXMania.Test.Stage
             var previewPath = CreateWorkspacePath("preview-load-failed.ogg");
 
             AttachResourceManager(stage, resourceManager.Object);
+            var fallback = loadedSound.Object;
             resourceManager
-                .Setup(x => x.LoadSound(previewPath))
-                .Callback(() => resourceManager.Raise(
-                    x => x.ResourceLoadFailed += null,
-                    new ResourceLoadFailedEventArgs(previewPath, new IOException("load failed"))))
-                .Returns(loadedSound.Object);
+                .Setup(x => x.TryLoadSound(previewPath, out fallback))
+                .Returns(false);
 
             var loaded = InvokePrivateMethod<bool>(stage, "TryLoadPreviewSoundFile", previewPath);
 
@@ -2302,7 +2300,8 @@ namespace DTXMania.Test.Stage
             var previewPath = CreateWorkspacePath("preview-null.ogg");
 
             AttachResourceManager(stage, resourceManager.Object);
-            resourceManager.Setup(x => x.LoadSound(previewPath)).Returns((ISound)null!);
+            ISound nullSound = null!;
+            resourceManager.Setup(x => x.TryLoadSound(previewPath, out nullSound)).Returns(true);
 
             var loaded = InvokePrivateMethod<bool>(stage, "TryLoadPreviewSoundFile", previewPath);
 

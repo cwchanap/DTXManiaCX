@@ -406,9 +406,20 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void ResolveValueColor_WithEmptyTheme_ShouldContrastWithBrightNxPanel()
+        public void ResolveValueColor_WithEmptyTheme_ShouldKeepHistoricalWhite()
         {
-            Assert.Equal(new Color(0x30, 0x30, 0x30), ResultScreenRenderer.ResolveValueColor(SkinTheme.Empty));
+            // The code default stays white so themeless/third-party skins with
+            // dark panel art keep readable digits; the NX default skin pins
+            // charcoal via System/Theme.ini for its bright panel artwork.
+            Assert.Equal(Color.White, ResultScreenRenderer.ResolveValueColor(SkinTheme.Empty));
+        }
+
+        [Fact]
+        public void ResolveValueColor_WithNxThemePin_ShouldUseCharcoal()
+        {
+            var theme = SkinTheme.Parse(new[] { "Result.ValueText=#303030" });
+
+            Assert.Equal(new Color(0x30, 0x30, 0x30), ResultScreenRenderer.ResolveValueColor(theme));
         }
 
         [Fact]
@@ -599,7 +610,7 @@ namespace DTXMania.Test.Stage
         {
             // Width is capped so wrapped glyphs stay inside the backdrop: the
             // FAILED banner clamps the backdrop at X=420, leaving 30..414 for text.
-            Assert.Equal(new Rectangle(30, 192, 384, 60),
+            Assert.Equal(new Rectangle(30, 195, 384, 54),
                 ResultScreenRenderer.ResolvePlaybackSaveGuidanceBounds(SkinTheme.Empty));
         }
 
@@ -631,7 +642,7 @@ namespace DTXMania.Test.Stage
         {
             var theme = SkinTheme.Parse(new[] { "Result.PlaybackInfoX=830", "Result.PlaybackInfoY=310" });
 
-            Assert.Equal(new Rectangle(830, 394, 420, 60),
+            Assert.Equal(new Rectangle(830, 397, 420, 54),
                 ResultScreenRenderer.ResolvePlaybackSaveGuidanceBounds(theme));
         }
 
@@ -641,7 +652,7 @@ namespace DTXMania.Test.Stage
             var bounds = ResultScreenRenderer.ResolvePlaybackBackdropBounds(SkinTheme.Empty, hasGuidance: false);
 
             // Origin (30,108) + 6px margin, capped at FAILED X=420.
-            Assert.Equal(new Rectangle(24, 102, 396, 96), bounds);
+            Assert.Equal(new Rectangle(24, 102, 396, 99), bounds);
         }
 
         [Fact]
@@ -649,8 +660,8 @@ namespace DTXMania.Test.Stage
         {
             var bounds = ResultScreenRenderer.ResolvePlaybackBackdropBounds(SkinTheme.Empty, hasGuidance: true);
 
-            // Extends over the guidance block (84 + 60) only when present.
-            Assert.Equal(new Rectangle(24, 102, 396, 156), bounds);
+            // Extends over the guidance block (87 + 54) only when present.
+            Assert.Equal(new Rectangle(24, 102, 396, 153), bounds);
         }
 
         [Theory]
@@ -689,7 +700,7 @@ namespace DTXMania.Test.Stage
 
             var bounds = ResultScreenRenderer.ResolvePlaybackBackdropBounds(theme, hasGuidance: false);
 
-            Assert.Equal(new Rectangle(824, 304, 432, 96), bounds);
+            Assert.Equal(new Rectangle(824, 304, 432, 99), bounds);
         }
 
         [Fact]

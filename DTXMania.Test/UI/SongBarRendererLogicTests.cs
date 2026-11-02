@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Runtime.CompilerServices;
 using DTXMania.Game.Lib.Config;
@@ -112,7 +113,7 @@ public class SongBarRendererLogicTests
             var texture = renderer.GeneratePreviewImageTexture(songNode);
 
             Assert.Null(texture);
-            resourceManager.Verify(x => x.LoadTexture(It.IsAny<string>()), Times.Never);
+            resourceManager.Verify(x => x.TryLoadTexture(It.IsAny<string>(), out It.Ref<ITexture>.IsAny), Times.Never);
         }
         finally
         {
@@ -130,13 +131,99 @@ public class SongBarRendererLogicTests
         try
         {
             var previewPath = Path.Combine(tempDir.FullName, "preview-large.png");
-            File.WriteAllBytes(previewPath, new byte[501 * 1024]);
+            File.WriteAllBytes(previewPath, new byte[8 * 1024 * 1024 + 1]);
             var songNode = CreateScoreNode(filePath: Path.Combine(tempDir.FullName, "chart.dtx"), previewImage: "preview-large.png");
 
             var texture = renderer.GeneratePreviewImageTexture(songNode);
 
             Assert.Null(texture);
-            resourceManager.Verify(x => x.LoadTexture(It.IsAny<string>()), Times.Never);
+            resourceManager.Verify(x => x.TryLoadTexture(It.IsAny<string>(), out It.Ref<ITexture>.IsAny), Times.Never);
+        }
+        finally
+        {
+            tempDir.Delete(true);
+        }
+    }
+
+    [Fact]
+    public void GeneratePreviewImageTexture_WhenPreviewExceedsLegacy500KbCap_ShouldLoad()
+    {
+        // Real jackets routinely exceed 500KB; the guard only rejects
+        // pathological files (>8 MiB), so a 1 MiB jacket must load.
+        var renderer = CreateRenderer();
+        var resourceManager = new Mock<IResourceManager>();
+        ReflectionHelpers.SetPrivateField(renderer, "_resourceManager", resourceManager.Object);
+        var tempDir = Directory.CreateTempSubdirectory("dtxmania-songbar-bigjacket");
+        try
+        {
+            var previewPath = Path.Combine(tempDir.FullName, "jacket.png");
+            File.WriteAllBytes(previewPath, new byte[1024 * 1024]);
+            var songNode = CreateScoreNode(filePath: Path.Combine(tempDir.FullName, "chart.dtx"), previewImage: "jacket.png");
+            var loaded = CreateTextureMock();
+            var loadedTexture = loaded.Object;
+            resourceManager.Setup(x => x.TryLoadTexture(previewPath, out loadedTexture)).Returns(true);
+
+            var texture = renderer.GeneratePreviewImageTexture(songNode);
+
+            Assert.Same(loaded.Object, texture);
+        }
+        finally
+        {
+            tempDir.Delete(true);
+        }
+    }
+
+    [Fact]
+    public void GeneratePreviewImageTexture_WhenLoadFails_ShouldNegativeCacheAndDisposeFallback()
+    {
+        var renderer = CreateRenderer();
+        var resourceManager = new Mock<IResourceManager>();
+        ReflectionHelpers.SetPrivateField(renderer, "_resourceManager", resourceManager.Object);
+        var tempDir = Directory.CreateTempSubdirectory("dtxmania-songbar-corrupt");
+        try
+        {
+            var previewPath = Path.Combine(tempDir.FullName, "jacket.png");
+            File.WriteAllBytes(previewPath, new byte[16]);
+            var songNode = CreateScoreNode(filePath: Path.Combine(tempDir.FullName, "chart.dtx"), previewImage: "jacket.png");
+            var fallback = CreateTextureMock();
+            var fallbackTexture = fallback.Object;
+            resourceManager.Setup(x => x.TryLoadTexture(previewPath, out fallbackTexture)).Returns(false);
+
+            Assert.Null(renderer.GeneratePreviewImageTexture(songNode));
+            // A second generation must not re-read or re-decode the file.
+            Assert.Null(renderer.GeneratePreviewImageTexture(songNode));
+
+            resourceManager.Verify(x => x.TryLoadTexture(previewPath, out It.Ref<ITexture>.IsAny), Times.Once);
+            fallback.Verify(x => x.Dispose(), Times.Once);
+        }
+        finally
+        {
+            tempDir.Delete(true);
+        }
+    }
+
+    [Fact]
+    public void ClearCache_ShouldClearFailedPreviewPaths()
+    {
+        var renderer = CreateRenderer();
+        var resourceManager = new Mock<IResourceManager>();
+        ReflectionHelpers.SetPrivateField(renderer, "_resourceManager", resourceManager.Object);
+        var tempDir = Directory.CreateTempSubdirectory("dtxmania-songbar-clearfail");
+        try
+        {
+            var previewPath = Path.Combine(tempDir.FullName, "jacket.png");
+            File.WriteAllBytes(previewPath, new byte[16]);
+            var songNode = CreateScoreNode(filePath: Path.Combine(tempDir.FullName, "chart.dtx"), previewImage: "jacket.png");
+            var fallback = CreateTextureMock();
+            var fallbackTexture = fallback.Object;
+            resourceManager.Setup(x => x.TryLoadTexture(previewPath, out fallbackTexture)).Returns(false);
+
+            Assert.Null(renderer.GeneratePreviewImageTexture(songNode));
+            renderer.ClearCache();
+            Assert.Null(renderer.GeneratePreviewImageTexture(songNode));
+
+            // The failure marker was cleared, so the load is retried once.
+            resourceManager.Verify(x => x.TryLoadTexture(previewPath, out It.Ref<ITexture>.IsAny), Times.Exactly(2));
         }
         finally
         {
@@ -162,16 +249,18 @@ public class SongBarRendererLogicTests
 
             var texture1 = CreateTextureMock();
             var texture2 = CreateTextureMock();
-            resourceManager.Setup(x => x.LoadTexture(previewPath1)).Returns(texture1.Object);
-            resourceManager.Setup(x => x.LoadTexture(previewPath2)).Returns(texture2.Object);
+            var loaded1 = texture1.Object;
+            var loaded2 = texture2.Object;
+            resourceManager.Setup(x => x.TryLoadTexture(previewPath1, out loaded1)).Returns(true);
+            resourceManager.Setup(x => x.TryLoadTexture(previewPath2, out loaded2)).Returns(true);
 
             var first = renderer.GeneratePreviewImageTexture(CreateScoreNode(filePath: Path.Combine(songDir1.FullName, "chart.dtx"), previewImage: "preview.png"));
             var second = renderer.GeneratePreviewImageTexture(CreateScoreNode(filePath: Path.Combine(songDir2.FullName, "chart.dtx"), previewImage: "preview.png"));
 
             Assert.Same(texture1.Object, first);
             Assert.Same(texture2.Object, second);
-            resourceManager.Verify(x => x.LoadTexture(previewPath1), Times.Once);
-            resourceManager.Verify(x => x.LoadTexture(previewPath2), Times.Once);
+            resourceManager.Verify(x => x.TryLoadTexture(previewPath1, out It.Ref<ITexture>.IsAny), Times.Once);
+            resourceManager.Verify(x => x.TryLoadTexture(previewPath2, out It.Ref<ITexture>.IsAny), Times.Once);
         }
         finally
         {
@@ -190,7 +279,7 @@ public class SongBarRendererLogicTests
         var texture = InvokePrivate<ITexture?>(renderer, "LoadPreviewImage", CreateScoreNode(filePath: "/songs/chart.dtx", previewImage: "preview.png"));
 
         Assert.Null(texture);
-        resourceManager.Verify(x => x.LoadTexture(It.IsAny<string>()), Times.Never);
+        resourceManager.Verify(x => x.TryLoadTexture(It.IsAny<string>(), out It.Ref<ITexture>.IsAny), Times.Never);
     }
 
     [Fact]
@@ -205,7 +294,7 @@ public class SongBarRendererLogicTests
             var texture = InvokePrivate<ITexture?>(renderer, "LoadPreviewImage", CreateScoreNode(filePath: Path.Combine(tempDir.FullName, "chart.dtx"), previewImage: "preview.png"));
 
             Assert.Null(texture);
-            resourceManager.Verify(x => x.LoadTexture(It.IsAny<string>()), Times.Never);
+            resourceManager.Verify(x => x.TryLoadTexture(It.IsAny<string>(), out It.Ref<ITexture>.IsAny), Times.Never);
         }
         finally
         {
@@ -225,12 +314,13 @@ public class SongBarRendererLogicTests
         {
             var previewPath = Path.Combine(tempDir.FullName, "preview.png");
             File.WriteAllText(previewPath, "x");
-            resourceManager.Setup(x => x.LoadTexture(previewPath)).Returns(expectedTexture.Object);
+            var loaded = expectedTexture.Object;
+            resourceManager.Setup(x => x.TryLoadTexture(previewPath, out loaded)).Returns(true);
 
             var texture = InvokePrivate<ITexture?>(renderer, "LoadPreviewImage", CreateScoreNode(filePath: Path.Combine(tempDir.FullName, "chart.dtx"), previewImage: "preview.png"));
 
             Assert.Same(expectedTexture.Object, texture);
-            resourceManager.Verify(x => x.LoadTexture(previewPath), Times.Once);
+            resourceManager.Verify(x => x.TryLoadTexture(previewPath, out It.Ref<ITexture>.IsAny), Times.Once);
         }
         finally
         {
@@ -249,7 +339,7 @@ public class SongBarRendererLogicTests
         {
             var previewPath = Path.Combine(tempDir.FullName, "preview.png");
             File.WriteAllText(previewPath, "x");
-            resourceManager.Setup(x => x.LoadTexture(previewPath)).Throws(new System.ObjectDisposedException("texture"));
+            resourceManager.Setup(x => x.TryLoadTexture(previewPath, out It.Ref<ITexture>.IsAny)).Throws(new System.ObjectDisposedException("texture"));
 
             var texture = InvokePrivate<ITexture?>(renderer, "LoadPreviewImage", CreateScoreNode(filePath: Path.Combine(tempDir.FullName, "chart.dtx"), previewImage: "preview.png"));
 
@@ -679,6 +769,7 @@ public class SongBarRendererLogicTests
         ReflectionHelpers.SetPrivateField(renderer, "_whitePixel", null);
         ReflectionHelpers.SetPrivateField(renderer, "_titleTextureCache", new CacheManager<string, ITexture>());
         ReflectionHelpers.SetPrivateField(renderer, "_previewImageCache", new CacheManager<string, ITexture>());
+        ReflectionHelpers.SetPrivateField(renderer, "_failedPreviewPaths", new HashSet<string>(AppPaths.SkinPathComparer));
         ReflectionHelpers.SetPrivateField(renderer, "_clearLampCache", new CacheManager<string, ITexture>());
         ReflectionHelpers.SetPrivateField(renderer, "_titleRenderTarget", null);
         ReflectionHelpers.SetPrivateField(renderer, "_clearLampRenderTarget", null);

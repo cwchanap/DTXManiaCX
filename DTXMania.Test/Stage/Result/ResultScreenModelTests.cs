@@ -73,7 +73,7 @@ public class ResultScreenModelTests
     }
 
     [Fact]
-    public void SetSavePresentation_FailedWithError_ShouldExposeRetryGuidance()
+    public void SetSavePresentation_FailedWithError_ShouldExposeRetryGuidanceAndErrorText()
     {
         var model = ResultScreenModel.Create(Summary(), null, 0, null, null);
 
@@ -82,8 +82,9 @@ public class ResultScreenModelTests
             "database busy"));
 
         Assert.Equal(
-            "PRESS ENTER TO RETRY · BACK TO LEAVE WITHOUT SAVING · database busy",
+            "PRESS ENTER TO RETRY · BACK TO LEAVE WITHOUT SAVING",
             model.SaveGuidanceText);
+        Assert.Equal("database busy", model.SaveErrorText);
     }
 
     [Fact]
@@ -96,10 +97,35 @@ public class ResultScreenModelTests
             ResultSaveState.Failed,
             longError));
 
-        Assert.Equal(
-            "PRESS ENTER TO RETRY · BACK TO LEAVE WITHOUT SAVING · "
-                + new string('x', 64) + "…",
-            model.SaveGuidanceText);
+        // Plain "..." — the shipped NotoSerifJP fonts have no U+2026 glyph.
+        Assert.Equal(new string('x', 64) + "...", model.SaveErrorText);
+    }
+
+    [Fact]
+    public void SetSavePresentation_FailedWithMultilineError_ShouldCollapseWhitespace()
+    {
+        var model = ResultScreenModel.Create(Summary(), null, 0, null, null);
+
+        model.SetSavePresentation(new ResultSavePresentation(
+            ResultSaveState.Failed,
+            "disk full\r\nsee log\tfor details"));
+
+        Assert.Equal("disk full  see log for details", model.SaveErrorText);
+    }
+
+    [Fact]
+    public void SetSavePresentation_FailedWithSurrogateAtCut_ShouldNotSplitPair()
+    {
+        var model = ResultScreenModel.Create(Summary(), null, 0, null, null);
+        // 63 chars + astral char (surrogate pair) + tail: the cap must not
+        // slice the pair in half.
+        var error = new string('x', 63) + "😀" + new string('y', 100);
+
+        model.SetSavePresentation(new ResultSavePresentation(
+            ResultSaveState.Failed,
+            error));
+
+        Assert.Equal(new string('x', 63) + "...", model.SaveErrorText);
     }
 
     [Fact]
@@ -116,6 +142,7 @@ public class ResultScreenModelTests
         model.SetSavePresentation(new ResultSavePresentation(ResultSaveState.Saving));
 
         Assert.Equal(string.Empty, model.SaveGuidanceText);
+        Assert.Equal(string.Empty, model.SaveErrorText);
     }
 
     [Theory]

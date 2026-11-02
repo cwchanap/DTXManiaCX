@@ -3497,44 +3497,24 @@ namespace DTXMania.Game.Lib.Stage
 
         private bool TryLoadPreviewSoundFile(string filePath)
         {
-            bool loadFailed = false;
-            string currentLoadPath = null;
-
             // Release previous preview sound reference before loading a new one.
             ReleaseManagedSound(ref _previewSound);
 
-            // Subscribe to ResourceLoadFailed event temporarily to detect load failures
-            EventHandler<ResourceLoadFailedEventArgs> loadFailedHandler = (sender, args) =>
-            {
-                if (args.Path == currentLoadPath)
-                {
-                    loadFailed = true;
-                }
-            };
-
             try
             {
-                currentLoadPath = filePath;
-                _resourceManager.ResourceLoadFailed += loadFailedHandler;
-                
-                _previewSound = _resourceManager.LoadSound(filePath);
-                
-                // Check if load failed (detected by event) or if sound is null
-                if (loadFailed)
+                // TryLoadSound reports the failure LoadSound hides behind its
+                // silent fallback; a failed load releases the fallback it got.
+                if (_resourceManager.TryLoadSound(filePath, out _previewSound)
+                    && _previewSound != null)
                 {
-                    ReleaseManagedSound(ref _previewSound);
-                    return false;
+                    // Successfully loaded
+                    _previewPlayDelay = 0.0;
+                    _isPreviewDelayActive = true;
+                    return true;
                 }
-                
-                if (_previewSound == null)
-                {
-                    return false;
-                }
-                
-                // Successfully loaded
-                _previewPlayDelay = 0.0;
-                _isPreviewDelayActive = true;
-                return true;
+
+                ReleaseManagedSound(ref _previewSound);
+                return false;
             }
             catch (Exception ex)
             {
@@ -3542,11 +3522,6 @@ namespace DTXMania.Game.Lib.Stage
                     $"SongSelectionStage: Failed to load preview sound: {ex.Message}");
                 ReleaseManagedSound(ref _previewSound);
                 return false;
-            }
-            finally
-            {
-                // Always unsubscribe from the event
-                _resourceManager.ResourceLoadFailed -= loadFailedHandler;
             }
         }
 

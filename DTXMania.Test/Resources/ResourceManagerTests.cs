@@ -175,6 +175,128 @@ namespace DTXMania.Test.Resources
             Assert.True(exists);
         }
 
+        [Fact]
+        public void TryLoadTexture_WhenFileMissing_ShouldReturnFalseWithFallback()
+        {
+            using var graphicsDeviceService = new TestGraphicsDeviceService();
+            if (graphicsDeviceService.GraphicsDevice == null)
+                return;
+
+            using var resourceManager = new ResourceManager(graphicsDeviceService.GraphicsDevice);
+            var missingPath = Path.Combine(_testDataPath, "no-such-texture.png");
+            var raisedForPath = 0;
+            resourceManager.ResourceLoadFailed += (_, e) =>
+            {
+                if (e.Path == missingPath)
+                    raisedForPath++;
+            };
+
+            var loaded = resourceManager.TryLoadTexture(missingPath, out var texture);
+
+            Assert.False(loaded);
+            Assert.NotNull(texture); // 1x1 fallback, caller-owned
+            Assert.Equal(1, raisedForPath);
+            texture.Dispose();
+        }
+
+        [Fact]
+        public void TryLoadTexture_WhenDecodeFails_ShouldReturnFalseWithFallback()
+        {
+            using var graphicsDeviceService = new TestGraphicsDeviceService();
+            if (graphicsDeviceService.GraphicsDevice == null)
+                return;
+
+            using var resourceManager = new ResourceManager(graphicsDeviceService.GraphicsDevice);
+            var corruptPath = Path.Combine(_testDataPath, "corrupt.png");
+            File.WriteAllText(corruptPath, "not a real png");
+
+            var loaded = resourceManager.TryLoadTexture(corruptPath, out var texture);
+
+            Assert.False(loaded);
+            Assert.NotNull(texture);
+            texture.Dispose();
+        }
+
+        [Fact]
+        public void TryLoadTexture_WhenFileValid_ShouldReturnTrue()
+        {
+            using var graphicsDeviceService = new TestGraphicsDeviceService();
+            if (graphicsDeviceService.GraphicsDevice == null)
+                return;
+
+            using var resourceManager = new ResourceManager(graphicsDeviceService.GraphicsDevice);
+            var pngPath = Path.Combine(_testDataPath, "real.png");
+            File.WriteAllBytes(pngPath, OnePixelPng);
+
+            var loaded = resourceManager.TryLoadTexture(pngPath, out var texture);
+
+            Assert.True(loaded);
+            Assert.NotNull(texture);
+            texture.RemoveReference();
+        }
+
+        [Fact]
+        public void TryLoadSound_WhenFileMissing_ShouldReturnFalseWithFallback()
+        {
+            using var graphicsDeviceService = new TestGraphicsDeviceService();
+            if (graphicsDeviceService.GraphicsDevice == null)
+                return;
+
+            using var resourceManager = new ResourceManager(graphicsDeviceService.GraphicsDevice);
+            var missingPath = Path.Combine(_testDataPath, "no-such-sound.wav");
+
+            var loaded = resourceManager.TryLoadSound(missingPath, out var sound);
+
+            Assert.False(loaded);
+            Assert.NotNull(sound); // silent fallback, caller-owned
+            sound.Dispose();
+        }
+
+        [Fact]
+        public void TryLoadSound_WhenFileValid_ShouldReturnTrue()
+        {
+            using var graphicsDeviceService = new TestGraphicsDeviceService();
+            if (graphicsDeviceService.GraphicsDevice == null)
+                return;
+
+            using var resourceManager = new ResourceManager(graphicsDeviceService.GraphicsDevice);
+            var wavPath = Path.Combine(_testDataPath, "blip.wav");
+            File.WriteAllBytes(wavPath, MinimalWav());
+
+            var loaded = resourceManager.TryLoadSound(wavPath, out var sound);
+
+            Assert.True(loaded);
+            Assert.NotNull(sound);
+            sound.RemoveReference();
+        }
+
+        // 1x1 white PNG.
+        private static readonly byte[] OnePixelPng = Convert.FromBase64String(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==");
+
+        // Minimal PCM WAV: 44-byte header + a few silent samples.
+        private static byte[] MinimalWav()
+        {
+            using var stream = new MemoryStream();
+            using var writer = new BinaryWriter(stream);
+            var dataSize = 100;
+            writer.Write("RIFF".ToCharArray());
+            writer.Write(36 + dataSize);
+            writer.Write("WAVE".ToCharArray());
+            writer.Write("fmt ".ToCharArray());
+            writer.Write(16);          // fmt chunk size
+            writer.Write((short)1);    // PCM
+            writer.Write((short)1);    // mono
+            writer.Write(44100);       // sample rate
+            writer.Write(44100 * 2);   // byte rate
+            writer.Write((short)2);    // block align
+            writer.Write((short)16);   // bits per sample
+            writer.Write("data".ToCharArray());
+            writer.Write(dataSize);
+            writer.Write(new byte[dataSize]);
+            return stream.ToArray();
+        }
+
         private static void SetPrivateField(object target, string fieldName, object value)
         {
             var field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);

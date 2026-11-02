@@ -550,11 +550,14 @@ namespace DTXMania.Game.Lib.UI.Layout
                 public static Vector2 Size => new Vector2(Width, Height);
             }
 
-            // Foreground band below the native BPM plate and left of the preview frame.
+            // Caption band on the free strip below the status panel's left
+            // edge (panel ends at y=692, graph panel ends at x=125). The
+            // previous spot under the BPM plate overlapped the status
+            // panel's "From:" folder hint in search/filter views.
             public static class PlaybackProfile
             {
-                public const int X = 20;
-                public const int Y = 342;
+                public const int X = 130;
+                public const int Y = 694;
                 public const int Width = 224;
                 public const int Height = 24;
                 public const float TextScale = 0.9f;

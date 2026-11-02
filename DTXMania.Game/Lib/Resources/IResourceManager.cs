@@ -30,6 +30,28 @@ namespace DTXMania.Game.Lib.Resources
         ITexture LoadTexture(string path, bool enableTransparency);
 
         /// <summary>
+        /// Load a texture and report whether it really came from the file.
+        /// <see cref="LoadTexture"/> always returns a texture — a 1x1 fallback
+        /// on failure — so callers that must distinguish a failed decode from
+        /// a valid image use this variant. On failure <paramref name="texture"/>
+        /// receives the fallback (still caller-owned) and the method returns
+        /// false; the caller decides whether to release it.
+        /// </summary>
+        /// <param name="path">Path to texture file</param>
+        /// <param name="texture">The loaded (or fallback) texture</param>
+        /// <returns>True when the texture loaded successfully</returns>
+        bool TryLoadTexture(string path, out ITexture texture);
+
+        /// <summary>
+        /// Load a sound and report whether it really came from the file —
+        /// the sound twin of <see cref="TryLoadTexture"/>.
+        /// </summary>
+        /// <param name="path">Path to sound file</param>
+        /// <param name="sound">The loaded (or fallback) sound</param>
+        /// <returns>True when the sound loaded successfully</returns>
+        bool TryLoadSound(string path, out ISound sound);
+
+        /// <summary>
         /// Load a font from the specified path
         /// Supports both system fonts and private font files
         /// </summary>

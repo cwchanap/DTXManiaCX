@@ -14,18 +14,20 @@ namespace DTXMania.Test.UI
     public class SongSelectionUILayoutTests
     {
         [Fact]
-        public void PlaybackProfile_Bounds_ShouldClearNativeBpmArtAndPreviewAndDifficultyHeader()
+        public void PlaybackProfile_Bounds_ShouldSitBelowStatusPanelClearOfGraphPanel()
         {
             var position = SongSelectionUILayout.UILabels.PlaybackProfile.Position;
             var size = SongSelectionUILayout.UILabels.PlaybackProfile.Size;
             var bounds = new Rectangle((int)position.X, (int)position.Y, (int)size.X, (int)size.Y);
 
-            Assert.Equal(new Rectangle(20, 342, 224, 24), bounds);
-            // 5_BPM.png is drawn at native height 67, NOT the logical BPMSection.Height (50).
-            Assert.Equal(67, SongSelectionUILayout.BPMSection.SkinTextureHeight);
-            Assert.True(bounds.Top >= SongSelectionUILayout.BPMSection.Y + SongSelectionUILayout.BPMSection.SkinTextureHeight);
-            Assert.True(bounds.Right < 250); // preview-frame left edge
-            Assert.True(bounds.Bottom <= 368); // difficulty texture header, not first cell
+            Assert.Equal(new Rectangle(130, 694, 224, 24), bounds);
+            // The strip below the status panel is the only always-free home:
+            // moving it under the BPM plate overlapped the panel's "From:"
+            // folder hint in search/filter views, and the preview frame owns
+            // the y<=456 band when the status panel is hidden.
+            Assert.True(bounds.Top >= SongSelectionUILayout.StatusPanel.Y + SongSelectionUILayout.StatusPanel.Height);
+            Assert.True(bounds.Left >= SongSelectionUILayout.GraphPanel.BaseX + SongSelectionUILayout.GraphPanel.Width);
+            Assert.True(bounds.Bottom <= SongSelectionUILayout.SongListDisplay.Height);
         }
 
         [Fact]
@@ -45,7 +47,9 @@ namespace DTXMania.Test.UI
                 var size = font.MeasureString(text) * SongSelectionUILayout.UILabels.PlaybackProfile.TextScale;
                 maximumWidth = Math.Max(maximumWidth, size.X);
                 Assert.True(size.X <= 224, $"{assetName}: '{text}' width {size.X} exceeds profile band");
-                Assert.True(20 + size.X < 250, $"'{text}' overlaps the preview frame");
+                Assert.True(SongSelectionUILayout.UILabels.PlaybackProfile.X + size.X
+                        <= SongSelectionUILayout.StatusPanel.X + SongSelectionUILayout.StatusPanel.Width,
+                    $"'{text}' overflows the status panel's width column");
                 // DrawString uses cropping offsets for ink; MeasureString.Y includes unused line spacing.
                 foreach (char character in text)
                 {
