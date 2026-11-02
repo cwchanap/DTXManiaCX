@@ -1150,6 +1150,161 @@ public class SongListDisplayLogicTests
     }
 
     [Fact]
+    public void DrawBasicSongItemWithPerspective_WhenNodeHasNoChart_ShouldKeepDefaultPreview()
+    {
+        var display = new SongListDisplay { ManagedFont = CreateManagedFont().Object };
+        var fallback = CreateTexture(400, 400);
+        var skin = CreateTexture();
+        var rm = new Mock<IResourceManager>(MockBehavior.Strict);
+        SetField(display, "_resourceManager", rm.Object);
+        SetField(display, "_defaultBarPreview", fallback.Object);
+        SetField(display, "_skinBarTexturesLoaded", true);
+        SetField(display, "_barScoreTexture", skin.Object);
+        SetField(display, "_barScoreSelectedTexture", skin.Object);
+        var bounds = new Rectangle(665, 269, 510, 48);
+        var slot = new Rectangle(672, 266, 44, 44);
+
+        InvokePrivate<object?>(display, "DrawBasicSongItemWithPerspective", null!,
+            new SongListNode { Type = NodeType.Score, Title = "Song" },
+            bounds, true, true, 0, 1f, 0.5f);
+
+        fallback.Verify(x => x.Draw(null!, slot, null, Color.White * 0.5f,
+            0f, Vector2.Zero, SpriteEffects.None, 0f), Times.Once);
+        rm.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public void DrawBasicSongItemWithPerspective_WhenPreviewFileMissing_ShouldKeepDefaultPreview()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var display = new SongListDisplay { ManagedFont = CreateManagedFont().Object };
+            var fallback = CreateTexture(400, 400);
+            var skin = CreateTexture();
+            var rm = new Mock<IResourceManager>(MockBehavior.Strict);
+            SetField(display, "_resourceManager", rm.Object);
+            SetField(display, "_defaultBarPreview", fallback.Object);
+            SetField(display, "_skinBarTexturesLoaded", true);
+            SetField(display, "_barScoreTexture", skin.Object);
+            SetField(display, "_barScoreSelectedTexture", skin.Object);
+            var node = new SongListNode
+            {
+                Type = NodeType.Score,
+                Title = "Song",
+                DatabaseChart = new SongChart
+                {
+                    FilePath = Path.Combine(dir, "song.dtx"),
+                    PreviewImage = "absent.png"
+                }
+            };
+            var bounds = new Rectangle(665, 269, 510, 48);
+            var slot = new Rectangle(672, 266, 44, 44);
+
+            InvokePrivate<object?>(display, "DrawBasicSongItemWithPerspective", null!,
+                node, bounds, true, true, 0, 1f, 0.5f);
+
+            fallback.Verify(x => x.Draw(null!, slot, null, Color.White * 0.5f,
+                0f, Vector2.Zero, SpriteEffects.None, 0f), Times.Once);
+            rm.Verify(x => x.LoadTexture(It.IsAny<string>()), Times.Never);
+            rm.VerifyNoOtherCalls();
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void DrawBasicSongItemWithPerspective_WhenBarInfoHoldsPreview_ShouldReuseCachedTexture()
+    {
+        var display = new SongListDisplay { ManagedFont = CreateManagedFont().Object };
+        var fallback = CreateTexture(400, 400);
+        var barPreview = CreateTexture();
+        var skin = CreateTexture();
+        var rm = new Mock<IResourceManager>(MockBehavior.Strict);
+        SetField(display, "_resourceManager", rm.Object);
+        SetField(display, "_defaultBarPreview", fallback.Object);
+        SetField(display, "_skinBarTexturesLoaded", true);
+        SetField(display, "_barScoreTexture", skin.Object);
+        SetField(display, "_barScoreSelectedTexture", skin.Object);
+        var node = new SongListNode { Type = NodeType.Score, Title = "Song" };
+        GetField<Dictionary<string, SongBarInfo>>(display, "_barInfoCache")[$"{node.GetHashCode()}_0"] =
+            new SongBarInfo { SongNode = node, PreviewImage = barPreview.Object };
+        var bounds = new Rectangle(665, 269, 510, 48);
+        var slot = new Rectangle(672, 266, 44, 44);
+
+        InvokePrivate<object?>(display, "DrawBasicSongItemWithPerspective", null!,
+            node, bounds, true, true, 0, 1f, 0.5f);
+
+        barPreview.Verify(x => x.Draw(null!, slot, null, Color.White * 0.5f,
+            0f, Vector2.Zero, SpriteEffects.None, 0f), Times.Once);
+        fallback.Verify(x => x.Draw(It.IsAny<SpriteBatch>(), It.IsAny<Rectangle>(), null,
+            It.IsAny<Color>(), 0f, Vector2.Zero, SpriteEffects.None, 0f), Times.Never);
+        rm.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public void ResolveBasicScorePreview_WhenNodeNull_ShouldReturnNull()
+    {
+        var display = new SongListDisplay();
+
+        Assert.Null(InvokePrivate<ITexture?>(display, "ResolveBasicScorePreview", (SongListNode)null!));
+    }
+
+    [Fact]
+    public void LoadResolvedPreviewImage_WhenManagerOrPathMissing_ShouldReturnNull()
+    {
+        var rm = new Mock<IResourceManager>(MockBehavior.Strict);
+
+        Assert.Null(SongBarRenderer.LoadResolvedPreviewImage(null, "preview.png"));
+        Assert.Null(SongBarRenderer.LoadResolvedPreviewImage(rm.Object, null));
+        Assert.Null(SongBarRenderer.LoadResolvedPreviewImage(rm.Object, ""));
+        Assert.Null(SongBarRenderer.LoadResolvedPreviewImage(rm.Object,
+            Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".png")));
+        rm.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public void LoadResolvedPreviewImage_WhenFileTooLarge_ShouldReturnNullWithoutLoading()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".png");
+        try
+        {
+            File.WriteAllBytes(path, new byte[501 * 1024]);
+            var rm = new Mock<IResourceManager>(MockBehavior.Strict);
+
+            Assert.Null(SongBarRenderer.LoadResolvedPreviewImage(rm.Object, path));
+            rm.VerifyNoOtherCalls();
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void LoadResolvedPreviewImage_WhenLoadThrows_ShouldReturnNull()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var path = Path.Combine(dir, "jacket.png");
+            File.WriteAllBytes(path, new byte[16]);
+            var rm = new Mock<IResourceManager>(MockBehavior.Strict);
+            rm.Setup(x => x.LoadTexture(path)).Throws(new InvalidOperationException("io"));
+
+            Assert.Null(SongBarRenderer.LoadResolvedPreviewImage(rm.Object, path));
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
     public void RefreshDisplay_ShouldReleaseBasicPreviewCache()
     {
         var display = new SongListDisplay();
