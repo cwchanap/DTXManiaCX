@@ -119,7 +119,7 @@ namespace DTXMania.Game.Lib.Stage.Result
                 DrawTexture(spriteBatch, _jacketPanelTexture, ResolveJacketPanelPosition(theme));
                 DrawPreview(spriteBatch, theme);
                 DrawTexture(spriteBatch, _skillPanelTexture, ResultUILayout.SkillPanel.PanelPosition);
-                DrawModelText(spriteBatch, model);
+                DrawModelText(spriteBatch, model, panelAlpha);
 
                 if (model.NewRecord)
                     DrawTexture(spriteBatch, _newRecordTexture, ResolveNewRecordPosition(theme));
@@ -532,17 +532,25 @@ namespace DTXMania.Game.Lib.Stage.Result
             ResolvePlaybackGroupOrigin(theme) + ResultUILayout.PlaybackPresentation.SaveStatusOffset;
 
         /// <summary>
-        /// Wrapped retry-guidance rectangle: group origin + (0,84), 420x60.
+        /// Wrapped retry-guidance rectangle: group origin + (0,84), height 60.
+        /// The wrap width is capped so the text's right edge stays inside the
+        /// playback backdrop; at the NX origin the backdrop is itself capped by
+        /// the FAILED banner, so the full 420px block would spill glyphs onto it.
         /// </summary>
         internal static Rectangle ResolvePlaybackSaveGuidanceBounds(ISkinTheme theme)
         {
             var origin = ResolvePlaybackGroupOrigin(theme);
             var offset = ResultUILayout.PlaybackPresentation.SaveGuidanceOffset;
             var size = ResultUILayout.PlaybackPresentation.SaveGuidanceSize;
-            return new Rectangle(
-                (int)origin.X + (int)offset.X,
-                (int)origin.Y + (int)offset.Y,
+            var x = (int)origin.X + (int)offset.X;
+            var backdrop = ResolvePlaybackBackdropBounds(theme, hasGuidance: true);
+            var width = Math.Min(
                 size.X,
+                backdrop.Right - ResultUILayout.PlaybackPresentation.BackdropPadding - x);
+            return new Rectangle(
+                x,
+                (int)origin.Y + (int)offset.Y,
+                width,
                 size.Y);
         }
 
@@ -637,7 +645,7 @@ namespace DTXMania.Game.Lib.Stage.Result
             theme.GetColor("Result.LevelLabelText", Color.LightGray);
 
         [ExcludeFromCodeCoverage]
-        private void DrawModelText(SpriteBatch spriteBatch, ResultScreenModel model)
+        private void DrawModelText(SpriteBatch spriteBatch, ResultScreenModel model, float panelAlpha = 1.0f)
         {
             var theme = _resources.CurrentTheme ?? SkinTheme.Empty;
             var normalScale = ResolveNormalFontScale(theme);
@@ -672,7 +680,7 @@ namespace DTXMania.Game.Lib.Stage.Result
                     artistPosition.X, ResolveArtistCenterX(theme), _smallFont.MeasureString(model.Artist).X);
             DrawText(spriteBatch, _smallFont, model.Artist, artistPosition, ResolveArtistColor(theme));
 
-            DrawPlaybackBackdrop(spriteBatch, model);
+            DrawPlaybackBackdrop(spriteBatch, model, panelAlpha);
             DrawText(
                 spriteBatch,
                 _smallFont,
@@ -757,7 +765,7 @@ namespace DTXMania.Game.Lib.Stage.Result
         /// no-op when it was not supplied.
         /// </summary>
         [ExcludeFromCodeCoverage]
-        private void DrawPlaybackBackdrop(SpriteBatch spriteBatch, ResultScreenModel model)
+        private void DrawPlaybackBackdrop(SpriteBatch spriteBatch, ResultScreenModel model, float panelAlpha = 1.0f)
         {
             if (spriteBatch == null || _playbackBackdropTexture == null)
                 return;
@@ -766,7 +774,7 @@ namespace DTXMania.Game.Lib.Stage.Result
             spriteBatch.Draw(
                 _playbackBackdropTexture,
                 ResolvePlaybackBackdropBounds(theme, !string.IsNullOrEmpty(model.SaveGuidanceText)),
-                ResultUILayout.PlaybackPresentation.BackdropColor);
+                ResultUILayout.PlaybackPresentation.BackdropColor * panelAlpha);
         }
 
         internal static Color ResolveSaveStatusColor(ResultSaveState state)

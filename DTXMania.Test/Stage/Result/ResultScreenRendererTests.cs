@@ -40,7 +40,7 @@ public class ResultScreenRendererTests
             "DrawModelText",
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
 
-        drawModelText!.Invoke(renderer, new object?[] { null, model });
+        drawModelText!.Invoke(renderer, new object?[] { null, model, 1.0f });
 
         smallFont.Verify(x => x.DrawString(
             It.IsAny<SpriteBatch>(),
@@ -88,7 +88,7 @@ public class ResultScreenRendererTests
             "DrawModelText",
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
 
-        drawModelText!.Invoke(renderer, new object?[] { null, model });
+        drawModelText!.Invoke(renderer, new object?[] { null, model, 1.0f });
 
         smallFont.Verify(x => x.DrawString(
             It.IsAny<SpriteBatch>(),
