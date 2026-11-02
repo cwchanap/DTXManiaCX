@@ -948,10 +948,10 @@ public class SongListDisplayLogicTests
         display.InitializeEnhancedRendering(null, rm.Object, null);
         display.Dispose();
 
-        preview.Verify(x => x.RemoveReference(), Times.Once);
+        preview.Verify(x => x.RemoveReference(), Times.Exactly(2));
         preview.Verify(x => x.AddReference(), Times.Never);
         preview.Verify(x => x.Dispose(), Times.Never);
-        rm.Verify(x => x.LoadTexture(TexturePath.ResultDefaultPreview), Times.Once);
+        rm.Verify(x => x.LoadTexture(TexturePath.ResultDefaultPreview), Times.Exactly(2));
     }
 
     [Theory]
@@ -1417,6 +1417,234 @@ public class SongListDisplayLogicTests
         {
             Directory.Delete(dir, true);
         }
+    }
+
+    [Fact]
+    public void UpdatePendingTextures_WhenRendererUnavailable_ShouldPopulateBasicPreviewCache()
+    {
+        // With no SongBarRenderer the bar-info queue can never fill, so the
+        // Update-phase fallback path must load visible jackets itself.
+        var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var previewPath = Path.GetFullPath(Path.Combine(dir, "jacket.png"));
+            File.WriteAllBytes(previewPath, new byte[16]);
+
+            var display = new SongListDisplay();
+            var jacket = CreateTexture(400, 400);
+            var rm = new Mock<IResourceManager>(MockBehavior.Strict);
+            var jacketResult = jacket.Object;
+            rm.Setup(x => x.TryLoadTexture(previewPath, out jacketResult)).Returns(true);
+            SetField(display, "_resourceManager", rm.Object);
+            display.CurrentList = new List<SongListNode>
+            {
+                new SongListNode
+                {
+                    Type = NodeType.Score,
+                    Title = "Song",
+                    DatabaseChart = new SongChart
+                    {
+                        FilePath = Path.Combine(dir, "song.dtx"),
+                        PreviewImage = "jacket.png"
+                    }
+                }
+            };
+
+            InvokePrivate<object?>(display, "UpdatePendingTextures");
+
+            Assert.Same(jacket.Object,
+                GetField<Dictionary<string, ITexture>>(display, "_basicPreviewCache")[previewPath]);
+            Assert.Same(jacket.Object,
+                InvokePrivate<ITexture?>(display, "ResolveBasicScorePreview", display.CurrentList[0]));
+            rm.Verify(x => x.TryLoadTexture(previewPath, out jacketResult), Times.Once);
+            rm.VerifyNoOtherCalls();
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void UpdatePendingTextures_WhenRendererUnavailableDuringFastScroll_ShouldSkipPreviewLoads()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var previewPath = Path.GetFullPath(Path.Combine(dir, "jacket.png"));
+            File.WriteAllBytes(previewPath, new byte[16]);
+
+            var display = new SongListDisplay();
+            var rm = new Mock<IResourceManager>(MockBehavior.Strict);
+            SetField(display, "_resourceManager", rm.Object);
+            // Three rapid inputs inside the window put the wheel in fast-scroll mode.
+            SetField(display, "_consecutiveInputCount", 3);
+            SetField(display, "_lastInputTime", DateTime.UtcNow);
+            display.CurrentList = new List<SongListNode>
+            {
+                new SongListNode
+                {
+                    Type = NodeType.Score,
+                    Title = "Song",
+                    DatabaseChart = new SongChart
+                    {
+                        FilePath = Path.Combine(dir, "song.dtx"),
+                        PreviewImage = "jacket.png"
+                    }
+                }
+            };
+
+            InvokePrivate<object?>(display, "UpdatePendingTextures");
+
+            Assert.Empty(GetField<Dictionary<string, ITexture>>(display, "_basicPreviewCache"));
+            rm.VerifyNoOtherCalls();
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void UpdatePendingTextures_WhenBasicPreviewLoadFails_ShouldNegativeCacheUntilRefresh()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var previewPath = Path.GetFullPath(Path.Combine(dir, "jacket.png"));
+            File.WriteAllBytes(previewPath, new byte[16]);
+
+            var display = new SongListDisplay();
+            var rm = new Mock<IResourceManager>(MockBehavior.Strict);
+            ITexture failedResult = null!;
+            rm.Setup(x => x.TryLoadTexture(previewPath, out failedResult)).Returns(false);
+            SetField(display, "_resourceManager", rm.Object);
+            display.CurrentList = new List<SongListNode>
+            {
+                new SongListNode
+                {
+                    Type = NodeType.Score,
+                    Title = "Song",
+                    DatabaseChart = new SongChart
+                    {
+                        FilePath = Path.Combine(dir, "song.dtx"),
+                        PreviewImage = "jacket.png"
+                    }
+                }
+            };
+
+            InvokePrivate<object?>(display, "UpdatePendingTextures");
+            InvokePrivate<object?>(display, "UpdatePendingTextures");
+
+            Assert.Contains(previewPath,
+                GetField<HashSet<string>>(display, "_failedBasicPreviewPaths"));
+            rm.Verify(x => x.TryLoadTexture(previewPath, out failedResult), Times.Once);
+
+            display.RefreshDisplay();
+            Assert.Empty(GetField<HashSet<string>>(display, "_failedBasicPreviewPaths"));
+
+            InvokePrivate<object?>(display, "UpdatePendingTextures");
+
+            rm.Verify(x => x.TryLoadTexture(previewPath, out failedResult), Times.Exactly(2));
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void DrawBasicSongItemWithPerspective_WhenRendererUnavailable_ShouldDrawLoadedPreview()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var previewPath = Path.GetFullPath(Path.Combine(dir, "jacket.png"));
+            File.WriteAllBytes(previewPath, new byte[16]);
+
+            var display = new SongListDisplay { ManagedFont = CreateManagedFont().Object };
+            var jacket = CreateTexture(400, 400);
+            var fallback = CreateTexture(400, 400);
+            var skin = CreateTexture();
+            var rm = new Mock<IResourceManager>(MockBehavior.Strict);
+            var jacketResult = jacket.Object;
+            rm.Setup(x => x.TryLoadTexture(previewPath, out jacketResult)).Returns(true);
+            SetField(display, "_resourceManager", rm.Object);
+            SetField(display, "_defaultBarPreview", fallback.Object);
+            SetField(display, "_skinBarTexturesLoaded", true);
+            SetField(display, "_barScoreTexture", skin.Object);
+            SetField(display, "_barScoreSelectedTexture", skin.Object);
+            var node = new SongListNode
+            {
+                Type = NodeType.Score,
+                Title = "Song",
+                DatabaseChart = new SongChart
+                {
+                    FilePath = Path.Combine(dir, "song.dtx"),
+                    PreviewImage = "jacket.png"
+                }
+            };
+            display.CurrentList = new List<SongListNode> { node };
+            var bounds = new Rectangle(665, 269, 510, 48);
+            var slot = new Rectangle(672, 266, 44, 44);
+
+            InvokePrivate<object?>(display, "UpdatePendingTextures");
+            InvokePrivate<object?>(display, "DrawBasicSongItemWithPerspective", null!,
+                node, bounds, true, true, 0, 1f, 0.5f);
+
+            jacket.Verify(x => x.Draw(null!, slot, null, Color.White * 0.5f,
+                0f, Vector2.Zero, SpriteEffects.None, 0f), Times.Once);
+            fallback.Verify(x => x.Draw(It.IsAny<SpriteBatch>(), It.IsAny<Rectangle>(), null,
+                It.IsAny<Color>(), 0f, Vector2.Zero, SpriteEffects.None, 0f), Times.Never);
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void RefreshDisplay_WhenBasicPreviewCached_ShouldReleaseIt()
+    {
+        var display = new SongListDisplay();
+        var jacket = CreateTexture();
+        GetField<Dictionary<string, ITexture>>(display, "_basicPreviewCache")["preview.png"] = jacket.Object;
+        GetField<HashSet<string>>(display, "_failedBasicPreviewPaths").Add("missing.png");
+
+        display.RefreshDisplay();
+
+        Assert.Empty(GetField<Dictionary<string, ITexture>>(display, "_basicPreviewCache"));
+        Assert.Empty(GetField<HashSet<string>>(display, "_failedBasicPreviewPaths"));
+        jacket.Verify(x => x.RemoveReference(), Times.Once);
+
+        display.Dispose();
+        jacket.Verify(x => x.RemoveReference(), Times.Once);
+    }
+
+    [Fact]
+    public void InitializeEnhancedRendering_WhenRenderTargetMissing_ShouldStillLoadSkinBarTextures()
+    {
+        var display = new SongListDisplay();
+        var rm = new Mock<IResourceManager>();
+        var score = CreateTexture();
+        var scoreSelected = CreateTexture();
+        var preview = CreateTexture(400, 400);
+        rm.Setup(x => x.ResourceExists(It.IsAny<string>())).Returns(true);
+        rm.Setup(x => x.LoadTexture(TexturePath.BarScore)).Returns(score.Object);
+        rm.Setup(x => x.LoadTexture(TexturePath.BarScoreSelected)).Returns(scoreSelected.Object);
+        rm.Setup(x => x.LoadTexture(TexturePath.ResultDefaultPreview)).Returns(preview.Object);
+
+        display.InitializeEnhancedRendering(null, rm.Object, null);
+
+        // The null-render-target early return must not strand the basic path
+        // without its skin bar textures or default preview.
+        Assert.Null(GetField<SongBarRenderer?>(display, "_barRenderer"));
+        Assert.True(GetField<bool>(display, "_skinBarTexturesLoaded"));
+        Assert.Same(preview.Object, GetField<ITexture?>(display, "_defaultBarPreview"));
     }
 
     [Fact]

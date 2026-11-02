@@ -129,6 +129,13 @@ namespace DTXMania.Game.Lib.Song.Components
         private ITexture _defaultBarPreview;
         private bool _skinBarTexturesLoaded;
 
+        // Basic-path preview cache for when no SongBarRenderer exists (enhanced
+        // init failed or no shared render target). Keyed by resolved preview
+        // path; each entry holds the single caller-owned reference returned by
+        // SongBarRenderer.LoadResolvedPreviewImage. Populated in Update only.
+        private readonly Dictionary<string, ITexture> _basicPreviewCache = new();
+        private readonly HashSet<string> _failedBasicPreviewPaths = new();
+
         // Phase 2 enhancements: Bar information caching
         private readonly Dictionary<string, SongBarInfo> _barInfoCache;        // Texture generation priority queue to prevent draw phase generation
         private readonly List<TextureGenerationRequest> _textureGenerationQueue;
@@ -435,6 +442,8 @@ namespace DTXMania.Game.Lib.Song.Components
                 barInfo?.Dispose();
             }
             _barInfoCache.Clear();
+
+            ReleaseBasicPreviewCache();
         }
 
         /// <summary>
@@ -499,6 +508,23 @@ namespace DTXMania.Game.Lib.Song.Components
             ReleaseManagedTexture(ref _barOtherTexture);
             ReleaseManagedTexture(ref _barOtherSelectedTexture);
             ReleaseManagedTexture(ref _defaultBarPreview);
+            ReleaseBasicPreviewCache();
+
+            // Comment bar, scrollbar, and skin bar textures feed the basic draw
+            // path as well, so they must load even when no render target exists —
+            // the early return below must not leave basic mode without the
+            // default preview.
+            LoadCommentBarTexture();
+            LoadSkinBarTextures();
+            try
+            {
+                _scrollbarTexture = _resourceManager.LoadTexture(TexturePath.Scrollbar);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SongListDisplay: Failed to load scrollbar texture: {ex.Message}");
+                _scrollbarTexture = null;
+            }
 
             if (sharedRenderTarget != null)
             {
@@ -530,23 +556,6 @@ namespace DTXMania.Game.Lib.Song.Components
             foreach (var songBar in _songBarCache.Values)
             {
                 songBar.InitializeGraphicsGenerator(graphicsDevice, sharedRenderTarget);
-            }
-
-            // Load comment bar texture
-            LoadCommentBarTexture();
-
-            // Load NX-authentic skin bar textures
-            LoadSkinBarTextures();
-
-            // Load scrollbar texture
-            try
-            {
-                _scrollbarTexture = _resourceManager.LoadTexture(TexturePath.Scrollbar);
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"SongListDisplay: Failed to load scrollbar texture: {ex.Message}");
-                _scrollbarTexture = null;
             }
         }
 
@@ -1246,11 +1255,12 @@ namespace DTXMania.Game.Lib.Song.Components
 
         /// <summary>
         /// Resolve a score node's own preview jacket for the basic draw path, so
-        /// real artwork is not replaced by the skin default. Pure read of the
-        /// bar-info cache — preview textures are generated in the Update
-        /// phase by the texture-generation queue, so Draw never performs
-        /// file I/O or image decode. Returns null when no generated bar info
-        /// carries a preview; the caller falls back to _defaultBarPreview.
+        /// real artwork is not replaced by the skin default. Pure cache read —
+        /// preview textures are generated in the Update phase by the texture-
+        /// generation queue (enhanced) or UpdateBasicPreviewTextures (no
+        /// renderer), so Draw never performs file I/O or image decode. Returns
+        /// null when no generated preview exists; the caller falls back to
+        /// _defaultBarPreview.
         /// </summary>
         private ITexture ResolveBasicScorePreview(SongListNode node)
         {
@@ -1258,8 +1268,12 @@ namespace DTXMania.Game.Lib.Song.Components
                 return null;
 
             var cacheKey = GetBarInfoCacheKey(node, _currentDifficulty, PlaySpeedPercent);
-            return _barInfoCache.TryGetValue(cacheKey, out var barInfo)
-                ? barInfo.PreviewImage
+            if (_barInfoCache.TryGetValue(cacheKey, out var barInfo) && barInfo.PreviewImage != null)
+                return barInfo.PreviewImage;
+
+            var previewPath = SongBarRenderer.GetResolvedPreviewImagePath(node);
+            return previewPath != null && _basicPreviewCache.TryGetValue(previewPath, out var texture)
+                ? texture
                 : null;
         }
 
@@ -1672,7 +1686,14 @@ namespace DTXMania.Game.Lib.Song.Components
         private void UpdatePendingTextures()
         {
             if (_barRenderer == null)
-                return;            // Performance metrics: Measure texture generation timing
+            {
+                // Bar-info generation needs the renderer, so queued requests can
+                // never be fulfilled in basic mode. Drain them and populate
+                // basic-path previews instead, keeping Draw free of file I/O.
+                _textureGenerationQueue.Clear();
+                UpdateBasicPreviewTextures();
+                return;
+            }            // Performance metrics: Measure texture generation timing
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();            // Process more requests per frame during scrolling for smoother experience
             int maxRequestsPerFrame = IsScrolling ? 10 : 6; // Increased during scrolling
             int processedCount = 0;
@@ -1718,6 +1739,72 @@ namespace DTXMania.Game.Lib.Song.Components
         }
 
         /// <summary>
+        /// Populate basic-path previews for visible score bars when no
+        /// SongBarRenderer exists (enhanced init failed or no shared render
+        /// target). Runs in the Update phase under the same per-frame budget as
+        /// UpdatePendingTextures, so Draw only ever reads populated caches.
+        /// Mirrors SongBarRenderer.GeneratePreviewImageTexture: resolved-path
+        /// cache keys, negative caching on genuine load failures, and the
+        /// fast-scroll load skip.
+        /// </summary>
+        private void UpdateBasicPreviewTextures()
+        {
+            if (_resourceManager == null || _currentList == null || _currentList.Count == 0)
+                return;
+
+            // Skip preview image loading during fast scroll to prevent UI freezes
+            if (IsFastScrollMode())
+                return;
+
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            int maxLoadsPerFrame = IsScrolling ? 10 : 6;
+            int processedCount = 0;
+            int centerSongIndex = _currentScrollCounter / SCROLL_UNIT;
+
+            for (int barIndex = 0; barIndex < VISIBLE_ITEMS; barIndex++)
+            {
+                if (!TryResolveVisibleSongIndex(
+                        centerSongIndex,
+                        barIndex,
+                        _currentList.Count,
+                        out int songIndex))
+                {
+                    continue;
+                }
+
+                var node = _currentList[songIndex];
+                if (node?.Type != NodeType.Score)
+                    continue;
+
+                var previewPath = SongBarRenderer.GetResolvedPreviewImagePath(node);
+                if (string.IsNullOrEmpty(previewPath)
+                    || _basicPreviewCache.ContainsKey(previewPath)
+                    || _failedBasicPreviewPaths.Contains(previewPath))
+                {
+                    continue;
+                }
+
+                var texture = SongBarRenderer.LoadResolvedPreviewImage(
+                    _resourceManager,
+                    previewPath,
+                    out var cacheableFailure);
+                if (texture != null)
+                {
+                    _basicPreviewCache[previewPath] = texture;
+                }
+                else if (cacheableFailure)
+                {
+                    _failedBasicPreviewPaths.Add(previewPath);
+                }
+
+                processedCount++;
+
+                if (processedCount >= maxLoadsPerFrame || stopwatch.Elapsed.TotalMilliseconds > 8.0)
+                    break;
+            }
+        }
+
+        /// <summary>
         /// Insert texture generation request maintaining sorted order by priority (highest first)
         /// This avoids the need to sort the entire queue on every frame update
         /// </summary>
@@ -1748,6 +1835,22 @@ namespace DTXMania.Game.Lib.Song.Components
         {
             texture?.RemoveReference();
             texture = null;
+        }
+
+        /// <summary>
+        /// Release the basic-path preview cache. Each entry holds the
+        /// caller-owned reference returned by LoadResolvedPreviewImage, so
+        /// eviction is a RemoveReference, matching the other managed textures.
+        /// The negative cache clears with it so a corrected jacket can retry.
+        /// </summary>
+        private void ReleaseBasicPreviewCache()
+        {
+            foreach (var texture in _basicPreviewCache.Values)
+            {
+                texture?.RemoveReference();
+            }
+            _basicPreviewCache.Clear();
+            _failedBasicPreviewPaths.Clear();
         }
 
         private static string GetBarInfoCacheKey(
@@ -1813,6 +1916,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 ReleaseManagedTexture(ref _barOtherSelectedTexture);
                 ReleaseManagedTexture(ref _defaultBarPreview);
                 ReleaseManagedTexture(ref _commentBarTexture);
+                ReleaseBasicPreviewCache();
                 _skinBarTexturesLoaded = false;
             }
 
