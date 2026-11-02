@@ -129,10 +129,6 @@ namespace DTXMania.Game.Lib.Song.Components
         private ITexture _defaultBarPreview;
         private bool _skinBarTexturesLoaded;
 
-        // Per-song preview cache for the basic (non-enhanced) draw path, keyed
-        // by resolved preview path; entries hold a reference counted here.
-        private readonly Dictionary<string, ITexture> _basicPreviewCache = new Dictionary<string, ITexture>();
-
         // Phase 2 enhancements: Bar information caching
         private readonly Dictionary<string, SongBarInfo> _barInfoCache;        // Texture generation priority queue to prevent draw phase generation
         private readonly List<TextureGenerationRequest> _textureGenerationQueue;
@@ -439,8 +435,6 @@ namespace DTXMania.Game.Lib.Song.Components
                 barInfo?.Dispose();
             }
             _barInfoCache.Clear();
-
-            ReleaseBasicPreviewCache();
         }
 
         /// <summary>
@@ -505,7 +499,6 @@ namespace DTXMania.Game.Lib.Song.Components
             ReleaseManagedTexture(ref _barOtherTexture);
             ReleaseManagedTexture(ref _barOtherSelectedTexture);
             ReleaseManagedTexture(ref _defaultBarPreview);
-            ReleaseBasicPreviewCache();
 
             if (sharedRenderTarget != null)
             {
@@ -1048,19 +1041,7 @@ namespace DTXMania.Game.Lib.Song.Components
             var previewImage = barInfo.PreviewImage ?? (barInfo.BarType == BarType.Score ? _defaultBarPreview : null);
             if (previewImage != null)
             {
-                int previewOffsetX = isCenter
-                    ? SongSelectionUILayout.SongBars.SelectedBarPreviewImageOffsetX
-                    : SongSelectionUILayout.SongBars.UnselectedBarPreviewImageOffsetX;
-                int previewOffsetY = isCenter
-                    ? SongSelectionUILayout.SongBars.SelectedBarPreviewImageOffsetY
-                    : SongSelectionUILayout.SongBars.UnselectedBarPreviewImageOffsetY;
-                int imageSize = SongSelectionUILayout.SongBars.PreviewImageSize;
-                var imageDestRect = new Rectangle(
-                    itemBounds.X + previewOffsetX,
-                    itemBounds.Y + previewOffsetY,
-                    imageSize,
-                    imageSize);
-                previewImage.Draw(spriteBatch, imageDestRect, null, opacity, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+                DrawBarPreviewImage(spriteBatch, previewImage, itemBounds, isCenter, opacityFactor);
             }
 
             // Draw title (NX-authentic X offset: selected=barX+55, unselected=barX+78)
@@ -1153,19 +1134,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 basicSkinTexture.Draw(spriteBatch, destRect, null, Color.White * opacityFactor, 0f, Vector2.Zero, SpriteEffects.None, 0f);
                 if (hasPreview)
                 {
-                    int previewOffsetX = isCenter
-                        ? SongSelectionUILayout.SongBars.SelectedBarPreviewImageOffsetX
-                        : SongSelectionUILayout.SongBars.UnselectedBarPreviewImageOffsetX;
-                    int previewOffsetY = isCenter
-                        ? SongSelectionUILayout.SongBars.SelectedBarPreviewImageOffsetY
-                        : SongSelectionUILayout.SongBars.UnselectedBarPreviewImageOffsetY;
-                    int imageSize = SongSelectionUILayout.SongBars.PreviewImageSize;
-                    var imageDestRect = new Rectangle(
-                        itemBounds.X + previewOffsetX,
-                        itemBounds.Y + previewOffsetY,
-                        imageSize,
-                        imageSize);
-                    previewTexture!.Draw(spriteBatch, imageDestRect, null, Color.White * opacityFactor, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+                    DrawBarPreviewImage(spriteBatch, previewTexture!, itemBounds, isCenter, opacityFactor);
                 }
             }
             else if (_whitePixel != null)
@@ -1254,50 +1223,44 @@ namespace DTXMania.Game.Lib.Song.Components
         }
 
         /// <summary>
+        /// Draw the 44x44 preview jacket inside a song bar at the NX-authentic
+        /// offset (selected barX+7/barY-3, unselected barX+31/barY+2). Shared
+        /// by the enhanced and basic draw paths.
+        /// </summary>
+        private static void DrawBarPreviewImage(SpriteBatch spriteBatch, ITexture previewImage, Rectangle itemBounds, bool isCenter, float opacityFactor)
+        {
+            int previewOffsetX = isCenter
+                ? SongSelectionUILayout.SongBars.SelectedBarPreviewImageOffsetX
+                : SongSelectionUILayout.SongBars.UnselectedBarPreviewImageOffsetX;
+            int previewOffsetY = isCenter
+                ? SongSelectionUILayout.SongBars.SelectedBarPreviewImageOffsetY
+                : SongSelectionUILayout.SongBars.UnselectedBarPreviewImageOffsetY;
+            int imageSize = SongSelectionUILayout.SongBars.PreviewImageSize;
+            var imageDestRect = new Rectangle(
+                itemBounds.X + previewOffsetX,
+                itemBounds.Y + previewOffsetY,
+                imageSize,
+                imageSize);
+            previewImage.Draw(spriteBatch, imageDestRect, null, Color.White * opacityFactor, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+        }
+
+        /// <summary>
         /// Resolve a score node's own preview jacket for the basic draw path, so
-        /// real artwork is not replaced by the skin default. Returns null when no
-        /// usable preview exists; the caller falls back to _defaultBarPreview.
-        /// Loaded textures are held in _basicPreviewCache until RefreshDisplay,
-        /// re-initialization, or Dispose.
+        /// real artwork is not replaced by the skin default. Pure read of the
+        /// bar-info cache — preview textures are generated in the Update
+        /// phase by the texture-generation queue, so Draw never performs
+        /// file I/O or image decode. Returns null when no generated bar info
+        /// carries a preview; the caller falls back to _defaultBarPreview.
         /// </summary>
         private ITexture ResolveBasicScorePreview(SongListNode node)
         {
-            if (node == null || _resourceManager == null)
+            if (node == null)
                 return null;
 
-            // A generated bar may already carry this node's preview texture.
             var cacheKey = GetBarInfoCacheKey(node, _currentDifficulty, PlaySpeedPercent);
-            if (_barInfoCache.TryGetValue(cacheKey, out var barInfo) && barInfo.PreviewImage != null)
-                return barInfo.PreviewImage;
-
-            var resolvedPath = SongBarRenderer.GetResolvedPreviewImagePath(node);
-            if (string.IsNullOrEmpty(resolvedPath))
-                return null;
-
-            // Cached jackets stay visible during fast scroll; the gate below
-            // only blocks new file loads. A null entry marks a known-failed
-            // load so a corrupt jacket is not retried every frame.
-            if (_basicPreviewCache.TryGetValue(resolvedPath, out var cached))
-                return cached;
-
-            // Match the enhanced path: skip preview file loads during fast scroll.
-            if (IsFastScrollMode())
-                return null;
-
-            // The resource manager already caches per path, so loading directly
-            // shares the texture with the renderer's cache instead of doubling it.
-            var texture = SongBarRenderer.LoadResolvedPreviewImage(_resourceManager, resolvedPath);
-            _basicPreviewCache[resolvedPath] = texture;
-            return texture;
-        }
-
-        private void ReleaseBasicPreviewCache()
-        {
-            foreach (var texture in _basicPreviewCache.Values)
-            {
-                texture?.RemoveReference();
-            }
-            _basicPreviewCache.Clear();
+            return _barInfoCache.TryGetValue(cacheKey, out var barInfo)
+                ? barInfo.PreviewImage
+                : null;
         }
 
         private string GetDisplayText(SongListNode node)
@@ -1832,8 +1795,6 @@ namespace DTXMania.Game.Lib.Song.Components
                     previewTexture?.Dispose();
                 }
                 _previewImageCache.Clear();
-
-                ReleaseBasicPreviewCache();
 
                 // Phase 2: Dispose bar information cache
                 foreach (var barInfo in _barInfoCache.Values)

@@ -51,14 +51,15 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
             };
             var resourceManager = new Mock<IResourceManager>();
             var loadedSound = new Mock<ISound>();
-            resourceManager.Setup(x => x.LoadSound(preparedPreview)).Returns(loadedSound.Object);
+            var preparedSoundObj = loadedSound.Object;
+            resourceManager.Setup(x => x.TryLoadSound(preparedPreview, out preparedSoundObj)).Returns(true);
             var stage = CreatePreparedStage(root, node, resourceManager.Object);
 
             var result = InvokeCommand(stage, "PrepareVideoChart", preparedPath);
 
             Assert.True(result.Success);
-            resourceManager.Verify(x => x.LoadSound(preparedPreview), Times.Once);
-            resourceManager.Verify(x => x.LoadSound(primaryPreview), Times.Never);
+            resourceManager.Verify(x => x.TryLoadSound(preparedPreview, out It.Ref<ISound>.IsAny), Times.Once);
+            resourceManager.Verify(x => x.TryLoadSound(primaryPreview, out It.Ref<ISound>.IsAny), Times.Never);
             Assert.Same(loadedSound.Object, GetPrivateField<ISound>(stage, "_previewSound"));
             Assert.Null(GetPrivateField<ISoundInstance>(stage, "_previewSoundInstance"));
             Assert.False(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
@@ -86,7 +87,8 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
             var node = CreateNode("prepared", chartPath, previewFile: "prepared.wav");
             var resourceManager = new Mock<IResourceManager>();
             var preparedSound = new Mock<ISound>();
-            resourceManager.Setup(x => x.LoadSound(previewPath)).Returns(preparedSound.Object);
+            var preparedSoundObj = preparedSound.Object;
+            resourceManager.Setup(x => x.TryLoadSound(previewPath, out preparedSoundObj)).Returns(true);
             var stage = CreatePreparedStage(root, node, resourceManager.Object);
             var interactiveSound = new Mock<ISound>();
             var interactiveInstance = new Mock<ISoundInstance>();
@@ -126,7 +128,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
             var missingFile = CreateNode("missing", chartPath, previewFile: "missing.wav");
             var loadFailure = CreateNode("load", chartPath, previewFile: "preview.wav");
             var resourceManager = new Mock<IResourceManager>();
-            resourceManager.Setup(x => x.LoadSound(previewPath)).Throws(new InvalidDataException("bad preview"));
+            resourceManager.Setup(x => x.TryLoadSound(previewPath, out It.Ref<ISound>.IsAny)).Throws(new InvalidDataException("bad preview"));
 
             var noDeclarationResult = InvokeCommand(
                 CreatePreparedStage(root, noDeclaration, resourceManager.Object),
@@ -186,16 +188,17 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
             };
             var resourceManager = new Mock<IResourceManager>();
             var primarySound = new Mock<ISound>();
-            resourceManager.Setup(x => x.LoadSound(requestedPreviewPath))
+            resourceManager.Setup(x => x.TryLoadSound(requestedPreviewPath, out It.Ref<ISound>.IsAny))
                 .Throws(new InvalidDataException("requested preview is invalid"));
-            resourceManager.Setup(x => x.LoadSound(primaryPreviewPath)).Returns(primarySound.Object);
+            var primarySoundObj = primarySound.Object;
+            resourceManager.Setup(x => x.TryLoadSound(primaryPreviewPath, out primarySoundObj)).Returns(true);
             var stage = CreatePreparedStage(root, node, resourceManager.Object);
 
             var result = InvokeCommand(stage, "PrepareVideoChart", requestedPath);
 
             Assert.False(result.Success);
-            resourceManager.Verify(x => x.LoadSound(requestedPreviewPath), Times.Once);
-            resourceManager.Verify(x => x.LoadSound(primaryPreviewPath), Times.Once);
+            resourceManager.Verify(x => x.TryLoadSound(requestedPreviewPath, out It.Ref<ISound>.IsAny), Times.Once);
+            resourceManager.Verify(x => x.TryLoadSound(primaryPreviewPath, out It.Ref<ISound>.IsAny), Times.Once);
             Assert.Same(primarySound.Object, GetPrivateField<ISound>(stage, "_previewSound"));
             Assert.True(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
             Assert.Null(GetPrivateField<object>(stage, "_preparedChartSelection"));
@@ -221,7 +224,8 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
         {
             var resourceManager = new Mock<IResourceManager>();
             var sound = new Mock<ISound>();
-            resourceManager.Setup(x => x.LoadSound(previewPath)).Returns(sound.Object);
+            var soundObj = sound.Object;
+            resourceManager.Setup(x => x.TryLoadSound(previewPath, out soundObj)).Returns(true);
             var stage = CreatePreparedStage(root, CreateNode("song", chartPath, previewFile: "preview.wav"), resourceManager.Object);
 
             Assert.True(InvokeCommand(stage, "PrepareVideoChart", chartPath).Success);
@@ -486,7 +490,8 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
         {
             var node = CreateNode("prepared", chartPath, previewFile: "preview.wav");
             var resourceManager = new Mock<IResourceManager>();
-            resourceManager.Setup(x => x.LoadSound(previewPath)).Returns(new Mock<ISound>().Object);
+            var loadedObj = new Mock<ISound>().Object;
+            resourceManager.Setup(x => x.TryLoadSound(previewPath, out loadedObj)).Returns(true);
             var stage = CreatePreparedStage(root, node, resourceManager.Object);
             var preparedSound = new Mock<ISound>();
             SetPrivateField(stage, "_previewSound", preparedSound.Object);
@@ -497,7 +502,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
             InvokePrivateMethod(stage, "OnDifficultyChanged", stage, new DifficultyChangedEventArgs(node, 1));
 
             preparedSound.Verify(x => x.RemoveReference(), Times.Once);
-            resourceManager.Verify(x => x.LoadSound(previewPath), Times.Once);
+            resourceManager.Verify(x => x.TryLoadSound(previewPath, out It.Ref<ISound>.IsAny), Times.Once);
             Assert.Null(GetPrivateField<object>(stage, "_preparedChartSelection"));
             Assert.Equal("None", GetPrivateField<object>(stage, "_preparedPreviewState")?.ToString());
             Assert.True(GetPrivateField<bool>(stage, "_isPreviewDelayActive"));
@@ -1076,7 +1081,8 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
             var node = CreateNode("song", chartPath, previewFile: "preview.wav");
             var resourceManager = new Mock<IResourceManager>();
             var sound = new Mock<ISound>();
-            resourceManager.Setup(x => x.LoadSound(previewPath)).Returns(sound.Object);
+            var soundObj = sound.Object;
+            resourceManager.Setup(x => x.TryLoadSound(previewPath, out soundObj)).Returns(true);
             var stage = CreateStage();
             SetPrivateField(stage, "_resourceManager", resourceManager.Object);
             SetPrivateField(stage, "_preparedChartSelection", null);
@@ -1090,7 +1096,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
                 new SongSelectionChangedEventArgs(node, 0, true));
 
             // With no prepared selection, the normal path should load the preview sound
-            resourceManager.Verify(x => x.LoadSound(previewPath), Times.Once);
+            resourceManager.Verify(x => x.TryLoadSound(previewPath, out It.Ref<ISound>.IsAny), Times.Once);
             Assert.Null(GetPrivateField<object>(stage, "_preparedChartSelection"));
         }
         finally

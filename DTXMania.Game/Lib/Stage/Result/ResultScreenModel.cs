@@ -8,6 +8,7 @@ using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage.Performance;
+using DTXMania.Game.Lib.UI.Layout;
 
 namespace DTXMania.Game.Lib.Stage.Result
 {
@@ -92,6 +93,12 @@ namespace DTXMania.Game.Lib.Stage.Result
             new(ResultSaveState.NotStarted);
         public string SaveStatusText { get; private set; } =
             FormatSaveStatus(ResultSaveState.NotStarted);
+        /// <summary>
+        /// Persisted failure detail shown inline after the FAILED status row
+        /// (whitespace-normalized, length-capped). Empty for every other state.
+        /// The renderer truncates it to the row's remaining pixel width.
+        /// </summary>
+        public string SaveErrorText { get; private set; } = string.Empty;
         public string SaveGuidanceText { get; private set; } = string.Empty;
 
         public static ResultScreenModel Create(
@@ -145,6 +152,7 @@ namespace DTXMania.Game.Lib.Stage.Result
                 ScoreBucketText = FormatScoreBucket(safeSummary.PlaySpeedPercent),
                 SavePresentation = resolvedSavePresentation,
                 SaveStatusText = FormatSaveStatus(resolvedSavePresentation.State),
+                SaveErrorText = FormatSaveErrorText(resolvedSavePresentation),
                 SaveGuidanceText = FormatSaveGuidance(resolvedSavePresentation)
             };
         }
@@ -157,6 +165,7 @@ namespace DTXMania.Game.Lib.Stage.Result
         {
             SavePresentation = presentation;
             SaveStatusText = FormatSaveStatus(presentation.State);
+            SaveErrorText = FormatSaveErrorText(presentation);
             SaveGuidanceText = FormatSaveGuidance(presentation);
         }
 
@@ -185,24 +194,38 @@ namespace DTXMania.Game.Lib.Stage.Result
             if (presentation.State != ResultSaveState.Failed)
                 return string.Empty;
 
-            const string retryText =
-                "PRESS ENTER TO RETRY · BACK TO LEAVE WITHOUT SAVING";
-            if (string.IsNullOrWhiteSpace(presentation.ErrorText))
-                return retryText;
+            return "PRESS ENTER TO RETRY · BACK TO LEAVE WITHOUT SAVING";
+        }
 
-            // Bound the appended detail: the guidance block clips lines past
-            // its fixed height, so an unbounded error would silently lose its
-            // tail. The marker makes the truncation visible.
-            const int maxErrorTextLength = 64;
-            var errorText = presentation.ErrorText.Trim();
-            if (errorText.Length > maxErrorTextLength)
+        /// <summary>
+        /// Normalizes the persisted failure detail for inline display:
+        /// line breaks and tabs collapse to single spaces (WrapText only
+        /// splits on spaces, so a raw '\n' would escape the row's height
+        /// bound), then the result is capped at a fixed character budget —
+        /// a sanity bound only; the renderer truncates to the row's actual
+        /// pixel width. The marker is plain "..." because the shipped
+        /// NotoSerifJP fonts have no U+2026 glyph (SanitizeText would
+        /// render it as a sentence-ending '.').
+        /// </summary>
+        public static string FormatSaveErrorText(ResultSavePresentation presentation)
+        {
+            if (presentation.State != ResultSaveState.Failed
+                || string.IsNullOrWhiteSpace(presentation.ErrorText))
+                return string.Empty;
+
+            var errorText = presentation.ErrorText
+                .Trim()
+                .Replace('\r', ' ')
+                .Replace('\n', ' ')
+                .Replace('\t', ' ');
+            if (errorText.Length > ResultUILayout.PlaybackPresentation.MaxSaveErrorTextLength)
             {
-                var cut = maxErrorTextLength;
+                var cut = ResultUILayout.PlaybackPresentation.MaxSaveErrorTextLength;
                 if (char.IsHighSurrogate(errorText[cut - 1]))
                     cut--;
-                errorText = errorText.Substring(0, cut).TrimEnd() + "…";
+                errorText = errorText.Substring(0, cut).TrimEnd() + "...";
             }
-            return $"{retryText} · {errorText}";
+            return errorText;
         }
 
         public static ResultRank ComputeRank(double playingSkill)

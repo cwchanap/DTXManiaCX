@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.UI.Layout;
+using DTXMania.Game.Lib.Utilities;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 
@@ -532,10 +533,11 @@ namespace DTXMania.Game.Lib.Stage.Result
             ResolvePlaybackGroupOrigin(theme) + ResultUILayout.PlaybackPresentation.SaveStatusOffset;
 
         /// <summary>
-        /// Wrapped retry-guidance rectangle: group origin + (0,84), height 60.
-        /// The wrap width is capped so the text's right edge stays inside the
-        /// playback backdrop; at the NX origin the backdrop is itself capped by
-        /// the FAILED banner, so the full 420px block would spill glyphs onto it.
+        /// Wrapped retry-guidance rectangle: group origin + (0,87), height 54
+        /// (two lines of the small playback font). The wrap width is capped so
+        /// the text's right edge stays inside the playback backdrop; at the NX
+        /// origin the backdrop is itself capped by the FAILED banner, so the
+        /// full 420px block would spill glyphs onto it.
         /// </summary>
         internal static Rectangle ResolvePlaybackSaveGuidanceBounds(ISkinTheme theme)
         {
@@ -569,10 +571,18 @@ namespace DTXMania.Game.Lib.Stage.Result
                 : ResultUILayout.PlaybackPresentation.SaveStatusOffset.Y
                     + ResultUILayout.PlaybackPresentation.RowHeight;
             var width = ResultUILayout.PlaybackPresentation.SaveGuidanceSize.X + pad * 2;
-            if (origin == ResultUILayout.PlaybackPresentation.GroupOrigin)
-                width = (int)(ResultUILayout.ResultPlate.FailedTextPosition.X - origin.X) + pad;
+            var left = (int)origin.X - pad;
+            // The backdrop's right edge must not run under the FAILED banner
+            // text, which has no scrim of its own. Cap it at the theme-
+            // resolved FAILED position whenever the banner sits right of the
+            // backdrop's left edge — the NX defaults reduce to the same 396px
+            // cap as before, but a skin that relocates FAILED or nudges the
+            // playback group keeps the clearance automatically.
+            var failedTextX = ResolveFailedTextPosition(theme).X;
+            if (failedTextX > left)
+                width = Math.Min(width, (int)failedTextX - left);
             return new Rectangle(
-                (int)origin.X - pad,
+                left,
                 (int)origin.Y - pad,
                 width,
                 (int)bottomOffset + pad * 2);
@@ -580,11 +590,13 @@ namespace DTXMania.Game.Lib.Stage.Result
 
         /// <summary>
         /// Colour for the numeric values that are not judgement counts (level,
-        /// play %, skill). Charcoal contrasts with the bright NX panel artwork;
-        /// skins with their own neutral ramp can override it.
+        /// play %, skill). The built-in default stays white — the historical
+        /// value — so skins with dark panel art keep readable digits; the NX
+        /// default skin pins charcoal via System/Theme.ini because its panel
+        /// artwork is bright.
         /// </summary>
         internal static Color ResolveValueColor(ISkinTheme theme) =>
-            theme.GetColor("Result.ValueText", new Color(0x30, 0x30, 0x30));
+            theme.GetColor("Result.ValueText", Color.White);
 
         /// <summary>
         /// Song title color: "Result.TitleText" → NX white.
@@ -696,10 +708,27 @@ namespace DTXMania.Game.Lib.Stage.Result
                 model.ScoreBucketText,
                 ResolvePlaybackScoreBucketPosition(theme),
                 ResultUILayout.PlaybackPresentation.ScoreBucketColor * panelAlpha);
+            // The persisted failure detail rides inline after the FAILED
+            // status text, truncated to the row's remaining pixel width —
+            // the two-line guidance block below holds the retry instruction
+            // only, so the detail stays visible instead of being clipped.
+            var saveStatusText = model.SaveStatusText;
+            if (_smallFont != null && model.SaveErrorText.Length > 0)
+            {
+                var statusPosition = ResolvePlaybackSaveStatusPosition(theme);
+                var errorBudget = ResolvePlaybackBackdropBounds(theme, hasGuidance: true).Right
+                    - ResultUILayout.PlaybackPresentation.BackdropPadding
+                    - statusPosition.X
+                    - _smallFont.MeasureString(saveStatusText).X
+                    - _smallFont.MeasureString(" · ").X;
+                var saveErrorText = TextHelper.TruncateToWidth(model.SaveErrorText, errorBudget, _smallFont);
+                if (!string.IsNullOrEmpty(saveErrorText))
+                    saveStatusText = $"{saveStatusText} · {saveErrorText}";
+            }
             DrawText(
                 spriteBatch,
                 _smallFont,
-                model.SaveStatusText,
+                saveStatusText,
                 ResolvePlaybackSaveStatusPosition(theme),
                 ResolveSaveStatusColor(model.SavePresentation.State) * panelAlpha);
             if (_smallFont != null && !string.IsNullOrEmpty(model.SaveGuidanceText))

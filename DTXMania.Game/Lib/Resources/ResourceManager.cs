@@ -188,6 +188,51 @@ namespace DTXMania.Game.Lib.Resources
             }
         }
 
+        public bool TryLoadTexture(string path, out ITexture texture)
+        {
+            // LoadTexture always returns a texture — the 1x1 fallback on
+            // failure — so the only success signal is whether the load
+            // raised ResourceLoadFailed for this path. The detection lives
+            // here, next to the event it observes, rather than being copied
+            // into every caller that needs it.
+            var failed = false;
+            EventHandler<ResourceLoadFailedEventArgs> handler = (_, e) =>
+            {
+                if (string.Equals(e.Path, path, AppPaths.SkinPathComparison))
+                    failed = true;
+            };
+            ResourceLoadFailed += handler;
+            try
+            {
+                texture = LoadTexture(path);
+            }
+            finally
+            {
+                ResourceLoadFailed -= handler;
+            }
+            return !failed;
+        }
+
+        public bool TryLoadSound(string path, out ISound sound)
+        {
+            var failed = false;
+            EventHandler<ResourceLoadFailedEventArgs> handler = (_, e) =>
+            {
+                if (string.Equals(e.Path, path, AppPaths.SkinPathComparison))
+                    failed = true;
+            };
+            ResourceLoadFailed += handler;
+            try
+            {
+                sound = LoadSound(path);
+            }
+            finally
+            {
+                ResourceLoadFailed -= handler;
+            }
+            return !failed;
+        }
+
         public IFont LoadFont(string path, int size)
         {
             return LoadFont(path, size, FontStyle.Regular);

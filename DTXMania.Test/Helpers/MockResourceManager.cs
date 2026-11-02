@@ -130,6 +130,20 @@ namespace DTXMania.Test.Helpers
             return LoadTexture(path, true);
         }
 
+        public bool TryLoadTexture(string path, out ITexture texture)
+        {
+            // This mock produces null rather than a fallback on failure, so
+            // a produced texture is the success signal.
+            texture = LoadTexture(path, true);
+            return texture != null;
+        }
+
+        public bool TryLoadSound(string path, out ISound sound)
+        {
+            sound = LoadSound(path);
+            return sound != null;
+        }
+
         public IFont LoadFont(string path, int size)
         {
             return LoadFont(path, size, FontStyle.Regular);

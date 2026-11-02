@@ -78,10 +78,14 @@ namespace DTXMania.Game.Lib.UI.Layout
         public static class SkillPanel
         {
             public static readonly Vector2 PanelPosition = new(180, 260);
-            // Stacked rows: each needs a full line box of the baked
-            // NotoSerifJP-24 value font (46px LineSpacing) below the previous one.
-            public static readonly Vector2 LevelPosition = new(198, 509);
-            public static readonly Vector2 PlayingSkillPosition = new(238, 555);
+            // Each value sits on the row its label is baked into in
+            // 7_SkillPanel.png: the level goes in the empty dark-blue band at
+            // the panel top (abs y~263-323), the playing skill (達成率 value)
+            // right of its label at abs x~277-310 / y~525-545, and the game
+            // skill beside the 曲別SKILL caption (authentic NX position,
+            // mirroring PerformanceUILayout.SkillPanel.GameSkill).
+            public static readonly Vector2 LevelPosition = new(198, 270);
+            public static readonly Vector2 PlayingSkillPosition = new(320, 527);
             public static readonly Vector2 GameSkillPosition = new(268, 623);
             public static readonly Vector2 PerfectCountPosition = new(260, 332);
             public static readonly Vector2 GreatCountPosition = new(260, 362);
@@ -123,16 +127,26 @@ namespace DTXMania.Game.Lib.UI.Layout
             public static readonly Vector2 ProfileOffset = new(0, 0);
             public static readonly Vector2 ScoreBucketOffset = new(0, 26);
             public static readonly Vector2 SaveStatusOffset = new(0, 60);
-            public static readonly Vector2 SaveGuidanceOffset = new(0, 84);
-            public static readonly Point SaveGuidanceSize = new(420, 60);
+            public static readonly Vector2 SaveGuidanceOffset = new(0, 87);
+            // Exactly two wrapped lines at the small font's line spacing;
+            // the backdrop bottom (108 + 87 + 54 + 6 = 255) stays above the
+            // skill panel's top edge (260).
+            public static readonly Point SaveGuidanceSize = new(420, 54);
 
-            // Line box of the small playback font; the status row's bottom
-            // (offset 60 + RowHeight) meets the guidance top (offset 84).
-            public const int RowHeight = 24;
+            // Line box of the small playback font (NotoSerifJP-14,
+            // LineSpacing 27); the status row's bottom (offset 60 +
+            // RowHeight = 87) meets the guidance top (offset 87).
+            public const int RowHeight = 27;
             // Backdrop margin around the covered rows; its bottom must stay
             // above the skill panel top edge (Y=260).
             public const int BackdropPadding = 6;
             public static readonly Color BackdropColor = Color.Black * 0.6f;
+
+            // Sanity bound on the persisted error detail appended to the
+            // FAILED status row. The renderer truncates it further to the
+            // row's remaining pixel width; this only stops pathological
+            // messages from being measured every frame.
+            public const int MaxSaveErrorTextLength = 64;
 
             public static readonly Color ProfileColor = Color.LightSteelBlue;
             public static readonly Color ScoreBucketColor = Color.LightGray;

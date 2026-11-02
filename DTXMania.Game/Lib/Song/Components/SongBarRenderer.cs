@@ -6,6 +6,7 @@ using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Utilities;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
 
@@ -25,7 +26,11 @@ namespace DTXMania.Game.Lib.Song.Components
         // Using centralized layout constants from SongSelectionUILayout
         private const int TITLE_TEXTURE_WIDTH = SongSelectionUILayout.SongBars.TitleTextureWidth;
         private const int TITLE_TEXTURE_HEIGHT = SongSelectionUILayout.SongBars.TitleTextureHeight;
-        private const int MAX_PREVIEW_IMAGE_SIZE_BYTES = 500 * 1024; // 500KB
+        // Guards against pathological files (corrupt headers claiming huge
+        // buffers), not jacket quality — real jackets well past 500KB decode
+        // once and then live in the texture cache, so refusing to load them
+        // just hides legitimate art behind the skin's "no preview" tile.
+        private const int MAX_PREVIEW_IMAGE_SIZE_BYTES = 8 * 1024 * 1024; // 8 MiB
 
         #endregion
 
@@ -37,6 +42,10 @@ namespace DTXMania.Game.Lib.Song.Components
         private Texture2D _whitePixel;        // Texture caches using consolidated cache manager
         private readonly CacheManager<string, ITexture> _titleTextureCache;
         private readonly CacheManager<string, ITexture> _previewImageCache;
+        // CacheManager cannot hold nulls, so failed loads get their own
+        // negative cache — otherwise every bar-info regeneration re-reads
+        // and re-decodes a corrupt or oversized jacket file.
+        private readonly HashSet<string> _failedPreviewPaths;
         private readonly CacheManager<string, ITexture> _clearLampCache;
 
         // Render targets for texture generation
@@ -68,6 +77,7 @@ namespace DTXMania.Game.Lib.Song.Components
 
             _titleTextureCache = new CacheManager<string, ITexture>();
             _previewImageCache = new CacheManager<string, ITexture>();
+            _failedPreviewPaths = new HashSet<string>(AppPaths.SkinPathComparer);
             _clearLampCache = new CacheManager<string, ITexture>();
 
             // Create graphics generator that will live for the lifetime of SongBarRenderer
@@ -150,6 +160,8 @@ namespace DTXMania.Game.Lib.Song.Components
                 cachedTexture.AddReference();
                 return cachedTexture;
             }
+            if (_failedPreviewPaths.Contains(cacheKey))
+                return null;
 
             // Existence, size, and decode-failure guards live in the shared load helper.
             var texture = LoadPreviewImage(resolvedPreviewImagePath);
@@ -158,6 +170,10 @@ namespace DTXMania.Game.Lib.Song.Components
             {
                 _previewImageCache.Add(cacheKey, texture);
                 texture.AddReference(); // Cache holds one reference, caller gets another
+            }
+            else
+            {
+                _failedPreviewPaths.Add(cacheKey);
             }
 
             return texture;
@@ -316,6 +332,7 @@ namespace DTXMania.Game.Lib.Song.Components
         {
             _titleTextureCache.Clear();
             _previewImageCache.Clear();
+            _failedPreviewPaths.Clear();
             _clearLampCache.Clear();
         }        /// <summary>
         /// Priority texture generation method for immediate processing of selected items
@@ -584,24 +601,11 @@ namespace DTXMania.Game.Lib.Song.Components
                     return null;
                 }
 
-                var loadFailed = false;
-                EventHandler<ResourceLoadFailedEventArgs> onLoadFailed = (_, e) =>
-                {
-                    if (e.Path == resolvedPreviewImagePath)
-                        loadFailed = true;
-                };
-                resourceManager.ResourceLoadFailed += onLoadFailed;
-                ITexture texture = null;
-                try
-                {
-                    texture = resourceManager.LoadTexture(resolvedPreviewImagePath);
-                }
-                finally
-                {
-                    resourceManager.ResourceLoadFailed -= onLoadFailed;
-                }
-
-                if (loadFailed)
+                // TryLoadTexture reports the failure LoadTexture hides behind
+                // its 1x1 fallback. The fallback is uncached and caller-owned,
+                // so dispose it here rather than handing the placeholder out
+                // as if it were a real jacket.
+                if (!resourceManager.TryLoadTexture(resolvedPreviewImagePath, out var texture))
                 {
                     texture?.Dispose();
                     return null;

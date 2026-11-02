@@ -10,7 +10,7 @@ This document describes the resource management architecture implemented for DTX
 
 #### IResourceManager
 Central resource management interface providing:
-- **Texture Loading**: `LoadTexture(path)` with transparency support
+- **Texture Loading**: `LoadTexture(path)` with transparency support (always returns a resource — a 1x1 fallback on failure); `TryLoadTexture`/`TryLoadSound` report whether the real asset loaded
 - **Font Loading**: `LoadFont(path, size, style)` with Japanese character support
 - **Path Resolution**: `ResolvePath(relativePath)` using skin system
 - **Resource Management**: `UnloadAll()`, `CollectUnusedResources()`

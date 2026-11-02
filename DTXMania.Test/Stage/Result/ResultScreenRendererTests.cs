@@ -56,13 +56,13 @@ public class ResultScreenRendererTests
             Times.Once);
         smallFont.Verify(x => x.DrawString(
             It.IsAny<SpriteBatch>(),
-            "SCORE SAVE: FAILED",
+            "SCORE SAVE: FAILED · database busy",
             ResultScreenRenderer.ResolvePlaybackSaveStatusPosition(SkinTheme.Empty),
             ResultUILayout.PlaybackPresentation.FailedColor),
             Times.Once);
         smallFont.Verify(x => x.DrawStringWrapped(
             It.IsAny<SpriteBatch>(),
-                "PRESS ENTER TO RETRY · BACK TO LEAVE WITHOUT SAVING · database busy",
+                "PRESS ENTER TO RETRY · BACK TO LEAVE WITHOUT SAVING",
             ResultScreenRenderer.ResolvePlaybackSaveGuidanceBounds(SkinTheme.Empty),
             ResultUILayout.PlaybackPresentation.GuidanceColor,
             TextAlignment.Left),

@@ -8,6 +8,7 @@ Config.ini
 System/*
 !System/Graphics/
 !System/CXNeon/
+!System/Theme.ini
 # ...but never the non-asset junk that collects inside it.
 System/Graphics/desktop.ini
 System/Graphics/debug.log

@@ -1048,8 +1048,11 @@ public class SongListDisplayLogicTests
     }
 
     [Fact]
-    public void DrawBasicSongItemWithPerspective_WhenSongHasRealPreview_ShouldDrawItInsteadOfDefault()
+    public void DrawBasicSongItemWithPerspective_WhenPreviewNotYetGenerated_ShouldKeepDefaultWithoutLoading()
     {
+        // Preview file work belongs to the Update-phase texture queue; Draw
+        // must never touch the resource manager, even when a chart advertises
+        // a jacket that has not been generated yet.
         var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
         try
@@ -1059,12 +1062,8 @@ public class SongListDisplayLogicTests
 
             var display = new SongListDisplay { ManagedFont = CreateManagedFont().Object };
             var fallback = CreateTexture(400, 400);
-            var realPreview = CreateTexture();
             var skin = CreateTexture();
             var rm = new Mock<IResourceManager>(MockBehavior.Strict);
-            rm.SetupAdd(x => x.ResourceLoadFailed += It.IsAny<EventHandler<ResourceLoadFailedEventArgs>>());
-            rm.SetupRemove(x => x.ResourceLoadFailed -= It.IsAny<EventHandler<ResourceLoadFailedEventArgs>>());
-            rm.Setup(x => x.LoadTexture(previewPath)).Returns(realPreview.Object);
             SetField(display, "_resourceManager", rm.Object);
             SetField(display, "_defaultBarPreview", fallback.Object);
             SetField(display, "_skinBarTexturesLoaded", true);
@@ -1085,17 +1084,11 @@ public class SongListDisplayLogicTests
 
             InvokePrivate<object?>(display, "DrawBasicSongItemWithPerspective", null!,
                 node, bounds, true, true, 0, 1f, 0.5f);
-            // Second draw must hit the display's preview cache rather than reloading.
             InvokePrivate<object?>(display, "DrawBasicSongItemWithPerspective", null!,
                 node, bounds, true, true, 0, 1f, 0.5f);
 
-            realPreview.Verify(x => x.Draw(null!, slot, null, Color.White * 0.5f,
+            fallback.Verify(x => x.Draw(null!, slot, null, Color.White * 0.5f,
                 0f, Vector2.Zero, SpriteEffects.None, 0f), Times.Exactly(2));
-            fallback.Verify(x => x.Draw(It.IsAny<SpriteBatch>(), It.IsAny<Rectangle>(), null,
-                It.IsAny<Color>(), 0f, Vector2.Zero, SpriteEffects.None, 0f), Times.Never);
-            rm.Verify(x => x.LoadTexture(previewPath), Times.Once);
-            rm.VerifyAdd(x => x.ResourceLoadFailed += It.IsAny<EventHandler<ResourceLoadFailedEventArgs>>(), Times.Once);
-            rm.VerifyRemove(x => x.ResourceLoadFailed -= It.IsAny<EventHandler<ResourceLoadFailedEventArgs>>(), Times.Once);
             rm.VerifyNoOtherCalls();
         }
         finally
@@ -1276,7 +1269,8 @@ public class SongListDisplayLogicTests
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".png");
         try
         {
-            File.WriteAllBytes(path, new byte[501 * 1024]);
+            // The guard rejects only pathological files; 8 MiB + 1 trips it.
+            File.WriteAllBytes(path, new byte[8 * 1024 * 1024 + 1]);
             var rm = new Mock<IResourceManager>(MockBehavior.Strict);
 
             Assert.Null(SongBarRenderer.LoadResolvedPreviewImage(rm.Object, path));
@@ -1298,9 +1292,8 @@ public class SongListDisplayLogicTests
             var path = Path.Combine(dir, "jacket.png");
             File.WriteAllBytes(path, new byte[16]);
             var rm = new Mock<IResourceManager>(MockBehavior.Strict);
-            rm.SetupAdd(x => x.ResourceLoadFailed += It.IsAny<EventHandler<ResourceLoadFailedEventArgs>>());
-            rm.SetupRemove(x => x.ResourceLoadFailed -= It.IsAny<EventHandler<ResourceLoadFailedEventArgs>>());
-            rm.Setup(x => x.LoadTexture(path)).Throws(new InvalidOperationException("io"));
+            rm.Setup(x => x.TryLoadTexture(path, out It.Ref<ITexture>.IsAny))
+                .Throws(new InvalidOperationException("io"));
 
             Assert.Null(SongBarRenderer.LoadResolvedPreviewImage(rm.Object, path));
         }
@@ -1311,16 +1304,17 @@ public class SongListDisplayLogicTests
     }
 
     [Fact]
-    public void RefreshDisplay_ShouldReleaseBasicPreviewCache()
+    public void RefreshDisplay_ShouldDisposeCachedBarInfoPreviews()
     {
         var display = new SongListDisplay();
         var preview = CreateTexture();
-        var cache = GetField<Dictionary<string, ITexture>>(display, "_basicPreviewCache");
-        cache["preview"] = preview.Object;
+        var node = new SongListNode { Type = NodeType.Score, Title = "Song" };
+        GetField<Dictionary<string, SongBarInfo>>(display, "_barInfoCache")[$"{node.GetHashCode()}_0"] =
+            new SongBarInfo { SongNode = node, PreviewImage = preview.Object };
 
         display.RefreshDisplay();
 
-        Assert.Empty(cache);
+        Assert.Empty(GetField<Dictionary<string, SongBarInfo>>(display, "_barInfoCache"));
         preview.Verify(x => x.RemoveReference(), Times.Once);
     }
 
@@ -1328,7 +1322,6 @@ public class SongListDisplayLogicTests
     public void ResolveBasicScorePreview_DuringFastScroll_ShouldStillServeCachedJacket()
     {
         var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
-        var resolvedPath = Path.GetFullPath(Path.Combine(dir, "jacket.png"));
         var display = new SongListDisplay();
         var rm = new Mock<IResourceManager>(MockBehavior.Strict);
         var cached = CreateTexture();
@@ -1346,7 +1339,8 @@ public class SongListDisplayLogicTests
                 PreviewImage = "jacket.png"
             }
         };
-        GetField<Dictionary<string, ITexture>>(display, "_basicPreviewCache")[resolvedPath] = cached.Object;
+        GetField<Dictionary<string, SongBarInfo>>(display, "_barInfoCache")[$"{node.GetHashCode()}_0"] =
+            new SongBarInfo { SongNode = node, PreviewImage = cached.Object };
 
         var result = InvokePrivate<ITexture?>(display, "ResolveBasicScorePreview", node);
 
@@ -1379,8 +1373,11 @@ public class SongListDisplayLogicTests
     }
 
     [Fact]
-    public void ResolveBasicScorePreview_WhenLoadReportsFailure_ShouldReturnNullAndNotRetry()
+    public void ResolveBasicScorePreview_WhenNoBarInfoCached_ShouldReturnNullWithoutLoading()
     {
+        // ResolveBasicScorePreview is a pure cache read — preview loading and
+        // negative caching live in SongBarRenderer during Update-phase texture
+        // generation, never inside Draw.
         var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
         try
@@ -1389,13 +1386,6 @@ public class SongListDisplayLogicTests
             File.WriteAllBytes(previewPath, new byte[16]);
             var display = new SongListDisplay();
             var rm = new Mock<IResourceManager>(MockBehavior.Strict);
-            var fallbackTexture = CreateTexture(1, 1);
-            rm.SetupAdd(x => x.ResourceLoadFailed += It.IsAny<EventHandler<ResourceLoadFailedEventArgs>>());
-            rm.SetupRemove(x => x.ResourceLoadFailed -= It.IsAny<EventHandler<ResourceLoadFailedEventArgs>>());
-            rm.Setup(x => x.LoadTexture(previewPath))
-                .Callback(() => rm.Raise(x => x.ResourceLoadFailed += null,
-                    new ResourceLoadFailedEventArgs(previewPath, new Exception("decode"))))
-                .Returns(fallbackTexture.Object);
             SetField(display, "_resourceManager", rm.Object);
             var node = new SongListNode
             {
@@ -1409,11 +1399,9 @@ public class SongListDisplayLogicTests
             };
 
             Assert.Null(InvokePrivate<ITexture?>(display, "ResolveBasicScorePreview", node));
-            // Second call hits the cached failure marker instead of reloading.
             Assert.Null(InvokePrivate<ITexture?>(display, "ResolveBasicScorePreview", node));
 
-            rm.Verify(x => x.LoadTexture(previewPath), Times.Once);
-            fallbackTexture.Verify(x => x.Dispose(), Times.Once);
+            rm.VerifyNoOtherCalls();
         }
         finally
         {
