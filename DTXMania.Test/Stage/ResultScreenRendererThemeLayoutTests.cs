@@ -597,8 +597,33 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void ResolvePlaybackSaveGuidanceBounds_WithEmptyTheme_ShouldKeepNxBounds()
         {
-            Assert.Equal(new Rectangle(30, 192, 420, 60),
+            // Width is capped so wrapped glyphs stay inside the backdrop: the
+            // FAILED banner clamps the backdrop at X=420, leaving 30..414 for text.
+            Assert.Equal(new Rectangle(30, 192, 384, 60),
                 ResultScreenRenderer.ResolvePlaybackSaveGuidanceBounds(SkinTheme.Empty));
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void ResolvePlaybackSaveGuidanceBounds_ShouldStayInsideBackdrop(bool themedOrigin)
+        {
+            var theme = themedOrigin
+                ? SkinTheme.Parse(new[] { "Result.PlaybackInfoX=830", "Result.PlaybackInfoY=310" })
+                : SkinTheme.Empty;
+
+            var guidance = ResultScreenRenderer.ResolvePlaybackSaveGuidanceBounds(theme);
+            var backdrop = ResultScreenRenderer.ResolvePlaybackBackdropBounds(theme, hasGuidance: true);
+            var pad = ResultUILayout.PlaybackPresentation.BackdropPadding;
+
+            Assert.True(guidance.Left >= backdrop.Left + pad,
+                $"guidance left {guidance.Left} inside backdrop {backdrop} minus pad {pad}");
+            Assert.True(guidance.Right <= backdrop.Right - pad,
+                $"guidance right {guidance.Right} escapes backdrop {backdrop} minus pad {pad}");
+            Assert.True(guidance.Top >= backdrop.Top + pad,
+                $"guidance top {guidance.Top} inside backdrop {backdrop} minus pad {pad}");
+            Assert.True(guidance.Bottom <= backdrop.Bottom - pad,
+                $"guidance bottom {guidance.Bottom} escapes backdrop {backdrop} minus pad {pad}");
         }
 
         [Fact]
