@@ -157,7 +157,11 @@ namespace DTXMania.Game.Lib.Song.Components
         // references, and CollectUnusedResources frees the GPU textures.
         private const int MaxBarInfoCacheEntries = VISIBLE_ITEMS * 8;
         private readonly Dictionary<string, SongBarInfo> _barInfoCache;
-        private readonly Queue<string> _barInfoCacheOrder = new();        // Texture generation priority queue to prevent draw phase generation
+        private readonly Queue<string> _barInfoCacheOrder = new();
+        // Draw-pass evictions only drop references; actual GPU reclamation
+        // waits for the next OnUpdate so the deferred SpriteBatch never
+        // holds a texture freed mid-traversal.
+        private bool _reclamationPending;        // Texture generation priority queue to prevent draw phase generation
         private readonly List<TextureGenerationRequest> _textureGenerationQueue;
         private readonly HashSet<int> _visibleBarIndices;
 
@@ -685,6 +689,16 @@ namespace DTXMania.Game.Lib.Song.Components
         protected override void OnUpdate(double deltaTime)
         {
             base.OnUpdate(deltaTime);
+
+            // Reclaim textures dropped by draw-pass evictions — after the
+            // previous frame's deferred SpriteBatch has flushed, so a queued
+            // draw never references a disposed texture.
+            if (_reclamationPending)
+            {
+                _reclamationPending = false;
+                _resourceManager?.CollectUnusedResources();
+            }
+            _barRenderer?.FlushDeferredReclamation();
 
             // Update smooth scrolling animation
             UpdateScrollAnimation(deltaTime);
@@ -1841,11 +1855,12 @@ namespace DTXMania.Game.Lib.Song.Components
         /// bound. Eviction drops this cache's reference; the ResourceManager
         /// path cache keeps the entry at refcount 0, so a follow-up
         /// CollectUnusedResources is what actually frees the GPU texture —
-        /// it only reaps entries no holder references.
+        /// it only reaps entries no holder references. The collection is
+        /// deferred to OnUpdate because an evicted texture may already be
+        /// queued in this frame's deferred SpriteBatch.
         /// </summary>
         private void EvictBasicPreviewOverflow()
         {
-            var evicted = false;
             while (_basicPreviewCache.Count > MaxBasicPreviewCacheEntries
                 && _basicPreviewCacheOrder.Count > 0)
             {
@@ -1853,12 +1868,8 @@ namespace DTXMania.Game.Lib.Song.Components
                 if (_basicPreviewCache.Remove(oldestPath, out var evictedTexture))
                 {
                     evictedTexture?.RemoveReference();
-                    evicted = true;
+                    _reclamationPending = true;
                 }
-            }
-            if (evicted)
-            {
-                _resourceManager.CollectUnusedResources();
             }
         }
 
@@ -1947,12 +1958,14 @@ namespace DTXMania.Game.Lib.Song.Components
         /// Evict the oldest bar infos while the cache exceeds its bound.
         /// SongBarInfo.Dispose releases the texture references it holds, so an
         /// evicted jacket stays alive only if another holder references it —
-        /// CollectUnusedResources then reclaims whatever hit zero. Mirrors
-        /// EvictBasicPreviewOverflow for the enhanced path.
+        /// CollectUnusedResources then reclaims whatever hit zero. The
+        /// collection is deferred to OnUpdate: this runs inside the deferred
+        /// SpriteBatch during draw, and an evicted texture may already be
+        /// queued for drawing this frame. Mirrors EvictBasicPreviewOverflow
+        /// for the enhanced path.
         /// </summary>
         private void EvictBarInfoOverflow()
         {
-            var evicted = false;
             while (_barInfoCache.Count > MaxBarInfoCacheEntries
                 && _barInfoCacheOrder.Count > 0)
             {
@@ -1960,12 +1973,8 @@ namespace DTXMania.Game.Lib.Song.Components
                 if (_barInfoCache.Remove(oldestKey, out var evictedBarInfo))
                 {
                     evictedBarInfo?.Dispose();
-                    evicted = true;
+                    _reclamationPending = true;
                 }
-            }
-            if (evicted)
-            {
-                _resourceManager?.CollectUnusedResources();
             }
         }
 

@@ -558,21 +558,30 @@ public class SongBarRendererLogicTests
         GetTitleCache(renderer).Add("title", titleTexture.Object);
         GetPreviewCache(renderer).Add("preview", previewTexture.Object);
         GetClearLampCache(renderer).Add("lamp", clearLampTexture.Object);
+        ReflectionHelpers.GetPrivateField<Queue<string>>(renderer, "_clearLampCacheOrder")!
+            .Enqueue("lamp");
 
         renderer.ClearCache();
 
         titleTexture.Verify(x => x.Dispose(), Times.Once);
         previewTexture.Verify(x => x.Dispose(), Times.Once);
-        clearLampTexture.Verify(x => x.Dispose(), Times.Once);
+        // Lamp textures are owned by the graphics generator, which re-hands
+        // them across cache keys — clearing must release the key's reference
+        // without disposing the shared texture out from under the generator.
+        clearLampTexture.Verify(x => x.RemoveReference(), Times.Once);
+        clearLampTexture.Verify(x => x.Dispose(), Times.Never);
         Assert.Equal(0, GetTitleCache(renderer).GetStats().ItemCount);
         Assert.Equal(0, GetPreviewCache(renderer).GetStats().ItemCount);
         Assert.Equal(0, GetClearLampCache(renderer).GetStats().ItemCount);
     }
 
     [Fact]
-    public void EvictGeneratedTextureOverflow_ShouldDisposeOnlyUnreferencedEntries()
+    public void EvictGeneratedTextureOverflow_WhenRendererOwned_ShouldDeferDisposalToFlush()
     {
         var renderer = CreateRenderer();
+        var rm = new Mock<IResourceManager>(MockBehavior.Strict);
+        rm.Setup(x => x.CollectUnusedResources());
+        ReflectionHelpers.SetPrivateField(renderer, "_resourceManager", rm.Object);
         var cache = new CacheManager<string, ITexture>();
         var order = new Queue<string>();
         var held = CreateTextureMock();
@@ -588,19 +597,51 @@ public class SongBarRendererLogicTests
         cache.Add("spare", spare.Object);
         order.Enqueue("spare");
 
-        InvokePrivate<object?>(renderer, "EvictGeneratedTextureOverflow", cache, order, 2);
+        InvokePrivate<object?>(renderer, "EvictGeneratedTextureOverflow", cache, order, 2, false);
 
         Assert.Equal(2, cache.Count);
         Assert.True(cache.TryGet("held", out _));
         Assert.False(cache.TryGet("free", out _));
         Assert.True(cache.TryGet("spare", out _));
+        // Renderer-owned textures are not disposed during the draw pass —
+        // the deferred SpriteBatch may still hold a queued draw for them.
+        held.Verify(x => x.Dispose(), Times.Never);
+        free.Verify(x => x.Dispose(), Times.Never);
+        spare.Verify(x => x.Dispose(), Times.Never);
+
+        renderer.FlushDeferredReclamation();
+
         held.Verify(x => x.Dispose(), Times.Never);
         free.Verify(x => x.Dispose(), Times.Once);
         spare.Verify(x => x.Dispose(), Times.Never);
     }
 
     [Fact]
-    public void EvictPreviewImageOverflow_ShouldDropCacheReferenceAndReclaim()
+    public void EvictGeneratedTextureOverflow_WhenGeneratorOwned_ShouldReleaseWithoutDisposing()
+    {
+        var renderer = CreateRenderer();
+        var cache = new CacheManager<string, ITexture>();
+        var order = new Queue<string>();
+        var lamp = CreateTextureMock();
+        cache.Add("lamp0", lamp.Object);
+        order.Enqueue("lamp0");
+        cache.Add("lamp1", CreateTextureMock().Object);
+        order.Enqueue("lamp1");
+        cache.Add("lamp2", CreateTextureMock().Object);
+        order.Enqueue("lamp2");
+
+        InvokePrivate<object?>(renderer, "EvictGeneratedTextureOverflow", cache, order, 2, true);
+
+        Assert.Equal(2, cache.Count);
+        Assert.False(cache.TryGet("lamp0", out _));
+        // The generator keeps and re-hands shared lamp textures — eviction
+        // only drops the key's counted reference, never disposes them.
+        lamp.Verify(x => x.RemoveReference(), Times.Once);
+        lamp.Verify(x => x.Dispose(), Times.Never);
+    }
+
+    [Fact]
+    public void EvictPreviewImageOverflow_ShouldDropCacheReferenceAndDeferReclaim()
     {
         var renderer = CreateRenderer();
         var rm = new Mock<IResourceManager>(MockBehavior.Strict);
@@ -623,9 +664,14 @@ public class SongBarRendererLogicTests
         Assert.Equal(cacheCap, cache.Count);
         Assert.False(cache.TryGet("evicted.png", out _));
         // Eviction releases the counted reference — it must not dispose a
-        // texture a bar could still be drawing.
+        // texture a bar could still be drawing, and GPU reclamation is
+        // deferred until the deferred SpriteBatch has flushed.
         evicted.Verify(x => x.RemoveReference(), Times.Once);
         evicted.Verify(x => x.Dispose(), Times.Never);
+        rm.Verify(x => x.CollectUnusedResources(), Times.Never);
+
+        renderer.FlushDeferredReclamation();
+
         rm.Verify(x => x.CollectUnusedResources(), Times.Once);
     }
 
@@ -896,6 +942,8 @@ public class SongBarRendererLogicTests
         ReflectionHelpers.SetPrivateField(renderer, "_titleTextureCacheOrder", new Queue<string>());
         ReflectionHelpers.SetPrivateField(renderer, "_previewImageCacheOrder", new Queue<string>());
         ReflectionHelpers.SetPrivateField(renderer, "_clearLampCacheOrder", new Queue<string>());
+        ReflectionHelpers.SetPrivateField(renderer, "_pendingDispose", new Queue<ITexture>());
+        ReflectionHelpers.SetPrivateField(renderer, "_reclamationPending", false);
         ReflectionHelpers.SetPrivateField(renderer, "_titleRenderTarget", null);
         ReflectionHelpers.SetPrivateField(renderer, "_clearLampRenderTarget", null);
         ReflectionHelpers.SetPrivateField(renderer, "_ownsSharedRenderTarget", false);

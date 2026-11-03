@@ -69,6 +69,13 @@ namespace DTXMania.Game.Lib.Song.Components
         private readonly Queue<string> _previewImageCacheOrder = new();
         private readonly Queue<string> _clearLampCacheOrder = new();
 
+        // GPU disposal deferred to the update phase. Cache evictions run
+        // inside the deferred SpriteBatch during draw, and a texture queued
+        // for drawing must not be freed before the batch flushes.
+        // FlushDeferredReclamation drains these once per frame.
+        private readonly Queue<ITexture> _pendingDispose = new();
+        private bool _reclamationPending;
+
         // Render targets for texture generation
         private RenderTarget2D _titleRenderTarget;
         private RenderTarget2D _clearLampRenderTarget;
@@ -125,8 +132,7 @@ namespace DTXMania.Game.Lib.Song.Components
                     return;
 
                 _playSpeedPercent = value;
-                _clearLampCache.Clear();
-                _clearLampCacheOrder.Clear();
+                ReleaseClearLampCache();
             }
         }
 
@@ -152,7 +158,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 _titleTextureCache.Add(cacheKey, texture);
                 texture.AddReference(); // Cache holds one reference, caller gets another
                 _titleTextureCacheOrder.Enqueue(cacheKey);
-                EvictGeneratedTextureOverflow(_titleTextureCache, _titleTextureCacheOrder, MAX_TITLE_TEXTURE_CACHE_ENTRIES);
+                EvictGeneratedTextureOverflow(_titleTextureCache, _titleTextureCacheOrder, MAX_TITLE_TEXTURE_CACHE_ENTRIES, generatorOwned: false);
             }
 
             return texture;
@@ -347,7 +353,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 _clearLampCache.Add(cacheKey, texture);
                 texture.AddReference(); // Cache holds one reference, caller gets another
                 _clearLampCacheOrder.Enqueue(cacheKey);
-                EvictGeneratedTextureOverflow(_clearLampCache, _clearLampCacheOrder, MAX_CLEAR_LAMP_CACHE_ENTRIES);
+                EvictGeneratedTextureOverflow(_clearLampCache, _clearLampCacheOrder, MAX_CLEAR_LAMP_CACHE_ENTRIES, generatorOwned: true);
             }
 
             return texture;
@@ -363,8 +369,26 @@ namespace DTXMania.Game.Lib.Song.Components
             _previewImageCache.Clear();
             _previewImageCacheOrder.Clear();
             _failedPreviewPaths.Clear();
-            _clearLampCache.Clear();
-            _clearLampCacheOrder.Clear();
+            ReleaseClearLampCache();
+        }
+
+        /// <summary>
+        /// Release all clear-lamp cache entries without disposing the
+        /// textures. Lamp textures are generated and owned by
+        /// _graphicsGenerator — shared per (difficulty, clear status) rather
+        /// than per key — so CacheManager.Clear, which disposes values,
+        /// would leave the generator holding and re-handing disposed
+        /// entries. Each key holds one counted reference; releasing it here
+        /// keeps the accounting symmetric with the per-key AddReference.
+        /// </summary>
+        private void ReleaseClearLampCache()
+        {
+            while (_clearLampCacheOrder.Count > 0)
+            {
+                var key = _clearLampCacheOrder.Dequeue();
+                if (_clearLampCache.TryRemove(key, out var texture))
+                    texture?.RemoveReference();
+            }
         }        /// <summary>
         /// Priority texture generation method for immediate processing of selected items
         /// Generates texture immediately with performance metrics
@@ -881,18 +905,25 @@ namespace DTXMania.Game.Lib.Song.Components
 
         /// <summary>
         /// Evict the oldest generated textures (titles, clear lamps) while the
-        /// cache exceeds its bound. These textures are created directly rather
-        /// than through the ResourceManager, so a reference count of zero means
-        /// only the cache holds the entry and Dispose is the actual free.
-        /// Entries still referenced by a cached SongBarInfo are re-queued
-        /// instead of being disposed out from under a live bar — the held set
-        /// is itself bounded by SongListDisplay's bar-info cache, so the cache
-        /// cannot grow without limit.
+        /// cache exceeds its bound. Entries still referenced by a cached
+        /// SongBarInfo are re-queued — the held set is itself bounded by
+        /// SongListDisplay's bar-info cache, so the cache cannot grow
+        /// without limit.
+        /// <paramref name="generatorOwned"/> distinguishes ownership:
+        /// clear-lamp textures come from _graphicsGenerator, which keeps its
+        /// own reference in _generatedTextures and re-hands them across cache
+        /// keys — disposing one here would leave the generator returning a
+        /// disposed texture to the next caller, so eviction only drops this
+        /// key's counted reference. Renderer-owned textures (titles) are
+        /// queued for Dispose on the next update rather than freed inline:
+        /// eviction runs inside the deferred SpriteBatch during draw, and a
+        /// texture at refcount zero may still be queued for drawing.
         /// </summary>
         private void EvictGeneratedTextureOverflow(
             CacheManager<string, ITexture> cache,
             Queue<string> order,
-            int maxEntries)
+            int maxEntries,
+            bool generatorOwned)
         {
             // Bound the scan so held entries cannot keep the loop re-queueing forever.
             var attempts = order.Count;
@@ -909,7 +940,14 @@ namespace DTXMania.Game.Lib.Song.Components
                     continue;
                 }
 
-                texture.Dispose();
+                if (generatorOwned)
+                {
+                    texture.RemoveReference();
+                }
+                else
+                {
+                    _pendingDispose.Enqueue(texture);
+                }
             }
         }
 
@@ -917,14 +955,16 @@ namespace DTXMania.Game.Lib.Song.Components
         /// Evict the oldest preview images while the cache exceeds its bound.
         /// Preview textures come from the ResourceManager (TryLoadTexture) and
         /// the cache holds a counted reference, so eviction drops only that
-        /// reference — a SongBarInfo still holding the jacket keeps it alive,
-        /// and CollectUnusedResources reclaims it once nothing references it.
+        /// reference — a SongBarInfo still holding the jacket keeps it alive.
         /// CacheManager.Remove is not used here: it disposes the value
         /// outright and would break bars still drawing the texture.
+        /// Reclamation is deferred to FlushDeferredReclamation: during draw
+        /// the evicted texture may already be queued in the deferred
+        /// SpriteBatch, so CollectUnusedResources must run after the batch
+        /// has flushed, not inside the draw pass.
         /// </summary>
         private void EvictPreviewImageOverflow()
         {
-            var evicted = false;
             while (_previewImageCache.Count > MAX_PREVIEW_IMAGE_CACHE_ENTRIES
                 && _previewImageCacheOrder.Count > 0)
             {
@@ -932,11 +972,28 @@ namespace DTXMania.Game.Lib.Song.Components
                 if (_previewImageCache.TryRemove(oldestPath, out var evictedTexture))
                 {
                     evictedTexture?.RemoveReference();
-                    evicted = true;
+                    _reclamationPending = true;
                 }
             }
-            if (evicted)
+        }
+
+        /// <summary>
+        /// Perform GPU reclamation deferred by draw-pass evictions. Called
+        /// once per frame from SongListDisplay.OnUpdate — after the previous
+        /// deferred SpriteBatch has flushed — and from Dispose. Disposes
+        /// evicted renderer-owned textures and collects ResourceManager
+        /// entries whose references were dropped since the last call.
+        /// </summary>
+        internal void FlushDeferredReclamation()
+        {
+            while (_pendingDispose.Count > 0)
             {
+                _pendingDispose.Dequeue()?.Dispose();
+            }
+
+            if (_reclamationPending)
+            {
+                _reclamationPending = false;
                 _resourceManager.CollectUnusedResources();
             }
         }
@@ -949,6 +1006,7 @@ namespace DTXMania.Game.Lib.Song.Components
         {
             if (!_disposed)
             {
+                FlushDeferredReclamation();
                 ClearCache();
 
                 _graphicsGenerator?.Dispose();
