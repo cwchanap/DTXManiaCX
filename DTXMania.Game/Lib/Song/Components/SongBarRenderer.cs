@@ -39,6 +39,13 @@ namespace DTXMania.Game.Lib.Song.Components
         // already at the GPU texture ceiling on common hardware.
         private const long MAX_PREVIEW_IMAGE_DECODED_BYTES = 256L * 1024 * 1024;
 
+        // FIFO bounds so a long scroll session cannot grow the texture caches
+        // without limit. Clear lamps key per (node, difficulty, play-speed), so
+        // their bound spans more difficulty cycling than the per-node bounds.
+        private const int MAX_TITLE_TEXTURE_CACHE_ENTRIES = SongSelectionUILayout.SongBars.VisibleItems * 4;
+        private const int MAX_PREVIEW_IMAGE_CACHE_ENTRIES = SongSelectionUILayout.SongBars.VisibleItems * 4;
+        private const int MAX_CLEAR_LAMP_CACHE_ENTRIES = SongSelectionUILayout.SongBars.VisibleItems * 8;
+
         #endregion
 
         #region Fields
@@ -55,6 +62,12 @@ namespace DTXMania.Game.Lib.Song.Components
         // cached; a missing or guard-rejected file stays retryable.
         private readonly HashSet<string> _failedPreviewPaths;
         private readonly CacheManager<string, ITexture> _clearLampCache;
+        // Insertion order for the bounded caches above; eviction is
+        // refcount-aware — see EvictGeneratedTextureOverflow /
+        // EvictPreviewImageOverflow for why CacheManager.Remove is unsafe here.
+        private readonly Queue<string> _titleTextureCacheOrder = new();
+        private readonly Queue<string> _previewImageCacheOrder = new();
+        private readonly Queue<string> _clearLampCacheOrder = new();
 
         // Render targets for texture generation
         private RenderTarget2D _titleRenderTarget;
@@ -113,6 +126,7 @@ namespace DTXMania.Game.Lib.Song.Components
 
                 _playSpeedPercent = value;
                 _clearLampCache.Clear();
+                _clearLampCacheOrder.Clear();
             }
         }
 
@@ -137,6 +151,8 @@ namespace DTXMania.Game.Lib.Song.Components
             {
                 _titleTextureCache.Add(cacheKey, texture);
                 texture.AddReference(); // Cache holds one reference, caller gets another
+                _titleTextureCacheOrder.Enqueue(cacheKey);
+                EvictGeneratedTextureOverflow(_titleTextureCache, _titleTextureCacheOrder, MAX_TITLE_TEXTURE_CACHE_ENTRIES);
             }
 
             return texture;
@@ -178,6 +194,8 @@ namespace DTXMania.Game.Lib.Song.Components
             {
                 _previewImageCache.Add(cacheKey, texture);
                 texture.AddReference(); // Cache holds one reference, caller gets another
+                _previewImageCacheOrder.Enqueue(cacheKey);
+                EvictPreviewImageOverflow();
             }
             else if (cacheableFailure)
             {
@@ -328,6 +346,8 @@ namespace DTXMania.Game.Lib.Song.Components
             {
                 _clearLampCache.Add(cacheKey, texture);
                 texture.AddReference(); // Cache holds one reference, caller gets another
+                _clearLampCacheOrder.Enqueue(cacheKey);
+                EvictGeneratedTextureOverflow(_clearLampCache, _clearLampCacheOrder, MAX_CLEAR_LAMP_CACHE_ENTRIES);
             }
 
             return texture;
@@ -339,9 +359,12 @@ namespace DTXMania.Game.Lib.Song.Components
         public void ClearCache()
         {
             _titleTextureCache.Clear();
+            _titleTextureCacheOrder.Clear();
             _previewImageCache.Clear();
+            _previewImageCacheOrder.Clear();
             _failedPreviewPaths.Clear();
             _clearLampCache.Clear();
+            _clearLampCacheOrder.Clear();
         }        /// <summary>
         /// Priority texture generation method for immediate processing of selected items
         /// Generates texture immediately with performance metrics
@@ -414,6 +437,7 @@ namespace DTXMania.Game.Lib.Song.Components
             
             // Clear title cache since font changed
             _titleTextureCache.Clear();
+            _titleTextureCacheOrder.Clear();
         }
 
         /// <summary>
@@ -853,6 +877,68 @@ namespace DTXMania.Game.Lib.Song.Components
                 NodeType.BackBox => BarType.Other,                NodeType.Random => BarType.Other,
                 _ => BarType.Other
             };
+        }
+
+        /// <summary>
+        /// Evict the oldest generated textures (titles, clear lamps) while the
+        /// cache exceeds its bound. These textures are created directly rather
+        /// than through the ResourceManager, so a reference count of zero means
+        /// only the cache holds the entry and Dispose is the actual free.
+        /// Entries still referenced by a cached SongBarInfo are re-queued
+        /// instead of being disposed out from under a live bar — the held set
+        /// is itself bounded by SongListDisplay's bar-info cache, so the cache
+        /// cannot grow without limit.
+        /// </summary>
+        private void EvictGeneratedTextureOverflow(
+            CacheManager<string, ITexture> cache,
+            Queue<string> order,
+            int maxEntries)
+        {
+            // Bound the scan so held entries cannot keep the loop re-queueing forever.
+            var attempts = order.Count;
+            while (cache.Count > maxEntries && attempts-- > 0 && order.Count > 0)
+            {
+                var oldestKey = order.Dequeue();
+                if (!cache.TryRemove(oldestKey, out var texture))
+                    continue; // stale queue slot — entry already removed
+
+                if (texture.ReferenceCount > 0)
+                {
+                    cache.Add(oldestKey, texture);
+                    order.Enqueue(oldestKey);
+                    continue;
+                }
+
+                texture.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// Evict the oldest preview images while the cache exceeds its bound.
+        /// Preview textures come from the ResourceManager (TryLoadTexture) and
+        /// the cache holds a counted reference, so eviction drops only that
+        /// reference — a SongBarInfo still holding the jacket keeps it alive,
+        /// and CollectUnusedResources reclaims it once nothing references it.
+        /// CacheManager.Remove is not used here: it disposes the value
+        /// outright and would break bars still drawing the texture.
+        /// </summary>
+        private void EvictPreviewImageOverflow()
+        {
+            var evicted = false;
+            while (_previewImageCache.Count > MAX_PREVIEW_IMAGE_CACHE_ENTRIES
+                && _previewImageCacheOrder.Count > 0)
+            {
+                var oldestPath = _previewImageCacheOrder.Dequeue();
+                if (_previewImageCache.TryRemove(oldestPath, out var evictedTexture))
+                {
+                    evictedTexture?.RemoveReference();
+                    evicted = true;
+                }
+            }
+            if (evicted)
+            {
+                _resourceManager.CollectUnusedResources();
+            }
         }
 
         #endregion

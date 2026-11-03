@@ -148,8 +148,16 @@ namespace DTXMania.Game.Lib.Song.Components
         // per-frame load budget.
         private int _basicPreviewScanStart;
 
-        // Phase 2 enhancements: Bar information caching
-        private readonly Dictionary<string, SongBarInfo> _barInfoCache;        // Texture generation priority queue to prevent draw phase generation
+        // Phase 2 enhancements: Bar information caching. FIFO-bounded like
+        // the basic preview cache so a long scroll session cannot grow it
+        // without limit; entries key per (node, difficulty, play-speed), so
+        // the bound spans more difficulty cycling than the per-node preview
+        // bound. Eviction disposes the SongBarInfo, dropping its texture
+        // references — the renderer caches reclaim entries that no bar
+        // references, and CollectUnusedResources frees the GPU textures.
+        private const int MaxBarInfoCacheEntries = VISIBLE_ITEMS * 8;
+        private readonly Dictionary<string, SongBarInfo> _barInfoCache;
+        private readonly Queue<string> _barInfoCacheOrder = new();        // Texture generation priority queue to prevent draw phase generation
         private readonly List<TextureGenerationRequest> _textureGenerationQueue;
         private readonly HashSet<int> _visibleBarIndices;
 
@@ -454,6 +462,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 barInfo?.Dispose();
             }
             _barInfoCache.Clear();
+            _barInfoCacheOrder.Clear();
 
             ReleaseBasicPreviewCache();
         }
@@ -1930,6 +1939,34 @@ namespace DTXMania.Game.Lib.Song.Components
             }
 
             _barInfoCache[cacheKey] = barInfo;
+            _barInfoCacheOrder.Enqueue(cacheKey);
+            EvictBarInfoOverflow();
+        }
+
+        /// <summary>
+        /// Evict the oldest bar infos while the cache exceeds its bound.
+        /// SongBarInfo.Dispose releases the texture references it holds, so an
+        /// evicted jacket stays alive only if another holder references it —
+        /// CollectUnusedResources then reclaims whatever hit zero. Mirrors
+        /// EvictBasicPreviewOverflow for the enhanced path.
+        /// </summary>
+        private void EvictBarInfoOverflow()
+        {
+            var evicted = false;
+            while (_barInfoCache.Count > MaxBarInfoCacheEntries
+                && _barInfoCacheOrder.Count > 0)
+            {
+                var oldestKey = _barInfoCacheOrder.Dequeue();
+                if (_barInfoCache.Remove(oldestKey, out var evictedBarInfo))
+                {
+                    evictedBarInfo?.Dispose();
+                    evicted = true;
+                }
+            }
+            if (evicted)
+            {
+                _resourceManager?.CollectUnusedResources();
+            }
         }
 
         protected override void Dispose(bool disposing)
@@ -1963,6 +2000,7 @@ namespace DTXMania.Game.Lib.Song.Components
                     barInfo?.Dispose();
                 }
                 _barInfoCache.Clear();
+                _barInfoCacheOrder.Clear();
 
                 // Release reference-counted textures
                 ReleaseManagedTexture(ref _scrollbarTexture);

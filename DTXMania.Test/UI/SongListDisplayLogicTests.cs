@@ -1723,7 +1723,9 @@ public class SongListDisplayLogicTests
             InvokePrivate<object?>(display, "UpdatePendingTextures");
             rm.Verify(x => x.TryLoadTexture(validPath, out jacketResult), Times.Never);
 
-            InvokePrivate<object?>(display, "UpdatePendingTextures");
+            // A time-budgeted pass can stop early, so allow one pass per visible row.
+            for (var pass = 0; pass < SongSelectionUILayout.SongBars.VisibleItems; pass++)
+                InvokePrivate<object?>(display, "UpdatePendingTextures");
             rm.Verify(x => x.TryLoadTexture(validPath, out jacketResult), Times.Once);
             Assert.Same(jacket.Object,
                 GetField<Dictionary<string, ITexture>>(display, "_basicPreviewCache")[validPath]);
@@ -1792,6 +1794,41 @@ public class SongListDisplayLogicTests
         {
             Directory.Delete(dir, true);
         }
+    }
+
+    [Fact]
+    public void SetBarInfoCacheEntry_WhenBarInfoCacheOverflows_ShouldEvictOldestAndReclaim()
+    {
+        var display = new SongListDisplay();
+        var rm = new Mock<IResourceManager>(MockBehavior.Strict);
+        rm.Setup(x => x.CollectUnusedResources());
+        SetField(display, "_resourceManager", rm.Object);
+        const int cacheCap = SongSelectionUILayout.SongBars.VisibleItems * 8;
+
+        // Fill the cache to its bound so the next insert must evict.
+        var cache = GetField<Dictionary<string, SongBarInfo>>(display, "_barInfoCache");
+        var order = GetField<Queue<string>>(display, "_barInfoCacheOrder");
+        var evictedTexture = CreateTexture();
+        cache["oldest"] = new SongBarInfo { PreviewImage = evictedTexture.Object };
+        order.Enqueue("oldest");
+        for (var i = 1; i < cacheCap; i++)
+        {
+            cache[$"cached{i}"] = new SongBarInfo();
+            order.Enqueue($"cached{i}");
+        }
+
+        var added = new SongBarInfo();
+        InvokePrivate<object?>(display, "SetBarInfoCacheEntry", "newEntry", added);
+
+        Assert.Equal(cacheCap, cache.Count);
+        Assert.False(cache.ContainsKey("oldest"));
+        Assert.Same(added, cache["newEntry"]);
+        // Eviction releases the bar's texture reference without disposing it.
+        evictedTexture.Verify(x => x.RemoveReference(), Times.Once);
+        evictedTexture.Verify(x => x.Dispose(), Times.Never);
+        rm.Verify(x => x.CollectUnusedResources(), Times.Once);
+
+        display.Dispose();
     }
 
     [Fact]

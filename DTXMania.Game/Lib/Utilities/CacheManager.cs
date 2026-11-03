@@ -26,6 +26,19 @@ namespace DTXMania.Game.Lib.Utilities
         bool Remove(TKey key);
 
         /// <summary>
+        /// Remove item from cache without disposing it; the caller takes
+        /// ownership of the returned value. Unlike <see cref="Remove"/>, which
+        /// disposes the value outright, this supports reference-counted values
+        /// whose other holders must keep working after eviction.
+        /// </summary>
+        bool TryRemove(TKey key, out TValue value);
+
+        /// <summary>
+        /// Number of cached items
+        /// </summary>
+        int Count { get; }
+
+        /// <summary>
         /// Clear all cached items
         /// </summary>
         void Clear();
@@ -121,6 +134,31 @@ namespace DTXMania.Game.Lib.Utilities
                     return _cache.Remove(key);
                 }
                 return false;
+            }
+        }
+
+        public bool TryRemove(TKey key, out TValue value)
+        {
+            if (key == null)
+            {
+                value = default(TValue);
+                return false;
+            }
+
+            lock (_lockObject)
+            {
+                return _cache.Remove(key, out value);
+            }
+        }
+
+        public int Count
+        {
+            get
+            {
+                lock (_lockObject)
+                {
+                    return _cache.Count;
+                }
             }
         }
 
