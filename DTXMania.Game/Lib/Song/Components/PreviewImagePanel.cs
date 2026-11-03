@@ -265,20 +265,23 @@ namespace DTXMania.Game.Lib.Song.Components
         }
 
         /// <summary>
-        /// Load default preview texture
+        /// Load default preview texture: the skin's CX "5_default_preview.png",
+        /// else NX's "5_preimage default.png" (the default System skin ships only
+        /// the NX file; LoadTexture would return a white fallback for the other).
         /// </summary>
         private void LoadDefaultPreviewTexture()
         {
             try
             {
-                if (_resourceManager != null)
-                {
-                    _defaultPreviewTexture = _resourceManager.LoadTexture(TexturePath.DefaultPreview);
-                }
-                else
-                {
-                    _defaultPreviewTexture = null;
-                }
+                _defaultPreviewTexture = null;
+                if (_resourceManager == null)
+                    return;
+
+                var path = _resourceManager.ResourceExists(TexturePath.DefaultPreview)
+                    ? TexturePath.DefaultPreview
+                    : TexturePath.ResultDefaultPreview;
+                if (_resourceManager.ResourceExists(path))
+                    _defaultPreviewTexture = _resourceManager.LoadTexture(path);
             }
             catch (Exception ex)
             {
