@@ -641,6 +641,35 @@ public class SongBarRendererLogicTests
     }
 
     [Fact]
+    public void EvictGeneratedTextureOverflow_WhenGeneratorOwnedTextureSharedAndReferenced_ShouldStillEvictKeys()
+    {
+        var renderer = CreateRenderer();
+        var cache = new CacheManager<string, ITexture>();
+        var order = new Queue<string>();
+        // Lamp textures are shared per (difficulty, status): every key maps
+        // to one instance, and a live bar keeps its global ReferenceCount
+        // above zero. That count cannot stand in for the key's own entry —
+        // re-queueing on it would retain every key sharing the lamp.
+        var sharedLamp = CreateTextureMock();
+        sharedLamp.SetupGet(x => x.ReferenceCount).Returns(3);
+        cache.Add("lamp0", sharedLamp.Object);
+        order.Enqueue("lamp0");
+        cache.Add("lamp1", sharedLamp.Object);
+        order.Enqueue("lamp1");
+        cache.Add("lamp2", sharedLamp.Object);
+        order.Enqueue("lamp2");
+
+        InvokePrivate<object?>(renderer, "EvictGeneratedTextureOverflow", cache, order, 2, true);
+
+        Assert.Equal(2, cache.Count);
+        Assert.False(cache.TryGet("lamp0", out _));
+        Assert.True(cache.TryGet("lamp1", out _));
+        Assert.True(cache.TryGet("lamp2", out _));
+        sharedLamp.Verify(x => x.RemoveReference(), Times.Once);
+        sharedLamp.Verify(x => x.Dispose(), Times.Never);
+    }
+
+    [Fact]
     public void EvictPreviewImageOverflow_ShouldDropCacheReferenceAndDeferReclaim()
     {
         var renderer = CreateRenderer();

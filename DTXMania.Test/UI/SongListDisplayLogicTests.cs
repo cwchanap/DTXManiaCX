@@ -2052,6 +2052,22 @@ public class SongListDisplayLogicTests
     }
 
     [Fact]
+    public void SetBarInfoCacheEntry_WhenReplacingExistingKey_ShouldNotAppendDuplicateOrderSlot()
+    {
+        var display = new SongListDisplay();
+        var order = GetField<Queue<string>>(display, "_barInfoCacheOrder");
+
+        InvokePrivate<object?>(display, "SetBarInfoCacheEntry", "cache-key", new SongBarInfo());
+        InvokePrivate<object?>(display, "SetBarInfoCacheEntry", "cache-key", new SongBarInfo());
+        InvokePrivate<object?>(display, "SetBarInfoCacheEntry", "cache-key", new SongBarInfo());
+
+        // Re-caching an existing key must not grow the FIFO — a list smaller
+        // than the bound would otherwise accumulate slots without limit.
+        Assert.Single(order);
+        Assert.Equal("cache-key", order.Dequeue());
+    }
+
+    [Fact]
     public void LoadSkinBarTextures_WhenCoreTextureResourceMissing_ShouldDisableSkinFlagAndSkipLoad()
     {
         var display = new SongListDisplay();

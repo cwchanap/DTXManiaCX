@@ -1944,13 +1944,20 @@ namespace DTXMania.Game.Lib.Song.Components
 
         private void SetBarInfoCacheEntry(string cacheKey, SongBarInfo barInfo)
         {
-            if (_barInfoCache.TryGetValue(cacheKey, out var existingBarInfo) && !ReferenceEquals(existingBarInfo, barInfo))
+            var isNewKey = !_barInfoCache.TryGetValue(cacheKey, out var existingBarInfo);
+            if (!isNewKey && !ReferenceEquals(existingBarInfo, barInfo))
             {
                 existingBarInfo?.Dispose();
             }
 
             _barInfoCache[cacheKey] = barInfo;
-            _barInfoCacheOrder.Enqueue(cacheKey);
+            // Re-caching an existing key must not append another FIFO slot:
+            // EvictBarInfoOverflow only drains while the dictionary exceeds
+            // its bound, so duplicates would accumulate without limit.
+            if (isNewKey)
+            {
+                _barInfoCacheOrder.Enqueue(cacheKey);
+            }
             EvictBarInfoOverflow();
         }
 

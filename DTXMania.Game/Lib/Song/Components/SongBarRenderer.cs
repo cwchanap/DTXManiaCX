@@ -905,19 +905,25 @@ namespace DTXMania.Game.Lib.Song.Components
 
         /// <summary>
         /// Evict the oldest generated textures (titles, clear lamps) while the
-        /// cache exceeds its bound. Entries still referenced by a cached
-        /// SongBarInfo are re-queued — the held set is itself bounded by
-        /// SongListDisplay's bar-info cache, so the cache cannot grow
-        /// without limit.
+        /// cache exceeds its bound. Renderer-owned entries still referenced
+        /// by a cached SongBarInfo are re-queued — the held set is itself
+        /// bounded by SongListDisplay's bar-info cache, so the cache cannot
+        /// grow without limit.
         /// <paramref name="generatorOwned"/> distinguishes ownership:
         /// clear-lamp textures come from _graphicsGenerator, which keeps its
         /// own reference in _generatedTextures and re-hands them across cache
         /// keys — disposing one here would leave the generator returning a
         /// disposed texture to the next caller, so eviction only drops this
-        /// key's counted reference. Renderer-owned textures (titles) are
-        /// queued for Dispose on the next update rather than freed inline:
-        /// eviction runs inside the deferred SpriteBatch during draw, and a
-        /// texture at refcount zero may still be queued for drawing.
+        /// key's counted reference. Lamp textures are shared per
+        /// (difficulty, status), so the texture's global ReferenceCount is
+        /// no signal for whether this key's entry is still needed: one live
+        /// bar would otherwise pin every key mapping to the same lamp. Those
+        /// keys are therefore evicted unconditionally — the generator
+        /// re-hands the texture on the next lookup at no GPU cost.
+        /// Renderer-owned textures (titles) are queued for Dispose on the
+        /// next update rather than freed inline: eviction runs inside the
+        /// deferred SpriteBatch during draw, and a texture at refcount zero
+        /// may still be queued for drawing.
         /// </summary>
         private void EvictGeneratedTextureOverflow(
             CacheManager<string, ITexture> cache,
@@ -933,7 +939,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 if (!cache.TryRemove(oldestKey, out var texture))
                     continue; // stale queue slot — entry already removed
 
-                if (texture.ReferenceCount > 0)
+                if (!generatorOwned && texture.ReferenceCount > 0)
                 {
                     cache.Add(oldestKey, texture);
                     order.Enqueue(oldestKey);
