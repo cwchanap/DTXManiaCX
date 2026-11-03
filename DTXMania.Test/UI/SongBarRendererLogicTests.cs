@@ -832,6 +832,9 @@ public class SongBarRendererLogicTests
         ReflectionHelpers.SetPrivateField(renderer, "_previewImageCache", new CacheManager<string, ITexture>());
         ReflectionHelpers.SetPrivateField(renderer, "_failedPreviewPaths", new HashSet<string>(AppPaths.SkinPathComparer));
         ReflectionHelpers.SetPrivateField(renderer, "_clearLampCache", new CacheManager<string, ITexture>());
+        ReflectionHelpers.SetPrivateField(renderer, "_titleTextureCacheOrder", new Queue<string>());
+        ReflectionHelpers.SetPrivateField(renderer, "_previewImageCacheOrder", new Queue<string>());
+        ReflectionHelpers.SetPrivateField(renderer, "_clearLampCacheOrder", new Queue<string>());
         ReflectionHelpers.SetPrivateField(renderer, "_titleRenderTarget", null);
         ReflectionHelpers.SetPrivateField(renderer, "_clearLampRenderTarget", null);
         ReflectionHelpers.SetPrivateField(renderer, "_ownsSharedRenderTarget", false);
