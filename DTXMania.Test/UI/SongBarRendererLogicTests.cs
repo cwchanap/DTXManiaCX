@@ -7,6 +7,7 @@ using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Entities;
+using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Game.Lib.Utilities;
 using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework;
@@ -566,6 +567,66 @@ public class SongBarRendererLogicTests
         Assert.Equal(0, GetTitleCache(renderer).GetStats().ItemCount);
         Assert.Equal(0, GetPreviewCache(renderer).GetStats().ItemCount);
         Assert.Equal(0, GetClearLampCache(renderer).GetStats().ItemCount);
+    }
+
+    [Fact]
+    public void EvictGeneratedTextureOverflow_ShouldDisposeOnlyUnreferencedEntries()
+    {
+        var renderer = CreateRenderer();
+        var cache = new CacheManager<string, ITexture>();
+        var order = new Queue<string>();
+        var held = CreateTextureMock();
+        held.SetupGet(x => x.ReferenceCount).Returns(1);
+        var free = CreateTextureMock();
+        var spare = CreateTextureMock();
+        // Stale slot left behind by an already-removed entry must be skipped.
+        order.Enqueue("removed");
+        cache.Add("held", held.Object);
+        order.Enqueue("held");
+        cache.Add("free", free.Object);
+        order.Enqueue("free");
+        cache.Add("spare", spare.Object);
+        order.Enqueue("spare");
+
+        InvokePrivate<object?>(renderer, "EvictGeneratedTextureOverflow", cache, order, 2);
+
+        Assert.Equal(2, cache.Count);
+        Assert.True(cache.TryGet("held", out _));
+        Assert.False(cache.TryGet("free", out _));
+        Assert.True(cache.TryGet("spare", out _));
+        held.Verify(x => x.Dispose(), Times.Never);
+        free.Verify(x => x.Dispose(), Times.Once);
+        spare.Verify(x => x.Dispose(), Times.Never);
+    }
+
+    [Fact]
+    public void EvictPreviewImageOverflow_ShouldDropCacheReferenceAndReclaim()
+    {
+        var renderer = CreateRenderer();
+        var rm = new Mock<IResourceManager>(MockBehavior.Strict);
+        rm.Setup(x => x.CollectUnusedResources());
+        ReflectionHelpers.SetPrivateField(renderer, "_resourceManager", rm.Object);
+        var cache = GetPreviewCache(renderer);
+        var order = ReflectionHelpers.GetPrivateField<Queue<string>>(renderer, "_previewImageCacheOrder")!;
+        const int cacheCap = SongSelectionUILayout.SongBars.VisibleItems * 4;
+        var evicted = CreateTextureMock();
+        cache.Add("evicted.png", evicted.Object);
+        order.Enqueue("evicted.png");
+        for (var i = 1; i <= cacheCap; i++)
+        {
+            cache.Add($"cached{i}.png", CreateTextureMock().Object);
+            order.Enqueue($"cached{i}.png");
+        }
+
+        InvokePrivate<object?>(renderer, "EvictPreviewImageOverflow");
+
+        Assert.Equal(cacheCap, cache.Count);
+        Assert.False(cache.TryGet("evicted.png", out _));
+        // Eviction releases the counted reference — it must not dispose a
+        // texture a bar could still be drawing.
+        evicted.Verify(x => x.RemoveReference(), Times.Once);
+        evicted.Verify(x => x.Dispose(), Times.Never);
+        rm.Verify(x => x.CollectUnusedResources(), Times.Once);
     }
 
     [Fact]
