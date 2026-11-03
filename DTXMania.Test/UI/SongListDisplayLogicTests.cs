@@ -1786,8 +1786,15 @@ public class SongListDisplayLogicTests
             Assert.False(cache.ContainsKey("oldest.png"));
             Assert.Same(jacket.Object, cache[previewPath]);
             evicted.Verify(x => x.RemoveReference(), Times.Once);
-            // Dropping the reference is not enough — the ResourceManager
-            // must reap the zero-refcount texture to free GPU memory.
+            // Eviction drops the reference inline, but reclamation waits for
+            // the update-phase drain — the evicted texture may already be
+            // queued in this frame's deferred SpriteBatch.
+            rm.Verify(x => x.CollectUnusedResources(), Times.Never);
+
+            InvokePrivate<object?>(display, "OnUpdate", 1.0 / 60.0);
+
+            // The ResourceManager must reap the zero-refcount texture to
+            // free GPU memory once the batch has flushed.
             rm.Verify(x => x.CollectUnusedResources(), Times.Once);
         }
         finally
@@ -1826,6 +1833,12 @@ public class SongListDisplayLogicTests
         // Eviction releases the bar's texture reference without disposing it.
         evictedTexture.Verify(x => x.RemoveReference(), Times.Once);
         evictedTexture.Verify(x => x.Dispose(), Times.Never);
+        // GPU reclamation is deferred to the update phase — the evicted
+        // texture may already be queued in this frame's deferred SpriteBatch.
+        rm.Verify(x => x.CollectUnusedResources(), Times.Never);
+
+        InvokePrivate<object?>(display, "OnUpdate", 1.0 / 60.0);
+
         rm.Verify(x => x.CollectUnusedResources(), Times.Once);
 
         display.Dispose();
