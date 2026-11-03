@@ -185,6 +185,59 @@ namespace DTXMania.Test.Utilities
 
         #endregion
 
+        #region TryRemove Tests
+
+        [Fact]
+        public void TryRemove_ExistingKey_ShouldReturnTrueWithoutDisposingValue()
+        {
+            var value = new DisposableValue("evicted");
+            _cache.Add("key", value);
+
+            var removed = _cache.TryRemove("key", out var evicted);
+
+            Assert.True(removed);
+            Assert.Same(value, evicted);
+            Assert.False(value.IsDisposed);
+            Assert.False(_cache.TryGet("key", out _));
+        }
+
+        [Fact]
+        public void TryRemove_MissingKey_ShouldReturnFalseAndDefault()
+        {
+            var removed = _cache.TryRemove("nonexistent", out var evicted);
+
+            Assert.False(removed);
+            Assert.Null(evicted);
+        }
+
+        [Fact]
+        public void TryRemove_NullKey_ShouldReturnFalse()
+        {
+            var removed = _cache.TryRemove(null, out var evicted);
+
+            Assert.False(removed);
+            Assert.Null(evicted);
+        }
+
+        #endregion
+
+        #region Count Tests
+
+        [Fact]
+        public void Count_ReflectsItemsWithoutDisposing()
+        {
+            Assert.Equal(0, _cache.Count);
+
+            _cache.Add("k1", new DisposableValue("1"));
+            _cache.Add("k2", new DisposableValue("2"));
+            Assert.Equal(2, _cache.Count);
+
+            _cache.TryRemove("k1", out _);
+            Assert.Equal(1, _cache.Count);
+        }
+
+        #endregion
+
         #region Clear Tests
 
         [Fact]
