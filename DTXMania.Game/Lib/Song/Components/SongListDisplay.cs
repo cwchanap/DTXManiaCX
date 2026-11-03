@@ -2029,6 +2029,11 @@ namespace DTXMania.Game.Lib.Song.Components
                 ReleaseManagedTexture(ref _defaultBarPreview);
                 ReleaseManagedTexture(ref _commentBarTexture);
                 ReleaseBasicPreviewCache();
+                if (_reclamationPending)
+                {
+                    _reclamationPending = false;
+                    _resourceManager?.CollectUnusedResources();
+                }
                 _skinBarTexturesLoaded = false;
             }
 
