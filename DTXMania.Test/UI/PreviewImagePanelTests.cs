@@ -25,6 +25,7 @@ public class PreviewImagePanelTests
         var mockDefault = new Mock<ITexture>();
         var mockPanel = new Mock<ITexture>();
         var rm = new Mock<IResourceManager>();
+        rm.Setup(x => x.ResourceExists(TexturePath.DefaultPreview)).Returns(true);
         rm.Setup(x => x.LoadTexture(TexturePath.DefaultPreview)).Returns(mockDefault.Object);
         rm.Setup(x => x.ResourceExists(TexturePath.PreimagePanel)).Returns(true);
         rm.Setup(x => x.LoadTexture(TexturePath.PreimagePanel)).Returns(mockPanel.Object);
@@ -774,6 +775,7 @@ public class PreviewImagePanelTests
     {
         var panel = new PreviewImagePanel();
         var rm = new Mock<IResourceManager>();
+        rm.Setup(x => x.ResourceExists(TexturePath.DefaultPreview)).Returns(true);
         rm.Setup(x => x.LoadTexture(TexturePath.DefaultPreview))
             .Throws(new FileNotFoundException("default preview missing"));
 
@@ -782,6 +784,38 @@ public class PreviewImagePanelTests
         InvokePrivateVoid(panel, "LoadDefaultPreviewTexture");
 
         Assert.Null(GetFieldValue(panel, "_defaultPreviewTexture"));
+    }
+
+    [Fact]
+    public void LoadDefaultPreviewTexture_WhenSkinLacksCxDefault_ShouldFallBackToNxPreimageDefault()
+    {
+        // The default System skin ships only NX's "5_preimage default.png" (issue #215).
+        var panel = new PreviewImagePanel();
+        var nxDefault = new Mock<ITexture>();
+        var rm = new Mock<IResourceManager>();
+        rm.Setup(x => x.ResourceExists(TexturePath.ResultDefaultPreview)).Returns(true);
+        rm.Setup(x => x.LoadTexture(TexturePath.ResultDefaultPreview)).Returns(nxDefault.Object);
+
+        SetField(panel, "_resourceManager", rm.Object);
+
+        InvokePrivateVoid(panel, "LoadDefaultPreviewTexture");
+
+        Assert.Same(nxDefault.Object, GetFieldValue(panel, "_defaultPreviewTexture"));
+        rm.Verify(x => x.LoadTexture(TexturePath.DefaultPreview), Times.Never);
+    }
+
+    [Fact]
+    public void LoadDefaultPreviewTexture_WhenSkinHasNoDefault_ShouldNotLoadWhiteFallback()
+    {
+        var panel = new PreviewImagePanel();
+        var rm = new Mock<IResourceManager>();
+
+        SetField(panel, "_resourceManager", rm.Object);
+
+        InvokePrivateVoid(panel, "LoadDefaultPreviewTexture");
+
+        Assert.Null(GetFieldValue(panel, "_defaultPreviewTexture"));
+        rm.Verify(x => x.LoadTexture(It.IsAny<string>()), Times.Never);
     }
 
     [Fact]
