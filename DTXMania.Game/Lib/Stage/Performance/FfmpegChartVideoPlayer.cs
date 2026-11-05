@@ -3,6 +3,7 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
@@ -365,12 +366,26 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 _generation = null;
             }
 
-            cts?.Cancel();
-            cts?.Dispose();
-
-            _currentTimestampMs = null;
-            _hasCurrentFrame = false;
-            _surface?.Reset();
+            try
+            {
+                cts?.Cancel();
+            }
+            catch (AggregateException ex) when (
+                ex.Flatten().InnerExceptions is { Count: > 0 } errors &&
+                errors.All(error => error is IOException))
+            {
+                // FFMpegCore's cancellation callback writes to process stdin.
+                // The process can close that pipe before the callback runs.
+                // Do not let this expected shutdown race prevent cleanup, or
+                // hide unrelated callback failures in a mixed aggregate.
+            }
+            finally
+            {
+                cts?.Dispose();
+                _currentTimestampMs = null;
+                _hasCurrentFrame = false;
+                _surface?.Reset();
+            }
         }
 
         public void Dispose()
@@ -378,9 +393,15 @@ namespace DTXMania.Game.Lib.Stage.Performance
             if (_disposed)
                 return;
 
-            Stop();
-            _surface?.Dispose();
-            _disposed = true;
+            try
+            {
+                Stop();
+            }
+            finally
+            {
+                _disposed = true;
+                _surface?.Dispose();
+            }
         }
 
         /// <summary>Aspect-fit geometry: largest centered fit, no overscan.</summary>
