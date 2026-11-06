@@ -140,6 +140,49 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
+        public void Stop_WhenSurfaceResetThrows_ShouldPropagateAndKeepDisposeRetryable()
+        {
+            var surface = new FakeVideoFrameSurface();
+            var player = CreatePlayer(surface);
+            var cts = StartWithPresentedFrame(player);
+            var token = cts.Token;
+            var resetException = new InvalidOperationException("Simulated surface reset failure");
+            surface.ResetException = resetException;
+            var resetCount = surface.ResetCount;
+
+            // _surface.Reset() runs last in Stop()'s finally block, so its
+            // failure propagates while the earlier cleanup still lands.
+            var exception = Record.Exception(player.Stop);
+
+            Assert.Same(resetException, exception);
+            Assert.True(token.IsCancellationRequested);
+            Assert.Throws<ObjectDisposedException>(() => cts.Token);
+            Assert.Null(player.GenerationCts);
+            Assert.Null(player.ActiveGeneration);
+            Assert.Equal(0, player.QueuedFrameCount);
+            Assert.False(player.HasCurrentFrame);
+            Assert.Null(player.CurrentFrameTimestampMs);
+            Assert.Equal(resetCount + 1, surface.ResetCount);
+
+            // The failed cleanup never set _disposed: Dispose() retries the
+            // cleanup instead of early-returning, so it propagates the same
+            // reset failure and the surface stays undisposed.
+            Assert.Same(resetException, Record.Exception(player.Dispose));
+            Assert.Equal(resetCount + 2, surface.ResetCount);
+            Assert.Equal(0, surface.DisposeCount);
+
+            // With the failure cleared the retry completes: the surface is
+            // disposed exactly once and _disposed finally latches.
+            surface.ResetException = null;
+            player.Dispose();
+            Assert.Equal(resetCount + 3, surface.ResetCount);
+            Assert.Equal(1, surface.DisposeCount);
+            player.Dispose();
+            Assert.Equal(1, surface.DisposeCount);
+            Assert.Throws<ObjectDisposedException>(() => player.Start("after-disposal.avi"));
+        }
+
+        [Fact]
         public void InvokeFfmpegShutdown_ShouldDriveCancelAndContainClosedPipeFailure()
         {
             var logs = new List<string>();
