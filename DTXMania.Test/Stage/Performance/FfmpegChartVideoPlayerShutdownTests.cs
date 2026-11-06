@@ -139,6 +139,24 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Throws<ObjectDisposedException>(() => player.Start("after-disposal.avi"));
         }
 
+        [Fact]
+        public void InvokeFfmpegShutdown_ShouldDriveCancelAndContainClosedPipeFailure()
+        {
+            var logs = new List<string>();
+            var surface = new FakeVideoFrameSurface();
+            using var player = CreatePlayer(surface, logs.Add);
+
+            var ran = false;
+            player.InvokeFfmpegShutdown(() => ran = true);
+            Assert.True(ran);
+            Assert.Empty(logs);
+
+            player.InvokeFfmpegShutdown(() => throw new IOException("The pipe is being closed."));
+
+            var message = Assert.Single(logs);
+            Assert.Contains("shutdown request failed", message);
+        }
+
         private static FfmpegChartVideoPlayer CreatePlayer(
             FakeVideoFrameSurface surface,
             Action<string>? log = null) =>
@@ -172,6 +190,7 @@ namespace DTXMania.Test.Stage.Performance
             Assert.True(token.IsCancellationRequested);
             Assert.Throws<ObjectDisposedException>(() => cts.Token);
             Assert.Null(player.GenerationCts);
+            Assert.Null(player.ActiveGeneration);
             Assert.Equal(0, player.QueuedFrameCount);
             Assert.False(player.HasCurrentFrame);
             Assert.Null(player.CurrentFrameTimestampMs);

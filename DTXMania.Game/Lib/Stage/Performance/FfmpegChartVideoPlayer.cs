@@ -434,6 +434,24 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 height);
         }
 
+        /// <summary>
+        /// Drives FFMpegCore's shutdown callback, which writes "q" to process
+        /// stdin and can hit an <see cref="IOException"/> when the process
+        /// closed the pipe first. Containing and logging it here keeps it out
+        /// of Cancel's AggregateException.
+        /// </summary>
+        internal void InvokeFfmpegShutdown(Action cancel)
+        {
+            try
+            {
+                cancel();
+            }
+            catch (IOException ex)
+            {
+                _log?.Invoke($"Chart video shutdown request failed: {ex.Message}");
+            }
+        }
+
         private async Task RunGenerationAsync(
             string videoFilePath,
             CancellationTokenSource generationCts,
@@ -500,21 +518,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 // registration instead of CancellableThrough(token): the
                 // callback writes "q" to process stdin and can hit an
                 // IOException when the process closed the pipe first.
-                // Containing it here keeps it out of Cancel's
+                // InvokeFfmpegShutdown keeps it out of Cancel's
                 // AggregateException, narrows the catch to the one expected
                 // failure, and logs it instead of dropping it silently.
                 token.ThrowIfCancellationRequested();
-                using var registration = token.Register(() =>
-                {
-                    try
-                    {
-                        cancel();
-                    }
-                    catch (IOException ex)
-                    {
-                        _log?.Invoke($"Chart video shutdown request failed: {ex.Message}");
-                    }
-                });
+                using var registration = token.Register(() => InvokeFfmpegShutdown(cancel));
 
                 var completed = await processor
                     .ProcessAsynchronously(throwOnError: false)
