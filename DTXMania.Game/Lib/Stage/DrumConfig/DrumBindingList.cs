@@ -170,7 +170,9 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
                 int last = from;
                 for (int i = from; i < specs.Count; i++)
                 {
-                    int limit = i < specs.Count - 1 ? right - markerReserve : right;
+                    // The "+N" marker needs room whenever a chip stays hidden: one after this
+                    // chip, or one before the window.
+                    int limit = from > 0 || i < specs.Count - 1 ? right - markerReserve : right;
                     if (cx + widths[i] > limit)
                         break;
                     cx += widths[i] + L.ChipGap;

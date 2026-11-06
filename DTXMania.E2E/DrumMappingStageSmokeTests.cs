@@ -53,7 +53,7 @@ public sealed class DrumMappingStageSmokeTests
             await client.ChangeStageAsync("DrumConfig", cancellation.Token);
             await WaitForStageAsync(client, "DrumConfig", TimeSpan.FromSeconds(45), cancellation.Token);
             // The stage reports its type as soon as the transition is queued; this settle covers
-            // the fade transition + OnActivate (focus/skip-flag init) before we send input.
+            // the fade transition + OnActivate (focus init) before we send input.
             await Task.Delay(500, cancellation.Token);
 
             // Enter on the focused lane (Left Cymbal, lane 0) starts listening.
@@ -141,7 +141,7 @@ public sealed class DrumMappingStageSmokeTests
             // Jump straight to the drum-mapping stage via the API (menu wiring is unit-tested).
             await client.ChangeStageAsync("DrumConfig", cancellation.Token);
             await WaitForStageAsync(client, "DrumConfig", TimeSpan.FromSeconds(45), cancellation.Token);
-            // Settle past the fade + OnActivate (focus/skip-flag init) before sending input.
+            // Settle past the fade + OnActivate (focus init) before sending input.
             await Task.Delay(500, cancellation.Token);
 
             // Focus starts on the first lane row (Left Cymbal, lane 0). Listen there and bind the

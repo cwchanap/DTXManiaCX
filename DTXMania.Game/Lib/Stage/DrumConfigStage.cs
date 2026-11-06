@@ -48,12 +48,11 @@ namespace DTXMania.Game.Lib.Stage
         private int _chipIndex = -1;
         private int _hoveredLane = -1;
         private bool _resetHovered;
-        private bool _skipCaptureThisFrame;
 
-        // Live hit test: the last hit's lane and text, lit for HitFlashSeconds.
-        private int _flashLane = -1;
-        private string? _flashText;
-        private double _flashTimer;
+        // Live hit test: each lane lights with its own last hit for HitFlashSeconds, so pads hit
+        // together (kick + hi-hat) all show.
+        private readonly double[] _flashTimers = new double[L.LaneCount];
+        private readonly string?[] _flashTexts = new string?[L.LaneCount];
 
         // Status-line notice (added, removed, reset, unbound note), shown for NoticeSeconds.
         private string? _notice;
@@ -86,11 +85,10 @@ namespace DTXMania.Game.Lib.Stage
             SelectLane(0);
             _hoveredLane = -1;
             _resetHovered = false;
-            _flashLane = -1;
-            _flashTimer = 0;
+            Array.Clear(_flashTimers);
+            Array.Clear(_flashTexts);
             _notice = null;
             _noticeTimer = 0;
-            _skipCaptureThisFrame = false;
             _previousMouse = Mouse.GetState();
             RebuildRows();
         }
@@ -266,13 +264,6 @@ namespace DTXMania.Game.Lib.Stage
                 }
             }
 
-            // Skip the frame listening started so the activating press is never captured.
-            if (_skipCaptureThisFrame)
-            {
-                _skipCaptureThisFrame = false;
-                return;
-            }
-
             foreach (var button in pressed)
             {
                 int lane = _capture.Lane;
@@ -343,14 +334,12 @@ namespace DTXMania.Game.Lib.Stage
         private void StartListening(int lane)
         {
             _capture.Start(lane);
-            _skipCaptureThisFrame = true;
             _notice = null;
         }
 
         private void StopListening()
         {
             _capture.Stop();
-            _skipCaptureThisFrame = false;
         }
 
         private int HitTestLane(Point p)
@@ -385,9 +374,8 @@ namespace DTXMania.Game.Lib.Stage
         {
             if (lane < 0 || lane >= L.LaneCount)
                 return;
-            _flashLane = lane;
-            _flashTimer = L.HitFlashSeconds;
-            _flashText = FormatHit(button);
+            _flashTimers[lane] = L.HitFlashSeconds;
+            _flashTexts[lane] = FormatHit(button);
         }
 
         /// <summary>"HIT  KEY A" or "HIT  MIDI 38  VEL 96" (velocity is 0..1 in the feed).</summary>
@@ -415,11 +403,10 @@ namespace DTXMania.Game.Lib.Stage
         private void TickTimers(double deltaTime)
         {
             _capture.Tick(deltaTime);
-            if (_flashTimer > 0)
+            for (int lane = 0; lane < L.LaneCount; lane++)
             {
-                _flashTimer = Math.Max(0, _flashTimer - deltaTime);
-                if (_flashTimer == 0)
-                    _flashLane = -1;
+                if (_flashTimers[lane] > 0)
+                    _flashTimers[lane] = Math.Max(0, _flashTimers[lane] - deltaTime);
             }
             if (_noticeTimer > 0)
             {
@@ -502,9 +489,8 @@ namespace DTXMania.Game.Lib.Stage
                 HoveredLane = _hoveredLane,
                 ResetHovered = _resetHovered,
                 ListeningLane = _capture.IsListening ? _capture.Lane : -1,
-                FlashLane = _flashLane,
-                FlashStrength = (float)(_flashTimer / L.HitFlashSeconds),
-                FlashText = _flashText,
+                Flash = Array.ConvertAll(_flashTimers, t => (float)(t / L.HitFlashSeconds)),
+                FlashText = _flashTexts,
                 Status = BuildStatusLine(),
                 Midi = FormatMidiDeviceStatus(_input?.ModularInputManager.ConnectedMidiDeviceNames),
             };
@@ -542,6 +528,10 @@ namespace DTXMania.Game.Lib.Stage
             kb.UnbindButton(buttonId);
             _configManager.SetKeyBindings(kb);
             // No system-key restore (Decision 3): eviction was permanent.
+            // An unbound note has no velocity control left, so drop its threshold; otherwise a
+            // high one would filter the note out of the next capture.
+            if (KeyBindings.TryParseMidiButtonId(buttonId, out var note))
+                _configManager.SetMidiVelocityThreshold(note, 0);
         }
 
         private void AdjustMidiVelocityThreshold(int noteNumber, int delta)

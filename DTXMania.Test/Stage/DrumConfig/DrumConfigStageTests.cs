@@ -86,12 +86,15 @@ namespace DTXMania.Test.Stage.DrumConfig
         private static string? Notice(DrumConfigStage stage) => ReflectionHelpers.GetPrivateField<string?>(stage, "_notice");
         private static DrumStatusLine Status(DrumConfigStage stage) =>
             ReflectionHelpers.InvokePrivateMethod<DrumStatusLine>(stage, "BuildStatusLine");
+        private static double[] FlashTimers(DrumConfigStage stage) =>
+            ReflectionHelpers.GetPrivateField<double[]>(stage, "_flashTimers")!;
+        private static string?[] FlashTexts(DrumConfigStage stage) =>
+            ReflectionHelpers.GetPrivateField<string?[]>(stage, "_flashTexts")!;
 
         private static void StartListening(DrumConfigStage stage, int lane)
         {
             ReflectionHelpers.InvokePrivateMethod(stage, "SelectLane", lane, 0);
             ReflectionHelpers.InvokePrivateMethod(stage, "StartListening", lane);
-            ReflectionHelpers.SetPrivateField(stage, "_skipCaptureThisFrame", false);
         }
 
         // ---- Focus and navigation ----
@@ -257,8 +260,8 @@ namespace DTXMania.Test.Stage.DrumConfig
             Browse(stage, "Key.Delete");
 
             Assert.Equal(3, cm.Config.KeyBindings["Key.S"]);
-            Assert.Equal(2, ReflectionHelpers.GetPrivateField<int>(stage, "_flashLane"));
-            Assert.Equal("HIT  KEY Delete", ReflectionHelpers.GetPrivateField<string?>(stage, "_flashText"));
+            Assert.True(FlashTimers(stage)[2] > 0);
+            Assert.Equal("HIT  KEY Delete", FlashTexts(stage)[2]);
         }
 
         [Fact]
@@ -269,11 +272,26 @@ namespace DTXMania.Test.Stage.DrumConfig
 
             Browse(stage, "MIDI.38"); // velocity 0.75 -> 95
 
-            Assert.Equal(3, ReflectionHelpers.GetPrivateField<int>(stage, "_flashLane"));
-            Assert.Equal("HIT  MIDI 38  VEL 95", ReflectionHelpers.GetPrivateField<string?>(stage, "_flashText"));
+            Assert.True(FlashTimers(stage)[3] > 0);
+            Assert.Equal("HIT  MIDI 38  VEL 95", FlashTexts(stage)[3]);
 
             ReflectionHelpers.InvokePrivateMethod(stage, "TickTimers", L.HitFlashSeconds + 0.01);
-            Assert.Equal(-1, ReflectionHelpers.GetPrivateField<int>(stage, "_flashLane"));
+            Assert.Equal(0, FlashTimers(stage)[3]);
+        }
+
+        [Fact]
+        public void PadsHitInTheSameUpdate_EachFlashTheirOwnLane()
+        {
+            var (stage, _, _) = CreateStage();
+            ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "MIDI.36", 5);
+            ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "MIDI.42", 1);
+
+            Browse(stage, "MIDI.36", "MIDI.42"); // kick + hi-hat together
+
+            Assert.True(FlashTimers(stage)[5] > 0);
+            Assert.True(FlashTimers(stage)[1] > 0);
+            Assert.Equal("HIT  MIDI 36  VEL 95", FlashTexts(stage)[5]);
+            Assert.Equal("HIT  MIDI 42  VEL 95", FlashTexts(stage)[1]);
         }
 
         [Fact]
@@ -336,14 +354,19 @@ namespace DTXMania.Test.Stage.DrumConfig
         }
 
         [Fact]
-        public void Listening_SkipsTheFrameItStarted()
+        public void Listening_CapturesThePressRightAfterActivate()
         {
-            var (stage, cm, _) = CreateStage();
-            ReflectionHelpers.InvokePrivateMethod(stage, "StartListening", 2);
+            var (stage, cm, input) = CreateStage();
+            ReflectionHelpers.InvokePrivateMethod(stage, "SelectLane", 2, 0);
 
-            Listen(stage, "Key.Q");
-            Assert.False(cm.Config.KeyBindings.ContainsKey("Key.Q"));
+            // The activating Enter is spent by the browsing update that starts listening...
+            input.ActiveCommand = InputCommandType.Activate;
+            Browse(stage, "Key.Enter");
+            input.ActiveCommand = null;
+            Assert.True(Capture(stage).IsListening);
+            Assert.False(cm.Config.KeyBindings.ContainsKey("Key.Enter"));
 
+            // ...so the very next update captures.
             Listen(stage, "Key.Q");
             Assert.Equal(2, cm.Config.KeyBindings["Key.Q"]);
         }
@@ -478,17 +501,19 @@ namespace DTXMania.Test.Stage.DrumConfig
         }
 
         [Fact]
-        public void RemoveBindingFromConfig_KeepsTheMidiVelocityThreshold()
+        public void RemoveBindingFromConfig_DropsTheMidiVelocityThreshold_SoTheNoteCanBeCapturedAgain()
         {
+            // A 127 threshold filters every hit; left on an unbound note (no chip, so no control)
+            // it would block recapturing the pad.
             var (stage, cm, input) = CreateStage();
             ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "MIDI.36", 4);
-            cm.SetMidiVelocityThreshold(36, 20);
+            cm.SetMidiVelocityThreshold(36, 127);
 
             ReflectionHelpers.InvokePrivateMethod(stage, "RemoveBindingFromConfig", "MIDI.36");
 
             Assert.False(cm.Config.KeyBindings.ContainsKey("MIDI.36"));
             Assert.Equal(-1, input.ModularInputManager.KeyBindings.GetLane("MIDI.36"));
-            Assert.Equal(20, cm.GetMidiVelocityThreshold(36));
+            Assert.Equal(0, cm.GetMidiVelocityThreshold(36));
         }
 
         [Fact]
