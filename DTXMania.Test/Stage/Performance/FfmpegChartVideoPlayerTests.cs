@@ -639,35 +639,6 @@ namespace DTXMania.Test.Stage.Performance
 
         #endregion
 
-        private sealed class FakeVideoFrameSurface : IVideoFrameSurface
-        {
-            public int PresentCount { get; private set; }
-
-            public int LastWidth { get; private set; }
-
-            public int LastHeight { get; private set; }
-
-            public int ResetCount { get; private set; }
-
-            public Microsoft.Xna.Framework.Graphics.Texture2D? Texture => null;
-
-            public void Present(byte[] rgba, int width, int height)
-            {
-                PresentCount++;
-                LastWidth = width;
-                LastHeight = height;
-            }
-
-            public void Reset()
-            {
-                ResetCount++;
-            }
-
-            public void Dispose()
-            {
-            }
-        }
-
         private sealed class ThrowingVideoFrameSurface : IVideoFrameSurface
         {
             public Microsoft.Xna.Framework.Graphics.Texture2D? Texture => null;

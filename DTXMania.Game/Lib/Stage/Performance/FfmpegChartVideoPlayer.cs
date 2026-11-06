@@ -3,7 +3,6 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
-using System.Linq;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
@@ -139,7 +138,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
     ///
     /// Generation flow: EnsureConfigured -> FFProbe.AnalyseAsync ->
     /// FFMpegArguments.FromFileInput -> OutputToPipe(VideoFramePipeSink) ->
-    /// CancellableThrough(generationToken) -> ProcessAsynchronously.
+    /// CancellableThrough(out cancel) -> our own generation-token
+    /// registration drives cancel -> ProcessAsynchronously.
     /// No seek: every generation starts at media zero and frames are stamped
     /// <c>frameIndex * frameIntervalMs</c>; async startup is absorbed by decode
     /// catch-up plus consumer skipping while Draw renders nothing.
@@ -163,7 +163,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private double? _currentTimestampMs;
         private bool _hasCurrentFrame;
 
-        private sealed record GenerationState(
+        internal sealed record GenerationState(
             ChannelReader<VideoFrame> Queue,
             int Width,
             int Height,
@@ -189,6 +189,16 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         /// <summary>Task observing the current generation, or null before Start.</summary>
         internal Task? GenerationTask => _generationTask;
+
+        /// <summary>Cancellation source of the active generation, or null when stopped.</summary>
+        internal CancellationTokenSource? GenerationCts => _generationCts;
+
+        /// <summary>Published generation state; settable for test injection.</summary>
+        internal GenerationState? ActiveGeneration
+        {
+            get => _generation;
+            set => _generation = value;
+        }
 
         /// <summary>Frames queued for the active generation.</summary>
         internal int QueuedFrameCount
@@ -370,12 +380,16 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 cts?.Cancel();
             }
-            catch (AggregateException ex) when (IsExpectedPipeShutdownFailure(ex))
+            catch (Exception ex)
             {
-                // FFMpegCore's cancellation callback writes to process stdin.
-                // The process can close that pipe before the callback runs.
-                // Do not let this expected shutdown race prevent cleanup, or
-                // hide unrelated callback failures in a mixed aggregate.
+                // CancellationTokenSource.Cancel runs every registered
+                // callback and rethrows their failures as an AggregateException.
+                // FFMpegCore's stdin shutdown callback is already contained at
+                // registration in RunGenerationAsync; anything landing here is
+                // a foreign callback that must not skip cleanup or escape to
+                // Stop's unguarded callers (ReturnToSongSelect via
+                // StopGameplayAudioInstances, ProcessVideoEvents, Start).
+                _log?.Invoke($"Chart video shutdown callback failed: {ex.GetType().Name}: {ex.Message}");
             }
             finally
             {
@@ -386,33 +400,18 @@ namespace DTXMania.Game.Lib.Stage.Performance
             }
         }
 
-        /// <summary>
-        /// True only when every leaf of the aggregate tree is an
-        /// <see cref="IOException"/> and every aggregate node is nonempty.
-        /// Unlike <see cref="AggregateException.Flatten"/>, which drops empty
-        /// nested aggregates, this rejects them so a non-I/O structure in a
-        /// mixed aggregate still propagates.
-        /// </summary>
-        private static bool IsExpectedPipeShutdownFailure(AggregateException ex) =>
-            ex.InnerExceptions.Count > 0 &&
-            ex.InnerExceptions.All(error => error is AggregateException nested
-                ? IsExpectedPipeShutdownFailure(nested)
-                : error is IOException);
-
         public void Dispose()
         {
             if (_disposed)
                 return;
 
-            try
-            {
-                Stop();
-            }
-            finally
-            {
-                _disposed = true;
-                _surface?.Dispose();
-            }
+            // Stop() contains token-callback failures; a throwing surface
+            // dispose still propagates, but _disposed stays false so a later
+            // Dispose() can retry instead of returning early and leaking the
+            // texture.
+            Stop();
+            _surface?.Dispose();
+            _disposed = true;
         }
 
         /// <summary>Aspect-fit geometry: largest centered fit, no overscan.</summary>
@@ -487,7 +486,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 var sink = new VideoFramePipeSink(
                     video.Width, video.Height, frameIntervalMs, queue.Writer, token);
 
-                var completed = await FFMpegArguments
+                var processor = FFMpegArguments
                     .FromFileInput(videoFilePath)
                     .OutputToPipe(sink, options => options
                         .SelectStream(0, channel: FFMpegCore.Enums.Channel.Video)
@@ -495,7 +494,29 @@ namespace DTXMania.Game.Lib.Stage.Performance
                         .WithVideoCodec("rawvideo")
                         .ForcePixelFormat("rgba")
                         .ForceFormat("rawvideo"))
-                    .CancellableThrough(token)
+                    .CancellableThrough(out var cancel);
+
+                // Drive FFMpegCore's shutdown callback through our own token
+                // registration instead of CancellableThrough(token): the
+                // callback writes "q" to process stdin and can hit an
+                // IOException when the process closed the pipe first.
+                // Containing it here keeps it out of Cancel's
+                // AggregateException, narrows the catch to the one expected
+                // failure, and logs it instead of dropping it silently.
+                token.ThrowIfCancellationRequested();
+                using var registration = token.Register(() =>
+                {
+                    try
+                    {
+                        cancel();
+                    }
+                    catch (IOException ex)
+                    {
+                        _log?.Invoke($"Chart video shutdown request failed: {ex.Message}");
+                    }
+                });
+
+                var completed = await processor
                     .ProcessAsynchronously(throwOnError: false)
                     .ConfigureAwait(false);
 
