@@ -37,6 +37,18 @@ namespace DTXMania.Test.Stage.Performance
                     new InvalidOperationException("Unexpected callback failure"))
             };
             yield return new object[] { new AggregateException() };
+            yield return new object[]
+            {
+                // Flatten() drops empty nested aggregates, so the filter must
+                // recurse: an empty aggregate sibling of an IOException is not
+                // a pure I/O shutdown failure.
+                new AggregateException(new IOException("Closed pipe"), new AggregateException())
+            };
+            yield return new object[]
+            {
+                new AggregateException(new AggregateException(new IOException("Closed pipe")),
+                    new AggregateException())
+            };
         }
 
         [Theory]
