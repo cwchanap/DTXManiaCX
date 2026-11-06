@@ -33,13 +33,15 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
         public int HoveredLane { get; init; } = -1;
         public bool ResetHovered { get; init; }
         public int ListeningLane { get; init; } = -1;
-        public int FlashLane { get; init; } = -1;
-        /// <summary>1 right after a hit, fading to 0.</summary>
-        public float FlashStrength { get; init; }
-        public string? FlashText { get; init; }
+        /// <summary>Per lane: 1 right after a hit, fading to 0.</summary>
+        public IReadOnlyList<float> Flash { get; init; } = Array.Empty<float>();
+        /// <summary>Per lane: the last hit's readout ("HIT  MIDI 38  VEL 96").</summary>
+        public IReadOnlyList<string?> FlashText { get; init; } = Array.Empty<string?>();
         public DrumStatusLine Status { get; init; }
         public (string Text, bool Connected) Midi { get; init; }
         public bool Listening => ListeningLane >= 0;
+        public float FlashOf(int lane) => lane >= 0 && lane < Flash.Count ? Flash[lane] : 0f;
+        public string? FlashTextOf(int lane) => lane >= 0 && lane < FlashText.Count ? FlashText[lane] : null;
     }
 
     /// <summary>
@@ -61,6 +63,7 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
         private readonly IFont? _titleFont;
         private readonly IFont? _labelFont;
         private readonly IFont? _monoFont;
+        private readonly IFont? _serifFont;
         private readonly ITexture? _background;
         private readonly ITexture? _kitArt;
         private bool _disposed;
@@ -80,6 +83,7 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             _titleFont = TryLoadFont(L.DisplayFontFamily, L.TitleFontSize);
             _labelFont = TryLoadFont(L.DisplayFontFamily, L.LabelFontSize);
             _monoFont = TryLoadFont(L.MonoFontFamily, L.MonoFontSize);
+            _serifFont = TryLoadFont(L.SerifFontFamily, L.SerifFontSize);
 
             _background = TryLoadTexture(TexturePath.StartupBackground);
             _kitArt = TryLoadTexture(TexturePath.DrumKitSet);
@@ -115,10 +119,12 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             Text(sb, _titleFont, L.Title, L.TitlePosition, _palette.TextPrimary);
             Text(sb, _monoFont, L.Subtitle, L.SubtitlePosition, _palette.TextTertiary);
 
-            // MIDI caption, status dot and device name, right-aligned to MidiGroupRight.
+            // MIDI caption, status dot and device name, right-aligned to MidiGroupRight. The mono
+            // face is Latin-only, so a non-ASCII name (a Japanese device) uses the serif.
             var (deviceText, connected) = view.Midi;
-            var name = _monoFont != null ? TextHelper.TruncateToWidth(deviceText, L.MidiDeviceMaxWidth, _monoFont) : deviceText;
-            float nameWidth = MeasureMono(name);
+            var nameFont = DisplayText.IsAsciiDisplayable(deviceText) ? _monoFont : _serifFont ?? _monoFont;
+            var name = nameFont != null ? TextHelper.TruncateToWidth(deviceText, L.MidiDeviceMaxWidth, nameFont) : deviceText;
+            float nameWidth = nameFont?.MeasureString(name).X ?? name.Length * 8f;
             int captionWidth = CaptionWidth("MIDI");
             int x = L.MidiGroupRight - (int)MathF.Ceiling(nameWidth) - 10 - L.StatusDotSize - 10 - captionWidth;
             Caption(sb, "MIDI", x, L.MidiGroupCenterY - (L.CaptionHeight / 2));
@@ -128,7 +134,7 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
                 sb.Draw(_glow, Inflate(dot, 6), _palette.Success * 0.5f);
             sb.Draw(_circle, dot, connected ? _palette.Success : _palette.TextFaint);
             x += L.StatusDotSize + 10;
-            TextCenteredY(sb, _monoFont, name, x, L.MidiGroupCenterY, _palette.TextSecondary);
+            TextCenteredY(sb, nameFont, name, x, L.MidiGroupCenterY, _palette.TextSecondary);
 
             // Reset to defaults: a danger-outlined button; focus adds a full-strength ring.
             var reset = L.ResetButton;
@@ -153,7 +159,7 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             {
                 int lane = piece.Lane;
                 var box = piece.Bounds;
-                float flash = lane == view.FlashLane ? view.FlashStrength : 0f;
+                float flash = view.FlashOf(lane);
                 if (lane == view.SelectedLane)
                     sb.Draw(_glow, Inflate(box, box.Width / 4), _palette.Accent * 0.5f);
                 else if (lane == view.HoveredLane)
@@ -171,7 +177,7 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
                 var laneColor = PerformanceUILayout.GetLaneColor(lane);
                 var box = piece.Bounds;
                 bool selected = lane == view.SelectedLane;
-                float flash = lane == view.FlashLane ? view.FlashStrength : 0f;
+                float flash = view.FlashOf(lane);
 
                 if (_kitArt?.Texture == null)
                     sb.Draw(_circle, Inflate(box, -box.Width / 6), laneColor * 0.35f);
@@ -212,7 +218,7 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             var laneColor = PerformanceUILayout.GetLaneColor(lane);
             bool selected = lane == view.SelectedLane;
             bool hovered = lane == view.HoveredLane;
-            float flash = lane == view.FlashLane ? view.FlashStrength : 0f;
+            float flash = view.FlashOf(lane);
             var r = row.Bounds;
 
             Color fill = selected ? L.SelectedRowFill : new Color(0x10, 0x19, 0x2B) * 0.6f;
@@ -245,13 +251,13 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
 
             // Live hit readout at the row's right end, over a backing plate so it stays legible
             // on a full row.
-            if (flash > 0 && view.FlashText != null)
+            if (flash > 0 && view.FlashTextOf(lane) is { } flashText)
             {
-                float w = MeasureMono(view.FlashText) * L.SmallTextScale;
+                float w = MeasureMono(flashText) * L.SmallTextScale;
                 int plateX = r.Right - L.FlashTextRightInset - (int)MathF.Ceiling(w) - 8;
                 sb.Draw(_white, new Rectangle(plateX, r.Y + 6, r.Right - 4 - plateX, r.Height - 12), L.TagFill * flash);
                 var readout = Color.Lerp(laneColor, Color.White, 0.35f) * Math.Min(1f, flash * 1.5f);
-                SmallText(sb, view.FlashText, plateX + 8, r.Center.Y, readout);
+                SmallText(sb, flashText, plateX + 8, r.Center.Y, readout);
             }
         }
 
@@ -503,6 +509,7 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             _titleFont?.RemoveReference();
             _labelFont?.RemoveReference();
             _monoFont?.RemoveReference();
+            _serifFont?.RemoveReference();
             _background?.RemoveReference();
             _kitArt?.RemoveReference();
         }

@@ -28,6 +28,9 @@ namespace DTXMania.Game.Lib.UI.Layout
         public const int TitleFontSize = 18;
         public const int LabelFontSize = 10;
         public const int MonoFontSize = 11;
+        /// <summary>CJK-capable face for MIDI device names the Latin-only mono face cannot draw.</summary>
+        public const string SerifFontFamily = "NotoSerifJP";
+        public const int SerifFontSize = 14;
         /// <summary>Scale for small mono text (chip KEY/MIDI prefixes and VEL tags).</summary>
         public const float SmallTextScale = 0.8f;
 

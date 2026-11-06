@@ -164,6 +164,30 @@ namespace DTXMania.Test.Stage.DrumConfig
         }
 
         [Fact]
+        public void LayoutRow_AnyWindow_KeepsChipsAndTheOverflowMarkerInsideTheRow()
+        {
+            // Every chip count and focus (or listening), including a window slid to the last
+            // chip with earlier ones hidden.
+            int right = L.GetRowRect(1).Right - L.ChipsRightInset;
+            for (int count = 1; count <= 14; count++)
+            {
+                var buttons = Enumerable.Range(30, count).Select(n => $"MIDI.{n}").ToArray();
+                for (int focus = -1; focus <= count; focus++)
+                {
+                    bool listening = focus == count;
+                    var row = DrumBindingList.LayoutRow(1, buttons, NoThreshold, listening ? -1 : focus, listening, Measure);
+
+                    Assert.All(row.Chips, c => Assert.True(c.Bounds.Right <= right, $"{count} chips, focus {focus}"));
+                    if (row.HiddenCount > 0)
+                    {
+                        float markerRight = row.OverflowPosition.X + (Measure($"+{row.HiddenCount}") * L.SmallTextScale);
+                        Assert.True(markerRight <= right, $"+N marker overflows: {count} chips, focus {focus}");
+                    }
+                }
+            }
+        }
+
+        [Fact]
         public void HitTestChip_FindsTheChipUnderThePoint()
         {
             var row = DrumBindingList.LayoutRow(1, new[] { "Key.J", "MIDI.42" }, NoThreshold, -1, false, Measure);
