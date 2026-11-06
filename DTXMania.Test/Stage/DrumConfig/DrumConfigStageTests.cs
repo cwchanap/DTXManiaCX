@@ -517,6 +517,19 @@ namespace DTXMania.Test.Stage.DrumConfig
         }
 
         [Fact]
+        public void Reset_DropsThresholdsOfTheNotesItUnbinds()
+        {
+            var (stage, cm, _) = CreateStage();
+            ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "MIDI.99", 4);
+            cm.SetMidiVelocityThreshold(99, 127);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "ResetDrumBindingsToDefault");
+
+            Assert.False(cm.Config.KeyBindings.ContainsKey("MIDI.99"));
+            Assert.Equal(0, cm.GetMidiVelocityThreshold(99));
+        }
+
+        [Fact]
         public void AdjustMidiVelocityThreshold_ClampsTo127()
         {
             var (stage, cm, _) = CreateStage();

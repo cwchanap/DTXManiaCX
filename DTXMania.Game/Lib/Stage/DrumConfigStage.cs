@@ -551,6 +551,12 @@ namespace DTXMania.Game.Lib.Stage
             kb.LoadDefaultBindings();
             _configManager.SetKeyBindings(kb);
             EvictSystemKeysForDrumBindings(kb);
+            // Same rule as removing a chip: a note the reset unbinds loses its threshold.
+            foreach (var note in new List<int>(_configManager.Config.MidiVelocityThresholds.Keys))
+            {
+                if (kb.GetLane(KeyBindings.CreateMidiButtonId(note)) < 0)
+                    _configManager.SetMidiVelocityThreshold(note, 0);
+            }
             ShowNotice("Drum bindings reset to defaults.", DrumStatusTone.Success);
         }
 
