@@ -4,18 +4,19 @@ using Microsoft.Xna.Framework;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song.Entities;
 
-namespace DTXMania.Game.Lib.Stage.Performance
+namespace DTXMania.Game.Lib.UI
 {
     /// <summary>
-    /// Tab-mode colors resolved once from the active skin's Theme.ini, shared by the
-    /// notation strip and the Tab HUD. Every key is optional: the shared UI.* ramp
-    /// and accents fall back to the CX Neon values, and the judgement ramp reuses the
-    /// result screen's Result.*Text ledger so a hit reads the same color on both
-    /// screens. Surfaces are fixed dark navy tones so notation stays legible over any BGA.
+    /// UI colors resolved once from the active skin's Theme.ini, shared by the tab-mode
+    /// notation strip and HUD and the Drum Key Mapping page. Every key is optional: the
+    /// shared UI.* ramp and accents fall back to the CX Neon values, and the judgement
+    /// ramp reuses the result screen's Result.*Text ledger so a hit reads the same color
+    /// on both screens. Surfaces are fixed dark navy tones so text stays legible over any
+    /// backdrop or BGA.
     /// </summary>
-    public sealed class TabModePalette
+    public sealed class SkinPalette
     {
-        public static readonly TabModePalette Default = Resolve(SkinTheme.Empty);
+        public static readonly SkinPalette Default = Resolve(SkinTheme.Empty);
 
         public Color TextPrimary { get; private init; }
         public Color TextSecondary { get; private init; }
@@ -41,10 +42,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
         // Danger-zone gauge midpoint, sampled from CX Neon's 7_gauge_bar.png.
         public Color Warning { get; } = new Color(0xF9, 0x9C, 0x16);
 
-        public static TabModePalette Resolve(ISkinTheme? theme)
+        public static SkinPalette Resolve(ISkinTheme? theme)
         {
             theme ??= SkinTheme.Empty;
-            return new TabModePalette
+            return new SkinPalette
             {
                 TextPrimary = theme.GetColor("UI.TextPrimary", new Color(0xDB, 0xEB, 0xF0)),
                 TextSecondary = theme.GetColor("UI.TextSecondary", new Color(0xA4, 0xBE, 0xC5)),

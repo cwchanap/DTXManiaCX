@@ -145,7 +145,6 @@
     "Graphics/drumkit_hihat.png":  {"family": "drumkit", "desc": "Hi-hat piece."},
     "Graphics/drumkit_drum.png":   {"family": "drumkit", "desc": "Tom/snare drum piece."},
     "Graphics/drumkit_kick.png":   {"family": "drumkit", "desc": "Kick drum piece."},
-    "Graphics/drumkit_pedal.png":  {"family": "drumkit", "desc": "Foot pedal piece."},
-    "Graphics/drumkit_skeleton.png": {"family": "drumkit", "desc": "Kit hardware/stands, drawn behind the pieces."}
+    "Graphics/drumkit_pedal.png":  {"family": "drumkit", "desc": "Foot pedal piece."}
   }
 }

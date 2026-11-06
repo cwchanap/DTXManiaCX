@@ -28,6 +28,9 @@ namespace DTXMania.Test.Resources
         }
 
         [Theory]
+        [InlineData(10, "Orbitron-10")]
+        [InlineData(11, "Orbitron-10")]
+        [InlineData(13, "Orbitron-14")]
         [InlineData(14, "Orbitron-14")]
         [InlineData(16, "Orbitron-14")]
         [InlineData(18, "Orbitron-18")]
@@ -46,7 +49,9 @@ namespace DTXMania.Test.Resources
         }
 
         [Theory]
-        [InlineData(12, "ShareTechMono-14")]
+        [InlineData(11, "ShareTechMono-11")]
+        [InlineData(12, "ShareTechMono-11")]
+        [InlineData(13, "ShareTechMono-14")]
         [InlineData(14, "ShareTechMono-14")]
         // A tie snaps to the smaller asset, as it does for Orbitron.
         [InlineData(16, "ShareTechMono-14")]

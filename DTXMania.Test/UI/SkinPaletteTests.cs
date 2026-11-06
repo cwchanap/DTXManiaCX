@@ -1,18 +1,18 @@
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song.Entities;
-using DTXMania.Game.Lib.Stage.Performance;
+using DTXMania.Game.Lib.UI;
 using Microsoft.Xna.Framework;
 using Xunit;
 
-namespace DTXMania.Test.Stage.Performance
+namespace DTXMania.Test.UI
 {
     [Trait("Category", "Unit")]
-    public class TabModePaletteTests
+    public class SkinPaletteTests
     {
         [Fact]
         public void Resolve_WithEmptyTheme_ShouldUseCxNeonDefaults()
         {
-            var palette = TabModePalette.Resolve(SkinTheme.Empty);
+            var palette = SkinPalette.Resolve(SkinTheme.Empty);
 
             Assert.Equal(new Color(0x22, 0xD3, 0xEE), palette.Accent);
             Assert.Equal(new Color(0xDB, 0xEB, 0xF0), palette.TextPrimary);
@@ -23,10 +23,10 @@ namespace DTXMania.Test.Stage.Performance
         [Fact]
         public void Resolve_WithNullTheme_ShouldMatchDefault()
         {
-            var palette = TabModePalette.Resolve(null);
+            var palette = SkinPalette.Resolve(null);
 
-            Assert.Equal(TabModePalette.Default.Accent, palette.Accent);
-            Assert.Equal(TabModePalette.Default.Danger, palette.Danger);
+            Assert.Equal(SkinPalette.Default.Accent, palette.Accent);
+            Assert.Equal(SkinPalette.Default.Danger, palette.Danger);
         }
 
         [Fact]
@@ -39,7 +39,7 @@ namespace DTXMania.Test.Stage.Performance
                 "Result.GreatText=#00FF00",
             });
 
-            var palette = TabModePalette.Resolve(theme);
+            var palette = SkinPalette.Resolve(theme);
 
             Assert.Equal(new Color(0xFF, 0x00, 0x00), palette.Accent);
             Assert.Equal(new Color(0x01, 0x02, 0x03), palette.TextPrimary);
@@ -54,7 +54,7 @@ namespace DTXMania.Test.Stage.Performance
         [InlineData(JudgementType.Miss)]
         public void ForJudgement_ShouldReturnThatTiersLedgerColor(JudgementType type)
         {
-            var palette = TabModePalette.Default;
+            var palette = SkinPalette.Default;
             var expected = type switch
             {
                 JudgementType.Perfect => palette.Perfect,
@@ -70,7 +70,7 @@ namespace DTXMania.Test.Stage.Performance
         [Fact]
         public void GaugeSegment_ShouldRunDangerToWarningThenAccentToSuccess()
         {
-            var palette = TabModePalette.Default;
+            var palette = SkinPalette.Default;
 
             Assert.Equal(palette.Danger, palette.GaugeSegment(0f));
             Assert.Equal(palette.Accent, palette.GaugeSegment(0.25f));

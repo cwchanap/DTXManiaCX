@@ -9,7 +9,7 @@ namespace DTXMania.E2E;
 
 /// <summary>
 /// Black-box smoke for the visual drum-mapping stage (<c>StageType.DrumConfig</c>): navigate to
-/// the stage, open a piece's capture popup, hit a key to bind it, then Back (= save &amp; exit),
+/// the stage, listen on the focused lane, hit a key to bind it, then Back (= save &amp; exit),
 /// and assert the new binding was persisted to the sandbox <c>config.db</c> (the authoritative
 /// SQLite store since HPA-190). This exercises the live render + capture + save round-trip that
 /// the headless unit suite structurally cannot reach.
@@ -17,9 +17,9 @@ namespace DTXMania.E2E;
 [Trait("Category", "E2E")]
 public sealed class DrumMappingStageSmokeTests
 {
-    // Authored visual zone 0 is the Hi-Hat (canonical lane 1). We append "Key.Z", a key not
+    // Focus starts on the first lane row (Left Cymbal, lane 0). We append "Key.Z", a key not
     // otherwise bound and not reserved for navigation, so the capture is accepted (append model).
-    private const int DefaultFocusedLane = 1;
+    private const int DefaultFocusedLane = 0;
     private const string BindKey = "Z";
     private const string ExpectedBindingId = "Key.Z";
 
@@ -53,22 +53,22 @@ public sealed class DrumMappingStageSmokeTests
             await client.ChangeStageAsync("DrumConfig", cancellation.Token);
             await WaitForStageAsync(client, "DrumConfig", TimeSpan.FromSeconds(45), cancellation.Token);
             // The stage reports its type as soon as the transition is queued; this settle covers
-            // the fade transition + OnActivate (popup/focus/skip-flag init) before we send input.
+            // the fade transition + OnActivate (focus/skip-flag init) before we send input.
             await Task.Delay(500, cancellation.Token);
 
-            // Activate authored visual zone 0 (Hi-Hat / canonical lane 1) to open its capture popup.
+            // Enter on the focused lane (Left Cymbal, lane 0) starts listening.
             await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
-            // Let the popup open and the one-frame capture-skip clear before sending the bind key.
+            // Let listening start and the one-frame capture-skip clear before sending the bind key.
             await Task.Delay(700, cancellation.Token);
 
             // Hit the key to bind — captured and appended to the focused lane.
             await client.SendKeyAsync(BindKey, TimeSpan.FromMilliseconds(50), cancellation.Token);
-            // Let the capture register before closing the popup.
+            // Let the capture register before stopping.
             await Task.Delay(700, cancellation.Token);
 
-            // First Back closes the popup (acts as "Done")...
+            // First Back stops listening...
             await client.SendKeyAsync("Escape", TimeSpan.FromMilliseconds(50), cancellation.Token);
-            // Let the popup Close() propagate before the second Back triggers flush-and-exit.
+            // Let the stop propagate before the second Back triggers flush-and-exit.
             await Task.Delay(700, cancellation.Token);
 
             // ...second Back exits the stage; the capture was already live-applied to Config,
@@ -108,7 +108,7 @@ public sealed class DrumMappingStageSmokeTests
 
     /// <summary>
     /// Black-box smoke for the keyboard-reachable Reset-to-defaults flow on the drum-mapping
-    /// stage: bind a non-default key to the default focused zone, advance keyboard focus onto the
+    /// stage: bind a non-default key to the default focused lane, advance keyboard focus onto the
     /// Reset action, Activate to reset Config back to defaults (live-applied), then Back (= flush
     /// &amp; exit), and assert the custom binding was NOT persisted (i.e. Reset overwrote it before
     /// the flush). Exercises the live focus + Activate-dispatch + reset + flush round-trip the
@@ -144,17 +144,17 @@ public sealed class DrumMappingStageSmokeTests
             // Settle past the fade + OnActivate (focus/skip-flag init) before sending input.
             await Task.Delay(500, cancellation.Token);
 
-            // Focus starts on authored visual zone 0 (Hi-Hat / canonical lane 1). Open its capture popup
-            // and bind the non-default key.
+            // Focus starts on the first lane row (Left Cymbal, lane 0). Listen there and bind the
+            // non-default key.
             await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
             await Task.Delay(700, cancellation.Token);
             await client.SendKeyAsync(BindKey, TimeSpan.FromMilliseconds(50), cancellation.Token);
             await Task.Delay(700, cancellation.Token);
-            // First Back closes the popup (acts as "Done"); focus stays on visual zone 0.
+            // First Back stops listening; focus stays on lane 0.
             await client.SendKeyAsync("Escape", TimeSpan.FromMilliseconds(50), cancellation.Token);
             await Task.Delay(700, cancellation.Token);
 
-            // Advance focus through all ten authored visual zones onto the Reset action (index 10).
+            // Advance focus through all ten lane rows onto the Reset action (index 10).
             // Tab is read via ConsumePressedButtons, which records every injected press event
             // regardless of a same-frame release, and parses server-side via Enum.TryParse<Keys>.
             for (int i = 0; i < 10; i++)

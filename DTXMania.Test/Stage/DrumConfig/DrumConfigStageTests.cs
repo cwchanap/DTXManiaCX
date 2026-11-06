@@ -7,15 +7,15 @@ using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.Stage.DrumConfig;
-using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Utilities;
 using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
-using Xunit;
 using Moq;
+using Xunit;
 using ButtonState = DTXMania.Game.Lib.Input.ButtonState;
+using L = DTXMania.Game.Lib.UI.Layout.DrumConfigUILayout;
 using XnaButtonState = Microsoft.Xna.Framework.Input.ButtonState;
 
 namespace DTXMania.Test.Stage.DrumConfig
@@ -24,70 +24,425 @@ namespace DTXMania.Test.Stage.DrumConfig
     [Collection("AppPaths")]
     public class DrumConfigStageTests
     {
-        [Fact]
-        public void GetResetButtonRect_ReturnsCorrectPosition()
+        private const int ResetFocus = 10;
+
+        // ---- Harness ----
+
+        /// <summary>
+        /// Stage wired like OnActivate (minus graphics): a real ConfigManager and an input manager
+        /// whose runtime bindings mirror Config through the change events. Commands come from
+        /// <see cref="FakeInput"/>; pressed buttons are passed straight to the step methods.
+        /// </summary>
+        private static (DrumConfigStage stage, ConfigManager cm, FakeInput input) CreateStage()
         {
-            // Act - use reflection to test the private static method
-            var method = typeof(DrumConfigStage).GetMethod("GetResetButtonRect",
-                BindingFlags.NonPublic | BindingFlags.Static);
-            Assert.NotNull(method);
+            var cm = new ConfigManager();
+            var input = new FakeInput(cm);
+            var game = ReflectionHelpers.CreateGame();
+            var device = ReflectionHelpers.CreateUninitialized<GraphicsDevice>();
+            ReflectionHelpers.SetPrivateField(device, "_viewport", new Viewport(0, 0, 1280, 720));
+            GC.SuppressFinalize(device);
+            ReflectionHelpers.SetPrivateField(game, "_graphicsDeviceService", new StubGraphicsDeviceService(device));
+            ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), cm);
+            ReflectionHelpers.SetProperty(game, nameof(BaseGame.InputManager), input);
+            var stage = new DrumConfigStage(game);
+            ReflectionHelpers.SetPrivateField(stage, "_input", input);
+            ReflectionHelpers.InvokePrivateMethod(stage, "SelectLane", 0, 0);
+            ReflectionHelpers.InvokePrivateMethod(stage, "RebuildRows");
+            return (stage, cm, input);
+        }
 
-            var rect = (Rectangle)method!.Invoke(null, new object[] { 1280, 720 });
+        private static void Browse(DrumConfigStage stage, params string[] pressed) =>
+            ReflectionHelpers.InvokePrivateMethod(stage, "StepBrowsing", Buttons(pressed), false, null!);
 
-            // Assert
-            Assert.Equal(1280 - 210, rect.X);
-            Assert.Equal(12, rect.Y);
-            Assert.Equal(190, rect.Width);
-            Assert.Equal(30, rect.Height);
+        private static void Listen(DrumConfigStage stage, params string[] pressed) =>
+            ReflectionHelpers.InvokePrivateMethod(stage, "StepListening", Buttons(pressed), false, false, null!);
+
+        private static void Click(DrumConfigStage stage, Point p)
+        {
+            ReflectionHelpers.SetPrivateField(stage, "_previousMouse", MouseAt(p.X, p.Y, false));
+            ReflectionHelpers.InvokePrivateMethod(stage, "Step", 0.016, MouseAt(p.X, p.Y, true));
+        }
+
+        private static IReadOnlyList<ButtonState> Buttons(params string[] ids)
+        {
+            var list = new List<ButtonState>();
+            foreach (var id in ids)
+                list.Add(new ButtonState(id, true, 0.75f));
+            return list;
+        }
+
+        private static MouseState MouseAt(int x, int y, bool leftDown, bool rightDown = false) =>
+            new MouseState(x, y, 0,
+                leftDown ? XnaButtonState.Pressed : XnaButtonState.Released,
+                XnaButtonState.Released,
+                rightDown ? XnaButtonState.Pressed : XnaButtonState.Released,
+                XnaButtonState.Released,
+                XnaButtonState.Released);
+
+        private static int Focus(DrumConfigStage stage) => ReflectionHelpers.GetPrivateField<int>(stage, "_focusIndex");
+        private static int Chip(DrumConfigStage stage) => ReflectionHelpers.GetPrivateField<int>(stage, "_chipIndex");
+        private static DrumCaptureSession Capture(DrumConfigStage stage) =>
+            ReflectionHelpers.GetPrivateField<DrumCaptureSession>(stage, "_capture")!;
+        private static string? Notice(DrumConfigStage stage) => ReflectionHelpers.GetPrivateField<string?>(stage, "_notice");
+        private static DrumStatusLine Status(DrumConfigStage stage) =>
+            ReflectionHelpers.InvokePrivateMethod<DrumStatusLine>(stage, "BuildStatusLine");
+
+        private static void StartListening(DrumConfigStage stage, int lane)
+        {
+            ReflectionHelpers.InvokePrivateMethod(stage, "SelectLane", lane, 0);
+            ReflectionHelpers.InvokePrivateMethod(stage, "StartListening", lane);
+            ReflectionHelpers.SetPrivateField(stage, "_skipCaptureThisFrame", false);
+        }
+
+        // ---- Focus and navigation ----
+
+        [Fact]
+        public void MoveDown_FollowsLaneOrder_AndFocusesTheFirstChip()
+        {
+            var (stage, _, input) = CreateStage();
+            input.ActiveCommand = InputCommandType.MoveDown;
+
+            Browse(stage);
+
+            Assert.Equal(1, Focus(stage));
+            Assert.Equal(0, Chip(stage));
         }
 
         [Fact]
-        public void FormatHdmiDeviceStatus_WhenNoDevices_ShouldShowKeyboardFallback()
+        public void MoveUp_FromTheFirstLane_WrapsToReset()
         {
-            var method = typeof(DrumConfigStage).GetMethod(
-                "FormatHdmiDeviceStatus",
-                BindingFlags.NonPublic | BindingFlags.Static);
-            Assert.NotNull(method);
+            var (stage, _, input) = CreateStage();
+            input.ActiveCommand = InputCommandType.MoveUp;
 
-            var status = (string)method!.Invoke(
-                null,
-                new object[] { Array.Empty<string>() })!;
+            Browse(stage);
 
-            Assert.Equal(
-                "HDMI device: None detected (keyboard still works)",
-                status);
+            Assert.Equal(ResetFocus, Focus(stage));
+            Assert.Equal(-1, Chip(stage));
         }
 
         [Fact]
-        public void FormatHdmiDeviceStatus_WhenOneDevice_ShouldShowDeviceName()
+        public void TenTabsInOneFrame_WalkFromTheFirstLaneToReset()
         {
-            var method = typeof(DrumConfigStage).GetMethod(
-                "FormatHdmiDeviceStatus",
-                BindingFlags.NonPublic | BindingFlags.Static);
-            Assert.NotNull(method);
+            // A slow E2E frame can drain several injected Tabs at once; each one is a step.
+            var (stage, _, _) = CreateStage();
 
-            var status = (string)method!.Invoke(
-                null,
-                new object[] { new[] { "Roland TD-17" } })!;
+            Browse(stage, "Key.Tab", "Key.Tab", "Key.Tab", "Key.Tab", "Key.Tab",
+                "Key.Tab", "Key.Tab", "Key.Tab", "Key.Tab", "Key.Tab");
 
-            Assert.Equal("HDMI device: Roland TD-17", status);
+            Assert.Equal(ResetFocus, Focus(stage));
         }
 
         [Fact]
-        public void FormatHdmiDeviceStatus_WhenMultipleDevices_ShouldPreserveFirstAndSummarizeRest()
+        public void TabFromTheDrainedFeed_AdvancesFocus()
         {
-            var method = typeof(DrumConfigStage).GetMethod(
-                "FormatHdmiDeviceStatus",
-                BindingFlags.NonPublic | BindingFlags.Static);
-            Assert.NotNull(method);
+            var (stage, _, input) = CreateStage();
+            input.ModularInputManager.InjectButton("Key.Tab", isPressed: true);
+            input.ModularInputManager.InjectButton("Key.Tab", isPressed: false);
+            input.ModularInputManager.Update(); // press and release drain in one frame
 
-            var status = (string)method!.Invoke(
-                null,
-                new object[] { new[] { "Alpha Kit", "Beta Kit", "Zeta Kit" } })!;
+            ReflectionHelpers.InvokePrivateMethod(stage, "Step", 0.016, MouseAt(0, 0, false));
 
-            Assert.Equal(
-                "HDMI devices (3): Alpha Kit, +2 more",
-                status);
+            Assert.Equal(1, Focus(stage));
+        }
+
+        [Fact]
+        public void LeftRight_MoveTheChipFocusWithinTheLane()
+        {
+            var (stage, _, input) = CreateStage();
+            ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "MIDI.49", 0);
+            ReflectionHelpers.InvokePrivateMethod(stage, "SelectLane", 0, 0);
+
+            input.ActiveCommand = InputCommandType.MoveRight;
+            Browse(stage);
+            Browse(stage); // clamps at the last chip
+            Assert.Equal(1, Chip(stage));
+
+            input.ActiveCommand = InputCommandType.MoveLeft;
+            Browse(stage);
+            Browse(stage);
+            Assert.Equal(0, Chip(stage));
+        }
+
+        [Fact]
+        public void Activate_OnALane_StartsListeningThere()
+        {
+            var (stage, _, input) = CreateStage();
+            ReflectionHelpers.InvokePrivateMethod(stage, "SelectLane", 4, 0);
+            input.ActiveCommand = InputCommandType.Activate;
+
+            Browse(stage);
+
+            Assert.True(Capture(stage).IsListening);
+            Assert.Equal(4, Capture(stage).Lane);
+        }
+
+        [Fact]
+        public void Activate_OnReset_RestoresDefaultBindings()
+        {
+            var (stage, cm, input) = CreateStage();
+            ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "Key.Z", 3);
+            ReflectionHelpers.SetPrivateField(stage, "_focusIndex", ResetFocus);
+            input.ActiveCommand = InputCommandType.Activate;
+
+            Browse(stage);
+
+            Assert.False(cm.Config.KeyBindings.ContainsKey("Key.Z"));
+            Assert.Equal(3, cm.Config.KeyBindings["Key.S"]);
+            Assert.False(Capture(stage).IsListening);
+        }
+
+        [Fact]
+        public void Back_WhileBrowsing_ReturnsToConfig()
+        {
+            var (stage, _, input) = CreateStage();
+            var stageManager = new Mock<IStageManager>();
+            stage.StageManager = stageManager.Object;
+            input.BackTriggered = true;
+
+            Browse(stage);
+
+            stageManager.Verify(m => m.ChangeStage(StageType.Config, It.IsAny<IStageTransition>()), Times.Once);
+        }
+
+        // ---- Chip edits ----
+
+        [Fact]
+        public void Delete_RemovesTheFocusedChip()
+        {
+            var (stage, cm, _) = CreateStage();
+            ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "MIDI.38", 3);
+            ReflectionHelpers.InvokePrivateMethod(stage, "SelectLane", 3, 1); // KEY S, [MIDI 38]
+
+            Browse(stage, "Key.Delete");
+
+            Assert.False(cm.Config.KeyBindings.ContainsKey("MIDI.38"));
+            Assert.Equal(3, cm.Config.KeyBindings["Key.S"]);
+            Assert.Equal(0, Chip(stage));
+            Assert.Contains("Removed MIDI 38 from Snare", Notice(stage));
+        }
+
+        [Fact]
+        public void PlusMinus_AdjustTheFocusedMidiChipsVelocityThreshold()
+        {
+            var (stage, cm, _) = CreateStage();
+            ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "MIDI.38", 3);
+            ReflectionHelpers.InvokePrivateMethod(stage, "SelectLane", 3, 1);
+
+            Browse(stage, "Key.OemPlus", "Key.Add", "Key.OemPlus");
+            Assert.Equal(3, cm.GetMidiVelocityThreshold(38));
+
+            Browse(stage, "Key.OemMinus", "Key.Subtract", "Key.OemMinus", "Key.OemMinus");
+            Assert.Equal(0, cm.GetMidiVelocityThreshold(38)); // clamps at 0
+        }
+
+        [Fact]
+        public void PlusMinus_OnAKeyChip_DoesNothing()
+        {
+            var (stage, cm, _) = CreateStage();
+            ReflectionHelpers.InvokePrivateMethod(stage, "SelectLane", 3, 0); // KEY S
+
+            Browse(stage, "Key.OemPlus");
+
+            Assert.Empty(cm.Config.MidiVelocityThresholds);
+        }
+
+        [Fact]
+        public void ABoundKey_OnlyFlashesItsLane_NeverEdits()
+        {
+            // Delete bound as a drum key must light its lane, not remove the focused chip.
+            var (stage, cm, _) = CreateStage();
+            ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "Key.Delete", 2);
+            ReflectionHelpers.InvokePrivateMethod(stage, "SelectLane", 3, 0);
+
+            Browse(stage, "Key.Delete");
+
+            Assert.Equal(3, cm.Config.KeyBindings["Key.S"]);
+            Assert.Equal(2, ReflectionHelpers.GetPrivateField<int>(stage, "_flashLane"));
+            Assert.Equal("HIT  KEY Delete", ReflectionHelpers.GetPrivateField<string?>(stage, "_flashText"));
+        }
+
+        [Fact]
+        public void ABoundMidiNote_FlashesWithItsVelocity_AndTheFlashExpires()
+        {
+            var (stage, _, _) = CreateStage();
+            ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "MIDI.38", 3);
+
+            Browse(stage, "MIDI.38"); // velocity 0.75 -> 95
+
+            Assert.Equal(3, ReflectionHelpers.GetPrivateField<int>(stage, "_flashLane"));
+            Assert.Equal("HIT  MIDI 38  VEL 95", ReflectionHelpers.GetPrivateField<string?>(stage, "_flashText"));
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "TickTimers", L.HitFlashSeconds + 0.01);
+            Assert.Equal(-1, ReflectionHelpers.GetPrivateField<int>(stage, "_flashLane"));
+        }
+
+        [Fact]
+        public void AnUnboundMidiNote_SaysSoInTheStatusLine()
+        {
+            var (stage, _, _) = CreateStage();
+
+            Browse(stage, "MIDI.40");
+
+            Assert.Equal(new DrumStatusLine("MIDI 40 is not bound to a lane.", DrumStatusTone.Hint), Status(stage));
+        }
+
+        // ---- Listening ----
+
+        [Fact]
+        public void Listening_AppendsEveryHitToTheLane_UntilBack()
+        {
+            var (stage, cm, input) = CreateStage();
+            StartListening(stage, 1);
+
+            Listen(stage, "MIDI.42");
+            Listen(stage, "MIDI.46");
+
+            Assert.Equal(1, cm.Config.KeyBindings["MIDI.42"]);
+            Assert.Equal(1, cm.Config.KeyBindings["MIDI.46"]);
+            Assert.True(Capture(stage).IsListening);
+            Assert.Equal(2, Chip(stage)); // KEY J, MIDI 42, [MIDI 46]
+            Assert.Contains("Added MIDI 46 to Hi-Hat", Notice(stage));
+
+            input.BackTriggered = true;
+            Listen(stage);
+
+            Assert.False(Capture(stage).IsListening);
+        }
+
+        [Fact]
+        public void Listening_ARequiredSystemKey_IsRejected()
+        {
+            var (stage, cm, _) = CreateStage();
+            StartListening(stage, 3);
+
+            Listen(stage, "Key.Enter");
+
+            Assert.False(cm.Config.KeyBindings.ContainsKey("Key.Enter"));
+            var status = Status(stage);
+            Assert.Equal(DrumStatusTone.Danger, status.Tone);
+            Assert.Contains("reserved", status.Text);
+        }
+
+        [Fact]
+        public void Listening_AButtonFromAnotherLane_MovesIt()
+        {
+            var (stage, cm, _) = CreateStage();
+            StartListening(stage, 1);
+
+            Listen(stage, "Key.S"); // default Snare key
+
+            Assert.Equal(1, cm.Config.KeyBindings["Key.S"]);
+            Assert.Contains("Moved KEY S from Snare to Hi-Hat", Notice(stage));
+        }
+
+        [Fact]
+        public void Listening_SkipsTheFrameItStarted()
+        {
+            var (stage, cm, _) = CreateStage();
+            ReflectionHelpers.InvokePrivateMethod(stage, "StartListening", 2);
+
+            Listen(stage, "Key.Q");
+            Assert.False(cm.Config.KeyBindings.ContainsKey("Key.Q"));
+
+            Listen(stage, "Key.Q");
+            Assert.Equal(2, cm.Config.KeyBindings["Key.Q"]);
+        }
+
+        [Fact]
+        public void Listening_RightClickStops()
+        {
+            var (stage, _, _) = CreateStage();
+            StartListening(stage, 2);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "StepListening", Buttons(), false, true, null!);
+
+            Assert.False(Capture(stage).IsListening);
+        }
+
+        [Fact]
+        public void StatusLine_WhileListening_NamesTheLane()
+        {
+            var (stage, _, _) = CreateStage();
+            StartListening(stage, 0);
+
+            var status = Status(stage);
+
+            Assert.Equal(DrumStatusTone.Accent, status.Tone);
+            Assert.Equal("Left Cymbal", status.Emphasis);
+        }
+
+        // ---- Mouse ----
+
+        [Fact]
+        public void ClickOnARow_SelectsItAndListens()
+        {
+            var (stage, _, _) = CreateStage();
+            var row = L.GetRowRect(6);
+
+            Click(stage, new Point(row.X + 100, row.Center.Y)); // the name, not a chip
+
+            Assert.Equal(6, Focus(stage));
+            Assert.True(Capture(stage).IsListening);
+            Assert.Equal(6, Capture(stage).Lane);
+        }
+
+        [Fact]
+        public void ClickOnAPiece_SelectsItsLaneAndListens()
+        {
+            var (stage, _, _) = CreateStage();
+            var kick = DrumKitLayout.Pieces[5].Bounds;
+
+            Click(stage, kick.Center);
+
+            Assert.Equal(5, Focus(stage));
+            Assert.Equal(5, Capture(stage).Lane);
+        }
+
+        [Fact]
+        public void ClickOnAChip_FocusesIt_ThenItsRemoveControlRemovesIt()
+        {
+            var (stage, cm, _) = CreateStage();
+            ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "MIDI.38", 3);
+            ReflectionHelpers.InvokePrivateMethod(stage, "RebuildRows");
+            var rows = ReflectionHelpers.GetPrivateField<IReadOnlyList<DrumBindingRow>>(stage, "_rows")!;
+
+            Click(stage, rows[3].Chips[1].Bounds.Center);
+
+            Assert.Equal(3, Focus(stage));
+            Assert.Equal(1, Chip(stage));
+            Assert.False(Capture(stage).IsListening);
+
+            rows = ReflectionHelpers.GetPrivateField<IReadOnlyList<DrumBindingRow>>(stage, "_rows")!;
+            Click(stage, rows[3].Chips[1].Remove.Center);
+
+            Assert.False(cm.Config.KeyBindings.ContainsKey("MIDI.38"));
+        }
+
+        [Fact]
+        public void ClickOnReset_RestoresDefaults()
+        {
+            var (stage, cm, _) = CreateStage();
+            ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "Key.Z", 3);
+
+            Click(stage, L.ResetButton.Center);
+
+            Assert.False(cm.Config.KeyBindings.ContainsKey("Key.Z"));
+            Assert.Equal(ResetFocus, Focus(stage));
+        }
+
+        // ---- MIDI device status ----
+
+        [Theory]
+        [InlineData(new string[0], "No device (keyboard works)", false)]
+        [InlineData(new[] { "Roland TD-17" }, "Roland TD-17", true)]
+        [InlineData(new[] { "Alpha Kit", "Beta Kit", "Zeta Kit" }, "Alpha Kit +2 more", true)]
+        public void FormatMidiDeviceStatus_SummarizesDevices(string[] names, string text, bool connected)
+        {
+            var method = typeof(DrumConfigStage).GetMethod("FormatMidiDeviceStatus", BindingFlags.NonPublic | BindingFlags.Static)!;
+
+            var result = ((string Text, bool Connected))method.Invoke(null, new object[] { names })!;
+
+            Assert.Equal((text, connected), result);
         }
 
         // ---- Edit helpers (persist-on-edit: edits mutate Config via the live-apply setters) ----
@@ -95,94 +450,37 @@ namespace DTXMania.Test.Stage.DrumConfig
         [Fact]
         public void ApplyCapture_BindsButtonToLaneInConfig()
         {
-            var (stage, cm, input) = CreateWiredStage();
+            var (stage, cm, input) = CreateStage();
 
             ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "Key.Q", 5);
 
-            // Config is the source of truth; the runtime mirrors it via the Phase 2 events.
             Assert.Equal(5, cm.Config.KeyBindings["Key.Q"]);
             Assert.Equal(5, input.ModularInputManager.KeyBindings.GetLane("Key.Q"));
         }
 
         [Fact]
-        public void ApplyCapture_EvictsSystemKeyImmediately()
+        public void ApplyCapture_EvictsTheCapturedSystemKeyOnly()
         {
             // Capture-time eviction (Decision 3): a keyboard key claimed by a drum lane leaves the
-            // system map NOW (no deferred eviction, no restore on undo).
-            var (stage, cm, _) = CreateWiredStage();
-            // PageUp is a non-required system key.
+            // system map now; other system keys stay.
+            var (stage, cm, _) = CreateStage();
             cm.SetSystemKeyBindings(new Dictionary<Keys, InputCommandType>
             {
-                [Keys.PageUp] = InputCommandType.IncreaseScrollSpeed
+                [Keys.PageUp] = InputCommandType.IncreaseScrollSpeed,
+                [Keys.PageDown] = InputCommandType.DecreaseScrollSpeed,
             });
-            Assert.Equal("PageUp", cm.Config.SystemKeyBindings["SystemKey.IncreaseScrollSpeed"]);
 
             ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "Key.PageUp", 7);
 
-            // PageUp is now a drum lane key -> evicted from the system mapping immediately.
             Assert.Equal("", cm.Config.SystemKeyBindings["SystemKey.IncreaseScrollSpeed"]);
+            Assert.Equal("PageDown", cm.Config.SystemKeyBindings["SystemKey.DecreaseScrollSpeed"]);
             Assert.Equal(7, cm.Config.KeyBindings["Key.PageUp"]);
         }
 
         [Fact]
-        public void ApplyCapture_DoesNotEvictUnrelatedSystemKey()
+        public void RemoveBindingFromConfig_KeepsTheMidiVelocityThreshold()
         {
-            // Capturing an unrelated key must not touch an existing system mapping.
-            var (stage, cm, _) = CreateWiredStage();
-            cm.SetSystemKeyBindings(new Dictionary<Keys, InputCommandType>
-            {
-                [Keys.PageUp] = InputCommandType.IncreaseScrollSpeed
-            });
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "Key.Q", 5);
-
-            Assert.Equal("PageUp", cm.Config.SystemKeyBindings["SystemKey.IncreaseScrollSpeed"]);
-            Assert.Equal(5, cm.Config.KeyBindings["Key.Q"]);
-        }
-
-        [Fact]
-        public void RemoveBindingFromConfig_RemovesBindingFromConfig()
-        {
-            var (stage, cm, input) = CreateWiredStage();
-            ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "Key.Q", 4);
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "RemoveBindingFromConfig", "Key.Q");
-
-            Assert.False(cm.Config.KeyBindings.ContainsKey("Key.Q"));
-            Assert.Equal(-1, input.ModularInputManager.KeyBindings.GetLane("Key.Q"));
-        }
-
-        [Fact]
-        public void AdjustMidiVelocityThreshold_IncrementsAndClampsInConfig()
-        {
-            var (stage, cm, _) = CreateWiredStage();
-            cm.SetMidiVelocityThreshold(36, 126);
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "AdjustMidiVelocityThreshold", 36, 1);
-
-            Assert.Equal(127, cm.GetMidiVelocityThreshold(36));
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "AdjustMidiVelocityThreshold", 36, 1);
-
-            Assert.Equal(127, cm.GetMidiVelocityThreshold(36));
-        }
-
-        [Fact]
-        public void AdjustMidiVelocityThreshold_DecrementsAndRemovesAtZero()
-        {
-            var (stage, cm, _) = CreateWiredStage();
-            cm.SetMidiVelocityThreshold(36, 1);
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "AdjustMidiVelocityThreshold", 36, -1);
-
-            Assert.Equal(0, cm.GetMidiVelocityThreshold(36));
-            Assert.False(cm.Config.MidiVelocityThresholds.ContainsKey(36));
-        }
-
-        [Fact]
-        public void RemoveBindingFromConfig_DoesNotRemoveMidiVelocityThreshold()
-        {
-            var (stage, cm, input) = CreateWiredStage();
+            var (stage, cm, input) = CreateStage();
             ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "MIDI.36", 4);
             cm.SetMidiVelocityThreshold(36, 20);
 
@@ -194,935 +492,66 @@ namespace DTXMania.Test.Stage.DrumConfig
         }
 
         [Fact]
-        public void ClearLaneInConfig_ClearsAllButtonsForLane()
+        public void AdjustMidiVelocityThreshold_ClampsTo127()
         {
-            var (stage, cm, input) = CreateWiredStage();
-            // Lane 3 has the default "Key.S" in the runtime; add a second binding too.
-            ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "Key.Q", 3);
+            var (stage, cm, _) = CreateStage();
+            cm.SetMidiVelocityThreshold(36, 126);
 
-            ReflectionHelpers.InvokePrivateMethod(stage, "ClearLaneInConfig", 3);
+            ReflectionHelpers.InvokePrivateMethod(stage, "AdjustMidiVelocityThreshold", 36, 1);
+            ReflectionHelpers.InvokePrivateMethod(stage, "AdjustMidiVelocityThreshold", 36, 1);
 
-            Assert.Empty(input.ModularInputManager.KeyBindings.GetButtonsForLane(3));
-            Assert.False(cm.Config.KeyBindings.ContainsKey("Key.S"));
-            Assert.False(cm.Config.KeyBindings.ContainsKey("Key.Q"));
-        }
-
-        [Fact]
-        public void ResetDrumBindingsToDefault_RestoresDefaultsInConfig()
-        {
-            var (stage, cm, _) = CreateWiredStage();
-            // Add a non-default binding that Reset must clear.
-            ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "Key.Z", 3);
-            Assert.True(cm.Config.KeyBindings.ContainsKey("Key.Z"));
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "ResetDrumBindingsToDefault");
-
-            // "Z" is not a default key, so resetting drops it; defaults restored.
-            Assert.False(cm.Config.KeyBindings.ContainsKey("Key.Z"));
-            Assert.Equal(3, cm.Config.KeyBindings["Key.S"]); // default Snare binding restored
+            Assert.Equal(127, cm.GetMidiVelocityThreshold(36));
         }
 
         [Fact]
         public void ExitStage_FlushesPendingSaveOnConcreteConfigManager()
         {
-            // Point the config store at a real temp dir BEFORE creating the
-            // manager (its default paths resolve eagerly in the constructor).
+            // Point the config store at a real temp dir BEFORE creating the manager (its default
+            // paths resolve eagerly in the constructor).
             var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempDir);
             var previousRoot = Environment.GetEnvironmentVariable("DTXMANIA_APPDATA_ROOT");
             Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", tempDir);
             try
             {
-                var (stage, cm, _) = CreateWiredStage();
+                var (stage, cm, _) = CreateStage();
                 cm.LoadConfig();
                 ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "Key.Q", 5); // marks dirty
-                Assert.True(GetPendingSave(cm));
+                Assert.True(ReflectionHelpers.GetPrivateField<bool>(cm, "_hasPendingSave"));
 
                 ReflectionHelpers.InvokePrivateMethod(stage, "ExitStage");
 
-                // Exit flushed the deferred save to the config database.
-                Assert.False(GetPendingSave(cm));
+                Assert.False(ReflectionHelpers.GetPrivateField<bool>(cm, "_hasPendingSave"));
                 Assert.True(File.Exists(AppPaths.GetConfigDatabasePath()));
             }
             finally
             {
                 Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", previousRoot);
-                // Release pooled config.db handles before deleting the temp
-                // directory (Windows keeps the file locked otherwise).
+                // Release pooled config.db handles before deleting the temp directory (Windows
+                // keeps the file locked otherwise).
                 Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
                 Directory.Delete(tempDir, recursive: true);
             }
         }
 
-        // ---- Comment-1 round-trip regression (Task 4.3) ----
-
         [Fact]
-        public void Comment1_CaptureDoesNotDropUnrelatedSystemKey_OnRoundTrip()
+        public void CapturingAKey_NeverDropsAnUnrelatedRequiredSystemKey()
         {
-            // The original Comment-1 bug: entering DrumConfig and capturing a key could silently
-            // evict/drop an unrelated system key on return. Under persist-on-edit (Config = truth,
-            // capture-time eviction only for the captured key), this is structurally impossible.
-            var (stage, cm, input) = CreateWiredStage();
-            var popup = new DrumCapturePopup(
-                () => input.ModularInputManager.KeyBindings.ButtonToLane,
-                () => input.GetKeyMappingSnapshot());
-            ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
+            // Comment-1 regression: capturing one key must not evict another system key, and a
+            // required key (here Z = MoveUp) can never be captured, so it can never evict itself.
+            var (stage, cm, _) = CreateStage();
+            cm.SetSystemKeyBindings(new Dictionary<Keys, InputCommandType> { [Keys.Z] = InputCommandType.MoveUp });
+            StartListening(stage, 5);
 
-            // Pre-condition: Z is a required system key (MoveUp) in Config.
-            cm.SetSystemKeyBindings(new Dictionary<Keys, InputCommandType>
-            {
-                [Keys.Z] = InputCommandType.MoveUp
-            });
+            Listen(stage, "Key.Q");
+            Listen(stage, "Key.Z");
+
             Assert.Equal("Z", cm.Config.SystemKeyBindings["SystemKey.MoveUp"]);
-
-            // Simulate entering DrumConfig and capturing a DIFFERENT key (Q) to a lane.
-            ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "Key.Q", 5);
-
-            // The unrelated required system key Z survives — no pending state, no deferred eviction.
-            Assert.Equal("Z", cm.Config.SystemKeyBindings["SystemKey.MoveUp"]);
-            // And Q is bound to the drum lane in Config.
             Assert.Equal(5, cm.Config.KeyBindings["Key.Q"]);
-
-            // Capturing Z itself (the required key) is REJECTED by the popup, so it can never reach
-            // a drum lane and therefore can never evict itself from the system map.
-            popup.Open(4);
-            var outcome = popup.TryCapture(new ButtonState("Key.Z", true));
-            Assert.Equal(DrumCaptureOutcome.Rejected, outcome);
             Assert.False(cm.Config.KeyBindings.ContainsKey("Key.Z"));
         }
 
-        // ---- ActivateFocusedElement dispatch (headless, GraphicsDevice-free) ----
-
-        [Fact]
-        public void ActivateFocusedElement_WhenResetFocused_ResetsDrumBindingsToDefaultInConfig()
-        {
-            // Keyboard-reachable Reset (design: zones + Reset in one focus order). Activate while
-            // Reset holds focus must restore defaults in Config. GraphicsDevice-free, so this
-            // exercises the dispatch headlessly without OnActivate.
-            var (stage, cm, _) = CreateWiredStage();
-            ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "Key.Z", 3); // non-default
-            ReflectionHelpers.SetPrivateField(stage, "_focusedElementIndex", DrumKitLayout.ResetActionIndex);
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "ActivateFocusedElement");
-
-            // "Z" is not a default key, so resetting drops it from Config.
-            Assert.False(cm.Config.KeyBindings.ContainsKey("Key.Z"));
-        }
-
-        [Fact]
-        public void ActivateFocusedElement_WhenZoneFocused_OpensPopupForThatLane()
-        {
-            var game = CreateGameWithViewport(1280, 720);
-            var stage = new DrumConfigStage(game);
-            var drum = new Dictionary<string, int>();
-            var popup = new DrumCapturePopup(() => drum, () => new Dictionary<Keys, InputCommandType>());
-            ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
-            ReflectionHelpers.SetPrivateField(stage, "_focusedElementIndex", 0); // Hi-Hat visual zone
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "ActivateFocusedElement");
-
-            Assert.True(popup.IsOpen);
-            Assert.Equal(1, popup.Lane);
-        }
-
-        [Fact]
-        public void ActivateFocusedElement_WhenRideVisualZoneFocused_OpensPopupForLane9()
-        {
-            var game = CreateGameWithViewport(1280, 720);
-            var stage = new DrumConfigStage(game);
-            var drum = new Dictionary<string, int>();
-            var popup = new DrumCapturePopup(() => drum, () => new Dictionary<Keys, InputCommandType>());
-            ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
-            ReflectionHelpers.SetPrivateField(stage, "_focusedElementIndex", 2); // Ride visual zone
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "ActivateFocusedElement");
-
-            Assert.True(popup.IsOpen);
-            Assert.Equal(9, popup.Lane);
-        }
-
-        [Fact]
-        public void ActivateFocusedElement_WhenFocusedElementIndexOutOfRange_DoesNotOpenPopup()
-        {
-            // Defensive guard: if _focusedElementIndex is somehow out of range (not a zone, not
-            // Reset), GetLaneForZoneIndex returns -1 and ActivateFocusedElement must not open a
-            // popup for an invalid lane. This state can't arise through normal AdvanceFocus flow
-            // but the guard prevents a crash if the field is corrupted.
-            var game = CreateGameWithViewport(1280, 720);
-            var stage = new DrumConfigStage(game);
-            var drum = new Dictionary<string, int>();
-            var popup = new DrumCapturePopup(() => drum, () => new Dictionary<Keys, InputCommandType>());
-            ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
-            ReflectionHelpers.SetPrivateField(stage, "_focusedElementIndex", -1);
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "ActivateFocusedElement");
-
-            Assert.False(popup.IsOpen);
-        }
-
-        // ---- OnUpdate / UpdateSelection / UpdatePopup routing (headless, via graphics stub) ----
-
-        private static BaseGame CreateGameWithViewport(int width, int height)
-        {
-            var game = ReflectionHelpers.CreateGame();
-            var device = ReflectionHelpers.CreateUninitialized<GraphicsDevice>();
-            ReflectionHelpers.SetPrivateField(device, "_viewport", new Viewport(0, 0, width, height));
-            // The device was never properly constructed; suppress its finalizer so teardown can't crash.
-            GC.SuppressFinalize(device);
-            ReflectionHelpers.SetPrivateField(game, "_graphicsDeviceService", new StubGraphicsDeviceService(device));
-            ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), new StubConfigManager());
-            return game;
-        }
-
-        // Wired stage: real ConfigManager + InputManagerCompat (Phase 2 events connected) + a
-        // graphics viewport + a popup reading the runtime (which mirrors Config). Drives the edit
-        // helpers so Config mutation is observable, mirroring the production OnActivate wiring.
-        private static (DrumConfigStage stage, ConfigManager cm, InputManagerCompat input) CreateWiredStage(
-            int vw = 1280, int vh = 720)
-        {
-            var cm = new ConfigManager();
-            var input = new InputManagerCompat(cm, new TestMidiDeviceBackend());
-            var game = ReflectionHelpers.CreateGame();
-            var device = ReflectionHelpers.CreateUninitialized<GraphicsDevice>();
-            ReflectionHelpers.SetPrivateField(device, "_viewport", new Viewport(0, 0, vw, vh));
-            GC.SuppressFinalize(device);
-            ReflectionHelpers.SetPrivateField(game, "_graphicsDeviceService", new StubGraphicsDeviceService(device));
-            ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), cm);
-            ReflectionHelpers.SetProperty(game, nameof(BaseGame.InputManager), input);
-            var stage = new DrumConfigStage(game);
-            ReflectionHelpers.SetPrivateField(stage, "_input", input);
-            var popup = new DrumCapturePopup(
-                () => input.ModularInputManager.KeyBindings.ButtonToLane,
-                () => input.GetKeyMappingSnapshot(),
-                note => cm.GetMidiVelocityThreshold(note));
-            ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
-            ReflectionHelpers.SetPrivateField(stage, "_previousMouse", default(MouseState));
-            return (stage, cm, input);
-        }
-
-        private static bool GetPendingSave(ConfigManager cm)
-            => ReflectionHelpers.GetPrivateField<bool>(cm, "_hasPendingSave");
-
-        private static MouseState MouseAt(int x, int y, bool leftDown, bool rightDown = false) =>
-            new MouseState(x, y, 0,
-                leftDown ? XnaButtonState.Pressed : XnaButtonState.Released,
-                XnaButtonState.Released,
-                rightDown ? XnaButtonState.Pressed : XnaButtonState.Released,
-                XnaButtonState.Released,
-                XnaButtonState.Released);
-
-        [Fact]
-        public void OnUpdate_WhenPopupClosed_RoutesToUpdateSelection()
-        {
-            var game = CreateGameWithViewport(1280, 720);
-            var stage = new DrumConfigStage(game);
-            var drum = new Dictionary<string, int>();
-            var popup = new DrumCapturePopup(() => drum, () => new Dictionary<Keys, InputCommandType>());
-            ReflectionHelpers.SetPrivateField(stage, "_popup", popup); // closed
-            ReflectionHelpers.SetPrivateField(stage, "_previousMouse", default(MouseState));
-
-            var ex = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "OnUpdate", 0.0));
-
-            Assert.Null(ex);
-            // Routed through UpdateSelection (no crash, no popup opened).
-            Assert.False(popup.IsOpen);
-        }
-
-        [Fact]
-        public void OnUpdate_WhenPopupOpen_RoutesToUpdatePopup()
-        {
-            var game = CreateGameWithViewport(1280, 720);
-            var stage = new DrumConfigStage(game);
-            var drum = new Dictionary<string, int>();
-            var popup = new DrumCapturePopup(() => drum, () => new Dictionary<Keys, InputCommandType>());
-            popup.Open(4);
-            ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
-            ReflectionHelpers.SetPrivateField(stage, "_selectedLane", 4);
-            ReflectionHelpers.SetPrivateField(stage, "_previousMouse", default(MouseState));
-
-            var ex = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "OnUpdate", 0.0));
-
-            Assert.Null(ex);
-            Assert.True(popup.IsOpen); // no click/back occurred, popup stays open
-        }
-
-        [Fact]
-        public void UpdateSelection_LeftClickOnZone_OpensPopupForHoveredLane()
-        {
-            var game = CreateGameWithViewport(1280, 720);
-            var stage = new DrumConfigStage(game);
-            var drum = new Dictionary<string, int>();
-            var popup = new DrumCapturePopup(() => drum, () => new Dictionary<Keys, InputCommandType>());
-            ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
-            // Snare zone center is (380, 430) in the 1280x720 design space; viewport == design space.
-            ReflectionHelpers.SetPrivateField(stage, "_previousMouse", MouseAt(0, 0, false));
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateSelection", MouseAt(380, 430, true), true);
-
-            Assert.True(popup.IsOpen);
-            Assert.Equal(3, popup.Lane); // clicked snare lane ID
-            Assert.Equal(5, ReflectionHelpers.GetPrivateField<int>(stage, "_focusedElementIndex"));
-        }
-
-        [Fact]
-        public void UpdateSelection_LeftClickOnResetButton_ResetsDrumBindingsToDefaultInConfig()
-        {
-            var (stage, cm, _) = CreateWiredStage(1280, 720);
-            // Add a non-default binding Reset must clear from Config.
-            ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "Key.Z", 3);
-            ReflectionHelpers.SetPrivateField(stage, "_previousMouse", MouseAt(0, 0, false));
-
-            // Reset button rect = (1070, 12, 190, 30); click its center.
-            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateSelection", MouseAt(1165, 27, true), true);
-
-            Assert.Equal(DrumKitLayout.ResetActionIndex, ReflectionHelpers.GetPrivateField<int>(stage, "_focusedElementIndex"));
-            Assert.False(cm.Config.KeyBindings.ContainsKey("Key.Z")); // non-default binding cleared
-            Assert.False(ReflectionHelpers.GetPrivateField<DrumCapturePopup>(stage, "_popup")!.IsOpen);
-        }
-
-        [Fact]
-        public void UpdateSelection_MoveRightCommand_AdvancesFocusAndShowsKeyboardFocus()
-        {
-            var game = CreateGameWithViewport(1280, 720);
-            var stage = new DrumConfigStage(game);
-            using var input = new FakeInput(new ConfigManager()) { ActiveCommand = InputCommandType.MoveRight };
-            ReflectionHelpers.SetPrivateField(stage, "_input", input);
-            ReflectionHelpers.SetPrivateField(stage, "_focusedElementIndex", 0);
-            ReflectionHelpers.SetPrivateField(stage, "_previousMouse", MouseAt(5, 5, false));
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateSelection", MouseAt(5, 5, false), false);
-
-            Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_focusedElementIndex"));
-            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_keyboardFocusActive"));
-        }
-
-        [Fact]
-        public void UpdateSelection_MoveDownCommand_AdvancesFocusForward()
-        {
-            // Down maps to the same forward (+1) delta as Right/Tab: the focus sequence is a single
-            // linear order (zones 0..9 then Reset), so Down/Right both advance and Up/Left go back.
-            var game = CreateGameWithViewport(1280, 720);
-            var stage = new DrumConfigStage(game);
-            using var input = new FakeInput(new ConfigManager()) { ActiveCommand = InputCommandType.MoveDown };
-            ReflectionHelpers.SetPrivateField(stage, "_input", input);
-            ReflectionHelpers.SetPrivateField(stage, "_focusedElementIndex", 3);
-            ReflectionHelpers.SetPrivateField(stage, "_previousMouse", MouseAt(5, 5, false));
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateSelection", MouseAt(5, 5, false), false);
-
-            Assert.Equal(4, ReflectionHelpers.GetPrivateField<int>(stage, "_focusedElementIndex"));
-            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_keyboardFocusActive"));
-        }
-
-        [Fact]
-        public void UpdateSelection_MoveUpCommand_AdvancesFocusBackward()
-        {
-            // Up maps to the same backward (-1) delta as Left.
-            var game = CreateGameWithViewport(1280, 720);
-            var stage = new DrumConfigStage(game);
-            using var input = new FakeInput(new ConfigManager()) { ActiveCommand = InputCommandType.MoveUp };
-            ReflectionHelpers.SetPrivateField(stage, "_input", input);
-            ReflectionHelpers.SetPrivateField(stage, "_focusedElementIndex", 3);
-            ReflectionHelpers.SetPrivateField(stage, "_previousMouse", MouseAt(5, 5, false));
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateSelection", MouseAt(5, 5, false), false);
-
-            Assert.Equal(2, ReflectionHelpers.GetPrivateField<int>(stage, "_focusedElementIndex"));
-            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_keyboardFocusActive"));
-        }
-
-        [Fact]
-        public void UpdateSelection_TabKey_AdvancesFocus()
-        {
-            var game = CreateGameWithViewport(1280, 720);
-            var stage = new DrumConfigStage(game);
-            using var input = new FakeInput(new ConfigManager());
-            // Seed the per-frame pressed-button feed with a Tab press — the path the stage now
-            // reads (ConsumePressedButtons), which is robust to MCP/E2E injection timing.
-            input.ModularInputManager.InjectButton("Key.Tab", isPressed: true);
-            input.ModularInputManager.Update();
-            ReflectionHelpers.SetPrivateField(stage, "_input", input);
-            ReflectionHelpers.SetPrivateField(stage, "_focusedElementIndex", 0);
-            ReflectionHelpers.SetPrivateField(stage, "_previousMouse", MouseAt(5, 5, false));
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateSelection", MouseAt(5, 5, false), false);
-
-            Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_focusedElementIndex"));
-        }
-
-        [Fact]
-        public void UpdateSelection_InjectedTabPressAndReleaseSameFrame_AdvancesFocus()
-        {
-            // The E2E/slow-frame flake: an injected Tab press AND release both queue before a
-            // single Update() runs (a CI frame whose update exceeds the 40ms injected hold).
-            // ProcessInjectedInputs drains both in one pass: the release clears the injected
-            // key-state overlay before IsKeyPressed could see it, so the old IsKeyPressed path
-            // missed the edge entirely and focus stalled. ConsumePressedButtons records the
-            // press event regardless of a subsequent release this frame, so focus still advances.
-            var game = CreateGameWithViewport(1280, 720);
-            var stage = new DrumConfigStage(game);
-            using var input = new FakeInput(new ConfigManager());
-            input.ModularInputManager.InjectButton("Key.Tab", isPressed: true);
-            input.ModularInputManager.InjectButton("Key.Tab", isPressed: false);
-            input.ModularInputManager.Update(); // both drain inside one ProcessInjectedInputs
-            ReflectionHelpers.SetPrivateField(stage, "_input", input);
-            ReflectionHelpers.SetPrivateField(stage, "_focusedElementIndex", 0);
-            ReflectionHelpers.SetPrivateField(stage, "_previousMouse", MouseAt(5, 5, false));
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateSelection", MouseAt(5, 5, false), false);
-
-            Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_focusedElementIndex"));
-        }
-
-        [Fact]
-        public void UpdateSelection_MultipleInjectedTabsSameFrame_AdvancesFocusPerTab()
-        {
-            // The slow-CI-frame regression: when several injected Tab press/release pairs drain
-            // inside one ProcessInjectedInputs (a frame whose update exceeds the inter-press
-            // spacing of the E2E reset loop), ConsumePressedButtons returns every Tab press but
-            // the navigation loop must advance focus once per Tab, not collapse them to a single
-            // step. Otherwise focus stalls short of the Reset action and the next Enter activates
-            // a lane instead of resetting bindings.
-            var game = CreateGameWithViewport(1280, 720);
-            var stage = new DrumConfigStage(game);
-            using var input = new FakeInput(new ConfigManager());
-            // Ten Tab press/release pairs all drain inside one Update(), matching the E2E reset
-            // sequence (lane 0 -> 1 -> ... -> 9 -> Reset, index 10).
-            for (int i = 0; i < 10; i++)
-            {
-                input.ModularInputManager.InjectButton("Key.Tab", isPressed: true);
-                input.ModularInputManager.InjectButton("Key.Tab", isPressed: false);
-            }
-            input.ModularInputManager.Update();
-            ReflectionHelpers.SetPrivateField(stage, "_input", input);
-            ReflectionHelpers.SetPrivateField(stage, "_focusedElementIndex", 0);
-            ReflectionHelpers.SetPrivateField(stage, "_previousMouse", MouseAt(5, 5, false));
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateSelection", MouseAt(5, 5, false), false);
-
-            Assert.Equal(10, ReflectionHelpers.GetPrivateField<int>(stage, "_focusedElementIndex"));
-        }
-
-        [Fact]
-        public void UpdateSelection_BackAction_ExitsStage()
-        {
-            var game = CreateGameWithViewport(1280, 720);
-            var stage = new DrumConfigStage(game);
-            // Non-concrete config + live input: ExitStage flushes (no-op on stub) and transitions
-            // (StageManager null -> ChangeStage no-op) cleanly.
-            using var input = new FakeInput(new ConfigManager()) { BackTriggered = true };
-            ReflectionHelpers.SetPrivateField(stage, "_input", input);
-            ReflectionHelpers.SetPrivateField(stage, "_previousMouse", MouseAt(5, 5, false));
-
-            var ex = Record.Exception(() =>
-                ReflectionHelpers.InvokePrivateMethod(stage, "UpdateSelection", MouseAt(5, 5, false), false));
-
-            Assert.Null(ex); // ExitStage -> ChangeStage (StageManager null -> no-op) returns cleanly
-        }
-
-        [Fact]
-        public void UpdateSelection_ActivateCommandOnZone_OpensPopup()
-        {
-            var game = CreateGameWithViewport(1280, 720);
-            var stage = new DrumConfigStage(game);
-            using var input = new FakeInput(new ConfigManager()) { ActiveCommand = InputCommandType.Activate };
-            var drum = new Dictionary<string, int>();
-            var popup = new DrumCapturePopup(() => drum, () => new Dictionary<Keys, InputCommandType>());
-            ReflectionHelpers.SetPrivateField(stage, "_input", input);
-            ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
-            ReflectionHelpers.SetPrivateField(stage, "_focusedElementIndex", 5); // Snare zone focused
-            ReflectionHelpers.SetPrivateField(stage, "_previousMouse", MouseAt(5, 5, false));
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateSelection", MouseAt(5, 5, false), false);
-
-            Assert.True(popup.IsOpen);
-            Assert.Equal(3, popup.Lane);
-            Assert.Equal(5, ReflectionHelpers.GetPrivateField<int>(stage, "_focusedElementIndex"));
-        }
-
-        [Fact]
-        public void UpdateSelection_MouseMovement_HidesKeyboardFocus()
-        {
-            var game = CreateGameWithViewport(1280, 720);
-            var stage = new DrumConfigStage(game);
-            ReflectionHelpers.SetPrivateField(stage, "_keyboardFocusActive", true);
-            ReflectionHelpers.SetPrivateField(stage, "_previousMouse", MouseAt(0, 0, false)); // differs from current
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateSelection", MouseAt(400, 400, false), false);
-
-            Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_keyboardFocusActive"));
-        }
-
-        [Fact]
-        public void UpdatePopup_RightClick_ClosesPopup()
-        {
-            var game = CreateGameWithViewport(1280, 720);
-            var stage = new DrumConfigStage(game);
-            var drum = new Dictionary<string, int>();
-            var popup = new DrumCapturePopup(() => drum, () => new Dictionary<Keys, InputCommandType>());
-            popup.Open(4);
-            ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
-            ReflectionHelpers.SetPrivateField(stage, "_selectedLane", 4);
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "UpdatePopup", 0.0, MouseAt(10, 10, false, rightDown: true), false, true);
-
-            Assert.False(popup.IsOpen);
-            Assert.Equal(-1, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedLane"));
-        }
-
-        [Fact]
-        public void UpdatePopup_LeftClickOnDoneRect_ClosesPopup()
-        {
-            var game = CreateGameWithViewport(1280, 720);
-            var stage = new DrumConfigStage(game);
-            var drum = new Dictionary<string, int>();
-            var popup = new DrumCapturePopup(() => drum, () => new Dictionary<Keys, InputCommandType>());
-            popup.Open(4);
-            ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
-            ReflectionHelpers.SetPrivateField(stage, "_selectedLane", 4);
-
-            var doneCenter = popup.GetDoneRect(1280, 720).Center;
-            ReflectionHelpers.InvokePrivateMethod(stage, "UpdatePopup",
-                0.0, MouseAt(doneCenter.X, doneCenter.Y, true), true, false);
-
-            Assert.False(popup.IsOpen);
-            Assert.Equal(-1, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedLane"));
-        }
-
-        [Fact]
-        public void UpdatePopup_LeftClickOnClearRect_ClearsLaneInConfig()
-        {
-            var (stage, cm, input) = CreateWiredStage(1280, 720);
-            var popup = new DrumCapturePopup(
-                () => input.ModularInputManager.KeyBindings.ButtonToLane,
-                () => input.GetKeyMappingSnapshot());
-            ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
-            popup.Open(3); // lane 3 has the default "Key.S" binding in the runtime
-            ReflectionHelpers.SetPrivateField(stage, "_selectedLane", 3);
-
-            var clearCenter = popup.GetClearRect(1280, 720).Center;
-            ReflectionHelpers.InvokePrivateMethod(stage, "UpdatePopup",
-                0.0, MouseAt(clearCenter.X, clearCenter.Y, true), true, false);
-
-            Assert.Empty(input.ModularInputManager.KeyBindings.GetButtonsForLane(3));
-            Assert.False(cm.Config.KeyBindings.ContainsKey("Key.S"));
-        }
-
-        [Fact]
-        public void UpdatePopup_LeftClickOnChipRemove_RemovesOnlyThatBindingFromConfig()
-        {
-            var (stage, cm, input) = CreateWiredStage(1280, 720);
-            // Lane 3 defaults to "Key.S"; add "Key.Q" to the same lane via the edit helper.
-            ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "Key.Q", 3);
-            var popup = new DrumCapturePopup(
-                () => input.ModularInputManager.KeyBindings.ButtonToLane,
-                () => input.GetKeyMappingSnapshot());
-            ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
-            popup.Open(3);
-            ReflectionHelpers.SetPrivateField(stage, "_selectedLane", 3);
-
-            var removeRect = popup.GetBindingChips(1280, 720)
-                .Single(c => c.ButtonId == "Key.S").Remove;
-            ReflectionHelpers.InvokePrivateMethod(stage, "UpdatePopup",
-                0.0, MouseAt(removeRect.Center.X, removeRect.Center.Y, true), true, false);
-
-            Assert.False(cm.Config.KeyBindings.ContainsKey("Key.S"));
-            Assert.True(cm.Config.KeyBindings.ContainsKey("Key.Q"));
-            Assert.Equal(3, cm.Config.KeyBindings["Key.Q"]);
-        }
-
-        [Fact]
-        public void UpdatePopup_LeftClickOnMidiChipIncrement_IncrementsVelocityThresholdInConfig()
-        {
-            var (stage, cm, input) = CreateWiredStage(1280, 720);
-            ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "MIDI.36", 4);
-            cm.SetMidiVelocityThreshold(36, 20);
-            var popup = new DrumCapturePopup(
-                () => input.ModularInputManager.KeyBindings.ButtonToLane,
-                () => input.GetKeyMappingSnapshot(),
-                note => cm.GetMidiVelocityThreshold(note));
-            ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
-            popup.Open(4);
-            ReflectionHelpers.SetPrivateField(stage, "_selectedLane", 4);
-
-            var incrementRect = popup.GetBindingChips(1280, 720)
-                .Single(c => c.ButtonId == "MIDI.36").IncrementVelocityThreshold;
-            ReflectionHelpers.InvokePrivateMethod(stage, "UpdatePopup",
-                0.0, MouseAt(incrementRect.Center.X, incrementRect.Center.Y, true), true, false);
-
-            Assert.Equal(21, cm.GetMidiVelocityThreshold(36));
-            Assert.True(cm.Config.KeyBindings.ContainsKey("MIDI.36"));
-        }
-
-        [Fact]
-        public void UpdatePopup_LeftClickOnMidiChipDecrement_DecrementsVelocityThresholdInConfig()
-        {
-            var (stage, cm, input) = CreateWiredStage(1280, 720);
-            ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "MIDI.36", 4);
-            cm.SetMidiVelocityThreshold(36, 20);
-            var popup = new DrumCapturePopup(
-                () => input.ModularInputManager.KeyBindings.ButtonToLane,
-                () => input.GetKeyMappingSnapshot(),
-                note => cm.GetMidiVelocityThreshold(note));
-            ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
-            popup.Open(4);
-            ReflectionHelpers.SetPrivateField(stage, "_selectedLane", 4);
-
-            var decrementRect = popup.GetBindingChips(1280, 720)
-                .Single(c => c.ButtonId == "MIDI.36").DecrementVelocityThreshold;
-            ReflectionHelpers.InvokePrivateMethod(stage, "UpdatePopup",
-                0.0, MouseAt(decrementRect.Center.X, decrementRect.Center.Y, true), true, false);
-
-            Assert.Equal(19, cm.GetMidiVelocityThreshold(36));
-            Assert.True(cm.Config.KeyBindings.ContainsKey("MIDI.36"));
-        }
-
-        [Fact]
-        public void UpdatePopup_SkipCaptureThisFrame_DoesNotCapture()
-        {
-            var (stage, cm, input) = CreateWiredStage(1280, 720);
-            var popup = new DrumCapturePopup(
-                () => input.ModularInputManager.KeyBindings.ButtonToLane,
-                () => input.GetKeyMappingSnapshot());
-            popup.Open(4);
-            ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
-            ReflectionHelpers.SetPrivateField(stage, "_selectedLane", 4);
-            ReflectionHelpers.SetPrivateField(stage, "_skipCaptureThisFrame", true);
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "UpdatePopup",
-                0.0, MouseAt(10, 10, false), false, false);
-
-            Assert.True(popup.IsOpen); // still listening
-            Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_skipCaptureThisFrame")); // flag consumed
-            // The activating press was suppressed: no new binding reached Config this frame.
-            Assert.False(cm.Config.KeyBindings.ContainsKey("Key.Q"));
-        }
-
-        [Fact]
-        public void UpdatePopup_PressedButton_CapturesIntoConfig()
-        {
-            var (stage, cm, input) = CreateWiredStage(1280, 720);
-            var popup = new DrumCapturePopup(
-                () => input.ModularInputManager.KeyBindings.ButtonToLane,
-                () => input.GetKeyMappingSnapshot());
-            popup.Open(7);
-            ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
-            ReflectionHelpers.SetPrivateField(stage, "_selectedLane", 7);
-            // A live input manager whose pressed-button feed yields one captured button this frame.
-            input.ModularInputManager.InjectButton("Key.Q", true);
-            input.ModularInputManager.Update();
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "UpdatePopup",
-                0.0, MouseAt(10, 10, false), false, false);
-
-            Assert.Equal(7, cm.Config.KeyBindings["Key.Q"]);
-            Assert.Contains("Key.Q", input.ModularInputManager.KeyBindings.GetButtonsForLane(7));
-        }
-
-        // ---- Other previously-uncovered members ----
-
-        [Fact]
-        public void Type_ReturnsDrumConfigStageType()
-        {
-            var game = ReflectionHelpers.CreateGame();
-            ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), new StubConfigManager());
-            var stage = new DrumConfigStage(game);
-
-            Assert.Equal(StageType.DrumConfig, stage.Type);
-        }
-
-        [Fact]
-        public void OpenPopup_OpensPopupAndSetsFocusAndSkipFlag()
-        {
-            var game = ReflectionHelpers.CreateGame();
-            ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), new StubConfigManager());
-            var stage = new DrumConfigStage(game);
-            var drum = new Dictionary<string, int>();
-            var popup = new DrumCapturePopup(() => drum, () => new Dictionary<Keys, InputCommandType>());
-            ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "OpenPopup", 5);
-
-            Assert.True(popup.IsOpen);
-            Assert.Equal(5, popup.Lane);
-            Assert.Equal(5, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedLane"));
-            Assert.Equal(7, ReflectionHelpers.GetPrivateField<int>(stage, "_focusedElementIndex")); // bass pedal zone
-            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_skipCaptureThisFrame"));
-        }
-
-        [Fact]
-        public void OpenPopup_WhenLaneInvalid_LeavesSelectionFocusPopupAndSkipStateUnchanged()
-        {
-            var game = ReflectionHelpers.CreateGame();
-            ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), new StubConfigManager());
-            var stage = new DrumConfigStage(game);
-            var drum = new Dictionary<string, int>();
-            var popup = new DrumCapturePopup(() => drum, () => new Dictionary<Keys, InputCommandType>());
-            popup.Open(5);
-            ReflectionHelpers.SetPrivateField(stage, "_popup", popup);
-            ReflectionHelpers.SetPrivateField(stage, "_selectedLane", 5);
-            ReflectionHelpers.SetPrivateField(stage, "_focusedElementIndex", 0);
-            ReflectionHelpers.SetPrivateField(stage, "_skipCaptureThisFrame", true);
-
-            var selectedLaneBefore = ReflectionHelpers.GetPrivateField<int>(stage, "_selectedLane");
-            var focusedElementIndexBefore =
-                ReflectionHelpers.GetPrivateField<int>(stage, "_focusedElementIndex");
-            var popupOpenBefore = popup.IsOpen;
-            var skipCaptureBefore = ReflectionHelpers.GetPrivateField<bool>(stage, "_skipCaptureThisFrame");
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "OpenPopup", 42);
-
-            Assert.Equal(selectedLaneBefore, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedLane"));
-            Assert.Equal(focusedElementIndexBefore,
-                ReflectionHelpers.GetPrivateField<int>(stage, "_focusedElementIndex"));
-            Assert.Equal(popupOpenBefore, popup.IsOpen);
-            Assert.Equal(skipCaptureBefore,
-                ReflectionHelpers.GetPrivateField<bool>(stage, "_skipCaptureThisFrame"));
-        }
-
-        [Fact]
-        public void ProcessPopupCapture_ReservedKeyBeforeValidKey_DropsValidKeySameFrame()
-        {
-            // Pins the stage-level one-binding-per-frame rule: ConsumePressedButtons is drained in
-            // enumeration order, and the first non-Ignored outcome (here a reserved key -> Rejected)
-            // breaks the loop. A valid key pressed in that same frame is therefore NOT captured. The
-            // popup-level Rejected path is covered in DrumCapturePopupTests; this pins the stage's
-            // foreach+break interaction that the popup test cannot reach.
-            var (stage, cm, _) = CreateWiredStage(1280, 720);
-            var popup = ReflectionHelpers.GetPrivateField<DrumCapturePopup>(stage, "_popup")!;
-            popup.Open(3); // Snare (lane value is irrelevant to this stage-level ordering test)
-
-            // Seed this frame's press buffer directly (skipping Update()/keyboard): reserved Enter
-            // first, then a valid unbound key Q. Order determines which is resolved.
-            var pressedField = typeof(ModularInputManager)
-                .GetField("_pressedThisFrame", BindingFlags.NonPublic | BindingFlags.Instance);
-            Assert.NotNull(pressedField);
-            var input = ReflectionHelpers.GetPrivateField<InputManagerCompat>(stage, "_input")!;
-            var pressed = (List<DTXMania.Game.Lib.Input.ButtonState>)pressedField!.GetValue(input.ModularInputManager)!;
-            pressed.Add(new DTXMania.Game.Lib.Input.ButtonState("Key.Enter", true)); // required nav -> Rejected
-            pressed.Add(new DTXMania.Game.Lib.Input.ButtonState("Key.Q", true));     // valid unbound -> would Capture
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "ProcessPopupCapture");
-
-            // Enter was Rejected (non-Ignored) -> break before Q was tried, so Q is dropped this frame.
-            Assert.False(cm.Config.KeyBindings.ContainsKey("Key.Q"));
-        }
-
-        // ---- LoadOptionalTexture (1x1 fallback + exception path; headless via mock resources) ----
-
-        private static DrumConfigStage NewStageWithResources(out Mock<IResourceManager> resources)
-        {
-            var game = CreateGameWithViewport(1280, 720);
-            var stage = new DrumConfigStage(game);
-            resources = new Mock<IResourceManager>();
-            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resources.Object);
-            return stage;
-        }
-
-        [Fact]
-        public void LoadOptionalTexture_WhenResourceManagerReturnsNull_ReturnsNull()
-        {
-            var stage = NewStageWithResources(out var resources);
-            resources.Setup(r => r.LoadTexture(It.IsAny<string>())).Returns((ITexture?)null);
-
-            var result = ReflectionHelpers.InvokePrivateMethod<ITexture?>(stage, "LoadOptionalTexture",
-                TexturePath.StartupBackground, "unavailable");
-
-            Assert.Null(result);
-        }
-
-        [Fact]
-        public void LoadOptionalTexture_WhenResourceManagerReturns1x1Fallback_ReturnsNullAndReleasesRef()
-        {
-            // ResourceManager.LoadTexture returns a 1x1 white fallback instead of throwing for a
-            // missing asset. LoadOptionalTexture must treat that as "not present" (a real asset is
-            // always larger than 1x1) and release the ref the load added before discarding it.
-            var stage = NewStageWithResources(out var resources);
-            var fallback = new Mock<ITexture>();
-            fallback.SetupGet(t => t.Width).Returns(1);
-            fallback.SetupGet(t => t.Height).Returns(1);
-            resources.Setup(r => r.LoadTexture(It.IsAny<string>())).Returns(fallback.Object);
-
-            var result = ReflectionHelpers.InvokePrivateMethod<ITexture?>(stage, "LoadOptionalTexture",
-                TexturePath.StartupBackground, "unavailable");
-
-            Assert.Null(result);
-            fallback.Verify(t => t.RemoveReference(), Times.Once);
-        }
-
-        [Fact]
-        public void LoadOptionalTexture_WhenResourceManagerThrows_ReturnsNull()
-        {
-            // Missing/invalid art is non-fatal: the exception is logged and null returned so the
-            // stage falls back to the plain fill instead of crashing.
-            var stage = NewStageWithResources(out var resources);
-            resources.Setup(r => r.LoadTexture(It.IsAny<string>())).Throws(new IOException("missing"));
-
-            var result = ReflectionHelpers.InvokePrivateMethod<ITexture?>(stage, "LoadOptionalTexture",
-                TexturePath.StartupBackground, "unavailable");
-
-            Assert.Null(result);
-        }
-
-        [Fact]
-        public void LoadOptionalTexture_WhenResourceManagerReturnsRealAsset_ReturnsIt()
-        {
-            var stage = NewStageWithResources(out var resources);
-            var texture = new Mock<ITexture>();
-            texture.SetupGet(t => t.Width).Returns(128);
-            texture.SetupGet(t => t.Height).Returns(720);
-            resources.Setup(r => r.LoadTexture(It.IsAny<string>())).Returns(texture.Object);
-
-            var result = ReflectionHelpers.InvokePrivateMethod<ITexture?>(stage, "LoadOptionalTexture",
-                TexturePath.StartupBackground, "unavailable");
-
-            Assert.Same(texture.Object, result);
-            texture.Verify(t => t.RemoveReference(), Times.Never);
-        }
-
-        // ---- EvictSystemKey early-return paths (capture-time eviction) ----
-
-        [Fact]
-        public void ApplyCapture_NonKeyboardButton_BindsButDoesNotEvictSystemKey()
-        {
-            // EvictSystemKey short-circuits for non-keyboard buttons (MIDI/pad): no system key to
-            // evict. The drum binding still applies to Config.
-            var (stage, cm, _) = CreateWiredStage();
-            cm.SetSystemKeyBindings(new Dictionary<Keys, InputCommandType>
-            {
-                [Keys.PageUp] = InputCommandType.IncreaseScrollSpeed
-            });
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "MIDI.36", 7);
-
-            Assert.Equal(7, cm.Config.KeyBindings["MIDI.36"]);
-            // Unrelated system key untouched (non-keyboard capture never reaches eviction).
-            Assert.Equal("PageUp", cm.Config.SystemKeyBindings["SystemKey.IncreaseScrollSpeed"]);
-        }
-
-        [Fact]
-        public void ApplyCapture_KeyboardButtonIdThatDoesNotParse_DoesNotEvictOrThrow()
-        {
-            // "Key." prefix passes IsKeyboardButtonId, but an unparseable key name must not evict
-            // anything and must not throw (Enum.TryParse fails -> early return).
-            var (stage, cm, _) = CreateWiredStage();
-            cm.SetSystemKeyBindings(new Dictionary<Keys, InputCommandType>
-            {
-                [Keys.PageUp] = InputCommandType.IncreaseScrollSpeed
-            });
-
-            var ex = Record.Exception(() =>
-                ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "Key.NotARealKey", 7));
-
-            Assert.Null(ex);
-            // The drum binding for the unparseable id still applied via BindButton.
-            Assert.Equal(7, cm.Config.KeyBindings["Key.NotARealKey"]);
-            Assert.Equal("PageUp", cm.Config.SystemKeyBindings["SystemKey.IncreaseScrollSpeed"]);
-        }
-
-        [Fact]
-        public void ResetDrumBindingsToDefault_WhenNoSystemKeysConflict_DoesNotRewriteSystemMap()
-        {
-            // EvictSystemKeysForDrumBindings only calls SetSystemKeyBindings when something was
-            // actually removed (changed == true). With no overlapping system keys, the system map
-            // is left untouched (the changed=false branch).
-            var (stage, cm, input) = CreateWiredStage();
-            // A system key on a non-drum key (PageUp) — default drum bindings are letters/space,
-            // so nothing overlaps and reset must not rewrite the system map.
-            cm.SetSystemKeyBindings(new Dictionary<Keys, InputCommandType>
-            {
-                [Keys.PageUp] = InputCommandType.IncreaseScrollSpeed
-            });
-            var systemBefore = input.GetKeyMappingSnapshot();
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "ResetDrumBindingsToDefault");
-
-            // Defaults restored; system map unchanged because no eviction occurred.
-            Assert.Equal(3, cm.Config.KeyBindings["Key.S"]);
-            Assert.Equal(systemBefore.Count, input.GetKeyMappingSnapshot().Count);
-            Assert.Equal("PageUp", cm.Config.SystemKeyBindings["SystemKey.IncreaseScrollSpeed"]);
-        }
-
-        // ---- OnDeactivate / Dispose (resource release; graphics fields nulled to stay headless) ----
-
-        [Fact]
-        public void OnDeactivate_FlushesPendingSaveAndReleasesResourceReferences()
-        {
-            // Point the config store at a real temp dir BEFORE creating the
-            // manager (its default paths resolve eagerly in the constructor).
-            var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(tempDir);
-            var previousRoot = Environment.GetEnvironmentVariable("DTXMANIA_APPDATA_ROOT");
-            Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", tempDir);
-            try
-            {
-                var (stage, cm, _) = CreateWiredStage();
-                // Mark a pending save so OnDeactivate's FlushPendingSave has something to flush.
-                cm.LoadConfig();
-                ReflectionHelpers.InvokePrivateMethod(stage, "ApplyCapture", "Key.Q", 5); // marks dirty
-                Assert.True(GetPendingSave(cm));
-
-                // Mocked managed resources + nulled graphics fields (SpriteBatch/Texture2D need a
-                // GraphicsDevice); the null-conditional release paths are still exercised.
-                var background = new Mock<ITexture>();
-                var skeleton = new Mock<ITexture>();
-                var font = new Mock<IFont>();
-                ReflectionHelpers.SetPrivateField(stage, "_background", background.Object);
-                ReflectionHelpers.SetPrivateField(stage, "_skeleton", skeleton.Object);
-                ReflectionHelpers.SetPrivateField(stage, "_font", font.Object);
-                ReflectionHelpers.SetPrivateField(stage, "_renderer", null);
-                ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
-                ReflectionHelpers.SetPrivateField(stage, "_whitePixel", null);
-
-                ReflectionHelpers.InvokePrivateMethod(stage, "OnDeactivate");
-
-                // Pending save flushed to the config database.
-                Assert.False(GetPendingSave(cm));
-                Assert.True(File.Exists(AppPaths.GetConfigDatabasePath()));
-                // Managed resource references released.
-                background.Verify(t => t.RemoveReference(), Times.Once);
-                skeleton.Verify(t => t.RemoveReference(), Times.Once);
-                font.Verify(f => f.RemoveReference(), Times.Once);
-                Assert.Null(ReflectionHelpers.GetPrivateField<ITexture?>(stage, "_background"));
-                Assert.Null(ReflectionHelpers.GetPrivateField<ITexture?>(stage, "_skeleton"));
-                Assert.Null(ReflectionHelpers.GetPrivateField<IFont?>(stage, "_font"));
-            }
-            finally
-            {
-                Environment.SetEnvironmentVariable("DTXMANIA_APPDATA_ROOT", previousRoot);
-                // Release pooled config.db handles before deleting the temp
-                // directory (Windows keeps the file locked otherwise).
-                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
-                Directory.Delete(tempDir, recursive: true);
-            }
-        }
-
-        [Fact]
-        public void Dispose_DisposingTrue_ReleasesResourceReferences()
-        {
-            var (stage, _, _) = CreateWiredStage();
-            var background = new Mock<ITexture>();
-            var skeleton = new Mock<ITexture>();
-            var font = new Mock<IFont>();
-            ReflectionHelpers.SetPrivateField(stage, "_background", background.Object);
-            ReflectionHelpers.SetPrivateField(stage, "_skeleton", skeleton.Object);
-            ReflectionHelpers.SetPrivateField(stage, "_font", font.Object);
-            // Graphics fields nulled (need a GraphicsDevice to construct); their null-conditional
-            // dispose paths are exercised via the null check.
-            ReflectionHelpers.SetPrivateField(stage, "_renderer", null);
-            ReflectionHelpers.SetPrivateField(stage, "_whitePixel", null);
-            ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
-
-            stage.Dispose();
-
-            background.Verify(t => t.RemoveReference(), Times.Once);
-            skeleton.Verify(t => t.RemoveReference(), Times.Once);
-            font.Verify(f => f.RemoveReference(), Times.Once);
-            Assert.Null(ReflectionHelpers.GetPrivateField<ITexture?>(stage, "_background"));
-            Assert.Null(ReflectionHelpers.GetPrivateField<ITexture?>(stage, "_skeleton"));
-            Assert.Null(ReflectionHelpers.GetPrivateField<IFont?>(stage, "_font"));
-            Assert.Null(ReflectionHelpers.GetPrivateField<IResourceManager>(stage, "_resourceManager"));
-        }
+        // ---- Fakes ----
 
         private sealed class StubGraphicsDeviceService : IGraphicsDeviceService
         {
@@ -1135,84 +564,14 @@ namespace DTXMania.Test.Stage.DrumConfig
             public event EventHandler<EventArgs>? DeviceResetting;
         }
 
-        // InputManagerCompat subclass that returns canned values for the query methods the stage
-        // reads during keyboard-driven navigation, without needing a live keyboard.
+        /// <summary>InputManagerCompat with canned command answers (no live keyboard).</summary>
         private sealed class FakeInput : InputManagerCompat
         {
             public bool BackTriggered;
             public InputCommandType? ActiveCommand;
-            public int? PressedKey;
             public FakeInput(ConfigManager config) : base(config, new TestMidiDeviceBackend()) { }
             public override bool IsBackActionTriggered() => BackTriggered;
             public override bool IsCommandPressed(InputCommandType command) => command == ActiveCommand;
-            public override bool IsKeyPressed(int keyCode) => keyCode == PressedKey;
-        }
-
-        private sealed class StubConfigManager : IConfigManager
-        {
-            public ConfigData Config { get; } = new ConfigData();
-
-            public event EventHandler<ScrollSpeedChangedEventArgs>? ScrollSpeedChanged;
-
-            public event EventHandler<EventArgs>? KeyBindingsChanged;
-
-            public event EventHandler<EventArgs>? SystemKeyBindingsChanged;
-
-            public void LoadConfig() { }
-
-            public void ResetToDefaults() { }
-
-            public void SetScrollSpeed(int percent) { }
-
-            public void AdjustScrollSpeed(int stepDelta) { }
-
-            public void SetPlaySpeedPercent(int percent) { }
-
-            public void SetPitchSemitones(int semitones) { }
-
-            public void SetKeyBindings(KeyBindings keyBindings) { }
-
-            public void SetSystemKeyBindings(IReadOnlyDictionary<Keys, InputCommandType> workingBindings) { }
-
-            public int GetMidiVelocityThreshold(int noteNumber) => 0;
-
-            public void SetMidiVelocityThreshold(int noteNumber, int threshold) { }
-
-            public void SetNoFail(bool value) { }
-
-            public void SetMetronome(bool value) { }
-
-            public void SetLaneDisplayMode(DrumsLaneDisplayMode value) { }
-
-            public void SetNoteDisplayStyle(DrumsNoteDisplayStyle value) { }
-
-            public void SetShowJudgementLine(bool value) { }
-
-            public void SetEnableLaneFlush(bool value) { }
-
-            public void SetShowCombo(bool value) { }
-
-            public void SetShowHitTimingFeedback(bool value) { }
-
-            public void SetRandomSelectFromSubBox(bool value) { }
-
-            public void SetRisky(int value) { }
-
-            public void SetDamageLevel(GaugeDamageLevel value) { }
-
-            public void SetAutoAddGauge(bool value) { }
-
-            public void SetAudioLatency(int value) { }
-
-            public void SetResolution(int width, int height) { }
-
-            public void SetFullscreen(bool value) { }
-
-            public void SetVSync(bool value) { }
-
-            public void SetSkinPath(string skinPath) { }
-
-            public void FlushPendingSave() { }
         }
     }
 }

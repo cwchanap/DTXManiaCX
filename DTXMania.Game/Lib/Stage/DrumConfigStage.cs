@@ -10,389 +10,483 @@ using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
-using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage.DrumConfig;
-using DTXMania.Game.Lib.Utilities;
+using L = DTXMania.Game.Lib.UI.Layout.DrumConfigUILayout;
+using InputButtonState = DTXMania.Game.Lib.Input.ButtonState;
 using XnaButtonState = Microsoft.Xna.Framework.Input.ButtonState;
 
 namespace DTXMania.Game.Lib.Stage
 {
     /// <summary>
-    /// Visual drum-mapping stage. Shows a drawn kit; the user selects a piece (mouse or keyboard)
-    /// and hits any input device to bind it to that lane. Reads ConfigManager as the single source
-    /// of truth; edits apply immediately through SetKeyBindings/SetSystemKeyBindings, which
-    /// live-apply to the runtime via the Phase 2 events and mark a deferred save dirty. Back exits
-    /// and flushes the pending save. There is no working copy.
+    /// Drum Key Mapping page: the kit on the left, one bindings row per lane on the right.
+    /// Enter (or a click on a row or piece) listens on the selected lane and every key, pad or
+    /// MIDI note hit is appended to it until Esc. Left/Right focus a binding chip, Del removes
+    /// it, -/+ change a MIDI chip's velocity threshold. While not listening, a hit on a bound
+    /// input lights its lane (a live hit test). Config is the single source of truth: every
+    /// edit goes straight through ConfigManager (live-apply + deferred save) and Back flushes
+    /// the save on the way out. There is no working copy.
     /// </summary>
     public class DrumConfigStage : BaseStage
     {
-        private IConfigManager _configManager = null!;
+        private const int ResetFocusIndex = L.LaneCount;
+        private const int FocusCount = L.LaneCount + 1;
+
+        private readonly IConfigManager _configManager;
+        private readonly DrumCaptureSession _capture;
         private InputManagerCompat? _input;
 
-        // NullLogger until OnActivate swaps in the game's factory. Lets reflection-based tests
-        // (which skip OnActivate and leave _game.LoggerFactory null) exercise the edit helpers
-        // without NullReferenceException, while real runtime gets structured logging that survives
-        // Release builds.
+        // NullLogger until OnActivate swaps in the game's factory, so reflection-based tests that
+        // skip OnActivate can drive the stage.
         private ILogger<DrumConfigStage> _logger = NullLogger<DrumConfigStage>.Instance;
 
-        private SpriteBatch _spriteBatch = null!;
-        private Texture2D _whitePixel = null!;
-        private IFont? _font;
-        private IResourceManager _resourceManager = null!;
-        private DrumKitRenderer? _renderer;
-        private DrumCapturePopup? _popup;
-        private ITexture? _background;
-        private ITexture? _skeleton;
-        // The decorative bass-drum body reuses the renderer's KickTexture (same asset as the
-        // Kick zone) instead of a second ref-counted load of TexturePath.DrumPadKick.
+        private SpriteBatch? _spriteBatch;
+        private DrumConfigRenderer? _renderer;
 
-        // Dark UI text, for legibility on the bright background image.
-        private static readonly Color DarkText = new(26, 30, 46);
-
-        // Light fallback used when the startup background texture is missing/unavailable, so the
-        // dark UI text stays readable instead of going dark-on-dark.
-        private static readonly Color FallbackBackgroundColor = new(220, 222, 230);
-
-        // ---- HDMI device status line ----
-        // The status sits at (20, 48) in the 1280×720 virtual space — the same space the drum-kit
-        // zones occupy. The left crash cymbal (lane 0) renders into approximately x=258..402,
-        // y=20..164, so a long device name can overlap that skin-controlled artwork. A translucent
-        // dark backing panel (mirroring DrumKitRenderer.DrawZoneLabel's LabelBackdrop pill) gives
-        // white text guaranteed contrast over any art, and a bounded max width keeps the line in
-        // the upper-left instead of stretching across the kit.
-        private static readonly Color StatusBackdrop = new(0, 0, 0, 165);
-        private const int StatusX = 20;
-        private const int StatusY = 48;
-        private const int StatusPadX = 8;
-        private const int StatusPadY = 4;
-        private const float StatusMaxWidth = 500f;
-
-        // Authored focus element: 0..ZoneCount-1 for visual zones, ResetActionIndex for Reset.
-        // Resolve to a lane ID only when dispatching a popup or rendering lane highlights.
-        private int _focusedElementIndex;
-        // Keyboard focus is only *shown* once the user navigates with arrows/Tab, and is hidden
-        // again as soon as they move the mouse. Without this the default visual zone 0 (lane 5)
-        // would light up permanently on stage entry even though no one is using the keyboard.
-        private bool _keyboardFocusActive;
+        // Focus: 0..9 = lane rows (gameplay order), 10 = Reset. _chipIndex is the focused binding
+        // in the focused lane's sorted list (-1 when the lane has none).
+        private int _focusIndex;
+        private int _chipIndex = -1;
         private int _hoveredLane = -1;
-        private int _selectedLane = -1;
+        private bool _resetHovered;
         private bool _skipCaptureThisFrame;
 
+        // Live hit test: the last hit's lane and text, lit for HitFlashSeconds.
+        private int _flashLane = -1;
+        private string? _flashText;
+        private double _flashTimer;
+
+        // Status-line notice (added, removed, reset, unbound note), shown for NoticeSeconds.
+        private string? _notice;
+        private DrumStatusTone _noticeTone;
+        private double _noticeTimer;
+
         private MouseState _previousMouse;
+        private IReadOnlyList<DrumBindingRow> _rows = Array.Empty<DrumBindingRow>();
 
         public override StageType Type => StageType.DrumConfig;
 
         public DrumConfigStage(IStageGame game) : base(game)
         {
             _configManager = game.ConfigManager ?? throw new InvalidOperationException("ConfigManager not found");
+            // The capture checks reserved keys against the RUNTIME system map, which always
+            // mirrors Config (ConfigManager.SystemKeyBindingsChanged -> InputManagerCompat reload).
+            _capture = new DrumCaptureSession(() =>
+                _input?.GetKeyMappingSnapshot() ?? new Dictionary<Keys, InputCommandType>());
         }
 
         [ExcludeFromCodeCoverage]
         protected override void OnActivate()
         {
             _logger = _game.LoggerFactory?.CreateLogger<DrumConfigStage>() ?? _logger;
-
-            var graphicsDevice = _game.GraphicsDevice;
-            _spriteBatch = new SpriteBatch(graphicsDevice);
-            _whitePixel = new Texture2D(graphicsDevice, 1, 1);
-            _whitePixel.SetData(new[] { Color.White });
-            _resourceManager = _game.ResourceManager;
-            _font = _resourceManager.LoadFont("NotoSerifJP", 14);
-            _renderer = new DrumKitRenderer(graphicsDevice, _resourceManager);
-
-            // Optional skin art: ResourceManager.LoadTexture never throws on a missing asset —
-            // it returns a 1x1 white fallback texture (see ResourceManager.CreateFallbackTexture).
-            // Stretching that 1x1 texel over the viewport would wash the stage white, so an
-            // optional load is only "present" when the returned texture is a real asset (both
-            // dimensions > 1). Logged at Debug — missing optional art is an expected fallback,
-            // not a warning — but no longer fully silent so a broken skin leaves a diagnostic trail.
-            _background = LoadOptionalTexture(TexturePath.StartupBackground,
-                "DrumConfigStage: optional background texture unavailable");
-
-            // Bare drum-kit hardware drawn behind the pieces so the stage reads as a whole kit.
-            _skeleton = LoadOptionalTexture(TexturePath.DrumKitSkeleton,
-                "DrumConfigStage: optional kit-skeleton texture unavailable");
-
-            // The decorative bass-drum body is drawn from _renderer.KickTexture (loaded once by
-            // DrumKitRenderer above), so no separate TexturePath.DrumPadKick load is needed here.
-
+            _spriteBatch = new SpriteBatch(_game.GraphicsDevice);
+            _renderer = new DrumConfigRenderer(_game.GraphicsDevice, _game.ResourceManager, _logger);
             _input = _game.InputManager; // IStageGame.InputManager is concretely InputManagerCompat
 
-            // The popup providers read the RUNTIME, which always mirrors Config via the Phase 2
-            // events (ConfigManager.KeyBindingsChanged/SystemKeyBindingsChanged -> InputManagerCompat
-            // reloads). Config is truth, so there is no working copy to clone or hand off.
-            _popup = new DrumCapturePopup(
-                () => _input!.ModularInputManager.KeyBindings.ButtonToLane,  // drum map (= Config)
-                () => _input!.GetKeyMappingSnapshot(),                        // system map (= Config)
-                note => _configManager.GetMidiVelocityThreshold(note));        // MIDI thresholds (= Config)
-
-            _focusedElementIndex = 0;
-            _keyboardFocusActive = false;
-            _selectedLane = -1;
+            _capture.Stop();
+            SelectLane(0);
             _hoveredLane = -1;
+            _resetHovered = false;
+            _flashLane = -1;
+            _flashTimer = 0;
+            _notice = null;
+            _noticeTimer = 0;
             _skipCaptureThisFrame = false;
             _previousMouse = Mouse.GetState();
+            RebuildRows();
         }
 
-        protected override void OnUpdate(double deltaTime)
+        [ExcludeFromCodeCoverage]
+        protected override void OnUpdate(double deltaTime) => Step(deltaTime, Mouse.GetState());
+
+        /// <summary>
+        /// One frame of input. GraphicsDevice-free (the mouse state is passed in) so the whole
+        /// page flow is unit-testable headlessly.
+        /// </summary>
+        private void Step(double deltaTime, MouseState mouse)
         {
-            var mouse = Mouse.GetState();
+            TickTimers(deltaTime);
+
             bool leftClick = mouse.LeftButton == XnaButtonState.Pressed
                              && _previousMouse.LeftButton == XnaButtonState.Released;
             bool rightClick = mouse.RightButton == XnaButtonState.Pressed
                               && _previousMouse.RightButton == XnaButtonState.Released;
-
-            if (_popup != null && _popup.IsOpen)
-                UpdatePopup(deltaTime, mouse, leftClick, rightClick);
-            else
-                UpdateSelection(mouse, leftClick);
-
             _previousMouse = mouse;
+
+            // The page is drawn into the 1280x720 virtual target and letterboxed, so map the window
+            // mouse into virtual space. A point on the letterbox bars maps to null (no hit).
+            var point = _game.MapMouseToVirtual(mouse.Position);
+            _hoveredLane = point is { } hp ? HitTestLane(hp) : -1;
+            _resetHovered = point is { } rp && L.ResetButton.Contains(rp);
+
+            // Every press this frame (keys, pads, MIDI), including MCP/E2E-injected ones whose
+            // release lands in the same frame. Drained once and shared by both modes.
+            var pressed = _input?.ModularInputManager.ConsumePressedButtons()
+                          ?? Array.Empty<InputButtonState>();
+
+            if (_capture.IsListening)
+                StepListening(pressed, leftClick, rightClick, point);
+            else
+                StepBrowsing(pressed, leftClick, point);
+
+            RebuildRows();
         }
 
-        private void UpdatePopup(double deltaTime, MouseState mouse, bool leftClick, bool rightClick)
+        private void StepBrowsing(IReadOnlyList<InputButtonState> pressed, bool leftClick, Point? point)
         {
-            _popup!.Tick(deltaTime);
-
-            // Esc/Back or right-click closes the popup (acts as "Done").
-            if (rightClick || _input?.IsBackActionTriggered() == true)
+            int tabs = 0;
+            int velocityDelta = 0;
+            bool remove = false;
+            var drumMap = _input?.ModularInputManager.KeyBindings.ButtonToLane;
+            foreach (var button in pressed)
             {
-                _popup.Close();
-                _selectedLane = -1;
-                return;
-            }
+                // A bound input only lights its lane, so a drum key never doubles as an edit key.
+                if (drumMap != null && drumMap.TryGetValue(button.Id, out var lane))
+                {
+                    Flash(lane, button);
+                    continue;
+                }
 
-            // The popup is drawn into the fixed 1280x720 render target (letterboxed to the
-            // window), so its rectangles are authored in virtual space. Hit-testing runs during
-            // Update where GraphicsDevice.Viewport is the back buffer (window size), so map the
-            // raw window mouse coords into virtual space and size the rects with the virtual
-            // dims to match what was drawn. A click on the letterbox bars maps to null = no hit.
-            var virtualMouse = _game.MapMouseToVirtual(mouse.Position);
-            if (leftClick && virtualMouse is { } vm)
-            {
-                int vw = GameConstants.Display.VirtualWidth;
-                int vh = GameConstants.Display.VirtualHeight;
-                foreach (var chip in _popup.GetBindingChips(vw, vh))
+                switch (button.Id)
                 {
-                    if (chip.IsMidi && chip.DecrementVelocityThreshold.Contains(vm.X, vm.Y))
-                    {
-                        AdjustMidiVelocityThreshold(chip.MidiNoteNumber, -1);
-                        return;
-                    }
-                    if (chip.IsMidi && chip.IncrementVelocityThreshold.Contains(vm.X, vm.Y))
-                    {
-                        AdjustMidiVelocityThreshold(chip.MidiNoteNumber, 1);
-                        return;
-                    }
-                    if (chip.Remove.Contains(vm.X, vm.Y))
-                    {
-                        // Popup is intent-only (no RemoveBinding): the stage unbinds via Config.
-                        RemoveBindingFromConfig(chip.ButtonId);
-                        return;
-                    }
-                }
-                if (_popup.GetDoneRect(vw, vh).Contains(vm.X, vm.Y))
-                {
-                    _popup.Close();
-                    _selectedLane = -1;
-                    return;
-                }
-                if (_popup.GetClearRect(vw, vh).Contains(vm.X, vm.Y))
-                {
-                    // Popup is intent-only (no ClearLane): the stage clears the lane via Config.
-                    ClearLaneInConfig(_popup.Lane);
-                    return;
+                    // Tab is read from the pressed feed (not IsKeyPressed) so every injected
+                    // press counts even when its release drains in the same frame; each press is
+                    // one focus step (the E2E reset walk sends ten in a row).
+                    case "Key.Tab": tabs++; break;
+                    case "Key.Delete": remove = true; break;
+                    case "Key.OemMinus": case "Key.Subtract": velocityDelta--; break;
+                    case "Key.OemPlus": case "Key.Add": velocityDelta++; break;
+                    default:
+                        if (KeyBindings.TryParseMidiButtonId(button.Id, out var note))
+                            ShowNotice($"MIDI {note} is not bound to a lane.", DrumStatusTone.Hint);
+                        break;
                 }
             }
 
-            // Skip the frame the popup was opened so the activating key isn't captured.
-            if (_skipCaptureThisFrame)
-            {
-                _skipCaptureThisFrame = false;
-                return;
-            }
-
-            ProcessPopupCapture();
-        }
-
-        /// <summary>
-        /// Resolves at most one pressed button per frame against the open popup: the first non-Ignored
-        /// outcome (Captured or Rejected) ends processing for the frame, so a valid key pressed in the
-        /// same frame as a reserved key is dropped if the reserved key is enumerated first. Extracted
-        /// from <see cref="UpdatePopup"/> because it is GraphicsDevice-free, making the one-binding-per-
-        /// press semantics unit-testable headlessly.
-        /// </summary>
-        private void ProcessPopupCapture()
-        {
-            if (_input == null)
-                return;
-
-            foreach (var button in _input.ModularInputManager.ConsumePressedButtons())
-            {
-                var outcome = _popup!.TryCapture(button);
-                if (outcome != DrumCaptureOutcome.Ignored)
-                {
-                    // Captured is an intent signal (the popup mutates nothing): the STAGE applies the
-                    // binding to Config via SetKeyBindings (live-apply + dirty). Rejected (a reserved
-                    // key) did not mutate. Either way, one binding resolution per press.
-                    if (outcome == DrumCaptureOutcome.Captured)
-                        ApplyCapture(button.Id, _popup.Lane);
-                    break;
-                }
-            }
-        }
-
-        private void UpdateSelection(MouseState mouse, bool leftClick)
-        {
-            // The kit is drawn in the fixed 1280x720 virtual canvas and letterboxed to the
-            // window, so map raw window mouse coords back into virtual space (inverse of the
-            // letterbox blit). A point on the black bars maps to null = no zone hovered. The
-            // previous linear mouse*Design/vp.Width mapping assumed the kit filled the whole
-            // window, which only holds at exactly 16:9 with no bars.
-            var virtualMouse = _game.MapMouseToVirtual(mouse.Position);
-            _hoveredLane = virtualMouse is { } vm ? DrumKitLayout.HitTest(vm.X, vm.Y) : -1;
-
-            // Moving the mouse is a clear signal the user is pointing, not keyboard-navigating, so
-            // hide the keyboard focus highlight and let hover drive the highlight instead.
-            if (mouse.X != _previousMouse.X || mouse.Y != _previousMouse.Y)
-                _keyboardFocusActive = false;
-
-            // Keyboard focus navigation: all four arrows (Right/Down advance, Left/Up go back) or
-            // Tab cycle through the zones and the Reset action (design: "arrows/Tab focus + Enter"
-            // over zones + Reset). Tab is read from the per-frame pressed-button feed (ConsumePressedButtons) rather than IsKeyPressed
-            // so MCP/E2E-injected keys register reliably: when an injected Tab press AND release
-            // drain inside one ProcessInjectedInputs call (a slow E2E/CI frame whose update
-            // exceeds the injected hold duration), the release clears the injected key-state
-            // overlay before IsKeyPressed queries it, so the edge is lost. ConsumePressedButtons
-            // is populated for every press event regardless of a later release this frame. This
-            // branch and ProcessPopupCapture are mutually exclusive (popup open vs closed), so
-            // draining the feed here cannot steal presses from the capture path. Tab is kept out
-            // of the InputCommandType system on purpose (see SongSelectionStage), matching the
-            // established pattern for non-command navigation keys.
-            //
-            // Every Tab press is counted and applied as one focus advance, not coalesced to a
-            // single flag: a slow CI frame can drain several injected Tab press/release pairs in
-            // one Update (the E2E reset sequence sends ten Tabs to walk lane 0 -> Reset), and
-            // collapsing them to one step leaves focus short of the Reset action, so the next
-            // Enter activates a lane instead of resetting bindings.
-            int tabPressCount = 0;
-            if (_input != null)
-            {
-                foreach (var button in _input.ModularInputManager.ConsumePressedButtons())
-                {
-                    if (button.Id == "Key.Tab")
-                        tabPressCount++;
-                }
-            }
-
-            int focusDelta = 0;
-            // The focus sequence is a single linear order (zones 0..9 then Reset, see
-            // DrumKitLayout.AdvanceFocus), so all four arrows map onto it: Right/Down advance and
-            // Left/Up go back. This matches the "arrows or Tab cycle through the zones" design and
-            // the conventional list-navigation direction (Down = next, Up = previous).
-            if (_input?.IsCommandPressed(InputCommandType.MoveRight) == true
-                || _input?.IsCommandPressed(InputCommandType.MoveDown) == true)
-                focusDelta = 1;
-            else if (_input?.IsCommandPressed(InputCommandType.MoveLeft) == true
-                || _input?.IsCommandPressed(InputCommandType.MoveUp) == true)
-                focusDelta = -1;
-
-            if (focusDelta != 0)
-            {
-                _focusedElementIndex = DrumKitLayout.AdvanceFocus(_focusedElementIndex, focusDelta);
-                _keyboardFocusActive = true; // user is now navigating by keyboard: show the focus ring
-            }
-
-            // Apply one forward advance per Tab event (see comment above for the multi-press
-            // slow-frame rationale). Independent of the arrow path so an arrow + Tab combo still
-            // advances per event.
-            if (tabPressCount > 0)
-            {
-                for (int i = 0; i < tabPressCount; i++)
-                    _focusedElementIndex = DrumKitLayout.AdvanceFocus(_focusedElementIndex, 1);
-                _keyboardFocusActive = true;
-            }
-
-            // Back exits the stage (persist-on-edit: flush any pending deferred save on the way out).
             if (_input?.IsBackActionTriggered() == true)
             {
                 ExitStage();
                 return;
             }
 
-            // Reset-to-defaults button: check before zone hit-test so a click there
-            // doesn't also open a lane popup. Move focus onto the action so the highlight
-            // reflects the click (matches keyboard focus landing here). The button is drawn in
-            // virtual space, so hit-test against the virtual-space rect with the mapped mouse.
-            int rVw = GameConstants.Display.VirtualWidth;
-            int rVh = GameConstants.Display.VirtualHeight;
-            if (leftClick && virtualMouse is { } vmClick
-                && GetResetButtonRect(rVw, rVh).Contains(vmClick.X, vmClick.Y))
+            if (_input?.IsCommandPressed(InputCommandType.MoveDown) == true)
+                MoveFocus(1);
+            else if (_input?.IsCommandPressed(InputCommandType.MoveUp) == true)
+                MoveFocus(-1);
+            for (int i = 0; i < tabs; i++)
+                MoveFocus(1);
+
+            if (_input?.IsCommandPressed(InputCommandType.MoveRight) == true)
+                MoveChip(1);
+            else if (_input?.IsCommandPressed(InputCommandType.MoveLeft) == true)
+                MoveChip(-1);
+
+            if (remove)
+                RemoveFocusedChip();
+            if (velocityDelta != 0)
+                AdjustFocusedChipVelocity(velocityDelta);
+
+            if (leftClick && point is { } p && HandleBrowseClick(p))
+                return;
+
+            if (_input?.IsCommandPressed(InputCommandType.Activate) == true)
             {
-                _focusedElementIndex = DrumKitLayout.ResetActionIndex;
+                if (_focusIndex == ResetFocusIndex)
+                    ResetDrumBindingsToDefault();
+                else
+                    StartListening(_focusIndex);
+            }
+        }
+
+        /// <summary>Mouse click while browsing; true when the click hit something.</summary>
+        private bool HandleBrowseClick(Point p)
+        {
+            if (L.ResetButton.Contains(p))
+            {
+                _focusIndex = ResetFocusIndex;
                 ResetDrumBindingsToDefault();
+                return true;
+            }
+
+            int rowLane = DrumBindingList.HitTestRow(p.X, p.Y);
+            if (rowLane >= 0)
+            {
+                // Hit-test the row as it was last drawn, so a click lands on what the user saw.
+                if (rowLane < _rows.Count && DrumBindingList.HitTestChip(_rows[rowLane], p.X, p.Y) is { } chip
+                    && chip.Kind != DrumChipKind.Listening)
+                {
+                    SelectLane(rowLane, chip.Index);
+                    if (chip.Remove.Contains(p))
+                        RemoveFocusedChip();
+                    else if (chip.Decrement.Contains(p))
+                        AdjustFocusedChipVelocity(-1);
+                    else if (chip.Increment.Contains(p))
+                        AdjustFocusedChipVelocity(1);
+                    return true;
+                }
+
+                SelectLane(rowLane);
+                StartListening(rowLane);
+                return true;
+            }
+
+            int pieceLane = DrumKitLayout.HitTest(p.X, p.Y);
+            if (pieceLane >= 0)
+            {
+                SelectLane(pieceLane);
+                StartListening(pieceLane);
+                return true;
+            }
+            return false;
+        }
+
+        private void StepListening(IReadOnlyList<InputButtonState> pressed, bool leftClick, bool rightClick, Point? point)
+        {
+            if (rightClick || _input?.IsBackActionTriggered() == true)
+            {
+                StopListening();
                 return;
             }
 
-            // Open popup via click on a zone, or Activate on the focused element (zone or Reset).
-            if (leftClick && _hoveredLane >= 0)
-                OpenPopup(_hoveredLane);
-            else if (_input?.IsCommandPressed(InputCommandType.Activate) == true)
-                ActivateFocusedElement();
-        }
+            if (leftClick && point is { } p)
+            {
+                if (L.ResetButton.Contains(p))
+                {
+                    StopListening();
+                    _focusIndex = ResetFocusIndex;
+                    ResetDrumBindingsToDefault();
+                    return;
+                }
 
-        private void OpenPopup(int lane)
-        {
-            int zoneIndex = DrumKitLayout.FindZoneIndexByLane(lane);
-            if (zoneIndex < 0)
+                int lane = HitTestLane(p);
+                if (lane >= 0 && lane != _capture.Lane)
+                {
+                    SelectLane(lane);
+                    StartListening(lane);
+                    return;
+                }
+            }
+
+            // Skip the frame listening started so the activating press is never captured.
+            if (_skipCaptureThisFrame)
+            {
+                _skipCaptureThisFrame = false;
                 return;
+            }
 
-            _selectedLane = lane;
-            _focusedElementIndex = zoneIndex;
-            _popup!.Open(lane);
-            _skipCaptureThisFrame = true;
+            foreach (var button in pressed)
+            {
+                int lane = _capture.Lane;
+                var outcome = _capture.TryCapture(button);
+                if (outcome == DrumCaptureOutcome.Captured)
+                    OnCaptured(button, lane);
+            }
         }
 
-        /// <summary>
-        /// Dispatches Activate (Enter) on the focused element: the Reset action restores default
-        /// bindings in Config; a zone opens its capture popup. GraphicsDevice-free so the dispatch
-        /// is unit-testable headlessly — <see cref="UpdateSelection"/> calls only this.
-        /// </summary>
-        private void ActivateFocusedElement()
+        private void OnCaptured(InputButtonState button, int lane)
         {
-            if (DrumKitLayout.IsResetAction(_focusedElementIndex))
-                ResetDrumBindingsToDefault();
+            int previousLane = _input?.ModularInputManager.KeyBindings.GetLane(button.Id) ?? -1;
+            ApplyCapture(button.Id, lane);
+            Flash(lane, button);
+
+            var label = FormatButton(button.Id);
+            if (previousLane == lane)
+                ShowNotice($"{label} is already on {KeyBindings.GetLaneName(lane)}.", DrumStatusTone.Hint);
+            else if (previousLane >= 0)
+                ShowNotice($"Moved {label} from {KeyBindings.GetLaneName(previousLane)} to {KeyBindings.GetLaneName(lane)}.", DrumStatusTone.Success);
+            else
+                ShowNotice($"Added {label} to {KeyBindings.GetLaneName(lane)}.", DrumStatusTone.Success);
+
+            var bindings = GetBindings(lane);
+            _chipIndex = IndexOf(bindings, button.Id);
+        }
+
+        // ---- Focus ----
+
+        private void SelectLane(int lane, int chipIndex = 0)
+        {
+            _focusIndex = lane;
+            int count = GetBindings(lane).Count;
+            _chipIndex = count == 0 ? -1 : Math.Clamp(chipIndex, 0, count - 1);
+        }
+
+        private void MoveFocus(int delta)
+        {
+            int next = ((_focusIndex + delta) % FocusCount + FocusCount) % FocusCount;
+            if (next == ResetFocusIndex)
+            {
+                _focusIndex = ResetFocusIndex;
+                _chipIndex = -1;
+            }
             else
             {
-                int lane = DrumKitLayout.GetLaneForZoneIndex(_focusedElementIndex);
-                if (lane >= 0)
-                    OpenPopup(lane);
+                SelectLane(next);
             }
         }
 
-        // "Reset to defaults" button, top-right of the screen in virtual space. Named rather than
-        // magic numbers so the geometry is discoverable; matches the popup's centralized-constant
-        // pattern. virtualHeight is unused (button is top-anchored); kept for call-symmetry with
-        // the other (virtualWidth, virtualHeight) rect getters.
-        private const int ResetButtonWidth = 190;
-        private const int ResetButtonHeight = 30;
-        private const int ResetButtonRightInset = 210; // right virtual edge -> button's left edge
-        private const int ResetButtonTopInset = 12;
+        private void MoveChip(int delta)
+        {
+            if (_focusIndex == ResetFocusIndex)
+                return;
+            int count = GetBindings(_focusIndex).Count;
+            if (count > 0)
+                _chipIndex = Math.Clamp(_chipIndex + delta, 0, count - 1);
+        }
 
-        private static Rectangle GetResetButtonRect(int virtualWidth, int virtualHeight) =>
-            new Rectangle(virtualWidth - ResetButtonRightInset, ResetButtonTopInset,
-                          ResetButtonWidth, ResetButtonHeight);
+        private string? FocusedButtonId()
+        {
+            if (_focusIndex == ResetFocusIndex || _chipIndex < 0)
+                return null;
+            var bindings = GetBindings(_focusIndex);
+            return _chipIndex < bindings.Count ? bindings[_chipIndex] : null;
+        }
 
-        private static string FormatHdmiDeviceStatus(IReadOnlyList<string> deviceNames)
+        private void StartListening(int lane)
+        {
+            _capture.Start(lane);
+            _skipCaptureThisFrame = true;
+            _notice = null;
+        }
+
+        private void StopListening()
+        {
+            _capture.Stop();
+            _skipCaptureThisFrame = false;
+        }
+
+        private int HitTestLane(Point p)
+        {
+            int lane = DrumBindingList.HitTestRow(p.X, p.Y);
+            return lane >= 0 ? lane : DrumKitLayout.HitTest(p.X, p.Y);
+        }
+
+        // ---- Chip edits ----
+
+        private void RemoveFocusedChip()
+        {
+            var id = FocusedButtonId();
+            if (id == null)
+                return;
+            int lane = _focusIndex;
+            RemoveBindingFromConfig(id);
+            ShowNotice($"Removed {FormatButton(id)} from {KeyBindings.GetLaneName(lane)}.", DrumStatusTone.Hint);
+            SelectLane(lane, _chipIndex);
+        }
+
+        private void AdjustFocusedChipVelocity(int delta)
+        {
+            var id = FocusedButtonId();
+            if (id != null && KeyBindings.TryParseMidiButtonId(id, out var note))
+                AdjustMidiVelocityThreshold(note, delta);
+        }
+
+        // ---- Live hit test and notices ----
+
+        private void Flash(int lane, InputButtonState button)
+        {
+            if (lane < 0 || lane >= L.LaneCount)
+                return;
+            _flashLane = lane;
+            _flashTimer = L.HitFlashSeconds;
+            _flashText = FormatHit(button);
+        }
+
+        /// <summary>"HIT  KEY A" or "HIT  MIDI 38  VEL 96" (velocity is 0..1 in the feed).</summary>
+        private static string FormatHit(InputButtonState button)
+        {
+            var text = "HIT  " + FormatButton(button.Id);
+            if (KeyBindings.TryParseMidiButtonId(button.Id, out _))
+                text += $"  VEL {(int)MathF.Round(Math.Clamp(button.Velocity, 0f, 1f) * 127f)}";
+            return text;
+        }
+
+        private static string FormatButton(string buttonId)
+        {
+            var (prefix, value) = DrumBindingList.ChipText(buttonId);
+            return $"{prefix} {value}";
+        }
+
+        private void ShowNotice(string text, DrumStatusTone tone)
+        {
+            _notice = text;
+            _noticeTone = tone;
+            _noticeTimer = L.NoticeSeconds;
+        }
+
+        private void TickTimers(double deltaTime)
+        {
+            _capture.Tick(deltaTime);
+            if (_flashTimer > 0)
+            {
+                _flashTimer = Math.Max(0, _flashTimer - deltaTime);
+                if (_flashTimer == 0)
+                    _flashLane = -1;
+            }
+            if (_noticeTimer > 0)
+            {
+                _noticeTimer = Math.Max(0, _noticeTimer - deltaTime);
+                if (_noticeTimer == 0)
+                    _notice = null;
+            }
+        }
+
+        /// <summary>The status line under the bindings list for the current state.</summary>
+        private DrumStatusLine BuildStatusLine()
+        {
+            if (_capture.ConflictMessage is { } conflict)
+                return new DrumStatusLine(conflict, DrumStatusTone.Danger);
+            if (_notice != null)
+                return new DrumStatusLine(_notice, _noticeTone);
+            if (_capture.IsListening)
+                return new DrumStatusLine("Listening for ", DrumStatusTone.Accent,
+                    KeyBindings.GetLaneName(_capture.Lane), ": hit a pad or key to add it. Esc stops.");
+            return new DrumStatusLine("Not listening: hit any pad or key to see which lane it lands on.", DrumStatusTone.Hint);
+        }
+
+        /// <summary>Header MIDI status: the first device name (plus a count), or none.</summary>
+        private static (string Text, bool Connected) FormatMidiDeviceStatus(IReadOnlyList<string>? deviceNames)
         {
             if (deviceNames == null || deviceNames.Count == 0)
-                return "HDMI device: None detected (keyboard still works)";
-
+                return ("No device (keyboard works)", false);
             if (deviceNames.Count == 1)
-                return $"HDMI device: {deviceNames[0]}";
-
-            return $"HDMI devices ({deviceNames.Count}): {deviceNames[0]}, +{deviceNames.Count - 1} more";
+                return (deviceNames[0], true);
+            return ($"{deviceNames[0]} +{deviceNames.Count - 1} more", true);
         }
+
+        // ---- Rows ----
+
+        private IReadOnlyList<string> GetBindings(int lane) =>
+            _input == null
+                ? Array.Empty<string>()
+                : DrumBindingList.GetBindings(_input.ModularInputManager.KeyBindings.ButtonToLane, lane);
+
+        private static int IndexOf(IReadOnlyList<string> list, string id)
+        {
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (list[i] == id)
+                    return i;
+            }
+            return list.Count > 0 ? 0 : -1;
+        }
+
+        /// <summary>Lays out all ten rows from the live bindings (shared by Draw and click hit-tests).</summary>
+        private void RebuildRows()
+        {
+            var rows = new DrumBindingRow[L.LaneCount];
+            for (int lane = 0; lane < L.LaneCount; lane++)
+            {
+                rows[lane] = DrumBindingList.LayoutRow(
+                    lane,
+                    GetBindings(lane),
+                    note => _configManager.GetMidiVelocityThreshold(note),
+                    lane == _focusIndex ? _chipIndex : -1,
+                    _capture.IsListening && _capture.Lane == lane,
+                    MeasureMono);
+            }
+            _rows = rows;
+        }
+
+        private float MeasureMono(string text) => _renderer?.MeasureMono(text) ?? text.Length * 8f;
 
         [ExcludeFromCodeCoverage]
         protected override void OnDraw(double deltaTime)
@@ -400,134 +494,23 @@ namespace DTXMania.Game.Lib.Stage
             if (_spriteBatch == null || _renderer == null)
                 return;
 
-            // Draw against the fixed virtual render target (see GameConstants.Display). The stage
-            // is rendered into a VirtualWidth×VirtualHeight target and letterboxed once to the
-            // window in BaseGame.Draw, so every coordinate here is authored in that virtual space —
-            // matching the hit-test path, which already uses GameConstants.Display. Reading the
-            // GraphicsDevice viewport here would silently desync if the virtual target size changes.
-            int vw = GameConstants.Display.VirtualWidth;
-            int vh = GameConstants.Display.VirtualHeight;
-            _spriteBatch.Begin();
-
-            // Background: the bright startup artwork, calmed by a translucent light scrim so the
-            // dark UI text and the kit read clearly against it. A light fill covers the case where
-            // the texture or white pixel is unavailable, keeping DarkText legible.
-            if (_background?.Texture != null && _whitePixel != null)
+            var view = new DrumConfigView
             {
-                var full = new Rectangle(0, 0, vw, vh);
-                _spriteBatch.Draw(_background.Texture, full, Color.White);
-                // Premultiplied light scrim (Color.White * a scales RGB and alpha together) so it
-                // reads as a ~25% white wash under the default premultiplied AlphaBlend, not a wipe.
-                _spriteBatch.Draw(_whitePixel, full, Color.White * 0.25f);
-            }
-            else if (_whitePixel != null)
-            {
-                _spriteBatch.Draw(_whitePixel, new Rectangle(0, 0, vw, vh),
-                    FallbackBackgroundColor);
-            }
-
-            // Drum-kit hardware skeleton behind the pieces, so the kit reads as one assembled set.
-            if (_skeleton?.Texture != null)
-                _spriteBatch.Draw(_skeleton.Texture, new Rectangle(0, 0, vw, vh), Color.White * 0.9f);
-
-            // Decorative bass drum at the kit's center, behind the (clickable) bass pedals.
-            // Reuses the renderer's KickTexture (same asset as the Kick zone) — one load, one owner.
-            // Coordinates are authored directly in the 1280×720 virtual space (no scaling needed
-            // because the draw target IS that virtual space).
-            var bassDrum = _renderer?.KickTexture;
-            if (bassDrum?.Texture != null)
-            {
-                const int bw = 240, bh = 220;
-                _spriteBatch.Draw(bassDrum.Texture,
-                    new Rectangle(640 - (bw / 2), 486 - (bh / 2), bw, bh), Color.White);
-            }
-
-            if (_font != null)
-                _font.DrawString(_spriteBatch, "DRUM MAPPING  -  click a piece, then hit your input.  Back: save & exit",
-                    new Vector2(20, 16), DarkText);
-
-            // Only surface the keyboard focus highlight while keyboard navigation is active, and
-            // never for the Reset action (it is not a lane). Otherwise the default focus would keep
-            // a zone lit even when the user is only using the mouse.
-            int focusedLaneForRender =
-                _keyboardFocusActive ? DrumKitLayout.GetLaneForZoneIndex(_focusedElementIndex) : -1;
-            // Named initializer (not positional args) so the three highlight lanes can't be swapped
-            // silently at the call site — the transposition hazard LaneHighlights exists to remove.
-            var highlights = new LaneHighlights
-            {
-                SelectedLane = _selectedLane,
-                FocusedLane = focusedLaneForRender,
-                HoveredLane = _hoveredLane
+                Rows = _rows,
+                SelectedLane = _focusIndex == ResetFocusIndex ? -1 : _focusIndex,
+                ResetFocused = _focusIndex == ResetFocusIndex,
+                HoveredLane = _hoveredLane,
+                ResetHovered = _resetHovered,
+                ListeningLane = _capture.IsListening ? _capture.Lane : -1,
+                FlashLane = _flashLane,
+                FlashStrength = (float)(_flashTimer / L.HitFlashSeconds),
+                FlashText = _flashText,
+                Status = BuildStatusLine(),
+                Midi = FormatMidiDeviceStatus(_input?.ModularInputManager.ConnectedMidiDeviceNames),
             };
-            // Display reads the runtime, which always mirrors Config (persist-on-edit truth).
-            _renderer.Draw(_spriteBatch, _input?.ModularInputManager.KeyBindings ?? new KeyBindings(),
-                _font, _whitePixel,
-                vw, vh, in highlights);
 
-            if (_font != null)
-            {
-                var connectedDeviceNames =
-                    _input?.ModularInputManager.ConnectedMidiDeviceNames
-                    ?? Array.Empty<string>();
-                var deviceStatus = FormatHdmiDeviceStatus(connectedDeviceNames);
-
-                if (_whitePixel != null)
-                {
-                    // Truncate to the dedicated status rectangle (not the full viewport) so long
-                    // device names stay in the upper-left. A translucent dark backing panel gives
-                    // white text guaranteed contrast over the skin-controlled cymbal artwork that
-                    // shares this y-band (lane 0 box ≈ x=258..402, y=20..164).
-                    var visibleDeviceStatus = TextHelper.TruncateToWidth(
-                        deviceStatus,
-                        StatusMaxWidth - (StatusPadX * 2),
-                        _font);
-                    var statusSize = _font.MeasureString(visibleDeviceStatus);
-                    var statusRect = new Rectangle(
-                        StatusX, StatusY,
-                        (int)statusSize.X + (StatusPadX * 2),
-                        (int)statusSize.Y + (StatusPadY * 2));
-                    _spriteBatch.Draw(_whitePixel, statusRect, StatusBackdrop);
-                    _font.DrawString(
-                        _spriteBatch,
-                        visibleDeviceStatus,
-                        new Vector2(StatusX + StatusPadX, StatusY + StatusPadY),
-                        Color.White);
-                }
-                else
-                {
-                    // Fallback when the white pixel is unavailable: unbounded DarkText on the
-                    // light scrim, matching the pre-existing title-row behaviour.
-                    var visibleDeviceStatus = TextHelper.TruncateToWidth(
-                        deviceStatus,
-                        vw - 40,
-                        _font);
-                    _font.DrawString(
-                        _spriteBatch,
-                        visibleDeviceStatus,
-                        new Vector2(StatusX, StatusY),
-                        DarkText);
-                }
-            }
-
-            var resetRect = GetResetButtonRect(vw, vh);
-            if (_whitePixel != null)
-            {
-                // Focus ring first (yellow, inflated) so the fill sits inside it, mirroring the
-                // zone focus highlight and giving keyboard users a visible "Reset is focused" cue.
-                if (_keyboardFocusActive && DrumKitLayout.IsResetAction(_focusedElementIndex))
-                {
-                    var ring = resetRect;
-                    ring.Inflate(4, 4);
-                    _spriteBatch.Draw(_whitePixel, ring, new Color(255, 216, 77));
-                }
-                _spriteBatch.Draw(_whitePixel, resetRect, new Color(58, 70, 90));
-            }
-            if (_font != null)
-                _font.DrawString(_spriteBatch, "Reset to defaults",
-                    new Vector2(resetRect.X + 10, resetRect.Y + 6), Color.White);
-
-            _popup?.Draw(_spriteBatch, _font, _whitePixel, vw, vh);
-
+            _spriteBatch.Begin();
+            _renderer.Draw(_spriteBatch, view);
             _spriteBatch.End();
         }
 
@@ -542,15 +525,13 @@ namespace DTXMania.Game.Lib.Stage
 
         /// <summary>Binds <paramref name="buttonId"/> to <paramref name="lane"/> in Config, then
         /// immediately evicts that key from the system map if it is a keyboard key (Decision 3:
-        /// capture-time eviction is permanent — no restore on undo).</summary>
+        /// capture-time eviction is permanent, no restore on undo).</summary>
         private void ApplyCapture(string buttonId, int lane)
         {
             if (_input == null) return;
             var kb = _input.ModularInputManager.KeyBindings.Clone();
             kb.BindButton(buttonId, lane);
             _configManager.SetKeyBindings(kb);
-            // Immediate eviction (Decision 3): a keyboard key claimed by a drum lane leaves the
-            // system map now.
             EvictSystemKey(buttonId);
         }
 
@@ -573,14 +554,6 @@ namespace DTXMania.Game.Lib.Stage
             _configManager.SetMidiVelocityThreshold(noteNumber, next);
         }
 
-        private void ClearLaneInConfig(int lane)
-        {
-            if (_input == null) return;
-            var kb = _input.ModularInputManager.KeyBindings.Clone();
-            kb.UnbindLane(lane);
-            _configManager.SetKeyBindings(kb);
-        }
-
         private void ResetDrumBindingsToDefault()
         {
             if (_input == null) return;
@@ -588,6 +561,7 @@ namespace DTXMania.Game.Lib.Stage
             kb.LoadDefaultBindings();
             _configManager.SetKeyBindings(kb);
             EvictSystemKeysForDrumBindings(kb);
+            ShowNotice("Drum bindings reset to defaults.", DrumStatusTone.Success);
         }
 
         /// <summary>Evicts a single keyboard key from the system map if it was just claimed by a drum lane.</summary>
@@ -612,70 +586,28 @@ namespace DTXMania.Game.Lib.Stage
             if (changed) _configManager.SetSystemKeyBindings(snap);
         }
 
-        /// <summary>
-        /// Load an optional skin texture, returning null when the asset is absent. ResourceManager
-        /// never throws for a missing/invalid texture — it returns a 1x1 white fallback (see
-        /// <see cref="ResourceManager.CreateFallbackTexture"/>), which would stretch a single texel
-        /// over the viewport and wash the stage. A real asset is always larger than 1x1, so a
-        /// 1x1 result is treated as "not present" and released immediately.
-        /// </summary>
-        private ITexture? LoadOptionalTexture(string path, string unavailableMessage)
-        {
-            ITexture? texture = null;
-            try { texture = _resourceManager.LoadTexture(path); }
-            catch (Exception ex) { _logger.LogDebug(ex, "{Message}", unavailableMessage); return null; }
-
-            if (texture == null || texture.Width <= 1 || texture.Height <= 1)
-            {
-                _logger.LogDebug("{Message} (asset missing or 1x1 fallback)", unavailableMessage);
-                texture?.RemoveReference();
-                return null;
-            }
-
-            return texture;
-        }
-
         protected override void OnDeactivate()
         {
             // Persist-on-edit safety net: flush any pending deferred save when leaving the stage.
-            // Back already flushes via ExitStage; this covers other deactivation paths so an edited
-            // Config is never left dirty in memory only.
+            // Back already flushes via ExitStage; this covers other deactivation paths.
             _configManager.FlushPendingSave();
-
-            _renderer?.Dispose();
-            _renderer = null;
-            _popup = null;
-            _background?.RemoveReference();
-            _background = null;
-            _skeleton?.RemoveReference();
-            _skeleton = null;
-            _font?.RemoveReference();
-            _font = null;
-            _spriteBatch?.Dispose();
-            _spriteBatch = null!;
-            _whitePixel?.Dispose();
-            _whitePixel = null!;
+            _capture.Stop();
+            ReleaseGraphics();
         }
 
         protected override void Dispose(bool disposing)
         {
             if (disposing)
-            {
-                _renderer?.Dispose();
-                _whitePixel?.Dispose();
-                _spriteBatch?.Dispose();
-                _font?.RemoveReference();
-                _background?.RemoveReference();
-                _background = null;
-                _skeleton?.RemoveReference();
-                _skeleton = null;
-                _renderer = null;
-                _whitePixel = null!;
-                _spriteBatch = null!;
-                _font = null;
-                _resourceManager = null!;
-            }
+                ReleaseGraphics();
             base.Dispose(disposing);
+        }
+
+        private void ReleaseGraphics()
+        {
+            _renderer?.Dispose();
+            _renderer = null;
+            _spriteBatch?.Dispose();
+            _spriteBatch = null;
         }
     }
 }

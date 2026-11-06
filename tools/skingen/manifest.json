@@ -3506,15 +3506,6 @@
       },
       "width": 398
     },
-    "Graphics/drumkit_skeleton.png": {
-      "height": 720,
-      "optional": false,
-      "recipe": {
-        "source": "drumkit_skeleton.png",
-        "type": "copy"
-      },
-      "width": 1280
-    },
     "Graphics/hit_fx.png": {
       "height": 32,
       "optional": false,
