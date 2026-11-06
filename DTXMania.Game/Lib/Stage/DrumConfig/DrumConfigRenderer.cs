@@ -44,9 +44,9 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
 
     /// <summary>
     /// Paints the Drum Key Mapping page in the CX Neon look: chamfered navy panels over the
-    /// backdrop, the kit with lane tags, the bindings rows and the footer hints. Owns its fonts,
-    /// textures and the 1px/circle/glow primitives. Skin art is optional: a missing backdrop
-    /// falls back to the strip navy, a missing piece to a lane-colored disc.
+    /// backdrop, the kit illustration with lane tags, the bindings rows and the footer hints.
+    /// Owns its fonts, textures and the 1px/circle/ring/glow primitives. Skin art is optional:
+    /// a missing backdrop falls back to the strip navy, a missing kit picture to lane-colored discs.
     /// </summary>
     [ExcludeFromCodeCoverage]
     public sealed class DrumConfigRenderer : IDisposable
@@ -57,11 +57,12 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
         private readonly Texture2D _white;
         private readonly Texture2D _circle;
         private readonly Texture2D _glow;
+        private readonly Texture2D _ring;
         private readonly IFont? _titleFont;
         private readonly IFont? _labelFont;
         private readonly IFont? _monoFont;
         private readonly ITexture? _background;
-        private readonly Dictionary<DrumPieceArt, ITexture?> _pieceArt = new();
+        private readonly ITexture? _kitArt;
         private bool _disposed;
 
         public DrumConfigRenderer(GraphicsDevice device, IResourceManager resourceManager, ILogger? logger = null)
@@ -74,17 +75,14 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             _white.SetData(new[] { Color.White });
             _circle = CreateRadialTexture(device, 64, soft: false);
             _glow = CreateRadialTexture(device, 128, soft: true);
+            _ring = CreateRingTexture(device, 128, thickness: 3f);
 
             _titleFont = TryLoadFont(L.DisplayFontFamily, L.TitleFontSize);
             _labelFont = TryLoadFont(L.DisplayFontFamily, L.LabelFontSize);
             _monoFont = TryLoadFont(L.MonoFontFamily, L.MonoFontSize);
 
             _background = TryLoadTexture(TexturePath.StartupBackground);
-            _pieceArt[DrumPieceArt.Cymbal] = TryLoadTexture(TexturePath.DrumPadCymbal);
-            _pieceArt[DrumPieceArt.HiHat] = TryLoadTexture(TexturePath.DrumPadHiHat);
-            _pieceArt[DrumPieceArt.Drum] = TryLoadTexture(TexturePath.DrumPadDrum);
-            _pieceArt[DrumPieceArt.Kick] = TryLoadTexture(TexturePath.DrumPadKick);
-            _pieceArt[DrumPieceArt.Pedal] = TryLoadTexture(TexturePath.DrumPadPedal);
+            _kitArt = TryLoadTexture(TexturePath.DrumKitSet);
         }
 
         /// <summary>Width of <paramref name="text"/> in the mono face (chip layout uses it).</summary>
@@ -149,30 +147,47 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             TextCenteredY(sb, _monoFont, L.KitHint, L.KitCaption.X + captionWidth + 12,
                 L.KitCaption.Y + (L.CaptionHeight / 2), _palette.TextTertiary);
 
-            // Pieces are drawn in lane order; the overlap between neighbours is small and the
-            // ordering keeps the kick in front of the snare/toms behind it.
+            // Halos go under the picture so they read as a glow around the piece's edges;
+            // rings, hit tints and tags go over it.
+            foreach (var piece in DrumKitLayout.Pieces)
+            {
+                int lane = piece.Lane;
+                var box = piece.Bounds;
+                float flash = lane == view.FlashLane ? view.FlashStrength : 0f;
+                if (lane == view.SelectedLane)
+                    sb.Draw(_glow, Inflate(box, box.Width / 4), _palette.Accent * 0.5f);
+                else if (lane == view.HoveredLane)
+                    sb.Draw(_glow, Inflate(box, box.Width / 5), _palette.TextSecondary * 0.2f);
+                if (flash > 0)
+                    sb.Draw(_glow, Inflate(box, box.Width / 4), PerformanceUILayout.GetLaneColor(lane) * (0.8f * flash));
+            }
+
+            if (_kitArt?.Texture != null)
+                sb.Draw(_kitArt.Texture, L.KitArt, Color.White);
+
             foreach (var piece in DrumKitLayout.Pieces)
             {
                 int lane = piece.Lane;
                 var laneColor = PerformanceUILayout.GetLaneColor(lane);
+                var box = piece.Bounds;
                 bool selected = lane == view.SelectedLane;
                 float flash = lane == view.FlashLane ? view.FlashStrength : 0f;
-                bool hovered = lane == view.HoveredLane;
 
-                var art = _pieceArt[piece.Art];
-                var box = art?.Texture != null ? FitCentered(piece.Bounds, art.Width, art.Height) : piece.Bounds;
-
-                if (selected)
-                    sb.Draw(_glow, Inflate(box, box.Width / 4), _palette.Accent * 0.55f);
-                else if (hovered)
-                    sb.Draw(_glow, Inflate(box, box.Width / 5), _palette.TextSecondary * 0.22f);
+                if (_kitArt?.Texture == null)
+                    sb.Draw(_circle, Inflate(box, -box.Width / 6), laneColor * 0.35f);
                 if (flash > 0)
-                    sb.Draw(_glow, Inflate(box, box.Width / 4), laneColor * (0.85f * flash));
-
-                if (art?.Texture != null)
-                    sb.Draw(art.Texture, box, Color.White);
-                else
-                    sb.Draw(_circle, Inflate(piece.Bounds, -piece.Bounds.Width / 6), laneColor * 0.35f);
+                    sb.Draw(_glow, box, laneColor * (0.45f * flash));
+                if (selected)
+                {
+                    // The art already has cyan rims, so selection adds a tint and a double ring.
+                    sb.Draw(_glow, box, _palette.Accent * 0.3f);
+                    sb.Draw(_ring, Inflate(box, 4), _palette.Accent);
+                    sb.Draw(_ring, Inflate(box, 10), _palette.Accent * 0.35f);
+                }
+                else if (flash > 0)
+                    sb.Draw(_ring, box, laneColor * flash);
+                else if (lane == view.HoveredLane)
+                    sb.Draw(_ring, box, _palette.TextSecondary * 0.45f);
 
                 LaneTag(sb, piece.TagRect, lane, selected, flash > 0);
             }
@@ -397,17 +412,6 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             return r;
         }
 
-        /// <summary>Largest rectangle of the source's aspect ratio that fits inside <paramref name="bounds"/>, centered.</summary>
-        private static Rectangle FitCentered(Rectangle bounds, int srcWidth, int srcHeight)
-        {
-            if (srcWidth <= 0 || srcHeight <= 0)
-                return bounds;
-            float scale = Math.Min(bounds.Width / (float)srcWidth, bounds.Height / (float)srcHeight);
-            int w = Math.Max(1, (int)(srcWidth * scale));
-            int h = Math.Max(1, (int)(srcHeight * scale));
-            return new Rectangle(bounds.Center.X - (w / 2), bounds.Center.Y - (h / 2), w, h);
-        }
-
         // ---- Resources ----
 
         private IFont? TryLoadFont(string family, int size)
@@ -465,6 +469,28 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             return texture;
         }
 
+        /// <summary>An anti-aliased circle outline; stretched over a piece's box it becomes an ellipse ring.</summary>
+        private static Texture2D CreateRingTexture(GraphicsDevice device, int size, float thickness)
+        {
+            var data = new Color[size * size];
+            float r = size / 2f;
+            float mid = r - 1f - (thickness / 2f);
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float dx = x - r + 0.5f;
+                    float dy = y - r + 0.5f;
+                    float d = MathF.Sqrt((dx * dx) + (dy * dy));
+                    float a = Math.Clamp((thickness / 2f) + 0.5f - MathF.Abs(d - mid), 0f, 1f);
+                    data[(y * size) + x] = Color.White * a;
+                }
+            }
+            var texture = new Texture2D(device, size, size);
+            texture.SetData(data);
+            return texture;
+        }
+
         public void Dispose()
         {
             if (_disposed)
@@ -473,12 +499,12 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             _white.Dispose();
             _circle.Dispose();
             _glow.Dispose();
+            _ring.Dispose();
             _titleFont?.RemoveReference();
             _labelFont?.RemoveReference();
             _monoFont?.RemoveReference();
             _background?.RemoveReference();
-            foreach (var art in _pieceArt.Values)
-                art?.RemoveReference();
+            _kitArt?.RemoveReference();
         }
     }
 }

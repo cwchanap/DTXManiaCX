@@ -26,16 +26,12 @@ namespace DTXMania.Test.Stage.DrumConfig
         }
 
         [Fact]
-        public void Pieces_UseTheArtThatMatchesTheirInstrument()
+        public void Pieces_SitOnTheKitIllustration()
         {
-            DrumPieceArt ArtOf(int lane) => DrumKitLayout.Pieces[lane].Art;
-            Assert.Equal(DrumPieceArt.Cymbal, ArtOf(0));
-            Assert.Equal(DrumPieceArt.HiHat, ArtOf(1));
-            Assert.Equal(DrumPieceArt.Pedal, ArtOf(2));
-            Assert.Equal(DrumPieceArt.Kick, ArtOf(5));
-            Assert.Equal(DrumPieceArt.Cymbal, ArtOf(9));
-            foreach (var lane in new[] { 3, 4, 6, 7 })
-                Assert.Equal(DrumPieceArt.Drum, ArtOf(lane));
+            var art = DrumConfigUILayout.KitArt;
+            Assert.True(DrumConfigUILayout.KitPanel.Contains(art), "the kit picture leaves the kit panel");
+            foreach (var piece in DrumKitLayout.Pieces)
+                Assert.True(art.Contains(piece.Bounds.Center), $"lane {piece.Lane} hotspot is off the kit picture");
         }
 
         [Fact]

@@ -6,33 +6,31 @@ using DTXMania.Game.Lib.UI.Layout;
 
 namespace DTXMania.Game.Lib.Stage.DrumConfig
 {
-    /// <summary>Which skin art a kit piece draws (TexturePath.DrumPad*).</summary>
-    public enum DrumPieceArt { Cymbal, HiHat, Drum, Kick, Pedal }
-
     /// <summary>
     /// One clickable kit piece, mapped 1:1 to a drum lane (0-9). <see cref="Bounds"/> is the
-    /// screen-space box the art is fit into (1280x720 virtual space, inside the kit panel);
-    /// the click target is the ellipse inscribed in it. The lane tag sits at
-    /// <see cref="TagOffsetY"/> below the box center.
+    /// screen-space box (1280x720 virtual space) around the piece as it appears in the kit
+    /// illustration drawn into <see cref="DrumConfigUILayout.KitArt"/>; the click target and
+    /// the highlight ring are the ellipse inscribed in it. The lane tag sits at
+    /// <see cref="TagOffsetX"/>/<see cref="TagOffsetY"/> from the box center.
     /// </summary>
     public readonly struct DrumKitPiece
     {
         public int Lane { get; }
-        public DrumPieceArt Art { get; }
         public Rectangle Bounds { get; }
+        public int TagOffsetX { get; }
         public int TagOffsetY { get; }
 
-        public DrumKitPiece(int lane, DrumPieceArt art, int centerX, int centerY, int width, int height, int tagOffsetY)
+        public DrumKitPiece(int lane, int centerX, int centerY, int width, int height, int tagOffsetX, int tagOffsetY)
         {
             Lane = lane;
-            Art = art;
             Bounds = new Rectangle(centerX - (width / 2), centerY - (height / 2), width, height);
+            TagOffsetX = tagOffsetX;
             TagOffsetY = tagOffsetY;
         }
 
-        /// <summary>Lane-code tag rectangle (e.g. "SN"), centered under the piece's middle.</summary>
+        /// <summary>Lane-code tag rectangle (e.g. "SN"); its top-center sits at the tag offset.</summary>
         public Rectangle TagRect => new(
-            Bounds.Center.X - (DrumConfigUILayout.PieceTagWidth / 2),
+            Bounds.Center.X + TagOffsetX - (DrumConfigUILayout.PieceTagWidth / 2),
             Bounds.Center.Y + TagOffsetY,
             DrumConfigUILayout.PieceTagWidth,
             DrumConfigUILayout.PieceTagHeight);
@@ -52,24 +50,26 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
     }
 
     /// <summary>
-    /// Static kit layout in the kit panel. Pieces are listed in lane order (LC..RD) and placed
-    /// like a real kit seen from the drummer's seat; each box keeps the shipped art's aspect
-    /// ratio so the art fills it.
+    /// Hotspots over the kit illustration (<see cref="Resources.TexturePath.DrumKitSet"/>), in
+    /// lane order (LC..RD). The illustration shows a whole kit from the drummer's seat, so the
+    /// boxes follow where each piece sits in that picture.
     /// </summary>
     public static class DrumKitLayout
     {
         public static IReadOnlyList<DrumKitPiece> Pieces { get; } = new[]
         {
-            new DrumKitPiece(0, DrumPieceArt.Cymbal, 176, 234, 170, 150, 30),  // LC: crash, upper left
-            new DrumKitPiece(1, DrumPieceArt.HiHat,  112, 368, 130, 122, 30),  // HH: left stand
-            new DrumKitPiece(2, DrumPieceArt.Pedal,  120, 570,  96, 123, 40),  // LP: hi-hat foot
-            new DrumKitPiece(3, DrumPieceArt.Drum,   192, 474, 118, 107, 40),  // SN
-            new DrumKitPiece(4, DrumPieceArt.Drum,   296, 316, 100,  91, 34),  // HT: left rack tom
-            new DrumKitPiece(5, DrumPieceArt.Kick,   358, 488, 180, 176, 74),  // BD: the kick itself
-            new DrumKitPiece(6, DrumPieceArt.Drum,   420, 316, 108,  98, 36),  // LT: right rack tom
-            new DrumKitPiece(7, DrumPieceArt.Drum,   544, 484, 140, 127, 46),  // FT
-            new DrumKitPiece(8, DrumPieceArt.Cymbal, 496, 204, 170, 150, 30),  // CY: crash, upper right
-            new DrumKitPiece(9, DrumPieceArt.Cymbal, 612, 320, 140, 124, 28),  // RD: ride, far right
+            // Centers and boxes trace drumkit_set.png drawn at KitArt; tags sit above the
+            // cymbals and on the drum heads.
+            new DrumKitPiece(0, 169, 230, 164,  72,   0, -58),  // LC: left crash
+            new DrumKitPiece(1, 104, 343, 128,  60, -30, -52),  // HH: hi-hat cymbals
+            new DrumKitPiece(2, 115, 555,  56,  70, -45,  -7),  // LP: hi-hat foot pedal
+            new DrumKitPiece(3, 214, 426, 128, 100,   0, -38),  // SN
+            new DrumKitPiece(4, 288, 322,  92,  86,   0, -35),  // HT: left rack tom
+            new DrumKitPiece(5, 345, 470, 172, 240,   0, -70),  // BD: kick drum and its pedal
+            new DrumKitPiece(6, 412, 318, 108,  98,   0, -37),  // LT: right rack tom
+            new DrumKitPiece(7, 501, 455, 136, 160,   0, -63),  // FT
+            new DrumKitPiece(8, 498, 220, 160,  74,   0, -61),  // CY: right crash
+            new DrumKitPiece(9, 590, 330, 180,  96,   0, -71),  // RD: ride
         };
 
         /// <summary>

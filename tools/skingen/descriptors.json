@@ -10,7 +10,8 @@
     "overlay": "Full-screen 1280x720 overlay on transparent/black background as described; must not obscure the lane area's readability.",
     "tab-strip": "Very wide opaque backplate for the scrolling Tab-mode notation strip: near-black navy, calm and low-contrast so notation drawn on top stays readable; no horizontal lines, frame, divider or symbols (the game draws the staff).",
     "tab-panel": "Nine-slice UI panel plate on transparent background: rectangle with 45-degree chamfered corners whose details stay inside the outer quarter of each side, #0B1220 fill at ~88% opacity, thin neon cyan edge with soft glow, even center with no motifs, symmetric.",
-    "tab-hitline": "Single vertical neon light beam on transparent background (alpha-blended, not additive), centered and running the full height."
+    "tab-hitline": "Single vertical neon light beam on transparent background (alpha-blended, not additive), centered and running the full height.",
+    "drumkit-set": "Complete acoustic drum kit illustration on transparent background (no floor, drummer, throne, sticks or text), seen from the drummer's seat looking forward and down so the hi-hat is on the left and the ride on the right. Exactly 10 parts, clearly separated: left crash (upper left), hi-hat on its stand (left), hi-hat foot pedal (bottom left), snare (front left), high tom and low tom mounted above the kick, kick drum with its pedal (center bottom), floor tom (front right), right crash (upper right), ride (far right). Crisp vector-like flat shading; dark matte navy shells, dark heads with thin neon cyan rims, gunmetal/bronze cymbals with cyan edges and a faint magenta sheen, muted steel hardware."
   },
   "assets": {
     "Graphics/1_background.jpg":  {"family": "stage-background", "desc": "Startup/boot: dimmest variant, near-black, a single thin cyan horizon line, no grid floor yet."},
@@ -141,10 +142,6 @@
     "Graphics/7_JacketPanel.png":  {"family": "panel", "desc": "Result jacket frame plate."},
     "Graphics/Console font 8x16.png":   {"family": "bitmap-font", "desc": "Console font sheet 8x16 cells, full ASCII: crisp monospace pixel-style glyphs, #F1F5F9 on transparent. Generate as a full-sheet exception (glyph grid), pixel-exact."},
     "Graphics/Console font 2 8x16.png": {"family": "bitmap-font", "desc": "Console font secondary sheet: dimmed variant of the above."},
-    "Graphics/drumkit_cymbal.png": {"family": "drumkit", "desc": "Crash cymbal piece."},
-    "Graphics/drumkit_hihat.png":  {"family": "drumkit", "desc": "Hi-hat piece."},
-    "Graphics/drumkit_drum.png":   {"family": "drumkit", "desc": "Tom/snare drum piece."},
-    "Graphics/drumkit_kick.png":   {"family": "drumkit", "desc": "Kick drum piece."},
-    "Graphics/drumkit_pedal.png":  {"family": "drumkit", "desc": "Foot pedal piece."}
+    "Graphics/drumkit_set.png":    {"family": "drumkit-set", "base_style": "Synthwave arcade game UI asset, neon cyan #22D3EE and magenta #E879F9 accents, soft neon outer glow, crisp vector-like edges, high contrast, no text, no watermark, no logo.", "desc": "Drum Key Mapping kit picture; the page draws click areas, lane tags and highlights over each piece. Referenced by TexturePath.DrumKitSet."}
   }
 }

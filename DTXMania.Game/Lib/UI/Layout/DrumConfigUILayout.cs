@@ -71,6 +71,8 @@ namespace DTXMania.Game.Lib.UI.Layout
         public static readonly Rectangle KitPanel = new(16, 84, 676, 576);
         public static readonly Point KitCaption = new(30, 98);
         public const string KitHint = "click a piece, then hit a pad or key";
+        /// <summary>Where the kit illustration is drawn (its pieces' hotspots follow it).</summary>
+        public static readonly Rectangle KitArt = new(24, 170, 660, 430);
         public const int PieceTagWidth = 40;
         public const int PieceTagHeight = 22;
 

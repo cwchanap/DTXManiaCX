@@ -896,40 +896,12 @@ Workflow: generate each image with your image AI, save into `tools/skingen/sourc
 
 > Synthwave arcade game UI asset, dark slate background #0F172A, neon cyan #22D3EE and magenta #E879F9 accents, thin glowing grid lines and subtle scanlines, chamfered corners, soft neon outer glow, crisp vector-like edges, flat dark surfaces (#1E293B), high contrast, no text, no watermark, no logo. Emblem on transparent background: bold chamfered shield/plate with a large glowing rank letter, metallic-free flat neon styling. FULL COMBO word plate: gold-cyan.
 
-## `Graphics/drumkit_cymbal.png`
+## `Graphics/drumkit_set.png`
 
-- **Target size:** 512x453 (generate at 2x or larger)
+- **Target size:** 660x430 (generate at 2x or larger)
 - **Prompt:**
 
-> Synthwave arcade game UI asset, dark slate background #0F172A, neon cyan #22D3EE and magenta #E879F9 accents, thin glowing grid lines and subtle scanlines, chamfered corners, soft neon outer glow, crisp vector-like edges, flat dark surfaces (#1E293B), high contrast, no text, no watermark, no logo. Stylized drum-kit piece on transparent background: dark matte body with neon cyan rim highlights, slight top-down 3/4 view, flat-shaded, no photorealism. Crash cymbal piece.
-
-## `Graphics/drumkit_drum.png`
-
-- **Target size:** 512x466 (generate at 2x or larger)
-- **Prompt:**
-
-> Synthwave arcade game UI asset, dark slate background #0F172A, neon cyan #22D3EE and magenta #E879F9 accents, thin glowing grid lines and subtle scanlines, chamfered corners, soft neon outer glow, crisp vector-like edges, flat dark surfaces (#1E293B), high contrast, no text, no watermark, no logo. Stylized drum-kit piece on transparent background: dark matte body with neon cyan rim highlights, slight top-down 3/4 view, flat-shaded, no photorealism. Tom/snare drum piece.
-
-## `Graphics/drumkit_hihat.png`
-
-- **Target size:** 512x481 (generate at 2x or larger)
-- **Prompt:**
-
-> Synthwave arcade game UI asset, dark slate background #0F172A, neon cyan #22D3EE and magenta #E879F9 accents, thin glowing grid lines and subtle scanlines, chamfered corners, soft neon outer glow, crisp vector-like edges, flat dark surfaces (#1E293B), high contrast, no text, no watermark, no logo. Stylized drum-kit piece on transparent background: dark matte body with neon cyan rim highlights, slight top-down 3/4 view, flat-shaded, no photorealism. Hi-hat piece.
-
-## `Graphics/drumkit_kick.png`
-
-- **Target size:** 512x501 (generate at 2x or larger)
-- **Prompt:**
-
-> Synthwave arcade game UI asset, dark slate background #0F172A, neon cyan #22D3EE and magenta #E879F9 accents, thin glowing grid lines and subtle scanlines, chamfered corners, soft neon outer glow, crisp vector-like edges, flat dark surfaces (#1E293B), high contrast, no text, no watermark, no logo. Stylized drum-kit piece on transparent background: dark matte body with neon cyan rim highlights, slight top-down 3/4 view, flat-shaded, no photorealism. Kick drum piece.
-
-## `Graphics/drumkit_pedal.png`
-
-- **Target size:** 398x512 (generate at 2x or larger)
-- **Prompt:**
-
-> Synthwave arcade game UI asset, dark slate background #0F172A, neon cyan #22D3EE and magenta #E879F9 accents, thin glowing grid lines and subtle scanlines, chamfered corners, soft neon outer glow, crisp vector-like edges, flat dark surfaces (#1E293B), high contrast, no text, no watermark, no logo. Stylized drum-kit piece on transparent background: dark matte body with neon cyan rim highlights, slight top-down 3/4 view, flat-shaded, no photorealism. Foot pedal piece.
+> Synthwave arcade game UI asset, neon cyan #22D3EE and magenta #E879F9 accents, soft neon outer glow, crisp vector-like edges, high contrast, no text, no watermark, no logo. Complete acoustic drum kit illustration on transparent background (no floor, drummer, throne, sticks or text), seen from the drummer's seat looking forward and down so the hi-hat is on the left and the ride on the right. Exactly 10 parts, clearly separated: left crash (upper left), hi-hat on its stand (left), hi-hat foot pedal (bottom left), snare (front left), high tom and low tom mounted above the kick, kick drum with its pedal (center bottom), floor tom (front right), right crash (upper right), ride (far right). Crisp vector-like flat shading; dark matte navy shells, dark heads with thin neon cyan rims, gunmetal/bronze cymbals with cyan edges and a faint magenta sheen, muted steel hardware. Drum Key Mapping kit picture; the page draws click areas, lane tags and highlights over each piece. Referenced by TexturePath.DrumKitSet.
 
 ## `Graphics/hit_fx.png`
 

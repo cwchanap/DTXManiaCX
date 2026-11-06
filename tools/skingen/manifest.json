@@ -3461,50 +3461,14 @@
       },
       "width": 600
     },
-    "Graphics/drumkit_cymbal.png": {
-      "height": 453,
+    "Graphics/drumkit_set.png": {
+      "height": 430,
       "optional": false,
       "recipe": {
-        "source": "drumkit_cymbal.png",
+        "source": "drumkit_set.png",
         "type": "copy"
       },
-      "width": 512
-    },
-    "Graphics/drumkit_drum.png": {
-      "height": 466,
-      "optional": false,
-      "recipe": {
-        "source": "drumkit_drum.png",
-        "type": "copy"
-      },
-      "width": 512
-    },
-    "Graphics/drumkit_hihat.png": {
-      "height": 481,
-      "optional": false,
-      "recipe": {
-        "source": "drumkit_hihat.png",
-        "type": "copy"
-      },
-      "width": 512
-    },
-    "Graphics/drumkit_kick.png": {
-      "height": 501,
-      "optional": false,
-      "recipe": {
-        "source": "drumkit_kick.png",
-        "type": "copy"
-      },
-      "width": 512
-    },
-    "Graphics/drumkit_pedal.png": {
-      "height": 512,
-      "optional": false,
-      "recipe": {
-        "source": "drumkit_pedal.png",
-        "type": "copy"
-      },
-      "width": 398
+      "width": 660
     },
     "Graphics/hit_fx.png": {
       "height": 32,
