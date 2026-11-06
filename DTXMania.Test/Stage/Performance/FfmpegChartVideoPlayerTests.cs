@@ -639,6 +639,104 @@ namespace DTXMania.Test.Stage.Performance
 
         #endregion
 
+        #region Regression: shutdown write failure through the real cancel path
+
+        [Fact]
+        public async Task Stop_WhenFfmpegShutdownWriteFails_ShouldContainFailureAndCompleteGeneration()
+        {
+            // POSIX-only: the stub below is a shell script, which cannot
+            // masquerade as ffmpeg.exe on Windows. The platform-agnostic
+            // containment path is covered by FfmpegChartVideoPlayerShutdownTests.
+            if (OperatingSystem.IsWindows())
+            {
+                return;
+            }
+
+            var availability = FfmpegRuntime.EnsureConfigured();
+            if (!availability.IsAvailable || string.IsNullOrEmpty(availability.BinaryFolder))
+            {
+                // The fake bin folder needs a real ffprobe to borrow; skip
+                // when the runtime resolved via PATH instead of a bundle.
+                return;
+            }
+
+            // A fake ffmpeg that closes its own stdin and keeps running
+            // briefly: the real FFMpegCore cancel callback writes "q" to
+            // process stdin, so the write hits a broken pipe while the
+            // process is still alive — the IOException InvokeFfmpegShutdown
+            // exists to contain. The stub then exits on its own, matching the
+            // production scenario where the pipe broke because the process
+            // was already tearing down, so the generation completes even
+            // though the thrown write skipped FFMpegCore's internal kill.
+            //
+            // The "-version" early-exit matters: FFMpegCore verifies the
+            // binary by spawning "ffmpeg -version" (without redirecting
+            // stdin) before the real run, so the stub must not consume that
+            // invocation — otherwise the sentinel fires early and the test
+            // cancels before the processing spawn subscribes its cancel
+            // handler. The short sleep before the sentinel likewise keeps
+            // the real spawn ahead of the touch even on a loaded machine.
+            var fakeBin = Path.Combine(_tempDirectory, "fakebin");
+            Directory.CreateDirectory(fakeBin);
+            File.CreateSymbolicLink(
+                Path.Combine(fakeBin, "ffprobe"),
+                Path.Combine(availability.BinaryFolder, "ffprobe"));
+
+            var sentinelPath = Path.Combine(_tempDirectory, "ffmpeg-stub-started");
+            var stubPath = Path.Combine(fakeBin, "ffmpeg");
+            File.WriteAllText(stubPath, string.Join('\n',
+                "#!/bin/sh",
+                "if [ \"$1\" = \"-version\" ]; then exit 0; fi",
+                "exec 0<&-",
+                "sleep 1",
+                $"touch '{sentinelPath}'",
+                "sleep 5",
+                ""));
+            const UnixFileMode executable =
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+                UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
+                UnixFileMode.OtherRead | UnixFileMode.OtherExecute;
+            File.SetUnixFileMode(stubPath, executable);
+
+            var originalBinaryFolder = GlobalFFOptions.Current.BinaryFolder;
+            try
+            {
+                GlobalFFOptions.Configure(options => options.BinaryFolder = fakeBin);
+
+                var logs = new List<string>();
+                using var player = CreatePlayer(logs.Add);
+                player.Start(FixturePath);
+
+                // The stub closes stdin and then waits a second before
+                // touching the sentinel, so once it exists the processing
+                // spawn's CancelEvent subscription is guaranteed to be in
+                // place and the real "q" write hits the broken pipe.
+                await EventuallyAsync(() => File.Exists(sentinelPath));
+
+                var stopError = Record.Exception(player.Stop);
+                Assert.Null(stopError);
+
+                // The generation still completes once the process exits on
+                // its own: the failed shutdown write never reaches Cancel's
+                // AggregateException, and the task is not left hanging.
+                await player.GenerationTask!.WaitAsync(TimeSpan.FromSeconds(30));
+
+                Assert.Contains(logs, message => message.Contains("shutdown request failed"));
+                Assert.DoesNotContain(logs, message => message.Contains("shutdown callback failed"));
+                Assert.DoesNotContain(logs, message => message.Contains("startup failed"));
+                Assert.Null(player.GenerationCts);
+                Assert.Null(player.ActiveGeneration);
+                Assert.False(player.HasCurrentFrame);
+            }
+            finally
+            {
+                GlobalFFOptions.Configure(
+                    options => options.BinaryFolder = originalBinaryFolder ?? string.Empty);
+            }
+        }
+
+        #endregion
+
         private sealed class ThrowingVideoFrameSurface : IVideoFrameSurface
         {
             public Microsoft.Xna.Framework.Graphics.Texture2D? Texture => null;

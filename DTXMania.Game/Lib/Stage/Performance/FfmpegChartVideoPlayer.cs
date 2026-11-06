@@ -163,6 +163,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private double? _currentTimestampMs;
         private bool _hasCurrentFrame;
 
+        /// <summary>Published decode-generation state: the frame queue plus
+        /// the geometry Update needs for frame selection and upload.</summary>
         internal sealed record GenerationState(
             ChannelReader<VideoFrame> Queue,
             int Width,
@@ -400,6 +402,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
             }
         }
 
+        /// <summary>Stops the generation and disposes the surface. A cleanup
+        /// failure propagates but leaves <c>_disposed</c> unset, so a later
+        /// call can retry instead of leaking the texture.</summary>
         public void Dispose()
         {
             if (_disposed)
@@ -452,6 +457,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
             }
         }
 
+        /// <summary>
+        /// Probes the input, publishes the generation state, and runs the
+        /// rawvideo pipe decode until EOF or cancellation. All startup and
+        /// shutdown failures are contained and logged; cancellation is
+        /// expected and silent.
+        /// </summary>
         private async Task RunGenerationAsync(
             string videoFilePath,
             CancellationTokenSource generationCts,

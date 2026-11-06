@@ -18,6 +18,10 @@ namespace DTXMania.Test.Stage.Performance
 
         public int DisposeCount { get; private set; }
 
+        /// <summary>When set, <see cref="Reset"/> throws it after counting the
+        /// attempt, simulating a failed texture release.</summary>
+        public Exception? ResetException { get; set; }
+
         public Texture2D? Texture => null;
 
         public void Present(byte[] rgba, int width, int height)
@@ -30,6 +34,10 @@ namespace DTXMania.Test.Stage.Performance
         public void Reset()
         {
             ResetCount++;
+            if (ResetException != null)
+            {
+                throw ResetException;
+            }
         }
 
         public void Dispose()
