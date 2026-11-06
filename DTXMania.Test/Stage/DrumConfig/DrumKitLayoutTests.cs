@@ -59,6 +59,33 @@ namespace DTXMania.Test.Stage.DrumConfig
         }
 
         [Fact]
+        public void Drums_ClickOnTheirShellSides_ButNotOnTheBoxCorners()
+        {
+            foreach (var lane in new[] { 3, 4, 5, 6, 7 })
+            {
+                var piece = DrumKitLayout.Pieces[lane];
+                var b = piece.Bounds;
+                Assert.True(piece.CapHeight > 0, $"lane {lane} should use the drum shape");
+                Assert.True(piece.Contains(b.X + 2, b.Center.Y), $"lane {lane} shell side should click");
+                Assert.False(piece.Contains(b.X + 1, b.Y + 1), $"lane {lane} top corner is outside the head");
+                Assert.False(piece.Contains(b.Right - 1, b.Bottom - 1), $"lane {lane} bottom corner is outside");
+            }
+        }
+
+        [Fact]
+        public void CymbalsAndPedals_ClickOnTheInscribedEllipse()
+        {
+            foreach (var lane in new[] { 0, 1, 2, 8, 9 })
+            {
+                var piece = DrumKitLayout.Pieces[lane];
+                var b = piece.Bounds;
+                Assert.Equal(0, piece.CapHeight);
+                Assert.True(piece.Contains(b.Center.X, b.Center.Y));
+                Assert.False(piece.Contains(b.X + 2, b.Center.Y - (b.Height / 2f) + 2));
+            }
+        }
+
+        [Fact]
         public void NormalizedDistance_IsZeroAtCenterAndOneOnTheEllipseEdge()
         {
             var piece = DrumKitLayout.Pieces[3];
