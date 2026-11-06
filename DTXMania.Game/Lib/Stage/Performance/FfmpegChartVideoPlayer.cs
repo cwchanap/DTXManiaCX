@@ -370,9 +370,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 cts?.Cancel();
             }
-            catch (AggregateException ex) when (
-                ex.Flatten().InnerExceptions is { Count: > 0 } errors &&
-                errors.All(error => error is IOException))
+            catch (AggregateException ex) when (IsExpectedPipeShutdownFailure(ex))
             {
                 // FFMpegCore's cancellation callback writes to process stdin.
                 // The process can close that pipe before the callback runs.
@@ -387,6 +385,19 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 _surface?.Reset();
             }
         }
+
+        /// <summary>
+        /// True only when every leaf of the aggregate tree is an
+        /// <see cref="IOException"/> and every aggregate node is nonempty.
+        /// Unlike <see cref="AggregateException.Flatten"/>, which drops empty
+        /// nested aggregates, this rejects them so a non-I/O structure in a
+        /// mixed aggregate still propagates.
+        /// </summary>
+        private static bool IsExpectedPipeShutdownFailure(AggregateException ex) =>
+            ex.InnerExceptions.Count > 0 &&
+            ex.InnerExceptions.All(error => error is AggregateException nested
+                ? IsExpectedPipeShutdownFailure(nested)
+                : error is IOException);
 
         public void Dispose()
         {
