@@ -438,45 +438,6 @@ def rank_badge(letter: str, color) -> Image.Image:
     return img
 
 
-def drumkit_piece(kind: str, w: int, h: int) -> Image.Image:
-    img = new_rgba(w, h)
-    draw = ImageDraw.Draw(img)
-    cx, cy = w // 2, h // 2
-    body = (40, 48, 64, 255)
-    rim = CYAN
-    if kind == "cymbal":
-        for r, col in ((min(w, h) // 2 - 10, rim), (min(w, h) // 2 - 18, (50, 55, 70, 255)),
-                       (min(w, h) // 2 - 40, (70, 75, 90, 255))):
-            draw.ellipse([cx - r, cy - r // 3, cx + r, cy + r // 3], outline=col, width=3)
-        draw.ellipse([cx - 6, cy - 4, cx + 6, cy + 4], fill=rim)
-    elif kind == "hihat":
-        for dy, rr in ((-12, min(w, h) // 2 - 20), (12, min(w, h) // 2 - 20)):
-            draw.ellipse([cx - rr, cy + dy - rr // 4, cx + rr, cy + dy + rr // 4], outline=rim, width=3)
-        draw.line([(cx, cy - 40), (cx, cy + 50)], fill=(80, 90, 110, 255), width=4)
-    elif kind == "drum":
-        rw, rh = w // 3, h // 4
-        draw.ellipse([cx - rw, cy - rh, cx + rw, cy + rh], fill=body, outline=rim, width=4)
-        draw.ellipse([cx - rw + 10, cy - rh + 8, cx + rw - 10, cy + rh - 8], outline=(*CYAN[:3], 120), width=2)
-    elif kind == "kick":
-        r = min(w, h) // 2 - 20
-        draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=body, outline=rim, width=5)
-        draw.ellipse([cx - r // 2, cy - r // 2, cx + r // 2, cy + r // 2], outline=(*CYAN[:3], 100), width=2)
-    elif kind == "pedal":
-        draw.polygon([(cx - 40, cy + 40), (cx + 40, cy + 40), (cx + 20, cy - 30), (cx - 20, cy - 30)],
-                     fill=body, outline=rim)
-        draw.ellipse([cx - 15, cy - 50, cx + 15, cy - 20], fill=rim)
-    elif kind == "skeleton":
-        # simple stands layout
-        draw.line([(w * 0.2, h * 0.7), (w * 0.2, h * 0.35)], fill=(80, 90, 110, 255), width=4)
-        draw.line([(w * 0.5, h * 0.75), (w * 0.5, h * 0.4)], fill=(80, 90, 110, 255), width=5)
-        draw.line([(w * 0.8, h * 0.7), (w * 0.8, h * 0.3)], fill=(80, 90, 110, 255), width=4)
-        draw.line([(w * 0.15, h * 0.75), (w * 0.85, h * 0.75)], fill=(60, 70, 90, 255), width=3)
-        for x in (0.2, 0.5, 0.8):
-            draw.ellipse([w * x - 8, h * 0.3 - 8, w * x + 8, h * 0.3 + 8], outline=CYAN, width=2)
-    img = add_glow(img, CYAN, radius=4, strength=0.3)
-    return img
-
-
 def build_all() -> Dict[str, str]:
     """Return mapping Graphics/rel -> source relative path under source/."""
     random.seed(0)
@@ -905,14 +866,6 @@ def build_all() -> Dict[str, str]:
         cell = panel(42, 48, fill=(30, 41, 59, 220), edge=CYAN if i % 2 == 0 else MAGENTA, chamfer=4)
         icons.paste(cell, (0, i * 48), cell)
     put("Graphics/7_panel_icons.jpg", icons)
-
-    # Drumkit pieces
-    put("Graphics/drumkit_cymbal.png", drumkit_piece("cymbal", 512, 453))
-    put("Graphics/drumkit_drum.png", drumkit_piece("drum", 512, 466))
-    put("Graphics/drumkit_hihat.png", drumkit_piece("hihat", 512, 481))
-    put("Graphics/drumkit_kick.png", drumkit_piece("kick", 512, 501))
-    put("Graphics/drumkit_pedal.png", drumkit_piece("pedal", 398, 512))
-    put("Graphics/drumkit_skeleton.png", drumkit_piece("skeleton", 1280, 720))
 
     return sources
 
