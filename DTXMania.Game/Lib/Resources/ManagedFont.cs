@@ -168,6 +168,7 @@ namespace DTXMania.Game.Lib.Resources
             {
                 availableRegular = new[]
                 {
+                    (size: 11, assetName: "ShareTechMono-11"),
                     (size: 14, assetName: "ShareTechMono-14"),
                     (size: 18, assetName: "ShareTechMono-18")
                 };
@@ -177,6 +178,7 @@ namespace DTXMania.Game.Lib.Resources
             {
                 availableRegular = new[]
                 {
+                    (size: 10, assetName: "Orbitron-10"),
                     (size: 14, assetName: "Orbitron-14"),
                     (size: 18, assetName: "Orbitron-18"),
                     (size: 24, assetName: "Orbitron-24"),

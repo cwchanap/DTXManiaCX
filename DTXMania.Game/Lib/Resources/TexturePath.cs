@@ -53,19 +53,15 @@ namespace DTXMania.Game.Lib.Resources
         public const string ResultBackgroundRankE = "Graphics/8_background rankE.png";
 
         /// <summary>
-        /// Drum-mapping (DrumConfig) stage piece art: photorealistic 3D render of each piece on a
-        /// transparent background, one per <see cref="DrumZoneShape"/>. The renderer fits each piece
-        /// undistorted into a square box and draws a yellow glow behind the focused/selected/hovered
-        /// piece; if the skin lacks the art, the zone falls back to a plain filled disc.
+        /// Drum Key Mapping (DrumConfig) kit art: a 3D render of each piece on a transparent
+        /// background, one per DrumPieceArt. The page fits each piece undistorted into its kit box;
+        /// if the skin lacks the art, the piece falls back to a lane-colored disc.
         /// </summary>
         public const string DrumPadCymbal = "Graphics/drumkit_cymbal.png";
         public const string DrumPadDrum = "Graphics/drumkit_drum.png";
         public const string DrumPadKick = "Graphics/drumkit_kick.png";
         public const string DrumPadPedal = "Graphics/drumkit_pedal.png";
         public const string DrumPadHiHat = "Graphics/drumkit_hihat.png";
-
-        /// <summary>Bare drum-kit hardware/stands drawn behind the pieces so the stage reads as a whole kit.</summary>
-        public const string DrumKitSkeleton = "Graphics/drumkit_skeleton.png";
 
         /// <summary>
         /// Result stage rank badge textures.

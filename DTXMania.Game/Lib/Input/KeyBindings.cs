@@ -285,7 +285,7 @@ namespace DTXMania.Game.Lib.Input
 
         /// <summary>
         /// Gets the canonical friendly lane name for display
-        /// (single source shared by ConfigStage AutoPlay menu, DrumCapturePopup,
+        /// (single source shared by ConfigStage AutoPlay menu, the Drum Key Mapping page,
         /// KeyConflictChecker and the drum-kit zones)
         /// </summary>
         /// <param name="lane">Lane index (0-9)</param>

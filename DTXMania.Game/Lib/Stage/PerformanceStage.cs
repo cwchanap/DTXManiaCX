@@ -641,7 +641,7 @@ namespace DTXMania.Game.Lib.Stage
         // GraphicsDevice — the attempt itself is unreachable under headless
         // coverage like the other renderer constructions in InitializeComponents.
         [ExcludeFromCodeCoverage]
-        private TabHudBuildResult ConstructTabHud(TabModePalette palette, TabModeArt art)
+        private TabHudBuildResult ConstructTabHud(SkinPalette palette, TabModeArt art)
         {
             var graphicsDevice = _spriteBatch?.GraphicsDevice;
             if (graphicsDevice == null)
@@ -1174,7 +1174,7 @@ namespace DTXMania.Game.Lib.Stage
             {
                 // One theme read styles both halves of Tab mode (strip + HUD).
                 var theme = _resourceManager?.CurrentTheme;
-                var palette = TabModePalette.Resolve(theme);
+                var palette = SkinPalette.Resolve(theme);
                 art = TabModeArt.Load(_resourceManager, theme);
                 var renderer = new NotationStripRenderer(
                     _resourceManager,

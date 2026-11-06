@@ -2,6 +2,7 @@ using System.Linq;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage.Performance;
+using DTXMania.Game.Lib.UI;
 using DTXMania.Game.Lib.UI.Layout;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -22,7 +23,7 @@ namespace DTXMania.Test.Stage.Performance
     [Collection("ManagedFont")]
     public class TabHudFeedbackTests
     {
-        private static TabHudDisplay CreateDisplay(TabModePalette? palette = null)
+        private static TabHudDisplay CreateDisplay(SkinPalette? palette = null)
         {
             // The ctor touches ManagedFont's process-global factory; pin it to the
             // pristine state (same seam the sibling ManagedFont-collection tests
@@ -90,7 +91,7 @@ namespace DTXMania.Test.Stage.Performance
         [Fact]
         public void TriggerKeyFlash_Miss_ShouldUseThePaletteDangerColor()
         {
-            var palette = TabModePalette.Resolve(SkinTheme.Parse(new[] { "UI.Danger=#FF0000" }));
+            var palette = SkinPalette.Resolve(SkinTheme.Parse(new[] { "UI.Danger=#FF0000" }));
             using var display = CreateDisplay(palette);
 
             display.TriggerKeyFlash(1, isMiss: true);

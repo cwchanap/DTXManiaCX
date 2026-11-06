@@ -1,129 +1,98 @@
 #nullable enable
 
 using System.Collections.Generic;
-using DTXMania.Game.Lib.Config;
-using DTXMania.Game.Lib.Input;
+using Microsoft.Xna.Framework;
+using DTXMania.Game.Lib.UI.Layout;
 
 namespace DTXMania.Game.Lib.Stage.DrumConfig
 {
-    /// <summary>Visual shape used when drawing a drum zone.</summary>
-    public enum DrumZoneShape { Cymbal, Drum, Pedal, Kick, HiHatPedal }
+    /// <summary>Which skin art a kit piece draws (TexturePath.DrumPad*).</summary>
+    public enum DrumPieceArt { Cymbal, HiHat, Drum, Kick, Pedal }
 
     /// <summary>
-    /// One clickable drum-kit zone, mapped 1:1 to a drum lane (0-9).
-    /// Geometry is defined in a fixed design space (<see cref="DrumKitLayout.DesignWidth"/> x
-    /// <see cref="DrumKitLayout.DesignHeight"/>); callers scale screen/mouse coords into it.
+    /// One clickable kit piece, mapped 1:1 to a drum lane (0-9). <see cref="Bounds"/> is the
+    /// screen-space box the art is fit into (1280x720 virtual space, inside the kit panel);
+    /// the click target is the ellipse inscribed in it. The lane tag sits at
+    /// <see cref="TagOffsetY"/> below the box center.
     /// </summary>
-    public readonly struct DrumZone
+    public readonly struct DrumKitPiece
     {
         public int Lane { get; }
-        public string Name { get; }
-        public DrumZoneShape Shape { get; }
-        public float CenterX { get; }
-        public float CenterY { get; }
-        public float RadiusX { get; }
-        public float RadiusY { get; }
+        public DrumPieceArt Art { get; }
+        public Rectangle Bounds { get; }
+        public int TagOffsetY { get; }
 
-        public DrumZone(int lane, string name, DrumZoneShape shape,
-                        float centerX, float centerY, float radiusX, float radiusY)
+        public DrumKitPiece(int lane, DrumPieceArt art, int centerX, int centerY, int width, int height, int tagOffsetY)
         {
             Lane = lane;
-            Name = name;
-            Shape = shape;
-            CenterX = centerX;
-            CenterY = centerY;
-            RadiusX = radiusX;
-            RadiusY = radiusY;
+            Art = art;
+            Bounds = new Rectangle(centerX - (width / 2), centerY - (height / 2), width, height);
+            TagOffsetY = tagOffsetY;
         }
 
-        /// <summary>Ellipse containment test in design space.</summary>
-        public bool Contains(float x, float y)
+        /// <summary>Lane-code tag rectangle (e.g. "SN"), centered under the piece's middle.</summary>
+        public Rectangle TagRect => new(
+            Bounds.Center.X - (DrumConfigUILayout.PieceTagWidth / 2),
+            Bounds.Center.Y + TagOffsetY,
+            DrumConfigUILayout.PieceTagWidth,
+            DrumConfigUILayout.PieceTagHeight);
+
+        /// <summary>
+        /// Normalized ellipse distance of the point from the piece center (&lt;= 1 is inside the
+        /// inscribed ellipse). Used to pick the nearest piece where two boxes overlap.
+        /// </summary>
+        public float NormalizedDistance(float x, float y)
         {
-            var dx = (x - CenterX) / RadiusX;
-            var dy = (y - CenterY) / RadiusY;
-            return (dx * dx) + (dy * dy) <= 1f;
+            float rx = Bounds.Width / 2f;
+            float ry = Bounds.Height / 2f;
+            float dx = (x - (Bounds.X + rx)) / rx;
+            float dy = (y - (Bounds.Y + ry)) / ry;
+            return (dx * dx) + (dy * dy);
         }
     }
 
     /// <summary>
-    /// Static drum-kit zone layout. Lane names come from <see cref="KeyBindings.GetLaneName"/>
-    /// so the visual labels stay in sync with the binding model.
+    /// Static kit layout in the kit panel. Pieces are listed in lane order (LC..RD) and placed
+    /// like a real kit seen from the drummer's seat; each box keeps the shipped art's aspect
+    /// ratio so the art fills it.
     /// </summary>
     public static class DrumKitLayout
     {
-        public const int DesignWidth = GameConstants.Display.VirtualWidth;
-        public const int DesignHeight = GameConstants.Display.VirtualHeight;
-
-        public static IReadOnlyList<DrumZone> Zones { get; } = new[]
+        public static IReadOnlyList<DrumKitPiece> Pieces { get; } = new[]
         {
-            // Positions roughly follow the mounts on the connected rack skeleton (drumkit_skeleton.png).
-            new DrumZone(1, KeyBindings.GetLaneName(1), DrumZoneShape.Cymbal,     160f, 178f, 70f, 30f),  // Hi-Hat (left stand)
-            new DrumZone(0, KeyBindings.GetLaneName(0), DrumZoneShape.Cymbal,     330f,  92f, 72f, 28f),  // Left Cymbal (left arm)
-            new DrumZone(9, KeyBindings.GetLaneName(9), DrumZoneShape.Cymbal,    1130f, 110f, 75f, 28f),  // Ride (right arm)
-            new DrumZone(4, KeyBindings.GetLaneName(4), DrumZoneShape.Drum,       545f, 300f, 46f, 46f),  // High Tom
-            new DrumZone(6, KeyBindings.GetLaneName(6), DrumZoneShape.Drum,       735f, 300f, 50f, 50f),  // Low Tom
-            new DrumZone(3, KeyBindings.GetLaneName(3), DrumZoneShape.Drum,       380f, 430f, 54f, 54f),  // Snare
-            new DrumZone(7, KeyBindings.GetLaneName(7), DrumZoneShape.Drum,      1015f, 430f, 60f, 60f),  // Floor Tom (right)
-            // Lane 5 ("Bass Drum") is the clickable right bass pedal; the bass drum itself is drawn as decoration.
-            new DrumZone(5, KeyBindings.GetLaneName(5), DrumZoneShape.Pedal,      712f, 600f, 52f, 36f),  // Bass pedal (right)
-            new DrumZone(2, KeyBindings.GetLaneName(2), DrumZoneShape.HiHatPedal, 175f, 598f, 52f, 42f),  // Hi-Hat Foot (left)
-            new DrumZone(8, KeyBindings.GetLaneName(8), DrumZoneShape.Cymbal,     950f, 185f, 75f, 28f),  // Cymbal (right arm, upper)
+            new DrumKitPiece(0, DrumPieceArt.Cymbal, 176, 234, 170, 150, 30),  // LC: crash, upper left
+            new DrumKitPiece(1, DrumPieceArt.HiHat,  112, 368, 130, 122, 30),  // HH: left stand
+            new DrumKitPiece(2, DrumPieceArt.Pedal,  120, 570,  96, 123, 40),  // LP: hi-hat foot
+            new DrumKitPiece(3, DrumPieceArt.Drum,   192, 474, 118, 107, 40),  // SN
+            new DrumKitPiece(4, DrumPieceArt.Drum,   296, 316, 100,  91, 34),  // HT: left rack tom
+            new DrumKitPiece(5, DrumPieceArt.Kick,   358, 488, 180, 176, 74),  // BD: the kick itself
+            new DrumKitPiece(6, DrumPieceArt.Drum,   420, 316, 108,  98, 36),  // LT: right rack tom
+            new DrumKitPiece(7, DrumPieceArt.Drum,   544, 484, 140, 127, 46),  // FT
+            new DrumKitPiece(8, DrumPieceArt.Cymbal, 496, 204, 170, 150, 30),  // CY: crash, upper right
+            new DrumKitPiece(9, DrumPieceArt.Cymbal, 612, 320, 140, 124, 28),  // RD: ride, far right
         };
 
-        internal static int GetLaneForZoneIndex(int zoneIndex)
-        {
-            if (zoneIndex < 0 || zoneIndex >= Zones.Count)
-                return -1;
-
-            return Zones[zoneIndex].Lane;
-        }
-
-        internal static int FindZoneIndexByLane(int lane)
-        {
-            for (int i = 0; i < Zones.Count; i++)
-            {
-                if (Zones[i].Lane == lane)
-                    return i;
-            }
-
-            return -1;
-        }
-
-        /// <summary>Returns the lane of the first zone containing the design-space point, or -1.</summary>
+        /// <summary>
+        /// Lane of the piece under the screen-space point, or -1. A point on a piece's lane tag
+        /// counts as that piece; where two ellipses overlap the nearer center wins.
+        /// </summary>
         public static int HitTest(float x, float y)
         {
-            foreach (var zone in Zones)
+            int best = -1;
+            float bestDistance = float.MaxValue;
+            foreach (var piece in Pieces)
             {
-                if (zone.Contains(x, y))
-                    return zone.Lane;
+                if (piece.TagRect.Contains((int)x, (int)y))
+                    return piece.Lane;
+
+                float d = piece.NormalizedDistance(x, y);
+                if (d <= 1f && d < bestDistance)
+                {
+                    best = piece.Lane;
+                    bestDistance = d;
+                }
             }
-            return -1;
+            return best;
         }
-
-        // ---- Keyboard focus order (zones 0..ZoneCount-1, then the Reset action) ----
-        // The design specifies a "stable focus sequence over the 10 zones plus the Reset action"
-        // that is unit-testable and Mac-safe. Kept here, as pure data/math, so the stage wires
-        // input to focus without owning the geometry or order.
-
-        /// <summary>Number of drum zones. Derived from <see cref="Zones"/> so the focus math can
-        /// never desync from the actual zone list if a zone is added or removed.</summary>
-        public static int ZoneCount => Zones.Count;
-
-        /// <summary>Focus index of the Reset-to-defaults action (immediately after the last zone).</summary>
-        public static int ResetActionIndex => ZoneCount;
-
-        /// <summary>Total keyboard-focusable elements: the zones plus the Reset action.</summary>
-        public static int FocusableCount => ZoneCount + 1;
-
-        /// <summary>True when <paramref name="focusIndex"/> points at the Reset-to-defaults action.</summary>
-        public static bool IsResetAction(int focusIndex) => focusIndex == ResetActionIndex;
-
-        /// <summary>
-        /// Advances the keyboard focus by <paramref name="delta"/> (+1 forward / -1 back) with
-        /// wraparound across every focusable element (zones 0..ZoneCount-1 then Reset). Pure math
-        /// so the focus order is unit-testable without a GraphicsDevice.
-        /// </summary>
-        public static int AdvanceFocus(int currentIndex, int delta)
-            => ((currentIndex % FocusableCount) + (delta % FocusableCount) + FocusableCount) % FocusableCount;
     }
 }

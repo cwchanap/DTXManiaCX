@@ -41,6 +41,13 @@
 /processorParam:TextureFormat=Compressed
 /build:NotoSerifJP-Bold.spritefont
 
+#begin Orbitron-10.spritefont
+/importer:FontDescriptionImporter
+/processor:FontDescriptionProcessor
+/processorParam:PremultiplyAlpha=True
+/processorParam:TextureFormat=Color
+/build:Orbitron-10.spritefont
+
 #begin Orbitron-14.spritefont
 /importer:FontDescriptionImporter
 /processor:FontDescriptionProcessor
@@ -76,6 +83,13 @@
 /processorParam:TextureFormat=Compressed
 /build:Orbitron-40.spritefont
 
+
+#begin ShareTechMono-11.spritefont
+/importer:FontDescriptionImporter
+/processor:FontDescriptionProcessor
+/processorParam:PremultiplyAlpha=True
+/processorParam:TextureFormat=Color
+/build:ShareTechMono-11.spritefont
 
 #begin ShareTechMono-14.spritefont
 /importer:FontDescriptionImporter

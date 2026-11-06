@@ -54,7 +54,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
     /// <see cref="TabHudFrameState"/>; the level-weighted game skill reuses the shared
     /// <see cref="SongScore.CalculateGameSkill"/> formula on the same chart values
     /// SkillPanelDisplay draws. Colors come from the theme-resolved
-    /// <see cref="TabModePalette"/>; panels use the skin's nine-slice
+    /// <see cref="SkinPalette"/>; panels use the skin's nine-slice
     /// <see cref="TabModeArt.Panel"/> when present. Fonts are built once and released on dispose;
     /// the white-pixel primitive is the stage's shared fallback texture, borrowed
     /// and never disposed here. When acquisition fails <see cref="IsReady"/> stays
@@ -118,14 +118,14 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private Vector2 _cachedTimingSize;
 
         public TabHudDisplay(GraphicsDevice graphicsDevice, SongChart? chart, string? title, string? artist,
-            Texture2D? whiteTexture = null, TabModePalette? palette = null, TabModeArt? art = null)
+            Texture2D? whiteTexture = null, SkinPalette? palette = null, TabModeArt? art = null)
         {
             _graphicsDevice = graphicsDevice ?? throw new ArgumentNullException(nameof(graphicsDevice));
             _chart = chart;
             _title = title ?? string.Empty;
             _artist = artist ?? string.Empty;
             _whiteTexture = whiteTexture;
-            Palette = palette ?? TabModePalette.Default;
+            Palette = palette ?? SkinPalette.Default;
             _art = art ?? TabModeArt.None;
 
             // Lane→key-cap anchors for the flash slots; all ten primary labels map
@@ -142,7 +142,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         }
 
         /// <summary>Theme-resolved colors shared with the notation strip.</summary>
-        public TabModePalette Palette { get; }
+        public SkinPalette Palette { get; }
 
         /// <summary>
         /// True once every draw resource (fonts + the shared white pixel) is held
@@ -647,33 +647,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
             }
         }
 
-        /// <summary>
-        /// Chamfered box from 1px primitives: the fill steps in one pixel per row
-        /// inside each 45° corner cut, and the border runs the four edges plus the
-        /// four diagonal cuts. Fill sits on DepthPanel, border on DepthPanelBorder.
-        /// </summary>
         [ExcludeFromCodeCoverage]
         private void DrawChamfered(SpriteBatch spriteBatch, Rectangle r, int c, Color fill, Color border)
         {
-            FillRectangle(spriteBatch, new Rectangle(r.X, r.Y + c, r.Width, r.Height - 2 * c), fill, TabHud.DepthPanel);
-            for (int i = 0; i < c; i++)
-            {
-                int inset = c - i;
-                FillRectangle(spriteBatch, new Rectangle(r.X + inset, r.Y + i, r.Width - 2 * inset, 1), fill, TabHud.DepthPanel);
-                FillRectangle(spriteBatch, new Rectangle(r.X + inset, r.Bottom - 1 - i, r.Width - 2 * inset, 1), fill, TabHud.DepthPanel);
-            }
-
-            FillRectangle(spriteBatch, new Rectangle(r.X + c, r.Y, r.Width - 2 * c, 1), border, TabHud.DepthPanelBorder);
-            FillRectangle(spriteBatch, new Rectangle(r.X + c, r.Bottom - 1, r.Width - 2 * c, 1), border, TabHud.DepthPanelBorder);
-            FillRectangle(spriteBatch, new Rectangle(r.X, r.Y + c, 1, r.Height - 2 * c), border, TabHud.DepthPanelBorder);
-            FillRectangle(spriteBatch, new Rectangle(r.Right - 1, r.Y + c, 1, r.Height - 2 * c), border, TabHud.DepthPanelBorder);
-            for (int i = 0; i < c; i++)
-            {
-                FillRectangle(spriteBatch, new Rectangle(r.X + i, r.Y + c - 1 - i, 1, 1), border, TabHud.DepthPanelBorder);
-                FillRectangle(spriteBatch, new Rectangle(r.Right - 1 - i, r.Y + c - 1 - i, 1, 1), border, TabHud.DepthPanelBorder);
-                FillRectangle(spriteBatch, new Rectangle(r.X + i, r.Bottom - c + i, 1, 1), border, TabHud.DepthPanelBorder);
-                FillRectangle(spriteBatch, new Rectangle(r.Right - 1 - i, r.Bottom - c + i, 1, 1), border, TabHud.DepthPanelBorder);
-            }
+            ChamferedBox.Draw(spriteBatch, _whiteTexture!, r, c, fill, border, TabHud.DepthPanel, TabHud.DepthPanelBorder);
         }
 
         [ExcludeFromCodeCoverage]

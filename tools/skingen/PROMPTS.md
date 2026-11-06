@@ -931,13 +931,6 @@ Workflow: generate each image with your image AI, save into `tools/skingen/sourc
 
 > Synthwave arcade game UI asset, dark slate background #0F172A, neon cyan #22D3EE and magenta #E879F9 accents, thin glowing grid lines and subtle scanlines, chamfered corners, soft neon outer glow, crisp vector-like edges, flat dark surfaces (#1E293B), high contrast, no text, no watermark, no logo. Stylized drum-kit piece on transparent background: dark matte body with neon cyan rim highlights, slight top-down 3/4 view, flat-shaded, no photorealism. Foot pedal piece.
 
-## `Graphics/drumkit_skeleton.png`
-
-- **Target size:** 1280x720 (generate at 2x or larger)
-- **Prompt:**
-
-> Synthwave arcade game UI asset, dark slate background #0F172A, neon cyan #22D3EE and magenta #E879F9 accents, thin glowing grid lines and subtle scanlines, chamfered corners, soft neon outer glow, crisp vector-like edges, flat dark surfaces (#1E293B), high contrast, no text, no watermark, no logo. Stylized drum-kit piece on transparent background: dark matte body with neon cyan rim highlights, slight top-down 3/4 view, flat-shaded, no photorealism. Kit hardware/stands, drawn behind the pieces.
-
 ## `Graphics/hit_fx.png`
 
 - **Target size:** 8x32 (generate at 2x or larger)

@@ -601,7 +601,7 @@ namespace DTXMania.Game.Lib.UI.Layout
             public const float BravuraFontSizePt = 60f;
             public const float LabelFontSize = 14f;
 
-            // Colors come from TabModePalette (theme-resolved); only alphas live here.
+            // Colors come from SkinPalette (theme-resolved); only alphas live here.
             public const float StaffLineAlpha = 0.75f;
 
             // Layer depths (BackToFront, larger = farther). The strip background sits at
@@ -628,7 +628,7 @@ namespace DTXMania.Game.Lib.UI.Layout
 
         /// <summary>
         /// Tab-mode HUD layout (HPA-509). All Tab-specific bounds, font sizes and depths
-        /// live here; colors come from the theme-resolved TabModePalette. The look follows
+        /// live here; colors come from the theme-resolved SkinPalette. The look follows
         /// the CX Neon skin: chamfered translucent navy panels with accent rules, Orbitron
         /// display type, ShareTechMono telemetry, captions in small accent pills.
         /// Bounds are 1280×720 starting regions — legibility targets, not pixel-perfect

@@ -5,6 +5,7 @@ using Microsoft.Xna.Framework.Graphics;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Notation;
+using DTXMania.Game.Lib.UI;
 using DTXMania.Game.Lib.UI.Layout;
 using static DTXMania.Game.Lib.UI.Layout.PerformanceUILayout;
 // using-static above pulls PerformanceUILayout.MeasureLine into scope; the chart type wins.
@@ -19,7 +20,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
     /// (larger depth = farther back). All placement math is delegated to the GPU-free
     /// <see cref="NotationStripLayout"/>; glyphs and labels always go through the nine-argument
     /// IFont.DrawString so no text can default to depth 0 and bypass the key-column mask.
-    /// Colors come from the theme-resolved <see cref="TabModePalette"/>: an opaque navy strip
+    /// Colors come from the theme-resolved <see cref="SkinPalette"/>: an opaque navy strip
     /// framed by accent rules, a glowing accent hit marker, and lane-colored key caps. Skin
     /// art from <see cref="TabModeArt"/> replaces the strip fill and the hit marker when the
     /// theme provides it.
@@ -38,7 +39,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private readonly IResourceManager _resourceManager;
         private readonly NotationChart _chart;
         private readonly IReadOnlyList<MeasureLine> _measureLines;
-        private readonly TabModePalette _palette;
+        private readonly SkinPalette _palette;
         private readonly TabModeArt _art;
 
         // Engraving is pure over the immutable chart, so each measure is engraved at
@@ -83,13 +84,13 @@ namespace DTXMania.Game.Lib.Stage.Performance
             IResourceManager resourceManager,
             NotationChart chart,
             IReadOnlyList<MeasureLine> measureLines,
-            TabModePalette palette = null,
+            SkinPalette palette = null,
             TabModeArt art = null)
         {
             _resourceManager = resourceManager ?? throw new ArgumentNullException(nameof(resourceManager));
             _chart = chart ?? throw new ArgumentNullException(nameof(chart));
             _measureLines = measureLines ?? throw new ArgumentNullException(nameof(measureLines));
-            _palette = palette ?? TabModePalette.Default;
+            _palette = palette ?? SkinPalette.Default;
             _art = art ?? TabModeArt.None;
 
             _staffLineYs = NotationStripLayout.GetStaffLineYs();
