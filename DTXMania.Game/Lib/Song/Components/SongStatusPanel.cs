@@ -900,7 +900,7 @@ namespace DTXMania.Game.Lib.Song.Components
             }
         }
 
-        internal static string ResolveHighSkillText(SongScore? score)
+        internal static string ResolveHighSkillText(SongScore score)
         {
             return score?.HasBeenPlayed == true
                 ? SkillValueFormatter.Format(score.HighSkill)
