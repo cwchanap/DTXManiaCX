@@ -178,6 +178,12 @@ public class ResultScreenModelTests
     }
 
     [Fact]
+    public void GetRankLabel_WhenGivenUnknownRank_ShouldReturnPlaceholder()
+    {
+        Assert.Equal("---", ResultScreenModel.GetRankLabel((ResultRank)99));
+    }
+
+    [Fact]
     public void Create_AllPerfect_ShouldSelectExcellentPlate()
     {
         var model = ResultScreenModel.Create(
