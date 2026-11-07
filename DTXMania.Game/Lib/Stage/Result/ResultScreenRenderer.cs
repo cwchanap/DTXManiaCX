@@ -905,7 +905,7 @@ namespace DTXMania.Game.Lib.Stage.Result
                 ResultRank.C => TexturePath.ResultRankC,
                 ResultRank.D => TexturePath.ResultRankD,
                 ResultRank.E => TexturePath.ResultRankE,
-                ResultRank.F => null,
+                ResultRank.F => TexturePath.ResultRankF,
                 _ => null
             };
         }

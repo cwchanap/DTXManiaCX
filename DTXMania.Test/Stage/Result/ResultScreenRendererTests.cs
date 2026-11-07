@@ -290,7 +290,7 @@ public class ResultScreenRendererTests
     }
 
     [Fact]
-    public void Load_FRankModel_ShouldLoadEBackgroundButNoRankBadge()
+    public void Load_FRankModel_ShouldLoadFBadgeAndEBackground()
     {
         var resources = new Mock<IResourceManager>();
         var loadedPaths = new List<string>();
@@ -317,13 +317,14 @@ public class ResultScreenRendererTests
         renderer.Load(model);
 
         Assert.Equal(ResultRank.F, model.Rank);
-        Assert.DoesNotContain(loadedPaths, path => path.Contains("8_rank"));
+        resources.Verify(r => r.LoadTexture(TexturePath.ResultRankF), Times.Once);
         resources.Verify(r => r.LoadTexture(TexturePath.ResultRankE), Times.Never);
+        Assert.Single(loadedPaths, path => path.Contains("8_rank"));
         Assert.Contains(TexturePath.ResultBackgroundRankE, loadedPaths);
     }
 
     [Fact]
-    public void RankPathHelpers_FOrUnknownRank_ShouldNotReturnEBadgePath()
+    public void RankPathHelpers_ShouldMapFBadgeAndReturnNoPathForUnknownRank()
     {
         var getRankTexturePath = typeof(ResultScreenRenderer).GetMethod(
             "GetRankTexturePath",
@@ -332,7 +333,9 @@ public class ResultScreenRendererTests
             "GetRankBackgroundPath",
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
 
-        Assert.Null(getRankTexturePath!.Invoke(null, new object[] { ResultRank.F }));
+        Assert.Equal(
+            TexturePath.ResultRankF,
+            getRankTexturePath!.Invoke(null, new object[] { ResultRank.F }));
         Assert.Null(getRankTexturePath.Invoke(null, new object[] { (ResultRank)99 }));
         Assert.Equal(
             TexturePath.ResultBackgroundRankE,
