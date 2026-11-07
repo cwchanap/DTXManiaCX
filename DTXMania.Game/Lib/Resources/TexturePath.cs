@@ -70,6 +70,7 @@ namespace DTXMania.Game.Lib.Resources
         public const string ResultRankC = "Graphics/8_rankC.png";
         public const string ResultRankD = "Graphics/8_rankD.png";
         public const string ResultRankE = "Graphics/8_rankE.png";
+        public const string ResultRankF = "Graphics/8_rankF.png";
 
         /// <summary>
         /// Result stage clear category plate textures.
@@ -576,6 +577,7 @@ namespace DTXMania.Game.Lib.Resources
                 ResultRankC,
                 ResultRankD,
                 ResultRankE,
+                ResultRankF,
                 ResultPlateStageCleared,
                 ResultPlateFullCombo,
                 ResultPlateExcellent,

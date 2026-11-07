@@ -238,6 +238,7 @@ namespace DTXMania.Test.Resources
             Assert.Equal("Graphics/8_rankC.png", TexturePath.ResultRankC);
             Assert.Equal("Graphics/8_rankD.png", TexturePath.ResultRankD);
             Assert.Equal("Graphics/8_rankE.png", TexturePath.ResultRankE);
+            Assert.Equal("Graphics/8_rankF.png", TexturePath.ResultRankF);
             Assert.Equal("Graphics/ScreenResult StageCleared.png", TexturePath.ResultPlateStageCleared);
             Assert.Equal("Graphics/ScreenResult fullcombo.png", TexturePath.ResultPlateFullCombo);
             Assert.Equal("Graphics/ScreenResult Excellent.png", TexturePath.ResultPlateExcellent);
@@ -259,6 +260,7 @@ namespace DTXMania.Test.Resources
             Assert.Contains(TexturePath.ResultRankC, paths);
             Assert.Contains(TexturePath.ResultRankD, paths);
             Assert.Contains(TexturePath.ResultRankE, paths);
+            Assert.Contains(TexturePath.ResultRankF, paths);
             Assert.Contains(TexturePath.ResultPlateStageCleared, paths);
             Assert.Contains(TexturePath.ResultPlateFullCombo, paths);
             Assert.Contains(TexturePath.ResultPlateExcellent, paths);
