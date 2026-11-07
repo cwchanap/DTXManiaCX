@@ -290,7 +290,7 @@ namespace DTXMania.Game.Lib.Stage.Result
 
         public static string FormatDecimal(double value)
         {
-            return Math.Max(0.0, value).ToString("0.00", CultureInfo.InvariantCulture);
+            return SkillValueFormatter.Format(value);
         }
 
         /// <summary>
