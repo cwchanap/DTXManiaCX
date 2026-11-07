@@ -1,76 +1,71 @@
-# HPA-759 — Single-PR implementation plan
+# HPA-759 — Single-PR implementation plan (revised after design review)
 
-**Design:** [HPA-759 score and readability contract](../specs/2026-11-06-hpa-759-score-readability-design.md)  
+**Design:** [HPA-759 design](../specs/2026-11-06-hpa-759-score-readability-design.md)  
 **Linear:** https://linear.app/cwchanap/issue/HPA-759/fix-playtest-score-inconsistencies-and-cx-neon-readability  
-**PR workflow:** this starts as a **docs-only draft**. After design approval, add production changes and tests on **this same branch and PR**. Never create a second implementation PR for this ticket. Estimated total: **2–2.5 engineer days**, hard cap **3 days**.
+**Workflow:** this PR is documentation-only until approved. Put all HPA-759 C# implementation and tests on **this same PR** (no second implementation PR). Target **~1.5 engineer days**, hard cap 3.
+**Art prerequisite:** [HPA-794 — generate F rank badge](https://linear.app/cwchanap/issue/HPA-794/art-generate-cx-neon-f-rank-badge-for-result) is a **separate art ticket and PR**. HPA-759 consumes its checked-in F asset; never generate or commit image art in this task.
 
-## Task 0 — Baseline and test seams (~0.25 day)
+## Task 0 — Confirm baseline and RED tests (~0.2 day)
 
-1. Re-read current `ResultScreenModel.ComputeRank`, `SongScore` grade utilities, `SongDatabaseService` rank/history save, `ResultScreenRenderer` rank asset selection, `SongStatusPanel.DrawSkillPointSection`, and `ConfigStage` theme resolution. Confirm which files shifted after recent PRs; do not implement from old line numbers.
-2. Run the existing result/score/Config focused test suites and note failures before editing. Establish **RED** tests for: Result grade F/85% mismatch against stored policy; 0.345 skill display mismatch after persistence; Neon selected-category/description title colors.
-3. Check the new HPA-722 `DrumConfigRenderer`. It already uses `SkinPalette`; the former dark-on-dark instruction source cited in HPA-759 no longer exists. Verify visually rather than reintroduce obsolete code.
+- Re-read current `ResultScreenModel.ComputeRank`, `SongScore.ComputeRankIndex/NormalizeRankPercentage/RankString`, `SongDatabaseService` new-run BestRank/history paths, `SongStatusPanel.DrawSkillPointSection`, `ResultScreenRenderer`, `ConfigStage`, and the HPA-722 `DrumConfigRenderer`.
+- Run existing relevant tests, recording the baseline. Add failing focused tests for: 85% and <40% grade divergence, the same 0.345 displayed differently by Result vs Song Select/history, and CX Neon title/category text colors.
+- The Result policy intentionally shifts from NX's seven grades (SS–E) to the CX persisted eight grades (SS–F). **This visible regrade is a conscious product decision**, not a mistaken claim about NX. An NX-imported 85% S can retain S while a fresh CX 85% run is A; do not modify old imports or persisted buckets.
+- Confirm the **separate HPA-794 art PR** will supply the 274×274 F badge via existing `skingen` pipeline; otherwise complete non-art tasks first and leave F integration pending.
 
-**Exit:** documented baseline and reproducible focused regressions.
+## Task 1 — One CX run-grade helper, explicit F texture (~0.5 day)
 
-## Task 1 — Make Result grade match persisted rank (~0.75 day)
+**Production:** `DTXMania.Game/Lib/Song/Entities/SongScore.cs`, `SongDatabaseService.cs`, `Stage/Result/ResultScreenModel.cs`, `Stage/Result/ResultScreenRenderer.cs`, `Resources/TexturePath.cs`.
 
-**Production:** `DTXMania.Game/Lib/Stage/Result/ResultScreenModel.cs`, `ResultScreenRenderer.cs`. Use `DTXMania.Game/Lib/Song/Entities/SongScore.cs` helpers as-is whenever possible.
+**Tests:** `DTXMania.Test/Song/SongScoreTests.cs`, `SongDatabaseServiceTests.cs`, `Stage/Result/ResultScreenModelTests.cs` and `ResultScreenRendererTests.cs`.
 
-**Tests:** `DTXMania.Test/Stage/Result/ResultScreenModelTests.cs`, `ResultScreenRendererTests.cs`, existing `DTXMania.Test/Song/SongScoreTests.cs` and `SongDatabaseServiceTests.cs` as needed.
+1. Add **one** small `SongScore.RunRankBucket(double playingSkill)` implementing `NormalizeRankPercentage((int)Math.Floor(playingSkill))`. Use the returned bucket in all **three** current-run paths: Result `ComputeRank` (via `SongScore.ComputeRankIndex`), `SongDatabaseService` BestRank update and history `RankString`. Do not copy the floor/threshold logic anywhere else. Preserve existing `BestRank` schema, `NormalizeStoredBestRank`, NX importer, `RankMultiplier`, and best-of-all semantics.
+2. Add `ResultRank.F = 7` and `GetRankLabel` F. Replace/rename `Create_ShouldComputeNXRankFromPlayingSkill` so it tests the **chosen CX** contract. Parametrize exact/just-below 40/50/60/70/80/90/95 and 0/100; assert Result/current-run history and stored bucket agree. Include NX→CX regrade cases (e.g., 85% Result S→A, <40% E→F), and the valid case where latest run and historical **best** badge have different grades.
+3. **After HPA-794's art PR merges**, add `TexturePath.ResultRankF`. Map `GetRankTexturePath(ResultRank.F)` to `8_rankF.png` and `GetRankBackgroundPath(ResultRank.F)` to the existing E background. Replace misleading unknown-rank `_ => E` badge/background fallbacks rather than silently displaying E. Keep the existing texture/reveal code; **no F text renderer**, new font or procedural drawing in the game.
+4. Ensure the F image is present in `System/CXNeon/Graphics` and covered by the existing `skingen` manifest and `CxNeonPackTests`. Release builds flatten this pack into their base `System/Graphics`; repo-root NX reference art is **not shipped**. Verify F in both CX Neon and default/light skin through real screenshots.
 
-1. Expand `ResultRank` to include F (index 7). Delegate Result rank classification to `SongScore.ComputeRankIndex` with the same integer-floor treatment already used by `SongDatabaseService`. Do not copy the eight thresholds into Result, replace the stored bucket policy, or alter `RankMultiplier`.
-2. Update Result's rank label mapping and all relevant model expectations. Add parameterized exact-boundary and just-below-boundary tests for 40, 50, 60, 70, 80, 90, 95, plus 0 and 100. Assert alignment with `SongScore.RankString` for the **same run**.
-3. Result has no F sprite: have the renderer load no wrong E **badge** for F, retain the existing E-tier **background**, and render an F text fallback with existing font, theme-aware foreground, badge anchor and reveal timing. SS–E sprite selection must remain unchanged. Test the load/selection behavior without a GPU, then verify the F glyph on a real screenshot.
-4. Add or adjust a focused saved-history test proving Result and the new persisted history line agree on E/F and 85% boundary runs, while the best-rank record remains best-of-all. Keep imported/old rank semantics unchanged; rely on existing NX import and legacy-rank regressions.
+**Exit:** one shared SS–F classifier for *new* runs, correct F badge, unchanged historical storage.
 
-**Exit:** new-run grade policy SS–F is shared. Existing score bucket data and imported ranks are not reinterpreted.
+## Task 2 — Three-site shared skill text, Mac-safe tests (~0.25 day)
 
-## Task 2 — Shared two-decimal skill formatting (~0.5 day)
+**Production:** add tiny pure `DTXMania.Game/Lib/Song/SkillValueFormatter.cs` beside `ChartLevelFormatter.cs`. Call it from `ResultScreenModel.FormatDecimal`, Song Select HighSkill, and the `SongDatabaseService` saved-history **PlayingSkill** text.
 
-**Production:** add a tiny pure `DTXMania.Game/Lib/UI/SkillValueFormatter.cs` (or an equivalent existing small UI helper); wire `ResultScreenModel.FormatDecimal` and `SongStatusPanel.DrawSkillPointSection`.
+**Tests:** `DTXMania.Test/Song/SkillValueFormatterTests.cs`; a **Mac-included** `DTXMania.Test/UI/SongStatusPanelSkillTextTests.cs` (or included `SongStatusPanelAchievementRateTests.cs`); existing history test.
 
-**Tests:** `DTXMania.Test/Stage/Result/ResultScreenModelTests.cs`, `DTXMania.Test/UI/SongStatusPanelLogicTests.cs` and a focused formatter test file if appropriate.
+1. Use the current Result rule `Math.Max(0.0, value).ToString("0.00", CultureInfo.InvariantCulture)` as the single source. The problem is custom `"0.00"` versus standard `"F2"`, **not SQLite precision**. Do not convert doubles to `decimal`, adjust the skill formula or mutate persisted values.
+2. Extract a tiny `internal static` Song Select HighSkill **text resolver** returning shared-formatted skill for played scores and `"---"` otherwise. Keep GPU-only drawing separate. Test this resolver from a file **included in the Mac test project**; `UI/SongStatusPanelLogicTests.cs` is explicitly excluded.
+3. Replace `{4:F2}` in the saved-history line with `{4}` fed a string from the shared formatter. Keep every other history field and record-saving behavior unchanged.
+4. Mac-safe fixtures: `0.345 -> 0.35`, `1.005 -> 1.01`, `2.675 -> 2.68`, 0, a regular value, invariant culture and unplayed `---`. Assert Result, Song Select and saved-history consistency **when comparing the same numeric skill** (Result GameSkill and Song Select best HighSkill are different after a worse new run). No dedicated SQLite round-trip test is needed for this display issue.
 
-1. Implement one `Format` for finite nonnegative skill values. Round via `decimal` to two decimals with `MidpointRounding.AwayFromZero` and format in invariant culture. Do not change raw scores or the EF Core persistence path.
-2. Test 0.345 -> 0.35, 0.344 -> 0.34, 0, high values, invariant locale, and stored SQLite round trip. Preserve the unplayed `"---"` placeholder. Ensure Result and Song Select consume exactly the same helper.
-3. Compare the two screens only when the current run is also the best (Result GameSkill versus Song Select HighSkill can otherwise validly differ). Do not alter score, level, percentage or achievement computations.
+## Task 3 — Theme-aware Config foregrounds; verify Drum Mapping (~0.25 day)
 
-**Exit:** same input value gives the same text across screens and after persistence.
+**Production:** `DTXMania.Game/Lib/Stage/ConfigStage.cs` only (unless verified theme token need).  
+**Tests:** `DTXMania.Test/Config/ConfigStageThemeColorTests.cs` and any nearby affected draw logic tests.
 
-## Task 3 — Theme-aware Config titles, verify Drum Mapping (~0.5 day)
+1. Add narrow resolvers `ResolveSelectedMenuTextColor(theme)` and `ResolveDescriptionTitleTextColor(theme)`: `Config.*` specific key → `UI.TextPrimary` → existing NX dark constants. Wire only these two current draw calls; existing value-color resolution and layout remain untouched.
+2. Test empty-theme defaults, CX Neon `UI.TextPrimary`, explicit Config overrides. Capture actual CX Neon and default/light screenshots; static color tests alone do not prove visibility.
+3. Inspect the **new HPA-722** Drum Mapping screen with its palette-based text on both skins. Do not reinstate obsolete dark instruction styling, redo its layout, or reverse HPA-722's explicit **MIDI** caption decision. Touch only genuinely reproducing new contrast defects if any.
 
-**Production:** `DTXMania.Game/Lib/Stage/ConfigStage.cs`. Only edit `System/CXNeon/Theme.ini` if a deliberate explicit token is necessary; `UI.TextPrimary` already exists.
+## Task 4 — Player verification and PR evidence (~0.25–0.5 day)
 
-**Tests:** `DTXMania.Test/Config/ConfigStageThemeColorTests.cs` and nearby Config draw tests that currently expect fixed dark text.
-
-1. Add narrowly scoped `ResolveSelectedMenuTextColor(theme)` and `ResolveDescriptionTitleTextColor(theme)` functions following the approved fallback order from the spec. Replace only the two dark hard-coded draw-site selections. Retain NX defaults for `SkinTheme.Empty`.
-2. Assert empty-theme defaults, CX Neon `UI.TextPrimary`, and explicit `Config.*` overrides. Keep existing `ResolveValueColor` and category/item positioning intact.
-3. Run the game with CX Neon and a default/light skin; capture Config category selection and description panel, plus the **new** HPA-722 Drum Mapping header/instructions. Confirm text contrast at 1280×720. If the Drum Mapping issue is already gone, do **not** change its renderer. Do not undo HPA-722's approved MIDI wording.
-
-**Exit:** Config is readable on both skins; Drum Mapping is verified without redundant refactoring.
-
-## Task 4 — Regression evidence and completion (~0.5 day)
-
-- Exercise a failed low-achievement chart and a completed No Fail low-achievement chart. Confirm the Result rank, current-run history line, best badge semantics, visible 0.345 example (using a deterministic fixture when helpful), and save status. On the F case, capture a real Result screenshot showing **F**, not E.
-- Confirm the same chart's score is still saved, repeated runs do not lower `BestRank`, NX imported score tests pass, and no changes occur in the input/timing/judgement systems.
-- Run applicable suites (adapt to environment and current SDK; record actual command/exit status):
-  - `dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~ResultScreenModelTests|FullyQualifiedName~ResultScreenRendererTests|FullyQualifiedName~SongScoreTests|FullyQualifiedName~SongDatabaseServiceTests|FullyQualifiedName~ConfigStageThemeColorTests"`
+- After the F art is available, exercise a failed low-achievement run and a completed No Fail low-achievement run. Capture actual Result F badge, saved-history rank/value, Song Select best badge, and Config/Drum Mapping on CX Neon and default/light skins. Include a deliberately changed NX→CX grade boundary (such as 85%). Check score saving and previous best retention.
+- Run focused tests (adapt to environment/current SDK):
+  - `dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~ResultScreenModelTests|FullyQualifiedName~ResultScreenRendererTests|FullyQualifiedName~SongScoreTests|FullyQualifiedName~SongDatabaseServiceTests|FullyQualifiedName~SkillValueFormatterTests|FullyQualifiedName~SongStatusPanelSkillTextTests|FullyQualifiedName~ConfigStageThemeColorTests|FullyQualifiedName~CxNeonPackTests"`
   - `dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj`
   - `dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj`
-  - On Windows, run corresponding `DTXMania.Game.Windows.csproj` and `DTXMania.Test.csproj` builds/tests.
-  - Use existing graphical E2E/native player flow if available; don't add a new screenshot harness or workflow.
-- Update this same PR with actual tests, screenshots, and a note that player-navigation/hint enhancements are deferred. Request review only after implementation evidence is attached.
+  - On Windows, corresponding `DTXMania.Game.Windows.csproj` and `DTXMania.Test.csproj` build/tests; use existing Windows E2E where practical.
+- The out-of-process E2E project is Windows-only. On Mac, use the repository's existing game-MCP/native screenshot route rather than creating a new E2E or image-capture harness.
+- Update **this same draft PR** with actual commands, test counts, screenshots, expected NX→CX grade difference and any remaining limits. Do not claim graphical validation based on headless tests.
 
-## Scope control and escalation
+## Guardrails and handoff
 
-The score+format+Config fixes are small and independently testable, but remain **one ticket and one PR** under the three-day limit. Preserve existing SQLite rank bucket values/shape and history row format; use existing `SongScore` policies and `ISkinTheme` instead of new managers or generalized grade/theme frameworks.
+**Preserve:** existing SQLite best-rank buckets, legacy ordinal import mapping, NX imported labels, best-score qualification, score/history data shape, judgement/skill formulas, skin layout, font/resource lifecycle, timing/input rules. Reuse `SongScore` and `ISkinTheme`; no new grade engine or theme framework.
 
-**Do not bundle**: navigation-context retention, keyboard hint redesign, Tab mode effects/BPM HUD, DTXCreator, HPA-722 drum page redesign, rank art generation, new sounds, new schema migrations or legacy rank repair. If actual F sprite art is desired, scope generation to a separate art ticket. If a newly discovered persistence migration or broad legacy-rank incompatibility makes this exceed three days, surface it for product review rather than silently expanding this PR.
+**Do not bundle:** HPA-794 badge generation (separate art PR), new SFX, navigation context, control hints, two-step Enter UI, Tab mode changes, Drum Mapping redesign, DTXCreator, schema changes, historical rank rewrites, new CI jobs. If the visible regrade away from NX is challenged, settle the product policy in design review rather than switching policies silently.
 
 ## Done means
 
-- [ ] Results and freshly saved history share the existing SS–F grade bands (including F art fallback), with all boundaries tested.
-- [ ] 0.345 renders 0.35 consistently in Result and Song Select without modifying saved skill.
-- [ ] Neon and light-skin Config selected labels/titles are readable; Drum Mapping's post-HPA-722 design verified.
-- [ ] Prior best rank and NX import semantics unchanged; failed/No Fail journeys validated.
-- [ ] Tests and actual screenshots recorded; only **one PR** associated with HPA-759.
+- [ ] One `RunRankBucket` governs all new-run grade uses; Result/current history agree at every boundary. Intentional NX→CX visible regrade is documented.
+- [ ] F badge from the **separate HPA-794 art PR** renders correctly in Result and packaged default-skin fallback; no incorrect E badge or new glyph-render path.
+- [ ] 0.345 displays 0.35 in all three text surfaces, using a common helper; Mac-included Song Select resolver tests run.
+- [ ] CX Neon/default Config colors are legible; redesigned Drum Mapping visually verified.
+- [ ] Full and focused tests plus **real** screenshots and failed/No Fail player paths are recorded; HPA-759 uses only **this PR** for its implementation.
