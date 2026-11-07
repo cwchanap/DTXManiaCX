@@ -10,6 +10,15 @@ internal sealed class ObsWebSocketRecorder : IObsRecorder
     private static readonly TimeSpan StartConfirmationCompensationTimeout =
         TimeSpan.FromSeconds(15);
 
+    // OBS acknowledges StartRecord before its record output is active. With a
+    // hardware encoder and Hybrid MP4 (OBS 33 on Windows), GetRecordStatus
+    // keeps reporting outputActive=false for over a second after a successful
+    // StartRecord, and a StopRecord sent in that window fails with
+    // OutputNotRunning while the recording then starts anyway. StopRecord is
+    // asynchronous the same way, so both directions poll GetRecordStatus.
+    private static readonly TimeSpan StartConfirmationTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan RecordStatePollInterval = TimeSpan.FromMilliseconds(100);
+
     private readonly Uri _url;
     private readonly string _password;
     private readonly SemaphoreSlim _connectGate = new(1, 1);
@@ -115,17 +124,32 @@ internal sealed class ObsWebSocketRecorder : IObsRecorder
         // successful StartRecord acknowledgement, must compensate.
         try
         {
-            var status = await GetRecordStatusAsync(token).ConfigureAwait(false);
-            if (!status.IsRecording)
-            {
-                throw new InvalidOperationException(
-                    "OBS StartRecord succeeded but GetRecordStatus reported recording inactive.");
-            }
+            await WaitForRecordingActiveAsync(token).ConfigureAwait(false);
         }
         catch (Exception confirmationFailure)
         {
             await CompensateStopAsync(confirmationFailure).ConfigureAwait(false);
             throw;
+        }
+    }
+
+    private async Task WaitForRecordingActiveAsync(CancellationToken token)
+    {
+        var elapsed = System.Diagnostics.Stopwatch.StartNew();
+        while (true)
+        {
+            var status = await GetRecordStatusAsync(token).ConfigureAwait(false);
+            if (status.IsRecording)
+                return;
+
+            if (elapsed.Elapsed >= StartConfirmationTimeout)
+            {
+                throw new InvalidOperationException(
+                    "OBS StartRecord succeeded but GetRecordStatus still reported recording " +
+                    $"inactive after {StartConfirmationTimeout.TotalSeconds:0} seconds.");
+            }
+
+            await Task.Delay(RecordStatePollInterval, token).ConfigureAwait(false);
         }
     }
 
@@ -163,7 +187,26 @@ internal sealed class ObsWebSocketRecorder : IObsRecorder
     {
         var response = await SendRequestAsync("StopRecord", requestData: null, token)
             .ConfigureAwait(false);
-        return ObsProtocol.ParseStopRecordOutputPath(response);
+        var outputPath = ObsProtocol.ParseStopRecordOutputPath(response);
+
+        // StopRecord also returns before the record output has stopped: OBS
+        // is still writing (and, for Hybrid MP4, finalizing) the file. Wait
+        // until OBS reports the output inactive so the caller never verifies
+        // or publishes a file that is still growing.
+        await WaitForRecordingStoppedAsync(token).ConfigureAwait(false);
+        return outputPath;
+    }
+
+    private async Task WaitForRecordingStoppedAsync(CancellationToken token)
+    {
+        while (true)
+        {
+            var status = await GetRecordStatusAsync(token).ConfigureAwait(false);
+            if (!status.IsRecording)
+                return;
+
+            await Task.Delay(RecordStatePollInterval, token).ConfigureAwait(false);
+        }
     }
 
     private async Task StopRecordForCompensationAsync(CancellationToken token)
