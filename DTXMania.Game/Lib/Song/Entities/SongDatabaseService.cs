@@ -1626,7 +1626,7 @@ namespace DTXMania.Game.Lib.Song.Entities
                 .ConfigureAwait(false);
 
             var localDate = nowUtc.ToLocalTime();
-            var rank = SongScoreEntity.RankString(SongScoreEntity.RunRankBucket(summary.PlayingSkill));
+            var rank = SongScoreEntity.RankString(normalizedRunRank);
             var status = summary.ClearFlag ? "Cleared" : "Failed";
             var line = string.Format(
                 CultureInfo.InvariantCulture,

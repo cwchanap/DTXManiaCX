@@ -413,22 +413,41 @@ namespace DTXMania.Test.Song
         [InlineData(94.99, 90)]
         [InlineData(90.0, 90)]
         [InlineData(89.99, 80)]
+        [InlineData(89.995, 90)]
         [InlineData(85.0, 80)]
         [InlineData(80.0, 80)]
+        [InlineData(79.995, 80)]
+        [InlineData(79.994, 70)]
         [InlineData(79.99, 70)]
         [InlineData(70.0, 70)]
+        [InlineData(69.995, 70)]
         [InlineData(69.99, 60)]
         [InlineData(60.0, 60)]
+        [InlineData(59.995, 60)]
         [InlineData(59.99, 50)]
         [InlineData(50.0, 50)]
+        [InlineData(49.995, 50)]
+        [InlineData(49.994, 40)]
         [InlineData(49.99, 40)]
         [InlineData(40.0, 40)]
+        [InlineData(39.995, 40)]
+        [InlineData(39.994, 0)]
         [InlineData(39.99, 0)]
         [InlineData(0.0, 0)]
         [InlineData(-5.0, 0)]
         public void RunRankBucket_ShouldFloorPlayingSkillThenNormalizeToPersistedBucket(double playingSkill, int expectedBucket)
         {
             Assert.Equal(expectedBucket, SongScore.RunRankBucket(playingSkill));
+        }
+
+        [Fact]
+        public void RunRankBucket_WithExactBoundaryFloatInaccuracy_ShouldGradeExpectedBucket()
+        {
+            // 500 notes: 7 Perfect, 483 Great, full combo = 50.0 theoretically, but produces 49.99999999999999 in double
+            double rawSkill = SongScore.CalculatePlayingSkill(totalNotes: 500, perfect: 7, great: 483, maxCombo: 500);
+            Assert.True(rawSkill < 50.0 && rawSkill > 49.9999);
+            Assert.Equal(50, SongScore.RunRankBucket(rawSkill));
+            Assert.Equal("D", SongScore.RankString(SongScore.RunRankBucket(rawSkill)));
         }
 
         [Fact]

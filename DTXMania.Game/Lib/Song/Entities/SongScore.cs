@@ -432,7 +432,11 @@ namespace DTXMania.Game.Lib.Song.Entities
 
         public static int RunRankBucket(double playingSkill)
         {
-            return NormalizeRankPercentage((int)Math.Floor(playingSkill));
+            if (double.IsNaN(playingSkill) || double.IsInfinity(playingSkill))
+                return 0;
+
+            decimal roundedSkill = Math.Round((decimal)playingSkill, 2, MidpointRounding.AwayFromZero);
+            return NormalizeRankPercentage((int)Math.Floor((double)roundedSkill));
         }
         
         /// <summary>
