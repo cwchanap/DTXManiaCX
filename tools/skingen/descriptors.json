@@ -135,6 +135,7 @@
     "Graphics/8_rankC.png":  {"family": "badge", "desc": "Rank C: amber."},
     "Graphics/8_rankD.png":  {"family": "badge", "desc": "Rank D: orange."},
     "Graphics/8_rankE.png":  {"family": "badge", "desc": "Rank E: red, dimmest."},
+    "Graphics/8_rankF.png":  {"family": "badge", "desc": "Rank F: muted crimson, lowest grade."},
     "Graphics/ScreenResult StageCleared.png": {"family": "badge", "desc": "STAGE CLEARED word plate: wide banner, cyan glow."},
     "Graphics/ScreenResult fullcombo.png":    {"family": "badge", "desc": "FULL COMBO word plate: gold-cyan."},
     "Graphics/ScreenResult Excellent.png":    {"family": "badge", "desc": "EXCELLENT word plate: magenta-white, most celebratory."},

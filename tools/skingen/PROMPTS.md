@@ -644,6 +644,13 @@ Workflow: generate each image with your image AI, save into `tools/skingen/sourc
 
 > Synthwave arcade game UI asset, dark slate background #0F172A, neon cyan #22D3EE and magenta #E879F9 accents, thin glowing grid lines and subtle scanlines, chamfered corners, soft neon outer glow, crisp vector-like edges, flat dark surfaces (#1E293B), high contrast, no text, no watermark, no logo. Emblem on transparent background: bold chamfered shield/plate with a large glowing rank letter, metallic-free flat neon styling. Rank E: red, dimmest.
 
+## `Graphics/8_rankF.png`
+
+- **Target size:** 274x274 (generate at 2x or larger)
+- **Prompt:**
+
+> Synthwave arcade game UI asset, dark slate background #0F172A, neon cyan #22D3EE and magenta #E879F9 accents, thin glowing grid lines and subtle scanlines, chamfered corners, soft neon outer glow, crisp vector-like edges, flat dark surfaces (#1E293B), high contrast, no text, no watermark, no logo. Emblem on transparent background: bold chamfered shield/plate with a large glowing rank letter, metallic-free flat neon styling. Rank F: muted crimson, lowest grade.
+
 ## `Graphics/8_rankS.png`
 
 - **Target size:** 274x274 (generate at 2x or larger)
