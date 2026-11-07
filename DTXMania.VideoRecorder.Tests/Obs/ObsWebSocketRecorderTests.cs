@@ -45,6 +45,45 @@ public sealed class ObsWebSocketRecorderTests
         await server.StopReceived.Task.WaitAsync(TimeSpan.FromSeconds(2));
     }
 
+    [Fact]
+    public async Task StartRecordAsync_WhenRecordingBecomesActiveAfterDelay_ShouldConfirmWithoutStopping()
+    {
+        // Real OBS acknowledges StartRecord before the record output is active
+        // and reports outputActive=false for a while. The recorder must keep
+        // polling instead of treating the first inactive status as a failure.
+        await using var server = await ObsTestServer.StartAsync(inactiveStatusesBeforeActive: 5);
+        await using var recorder = new ObsWebSocketRecorder(server.Url, password: string.Empty);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        await recorder.ConnectAsync(timeout.Token);
+
+        await recorder.StartRecordAsync(timeout.Token);
+
+        Assert.Equal(6, server.StatusRequestCount);
+        Assert.False(server.StopReceived.Task.IsCompleted);
+    }
+
+    [Fact]
+    public async Task StopRecordAsync_WhenOutputIsStillFinalizing_ShouldWaitForInactiveStatus()
+    {
+        // Real OBS acknowledges StopRecord while it is still writing the file.
+        // The recorder must not hand the path to the verifier until OBS
+        // reports the record output inactive.
+        await using var server = await ObsTestServer.StartAsync(
+            inactiveStatusesBeforeActive: 0,
+            activeStatusesAfterStop: 4);
+        await using var recorder = new ObsWebSocketRecorder(server.Url, password: string.Empty);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        await recorder.ConnectAsync(timeout.Token);
+        await recorder.StartRecordAsync(timeout.Token);
+
+        var outputPath = await recorder.StopRecordAsync(timeout.Token);
+
+        Assert.Equal(@"C:\recordings\capture.mp4", outputPath);
+        // One status poll confirmed the start; after StopRecord, four polls
+        // still report active and the fifth reports inactive.
+        Assert.Equal(1 + 5, server.StatusRequestCount);
+    }
+
     private sealed class ObsTestServer : IAsyncDisposable
     {
         private const string WebSocketGuid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -56,16 +95,30 @@ public sealed class ObsWebSocketRecorderTests
         private readonly TaskCompletionSource<object?> _stopReceived =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly bool _dropStartRecordResponse;
+        // null: GetRecordStatus replies without responseData (malformed).
+        // N: the first N replies report outputActive=false, later ones true.
+        private readonly int? _inactiveStatusesBeforeActive;
+        // null: StopRecord ends the session. N: the session stays open and the
+        // first N GetRecordStatus replies after StopRecord still report active.
+        private readonly int? _activeStatusesAfterStop;
+        private int _statusRequestCount;
+        private int _statusRequestsAfterStop = -1;
         // Explicit disposal signal: set before the listener is stopped so the
         // accept loop can distinguish a disposal-induced listener stop from a
         // mid-session connection drop and exit instead of busy-looping on a
         // stopped listener.
         private readonly CancellationTokenSource _disposeSignal = new();
 
-        private ObsTestServer(TcpListener listener, bool dropStartRecordResponse)
+        private ObsTestServer(
+            TcpListener listener,
+            bool dropStartRecordResponse,
+            int? inactiveStatusesBeforeActive,
+            int? activeStatusesAfterStop)
         {
             _listener = listener;
             _dropStartRecordResponse = dropStartRecordResponse;
+            _inactiveStatusesBeforeActive = inactiveStatusesBeforeActive;
+            _activeStatusesAfterStop = activeStatusesAfterStop;
             Url = new Uri($"ws://127.0.0.1:{((IPEndPoint)listener.LocalEndpoint).Port}/");
             _runTask = RunAsync();
         }
@@ -76,11 +129,20 @@ public sealed class ObsWebSocketRecorderTests
 
         public TaskCompletionSource<object?> StopReceived => _stopReceived;
 
-        public static async Task<ObsTestServer> StartAsync(bool dropStartRecordResponse = false)
+        public int StatusRequestCount => Volatile.Read(ref _statusRequestCount);
+
+        public static async Task<ObsTestServer> StartAsync(
+            bool dropStartRecordResponse = false,
+            int? inactiveStatusesBeforeActive = null,
+            int? activeStatusesAfterStop = null)
         {
             var listener = new TcpListener(IPAddress.Loopback, port: 0);
             listener.Start();
-            var server = new ObsTestServer(listener, dropStartRecordResponse);
+            var server = new ObsTestServer(
+                listener,
+                dropStartRecordResponse,
+                inactiveStatusesBeforeActive,
+                activeStatusesAfterStop);
             await Task.Yield();
             return server;
         }
@@ -187,6 +249,21 @@ public sealed class ObsWebSocketRecorderTests
                         // compensate with StopRecord, handled by the case below.
                         break;
                     case "GetRecordStatus":
+                        var statusIndex = Interlocked.Increment(ref _statusRequestCount);
+                        if (_inactiveStatusesBeforeActive is { } inactiveCount)
+                        {
+                            var active = statusIndex > inactiveCount ? "true" : "false";
+                            if (_stopReceived.Task.IsCompleted && _activeStatusesAfterStop is { } activeAfterStop)
+                            {
+                                var afterStopIndex = Interlocked.Increment(ref _statusRequestsAfterStop);
+                                active = afterStopIndex <= activeAfterStop ? "true" : "false";
+                            }
+                            await SendTextAsync(
+                                stream,
+                                $"{{\"op\":7,\"d\":{{\"requestType\":\"GetRecordStatus\",\"requestId\":\"{requestId}\",\"requestStatus\":{{\"result\":true,\"code\":100}},\"responseData\":{{\"outputActive\":{active}}}}}}}");
+                            break;
+                        }
+
                         // The StartRecord acknowledgement was successful, but
                         // confirmation is malformed. The client must compensate.
                         await SendTextAsync(
@@ -198,6 +275,12 @@ public sealed class ObsWebSocketRecorderTests
                         await SendTextAsync(
                             stream,
                             $"{{\"op\":7,\"d\":{{\"requestType\":\"StopRecord\",\"requestId\":\"{requestId}\",\"requestStatus\":{{\"result\":true,\"code\":100}},\"responseData\":{{\"outputPath\":\"C:\\\\recordings\\\\capture.mp4\"}}}}}}");
+                        if (_activeStatusesAfterStop is not null)
+                        {
+                            Interlocked.Exchange(ref _statusRequestsAfterStop, 0);
+                            break;
+                        }
+
                         return;
                     default:
                         throw new InvalidOperationException($"Unexpected request '{requestType}'.");
