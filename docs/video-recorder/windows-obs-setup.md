@@ -46,9 +46,11 @@ Configure once in OBS. Skip the auto-configuration wizard.
 2. **Video.** Settings → Video: Base (Canvas) and Output resolution
    `1280x720`, Common FPS `60`. The recorder always runs CX at 1280x720.
 3. **Recording output.** Settings → Output, Output Mode `Simple`:
-   - Recording Path: a dedicated folder, for example
-     `%USERPROFILE%\Videos\DTXManiaCX\obs-raw`. This must be the same folder
-     you export as `DTXMANIA_VIDEO_OBS_OUTPUT_DIR`.
+   - Recording Path: create a dedicated folder first, for example
+     `C:\Users\<you>\Videos\DTXManiaCX\obs-raw`, and pick it with Browse.
+     OBS does not expand `%USERPROFILE%` or other variables typed into this
+     field. This must be the same folder you export as
+     `DTXMANIA_VIDEO_OBS_OUTPUT_DIR`.
    - Recording Format: `Hybrid MP4`.
    - Recording Quality: `High Quality, Medium File Size` is enough.
    - Encoder: a hardware encoder (NVENC, QuickSync, AMF) if you have one,
@@ -73,7 +75,12 @@ Configure once in OBS. Skip the auto-configuration wizard.
 7. **WebSocket.** Tools → WebSocket Server Settings: enable the server, keep
    port `4455`, enable authentication, and set a password. Turn off the
    system tray alerts if you like.
-8. Leave OBS open and idle (not recording) before each recorder run. The
+8. Close the CX instance you used for picking the window and audio
+   sources, and keep any normal CX closed while recording. Both sources
+   match the title first, so an open CX window wins over the recorder's
+   sandboxed game, and the recorder can't tell that OBS captured the wrong
+   window.
+9. Leave OBS open and idle (not recording) before each recorder run. The
    recorder starts and stops only the recording it owns; it refuses to run
    while OBS is already recording.
 
@@ -147,7 +154,8 @@ for the session to get the check:
 
 ```powershell
 # run from the repository root after building the game
-$mmtools = (Resolve-Path 'DTXMania.Game\bin\Debug\net*-windows\runtimes\win-x64\MMTools').Path
+# (-join keeps each folder its own PATH entry if several framework outputs exist)
+$mmtools = (Resolve-Path 'DTXMania.Game\bin\Debug\net*-windows\runtimes\win-x64\MMTools').Path -join ';'
 $env:PATH = "$mmtools;$env:PATH"
 ```
 
@@ -221,6 +229,8 @@ drives it, and the capture includes whatever the window shows.
 - Black video: the Window Capture source isn't matching the sandboxed CX
   window. Use the `Windows 10 (1903 and up)` method and the `Match title,
   otherwise find window of same executable` priority.
+- Video shows a different CX window than the run: another CX instance was
+  open. Close every CX window before `record`.
 - Silent video, or other apps audible: re-check the Application Audio
   Capture source targets `DTXMania.Game.Windows.exe` and that every global
   audio device is disabled.
