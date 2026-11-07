@@ -125,8 +125,12 @@ namespace DTXMania.Game.Lib.Stage
         private static readonly Color SelectedNameText = new(255, 238, 120);
         // Selected value sits on the white cell -> dark warm highlight (readable on white).
         private static readonly Color SelectedValueText = new(168, 52, 0);
-        // Selected menu label sits on the light menu cursor bar -> dark text.
+        // Selected menu label fallback for unthemed NX skins whose cursor bar is light.
+        // Themed skins (CX Neon) use dark bars and resolve via Config.SelectedMenuText or UI.Accent.
         private static readonly Color SelectedMenuText = new(36, 24, 72);
+
+        private static Color ResolveThemedColor(ISkinTheme theme, string specificKey, string paletteKey, Color fallback) =>
+            theme.GetColor(specificKey, theme.GetColor(paletteKey, fallback));
 
         /// <summary>
         /// Resolves the item value text color against the active skin theme. The NX defaults
@@ -135,8 +139,8 @@ namespace DTXMania.Game.Lib.Stage
         /// token, then the NX default so themeless skins stay byte-identical.
         /// </summary>
         internal static Color ResolveValueColor(bool selected, ISkinTheme theme) => selected
-            ? theme.GetColor("Config.SelectedValueText", theme.GetColor("UI.Accent", SelectedValueText))
-            : theme.GetColor("Config.ValueText", theme.GetColor("UI.TextPrimary", ValueDarkText));
+            ? ResolveThemedColor(theme, "Config.SelectedValueText", "UI.Accent", SelectedValueText)
+            : ResolveThemedColor(theme, "Config.ValueText", "UI.TextPrimary", ValueDarkText);
 
         /// <summary>
         /// X of the NX vertical separator strip (4_item bar.png): "Config.ItemBarX"
@@ -145,12 +149,15 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         internal static int ResolveItemBarX(ISkinTheme theme) =>
             theme.GetInt("Config.ItemBarX", ConfigUILayout.ItemBarRect.X);
+
         internal static Color ResolveSelectedMenuTextColor(ISkinTheme theme) =>
-            theme.GetColor("Config.SelectedMenuText", theme.GetColor("UI.TextPrimary", SelectedMenuText));
-        // Description title sits on the panel's white upper region -> dark text.
+            ResolveThemedColor(theme, "Config.SelectedMenuText", "UI.Accent", SelectedMenuText);
+
+        // Description title sits on the panel's white upper region in NX -> dark fallback text.
+        // Themed skins (e.g. CX Neon) override with light text on dark backgrounds.
         private static readonly Color DescriptionTitleText = new(24, 24, 32);
         internal static Color ResolveDescriptionTitleTextColor(ISkinTheme theme) =>
-            theme.GetColor("Config.DescriptionTitleText", theme.GetColor("UI.TextPrimary", DescriptionTitleText));
+            ResolveThemedColor(theme, "Config.DescriptionTitleText", "UI.TextPrimary", DescriptionTitleText);
         private static readonly Color MenuCursorFallback = new(64, 96, 160, 180);
         private static readonly Color ItemCursorFallback = new(96, 96, 160, 180);
         private static readonly Color ImportStatusColor = new(180, 220, 255);
@@ -2068,7 +2075,7 @@ namespace DTXMania.Game.Lib.Stage
             else
                 DrawFilledRectangle(ConfigUILayout.DescriptionPanelRect, PanelFallbackColor);
 
-            // Title: the selected item's name on the white upper cell.
+            // Title: the selected item's name; legacy NX used a white upper cell, themed skins resolve via ResolveDescriptionTitleTextColor.
             string title = category.SelectedItem?.Name ?? category.Name;
             if (!string.IsNullOrEmpty(title) && _boldFont != null)
                 _boldFont.DrawString(_spriteBatch, title, ConfigUILayout.DescriptionTitlePos,

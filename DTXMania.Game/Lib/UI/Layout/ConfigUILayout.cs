@@ -89,7 +89,7 @@ namespace DTXMania.Game.Lib.UI.Layout
 
         // Description panel — art is white (top) over black (bottom); use both cells.
         public static Rectangle DescriptionPanelRect => new(800, 270, 280, 360);
-        public static Vector2 DescriptionTitlePos => new(818, 300);   // white upper region -> dark text
+        public static Vector2 DescriptionTitlePos => new(818, 300);   // NX upper region was white (dark default text); themed skins override to light text
         public static Vector2 DescriptionBodyPos => new(818, 448);    // black lower region -> light text
         public const int DescriptionWrapWidth = 248;
         public const int DescriptionLineHeight = 22;
