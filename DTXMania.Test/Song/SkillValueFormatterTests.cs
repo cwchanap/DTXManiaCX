@@ -17,13 +17,13 @@ public class SkillValueFormatterTests
     [InlineData(162.6, "162.60")]
     [InlineData(100.0, "100.00")]
     [InlineData(-5.0, "0.00")]
-    public void Format_RoundsLikeResultScreenRule(double value, string expected)
+    public void Format_WhenGivenDecimalValue_ShouldRoundLikeResultScreenRule(double value, string expected)
     {
         Assert.Equal(expected, SkillValueFormatter.Format(value));
     }
 
     [Fact]
-    public void Format_UsesInvariantDecimalSeparator()
+    public void Format_WhenCultureUsesCommaSeparator_ShouldUseInvariantDecimalSeparator()
     {
         var oldCulture = CultureInfo.CurrentCulture;
         try

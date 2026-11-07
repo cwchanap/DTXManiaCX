@@ -58,7 +58,7 @@ namespace DTXMania.Game.Lib.Stage.Result
 
         public PerformanceSummary Summary { get; private init; } = new();
         public ResultRank Rank { get; private init; }
-        public string RankLabel { get; private init; } = "E";
+        public string RankLabel { get; private init; } = "---";
         public ResultPlateKind PlateKind { get; private init; }
         public string ScoreText { get; private init; } = "0000000";
         public string MaxComboText { get; private init; } = "0";
@@ -135,8 +135,8 @@ namespace DTXMania.Game.Lib.Stage.Result
                 PoorPercentText = FormatPercent(safeSummary.PoorCount, safeSummary.TotalNotes),
                 MissPercentText = FormatPercent(safeSummary.MissCount, safeSummary.TotalNotes),
                 MaxComboPercentText = FormatPercent(safeSummary.MaxCombo, safeSummary.TotalNotes),
-                PlayingSkillText = FormatDecimal(safeSummary.PlayingSkill),
-                GameSkillText = FormatDecimal(safeSummary.GameSkill),
+                PlayingSkillText = SkillValueFormatter.Format(safeSummary.PlayingSkill),
+                GameSkillText = SkillValueFormatter.Format(safeSummary.GameSkill),
                 ChartLevelText = FormatLevel(
                     resolvedChart?.DrumLevel ?? safeSummary.ChartLevel,
                     resolvedChart?.DrumLevelDec ?? safeSummary.ChartLevelDec),
@@ -282,11 +282,6 @@ namespace DTXMania.Game.Lib.Stage.Result
             var safeValue = Math.Max(0, value);
             var percent = (int)Math.Round(safeValue * 100.0 / total, MidpointRounding.AwayFromZero);
             return $"{Math.Clamp(percent, 0, 100)}%";
-        }
-
-        public static string FormatDecimal(double value)
-        {
-            return SkillValueFormatter.Format(value);
         }
 
         /// <summary>

@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Threading.Tasks;
+using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Game.Lib.Stage.Result;
@@ -366,7 +367,7 @@ namespace DTXMania.Test.Song
             var score = await ctx.SongScores.AsNoTracking().SingleAsync(s => s.ChartId == chart.Id);
             var row = await ctx.PerformanceHistory.AsNoTracking().SingleAsync(p => p.SongScoreId == score.Id);
 
-            var resultSkillText = ResultScreenModel.FormatDecimal(summary.PlayingSkill);
+            var resultSkillText = SkillValueFormatter.Format(summary.PlayingSkill);
             Assert.Equal("78.63", resultSkillText);
             Assert.Contains($"(B: {resultSkillText})", row.HistoryLine);
         }
