@@ -1631,12 +1631,12 @@ namespace DTXMania.Game.Lib.Song.Entities
             var status = summary.ClearFlag ? "Cleared" : "Failed";
             var line = string.Format(
                 CultureInfo.InvariantCulture,
-                "{0}.{1:yy/M/d} {2} ({3}: {4:F2}) [{5}, {6}]",
+                "{0}.{1:yy/M/d} {2} ({3}: {4}) [{5}, {6}]",
                 score.PlayCount,
                 localDate,
                 status,
                 rank,
-                summary.PlayingSkill,
+                SkillValueFormatter.Format(summary.PlayingSkill),
                 PlaySpeedRange.Format(summary.PlaySpeedPercent),
                 PitchRange.Format(summary.PitchSemitones));
 

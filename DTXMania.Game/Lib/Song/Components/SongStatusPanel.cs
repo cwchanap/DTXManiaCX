@@ -900,6 +900,13 @@ namespace DTXMania.Game.Lib.Song.Components
             }
         }
 
+        internal static string ResolveHighSkillText(SongScore? score)
+        {
+            return score?.HasBeenPlayed == true
+                ? SkillValueFormatter.Format(score.HighSkill)
+                : "---";
+        }
+
         [ExcludeFromCodeCoverage]
         private void DrawSkillPointSection(
             SpriteBatch spriteBatch,
@@ -929,9 +936,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 spriteBatch.Draw(_whitePixel, skillPanelRect, Color.DarkBlue * 0.7f);
             }
 
-            var skillValue = score.HasBeenPlayed
-                ? score.HighSkill.ToString("F2", CultureInfo.InvariantCulture)
-                : "---";
+            var skillValue = ResolveHighSkillText(score);
 
             // Preferred path: NX difficulty bitmap font (5_level number.png, 28px tall).
             // NX: tDrawSkillPoints(32 + 60, 200, strSP) → x = X + DarkBoxLeft, centered in the dark box.
