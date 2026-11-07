@@ -66,5 +66,81 @@ namespace DTXMania.Test.Config
 
             Assert.Equal(-100, ConfigStage.ResolveItemBarX(theme));
         }
+
+        [Fact]
+        public void ResolveSelectedMenuTextColor_WithEmptyTheme_ShouldKeepNxDefault()
+        {
+            Assert.Equal(new Color(36, 24, 72), ConfigStage.ResolveSelectedMenuTextColor(SkinTheme.Empty));
+        }
+
+        [Fact]
+        public void ResolveSelectedMenuTextColor_WithAccentOnly_ShouldKeepNxDefault()
+        {
+            var theme = SkinTheme.Parse(new[] { "UI.Accent=#22D3EE" });
+
+            Assert.Equal(new Color(36, 24, 72), ConfigStage.ResolveSelectedMenuTextColor(theme));
+        }
+
+        [Fact]
+        public void ResolveSelectedMenuTextColor_WithCxNeonPalette_ShouldUseTextPrimary()
+        {
+            var theme = SkinTheme.Parse(new[]
+            {
+                "UI.TextPrimary=#DBEBF0",
+                "UI.Accent=#22D3EE"
+            });
+
+            Assert.Equal(new Color(0xDB, 0xEB, 0xF0), ConfigStage.ResolveSelectedMenuTextColor(theme));
+        }
+
+        [Fact]
+        public void ResolveSelectedMenuTextColor_WithSpecificConfigKey_ShouldWinOverTextPrimary()
+        {
+            var theme = SkinTheme.Parse(new[]
+            {
+                "UI.TextPrimary=#DBEBF0",
+                "Config.SelectedMenuText=#AABBCC"
+            });
+
+            Assert.Equal(new Color(0xAA, 0xBB, 0xCC), ConfigStage.ResolveSelectedMenuTextColor(theme));
+        }
+
+        [Fact]
+        public void ResolveDescriptionTitleTextColor_WithEmptyTheme_ShouldKeepNxDefault()
+        {
+            Assert.Equal(new Color(24, 24, 32), ConfigStage.ResolveDescriptionTitleTextColor(SkinTheme.Empty));
+        }
+
+        [Fact]
+        public void ResolveDescriptionTitleTextColor_WithAccentOnly_ShouldKeepNxDefault()
+        {
+            var theme = SkinTheme.Parse(new[] { "UI.Accent=#22D3EE" });
+
+            Assert.Equal(new Color(24, 24, 32), ConfigStage.ResolveDescriptionTitleTextColor(theme));
+        }
+
+        [Fact]
+        public void ResolveDescriptionTitleTextColor_WithCxNeonPalette_ShouldUseTextPrimary()
+        {
+            var theme = SkinTheme.Parse(new[]
+            {
+                "UI.TextPrimary=#DBEBF0",
+                "UI.Accent=#22D3EE"
+            });
+
+            Assert.Equal(new Color(0xDB, 0xEB, 0xF0), ConfigStage.ResolveDescriptionTitleTextColor(theme));
+        }
+
+        [Fact]
+        public void ResolveDescriptionTitleTextColor_WithSpecificConfigKey_ShouldWinOverTextPrimary()
+        {
+            var theme = SkinTheme.Parse(new[]
+            {
+                "UI.TextPrimary=#DBEBF0",
+                "Config.DescriptionTitleText=#DDEEFF"
+            });
+
+            Assert.Equal(new Color(0xDD, 0xEE, 0xFF), ConfigStage.ResolveDescriptionTitleTextColor(theme));
+        }
     }
 }

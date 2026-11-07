@@ -145,8 +145,12 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         internal static int ResolveItemBarX(ISkinTheme theme) =>
             theme.GetInt("Config.ItemBarX", ConfigUILayout.ItemBarRect.X);
+        internal static Color ResolveSelectedMenuTextColor(ISkinTheme theme) =>
+            theme.GetColor("Config.SelectedMenuText", theme.GetColor("UI.TextPrimary", SelectedMenuText));
         // Description title sits on the panel's white upper region -> dark text.
         private static readonly Color DescriptionTitleText = new(24, 24, 32);
+        internal static Color ResolveDescriptionTitleTextColor(ISkinTheme theme) =>
+            theme.GetColor("Config.DescriptionTitleText", theme.GetColor("UI.TextPrimary", DescriptionTitleText));
         private static readonly Color MenuCursorFallback = new(64, 96, 160, 180);
         private static readonly Color ItemCursorFallback = new(96, 96, 160, 180);
         private static readonly Color ImportStatusColor = new(180, 220, 255);
@@ -1803,7 +1807,9 @@ namespace DTXMania.Game.Lib.Stage
             {
                 bool selected = i == _currentCategoryIndex;
                 var font = selected ? _boldFont : _font;
-                var color = selected ? SelectedMenuText : LightText;
+                var color = selected
+                    ? ResolveSelectedMenuTextColor(_resourceManager?.CurrentTheme ?? SkinTheme.Empty)
+                    : LightText;
                 var label = _categories[i].Name;
                 var size = font.MeasureString(label);
                 var cursor = ConfigUILayout.MenuCursorRect(i);
@@ -2065,7 +2071,8 @@ namespace DTXMania.Game.Lib.Stage
             // Title: the selected item's name on the white upper cell.
             string title = category.SelectedItem?.Name ?? category.Name;
             if (!string.IsNullOrEmpty(title) && _boldFont != null)
-                _boldFont.DrawString(_spriteBatch, title, ConfigUILayout.DescriptionTitlePos, DescriptionTitleText);
+                _boldFont.DrawString(_spriteBatch, title, ConfigUILayout.DescriptionTitlePos,
+                    ResolveDescriptionTitleTextColor(_resourceManager?.CurrentTheme ?? SkinTheme.Empty));
 
             // Body: the selected item's description, wrapped, on the black lower cell.
             string text = category.SelectedItem?.Description ?? string.Empty;
