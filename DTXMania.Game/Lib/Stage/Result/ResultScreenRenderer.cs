@@ -894,7 +894,7 @@ namespace DTXMania.Game.Lib.Stage.Result
                 0f, Vector2.Zero, new Vector2(scale, scale), SpriteEffects.None, 0f);
         }
 
-        private static string GetRankTexturePath(ResultRank rank)
+        private static string? GetRankTexturePath(ResultRank rank)
         {
             return rank switch
             {
@@ -905,11 +905,12 @@ namespace DTXMania.Game.Lib.Stage.Result
                 ResultRank.C => TexturePath.ResultRankC,
                 ResultRank.D => TexturePath.ResultRankD,
                 ResultRank.E => TexturePath.ResultRankE,
-                _ => TexturePath.ResultRankE
+                ResultRank.F => null,
+                _ => null
             };
         }
 
-        private static string GetRankBackgroundPath(ResultRank rank)
+        private static string? GetRankBackgroundPath(ResultRank rank)
         {
             return rank switch
             {
@@ -920,7 +921,8 @@ namespace DTXMania.Game.Lib.Stage.Result
                 ResultRank.C => TexturePath.ResultBackgroundRankC,
                 ResultRank.D => TexturePath.ResultBackgroundRankD,
                 ResultRank.E => TexturePath.ResultBackgroundRankE,
-                _ => TexturePath.ResultBackgroundRankE
+                ResultRank.F => TexturePath.ResultBackgroundRankE,
+                _ => null
             };
         }
 

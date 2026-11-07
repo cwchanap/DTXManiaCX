@@ -272,7 +272,7 @@ public class ResultScreenRendererTests
                 PerfectCount = 80,
                 GreatCount = 20,
                 TotalNotes = 100,
-                PlayingSkill = 80.0,
+                PlayingSkill = 90.0,
                 Score = 1
             },
             null,
@@ -287,6 +287,57 @@ public class ResultScreenRendererTests
         resources.Verify(r => r.LoadTexture(TexturePath.ResultNewRecord), Times.Never);
         resources.Verify(r => r.LoadTexture(TexturePath.ResultRankS), Times.Once);
         resources.Verify(r => r.LoadTexture(TexturePath.ResultPlateFullCombo), Times.Once);
+    }
+
+    [Fact]
+    public void Load_FRankModel_ShouldLoadEBackgroundButNoRankBadge()
+    {
+        var resources = new Mock<IResourceManager>();
+        var loadedPaths = new List<string>();
+        var texture = new Mock<ITexture>();
+        resources.Setup(r => r.ResourceExists(It.IsAny<string>())).Returns(true);
+        resources
+            .Setup(r => r.LoadTexture(It.IsAny<string>()))
+            .Callback<string>(loadedPaths.Add)
+            .Returns(texture.Object);
+        var renderer = new ResultScreenRenderer(resources.Object, null, null, null);
+        var model = ResultScreenModel.Create(
+            new PerformanceSummary
+            {
+                ClearFlag = true,
+                TotalNotes = 100,
+                PlayingSkill = 30.0,
+                Score = 1
+            },
+            null,
+            0,
+            null,
+            null);
+
+        renderer.Load(model);
+
+        Assert.Equal(ResultRank.F, model.Rank);
+        Assert.DoesNotContain(loadedPaths, path => path.Contains("8_rank"));
+        resources.Verify(r => r.LoadTexture(TexturePath.ResultRankE), Times.Never);
+        Assert.Contains(TexturePath.ResultBackgroundRankE, loadedPaths);
+    }
+
+    [Fact]
+    public void RankPathHelpers_FOrUnknownRank_ShouldNotReturnEBadgePath()
+    {
+        var getRankTexturePath = typeof(ResultScreenRenderer).GetMethod(
+            "GetRankTexturePath",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        var getRankBackgroundPath = typeof(ResultScreenRenderer).GetMethod(
+            "GetRankBackgroundPath",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+
+        Assert.Null(getRankTexturePath!.Invoke(null, new object[] { ResultRank.F }));
+        Assert.Null(getRankTexturePath.Invoke(null, new object[] { (ResultRank)99 }));
+        Assert.Equal(
+            TexturePath.ResultBackgroundRankE,
+            getRankBackgroundPath!.Invoke(null, new object[] { ResultRank.F }));
+        Assert.Null(getRankBackgroundPath.Invoke(null, new object[] { (ResultRank)99 }));
     }
 
     [Fact]
@@ -308,7 +359,7 @@ public class ResultScreenRendererTests
                 PerfectCount = 73,
                 GreatCount = 27,
                 TotalNotes = 100,
-                PlayingSkill = 73.0
+                PlayingSkill = 80.0
             },
             null,
             0,

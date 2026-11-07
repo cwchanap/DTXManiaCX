@@ -429,6 +429,11 @@ namespace DTXMania.Game.Lib.Song.Entities
                 _ => 0
             };
         }
+
+        public static int RunRankBucket(double playingSkill)
+        {
+            return NormalizeRankPercentage((int)Math.Floor(playingSkill));
+        }
         
         /// <summary>
         /// Creates a copy of this score (legacy compatibility)

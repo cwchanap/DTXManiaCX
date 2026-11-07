@@ -20,7 +20,8 @@ namespace DTXMania.Game.Lib.Stage.Result
         B = 3,
         C = 4,
         D = 5,
-        E = 6
+        E = 6,
+        F = 7
     }
 
     public enum ResultPlateKind
@@ -230,13 +231,7 @@ namespace DTXMania.Game.Lib.Stage.Result
 
         public static ResultRank ComputeRank(double playingSkill)
         {
-            if (playingSkill >= 95.0) return ResultRank.SS;
-            if (playingSkill >= 80.0) return ResultRank.S;
-            if (playingSkill >= 73.0) return ResultRank.A;
-            if (playingSkill >= 63.0) return ResultRank.B;
-            if (playingSkill >= 53.0) return ResultRank.C;
-            if (playingSkill >= 45.0) return ResultRank.D;
-            return ResultRank.E;
+            return (ResultRank)SongScore.ComputeRankIndex(SongScore.RunRankBucket(playingSkill));
         }
 
         public static ResultPlateKind ComputePlateKind(PerformanceSummary summary)
@@ -264,7 +259,8 @@ namespace DTXMania.Game.Lib.Stage.Result
                 ResultRank.C => "C",
                 ResultRank.D => "D",
                 ResultRank.E => "E",
-                _ => "E"
+                ResultRank.F => "F",
+                _ => "---"
             };
         }
 
