@@ -728,6 +728,7 @@ def build_all() -> Dict[str, str]:
         ("Graphics/8_rankC.png", "C", (255, 200, 0, 255)),
         ("Graphics/8_rankD.png", "D", (255, 140, 0, 255)),
         ("Graphics/8_rankE.png", "E", DANGER),
+        ("Graphics/8_rankF.png", "F", (148, 75, 86, 255)),
     ]
     for rel, letter, col in rank_map:
         put(rel, rank_badge(letter, col))

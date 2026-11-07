@@ -2926,6 +2926,15 @@
       },
       "width": 274
     },
+    "Graphics/8_rankF.png": {
+      "height": 274,
+      "optional": false,
+      "recipe": {
+        "source": "8_rankF.png",
+        "type": "copy"
+      },
+      "width": 274
+    },
     "Graphics/8_rankS.png": {
       "height": 274,
       "optional": false,
