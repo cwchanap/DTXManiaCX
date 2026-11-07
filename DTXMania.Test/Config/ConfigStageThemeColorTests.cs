@@ -74,15 +74,15 @@ namespace DTXMania.Test.Config
         }
 
         [Fact]
-        public void ResolveSelectedMenuTextColor_WithAccentOnly_ShouldKeepNxDefault()
+        public void ResolveSelectedMenuTextColor_WithTextPrimaryOnly_ShouldKeepNxDefault()
         {
-            var theme = SkinTheme.Parse(new[] { "UI.Accent=#22D3EE" });
+            var theme = SkinTheme.Parse(new[] { "UI.TextPrimary=#DBEBF0" });
 
             Assert.Equal(new Color(36, 24, 72), ConfigStage.ResolveSelectedMenuTextColor(theme));
         }
 
         [Fact]
-        public void ResolveSelectedMenuTextColor_WithCxNeonPalette_ShouldUseTextPrimary()
+        public void ResolveSelectedMenuTextColor_WithCxNeonPalette_ShouldUseAccent()
         {
             var theme = SkinTheme.Parse(new[]
             {
@@ -90,15 +90,15 @@ namespace DTXMania.Test.Config
                 "UI.Accent=#22D3EE"
             });
 
-            Assert.Equal(new Color(0xDB, 0xEB, 0xF0), ConfigStage.ResolveSelectedMenuTextColor(theme));
+            Assert.Equal(new Color(0x22, 0xD3, 0xEE), ConfigStage.ResolveSelectedMenuTextColor(theme));
         }
 
         [Fact]
-        public void ResolveSelectedMenuTextColor_WithSpecificConfigKey_ShouldWinOverTextPrimary()
+        public void ResolveSelectedMenuTextColor_WithSpecificConfigKey_ShouldWinOverAccent()
         {
             var theme = SkinTheme.Parse(new[]
             {
-                "UI.TextPrimary=#DBEBF0",
+                "UI.Accent=#22D3EE",
                 "Config.SelectedMenuText=#AABBCC"
             });
 
