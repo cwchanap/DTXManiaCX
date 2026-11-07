@@ -193,7 +193,20 @@ internal sealed class ObsWebSocketRecorder : IObsRecorder
         // is still writing (and, for Hybrid MP4, finalizing) the file. Wait
         // until OBS reports the output inactive so the caller never verifies
         // or publishes a file that is still growing.
-        await WaitForRecordingStoppedAsync(token).ConfigureAwait(false);
+        try
+        {
+            await WaitForRecordingStoppedAsync(token).ConfigureAwait(false);
+        }
+        catch (Exception confirmationFailure)
+        {
+            // Don't publish an unconfirmed file, but keep its path in the
+            // failure so the run's diagnostics still say where it is.
+            throw new InvalidOperationException(
+                $"OBS StopRecord succeeded for '{outputPath}', but OBS did not confirm " +
+                "that the recording finished writing.",
+                confirmationFailure);
+        }
+
         return outputPath;
     }
 

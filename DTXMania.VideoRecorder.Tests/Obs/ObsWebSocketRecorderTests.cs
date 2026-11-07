@@ -84,6 +84,28 @@ public sealed class ObsWebSocketRecorderTests
         Assert.Equal(1 + 5, server.StatusRequestCount);
     }
 
+    [Fact]
+    public async Task StopRecordAsync_WhenStopIsNeverConfirmed_ShouldFailWithOutputPath()
+    {
+        // OBS acknowledged StopRecord but keeps reporting the output active.
+        // The recorder must not return the path as finished, and the failure
+        // must still name the file so diagnostics can point at it.
+        await using var server = await ObsTestServer.StartAsync(
+            inactiveStatusesBeforeActive: 0,
+            activeStatusesAfterStop: int.MaxValue);
+        await using var recorder = new ObsWebSocketRecorder(server.Url, password: string.Empty);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        await recorder.ConnectAsync(timeout.Token);
+        await recorder.StartRecordAsync(timeout.Token);
+
+        using var stopTimeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => recorder.StopRecordAsync(stopTimeout.Token));
+
+        Assert.Contains(@"C:\recordings\capture.mp4", exception.Message, StringComparison.Ordinal);
+        Assert.IsAssignableFrom<OperationCanceledException>(exception.InnerException);
+    }
+
     private sealed class ObsTestServer : IAsyncDisposable
     {
         private const string WebSocketGuid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
