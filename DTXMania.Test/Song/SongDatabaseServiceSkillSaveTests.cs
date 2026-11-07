@@ -437,5 +437,93 @@ namespace DTXMania.Test.Song
             Assert.Equal(150.0, saved.HighSkill, 4);
             Assert.Equal(1, saved.PlayCount);
         }
+
+        [Theory]
+        [InlineData(100.0, 95, "SS")]
+        [InlineData(95.0, 95, "SS")]
+        [InlineData(94.99, 90, "S")]
+        [InlineData(90.0, 90, "S")]
+        [InlineData(89.99, 80, "A")]
+        [InlineData(85.0, 80, "A")]
+        [InlineData(80.0, 80, "A")]
+        [InlineData(79.99, 70, "B")]
+        [InlineData(70.0, 70, "B")]
+        [InlineData(69.99, 60, "C")]
+        [InlineData(60.0, 60, "C")]
+        [InlineData(59.99, 50, "D")]
+        [InlineData(50.0, 50, "D")]
+        [InlineData(49.99, 40, "E")]
+        [InlineData(40.0, 40, "E")]
+        [InlineData(39.99, 0, "F")]
+        [InlineData(0.0, 0, "F")]
+        public async Task UpdateScoreAsync_NewRun_ShouldStoreSharedClassifierBucketAndHistoryRank(
+            double playingSkill, int expectedBucket, string expectedRankLetter)
+        {
+            var chart = await SeedChartAsync();
+            var summary = new PerformanceSummary
+            {
+                Score = 500000,
+                ClearFlag = true,
+                TotalNotes = 100,
+                PerfectCount = 50,
+                GreatCount = 50,
+                MaxCombo = 100,
+                PlayingSkill = playingSkill,
+                GameSkill = 100.0
+            };
+
+            await _svc.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
+
+            var saved = await LoadSavedScoreAsync(chart.Id);
+            Assert.Equal(expectedBucket, saved.BestRank);
+
+            var ctx = new SongDbContext(_options);
+            try
+            {
+                var row = await ctx.PerformanceHistory.AsNoTracking()
+                    .SingleAsync(p => p.SongScoreId == saved.Id);
+                Assert.Contains($"({expectedRankLetter}: ", row.HistoryLine);
+            }
+            finally { ctx.Dispose(); }
+        }
+
+        [Fact]
+        public async Task UpdateScoreAsync_WorseRunThanStoredBest_ShouldKeepBestRankButHistoryShowsRunRank()
+        {
+            var chart = await SeedChartAsync();
+            await SeedScoreAsync(chart.Id, new SongScore
+            {
+                BestScore = 900000,
+                BestRank = 90,
+                HighSkill = 170.0,
+                PlayCount = 3
+            });
+
+            var summary = new PerformanceSummary
+            {
+                Score = 400000,
+                ClearFlag = false,
+                TotalNotes = 100,
+                PerfectCount = 30,
+                MissCount = 70,
+                MaxCombo = 20,
+                PlayingSkill = 30.0,
+                GameSkill = 50.0
+            };
+
+            await _svc.UpdateScoreAsync(chart.Id, EInstrumentPart.DRUMS, summary);
+
+            var saved = await LoadSavedScoreAsync(chart.Id);
+            Assert.Equal(90, saved.BestRank);
+
+            var ctx = new SongDbContext(_options);
+            try
+            {
+                var row = await ctx.PerformanceHistory.AsNoTracking()
+                    .SingleAsync(p => p.SongScoreId == saved.Id);
+                Assert.Contains("(F: ", row.HistoryLine);
+            }
+            finally { ctx.Dispose(); }
+        }
     }
 }

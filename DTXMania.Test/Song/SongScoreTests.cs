@@ -406,6 +406,31 @@ namespace DTXMania.Test.Song
             Assert.Equal(expectedMultiplier, SongScore.RankMultiplier(rankValue), 3);
         }
 
+        [Theory]
+        [InlineData(100.0, 95)]
+        [InlineData(150.0, 95)]
+        [InlineData(95.0, 95)]
+        [InlineData(94.99, 90)]
+        [InlineData(90.0, 90)]
+        [InlineData(89.99, 80)]
+        [InlineData(85.0, 80)]
+        [InlineData(80.0, 80)]
+        [InlineData(79.99, 70)]
+        [InlineData(70.0, 70)]
+        [InlineData(69.99, 60)]
+        [InlineData(60.0, 60)]
+        [InlineData(59.99, 50)]
+        [InlineData(50.0, 50)]
+        [InlineData(49.99, 40)]
+        [InlineData(40.0, 40)]
+        [InlineData(39.99, 0)]
+        [InlineData(0.0, 0)]
+        [InlineData(-5.0, 0)]
+        public void RunRankBucket_ShouldFloorPlayingSkillThenNormalizeToPersistedBucket(double playingSkill, int expectedBucket)
+        {
+            Assert.Equal(expectedBucket, SongScore.RunRankBucket(playingSkill));
+        }
+
         [Fact]
         public void NormalizeStoredBestRank_WithZero_ShouldReturnFBucket()
         {

@@ -1590,8 +1590,7 @@ namespace DTXMania.Game.Lib.Song.Entities
                 score.TotalNotes = summary.TotalNotes;
             }
 
-            var normalizedRunRank = SongScoreEntity.NormalizeRankPercentage(
-                (int)Math.Floor(summary.PlayingSkill));
+            var normalizedRunRank = SongScoreEntity.RunRankBucket(summary.PlayingSkill);
             var normalizedBestRank = isFirstPlay
                 ? 0
                 : SongScoreEntity.NormalizeStoredBestRank(score.BestRank);
@@ -1627,7 +1626,7 @@ namespace DTXMania.Game.Lib.Song.Entities
                 .ConfigureAwait(false);
 
             var localDate = nowUtc.ToLocalTime();
-            var rank = SongScoreEntity.RankString((int)Math.Floor(summary.PlayingSkill));
+            var rank = SongScoreEntity.RankString(SongScoreEntity.RunRankBucket(summary.PlayingSkill));
             var status = summary.ClearFlag ? "Cleared" : "Failed";
             var line = string.Format(
                 CultureInfo.InvariantCulture,

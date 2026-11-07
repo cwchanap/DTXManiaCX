@@ -146,19 +146,24 @@ public class ResultScreenModelTests
     }
 
     [Theory]
+    [InlineData(100.0, ResultRank.SS, "SS")]
     [InlineData(95.0, ResultRank.SS, "SS")]
     [InlineData(94.99, ResultRank.S, "S")]
-    [InlineData(80.0, ResultRank.S, "S")]
-    [InlineData(79.99, ResultRank.A, "A")]
-    [InlineData(73.0, ResultRank.A, "A")]
-    [InlineData(72.99, ResultRank.B, "B")]
-    [InlineData(63.0, ResultRank.B, "B")]
-    [InlineData(62.99, ResultRank.C, "C")]
-    [InlineData(53.0, ResultRank.C, "C")]
-    [InlineData(52.99, ResultRank.D, "D")]
-    [InlineData(45.0, ResultRank.D, "D")]
-    [InlineData(44.99, ResultRank.E, "E")]
-    public void Create_ShouldComputeNXRankFromPlayingSkill(double skill, ResultRank expectedRank, string expectedLabel)
+    [InlineData(90.0, ResultRank.S, "S")]
+    [InlineData(89.99, ResultRank.A, "A")]
+    [InlineData(85.0, ResultRank.A, "A")]
+    [InlineData(80.0, ResultRank.A, "A")]
+    [InlineData(79.99, ResultRank.B, "B")]
+    [InlineData(70.0, ResultRank.B, "B")]
+    [InlineData(69.99, ResultRank.C, "C")]
+    [InlineData(60.0, ResultRank.C, "C")]
+    [InlineData(59.99, ResultRank.D, "D")]
+    [InlineData(50.0, ResultRank.D, "D")]
+    [InlineData(49.99, ResultRank.E, "E")]
+    [InlineData(40.0, ResultRank.E, "E")]
+    [InlineData(39.99, ResultRank.F, "F")]
+    [InlineData(0.0, ResultRank.F, "F")]
+    public void Create_ShouldComputeCXRankFromPlayingSkill(double skill, ResultRank expectedRank, string expectedLabel)
     {
         var model = ResultScreenModel.Create(
             Summary(playingSkill: skill, totalNotes: 100),
@@ -169,6 +174,7 @@ public class ResultScreenModelTests
 
         Assert.Equal(expectedRank, model.Rank);
         Assert.Equal(expectedLabel, model.RankLabel);
+        Assert.Equal(SongScore.RankString(SongScore.RunRankBucket(skill)), model.RankLabel);
     }
 
     [Fact]
