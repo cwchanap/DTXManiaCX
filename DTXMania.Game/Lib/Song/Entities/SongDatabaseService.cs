@@ -29,20 +29,8 @@ namespace DTXMania.Game.Lib.Song.Entities
         private readonly SemaphoreSlim _initializationSemaphore = new SemaphoreSlim(1, 1);
         private bool _isInitialized = false;
 
-        /// <summary>
-        /// The song database schema version this build reads and writes, stored
-        /// in <c>PRAGMA user_version</c>. A database whose stored version differs
-        /// (including 0, the pre-versioning marker) is purged and recreated on
-        /// startup instead of being migrated.
-        /// </summary>
         internal const int CurrentSongSchemaVersion = 1;
 
-        /// <summary>
-        /// DDL for the <c>__EnumerationMetadata</c> key/value table. The table is
-        /// intentionally not part of the <see cref="SongDbContext"/> model, so
-        /// <c>EnsureCreated</c> never emits it; the schema-version test hashes this
-        /// constant together with the EF create script.
-        /// </summary>
         internal const string EnumerationMetadataTableDdl = @"CREATE TABLE IF NOT EXISTS __EnumerationMetadata (
     Key TEXT PRIMARY KEY,
     Value TEXT NOT NULL
@@ -148,6 +136,7 @@ namespace DTXMania.Game.Lib.Song.Entities
 
                 using var context = CreateInitializationContext();
 
+                // Ensure database is created first
                 await EnsureCreatedForInitializationAsync(context);
                 await EnsureEnumerationMetadataTableAsync(context);
                 await StampSchemaVersionAsync(context);
@@ -181,19 +170,9 @@ namespace DTXMania.Game.Lib.Song.Entities
             SongDbContext context) =>
             context.Database.EnsureCreatedAsync();
 
-        // SQLITE_CORRUPT and SQLITE_NOTADB are the only probe failures that
-        // mean "the file is not a readable song database". Locking, I/O, and
-        // permission errors must propagate instead of triggering a reset.
         private const int SqliteCorruptErrorCode = 11;
         private const int SqliteNotADatabaseErrorCode = 26;
 
-        /// <summary>
-        /// Reads the stored <c>PRAGMA user_version</c> through a short-lived,
-        /// non-pooled connection so the probe cannot retain a Windows file lock
-        /// across a subsequent purge. A file that exists but is not a readable
-        /// SQLite database reports -1, which callers treat as a version
-        /// mismatch; every other failure propagates.
-        /// </summary>
         internal virtual async Task<long> ReadSchemaVersionOrMismatchAsync()
         {
             try
@@ -218,11 +197,6 @@ namespace DTXMania.Game.Lib.Song.Entities
             }
         }
 
-        /// <summary>
-        /// Stamps <c>PRAGMA user_version</c> with <see cref="CurrentSongSchemaVersion"/>
-        /// after the schema and enumeration metadata are confirmed, so a partially
-        /// created database stays version 0 and resets on the next startup.
-        /// </summary>
         private static async Task StampSchemaVersionAsync(SongDbContext context)
         {
             var stampSql = $"PRAGMA user_version = {CurrentSongSchemaVersion}";
@@ -278,8 +252,7 @@ namespace DTXMania.Game.Lib.Song.Entities
                 // Clear all pooled SQLite connections so the file is no longer locked
                 SqliteConnection.ClearAllPools();
 
-                // Delete the database file completely, including WAL/journal
-                // sidecars so a recreated file cannot inherit stale frames
+                // Delete the database file completely
                 if (File.Exists(_databasePath))
                 {
                     File.Delete(_databasePath);
@@ -301,9 +274,6 @@ namespace DTXMania.Game.Lib.Song.Entities
             }
         }
 
-        // WAL-mode databases keep committed content in the -wal/-shm sidecars
-        // until a checkpoint, so any whole-file delete or overwrite must remove
-        // them alongside the main database file.
         private static void DeleteDatabaseFileSidecars(string databasePath)
         {
             foreach (var suffix in new[] { "-wal", "-shm", "-journal" })
@@ -325,18 +295,30 @@ namespace DTXMania.Game.Lib.Song.Entities
                 throw new FileNotFoundException($"Database file not found: {_databasePath}");
             }
 
-            if (File.Exists(backupPath))
+            if (PathsReferToSameFile(_databasePath, backupPath))
             {
-                File.Delete(backupPath);
+                throw new ArgumentException(
+                    $"Backup destination must differ from the database file: {backupPath}",
+                    nameof(backupPath));
             }
 
-            // VACUUM INTO writes a complete, checkpointed standalone copy through
-            // SQLite itself; a plain File.Copy of the main file would miss any
-            // content still held in the -wal sidecar of a WAL-mode database. The
-            // filename cannot be parameterized, so it is single-quote escaped.
-            using var context = new SongDbContext(_options);
-            var backupSql = $"VACUUM INTO '{backupPath.Replace("'", "''")}'";
-            await context.Database.ExecuteSqlRawAsync(backupSql);
+            var tempBackupPath = backupPath + ".tmp";
+            try
+            {
+                using var context = new SongDbContext(_options);
+                var backupSql =
+                    $"VACUUM INTO '{tempBackupPath.Replace("'", "''")}'";
+                await context.Database.ExecuteSqlRawAsync(backupSql);
+
+                File.Move(tempBackupPath, backupPath, overwrite: true);
+            }
+            finally
+            {
+                if (File.Exists(tempBackupPath))
+                {
+                    File.Delete(tempBackupPath);
+                }
+            }
         }
 
 
@@ -348,21 +330,36 @@ namespace DTXMania.Game.Lib.Song.Entities
                 throw new FileNotFoundException($"Backup file not found: {backupPath}");
             }
 
-            // Close any existing connections and clear pooled connections
-            using (var context = new SongDbContext(_options))
+            if (PathsReferToSameFile(_databasePath, backupPath))
             {
-                await context.Database.CloseConnectionAsync();
+                throw new ArgumentException(
+                    $"Restore source must differ from the database file: {backupPath}",
+                    nameof(backupPath));
             }
 
-            SqliteConnection.ClearAllPools();
+            await using var source = new SqliteConnection(
+                new SqliteConnectionStringBuilder
+                {
+                    DataSource = backupPath,
+                    Pooling = false,
+                }.ToString());
+            await source.OpenAsync();
 
-            // Remove WAL/journal sidecars so the copied image is the only
-            // database state; a stale -wal could otherwise be replayed into the
-            // restored file.
-            DeleteDatabaseFileSidecars(_databasePath);
+            using var context = new SongDbContext(_options);
+            var destination = (SqliteConnection)context.Database.GetDbConnection();
+            await destination.OpenAsync();
+            source.BackupDatabase(destination);
+        }
 
-            // Copy backup over current database
-            await Task.Run(() => File.Copy(backupPath, _databasePath, overwrite: true));
+        private static bool PathsReferToSameFile(string firstPath, string secondPath)
+        {
+            var comparison = OperatingSystem.IsLinux()
+                ? StringComparison.Ordinal
+                : StringComparison.OrdinalIgnoreCase;
+            return string.Equals(
+                Path.GetFullPath(firstPath),
+                Path.GetFullPath(secondPath),
+                comparison);
         }
         /// Get database statistics
         public async Task<DatabaseStats> GetDatabaseStatsAsync()
@@ -2112,9 +2109,6 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// </summary>
         private static async Task EnsureEnumerationMetadataTableAsync(SongDbContext context)
         {
-            // A failed metadata table must abort initialization: the version stamp
-            // that follows asserts the schema is complete, so half-initialized
-            // databases must be left unstamped (version 0) to self-reset next run.
             await context.Database.ExecuteSqlRawAsync(EnumerationMetadataTableDdl);
         }
 
