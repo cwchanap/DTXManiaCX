@@ -229,9 +229,10 @@ namespace DTXMania.Test.Stage
         }
 
         [Theory]
-        [InlineData(true, 2)]
-        [InlineData(false, 0)]
-        public void HandlePadLaneHit_HiHat_StepsDifficultyOnlyInStatusPanel(bool inStatusPanel, int expectedDifficulty)
+        [InlineData(false, 1.3, 2)] // two hits within 0.5 s on the song list
+        [InlineData(true, 1.3, 2)]  // also on the difficulty panel
+        [InlineData(false, 1.6, 0)] // too far apart
+        public void HandlePadLaneHit_HiHatTwice_StepsDifficulty(bool inStatusPanel, double secondHitTime, int expectedDifficulty)
         {
             var stage = CreateStage();
             var song = CreateScoreNode("Song", CreateScores(0, 2));
@@ -245,24 +246,64 @@ namespace DTXMania.Test.Stage
             SetPrivateField(stage, "_currentDifficulty", 0);
             display.CurrentDifficulty = 0;
 
+            SetPrivateField(stage, "_elapsedTime", 1.0);
+            InvokePrivateMethod(stage, "HandlePadLaneHit", (int)PerformanceUILayout.LaneType.HH);
+            Assert.Equal(0, GetPrivateField<int>(stage, "_currentDifficulty")); // one hit does nothing
+
+            SetPrivateField(stage, "_elapsedTime", secondHitTime);
             InvokePrivateMethod(stage, "HandlePadLaneHit", (int)PerformanceUILayout.LaneType.HH);
 
             Assert.Equal(expectedDifficulty, GetPrivateField<int>(stage, "_currentDifficulty"));
         }
 
         [Fact]
-        public void HandlePadLaneHit_BassDrum_OpensConfig()
+        public void HandlePadLaneHit_BassDrumTwice_TogglesQuickSettings()
         {
-            var game = CreateGame(totalGameTime: 1.0, lastStageTransitionTime: 0.0);
-            var stage = CreateStage(game);
-            var stageManager = new Mock<IStageManager>();
-            stage.StageManager = stageManager.Object;
+            var stage = CreateStage();
+            var popup = new QuickSettingsPopup();
+            SetPrivateField(stage, "_quickSettingsPopup", popup);
+            SetPrivateField(stage, "_configManager", new ConfigManager());
+            int bassDrum = (int)PerformanceUILayout.LaneType.DB;
 
-            InvokePrivateMethod(stage, "HandlePadLaneHit", (int)PerformanceUILayout.LaneType.DB);
+            SetPrivateField(stage, "_elapsedTime", 1.0);
+            InvokePrivateMethod(stage, "HandlePadLaneHit", bassDrum);
+            Assert.False(popup.IsOpen);
 
-            stageManager.Verify(
-                x => x.ChangeStage(StageType.Config, It.IsAny<IStageTransition>()),
-                Times.Once);
+            SetPrivateField(stage, "_elapsedTime", 1.2);
+            InvokePrivateMethod(stage, "HandlePadLaneHit", bassDrum);
+            Assert.True(popup.IsOpen);
+
+            // A third quick hit starts a new double hit instead of closing straight away.
+            SetPrivateField(stage, "_elapsedTime", 1.4);
+            InvokePrivateMethod(stage, "HandlePadLaneHit", bassDrum);
+            Assert.True(popup.IsOpen);
+
+            SetPrivateField(stage, "_elapsedTime", 1.6);
+            InvokePrivateMethod(stage, "HandlePadLaneHit", bassDrum);
+            Assert.False(popup.IsOpen);
+        }
+
+        [Fact]
+        public void HandleInput_WhenQuickSettingsOpen_RoutesCommandsToPopup()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay { CurrentList = [CreateScoreNode("A"), CreateScoreNode("B")] };
+            var popup = new QuickSettingsPopup();
+            var inputManager = new QueuedInputManager();
+            bool noFail = false;
+            popup.Open(new IConfigItem[] { new ToggleConfigItem("No Fail", () => noFail, value => noFail = value) });
+
+            AttachCoreUi(stage, display: display);
+            SetPrivateField(stage, "_quickSettingsPopup", popup);
+            SetPrivateField(stage, "_inputManager", inputManager);
+            inputManager.Enqueue(new InputCommand(InputCommandType.Activate, 0.0));
+            inputManager.Enqueue(new InputCommand(InputCommandType.MoveDown, 0.0));
+
+            InvokePrivateMethod(stage, "HandleInput");
+
+            Assert.True(noFail);
+            Assert.Equal(1, popup.SelectedIndex);
+            Assert.Equal("A", display.SelectedSong!.Title); // the song list did not move
         }
 
         [Fact]
