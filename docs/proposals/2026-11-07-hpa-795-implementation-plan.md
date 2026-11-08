@@ -1,101 +1,98 @@
-# HPA-795 — Implementation plan
+# HPA-795 — Implementation plan (reviewed)
 
-**Design:** [HPA-795 design](./2026-11-07-hpa-795-design.md)  
+**Design:** [HPA-795 revised design](./2026-11-07-hpa-795-design.md)  
 **Linear:** https://linear.app/cwchanap/issue/HPA-795/cleanup-delete-dead-code-legacy-shims-the-startup-tracer-and-db  
-**Delivery:** Add implementation commits to **this same draft PR**. No parallel PRs or new tickets. **Budget: <=3 engineer days total.**  
-**Current state:** Planning only; no game code has been changed in this PR yet.
+**Delivery:** **One implementation PR (this draft)**; budget <=3 engineer days.  
+**Status:** Plan only; do not claim production behavior changed or CI passed.
 
 ## Agent instructions
 
-Implement the approved design using the code currently on main as the source of truth. Optimize for removal of dead code and small, maintainable changes. Do not add new architecture for a feature being deleted. Build incrementally and finish with a clean Windows/macOS CI result before switching the PR out of Draft.
+Implement the approved design on the existing draft PR; read the current repository first. Prefer deleting redundant paths over adding wrappers/architecture. Keep each section as a coherent, green commit on **the same branch**. The song DB policy must land **before** removal of stored-rank conversion. Do not remove NX score.ini import mapping.
 
-**Treat these as invariants:**
-- The game still starts and plays songs; Japanese DTX/NX/SET.def import still works.
-- Config.ini DTXPath still **loads** as an input alias, even though ConfigData.DTXPath mirror is removed.
-- CrashReportRuntime, CrashContextPublisher and the Game API/screenshot paths continue to work.
-- Only **songs.db** may be deleted for a schema-version mismatch; config storage is not affected.
-- Existing, same-version song scores/bookmarks survive a restart.
+**Required invariants:** fresh/repeated startup; cached song library; Japanese filenames/titles; normal chart and NX import; song selection, playback and results; Config.ini import; crash report startup milestones and Game API. Config SQLite storage is out of scope.
 
-## 1. Inventory real call sites; remove dead app shims
+## Section 1 — Remove startup profiler, retain crash evidence
 
-**Primary files**
-- DTXMania.Game/Lib/UI/Components/{UIButton,UIList,UIImage}.cs
-- DTXMania.Game/Lib/UI/Layout/PerformanceUILayout.cs
-- DTXMania.Game/Lib/Song/Entities/{SongChart,SongScore}.cs
-- DTXMania.Game/Lib/Stage/PerformanceStage.cs
-- DTXMania.Game/Lib/Song/SongManager.cs
-- DTXMania.Game/Lib/Config/{ConfigData,ConfigManager}.cs
-- Tests under DTXMania.Test/UI, /Song, /Stage and /Config.
+**Review these files:**
+- `DTXMania.Game/Program.cs` and `Game1.cs`
+- `Lib/Stage/{StartupCriticalPathTrace,StartupCriticalPathHost,StartupTimingTrace,StartupStage,TitleStage,BaseStage,StageManager,StartupSongLoadSummary}.cs`
+- `Lib/Song/StartupSongLoadTimingObserver.cs`, `SongImportModels.cs`, `SongManager.cs`; `Lib/Song/Entities/SongDatabaseService.cs`
+- `Lib/Diagnostics/CrashReporting/{CrashContextPublisher,CrashLogFieldPolicy,CrashReportStore}.cs`
+- `tools/hpa192/`; corresponding tracer/summary tests and startup/crash tests.
 
-**Work**
-1. Search the repository for every candidate member's uses **outside tests**. Delete only unused UI components/layout aliases and properties that serve old application callers. Remove their tests and test-only reflection hooks; retain tests of the current behavior.
-2. Remove old persisted-rank ordinal conversion after confirming it is *only* app-version DB compatibility; keep NX score.ini import and canonical rank calculations.
-3. Replace the synchronized ConfigData.DTXPath mirror with SongRoots. Keep the Config.ini DTXPath **parser** as an alias that assigns the first root, preserve SongRoot.N precedence, and update recorder/E2E production usage to the canonical SongRoots APIs rather than removing the supported INI key.
-4. Remove the obsolete PerformanceStage legacy initialization/parse fallback only after tracing normal OnActivate / prepared-chart paths and their tests. Remove SongManager's parse-only helper that exists only for reflection tests; leave real song enumeration unchanged.
-5. Build the game and run focused config/song/stage tests before continuing.
+1. **Move the surviving type dependency first.** Introduce a small closed crash-startup milestone enum in `Lib/Diagnostics/CrashReporting/` with just `StartupActivation`, `StartupFirstDrawEnd`, `SummaryRequest`. Update Game1, CrashContextPublisher, CrashLogFieldPolicy, CrashReportStore and affected tests; retain `Enum.IsDefined` and report `Unknown` for unknown/obsolete milestones. Do **not** retain the tracer's broad enum or replace with arbitrary strings.
+2. Remove the profiler graph and its observer parameters/overloads: StartupCriticalPathTrace, StartupCriticalPathHost, StartupTimingTrace, StartupSongLoadTimingObserver, Program/Game1 tracer construction, stage/manager/database spans, diagnostic env vars and exit logic, and `tools/hpa192/`.
+3. Remove `StartupSongLoadSummary` and `HPA192_STARTUP`, its test and reporting-only state. Remove the four timing `TimeSpan` fields in SongImportModels and the associated stopwatches/data plumbing; **keep** counters, actual bulk-import results and other production behavior. If `StartupStage.WriteSummaryOnce` exists only for profiling, remove it and its invocation; no replacement timing logger is required.
+4. Delete tests dedicated to the removed profiler/observer contracts and adapt functional startup, song enumeration, cancellation and crash tests to the current constructor paths. Keep crash breadcrumbs, `CrashContextPublisher`, normal startup/Title transition, Game API action queue and screenshots.
+5. Search **active** game code, test code and tools for `HPA192` (bare token), `StartupTimingTrace`, `StartupCriticalPathTrace`, `IStartupSongLoadTimingObserver` and `StartupSongLoadSummary`. Fix remaining live references. Historical docs are out of scope.
 
-**Tests to maintain/adjust**
-- DTXMania.Test/Config/SongRootConfigTests.cs and config persistence tests: indexed roots vs imported DTXPath, no in-memory mirror.
-- Song manager and performance stage normal activation tests: current path works without reflection compatibility branches.
-- Remove UIButton/UIList/UIImage-specific tests only when their production types are deleted; do not delete shared UIElement/UIContainer tests.
+**Evidence:** Compile local applicable project(s), run focused startup/crash/song tests. Trigger Windows + macOS CI on the draft branch (see verification section). Commit only after green.
 
-**Checkpoint:** No live production call site remains for deleted properties/classes and normal startup, song selection, and gameplay still compile.
+## Section 2 — One song DB version and reset path
 
-## 2. Excise HPA-192 startup tracing end-to-end
+**Primary files:**
+- `Lib/Song/Entities/SongDatabaseService.cs`
+- `Lib/Song/Entities/SongDbContext.cs` (current model reference)
+- `Lib/Song/SongManager.cs`
+- `DTXMania.Test/Song/{SongDatabaseServiceTests,SongManagerTests,SongDatabaseServiceCoverageTests}.cs` and any old migration tests.
+- **Reference existing config DB pattern:** `Lib/Config/ConfigDbSchema.cs` uses `PRAGMA user_version`, but do **not** change it.
 
-**Primary files**
-- DTXMania.Game/Program.cs and Game1.cs
-- DTXMania.Game/Lib/Stage/{StartupCriticalPathTrace,StartupCriticalPathHost,StartupTimingTrace,StartupStage,TitleStage,BaseStage,StageManager}.cs
-- DTXMania.Game/Lib/Song/StartupSongLoadTimingObserver.cs
-- DTXMania.Game/Lib/Song/SongManager.cs
-- DTXMania.Game/Lib/Song/Entities/SongDatabaseService.cs
-- tools/hpa192/ and profiler-specific DTXMania.Test files.
+1. Replace the old `HasProperUnicodeConfigurationAsync`/`__DatabaseVersion` probe with a **single version probe** in SongDatabaseService: `CurrentSongSchemaVersion = 1`; open a short SQLite connection and read `PRAGMA user_version`. Missing file means fresh creation; invalid SQLite (`SqliteException`) counts as mismatch. A mismatch including old version 0 calls the **existing throwing** `PurgeDatabaseAsync` exactly once under the initialization semaphore; explicit user-requested purge remains supported.
+2. Collapse all competing reset paths: remove `IsValidSqliteDatabaseAsync`, `HandleInvalidDatabaseFileAsync` (including `Task.Delay(100)`), `HasProperUnicodeConfigurationAsync`, `EnsureDatabaseVersionTableAsync`, exception-message catch/retry branches (including `table already exists` success), and SongManager's pre-initialization `IsDatabaseCorruptedAsync` probe/branch. Preserve the public `purgeDatabaseFirst` behavior without probing twice or adding another delete helper.
+3. Use the existing EF model to `EnsureCreatedAsync`, then `EnsureEnumerationMetadataTableAsync` (make its **creation** failure throw), then set `PRAGMA user_version = CurrentSongSchemaVersion`, and finally `_isInitialized = true`. A partial create with version 0 will self-reset next run; a matching-version DB is reopened without a rebuild.
+4. Delete `ConfigureUtf8EncodingAsync` and both startup PRAGMAs (`journal_mode=DELETE`, `case_sensitive_like=OFF`), the additive `Ensure*Column` routines, playback/history/receipt schema migrations, and their obsolete tests. Keep the current entity model, runtime `__EnumerationMetadata` read/write, receipt CRUD and Japanese text semantics. The in-memory test constructor stays separate from file-version checks.
+5. Add focused tests:
+   - Fresh DB: all required EF tables and enumeration metadata, user_version 1, Japanese title/file roundtrip.
+   - Reopen valid version: scores, ranks, bookmarks, play counts, history and enumeration cache state retained.
+   - Version 0/mismatch/invalid file: one purge/recreate and re-enumeration; no stale schema survives.
+   - Failed delete and failed metadata initialization: error propagates; no initialized/stamped success.
+   - Explicit purge still works; test injected in-memory context still works; config SQLite remains unaffected.
+   - **Version-bump guard:** pin expected `CurrentSongSchemaVersion` and a SHA-256 of deterministic `SongDbContext.Database.GenerateCreateScript()` plus the `__EnumerationMetadata` DDL in a test. On schema drift, failure should instruct: “schema changed → bump CurrentSongSchemaVersion and update hash”. No migration registry or runtime hashing.
+6. When revising tests that built legacy schema fixtures, replace with current-schema fixtures or explicit version-0 reset expectations rather than preserving old migration behavior.
 
-**Work**
-1. Remove the four tracing/observer implementation files and the HPA192_* environment-variable and diagnostic-exit behavior.
-2. Delete tracing fields, constructor parameters, spans, milestone calls, timing observer overloads and safe-emit scaffolding across the game. Keep one direct implementation path per startup/song-loading operation; do **not** retain forwarding overloads merely for tests.
-3. Change Program/Game1 wiring to pass only what the game actually uses (notably crash diagnostics). Preserve CrashContextPublisher milestones/breadcrumbs, normal lifecycle, main-thread queue and screenshot completion semantics.
-4. Delete tools/hpa192 and tests that exclusively assert profiler output, timestamps, observer contracts and diagnostic exit. Update tests that currently inject StartupTimingTrace/RecordingObserver to exercise the remaining behavior without a tracer. Retain functional startup, song enumeration, cancellation and crash-report tests.
-5. Search game code, tests and active tools for StartupCriticalPathTrace, StartupTimingTrace, IStartupSongLoadTimingObserver, HPA192_CRITICAL_PATH, HPA192_EXIT_AFTER_CRITICAL_PATH and HPA192_TIMING. There should be no active matches. Historical documents are HPA-798's responsibility.
+**Evidence:** Run focused DB/cache/NX-import tests, then manually dispatch CI on the draft branch. Commit green schema changes **before** moving to stored-rank cleanup.
 
-**Checkpoint:** There is no profiler-specific startup path. Title transition, crash breadcrumbs and Game API health/screenshots still work.
+## Section 3 — Delete dead app shims after schema reset is in place
 
-## 3. Simplify song database bootstrap to one version marker
+**Primary files:**
+- `Lib/UI/Components/{UIButton,UIList,UIImage}.cs`; `Lib/UI/Layout/PerformanceUILayout.cs`
+- `Lib/Song/Entities/{SongChart,SongScore}.cs`
+- `Lib/Stage/PerformanceStage.cs`, `Lib/Song/SongManager.cs`
+- `Lib/Config/{ConfigData,ConfigManager}.cs`
+- `Lib/Song/{NxScoreImporter,Filtering/SongListFilterService}.cs`
+- `Lib/Song/Components/{SongStatusPanel,SongBarRenderer}.cs`
+- `CLAUDE.md`, `AGENTS.md`, relevant tests in `DTXMania.Test` and `DTXMania.E2E`.
 
-**Primary files**
-- DTXMania.Game/Lib/Song/Entities/SongDatabaseService.cs
-- DTXMania.Game/Lib/Song/Entities/SongDbContext.cs (read to confirm current model; avoid needless model changes)
-- DTXMania.Test/Song/SongDatabaseServiceTests.cs and related schema/migration test files.
+1. Audit actual production uses before deletion. Remove the three test-only UI components, unused `PerformanceUILayout` legacy aliases/layout groups, unused entity compatibility properties, PerformanceStage old-callers/reflection fallback and SongManager parse-only reflection helper where production has no dependency. Delete their now-obsolete tests, but do not remove tests for surviving behavior.
+2. **Stored rank conversion has live callers; it is only obsolete after Section 2.** Find **all** `NormalizeStoredBestRank` usages, including five external files and **SongScore's own `RankName` and `UpdatePerformance`**; replace with `NormalizeRankPercentage`. Remove the ordinal-conversion helpers and obsolete legacy rank tests. Preserve `NxScoreImporter.MapNxRankToBucket` and its `.score.ini` tests: importing NX ranks is **format support, not DB-app compatibility**.
+3. Remove `ConfigData.DTXPath` property/mirror, mirror writes and redundant sync tests. Retain the **`DTXPath=` Config.ini input key** from DTXMania/NX, which the existing `ConfigManager` local variable and `FinalizeSongRoots` already map to `SongRoots`. Preserve `SongRoot.N` precedence. Update tests and fixtures that *read* `Config.DTXPath` (notably `DTXMania.E2E/Fixtures/E2EFixtureBuilderTests.cs`) to read `SongRoots[0]`; do not delete Config.ini input fixtures.
+4. Correct **both occurrences** of the deleted component list in **each** `CLAUDE.md` and `AGENTS.md`. Leave unrelated old design docs for HPA-798.
+5. Grep for removed symbols in production/tests and build both platform targets. Confirm both Windows-only `SongStatusPanelLogicTests` and E2E fixture tests compile (the former is excluded from Test.Mac). No other task's refactor belongs here.
 
-**Work**
-1. Introduce a single CurrentSongSchemaVersion constant (starting at 1) and a narrow file-backed probe for PRAGMA user_version.
-2. Before EF initialization, if songs.db is present and unreadable or has any different version, clear SQLite pools and recreate that **file only**. Reuse existing initialization concurrency semantics. Make reset failures fail initialization; do not copy the existing best-effort delete catch into the schema-mismatch path.
-3. For new files, call EF EnsureCreatedAsync using the existing model. Preserve the needed PRAGMAs and initialization of __EnumerationMetadata. Write user_version **only after** everything needed for a usable fresh schema succeeds, then set _isInitialized.
-4. For matching versions, do not rerun per-column upgrades. Remove the __DatabaseVersion/UnicodeCollation marker check, EnsureDatabaseVersionTableAsync, EnsureBookmarkColumnAsync, EnsureNxImportColumnsAsync, EnsurePerformanceHistoryScoreScopeAsync, EnsurePlaybackSpeedScoreScopeAsync, EnsureMigrationColumnAsync, EnsureScoreSaveReceiptsAsync, and any other code exclusively used by old-schema upgrades. Keep score-save receipt **data operations** and __EnumerationMetadata **runtime** operations.
-5. Keep test-injected/in-memory DbContext constructors usable without file version probing. Delete or replace legacy schema-upgrade tests; do not discard assertions that cover current schema, persistence or failed initialization.
-6. Do not touch SqliteConfigStore migrations or configuration database lifecycle.
+**Evidence:** Run config/rank/UI/song-manager/performance tests and manually dispatch CI. Commit this section green.
 
-**Required focused regression tests**
-- Fresh database: creates current SongDbContext tables, __EnumerationMetadata and user_version=1; Japanese titles persist/reload.
-- Reopen matching version: songs, scores, play counts, bookmarks and enumeration metadata are retained.
-- Existing unversioned (0), older, or other-version DB: resets once, creates a valid new schema, and normal library enumeration repopulates it.
-- Invalid/corrupt song DB recovers; reset deletion failure surfaces an error and never marks the service initialized.
-- In-memory test constructor still works; separate config SQLite data is untouched.
+## Section 4 — Final verification in the **same PR**
 
-**Checkpoint:** No schema migration SQL is executed on a normal startup; fresh and reused databases work.
+On the working branch (do not mark Ready for Review just to get CI), run:
 
-## 4. Verify and document results (same PR)
+```sh
+# Existing workflow supports workflow_dispatch; draft-only skip applies to pull_request.
+gh workflow run build-and-test.yml --ref plan/hpa-795-remove-legacy-infrastructure
+```
 
-1. Build both platforms with the repository's current SDK and project files:
-   - Windows: dotnet build DTXMania.Game/DTXMania.Game.Windows.csproj -c Debug
-   - macOS: dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj -c Debug
-2. Run impacted unit suites, then the normal platform test suite (DTXMania.Test.csproj on Windows / DTXMania.Test.Mac.csproj on macOS). Run Automation.Tests and VideoRecorder.Tests if shared constructor/code changes affect them. Follow .github/workflows/build-and-test.yml for exact CI commands.
-3. Smoke-check fresh startup, cached library restart, choosing a song, lanes gameplay, exiting to title, Japanese song titles, imported legacy Config.ini folder selection, and Game API screenshot/crash-report lifecycle as available in existing E2E tests. Do not introduce a new E2E framework.
-4. Review the diff for accidental removal of format compatibility, used layout primitives, current score logic or unrelated cleanup. Any test deleted should have a clear production-deletion reason.
-5. In the PR body, report test commands/results and the **intentional score/history/bookmark reset on song-schema version mismatch**. Draft PRs currently skip CI via workflow job conditions; after implementation and review, mark Ready for Review to run required CI. Do not claim CI success based on this documentation-only draft.
+Run that **after each completed section**, inspect both Windows and macOS jobs and fix failures before moving on. Use one coherent green commit per section for easier review/bisect; avoid scattering the task across multiple PRs. CI jobs from `workflow_dispatch` may require checking their completion separately. Follow `.github/workflows/build-and-test.yml` for current exact SDK/project/coverage commands.
 
-## Scope/time guardrail
+Final smoke checks: fresh title, cached song library, selecting and playing a song in lanes/tab, score/result persistence on a same-version restart, version-0 reset, imported `DTXPath=` Config.ini, Japanese title, NX score.ini, Game API screenshot and crash report startup milestones. Don't invent a new E2E framework.
 
-Approximate work allocation: reference audit + dead shims (0.75 day); tracer removal (0.75 day); schema bootstrap + regressions (1 day); verification/fixes (0.5 day). If actual work cannot fit 3 engineer days, stop and surface concrete remaining work rather than broadening this PR or silently opening another PR.
+Before marking ready:
+- [ ] No live `HPA192` instrumented code, redundant song-DB repair paths, deleted compatibility symbols, or broken active agent component lists.
+- [ ] Startup crash milestone sanitizer remains strict (`Enum.IsDefined`).
+- [ ] Japanese text and NX input support persist; matching-version scores/bookmarks persist.
+- [ ] CI evidence attached/referenced in PR body, including Windows-only tests and the accepted **songs.db schema-mismatch reset** of scores/history/bookmarks.
+- [ ] No implementation scope leaked into HPA-796/797/798/804.
 
-**Completion:** All design acceptance contracts pass, Linear HPA-795 points to this PR, and the implementation lands as a single reviewed PR.
+## Three-day guardrail
+
+Target: tracer + crash enum (0.75 day), DB consolidation + tests (1 day), dead shims/ranks/config + docs (0.75 day), final CI/smoke checks (0.5 day). If the work exceeds three engineer days, report concrete blockers and get scope direction rather than silently starting another PR.
+
+**Do not claim green CI until the actual dispatch runs finish.**
