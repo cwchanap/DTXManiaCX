@@ -306,19 +306,23 @@ namespace DTXMania.Game.Lib.Song.Entities
 
             var backupDirectory = Path.GetDirectoryName(Path.GetFullPath(backupPath))
                 ?? Directory.GetCurrentDirectory();
-            string tempDirectory;
-            do
-            {
-                tempDirectory = Path.Combine(backupDirectory, Path.GetRandomFileName());
-            }
-            while (File.Exists(tempDirectory) || Directory.Exists(tempDirectory));
-
-            var tempBackupPath = Path.Combine(tempDirectory, Path.GetFileName(backupPath));
-            var ownsTempDirectory = false;
+            var tempBackupPath = Path.Combine(backupDirectory, Path.GetRandomFileName());
+            (ulong, ulong)? tempFileIdentity = null;
+            var ownsTempFile = false;
             try
             {
-                Directory.CreateDirectory(tempDirectory);
-                ownsTempDirectory = true;
+                using (new FileStream(
+                    tempBackupPath,
+                    FileMode.CreateNew,
+                    FileAccess.Write,
+                    FileShare.None))
+                {
+                }
+                ownsTempFile = true;
+                if (TryGetFileIdentity(tempBackupPath, out var createdIdentity))
+                {
+                    tempFileIdentity = createdIdentity;
+                }
 
                 using var context = new SongDbContext(_options);
                 var backupSql =
@@ -329,13 +333,13 @@ namespace DTXMania.Game.Lib.Song.Entities
             }
             finally
             {
-                if (ownsTempDirectory && Directory.Exists(tempDirectory))
+                if (ownsTempFile
+                    && File.Exists(tempBackupPath)
+                    && (!tempFileIdentity.HasValue
+                        || (TryGetFileIdentity(tempBackupPath, out var currentIdentity)
+                            && currentIdentity == tempFileIdentity.Value)))
                 {
-                    if (File.Exists(tempBackupPath))
-                    {
-                        File.Delete(tempBackupPath);
-                    }
-                    Directory.Delete(tempDirectory);
+                    File.Delete(tempBackupPath);
                 }
             }
         }
@@ -370,7 +374,7 @@ namespace DTXMania.Game.Lib.Song.Entities
             source.BackupDatabase(destination);
         }
 
-        private static bool PathsReferToSameFile(string firstPath, string secondPath)
+        private bool PathsReferToSameFile(string firstPath, string secondPath)
         {
             var comparison = OperatingSystem.IsLinux()
                 ? StringComparison.Ordinal
@@ -395,9 +399,17 @@ namespace DTXMania.Game.Lib.Song.Entities
                 return false;
             }
 
-            return TryGetFileIdentity(firstFullPath, out var firstIdentity)
-                && TryGetFileIdentity(secondFullPath, out var secondIdentity)
-                && firstIdentity == secondIdentity;
+            if (!TryGetFileIdentity(firstFullPath, out var firstIdentity))
+            {
+                throw new IOException(
+                    $"Cannot determine file identity for '{firstFullPath}'");
+            }
+            if (!TryGetFileIdentity(secondFullPath, out var secondIdentity))
+            {
+                throw new IOException(
+                    $"Cannot determine file identity for '{secondFullPath}'");
+            }
+            return firstIdentity == secondIdentity;
         }
 
         private static string ResolveLinkTargets(string fullPath)
@@ -435,7 +447,7 @@ namespace DTXMania.Game.Lib.Song.Entities
             return resolved;
         }
 
-        private static bool TryGetFileIdentity(
+        internal virtual bool TryGetFileIdentity(
             string fullPath,
             out (ulong, ulong) identity)
         {
