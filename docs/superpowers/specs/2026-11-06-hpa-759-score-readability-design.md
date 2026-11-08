@@ -61,7 +61,7 @@ Required fixtures: 0.345 → 0.35, 1.005 → 1.01, 2.675 → 2.68, 0, an ordinar
 ## Decision 3 — Theme-aware Config foregrounds, no re-skin
 
 Reuse existing `ISkinTheme.GetColor` with two narrowly scoped resolvers in `ConfigStage`:
-- Selected category text: `Config.SelectedMenuText` -> `UI.TextPrimary` -> current `SelectedMenuText` constant.
+- Selected category text: `Config.SelectedMenuText` -> `UI.Accent` -> current `SelectedMenuText` constant. The selected state resolves through the accent step, matching `ResolveValueColor`'s selected branch and CX Neon's use of accent to mark the live element.
 - Description title: `Config.DescriptionTitleText` -> `UI.TextPrimary` -> current `DescriptionTitleText` constant.
 
 Use each resolver at the existing draw sites, with `_resourceManager.CurrentTheme ?? SkinTheme.Empty`. CX Neon already supplies a light `UI.TextPrimary`; themeless/light NX retains the dark historical colors. Explicit skin keys allow other skins to override those surfaces. Do not change Config layout or item value colors. Test empty theme, generic Neon palette, and explicit overrides. Inspect actual contrast on CX Neon and default NX/light skin: theoretical color tests do not prove readability.

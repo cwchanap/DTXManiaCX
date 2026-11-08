@@ -41,8 +41,8 @@
 **Production:** `DTXMania.Game/Lib/Stage/ConfigStage.cs` only (unless verified theme token need).  
 **Tests:** `DTXMania.Test/Config/ConfigStageThemeColorTests.cs` and any nearby affected draw logic tests.
 
-1. Add narrow resolvers `ResolveSelectedMenuTextColor(theme)` and `ResolveDescriptionTitleTextColor(theme)`: `Config.*` specific key → `UI.TextPrimary` → existing NX dark constants. Wire only these two current draw calls; existing value-color resolution and layout remain untouched.
-2. Test empty-theme defaults, CX Neon `UI.TextPrimary`, explicit Config overrides. Capture actual CX Neon and default/light screenshots; static color tests alone do not prove visibility.
+1. Add narrow resolvers `ResolveSelectedMenuTextColor(theme)` and `ResolveDescriptionTitleTextColor(theme)`: `Config.*` specific key → palette token → existing NX dark constants. The palette token is `UI.Accent` for the selected-menu label (selected state, matching `ResolveValueColor`'s selected branch) and `UI.TextPrimary` for the description title. Wire only these two current draw calls; existing value-color resolution and layout remain untouched.
+2. Test empty-theme defaults, CX Neon palette (`UI.Accent` for the selected label, `UI.TextPrimary` for the title), explicit Config overrides. Capture actual CX Neon and default/light screenshots; static color tests alone do not prove visibility.
 3. Inspect the **new HPA-722** Drum Mapping screen with its palette-based text on both skins. Do not reinstate obsolete dark instruction styling, redo its layout, or reverse HPA-722's explicit **MIDI** caption decision. Touch only genuinely reproducing new contrast defects if any.
 
 ## Task 4 — Player verification and PR evidence (~0.25–0.5 day)
