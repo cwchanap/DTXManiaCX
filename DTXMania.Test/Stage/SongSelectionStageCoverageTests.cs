@@ -228,6 +228,43 @@ namespace DTXMania.Test.Stage
             cursorSound.Verify(x => x.Play(SongSelectionUILayout.Audio.NavigationSoundVolume), Times.Once);
         }
 
+        [Theory]
+        [InlineData(true, 2)]
+        [InlineData(false, 0)]
+        public void HandlePadLaneHit_HiHat_StepsDifficultyOnlyInStatusPanel(bool inStatusPanel, int expectedDifficulty)
+        {
+            var stage = CreateStage();
+            var song = CreateScoreNode("Song", CreateScores(0, 2));
+            var display = new SongListDisplay { CurrentList = [song] };
+
+            display.DifficultyChanged += (sender, e) => InvokePrivateMethod(stage, "OnDifficultyChanged", sender!, e);
+
+            AttachCoreUi(stage, display: display);
+            SetPrivateField(stage, "_isInStatusPanel", inStatusPanel);
+            SetPrivateField(stage, "_selectedSong", song);
+            SetPrivateField(stage, "_currentDifficulty", 0);
+            display.CurrentDifficulty = 0;
+
+            InvokePrivateMethod(stage, "HandlePadLaneHit", (int)PerformanceUILayout.LaneType.HH);
+
+            Assert.Equal(expectedDifficulty, GetPrivateField<int>(stage, "_currentDifficulty"));
+        }
+
+        [Fact]
+        public void HandlePadLaneHit_BassDrum_OpensConfig()
+        {
+            var game = CreateGame(totalGameTime: 1.0, lastStageTransitionTime: 0.0);
+            var stage = CreateStage(game);
+            var stageManager = new Mock<IStageManager>();
+            stage.StageManager = stageManager.Object;
+
+            InvokePrivateMethod(stage, "HandlePadLaneHit", (int)PerformanceUILayout.LaneType.DB);
+
+            stageManager.Verify(
+                x => x.ChangeStage(StageType.Config, It.IsAny<IStageTransition>()),
+                Times.Once);
+        }
+
         [Fact]
         public void ExecuteInputCommand_MoveLeftOutsideStatusPanel_ShouldDoNothing()
         {

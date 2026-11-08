@@ -155,28 +155,27 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void HandleLaneHitForTabSwitch_OnLowTom_SwitchesTab()
+        public void HandlePadLaneHit_OnFloorTom_SwitchesTab()
         {
             var stage = CreateStage();
             var display = new SongListDisplay();
             AttachCoreUi(stage, display);
             SetPrivateField(stage, "_activeTab", SongSelectionTab.AllSongs);
 
-            // Low Tom is lane 6 in the canonical lane scheme (LT).
-            InvokePrivateMethod(stage, "HandleLaneHitForTabSwitch", 6);
+            InvokePrivateMethod(stage, "HandlePadLaneHit", 7); // Floor Tom (FT)
 
             Assert.Equal(SongSelectionTab.RecentPlays, GetPrivateField<SongSelectionTab>(stage, "_activeTab"));
         }
 
         [Fact]
-        public void HandleLaneHitForTabSwitch_OnOtherLane_DoesNotSwitch()
+        public void HandlePadLaneHit_OnLowTom_DoesNotSwitchTab()
         {
             var stage = CreateStage();
             var display = new SongListDisplay();
             AttachCoreUi(stage, display);
             SetPrivateField(stage, "_activeTab", SongSelectionTab.AllSongs);
 
-            InvokePrivateMethod(stage, "HandleLaneHitForTabSwitch", 8); // Right Cymbal (CY) — former tab-switch lane under the old numbering
+            InvokePrivateMethod(stage, "HandlePadLaneHit", 6); // Low Tom (LT) is now "down"
 
             Assert.Equal(SongSelectionTab.AllSongs, GetPrivateField<SongSelectionTab>(stage, "_activeTab"));
         }
@@ -222,7 +221,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void OnTabSwitchLaneHit_WhenModalOpen_DoesNotSwitchTab()
+        public void OnPadLaneHit_WhenModalOpen_DoesNotSwitchTab()
         {
             var stage = CreateStage();
             var display = new SongListDisplay();
@@ -234,25 +233,40 @@ namespace DTXMania.Test.Stage
             modal.Open(SongFilterCriteria.Default);
             SetPrivateField(stage, "_searchFilterModal", modal);
 
-            var args = new DTXMania.Game.Lib.Input.LaneHitEventArgs(6, default);
-            InvokePrivateMethod(stage, "OnTabSwitchLaneHit", stage, args);
+            var args = new LaneHitEventArgs(7, new DTXMania.Game.Lib.Input.ButtonState("MIDI.43", true));
+            InvokePrivateMethod(stage, "OnPadLaneHit", stage, args);
 
             Assert.Equal(SongSelectionTab.AllSongs,
                 GetPrivateField<SongSelectionTab>(stage, "_activeTab"));
         }
 
         [Fact]
-        public void OnTabSwitchLaneHit_WhenModalClosed_SwitchesTabOnLowTom()
+        public void OnPadLaneHit_WhenModalClosed_SwitchesTabOnFloorTom()
         {
             var stage = CreateStage();
             var display = new SongListDisplay();
             AttachCoreUi(stage, display);
             SetPrivateField(stage, "_activeTab", SongSelectionTab.AllSongs);
 
-            var args = new DTXMania.Game.Lib.Input.LaneHitEventArgs(6, default);
-            InvokePrivateMethod(stage, "OnTabSwitchLaneHit", stage, args);
+            var args = new LaneHitEventArgs(7, new DTXMania.Game.Lib.Input.ButtonState("MIDI.43", true));
+            InvokePrivateMethod(stage, "OnPadLaneHit", stage, args);
 
             Assert.Equal(SongSelectionTab.RecentPlays,
+                GetPrivateField<SongSelectionTab>(stage, "_activeTab"));
+        }
+
+        [Fact]
+        public void OnPadLaneHit_FromKeyboardDrumKey_DoesNotSwitchTab()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            AttachCoreUi(stage, display);
+            SetPrivateField(stage, "_activeTab", SongSelectionTab.AllSongs);
+
+            var args = new LaneHitEventArgs(7, new DTXMania.Game.Lib.Input.ButtonState("Key.F", true));
+            InvokePrivateMethod(stage, "OnPadLaneHit", stage, args);
+
+            Assert.Equal(SongSelectionTab.AllSongs,
                 GetPrivateField<SongSelectionTab>(stage, "_activeTab"));
         }
 

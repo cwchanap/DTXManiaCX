@@ -311,6 +311,8 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
         try
         {
             InputManager = new InputManagerCompat(ConfigManager);
+            InputManager.PadCommandResolver = lane =>
+                DrumPadSystemKeys.GetCommand(StageManager?.CurrentStage?.Type, lane);
             _lastKnownMidiDeviceCount = InputManager.ModularInputManager.ConnectedMidiDeviceCount;
             CrashContextPublisher.PublishInput(
                 _gameCrashDiagnostics,

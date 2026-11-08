@@ -36,6 +36,43 @@ public sealed class InputManagerCompatTests : IDisposable
     }
 
     [Fact]
+    public void PadLaneHit_WithResolver_ShouldRaiseAndQueueSystemCommand()
+    {
+        _manager.ModularInputManager.KeyBindings.BindButton("MIDI.48", 4); // High Tom
+        _manager.PadCommandResolver = lane => lane == 4 ? InputCommandType.MoveUp : null;
+        _manager.ModularInputManager.InjectButton("MIDI.48", isPressed: true);
+
+        _manager.Update(0.016);
+
+        Assert.True(_manager.IsCommandPressed(InputCommandType.MoveUp));
+        Assert.Equal(InputCommandType.MoveUp, _manager.GetNextCommand()?.Type);
+    }
+
+    [Fact]
+    public void PadLaneHit_FromKeyboardDrumKey_ShouldNotRaiseSystemCommand()
+    {
+        _manager.PadCommandResolver = _ => InputCommandType.MoveUp;
+        _manager.ModularInputManager.InjectButton("Key.K", isPressed: true); // default High Tom key
+
+        _manager.Update(0.016);
+
+        Assert.False(_manager.IsCommandPressed(InputCommandType.MoveUp));
+        Assert.Null(_manager.GetNextCommand());
+    }
+
+    [Fact]
+    public void PadLaneHit_WithoutResolver_ShouldNotRaiseSystemCommand()
+    {
+        _manager.ModularInputManager.KeyBindings.BindButton("MIDI.48", 4);
+        _manager.ModularInputManager.InjectButton("MIDI.48", isPressed: true);
+
+        _manager.Update(0.016);
+
+        Assert.False(_manager.IsCommandPressed(InputCommandType.MoveUp));
+        Assert.Null(_manager.GetNextCommand());
+    }
+
+    [Fact]
     public void IsBackActionTriggered_WhenEscapeInjected_ShouldReturnTrue()
     {
         _manager.ModularInputManager.InjectButton("Key.Escape", isPressed: true);
