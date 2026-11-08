@@ -85,36 +85,24 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task InitializeDatabaseAsync_WhenFirstEnsureThrowsNotDatabase_ShouldRetryAndRecover()
+        public async Task InitializeDatabaseAsync_WhenEnsureCreatedThrowsNotDatabase_ShouldPropagate()
         {
             await using var fixture = await SqliteInitializationFixture.CreateAsync();
-            var recoveryCalls = 0;
             using var service = new ScriptedInitializationService(
                 fixture.Options,
                 fixture.CreateContext,
-                async (context, attempt) =>
-                {
-                    await Task.Delay(5);
-                    if (attempt == 1)
-                    {
-                        throw new InvalidOperationException(
-                            "file is not a database");
-                    }
-                },
-                () =>
-                {
-                    recoveryCalls++;
-                    return Task.CompletedTask;
-                });
+                (_, _) => throw new InvalidOperationException(
+                    "file is not a database"));
 
-            await service.InitializeDatabaseAsync();
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+                () => service.InitializeDatabaseAsync());
 
-            Assert.Equal(1, recoveryCalls);
-            Assert.NotNull(service.CreateContext());
+            Assert.Contains("file is not a database", exception.Message);
+            Assert.Throws<InvalidOperationException>(service.CreateContext);
         }
 
         [Fact]
-        public async Task InitializeDatabaseAsync_WhenEnsureThrowsTableExists_ShouldKeepProductionSuccess()
+        public async Task InitializeDatabaseAsync_WhenEnsureCreatedReportsExistingTables_ShouldPropagate()
         {
             await using var fixture = await SqliteInitializationFixture.CreateAsync();
             using var service = new ScriptedInitializationService(
@@ -123,19 +111,21 @@ namespace DTXMania.Test.Song
                 (_, _) => throw new InvalidOperationException(
                     "table Songs already exists"));
 
-            await service.InitializeDatabaseAsync();
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+                () => service.InitializeDatabaseAsync());
 
-            Assert.NotNull(service.CreateContext());
+            Assert.Contains("already exists", exception.Message);
+            Assert.Throws<InvalidOperationException>(service.CreateContext);
         }
 
         [Fact]
-        public async Task InitializeDatabaseAsync_WhenSchemaEnsureThrows_ShouldPropagate()
+        public async Task InitializeDatabaseAsync_WhenEnumerationMetadataCreationFails_ShouldPropagate()
         {
             var interceptor = new ThrowingCommandInterceptor(
                 commandText => commandText.Contains(
-                    "pragma_table_info('Songs')",
+                    "__EnumerationMetadata",
                     StringComparison.Ordinal),
-                "schema ensure failure");
+                "enumeration metadata failure");
             await using var fixture =
                 await SqliteInitializationFixture.CreateAsync(interceptor);
             using var service = new ScriptedInitializationService(
@@ -145,29 +135,15 @@ namespace DTXMania.Test.Song
             var exception = await Assert.ThrowsAsync<InvalidOperationException>(
                 () => service.InitializeDatabaseAsync());
 
-            Assert.Contains("schema ensure failure", exception.ToString());
+            Assert.Contains("enumeration metadata failure", exception.ToString());
             Assert.Throws<InvalidOperationException>(service.CreateContext);
-        }
 
-        [Fact]
-        public async Task InitializeDatabaseAsync_WhenVersionWorkSwallowsFailure_ShouldRetainCurrentSuccess()
-        {
-            var interceptor = new ThrowingCommandInterceptor(
-                commandText => commandText.Contains(
-                    "CREATE TABLE IF NOT EXISTS __DatabaseVersion",
-                    StringComparison.Ordinal),
-                "version work failure");
-            await using var fixture =
-                await SqliteInitializationFixture.CreateAsync(interceptor);
-            using var service = new ScriptedInitializationService(
-                fixture.Options,
-                fixture.CreateContext);
-
-            var exception = await Record.ExceptionAsync(
-                () => service.InitializeDatabaseAsync());
-
-            Assert.Null(exception);
-            Assert.NotNull(service.CreateContext());
+            // The version stamp is only written after metadata creation succeeds.
+            await using var verify = fixture.CreateContext();
+            var connection = verify.Database.GetDbConnection();
+            await using var command = connection.CreateCommand();
+            command.CommandText = "PRAGMA user_version;";
+            Assert.Equal(0L, (long)(await command.ExecuteScalarAsync())!);
         }
 
         #region Song Grouping Tests
@@ -534,36 +510,23 @@ namespace DTXMania.Test.Song
         {
             private readonly Func<SongDbContext> _initializationContextFactory;
             private readonly Func<SongDbContext, int, Task> _ensureCreated;
-            private readonly Func<Task> _handleInvalidDatabaseFile;
             private int _ensureAttempts;
 
             public ScriptedInitializationService(
                 DbContextOptions<SongDbContext> options,
                 Func<SongDbContext> contextFactory,
-                Func<SongDbContext, int, Task>? ensureCreated = null,
-                Func<Task>? handleInvalidDatabaseFile = null)
+                Func<SongDbContext, int, Task>? ensureCreated = null)
                 : base(options, contextFactory, initialized: false)
             {
                 _initializationContextFactory = contextFactory;
                 _ensureCreated = ensureCreated ??
                     ((context, _) => context.Database.EnsureCreatedAsync());
-                _handleInvalidDatabaseFile =
-                    handleInvalidDatabaseFile ?? (() => Task.CompletedTask);
             }
 
             internal override bool InitializationDatabaseFileExists() => false;
 
             internal override SongDbContext CreateInitializationContext() =>
                 _initializationContextFactory();
-
-            internal override Task<bool> IsValidSqliteDatabaseAsync() =>
-                Task.FromResult(true);
-
-            internal override Task<bool> HasProperUnicodeConfigurationAsync() =>
-                Task.FromResult(true);
-
-            internal override Task HandleInvalidDatabaseFileAsync() =>
-                _handleInvalidDatabaseFile();
 
             internal override Task EnsureCreatedForInitializationAsync(
                 SongDbContext context) =>

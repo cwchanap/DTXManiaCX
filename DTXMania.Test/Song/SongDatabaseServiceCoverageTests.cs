@@ -45,12 +45,15 @@ public class SongDatabaseServiceCoverageTests : IDisposable
 
         Assert.True(await _databaseService.DatabaseExistsAsync());
 
-        using var context = _databaseService.CreateContext();
-        var versionTables = await context.Database.SqlQueryRaw<int>(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='__DatabaseVersion'")
-            .ToListAsync();
-
-        Assert.Equal(1, versionTables.Single());
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        await using var connection = new Microsoft.Data.Sqlite.SqliteConnection(
+            $"Data Source={_databasePath};Pooling=False");
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "PRAGMA user_version;";
+        Assert.Equal(
+            (long)SongDatabaseService.CurrentSongSchemaVersion,
+            (long)(await command.ExecuteScalarAsync())!);
     }
 
     [Fact]

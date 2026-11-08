@@ -754,22 +754,6 @@ namespace DTXMania.Test.Song
         [Trait("Category", "Unit")]
         [Theory]
         [InlineData("none", false)]
-        [InlineData("initialized", false)]
-        [InlineData("broken", true)]
-        public async Task IsDatabaseCorruptedAsync_WithDatabaseServiceState_ShouldReturnExpectedResult(
-            string databaseServiceState,
-            bool expectedResult)
-        {
-            var result = await WithDatabaseServiceStateAsync(
-                databaseServiceState,
-                () => _manager.IsDatabaseCorruptedAsync());
-
-            Assert.Equal(expectedResult, result);
-        }
-
-        [Trait("Category", "Unit")]
-        [Theory]
-        [InlineData("none", false)]
         [InlineData("initialized", true)]
         [InlineData("broken", false)]
         public async Task GetDatabaseStatsAsync_WithDatabaseServiceState_ShouldReturnExpectedAvailability(

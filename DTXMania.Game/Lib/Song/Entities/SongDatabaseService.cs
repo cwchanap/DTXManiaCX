@@ -30,6 +30,25 @@ namespace DTXMania.Game.Lib.Song.Entities
         private bool _isInitialized = false;
 
         /// <summary>
+        /// The song database schema version this build reads and writes, stored
+        /// in <c>PRAGMA user_version</c>. A database whose stored version differs
+        /// (including 0, the pre-versioning marker) is purged and recreated on
+        /// startup instead of being migrated.
+        /// </summary>
+        internal const int CurrentSongSchemaVersion = 1;
+
+        /// <summary>
+        /// DDL for the <c>__EnumerationMetadata</c> key/value table. The table is
+        /// intentionally not part of the <see cref="SongDbContext"/> model, so
+        /// <c>EnsureCreated</c> never emits it; the schema-version test hashes this
+        /// constant together with the EF create script.
+        /// </summary>
+        internal const string EnumerationMetadataTableDdl = @"CREATE TABLE IF NOT EXISTS __EnumerationMetadata (
+    Key TEXT PRIMARY KEY,
+    Value TEXT NOT NULL
+)";
+
+        /// <summary>
         /// Gets the path to the database file
         /// </summary>
         public string DatabasePath => _databasePath;
@@ -116,37 +135,22 @@ namespace DTXMania.Game.Lib.Song.Entities
                     }
                 }
 
-                // Check if file exists but is not a valid SQLite database
                 if (InitializationDatabaseFileExists())
                 {
-                    bool isValid = await IsValidSqliteDatabaseAsync();
+                    var storedVersion = await ReadSchemaVersionOrMismatchAsync();
 
-                    if (!isValid)
+                    if (storedVersion != CurrentSongSchemaVersion)
                     {
-                        await HandleInvalidDatabaseFileAsync();
-                    }
-                }
-
-                // Check if database exists but lacks proper Unicode configuration for Japanese text
-                if (InitializationDatabaseFileExists())
-                {
-                    bool hasProperUnicodeConfiguration =
-                        await HasProperUnicodeConfigurationAsync();
-
-                    if (!hasProperUnicodeConfiguration)
-                    {
-                        System.Diagnostics.Debug.WriteLine("SongDatabaseService: Database lacks proper Unicode configuration, recreating for Japanese text support");
-                        await HandleInvalidDatabaseFileAsync();
+                        System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Database schema version {storedVersion} does not match required version {CurrentSongSchemaVersion}, recreating database");
+                        await PurgeDatabaseAsync();
                     }
                 }
 
                 using var context = CreateInitializationContext();
 
-                // Ensure database is created first
                 await EnsureCreatedForInitializationAsync(context);
-
-                // Configure UTF-8 encoding AFTER tables are created
-                await ConfigureUtf8EncodingAsync(context);
+                await EnsureEnumerationMetadataTableAsync(context);
+                await StampSchemaVersionAsync(context);
 
                 // Mark as initialized after successful creation
                 lock (_initializationLock)
@@ -155,38 +159,6 @@ namespace DTXMania.Game.Lib.Song.Entities
                 }
 
                 System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Database initialized successfully at: {_databasePath}");
-            }
-            catch (Exception ex) when (ex.Message.Contains("file is not a database") || ex.Message.Contains("not a database"))
-            {
-                // Handle SQLite-specific "file is not a database" errors
-                System.Diagnostics.Debug.WriteLine($"Database corruption error during initialization: {ex.Message}");
-                System.Diagnostics.Debug.WriteLine("Attempting to recover from corrupted database...");
-
-                await HandleInvalidDatabaseFileAsync();
-
-                // Retry initialization after fixing the invalid file
-                using var context = CreateInitializationContext();
-
-                await EnsureCreatedForInitializationAsync(context);
-
-                // Configure UTF-8 encoding AFTER creating tables
-                await ConfigureUtf8EncodingAsync(context);
-
-                lock (_initializationLock)
-                {
-                    _isInitialized = true;
-                }
-                System.Diagnostics.Debug.WriteLine("Database recovery successful - fresh database created.");
-            }
-            catch (Exception ex) when (ex.Message.Contains("table") && ex.Message.Contains("already exists"))
-            {
-                // Handle "table already exists" errors - this means the database is already initialized
-                System.Diagnostics.Debug.WriteLine($"Database tables already exist: {ex.Message}");
-                lock (_initializationLock)
-                {
-                    _isInitialized = true;
-                }
-                System.Diagnostics.Debug.WriteLine("Database initialization skipped - tables already exist.");
             }
             catch (Exception ex)
             {
@@ -208,6 +180,54 @@ namespace DTXMania.Game.Lib.Song.Entities
         internal virtual Task EnsureCreatedForInitializationAsync(
             SongDbContext context) =>
             context.Database.EnsureCreatedAsync();
+
+        // SQLITE_CORRUPT and SQLITE_NOTADB are the only probe failures that
+        // mean "the file is not a readable song database". Locking, I/O, and
+        // permission errors must propagate instead of triggering a reset.
+        private const int SqliteCorruptErrorCode = 11;
+        private const int SqliteNotADatabaseErrorCode = 26;
+
+        /// <summary>
+        /// Reads the stored <c>PRAGMA user_version</c> through a short-lived,
+        /// non-pooled connection so the probe cannot retain a Windows file lock
+        /// across a subsequent purge. A file that exists but is not a readable
+        /// SQLite database reports -1, which callers treat as a version
+        /// mismatch; every other failure propagates.
+        /// </summary>
+        internal virtual async Task<long> ReadSchemaVersionOrMismatchAsync()
+        {
+            try
+            {
+                var connectionString = new SqliteConnectionStringBuilder
+                {
+                    DataSource = _databasePath,
+                    Pooling = false,
+                }.ToString();
+
+                await using var connection = new SqliteConnection(connectionString);
+                await connection.OpenAsync();
+                using var command = connection.CreateCommand();
+                command.CommandText = "PRAGMA user_version;";
+                return (long)(await command.ExecuteScalarAsync())!;
+            }
+            catch (SqliteException ex) when (
+                ex.SqliteErrorCode == SqliteCorruptErrorCode
+                || ex.SqliteErrorCode == SqliteNotADatabaseErrorCode)
+            {
+                return -1;
+            }
+        }
+
+        /// <summary>
+        /// Stamps <c>PRAGMA user_version</c> with <see cref="CurrentSongSchemaVersion"/>
+        /// after the schema and enumeration metadata are confirmed, so a partially
+        /// created database stays version 0 and resets on the next startup.
+        /// </summary>
+        private static async Task StampSchemaVersionAsync(SongDbContext context)
+        {
+            var stampSql = $"PRAGMA user_version = {CurrentSongSchemaVersion}";
+            await context.Database.ExecuteSqlRawAsync(stampSql);
+        }
 
         /// Create a new DbContext instance
         public SongDbContext CreateContext()
@@ -245,7 +265,7 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// <summary>
         /// Purge the database file completely (for fresh rebuild)
         /// </summary>
-        public async Task PurgeDatabaseAsync()
+        public virtual async Task PurgeDatabaseAsync()
         {
             try
             {
@@ -258,12 +278,14 @@ namespace DTXMania.Game.Lib.Song.Entities
                 // Clear all pooled SQLite connections so the file is no longer locked
                 SqliteConnection.ClearAllPools();
 
-                // Delete the database file completely
+                // Delete the database file completely, including WAL/journal
+                // sidecars so a recreated file cannot inherit stale frames
                 if (File.Exists(_databasePath))
                 {
                     File.Delete(_databasePath);
                     System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Database file purged: {_databasePath}");
                 }
+                DeleteDatabaseFileSidecars(_databasePath);
 
                 // Reset initialization flag
                 lock (_initializationLock)
@@ -279,18 +301,42 @@ namespace DTXMania.Game.Lib.Song.Entities
             }
         }
 
+        // WAL-mode databases keep committed content in the -wal/-shm sidecars
+        // until a checkpoint, so any whole-file delete or overwrite must remove
+        // them alongside the main database file.
+        private static void DeleteDatabaseFileSidecars(string databasePath)
+        {
+            foreach (var suffix in new[] { "-wal", "-shm", "-journal" })
+            {
+                var sidecar = databasePath + suffix;
+                if (File.Exists(sidecar))
+                {
+                    File.Delete(sidecar);
+                }
+            }
+        }
+
 
         /// Backup the database to a specified path
         public async Task BackupDatabaseAsync(string backupPath)
         {
-            if (File.Exists(_databasePath))
-            {
-                await Task.Run(() => File.Copy(_databasePath, backupPath, overwrite: true));
-            }
-            else
+            if (!File.Exists(_databasePath))
             {
                 throw new FileNotFoundException($"Database file not found: {_databasePath}");
             }
+
+            if (File.Exists(backupPath))
+            {
+                File.Delete(backupPath);
+            }
+
+            // VACUUM INTO writes a complete, checkpointed standalone copy through
+            // SQLite itself; a plain File.Copy of the main file would miss any
+            // content still held in the -wal sidecar of a WAL-mode database. The
+            // filename cannot be parameterized, so it is single-quote escaped.
+            using var context = new SongDbContext(_options);
+            var backupSql = $"VACUUM INTO '{backupPath.Replace("'", "''")}'";
+            await context.Database.ExecuteSqlRawAsync(backupSql);
         }
 
 
@@ -309,6 +355,11 @@ namespace DTXMania.Game.Lib.Song.Entities
             }
 
             SqliteConnection.ClearAllPools();
+
+            // Remove WAL/journal sidecars so the copied image is the only
+            // database state; a stale -wal could otherwise be replayed into the
+            // restored file.
+            DeleteDatabaseFileSidecars(_databasePath);
 
             // Copy backup over current database
             await Task.Run(() => File.Copy(backupPath, _databasePath, overwrite: true));
@@ -2028,172 +2079,6 @@ namespace DTXMania.Game.Lib.Song.Entities
         }
 
         /// <summary>
-        /// Check if the database file is a valid SQLite database
-        /// </summary>
-        internal virtual async Task<bool> IsValidSqliteDatabaseAsync()
-        {
-            if (!File.Exists(_databasePath))
-                return false;
-
-            try
-            {
-                using var context = new SongDbContext(_options);
-                return await context.Database.CanConnectAsync();
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// Check if the database has proper Unicode/UTF-8 configuration
-        /// Returns false if the database needs to be recreated for proper Japanese text support
-        /// </summary>
-        internal virtual async Task<bool> HasProperUnicodeConfigurationAsync()
-        {
-            try
-            {
-                using var context = new SongDbContext(_options);
-                
-                // Check if database can connect first
-                if (!await context.Database.CanConnectAsync())
-                    return false;
-
-                // Check if our Unicode collation changes have been applied
-                // We can do this by checking if a metadata table exists with version info
-                var versionTableCount = await context.Database.SqlQueryRaw<int>(
-                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='__DatabaseVersion'"
-                ).ToListAsync();
-                
-                var hasVersionTable = versionTableCount.FirstOrDefault() > 0;
-
-                if (!hasVersionTable)
-                {
-                    System.Diagnostics.Debug.WriteLine("SongDatabaseService: Database lacks version table, needs Unicode reconfiguration");
-                    return false;
-                }
-
-                // Check version number for Unicode support
-                var versionResult = await context.Database.SqlQueryRaw<int>(
-                    "SELECT COALESCE(Version, 0) FROM __DatabaseVersion WHERE Feature='UnicodeCollation' LIMIT 1"
-                ).ToListAsync();
-                
-                var version = versionResult.FirstOrDefault();
-
-                const int REQUIRED_UNICODE_VERSION = 2;
-                if (version < REQUIRED_UNICODE_VERSION)
-                {
-                    System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Database Unicode version {version} < required {REQUIRED_UNICODE_VERSION}, needs reconfiguration");
-                    return false;
-                }
-
-                return true;
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Error checking Unicode configuration: {ex.Message}");
-                return false; // Assume needs reconfiguration on error
-            }
-        }
-
-        /// <summary>
-        /// Configure UTF-8 encoding for proper Japanese text support
-        /// </summary>
-        private async Task ConfigureUtf8EncodingAsync(
-            SongDbContext context)
-        {
-            // UTF-8 pragma configuration is best-effort: most modern SQLite installations
-            // default to UTF-8, so a pragma failure here should not abort initialization.
-            var encodingConfigured = false;
-            try
-            {
-                // Ensure we can write to the database
-                await context.Database.ExecuteSqlRawAsync("PRAGMA journal_mode = DELETE");
-
-                // Set SQLite pragmas for UTF-8 and case-insensitive comparisons
-                await context.Database.ExecuteSqlRawAsync("PRAGMA case_sensitive_like = OFF");
-                encodingConfigured = true;
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Warning - Could not configure UTF-8 encoding: {ex.Message}");
-                // Continue anyway - most modern SQLite installations default to UTF-8
-            }
-            if (encodingConfigured)
-            {
-                System.Diagnostics.Debug.WriteLine("SongDatabaseService: UTF-8 encoding configured for database");
-            }
-
-            // The bookmark-column and NX-import-column migrations below must NOT be swallowed
-            // by the UTF-8 best-effort catch above: a failed migration would otherwise leave
-            // init reporting success while queries fail later with confusing errors. Note that
-            // EnsureDatabaseVersionTableAsync has its own swallow-all catch and therefore does
-            // NOT fail fast — only EnsureBookmarkColumnAsync and EnsureNxImportColumnsAsync
-            // propagate real errors. They run unguarded so a genuine schema error fails
-            // initialization fast.
-            // Create/update version table to mark Unicode configuration as configured.
-            await EnsureDatabaseVersionTableAsync(context);
-
-            // Additive schema upgrade for existing databases: EnsureCreated never alters an
-            // existing schema, so add new columns here, idempotently.
-            await EnsureBookmarkColumnAsync(context);
-
-            // Additive schema upgrade: NX-import snapshot columns.
-            await EnsureNxImportColumnsAsync(context);
-
-            // Additive schema upgrade: score-scoped play history.
-            await EnsurePerformanceHistoryScoreScopeAsync(context);
-
-            // Additive schema upgrade: playback-speed-scoped scores, pitch history,
-            // and durable save receipts.
-            await EnsurePlaybackSpeedScoreScopeAsync(context);
-
-            // Additive schema upgrade: enumeration-freshness metadata. The
-            // cache-freshness check previously derived the last enumeration time
-            // from the database file's last-write time, which any SaveChangesAsync
-            // (bookmark toggle, score save) advances. Persisting an explicit
-            // LastSuccessfulEnumerationUtc value that is updated only after a
-            // successful enumeration avoids later chart edits being masked by an
-            // unrelated database write.
-            await EnsureEnumerationMetadataTableAsync(context);
-
-            // Score-save receipts are retained indefinitely to preserve durable
-            // idempotency for repeated RunId validation (plan Critical Invariant #12).
-            // The ScoreSaveReceipt.ChartId column is stored identity (not a required
-            // foreign key) and its SongScore relationship uses ON DELETE SET NULL, so
-            // receipts survive deletion of their related SongScore.
-        }
-
-        /// <summary>
-        /// Ensure the database version table exists and mark Unicode collation as configured
-        /// </summary>
-        private async Task EnsureDatabaseVersionTableAsync(SongDbContext context)
-        {
-            try
-            {
-                // Create version table if it doesn't exist
-                await context.Database.ExecuteSqlRawAsync(@"
-                    CREATE TABLE IF NOT EXISTS __DatabaseVersion (
-                        Feature TEXT PRIMARY KEY,
-                        Version INTEGER NOT NULL,
-                        AppliedAt TEXT NOT NULL
-                    )");
-
-                // Insert or update Unicode support version
-                await context.Database.ExecuteSqlRawAsync(@"
-                    INSERT OR REPLACE INTO __DatabaseVersion (Feature, Version, AppliedAt)
-                    VALUES ('UnicodeCollation', 2, datetime('now'))");
-
-                System.Diagnostics.Debug.WriteLine("SongDatabaseService: Database version table updated with Unicode support");
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Warning - Could not create version table: {ex.Message}");
-            }
-        }
-
-        /// <summary>
         /// Key under which the last successful enumeration timestamp is stored in
         /// <see cref="__EnumerationMetadata"/>. The value is an ISO 8601 UTC string.
         /// </summary>
@@ -2225,23 +2110,12 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// timestamp used by the cache-freshness check instead of the database
         /// file's last-write time.
         /// </summary>
-        private async Task EnsureEnumerationMetadataTableAsync(SongDbContext context)
+        private static async Task EnsureEnumerationMetadataTableAsync(SongDbContext context)
         {
-            try
-            {
-                await context.Database.ExecuteSqlRawAsync(@"
-                    CREATE TABLE IF NOT EXISTS __EnumerationMetadata (
-                        Key TEXT PRIMARY KEY,
-                        Value TEXT NOT NULL
-                    )");
-            }
-            catch (Exception ex)
-            {
-                // Swallow-only is intentional: a failed metadata table must not abort
-                // initialization. The cache-freshness check treats a missing timestamp
-                // as "first-time enumeration" and rescans, which is always safe.
-                System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Warning - Could not create enumeration metadata table: {ex.Message}");
-            }
+            // A failed metadata table must abort initialization: the version stamp
+            // that follows asserts the schema is complete, so half-initialized
+            // databases must be left unstamped (version 0) to self-reset next run.
+            await context.Database.ExecuteSqlRawAsync(EnumerationMetadataTableDdl);
         }
 
         /// <summary>
@@ -2523,483 +2397,6 @@ namespace DTXMania.Game.Lib.Song.Entities
                 System.Diagnostics.Debug.WriteLine(
                     $"SongDatabaseService: Warning - Could not atomically persist enumeration watermark: {ex.Message}");
                 return false;
-            }
-        }
-
-        /// <summary>
-        /// Ensures the Songs.IsBookmarked column exists. Fresh databases already have it via
-        /// EnsureCreated; pre-existing databases get it added here exactly once. Idempotent and
-        /// defensive: a duplicate-column error (concurrent caller) is treated as success, but a
-        /// genuine migration failure propagates so initialization fails fast rather than leaving
-        /// the bookmark schema broken for later queries.
-        /// </summary>
-        private async Task EnsureBookmarkColumnAsync(SongDbContext context)
-        {
-            var columnCount = await context.Database.SqlQueryRaw<int>(
-                "SELECT COUNT(*) FROM pragma_table_info('Songs') WHERE name='IsBookmarked'"
-            ).ToListAsync();
-
-            if (columnCount.FirstOrDefault() == 0)
-            {
-                try
-                {
-                    await context.Database.ExecuteSqlRawAsync(
-                        "ALTER TABLE Songs ADD COLUMN IsBookmarked INTEGER NOT NULL DEFAULT 0");
-                    System.Diagnostics.Debug.WriteLine("SongDatabaseService: Added Songs.IsBookmarked column");
-                }
-                // The COUNT guard above already confirmed the column is absent, so the only way
-                // to reach this ALTER and still get a "duplicate column" error is a concurrent
-                // initializer racing us between the check and the ALTER. Microsoft.Data.Sqlite
-                // surfaces SQLite's stable, English-only error messages (SQLite is not localized),
-                // so matching on the message here is reliable and more precise than the generic
-                // error code (SQLITE_ERROR == 1). Narrowing to SqliteException keeps unrelated
-                // faults reaching the rethrow below.
-                catch (SqliteException ex) when (ex.Message.Contains("duplicate column"))
-                {
-                    // Another caller added it concurrently; nothing to do.
-                }
-                catch (Exception ex)
-                {
-                    throw new InvalidOperationException(
-                        "SongDatabaseService: Failed to add IsBookmarked column during schema migration.", ex);
-                }
-            }
-
-            // Always ensure the index exists, even on columns added by older versions that
-            // predate the index, so bookmark queries stay fast on partially migrated DBs.
-            // CREATE INDEX IF NOT EXISTS is idempotent.
-            await context.Database.ExecuteSqlRawAsync(
-                "CREATE INDEX IF NOT EXISTS IX_Songs_IsBookmarked ON Songs(IsBookmarked)");
-        }
-
-        /// <summary>
-        /// Ensures SongScores.NxImportedPlayCount / NxImportedClearCount exist. Fresh
-        /// databases already have them via EnsureCreated; pre-existing databases get them
-        /// added here exactly once. Idempotent; a concurrent duplicate-column error is
-        /// treated as success, a genuine failure propagates.
-        /// </summary>
-        /// <remarks>
-        /// Each column is added by a hardcoded call to <see cref="EnsureNxImportColumnAsync"/>
-        /// below. The column name is a SQL identifier embedded into the DDL string;
-        /// SQLite (and standard SQL) does not allow parameterizing identifiers in DDL,
-        /// so the names are passed as hardcoded literals. Do not extend this method to
-        /// iterate over user-supplied names.
-        /// </remarks>
-        private async Task EnsureNxImportColumnsAsync(SongDbContext context)
-        {
-            await EnsureNxImportColumnAsync(context, "NxImportedPlayCount");
-            await EnsureNxImportColumnAsync(context, "NxImportedClearCount");
-        }
-
-        private static async Task EnsureNxImportColumnAsync(SongDbContext context, string column)
-        {
-            var columnCount = await context.Database.SqlQueryRaw<int>(
-                $"SELECT COUNT(*) FROM pragma_table_info('SongScores') WHERE name='{column}'"
-            ).ToListAsync();
-
-            if (columnCount.FirstOrDefault() != 0)
-                return;
-
-            try
-            {
-                await context.Database.ExecuteSqlRawAsync(
-                    $"ALTER TABLE SongScores ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0");
-                System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Added SongScores.{column} column");
-            }
-            catch (SqliteException ex) when (ex.Message.Contains("duplicate column"))
-            {
-                // Concurrent initializer added it; nothing to do.
-                System.Diagnostics.Debug.WriteLine($"SongDatabaseService: {column} column already exists (concurrent race)");
-            }
-            catch (Exception ex)
-            {
-                throw new InvalidOperationException(
-                    $"SongDatabaseService: Failed to add {column} column during schema migration.", ex);
-            }
-        }
-
-        private static async Task EnsurePerformanceHistoryScoreScopeAsync(SongDbContext context)
-        {
-            var columnCount = await context.Database.SqlQueryRaw<int>(
-                "SELECT COUNT(*) FROM pragma_table_info('PerformanceHistory') WHERE name='SongScoreId'"
-            ).ToListAsync();
-
-            if (columnCount.FirstOrDefault() == 0)
-            {
-                try
-                {
-                    await context.Database.ExecuteSqlRawAsync(
-                        "ALTER TABLE PerformanceHistory ADD COLUMN SongScoreId INTEGER NULL");
-                    System.Diagnostics.Debug.WriteLine("SongDatabaseService: Added PerformanceHistory.SongScoreId column");
-                }
-                catch (SqliteException ex) when (ex.Message.Contains("duplicate column"))
-                {
-                    System.Diagnostics.Debug.WriteLine("SongDatabaseService: PerformanceHistory.SongScoreId already exists");
-                }
-                catch (Exception ex)
-                {
-                    throw new InvalidOperationException(
-                        "SongDatabaseService: Failed to add PerformanceHistory.SongScoreId during schema migration.", ex);
-                }
-            }
-
-            var scoreSetNullFkCount = await context.Database.SqlQueryRaw<int>(
-                "SELECT COUNT(*) FROM pragma_foreign_key_list('PerformanceHistory') " +
-                "WHERE [table]='SongScores' AND [from]='SongScoreId' AND [on_delete]='SET NULL'"
-            ).ToListAsync();
-
-            if (scoreSetNullFkCount.FirstOrDefault() == 0)
-            {
-                await RebuildPerformanceHistoryTableWithScoreScopeAsync(context);
-            }
-
-            await context.Database.ExecuteSqlRawAsync(
-                "DROP INDEX IF EXISTS IX_PerformanceHistory_SongId_DisplayOrder");
-            await context.Database.ExecuteSqlRawAsync(
-                "CREATE INDEX IF NOT EXISTS IX_PerformanceHistory_SongId ON PerformanceHistory(SongId)");
-            await context.Database.ExecuteSqlRawAsync(
-                "CREATE UNIQUE INDEX IF NOT EXISTS IX_PerformanceHistory_SongScoreId_DisplayOrder " +
-                "ON PerformanceHistory(SongScoreId, DisplayOrder) WHERE SongScoreId IS NOT NULL");
-        }
-
-        private static async Task RebuildPerformanceHistoryTableWithScoreScopeAsync(SongDbContext context)
-        {
-            var pitchColumnCount = await context.Database.SqlQueryRaw<int>(
-                "SELECT COUNT(*) FROM pragma_table_info('PerformanceHistory') WHERE name='PitchSemitones'"
-            ).ToListAsync();
-            var pitchSelectExpression = pitchColumnCount.FirstOrDefault() == 0
-                ? "0"
-                : "PitchSemitones";
-
-            await context.Database.ExecuteSqlRawAsync("PRAGMA foreign_keys = OFF");
-            try
-            {
-                await context.Database.ExecuteSqlRawAsync("DROP TABLE IF EXISTS PerformanceHistory_new");
-                await context.Database.ExecuteSqlRawAsync(@"
-                    CREATE TABLE PerformanceHistory_new (
-                        Id INTEGER NOT NULL CONSTRAINT PK_PerformanceHistory PRIMARY KEY AUTOINCREMENT,
-                        SongId INTEGER NOT NULL,
-                        SongScoreId INTEGER NULL,
-                        PerformedAt TEXT NOT NULL,
-                        HistoryLine TEXT NOT NULL,
-                        DisplayOrder INTEGER NOT NULL,
-                        PitchSemitones INTEGER NOT NULL DEFAULT 0,
-                        CONSTRAINT FK_PerformanceHistory_Songs_SongId
-                            FOREIGN KEY (SongId) REFERENCES Songs (Id) ON DELETE CASCADE,
-                        CONSTRAINT FK_PerformanceHistory_SongScores_SongScoreId
-                            FOREIGN KEY (SongScoreId) REFERENCES SongScores (Id) ON DELETE SET NULL
-                    )");
-                await context.Database.ExecuteSqlRawAsync($@"
-                    INSERT INTO PerformanceHistory_new (
-                        Id,
-                        SongId,
-                        SongScoreId,
-                        PerformedAt,
-                        HistoryLine,
-                        DisplayOrder,
-                        PitchSemitones)
-                    SELECT
-                        Id,
-                        SongId,
-                        CASE
-                            WHEN SongScoreId IS NOT NULL
-                                AND EXISTS (SELECT 1 FROM SongScores WHERE SongScores.Id = PerformanceHistory.SongScoreId)
-                            THEN SongScoreId
-                            ELSE NULL
-                        END,
-                        PerformedAt,
-                        HistoryLine,
-                        DisplayOrder,
-                        {pitchSelectExpression}
-                    FROM PerformanceHistory");
-                await context.Database.ExecuteSqlRawAsync("DROP TABLE PerformanceHistory");
-                await context.Database.ExecuteSqlRawAsync("ALTER TABLE PerformanceHistory_new RENAME TO PerformanceHistory");
-            }
-            finally
-            {
-                await context.Database.ExecuteSqlRawAsync("PRAGMA foreign_keys = ON");
-            }
-        }
-
-        private static async Task EnsurePlaybackSpeedScoreScopeAsync(SongDbContext context)
-        {
-            await using var transaction = await context.Database.BeginTransactionAsync();
-            try
-            {
-                await EnsureMigrationColumnAsync(
-                    context,
-                    table: "SongScores",
-                    column: "PlaySpeedPercent",
-                    definition: "INTEGER NOT NULL DEFAULT 100");
-                await EnsureMigrationColumnAsync(
-                    context,
-                    table: "PerformanceHistory",
-                    column: "PitchSemitones",
-                    definition: "INTEGER NOT NULL DEFAULT 0");
-
-                // The legacy index prevents a second speed variant for the same
-                // chart/instrument. Replace it without rebuilding SongScores so every
-                // score id, and therefore every PerformanceHistory foreign key, remains
-                // stable.
-                await context.Database.ExecuteSqlRawAsync(
-                    "DROP INDEX IF EXISTS IX_SongScores_ChartId_Instrument");
-
-                var correctScoreIndexCount = await context.Database.SqlQueryRaw<int>(@"
-                    SELECT COUNT(*)
-                    FROM pragma_index_list('SongScores') AS index_list
-                    WHERE index_list.name='IX_SongScores_ChartId_Instrument_PlaySpeedPercent'
-                      AND index_list.[unique]=1
-                      AND (SELECT COUNT(*) FROM pragma_index_info(index_list.name))=3
-                      AND (SELECT name FROM pragma_index_info(index_list.name) WHERE seqno=0)='ChartId'
-                      AND (SELECT name FROM pragma_index_info(index_list.name) WHERE seqno=1)='Instrument'
-                      AND (SELECT name FROM pragma_index_info(index_list.name) WHERE seqno=2)='PlaySpeedPercent'"
-                ).ToListAsync();
-
-                if (correctScoreIndexCount.FirstOrDefault() == 0)
-                {
-                    await context.Database.ExecuteSqlRawAsync(
-                        "DROP INDEX IF EXISTS IX_SongScores_ChartId_Instrument_PlaySpeedPercent");
-                    try
-                    {
-                        await context.Database.ExecuteSqlRawAsync(
-                            "CREATE UNIQUE INDEX IX_SongScores_ChartId_Instrument_PlaySpeedPercent " +
-                            "ON SongScores(ChartId, Instrument, PlaySpeedPercent)");
-                    }
-                    catch (SqliteException ex)
-                    {
-                        throw new InvalidOperationException(
-                            "SongDatabaseService: Cannot create the speed-scoped SongScores index. " +
-                            "Existing duplicate rows share ChartId, Instrument, and PlaySpeedPercent; " +
-                            "no score data was deleted.",
-                            ex);
-                    }
-                }
-
-                await EnsureScoreSaveReceiptsAsync(context);
-                await transaction.CommitAsync();
-            }
-            catch
-            {
-                await transaction.RollbackAsync();
-                throw;
-            }
-        }
-
-        /// <remarks>
-        /// All identifiers passed here are hardcoded migration constants. SQLite does
-        /// not support parameterized identifiers, so this helper must never receive
-        /// user-controlled table, column, or definition text.
-        /// </remarks>
-        private static async Task EnsureMigrationColumnAsync(
-            SongDbContext context,
-            string table,
-            string column,
-            string definition)
-        {
-            var columnCount = await context.Database.SqlQueryRaw<int>(
-                $"SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name='{column}'"
-            ).ToListAsync();
-            if (columnCount.FirstOrDefault() != 0)
-                return;
-
-            try
-            {
-                await context.Database.ExecuteSqlRawAsync(
-                    $"ALTER TABLE {table} ADD COLUMN {column} {definition}");
-            }
-            catch (SqliteException ex) when (ex.Message.Contains("duplicate column"))
-            {
-                // Concurrent initialization completed the same additive step.
-            }
-            catch (Exception ex)
-            {
-                throw new InvalidOperationException(
-                    $"SongDatabaseService: Failed to add {table}.{column} during schema migration.",
-                    ex);
-            }
-        }
-
-        private static async Task EnsureScoreSaveReceiptsAsync(SongDbContext context)
-        {
-            var tableCount = await context.Database.SqlQueryRaw<int>(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='ScoreSaveReceipts'"
-            ).ToListAsync();
-            if (tableCount.FirstOrDefault() == 0)
-            {
-                await CreateScoreSaveReceiptsTableAsync(
-                    context,
-                    "ScoreSaveReceipts");
-            }
-            else
-            {
-                var runIdColumnCount = await context.Database.SqlQueryRaw<int>(
-                    "SELECT COUNT(*) FROM pragma_table_info('ScoreSaveReceipts') WHERE name='RunId'"
-                ).ToListAsync();
-                if (runIdColumnCount.FirstOrDefault() == 0)
-                {
-                    throw new InvalidOperationException(
-                        "SongDatabaseService: Existing ScoreSaveReceipts table has no RunId identity column; " +
-                        "migration stopped without deleting receipt data.");
-                }
-
-                await EnsureMigrationColumnAsync(
-                    context,
-                    table: "ScoreSaveReceipts",
-                    column: "ChartId",
-                    definition: "INTEGER NOT NULL DEFAULT 0");
-                await EnsureMigrationColumnAsync(
-                    context,
-                    table: "ScoreSaveReceipts",
-                    column: "Instrument",
-                    definition: "INTEGER NOT NULL DEFAULT 0");
-                await EnsureMigrationColumnAsync(
-                    context,
-                    table: "ScoreSaveReceipts",
-                    column: "PlaySpeedPercent",
-                    definition: "INTEGER NOT NULL DEFAULT 100");
-                await EnsureMigrationColumnAsync(
-                    context,
-                    table: "ScoreSaveReceipts",
-                    column: "SongScoreId",
-                    definition: "INTEGER NULL");
-                await EnsureMigrationColumnAsync(
-                    context,
-                    table: "ScoreSaveReceipts",
-                    column: "SavedAtUtc",
-                    definition: "TEXT NOT NULL DEFAULT ''");
-
-                var correctSetNullFkCount = await context.Database.SqlQueryRaw<int>(
-                    "SELECT COUNT(*) FROM pragma_foreign_key_list('ScoreSaveReceipts') " +
-                    "WHERE [table]='SongScores' AND [from]='SongScoreId' AND [on_delete]='SET NULL'"
-                ).ToListAsync();
-                var correctColumnShapeCount = await context.Database.SqlQueryRaw<int>(@"
-                    SELECT COUNT(*)
-                    FROM pragma_table_info('ScoreSaveReceipts')
-                    WHERE (name='RunId' AND type='TEXT' AND [notnull]=1 AND pk=1)
-                       OR (name='ChartId' AND type='INTEGER' AND [notnull]=1)
-                       OR (name='Instrument' AND type='INTEGER' AND [notnull]=1)
-                       OR (name='PlaySpeedPercent' AND type='INTEGER' AND [notnull]=1
-                           AND CAST(dflt_value AS INTEGER)=100)
-                       OR (name='SongScoreId' AND type='INTEGER' AND [notnull]=0)
-                       OR (name='SavedAtUtc' AND type='TEXT' AND [notnull]=1)"
-                ).ToListAsync();
-
-                if (correctColumnShapeCount.FirstOrDefault() != 6
-                    || correctSetNullFkCount.FirstOrDefault() == 0)
-                {
-                    await RebuildScoreSaveReceiptsTableAsync(context);
-                }
-            }
-
-            var correctReceiptIndexCount = await context.Database.SqlQueryRaw<int>(@"
-                SELECT COUNT(*)
-                FROM pragma_index_list('ScoreSaveReceipts') AS index_list
-                WHERE index_list.name='IX_ScoreSaveReceipts_SongScoreId'
-                  AND index_list.[unique]=0
-                  AND (SELECT COUNT(*) FROM pragma_index_info(index_list.name))=1
-                  AND (SELECT name FROM pragma_index_info(index_list.name) WHERE seqno=0)='SongScoreId'"
-            ).ToListAsync();
-            if (correctReceiptIndexCount.FirstOrDefault() == 0)
-            {
-                await context.Database.ExecuteSqlRawAsync(
-                    "DROP INDEX IF EXISTS IX_ScoreSaveReceipts_SongScoreId");
-                await context.Database.ExecuteSqlRawAsync(
-                    "CREATE INDEX IX_ScoreSaveReceipts_SongScoreId ON ScoreSaveReceipts(SongScoreId)");
-            }
-        }
-
-        private static Task CreateScoreSaveReceiptsTableAsync(
-            SongDbContext context,
-            string tableName)
-        {
-            return context.Database.ExecuteSqlRawAsync($@"
-                CREATE TABLE {tableName} (
-                    RunId TEXT NOT NULL CONSTRAINT PK_ScoreSaveReceipts PRIMARY KEY,
-                    ChartId INTEGER NOT NULL,
-                    Instrument INTEGER NOT NULL,
-                    PlaySpeedPercent INTEGER NOT NULL DEFAULT 100,
-                    SongScoreId INTEGER NULL,
-                    SavedAtUtc TEXT NOT NULL,
-                    CONSTRAINT FK_ScoreSaveReceipts_SongScores_SongScoreId
-                        FOREIGN KEY (SongScoreId) REFERENCES SongScores (Id) ON DELETE SET NULL
-                )");
-        }
-
-        private static async Task RebuildScoreSaveReceiptsTableAsync(SongDbContext context)
-        {
-            try
-            {
-                await context.Database.ExecuteSqlRawAsync(
-                    "DROP TABLE IF EXISTS ScoreSaveReceipts_new");
-                await CreateScoreSaveReceiptsTableAsync(
-                    context,
-                    "ScoreSaveReceipts_new");
-                await context.Database.ExecuteSqlRawAsync(@"
-                    INSERT INTO ScoreSaveReceipts_new (
-                        RunId,
-                        ChartId,
-                        Instrument,
-                        PlaySpeedPercent,
-                        SongScoreId,
-                        SavedAtUtc)
-                    SELECT
-                        RunId,
-                        ChartId,
-                        Instrument,
-                        PlaySpeedPercent,
-                        CASE
-                            WHEN SongScoreId IS NOT NULL
-                                AND EXISTS (
-                                    SELECT 1
-                                    FROM SongScores
-                                    WHERE SongScores.Id=ScoreSaveReceipts.SongScoreId)
-                            THEN SongScoreId
-                            ELSE NULL
-                        END,
-                        SavedAtUtc
-                    FROM ScoreSaveReceipts");
-                await context.Database.ExecuteSqlRawAsync(
-                    "DROP TABLE ScoreSaveReceipts");
-                await context.Database.ExecuteSqlRawAsync(
-                    "ALTER TABLE ScoreSaveReceipts_new RENAME TO ScoreSaveReceipts");
-            }
-            catch (Exception ex)
-            {
-                throw new InvalidOperationException(
-                    "SongDatabaseService: Failed to converge the ScoreSaveReceipts schema; " +
-                    "the migration was rolled back without deleting receipt data.",
-                    ex);
-            }
-        }
-
-        /// <summary>
-        /// Handle invalid database file by removing it and forcing fresh creation
-        /// </summary>
-        internal virtual async Task HandleInvalidDatabaseFileAsync()
-        {
-            try
-            {
-                System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Invalid database file detected at: {_databasePath}");
-
-                // Clear pooled SQLite connections so retries do not keep using the broken file handle.
-                SqliteConnection.ClearAllPools();
-
-                // Simply delete the corrupted file - no backup needed since it's corrupted anyway
-                if (File.Exists(_databasePath))
-                {
-                    File.Delete(_databasePath);
-                    System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Corrupted database file deleted. Fresh database will be created.");
-                }
-
-                SqliteConnection.ClearAllPools();
-
-                // Small delay to ensure file system has processed the deletion
-                await Task.Delay(100);
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Error removing invalid database file: {ex.Message}");
-                // Try to continue anyway - maybe the file was already deleted
             }
         }
 
