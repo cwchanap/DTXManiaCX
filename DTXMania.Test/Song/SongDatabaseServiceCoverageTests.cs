@@ -221,6 +221,47 @@ public class SongDatabaseServiceCoverageTests : IDisposable
     }
 
     [Fact]
+    public async Task BackupDatabaseAsync_WhenFileIdentityUnavailable_ShouldFailWithoutMutating()
+    {
+        var servicePath = Path.Combine(_tempRoot, "identityless.db");
+        using var service = new IdentityUnavailableDatabaseService(servicePath);
+        await service.InitializeDatabaseAsync();
+
+        var backupPath = Path.Combine(_tempRoot, "identityless-backup.db");
+        var existingBackupBytes = new byte[] { 5, 5, 5 };
+        await File.WriteAllBytesAsync(backupPath, existingBackupBytes);
+
+        var exception = await Record.ExceptionAsync(
+            () => service.BackupDatabaseAsync(backupPath));
+
+        Assert.NotNull(exception);
+        Assert.True(File.Exists(servicePath));
+        Assert.Equal(existingBackupBytes, await File.ReadAllBytesAsync(backupPath));
+    }
+
+    [Fact]
+    public async Task RestoreDatabaseAsync_WhenFileIdentityUnavailable_ShouldFailWithoutMutating()
+    {
+        var servicePath = Path.Combine(_tempRoot, "identityless.db");
+        using var service = new IdentityUnavailableDatabaseService(servicePath);
+        await service.InitializeDatabaseAsync();
+        using (var context = service.CreateContext())
+        {
+            context.Songs.Add(CreateSong("Keep Me", "Coverage Bot"));
+            await context.SaveChangesAsync();
+        }
+
+        var backupPath = Path.Combine(_tempRoot, "identityless-backup.db");
+        await service.BackupDatabaseAsync(backupPath);
+
+        var exception = await Record.ExceptionAsync(
+            () => service.RestoreDatabaseAsync(backupPath));
+
+        Assert.NotNull(exception);
+        Assert.Single(await service.GetSongsAsync());
+    }
+
+    [Fact]
     public async Task RestoreDatabaseAsync_WhenSourceIsDatabaseFile_ShouldThrowWithoutMutating()
     {
         await _databaseService.InitializeDatabaseAsync();
@@ -618,4 +659,20 @@ public class SongDatabaseServiceCoverageTests : IDisposable
         string lpFileName,
         string lpExistingFileName,
         IntPtr lpSecurityAttributes);
+
+    private sealed class IdentityUnavailableDatabaseService : SongDatabaseService
+    {
+        public IdentityUnavailableDatabaseService(string databasePath)
+            : base(databasePath)
+        {
+        }
+
+        internal override bool TryGetFileIdentity(
+            string fullPath,
+            out (ulong, ulong) identity)
+        {
+            identity = default;
+            return false;
+        }
+    }
 }
