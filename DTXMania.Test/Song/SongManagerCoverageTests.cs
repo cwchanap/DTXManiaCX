@@ -988,13 +988,10 @@ public class SongManagerCoverageTests : IDisposable
     }
 
     [Fact]
-    public async Task StateHelpers_ShouldHandleInitializationAndCorruptionChecks()
+    public async Task StateHelpers_ShouldTrackInitializationState()
     {
-        Assert.False(await _manager.IsDatabaseCorruptedAsync());
-
         var initialized = await _manager.InitializeDatabaseServiceAsync(_testDbPath);
         Assert.True(initialized);
-        Assert.False(await _manager.IsDatabaseCorruptedAsync());
 
         _manager.SetInitialized();
 

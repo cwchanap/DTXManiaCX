@@ -365,30 +365,12 @@ namespace DTXMania.Game.Lib.Song
                     return false;
                 }
 
-                // Check for database corruption first
-                bool isDatabaseCorrupted = await IsDatabaseCorruptedAsync(db)
-                    .ConfigureAwait(false);
-
-                // Purge the database only if explicitly requested OR if corruption is detected
-                bool shouldPurge;
+                // Purge is explicit-only here. Schema-version or corruption resets
+                // are owned by SongDatabaseService.InitializeDatabaseAsync itself,
+                // so a second probe would only duplicate that check.
                 if (purgeDatabaseFirst)
                 {
                     Debug.WriteLine("SongManager: Purging existing database for fresh rebuild (explicitly requested)");
-                    shouldPurge = true;
-                }
-                else if (isDatabaseCorrupted)
-                {
-                    Debug.WriteLine("SongManager: Database corruption detected, purging corrupted database");
-                    shouldPurge = true;
-                }
-                else
-                {
-                    Debug.WriteLine("SongManager: Database appears healthy, proceeding with existing database");
-                    shouldPurge = false;
-                }
-
-                if (shouldPurge)
-                {
                     await db.PurgeDatabaseAsync().ConfigureAwait(false);
                 }
 
@@ -593,42 +575,6 @@ namespace DTXMania.Game.Lib.Song
             {
                 Debug.WriteLine($"SongManager: Error checking database existence: {ex.Message}");
                 return false;
-            }
-        }
-
-        /// <summary>
-        /// Checks if the database is corrupted and needs to be rebuilt
-        /// Returns true if the database is corrupted or inaccessible
-        /// </summary>
-        public async Task<bool> IsDatabaseCorruptedAsync()
-        {
-            var db = GetDatabaseServiceSnapshot();
-            if (db == null) return false;
-
-            return await IsDatabaseCorruptedAsync(db).ConfigureAwait(false);
-        }
-
-        private async Task<bool> IsDatabaseCorruptedAsync(SongDatabaseService db)
-        {
-
-            try
-            {
-                // Check if we can connect to the database
-                if (!await db.DatabaseExistsAsync().ConfigureAwait(false))
-                    return false; // Database doesn't exist, not corrupted
-
-                // Try to get basic stats to verify database integrity
-                var stats = await db.GetDatabaseStatsAsync().ConfigureAwait(false);
-                if (stats == null)
-                    return true; // Can't get stats, likely corrupted
-
-                return false; // Database is accessible and functional
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"SongManager: Database corruption check failed: {ex.Message}");
-                // If we can't determine corruption state, assume it's corrupted to be safe
-                return true;
             }
         }
 
