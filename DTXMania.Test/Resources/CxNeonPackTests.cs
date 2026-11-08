@@ -5,6 +5,8 @@ using System.Linq;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.Stage;
+using Microsoft.Xna.Framework;
 using Xunit;
 
 namespace DTXMania.Test.Resources
@@ -25,6 +27,14 @@ namespace DTXMania.Test.Resources
     [Trait("Category", "Resources")]
     public class CxNeonPackTests
     {
+        [Fact]
+        public void CxNeonTheme_SelectedMenuText_ShouldUseReadableLightColor()
+        {
+            var theme = SkinTheme.Load(Path.Combine(FindRepoRoot(), "System", "CXNeon", "Theme.ini"));
+
+            Assert.Equal(Color.White, ConfigStage.ResolveSelectedMenuTextColor(theme));
+        }
+
         [Fact]
         public void CxNeonPack_ShouldExpectEveryRequiredTextureWhenGraphicsTreeExists()
         {

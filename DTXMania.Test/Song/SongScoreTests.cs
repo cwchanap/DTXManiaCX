@@ -435,7 +435,18 @@ namespace DTXMania.Test.Song
         [InlineData(39.99, 0)]
         [InlineData(0.0, 0)]
         [InlineData(-5.0, 0)]
-        public void RunRankBucket_ShouldFloorPlayingSkillThenNormalizeToPersistedBucket(double playingSkill, int expectedBucket)
+        public void RunRankBucket_ShouldRoundDisplayedSkillThenNormalizeToPersistedBucket(double playingSkill, int expectedBucket)
+        {
+            Assert.Equal(expectedBucket, SongScore.RunRankBucket(playingSkill));
+        }
+
+        [Theory]
+        [InlineData(double.NaN, 0)]
+        [InlineData(double.PositiveInfinity, 0)]
+        [InlineData(double.NegativeInfinity, 0)]
+        [InlineData(1e300, 95)]
+        [InlineData(-1e300, 0)]
+        public void RunRankBucket_WithExtremeValues_ShouldNotOverflow(double playingSkill, int expectedBucket)
         {
             Assert.Equal(expectedBucket, SongScore.RunRankBucket(playingSkill));
         }

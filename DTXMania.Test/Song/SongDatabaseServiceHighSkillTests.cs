@@ -1,7 +1,6 @@
 using System;
 using System.Linq;
 using System.Threading.Tasks;
-using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Game.Lib.Stage.Result;
@@ -343,8 +342,11 @@ namespace DTXMania.Test.Song
             Assert.Contains("Cleared (S: 91.25)", row.HistoryLine);
         }
 
-        [Fact]
-        public async Task UpdateScoreAsync_WithPerformanceSummary_ShouldFormatHistorySkillLikeResultScreen()
+        [Theory]
+        [InlineData(0.345, "F", "0.35")]
+        [InlineData(78.625, "B", "78.63")]
+        public async Task UpdateScoreAsync_WithPerformanceSummary_ShouldFormatHistorySkillToTwoDecimals(
+            double skill, string rank, string expectedText)
         {
             var chart = await SeedChartAsync();
             await SeedScoreAsync(chart.Id, new SongScore { PlayCount = 0 });
@@ -357,7 +359,7 @@ namespace DTXMania.Test.Song
                 PerfectCount = 78,
                 GreatCount = 12,
                 MaxCombo = 80,
-                PlayingSkill = 78.625,
+                PlayingSkill = skill,
                 GameSkill = 127.8
             };
 
@@ -367,9 +369,7 @@ namespace DTXMania.Test.Song
             var score = await ctx.SongScores.AsNoTracking().SingleAsync(s => s.ChartId == chart.Id);
             var row = await ctx.PerformanceHistory.AsNoTracking().SingleAsync(p => p.SongScoreId == score.Id);
 
-            var resultSkillText = SkillValueFormatter.Format(summary.PlayingSkill);
-            Assert.Equal("78.63", resultSkillText);
-            Assert.Contains($"(B: {resultSkillText})", row.HistoryLine);
+            Assert.Contains($"({rank}: {expectedText})", row.HistoryLine);
         }
 
         [Fact]

@@ -323,8 +323,30 @@ public class ResultScreenRendererTests
         Assert.Contains(TexturePath.ResultBackgroundRankE, loadedPaths);
     }
 
+    [Theory]
+    [InlineData(95.0, TexturePath.ResultRankSS)]
+    [InlineData(90.0, TexturePath.ResultRankS)]
+    [InlineData(80.0, TexturePath.ResultRankA)]
+    [InlineData(70.0, TexturePath.ResultRankB)]
+    [InlineData(60.0, TexturePath.ResultRankC)]
+    [InlineData(50.0, TexturePath.ResultRankD)]
+    [InlineData(40.0, TexturePath.ResultRankE)]
+    [InlineData(0.0, TexturePath.ResultRankF)]
+    public void Load_EachRank_ShouldLoadItsBadge(double skill, string expectedPath)
+    {
+        var resources = new Mock<IResourceManager>();
+        resources.Setup(r => r.ResourceExists(It.IsAny<string>())).Returns(true);
+        resources.Setup(r => r.LoadTexture(It.IsAny<string>())).Returns(new Mock<ITexture>().Object);
+        using var renderer = new ResultScreenRenderer(resources.Object, null, null, null);
+        var model = ResultScreenModel.Create(new PerformanceSummary { PlayingSkill = skill }, null, 0, null, null);
+
+        renderer.Load(model);
+
+        resources.Verify(r => r.LoadTexture(expectedPath), Times.Once);
+    }
+
     [Fact]
-    public void RankPathHelpers_ShouldMapFBadgeAndReturnNoPathForUnknownRank()
+    public void RankPathHelpers_ShouldReturnNoPathForUnknownRank()
     {
         var getRankTexturePath = typeof(ResultScreenRenderer).GetMethod(
             "GetRankTexturePath",
@@ -333,14 +355,8 @@ public class ResultScreenRendererTests
             "GetRankBackgroundPath",
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
 
-        Assert.Equal(
-            TexturePath.ResultRankF,
-            getRankTexturePath!.Invoke(null, new object[] { ResultRank.F }));
-        Assert.Null(getRankTexturePath.Invoke(null, new object[] { (ResultRank)99 }));
-        Assert.Equal(
-            TexturePath.ResultBackgroundRankE,
-            getRankBackgroundPath!.Invoke(null, new object[] { ResultRank.F }));
-        Assert.Null(getRankBackgroundPath.Invoke(null, new object[] { (ResultRank)99 }));
+        Assert.Null(getRankTexturePath!.Invoke(null, new object[] { (ResultRank)99 }));
+        Assert.Null(getRankBackgroundPath!.Invoke(null, new object[] { (ResultRank)99 }));
     }
 
     [Fact]

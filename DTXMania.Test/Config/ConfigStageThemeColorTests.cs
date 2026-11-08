@@ -24,7 +24,7 @@ namespace DTXMania.Test.Config
         [Fact]
         public void ResolveValueColor_WithGenericPaletteTokens_ShouldUseThem()
         {
-            // The CX Neon pack ships exactly these tokens; no Config.* keys needed.
+            // A generic theme can supply palette tokens without Config-specific keys.
             var theme = SkinTheme.Parse(new[]
             {
                 "UI.TextPrimary=#F1F5F9",
@@ -82,7 +82,7 @@ namespace DTXMania.Test.Config
         }
 
         [Fact]
-        public void ResolveSelectedMenuTextColor_WithCxNeonPalette_ShouldUseAccent()
+        public void ResolveSelectedMenuTextColor_WithGenericPalette_ShouldUseAccent()
         {
             var theme = SkinTheme.Parse(new[]
             {
