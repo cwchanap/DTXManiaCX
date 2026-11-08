@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using DTXMania.Game.Lib.Song;
 using Xunit;
 using DTXMania.Game.Lib.Song.Entities;
@@ -449,6 +450,36 @@ namespace DTXMania.Test.Song
         public void RunRankBucket_WithExtremeValues_ShouldNotOverflow(double playingSkill, int expectedBucket)
         {
             Assert.Equal(expectedBucket, SongScore.RunRankBucket(playingSkill));
+        }
+
+        [Theory]
+        [InlineData(39.99499999999995, "39.99", 0)]
+        [InlineData(49.99499999999995, "49.99", 40)]
+        [InlineData(59.99499999999995, "59.99", 50)]
+        [InlineData(69.99499999999995, "69.99", 60)]
+        [InlineData(79.99499999999995, "79.99", 70)]
+        [InlineData(89.99499999999995, "89.99", 80)]
+        [InlineData(94.99499999999995, "94.99", 90)]
+        public void RunRankBucket_WhenBinaryRoundingIsNearBoundary_ShouldMatchDisplayedSkill(
+            double playingSkill, string expectedText, int expectedBucket)
+        {
+            Assert.Equal(expectedText, SkillValueFormatter.Format(playingSkill));
+            Assert.Equal(expectedBucket, SongScore.RunRankBucket(playingSkill));
+        }
+
+        [Fact]
+        public void RunRankBucket_WhenCultureUsesCommaSeparator_ShouldClassifyDisplayedSkill()
+        {
+            var originalCulture = CultureInfo.CurrentCulture;
+            try
+            {
+                CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR");
+                Assert.Equal(40, SongScore.RunRankBucket(39.995));
+            }
+            finally
+            {
+                CultureInfo.CurrentCulture = originalCulture;
+            }
         }
 
         [Fact]
