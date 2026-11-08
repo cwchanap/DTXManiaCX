@@ -190,9 +190,9 @@ namespace DTXMania.Game.Lib.Stage
         private const int CENTER_INDEX = SongSelectionUILayout.SongBars.CenterIndex;
         private const int RecentPlaysLimit = 20;        // Max rows shown on the Recent tab.
 
-        private const int LowTomLaneIndex = (int)PerformanceUILayout.LaneType.LT;
-
         private const int FloorTomLaneIndex = (int)PerformanceUILayout.LaneType.FT;
+        private const int HiHatLaneIndex = (int)PerformanceUILayout.LaneType.HH;
+        private const int BassDrumLaneIndex = (int)PerformanceUILayout.LaneType.DB;
 
         // RenderTarget management for stage-level resource pooling
         private RenderTarget2D _stageRenderTarget;
@@ -419,7 +419,7 @@ namespace DTXMania.Game.Lib.Stage
             BeginRecentPlaysLoad();
             _ = BeginBookmarksLoad();
 
-            SubscribeTabSwitchLaneHits();
+            SubscribePadLaneHits();
 
             _currentPhase = StagePhase.FadeIn;
             _selectionPhase = SongSelectionPhase.FadeIn;
@@ -515,7 +515,7 @@ namespace DTXMania.Game.Lib.Stage
             _textInputSource = null;
             _searchFilterModal = null;
 
-            UnsubscribeTabSwitchLaneHits();
+            UnsubscribePadLaneHits();
 
             if (_ownsInputManager)
             {
@@ -3660,7 +3660,7 @@ namespace DTXMania.Game.Lib.Stage
         /// <summary>
         /// Cycles to the next tab, exits status-panel mode, kicks a recent-plays reload
         /// when entering the Recent tab, and requests a list repopulate on the next update.
-        /// Invoked by the Tab key and the Low Tom pad (wired in the input-handling path).
+        /// Invoked by the Tab key and the Floor Tom pad (wired in the input-handling path).
         /// </summary>
         private void SwitchToNextTab()
         {
@@ -3948,46 +3948,53 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
 
-        private void HandleLaneHitForBookmark(int lane)
+        private void OnPadLaneHit(object? sender, DTXMania.Game.Lib.Input.LaneHitEventArgs e)
         {
-            if (lane == FloorTomLaneIndex)
-                ToggleBookmarkForSelectedSong();
-        }
-
-        private void OnTabSwitchLaneHit(object? sender, DTXMania.Game.Lib.Input.LaneHitEventArgs e)
-        {
-            // Ignore pad-driven tab switches while the search modal is open, matching the
-            // Tab-key path (suppressed by HandleInput's modal early-return).
+            // Only real pads (not keyboard drum keys), and never under the search modal,
+            // matching the Tab-key path (suppressed by HandleInput's modal early-return).
+            if (!e.Button.IsPressed || DTXMania.Game.Lib.Input.KeyBindings.IsKeyboardButtonId(e.Button.Id))
+                return;
             if (_searchFilterModal != null && _searchFilterModal.IsOpen)
                 return;
 
-            HandleLaneHitForTabSwitch(e.Lane);
-            HandleLaneHitForBookmark(e.Lane);
+            HandlePadLaneHit(e.Lane);
         }
 
-        private void HandleLaneHitForTabSwitch(int lane)
+        /// <summary>
+        /// Song-select pad actions on top of <see cref="DrumPadSystemKeys"/> (which covers
+        /// up/down/enter/back): floor tom cycles tabs like Tab, hi-hat steps the difficulty
+        /// up on the difficulty panel (it wraps, so there is no down), bass drum opens Config.
+        /// </summary>
+        private void HandlePadLaneHit(int lane)
         {
-            if (lane == LowTomLaneIndex)
+            if (lane == FloorTomLaneIndex)
                 SwitchToNextTab();
+            else if (lane == HiHatLaneIndex && _isInStatusPanel)
+                CycleDifficulty(1);
+            else if (lane == BassDrumLaneIndex && _game.CanPerformStageTransition())
+            {
+                _game.MarkStageTransition();
+                StageManager?.ChangeStage(StageType.Config, new DTXManiaFadeTransition(SongSelectionUILayout.Timing.TransitionDuration));
+            }
         }
 
-        private void SubscribeTabSwitchLaneHits()
+        private void SubscribePadLaneHits()
         {
             if (_inputManager is DTXMania.Game.Lib.Input.InputManagerCompat compat
                 && compat.ModularInputManager != null)
             {
                 // Defensive: remove before adding so re-Activate never double-subscribes.
-                compat.ModularInputManager.OnLaneHit -= OnTabSwitchLaneHit;
-                compat.ModularInputManager.OnLaneHit += OnTabSwitchLaneHit;
+                compat.ModularInputManager.OnLaneHit -= OnPadLaneHit;
+                compat.ModularInputManager.OnLaneHit += OnPadLaneHit;
             }
         }
 
-        private void UnsubscribeTabSwitchLaneHits()
+        private void UnsubscribePadLaneHits()
         {
             if (_inputManager is DTXMania.Game.Lib.Input.InputManagerCompat compat
                 && compat.ModularInputManager != null)
             {
-                compat.ModularInputManager.OnLaneHit -= OnTabSwitchLaneHit;
+                compat.ModularInputManager.OnLaneHit -= OnPadLaneHit;
             }
         }
 

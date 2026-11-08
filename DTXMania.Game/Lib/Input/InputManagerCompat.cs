@@ -50,9 +50,25 @@ namespace DTXMania.Game.Lib.Input
             }
         }
 
+        /// <summary>
+        /// Maps a drum-pad lane hit to a system command, or null to ignore it.
+        /// BaseGame points this at <c>DrumPadSystemKeys</c> for the current stage.
+        /// </summary>
+        public Func<int, InputCommandType?>? PadCommandResolver { get; set; }
+
         private void OnModularLaneHit(object? sender, LaneHitEventArgs e)
         {
             System.Diagnostics.Debug.WriteLine($"[InputManagerCompat] Lane {e.Lane} hit by {e.Button.Id} (velocity: {e.Button.Velocity:F2})");
+
+            // Keyboard drum keys keep their letters; only real pads act as system keys.
+            if (!e.Button.IsPressed || KeyBindings.IsKeyboardButtonId(e.Button.Id))
+                return;
+
+            if (PadCommandResolver?.Invoke(e.Lane) is { } command)
+            {
+                _injectedCommandsThisFrame.Add(command);
+                EnqueueCommand(new InputCommand(command, CurrentTime, false));
+            }
         }
 
         private void OnConfigKeyBindingsChanged(object? sender, EventArgs e) => _modularInputManager.ReloadKeyBindings();
