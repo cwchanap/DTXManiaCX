@@ -365,9 +365,6 @@ namespace DTXMania.Game.Lib.Song
                     return false;
                 }
 
-                // Purge is explicit-only here. Schema-version or corruption resets
-                // are owned by SongDatabaseService.InitializeDatabaseAsync itself,
-                // so a second probe would only duplicate that check.
                 if (purgeDatabaseFirst)
                 {
                     Debug.WriteLine("SongManager: Purging existing database for fresh rebuild (explicitly requested)");

@@ -91,6 +91,151 @@ public class SongDatabaseServiceCoverageTests : IDisposable
     }
 
     [Fact]
+    public async Task BackupDatabaseAsync_WhenDestinationIsDatabaseFile_ShouldThrowWithoutDeletingDatabase()
+    {
+        await _databaseService.InitializeDatabaseAsync();
+        await AddSongAsync("Live Data", "Coverage Bot", "live-data.dtx");
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => _databaseService.BackupDatabaseAsync(_databasePath));
+
+        Assert.True(File.Exists(_databasePath));
+        Assert.Single(await _databaseService.GetSongsAsync());
+    }
+
+    [Fact]
+    public async Task BackupDatabaseAsync_WhenDestinationIsDatabasePathAlias_ShouldThrowWithoutDeletingDatabase()
+    {
+        await _databaseService.InitializeDatabaseAsync();
+        await AddSongAsync("Live Data", "Coverage Bot", "live-alias.dtx");
+
+        var aliasPath = Path.Combine(_tempRoot, "subdir", "..", "songs.db");
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => _databaseService.BackupDatabaseAsync(aliasPath));
+
+        Assert.True(File.Exists(_databasePath));
+        Assert.Single(await _databaseService.GetSongsAsync());
+    }
+
+    [Fact]
+    public async Task BackupDatabaseAsync_WhenSnapshotFails_ShouldPreserveExistingBackup()
+    {
+        await _databaseService.InitializeDatabaseAsync();
+        await AddSongAsync("Backed Up", "Coverage Bot", "backed-up.dtx");
+
+        var backupPath = Path.Combine(_tempRoot, "existing-backup.db");
+        await _databaseService.BackupDatabaseAsync(backupPath);
+        var goodBackupBytes = await File.ReadAllBytesAsync(backupPath);
+
+        // A directory where the temporary snapshot file belongs forces the
+        // snapshot to fail while a valid backup already exists.
+        Directory.CreateDirectory(backupPath + ".tmp");
+
+        var exception = await Record.ExceptionAsync(
+            () => _databaseService.BackupDatabaseAsync(backupPath));
+
+        Assert.NotNull(exception);
+        Assert.Equal(goodBackupBytes, await File.ReadAllBytesAsync(backupPath));
+    }
+
+    [Fact]
+    public async Task BackupDatabaseAsync_WhenDestinationIsDirectory_ShouldFailWithoutLeavingTempFile()
+    {
+        await _databaseService.InitializeDatabaseAsync();
+
+        var directoryPath = Path.Combine(_tempRoot, "backup-dir");
+        Directory.CreateDirectory(directoryPath);
+
+        var exception = await Record.ExceptionAsync(
+            () => _databaseService.BackupDatabaseAsync(directoryPath));
+
+        Assert.NotNull(exception);
+        Assert.True(Directory.Exists(directoryPath));
+        Assert.Empty(Directory.GetFiles(directoryPath));
+        Assert.False(File.Exists(directoryPath + ".tmp"));
+    }
+
+    [Fact]
+    public async Task RestoreDatabaseAsync_WhenSourceIsDatabaseFile_ShouldThrowWithoutMutating()
+    {
+        await _databaseService.InitializeDatabaseAsync();
+        await AddSongAsync("Keep Me", "Coverage Bot", "keep-me.dtx");
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => _databaseService.RestoreDatabaseAsync(_databasePath));
+
+        Assert.Single(await _databaseService.GetSongsAsync());
+    }
+
+    [Fact]
+    public async Task RestoreDatabaseAsync_WhenSourceIsDatabasePathAlias_ShouldThrowWithoutMutating()
+    {
+        await _databaseService.InitializeDatabaseAsync();
+        await AddSongAsync("Keep Me", "Coverage Bot", "keep-alias.dtx");
+
+        var aliasPath = Path.Combine(_tempRoot, "subdir", "..", "songs.db");
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => _databaseService.RestoreDatabaseAsync(aliasPath));
+
+        Assert.Single(await _databaseService.GetSongsAsync());
+    }
+
+    [Fact]
+    public async Task RestoreDatabaseAsync_OverLiveWalDatabase_ShouldReplaceContent()
+    {
+        await _databaseService.InitializeDatabaseAsync();
+        await AddSongAsync("Snapshot Song", "Coverage Bot", "snapshot.dtx");
+
+        var backupPath = Path.Combine(_tempRoot, "restore-source.db");
+        await _databaseService.BackupDatabaseAsync(backupPath);
+
+        await AddSongAsync("Later Song", "Coverage Bot", "later.dtx");
+
+        // A checked-out destination connection stays open across the restore.
+        using var heldContext = _databaseService.CreateContext();
+        await heldContext.Database.GetDbConnection().OpenAsync();
+
+        await _databaseService.RestoreDatabaseAsync(backupPath);
+
+        using var verify = _databaseService.CreateContext();
+        var titles = await verify.Songs
+            .OrderBy(song => song.Title)
+            .Select(song => song.Title)
+            .ToListAsync();
+        Assert.Equal(new[] { "Snapshot Song" }, titles);
+    }
+
+    [Fact]
+    public async Task RestoreDatabaseAsync_WhenSourceIsNotSqlite_ShouldPreserveExistingDatabase()
+    {
+        await _databaseService.InitializeDatabaseAsync();
+        await AddSongAsync("Kept", "Coverage Bot", "kept.dtx");
+
+        var badBackupPath = Path.Combine(_tempRoot, "bad-backup.db");
+        await File.WriteAllTextAsync(badBackupPath, "not a sqlite database");
+
+        var exception = await Record.ExceptionAsync(
+            () => _databaseService.RestoreDatabaseAsync(badBackupPath));
+
+        Assert.NotNull(exception);
+
+        var songs = await _databaseService.GetSongsAsync();
+        Assert.Single(songs, song => song.Title == "Kept");
+
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        await using var connection = new Microsoft.Data.Sqlite.SqliteConnection(
+            $"Data Source={_databasePath};Pooling=False");
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "PRAGMA user_version;";
+        Assert.Equal(
+            (long)SongDatabaseService.CurrentSongSchemaVersion,
+            (long)(await command.ExecuteScalarAsync())!);
+    }
+
+    [Fact]
     public async Task SearchSongsAsync_ShouldMatchTitleAndArtist()
     {
         await _databaseService.InitializeDatabaseAsync();
