@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
@@ -121,19 +122,16 @@ public class SongDatabaseServiceCoverageTests : IDisposable
     [Fact]
     public async Task BackupDatabaseAsync_WhenSnapshotFails_ShouldPreserveExistingBackup()
     {
-        await _databaseService.InitializeDatabaseAsync();
-        await AddSongAsync("Backed Up", "Coverage Bot", "backed-up.dtx");
-
         var backupPath = Path.Combine(_tempRoot, "existing-backup.db");
-        await _databaseService.BackupDatabaseAsync(backupPath);
-        var goodBackupBytes = await File.ReadAllBytesAsync(backupPath);
+        var goodBackupBytes = new byte[] { 1, 2, 3 };
+        await File.WriteAllBytesAsync(backupPath, goodBackupBytes);
 
-        // A directory where the temporary snapshot file belongs forces the
-        // snapshot to fail while a valid backup already exists.
-        Directory.CreateDirectory(backupPath + ".tmp");
+        var corruptPath = Path.Combine(_tempRoot, "corrupt.db");
+        await File.WriteAllTextAsync(corruptPath, "not a sqlite database");
+        using var corruptService = new SongDatabaseService(corruptPath);
 
         var exception = await Record.ExceptionAsync(
-            () => _databaseService.BackupDatabaseAsync(backupPath));
+            () => corruptService.BackupDatabaseAsync(backupPath));
 
         Assert.NotNull(exception);
         Assert.Equal(goodBackupBytes, await File.ReadAllBytesAsync(backupPath));
@@ -146,6 +144,7 @@ public class SongDatabaseServiceCoverageTests : IDisposable
 
         var directoryPath = Path.Combine(_tempRoot, "backup-dir");
         Directory.CreateDirectory(directoryPath);
+        var entriesBefore = Directory.GetFileSystemEntries(_tempRoot).OrderBy(entry => entry).ToArray();
 
         var exception = await Record.ExceptionAsync(
             () => _databaseService.BackupDatabaseAsync(directoryPath));
@@ -153,7 +152,72 @@ public class SongDatabaseServiceCoverageTests : IDisposable
         Assert.NotNull(exception);
         Assert.True(Directory.Exists(directoryPath));
         Assert.Empty(Directory.GetFiles(directoryPath));
-        Assert.False(File.Exists(directoryPath + ".tmp"));
+        var entriesAfter = Directory.GetFileSystemEntries(_tempRoot).OrderBy(entry => entry).ToArray();
+        Assert.Equal(entriesBefore, entriesAfter);
+    }
+
+    [Fact]
+    public async Task BackupDatabaseAsync_WhenDestinationIsSymlinkedDirectoryAlias_ShouldThrowWithoutDeletingDatabase()
+    {
+        await _databaseService.InitializeDatabaseAsync();
+        await AddSongAsync("Live Data", "Coverage Bot", "live-symlink-dir.dtx");
+
+        var aliasDirectory = Path.Combine(_tempRoot, "alias-dir");
+        Directory.CreateSymbolicLink(aliasDirectory, _tempRoot);
+        var aliasPath = Path.Combine(aliasDirectory, "songs.db");
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => _databaseService.BackupDatabaseAsync(aliasPath));
+
+        Assert.True(File.Exists(_databasePath));
+        Assert.Single(await _databaseService.GetSongsAsync());
+    }
+
+    [Fact]
+    public async Task BackupDatabaseAsync_WhenDestinationIsHardLinkToDatabase_ShouldThrowWithoutDeletingDatabase()
+    {
+        await _databaseService.InitializeDatabaseAsync();
+        await AddSongAsync("Live Data", "Coverage Bot", "live-hardlink.dtx");
+
+        var hardLinkPath = Path.Combine(_tempRoot, "hardlink.db");
+        CreateHardLink(hardLinkPath, _databasePath);
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => _databaseService.BackupDatabaseAsync(hardLinkPath));
+
+        Assert.True(File.Exists(_databasePath));
+        Assert.Single(await _databaseService.GetSongsAsync());
+    }
+
+    [Fact]
+    public async Task BackupDatabaseAsync_WhenFileNamedLikeTempPathExists_ShouldPreserveIt()
+    {
+        await _databaseService.InitializeDatabaseAsync();
+        await AddSongAsync("Backed Up", "Coverage Bot", "stale-tmp.dtx");
+
+        var backupPath = Path.Combine(_tempRoot, "backup.db");
+        var foreignBytes = new byte[] { 9, 8, 7 };
+        await File.WriteAllBytesAsync(backupPath + ".tmp", foreignBytes);
+
+        await _databaseService.BackupDatabaseAsync(backupPath);
+
+        Assert.True(File.Exists(backupPath));
+        Assert.Equal(foreignBytes, await File.ReadAllBytesAsync(backupPath + ".tmp"));
+    }
+
+    [Fact]
+    public async Task BackupDatabaseAsync_WhenDatabasePathEndsWithTmpSuffix_ShouldNotDeleteDatabase()
+    {
+        var tmpNamedPath = Path.Combine(_tempRoot, "live.db.tmp");
+        using var tmpNamedService = new SongDatabaseService(tmpNamedPath);
+        await tmpNamedService.InitializeDatabaseAsync();
+
+        var backupPath = Path.Combine(_tempRoot, "live.db");
+        await tmpNamedService.BackupDatabaseAsync(backupPath);
+
+        Assert.True(File.Exists(tmpNamedPath));
+        Assert.Empty(await tmpNamedService.GetSongsAsync());
+        Assert.True(File.Exists(backupPath));
     }
 
     [Fact]
@@ -183,6 +247,37 @@ public class SongDatabaseServiceCoverageTests : IDisposable
     }
 
     [Fact]
+    public async Task RestoreDatabaseAsync_WhenSourceIsSymlinkedDirectoryAlias_ShouldThrowWithoutMutating()
+    {
+        await _databaseService.InitializeDatabaseAsync();
+        await AddSongAsync("Keep Me", "Coverage Bot", "keep-symlink-dir.dtx");
+
+        var aliasDirectory = Path.Combine(_tempRoot, "alias-dir");
+        Directory.CreateSymbolicLink(aliasDirectory, _tempRoot);
+        var aliasPath = Path.Combine(aliasDirectory, "songs.db");
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => _databaseService.RestoreDatabaseAsync(aliasPath));
+
+        Assert.Single(await _databaseService.GetSongsAsync());
+    }
+
+    [Fact]
+    public async Task RestoreDatabaseAsync_WhenSourceIsHardLinkToDatabase_ShouldThrowWithoutMutating()
+    {
+        await _databaseService.InitializeDatabaseAsync();
+        await AddSongAsync("Keep Me", "Coverage Bot", "keep-hardlink.dtx");
+
+        var hardLinkPath = Path.Combine(_tempRoot, "hardlink.db");
+        CreateHardLink(hardLinkPath, _databasePath);
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => _databaseService.RestoreDatabaseAsync(hardLinkPath));
+
+        Assert.Single(await _databaseService.GetSongsAsync());
+    }
+
+    [Fact]
     public async Task RestoreDatabaseAsync_OverLiveWalDatabase_ShouldReplaceContent()
     {
         await _databaseService.InitializeDatabaseAsync();
@@ -193,7 +288,6 @@ public class SongDatabaseServiceCoverageTests : IDisposable
 
         await AddSongAsync("Later Song", "Coverage Bot", "later.dtx");
 
-        // A checked-out destination connection stays open across the restore.
         using var heldContext = _databaseService.CreateContext();
         await heldContext.Database.GetDbConnection().OpenAsync();
 
@@ -502,4 +596,26 @@ public class SongDatabaseServiceCoverageTests : IDisposable
         using var context = _databaseService.CreateContext();
         return await context.SongScores.SingleAsync(score => score.ChartId == chartId && score.Instrument == instrument);
     }
+
+    private static void CreateHardLink(string linkPath, string targetPath)
+    {
+        var created = OperatingSystem.IsWindows()
+            ? CreateHardLinkW(linkPath, targetPath, IntPtr.Zero)
+            : link(targetPath, linkPath) == 0;
+        if (!created)
+        {
+            throw new IOException(
+                $"Failed to create hard link '{linkPath}' (error {Marshal.GetLastPInvokeError()})");
+        }
+    }
+
+    [DllImport("libc", SetLastError = true)]
+    private static extern int link(string oldpath, string newpath);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CreateHardLinkW(
+        string lpFileName,
+        string lpExistingFileName,
+        IntPtr lpSecurityAttributes);
 }
