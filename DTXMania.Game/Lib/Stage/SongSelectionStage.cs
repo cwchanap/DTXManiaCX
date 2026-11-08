@@ -177,7 +177,15 @@ namespace DTXMania.Game.Lib.Stage
         private SongSearchFilterModal? _searchFilterModal = null;
         private ITextInputSource? _textInputSource = null;
         private Microsoft.Xna.Framework.Input.MouseState? _previousMouseState = null;
-        
+
+        // Quick Settings popup (bass drum x2, NX quick config)
+        private QuickSettingsPopup? _quickSettingsPopup = null;
+
+        // NX CCommandHistory: two hits of the same pad within 500 ms make a double hit.
+        private const double PadDoubleHitWindowSeconds = 0.5;
+        private int _lastDoubleHitPadLane = -1;
+        private double _lastDoubleHitPadTime;
+
         // DTXMania pattern: timing and animation
         private double _elapsedTime;
         private SongSelectionPhase _selectionPhase = SongSelectionPhase.FadeIn;
@@ -514,6 +522,9 @@ namespace DTXMania.Game.Lib.Stage
             _textInputSource?.Dispose();
             _textInputSource = null;
             _searchFilterModal = null;
+            if (_quickSettingsPopup != null)
+                _quickSettingsPopup.Closed -= OnQuickSettingsClosed;
+            _quickSettingsPopup = null;
 
             UnsubscribePadLaneHits();
 
@@ -829,6 +840,14 @@ namespace DTXMania.Game.Lib.Stage
                 _textInputSource.Dispose();
                 _textInputSource = null;
             }
+
+            _quickSettingsPopup = new QuickSettingsPopup
+            {
+                WhitePixel = _whitePixel,
+                Font = _statusPanel?.Font
+            };
+            _quickSettingsPopup.Closed += OnQuickSettingsClosed;
+            _mainPanel.AddChild(_quickSettingsPopup);
 
             // Add panel to UI manager
             _uiManager.AddRootContainer(_mainPanel);
@@ -2697,6 +2716,14 @@ namespace DTXMania.Game.Lib.Stage
             if (_inputManager == null)
                 return;
 
+            if (_quickSettingsPopup != null && _quickSettingsPopup.IsOpen)
+            {
+                var commands = _inputManager.GetInputCommands();
+                while (commands.Count > 0 && _quickSettingsPopup.IsOpen)
+                    _quickSettingsPopup.HandleCommand(commands.Dequeue().Type);
+                return;
+            }
+
             if (_searchFilterModal != null && _searchFilterModal.IsOpen)
             {
                 ProcessModalKeys();
@@ -3962,20 +3989,75 @@ namespace DTXMania.Game.Lib.Stage
 
         /// <summary>
         /// Song-select pad actions on top of <see cref="DrumPadSystemKeys"/> (which covers
-        /// up/down/enter/back): floor tom cycles tabs like Tab, hi-hat steps the difficulty
-        /// up on the difficulty panel (it wraps, so there is no down), bass drum opens Config.
+        /// up/down/enter/back), following NX: floor tom cycles tabs like Tab, hi-hat x2 steps
+        /// the difficulty up (it wraps, so there is no down), bass drum x2 opens or closes
+        /// Quick Settings. While Quick Settings is open only bass drum x2 does anything here.
         /// </summary>
         private void HandlePadLaneHit(int lane)
         {
-            if (lane == FloorTomLaneIndex)
-                SwitchToNextTab();
-            else if (lane == HiHatLaneIndex && _isInStatusPanel)
-                CycleDifficulty(1);
-            else if (lane == BassDrumLaneIndex && _game.CanPerformStageTransition())
+            bool quickSettingsOpen = _quickSettingsPopup?.IsOpen == true;
+            if (lane == FloorTomLaneIndex && !quickSettingsOpen)
             {
-                _game.MarkStageTransition();
-                StageManager?.ChangeStage(StageType.Config, new DTXManiaFadeTransition(SongSelectionUILayout.Timing.TransitionDuration));
+                SwitchToNextTab();
             }
+            else if (lane == HiHatLaneIndex && !quickSettingsOpen)
+            {
+                if (IsPadDoubleHit(lane))
+                    CycleDifficulty(1);
+            }
+            else if (lane == BassDrumLaneIndex && IsPadDoubleHit(lane))
+            {
+                if (quickSettingsOpen)
+                    _quickSettingsPopup!.Close();
+                else
+                    OpenQuickSettings();
+            }
+        }
+
+        /// <summary>
+        /// True when this hit and the previous double-hit pad hit are the same pad within
+        /// <see cref="PadDoubleHitWindowSeconds"/>. A completed double hit starts over, so a
+        /// third hit does not fire again.
+        /// </summary>
+        private bool IsPadDoubleHit(int lane)
+        {
+            bool isDoubleHit = _lastDoubleHitPadLane == lane
+                && _elapsedTime - _lastDoubleHitPadTime <= PadDoubleHitWindowSeconds;
+            _lastDoubleHitPadLane = isDoubleHit ? -1 : lane;
+            _lastDoubleHitPadTime = _elapsedTime;
+            return isDoubleHit;
+        }
+
+        private void OpenQuickSettings()
+        {
+            if (_quickSettingsPopup == null || _configManager == null)
+                return;
+
+            _isInStatusPanel = false;
+            _quickSettingsPopup.Open(QuickSettingsPopup.CreateItems(
+                _configManager,
+                () => FfmpegRuntime.EnsureConfigured().IsAvailable));
+            _inputManager?.ClearPendingCommands();
+            PlayCursorMoveSound();
+        }
+
+        private void OnQuickSettingsClosed(object? sender, EventArgs e)
+        {
+            try
+            {
+                _configManager?.FlushPendingSave();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"SongSelectionStage: quick settings save failed: {ex.Message}");
+            }
+
+            int playSpeedPercent = SynchronizeActivePlaySpeed();
+            _statusPanel?.UpdateSongInfo(_selectedSong, _currentDifficulty, playSpeedPercent);
+            _playHistoryPanel?.UpdateSongInfo(_selectedSong, _currentDifficulty, playSpeedPercent);
+            _inputManager?.ClearPendingCommands();
+            _inputManager?.ResetKeyRepeatStates();
         }
 
         private void SubscribePadLaneHits()

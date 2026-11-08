@@ -727,6 +727,29 @@ namespace DTXMania.Game.Lib.UI.Layout
             public const int ButtonHeight = 36;
         }
 
+        /// <summary>
+        /// Layout constants for the Quick Settings popup (bass drum x2, NX quick config).
+        /// </summary>
+        public static class QuickSettingsPopup
+        {
+            // Centered in 1280x720
+            public const int X = 440;
+            public const int Y = 150;
+            public const int Width = 400;
+            public const int Height = 420;
+
+            public static Rectangle Bounds => new Rectangle(X, Y, Width, Height);
+
+            // Relative to the popup's top-left
+            public const int TitleY = 12;
+            public const int FirstRowY = 52;
+            public const int RowHeight = 36;
+            public const int RowX = 16;
+            public const int RowWidth = Width - RowX * 2;
+            public const int RowTextPadding = 10;
+            public const int HintY = Height - 30;
+        }
+
         #endregion
     }
 }
