@@ -86,7 +86,7 @@ namespace DTXMania.Test
                 diagnostics.Contexts.Snapshots,
                 item => item.Kind == CrashContextKind.Startup);
             Assert.Equal(
-                StartupCriticalPathMilestone.StartupActivation,
+                StartupMilestone.StartupActivation,
                 snapshot.Fields["Milestone"]);
         }
 
@@ -125,7 +125,7 @@ namespace DTXMania.Test
             Assert.NotNull(typeof(BaseGame).GetConstructor(
                 constructorFlags,
                 binder: null,
-                types: [typeof(StartupTimingTrace), typeof(IGameCrashDiagnostics)],
+                types: [typeof(IGameCrashDiagnostics)],
                 modifiers: null));
             Assert.Null(typeof(BaseGame).GetConstructor(
                 constructorFlags,
@@ -135,7 +135,7 @@ namespace DTXMania.Test
             Assert.NotNull(typeof(Game1).GetConstructor(
                 constructorFlags,
                 binder: null,
-                types: [typeof(StartupTimingTrace), typeof(IGameCrashDiagnostics)],
+                types: [typeof(IGameCrashDiagnostics)],
                 modifiers: null));
             Assert.Null(typeof(Game1).GetConstructor(
                 constructorFlags,
@@ -507,7 +507,7 @@ namespace DTXMania.Test
                 diagnostics.Contexts.Snapshots,
                 item => item.Kind == CrashContextKind.Startup);
             Assert.Equal(
-                StartupCriticalPathMilestone.StartupFirstDrawEnd,
+                StartupMilestone.StartupFirstDrawEnd,
                 startup.Fields["Milestone"]);
         }
 
@@ -524,7 +524,7 @@ namespace DTXMania.Test
                 diagnostics.Contexts.Snapshots,
                 item => item.Kind == CrashContextKind.Startup);
             Assert.Equal(
-                StartupCriticalPathMilestone.SummaryRequest,
+                StartupMilestone.SummaryRequest,
                 startup.Fields["Milestone"]);
         }
 
@@ -747,93 +747,6 @@ namespace DTXMania.Test
         }
 
         [Fact]
-        public void Initialize_WhenBaseInitializeReturns_ShouldRecordBeforePostBaseTail()
-        {
-            var trace = StartupTimingTrace.Start(
-                new IncrementingMonotonicClock(),
-                new ConstantUtcMicrosecondClock(),
-                enableCriticalPath: true);
-            var criticalPath = Assert.IsType<StartupCriticalPathTrace>(trace.CriticalPathTrace);
-            var resourceManager = new Mock<IResourceManager>();
-            var stageManager = new Mock<IStageManager>();
-            var renderTarget = ReflectionHelpers.CreateUninitialized<RenderTarget2D>();
-            var graphicsManager = new StubGraphicsManager(
-                isDeviceAvailable: true,
-                new RecordingRenderTargetManager(renderTarget));
-            LoadContentTestableBaseGame? game = null;
-            stageManager.Setup(value => value.ChangeStage(StageType.Startup))
-                .Callback(() =>
-                {
-                    criticalPath.RecordExactlyOnce(StartupCriticalPathMilestone.StartupConstructBegin);
-                    criticalPath.RecordExactlyOnce(StartupCriticalPathMilestone.StartupConstructEnd);
-                    criticalPath.RecordExactlyOnce(StartupCriticalPathMilestone.StartupActivateBegin);
-                    game!.ReportStartupActivated();
-                    criticalPath.RecordExactlyOnce(StartupCriticalPathMilestone.StartupActivateEnd);
-                });
-            game = CreateGameForDiagnosticInitialization(
-                trace,
-                resourceManager.Object,
-                stageManager.Object,
-                graphicsManager);
-
-            game.InvokeLoadContent();
-            criticalPath.RecordExactlyOnce(
-                StartupCriticalPathMilestone.BaseInitializeReturn);
-            ReflectionHelpers.InvokePrivateMethod(game, "InitializeAfterBase");
-
-            AssertMilestonesInOrder(
-                criticalPath,
-                StartupCriticalPathMilestone.LoadContentComplete,
-                StartupCriticalPathMilestone.StartupConstructBegin,
-                StartupCriticalPathMilestone.StartupConstructEnd,
-                StartupCriticalPathMilestone.StartupActivateBegin,
-                StartupCriticalPathMilestone.StartupActivation,
-                StartupCriticalPathMilestone.StartupActivateEnd,
-                StartupCriticalPathMilestone.LoadContentReturn,
-                StartupCriticalPathMilestone.BaseInitializeReturn,
-                StartupCriticalPathMilestone.InputManagerBegin,
-                StartupCriticalPathMilestone.InputManagerEnd,
-                StartupCriticalPathMilestone.SavedBindingsBegin,
-                StartupCriticalPathMilestone.SavedBindingsEnd,
-                StartupCriticalPathMilestone.GraphicsInitializeBegin,
-                StartupCriticalPathMilestone.GraphicsInitializeEnd,
-                StartupCriticalPathMilestone.RenderTargetBegin,
-                StartupCriticalPathMilestone.RenderTargetEnd,
-                StartupCriticalPathMilestone.InitializeComplete);
-
-            using var writer = new StringWriter();
-            Assert.False(criticalPath.TryPublishTerminal(writer));
-            Assert.Equal(string.Empty, writer.ToString());
-        }
-
-        [Fact]
-        public void LoadContent_WhenStartupChangesStage_ShouldRecordReturnAfterActivation()
-        {
-            var trace = StartupTimingTrace.Start(
-                new IncrementingMonotonicClock(),
-                new ConstantUtcMicrosecondClock(),
-                enableCriticalPath: true);
-            var criticalPath = Assert.IsType<StartupCriticalPathTrace>(trace.CriticalPathTrace);
-            var stageManager = new Mock<IStageManager>();
-            LoadContentTestableBaseGame? game = null;
-            stageManager.Setup(value => value.ChangeStage(StageType.Startup))
-                .Callback(() => game!.ReportStartupActivated());
-            game = CreateGameForDiagnosticInitialization(
-                trace,
-                new Mock<IResourceManager>().Object,
-                stageManager.Object,
-                new StubGraphicsManager(isDeviceAvailable: true, CreateFailingRenderTargetManager()));
-
-            game.InvokeLoadContent();
-
-            AssertMilestonesInOrder(
-                criticalPath,
-                StartupCriticalPathMilestone.LoadContentComplete,
-                StartupCriticalPathMilestone.StartupActivation,
-                StartupCriticalPathMilestone.LoadContentReturn);
-        }
-
-        [Fact]
         public void LoadContent_WhenGameApiDisabled_ShouldNotQueueApiStartup()
         {
             var game = CreateGameForLoadContent(
@@ -849,7 +762,7 @@ namespace DTXMania.Test
         }
 
         [Fact]
-        public void Initialize_WhenDiagnosticDisabled_ShouldKeepExistingCallsUnchanged()
+        public void Initialize_ShouldInitializeGraphicsRenderTargetAndInputManager()
         {
             var resourceManager = new Mock<IResourceManager>();
             var stageManager = new Mock<IStageManager>();
@@ -858,8 +771,7 @@ namespace DTXMania.Test
             var graphicsManager = new StubGraphicsManager(
                 isDeviceAvailable: true,
                 renderTargetManager);
-            var game = CreateGameForDiagnosticInitialization(
-                StartupTimingTrace.Disabled,
+            var game = CreateGameForInitialization(
                 resourceManager.Object,
                 stageManager.Object,
                 graphicsManager);
@@ -1138,185 +1050,6 @@ namespace DTXMania.Test
         }
 
         [Fact]
-        public void Draw_WhenTitleReady_ShouldEndStageDrawAfterStageManagerDrawReturns()
-        {
-            var trace = CreatePreparedCriticalPathTrace();
-            var criticalPath = Assert.IsType<StartupCriticalPathTrace>(trace.CriticalPathTrace);
-            var stageManager = CreateTitleStageManager();
-            stageManager.Setup(value => value.Draw(It.IsAny<double>()))
-                .Callback(() =>
-                {
-                    Assert.False(IsMilestoneRecorded(
-                        criticalPath,
-                        StartupCriticalPathMilestone.TitleStageDrawEnd));
-                });
-            var game = CreateDrawHarness(trace, stageManager.Object);
-
-            game.InvokeBaseDraw(new GameTime());
-
-            Assert.True(IsMilestoneRecorded(
-                criticalPath,
-                StartupCriticalPathMilestone.TitleStageDrawBegin));
-            Assert.True(IsMilestoneRecorded(
-                criticalPath,
-                StartupCriticalPathMilestone.TitleStageDrawEnd));
-        }
-
-        [Fact]
-        public void Draw_WhenValidRenderTargetBlits_ShouldPublishAfterBlitBeforeCompleteBaseDraw()
-        {
-            var trace = CreatePreparedCriticalPathTrace();
-            var stageManager = CreateTitleStageManager();
-            var game = CreateDrawHarness(trace, stageManager.Object);
-            stageManager.Setup(value => value.Draw(It.IsAny<double>()))
-                .Callback(() => game.CallOrder.Add("stage"));
-            game.DiagnosticWriter.OnWriteLine = () => game.CallOrder.Add("publish");
-
-            game.InvokeBaseDraw(new GameTime());
-
-            Assert.Equal(
-                new[] { "stage", "blit", "publish", "complete" },
-                game.CallOrder);
-            Assert.StartsWith("HPA192_CRITICAL_PATH outcome=success", game.DiagnosticWriter.ToString());
-        }
-
-        [Theory]
-        [InlineData(false)]
-        [InlineData(true)]
-        public void Draw_WhenRenderTargetMissingOrDisposed_ShouldNotPublishSuccess(bool disposed)
-        {
-            var trace = CreatePreparedCriticalPathTrace();
-            RenderTarget2D? invalidRenderTarget = null;
-            if (disposed)
-            {
-                invalidRenderTarget = ReflectionHelpers.CreateUninitialized<RenderTarget2D>();
-                invalidRenderTarget.Dispose();
-            }
-
-            var game = CreateDrawHarness(
-                trace,
-                CreateTitleStageManager().Object,
-                invalidRenderTarget,
-                new NullableRenderTargetManager(null));
-            ReflectionHelpers.SetPrivateField(game, "_renderTarget", invalidRenderTarget);
-
-            game.InvokeBaseDraw(new GameTime());
-
-            Assert.DoesNotContain("HPA192_CRITICAL_PATH outcome=success", game.DiagnosticWriter.ToString());
-            Assert.False(IsMilestoneRecorded(
-                trace.CriticalPathTrace!,
-                StartupCriticalPathMilestone.TitleBackbufferBlitEnd));
-        }
-
-        [Fact]
-        public void Draw_WhenFirstTitleFrameHasPendingScreenshot_ShouldPublishFailure()
-        {
-            var trace = CreatePreparedCriticalPathTrace();
-            var game = CreateDrawHarness(trace, CreateTitleStageManager().Object);
-            var pendingScreenshot = new TaskCompletionSource<byte[]?>(
-                TaskCreationOptions.RunContinuationsAsynchronously);
-            ReflectionHelpers.SetPrivateField(game, "_pendingScreenshot", pendingScreenshot);
-
-            game.InvokeBaseDraw(new GameTime());
-
-            Assert.Contains(
-                "HPA192_CRITICAL_PATH_FAILURE outcome=failure error=screenshot_pending",
-                game.DiagnosticWriter.ToString());
-            Assert.DoesNotContain("HPA192_CRITICAL_PATH outcome=success", game.DiagnosticWriter.ToString());
-        }
-
-        [Fact]
-        public void Draw_WhenRepeatedAfterPublication_ShouldNotPublishAgain()
-        {
-            var trace = CreatePreparedCriticalPathTrace();
-            var game = CreateDrawHarness(trace, CreateTitleStageManager().Object);
-
-            game.InvokeBaseDraw(new GameTime());
-            game.InvokeBaseDraw(new GameTime());
-
-            Assert.Equal(1, game.DiagnosticWriter.WriteLineCallCount);
-        }
-
-        [Fact]
-        public void Update_WhenExitAfterPublicationEnabled_ShouldExitOnFollowingUpdate()
-        {
-            var trace = CreatePreparedCriticalPathTrace(exitAfterPublication: true);
-            trace.CriticalPathTrace!.Fail("worker_failure", "database");
-            var game = CreateDrawHarness(trace, new Mock<IStageManager>().Object);
-
-            game.InvokeBaseUpdate(new GameTime());
-
-            Assert.Equal(0, game.RequestGameExitCallCount);
-            Assert.Equal(1, game.CompleteBaseUpdateCallCount);
-
-            game.InvokeBaseUpdate(new GameTime());
-
-            Assert.Equal(1, game.RequestGameExitCallCount);
-            Assert.Equal(1, game.CompleteBaseUpdateCallCount);
-        }
-
-        [Fact]
-        public void Update_WhenExitFlagEnabledButRecorderDisabled_ShouldNotExit()
-        {
-            var game = CreateDrawHarness(
-                StartupTimingTrace.Disabled,
-                new Mock<IStageManager>().Object);
-
-            game.InvokeBaseUpdate(new GameTime());
-            game.InvokeBaseUpdate(new GameTime());
-
-            Assert.Equal(0, game.RequestGameExitCallCount);
-            Assert.Equal(2, game.CompleteBaseUpdateCallCount);
-            Assert.Equal(string.Empty, game.DiagnosticWriter.ToString());
-        }
-
-        [Fact]
-        public void OnGameExiting_BeforeSuccess_ShouldPublishExitFailureAndStillFlushConfig()
-        {
-            var tempDir = Path.Combine(
-                AppContext.BaseDirectory,
-                "TestResults",
-                "critical-path-exit",
-                Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(tempDir);
-            var configDbPath = Path.Combine(tempDir, "config.db");
-            var legacyIniPath = Path.Combine(tempDir, "Config.ini");
-            try
-            {
-                var configManager = new ConfigManager(configDbPath, legacyIniPath);
-                configManager.LoadConfig();
-                configManager.SetMetronome(true);
-                var trace = CreatePreparedCriticalPathTrace();
-                var game = CreateDrawHarness(trace, new Mock<IStageManager>().Object);
-                ReflectionHelpers.SetPrivateField(
-                    game,
-                    "<ConfigManager>k__BackingField",
-                    configManager);
-
-                ReflectionHelpers.InvokePrivateMethod(
-                    game,
-                    "OnGameExiting",
-                    null!,
-                    EventArgs.Empty);
-
-                Assert.Contains(
-                    "HPA192_CRITICAL_PATH_FAILURE outcome=failure error=exit_before_success",
-                    game.DiagnosticWriter.ToString());
-
-                var reloaded = new ConfigManager(configDbPath, legacyIniPath);
-                reloaded.LoadConfig();
-                Assert.True(reloaded.Config.Metronome);
-            }
-            finally
-            {
-                // Release pooled config.db handles before deleting the temp
-                // directory (Windows keeps the file locked otherwise).
-                SqliteConnection.ClearAllPools();
-                if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true);
-            }
-        }
-
-        [Fact]
         public void DisposeManagedResources_WhenCallerHasSynchronizationContext_ShouldStartJsonRpcShutdownWithoutCallerContext()
         {
             var game = CreateGameForShutdownContext();
@@ -1464,71 +1197,11 @@ namespace DTXMania.Test
         [Fact]
         public void Update_WhenStageIsTitleAndNotTransitioning_ShouldInvokeBaseUpdateOnce()
         {
-            var trace = StartupTimingTrace.Start(
-                new IncrementingMonotonicClock(),
-                new ConstantUtcMicrosecondClock(),
-                enableCriticalPath: true);
-            // Record all milestones in order so TryFormatCompletedLine returns non-null.
-            trace.MarkConfigLoaded();
-            trace.MarkLoadContentComplete();
-            trace.MarkStartupActivated();
-            trace.MarkStartupFirstDraw();
-            trace.MarkSummaryAndTitleRequested();
-            var game = CreateDrawHarness(trace, CreateTitleStageManager().Object);
+            var game = CreateDrawHarness(CreateTitleStageManager().Object);
 
             game.InvokeBaseUpdate(new GameTime());
 
-            // MarkTitleCompleted + TryFormatCompletedLine should have been called.
-            // The timing line is written to Console.Out (not the diagnostic writer,
-            // because the base Update uses Console.Out directly).
             Assert.Equal(1, game.CompleteBaseUpdateCallCount);
-        }
-
-        [Fact]
-        public void StartupDiagnosticWriter_OnBaseImplementation_ShouldReturnConsoleOut()
-        {
-            var game = ReflectionHelpers.CreateGame();
-
-            var writer = ReflectionHelpers.InvokePrivateMethod<TextWriter>(
-                game,
-                "get_StartupDiagnosticWriter");
-
-            Assert.Same(Console.Out, writer);
-        }
-
-        [Fact]
-        public void RequestGameExit_OnBaseImplementation_ShouldCallExitWithoutThrowing()
-        {
-            var game = ReflectionHelpers.CreateGame();
-
-            var exception = Record.Exception(() =>
-                ReflectionHelpers.InvokePrivateMethod(game, "RequestGameExit"));
-
-            // Exit() on an uninitialized game may or may not throw depending on
-            // the MonoGame platform backend; either way the method was entered.
-            // We only assert that any exception is not a test infrastructure error.
-            if (exception is not null)
-                Assert.IsNotType<NotImplementedException>(exception);
-        }
-
-        [Fact]
-        public void TryPublishStartupCriticalPath_WhenTraceThrows_ShouldSwallowException()
-        {
-            var trace = StartupTimingTrace.Start(
-                new IncrementingMonotonicClock(),
-                new ConstantUtcMicrosecondClock(),
-                enableCriticalPath: true);
-            // Corrupt the critical path trace so TryPublishTerminal throws.
-            ReflectionHelpers.SetPrivateField(
-                trace.CriticalPathTrace!,
-                "_sync",
-                null!);
-            var game = CreateDrawHarness(trace, new Mock<IStageManager>().Object);
-
-            var exception = Record.Exception(() =>
-                ReflectionHelpers.InvokePrivateMethod(game, "TryPublishStartupCriticalPath"));
-
-            Assert.Null(exception);
         }
 
         private static BaseGame CreateGameForLifecycle(
@@ -1606,8 +1279,7 @@ namespace DTXMania.Test
             return game;
         }
 
-        private static LoadContentTestableBaseGame CreateGameForDiagnosticInitialization(
-            StartupTimingTrace trace,
+        private static LoadContentTestableBaseGame CreateGameForInitialization(
             IResourceManager resourceManager,
             IStageManager stageManager,
             StubGraphicsManager graphicsManager)
@@ -1616,7 +1288,6 @@ namespace DTXMania.Test
             var configManager = new ConfigManager();
 
             SetCrashDiagnostics(game, new TestGameCrashDiagnostics());
-            ReflectionHelpers.SetPrivateField(game, "_startupTimingTrace", trace);
             ReflectionHelpers.SetPrivateField(game, "_graphicsManager", graphicsManager);
             ReflectionHelpers.SetPrivateField(game, "<ConfigManager>k__BackingField", configManager);
             game.LoadContentServicesToReturn = new BaseGame.LoadContentServices(
@@ -1638,7 +1309,6 @@ namespace DTXMania.Test
         }
 
         private static DrawHarnessBaseGame CreateDrawHarness(
-            StartupTimingTrace trace,
             IStageManager stageManager,
             RenderTarget2D? renderTarget = null,
             RenderTargetManager? renderTargetManager = null)
@@ -1652,7 +1322,6 @@ namespace DTXMania.Test
 
             ReflectionHelpers.SetPrivateField(game, "_mainThreadActions", new ConcurrentQueue<Action>());
             ReflectionHelpers.SetPrivateField(game, "_pendingScreenshot", null);
-            ReflectionHelpers.SetPrivateField(game, "_startupTimingTrace", trace);
             ReflectionHelpers.SetPrivateField(game, "_totalGameTime", 0.0);
             ReflectionHelpers.SetPrivateField(game, "_lastStageTransitionTime", 0.0);
             ReflectionHelpers.SetPrivateField(game, "_graphicsManager", graphicsManager);
@@ -1663,105 +1332,6 @@ namespace DTXMania.Test
                 "<ConfigManager>k__BackingField",
                 CreateConfigManager(new ConfigData()));
             return game;
-        }
-
-        private static StartupTimingTrace CreatePreparedCriticalPathTrace(
-            bool exitAfterPublication = false)
-        {
-            var trace = StartupTimingTrace.Start(
-                new SequenceMonotonicClock(0, 200, 201, 202, 203),
-                new SequenceUtcMicrosecondClock(1_000_000, 2_000_000),
-                enableCriticalPath: true,
-                exitAfterCriticalPath: exitAfterPublication);
-            var criticalPath = trace.CriticalPathTrace!;
-            var timestamps = ReflectionHelpers.GetPrivateField<long[]>(criticalPath, "_timestamps")!;
-            var recorded = ReflectionHelpers.GetPrivateField<bool[]>(criticalPath, "_recorded")!;
-
-            foreach (var milestone in Enum.GetValues<StartupCriticalPathMilestone>())
-            {
-                if (milestone is StartupCriticalPathMilestone.TitleStageDrawBegin or
-                    StartupCriticalPathMilestone.TitleStageDrawEnd or
-                    StartupCriticalPathMilestone.TitleBackbufferBlitBegin or
-                    StartupCriticalPathMilestone.TitleBackbufferBlitEnd)
-                {
-                    continue;
-                }
-
-                var index = (int)milestone;
-                recorded[index] = true;
-                timestamps[index] = index + 1;
-            }
-
-            var aggregateCounts = ReflectionHelpers.GetPrivateField<long[]>(
-                criticalPath,
-                "_aggregateCounts")!;
-            foreach (var aggregate in Enum.GetValues<StartupCriticalPathAggregate>())
-            {
-                if (aggregate is not StartupCriticalPathAggregate.DatabaseInvalidRecovery and
-                    not StartupCriticalPathAggregate.TitleGameStartFallback)
-                {
-                    aggregateCounts[(int)aggregate] = 1;
-                }
-            }
-
-            ReflectionHelpers.SetPrivateField(
-                criticalPath,
-                "_databaseTaskReturnedRecorded",
-                true);
-            ReflectionHelpers.SetPrivateField(
-                criticalPath,
-                "_enumerationTaskReturnedRecorded",
-                true);
-            ReflectionHelpers.SetPrivateField(
-                criticalPath,
-                "_enumerationResultRecorded",
-                true);
-            ReflectionHelpers.SetPrivateField(
-                criticalPath,
-                "_titleCompletionLookupRecorded",
-                true);
-            ReflectionHelpers.SetPrivateField(
-                criticalPath,
-                "_titleCompletionLookupCacheHit",
-                true);
-            ReflectionHelpers.SetPrivateField(
-                criticalPath,
-                "_titleSoundLoadCount",
-                3L);
-            ReflectionHelpers.SetPrivateField(
-                criticalPath,
-                "_lastMilestoneRaw",
-                nameof(StartupCriticalPathMilestone.TitleFirstUpdateEnd));
-            return trace;
-        }
-
-        private static bool IsMilestoneRecorded(
-            StartupCriticalPathTrace trace,
-            StartupCriticalPathMilestone milestone)
-        {
-            var recorded = ReflectionHelpers.GetPrivateField<bool[]>(trace, "_recorded");
-            return recorded![(int)milestone];
-        }
-
-        private static void AssertMilestonesInOrder(
-            StartupCriticalPathTrace trace,
-            params StartupCriticalPathMilestone[] milestones)
-        {
-            var timestamps = ReflectionHelpers.GetPrivateField<long[]>(trace, "_timestamps");
-            var recorded = ReflectionHelpers.GetPrivateField<bool[]>(trace, "_recorded");
-            Assert.NotNull(timestamps);
-            Assert.NotNull(recorded);
-
-            long previous = long.MinValue;
-            foreach (var milestone in milestones)
-            {
-                var index = (int)milestone;
-                Assert.True(recorded![index], $"Expected {milestone} to be recorded.");
-                Assert.True(
-                    timestamps![index] > previous,
-                    $"Expected {milestone} after the previous milestone.");
-                previous = timestamps[index];
-            }
         }
 
         private static StartupTestableBaseGame CreateGameForStartup(ConfigData config)
@@ -2256,46 +1826,6 @@ namespace DTXMania.Test
             }
         }
 
-        private sealed class IncrementingMonotonicClock : IMonotonicClock
-        {
-            private long _timestamp;
-
-            public long TimestampFrequency => 1_000;
-
-            public long GetTimestamp() => _timestamp++;
-        }
-
-        private sealed class ConstantUtcMicrosecondClock : IUtcMicrosecondClock
-        {
-            public long GetUnixMicroseconds() => 10_000_000;
-        }
-
-        private sealed class SequenceMonotonicClock : IMonotonicClock
-        {
-            private readonly Queue<long> _timestamps;
-
-            public SequenceMonotonicClock(params long[] timestamps)
-            {
-                _timestamps = new Queue<long>(timestamps);
-            }
-
-            public long TimestampFrequency => 1_000;
-
-            public long GetTimestamp() => _timestamps.Dequeue();
-        }
-
-        private sealed class SequenceUtcMicrosecondClock : IUtcMicrosecondClock
-        {
-            private readonly Queue<long> _timestamps;
-
-            public SequenceUtcMicrosecondClock(params long[] timestamps)
-            {
-                _timestamps = new Queue<long>(timestamps);
-            }
-
-            public long GetUnixMicroseconds() => _timestamps.Dequeue();
-        }
-
         private sealed class TrackableRenderTarget : RenderTarget2D
         {
             private TrackableRenderTarget()
@@ -2314,9 +1844,8 @@ namespace DTXMania.Test
         private sealed class TestableBaseGame : BaseGame
         {
             private TestableBaseGame(
-                StartupTimingTrace startupTimingTrace,
                 IGameCrashDiagnostics crashDiagnostics)
-                : base(startupTimingTrace, crashDiagnostics)
+                : base(crashDiagnostics)
             {
             }
 
@@ -2341,9 +1870,8 @@ namespace DTXMania.Test
         private sealed class LoadContentTestableBaseGame : BaseGame
         {
             private LoadContentTestableBaseGame(
-                StartupTimingTrace startupTimingTrace,
                 IGameCrashDiagnostics crashDiagnostics)
-                : base(startupTimingTrace, crashDiagnostics)
+                : base(crashDiagnostics)
             {
             }
 
@@ -2376,9 +1904,8 @@ namespace DTXMania.Test
         private sealed class StartupTestableBaseGame : BaseGame
         {
             private StartupTestableBaseGame(
-                StartupTimingTrace startupTimingTrace,
                 IGameCrashDiagnostics crashDiagnostics)
-                : base(startupTimingTrace, crashDiagnostics)
+                : base(crashDiagnostics)
             {
             }
 
@@ -2398,9 +1925,8 @@ namespace DTXMania.Test
         private sealed class ShutdownContextTestableBaseGame : BaseGame
         {
             private ShutdownContextTestableBaseGame(
-                StartupTimingTrace startupTimingTrace,
                 IGameCrashDiagnostics crashDiagnostics)
-                : base(startupTimingTrace, crashDiagnostics)
+                : base(crashDiagnostics)
             {
             }
 
@@ -2419,9 +1945,8 @@ namespace DTXMania.Test
         private sealed class DrawHarnessBaseGame : BaseGame
         {
             private DrawHarnessBaseGame(
-                StartupTimingTrace startupTimingTrace,
                 IGameCrashDiagnostics crashDiagnostics)
-                : base(startupTimingTrace, crashDiagnostics)
+                : base(crashDiagnostics)
             {
             }
 
@@ -2430,8 +1955,6 @@ namespace DTXMania.Test
             private List<Color>? _clearCalls;
 
             private List<string>? _callOrder;
-
-            private RecordingStringWriter? _diagnosticWriter;
 
             public List<RenderTarget2D?> SetRenderTargetCalls => _setRenderTargetCalls ??= new List<RenderTarget2D?>();
 
@@ -2444,9 +1967,6 @@ namespace DTXMania.Test
             public RenderTarget2D? DrawnRenderTarget { get; private set; }
 
             public List<string> CallOrder => _callOrder ??= new List<string>();
-
-            public RecordingStringWriter DiagnosticWriter =>
-                _diagnosticWriter ??= new RecordingStringWriter();
 
             public int RequestGameExitCallCount { get; private set; }
 
@@ -2490,8 +2010,6 @@ namespace DTXMania.Test
                 CompleteBaseUpdateCallCount++;
             }
 
-            internal override TextWriter StartupDiagnosticWriter => DiagnosticWriter;
-
             internal override void RequestGameExit()
             {
                 RequestGameExitCallCount++;
@@ -2508,20 +2026,6 @@ namespace DTXMania.Test
             }
         }
 
-        private sealed class RecordingStringWriter : StringWriter
-        {
-            public Action? OnWriteLine { get; set; }
-
-            public int WriteLineCallCount { get; private set; }
-
-            public override void WriteLine(string? value)
-            {
-                WriteLineCallCount++;
-                OnWriteLine?.Invoke();
-                base.WriteLine(value);
-            }
-        }
-
         /// <summary>
         /// Test-only <see cref="BaseGame"/> that overrides the <see cref="BaseGame.TryGetViewportBounds"/>
         /// seam with a controllable rectangle, so <see cref="BaseGame.MapMouseToVirtual"/> can be
@@ -2530,9 +2034,8 @@ namespace DTXMania.Test
         private sealed class ViewportSpyGame : BaseGame
         {
             private ViewportSpyGame(
-                StartupTimingTrace startupTimingTrace,
                 IGameCrashDiagnostics crashDiagnostics)
-                : base(startupTimingTrace, crashDiagnostics)
+                : base(crashDiagnostics)
             {
             }
 

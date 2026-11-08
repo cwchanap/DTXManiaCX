@@ -63,50 +63,18 @@ namespace DTXMania.Game.Lib.Stage
                 return;
             }
 
-            var stageType = Type;
-            var criticalPathTrace =
-                stageType is StageType.Startup or StageType.Title
-                    ? ResolveCriticalPathTrace()
-                    : null;
-            if (stageType == StageType.Startup)
-            {
-                criticalPathTrace?.RecordExactlyOnce(
-                    StartupCriticalPathMilestone.StartupActivateBegin);
-            }
-            else if (stageType == StageType.Title)
-            {
-                criticalPathTrace?.RecordExactlyOnce(
-                    StartupCriticalPathMilestone.TitleActivateBegin);
-            }
+            // Store shared data
+            _sharedData = sharedData ?? new Dictionary<string, object>();
 
-            try
-            {
-                // Store shared data
-                _sharedData = sharedData ?? new Dictionary<string, object>();
-                
-                // Reset state
-                _isFirstUpdate = true;
-                _currentPhase = StagePhase.FadeIn;
+            // Reset state
+            _isFirstUpdate = true;
+            _currentPhase = StagePhase.FadeIn;
 
-                // Load stage background
-                LoadStageBackground();
+            // Load stage background
+            LoadStageBackground();
 
-                // Perform stage-specific activation
-                OnActivate();
-            }
-            finally
-            {
-                if (stageType == StageType.Startup)
-                {
-                    criticalPathTrace?.RecordExactlyOnce(
-                        StartupCriticalPathMilestone.StartupActivateEnd);
-                }
-                else if (stageType == StageType.Title)
-                {
-                    criticalPathTrace?.RecordExactlyOnce(
-                        StartupCriticalPathMilestone.TitleActivateEnd);
-                }
-            }
+            // Perform stage-specific activation
+            OnActivate();
         }
 
         public virtual void Deactivate()
@@ -134,56 +102,18 @@ namespace DTXMania.Game.Lib.Stage
             if (_currentPhase == StagePhase.Inactive)
                 return;
 
-            var stageType = Type;
-            var observeFirstUpdate =
-                _isFirstUpdate &&
-                stageType is StageType.Startup or StageType.Title;
-            var criticalPathTrace =
-                stageType == StageType.Startup || observeFirstUpdate
-                    ? ResolveCriticalPathTrace()
-                    : null;
-            var firstUpdateBegin = stageType == StageType.Startup
-                ? StartupCriticalPathMilestone.StartupFirstUpdateBegin
-                : StartupCriticalPathMilestone.TitleFirstUpdateBegin;
-            var firstUpdateEnd = stageType == StageType.Startup
-                ? StartupCriticalPathMilestone.StartupFirstUpdateEnd
-                : StartupCriticalPathMilestone.TitleFirstUpdateEnd;
-
-            if (observeFirstUpdate)
+            // Handle first update
+            if (_isFirstUpdate)
             {
-                criticalPathTrace?.RecordFirstObservationBegin(
-                    firstUpdateBegin,
-                    firstUpdateEnd);
-            }
-            if (stageType == StageType.Startup)
-            {
-                criticalPathTrace?.IncrementStartupUpdate(deltaTime);
+                _isFirstUpdate = false;
+                OnFirstUpdate(deltaTime);
             }
 
-            try
-            {
-                // Handle first update
-                if (_isFirstUpdate)
-                {
-                    _isFirstUpdate = false;
-                    OnFirstUpdate(deltaTime);
-                }
+            // Update phase-specific logic
+            UpdatePhase(deltaTime);
 
-                // Update phase-specific logic
-                UpdatePhase(deltaTime);
-
-                // Perform stage-specific update
-                OnUpdate(deltaTime);
-            }
-            finally
-            {
-                if (observeFirstUpdate)
-                {
-                    criticalPathTrace?.RecordFirstObservationEnd(
-                        firstUpdateBegin,
-                        firstUpdateEnd);
-                }
-            }
+            // Perform stage-specific update
+            OnUpdate(deltaTime);
         }
 
         public virtual void Draw(double deltaTime)
@@ -191,34 +121,7 @@ namespace DTXMania.Game.Lib.Stage
             if (_currentPhase == StagePhase.Inactive)
                 return;
 
-            var stageType = Type;
-            var criticalPathTrace = stageType == StageType.Startup
-                ? ResolveCriticalPathTrace()
-                : null;
-            if (stageType == StageType.Startup)
-            {
-                criticalPathTrace?.RecordFirstObservationBegin(
-                    StartupCriticalPathMilestone.StartupFirstDrawBegin,
-                    StartupCriticalPathMilestone.StartupFirstDrawEnd);
-            }
-
-            try
-            {
-                OnDraw(deltaTime);
-                if (stageType == StageType.Startup)
-                {
-                    criticalPathTrace?.IncrementCompletedStartupDraw();
-                }
-            }
-            finally
-            {
-                if (stageType == StageType.Startup)
-                {
-                    criticalPathTrace?.RecordFirstObservationEnd(
-                        StartupCriticalPathMilestone.StartupFirstDrawBegin,
-                        StartupCriticalPathMilestone.StartupFirstDrawEnd);
-                }
-            }
+            OnDraw(deltaTime);
         }
 
         public virtual void OnTransitionIn(IStageTransition transition)
@@ -375,39 +278,19 @@ namespace DTXMania.Game.Lib.Stage
                 return;
 
             _backgroundLoadAttempted = true;
-            var stageType = Type;
-            var criticalPathTrace = stageType == StageType.Title
-                ? ResolveCriticalPathTrace()
-                : null;
-            if (stageType == StageType.Title)
-            {
-                criticalPathTrace?.BeginAggregate(
-                    StartupCriticalPathAggregate.TitleBackground);
-            }
 
             try
             {
-                try
+                var texturePath = GetBackgroundTexturePath();
+                if (!string.IsNullOrEmpty(texturePath))
                 {
-                    var texturePath = GetBackgroundTexturePath();
-                    if (!string.IsNullOrEmpty(texturePath))
-                    {
-                        _stageBackgroundTexture = _game.ResourceManager.LoadTexture(texturePath);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"BaseStage: Failed to load background for {Type}: {ex.Message}");
-                    _stageBackgroundTexture = null;
+                    _stageBackgroundTexture = _game.ResourceManager.LoadTexture(texturePath);
                 }
             }
-            finally
+            catch (Exception ex)
             {
-                if (stageType == StageType.Title)
-                {
-                    criticalPathTrace?.EndAggregate(
-                        StartupCriticalPathAggregate.TitleBackground);
-                }
+                System.Diagnostics.Debug.WriteLine($"BaseStage: Failed to load background for {Type}: {ex.Message}");
+                _stageBackgroundTexture = null;
             }
         }
 
@@ -480,9 +363,6 @@ namespace DTXMania.Game.Lib.Stage
                     break;
             }
         }
-
-        private StartupCriticalPathTrace ResolveCriticalPathTrace() =>
-            StartupCriticalPathHost.TryResolve(_game);
 
         #endregion
 

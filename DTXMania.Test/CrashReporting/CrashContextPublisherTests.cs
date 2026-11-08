@@ -222,7 +222,7 @@ public sealed class CrashContextPublisherTests
         var exception = Record.Exception(
             () => CrashContextPublisher.PublishStartupMilestone(
                 null,
-                StartupCriticalPathMilestone.StartupActivation));
+                StartupMilestone.StartupActivation));
 
         Assert.Null(exception);
     }
@@ -234,10 +234,10 @@ public sealed class CrashContextPublisherTests
 
         CrashContextPublisher.PublishStartupMilestone(
             diagnostics,
-            StartupCriticalPathMilestone.StartupActivation);
+            StartupMilestone.StartupActivation);
 
         var startup = Assert.Single(diagnostics.Contexts.Snapshots, s => s.Kind == CrashContextKind.Startup);
-        Assert.Equal(StartupCriticalPathMilestone.StartupActivation, startup.Fields["Milestone"]);
+        Assert.Equal(StartupMilestone.StartupActivation, startup.Fields["Milestone"]);
 
         var breadcrumb = Assert.Single(diagnostics.Breadcrumbs.Events);
         Assert.Equal("initialization_milestone_reached", breadcrumb.EventName);

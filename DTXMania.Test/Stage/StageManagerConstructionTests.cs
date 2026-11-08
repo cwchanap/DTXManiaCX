@@ -40,21 +40,6 @@ namespace DTXMania.Test.Stage
             manager.Dispose();
         }
 
-        [Fact]
-        public void GetOrCreateStage_WhenCriticalPathHostGetterThrows_ShouldSwallowAndStillConstructTitleStage()
-        {
-            // ResolveCriticalPathTrace wraps the host lookup in try/catch; a throwing host getter
-            // degrades to a null trace so the Title stage still constructs.
-            var game = new ThrowingHostStageGame(new Mock<IResourceManager>().Object);
-            var manager = new StageManager(game);
-
-            var stage = (IStage)ReflectionHelpers.InvokePrivateMethod(manager, "GetOrCreateStage", StageType.Title)!;
-
-            Assert.NotNull(stage);
-            Assert.Equal(StageType.Title, stage.Type);
-            manager.Dispose();
-        }
-
         private sealed class ConfiguredStageGame : IStageGame
         {
             public ConfiguredStageGame(IResourceManager resourceManager)
@@ -77,29 +62,5 @@ namespace DTXMania.Test.Stage
             public void RequestExit() { }
         }
 
-        private sealed class ThrowingHostStageGame : IStageGame, IStartupCriticalPathHost
-        {
-            public ThrowingHostStageGame(IResourceManager resourceManager)
-            {
-                ResourceManager = resourceManager;
-                ConfigManager = new ConfigManager();
-            }
-
-            StartupCriticalPathTrace? IStartupCriticalPathHost.StartupCriticalPathTrace =>
-                throw new InvalidOperationException("trace resolution failed");
-
-            public GraphicsDevice GraphicsDevice => null!;
-            public IStageManager StageManager => null!;
-            public IConfigManager ConfigManager { get; }
-            public InputManagerCompat InputManager => null!;
-            public IGraphicsManager GraphicsManager => null!;
-            public IResourceManager ResourceManager { get; }
-            public ILoggerFactory LoggerFactory => NullLoggerFactory.Instance;
-            public bool CanPerformStageTransition() => false;
-            public void MarkStageTransition() { }
-            public Point? MapMouseToVirtual(Point windowPoint) => null;
-            public ITextInputSource? GetTextInputSource() => null;
-            public void RequestExit() { }
-        }
     }
 }

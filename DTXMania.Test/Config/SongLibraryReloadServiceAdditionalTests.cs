@@ -115,14 +115,12 @@ public sealed class SongLibraryReloadServiceAdditionalTests
                     RootNodes = new List<SongListNode>(),
                     PendingSongs = new List<PendingSongNode>(),
                     Errors = new List<SongEnumerationError>(),
-                    DiscoveryAndParsingDuration = TimeSpan.Zero,
                     IsComplete = true,
                 };
                 return Task.FromResult(new SongEnumerationResult(
                     SongEnumerationOutcome.ImportedAndPublished,
                     batch,
-                    SongBulkImportResult.Empty,
-                    TimeSpan.Zero));
+                    SongBulkImportResult.Empty));
             });
 
         var result = await service.ReloadAsync(
@@ -149,10 +147,8 @@ public sealed class SongLibraryReloadServiceAdditionalTests
                 RootNodes = new List<SongListNode>(),
                 PendingSongs = new List<PendingSongNode>(),
                 Errors = errors.ToList(),
-                DiscoveryAndParsingDuration = TimeSpan.Zero,
                 IsComplete = true,
             },
-            SongBulkImportResult.Empty,
-            TimeSpan.Zero);
+            SongBulkImportResult.Empty);
     }
 }

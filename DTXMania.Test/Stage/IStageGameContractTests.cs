@@ -191,9 +191,8 @@ namespace DTXMania.Test.Stage
         private sealed class TextInputSpyGame : BaseGame
         {
             private TextInputSpyGame(
-                StartupTimingTrace startupTimingTrace,
                 IGameCrashDiagnostics crashDiagnostics)
-                : base(startupTimingTrace, crashDiagnostics)
+                : base(crashDiagnostics)
             {
             }
 

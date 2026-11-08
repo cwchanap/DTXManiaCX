@@ -42,7 +42,7 @@ namespace DTXMania.Game;
 /// Uses structured logging via ILogger for diagnostics.
 /// Stage transition debouncing is configured via GameConstants.StageTransition.DebounceDelaySeconds.
 /// </remarks>
-public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, IStartupCriticalPathHost
+public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame
 {
     internal readonly record struct LoadContentServices(
         SpriteBatch SpriteBatch,
@@ -79,13 +79,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
     // Logger for debugging and diagnostics
     private readonly ILogger<BaseGame> _logger = null!;
 
-    private StartupTimingTrace? _startupTimingTrace = StartupTimingTrace.Disabled;
-    private bool _startupDiagnosticExitPending;
     private int _lastKnownMidiDeviceCount = -1;
-
-    StartupCriticalPathTrace?
-        IStartupCriticalPathHost.StartupCriticalPathTrace =>
-            _startupTimingTrace?.CriticalPathTrace;
 
     // JSON-RPC server for MCP communication
     private JsonRpcServer? _jsonRpcServer;
@@ -126,28 +120,23 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
 
     public void ReportStartupActivated()
     {
-        _startupTimingTrace?.MarkStartupActivated();
-        _startupTimingTrace?.CriticalPathTrace?.RecordExactlyOnce(
-            StartupCriticalPathMilestone.StartupActivation);
         CrashContextPublisher.PublishStartupMilestone(
             _gameCrashDiagnostics,
-            StartupCriticalPathMilestone.StartupActivation);
+            StartupMilestone.StartupActivation);
     }
 
     public void ReportStartupFrameRendered()
     {
-        _startupTimingTrace?.MarkStartupFirstDraw();
         CrashContextPublisher.PublishStartupMilestone(
             _gameCrashDiagnostics,
-            StartupCriticalPathMilestone.StartupFirstDrawEnd);
+            StartupMilestone.StartupFirstDrawEnd);
     }
 
     public void ReportStartupSummaryAndTitleRequested()
     {
-        _startupTimingTrace?.MarkSummaryAndTitleRequested();
         CrashContextPublisher.PublishStartupMilestone(
             _gameCrashDiagnostics,
-            StartupCriticalPathMilestone.SummaryRequest);
+            StartupMilestone.SummaryRequest);
     }
 
     /// <summary>
@@ -227,10 +216,8 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
     }
 
     internal BaseGame(
-        StartupTimingTrace startupTimingTrace,
         IGameCrashDiagnostics crashDiagnostics)
     {
-        _startupTimingTrace = startupTimingTrace ?? throw new ArgumentNullException(nameof(startupTimingTrace));
         _gameCrashDiagnostics = crashDiagnostics ?? throw new ArgumentNullException(nameof(crashDiagnostics));
 
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
@@ -270,7 +257,6 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
         // Initialize managers
         ConfigManager = new ConfigManager();
         ConfigManager.LoadConfig();
-        _startupTimingTrace?.MarkConfigLoaded();
         var config = ConfigManager.Config;
         CrashContextPublisher.PublishConfiguration(_gameCrashDiagnostics, config);
         CrashContextPublisher.RegisterSensitivePrefixes(_gameCrashDiagnostics, config);
@@ -295,64 +281,30 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
 
         base.Initialize();
 
-        _startupTimingTrace?.CriticalPathTrace?.RecordExactlyOnce(
-            StartupCriticalPathMilestone.BaseInitializeReturn);
         InitializeAfterBase();
     }
 
     private void InitializeAfterBase()
     {
-        var criticalPathTrace = _startupTimingTrace?.CriticalPathTrace;
-
         // Initialize managers that are needed after base.Initialize() calls LoadContent()
         // InputManager must be created before StageManager since stages need InputManager in their constructors
-        criticalPathTrace?.RecordExactlyOnce(
-            StartupCriticalPathMilestone.InputManagerBegin);
-        try
-        {
-            InputManager = new InputManagerCompat(ConfigManager);
-            InputManager.PadCommandResolver = lane =>
-                DrumPadSystemKeys.GetCommand(StageManager?.CurrentStage?.Type, lane);
-            _lastKnownMidiDeviceCount = InputManager.ModularInputManager.ConnectedMidiDeviceCount;
-            CrashContextPublisher.PublishInput(
-                _gameCrashDiagnostics,
-                _lastKnownMidiDeviceCount);
-        }
-        finally
-        {
-            criticalPathTrace?.RecordExactlyOnce(
-                StartupCriticalPathMilestone.InputManagerEnd);
-        }
+        InputManager = new InputManagerCompat(ConfigManager);
+        InputManager.PadCommandResolver = lane =>
+            DrumPadSystemKeys.GetCommand(StageManager?.CurrentStage?.Type, lane);
+        _lastKnownMidiDeviceCount = InputManager.ModularInputManager.ConnectedMidiDeviceCount;
+        CrashContextPublisher.PublishInput(
+            _gameCrashDiagnostics,
+            _lastKnownMidiDeviceCount);
 
         // Apply saved system key bindings on top of defaults
-        criticalPathTrace?.RecordExactlyOnce(
-            StartupCriticalPathMilestone.SavedBindingsBegin);
-        try
-        {
-            ApplySavedSystemKeyBindings();
-        }
-        finally
-        {
-            criticalPathTrace?.RecordExactlyOnce(
-                StartupCriticalPathMilestone.SavedBindingsEnd);
-        }
+        ApplySavedSystemKeyBindings();
 
         // Initialize graphics manager after base initialization
-        criticalPathTrace?.RecordExactlyOnce(
-            StartupCriticalPathMilestone.GraphicsInitializeBegin);
-        try
-        {
-            _graphicsManager.Initialize();
-            CrashContextPublisher.PublishGraphics(
-                _gameCrashDiagnostics,
-                _graphicsManager.Settings,
-                _graphicsManager.IsDeviceAvailable);
-        }
-        finally
-        {
-            criticalPathTrace?.RecordExactlyOnce(
-                StartupCriticalPathMilestone.GraphicsInitializeEnd);
-        }
+        _graphicsManager.Initialize();
+        CrashContextPublisher.PublishGraphics(
+            _gameCrashDiagnostics,
+            _graphicsManager.Settings,
+            _graphicsManager.IsDeviceAvailable);
 
         var initializedGraphicsSettings = _graphicsManager.Settings;
         _logger.LogCrashEvent(
@@ -368,26 +320,13 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
         // target; Draw() then letterbox-scales it once to fill the physical window. Sizing the
         // target to the configured resolution instead would leave stages that draw 1:1 stranded
         // in the top-left corner of a larger target.
-        criticalPathTrace?.RecordExactlyOnce(
-            StartupCriticalPathMilestone.RenderTargetBegin);
-        try
-        {
-            _renderTarget = _graphicsManager.RenderTargetManager.GetOrCreateRenderTarget(
-                "MainRenderTarget",
-                GameConstants.Display.VirtualWidth,
-                GameConstants.Display.VirtualHeight);
-        }
-        finally
-        {
-            criticalPathTrace?.RecordExactlyOnce(
-                StartupCriticalPathMilestone.RenderTargetEnd);
-        }
+        _renderTarget = _graphicsManager.RenderTargetManager.GetOrCreateRenderTarget(
+            "MainRenderTarget",
+            GameConstants.Display.VirtualWidth,
+            GameConstants.Display.VirtualHeight);
 
         _logger.LogInformation("Main render target created: {Width}x{Height}",
             GameConstants.Display.VirtualWidth, GameConstants.Display.VirtualHeight);
-
-        criticalPathTrace?.RecordExactlyOnce(
-            StartupCriticalPathMilestone.InitializeComplete);
     }
 
     protected override void LoadContent()
@@ -406,9 +345,6 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
         ResourceManager.SetSkinPath(
             Lib.Config.ConfigManager.ResolveSkinPath(config.SkinPath));
 
-        _startupTimingTrace?.MarkLoadContentComplete();
-        _startupTimingTrace?.CriticalPathTrace?.RecordExactlyOnce(
-            StartupCriticalPathMilestone.LoadContentComplete);
         StageManager?.ChangeStage(StageType.Startup);
 
         // Initialize Game API server for MCP communication if enabled
@@ -416,9 +352,6 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
         {
             _gameApiStartTask = QueueGameApiStartup();
         }
-
-        _startupTimingTrace?.CriticalPathTrace?.RecordExactlyOnce(
-            StartupCriticalPathMilestone.LoadContentReturn);
     }
 
     internal virtual LoadContentServices CreateLoadContentServices()
@@ -510,13 +443,6 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
         DebugCrashInjection.ThrowIfRequested(DebugCrashInjectionPoint.Update);
 #endif
 
-        if (_startupDiagnosticExitPending)
-        {
-            _startupDiagnosticExitPending = false;
-            RequestGameExit();
-            return;
-        }
-
         // Update total game time for global debouncing
         _totalGameTime += gameTime.ElapsedGameTime.TotalSeconds;
         
@@ -541,16 +467,6 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
         // Update stage manager after config is loaded
         StageManager?.Update(gameTime.ElapsedGameTime.TotalSeconds);
 
-        if (StageManager is { IsTransitioning: false } stageManager &&
-            stageManager.CurrentStage?.Type == StageType.Title)
-        {
-            _startupTimingTrace?.MarkTitleCompleted();
-            var timingLine = _startupTimingTrace?.TryFormatCompletedLine();
-            if (timingLine != null)
-                Console.Out.WriteLine(timingLine);
-        }
-
-        TryPublishStartupCriticalPath();
         DrainMainThreadActions();
         CompleteBaseUpdate(gameTime);
     }
@@ -566,29 +482,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
         base.Update(gameTime);
     }
 
-    internal virtual TextWriter StartupDiagnosticWriter => Console.Out;
-
     internal virtual void RequestGameExit() => Exit();
-
-    private void TryPublishStartupCriticalPath()
-    {
-        var criticalPathTrace = _startupTimingTrace?.CriticalPathTrace;
-        if (criticalPathTrace == null)
-            return;
-
-        try
-        {
-            if (criticalPathTrace.TryPublishTerminal(StartupDiagnosticWriter) &&
-                criticalPathTrace.ExitAfterPublication)
-            {
-                _startupDiagnosticExitPending = true;
-            }
-        }
-        catch
-        {
-            // Startup diagnostics must never alter the game loop.
-        }
-    }
 
     private void DrainMainThreadActions()
     {
@@ -630,36 +524,12 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
         SetDrawRenderTarget(_renderTarget);
         ClearDrawSurface(Color.Black);
 
-        var titleReady =
-            StageManager is { IsTransitioning: false } stageManager &&
-            stageManager.CurrentStage?.Type == StageType.Title;
-        var criticalPathTrace = _startupTimingTrace?.CriticalPathTrace;
-        if (titleReady)
-        {
-            criticalPathTrace?.RecordFirstObservationBegin(
-                StartupCriticalPathMilestone.TitleStageDrawBegin,
-                StartupCriticalPathMilestone.TitleStageDrawEnd);
-        }
-
         StageManager?.Draw(gameTime.ElapsedGameTime.TotalSeconds);
-
-        if (titleReady)
-        {
-            criticalPathTrace?.RecordFirstObservationEnd(
-                StartupCriticalPathMilestone.TitleStageDrawBegin,
-                StartupCriticalPathMilestone.TitleStageDrawEnd);
-        }
 
         // Fulfill any pending screenshot request while the render target is still bound
         // so its contents are guaranteed valid (DiscardContents permits the driver to
         // invalidate pixels once the target is unbound).
         var pendingScreenshot = Interlocked.Exchange(ref _pendingScreenshot, null);
-        if (titleReady && pendingScreenshot != null)
-        {
-            criticalPathTrace?.Fail(
-                "screenshot_pending",
-                nameof(StartupCriticalPathMilestone.TitleStageDrawEnd));
-        }
 
         if (pendingScreenshot != null)
         {
@@ -679,22 +549,7 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
 
         if (_renderTarget != null && !_renderTarget.IsDisposed)
         {
-            if (titleReady)
-            {
-                criticalPathTrace?.RecordFirstObservationBegin(
-                    StartupCriticalPathMilestone.TitleBackbufferBlitBegin,
-                    StartupCriticalPathMilestone.TitleBackbufferBlitEnd);
-            }
-
             DrawRenderTargetToBackBuffer(_renderTarget);
-
-            if (titleReady)
-            {
-                criticalPathTrace?.RecordFirstObservationEnd(
-                    StartupCriticalPathMilestone.TitleBackbufferBlitBegin,
-                    StartupCriticalPathMilestone.TitleBackbufferBlitEnd);
-                TryPublishStartupCriticalPath();
-            }
         }
 
         CompleteBaseDraw(gameTime);
@@ -976,11 +831,6 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
 
     private void OnGameExiting(object? sender, EventArgs e)
     {
-        _startupTimingTrace?.CriticalPathTrace?.Fail(
-            "exit_before_success",
-            "game_exit");
-        TryPublishStartupCriticalPath();
-
         // Belt-and-suspenders: ensure any deferred config write (e.g. scroll-speed)
         // is flushed even if the normal stage-deactivation path is skipped.
         try
@@ -1155,9 +1005,8 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame, 
 public class Game1 : BaseGame, IGameApplication
 {
     internal Game1(
-        StartupTimingTrace startupTimingTrace,
         IGameCrashDiagnostics crashDiagnostics)
-        : base(startupTimingTrace, crashDiagnostics)
+        : base(crashDiagnostics)
     {
     }
 }

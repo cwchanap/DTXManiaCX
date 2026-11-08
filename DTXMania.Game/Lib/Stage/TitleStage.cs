@@ -115,24 +115,11 @@ namespace DTXMania.Game.Lib.Stage
 
             // Initialize graphics resources
             var graphicsDevice = _game.GraphicsDevice;
-            var criticalPathTrace = ResolveCriticalPathTrace();
-            TryBeginAggregate(
-                criticalPathTrace,
-                StartupCriticalPathAggregate.TitleGpuSetup);
-            try
-            {
-                _spriteBatch = CreateTitleSpriteBatch(graphicsDevice);
+            _spriteBatch = CreateTitleSpriteBatch(graphicsDevice);
 
-                // Create white pixel for drawing rectangles
-                _whitePixel = CreateTitleWhitePixel(graphicsDevice);
-                SetTitleWhitePixelData(_whitePixel);
-            }
-            finally
-            {
-                TryEndAggregate(
-                    criticalPathTrace,
-                    StartupCriticalPathAggregate.TitleGpuSetup);
-            }
+            // Create white pixel for drawing rectangles
+            _whitePixel = CreateTitleWhitePixel(graphicsDevice);
+            SetTitleWhitePixelData(_whitePixel);
 
             // Initialize ResourceManager using factory
             _resourceManager = _game.ResourceManager;
@@ -161,25 +148,10 @@ namespace DTXMania.Game.Lib.Stage
 
             // Create the crash-report notification after title resources are available. The inbox
             // itself is process-owned (forwarded by the game); the component holds only a snapshot
-            // and stage-owned UI state. The construction performs a bounded filesystem snapshot, so
-            // it is attributed to its own critical-path aggregate rather than showing as unattributed
-            // title-activation time.
-            var crashInboxTrace = ResolveCriticalPathTrace();
-            TryBeginAggregate(
-                crashInboxTrace,
-                StartupCriticalPathAggregate.TitleCrashInbox);
-            try
-            {
-                _crashReportNotification = new CrashReportNotification(_game.CrashReportInbox);
-            }
-            finally
-            {
-                TryEndAggregate(
-                    crashInboxTrace,
-                    StartupCriticalPathAggregate.TitleCrashInbox);
-            }
+            // and stage-owned UI state.
+            _crashReportNotification = new CrashReportNotification(_game.CrashReportInbox);
 
-            // Pure in-memory wiring (no bounded filesystem snapshot, unlike the crash inbox above).
+            // Pure in-memory wiring.
             _updateNotification = new GameUpdateNotification(_game.GameUpdateService);
 
             System.Diagnostics.Debug.WriteLine("Title Stage activated successfully");
@@ -399,21 +371,8 @@ namespace DTXMania.Game.Lib.Stage
             try
             {
                 // Use ResourceManager to load menu texture with proper skin path resolution
-                var criticalPathTrace = ResolveCriticalPathTrace();
-                TryBeginAggregate(
-                    criticalPathTrace,
-                    StartupCriticalPathAggregate.TitleMenu);
-                try
-                {
-                    _menuTexture =
-                        _resourceManager.LoadTexture(TexturePath.TitleMenu);
-                }
-                finally
-                {
-                    TryEndAggregate(
-                        criticalPathTrace,
-                        StartupCriticalPathAggregate.TitleMenu);
-                }
+                _menuTexture =
+                    _resourceManager.LoadTexture(TexturePath.TitleMenu);
                 System.Diagnostics.Debug.WriteLine("Loaded menu texture using ResourceManager");
             }
             catch (Exception ex)
@@ -429,21 +388,8 @@ namespace DTXMania.Game.Lib.Stage
             {
                 _versionFont?.RemoveReference();
                 _versionFont = null;
-                var criticalPathTrace = ResolveCriticalPathTrace();
-                TryBeginAggregate(
-                    criticalPathTrace,
-                    StartupCriticalPathAggregate.TitleFont);
-                try
-                {
-                    _versionFont =
-                        _resourceManager.LoadFont("NotoSerifJP", 14);
-                }
-                finally
-                {
-                    TryEndAggregate(
-                        criticalPathTrace,
-                        StartupCriticalPathAggregate.TitleFont);
-                }
+                _versionFont =
+                    _resourceManager.LoadFont("NotoSerifJP", 14);
                 System.Diagnostics.Debug.WriteLine("Loaded version info font using ResourceManager");
             }
             catch (Exception ex)
@@ -455,26 +401,11 @@ namespace DTXMania.Game.Lib.Stage
 
         private void LoadSoundEffects()
         {
-            var criticalPathTrace = ResolveCriticalPathTrace();
-
             try
             {
                 // Load DTXMania-style sound effects (OGG format)
-                TryIncrementTitleSoundLoad(criticalPathTrace);
-                TryBeginAggregate(
-                    criticalPathTrace,
-                    StartupCriticalPathAggregate.TitleCursorSound);
-                try
-                {
-                    _cursorMoveSound =
-                        _resourceManager.LoadSound(SoundPath.CursorMove);
-                }
-                finally
-                {
-                    TryEndAggregate(
-                        criticalPathTrace,
-                        StartupCriticalPathAggregate.TitleCursorSound);
-                }
+                _cursorMoveSound =
+                    _resourceManager.LoadSound(SoundPath.CursorMove);
                 System.Diagnostics.Debug.WriteLine("Loaded cursor move sound");
             }
             catch (Exception ex)
@@ -484,21 +415,8 @@ namespace DTXMania.Game.Lib.Stage
 
             try
             {
-                TryIncrementTitleSoundLoad(criticalPathTrace);
-                TryBeginAggregate(
-                    criticalPathTrace,
-                    StartupCriticalPathAggregate.TitleDecideSound);
-                try
-                {
-                    _selectSound =
-                        _resourceManager.LoadSound(SoundPath.Decide);
-                }
-                finally
-                {
-                    TryEndAggregate(
-                        criticalPathTrace,
-                        StartupCriticalPathAggregate.TitleDecideSound);
-                }
+                _selectSound =
+                    _resourceManager.LoadSound(SoundPath.Decide);
                 System.Diagnostics.Debug.WriteLine("Loaded select sound");
             }
             catch (Exception ex)
@@ -509,21 +427,8 @@ namespace DTXMania.Game.Lib.Stage
             try
             {
                 // Load game start sound (note: file name has space)
-                TryIncrementTitleSoundLoad(criticalPathTrace);
-                TryBeginAggregate(
-                    criticalPathTrace,
-                    StartupCriticalPathAggregate.TitleGameStartSound);
-                try
-                {
-                    _gameStartSound =
-                        _resourceManager.LoadSound(SoundPath.GameStart);
-                }
-                finally
-                {
-                    TryEndAggregate(
-                        criticalPathTrace,
-                        StartupCriticalPathAggregate.TitleGameStartSound);
-                }
+                _gameStartSound =
+                    _resourceManager.LoadSound(SoundPath.GameStart);
                 System.Diagnostics.Debug.WriteLine("Loaded game start sound");
             }
             catch (Exception ex)
@@ -532,22 +437,8 @@ namespace DTXMania.Game.Lib.Stage
                 try
                 {
                     // Fallback to decide sound if Game start.ogg doesn't exist
-                    TryMarkTitleGameStartFallbackRan(criticalPathTrace);
-                    TryIncrementTitleSoundLoad(criticalPathTrace);
-                    TryBeginAggregate(
-                        criticalPathTrace,
-                        StartupCriticalPathAggregate.TitleGameStartFallback);
-                    try
-                    {
-                        _gameStartSound =
-                            _resourceManager.LoadSound(SoundPath.Decide);
-                    }
-                    finally
-                    {
-                        TryEndAggregate(
-                            criticalPathTrace,
-                            StartupCriticalPathAggregate.TitleGameStartFallback);
-                    }
+                    _gameStartSound =
+                        _resourceManager.LoadSound(SoundPath.Decide);
                     System.Diagnostics.Debug.WriteLine("Loaded game start sound (fallback to Decide.ogg)");
                 }
                 catch (Exception fallbackEx)
@@ -556,61 +447,6 @@ namespace DTXMania.Game.Lib.Stage
                 }
             }
         }
-
-        private StartupCriticalPathTrace ResolveCriticalPathTrace() =>
-            StartupCriticalPathHost.TryResolve(_game);
-
-        private static void TryBeginAggregate(
-            StartupCriticalPathTrace trace,
-            StartupCriticalPathAggregate aggregate)
-        {
-            try
-            {
-                trace?.BeginAggregate(aggregate);
-            }
-            catch
-            {
-            }
-        }
-
-        private static void TryEndAggregate(
-            StartupCriticalPathTrace trace,
-            StartupCriticalPathAggregate aggregate)
-        {
-            try
-            {
-                trace?.EndAggregate(aggregate);
-            }
-            catch
-            {
-            }
-        }
-
-        private static void TryIncrementTitleSoundLoad(
-            StartupCriticalPathTrace trace)
-        {
-            try
-            {
-                trace?.IncrementTitleSoundLoad();
-            }
-            catch
-            {
-            }
-        }
-
-        private static void TryMarkTitleGameStartFallbackRan(
-            StartupCriticalPathTrace trace)
-        {
-            try
-            {
-                trace?.MarkTitleGameStartFallbackRan();
-            }
-            catch
-            {
-            }
-        }
-
-
 
 
 

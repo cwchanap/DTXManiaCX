@@ -469,7 +469,7 @@ internal sealed class CrashReportStore
             if (startupMilestone is null
                 && snapshot.Kind == CrashContextKind.Startup
                 && fields.TryGetValue("Milestone", out var milestone)
-                && milestone is StartupCriticalPathMilestone milestoneValue
+                && milestone is StartupMilestone milestoneValue
                 && Enum.IsDefined(milestoneValue))
             {
                 startupMilestone = milestoneValue.ToString();

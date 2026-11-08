@@ -72,7 +72,7 @@ public sealed class CrashReportStoreTests
                     CrashContextStatus.Available,
                     new Dictionary<string, object?>
                     {
-                        ["Milestone"] = StartupCriticalPathMilestone.StartupActivation
+                        ["Milestone"] = StartupMilestone.StartupActivation
                     }),
                 new CrashContextSnapshot(
                     CrashContextKind.Stage,
@@ -99,14 +99,14 @@ public sealed class CrashReportStoreTests
                     CrashContextStatus.Available,
                     new Dictionary<string, object?>
                     {
-                        ["Milestone"] = StartupCriticalPathMilestone.StartupActivation
+                        ["Milestone"] = StartupMilestone.StartupActivation
                     })
             ]
         };
 
         var report = fixture.CreateStore().Capture(capture).Report;
 
-        Assert.Equal(nameof(StartupCriticalPathMilestone.StartupActivation), report!.StageOrMilestone);
+        Assert.Equal(nameof(StartupMilestone.StartupActivation), report!.StageOrMilestone);
     }
 
     [Fact]
@@ -525,14 +525,14 @@ public sealed class CrashReportStoreTests
                     CrashContextStatus.Available,
                     new Dictionary<string, object?>
                     {
-                        ["Milestone"] = StartupCriticalPathMilestone.StartupActivation
+                        ["Milestone"] = StartupMilestone.StartupActivation
                     })
             ]
         };
 
         var report = fixture.CreateStore().Capture(capture).Report;
 
-        Assert.Equal(nameof(StartupCriticalPathMilestone.StartupActivation), report!.StageOrMilestone);
+        Assert.Equal(nameof(StartupMilestone.StartupActivation), report!.StageOrMilestone);
     }
 
     [Fact]
@@ -566,7 +566,7 @@ public sealed class CrashReportStoreTests
                 new CrashContextSnapshot(
                     CrashContextKind.Startup,
                     CrashContextStatus.Available,
-                    new Dictionary<string, object?> { ["Milestone"] = (StartupCriticalPathMilestone)999 })
+                    new Dictionary<string, object?> { ["Milestone"] = (StartupMilestone)999 })
             ]
         };
 

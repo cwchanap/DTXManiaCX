@@ -9,7 +9,6 @@ using DTXMania.Game.Lib.Utilities;
 using DTXMania.Game;
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -82,18 +81,9 @@ namespace DTXMania.Game.Lib.Stage
         private readonly Dictionary<StartupPhase, (string message, double duration)> _phaseInfo;
         private double _phaseStartTime;
 
-        private readonly Stopwatch _startupStopwatch = new();
-        private bool _startupSummaryWritten;
         private bool _hasRenderedStartupFrame;
         private bool _titleTransitionRequested;
-        private StartupSongLoadPath _selectedLoadPath =
-            StartupSongLoadPath.Unknown;
-        private StartupSongLoadOutcome _songLoadOutcome =
-            StartupSongLoadOutcome.Success;
-        private string? _songLoadError;
-        private SongEnumerationResult? _enumerationResult;
-        private TimeSpan _databaseInitializationDuration;
-        private TimeSpan _cacheHierarchyDuration;
+        private bool _cacheLoadPathSelected;
         private bool _cacheFallbackAttempted;
 
         #endregion
@@ -364,11 +354,6 @@ namespace DTXMania.Game.Lib.Stage
             spriteBatch.Draw(texture, destination, color);
         }
 
-        protected virtual void WriteStartupSummary(string line)
-        {
-            Console.Out.WriteLine(line);
-        }
-
         #endregion
 
         #region BaseStage Implementation
@@ -378,16 +363,9 @@ namespace DTXMania.Game.Lib.Stage
             System.Diagnostics.Debug.WriteLine("Activating Startup Stage");
 
             BeginActivationScope();
-            _startupStopwatch.Restart();
-            _startupSummaryWritten = false;
             _hasRenderedStartupFrame = false;
             _titleTransitionRequested = false;
-            _selectedLoadPath = StartupSongLoadPath.Unknown;
-            _songLoadOutcome = StartupSongLoadOutcome.Success;
-            _songLoadError = null;
-            _enumerationResult = null;
-            _databaseInitializationDuration = TimeSpan.Zero;
-            _cacheHierarchyDuration = TimeSpan.Zero;
+            _cacheLoadPathSelected = false;
             _cacheFallbackAttempted = false;
             _needsEnumeration = null;
 
@@ -472,11 +450,7 @@ namespace DTXMania.Game.Lib.Stage
                 && !_titleTransitionRequested)
             {
                 _titleTransitionRequested = true;
-                WriteSummaryOnce();
                 _game.ReportStartupSummaryAndTitleRequested();
-                TryRecordExactlyOnce(
-                    ResolveCriticalPathTrace(),
-                    StartupCriticalPathMilestone.SummaryRequest);
                 _game.StageManager?.ChangeStage(
                     StageType.Title,
                     new StartupToTitleTransition(1.0));
@@ -554,7 +528,6 @@ namespace DTXMania.Game.Lib.Stage
                     new CancellationTokenSource();
             }
 
-            FailPendingActivationTrace(pendingTask);
             CancelAndObserveRetiredOperation(
                 pendingTask,
                 pendingCancellation);
@@ -573,21 +546,9 @@ namespace DTXMania.Game.Lib.Stage
                 _cancellationTokenSource = null;
             }
 
-            FailPendingActivationTrace(pendingTask);
             CancelAndObserveRetiredOperation(
                 pendingTask,
                 pendingCancellation);
-        }
-
-        private void FailPendingActivationTrace(Task pendingTask)
-        {
-            if (pendingTask == null || pendingTask.IsCompleted)
-                return;
-
-            TryFailCriticalPath(
-                ResolveCriticalPathTrace(),
-                "activation_generation_invalidated",
-                "activation_generation_invalidated");
         }
 
         private static void CancelAndObserveRetiredOperation(
@@ -731,22 +692,6 @@ namespace DTXMania.Game.Lib.Stage
                     }
                 }
 
-                if (phaseComplete)
-                {
-                    var criticalPathTrace = ResolveCriticalPathTrace();
-                    if (_startupPhase == StartupPhase.SongListDB)
-                    {
-                        TryRecordExactlyOnce(
-                            criticalPathTrace,
-                            StartupCriticalPathMilestone.DatabaseObserved);
-                    }
-                    else if (_startupPhase == StartupPhase.EnumerateSongs)
-                    {
-                        TryRecordExactlyOnce(
-                            criticalPathTrace,
-                            StartupCriticalPathMilestone.EnumerationObserved);
-                    }
-                }
             }
             else
             {
@@ -768,39 +713,6 @@ namespace DTXMania.Game.Lib.Stage
                         $"Startup phase changed to: {_startupPhase}");
                 }
             }
-        }
-
-        private void WriteSummaryOnce()
-        {
-            if (_startupSummaryWritten)
-                return;
-
-            _startupSummaryWritten = true;
-            _startupStopwatch?.Stop();
-
-            var batch = _enumerationResult?.Batch;
-            var import = _enumerationResult?.Import;
-            var summary = new StartupSongLoadSummary(
-                _selectedLoadPath,
-                _songLoadOutcome,
-                _startupStopwatch?.Elapsed ?? TimeSpan.Zero,
-                _databaseInitializationDuration,
-                batch?.DiscoveryAndParsingDuration ?? TimeSpan.Zero,
-                import?.PersistenceDuration ?? TimeSpan.Zero,
-                import?.CleanupDuration ?? TimeSpan.Zero,
-                _enumerationResult?.HierarchyDuration ??
-                    _cacheHierarchyDuration,
-                batch?.DiscoveredChartPaths.Count ?? 0,
-                batch?.Candidates.Count ?? 0,
-                batch?.PendingSongs.Count ?? 0,
-                import?.Added ?? 0,
-                import?.Updated ?? 0,
-                import?.Preserved ?? 0,
-                import?.Skipped ?? 0,
-                import?.Conflicts ?? 0,
-                import?.StaleCharts ?? 0,
-                _songLoadError);
-            WriteStartupSummary(summary.Format());
         }
 
         private void PerformPhaseOperationSync(StartupPhase phase, double _)
@@ -840,12 +752,8 @@ namespace DTXMania.Game.Lib.Stage
                     if (_currentAsyncTask == null)
                     {
                         System.Diagnostics.Debug.WriteLine("Starting database service initialization...");
-                        var databaseTask =
+                        _currentAsyncTask =
                             InitializeDatabaseServiceAsync();
-                        _currentAsyncTask = databaseTask;
-                        TryRecordDatabaseTaskReturned(
-                            ResolveCriticalPathTrace(),
-                            databaseTask.IsCompleted);
                     }
                     break;
 
@@ -933,20 +841,6 @@ namespace DTXMania.Game.Lib.Stage
             return _songManager.InitializeDatabaseServiceAsync(databasePath, false);
         }
 
-        private protected virtual Task<bool> InitializeDatabaseServiceCoreAsync(
-            string databasePath,
-            IStartupSongLoadTimingObserver? observer)
-        {
-            if (observer == null)
-            {
-                return InitializeDatabaseServiceCoreAsync(databasePath);
-            }
-            return _songManager.InitializeDatabaseServiceAsync(
-                databasePath,
-                false,
-                observer);
-        }
-
         protected virtual Task<bool> NeedsEnumerationCoreAsync(string[] songPaths, bool forceEnumeration)
         {
             return _songManager.NeedsEnumerationAsync(songPaths, forceEnumeration);
@@ -962,27 +856,6 @@ namespace DTXMania.Game.Lib.Stage
                 songPaths,
                 progressReporter,
                 cancellationToken);
-        }
-
-        private protected virtual Task<SongEnumerationResult>
-            EnumerateSongsCoreAsync(
-                string[] songPaths,
-                IProgress<EnumerationProgress> progressReporter,
-                CancellationToken cancellationToken,
-                IStartupSongLoadTimingObserver? observer)
-        {
-            if (observer == null)
-            {
-                return EnumerateSongsCoreAsync(
-                    songPaths,
-                    progressReporter,
-                    cancellationToken);
-            }
-            return _songManager.EnumerateAndImportSongsAsync(
-                songPaths,
-                progressReporter,
-                cancellationToken,
-                observer);
         }
 
         protected virtual Task BuildHierarchyFromDatabaseOnceCoreAsync(
@@ -1022,133 +895,18 @@ namespace DTXMania.Game.Lib.Stage
             long activationGeneration,
             CancellationToken cancellationToken)
         {
-            var criticalPathTrace = ResolveCriticalPathTrace();
-            TryRecordExactlyOnce(
-                criticalPathTrace,
-                StartupCriticalPathMilestone.DatabaseInvoke);
-            var initialization = Stopwatch.StartNew();
-            var initializationFailed = false;
             try
             {
                 var databasePath = GetSongsDatabasePath();
                 EnsureDirectory(Path.GetDirectoryName(databasePath) ?? "");
                 bool success = await InitializeDatabaseServiceCoreAsync(
-                        databasePath,
-                        criticalPathTrace)
+                        databasePath)
                     .ConfigureAwait(false);
-                initializationFailed = !success;
                 System.Diagnostics.Debug.WriteLine($"Database service initialization: {(success ? "SUCCESS" : "FAILED")}");
             }
             catch (Exception ex)
             {
-                initializationFailed = true;
                 System.Diagnostics.Debug.WriteLine($"Error during database service initialization: {ex.GetType().Name}: {ex.Message}");
-            }
-            finally
-            {
-                initialization.Stop();
-                TryRecordExactlyOnce(
-                    criticalPathTrace,
-                    StartupCriticalPathMilestone.DatabaseTerminal);
-                if (initializationFailed)
-                {
-                    TryFailCriticalPath(
-                        criticalPathTrace,
-                        "database_initialization_failed",
-                        nameof(StartupCriticalPathMilestone.DatabaseTerminal));
-                }
-                lock (_activationGate)
-                {
-                    if (activationGeneration == _activationGeneration &&
-                        !cancellationToken.IsCancellationRequested)
-                    {
-                        _databaseInitializationDuration =
-                            initialization.Elapsed;
-                    }
-                }
-            }
-        }
-
-        private StartupCriticalPathTrace? ResolveCriticalPathTrace() =>
-            StartupCriticalPathHost.TryResolve(_game);
-
-        private static void TryRecordExactlyOnce(
-            StartupCriticalPathTrace? trace,
-            StartupCriticalPathMilestone milestone)
-        {
-            try
-            {
-                trace?.RecordExactlyOnce(milestone);
-            }
-            catch
-            {
-            }
-        }
-
-        private static void TryRecordDatabaseTaskReturned(
-            StartupCriticalPathTrace? trace,
-            bool wasTerminal)
-        {
-            try
-            {
-                trace?.RecordDatabaseTaskReturned(wasTerminal);
-            }
-            catch
-            {
-            }
-        }
-
-        private static void TryRecordEnumerationTaskReturned(
-            StartupCriticalPathTrace? trace,
-            bool wasTerminal)
-        {
-            try
-            {
-                trace?.RecordEnumerationTaskReturned(wasTerminal);
-            }
-            catch
-            {
-            }
-        }
-
-        private static void TryRecordCacheLoadTerminal(
-            StartupCriticalPathTrace? trace,
-            Task hierarchyTask,
-            TimeSpan hierarchyDuration)
-        {
-            try
-            {
-                if (hierarchyTask.IsCompletedSuccessfully)
-                {
-                    trace?.RecordCacheLoadTerminal(hierarchyDuration);
-                }
-                else
-                {
-                    // A failed rebuild ends the trace the way a failed scan does.
-                    ((IStartupSongLoadTimingObserver?)trace)?.RecordEnumerationTerminal(
-                        null,
-                        hierarchyTask.IsCanceled
-                            ? StartupOperationOutcome.Cancellation
-                            : StartupOperationOutcome.Failure);
-                }
-            }
-            catch
-            {
-            }
-        }
-
-        private static void TryFailCriticalPath(
-            StartupCriticalPathTrace? trace,
-            string error,
-            string lastMilestone,
-            bool cancellation = false)
-        {
-            try
-            {
-                trace?.Fail(error, lastMilestone, cancellation);
-            }
-            catch
-            {
             }
         }
 
@@ -1210,41 +968,30 @@ namespace DTXMania.Game.Lib.Stage
                         activationGeneration,
                         cancellationToken);
                     _needsEnumeration = needsEnumeration;
-                    _selectedLoadPath = needsEnumeration
-                        ? StartupSongLoadPath.Enumeration
-                        : StartupSongLoadPath.Cache;
+                    _cacheLoadPathSelected = !needsEnumeration;
                 }
 
                 if (!needsEnumeration)
                 {
                     await BuildCacheHierarchyForActivationAsync(
                             activationGeneration,
-                            cancellationToken,
-                            isSongLoad: true)
+                            cancellationToken)
                         .ConfigureAwait(false);
                     return;
                 }
 
                 Task<SongEnumerationResult> enumerationTask;
-                var criticalPathTrace = ResolveCriticalPathTrace();
                 lock (_activationGate)
                 {
                     EnsureCurrentActivation(
                         activationGeneration,
                         cancellationToken);
-                    TryRecordExactlyOnce(
-                        criticalPathTrace,
-                        StartupCriticalPathMilestone.EnumerationInvoke);
                     enumerationTask = EnumerateSongsCoreAsync(
                         _songPaths,
                         CreateEnumerationProgressReporterForActivation(
                             activationGeneration,
                             cancellationToken),
-                        cancellationToken,
-                        criticalPathTrace);
-                    TryRecordEnumerationTaskReturned(
-                        criticalPathTrace,
-                        enumerationTask.IsCompleted);
+                        cancellationToken);
                 }
 
                 var enumerationResult =
@@ -1261,7 +1008,6 @@ namespace DTXMania.Game.Lib.Stage
                             "Song enumeration completed without " +
                             "publishing a hierarchy.");
                     }
-                    _enumerationResult = enumerationResult;
                     shouldPublishEmptyLibrary =
                         enumerationResult.Outcome ==
                         SongEnumerationOutcome.NoActiveRoots;
@@ -1283,18 +1029,11 @@ namespace DTXMania.Game.Lib.Stage
             }
             catch (OperationCanceledException)
             {
-                lock (_activationGate)
-                {
-                    if (activationGeneration == _activationGeneration)
-                    {
-                        _songLoadOutcome =
-                            StartupSongLoadOutcome.Cancellation;
-                        _songLoadError = "cancelled";
-                    }
-                }
+                // Cancellation never triggers the committed cache fallback; it
+                // propagates straight to the activation lifecycle.
                 throw;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 bool isCurrentActivation;
                 bool shouldFallback;
@@ -1304,13 +1043,7 @@ namespace DTXMania.Game.Lib.Stage
                         activationGeneration == _activationGeneration;
                     shouldFallback =
                         isCurrentActivation &&
-                        _selectedLoadPath != StartupSongLoadPath.Cache;
-                    if (isCurrentActivation)
-                    {
-                        _songLoadOutcome =
-                            StartupSongLoadOutcome.Failure;
-                        _songLoadError = ex.Message;
-                    }
+                        !_cacheLoadPathSelected;
                 }
 
                 if (!isCurrentActivation)
@@ -1330,64 +1063,25 @@ namespace DTXMania.Game.Lib.Stage
 
         private async Task BuildCacheHierarchyForActivationAsync(
             long activationGeneration,
-            CancellationToken cancellationToken,
-            bool isSongLoad = false)
+            CancellationToken cancellationToken)
         {
-            // When the freshness check skipped the scan, this rebuild is the song
-            // load, so it records the critical-path Enumeration* milestones. The
-            // stopwatch runs inside them so its time never exceeds their span.
-            var criticalPathTrace = isSongLoad ? ResolveCriticalPathTrace() : null;
-            Stopwatch hierarchy;
             Task hierarchyTask;
-            bool completedSynchronously;
             lock (_activationGate)
             {
                 EnsureCurrentActivation(
                     activationGeneration,
                     cancellationToken);
-                TryRecordExactlyOnce(
-                    criticalPathTrace,
-                    StartupCriticalPathMilestone.EnumerationInvoke);
-                hierarchy = Stopwatch.StartNew();
                 hierarchyTask =
                     BuildHierarchyFromDatabaseOnceCoreAsync(_songPaths);
-                // SQLite often completes the rebuild synchronously; its terminal
-                // then precedes the task return, as on the scan path.
-                completedSynchronously = hierarchyTask.IsCompleted;
-                if (completedSynchronously)
-                {
-                    hierarchy.Stop();
-                    TryRecordCacheLoadTerminal(
-                        criticalPathTrace,
-                        hierarchyTask,
-                        hierarchy.Elapsed);
-                }
-                TryRecordEnumerationTaskReturned(
-                    criticalPathTrace,
-                    completedSynchronously);
             }
 
-            try
-            {
-                await hierarchyTask.ConfigureAwait(false);
-            }
-            finally
-            {
-                if (!completedSynchronously)
-                {
-                    hierarchy.Stop();
-                    TryRecordCacheLoadTerminal(
-                        criticalPathTrace,
-                        hierarchyTask,
-                        hierarchy.Elapsed);
-                }
-            }
+            await hierarchyTask.ConfigureAwait(false);
+
             lock (_activationGate)
             {
                 EnsureCurrentActivation(
                     activationGeneration,
                     cancellationToken);
-                _cacheHierarchyDuration = hierarchy.Elapsed;
             }
         }
 

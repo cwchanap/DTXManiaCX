@@ -279,16 +279,16 @@ public sealed class CrashLogFieldPolicyTests
         Assert.True(Policy.TryNormalizeContextProperty(
             CrashContextKind.Startup,
             "Milestone",
-            StartupCriticalPathMilestone.StartupActivation,
+            StartupMilestone.StartupActivation,
             out var normalized));
-        Assert.Equal(StartupCriticalPathMilestone.StartupActivation, normalized);
+        Assert.Equal(StartupMilestone.StartupActivation, normalized);
     }
 
     [Fact]
     public void TryNormalizeContextProperty_StartupUndefinedMilestone_ShouldReturnFalse()
     {
         Assert.False(Policy.TryNormalizeContextProperty(
-            CrashContextKind.Startup, "Milestone", (StartupCriticalPathMilestone)999, out var normalized));
+            CrashContextKind.Startup, "Milestone", (StartupMilestone)999, out var normalized));
         Assert.Null(normalized);
     }
 
