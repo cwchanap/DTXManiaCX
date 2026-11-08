@@ -308,36 +308,32 @@ namespace DTXMania.Game.Lib.Song.Entities
                 ?? Directory.GetCurrentDirectory();
             var tempBackupPath = Path.Combine(backupDirectory, Path.GetRandomFileName());
             (ulong, ulong)? tempFileIdentity = null;
-            var ownsTempFile = false;
             try
             {
-                using (new FileStream(
+                using (var reservation = new FileStream(
                     tempBackupPath,
                     FileMode.CreateNew,
                     FileAccess.Write,
                     FileShare.None))
                 {
-                }
-                ownsTempFile = true;
-                if (TryGetFileIdentity(tempBackupPath, out var createdIdentity))
-                {
-                    tempFileIdentity = createdIdentity;
+                    if (TryGetOpenFileIdentity(
+                            reservation.SafeFileHandle,
+                            out var createdIdentity))
+                    {
+                        tempFileIdentity = createdIdentity;
+                    }
                 }
 
                 using var context = new SongDbContext(_options);
-                var backupSql =
-                    $"VACUUM INTO '{tempBackupPath.Replace("'", "''")}'";
-                await context.Database.ExecuteSqlRawAsync(backupSql);
+                await WriteSnapshotToTempFileAsync(context, tempBackupPath);
 
                 File.Move(tempBackupPath, backupPath, overwrite: true);
             }
             finally
             {
-                if (ownsTempFile
-                    && File.Exists(tempBackupPath)
-                    && (!tempFileIdentity.HasValue
-                        || (TryGetFileIdentity(tempBackupPath, out var currentIdentity)
-                            && currentIdentity == tempFileIdentity.Value)))
+                if (tempFileIdentity.HasValue
+                    && TryGetFileIdentity(tempBackupPath, out var currentIdentity)
+                    && currentIdentity == tempFileIdentity.Value)
                 {
                     File.Delete(tempBackupPath);
                 }
@@ -372,6 +368,15 @@ namespace DTXMania.Game.Lib.Song.Entities
             var destination = (SqliteConnection)context.Database.GetDbConnection();
             await destination.OpenAsync();
             source.BackupDatabase(destination);
+        }
+
+        internal virtual Task WriteSnapshotToTempFileAsync(
+            SongDbContext context,
+            string tempBackupPath)
+        {
+            var backupSql =
+                $"VACUUM INTO '{tempBackupPath.Replace("'", "''")}'";
+            return context.Database.ExecuteSqlRawAsync(backupSql);
         }
 
         private bool PathsReferToSameFile(string firstPath, string secondPath)
@@ -459,9 +464,28 @@ namespace DTXMania.Game.Lib.Song.Entities
                     FileMode.Open,
                     FileAccess.Read,
                     FileShare.ReadWrite | FileShare.Delete);
+                return TryGetOpenFileIdentity(stream.SafeFileHandle, out identity);
+            }
+            catch (Exception exception) when (exception
+                is IOException
+                or UnauthorizedAccessException
+                or DllNotFoundException
+                or EntryPointNotFoundException)
+            {
+                return false;
+            }
+        }
+
+        internal virtual bool TryGetOpenFileIdentity(
+            SafeFileHandle handle,
+            out (ulong, ulong) identity)
+        {
+            identity = default;
+            try
+            {
                 if (OperatingSystem.IsWindows())
                 {
-                    if (!GetFileInformationByHandle(stream.SafeFileHandle, out var info))
+                    if (!GetFileInformationByHandle(handle, out var info))
                     {
                         return false;
                     }
@@ -471,7 +495,7 @@ namespace DTXMania.Game.Lib.Song.Entities
                     return true;
                 }
 
-                if (fstat(stream.SafeFileHandle.DangerousGetHandle(), out var stat) != 0)
+                if (fstat(handle.DangerousGetHandle(), out var stat) != 0)
                 {
                     return false;
                 }

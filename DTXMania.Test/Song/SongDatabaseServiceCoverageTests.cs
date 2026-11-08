@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
+using Microsoft.Win32.SafeHandles;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -237,6 +238,46 @@ public class SongDatabaseServiceCoverageTests : IDisposable
         Assert.NotNull(exception);
         Assert.True(File.Exists(servicePath));
         Assert.Equal(existingBackupBytes, await File.ReadAllBytesAsync(backupPath));
+    }
+
+    [Fact]
+    public async Task BackupDatabaseAsync_WhenIdentityUnavailableAndTempFileReplaced_ShouldPreserveForeignFile()
+    {
+        var servicePath = Path.Combine(_tempRoot, "identityless-swap.db");
+        var foreignBytes = new byte[] { 4, 2, 0 };
+        using var service = new TempFileReplacingDatabaseService(servicePath, foreignBytes);
+        await service.InitializeDatabaseAsync();
+
+        var backupPath = Path.Combine(_tempRoot, "identityless-swap-backup.db");
+
+        var exception = await Record.ExceptionAsync(
+            () => service.BackupDatabaseAsync(backupPath));
+
+        Assert.NotNull(exception);
+        Assert.NotNull(service.ObservedTempPath);
+        Assert.Equal(foreignBytes, await File.ReadAllBytesAsync(service.ObservedTempPath!));
+        Assert.True(File.Exists(servicePath));
+        Assert.False(File.Exists(backupPath));
+    }
+
+    [Fact]
+    public async Task BackupDatabaseAsync_WhenTempFileReplacedBeforeIdentityCapture_ShouldPreserveForeignFile()
+    {
+        var servicePath = Path.Combine(_tempRoot, "reopen-swap.db");
+        var foreignBytes = new byte[] { 7, 1, 3 };
+        using var service = new ReopenCaptureReplacingDatabaseService(servicePath, foreignBytes);
+        await service.InitializeDatabaseAsync();
+
+        var backupPath = Path.Combine(_tempRoot, "reopen-swap-backup.db");
+
+        var exception = await Record.ExceptionAsync(
+            () => service.BackupDatabaseAsync(backupPath));
+
+        Assert.NotNull(exception);
+        Assert.NotNull(service.ObservedTempPath);
+        Assert.Equal(foreignBytes, await File.ReadAllBytesAsync(service.ObservedTempPath!));
+        Assert.True(File.Exists(servicePath));
+        Assert.False(File.Exists(backupPath));
     }
 
     [Fact]
@@ -667,12 +708,83 @@ public class SongDatabaseServiceCoverageTests : IDisposable
         {
         }
 
-        internal override bool TryGetFileIdentity(
-            string fullPath,
+        internal override bool TryGetOpenFileIdentity(
+            SafeFileHandle handle,
             out (ulong, ulong) identity)
         {
             identity = default;
             return false;
+        }
+    }
+
+    private sealed class TempFileReplacingDatabaseService : SongDatabaseService
+    {
+        private readonly byte[] _replacementBytes;
+
+        public TempFileReplacingDatabaseService(
+            string databasePath,
+            byte[] replacementBytes)
+            : base(databasePath)
+        {
+            _replacementBytes = replacementBytes;
+        }
+
+        public string? ObservedTempPath { get; private set; }
+
+        internal override bool TryGetOpenFileIdentity(
+            SafeFileHandle handle,
+            out (ulong, ulong) identity)
+        {
+            identity = default;
+            return false;
+        }
+
+        internal override async Task WriteSnapshotToTempFileAsync(
+            SongDbContext context,
+            string tempBackupPath)
+        {
+            ObservedTempPath = tempBackupPath;
+            File.Delete(tempBackupPath);
+            await File.WriteAllBytesAsync(tempBackupPath, _replacementBytes);
+            throw new IOException("Simulated snapshot failure after replacement");
+        }
+    }
+
+    private sealed class ReopenCaptureReplacingDatabaseService : SongDatabaseService
+    {
+        private readonly byte[] _replacementBytes;
+        private bool _replacementInstalled;
+
+        public ReopenCaptureReplacingDatabaseService(
+            string databasePath,
+            byte[] replacementBytes)
+            : base(databasePath)
+        {
+            _replacementBytes = replacementBytes;
+        }
+
+        public string? ObservedTempPath { get; private set; }
+
+        internal override bool TryGetFileIdentity(
+            string fullPath,
+            out (ulong, ulong) identity)
+        {
+            if (!_replacementInstalled
+                && Path.GetFileName(fullPath) != Path.GetFileName(DatabasePath))
+            {
+                _replacementInstalled = true;
+                File.Delete(fullPath);
+                File.WriteAllBytes(fullPath, _replacementBytes);
+            }
+            return base.TryGetFileIdentity(fullPath, out identity);
+        }
+
+        internal override Task WriteSnapshotToTempFileAsync(
+            SongDbContext context,
+            string tempBackupPath)
+        {
+            ObservedTempPath = tempBackupPath;
+            throw new IOException("Simulated snapshot failure");
         }
     }
 }
