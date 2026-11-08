@@ -66,53 +66,24 @@ namespace DTXMania.Game.Lib.Stage
                 return existingStage;
             }
 
-            var isStartupOrTitle =
-                stageType is StageType.Startup or StageType.Title;
-            var criticalPathTrace =
-                isStartupOrTitle
-                    ? ResolveCriticalPathTrace()
-                    : null;
-            StartupCriticalPathMilestone? constructBegin = null;
-            StartupCriticalPathMilestone? constructEnd = null;
-            if (isStartupOrTitle)
+            // Create stage on demand
+            IStage stage = stageType switch
             {
-                constructBegin = stageType == StageType.Startup
-                    ? StartupCriticalPathMilestone.StartupConstructBegin
-                    : StartupCriticalPathMilestone.TitleConstructBegin;
-                constructEnd = stageType == StageType.Startup
-                    ? StartupCriticalPathMilestone.StartupConstructEnd
-                    : StartupCriticalPathMilestone.TitleConstructEnd;
-                criticalPathTrace?.RecordExactlyOnce(constructBegin.Value);
-            }
+                StageType.Startup => new StartupStage(_game),
+                StageType.Title => new TitleStage(_game),
+                StageType.Config => new ConfigStage(_game),
+                StageType.SongSelect => new SongSelectionStage(_game),
+                StageType.SongTransition => new SongTransitionStage(_game),
+                StageType.Performance => new PerformanceStage(_game),
+                StageType.Result => new ResultStage(_game),
+                StageType.DrumConfig => new DrumConfigStage(_game),
+                _ => throw new ArgumentException($"Unknown stage type: {stageType}")
+            };
 
-            try
-            {
-                // Create stage on demand
-                IStage stage = stageType switch
-                {
-                    StageType.Startup => new StartupStage(_game),
-                    StageType.Title => new TitleStage(_game),
-                    StageType.Config => new ConfigStage(_game),
-                    StageType.SongSelect => new SongSelectionStage(_game),
-                    StageType.SongTransition => new SongTransitionStage(_game),
-                    StageType.Performance => new PerformanceStage(_game),
-                    StageType.Result => new ResultStage(_game),
-                    StageType.DrumConfig => new DrumConfigStage(_game),
-                    _ => throw new ArgumentException($"Unknown stage type: {stageType}")
-                };
+            stage.StageManager = this;
+            _stages[stageType] = stage;
 
-                stage.StageManager = this;
-                _stages[stageType] = stage;
-
-                return stage;
-            }
-            finally
-            {
-                if (constructEnd.HasValue)
-                {
-                    criticalPathTrace?.RecordExactlyOnce(constructEnd.Value);
-                }
-            }
+            return stage;
         }
 
         public void ChangeStage(StageType stageType)
@@ -173,14 +144,6 @@ namespace DTXMania.Game.Lib.Stage
             _logger.LogDebug("SharedData: {SharedDataCount} items", sharedDataCount);
 
             // Start transition
-            var criticalPathTrace = IsStartupToTitleTransition
-                ? ResolveCriticalPathTrace()
-                : null;
-            if (IsStartupToTitleTransition)
-            {
-                criticalPathTrace?.RecordExactlyOnce(
-                    StartupCriticalPathMilestone.TransitionStart);
-            }
             _currentTransition.Start();
             _breadcrumbs.Record(CrashBreadcrumbEvents.StageTransitionStarted, safeTransitionFields);
             _logger.LogCrashEvent(
@@ -210,10 +173,6 @@ namespace DTXMania.Game.Lib.Stage
             // Update transition if in progress
             if (_isTransitioning && _currentTransition != null)
             {
-                if (IsStartupToTitleTransition)
-                {
-                    ResolveCriticalPathTrace()?.IncrementTransitionUpdate(deltaTime);
-                }
                 _currentTransition.Update(deltaTime);
 
                 // Check if transition is complete
@@ -249,16 +208,6 @@ namespace DTXMania.Game.Lib.Stage
             if (!_isTransitioning)
                 return;
 
-            var isStartupToTitleTransition = IsStartupToTitleTransition;
-            var criticalPathTrace = isStartupToTitleTransition
-                ? ResolveCriticalPathTrace()
-                : null;
-            if (isStartupToTitleTransition)
-            {
-                criticalPathTrace?.RecordExactlyOnce(
-                    StartupCriticalPathMilestone.TransitionComplete);
-            }
-
             // Log transition completion details
             var previousStageType = _previousStage?.Type ?? _currentStage?.Type;
             var transitionTypeName = _currentTransition?.GetType().Name ?? "Unknown";
@@ -277,31 +226,10 @@ namespace DTXMania.Game.Lib.Stage
             if (_previousStage != null)
             {
                 _logger.LogDebug("Deactivating previous stage: {StageType}", _previousStage.Type);
-                if (isStartupToTitleTransition)
-                {
-                    criticalPathTrace?.RecordExactlyOnce(
-                        StartupCriticalPathMilestone.StartupDeactivateBegin);
-                }
-                try
-                {
-                    _previousStage.Deactivate();
-                }
-                finally
-                {
-                    if (isStartupToTitleTransition)
-                    {
-                        criticalPathTrace?.RecordExactlyOnce(
-                            StartupCriticalPathMilestone.StartupDeactivateEnd);
-                    }
-                }
+                _previousStage.Deactivate();
             }
 
             // Activate new stage
-            if (isStartupToTitleTransition)
-            {
-                criticalPathTrace?.RecordTitleCompletionLookup(
-                    _stages.ContainsKey(StageType.Title));
-            }
             var newStage = GetOrCreateStage(_targetStageType);
             _currentStage = newStage;
             _logger.LogDebug("Activating new stage: {StageType}", _targetStageType);
@@ -354,13 +282,6 @@ namespace DTXMania.Game.Lib.Stage
                 ["TargetStage"] = targetStage
             };
         }
-
-        private bool IsStartupToTitleTransition =>
-            _currentStage?.Type == StageType.Startup &&
-            _targetStageType == StageType.Title;
-
-        private StartupCriticalPathTrace ResolveCriticalPathTrace() =>
-            StartupCriticalPathHost.TryResolve(_game);
 
         private void DrawTransition(double deltaTime)
         {

@@ -33,16 +33,16 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void InitializeDatabaseServiceAsync_PublicCompatibilityPath_ShouldNotAddAsyncStateMachine()
+        public void InitializeDatabaseServiceAsync_ShouldExposeASinglePublicOverload()
         {
-            var method = typeof(SongManager).GetMethod(
-                nameof(SongManager.InitializeDatabaseServiceAsync),
-                new[] { typeof(string), typeof(bool) });
+            var overloads = typeof(SongManager).GetMethods()
+                .Where(method => method.Name ==
+                    nameof(SongManager.InitializeDatabaseServiceAsync))
+                .ToArray();
 
-            Assert.NotNull(method);
-            Assert.Empty(method!.GetCustomAttributes(
-                typeof(System.Runtime.CompilerServices.AsyncStateMachineAttribute),
-                inherit: false));
+            // The observer overloads were removed with the startup profiler, so a
+            // single public entry point remains instead of forwarding wrappers.
+            Assert.Single(overloads);
         }
 
         public void Dispose()
@@ -98,7 +98,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task InitializeDatabaseServiceAsync_PublicOverload_ShouldUseNullObserver()
+        public async Task InitializeDatabaseServiceAsync_PublicOverload_ShouldInitializeService()
         {
             var result = await _manager.InitializeDatabaseServiceAsync(
                 _testDbPath,
@@ -109,100 +109,38 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task InitializeDatabaseServiceAsync_WhenCreatingService_ShouldMeasureSetupOnce()
+        public async Task InitializeDatabaseServiceAsync_WhenCreatingService_ShouldReturnTrue()
         {
-            var observer = new RecordingObserver();
-
             var result = await _manager.InitializeDatabaseServiceAsync(
                 _testDbPath,
-                purgeDatabaseFirst: false,
-                observer);
+                purgeDatabaseFirst: false);
 
             Assert.True(result);
-            Assert.Equal(
-                1,
-                observer.BeginCount(StartupDatabaseTimingSpan.ServiceSetup));
-            Assert.Equal(
-                1,
-                observer.EndCount(StartupDatabaseTimingSpan.ServiceSetup));
-            Assert.Equal(
-                1,
-                observer.BeginCount(StartupDatabaseTimingSpan.EnsureCreated));
-            Assert.Equal(
-                1,
-                observer.EndCount(StartupDatabaseTimingSpan.EnsureCreated));
+            Assert.NotNull(_manager.DatabaseService);
         }
 
         [Fact]
-        public async Task InitializeDatabaseServiceAsync_WhenServiceExists_ShouldNotMeasureSetupAgain()
+        public async Task InitializeDatabaseServiceAsync_WhenServiceExists_ShouldKeepService()
         {
-            var observer = new RecordingObserver();
             Assert.True(await _manager.InitializeDatabaseServiceAsync(
                 _testDbPath,
-                purgeDatabaseFirst: false,
-                observer));
+                purgeDatabaseFirst: false));
+            var service = _manager.DatabaseService;
 
             var result = await _manager.InitializeDatabaseServiceAsync(
                 _testDbPath,
-                purgeDatabaseFirst: false,
-                observer);
+                purgeDatabaseFirst: false);
 
             Assert.True(result);
-            Assert.Equal(
-                1,
-                observer.BeginCount(StartupDatabaseTimingSpan.ServiceSetup));
-            Assert.Equal(
-                1,
-                observer.EndCount(StartupDatabaseTimingSpan.ServiceSetup));
+            Assert.Same(service, _manager.DatabaseService);
         }
 
         [Fact]
-        public async Task InitializeDatabaseServiceAsync_ShouldMeasureManagerCorruptionProbe()
-        {
-            var observer = new RecordingObserver();
-
-            var result = await _manager.InitializeDatabaseServiceAsync(
-                _testDbPath,
-                purgeDatabaseFirst: false,
-                observer);
-
-            Assert.True(result);
-            Assert.Equal(
-                1,
-                observer.BeginCount(
-                    StartupDatabaseTimingSpan.CorruptionProbe));
-            Assert.Equal(
-                1,
-                observer.EndCount(
-                    StartupDatabaseTimingSpan.CorruptionProbe));
-        }
-
-        [Fact]
-        public async Task InitializeDatabaseServiceAsync_WhenPurgeRuns_ShouldMeasureRecovery()
-        {
-            var observer = new RecordingObserver();
-
-            var result = await _manager.InitializeDatabaseServiceAsync(
-                _testDbPath,
-                purgeDatabaseFirst: true,
-                observer);
-
-            Assert.True(result);
-            Assert.Equal(
-                1,
-                observer.BeginCount(StartupDatabaseTimingSpan.InvalidRecovery));
-            Assert.Equal(
-                1,
-                observer.EndCount(StartupDatabaseTimingSpan.InvalidRecovery));
-        }
-
-        [Fact]
-        public async Task InitializeDatabaseServiceAsync_WhenObserverThrows_ShouldPreserveBooleanResult()
+        public async Task InitializeDatabaseServiceAsync_WhenPurgeRuns_ShouldRecreateService()
         {
             var result = await _manager.InitializeDatabaseServiceAsync(
                 _testDbPath,
-                purgeDatabaseFirst: true,
-                new ThrowingObserver());
+                purgeDatabaseFirst: true);
 
             Assert.True(result);
             Assert.NotNull(_manager.DatabaseService);
@@ -1049,53 +987,5 @@ namespace DTXMania.Test.Song
             return (SongDatabaseService)RuntimeHelpers.GetUninitializedObject(typeof(SongDatabaseService));
         }
 
-        private sealed class RecordingObserver : IStartupSongLoadTimingObserver
-        {
-            private readonly Dictionary<StartupDatabaseTimingSpan, int> _begins =
-                new();
-            private readonly Dictionary<StartupDatabaseTimingSpan, int> _ends =
-                new();
-
-            public int BeginCount(StartupDatabaseTimingSpan span) =>
-                _begins.GetValueOrDefault(span);
-
-            public int EndCount(StartupDatabaseTimingSpan span) =>
-                _ends.GetValueOrDefault(span);
-
-            public void BeginDatabaseSpan(StartupDatabaseTimingSpan span) =>
-                _begins[span] = BeginCount(span) + 1;
-
-            public void EndDatabaseSpan(StartupDatabaseTimingSpan span) =>
-                _ends[span] = EndCount(span) + 1;
-
-            public void RecordUnexpectedTableExistsPath()
-            {
-            }
-
-            public void RecordEnumerationTerminal(
-                SongEnumerationResult? result,
-                StartupOperationOutcome outcome)
-            {
-            }
-        }
-
-        private sealed class ThrowingObserver : IStartupSongLoadTimingObserver
-        {
-            public void BeginDatabaseSpan(StartupDatabaseTimingSpan span) =>
-                throw new InvalidOperationException("observer begin failure");
-
-            public void EndDatabaseSpan(StartupDatabaseTimingSpan span) =>
-                throw new InvalidOperationException("observer end failure");
-
-            public void RecordUnexpectedTableExistsPath() =>
-                throw new InvalidOperationException(
-                    "observer table-exists failure");
-
-            public void RecordEnumerationTerminal(
-                SongEnumerationResult? result,
-                StartupOperationOutcome outcome) =>
-                throw new InvalidOperationException(
-                    "observer terminal failure");
-        }
     }
 }

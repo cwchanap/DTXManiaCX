@@ -102,12 +102,7 @@ namespace DTXMania.Game.Lib.Song.Entities
 
 
         /// Initialize the database and ensure it exists
-        public Task InitializeDatabaseAsync() =>
-            InitializeDatabaseAsync(observer: null);
-
-#pragma warning disable CS8632
-        internal async Task InitializeDatabaseAsync(
-            IStartupSongLoadTimingObserver? observer)
+        public async Task InitializeDatabaseAsync()
         {
             await _initializationSemaphore.WaitAsync();
             try
@@ -124,86 +119,34 @@ namespace DTXMania.Game.Lib.Song.Entities
                 // Check if file exists but is not a valid SQLite database
                 if (InitializationDatabaseFileExists())
                 {
-                    bool isValid;
-                    observer.TryBeginDatabaseSpan(
-                        StartupDatabaseTimingSpan.CorruptionProbe);
-                    try
-                    {
-                        isValid = await IsValidSqliteDatabaseAsync();
-                    }
-                    finally
-                    {
-                        observer.TryEndDatabaseSpan(
-                            StartupDatabaseTimingSpan.CorruptionProbe);
-                    }
+                    bool isValid = await IsValidSqliteDatabaseAsync();
 
                     if (!isValid)
                     {
-                        observer.TryBeginDatabaseSpan(
-                            StartupDatabaseTimingSpan.InvalidRecovery);
-                        try
-                        {
-                            await HandleInvalidDatabaseFileAsync();
-                        }
-                        finally
-                        {
-                            observer.TryEndDatabaseSpan(
-                                StartupDatabaseTimingSpan.InvalidRecovery);
-                        }
+                        await HandleInvalidDatabaseFileAsync();
                     }
                 }
 
                 // Check if database exists but lacks proper Unicode configuration for Japanese text
                 if (InitializationDatabaseFileExists())
                 {
-                    bool hasProperUnicodeConfiguration;
-                    observer.TryBeginDatabaseSpan(
-                        StartupDatabaseTimingSpan.CorruptionProbe);
-                    try
-                    {
-                        hasProperUnicodeConfiguration =
-                            await HasProperUnicodeConfigurationAsync();
-                    }
-                    finally
-                    {
-                        observer.TryEndDatabaseSpan(
-                            StartupDatabaseTimingSpan.CorruptionProbe);
-                    }
+                    bool hasProperUnicodeConfiguration =
+                        await HasProperUnicodeConfigurationAsync();
 
                     if (!hasProperUnicodeConfiguration)
                     {
                         System.Diagnostics.Debug.WriteLine("SongDatabaseService: Database lacks proper Unicode configuration, recreating for Japanese text support");
-                        observer.TryBeginDatabaseSpan(
-                            StartupDatabaseTimingSpan.InvalidRecovery);
-                        try
-                        {
-                            await HandleInvalidDatabaseFileAsync();
-                        }
-                        finally
-                        {
-                            observer.TryEndDatabaseSpan(
-                                StartupDatabaseTimingSpan.InvalidRecovery);
-                        }
+                        await HandleInvalidDatabaseFileAsync();
                     }
                 }
 
                 using var context = CreateInitializationContext();
 
                 // Ensure database is created first
-                observer.TryBeginDatabaseSpan(
-                    StartupDatabaseTimingSpan.EnsureCreated);
-                try
-                {
-                    await EnsureCreatedForInitializationAsync(context);
-                }
-                finally
-                {
-                    observer.TryEndDatabaseSpan(
-                        StartupDatabaseTimingSpan.EnsureCreated);
-                }
+                await EnsureCreatedForInitializationAsync(context);
 
                 // Configure UTF-8 encoding AFTER tables are created
-                await ConfigureUtf8EncodingAsync(context, observer);
+                await ConfigureUtf8EncodingAsync(context);
 
                 // Mark as initialized after successful creation
                 lock (_initializationLock)
@@ -219,35 +162,15 @@ namespace DTXMania.Game.Lib.Song.Entities
                 System.Diagnostics.Debug.WriteLine($"Database corruption error during initialization: {ex.Message}");
                 System.Diagnostics.Debug.WriteLine("Attempting to recover from corrupted database...");
 
-                observer.TryBeginDatabaseSpan(
-                    StartupDatabaseTimingSpan.InvalidRecovery);
-                try
-                {
-                    await HandleInvalidDatabaseFileAsync();
-                }
-                finally
-                {
-                    observer.TryEndDatabaseSpan(
-                        StartupDatabaseTimingSpan.InvalidRecovery);
-                }
+                await HandleInvalidDatabaseFileAsync();
 
                 // Retry initialization after fixing the invalid file
                 using var context = CreateInitializationContext();
-                
-                observer.TryBeginDatabaseSpan(
-                    StartupDatabaseTimingSpan.EnsureCreated);
-                try
-                {
-                    await EnsureCreatedForInitializationAsync(context);
-                }
-                finally
-                {
-                    observer.TryEndDatabaseSpan(
-                        StartupDatabaseTimingSpan.EnsureCreated);
-                }
-                
+
+                await EnsureCreatedForInitializationAsync(context);
+
                 // Configure UTF-8 encoding AFTER creating tables
-                await ConfigureUtf8EncodingAsync(context, observer);
+                await ConfigureUtf8EncodingAsync(context);
 
                 lock (_initializationLock)
                 {
@@ -258,7 +181,6 @@ namespace DTXMania.Game.Lib.Song.Entities
             catch (Exception ex) when (ex.Message.Contains("table") && ex.Message.Contains("already exists"))
             {
                 // Handle "table already exists" errors - this means the database is already initialized
-                observer.TryRecordUnexpectedTableExistsPath();
                 System.Diagnostics.Debug.WriteLine($"Database tables already exist: {ex.Message}");
                 lock (_initializationLock)
                 {
@@ -276,7 +198,6 @@ namespace DTXMania.Game.Lib.Song.Entities
                 _initializationSemaphore.Release();
             }
         }
-#pragma warning restore CS8632
 
         internal virtual bool InitializationDatabaseFileExists() =>
             File.Exists(_databasePath);
@@ -429,10 +350,6 @@ namespace DTXMania.Game.Lib.Song.Entities
 
             try
             {
-                // Measures the entire import operation: preload, matching,
-                // mutation staging, stale-removal, SaveChanges, and commit.
-                // Reported as PersistenceDuration in SongBulkImportResult.
-                var persistence = Stopwatch.StartNew();
                 var chartsByPath = new Dictionary<string, SongChart>(
                     SongPathIdentity.CanonicalComparer);
                 var added = 0;
@@ -919,10 +836,6 @@ namespace DTXMania.Game.Lib.Song.Entities
                     request.Candidates.Count,
                     request.Candidates.Count));
 
-                // Measures stale-removal staging only: identifying and removing
-                // stale charts and empty songs from the change tracker before
-                // SaveChanges. Reported as CleanupDuration in SongBulkImportResult.
-                var cleanup = Stopwatch.StartNew();
                 var staleCharts = persistedCharts
                     .Where(chart =>
                         !discoveredPersistedChartIds.Contains(chart.Id) &&
@@ -945,7 +858,6 @@ namespace DTXMania.Game.Lib.Song.Entities
                         candidateEmptySongIds.Contains(song.Id))
                     .ToList();
                 context.Songs.RemoveRange(emptySongs);
-                cleanup.Stop();
 
                 progress?.Report(new(
                     SongBulkImportMilestone.CleanupCompleted,
@@ -977,8 +889,6 @@ namespace DTXMania.Game.Lib.Song.Entities
                     Debug.WriteLine(
                         $"SongDatabaseService: Committed progress callback failed: {progressException.Message}");
                 }
-                persistence.Stop();
-
                 return new SongBulkImportResult(
                     chartsByPath,
                     added,
@@ -987,9 +897,7 @@ namespace DTXMania.Game.Lib.Song.Entities
                     skipped,
                     conflicts,
                     staleCharts.Count,
-                    emptySongs.Count,
-                    persistence.Elapsed,
-                    cleanup.Elapsed);
+                    emptySongs.Count);
             }
             catch
             {
@@ -2192,16 +2100,12 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// <summary>
         /// Configure UTF-8 encoding for proper Japanese text support
         /// </summary>
-#pragma warning disable CS8632
         private async Task ConfigureUtf8EncodingAsync(
-            SongDbContext context,
-            IStartupSongLoadTimingObserver? observer)
+            SongDbContext context)
         {
             // UTF-8 pragma configuration is best-effort: most modern SQLite installations
             // default to UTF-8, so a pragma failure here should not abort initialization.
             var encodingConfigured = false;
-            observer.TryBeginDatabaseSpan(
-                StartupDatabaseTimingSpan.EncodingPragmas);
             try
             {
                 // Ensure we can write to the database
@@ -2216,11 +2120,6 @@ namespace DTXMania.Game.Lib.Song.Entities
                 System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Warning - Could not configure UTF-8 encoding: {ex.Message}");
                 // Continue anyway - most modern SQLite installations default to UTF-8
             }
-            finally
-            {
-                observer.TryEndDatabaseSpan(
-                    StartupDatabaseTimingSpan.EncodingPragmas);
-            }
             if (encodingConfigured)
             {
                 System.Diagnostics.Debug.WriteLine("SongDatabaseService: UTF-8 encoding configured for database");
@@ -2234,50 +2133,30 @@ namespace DTXMania.Game.Lib.Song.Entities
             // propagate real errors. They run unguarded so a genuine schema error fails
             // initialization fast.
             // Create/update version table to mark Unicode configuration as configured.
-            observer.TryBeginDatabaseSpan(
-                StartupDatabaseTimingSpan.VersionWork);
-            try
-            {
-                await EnsureDatabaseVersionTableAsync(context);
-            }
-            finally
-            {
-                observer.TryEndDatabaseSpan(
-                    StartupDatabaseTimingSpan.VersionWork);
-            }
+            await EnsureDatabaseVersionTableAsync(context);
 
             // Additive schema upgrade for existing databases: EnsureCreated never alters an
             // existing schema, so add new columns here, idempotently.
-            observer.TryBeginDatabaseSpan(
-                StartupDatabaseTimingSpan.SchemaEnsures);
-            try
-            {
-                await EnsureBookmarkColumnAsync(context);
+            await EnsureBookmarkColumnAsync(context);
 
-                // Additive schema upgrade: NX-import snapshot columns.
-                await EnsureNxImportColumnsAsync(context);
+            // Additive schema upgrade: NX-import snapshot columns.
+            await EnsureNxImportColumnsAsync(context);
 
-                // Additive schema upgrade: score-scoped play history.
-                await EnsurePerformanceHistoryScoreScopeAsync(context);
+            // Additive schema upgrade: score-scoped play history.
+            await EnsurePerformanceHistoryScoreScopeAsync(context);
 
-                // Additive schema upgrade: playback-speed-scoped scores, pitch history,
-                // and durable save receipts.
-                await EnsurePlaybackSpeedScoreScopeAsync(context);
+            // Additive schema upgrade: playback-speed-scoped scores, pitch history,
+            // and durable save receipts.
+            await EnsurePlaybackSpeedScoreScopeAsync(context);
 
-                // Additive schema upgrade: enumeration-freshness metadata. The
-                // cache-freshness check previously derived the last enumeration time
-                // from the database file's last-write time, which any SaveChangesAsync
-                // (bookmark toggle, score save) advances. Persisting an explicit
-                // LastSuccessfulEnumerationUtc value that is updated only after a
-                // successful enumeration avoids later chart edits being masked by an
-                // unrelated database write.
-                await EnsureEnumerationMetadataTableAsync(context);
-            }
-            finally
-            {
-                observer.TryEndDatabaseSpan(
-                    StartupDatabaseTimingSpan.SchemaEnsures);
-            }
+            // Additive schema upgrade: enumeration-freshness metadata. The
+            // cache-freshness check previously derived the last enumeration time
+            // from the database file's last-write time, which any SaveChangesAsync
+            // (bookmark toggle, score save) advances. Persisting an explicit
+            // LastSuccessfulEnumerationUtc value that is updated only after a
+            // successful enumeration avoids later chart edits being masked by an
+            // unrelated database write.
+            await EnsureEnumerationMetadataTableAsync(context);
 
             // Score-save receipts are retained indefinitely to preserve durable
             // idempotency for repeated RunId validation (plan Critical Invariant #12).
@@ -2285,7 +2164,6 @@ namespace DTXMania.Game.Lib.Song.Entities
             // foreign key) and its SongScore relationship uses ON DELETE SET NULL, so
             // receipts survive deletion of their related SongScore.
         }
-#pragma warning restore CS8632
 
         /// <summary>
         /// Ensure the database version table exists and mark Unicode collation as configured

@@ -70,7 +70,6 @@ namespace DTXMania.Test.Song
                 RootNodes = new List<SongListNode>(),
                 PendingSongs = new List<PendingSongNode>(),
                 Errors = new List<SongEnumerationError>(),
-                DiscoveryAndParsingDuration = TimeSpan.FromMilliseconds(15),
                 IsComplete = true
             };
 
@@ -80,7 +79,6 @@ namespace DTXMania.Test.Song
             Assert.Empty(batch.RootNodes);
             Assert.Empty(batch.PendingSongs);
             Assert.Empty(batch.Errors);
-            Assert.Equal(TimeSpan.FromMilliseconds(15), batch.DiscoveryAndParsingDuration);
             Assert.True(batch.IsComplete);
         }
 
@@ -96,9 +94,7 @@ namespace DTXMania.Test.Song
                 Skipped: 4,
                 Conflicts: 5,
                 StaleCharts: 6,
-                StaleSongs: 7,
-                TimeSpan.FromMilliseconds(8),
-                TimeSpan.FromMilliseconds(9));
+                StaleSongs: 7);
 
             Assert.Same(charts, result.ChartsByPath);
             Assert.Equal(1, result.Added);
@@ -108,8 +104,6 @@ namespace DTXMania.Test.Song
             Assert.Equal(5, result.Conflicts);
             Assert.Equal(6, result.StaleCharts);
             Assert.Equal(7, result.StaleSongs);
-            Assert.Equal(TimeSpan.FromMilliseconds(8), result.PersistenceDuration);
-            Assert.Equal(TimeSpan.FromMilliseconds(9), result.CleanupDuration);
         }
 
         [Fact]
@@ -123,18 +117,16 @@ namespace DTXMania.Test.Song
                 RootNodes = new List<SongListNode>(),
                 PendingSongs = new List<PendingSongNode>(),
                 Errors = new List<SongEnumerationError>(),
-                DiscoveryAndParsingDuration = TimeSpan.Zero,
                 IsComplete = false
             };
             var import = new SongBulkImportResult(
                 new Dictionary<string, SongChart>(),
-                0, 0, 0, 0, 0, 0, 0, TimeSpan.Zero, TimeSpan.Zero);
+                0, 0, 0, 0, 0, 0, 0);
 
-            var result = new SongEnumerationResult(batch, import, TimeSpan.FromMilliseconds(3));
+            var result = new SongEnumerationResult(batch, import);
 
             Assert.Same(batch, result.Batch);
             Assert.Same(import, result.Import);
-            Assert.Equal(TimeSpan.FromMilliseconds(3), result.HierarchyDuration);
         }
     }
 }

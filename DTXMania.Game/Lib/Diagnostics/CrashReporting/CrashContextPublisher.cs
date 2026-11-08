@@ -103,7 +103,7 @@ internal static class CrashContextPublisher
 
     internal static void PublishStartupMilestone(
         IGameCrashDiagnostics? diagnostics,
-        StartupCriticalPathMilestone milestone)
+        StartupMilestone milestone)
     {
         // Headless lifecycle tests can exercise startup timing on an uninitialized BaseGame
         // test double. Publishing diagnostics must never change that pre-existing behavior.

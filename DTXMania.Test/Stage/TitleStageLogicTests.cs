@@ -223,40 +223,21 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void OnActivate_ShouldMeasureOneGpuAggregateAroundAllThreeOperations()
+        public void OnActivate_ShouldRunGpuSetupOperationsInOrder()
         {
-            var fixture = CreateCriticalPathFixture();
-            var stage = new ControlledTitleStage(fixture.Game, fixture.Trace, fixture.Clock);
+            var stage = new ControlledTitleStage(new NullGraphicsStageGame());
 
             stage.InvokeOnActivate();
 
             Assert.Equal(
                 new[] { "sprite_batch", "white_pixel", "white_pixel_data" },
                 stage.GpuOperations);
-            Assert.All(stage.GpuAggregateActive, Assert.True);
-            Assert.Equal(
-                10,
-                GetAggregateTicks(
-                    fixture.Trace,
-                    StartupCriticalPathAggregate.TitleGpuSetup));
-            Assert.Equal(
-                1,
-                GetAggregateCount(
-                    fixture.Trace,
-                    StartupCriticalPathAggregate.TitleGpuSetup));
-            Assert.False(IsAggregateActive(
-                fixture.Trace,
-                StartupCriticalPathAggregate.TitleGpuSetup));
         }
 
         [Fact]
-        public void OnActivate_WhenGpuSetupThrows_ShouldCloseAggregateAndPropagate()
+        public void OnActivate_WhenGpuSetupThrows_ShouldPropagate()
         {
-            var fixture = CreateCriticalPathFixture();
-            var stage = new ControlledTitleStage(
-                fixture.Game,
-                fixture.Trace,
-                fixture.Clock)
+            var stage = new ControlledTitleStage(new NullGraphicsStageGame())
             {
                 ThrowWhenSettingWhitePixelData = true
             };
@@ -265,93 +246,17 @@ namespace DTXMania.Test.Stage
                 stage.InvokeOnActivate);
 
             Assert.Equal("gpu setup failed", exception.Message);
-            Assert.Equal(
-                10,
-                GetAggregateTicks(
-                    fixture.Trace,
-                    StartupCriticalPathAggregate.TitleGpuSetup));
-            Assert.Equal(
-                1,
-                GetAggregateCount(
-                    fixture.Trace,
-                    StartupCriticalPathAggregate.TitleGpuSetup));
-            Assert.False(IsAggregateActive(
-                fixture.Trace,
-                StartupCriticalPathAggregate.TitleGpuSetup));
-            AssertTraceOpen(fixture.Trace);
         }
 
         [Fact]
-        public void LoadMenuTexture_ShouldMeasureAttemptWhenLoadSucceeds()
+        public void LoadVersionFont_WhenLoadSucceeds_ShouldAssignFont()
         {
             var resourceManager = new Mock<IResourceManager>();
-            var fixture = CreateCriticalPathFixture(resourceManager.Object);
-            var stage = new TitleStage(fixture.Game);
-            var menuTexture = new Mock<ITexture>();
-            resourceManager
-                .Setup(x => x.LoadTexture(TexturePath.TitleMenu))
-                .Callback(() => fixture.Clock.Timestamp += 7)
-                .Returns(menuTexture.Object);
-            ReflectionHelpers.SetPrivateField(
-                stage,
-                "_resourceManager",
-                resourceManager.Object);
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "LoadMenuTexture");
-
-            Assert.Same(
-                menuTexture.Object,
-                ReflectionHelpers.GetPrivateField<ITexture>(
-                    stage,
-                    "_menuTexture"));
-            AssertAggregate(
-                fixture.Trace,
-                StartupCriticalPathAggregate.TitleMenu,
-                expectedTicks: 7);
-        }
-
-        [Fact]
-        public void LoadMenuTexture_ShouldMeasureAttemptWhenLoadThrows()
-        {
-            var resourceManager = new Mock<IResourceManager>();
-            var fixture = CreateCriticalPathFixture(resourceManager.Object);
-            var stage = new TitleStage(fixture.Game);
-            resourceManager
-                .Setup(x => x.LoadTexture(TexturePath.TitleMenu))
-                .Callback(() => fixture.Clock.Timestamp += 11)
-                .Throws(new InvalidOperationException("missing texture"));
-            ReflectionHelpers.SetPrivateField(
-                stage,
-                "_resourceManager",
-                resourceManager.Object);
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "LoadMenuTexture");
-
-            Assert.Null(
-                ReflectionHelpers.GetPrivateField<ITexture>(
-                    stage,
-                    "_menuTexture"));
-            AssertAggregate(
-                fixture.Trace,
-                StartupCriticalPathAggregate.TitleMenu,
-                expectedTicks: 11);
-            AssertTraceOpen(fixture.Trace);
-        }
-
-        [Fact]
-        public void LoadVersionFont_ShouldMeasureOnlyLoadAttempt()
-        {
-            var resourceManager = new Mock<IResourceManager>();
-            var fixture = CreateCriticalPathFixture(resourceManager.Object);
-            var stage = new TitleStage(fixture.Game);
+            var stage = CreateStage();
             var existingFont = new Mock<IFont>();
             var loadedFont = new Mock<IFont>();
-            existingFont
-                .Setup(x => x.RemoveReference())
-                .Callback(() => fixture.Clock.Timestamp += 4);
             resourceManager
                 .Setup(x => x.LoadFont("NotoSerifJP", 14))
-                .Callback(() => fixture.Clock.Timestamp += 6)
                 .Returns(loadedFont.Object);
             ReflectionHelpers.SetPrivateField(
                 stage,
@@ -369,25 +274,16 @@ namespace DTXMania.Test.Stage
                 ReflectionHelpers.GetPrivateField<IFont>(
                     stage,
                     "_versionFont"));
-            AssertAggregate(
-                fixture.Trace,
-                StartupCriticalPathAggregate.TitleFont,
-                expectedTicks: 6);
         }
 
         [Fact]
-        public void LoadVersionFont_ShouldMeasureAttemptWhenLoadThrows()
+        public void LoadVersionFont_WhenLoadThrows_ShouldLeaveVersionFontUnset()
         {
             var resourceManager = new Mock<IResourceManager>();
-            var fixture = CreateCriticalPathFixture(resourceManager.Object);
-            var stage = new TitleStage(fixture.Game);
+            var stage = CreateStage();
             var existingFont = new Mock<IFont>();
-            existingFont
-                .Setup(x => x.RemoveReference())
-                .Callback(() => fixture.Clock.Timestamp += 4);
             resourceManager
                 .Setup(x => x.LoadFont("NotoSerifJP", 14))
-                .Callback(() => fixture.Clock.Timestamp += 9)
                 .Throws(new InvalidOperationException("missing font"));
             ReflectionHelpers.SetPrivateField(
                 stage,
@@ -404,11 +300,6 @@ namespace DTXMania.Test.Stage
                 ReflectionHelpers.GetPrivateField<IFont>(
                     stage,
                     "_versionFont"));
-            AssertAggregate(
-                fixture.Trace,
-                StartupCriticalPathAggregate.TitleFont,
-                expectedTicks: 9);
-            AssertTraceOpen(fixture.Trace);
         }
 
         [Fact]
@@ -523,53 +414,10 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void LoadSoundEffects_WhenPrimaryLoadsSucceed_ShouldCountThreeAttempts()
+        public void LoadSoundEffects_WhenGameStartLoadReturnsNull_ShouldLeaveGameStartSoundUnset()
         {
             var resourceManager = new Mock<IResourceManager>();
-            var fixture = CreateCriticalPathFixture(resourceManager.Object);
-            var stage = new TitleStage(fixture.Game);
-            resourceManager
-                .Setup(x => x.LoadSound(SoundPath.CursorMove))
-                .Callback(() => fixture.Clock.Timestamp += 2)
-                .Returns(CreateSoundReturningInstance().Object);
-            resourceManager
-                .Setup(x => x.LoadSound(SoundPath.Decide))
-                .Callback(() => fixture.Clock.Timestamp += 3)
-                .Returns(CreateSoundReturningInstance().Object);
-            resourceManager
-                .Setup(x => x.LoadSound(SoundPath.GameStart))
-                .Callback(() => fixture.Clock.Timestamp += 5)
-                .Returns(CreateSoundReturningInstance().Object);
-            ReflectionHelpers.SetPrivateField(
-                stage,
-                "_resourceManager",
-                resourceManager.Object);
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "LoadSoundEffects");
-
-            Assert.Equal(3, GetTitleSoundLoadCount(fixture.Trace));
-            AssertSoundAggregate(
-                fixture.Trace,
-                StartupCriticalPathAggregate.TitleCursorSound,
-                expectedTicks: 2);
-            AssertSoundAggregate(
-                fixture.Trace,
-                StartupCriticalPathAggregate.TitleDecideSound,
-                expectedTicks: 3);
-            AssertSoundAggregate(
-                fixture.Trace,
-                StartupCriticalPathAggregate.TitleGameStartSound,
-                expectedTicks: 5);
-            Assert.False(GetTitleGameStartFallbackRan(fixture.Trace));
-            AssertConditionalFallbackDidNotRun(fixture.Trace);
-        }
-
-        [Fact]
-        public void LoadSoundEffects_WhenPrimaryReturnsNull_ShouldRetainMeasuredDuration()
-        {
-            var resourceManager = new Mock<IResourceManager>();
-            var fixture = CreateCriticalPathFixture(resourceManager.Object);
-            var stage = new TitleStage(fixture.Game);
+            var stage = CreateStage();
             resourceManager
                 .Setup(x => x.LoadSound(SoundPath.CursorMove))
                 .Returns(CreateSoundReturningInstance().Object);
@@ -578,7 +426,6 @@ namespace DTXMania.Test.Stage
                 .Returns(CreateSoundReturningInstance().Object);
             resourceManager
                 .Setup(x => x.LoadSound(SoundPath.GameStart))
-                .Callback(() => fixture.Clock.Timestamp += 8)
                 .Returns((ISound)null!);
             ReflectionHelpers.SetPrivateField(
                 stage,
@@ -591,140 +438,6 @@ namespace DTXMania.Test.Stage
                 ReflectionHelpers.GetPrivateField<ISound>(
                     stage,
                     "_gameStartSound"));
-            Assert.Equal(3, GetTitleSoundLoadCount(fixture.Trace));
-            AssertSoundAggregate(
-                fixture.Trace,
-                StartupCriticalPathAggregate.TitleGameStartSound,
-                expectedTicks: 8);
-            Assert.False(GetTitleGameStartFallbackRan(fixture.Trace));
-            AssertConditionalFallbackDidNotRun(fixture.Trace);
-        }
-
-        [Fact]
-        public void LoadSoundEffects_WhenGameStartThrows_ShouldMarkFallbackAndCountFourAttempts()
-        {
-            var resourceManager = new Mock<IResourceManager>();
-            var fixture = CreateCriticalPathFixture(resourceManager.Object);
-            var stage = new TitleStage(fixture.Game);
-            var selectSound = CreateSoundReturningInstance();
-            resourceManager
-                .Setup(x => x.LoadSound(SoundPath.CursorMove))
-                .Returns(CreateSoundReturningInstance().Object);
-            resourceManager
-                .SetupSequence(x => x.LoadSound(SoundPath.Decide))
-                .Returns(selectSound.Object)
-                .Returns(() =>
-                {
-                    fixture.Clock.Timestamp += 7;
-                    return selectSound.Object;
-                });
-            resourceManager
-                .Setup(x => x.LoadSound(SoundPath.GameStart))
-                .Callback(() => fixture.Clock.Timestamp += 5)
-                .Throws(new InvalidOperationException("missing game start"));
-            ReflectionHelpers.SetPrivateField(
-                stage,
-                "_resourceManager",
-                resourceManager.Object);
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "LoadSoundEffects");
-
-            Assert.Same(
-                selectSound.Object,
-                ReflectionHelpers.GetPrivateField<ISound>(
-                    stage,
-                    "_gameStartSound"));
-            Assert.Equal(4, GetTitleSoundLoadCount(fixture.Trace));
-            Assert.True(GetTitleGameStartFallbackRan(fixture.Trace));
-            AssertSoundAggregate(
-                fixture.Trace,
-                StartupCriticalPathAggregate.TitleGameStartSound,
-                expectedTicks: 5);
-            AssertSoundAggregate(
-                fixture.Trace,
-                StartupCriticalPathAggregate.TitleGameStartFallback,
-                expectedTicks: 7);
-        }
-
-        [Fact]
-        public void LoadSoundEffects_WhenFallbackThrows_ShouldCloseBothAttemptSpans()
-        {
-            var resourceManager = new Mock<IResourceManager>();
-            var fixture = CreateCriticalPathFixture(resourceManager.Object);
-            var stage = new TitleStage(fixture.Game);
-            var selectSound = CreateSoundReturningInstance();
-            resourceManager
-                .Setup(x => x.LoadSound(SoundPath.CursorMove))
-                .Returns(CreateSoundReturningInstance().Object);
-            resourceManager
-                .SetupSequence(x => x.LoadSound(SoundPath.Decide))
-                .Returns(selectSound.Object)
-                .Throws(() =>
-                {
-                    fixture.Clock.Timestamp += 7;
-                    return new InvalidOperationException(
-                        "missing fallback decide");
-                });
-            resourceManager
-                .Setup(x => x.LoadSound(SoundPath.GameStart))
-                .Callback(() => fixture.Clock.Timestamp += 5)
-                .Throws(new InvalidOperationException("missing game start"));
-            ReflectionHelpers.SetPrivateField(
-                stage,
-                "_resourceManager",
-                resourceManager.Object);
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "LoadSoundEffects");
-
-            Assert.Null(
-                ReflectionHelpers.GetPrivateField<ISound>(
-                    stage,
-                    "_gameStartSound"));
-            Assert.Equal(4, GetTitleSoundLoadCount(fixture.Trace));
-            Assert.True(GetTitleGameStartFallbackRan(fixture.Trace));
-            AssertSoundAggregate(
-                fixture.Trace,
-                StartupCriticalPathAggregate.TitleGameStartSound,
-                expectedTicks: 5);
-            AssertSoundAggregate(
-                fixture.Trace,
-                StartupCriticalPathAggregate.TitleGameStartFallback,
-                expectedTicks: 7);
-            AssertTraceOpen(fixture.Trace);
-        }
-
-        [Fact]
-        public void LoadSoundEffects_WhenResourceManagerUsesSilentFallback_ShouldNotMarkTitleFallback()
-        {
-            var resourceManager = new Mock<IResourceManager>();
-            var fixture = CreateCriticalPathFixture(resourceManager.Object);
-            var stage = new TitleStage(fixture.Game);
-            var silentFallbackSound = CreateSoundReturningInstance();
-            resourceManager
-                .Setup(x => x.LoadSound(SoundPath.CursorMove))
-                .Returns(CreateSoundReturningInstance().Object);
-            resourceManager
-                .Setup(x => x.LoadSound(SoundPath.Decide))
-                .Returns(CreateSoundReturningInstance().Object);
-            resourceManager
-                .Setup(x => x.LoadSound(SoundPath.GameStart))
-                .Callback(() => fixture.Clock.Timestamp += 6)
-                .Returns(silentFallbackSound.Object);
-            ReflectionHelpers.SetPrivateField(
-                stage,
-                "_resourceManager",
-                resourceManager.Object);
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "LoadSoundEffects");
-
-            Assert.Same(
-                silentFallbackSound.Object,
-                ReflectionHelpers.GetPrivateField<ISound>(
-                    stage,
-                    "_gameStartSound"));
-            Assert.Equal(3, GetTitleSoundLoadCount(fixture.Trace));
-            Assert.False(GetTitleGameStartFallbackRan(fixture.Trace));
-            AssertConditionalFallbackDidNotRun(fixture.Trace);
         }
 
         [Fact]
@@ -1244,138 +957,35 @@ namespace DTXMania.Test.Stage
             return sound;
         }
 
-        private static CriticalPathFixture CreateCriticalPathFixture(
-            IResourceManager? resourceManager = null)
+        /// <summary>
+        /// Minimal <see cref="IStageGame"/> stub: <c>GraphicsDevice</c> returns null so the
+        /// title stage's GPU seams (overridden in <see cref="ControlledTitleStage"/>) can be
+        /// exercised without a live graphics device.
+        /// </summary>
+        private sealed class NullGraphicsStageGame : IStageGame
         {
-            var clock = new ManualMonotonicClock();
-            var trace = StartupCriticalPathTrace.Start(
-                clock,
-                new FixedUtcMicrosecondClock(),
-                entryTimestamp: 0,
-                entryUnixMicroseconds: 1_000_000,
-                exitAfterPublication: false);
-            var manager = resourceManager ?? new Mock<IResourceManager>().Object;
-            return new CriticalPathFixture(
-                trace,
-                clock,
-                new CriticalPathHostStageGame(trace, manager));
-        }
-
-        private static void AssertAggregate(
-            StartupCriticalPathTrace trace,
-            StartupCriticalPathAggregate aggregate,
-            long expectedTicks)
-        {
-            Assert.Equal(expectedTicks, GetAggregateTicks(trace, aggregate));
-            Assert.Equal(1, GetAggregateCount(trace, aggregate));
-            Assert.False(IsAggregateActive(trace, aggregate));
-        }
-
-        private static void AssertSoundAggregate(
-            StartupCriticalPathTrace trace,
-            StartupCriticalPathAggregate aggregate,
-            long expectedTicks) =>
-            AssertAggregate(trace, aggregate, expectedTicks);
-
-        private static void AssertConditionalFallbackDidNotRun(
-            StartupCriticalPathTrace trace)
-        {
-            Assert.Equal(
-                0,
-                GetAggregateTicks(
-                    trace,
-                    StartupCriticalPathAggregate.TitleGameStartFallback));
-            Assert.Equal(
-                0,
-                GetAggregateCount(
-                    trace,
-                    StartupCriticalPathAggregate.TitleGameStartFallback));
-            Assert.False(IsAggregateActive(
-                trace,
-                StartupCriticalPathAggregate.TitleGameStartFallback));
-        }
-
-        private static long GetAggregateTicks(
-            StartupCriticalPathTrace trace,
-            StartupCriticalPathAggregate aggregate)
-        {
-            var ticks = ReflectionHelpers.GetPrivateField<long[]>(
-                trace,
-                "_aggregateTimestampTicks");
-            Assert.NotNull(ticks);
-            return ticks![(int)aggregate];
-        }
-
-        private static long GetAggregateCount(
-            StartupCriticalPathTrace trace,
-            StartupCriticalPathAggregate aggregate)
-        {
-            var counts = ReflectionHelpers.GetPrivateField<long[]>(
-                trace,
-                "_aggregateCounts");
-            Assert.NotNull(counts);
-            return counts![(int)aggregate];
-        }
-
-        private static bool IsAggregateActive(
-            StartupCriticalPathTrace trace,
-            StartupCriticalPathAggregate aggregate)
-        {
-            var active = ReflectionHelpers.GetPrivateField<bool[]>(
-                trace,
-                "_aggregateActive");
-            Assert.NotNull(active);
-            return active![(int)aggregate];
-        }
-
-        private static long GetTitleSoundLoadCount(
-            StartupCriticalPathTrace trace) =>
-            ReflectionHelpers.GetPrivateField<long>(
-                trace,
-                "_titleSoundLoadCount");
-
-        private static bool GetTitleGameStartFallbackRan(
-            StartupCriticalPathTrace trace) =>
-            ReflectionHelpers.GetPrivateField<bool>(
-                trace,
-                "_titleGameStartFallbackRan");
-
-        private static void AssertTraceOpen(StartupCriticalPathTrace trace)
-        {
-            using var writer = new StringWriter();
-            Assert.False(trace.TryPublishTerminal(writer));
-            Assert.Equal(string.Empty, writer.ToString());
-        }
-
-        private sealed record CriticalPathFixture(
-            StartupCriticalPathTrace Trace,
-            ManualMonotonicClock Clock,
-            CriticalPathHostStageGame Game);
-
-        private sealed class ManualMonotonicClock : IMonotonicClock
-        {
-            public long TimestampFrequency => 1_000;
-            public long Timestamp { get; set; }
-            public long GetTimestamp() => Timestamp;
+            public GraphicsDevice GraphicsDevice => null!;
+            public IStageManager StageManager => null!;
+            public IConfigManager ConfigManager { get; } = new ConfigManager();
+            public InputManagerCompat InputManager => null!;
+            public IGraphicsManager GraphicsManager => null!;
+            public IResourceManager ResourceManager => null!;
+            public ILoggerFactory LoggerFactory => NullLoggerFactory.Instance;
+            public bool CanPerformStageTransition() => false;
+            public void MarkStageTransition() { }
+            public Point? MapMouseToVirtual(Point windowPoint) => null;
+            public ITextInputSource? GetTextInputSource() => null;
+            public void RequestExit() { }
         }
 
         private sealed class ControlledTitleStage : TitleStage
         {
-            private readonly StartupCriticalPathTrace _trace;
-            private readonly ManualMonotonicClock _clock;
-
-            public ControlledTitleStage(
-                IStageGame game,
-                StartupCriticalPathTrace trace,
-                ManualMonotonicClock clock)
+            public ControlledTitleStage(IStageGame game)
                 : base(game)
             {
-                _trace = trace;
-                _clock = clock;
             }
 
             public List<string> GpuOperations { get; } = new();
-            public List<bool> GpuAggregateActive { get; } = new();
             public bool ThrowWhenSettingWhitePixelData { get; init; }
 
             public void InvokeOnActivate() => OnActivate();
@@ -1383,7 +993,7 @@ namespace DTXMania.Test.Stage
             protected override SpriteBatch CreateTitleSpriteBatch(
                 GraphicsDevice graphicsDevice)
             {
-                ObserveGpuOperation("sprite_batch", elapsedTicks: 2);
+                GpuOperations.Add("sprite_batch");
 #pragma warning disable SYSLIB0050
                 return (SpriteBatch)FormatterServices.GetUninitializedObject(
                     typeof(SpriteBatch));
@@ -1393,7 +1003,7 @@ namespace DTXMania.Test.Stage
             protected override Texture2D CreateTitleWhitePixel(
                 GraphicsDevice graphicsDevice)
             {
-                ObserveGpuOperation("white_pixel", elapsedTicks: 3);
+                GpuOperations.Add("white_pixel");
 #pragma warning disable SYSLIB0050
                 return (Texture2D)FormatterServices.GetUninitializedObject(
                     typeof(Texture2D));
@@ -1402,18 +1012,9 @@ namespace DTXMania.Test.Stage
 
             protected override void SetTitleWhitePixelData(Texture2D texture)
             {
-                ObserveGpuOperation("white_pixel_data", elapsedTicks: 5);
+                GpuOperations.Add("white_pixel_data");
                 if (ThrowWhenSettingWhitePixelData)
                     throw new InvalidOperationException("gpu setup failed");
-            }
-
-            private void ObserveGpuOperation(string operation, long elapsedTicks)
-            {
-                GpuOperations.Add(operation);
-                GpuAggregateActive.Add(IsAggregateActive(
-                    _trace,
-                    StartupCriticalPathAggregate.TitleGpuSetup));
-                _clock.Timestamp += elapsedTicks;
             }
         }
 
@@ -1508,106 +1109,5 @@ namespace DTXMania.Test.Stage
                 WasDisposed = true;
             }
         }
-
-        #region Try* Helper and ResolveCriticalPathTrace Branch Coverage
-
-        private static void InvokePrivateStaticTry(
-            string methodName,
-            StartupCriticalPathTrace trace,
-            StartupCriticalPathAggregate aggregate)
-        {
-            var method = typeof(TitleStage).GetMethod(
-                methodName,
-                System.Reflection.BindingFlags.NonPublic | BindingFlags.Static);
-            Assert.NotNull(method);
-            var exception = Record.Exception(() =>
-                method!.Invoke(null, [trace, aggregate]));
-            Assert.Null(exception);
-        }
-
-        private static StartupCriticalPathTrace CreateCorruptedTrace() =>
-            CriticalPathTestFixtures.CreateCorruptedTrace(
-                new ManualMonotonicClock(),
-                new FixedUtcMicrosecondClock());
-
-        [Fact]
-        public void TryBeginAggregate_WhenTraceThrows_ShouldSwallowException()
-        {
-            var trace = CreateCorruptedTrace();
-            InvokePrivateStaticTry(
-                "TryBeginAggregate",
-                trace,
-                StartupCriticalPathAggregate.TitleGpuSetup);
-        }
-
-        [Fact]
-        public void TryEndAggregate_WhenTraceThrows_ShouldSwallowException()
-        {
-            var trace = CreateCorruptedTrace();
-            InvokePrivateStaticTry(
-                "TryEndAggregate",
-                trace,
-                StartupCriticalPathAggregate.TitleGpuSetup);
-        }
-
-        [Fact]
-        public void TryIncrementTitleSoundLoad_WhenTraceThrows_ShouldSwallowException()
-        {
-            var trace = CreateCorruptedTrace();
-            var method = typeof(TitleStage).GetMethod(
-                "TryIncrementTitleSoundLoad",
-                System.Reflection.BindingFlags.NonPublic | BindingFlags.Static);
-            Assert.NotNull(method);
-            var exception = Record.Exception(() => method!.Invoke(null, [trace]));
-            Assert.Null(exception);
-        }
-
-        [Fact]
-        public void TryMarkTitleGameStartFallbackRan_WhenTraceThrows_ShouldSwallowException()
-        {
-            var trace = CreateCorruptedTrace();
-            var method = typeof(TitleStage).GetMethod(
-                "TryMarkTitleGameStartFallbackRan",
-                System.Reflection.BindingFlags.NonPublic | BindingFlags.Static);
-            Assert.NotNull(method);
-            var exception = Record.Exception(() => method!.Invoke(null, [trace]));
-            Assert.Null(exception);
-        }
-
-        [Fact]
-        public void ResolveCriticalPathTrace_WhenHostThrows_ShouldReturnNull()
-        {
-            var game = new ThrowingCriticalPathHostStageGame();
-            var stage = new TitleStage(game);
-
-            var result = ReflectionHelpers.InvokePrivateMethod<StartupCriticalPathTrace?>(
-                stage,
-                "ResolveCriticalPathTrace");
-
-            Assert.Null(result);
-        }
-
-        private sealed class ThrowingCriticalPathHostStageGame :
-            IStageGame,
-            IStartupCriticalPathHost
-        {
-            StartupCriticalPathTrace? IStartupCriticalPathHost.StartupCriticalPathTrace =>
-                throw new InvalidOperationException("host unavailable");
-
-            public GraphicsDevice GraphicsDevice => null!;
-            public IStageManager StageManager => null!;
-            public IConfigManager ConfigManager => null!;
-            public InputManagerCompat InputManager => null!;
-            public IGraphicsManager GraphicsManager => null!;
-            public IResourceManager ResourceManager => null!;
-            public ILoggerFactory LoggerFactory => NullLoggerFactory.Instance;
-            public bool CanPerformStageTransition() => false;
-            public void MarkStageTransition() { }
-            public Point? MapMouseToVirtual(Point windowPoint) => null;
-            public ITextInputSource? GetTextInputSource() => null;
-            public void RequestExit() { }
-        }
-
-        #endregion
     }
 }

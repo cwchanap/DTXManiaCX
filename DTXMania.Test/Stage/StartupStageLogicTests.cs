@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using DTXMania.Game;
 using DTXMania.Game.Lib.Config;
+using DTXMania.Game.Lib.Diagnostics.CrashReporting;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Entities;
@@ -357,457 +358,18 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void DatabaseTask_WhenSynchronous_ShouldRecordInvokeReturnTerminalAndObserved()
+        public void OnUpdate_WhenCompleteAfterDraw_ShouldPublishSummaryRequestBeforeTitleChange()
         {
-            var (stage, trace, _) = CreateDiagnosticControlledStage();
-            SetPhaseForUpdate(stage, StartupPhase.SongListDB);
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
-
-            AssertRecordedInOrder(
-                trace,
-                StartupCriticalPathMilestone.DatabaseInvoke,
-                StartupCriticalPathMilestone.DatabaseTerminal,
-                StartupCriticalPathMilestone.DatabaseTaskReturn,
-                StartupCriticalPathMilestone.DatabaseObserved);
-            Assert.True(ReflectionHelpers.GetPrivateField<bool>(
-                trace,
-                "_databaseTaskReturnedTerminal"));
-        }
-
-        [Fact]
-        public async Task DatabaseTask_WhenDelayed_ShouldSeparateReturnTerminalAndObservation()
-        {
-            var (stage, trace, clock) = CreateDiagnosticControlledStage();
-            var completion = new TaskCompletionSource<bool>(
-                TaskCreationOptions.RunContinuationsAsynchronously);
-            stage.NextDatabaseTask = completion.Task;
-            SetPhaseForUpdate(stage, StartupPhase.SongListDB);
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
-
-            AssertRecorded(
-                trace,
-                StartupCriticalPathMilestone.DatabaseInvoke,
-                StartupCriticalPathMilestone.DatabaseTaskReturn);
-            AssertNotRecorded(
-                trace,
-                StartupCriticalPathMilestone.DatabaseTerminal,
-                StartupCriticalPathMilestone.DatabaseObserved);
-            Assert.False(ReflectionHelpers.GetPrivateField<bool>(
-                trace,
-                "_databaseTaskReturnedTerminal"));
-
-            var phaseTask = ReflectionHelpers.GetPrivateField<Task>(
-                stage,
-                "_currentAsyncTask")!;
-            clock.Advance(10);
-            completion.SetResult(true);
-            await phaseTask.WaitAsync(TimeSpan.FromSeconds(10));
-
-            AssertRecorded(trace, StartupCriticalPathMilestone.DatabaseTerminal);
-            AssertNotRecorded(
-                trace,
-                StartupCriticalPathMilestone.DatabaseObserved);
-
-            clock.Advance(10);
-            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
-
-            AssertRecordedInOrder(
-                trace,
-                StartupCriticalPathMilestone.DatabaseInvoke,
-                StartupCriticalPathMilestone.DatabaseTaskReturn,
-                StartupCriticalPathMilestone.DatabaseTerminal,
-                StartupCriticalPathMilestone.DatabaseObserved);
-        }
-
-        [Fact]
-        public async Task DatabaseTask_WhenCompletionWaitsFrames_ShouldRecordObservationLag()
-        {
-            var (stage, trace, clock) = CreateDiagnosticControlledStage();
-            var completion = new TaskCompletionSource<bool>(
-                TaskCreationOptions.RunContinuationsAsynchronously);
-            stage.NextDatabaseTask = completion.Task;
-            SetPhaseForUpdate(stage, StartupPhase.SongListDB);
-            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
-            var phaseTask = ReflectionHelpers.GetPrivateField<Task>(
-                stage,
-                "_currentAsyncTask")!;
-
-            completion.SetResult(true);
-            await phaseTask.WaitAsync(TimeSpan.FromSeconds(10));
-            var terminal = Timestamp(
-                trace,
-                StartupCriticalPathMilestone.DatabaseTerminal);
-
-            clock.Advance(16);
-            clock.Advance(16);
-            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
-
-            var observed = Timestamp(
-                trace,
-                StartupCriticalPathMilestone.DatabaseObserved);
-            Assert.True(observed - terminal >= 32);
-        }
-
-        [Fact]
-        public void DatabaseTask_WhenCoreReturnsFalse_ShouldFailDiagnosticOnly()
-        {
-            var (stage, trace, _) = CreateDiagnosticControlledStage();
-            stage.NextDatabaseResult = false;
-            SetPhaseForUpdate(stage, StartupPhase.SongListDB);
-
-            var exception = Record.Exception(
-                () => ReflectionHelpers.InvokePrivateMethod(
-                    stage,
-                    "UpdateCurrentPhase"));
-
-            Assert.Null(exception);
-            Assert.Equal(
-                StartupPhase.SongsDB,
-                ReflectionHelpers.GetPrivateField<StartupPhase>(
-                    stage,
-                    "_startupPhase"));
-            Assert.Contains(
-                "outcome=failure error=database_initialization_failed",
-                PublishTerminal(trace));
-        }
-
-        [Fact]
-        public void DatabaseTask_WhenCoreThrows_ShouldRetainExistingStartupBehaviorAndFailTrace()
-        {
-            var (stage, trace, _) = CreateDiagnosticControlledStage();
-            stage.DatabaseInitializationException =
-                new IOException("database unavailable");
-            SetPhaseForUpdate(stage, StartupPhase.SongListDB);
-
-            var exception = Record.Exception(
-                () => ReflectionHelpers.InvokePrivateMethod(
-                    stage,
-                    "UpdateCurrentPhase"));
-
-            Assert.Null(exception);
-            Assert.Equal(
-                StartupPhase.SongsDB,
-                ReflectionHelpers.GetPrivateField<StartupPhase>(
-                    stage,
-                    "_startupPhase"));
-            Assert.Contains(
-                "outcome=failure error=database_initialization_failed",
-                PublishTerminal(trace));
-        }
-
-        [Fact]
-        public void EnumerationTask_WhenSynchronous_ShouldRecordAllFourMoments()
-        {
-            var (stage, trace, _) = CreateDiagnosticControlledStage();
-            SetPhaseForUpdate(stage, StartupPhase.EnumerateSongs);
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
-
-            AssertRecordedInOrder(
-                trace,
-                StartupCriticalPathMilestone.EnumerationInvoke,
-                StartupCriticalPathMilestone.EnumerationTerminal,
-                StartupCriticalPathMilestone.EnumerationTaskReturn,
-                StartupCriticalPathMilestone.EnumerationObserved);
-            Assert.True(ReflectionHelpers.GetPrivateField<bool>(
-                trace,
-                "_enumerationTaskReturnedTerminal"));
-        }
-
-        [Fact]
-        public async Task EnumerationTask_WhenDelayed_ShouldSeparateReturnTerminalAndObserved()
-        {
-            var (stage, trace, clock) = CreateDiagnosticControlledStage();
-            var completion =
-                new TaskCompletionSource<SongEnumerationResult>(
-                    TaskCreationOptions.RunContinuationsAsynchronously);
-            stage.NextEnumerationTask = completion.Task;
-            SetPhaseForUpdate(stage, StartupPhase.EnumerateSongs);
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
-
-            AssertRecorded(
-                trace,
-                StartupCriticalPathMilestone.EnumerationInvoke,
-                StartupCriticalPathMilestone.EnumerationTaskReturn);
-            AssertNotRecorded(
-                trace,
-                StartupCriticalPathMilestone.EnumerationTerminal,
-                StartupCriticalPathMilestone.EnumerationObserved);
-            Assert.False(ReflectionHelpers.GetPrivateField<bool>(
-                trace,
-                "_enumerationTaskReturnedTerminal"));
-
-            var phaseTask = ReflectionHelpers.GetPrivateField<Task>(
-                stage,
-                "_currentAsyncTask")!;
-            clock.Advance(10);
-            completion.SetResult(CreateEnumerationResult());
-            await phaseTask.WaitAsync(TimeSpan.FromSeconds(10));
-
-            AssertRecorded(
-                trace,
-                StartupCriticalPathMilestone.EnumerationTerminal);
-            AssertNotRecorded(
-                trace,
-                StartupCriticalPathMilestone.EnumerationObserved);
-
-            clock.Advance(10);
-            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
-
-            AssertRecordedInOrder(
-                trace,
-                StartupCriticalPathMilestone.EnumerationInvoke,
-                StartupCriticalPathMilestone.EnumerationTaskReturn,
-                StartupCriticalPathMilestone.EnumerationTerminal,
-                StartupCriticalPathMilestone.EnumerationObserved);
-        }
-
-        [Fact]
-        public void CacheSongLoad_WhenSynchronous_ShouldRecordAllFourMoments()
-        {
-            var (stage, trace, _) = CreateDiagnosticControlledStage();
-            stage.NextNeedsEnumerationResult = false;
-            stage.ForceEnumerationForTest = false;
-            SetPhaseForUpdate(stage, StartupPhase.EnumerateSongs);
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
-
-            AssertRecordedInOrder(
-                trace,
-                StartupCriticalPathMilestone.EnumerationInvoke,
-                StartupCriticalPathMilestone.EnumerationTerminal,
-                StartupCriticalPathMilestone.EnumerationTaskReturn,
-                StartupCriticalPathMilestone.EnumerationObserved);
-            Assert.True(ReflectionHelpers.GetPrivateField<bool>(
-                trace,
-                "_enumerationTaskReturnedTerminal"));
-            Assert.True(ReflectionHelpers.GetPrivateField<bool>(
-                trace,
-                "_enumerationResultRecorded"));
-        }
-
-        [Fact]
-        public async Task CacheSongLoad_WhenDelayed_ShouldSeparateReturnTerminalAndObserved()
-        {
-            var (stage, trace, clock) = CreateDiagnosticControlledStage();
-            var completion = new TaskCompletionSource(
-                TaskCreationOptions.RunContinuationsAsynchronously);
-            stage.NextNeedsEnumerationResult = false;
-            stage.ForceEnumerationForTest = false;
-            stage.NextBuildHierarchyTask = completion.Task;
-            SetPhaseForUpdate(stage, StartupPhase.EnumerateSongs);
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
-
-            AssertRecorded(
-                trace,
-                StartupCriticalPathMilestone.EnumerationInvoke,
-                StartupCriticalPathMilestone.EnumerationTaskReturn);
-            AssertNotRecorded(
-                trace,
-                StartupCriticalPathMilestone.EnumerationTerminal,
-                StartupCriticalPathMilestone.EnumerationObserved);
-
-            var phaseTask = ReflectionHelpers.GetPrivateField<Task>(
-                stage,
-                "_currentAsyncTask")!;
-            clock.Advance(10);
-            completion.SetResult();
-            await phaseTask.WaitAsync(TimeSpan.FromSeconds(10));
-            clock.Advance(10);
-            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
-
-            AssertRecordedInOrder(
-                trace,
-                StartupCriticalPathMilestone.EnumerationInvoke,
-                StartupCriticalPathMilestone.EnumerationTaskReturn,
-                StartupCriticalPathMilestone.EnumerationTerminal,
-                StartupCriticalPathMilestone.EnumerationObserved);
-            Assert.False(ReflectionHelpers.GetPrivateField<bool>(
-                trace,
-                "_enumerationTaskReturnedTerminal"));
-        }
-
-        [Fact]
-        public void CacheSongLoad_WhenRebuildFaultsSynchronously_ShouldPublishFailure()
-        {
-            var (stage, trace, _) = CreateDiagnosticControlledStage();
-            stage.NextNeedsEnumerationResult = false;
-            stage.ForceEnumerationForTest = false;
-            stage.NextBuildHierarchyTask =
-                Task.FromException(new IOException("cache unavailable"));
-            SetPhaseForUpdate(stage, StartupPhase.EnumerateSongs);
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
-
-            Assert.False(ReflectionHelpers.GetPrivateField<bool>(
-                trace,
-                "_enumerationResultRecorded"));
-            Assert.Contains(
-                "outcome=failure error=enumeration_failure " +
-                "last_milestone=EnumerationTerminal",
-                PublishTerminal(trace));
-        }
-
-        [Fact]
-        public async Task CacheSongLoad_WhenDelayedRebuildFaults_ShouldPublishFailure()
-        {
-            var (stage, trace, _) = CreateDiagnosticControlledStage();
-            var completion = new TaskCompletionSource(
-                TaskCreationOptions.RunContinuationsAsynchronously);
-            stage.NextNeedsEnumerationResult = false;
-            stage.ForceEnumerationForTest = false;
-            stage.NextBuildHierarchyTask = completion.Task;
-            SetPhaseForUpdate(stage, StartupPhase.EnumerateSongs);
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
-            var phaseTask = ReflectionHelpers.GetPrivateField<Task>(
-                stage,
-                "_currentAsyncTask")!;
-            completion.SetException(new IOException("cache unavailable"));
-            await Assert.ThrowsAsync<IOException>(
-                () => phaseTask.WaitAsync(TimeSpan.FromSeconds(10)));
-            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
-
-            AssertRecorded(
-                trace,
-                StartupCriticalPathMilestone.EnumerationTerminal);
-            Assert.Contains(
-                "outcome=failure error=enumeration_failure " +
-                "last_milestone=EnumerationTerminal",
-                PublishTerminal(trace));
-        }
-
-        [Fact]
-        public void EnumerationTask_WhenFaulted_ShouldPublishFailureAfterCleanup()
-        {
-            var (stage, trace, _) = CreateDiagnosticControlledStage();
-            stage.NextEnumerationTask =
-                Task.FromException<SongEnumerationResult>(
-                    new IOException("enumeration unavailable"));
-            SetPhaseForUpdate(stage, StartupPhase.EnumerateSongs);
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
-
-            AssertRecorded(
-                trace,
-                StartupCriticalPathMilestone.EnumerationTerminal);
-            Assert.Contains(
-                "outcome=failure error=enumeration_failure " +
-                "last_milestone=EnumerationTerminal",
-                PublishTerminal(trace));
-        }
-
-        [Fact]
-        public void EnumerationTask_WhenCancelled_ShouldPublishCancellationAfterCleanup()
-        {
-            var (stage, trace, _) = CreateDiagnosticControlledStage();
-            stage.NextEnumerationTask =
-                Task.FromCanceled<SongEnumerationResult>(
-                    new CancellationToken(canceled: true));
-            SetPhaseForUpdate(stage, StartupPhase.EnumerateSongs);
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "UpdateCurrentPhase");
-
-            AssertRecorded(
-                trace,
-                StartupCriticalPathMilestone.EnumerationTerminal);
-            Assert.Contains(
-                "outcome=cancellation error=enumeration_cancellation " +
-                "last_milestone=EnumerationTerminal",
-                PublishTerminal(trace));
-        }
-
-        [Fact]
-        public void EnumerationTask_WhenActivationRetiresWhilePending_ShouldFailInvalidation()
-        {
-            var (stage, trace, _) =
-                CreateDiagnosticLifecycleControlledStage();
-            var completion =
-                new TaskCompletionSource<SongEnumerationResult>(
-                    TaskCreationOptions.RunContinuationsAsynchronously);
-            stage.Activate();
-            stage.NextEnumerationTask = completion.Task;
-            _ = stage.StartSongLoadForTest();
-
-            stage.Deactivate();
-
-            Assert.True(stage.LastEnumerationToken.IsCancellationRequested);
-            Assert.Contains(
-                "outcome=failure error=activation_generation_invalidated",
-                PublishTerminal(trace));
-        }
-
-        [Fact]
-        public async Task EnumerationTask_WhenLateCompletionFollowsTerminal_ShouldNotMutateTrace()
-        {
-            var (stage, trace, _) =
-                CreateDiagnosticLifecycleControlledStage();
-            var completion =
-                new TaskCompletionSource<SongEnumerationResult>(
-                    TaskCreationOptions.RunContinuationsAsynchronously);
-            stage.Activate();
-            stage.NextEnumerationTask = completion.Task;
-            var retiredTask = stage.StartSongLoadForTest();
-            stage.Deactivate();
-            var terminalError = ReflectionHelpers.GetPrivateField<string>(
-                trace,
-                "_terminalErrorRaw");
-
-            completion.SetResult(CreateEnumerationResult());
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(
-                async () => await retiredTask);
-
-            Assert.Equal(
-                "activation_generation_invalidated",
-                terminalError);
-            Assert.Equal(
-                terminalError,
-                ReflectionHelpers.GetPrivateField<string>(
-                    trace,
-                    "_terminalErrorRaw"));
-            AssertNotRecorded(
-                trace,
-                StartupCriticalPathMilestone.EnumerationTerminal);
-            Assert.Contains(
-                "outcome=failure error=activation_generation_invalidated",
-                PublishTerminal(trace));
-        }
-
-        [Fact]
-        public void OnDeactivate_WhenEnumerationAlreadyCompleted_ShouldNotInvalidateTrace()
-        {
-            var (stage, trace, _) =
-                CreateDiagnosticLifecycleControlledStage();
-            stage.Activate();
-            _ = stage.StartSongLoadForTest();
-
-            stage.Deactivate();
-
-            Assert.Equal(
-                "none",
-                ReflectionHelpers.GetPrivateField<string>(
-                    trace,
-                    "_terminalErrorRaw"));
-        }
-
-        [Fact]
-        public void OnUpdate_WhenCompleteAfterDraw_ShouldRecordSummaryRequestBeforeTitleChange()
-        {
-            var (game, timingTrace, trace, _) = CreateDiagnosticGame();
-            timingTrace.MarkConfigLoaded();
-            timingTrace.MarkLoadContentComplete();
-            timingTrace.MarkStartupActivated();
-            timingTrace.MarkStartupFirstDraw();
+            var game = ReflectionHelpers.CreateGame();
+            var diagnostics = new RecordingGameCrashDiagnostics();
+            ReflectionHelpers.SetPrivateField(game, "_gameCrashDiagnostics", diagnostics);
             var stageManager = new Mock<IStageManager>();
+            var summaryPublishedBeforeTitleChange = false;
             ReflectionHelpers.SetPrivateField(
                 game,
                 "<StageManager>k__BackingField",
                 stageManager.Object);
-            var stage = new SummaryCapturingStartupStage(game);
+            var stage = new LifecycleControlledStartupStage(game);
             ReflectionHelpers.SetPrivateField(
                 stage,
                 "_startupPhase",
@@ -821,17 +383,17 @@ namespace DTXMania.Test.Stage
                     It.IsAny<IStageTransition>()))
                 .Callback<StageType, IStageTransition>((_, _) =>
                 {
-                    Assert.Single(stage.StartupSummaries);
-                    Assert.True(IsCompatibilityMilestoneRecorded(
-                        timingTrace,
-                        StartupTimingMilestone.SummaryAndTitleRequested));
-                    AssertRecorded(
-                        trace,
-                        StartupCriticalPathMilestone.SummaryRequest);
+                    summaryPublishedBeforeTitleChange =
+                        diagnostics.Contexts.Snapshots.Any(
+                            item => item.Kind == CrashContextKind.Startup &&
+                                Equals(
+                                    item.Fields["Milestone"],
+                                    StartupMilestone.SummaryRequest));
                 });
 
             stage.UpdateForTest(0.001);
 
+            Assert.True(summaryPublishedBeforeTitleChange);
             stageManager.Verify(
                 manager => manager.ChangeStage(
                     StageType.Title,
@@ -906,11 +468,6 @@ namespace DTXMania.Test.Stage
             await Assert.ThrowsAsync<IOException>(async () => await task);
 
             Assert.Equal(1, stage.BuildHierarchyCalls);
-            Assert.Equal(
-                StartupSongLoadOutcome.Failure,
-                ReflectionHelpers.GetPrivateField<StartupSongLoadOutcome>(
-                    stage,
-                    "_songLoadOutcome"));
         }
 
         [Fact]
@@ -944,30 +501,6 @@ namespace DTXMania.Test.Stage
 
             Assert.Equal(0, stage.SaveSongsDatabaseCalls);
             Assert.True(stage.MarkSongManagerInitializedCalled);
-        }
-
-        [Fact]
-        public void OnUpdate_WhenCompletePhaseTransitionIsEvaluatedAgain_ShouldWriteOneSuccessStartupSummary()
-        {
-            var stageManager = new Mock<IStageManager>();
-            var game = ReflectionHelpers.CreateGame();
-            ReflectionHelpers.SetPrivateField(game, "<StageManager>k__BackingField", stageManager.Object);
-            var stage = new SummaryCapturingStartupStage(game);
-            ReflectionHelpers.SetPrivateField(stage, "_startupPhase", StartupPhase.Complete);
-            ReflectionHelpers.SetPrivateField(stage, "_elapsedTime", 0.0);
-            ReflectionHelpers.SetPrivateField(stage, "_phaseStartTime", 0.0);
-            ReflectionHelpers.SetPrivateField(stage, "_hasRenderedStartupFrame", true);
-
-            stage.UpdateForTest(0.2);
-            stage.UpdateForTest(0.2);
-
-            var summary = Assert.Single(stage.StartupSummaries);
-            Assert.StartsWith("HPA192_STARTUP ", summary);
-            Assert.Contains("outcome=success", summary);
-            stageManager.Verify(manager => manager.ChangeStage(
-                StageType.Title,
-                It.Is<IStageTransition>(transition => transition is StartupToTitleTransition)),
-                Times.Once);
         }
 
         [Fact]
@@ -1187,11 +720,6 @@ namespace DTXMania.Test.Stage
 
             Assert.Equal(0, stage.BuildHierarchyCalls);
             Assert.Same(originalHierarchy, stage.PublishedHierarchy);
-            Assert.Equal(
-                StartupSongLoadOutcome.Cancellation,
-                ReflectionHelpers.GetPrivateField<StartupSongLoadOutcome>(
-                    stage,
-                    "_songLoadOutcome"));
         }
 
         [Fact]
@@ -1251,11 +779,6 @@ namespace DTXMania.Test.Stage
                 "Song enumeration completed without publishing a hierarchy.",
                 thrown.Message);
             Assert.Equal(1, stage.BuildHierarchyCalls);
-            Assert.Equal(
-                StartupSongLoadOutcome.Failure,
-                ReflectionHelpers.GetPrivateField<StartupSongLoadOutcome>(
-                    stage,
-                    "_songLoadOutcome"));
         }
 
         [Fact]
@@ -1293,11 +816,6 @@ namespace DTXMania.Test.Stage
                 ReflectionHelpers.GetPrivateField<StartupPhase>(
                     stage,
                     "_startupPhase"));
-            Assert.Contains(
-                "original enumeration error",
-                ReflectionHelpers.GetPrivateField<string>(
-                    stage,
-                    "_songLoadError"));
         }
 
         [Fact]
@@ -1325,25 +843,10 @@ namespace DTXMania.Test.Stage
             await Assert.ThrowsAnyAsync<OperationCanceledException>(
                 async () => await oldTask);
             Assert.Equal(
-                StartupSongLoadPath.Unknown,
-                ReflectionHelpers.GetPrivateField<StartupSongLoadPath>(
-                    stage,
-                    "_selectedLoadPath"));
-            Assert.Null(
-                ReflectionHelpers.GetPrivateField<SongEnumerationResult>(
-                    stage,
-                    "_enumerationResult"));
-            Assert.Equal(
-                StartupSongLoadOutcome.Success,
-                ReflectionHelpers.GetPrivateField<StartupSongLoadOutcome>(
-                    stage,
-                    "_songLoadOutcome"));
-            Assert.Equal(
                 StartupPhase.SystemSounds,
                 ReflectionHelpers.GetPrivateField<StartupPhase>(
                     stage,
                     "_startupPhase"));
-            Assert.Empty(stage.StartupSummaries);
             Assert.Equal(0, stage.BuildHierarchyCalls);
 
             var freshResult = CreateEnumerationResult(
@@ -1362,11 +865,6 @@ namespace DTXMania.Test.Stage
             stage.UpdateForTest(0.001);
 
             Assert.Equal(2, stage.EnumerateSongsCalls);
-            Assert.Same(
-                freshResult,
-                ReflectionHelpers.GetPrivateField<SongEnumerationResult>(
-                    stage,
-                    "_enumerationResult"));
         }
 
         [Fact]
@@ -1394,20 +892,10 @@ namespace DTXMania.Test.Stage
                     stage,
                     "_cacheFallbackAttempted"));
             Assert.Equal(
-                StartupSongLoadOutcome.Success,
-                ReflectionHelpers.GetPrivateField<StartupSongLoadOutcome>(
-                    stage,
-                    "_songLoadOutcome"));
-            Assert.Null(
-                ReflectionHelpers.GetPrivateField<string>(
-                    stage,
-                    "_songLoadError"));
-            Assert.Equal(
                 StartupPhase.SystemSounds,
                 ReflectionHelpers.GetPrivateField<StartupPhase>(
                     stage,
                     "_startupPhase"));
-            Assert.Empty(stage.StartupSummaries);
         }
 
         [Fact]
@@ -1427,15 +915,6 @@ namespace DTXMania.Test.Stage
 
             await Assert.ThrowsAnyAsync<OperationCanceledException>(
                 async () => await oldTask);
-            Assert.Equal(
-                StartupSongLoadOutcome.Success,
-                ReflectionHelpers.GetPrivateField<StartupSongLoadOutcome>(
-                    stage,
-                    "_songLoadOutcome"));
-            Assert.Null(
-                ReflectionHelpers.GetPrivateField<string>(
-                    stage,
-                    "_songLoadError"));
             Assert.Equal(0, stage.BuildHierarchyCalls);
             Assert.False(
                 ReflectionHelpers.GetPrivateField<bool>(
@@ -1446,7 +925,6 @@ namespace DTXMania.Test.Stage
                 ReflectionHelpers.GetPrivateField<StartupPhase>(
                     stage,
                     "_startupPhase"));
-            Assert.Empty(stage.StartupSummaries);
         }
 
         [Fact]
@@ -1486,50 +964,6 @@ namespace DTXMania.Test.Stage
             {
                 TaskScheduler.UnobservedTaskException -= handler;
             }
-        }
-
-        [Fact]
-        public void WriteSummaryOnce_WhenEnumerationCompletes_ShouldUseResultCountsAndDurations()
-        {
-            var stage = new SummaryCapturingStartupStage(
-                ReflectionHelpers.CreateGame());
-            ReflectionHelpers.SetPrivateField(
-                stage,
-                "_selectedLoadPath",
-                StartupSongLoadPath.Enumeration);
-            ReflectionHelpers.SetPrivateField(
-                stage,
-                "_enumerationResult",
-                CreateEnumerationResult(
-                    discoveredCharts: 4,
-                    parsedCharts: 3,
-                    logicalGroups: 2,
-                    persistenceDuration: TimeSpan.FromMilliseconds(33),
-                    cleanupDuration: TimeSpan.FromMilliseconds(44),
-                    hierarchyDuration: TimeSpan.FromMilliseconds(55)));
-            ReflectionHelpers.SetPrivateField(
-                stage,
-                "_databaseInitializationDuration",
-                TimeSpan.FromMilliseconds(11));
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "WriteSummaryOnce");
-
-            var summary = Assert.Single(stage.StartupSummaries);
-            Assert.Contains("path=enumeration", summary);
-            Assert.Contains("db_init_ms=11", summary);
-            Assert.Contains("discovery_parse_ms=22", summary);
-            Assert.Contains("persistence_ms=33", summary);
-            Assert.Contains("cleanup_ms=44", summary);
-            Assert.Contains("hierarchy_ms=55", summary);
-            Assert.Contains("discovered=4", summary);
-            Assert.Contains("parsed=3", summary);
-            Assert.Contains("groups=2", summary);
-            Assert.Contains("added=1", summary);
-            Assert.Contains("updated=1", summary);
-            Assert.Contains("preserved=1", summary);
-            Assert.Contains("skipped=1", summary);
-            Assert.Contains("conflicts=1", summary);
-            Assert.Contains("stale=1", summary);
         }
 
         [Fact]
@@ -1818,65 +1252,6 @@ namespace DTXMania.Test.Stage
             return stage;
         }
 
-        private static (
-            ControlledStartupStage Stage,
-            StartupCriticalPathTrace Trace,
-            ManualMonotonicClock Clock)
-            CreateDiagnosticControlledStage()
-        {
-            var (game, _, trace, clock) = CreateDiagnosticGame();
-            return (
-                new ControlledStartupStage(game),
-                trace,
-                clock);
-        }
-
-        private static (
-            LifecycleControlledStartupStage Stage,
-            StartupCriticalPathTrace Trace,
-            ManualMonotonicClock Clock)
-            CreateDiagnosticLifecycleControlledStage()
-        {
-            var (game, _, trace, clock) = CreateDiagnosticGame();
-            return (
-                new LifecycleControlledStartupStage(game),
-                trace,
-                clock);
-        }
-
-        private static (
-            BaseGame Game,
-            StartupTimingTrace TimingTrace,
-            StartupCriticalPathTrace CriticalPathTrace,
-            ManualMonotonicClock Clock)
-            CreateDiagnosticGame()
-        {
-            var clock = new ManualMonotonicClock();
-            var timingTrace = StartupTimingTrace.Start(
-                clock,
-                new FakeUtcMicrosecondClock(),
-                enableCriticalPath: true);
-            var game = ReflectionHelpers.CreateGame();
-            ReflectionHelpers.SetPrivateField(
-                game,
-                "_startupTimingTrace",
-                timingTrace);
-            ReflectionHelpers.SetPrivateField(
-                game,
-                "<ConfigManager>k__BackingField",
-                CreateConfigManager(new ConfigData
-                {
-                    DTXPath = "Songs",
-                    ScreenWidth = 1280,
-                    ScreenHeight = 720
-                }));
-            return (
-                game,
-                timingTrace,
-                timingTrace.CriticalPathTrace!,
-                clock);
-        }
-
         private static void SetPhaseForUpdate(
             StartupStage stage,
             StartupPhase phase)
@@ -1887,80 +1262,6 @@ namespace DTXMania.Test.Stage
                 "_operationPerformedForPhase",
                 null);
             ReflectionHelpers.SetPrivateField(stage, "_currentAsyncTask", null);
-        }
-
-        private static void AssertRecorded(
-            StartupCriticalPathTrace trace,
-            params StartupCriticalPathMilestone[] milestones)
-        {
-            var recorded = ReflectionHelpers.GetPrivateField<bool[]>(
-                trace,
-                "_recorded")!;
-            foreach (var milestone in milestones)
-            {
-                Assert.True(
-                    recorded[(int)milestone],
-                    $"Expected {milestone} to be recorded.");
-            }
-        }
-
-        private static void AssertNotRecorded(
-            StartupCriticalPathTrace trace,
-            params StartupCriticalPathMilestone[] milestones)
-        {
-            var recorded = ReflectionHelpers.GetPrivateField<bool[]>(
-                trace,
-                "_recorded")!;
-            foreach (var milestone in milestones)
-            {
-                Assert.False(
-                    recorded[(int)milestone],
-                    $"Expected {milestone} not to be recorded.");
-            }
-        }
-
-        private static void AssertRecordedInOrder(
-            StartupCriticalPathTrace trace,
-            params StartupCriticalPathMilestone[] milestones)
-        {
-            AssertRecorded(trace, milestones);
-            var previous = long.MinValue;
-            foreach (var milestone in milestones)
-            {
-                var current = Timestamp(trace, milestone);
-                Assert.True(
-                    current > previous,
-                    $"Expected {milestone} after the preceding milestone.");
-                previous = current;
-            }
-        }
-
-        private static long Timestamp(
-            StartupCriticalPathTrace trace,
-            StartupCriticalPathMilestone milestone)
-        {
-            var timestamps = ReflectionHelpers.GetPrivateField<long[]>(
-                trace,
-                "_timestamps")!;
-            return timestamps[(int)milestone];
-        }
-
-        private static string PublishTerminal(
-            StartupCriticalPathTrace trace)
-        {
-            using var writer = new StringWriter();
-            Assert.True(trace.TryPublishTerminal(writer));
-            return writer.ToString();
-        }
-
-        private static bool IsCompatibilityMilestoneRecorded(
-            StartupTimingTrace trace,
-            StartupTimingMilestone milestone)
-        {
-            var recorded = ReflectionHelpers.GetPrivateField<bool[]>(
-                trace,
-                "_recorded")!;
-            return recorded[(int)milestone];
         }
 
         private static LifecycleControlledStartupStage
@@ -2007,9 +1308,6 @@ namespace DTXMania.Test.Stage
             int discoveredCharts = 0,
             int parsedCharts = 0,
             int logicalGroups = 0,
-            TimeSpan? persistenceDuration = null,
-            TimeSpan? cleanupDuration = null,
-            TimeSpan? hierarchyDuration = null,
             List<SongListNode>? rootNodes = null,
             SongEnumerationOutcome outcome = SongEnumerationOutcome.ImportedAndPublished,
             IReadOnlyList<string>? activeRoots = null)
@@ -2055,7 +1353,6 @@ namespace DTXMania.Test.Stage
                 RootNodes = rootNodes ?? new List<SongListNode>(),
                 PendingSongs = pendingSongs,
                 Errors = new List<SongEnumerationError>(),
-                DiscoveryAndParsingDuration = TimeSpan.FromMilliseconds(22),
                 IsComplete = true
             };
             var mutationCount = parsedCharts > 0 ? 1 : 0;
@@ -2068,14 +1365,11 @@ namespace DTXMania.Test.Stage
                 Skipped: mutationCount,
                 Conflicts: mutationCount,
                 StaleCharts: mutationCount,
-                StaleSongs: mutationCount,
-                persistenceDuration ?? TimeSpan.Zero,
-                cleanupDuration ?? TimeSpan.Zero);
+                StaleSongs: mutationCount);
             return new SongEnumerationResult(
                 outcome,
                 batch,
-                import,
-                hierarchyDuration ?? TimeSpan.Zero);
+                import);
         }
 
         private static IConfigManager CreateConfigManager(ConfigData? configData)
@@ -2193,14 +1487,6 @@ namespace DTXMania.Test.Stage
                     Task.FromResult(NextDatabaseResult);
             }
 
-            private protected override Task<bool>
-                InitializeDatabaseServiceCoreAsync(
-                    string databasePath,
-                    IStartupSongLoadTimingObserver? observer)
-            {
-                return InitializeDatabaseServiceCoreAsync(databasePath);
-            }
-
             protected override Task<bool> NeedsEnumerationCoreAsync(string[] songPaths, bool forceEnumeration)
             {
                 NeedsEnumerationCalls++;
@@ -2234,52 +1520,6 @@ namespace DTXMania.Test.Stage
                     Task.FromResult(NextEnumerationResult);
             }
 
-            private protected override Task<SongEnumerationResult>
-                EnumerateSongsCoreAsync(
-                    string[] songPaths,
-                    IProgress<EnumerationProgress> progressReporter,
-                    CancellationToken cancellationToken,
-                    IStartupSongLoadTimingObserver? observer)
-            {
-                return EnumerateSongsWithObserverForTestAsync(
-                    songPaths,
-                    progressReporter,
-                    cancellationToken,
-                    observer);
-            }
-
-            private async Task<SongEnumerationResult>
-                EnumerateSongsWithObserverForTestAsync(
-                    string[] songPaths,
-                    IProgress<EnumerationProgress> progressReporter,
-                    CancellationToken cancellationToken,
-                    IStartupSongLoadTimingObserver? observer)
-            {
-                SongEnumerationResult? result = null;
-                var outcome = StartupOperationOutcome.Failure;
-                try
-                {
-                    result = await EnumerateSongsCoreAsync(
-                            songPaths,
-                            progressReporter,
-                            cancellationToken)
-                        .ConfigureAwait(false);
-                    outcome = StartupOperationOutcome.Success;
-                    return result;
-                }
-                catch (OperationCanceledException)
-                {
-                    outcome = StartupOperationOutcome.Cancellation;
-                    throw;
-                }
-                finally
-                {
-                    observer.TryRecordEnumerationTerminal(
-                        result,
-                        outcome);
-                }
-            }
-
             protected override Task BuildHierarchyFromDatabaseOnceCoreAsync(
                 string[] songPaths)
             {
@@ -2303,33 +1543,6 @@ namespace DTXMania.Test.Stage
                 PublishEmptyLibraryCalls++;
             }
 
-            public Task<bool> InvokeInitializeDatabaseServiceCoreWithObserverAsync(
-                string databasePath,
-                IStartupSongLoadTimingObserver? observer)
-            {
-                var method = typeof(StartupStage).GetMethods(
-                        BindingFlags.NonPublic | BindingFlags.Instance)
-                    .First(m => m.Name == "InitializeDatabaseServiceCoreAsync"
-                        && m.GetParameters().Length == 2);
-                var task = (Task<bool>)method.Invoke(this, [databasePath, observer])!;
-                return task;
-            }
-
-            public Task<SongEnumerationResult> InvokeEnumerateSongsCoreWithObserverAsync(
-                string[] songPaths,
-                IProgress<EnumerationProgress> progress,
-                CancellationToken cancellationToken,
-                IStartupSongLoadTimingObserver? observer)
-            {
-                var method = typeof(StartupStage).GetMethods(
-                        BindingFlags.NonPublic | BindingFlags.Instance)
-                    .First(m => m.Name == "EnumerateSongsCoreAsync"
-                        && m.GetParameters().Length == 4);
-                var task = (Task<SongEnumerationResult>)method.Invoke(
-                    this,
-                    [songPaths, progress, cancellationToken, observer])!;
-                return task;
-            }
         }
 
         private sealed class LifecycleControlledStartupStage :
@@ -2350,8 +1563,6 @@ namespace DTXMania.Test.Stage
             public Texture2D WhitePixelStub { get; } =
                 (Texture2D)RuntimeHelpers.GetUninitializedObject(
                     typeof(Texture2D));
-
-            public List<string> StartupSummaries { get; } = new();
 
             public Task StartSongLoadForTest()
             {
@@ -2407,51 +1618,7 @@ namespace DTXMania.Test.Stage
                 return null!;
             }
 
-            protected override void WriteStartupSummary(string line)
-            {
-                StartupSummaries.Add(line);
-            }
         }
-
-        private sealed class SummaryCapturingStartupStage : StartupStage
-        {
-            public SummaryCapturingStartupStage(BaseGame game) : base(game)
-            {
-            }
-
-            public List<string> StartupSummaries { get; } = new();
-
-            public void UpdateForTest(double deltaTime)
-            {
-                OnUpdate(deltaTime);
-            }
-
-            protected override void WriteStartupSummary(string line)
-            {
-                StartupSummaries.Add(line);
-            }
-        }
-
-        private sealed class ManualMonotonicClock : IMonotonicClock
-        {
-            private long _timestamp;
-
-            public long TimestampFrequency => TimeSpan.TicksPerSecond;
-
-            public long GetTimestamp() =>
-                Interlocked.Increment(ref _timestamp);
-
-            public void Advance(long ticks) =>
-                Interlocked.Add(ref _timestamp, ticks);
-        }
-
-        private sealed class FakeUtcMicrosecondClock :
-            IUtcMicrosecondClock
-        {
-            public long GetUnixMicroseconds() => 1_000_000;
-        }
-
-        private sealed record DrawCall(Rectangle Destination, Color Color);
 
         private sealed class SynchronizationContextScope : IDisposable
         {
@@ -2494,6 +1661,8 @@ namespace DTXMania.Test.Stage
             public int BeginCalls { get; private set; }
 
             public int EndCalls { get; private set; }
+
+            public sealed record DrawCall(Rectangle Destination, Color Color);
 
             public List<DrawCall> DrawCalls { get; } = new();
 
@@ -2614,7 +1783,7 @@ namespace DTXMania.Test.Stage
             }
         }
 
-        #region Patch Coverage: Try* Helpers, ResolveCriticalPathTrace, Phase Operations
+        #region Patch Coverage: Phase Operations and Lifecycle Helpers
 
         [Fact]
         public void CancelAndObserveRetiredOperation_WhenCtsDisposed_ShouldSwallowObjectDisposedException()
@@ -2631,49 +1800,6 @@ namespace DTXMania.Test.Stage
                 method!.Invoke(null, [Task.CompletedTask, cts]));
 
             Assert.Null(exception);
-        }
-
-        [Fact]
-        public void ResolveCriticalPathTrace_WhenHostThrows_ShouldReturnNull()
-        {
-            var game = ReflectionHelpers.CreateGame();
-            // The default BaseGame does not implement IStartupCriticalPathHost, so
-            // StartupCriticalPathHost.Resolve throws — the catch must return null.
-            var stage = new ControlledStartupStage(game);
-
-            var result = ReflectionHelpers.InvokePrivateMethod<StartupCriticalPathTrace?>(
-                stage,
-                "ResolveCriticalPathTrace");
-
-            Assert.Null(result);
-        }
-
-        [Fact]
-        public void TryRecordExactlyOnce_WhenTraceThrows_ShouldSwallowException()
-        {
-            var trace = CreateCorruptedTrace();
-            InvokeStaticTryHelper("TryRecordExactlyOnce", trace, StartupCriticalPathMilestone.LoadContentComplete);
-        }
-
-        [Fact]
-        public void TryRecordDatabaseTaskReturned_WhenTraceThrows_ShouldSwallowException()
-        {
-            var trace = CreateCorruptedTrace();
-            InvokeStaticTryHelper("TryRecordDatabaseTaskReturned", trace, false);
-        }
-
-        [Fact]
-        public void TryRecordEnumerationTaskReturned_WhenTraceThrows_ShouldSwallowException()
-        {
-            var trace = CreateCorruptedTrace();
-            InvokeStaticTryHelper("TryRecordEnumerationTaskReturned", trace, false);
-        }
-
-        [Fact]
-        public void TryFailCriticalPath_WhenTraceThrows_ShouldSwallowException()
-        {
-            var trace = CreateCorruptedTrace();
-            InvokeStaticTryHelper("TryFailCriticalPath", trace, "error", "milestone", false);
         }
 
         [Fact]
@@ -2711,51 +1837,6 @@ namespace DTXMania.Test.Stage
             Assert.Equal(
                 StartupPhase.LoadScoreFiles,
                 ReflectionHelpers.GetPrivateField<StartupPhase?>(stage, "_operationPerformedForPhase"));
-        }
-
-        [Fact]
-        public void WriteSummaryOnce_WhenAlreadyWritten_ShouldReturnEarly()
-        {
-            var stageManager = new Mock<IStageManager>();
-            var game = ReflectionHelpers.CreateGame();
-            ReflectionHelpers.SetPrivateField(game, "<StageManager>k__BackingField", stageManager.Object);
-            var stage = new SummaryCapturingStartupStage(game);
-            ReflectionHelpers.SetPrivateField(stage, "_startupSummaryWritten", true);
-
-            ReflectionHelpers.InvokePrivateMethod(stage, "WriteSummaryOnce");
-
-            // The early return means no summary is captured.
-            Assert.Empty(stage.StartupSummaries);
-        }
-
-        [Fact]
-        public async Task InitializeDatabaseServiceCoreAsync_WithObserver_ShouldDelegateToOverload()
-        {
-            var stage = CreateControlledStage();
-            var observer = new NullStartupSongLoadTimingObserver();
-
-            var result = await stage.InvokeInitializeDatabaseServiceCoreWithObserverAsync(
-                "test.db",
-                observer);
-
-            Assert.True(result);
-            Assert.Equal(1, stage.InitializeDatabaseCalls);
-        }
-
-        [Fact]
-        public async Task EnumerateSongsCoreAsync_WithObserver_ShouldDelegateToOverload()
-        {
-            var stage = CreateControlledStage();
-            var observer = new NullStartupSongLoadTimingObserver();
-
-            var result = await stage.InvokeEnumerateSongsCoreWithObserverAsync(
-                new[] { "Songs" },
-                new Mock<IProgress<EnumerationProgress>>().Object,
-                CancellationToken.None,
-                observer);
-
-            Assert.NotNull(result);
-            Assert.Equal(1, stage.EnumerateSongsCalls);
         }
 
         [Fact]
@@ -2868,187 +1949,6 @@ namespace DTXMania.Test.Stage
             Assert.Equal(1, stage.BuildHierarchyCalls);
         }
 
-        private static StartupCriticalPathTrace CreateCorruptedTrace() =>
-            CriticalPathTestFixtures.CreateCorruptedTrace(
-                new ManualMonotonicClock(),
-                new FakeUtcMicrosecondClock());
-
-        private static void InvokeStaticTryHelper(string methodName, params object[] args)
-        {
-            var method = typeof(StartupStage).GetMethod(
-                methodName,
-                BindingFlags.NonPublic | BindingFlags.Static);
-            Assert.NotNull(method);
-            var exception = Record.Exception(() => method!.Invoke(null, args));
-            Assert.Null(exception);
-        }
-
-        private sealed class NullStartupSongLoadTimingObserver : IStartupSongLoadTimingObserver
-        {
-            public void BeginDatabaseSpan(StartupDatabaseTimingSpan span) { }
-            public void EndDatabaseSpan(StartupDatabaseTimingSpan span) { }
-            public void RecordUnexpectedTableExistsPath() { }
-            public void RecordEnumerationTerminal(
-                SongEnumerationResult? result,
-                StartupOperationOutcome outcome) { }
-        }
-
         #endregion
-    }
-
-    [Collection("ConsoleOut")]
-    public class StartupStageConsoleOutputTests
-    {
-        [Fact]
-        public void OnUpdate_WhenCompletePhaseTransitionIsEvaluatedAgain_ShouldWriteOneRawSuccessStartupSummary()
-        {
-            var stageManager = new Mock<IStageManager>();
-            var game = ReflectionHelpers.CreateGame();
-            ReflectionHelpers.SetPrivateField(game, "<StageManager>k__BackingField", stageManager.Object);
-            var stage = new DefaultOutputStartupStage(game);
-            ReflectionHelpers.SetPrivateField(stage, "_startupPhase", StartupPhase.Complete);
-            ReflectionHelpers.SetPrivateField(stage, "_elapsedTime", 0.0);
-            ReflectionHelpers.SetPrivateField(stage, "_phaseStartTime", 0.0);
-            ReflectionHelpers.SetPrivateField(stage, "_hasRenderedStartupFrame", true);
-
-            using var writer = new StringWriter();
-            var originalOut = Console.Out;
-            Console.SetOut(writer);
-            try
-            {
-                stage.UpdateForTest(0.2);
-                stage.UpdateForTest(0.2);
-            }
-            finally
-            {
-                Console.SetOut(originalOut);
-            }
-
-            var lines = writer.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
-            var summary = Assert.Single(lines);
-            Assert.StartsWith("HPA192_STARTUP ", summary);
-            Assert.Contains("outcome=success", summary);
-            stageManager.Verify(manager => manager.ChangeStage(
-                StageType.Title,
-                It.Is<IStageTransition>(transition => transition is StartupToTitleTransition)),
-                Times.Once);
-        }
-
-        [Theory]
-        [InlineData(true, "cancellation")]
-        [InlineData(false, "failure")]
-        public async Task OnUpdate_WhenSongLoadDoesNotPublish_ShouldWriteOneRawOutcomeSummary(
-            bool cancel,
-            string expectedOutcome)
-        {
-            var stageManager = new Mock<IStageManager>();
-            var game = ReflectionHelpers.CreateGame();
-            ReflectionHelpers.SetPrivateField(
-                game,
-                "<StageManager>k__BackingField",
-                stageManager.Object);
-            var stage = new DefaultOutputOutcomeStartupStage(game, cancel);
-            var loadTask = (Task)ReflectionHelpers.InvokePrivateMethod(
-                stage,
-                "RunSongLoadAsync")!;
-            await Assert.ThrowsAnyAsync<Exception>(
-                async () => await loadTask);
-            ReflectionHelpers.SetPrivateField(
-                stage,
-                "_startupPhase",
-                StartupPhase.Complete);
-            ReflectionHelpers.SetPrivateField(
-                stage,
-                "_hasRenderedStartupFrame",
-                true);
-
-            using var writer = new StringWriter();
-            var originalOut = Console.Out;
-            Console.SetOut(writer);
-            try
-            {
-                stage.UpdateForTest(0.001);
-                stage.UpdateForTest(0.001);
-            }
-            finally
-            {
-                Console.SetOut(originalOut);
-            }
-
-            var summary = Assert.Single(
-                writer.ToString().Split(
-                    Environment.NewLine,
-                    StringSplitOptions.RemoveEmptyEntries));
-            Assert.StartsWith("HPA192_STARTUP ", summary);
-            Assert.Contains($"outcome={expectedOutcome}", summary);
-            Assert.Equal(cancel ? 0 : 1, stage.BuildHierarchyCalls);
-            stageManager.Verify(
-                manager => manager.ChangeStage(
-                    StageType.Title,
-                    It.Is<IStageTransition>(
-                        transition =>
-                            transition is StartupToTitleTransition)),
-                Times.Once);
-        }
-
-        private sealed class DefaultOutputStartupStage : StartupStage
-        {
-            public DefaultOutputStartupStage(BaseGame game) : base(game)
-            {
-            }
-
-            public void UpdateForTest(double deltaTime)
-            {
-                OnUpdate(deltaTime);
-            }
-        }
-
-        private sealed class DefaultOutputOutcomeStartupStage : StartupStage
-        {
-            private readonly bool _cancel;
-
-            public DefaultOutputOutcomeStartupStage(
-                BaseGame game,
-                bool cancel) : base(game)
-            {
-                _cancel = cancel;
-            }
-
-            public int BuildHierarchyCalls { get; private set; }
-
-            public void UpdateForTest(double deltaTime)
-            {
-                OnUpdate(deltaTime);
-            }
-
-            protected override Task<bool> NeedsEnumerationCoreAsync(
-                string[] songPaths,
-                bool forceEnumeration) =>
-                Task.FromResult(true);
-
-            protected override Task<SongEnumerationResult>
-                EnumerateSongsCoreAsync(
-                    string[] songPaths,
-                    IProgress<EnumerationProgress> progressReporter,
-                    CancellationToken cancellationToken) =>
-                _cancel
-                    ? Task.FromCanceled<SongEnumerationResult>(
-                        new CancellationToken(canceled: true))
-                    : Task.FromException<SongEnumerationResult>(
-                        new IOException("enumeration failed"));
-
-            protected override Task
-                BuildHierarchyFromDatabaseOnceCoreAsync(
-                    string[] songPaths)
-            {
-                BuildHierarchyCalls++;
-                return Task.CompletedTask;
-            }
-        }
-    }
-
-    [CollectionDefinition("ConsoleOut", DisableParallelization = true)]
-    public sealed class ConsoleOutCollectionDefinition
-    {
     }
 }

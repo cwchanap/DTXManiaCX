@@ -263,7 +263,6 @@ public sealed class SongManagerLibrarySnapshotTests : IDisposable
             RootNodes = rootNodes.ToList(),
             PendingSongs = new List<PendingSongNode>(),
             Errors = new List<SongEnumerationError>(),
-            DiscoveryAndParsingDuration = TimeSpan.Zero,
             IsComplete = true,
         };
     }

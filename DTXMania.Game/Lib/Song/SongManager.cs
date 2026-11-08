@@ -342,18 +342,7 @@ namespace DTXMania.Game.Lib.Song
         /// <summary>
         /// Initializes the database service (SongListDB and SongsDB phases)
         /// </summary>
-        public Task<bool> InitializeDatabaseServiceAsync(string? databasePath = null, bool purgeDatabaseFirst = false)
-        {
-            return InitializeDatabaseServiceAsync(
-                databasePath,
-                purgeDatabaseFirst,
-                observer: null);
-        }
-
-        internal async Task<bool> InitializeDatabaseServiceAsync(
-            string? databasePath,
-            bool purgeDatabaseFirst,
-            IStartupSongLoadTimingObserver? observer)
+        public async Task<bool> InitializeDatabaseServiceAsync(string? databasePath = null, bool purgeDatabaseFirst = false)
         {
             try
             {
@@ -365,21 +354,8 @@ namespace DTXMania.Game.Lib.Song
                             ? Utilities.AppPaths.GetSongsDatabasePath()
                             : databasePath;
 
-                    if (_databaseService == null)
-                    {
-                        observer.TryBeginDatabaseSpan(
-                            StartupDatabaseTimingSpan.ServiceSetup);
-                        try
-                        {
-                            _databaseService =
-                                new SongDatabaseService(resolvedDatabasePath);
-                        }
-                        finally
-                        {
-                            observer.TryEndDatabaseSpan(
-                                StartupDatabaseTimingSpan.ServiceSetup);
-                        }
-                    }
+                    _databaseService ??=
+                        new SongDatabaseService(resolvedDatabasePath);
                     db = _databaseService;
                 }
 
@@ -390,19 +366,8 @@ namespace DTXMania.Game.Lib.Song
                 }
 
                 // Check for database corruption first
-                bool isDatabaseCorrupted;
-                observer.TryBeginDatabaseSpan(
-                    StartupDatabaseTimingSpan.CorruptionProbe);
-                try
-                {
-                    isDatabaseCorrupted = await IsDatabaseCorruptedAsync(db)
-                        .ConfigureAwait(false);
-                }
-                finally
-                {
-                    observer.TryEndDatabaseSpan(
-                        StartupDatabaseTimingSpan.CorruptionProbe);
-                }
+                bool isDatabaseCorrupted = await IsDatabaseCorruptedAsync(db)
+                    .ConfigureAwait(false);
 
                 // Purge the database only if explicitly requested OR if corruption is detected
                 bool shouldPurge;
@@ -424,20 +389,10 @@ namespace DTXMania.Game.Lib.Song
 
                 if (shouldPurge)
                 {
-                    observer.TryBeginDatabaseSpan(
-                        StartupDatabaseTimingSpan.InvalidRecovery);
-                    try
-                    {
-                        await db.PurgeDatabaseAsync().ConfigureAwait(false);
-                    }
-                    finally
-                    {
-                        observer.TryEndDatabaseSpan(
-                            StartupDatabaseTimingSpan.InvalidRecovery);
-                    }
+                    await db.PurgeDatabaseAsync().ConfigureAwait(false);
                 }
 
-                await db.InitializeDatabaseAsync(observer).ConfigureAwait(false);
+                await db.InitializeDatabaseAsync().ConfigureAwait(false);
                 Debug.WriteLine("SongManager: Database service initialized successfully");
                 return true;
             }
@@ -514,7 +469,6 @@ namespace DTXMania.Game.Lib.Song
                 searchPaths,
                 progress,
                 cancellationToken,
-                observer: null,
                 linked).ConfigureAwait(false);
 
             return (
@@ -719,7 +673,6 @@ namespace DTXMania.Game.Lib.Song
                 searchPaths,
                 progress,
                 cancellationToken,
-                observer: null,
                 linked).ConfigureAwait(false);
             return result.Batch.Candidates.Count;
         }
@@ -758,21 +711,8 @@ namespace DTXMania.Game.Lib.Song
             IProgress<EnumerationProgress>? progress = null,
             CancellationToken cancellationToken = default)
         {
-            return EnumerateAndImportSongsAsync(
-                searchPaths,
-                progress,
-                cancellationToken,
-                observer: null);
-        }
-
-        internal Task<SongEnumerationResult> EnumerateAndImportSongsAsync(
-            string[] searchPaths,
-            IProgress<EnumerationProgress>? progress,
-            CancellationToken cancellationToken,
-            IStartupSongLoadTimingObserver? observer)
-        {
             // Acquire the enumeration slot atomically. Direct callers of this
-            // public/internal entry point keep the historical throwing contract:
+            // public entry point keep the historical throwing contract:
             // a concurrent enumeration surfaces as InvalidOperationException.
             if (!TryBeginEnumeration(cancellationToken, out var linked))
             {
@@ -782,7 +722,6 @@ namespace DTXMania.Game.Lib.Song
                 searchPaths,
                 progress,
                 cancellationToken,
-                observer,
                 linked);
         }
 
@@ -790,11 +729,9 @@ namespace DTXMania.Game.Lib.Song
             string[] searchPaths,
             IProgress<EnumerationProgress>? progress,
             CancellationToken cancellationToken,
-            IStartupSongLoadTimingObserver? observer,
             CancellationTokenSource linked)
         {
             SongEnumerationResult? result = null;
-            var outcome = StartupOperationOutcome.Failure;
 
             // Capture a conservatively backed-off enumeration start as the
             // freshness watermark. It is persisted only after successful
@@ -833,9 +770,7 @@ namespace DTXMania.Game.Lib.Song
                     result = new SongEnumerationResult(
                         SongEnumerationOutcome.NoActiveRoots,
                         batch,
-                        SongBulkImportResult.Empty,
-                        TimeSpan.Zero);
-                    outcome = StartupOperationOutcome.Success;
+                        SongBulkImportResult.Empty);
                     return result;
                 }
 
@@ -848,14 +783,12 @@ namespace DTXMania.Game.Lib.Song
                     CreatePersistenceProgressAdapter(progress),
                     linked.Token).ConfigureAwait(false);
 
-                var hierarchy = Stopwatch.StartNew();
                 try
                 {
                     FinalizePendingNodesCore(batch, import.ChartsByPath);
                 }
                 catch (Exception exception)
                 {
-                    hierarchy.Stop();
                     throw new SongEnumerationPostCommitException(
                         SongEnumerationPostCommitPhase.Finalization,
                         batch,
@@ -863,7 +796,6 @@ namespace DTXMania.Game.Lib.Song
                         exception);
                 }
 
-                hierarchy.Stop();
                 try
                 {
                     PublishEnumerationCore(batch);
@@ -880,9 +812,7 @@ namespace DTXMania.Game.Lib.Song
                 result = new SongEnumerationResult(
                     SongEnumerationOutcome.ImportedAndPublished,
                     batch,
-                    import,
-                    hierarchy.Elapsed);
-                outcome = StartupOperationOutcome.Success;
+                    import);
 
                 // Rejected tabs are written for every scanned root, before the
                 // watermark, so the next freshness check counts them.
@@ -911,15 +841,9 @@ namespace DTXMania.Game.Lib.Song
 
                 return result;
             }
-            catch (OperationCanceledException)
-            {
-                outcome = StartupOperationOutcome.Cancellation;
-                throw;
-            }
             finally
             {
                 EndEnumeration(linked);
-                observer.TryRecordEnumerationTerminal(result, outcome);
             }
         }
 
@@ -970,8 +894,6 @@ namespace DTXMania.Game.Lib.Song
 
         private sealed class SongEnumerationBatchBuilder
         {
-            private readonly Stopwatch _stopwatch = Stopwatch.StartNew();
-
             public SongEnumerationBatchBuilder(
                 IReadOnlyList<string> activeRoots,
                 List<SongEnumerationError>? errors = null)
@@ -993,7 +915,6 @@ namespace DTXMania.Game.Lib.Song
 
             public SongEnumerationBatch Complete()
             {
-                _stopwatch.Stop();
                 return new SongEnumerationBatch
                 {
                     ActiveRoots = ActiveRoots,
@@ -1003,7 +924,6 @@ namespace DTXMania.Game.Lib.Song
                     PendingSongs = PendingSongs,
                     Errors = Errors,
                     RejectedChartPaths = RejectedChartPaths,
-                    DiscoveryAndParsingDuration = _stopwatch.Elapsed,
                     IsComplete = true
                 };
             }

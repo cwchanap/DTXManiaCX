@@ -53,95 +53,47 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task InitializeDatabaseAsync_WhenFresh_ShouldRecordOneEnsureAndSchemaPartition()
+        public async Task InitializeDatabaseAsync_WhenFresh_ShouldCreateDatabase()
         {
-            var observer = new RecordingObserver();
-
-            await _databaseService.InitializeDatabaseAsync(observer);
+            await _databaseService.InitializeDatabaseAsync();
 
             Assert.True(await _databaseService.DatabaseExistsAsync());
-            Assert.Equal(
-                new[]
-                {
-                    "begin:EnsureCreated",
-                    "end:EnsureCreated",
-                    "begin:EncodingPragmas",
-                    "end:EncodingPragmas",
-                    "begin:VersionWork",
-                    "end:VersionWork",
-                    "begin:SchemaEnsures",
-                    "end:SchemaEnsures"
-                },
-                observer.Events);
-            Assert.Equal(1, observer.BeginCount(StartupDatabaseTimingSpan.EnsureCreated));
-            Assert.Equal(1, observer.BeginCount(StartupDatabaseTimingSpan.SchemaEnsures));
-            Assert.Equal(0, observer.BeginCount(StartupDatabaseTimingSpan.CorruptionProbe));
-            Assert.Equal(0, observer.BeginCount(StartupDatabaseTimingSpan.InvalidRecovery));
         }
 
         [Fact]
-        public async Task InitializeDatabaseAsync_WhenPreinitialized_ShouldRecordProbeAndSchemaPartition()
+        public async Task InitializeDatabaseAsync_WhenPreinitialized_ShouldReuseDatabase()
         {
             using (var initializer = new SongDatabaseService(_testDbPath))
             {
                 await initializer.InitializeDatabaseAsync();
             }
-            var observer = new RecordingObserver();
             using var service = new SongDatabaseService(_testDbPath);
 
-            await service.InitializeDatabaseAsync(observer);
+            await service.InitializeDatabaseAsync();
 
             Assert.True(await service.DatabaseExistsAsync());
-            Assert.Equal(2, observer.BeginCount(StartupDatabaseTimingSpan.CorruptionProbe));
-            Assert.Equal(2, observer.EndCount(StartupDatabaseTimingSpan.CorruptionProbe));
-            Assert.Equal(1, observer.BeginCount(StartupDatabaseTimingSpan.EnsureCreated));
-            Assert.Equal(1, observer.BeginCount(StartupDatabaseTimingSpan.SchemaEnsures));
-            Assert.Equal(0, observer.BeginCount(StartupDatabaseTimingSpan.InvalidRecovery));
         }
 
         [Fact]
-        public async Task InitializeDatabaseAsync_WhenObserverThrows_ShouldStillInitialize()
-        {
-            var observer = new ThrowingObserver();
-
-            var exception = await Record.ExceptionAsync(
-                () => _databaseService.InitializeDatabaseAsync(observer));
-
-            Assert.Null(exception);
-            Assert.True(await _databaseService.DatabaseExistsAsync());
-            await using var context = _databaseService.CreateContext();
-            Assert.Empty(await context.Songs.ToListAsync());
-        }
-
-        [Fact]
-        public async Task InitializeDatabaseAsync_WhenInvalidFileRecovered_ShouldCountRecovery()
+        public async Task InitializeDatabaseAsync_WhenInvalidFileRecovered_ShouldRecreateDatabase()
         {
             await File.WriteAllTextAsync(_testDbPath, "not a SQLite database");
-            var observer = new RecordingObserver();
 
-            await _databaseService.InitializeDatabaseAsync(observer);
+            await _databaseService.InitializeDatabaseAsync();
 
             Assert.True(await _databaseService.DatabaseExistsAsync());
-            Assert.Equal(2, observer.BeginCount(StartupDatabaseTimingSpan.CorruptionProbe));
-            Assert.Equal(1, observer.BeginCount(StartupDatabaseTimingSpan.InvalidRecovery));
-            Assert.Equal(1, observer.EndCount(StartupDatabaseTimingSpan.InvalidRecovery));
-            Assert.Equal(1, observer.BeginCount(StartupDatabaseTimingSpan.EnsureCreated));
         }
 
         [Fact]
-        public async Task InitializeDatabaseAsync_WhenFirstEnsureThrowsNotDatabase_ShouldMeasureBothAttempts()
+        public async Task InitializeDatabaseAsync_WhenFirstEnsureThrowsNotDatabase_ShouldRetryAndRecover()
         {
             await using var fixture = await SqliteInitializationFixture.CreateAsync();
-            var observer = new RecordingObserver();
-            var beginCountsAtCall = new List<int>();
-            var recoveryBeginCountsAtCall = new List<int>();
+            var recoveryCalls = 0;
             using var service = new ScriptedInitializationService(
                 fixture.Options,
                 fixture.CreateContext,
                 async (context, attempt) =>
                 {
-                    beginCountsAtCall.Add(
-                        observer.BeginCount(StartupDatabaseTimingSpan.EnsureCreated));
                     await Task.Delay(5);
                     if (attempt == 1)
                     {
@@ -151,58 +103,33 @@ namespace DTXMania.Test.Song
                 },
                 () =>
                 {
-                    recoveryBeginCountsAtCall.Add(
-                        observer.BeginCount(StartupDatabaseTimingSpan.InvalidRecovery));
+                    recoveryCalls++;
                     return Task.CompletedTask;
                 });
 
-            await service.InitializeDatabaseAsync(observer);
+            await service.InitializeDatabaseAsync();
 
-            Assert.Equal(new[] { 1, 2 }, beginCountsAtCall);
-            Assert.Equal(2, observer.BeginCount(StartupDatabaseTimingSpan.EnsureCreated));
-            Assert.Equal(2, observer.EndCount(StartupDatabaseTimingSpan.EnsureCreated));
-            Assert.Equal(2, observer.Elapsed(StartupDatabaseTimingSpan.EnsureCreated).Count);
-            Assert.All(
-                observer.Elapsed(StartupDatabaseTimingSpan.EnsureCreated),
-                elapsed => Assert.True(elapsed > TimeSpan.Zero));
-            Assert.Equal(new[] { 1 }, recoveryBeginCountsAtCall);
-            Assert.Equal(1, observer.BeginCount(StartupDatabaseTimingSpan.InvalidRecovery));
+            Assert.Equal(1, recoveryCalls);
             Assert.NotNull(service.CreateContext());
         }
 
         [Fact]
-        public async Task InitializeDatabaseAsync_WhenEnsureThrowsTableExists_ShouldNotifyObserverAndKeepProductionSuccess()
+        public async Task InitializeDatabaseAsync_WhenEnsureThrowsTableExists_ShouldKeepProductionSuccess()
         {
             await using var fixture = await SqliteInitializationFixture.CreateAsync();
-            var clock = new IncrementingMonotonicClock();
-            var trace = StartupCriticalPathTrace.Start(
-                clock,
-                new FixedUtcMicrosecondClock(),
-                entryTimestamp: 0,
-                entryUnixMicroseconds: 1_000_000,
-                exitAfterPublication: false);
             using var service = new ScriptedInitializationService(
                 fixture.Options,
                 fixture.CreateContext,
                 (_, _) => throw new InvalidOperationException(
                     "table Songs already exists"));
 
-            await service.InitializeDatabaseAsync(trace);
+            await service.InitializeDatabaseAsync();
 
             Assert.NotNull(service.CreateContext());
-            using var writer = new StringWriter();
-            Assert.True(trace.TryPublishTerminal(writer));
-            Assert.StartsWith(
-                "HPA192_CRITICAL_PATH_FAILURE outcome=failure " +
-                "error=unexpected_table_exists_path ",
-                writer.ToString());
-            Assert.DoesNotContain(
-                "HPA192_CRITICAL_PATH outcome=success",
-                writer.ToString());
         }
 
         [Fact]
-        public async Task InitializeDatabaseAsync_WhenSchemaEnsureThrows_ShouldCloseSpanAndPropagate()
+        public async Task InitializeDatabaseAsync_WhenSchemaEnsureThrows_ShouldPropagate()
         {
             var interceptor = new ThrowingCommandInterceptor(
                 commandText => commandText.Contains(
@@ -211,20 +138,14 @@ namespace DTXMania.Test.Song
                 "schema ensure failure");
             await using var fixture =
                 await SqliteInitializationFixture.CreateAsync(interceptor);
-            var observer = new RecordingObserver();
             using var service = new ScriptedInitializationService(
                 fixture.Options,
                 fixture.CreateContext);
 
             var exception = await Assert.ThrowsAsync<InvalidOperationException>(
-                () => service.InitializeDatabaseAsync(observer));
+                () => service.InitializeDatabaseAsync());
 
             Assert.Contains("schema ensure failure", exception.ToString());
-            Assert.Equal(1, observer.BeginCount(StartupDatabaseTimingSpan.SchemaEnsures));
-            Assert.Equal(1, observer.EndCount(StartupDatabaseTimingSpan.SchemaEnsures));
-            Assert.All(
-                observer.Elapsed(StartupDatabaseTimingSpan.SchemaEnsures),
-                elapsed => Assert.True(elapsed > TimeSpan.Zero));
             Assert.Throws<InvalidOperationException>(service.CreateContext);
         }
 
@@ -238,22 +159,14 @@ namespace DTXMania.Test.Song
                 "version work failure");
             await using var fixture =
                 await SqliteInitializationFixture.CreateAsync(interceptor);
-            var observer = new RecordingObserver();
             using var service = new ScriptedInitializationService(
                 fixture.Options,
                 fixture.CreateContext);
 
             var exception = await Record.ExceptionAsync(
-                () => service.InitializeDatabaseAsync(observer));
+                () => service.InitializeDatabaseAsync());
 
             Assert.Null(exception);
-            Assert.Equal(1, observer.BeginCount(StartupDatabaseTimingSpan.VersionWork));
-            Assert.Equal(1, observer.EndCount(StartupDatabaseTimingSpan.VersionWork));
-            Assert.All(
-                observer.Elapsed(StartupDatabaseTimingSpan.VersionWork),
-                elapsed => Assert.True(elapsed > TimeSpan.Zero));
-            Assert.Equal(1, observer.BeginCount(StartupDatabaseTimingSpan.SchemaEnsures));
-            Assert.Equal(1, observer.EndCount(StartupDatabaseTimingSpan.SchemaEnsures));
             Assert.NotNull(service.CreateContext());
         }
 
@@ -617,81 +530,6 @@ namespace DTXMania.Test.Song
 
         #endregion
 
-        private class RecordingObserver : IStartupSongLoadTimingObserver
-        {
-            private readonly Dictionary<StartupDatabaseTimingSpan, int> _begins =
-                new();
-            private readonly Dictionary<StartupDatabaseTimingSpan, int> _ends =
-                new();
-            private readonly Dictionary<StartupDatabaseTimingSpan, long> _active =
-                new();
-            private readonly Dictionary<StartupDatabaseTimingSpan, List<TimeSpan>>
-                _elapsed = new();
-            private int _unexpectedTableExistsPaths;
-
-            public List<string> Events { get; } = new();
-
-            public int BeginCount(StartupDatabaseTimingSpan span) =>
-                _begins.GetValueOrDefault(span);
-
-            public int EndCount(StartupDatabaseTimingSpan span) =>
-                _ends.GetValueOrDefault(span);
-
-            public IReadOnlyList<TimeSpan> Elapsed(StartupDatabaseTimingSpan span) =>
-                _elapsed.TryGetValue(span, out var elapsed)
-                    ? elapsed
-                    : Array.Empty<TimeSpan>();
-
-            public int UnexpectedTableExistsPaths =>
-                _unexpectedTableExistsPaths;
-
-            public virtual void BeginDatabaseSpan(StartupDatabaseTimingSpan span)
-            {
-                _begins[span] = BeginCount(span) + 1;
-                _active[span] = Stopwatch.GetTimestamp();
-                Events.Add($"begin:{span}");
-            }
-
-            public virtual void EndDatabaseSpan(StartupDatabaseTimingSpan span)
-            {
-                _ends[span] = EndCount(span) + 1;
-                if (!_elapsed.TryGetValue(span, out var elapsed))
-                {
-                    elapsed = new List<TimeSpan>();
-                    _elapsed[span] = elapsed;
-                }
-                elapsed.Add(Stopwatch.GetElapsedTime(_active[span]));
-                _active.Remove(span);
-                Events.Add($"end:{span}");
-            }
-
-            public virtual void RecordUnexpectedTableExistsPath() =>
-                Interlocked.Increment(ref _unexpectedTableExistsPaths);
-
-            public virtual void RecordEnumerationTerminal(
-                SongEnumerationResult? result,
-                StartupOperationOutcome outcome)
-            {
-            }
-        }
-
-        private sealed class ThrowingObserver : IStartupSongLoadTimingObserver
-        {
-            public void BeginDatabaseSpan(StartupDatabaseTimingSpan span) =>
-                throw new InvalidOperationException("observer begin failure");
-
-            public void EndDatabaseSpan(StartupDatabaseTimingSpan span) =>
-                throw new InvalidOperationException("observer end failure");
-
-            public void RecordUnexpectedTableExistsPath() =>
-                throw new InvalidOperationException("observer table-exists failure");
-
-            public void RecordEnumerationTerminal(
-                SongEnumerationResult? result,
-                StartupOperationOutcome outcome) =>
-                throw new InvalidOperationException("observer terminal failure");
-        }
-
         private sealed class ScriptedInitializationService : SongDatabaseService
         {
             private readonly Func<SongDbContext> _initializationContextFactory;
@@ -820,19 +658,5 @@ namespace DTXMania.Test.Song
             }
         }
 
-        private sealed class IncrementingMonotonicClock : IMonotonicClock
-        {
-            private long _timestamp;
-
-            public long TimestampFrequency => 1_000;
-
-            public long GetTimestamp() =>
-                Interlocked.Increment(ref _timestamp);
-        }
-
-        private sealed class FixedUtcMicrosecondClock : IUtcMicrosecondClock
-        {
-            public long GetUnixMicroseconds() => 2_000_000;
-        }
     }
 }

@@ -111,7 +111,7 @@ internal sealed class CrashLogFieldPolicy
 
             case CrashContextKind.Startup:
                 if (propertyName == "Milestone"
-                    && value is StartupCriticalPathMilestone milestone
+                    && value is StartupMilestone milestone
                     && Enum.IsDefined(milestone))
                 {
                     normalizedValue = milestone;
