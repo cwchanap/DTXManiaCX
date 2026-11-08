@@ -77,7 +77,10 @@ namespace DTXMania.Game.Lib.Stage.Result
 
             _backgroundTexture = LoadTextureIfAvailable(TexturePath.ResultBackground);
             _rankBackgroundTexture = LoadTextureIfAvailable(GetRankBackgroundPath(model.Rank));
-            _rankTexture = LoadTextureIfAvailable(GetRankTexturePath(model.Rank));
+            var rankTexturePath = GetRankTexturePath(model.Rank);
+            _rankTexture = LoadTextureIfAvailable(rankTexturePath);
+            if (_rankTexture == null)
+                Trace.WriteLine($"ResultScreenRenderer: Missing rank badge '{rankTexturePath ?? "(unknown)"}' for rank {model.Rank}.");
             _plateTexture = model.PlateKind == ResultPlateKind.Failed
                 ? null
                 : LoadTextureIfAvailable(GetPlateTexturePath(model.PlateKind));
@@ -921,7 +924,7 @@ namespace DTXMania.Game.Lib.Stage.Result
                 ResultRank.C => TexturePath.ResultBackgroundRankC,
                 ResultRank.D => TexturePath.ResultBackgroundRankD,
                 ResultRank.E => TexturePath.ResultBackgroundRankE,
-                ResultRank.F => TexturePath.ResultBackgroundRankE,
+                ResultRank.F => TexturePath.ResultBackgroundRankE, // F reuses the existing E background.
                 _ => null
             };
         }

@@ -2,6 +2,7 @@ using System.Globalization;
 using System.IO;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
+using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Game.Lib.Stage.Result;
@@ -148,11 +149,14 @@ public class ResultScreenModelTests
     [Theory]
     [InlineData(100.0, ResultRank.SS, "SS")]
     [InlineData(95.0, ResultRank.SS, "SS")]
+    [InlineData(94.995, ResultRank.SS, "SS")]
     [InlineData(94.99, ResultRank.S, "S")]
     [InlineData(90.0, ResultRank.S, "S")]
+    [InlineData(89.995, ResultRank.S, "S")]
     [InlineData(89.99, ResultRank.A, "A")]
     [InlineData(85.0, ResultRank.A, "A")]
     [InlineData(80.0, ResultRank.A, "A")]
+    [InlineData(79.995, ResultRank.A, "A")]
     [InlineData(79.99, ResultRank.B, "B")]
     [InlineData(70.0, ResultRank.B, "B")]
     [InlineData(69.99, ResultRank.C, "C")]
@@ -181,6 +185,27 @@ public class ResultScreenModelTests
     public void GetRankLabel_WhenGivenUnknownRank_ShouldReturnPlaceholder()
     {
         Assert.Equal("---", ResultScreenModel.GetRankLabel((ResultRank)99));
+    }
+
+    [Fact]
+    public void Create_CalculatedSkillJustBelowFifty_ShouldShowD()
+    {
+        var skill = SongScore.CalculatePlayingSkill(500, 7, 483, 500);
+        Assert.True(skill < 50);
+        var model = ResultScreenModel.Create(Summary(playingSkill: skill), null, 0, null, null);
+
+        Assert.Equal(ResultRank.D, model.Rank);
+        Assert.Equal("D", model.RankLabel);
+    }
+
+    [Fact]
+    public void Create_MidpointGameSkill_ShouldMatchSongSelectText()
+    {
+        var model = ResultScreenModel.Create(Summary(gameSkill: 0.345), null, 0, null, null);
+        var score = new SongScore { HighSkill = 0.345, PlayCount = 1 };
+
+        Assert.Equal("0.35", model.GameSkillText);
+        Assert.Equal(model.GameSkillText, SongStatusPanel.ResolveHighSkillText(score));
     }
 
     [Fact]

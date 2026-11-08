@@ -1,5 +1,7 @@
 # Result Stage NX Parity Implementation Plan
 
+> **Historical plan:** HPA-759 supersedes this plan's NX rank thresholds, SS–E badge inventory and `FormatDecimal` examples. See the [current score consistency design](../specs/2026-11-06-hpa-759-score-readability-design.md) for CX's SS–F policy and shared skill formatting.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace CX's centered result text screen with an NX-style result screen using existing CX performance data, NX structural assets, sprite-font text, reveal behavior, and optional result sounds.

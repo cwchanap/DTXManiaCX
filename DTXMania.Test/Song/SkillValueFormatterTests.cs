@@ -17,7 +17,7 @@ public class SkillValueFormatterTests
     [InlineData(162.6, "162.60")]
     [InlineData(100.0, "100.00")]
     [InlineData(-5.0, "0.00")]
-    public void Format_WhenGivenDecimalValue_ShouldRoundLikeResultScreenRule(double value, string expected)
+    public void Format_WhenGivenDecimalValue_ShouldUseCustomTwoDecimalRounding(double value, string expected)
     {
         Assert.Equal(expected, SkillValueFormatter.Format(value));
     }

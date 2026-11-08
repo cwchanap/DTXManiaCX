@@ -430,12 +430,17 @@ namespace DTXMania.Game.Lib.Song.Entities
             };
         }
 
+        /// <summary>
+        /// Grades the displayed two-decimal playing skill, then normalizes it to a rank bucket.
+        /// Finite values are clamped to 0–100; non-finite values use the F bucket.
+        /// Keep this rounding aligned with SkillValueFormatter's custom "0.00" format.
+        /// </summary>
         public static int RunRankBucket(double playingSkill)
         {
-            if (double.IsNaN(playingSkill) || double.IsInfinity(playingSkill))
+            if (!double.IsFinite(playingSkill))
                 return 0;
 
-            decimal roundedSkill = Math.Round((decimal)playingSkill, 2, MidpointRounding.AwayFromZero);
+            decimal roundedSkill = Math.Round((decimal)Math.Clamp(playingSkill, 0.0, 100.0), 2, MidpointRounding.AwayFromZero);
             return NormalizeRankPercentage((int)Math.Floor((double)roundedSkill));
         }
         

@@ -900,6 +900,7 @@ namespace DTXMania.Game.Lib.Song.Components
             }
         }
 
+        /// <summary>Formats a played score's best skill, or a placeholder when unplayed.</summary>
         internal static string ResolveHighSkillText(SongScore score)
         {
             return score?.HasBeenPlayed == true

@@ -96,7 +96,9 @@ Build the model before persistence so new-record detection compares against the 
 
 ## Rank And Plate Rules
 
-Rank uses the NX modern rank thresholds over the current play's `PlayingSkill`:
+**Superseded:** HPA-759 replaced the historical NX thresholds below with the [CX eight-band SS–F policy](2026-11-06-hpa-759-score-readability-design.md#decision-1--one-8-band-grade-policy). This table records the original design, not current CX behavior.
+
+The original design used NX modern rank thresholds over the current play's `PlayingSkill`:
 
 | Rank | Threshold |
 |---|---:|

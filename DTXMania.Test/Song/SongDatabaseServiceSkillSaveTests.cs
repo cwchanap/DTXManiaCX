@@ -441,11 +441,14 @@ namespace DTXMania.Test.Song
         [Theory]
         [InlineData(100.0, 95, "SS")]
         [InlineData(95.0, 95, "SS")]
+        [InlineData(94.995, 95, "SS")]
         [InlineData(94.99, 90, "S")]
         [InlineData(90.0, 90, "S")]
+        [InlineData(89.995, 90, "S")]
         [InlineData(89.99, 80, "A")]
         [InlineData(85.0, 80, "A")]
         [InlineData(80.0, 80, "A")]
+        [InlineData(79.995, 80, "A")]
         [InlineData(79.99, 70, "B")]
         [InlineData(70.0, 70, "B")]
         [InlineData(69.99, 60, "C")]
@@ -458,6 +461,19 @@ namespace DTXMania.Test.Song
         [InlineData(0.0, 0, "F")]
         public async Task UpdateScoreAsync_NewRun_ShouldStoreSharedClassifierBucketAndHistoryRank(
             double playingSkill, int expectedBucket, string expectedRankLetter)
+        {
+            await AssertNewRunRankAsync(playingSkill, expectedBucket, expectedRankLetter);
+        }
+
+        [Fact]
+        public async Task UpdateScoreAsync_CalculatedSkillJustBelowFifty_ShouldSaveD()
+        {
+            var skill = SongScore.CalculatePlayingSkill(500, 7, 483, 500);
+            Assert.True(skill < 50);
+            await AssertNewRunRankAsync(skill, 50, "D");
+        }
+
+        private async Task AssertNewRunRankAsync(double playingSkill, int expectedBucket, string expectedRankLetter)
         {
             var chart = await SeedChartAsync();
             var summary = new PerformanceSummary

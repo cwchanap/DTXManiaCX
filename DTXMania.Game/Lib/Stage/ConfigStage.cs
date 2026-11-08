@@ -126,7 +126,7 @@ namespace DTXMania.Game.Lib.Stage
         // Selected value sits on the white cell -> dark warm highlight (readable on white).
         private static readonly Color SelectedValueText = new(168, 52, 0);
         // Selected menu label fallback for unthemed NX skins whose cursor bar is light.
-        // Themed skins (CX Neon) use dark bars and resolve via Config.SelectedMenuText or UI.Accent.
+        // Themed skins resolve via Config.SelectedMenuText or UI.Accent.
         private static readonly Color SelectedMenuText = new(36, 24, 72);
 
         private static Color ResolveThemedColor(ISkinTheme theme, string specificKey, string paletteKey, Color fallback) =>
@@ -150,12 +150,14 @@ namespace DTXMania.Game.Lib.Stage
         internal static int ResolveItemBarX(ISkinTheme theme) =>
             theme.GetInt("Config.ItemBarX", ConfigUILayout.ItemBarRect.X);
 
+        /// <summary>Resolves selected category text from the skin, palette, or NX fallback.</summary>
         internal static Color ResolveSelectedMenuTextColor(ISkinTheme theme) =>
             ResolveThemedColor(theme, "Config.SelectedMenuText", "UI.Accent", SelectedMenuText);
 
         // Description title sits on the panel's white upper region in NX -> dark fallback text.
-        // Themed skins (e.g. CX Neon) override with light text on dark backgrounds.
+        // Themed skins can supply a specific color or a light primary palette color.
         private static readonly Color DescriptionTitleText = new(24, 24, 32);
+        /// <summary>Resolves description title text from the skin, palette, or NX fallback.</summary>
         internal static Color ResolveDescriptionTitleTextColor(ISkinTheme theme) =>
             ResolveThemedColor(theme, "Config.DescriptionTitleText", "UI.TextPrimary", DescriptionTitleText);
         private static readonly Color MenuCursorFallback = new(64, 96, 160, 180);

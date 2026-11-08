@@ -1,6 +1,4 @@
-using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
-using DTXMania.Game.Lib.Stage.Result;
 using Xunit;
 using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
 
@@ -38,12 +36,4 @@ public class SongStatusPanelSkillTextTests
         Assert.Equal(expected, SongStatusPanel.ResolveHighSkillText(PlayedScore(highSkill)));
     }
 
-    [Theory]
-    [InlineData(0.345)]
-    [InlineData(78.625)]
-    [InlineData(91.25)]
-    public void ResolveHighSkillText_WhenGivenSameSkill_ShouldMatchResultScreenText(double skill)
-    {
-        Assert.Equal(SkillValueFormatter.Format(skill), SongStatusPanel.ResolveHighSkillText(PlayedScore(skill)));
-    }
 }
