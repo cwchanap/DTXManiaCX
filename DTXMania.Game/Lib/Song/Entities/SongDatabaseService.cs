@@ -3,12 +3,14 @@ using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Stage.Performance;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Win32.SafeHandles;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
@@ -302,9 +304,22 @@ namespace DTXMania.Game.Lib.Song.Entities
                     nameof(backupPath));
             }
 
-            var tempBackupPath = backupPath + ".tmp";
+            var backupDirectory = Path.GetDirectoryName(Path.GetFullPath(backupPath))
+                ?? Directory.GetCurrentDirectory();
+            string tempDirectory;
+            do
+            {
+                tempDirectory = Path.Combine(backupDirectory, Path.GetRandomFileName());
+            }
+            while (File.Exists(tempDirectory) || Directory.Exists(tempDirectory));
+
+            var tempBackupPath = Path.Combine(tempDirectory, Path.GetFileName(backupPath));
+            var ownsTempDirectory = false;
             try
             {
+                Directory.CreateDirectory(tempDirectory);
+                ownsTempDirectory = true;
+
                 using var context = new SongDbContext(_options);
                 var backupSql =
                     $"VACUUM INTO '{tempBackupPath.Replace("'", "''")}'";
@@ -314,9 +329,13 @@ namespace DTXMania.Game.Lib.Song.Entities
             }
             finally
             {
-                if (File.Exists(tempBackupPath))
+                if (ownsTempDirectory && Directory.Exists(tempDirectory))
                 {
-                    File.Delete(tempBackupPath);
+                    if (File.Exists(tempBackupPath))
+                    {
+                        File.Delete(tempBackupPath);
+                    }
+                    Directory.Delete(tempDirectory);
                 }
             }
         }
@@ -356,10 +375,136 @@ namespace DTXMania.Game.Lib.Song.Entities
             var comparison = OperatingSystem.IsLinux()
                 ? StringComparison.Ordinal
                 : StringComparison.OrdinalIgnoreCase;
-            return string.Equals(
-                Path.GetFullPath(firstPath),
-                Path.GetFullPath(secondPath),
-                comparison);
+            var firstFullPath = Path.GetFullPath(firstPath);
+            var secondFullPath = Path.GetFullPath(secondPath);
+            if (string.Equals(firstFullPath, secondFullPath, comparison))
+            {
+                return true;
+            }
+
+            if (string.Equals(
+                    ResolveLinkTargets(firstFullPath),
+                    ResolveLinkTargets(secondFullPath),
+                    comparison))
+            {
+                return true;
+            }
+
+            if (!File.Exists(firstFullPath) || !File.Exists(secondFullPath))
+            {
+                return false;
+            }
+
+            return TryGetFileIdentity(firstFullPath, out var firstIdentity)
+                && TryGetFileIdentity(secondFullPath, out var secondIdentity)
+                && firstIdentity == secondIdentity;
+        }
+
+        private static string ResolveLinkTargets(string fullPath)
+        {
+            var root = Path.GetPathRoot(fullPath) ?? string.Empty;
+            var resolved = root;
+            var segments = fullPath.Substring(root.Length).Split(
+                new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
+                StringSplitOptions.RemoveEmptyEntries);
+
+            for (var i = 0; i < segments.Length; i++)
+            {
+                var candidate = Path.Combine(resolved, segments[i]);
+                FileSystemInfo? linkTarget;
+                if (i + 1 < segments.Length)
+                {
+                    linkTarget = Directory.Exists(candidate)
+                        ? Directory.ResolveLinkTarget(candidate, returnFinalTarget: true)
+                        : null;
+                }
+                else
+                {
+                    linkTarget = File.Exists(candidate)
+                        ? File.ResolveLinkTarget(candidate, returnFinalTarget: true)
+                        : Directory.Exists(candidate)
+                            ? Directory.ResolveLinkTarget(candidate, returnFinalTarget: true)
+                            : null;
+                }
+
+                resolved = linkTarget == null
+                    ? candidate
+                    : ResolveLinkTargets(linkTarget.FullName);
+            }
+
+            return resolved;
+        }
+
+        private static bool TryGetFileIdentity(
+            string fullPath,
+            out (ulong, ulong) identity)
+        {
+            identity = default;
+            try
+            {
+                using var stream = new FileStream(
+                    fullPath,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.ReadWrite | FileShare.Delete);
+                if (OperatingSystem.IsWindows())
+                {
+                    if (!GetFileInformationByHandle(stream.SafeFileHandle, out var info))
+                    {
+                        return false;
+                    }
+                    identity = (
+                        info.dwVolumeSerialNumber,
+                        ((ulong)info.nFileIndexHigh << 32) | info.nFileIndexLow);
+                    return true;
+                }
+
+                if (fstat(stream.SafeFileHandle.DangerousGetHandle(), out var stat) != 0)
+                {
+                    return false;
+                }
+                identity = (stat.Device, stat.Inode);
+                return true;
+            }
+            catch (Exception exception) when (exception
+                is IOException
+                or UnauthorizedAccessException
+                or DllNotFoundException
+                or EntryPointNotFoundException)
+            {
+                return false;
+            }
+        }
+
+        [DllImport("libc", SetLastError = true)]
+        private static extern int fstat(IntPtr fd, out StatBuffer buffer);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool GetFileInformationByHandle(
+            SafeFileHandle hFile,
+            out ByHandleFileInformation lpFileInformation);
+
+        [StructLayout(LayoutKind.Sequential, Size = 256)]
+        private struct StatBuffer
+        {
+            public ulong Device;
+            public ulong Inode;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct ByHandleFileInformation
+        {
+            public uint dwFileAttributes;
+            public System.Runtime.InteropServices.ComTypes.FILETIME ftCreationTime;
+            public System.Runtime.InteropServices.ComTypes.FILETIME ftLastAccessTime;
+            public System.Runtime.InteropServices.ComTypes.FILETIME ftLastWriteTime;
+            public uint dwVolumeSerialNumber;
+            public uint nFileSizeHigh;
+            public uint nFileSizeLow;
+            public uint nNumberOfLinks;
+            public uint nFileIndexHigh;
+            public uint nFileIndexLow;
         }
         /// Get database statistics
         public async Task<DatabaseStats> GetDatabaseStatsAsync()
