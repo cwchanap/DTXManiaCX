@@ -284,6 +284,25 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void HandlePadLaneHit_HitFromPreviousVisit_DoesNotPairAfterClockRestart()
+        {
+            var stage = CreateStage();
+            var popup = new QuickSettingsPopup();
+            SetPrivateField(stage, "_quickSettingsPopup", popup);
+            SetPrivateField(stage, "_configManager", new ConfigManager());
+            int bassDrum = (int)PerformanceUILayout.LaneType.DB;
+
+            // A bass drum hit late in the last visit, then the stage clock restarts at 0.
+            SetPrivateField(stage, "_lastDoubleHitPadLane", bassDrum);
+            SetPrivateField(stage, "_lastDoubleHitPadTime", 30.0);
+            SetPrivateField(stage, "_elapsedTime", 1.0);
+
+            InvokePrivateMethod(stage, "HandlePadLaneHit", bassDrum);
+
+            Assert.False(popup.IsOpen);
+        }
+
+        [Fact]
         public void HandleInput_WhenQuickSettingsOpen_RoutesCommandsToPopup()
         {
             var stage = CreateStage();
