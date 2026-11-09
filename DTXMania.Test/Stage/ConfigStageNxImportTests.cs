@@ -325,7 +325,6 @@ public class ConfigStageNxImportTests : IDisposable
             var configData = new ConfigData();
             configData.SongRoots.Clear();
             configData.SongRoots.Add(first);
-            configData.DTXPath = first;
             var config = new Mock<IConfigManager>();
             config.SetupGet(manager => manager.Config).Returns(configData);
             config.Setup(manager => manager.SetSongRoots(

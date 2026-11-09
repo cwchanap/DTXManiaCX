@@ -260,14 +260,14 @@ namespace DTXMania.Game.Lib.Stage.Performance
             if (laneIndex < 0 || laneIndex >= PerformanceUILayout.LaneCount)
             {
                 // Default to center of screen if invalid lane
-                return new Vector2(PerformanceUILayout.ScreenWidth / 2, PerformanceUILayout.JudgementLineY - 50);
+                return new Vector2(PerformanceUILayout.ScreenWidth / 2, PerformanceUILayout.JudgelineY - 50);
             }
 
             // Get lane center X position
             var laneX = PerformanceUILayout.GetLaneX(laneIndex);
             
             // Position text slightly above the judgement line
-            var textY = PerformanceUILayout.JudgementLineY - 50;
+            var textY = PerformanceUILayout.JudgelineY - 50;
 
             return new Vector2(laneX, textY);
         }

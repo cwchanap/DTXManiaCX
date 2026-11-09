@@ -120,7 +120,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         {
             _resourceManager = resourceManager ?? throw new ArgumentNullException(nameof(resourceManager));
             _graphicsDevice = graphicsDevice ?? throw new ArgumentNullException(nameof(graphicsDevice));
-            _position = PerformanceUILayout.ComboPosition;
+            _position = PerformanceUILayout.Combo.BasePosition;
 
             // Initialize with default combo (hidden)
             Combo = 0;

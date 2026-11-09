@@ -295,8 +295,22 @@ public class PerformanceStageDeterministicTests
         Assert.False(telemetry.PerformanceReady);
     }
 
+    // Mirrors the OnActivate initialization path: freeze the run configuration,
+    // then run the core gameplay initializer for the current activation generation.
+    private static Task InvokeGameplayInitialization(PerformanceStage stage)
+    {
+        ReflectionHelpers.InvokePrivateMethod(stage, "FreezeRunConfiguration");
+        var generation = ReflectionHelpers.GetPrivateField<int>(stage, "_activationGeneration");
+        return (Task)ReflectionHelpers.InvokePrivateMethod(
+            stage,
+            "InitializeGameplayCoreAsync",
+            generation,
+            CancellationToken.None,
+            true)!;
+    }
+
     [Fact]
-    public async Task InitializeGameplayAsync_WhenChartHasNoBackgroundAudio_ShouldCreateSpeedAwareSilentSongTimer()
+    public async Task InitializeGameplayCoreAsync_WhenChartHasNoBackgroundAudio_ShouldCreateSpeedAwareSilentSongTimer()
     {
         var stage = CreateInspectableStage();
         var chart = new ParsedChart("silent-clock.dtx");
@@ -312,7 +326,7 @@ public class PerformanceStageDeterministicTests
             "_playbackModifiers",
             new PlaybackModifiers(50, 0));
 
-        var initializeTask = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "InitializeGameplayAsync")!;
+        var initializeTask = InvokeGameplayInitialization(stage);
         await initializeTask;
 
         var timer = ReflectionHelpers.GetPrivateField<SongTimer>(stage, "_songTimer");
@@ -330,9 +344,9 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public async Task InitializeGameplayAsync_WhenBodyThrows_ShouldResetLoadingAndRethrow()
+    public async Task InitializeGameplayCoreAsync_WhenBodyThrows_ShouldResetLoadingAndRethrow()
     {
-        // Exercises the catch-all in InitializeGameplayAsync: a zero-BPM chart makes
+        // Exercises the catch-all in the core initializer: a zero-BPM chart makes
         // NoteRenderer.SetBpm throw ArgumentException. The catch must reset _isLoading
         // and rethrow so the stage is not left in a broken half-loaded state.
         var stage = CreateStage();
@@ -351,7 +365,7 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_noteRenderer",
             ReflectionHelpers.CreateUninitialized<NoteRenderer>());
 
-        var initializeTask = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "InitializeGameplayAsync")!;
+        var initializeTask = InvokeGameplayInitialization(stage);
 
         await Assert.ThrowsAsync<ArgumentException>(async () => await initializeTask);
         Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isLoading"));
@@ -900,11 +914,11 @@ public class PerformanceStageDeterministicTests
     #endregion
 
     [Fact]
-    public async Task InitializeGameplayAsync_WithVisualGateSettingsInConfig_ShouldFreezeVisualGates()
+    public async Task InitializeGameplayCoreAsync_WithVisualGateSettingsInConfig_ShouldFreezeVisualGates()
     {
         // Direct initialization must capture the configured visual gates the same way
-        // OnActivate does; without the freeze in InitializeGameplayAsync the gates stay
-        // at their all-false defaults and hidden lanes/lines/combo render anyway.
+        // OnActivate does; without the freeze the gates stay at their all-false
+        // defaults and hidden lanes/lines/combo render anyway.
         var config = new ConfigData
         {
             LaneDisplayMode = DrumsLaneDisplayMode.AllOff,
@@ -923,8 +937,11 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
         ReflectionHelpers.SetPrivateField(stage, "_inputManager", new MockInputManagerCompat());
         ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
+        // OnActivate copies these from config before core initialization; the
+        // uninitialized test stage needs the same defaults seeded explicitly.
+        ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
 
-        var initializeTask = (Task)ReflectionHelpers.InvokePrivateMethod(stage, "InitializeGameplayAsync")!;
+        var initializeTask = InvokeGameplayInitialization(stage);
         await initializeTask;
 
         var visualGates = ReflectionHelpers.GetPrivateField<object>(stage, "_visualGates");

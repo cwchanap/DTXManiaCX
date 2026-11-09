@@ -109,7 +109,7 @@ public sealed class E2EFixtureBuilderTests
             Assert.True(configManager.Config.NoFail);
             Assert.Equal(100, configManager.Config.PlaySpeedPercent);
             Assert.Equal(0, configManager.Config.PitchSemitones);
-            Assert.Equal(fixture.DtxRoot, configManager.Config.DTXPath);
+            Assert.Equal(fixture.DtxRoot, configManager.Config.SongRoots[0]);
             Assert.Equal(fixture.SkinRoot, configManager.Config.SkinPath);
             Assert.Equal(fixture.SkinRoot, configManager.Config.SystemSkinRoot);
 

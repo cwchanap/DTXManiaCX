@@ -118,7 +118,7 @@ namespace DTXMania.Game.Lib.Song.Filtering
             bool anyCleared = scores.Any(score => score.PlayCount > 0
                 && (score.ClearCount > 0
                     || SongScore.ComputeRankIndex(
-                        SongScore.NormalizeStoredBestRank(score.BestRank))
+                        SongScore.NormalizeRankPercentage(score.BestRank))
                         < ClearedRankThreshold));
 
             return status switch

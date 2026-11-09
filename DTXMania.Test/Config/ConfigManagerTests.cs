@@ -338,7 +338,7 @@ AudioLatencyOffsetMs=350
         // Assert
         Assert.Equal("TestVersion", manager.Config.DTXManiaVersion);
         Assert.Equal("TestSkin", GetLastPathSegment(manager.Config.SkinPath));
-        Assert.Equal("TestDTX", GetLastPathSegment(manager.Config.DTXPath));
+        Assert.Equal("TestDTX", GetLastPathSegment(manager.Config.SongRoots[0]));
         Assert.Equal(1920, manager.Config.ScreenWidth);
         Assert.Equal(1080, manager.Config.ScreenHeight);
         Assert.True(manager.Config.FullScreen);
@@ -1012,7 +1012,7 @@ Key.Bad=abc
         manager.LoadConfig();
 
         // Assert - Custom path should be honored
-        Assert.Equal(Path.GetFullPath(customPath), manager.Config.DTXPath);
+        Assert.Equal(Path.GetFullPath(customPath), manager.Config.SongRoots[0]);
     }
 
     [Trait("Category", "Unit")]
@@ -1029,7 +1029,7 @@ Key.Bad=abc
         manager.LoadConfig();
 
         // Assert - Empty path should use default DTXFiles
-        var dtxPathDir = Path.GetFileName(manager.Config.DTXPath.TrimEnd(
+        var dtxPathDir = Path.GetFileName(manager.Config.SongRoots[0].TrimEnd(
             Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
         Assert.Equal("DTXFiles", dtxPathDir);
     }
@@ -1053,7 +1053,7 @@ Key.Bad=abc
         manager.LoadConfig();
 
         // Assert
-        Assert.Equal("DTXFiles", GetLastPathSegment(manager.Config.DTXPath));
+        Assert.Equal("DTXFiles", GetLastPathSegment(manager.Config.SongRoots[0]));
     }
 
     [Trait("Category", "Unit")]
@@ -1071,7 +1071,7 @@ Key.Bad=abc
         manager.LoadConfig();
 
         // Assert
-        Assert.Equal(AppPaths.GetDefaultSongsPath(), manager.Config.DTXPath);
+        Assert.Equal(AppPaths.GetDefaultSongsPath(), manager.Config.SongRoots[0]);
     }
 
     [Fact]
@@ -1671,22 +1671,19 @@ Key.Bad=abc
     }
 
     [Fact]
-    public void FlushPendingSave_WhenSongRootsAreEmpty_ShouldNotOverwriteTheLegacyDtxPathMirror()
+    public void FlushPendingSave_WhenSongRootsAreEmpty_ShouldNotPersistSongRootRows()
     {
         var dir = NewTestDir();
         var manager = CreateManager(dir);
         manager.LoadConfig();
         // Force the defensive empty-roots branch: LoadConfig always populates at
         // least one managed default, so clear it to exercise the guard.
-        var preservedDtxPath = "preserved-dtx-path";
         manager.Config.SongRoots.Clear();
-        manager.Config.DTXPath = preservedDtxPath;
 
         manager.SetNoFail(true);
         manager.FlushPendingSave();
 
-        // The empty-roots guard must skip reassigning DTXPath from SongRoots[0].
-        Assert.Equal(preservedDtxPath, manager.Config.DTXPath);
+        // The empty-roots guard must skip writing SongRoot.N rows.
         var rows = ReadRows(dir);
         Assert.DoesNotContain(rows.Keys, key => key.StartsWith("SongRoot.", StringComparison.Ordinal));
     }

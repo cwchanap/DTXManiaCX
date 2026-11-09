@@ -68,7 +68,7 @@ namespace DTXMania.Test.Song
                 Assert.Equal("Test Song", song.Title);
                 Assert.Equal("Test Artist", song.Artist);
                 Assert.Equal("Test Genre", song.Genre);
-                Assert.Equal(120.5, chart.BPM);
+                Assert.Equal(120.5, chart.Bpm);
                 Assert.Equal(85, chart.DrumLevel);
                 Assert.Equal(78, chart.GuitarLevel);
                 Assert.Equal(65, chart.BassLevel);
@@ -170,7 +170,7 @@ namespace DTXMania.Test.Song
                 Assert.Equal(Path.GetFileNameWithoutExtension(dtxFile), song.Title);
                 Assert.Equal("", song.Artist);
                 Assert.Equal("", song.Genre);
-                Assert.Null(chart.BPM);
+                Assert.Equal(0, chart.Bpm);
                 Assert.Equal(0, chart.DrumLevel);
                 Assert.Equal(dtxFile, chart.FilePath);
             }

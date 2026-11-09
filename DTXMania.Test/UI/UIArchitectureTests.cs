@@ -155,47 +155,6 @@ namespace DTXMania.Test.UI
 
         #endregion
 
-        #region UIButton Tests
-
-        [Fact]
-        public void UIButton_ClickEvent_FiresCorrectly()
-        {
-            // Arrange
-            var mockResourceManager = new Mock<IResourceManager>();
-            var button = new UIButton(mockResourceManager.Object, "Test Button")
-            {
-                Position = new Vector2(0, 0),
-                Size = new Vector2(100, 50),
-                Enabled = true
-            };
-
-            bool clickEventFired = false;
-            button.ButtonClicked += (s, e) => clickEventFired = true;
-
-            // Act
-            button.Click(); // Programmatic click
-
-            // Assert
-            Assert.True(clickEventFired);
-        }
-
-        [Fact]
-        public void UIButton_Properties_SetCorrectly()
-        {
-            // Arrange & Act
-            var mockResourceManager = new Mock<IResourceManager>();
-            var button = new UIButton(mockResourceManager.Object, "Test Text");
-
-            // Assert
-            Assert.Equal("Test Text", button.Text);
-            Assert.NotNull(button.IdleAppearance);
-            Assert.NotNull(button.HoverAppearance);
-            Assert.NotNull(button.PressedAppearance);
-            Assert.NotNull(button.DisabledAppearance);
-        }
-
-        #endregion
-
         #region UILabel Tests
 
         [Fact]
@@ -347,7 +306,7 @@ namespace DTXMania.Test.UI
             
             var chart = new SongChart
             {
-                BPM = 120,
+                Bpm = 120,
                 DrumLevel = 5,
                 GuitarLevel = 4,
                 BassLevel = 3

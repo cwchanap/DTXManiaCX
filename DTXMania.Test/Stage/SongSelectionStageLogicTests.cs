@@ -1516,12 +1516,13 @@ namespace DTXMania.Test.Stage
             var configManager = new Mock<IConfigManager>();
             var uiFont = new Mock<IFont>();
 
-            configManager.SetupGet(x => x.Config).Returns(new ConfigData
+            var configData = new ConfigData
             {
-                DTXPath = "SongsRoot",
                 PlaySpeedPercent = 75,
                 PitchSemitones = 3
-            });
+            };
+            configData.SongRoots[0] = "SongsRoot";
+            configManager.SetupGet(x => x.Config).Returns(configData);
             resourceManager.Setup(x => x.ResourceExists(It.IsAny<string>())).Returns(false);
 
             SetPrivateField(stage, "_resourceManager", resourceManager.Object);
@@ -1620,7 +1621,9 @@ namespace DTXMania.Test.Stage
             var configManager = new Mock<IConfigManager>();
             var uiFont = new Mock<IFont>();
 
-            configManager.SetupGet(x => x.Config).Returns(new ConfigData { DTXPath = "SongsRoot" });
+            var configData = new ConfigData();
+            configData.SongRoots[0] = "SongsRoot";
+            configManager.SetupGet(x => x.Config).Returns(configData);
             resourceManager.Setup(x => x.ResourceExists(It.IsAny<string>())).Returns(false);
 
             SetPrivateField(stage, "_resourceManager", resourceManager.Object);
@@ -1720,7 +1723,9 @@ namespace DTXMania.Test.Stage
             var configManager = new Mock<IConfigManager>();
             var uiFont = new Mock<IFont>();
 
-            configManager.SetupGet(x => x.Config).Returns(new ConfigData { DTXPath = "SongsRoot" });
+            var configData = new ConfigData();
+            configData.SongRoots[0] = "SongsRoot";
+            configManager.SetupGet(x => x.Config).Returns(configData);
             resourceManager.Setup(x => x.ResourceExists(It.IsAny<string>())).Returns(false);
 
             SetPrivateField(stage, "_resourceManager", resourceManager.Object);

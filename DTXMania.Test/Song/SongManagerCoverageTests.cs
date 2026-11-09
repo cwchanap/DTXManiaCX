@@ -1401,24 +1401,20 @@ public class SongManagerCoverageTests : IDisposable
     }
 
     [Fact]
-    public async Task CheckDirectoryForChangesAsync_WhenDirectoryWasModified_ShouldReturnTrue()
+    public async Task InventoryHasChangesSince_WhenDirectoryWasModified_ShouldReturnTrue()
     {
         var songsRoot = Path.Combine(_testRoot, "DirectoryModified");
         Directory.CreateDirectory(songsRoot);
         var lastEnumerationTime = DateTime.UtcNow.AddMinutes(-5);
         Directory.SetLastWriteTimeUtc(songsRoot, DateTime.UtcNow);
 
-        var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
-            _manager,
-            "CheckDirectoryForChangesAsync",
-            songsRoot,
-            lastEnumerationTime);
+        var inventory = await ScanChartInventory(songsRoot);
 
-        Assert.True(result);
+        Assert.True(InventoryHasChanges(inventory, songsRoot, lastEnumerationTime));
     }
 
     [Fact]
-    public async Task CheckDirectoryForChangesAsync_WhenDtxFileWasModified_ShouldReturnTrue()
+    public async Task InventoryHasChangesSince_WhenDtxFileWasModified_ShouldReturnTrue()
     {
         var songsRoot = Path.Combine(_testRoot, "DirectoryFileModified");
         Directory.CreateDirectory(songsRoot);
@@ -1429,25 +1425,19 @@ public class SongManagerCoverageTests : IDisposable
         Directory.SetLastWriteTimeUtc(songsRoot, lastEnumerationTime.AddMinutes(-1));
         File.SetLastWriteTimeUtc(dtxPath, DateTime.UtcNow);
 
-        var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
-            _manager,
-            "CheckDirectoryForChangesAsync",
-            songsRoot,
-            lastEnumerationTime);
+        var inventory = await ScanChartInventory(songsRoot);
 
-        Assert.True(result);
+        Assert.True(InventoryHasChanges(inventory, songsRoot, lastEnumerationTime));
     }
 
     [Fact]
-    public async Task CheckDirectoryForChangesAsync_WithInvalidPath_ShouldReturnTrue()
+    public async Task ScanChartInventoryAsync_WithInvalidPath_ShouldReturnEmptyInventory()
     {
-        var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
-            _manager,
-            "CheckDirectoryForChangesAsync",
-            "\0invalid",
-            DateTime.Now);
+        var inventory = await ScanChartInventory("\0invalid");
 
-        Assert.True(result);
+        Assert.Empty(inventory.Charts);
+        Assert.Empty(inventory.Directories);
+        Assert.Empty(inventory.SetDefinitions);
     }
 
     [Fact]
@@ -1831,12 +1821,12 @@ public class SongManagerCoverageTests : IDisposable
         Assert.False(result);
     }
 
-    // Regression: CountDTXFilesAsync must count ALL supported chart extensions,
-    // not just *.dtx. A library containing .gda/.g2d/.bms/.bme/.bml charts would
-    // otherwise have filesystem count 0 (no .dtx files) vs database count > 0,
-    // forcing a full rescan on every startup.
+    // Regression: the chart-inventory scanner must count ALL supported chart
+    // extensions, not just *.dtx. A library containing .gda/.g2d/.bms/.bme/.bml
+    // charts would otherwise have filesystem count 0 (no .dtx files) vs database
+    // count > 0, forcing a full rescan on every startup.
     [Fact]
-    public async Task CountDTXFilesAsync_WithNonDtxChartFile_ShouldCountIt()
+    public async Task ScanChartInventoryAsync_WithNonDtxChartFile_ShouldCountIt()
     {
         var songsRoot = Path.Combine(_testRoot, "NonDtxCount");
         var songFolder = Path.Combine(songsRoot, "Song");
@@ -1851,19 +1841,16 @@ public class SongManagerCoverageTests : IDisposable
 #00011:01010101
 """);
 
-        var result = await ReflectionHelpers.InvokePrivateMethod<Task<int>>(
-            _manager,
-            "CountDTXFilesAsync",
-            (object)new[] { songsRoot });
+        var inventory = await ScanChartInventory(songsRoot);
 
-        Assert.Equal(1, result);
+        Assert.Single(inventory.Charts);
     }
 
-    // Regression: CheckDirectoryForChangesAsync must scan ALL supported chart
-    // extensions, not just *.dtx. A modified .bms chart would otherwise be missed
-    // when the total file count is unchanged.
+    // Regression: the chart-inventory change check must detect ALL supported
+    // chart extensions, not just *.dtx. A modified .bms chart would otherwise be
+    // missed when the total file count is unchanged.
     [Fact]
-    public async Task CheckDirectoryForChangesAsync_WhenNonDtxChartWasModified_ShouldReturnTrue()
+    public async Task InventoryHasChangesSince_WhenNonDtxChartWasModified_ShouldReturnTrue()
     {
         var songsRoot = Path.Combine(_testRoot, "NonDtxModified");
         var songFolder = Path.Combine(songsRoot, "Song");
@@ -1883,13 +1870,9 @@ public class SongManagerCoverageTests : IDisposable
         Directory.SetLastWriteTimeUtc(songsRoot, lastEnumerationTime.AddMinutes(-1));
         File.SetLastWriteTimeUtc(bmsPath, DateTime.UtcNow);
 
-        var result = await ReflectionHelpers.InvokePrivateMethod<Task<bool>>(
-            _manager,
-            "CheckDirectoryForChangesAsync",
-            songsRoot,
-            lastEnumerationTime);
+        var inventory = await ScanChartInventory(songsRoot);
 
-        Assert.True(result);
+        Assert.True(InventoryHasChanges(inventory, songsRoot, lastEnumerationTime));
     }
 
     // Regression: the chart-inventory scanner must count only the charts full
@@ -1899,7 +1882,7 @@ public class SongManagerCoverageTests : IDisposable
     // counter ignored set.def and counted both files (filesystem count 2 vs
     // database count 1), forcing a permanent rescan on every startup.
     [Fact]
-    public async Task CountDTXFilesAsync_WithSetDefAndUnreferencedChart_ShouldCountOnlyReferenced()
+    public async Task ScanChartInventoryAsync_WithSetDefAndUnreferencedChart_ShouldCountOnlyReferenced()
     {
         var songsRoot = Path.Combine(_testRoot, "SetDefUnreferenced");
         var setFolder = Path.Combine(songsRoot, "Song");
@@ -1918,12 +1901,9 @@ public class SongManagerCoverageTests : IDisposable
             Path.Combine(setFolder, "unreferenced.dtx"),
             "Unreferenced", "Coverage Bot", "Rock", 40);
 
-        var count = await ReflectionHelpers.InvokePrivateMethod<Task<int>>(
-            _manager,
-            "CountDTXFilesAsync",
-            (object)new[] { songsRoot });
+        var inventory = await ScanChartInventory(songsRoot);
 
-        Assert.Equal(1, count);
+        Assert.Single(inventory.Charts);
     }
 
     // Regression: DetectFilesystemChangesAsync must reach steady state (return
@@ -2240,6 +2220,42 @@ public class SongManagerCoverageTests : IDisposable
         Assert.NotNull(field);
         field!.SetValue(service, databasePath);
         return service;
+    }
+
+    // Runs the shared chart-inventory scanner the live change/count checks use.
+    private Task<ChartInventory> ScanChartInventory(params string[] roots) =>
+        ReflectionHelpers.InvokePrivateMethod<Task<ChartInventory>>(
+            _manager,
+            "ScanChartInventoryAsync",
+            (object)roots,
+            CancellationToken.None)!;
+
+    // Composes the same watermark comparison the live filesystem-change check
+    // performs for a single root. InventoryHasChangesSince is a static private
+    // method, so it is invoked directly rather than through ReflectionHelpers
+    // (which only resolves instance methods).
+    private static bool InventoryHasChanges(
+        ChartInventory inventory,
+        string root,
+        DateTime watermark)
+    {
+        var normalizedRoot = SongPathIdentity.Normalize(root);
+        var method = typeof(SongManager).GetMethod(
+            "InventoryHasChangesSince",
+            BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        return (bool)method!.Invoke(
+            null,
+            new object[]
+            {
+                inventory,
+                (IReadOnlyList<string>)new[] { normalizedRoot },
+                (IReadOnlyDictionary<string, DateTime>)
+                    new Dictionary<string, DateTime>(SongPathIdentity.CanonicalComparer)
+                    {
+                        [normalizedRoot] = watermark
+                    }
+            })!;
     }
 
     private sealed class InlineProgress<T>(Action<T> report) : IProgress<T>

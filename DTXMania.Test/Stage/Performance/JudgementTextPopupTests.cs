@@ -163,7 +163,7 @@ namespace DTXMania.Test.Stage.Performance
 
             var popup = Assert.Single(GetActivePopups(manager));
             Assert.Equal("Perfect", popup.Text);
-            Assert.Equal(new Vector2(PerformanceUILayout.GetLaneX(3), PerformanceUILayout.JudgementLineY - 50), popup.CurrentPosition);
+            Assert.Equal(new Vector2(PerformanceUILayout.GetLaneX(3), PerformanceUILayout.JudgelineY - 50), popup.CurrentPosition);
         }
 
         [Fact]
@@ -365,7 +365,7 @@ namespace DTXMania.Test.Stage.Performance
 
             var position = ReflectionHelpers.InvokePrivateMethod<Vector2>(manager, "GetLaneCenterPosition", laneIndex);
 
-            Assert.Equal(new Vector2(PerformanceUILayout.ScreenWidth / 2, PerformanceUILayout.JudgementLineY - 50), position);
+            Assert.Equal(new Vector2(PerformanceUILayout.ScreenWidth / 2, PerformanceUILayout.JudgelineY - 50), position);
         }
 
         [Fact]

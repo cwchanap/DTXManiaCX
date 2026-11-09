@@ -87,7 +87,7 @@ namespace DTXMania.Game.Lib.Song
                 score.MaxCombo = Math.Max(score.MaxCombo, data.BestMaxCombo);
                 score.HighSkill = Math.Max(score.HighSkill, data.HighSkill);
 
-                int existingNorm = SongScore.NormalizeStoredBestRank(score.BestRank);
+                int existingNorm = SongScore.NormalizeRankPercentage(score.BestRank);
                 int nxBucket = MapNxRankToBucket(data.BestRankOrdinal);
                 score.BestRank = nxBucket >= 0 ? Math.Max(existingNorm, nxBucket) : existingNorm;
 

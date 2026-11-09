@@ -174,7 +174,6 @@ namespace DTXMania.Test.Config
             manager.LoadConfig();
 
             Assert.Equal([legacyRoot], manager.Config.SongRoots);
-            Assert.Equal(legacyRoot, manager.Config.DTXPath);
 
             var rows = ReadRows();
             Assert.Equal(legacyRoot, rows["SongRoot.0"]);
@@ -544,7 +543,6 @@ namespace DTXMania.Test.Config
             manager.LoadConfig();
             manager.Config.SongRoots.Clear();
             manager.Config.SongRoots.Add(oldRoot);
-            manager.Config.DTXPath = oldRoot;
 
             using (new ConfigStoreFailureScope(_root))
             {
@@ -552,7 +550,6 @@ namespace DTXMania.Test.Config
 
                 Assert.Equal(SongRootUpdateStatus.PersistenceFailed, result.Status);
                 Assert.Equal([oldRoot], manager.Config.SongRoots);
-                Assert.Equal(oldRoot, manager.Config.DTXPath);
             }
         }
 

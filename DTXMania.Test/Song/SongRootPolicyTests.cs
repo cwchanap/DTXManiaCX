@@ -212,7 +212,6 @@ public sealed class SongRootPolicyTests
             manager.LoadConfig();
             manager.Config.SongRoots.Clear();
             manager.Config.SongRoots.Add(oldRoot);
-            manager.Config.DTXPath = oldRoot;
             SongRootsChangedEventArgs? raised = null;
             var eventCount = 0;
             var dbExistedWhenRaised = false;
@@ -237,7 +236,6 @@ public sealed class SongRootPolicyTests
             Assert.Equal(
                 [Path.GetFullPath(firstRoot), Path.GetFullPath(secondRoot)],
                 manager.Config.SongRoots);
-            Assert.Equal(Path.GetFullPath(firstRoot), manager.Config.DTXPath);
             Assert.Equal(1, eventCount);
             Assert.NotNull(raised);
             Assert.Equal([Path.GetFullPath(oldRoot)], raised!.OldRoots);
@@ -264,7 +262,6 @@ public sealed class SongRootPolicyTests
             manager.LoadConfig();
             manager.Config.SongRoots.Clear();
             manager.Config.SongRoots.Add(songsRoot);
-            manager.Config.DTXPath = songsRoot;
             var eventCount = 0;
             manager.SongRootsChanged += (_, _) => eventCount++;
 
@@ -290,7 +287,6 @@ public sealed class SongRootPolicyTests
             manager.LoadConfig();
             manager.Config.SongRoots.Clear();
             manager.Config.SongRoots.Add(existingRoot);
-            manager.Config.DTXPath = existingRoot;
 
             var result = manager.SetSongRoots(Array.Empty<string>());
 
@@ -300,7 +296,6 @@ public sealed class SongRootPolicyTests
                 !diagnostic.IsWarning &&
                 diagnostic.Message.Contains("at least one", StringComparison.OrdinalIgnoreCase));
             Assert.Equal(new[] { existingRoot }, manager.Config.SongRoots);
-            Assert.Equal(existingRoot, manager.Config.DTXPath);
         });
     }
 
@@ -320,7 +315,6 @@ public sealed class SongRootPolicyTests
             manager.LoadConfig();
             manager.Config.SongRoots.Clear();
             manager.Config.SongRoots.Add(oldRoot);
-            manager.Config.DTXPath = oldRoot;
             var eventCount = 0;
             manager.SongRootsChanged += (_, _) => eventCount++;
 
@@ -338,7 +332,6 @@ public sealed class SongRootPolicyTests
 
                 Assert.Equal(SongRootUpdateStatus.PersistenceFailed, result.Status);
                 Assert.Equal([oldRoot], manager.Config.SongRoots);
-                Assert.Equal(oldRoot, manager.Config.DTXPath);
                 Assert.Equal(0, eventCount);
             }
             finally

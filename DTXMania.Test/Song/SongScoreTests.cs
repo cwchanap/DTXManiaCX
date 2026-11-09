@@ -166,78 +166,6 @@ namespace DTXMania.Test.Song
 
         #endregion
 
-        #region Accuracy Tests
-
-        [Fact]
-        public void Accuracy_WhenNoNotes_ShouldReturnZero()
-        {
-            var score = new SongScore { TotalNotes = 0 };
-            Assert.Equal(0.0, score.Accuracy);
-        }
-
-        [Fact]
-        public void Accuracy_AllPerfect_ShouldReturn100()
-        {
-            var score = new SongScore
-            {
-                TotalNotes = 100,
-                BestPerfect = 100,
-                BestGreat = 0,
-                BestGood = 0,
-                BestPoor = 0,
-                BestMiss = 0
-            };
-            Assert.Equal(100.0, score.Accuracy);
-        }
-
-        [Fact]
-        public void Accuracy_AllMiss_ShouldReturnZero()
-        {
-            var score = new SongScore
-            {
-                TotalNotes = 100,
-                BestPerfect = 0,
-                BestGreat = 0,
-                BestGood = 0,
-                BestPoor = 0,
-                BestMiss = 100
-            };
-            Assert.Equal(0.0, score.Accuracy);
-        }
-
-        [Fact]
-        public void Accuracy_MixedResults_ShouldCalculateCorrectPercentage()
-        {
-            // 60 out of 100 notes hit (Perfect + Great + Good + Poor = 60)
-            var score = new SongScore
-            {
-                TotalNotes = 100,
-                BestPerfect = 30,
-                BestGreat = 20,
-                BestGood = 5,
-                BestPoor = 5,
-                BestMiss = 40
-            };
-            Assert.Equal(60.0, score.Accuracy);
-        }
-
-        [Fact]
-        public void Accuracy_HalfHit_ShouldReturnFiftyPercent()
-        {
-            var score = new SongScore
-            {
-                TotalNotes = 200,
-                BestPerfect = 100,
-                BestGreat = 0,
-                BestGood = 0,
-                BestPoor = 0,
-                BestMiss = 100
-            };
-            Assert.Equal(50.0, score.Accuracy);
-        }
-
-        #endregion
-
         #region Score Update Tests
 
         [Fact]
@@ -342,19 +270,19 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void UpdateScore_WithLegacyStoredBestRank_ShouldNormalizeBeforeComparing()
+        public void UpdateScore_WithSubBucketStoredBestRank_ShouldNormalizeBeforeComparing()
         {
             var score = new SongScore
             {
                 BestScore = 900000,
-                BestRank = 2,
+                BestRank = 39,
                 PlayCount = 5
             };
 
             var result = score.UpdateScore(850000, 70, false, 70, 20, 10, 0, 0);
 
-            Assert.False(result);
-            Assert.Equal(80, score.BestRank);
+            Assert.True(result);
+            Assert.Equal(70, score.BestRank);
             Assert.Equal(6, score.PlayCount);
         }
 
@@ -493,39 +421,6 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void NormalizeStoredBestRank_WithZero_ShouldReturnFBucket()
-        {
-            // 0 is the F bucket on the new percentage scale.
-            // There is no way to distinguish a persisted legacy ordinal SS (0) from
-            // a new-system F bucket (0) — 0 is treated as F.
-            Assert.Equal(0, SongScore.NormalizeStoredBestRank(0));
-        }
-
-        [Fact]
-        public void NormalizeStoredBestRank_WithLegacyOrdinals_ShouldMapToBuckets()
-        {
-            Assert.Equal(90, SongScore.NormalizeStoredBestRank(1));  // legacy S
-            Assert.Equal(80, SongScore.NormalizeStoredBestRank(2));  // legacy A
-            Assert.Equal(70, SongScore.NormalizeStoredBestRank(3));  // legacy B
-            Assert.Equal(60, SongScore.NormalizeStoredBestRank(4));  // legacy C
-            Assert.Equal(50, SongScore.NormalizeStoredBestRank(5));  // legacy D
-            Assert.Equal(40, SongScore.NormalizeStoredBestRank(6));  // legacy E
-            Assert.Equal(0,  SongScore.NormalizeStoredBestRank(7));  // legacy F
-        }
-
-        [Theory]
-        [InlineData(8)]
-        [InlineData(20)]
-        [InlineData(39)]
-        public void NormalizeStoredBestRank_WithValuesBetween8And39_ShouldReturnFBucket(int value)
-        {
-            // Values 8-39 are not legacy ordinals (1-7) and are below the E bucket (40),
-            // so they normalize to F (0). Extending IsLegacyOrdinal to cover this range
-            // would corrupt low-achievement records.
-            Assert.Equal(0, SongScore.NormalizeStoredBestRank(value));
-        }
-
-        [Fact]
         public void RankName_WhenNotPlayed_ShouldReturnDashes()
         {
             var score = new SongScore { PlayCount = 0, BestRank = 95 };
@@ -533,9 +428,9 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public void RankName_WhenPlayedWithLegacyOrdinalA_ShouldReturnA()
+        public void RankName_WhenPlayedWithARankBucket_ShouldReturnA()
         {
-            var score = new SongScore { PlayCount = 1, BestRank = 2 }; // legacy ordinal 2 = A
+            var score = new SongScore { PlayCount = 1, BestRank = 80 }; // A bucket
             Assert.Equal("A", score.RankName);
         }
 
@@ -562,9 +457,9 @@ namespace DTXMania.Test.Song
         #region Clone Tests
 
         [Fact]
-        public void Clone_ShouldNormalizeLegacyOrdinalBestRank()
+        public void Clone_ShouldNormalizeBestRankToBucket()
         {
-            var score = new SongScore { BestRank = 2, PlayCount = 3 }; // legacy ordinal A
+            var score = new SongScore { BestRank = 85, PlayCount = 3 }; // between B and A buckets
             var clone = score.Clone();
             Assert.Equal(80, clone.BestRank);
         }

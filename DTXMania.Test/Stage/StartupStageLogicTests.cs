@@ -1189,10 +1189,7 @@ namespace DTXMania.Test.Stage
 
         private static ConfigData CreateConfigWithSongRoots(params string[] roots)
         {
-            var config = new ConfigData
-            {
-                DTXPath = roots.FirstOrDefault() ?? string.Empty,
-            };
+            var config = new ConfigData();
             config.SongRoots.Clear();
             config.SongRoots.AddRange(roots);
             return config;
@@ -1236,12 +1233,13 @@ namespace DTXMania.Test.Stage
         private static ControlledStartupStage CreateControlledStage(string[]? songPaths = null, ConfigData? configData = null)
         {
             var game = ReflectionHelpers.CreateGame();
-            ReflectionHelpers.SetPrivateField(game, "<ConfigManager>k__BackingField", CreateConfigManager(configData ?? new ConfigData
+            var fallbackConfig = new ConfigData
             {
-                DTXPath = "Songs",
                 ScreenWidth = 1280,
                 ScreenHeight = 720
-            }));
+            };
+            fallbackConfig.SongRoots[0] = "Songs";
+            ReflectionHelpers.SetPrivateField(game, "<ConfigManager>k__BackingField", CreateConfigManager(configData ?? fallbackConfig));
 
             var stage = new ControlledStartupStage(game);
             if (songPaths != null)
@@ -1268,15 +1266,16 @@ namespace DTXMania.Test.Stage
             CreateLifecycleControlledStage()
         {
             var game = ReflectionHelpers.CreateGame();
+            var configData = new ConfigData
+            {
+                ScreenWidth = 1280,
+                ScreenHeight = 720
+            };
+            configData.SongRoots[0] = "Songs";
             ReflectionHelpers.SetPrivateField(
                 game,
                 "<ConfigManager>k__BackingField",
-                CreateConfigManager(new ConfigData
-                {
-                    DTXPath = "Songs",
-                    ScreenWidth = 1280,
-                    ScreenHeight = 720
-                }));
+                CreateConfigManager(configData));
             return new LifecycleControlledStartupStage(game);
         }
 

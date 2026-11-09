@@ -35,7 +35,7 @@ namespace DTXMania.Test.UI
             var testChart = new SongChart
             {
                 FilePath = "test.dtx",
-                BPM = 120.0,
+                Bpm = 120.0,
                 DrumLevel = 85
             };
             

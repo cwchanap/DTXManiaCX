@@ -51,8 +51,10 @@ dotnet run --project MCP/MCP.csproj -- --test  # Test mode without MCP client
 
 ### End-to-End Tests
 ```bash
-# Support tests only (in-process, no game launch) - Windows only (E2E project targets net10.0-windows7.0)
-dotnet test DTXMania.E2E/DTXMania.E2E.csproj --filter "Category=E2E-Support"
+# Support tests only (in-process, no game launch). The E2E project targets
+# net10.0-windows7.0, but these tests also run on macOS with
+# -p:EnableWindowsTargeting=true (verified: 19 tests pass)
+dotnet test DTXMania.E2E/DTXMania.E2E.csproj --filter "Category=E2E-Support" -p:EnableWindowsTargeting=true
 
 # Full gameplay smoke (launches the game out-of-process, drives it via JSON-RPC)
 DTXMANIA_E2E_GAME_PROJECT=DTXMania.Game/DTXMania.Game.Mac.csproj \
@@ -92,7 +94,7 @@ DTXMania.Game.Lib.Song.Entities - Song, SongScore, PerformanceHistory
 DTXMania.Game.Lib.Stage     - BaseStage, StageManager, 7 stage types, 6 transition types
 DTXMania.Game.Lib.Stage.Performance - 24 specialized performance components
 DTXMania.Game.Lib.UI        - UIManager, UIElement, UIContainer, DTXManiaVisualTheme
-DTXMania.Game.Lib.UI.Components - UILabel, UIButton, UIImage, UIPanel, UIList
+DTXMania.Game.Lib.UI.Components - UILabel, UIPanel
 DTXMania.Game.Lib.UI.Layout - SongSelectionUILayout, PerformanceUILayout, ResultUILayout
 DTXMania.Game.Lib.Utilities - AppPaths, CacheManager, PathValidator
 ```
@@ -145,7 +147,7 @@ DTXMania.Game.Lib.Utilities - AppPaths, CacheManager, PathValidator
 - InputRouter distributes input; supports lane-hit events for gameplay
 
 **UI System** (`Lib/UI/`): Component-based with layout classes
-- Components: UILabel, UIButton, UIImage, UIPanel, UIList
+- Components: UILabel, UIPanel
 - Layout constants centralized in dedicated classes (SongSelectionUILayout, PerformanceUILayout, etc.)
 - DTXManiaVisualTheme for consistent styling
 

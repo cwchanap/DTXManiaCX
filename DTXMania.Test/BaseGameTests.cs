@@ -43,9 +43,9 @@ namespace DTXMania.Test
                 NoFail = true,
                 EnableGameApi = true,
                 GameApiKey = "must-not-appear",
-                DTXPath = @"C:\Secret\Songs",
                 SkinPath = @"C:\Secret\Skin"
             };
+            config.SongRoots[0] = @"C:\Secret\Songs";
             config.KeyBindings["Snare"] = 1;
             config.AutoPlayLanes.Add(4);
             config.AutoPlayLanes.Add(9);
@@ -69,7 +69,7 @@ namespace DTXMania.Test
             Assert.DoesNotContain(
                 snapshot.Fields.Values,
                 value => value?.ToString()?.Contains("Secret", StringComparison.Ordinal) == true);
-            Assert.Contains(diagnostics.SensitiveData.Paths, path => path == config.DTXPath);
+            Assert.Contains(diagnostics.SensitiveData.Paths, path => path == config.SongRoots[0]);
             Assert.Contains(diagnostics.SensitiveData.Paths, path => path == config.SkinPath);
         }
 

@@ -892,7 +892,7 @@ public class SongStatusPanelLogicTests
             0,
             DTXMania.Game.Lib.Config.PlaySpeedRange.Default);
 
-        var expectedRankIndex = SongScore.ComputeRankIndex(SongScore.NormalizeStoredBestRank(score.BestRank));
+        var expectedRankIndex = SongScore.ComputeRankIndex(SongScore.NormalizeRankPercentage(score.BestRank));
         Assert.Equal(2, sourceRects.Count);
         Assert.Equal(new Rectangle(35 * expectedRankIndex, 0, 35, 20), sourceRects[0]);
         Assert.Equal(new Rectangle(35 * 8, 0, 35, 20), sourceRects[1]);
