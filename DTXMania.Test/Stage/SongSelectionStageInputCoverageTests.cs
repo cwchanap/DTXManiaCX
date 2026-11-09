@@ -51,6 +51,36 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void ProcessModalKeys_PadCommandsDriveModalFromSearchBox()
+        {
+            var stage = CreateStage();
+            using var input = new InputManagerCompat(new ConfigManager(), new TestMidiDeviceBackend());
+            var modal = new SongSearchFilterModal(new Mock<ITextInputSource>().Object);
+            modal.Open(SongFilterCriteria.Default);
+            SetPrivateField(stage, "_inputManager", input);
+            SetPrivateField(stage, "_searchFilterModal", modal);
+
+            // Low tom = down moves off the SearchBox even though keys are suppressed there.
+            input.PadCommandResolver = _ => InputCommandType.MoveDown;
+            InvokePrivateMethod(input, "OnModularLaneHit", null!, new LaneHitEventArgs(6, new DTXMania.Game.Lib.Input.ButtonState("MIDI.45", true)));
+            InvokePrivateMethod(stage, "ProcessModalKeys");
+            Assert.Equal(SongSearchFilterModal.Field.MinLevel, modal.FocusedField);
+
+            // Cymbal = enter on a value field steps the value instead of applying.
+            modal.FocusNext(); // MaxLevel
+            modal.FocusNext(); // PlayedStatus
+            modal.FocusNext(); // SortBy
+            var sortBefore = modal.CurrentDraft.SortBy;
+            input.ClearPendingCommands();
+            input.PadCommandResolver = _ => InputCommandType.Activate;
+            InvokePrivateMethod(input, "OnModularLaneHit", null!, new LaneHitEventArgs(8, new DTXMania.Game.Lib.Input.ButtonState("MIDI.51", true)));
+            InvokePrivateMethod(stage, "ProcessModalKeys");
+
+            Assert.True(modal.IsOpen);
+            Assert.NotEqual(sortBefore, modal.CurrentDraft.SortBy);
+        }
+
+        [Fact]
         public void DetectOpenSearchKey_WhenBackspacePressed_ShouldOpenModal()
         {
             var stage = CreateStage();
