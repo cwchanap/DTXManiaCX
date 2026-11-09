@@ -1959,170 +1959,6 @@ namespace DTXMania.Game.Lib.Song
 
         #region Private Methods
 
-        /// <summary>
-        /// Enumerates a directory recursively
-        /// </summary>
-        private async Task<List<SongListNode>> EnumerateDirectoryAsync(
-            string directoryPath,
-            SongListNode? parent,
-            IProgress<EnumerationProgress>? progress,
-            CancellationToken cancellationToken)
-        {
-            var results = new List<SongListNode>();
-
-            try
-            {
-                // Check for set.def (multi-difficulty songs)
-                var setDefPath = Path.Combine(directoryPath, "set.def");
-                if (File.Exists(setDefPath))
-                {
-                    var setDefSongs = await ParseSetDefinitionAsync(setDefPath, parent, cancellationToken);
-                    results.AddRange(setDefSongs);
-
-                    // If set.def exists, don't process individual files in this directory
-                    return results;
-                }
-
-                // Process subdirectories - distinguish between BOX folders and song folders
-                // Use async enumeration to avoid blocking the thread
-                var subdirectoryPaths = await Task.Run(() => 
-                    Directory.EnumerateDirectories(directoryPath).ToList(), cancellationToken);
-
-                foreach (var subdirPath in subdirectoryPaths)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                    var subDirInfo = new DirectoryInfo(subdirPath);
-                    
-                    // Check if this is a DTXFiles.* prefixed folder (should be NodeType.Box)
-                    var isDTXFilesFolder = subDirInfo.Name.StartsWith("DTXFiles.", StringComparison.OrdinalIgnoreCase);
-
-                    // Check for box.def in the subdirectory itself
-                    BoxDefinition? subDirBoxDef = null;
-                    var subDirBoxDefPath = Path.Combine(subdirPath, "box.def");
-                    var hasBoxDef = File.Exists(subDirBoxDefPath);
-                    if (hasBoxDef)
-                    {
-                        subDirBoxDef = await ParseBoxDefinitionAsync(subDirBoxDefPath, cancellationToken);
-                    }
-
-                    // Determine if this should be a BOX (folder container) or treated as individual songs
-                    if (isDTXFilesFolder || hasBoxDef)
-                    {
-                        // This is a BOX folder (DTXFiles.* prefix or has box.def)
-                        Debug.WriteLine($"SongManager: Creating BOX node for {subDirInfo.Name}");
-                        var boxNode = CreateBoxNodeFromDirectory(subDirInfo, parent, subDirBoxDef);
-                        var children = await EnumerateDirectoryAsync(subdirPath, boxNode, progress, cancellationToken);
-
-                        foreach (var child in children)
-                        {
-                            boxNode.AddChild(child);
-                        }
-
-                        if (boxNode.Children.Count > 0)
-                        {
-                            results.Add(boxNode);
-                            Debug.WriteLine($"SongManager: Added BOX {subDirInfo.Name} with {boxNode.Children.Count} children");
-                        }
-                        else
-                        {
-                            Debug.WriteLine($"SongManager: Skipping empty BOX {subDirInfo.Name}");
-                        }
-                    }
-                    else
-                    {
-                        // This is a regular song folder - treat contents as individual songs
-                        var children = await EnumerateDirectoryAsync(subdirPath, parent, progress, cancellationToken);
-                        results.AddRange(children);
-                    }
-                }
-
-                // Process individual song files
-                var tempSongNodes = new List<SongListNode>();
-                Debug.WriteLine($"SongManager: Processing files in directory {directoryPath}");
-                
-                // Use async enumeration for files to avoid blocking
-                var filePaths = await Task.Run(() => 
-                    Directory.EnumerateFiles(directoryPath).ToList(), cancellationToken);
-
-                foreach (var filePath in filePaths)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                    if (DTXChartParser.IsSupportedFile(filePath))
-                    {
-                        var fileName = Path.GetFileName(filePath);
-                        Debug.WriteLine($"SongManager: Creating song node for {fileName}");
-                        var songNode = await CreateSongNodeAsync(filePath, parent);
-                        if (songNode != null)
-                        {
-                            tempSongNodes.Add(songNode);
-                            DiscoveredScoreCount++;
-                            Debug.WriteLine($"SongManager: Successfully created song node for {songNode.Title}");
-
-                            progress?.Report(new EnumerationProgress
-                            {
-                                CurrentFile = fileName,
-                                ProcessedCount = ++EnumeratedFileCount,
-                                DiscoveredSongs = DiscoveredScoreCount
-                            });
-                        }
-                        else
-                        {
-                            Debug.WriteLine($"SongManager: Failed to create song node for {fileName}");
-                        }
-                    }
-                    else
-                    {
-                        Debug.WriteLine($"SongManager: Skipping unsupported file {Path.GetFileName(filePath)}");
-                    }
-                }
-
-                // This compatibility helper is no longer used by startup enumeration.
-                // Keep its parse-only behavior for legacy reflection tests.
-                var groupedSongs = tempSongNodes;
-                results.AddRange(groupedSongs);
-
-                // Fire SongDiscovered events for the final grouped songs
-                foreach (var finalSongNode in groupedSongs)
-                {
-                    SongDiscovered?.Invoke(this, new SongDiscoveredEventArgs(finalSongNode));
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"SongManager: Error enumerating directory {directoryPath}: {ex.Message}");
-            }
-
-            return results;
-        }
-
-        /// <summary>
-        /// Creates a song node from a file
-        /// </summary>
-        private async Task<SongListNode?> CreateSongNodeAsync(string filePath, SongListNode? parent)
-        {
-            try
-            {
-                var normalizedPath = SongPathIdentity.Normalize(filePath);
-                if (!File.Exists(normalizedPath) ||
-                    !DTXChartParser.IsSupportedFile(normalizedPath))
-                {
-                    return null;
-                }
-
-                var (song, chart) = await ParseSongEntitiesCoreAsync(
-                    normalizedPath).ConfigureAwait(false);
-                chart.FilePath = normalizedPath;
-                return CreateTemporarySongNode(song, chart, parent);
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"SongManager: Error creating song node for {filePath}: {ex.Message}");
-                return null;
-            }
-        }
-
         // Include all the other parsing methods from the original file
         /// <summary>
         /// Normalizes a SET.def line to handle corrupted/spaced formatting and UTF-16 encoding issues
@@ -2264,9 +2100,8 @@ namespace DTXMania.Game.Lib.Song
         }
 
         /// <summary>
-        /// Builds the list of encodings used to read SET.def files. Shared by
-        /// <see cref="ReadSetDefLines"/> (synchronous database-load path) and
-        /// <see cref="ParseSetDefinitionAsync"/> (async enumeration path) so the two never drift.
+        /// Builds the list of encodings used to read SET.def files. Used by
+        /// <see cref="ReadSetDefLines"/> (synchronous database-load path).
         /// </summary>
         /// <remarks>
         /// NOTE: this is <b>not</b> a true encoding fallback chain as written today.
@@ -2306,7 +2141,7 @@ namespace DTXMania.Game.Lib.Song
         /// <remarks>
         /// Synchronous by design: the only caller is <see cref="GetSetDefLabelsByFile"/>, which
         /// runs on the synchronous database-load path. The async enumeration path reads via
-        /// <see cref="File.ReadAllLinesAsync"/> in <see cref="ParseSetDefinitionAsync"/>.
+        /// <see cref="ReadAllLinesCoreAsync"/> in <see cref="ParseSetDefinitionIntoBatchAsync"/>.
         /// </remarks>
         private static string[]? ReadSetDefLines(string setDefPath)
         {
@@ -2334,7 +2169,7 @@ namespace DTXMania.Game.Lib.Song
         /// <summary>
         /// Parses the #TITLE and #Ln(LABEL|FILE) commands out of SET.def lines into the
         /// title plus a per-difficulty (label, file) map keyed by the L-slot number. Shared by
-        /// enumeration (ParseSetDefinitionAsync) and the database-load path so the difficulty
+        /// enumeration (ParseSetDefinitionIntoBatchAsync) and the database-load path so the difficulty
         /// badge can recover the authentic difficulty label from the SET.def.
         /// </summary>
         private (string title, Dictionary<int, (string label, string file)> difficulties) ParseSetDefContent(
@@ -2461,179 +2296,6 @@ namespace DTXMania.Game.Lib.Song
                 current = parent;
             }
             return null;
-        }
-
-        private async Task<List<SongListNode>> ParseSetDefinitionAsync(string setDefPath, SongListNode? parent, CancellationToken cancellationToken)
-        {
-            var results = new List<SongListNode>();
-            var directory = Path.GetDirectoryName(setDefPath) ?? "";
-
-            try
-            {
-                // Read with the shared encoding list (see BuildSetDefEncodings for why this is not
-                // a true fallback chain — UTF-8 always "wins" and repair happens in NormalizeSetDefLine).
-                var encodings = BuildSetDefEncodings();
-
-                string[]? lines = null;
-                foreach (var encoding in encodings)
-                {
-                    try
-                    {
-                        lines = await File.ReadAllLinesAsync(setDefPath, encoding, cancellationToken);
-                        break; // Success, use this encoding
-                    }
-                    // Only realistic failures here are I/O (UTF-8 uses DecoderReplacementFallback,
-                    // so encoding mismatches never throw). Let genuinely unexpected exceptions
-                    // propagate instead of being masked.
-                    catch (IOException ex)
-                    {
-                        Debug.WriteLine($"SongManager: Failed to read SET.def with {encoding.EncodingName}: {ex.Message}");
-                        continue;
-                    }
-                    catch (UnauthorizedAccessException ex)
-                    {
-                        Debug.WriteLine($"SongManager: Failed to read SET.def with {encoding.EncodingName}: {ex.Message}");
-                        continue;
-                    }
-                }
-
-                if (lines == null)
-                {
-                    Debug.WriteLine($"SongManager: Failed to read SET.def with any encoding: {setDefPath}");
-                    return results;
-                }
-
-                SongListNode? currentSong = null;
-                var (songTitle, difficulties) = ParseSetDefContent(lines, cancellationToken);
-
-                // Store the SET.def title (may be empty if parsing failed)
-                string setDefTitle = songTitle;
-
-                // Create song node if we have difficulties (title will be determined later)
-                if (difficulties.Count > 0)
-                {
-                    // Parse the first valid DTX file to get real metadata
-                    DTXMania.Game.Lib.Song.Entities.Song? primarySong = null;
-                    DTXMania.Game.Lib.Song.Entities.SongChart? primaryChart = null;
-                    
-                    // Find the first valid DTX file to use as the primary chart
-                    foreach (var kvp in difficulties.OrderBy(d => d.Key))
-                    {
-                        var (_, fileName) = kvp.Value;
-                        if (!string.IsNullOrEmpty(fileName))
-                        {
-                            var filePath = Path.Combine(directory, fileName);
-                            if (File.Exists(filePath) && DTXChartParser.IsSupportedFile(filePath))
-                            {
-                                var (song, chart) = await DTXChartParser.ParseSongEntitiesAsync(filePath);
-                                
-                                // Priority: SET.def title > DTX title > directory name
-                                if (!string.IsNullOrEmpty(setDefTitle))
-                                {
-                                    // Use SET.def title if available
-                                    song.Title = setDefTitle;
-                                }
-                                else if (string.IsNullOrEmpty(song.Title))
-                                {
-                                    // If DTX also has no title, use directory name as fallback
-                                    var dirInfo = new DirectoryInfo(directory);
-                                    song.Title = dirInfo.Name;
-                                    Debug.WriteLine($"SongManager: Both SET.def and DTX title parsing failed, using directory name: {song.Title}");
-                                }
-                                // Otherwise, keep the DTX title as-is
-                                
-                                primarySong = song;
-                                primaryChart = chart;
-                                break; // Use the first valid chart as primary
-                            }
-                        }
-                    }
-                    
-                    // If we found a valid primary chart, create the song node
-                    if (primarySong != null && primaryChart != null)
-                    {
-                        currentSong = SongListNode.CreateSongNode(primarySong, primaryChart);
-                        currentSong.Parent = parent;
-
-                        // Process each difficulty and store in database
-                        int scoreIndex = 0;
-                        foreach (var kvp in difficulties.OrderBy(d => d.Key))
-                        {
-                            var level = kvp.Key;
-                            var (label, fileName) = kvp.Value;
-
-                            if (!string.IsNullOrEmpty(fileName))
-                            {
-                                var filePath = Path.Combine(directory, fileName);
-                                if (File.Exists(filePath) && DTXChartParser.IsSupportedFile(filePath))
-                                {
-                                    var (diffSong, diffChart) = await DTXChartParser.ParseSongEntitiesAsync(filePath);
-
-                                    // Use the set.def title if available, otherwise keep the DTX title
-                                    if (!string.IsNullOrEmpty(songTitle))
-                                    {
-                                        diffSong.Title = songTitle;
-                                    }
-
-                                    // Set the chart difficulty level from SET.def (L1, L2, L3, L5 etc.)
-                                    diffChart.DifficultyLevel = level;
-
-                                    // Persist the SET.def difficulty label (BASIC/ADVANCED/EXTREME/...) on the
-                                    // chart so the database-load path can drive the performance-stage difficulty
-                                    // badge without re-reading the SET.def. Legacy databases stored an empty
-                                    // label, so GetSetDefLabelsByFile recovers it from disk at load time.
-                                    if (!string.IsNullOrEmpty(label))
-                                    {
-                                        // SongChart.DifficultyLabel is [MaxLength(50)]; clamp the
-                                        // raw SET.def value so an unusually long label cannot violate
-                                        // the persisted column contract.
-                                        diffChart.DifficultyLabel = label.Length > 50
-                                            ? label.Substring(0, 50)
-                                            : label;
-                                    }
-
-                                    // Compatibility-only parser: build the temporary score metadata
-                                    // without performing any persistence.
-                                    if (scoreIndex < currentSong.Scores.Length)
-                                    {
-                                        currentSong.DifficultyLabels[scoreIndex] =
-                                            !string.IsNullOrEmpty(label)
-                                                ? label
-                                                : $"Level {level}";
-                                        var (
-                                            primaryInstrument,
-                                            difficultyLevel) =
-                                            GetPrimaryInstrumentAndDifficulty(
-                                                diffChart);
-                                        currentSong.Scores[scoreIndex] =
-                                            new SongScoreEntity
-                                        {
-                                            Instrument = primaryInstrument,
-                                            DifficultyLevel = difficultyLevel,
-                                            DifficultyLabel =
-                                                !string.IsNullOrEmpty(label)
-                                                    ? label
-                                                    : $"Level {level}"
-                                        };
-                                        scoreIndex++;
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    if (currentSong != null && currentSong.AvailableDifficulties > 0)
-                    {
-                        results.Add(currentSong);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"SongManager: Error parsing set.def {setDefPath}: {ex.Message}");
-            }
-
-            return results;
         }
 
         private async Task<BoxDefinition?> ParseBoxDefinitionAsync(string boxDefPath, CancellationToken cancellationToken)

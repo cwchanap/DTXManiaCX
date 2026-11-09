@@ -234,7 +234,7 @@ namespace DTXMania.Test.UI
 
         #endregion
 
-        #region Shared Asset Layout Tests
+        #region Legacy Asset Layout Tests
 
         [Fact]
         public void LaneStrips_SourceRects_AllShouldHavePositiveWidth()

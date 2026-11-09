@@ -404,21 +404,17 @@ namespace DTXMania.Test.Song.Filtering
         [Fact]
         public void PlayedStatusCleared_WithSubBucketAndOrdinalLikeBestRank_ShouldNormalizeAsPercentages()
         {
-            // Stored BestRank is always read as a percentage: values 1-7 are low
-            // percentages (F), not legacy rank ordinals. Sub-bucket percentages
-            // normalize down to the next lower bucket.
             var roots = new List<SongListNode>
             {
-                ScoreWith("SubBucketA",  playCount: 1, bestRank: 82),  // normalizes to A bucket (80)
+                ScoreWith("SubBucketA",  playCount: 1, bestRank: 82),
                 ScoreWith("ModernA",     playCount: 1, bestRank: 80),  // canonical A bucket
-                ScoreWith("OrdinalLike", playCount: 1, bestRank: 2),   // low percentage -> F, not cleared
+                ScoreWith("OrdinalLike", playCount: 1, bestRank: 2),
                 ScoreWith("Failed",      playCount: 3, bestRank: 0)    // F bucket
             };
             var criteria = SongFilterCriteria.Default with { PlayedStatus = PlayedStatus.Cleared };
 
             var result = _svc.Apply(roots, criteria);
 
-            // Result ordering follows the filter's own sort; assert membership.
             Assert.Equal(
                 new[] { "ModernA", "SubBucketA" },
                 result.Select(r => r.Node.DisplayTitle).OrderBy(title => title));
