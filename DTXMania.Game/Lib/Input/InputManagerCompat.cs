@@ -18,6 +18,7 @@ namespace DTXMania.Game.Lib.Input
         private readonly ModularInputManager _modularInputManager;
         private readonly ConfigManager _configManager;
         private readonly HashSet<InputCommandType> _injectedCommandsThisFrame = new();
+        private readonly HashSet<InputCommandType> _padCommandsThisFrame = new();
         private bool _disposed = false;
 
         public InputManagerCompat(IConfigManager configManager)
@@ -67,6 +68,7 @@ namespace DTXMania.Game.Lib.Input
             if (PadCommandResolver?.Invoke(e.Lane) is { } command)
             {
                 _injectedCommandsThisFrame.Add(command);
+                _padCommandsThisFrame.Add(command);
                 EnqueueCommand(new InputCommand(command, CurrentTime, false));
             }
         }
@@ -84,12 +86,14 @@ namespace DTXMania.Game.Lib.Input
         {
             base.ClearPendingCommands();
             _injectedCommandsThisFrame.Clear();
+            _padCommandsThisFrame.Clear();
             _modularInputManager?.ClearInjectedState();
         }
 
         public override void Update(double deltaTime)
         {
             _injectedCommandsThisFrame.Clear();
+            _padCommandsThisFrame.Clear();
 
             // Update the modular input manager
             _modularInputManager?.Update(deltaTime);
@@ -127,6 +131,12 @@ namespace DTXMania.Game.Lib.Input
         {
             return _injectedCommandsThisFrame.Contains(command) || base.IsCommandPressed(command);
         }
+
+        /// <summary>
+        /// True when a drum pad (not a key) raised this command this frame. Pads never type
+        /// text, so text fields can still accept them while ignoring remapped keys.
+        /// </summary>
+        public bool IsPadCommandPressed(InputCommandType command) => _padCommandsThisFrame.Contains(command);
 
         public override bool IsKeyPressed(int keyCode)
         {

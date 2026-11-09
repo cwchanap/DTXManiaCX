@@ -167,7 +167,7 @@ namespace DTXMania.Game.Lib.Song.Components
                     SelectedItem?.NextValue();
                     break;
                 case InputCommandType.Activate:
-                    Activate();
+                    ActivateSelectedRow();
                     break;
                 case InputCommandType.Back:
                     Close();
@@ -175,7 +175,7 @@ namespace DTXMania.Game.Lib.Song.Components
             }
         }
 
-        private void Activate()
+        private void ActivateSelectedRow()
         {
             var item = SelectedItem;
             if (item == null)

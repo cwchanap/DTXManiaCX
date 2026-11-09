@@ -73,6 +73,29 @@ public sealed class InputManagerCompatTests : IDisposable
     }
 
     [Fact]
+    public void IsPadCommandPressed_OnlyForPadSourcedCommands()
+    {
+        _manager.PadCommandResolver = _ => InputCommandType.MoveUp;
+
+        InvokeLaneHit(4, "Key.K");
+        Assert.False(_manager.IsPadCommandPressed(InputCommandType.MoveUp));
+
+        InvokeLaneHit(4, "MIDI.48");
+        Assert.True(_manager.IsPadCommandPressed(InputCommandType.MoveUp));
+        Assert.True(_manager.IsCommandPressed(InputCommandType.MoveUp));
+
+        _manager.ClearPendingCommands();
+        Assert.False(_manager.IsPadCommandPressed(InputCommandType.MoveUp));
+    }
+
+    private void InvokeLaneHit(int lane, string buttonId)
+    {
+        typeof(InputManagerCompat)
+            .GetMethod("OnModularLaneHit", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .Invoke(_manager, new object?[] { null, new LaneHitEventArgs(lane, new ButtonState(buttonId, true)) });
+    }
+
+    [Fact]
     public void IsBackActionTriggered_WhenEscapeInjected_ShouldReturnTrue()
     {
         _manager.ModularInputManager.InjectButton("Key.Escape", isPressed: true);

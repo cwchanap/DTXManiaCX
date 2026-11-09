@@ -2804,24 +2804,37 @@ namespace DTXMania.Game.Lib.Stage
             //    TextInput event simultaneously inserts a character.
             //    Enter and Escape still reach HandleKey via ModalRawKeys.
             bool searchBoxFocused = _searchFilterModal.FocusedField == SongSearchFilterModal.Field.SearchBox;
-            if (!searchBoxFocused)
+            var commandTypes = new[]
             {
-                var commandTypes = new[]
-                {
-                    InputCommandType.MoveUp,
-                    InputCommandType.MoveDown,
-                    InputCommandType.MoveLeft,
-                    InputCommandType.MoveRight,
-                    InputCommandType.Activate,
-                    InputCommandType.Back
-                };
-                foreach (var cmd in commandTypes)
-                {
-                    if (_inputManager.IsCommandPressed(cmd))
-                        _searchFilterModal.HandleCommand(cmd);
-                }
+                InputCommandType.MoveUp,
+                InputCommandType.MoveDown,
+                InputCommandType.MoveLeft,
+                InputCommandType.MoveRight,
+                InputCommandType.Activate,
+                InputCommandType.Back
+            };
+            foreach (var cmd in commandTypes)
+            {
+                // Drum pads never type text, so they still drive the modal from the SearchBox.
+                bool padPressed = _inputManager is InputManagerCompat compat && compat.IsPadCommandPressed(cmd);
+                bool pressed = searchBoxFocused ? padPressed : _inputManager.IsCommandPressed(cmd);
+                if (!pressed)
+                    continue;
+
+                // Pads have no left/right, so a pad Enter on a value field steps the value
+                // instead of applying (NX menus work the same way).
+                if (padPressed && cmd == InputCommandType.Activate
+                    && _searchFilterModal.FocusedField is SongSearchFilterModal.Field.MinLevel
+                        or SongSearchFilterModal.Field.MaxLevel
+                        or SongSearchFilterModal.Field.PlayedStatus
+                        or SongSearchFilterModal.Field.SortBy
+                        or SongSearchFilterModal.Field.SortDirection)
+                    _searchFilterModal.HandleCommand(InputCommandType.MoveRight);
+                else
+                    _searchFilterModal.HandleCommand(cmd);
             }
-            else
+
+            if (searchBoxFocused)
             {
                 // When SearchBox is focused, command-based navigation is suppressed to
                 // prevent text-producing remapped keys (e.g. W→MoveUp) from stealing
@@ -3689,9 +3702,11 @@ namespace DTXMania.Game.Lib.Stage
         /// when entering the Recent tab, and requests a list repopulate on the next update.
         /// Invoked by the Tab key and the Floor Tom pad (wired in the input-handling path).
         /// </summary>
-        private void SwitchToNextTab()
+        private void SwitchToNextTab() => SwitchToTab(_activeTab.Next());
+
+        private void SwitchToTab(SongSelectionTab tab)
         {
-            _activeTab = _activeTab.Next();
+            _activeTab = tab;
             _isInStatusPanel = false;
 
             if (_activeTab == SongSelectionTab.RecentPlays)
@@ -3989,16 +4004,27 @@ namespace DTXMania.Game.Lib.Stage
 
         /// <summary>
         /// Song-select pad actions on top of <see cref="DrumPadSystemKeys"/> (which covers
-        /// up/down/enter/back), following NX: floor tom cycles tabs like Tab, hi-hat x2 steps
-        /// the difficulty up (it wraps, so there is no down), bass drum x2 opens or closes
-        /// Quick Settings. While Quick Settings is open only bass drum x2 does anything here.
+        /// up/down/enter/back), following NX: floor tom cycles tabs like Tab and floor tom x2
+        /// opens Search &amp; Filter (NX's sort menu), hi-hat x2 steps the difficulty up (it
+        /// wraps, so there is no down), bass drum x2 opens or closes Quick Settings. While
+        /// Quick Settings is open only bass drum x2 does anything here.
         /// </summary>
         private void HandlePadLaneHit(int lane)
         {
             bool quickSettingsOpen = _quickSettingsPopup?.IsOpen == true;
             if (lane == FloorTomLaneIndex && !quickSettingsOpen)
             {
-                SwitchToNextTab();
+                if (!IsPadDoubleHit(lane))
+                {
+                    SwitchToNextTab();
+                }
+                else
+                {
+                    // The first hit already moved a tab; search lives on All Songs.
+                    if (_activeTab != SongSelectionTab.AllSongs)
+                        SwitchToTab(SongSelectionTab.AllSongs);
+                    OpenSearchFilterModal();
+                }
             }
             else if (lane == HiHatLaneIndex && !quickSettingsOpen)
             {
