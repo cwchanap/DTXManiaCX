@@ -260,10 +260,13 @@ namespace DTXMania.Game.Lib.Song.Components
 
             var textColor = theme.GetColor("SongSelect.PopupText", theme.GetColor("UI.TextPrimary", Color.White));
             var editColor = theme.GetColor("SongSelect.PopupEdit", DTXManiaVisualTheme.FontEffects.DefaultTextColor);
+            // Wide display faces (CX Neon's Orbitron) set a smaller scale so rows fit the panel.
+            float scale = theme.GetFloat("SongSelect.PopupTextScale", 1f);
+            float lineHeight = Font.LineSpacing * scale;
 
             DrawText(spriteBatch, Title,
-                new Vector2(origin.X + (PopupLayout.Width - Font.MeasureString(Title).X) / 2, origin.Y + PopupLayout.TitleY),
-                textColor);
+                new Vector2(origin.X + (PopupLayout.Width - Font.MeasureString(Title).X * scale) / 2, origin.Y + PopupLayout.TitleY),
+                textColor, scale);
 
             DrawCursor(spriteBatch, new Rectangle(
                 (int)origin.X + PopupLayout.CursorX,
@@ -274,26 +277,31 @@ namespace DTXMania.Game.Lib.Song.Components
             for (int row = 0; row < RowCount; row++)
             {
                 float rowY = origin.Y + PopupLayout.FirstRowY + row * PopupLayout.RowHeight
-                    + (PopupLayout.RowHeight - Font.LineSpacing) / 2f;
+                    + (PopupLayout.RowHeight - lineHeight) / 2f;
                 bool selected = row == SelectedIndex;
+                var namePosition = new Vector2(origin.X + PopupLayout.NameX, rowY);
 
                 if (row == _items.Count)
                 {
-                    DrawText(spriteBatch, ReturnLabel, new Vector2(origin.X + PopupLayout.NameX, rowY), textColor);
+                    DrawText(spriteBatch, ReturnLabel, namePosition, textColor, scale);
                     continue;
                 }
 
                 var item = _items[row];
-                DrawText(spriteBatch, item.Name, new Vector2(origin.X + PopupLayout.NameX, rowY), textColor);
-                DrawText(spriteBatch, GetValueText(item), new Vector2(origin.X + PopupLayout.ValueX, rowY),
-                    selected && IsEditingValue ? editColor : textColor);
+                DrawText(spriteBatch, item.Name, namePosition, textColor, scale);
+                // NX's value column, pushed right when a long name would run into it.
+                float valueX = Math.Max(origin.X + PopupLayout.ValueX,
+                    namePosition.X + Font.MeasureString(item.Name).X * scale + PopupLayout.ValueGap);
+                DrawText(spriteBatch, GetValueText(item), new Vector2(valueX, rowY),
+                    selected && IsEditingValue ? editColor : textColor, scale);
             }
 
             string hint = IsEditingValue ? "HT/LT: Change   CY: Done" : "HT/LT: Move   CY: Change   LC: Close";
+            float hintWidth = Font.MeasureString(hint).X;
+            float hintScale = Math.Min(PopupLayout.HintScale * scale, (PopupLayout.Width - PopupLayout.NameX * 2) / hintWidth);
             DrawText(spriteBatch, hint,
-                new Vector2(origin.X + (PopupLayout.Width - Font.MeasureString(hint).X * PopupLayout.HintScale) / 2,
-                    origin.Y + PopupLayout.HintY),
-                textColor * 0.75f, PopupLayout.HintScale);
+                new Vector2(origin.X + (PopupLayout.Width - hintWidth * hintScale) / 2, origin.Y + PopupLayout.HintY),
+                textColor * 0.75f, hintScale);
         }
 
         /// <summary>NX draws the 32x32 cursor as a 16px left cap, a repeated middle slice and a 16px right cap.</summary>

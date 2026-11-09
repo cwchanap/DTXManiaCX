@@ -750,6 +750,7 @@ namespace DTXMania.Game.Lib.UI.Layout
             public const int CursorWidth = 336;
             public const int NameX = 24;
             public const int ValueX = 200;
+            public const int ValueGap = 12;
             public const int HintY = 350;
             public const float HintScale = 0.8f;
 
