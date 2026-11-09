@@ -180,6 +180,7 @@ namespace DTXMania.Game.Lib.Stage
 
         // Quick Settings popup (bass drum x2, NX quick config)
         private QuickSettingsPopup? _quickSettingsPopup = null;
+        private int _quickSettingsPlaySpeedAtOpen;
 
         // NX CCommandHistory: two hits of the same pad within 500 ms make a double hit.
         private const double PadDoubleHitWindowSeconds = 0.5;
@@ -2839,7 +2840,7 @@ namespace DTXMania.Game.Lib.Stage
                         or SongSearchFilterModal.Field.PlayedStatus
                         or SongSearchFilterModal.Field.SortBy
                         or SongSearchFilterModal.Field.SortDirection)
-                    _searchFilterModal.HandleCommand(InputCommandType.MoveRight);
+                    _searchFilterModal.StepFocusedValue();
                 else
                     _searchFilterModal.HandleCommand(cmd);
             }
@@ -4071,6 +4072,7 @@ namespace DTXMania.Game.Lib.Stage
                 return;
 
             _isInStatusPanel = false;
+            _quickSettingsPlaySpeedAtOpen = _configManager.Config.PlaySpeedPercent;
             _quickSettingsPopup.Open(QuickSettingsPopup.CreateItems(
                 _configManager,
                 () => FfmpegRuntime.EnsureConfigured().IsAvailable));
@@ -4091,6 +4093,13 @@ namespace DTXMania.Game.Lib.Stage
             }
 
             int playSpeedPercent = SynchronizeActivePlaySpeed();
+            if (playSpeedPercent != _quickSettingsPlaySpeedAtOpen && !_filterCriteria.IsEmpty)
+            {
+                // Played/unplayed filters read the scores for the active speed.
+                RebuildFilteredView();
+                if (_activeTab == SongSelectionTab.AllSongs)
+                    PopulateSongListForCurrentMode();
+            }
             _statusPanel?.UpdateSongInfo(_selectedSong, _currentDifficulty, playSpeedPercent);
             _playHistoryPanel?.UpdateSongInfo(_selectedSong, _currentDifficulty, playSpeedPercent);
             _inputManager?.ClearPendingCommands();

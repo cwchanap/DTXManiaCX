@@ -209,17 +209,30 @@ namespace DTXMania.Game.Lib.Song.Components
             _cursorTexture = TryLoad(resourceManager, TexturePath.QuickSettingsCursor);
         }
 
+        /// <summary>
+        /// Same rule as ConfigStage: a missing asset comes back as a 1x1 fallback texture, so
+        /// anything that small counts as absent and the flat stand-in is drawn instead.
+        /// </summary>
         private static ITexture? TryLoad(IResourceManager resourceManager, string path)
         {
+            ITexture? texture;
             try
             {
-                return resourceManager.LoadTexture(path);
+                texture = resourceManager.LoadTexture(path);
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"QuickSettingsPopup: failed to load {path}: {ex.Message}");
                 return null;
             }
+
+            if (texture == null || texture.Width <= 1 || texture.Height <= 1)
+            {
+                texture?.Dispose();
+                return null;
+            }
+
+            return texture;
         }
 
         private void ReleaseTextures()
