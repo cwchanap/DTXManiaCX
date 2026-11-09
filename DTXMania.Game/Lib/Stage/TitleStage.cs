@@ -148,10 +148,12 @@ namespace DTXMania.Game.Lib.Stage
 
             // Create the crash-report notification after title resources are available. The inbox
             // itself is process-owned (forwarded by the game); the component holds only a snapshot
-            // and stage-owned UI state.
+            // and stage-owned UI state. The construction performs a bounded filesystem snapshot, so
+            // it is attributed to its own critical-path aggregate rather than showing as unattributed
+            // title-activation time.
             _crashReportNotification = new CrashReportNotification(_game.CrashReportInbox);
 
-            // Pure in-memory wiring.
+            // Pure in-memory wiring (no bounded filesystem snapshot, unlike the crash inbox above).
             _updateNotification = new GameUpdateNotification(_game.GameUpdateService);
 
             System.Diagnostics.Debug.WriteLine("Title Stage activated successfully");

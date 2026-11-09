@@ -15,12 +15,6 @@ using Xunit;
 
 namespace DTXMania.Test.Song
 {
-    /// <summary>
-    /// Coverage for the single-version song-database policy: a fresh file is
-    /// stamped with <c>PRAGMA user_version = 1</c>, a matching file reopens
-    /// without a rebuild, and an unversioned/mismatched/invalid file is purged
-    /// once through the throwing <see cref="SongDatabaseService.PurgeDatabaseAsync"/>.
-    /// </summary>
     [Trait("Category", "Unit")]
     public sealed class SongDatabaseSchemaVersionTests : IDisposable
     {
@@ -48,7 +42,6 @@ namespace DTXMania.Test.Song
             }
             catch
             {
-                // Best-effort cleanup for temp test assets.
             }
         }
 
@@ -184,7 +177,6 @@ namespace DTXMania.Test.Song
             {
                 await second.InitializeDatabaseAsync();
 
-                // A matching-version database is reopened, never rebuilt.
                 Assert.Equal(0, second.PurgeCalls);
                 Assert.Equal(
                     SongDatabaseService.CurrentSongSchemaVersion,
@@ -226,7 +218,6 @@ namespace DTXMania.Test.Song
             using var service = new CountingPurgeService(_dbPath);
             await service.InitializeDatabaseAsync();
 
-            // Exactly one purge; none of the stale schema survives the rebuild.
             Assert.Equal(1, service.PurgeCalls);
             Assert.Equal(
                 SongDatabaseService.CurrentSongSchemaVersion,
@@ -236,7 +227,6 @@ namespace DTXMania.Test.Song
             Assert.Equal(0, await ScalarAsync(_dbPath, "SELECT COUNT(*) FROM Songs"));
             Assert.Equal(1, await TableCountAsync(_dbPath, "__EnumerationMetadata"));
 
-            // Re-enumeration works against the rebuilt schema.
             var songId = await service.AddSongAsync(
                 new SongEntity { Title = "Rebuilt", Artist = "Fresh" },
                 new SongChart
@@ -308,7 +298,6 @@ namespace DTXMania.Test.Song
                 () => service.InitializeDatabaseAsync());
 
             Assert.Same(probeError, thrown);
-            // Unrelated I/O failures must not trigger destructive recovery.
             Assert.Equal(0, service.PurgeCalls);
             Assert.Equal(
                 SongDatabaseService.CurrentSongSchemaVersion,
@@ -330,7 +319,6 @@ namespace DTXMania.Test.Song
                 () => service.InitializeDatabaseAsync());
 
             Assert.Same(deleteError, thrown);
-            // The purge ran exactly once and its failure was not swallowed.
             Assert.Equal(1, service.PurgeCalls);
             Assert.True(File.Exists(_dbPath));
             Assert.Equal(0, await ReadUserVersionAsync(_dbPath));
@@ -348,7 +336,6 @@ namespace DTXMania.Test.Song
                 () => service.InitializeDatabaseAsync());
 
             Assert.NotNull(exception);
-            // The path was not treated as a corrupt database and deleted.
             Assert.True(Directory.Exists(directoryDbPath));
             Assert.Throws<InvalidOperationException>(() => service.CreateContext());
         }
@@ -368,7 +355,6 @@ namespace DTXMania.Test.Song
             using var service = new SongDatabaseService(_dbPath);
             await service.InitializeDatabaseAsync();
 
-            // The reset deleted only songs.db; the config database still loads.
             var entries = configStore.Load();
             Assert.Equal(_tempRoot, entries["SongRoot.0"]);
             Assert.Equal("3777", entries["GameApiPort"]);

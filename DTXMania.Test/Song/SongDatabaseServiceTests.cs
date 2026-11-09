@@ -138,7 +138,6 @@ namespace DTXMania.Test.Song
             Assert.Contains("enumeration metadata failure", exception.ToString());
             Assert.Throws<InvalidOperationException>(service.CreateContext);
 
-            // The version stamp is only written after metadata creation succeeds.
             await using var verify = fixture.CreateContext();
             var connection = verify.Database.GetDbConnection();
             await using var command = connection.CreateCommand();

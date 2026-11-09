@@ -1029,8 +1029,6 @@ namespace DTXMania.Game.Lib.Stage
             }
             catch (OperationCanceledException)
             {
-                // Cancellation never triggers the committed cache fallback; it
-                // propagates straight to the activation lifecycle.
                 throw;
             }
             catch (Exception)

@@ -140,10 +140,10 @@ namespace DTXMania.Game.Lib.Song
     }
 
     /// <summary>
-    /// Signals a failure after the import transaction committed but before its
-    /// in-memory library publication completed. The captured batch lets callers
-    /// retain accurate root-failure diagnostics while reporting the operation as
-    /// partial success requiring recovery/restart.
+    /// Signals an HPA-192 failure after the import transaction committed but
+    /// before its in-memory library publication completed. The captured batch
+    /// lets callers retain accurate root-failure diagnostics while reporting
+    /// the operation as partial success requiring recovery/restart.
     /// </summary>
     public sealed class SongEnumerationPostCommitException : Exception
     {
