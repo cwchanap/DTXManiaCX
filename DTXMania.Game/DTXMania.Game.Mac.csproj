@@ -36,7 +36,7 @@
   
   <ItemGroup>
     <PackageReference Include="AlphaTab" Version="1.9.0" />
-    <PackageReference Include="FFMpegCore" Version="5.5.0" />
+    <PackageReference Include="FFMpegCore" Version="6.0.0" />
     <PackageReference Include="Melanchall.DryWetMidi" Version="8.0.3" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.13" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.13" />
