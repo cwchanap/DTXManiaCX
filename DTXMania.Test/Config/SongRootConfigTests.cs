@@ -128,8 +128,8 @@ public sealed class SongRootConfigTests
 
             Assert.Equal([legacyRoot], manager.Config.SongRoots);
 
-            // The migration persists SongRoot.0 to the database — DTXPath is a
-            // legacy input key only — and leaves the legacy INI untouched.
+            // The migration persists SongRoot.0 to the database — DTXPath stays
+            // an in-memory mirror only — and leaves the legacy INI untouched.
             var rows = new SqliteConfigStore(Path.Combine(root, "config.db")).Load();
             Assert.Equal(legacyRoot, rows["SongRoot.0"]);
             Assert.False(rows.ContainsKey("DTXPath"));

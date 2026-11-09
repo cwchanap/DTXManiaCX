@@ -9,11 +9,6 @@ namespace DTXMania.Game.Lib.Config
         public string DTXManiaVersion { get; set; } = "NX1.5.0-MG";
         public string SkinPath { get; set; } = AppPaths.GetDefaultSystemSkinRoot();
 
-        /// <summary>
-        /// Song-library roots in priority order. The sole in-memory
-        /// representation; the legacy <c>DTXPath</c> config key is mapped into
-        /// this list at load/import time.
-        /// </summary>
         public List<string> SongRoots { get; } = new();
 
         public ConfigData()

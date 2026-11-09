@@ -139,17 +139,15 @@ public class SongManagerCoverageTests : IDisposable
     }
 
     [Fact]
-    public async Task ParseSetDefinitionAsync_WithMissingFile_ShouldReturnEmptyList()
+    public async Task BuildEnumerationBatchAsync_WhenSetDefIsMissing_ShouldProduceNoSongs()
     {
-        var task = ReflectionHelpers.InvokePrivateMethod<Task<List<SongListNode>>>(
-            _manager,
-            "ParseSetDefinitionAsync",
-            Path.Combine(_testRoot, "missing-set.def"),
-            null!,
+        var batch = await _manager.BuildEnumerationBatchAsync(
+            new[] { _testRoot },
+            null,
             CancellationToken.None);
 
-        Assert.NotNull(task);
-        Assert.Empty(await task!);
+        Assert.Empty(batch.PendingSongs);
+        Assert.Empty(batch.RootNodes);
     }
 
     [Fact]
@@ -1033,7 +1031,7 @@ public class SongManagerCoverageTests : IDisposable
     }
 
     [Fact]
-    public async Task ParseSetDefinitionAsync_WithNoTitleInDtx_ShouldUseFilenameOrDirectory()
+    public async Task BuildEnumerationBatchAsync_WithNoTitleInDtx_ShouldUseFilenameOrDirectory()
     {
         var setFolder = Path.Combine(_testRoot, "NoTitleSet");
         var setDefPath = Path.Combine(setFolder, "set.def");
@@ -1051,22 +1049,18 @@ public class SongManagerCoverageTests : IDisposable
         
         await _manager.InitializeDatabaseServiceAsync(_testDbPath);
         
-        var task = ReflectionHelpers.InvokePrivateMethod<Task<List<SongListNode>>>(
-            _manager,
-            "ParseSetDefinitionAsync",
-            setDefPath,
-            null!,
+        var batch = await _manager.BuildEnumerationBatchAsync(
+            new[] { setFolder },
+            null,
             CancellationToken.None);
         
-        Assert.NotNull(task);
-        var results = await task!;
-        
-        var node = Assert.Single(results);
+        var pending = Assert.Single(batch.PendingSongs);
+        var node = pending.Placeholder;
         Assert.True(node.Title == "NoTitleSet" || node.Title == "notitle");
     }
 
     [Fact]
-    public async Task ParseSetDefinitionAsync_WithCancelledToken_ShouldReturnEmptyList()
+    public async Task BuildEnumerationBatchAsync_WithCancelledToken_ShouldThrowOperationCanceled()
     {
         var setFolder = Path.Combine(_testRoot, "CancelledSet");
         var setDefPath = Path.Combine(setFolder, "set.def");
@@ -1088,28 +1082,16 @@ public class SongManagerCoverageTests : IDisposable
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
         
-        var task = ReflectionHelpers.InvokePrivateMethod<Task<List<SongListNode>>>(
-            _manager,
-            "ParseSetDefinitionAsync",
-            setDefPath,
-            null!,
-            cancellation.Token);
-        
-        Assert.NotNull(task);
-        var results = await task!;
-        
-        Assert.Empty(results);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            _manager.BuildEnumerationBatchAsync(
+                new[] { setFolder },
+                null,
+                cancellation.Token));
     }
 
     [Fact]
-    public async Task ParseSetDefinitionAsync_WithUtf16SetDef_ShouldRecoverLabelViaSharedEncodings()
+    public async Task BuildEnumerationBatchAsync_WithUtf16SetDef_ShouldRecoverLabel()
     {
-        // Both the async enumeration path (ParseSetDefinitionAsync) and the sync database-load
-        // path (ReadSetDefLines -> GetSetDefLabelsByFile) now share BuildSetDefEncodings.
-        // A UTF-16 SET.def read as UTF-8 appears as the spaced "# L 1 L A B E L ..." form that
-        // NormalizeSetDefLine must repair. This locks in the invariant that the async path uses
-        // the same encoding fallback chain as the sync path (which is covered separately in
-        // SongManagerDifficultyLabelTests.GetSetDefLabelsByFile_Utf16SpacedFormat).
         var setFolder = Path.Combine(_testRoot, "Utf16Set");
         var setDefPath = Path.Combine(setFolder, "set.def");
         Directory.CreateDirectory(setFolder);
@@ -1128,20 +1110,13 @@ public class SongManagerCoverageTests : IDisposable
 
         await _manager.InitializeDatabaseServiceAsync(_testDbPath);
 
-        var task = ReflectionHelpers.InvokePrivateMethod<Task<List<SongListNode>>>(
-            _manager,
-            "ParseSetDefinitionAsync",
-            setDefPath,
-            null!,
+        var batch = await _manager.BuildEnumerationBatchAsync(
+            new[] { setFolder },
+            null,
             CancellationToken.None);
 
-        Assert.NotNull(task);
-        var results = await task!;
-
-        var node = Assert.Single(results);
-        // The recovered SET.def label proves the UTF-16 file was decoded through the shared
-        // encoding chain and repaired by NormalizeSetDefLine on the async path.
-        Assert.Equal("BASIC", node.DifficultyLabels[0]);
+        var pending = Assert.Single(batch.PendingSongs);
+        Assert.Equal("BASIC", pending.Placeholder.DifficultyLabels[0]);
     }
 
     [Fact]
@@ -1645,21 +1620,27 @@ public class SongManagerCoverageTests : IDisposable
     }
 
     [Fact]
-    public async Task CreateSongNodeAsync_WhenFileIsMissing_ShouldReturnNull()
+    public async Task BuildEnumerationBatchAsync_WhenReferencedChartIsMissing_ShouldProduceNoSongs()
     {
+        var setFolder = Path.Combine(_testRoot, "MissingChartSet");
+        Directory.CreateDirectory(setFolder);
+        await File.WriteAllTextAsync(Path.Combine(setFolder, "set.def"), """
+#TITLE: Missing Chart Set
+#L1FILE missing.dtx
+""");
+
         await _manager.InitializeDatabaseServiceAsync(_testDbPath);
 
-        var result = await ReflectionHelpers.InvokePrivateMethod<Task<SongListNode?>>(
-            _manager,
-            "CreateSongNodeAsync",
-            Path.Combine(_testRoot, "missing.dtx"),
-            null!);
+        var batch = await _manager.BuildEnumerationBatchAsync(
+            new[] { setFolder },
+            null,
+            CancellationToken.None);
 
-        Assert.Null(result);
+        Assert.Empty(batch.PendingSongs);
     }
 
     [Fact]
-    public async Task EnumerateDirectoryAsync_WhenChartParsingFails_ShouldSkipSupportedFile()
+    public async Task BuildEnumerationBatchAsync_WhenChartParsingFails_ShouldSkipSupportedFile()
     {
         var songsRoot = Path.Combine(_testRoot, "EnumerateDirectoryFailure");
         Directory.CreateDirectory(songsRoot);
@@ -1669,15 +1650,14 @@ public class SongManagerCoverageTests : IDisposable
             Task.FromException<(SongEntity, SongChart)>(
                 new InvalidDataException("broken chart"));
 
-        var result = await ReflectionHelpers.InvokePrivateMethod<Task<List<SongListNode>>>(
-            _manager,
-            "EnumerateDirectoryAsync",
-            songsRoot,
-            null!,
-            null!,
+        var batch = await _manager.BuildEnumerationBatchAsync(
+            new[] { songsRoot },
+            null,
             CancellationToken.None);
 
-        Assert.Empty(result);
+        Assert.Empty(batch.PendingSongs);
+        Assert.Single(batch.Errors);
+        Assert.Equal("broken chart", batch.Errors[0].Message);
     }
 
     [Fact]
@@ -1821,10 +1801,10 @@ public class SongManagerCoverageTests : IDisposable
         Assert.False(result);
     }
 
-    // Regression: the chart-inventory scanner must count ALL supported chart
-    // extensions, not just *.dtx. A library containing .gda/.g2d/.bms/.bme/.bml
-    // charts would otherwise have filesystem count 0 (no .dtx files) vs database
-    // count > 0, forcing a full rescan on every startup.
+    // Regression: CountDTXFilesAsync must count ALL supported chart extensions,
+    // not just *.dtx. A library containing .gda/.g2d/.bms/.bme/.bml charts would
+    // otherwise have filesystem count 0 (no .dtx files) vs database count > 0,
+    // forcing a full rescan on every startup.
     [Fact]
     public async Task ScanChartInventoryAsync_WithNonDtxChartFile_ShouldCountIt()
     {
@@ -1846,9 +1826,9 @@ public class SongManagerCoverageTests : IDisposable
         Assert.Single(inventory.Charts);
     }
 
-    // Regression: the chart-inventory change check must detect ALL supported
-    // chart extensions, not just *.dtx. A modified .bms chart would otherwise be
-    // missed when the total file count is unchanged.
+    // Regression: CheckDirectoryForChangesAsync must scan ALL supported chart
+    // extensions, not just *.dtx. A modified .bms chart would otherwise be missed
+    // when the total file count is unchanged.
     [Fact]
     public async Task InventoryHasChangesSince_WhenNonDtxChartWasModified_ShouldReturnTrue()
     {
@@ -1966,7 +1946,7 @@ public class SongManagerCoverageTests : IDisposable
     }
 
     [Fact]
-    public async Task ParseSetDefinitionAsync_WithGuitarOnlyChart_ShouldCreateGuitarScore()
+    public async Task BuildEnumerationBatchAsync_WithGuitarOnlyChart_ShouldCreateGuitarScore()
     {
         var setFolder = Path.Combine(_testRoot, "GuitarSet");
         var setDefPath = Path.Combine(setFolder, "set.def");
@@ -1984,21 +1964,20 @@ public class SongManagerCoverageTests : IDisposable
 
         await _manager.InitializeDatabaseServiceAsync(_testDbPath);
 
-        var results = await ReflectionHelpers.InvokePrivateMethod<Task<List<SongListNode>>>(
-            _manager,
-            "ParseSetDefinitionAsync",
-            setDefPath,
-            null!,
+        var batch = await _manager.BuildEnumerationBatchAsync(
+            new[] { setFolder },
+            null,
             CancellationToken.None);
 
-        var node = Assert.Single(results);
+        var pending = Assert.Single(batch.PendingSongs);
+        var node = pending.Placeholder;
         Assert.NotNull(node.Scores[0]);
         Assert.Equal(EInstrumentPart.GUITAR, node.Scores[0]!.Instrument);
         Assert.Equal(70, node.Scores[0].DifficultyLevel);
     }
 
     [Fact]
-    public async Task ParseSetDefinitionAsync_WithBassOnlyChart_ShouldCreateBassScore()
+    public async Task BuildEnumerationBatchAsync_WithBassOnlyChart_ShouldCreateBassScore()
     {
         var setFolder = Path.Combine(_testRoot, "BassSet");
         var setDefPath = Path.Combine(setFolder, "set.def");
@@ -2016,21 +1995,20 @@ public class SongManagerCoverageTests : IDisposable
 
         await _manager.InitializeDatabaseServiceAsync(_testDbPath);
 
-        var results = await ReflectionHelpers.InvokePrivateMethod<Task<List<SongListNode>>>(
-            _manager,
-            "ParseSetDefinitionAsync",
-            setDefPath,
-            null!,
+        var batch = await _manager.BuildEnumerationBatchAsync(
+            new[] { setFolder },
+            null,
             CancellationToken.None);
 
-        var node = Assert.Single(results);
+        var pending = Assert.Single(batch.PendingSongs);
+        var node = pending.Placeholder;
         Assert.NotNull(node.Scores[0]);
         Assert.Equal(EInstrumentPart.BASS, node.Scores[0]!.Instrument);
         Assert.Equal(55, node.Scores[0].DifficultyLevel);
     }
 
     [Fact]
-    public async Task ParseSetDefinitionAsync_WithBrokenDatabaseService_ShouldStillCreateNode()
+    public async Task BuildEnumerationBatchAsync_WithBrokenDatabaseService_ShouldStillCreateNode()
     {
         var setFolder = Path.Combine(_testRoot, "BrokenDbSet");
         var setDefPath = Path.Combine(setFolder, "set.def");
@@ -2052,14 +2030,12 @@ public class SongManagerCoverageTests : IDisposable
         {
             ReflectionHelpers.SetPrivateField(_manager, "_databaseService", CreateBrokenDatabaseService());
 
-            var results = await ReflectionHelpers.InvokePrivateMethod<Task<List<SongListNode>>>(
-                _manager,
-                "ParseSetDefinitionAsync",
-                setDefPath,
-                null!,
+            var batch = await _manager.BuildEnumerationBatchAsync(
+                new[] { setFolder },
+                null,
                 CancellationToken.None);
 
-            Assert.Single(results);
+            Assert.Single(batch.PendingSongs);
         }
         finally
         {
@@ -2068,18 +2044,16 @@ public class SongManagerCoverageTests : IDisposable
     }
 
     [Fact]
-    public async Task ParseSetDefinitionAsync_WithInvalidPath_ShouldReturnEmptyList()
+    public async Task BuildEnumerationBatchAsync_WithInvalidPath_ShouldProduceNoSongs()
     {
         await _manager.InitializeDatabaseServiceAsync(_testDbPath);
 
-        var results = await ReflectionHelpers.InvokePrivateMethod<Task<List<SongListNode>>>(
-            _manager,
-            "ParseSetDefinitionAsync",
-            "\0invalid",
-            null!,
+        var batch = await _manager.BuildEnumerationBatchAsync(
+            new[] { "\0invalid" },
+            null,
             CancellationToken.None);
 
-        Assert.Empty(results);
+        Assert.Empty(batch.PendingSongs);
     }
 
     [Fact]
@@ -2222,7 +2196,6 @@ public class SongManagerCoverageTests : IDisposable
         return service;
     }
 
-    // Runs the shared chart-inventory scanner the live change/count checks use.
     private Task<ChartInventory> ScanChartInventory(params string[] roots) =>
         ReflectionHelpers.InvokePrivateMethod<Task<ChartInventory>>(
             _manager,
@@ -2230,10 +2203,6 @@ public class SongManagerCoverageTests : IDisposable
             (object)roots,
             CancellationToken.None)!;
 
-    // Composes the same watermark comparison the live filesystem-change check
-    // performs for a single root. InventoryHasChangesSince is a static private
-    // method, so it is invoked directly rather than through ReflectionHelpers
-    // (which only resolves instance methods).
     private static bool InventoryHasChanges(
         ChartInventory inventory,
         string root,

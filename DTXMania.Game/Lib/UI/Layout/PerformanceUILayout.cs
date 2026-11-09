@@ -1109,7 +1109,7 @@ namespace DTXMania.Game.Lib.UI.Layout
         
         #endregion
 
-        #region Judgement Feedback Asset Layouts
+        #region Legacy Asset Layouts (for backwards compatibility)
 
         public static class HitTimingFeedback
         {

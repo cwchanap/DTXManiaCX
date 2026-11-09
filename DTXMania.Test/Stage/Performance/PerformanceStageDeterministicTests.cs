@@ -295,8 +295,6 @@ public class PerformanceStageDeterministicTests
         Assert.False(telemetry.PerformanceReady);
     }
 
-    // Mirrors the OnActivate initialization path: freeze the run configuration,
-    // then run the core gameplay initializer for the current activation generation.
     private static Task InvokeGameplayInitialization(PerformanceStage stage)
     {
         ReflectionHelpers.InvokePrivateMethod(stage, "FreezeRunConfiguration");
@@ -346,7 +344,7 @@ public class PerformanceStageDeterministicTests
     [Fact]
     public async Task InitializeGameplayCoreAsync_WhenBodyThrows_ShouldResetLoadingAndRethrow()
     {
-        // Exercises the catch-all in the core initializer: a zero-BPM chart makes
+        // Exercises the catch-all in InitializeGameplayAsync: a zero-BPM chart makes
         // NoteRenderer.SetBpm throw ArgumentException. The catch must reset _isLoading
         // and rethrow so the stage is not left in a broken half-loaded state.
         var stage = CreateStage();
@@ -917,8 +915,8 @@ public class PerformanceStageDeterministicTests
     public async Task InitializeGameplayCoreAsync_WithVisualGateSettingsInConfig_ShouldFreezeVisualGates()
     {
         // Direct initialization must capture the configured visual gates the same way
-        // OnActivate does; without the freeze the gates stay at their all-false
-        // defaults and hidden lanes/lines/combo render anyway.
+        // OnActivate does; without the freeze in InitializeGameplayAsync the gates stay
+        // at their all-false defaults and hidden lanes/lines/combo render anyway.
         var config = new ConfigData
         {
             LaneDisplayMode = DrumsLaneDisplayMode.AllOff,
@@ -937,8 +935,6 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
         ReflectionHelpers.SetPrivateField(stage, "_inputManager", new MockInputManagerCompat());
         ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
-        // OnActivate copies these from config before core initialization; the
-        // uninitialized test stage needs the same defaults seeded explicitly.
         ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(100, 0));
 
         var initializeTask = InvokeGameplayInitialization(stage);

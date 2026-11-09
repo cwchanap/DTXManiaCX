@@ -78,6 +78,7 @@ namespace DTXMania.Game.Lib.Song.Entities
 
         /// <summary>
         /// Total chip count across all instruments
+        /// Legacy compatibility from SongMetadata
         /// </summary>
         [NotMapped]
         public int TotalNoteCount => DrumNoteCount + GuitarNoteCount + BassNoteCount;

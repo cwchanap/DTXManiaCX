@@ -430,7 +430,7 @@ namespace DTXMania.Test.Song
         [Fact]
         public void RankName_WhenPlayedWithARankBucket_ShouldReturnA()
         {
-            var score = new SongScore { PlayCount = 1, BestRank = 80 }; // A bucket
+            var score = new SongScore { PlayCount = 1, BestRank = 80 };
             Assert.Equal("A", score.RankName);
         }
 
@@ -459,7 +459,7 @@ namespace DTXMania.Test.Song
         [Fact]
         public void Clone_ShouldNormalizeBestRankToBucket()
         {
-            var score = new SongScore { BestRank = 85, PlayCount = 3 }; // between B and A buckets
+            var score = new SongScore { BestRank = 85, PlayCount = 3 };
             var clone = score.Clone();
             Assert.Equal(80, clone.BestRank);
         }

@@ -1683,7 +1683,6 @@ Key.Bad=abc
         manager.SetNoFail(true);
         manager.FlushPendingSave();
 
-        // The empty-roots guard must skip writing SongRoot.N rows.
         var rows = ReadRows(dir);
         Assert.DoesNotContain(rows.Keys, key => key.StartsWith("SongRoot.", StringComparison.Ordinal));
     }
