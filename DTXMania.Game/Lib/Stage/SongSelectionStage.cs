@@ -2586,6 +2586,10 @@ namespace DTXMania.Game.Lib.Stage
             _uiManager?.Update(deltaTime);
         }
 
+        /// <summary>True while Search &amp; Filter or Quick Settings covers the stage.</summary>
+        private bool IsOverlayOpen =>
+            _searchFilterModal?.IsOpen == true || _quickSettingsPopup?.IsOpen == true;
+
         protected override void OnDraw(double deltaTime)
         {
             if (_spriteBatch == null)
@@ -2601,7 +2605,7 @@ namespace DTXMania.Game.Lib.Stage
                 && _filteredView == null
                 && _libraryEmptyState != SongLibraryEmptyState.HasSongs
                 && _font != null
-                && (_searchFilterModal == null || !_searchFilterModal.IsOpen);
+                && !IsOverlayOpen;
 
             // SongListDisplay has a generic centered "No songs found" fallback. Hide only
             // that component while the stage owns the more useful library-recovery message;
@@ -2625,7 +2629,7 @@ namespace DTXMania.Game.Lib.Stage
             // Only on the All Songs tab (filter is All-Songs-only) and skipped while the
             // search modal is open to avoid overlaying the modal / the Recent empty state.
             if (_activeTab == SongSelectionTab.AllSongs && _showEmptyFilterMessage && _font != null
-                && (_searchFilterModal == null || !_searchFilterModal.IsOpen))
+                && !IsOverlayOpen)
             {
                 string msg = "No songs match this filter";
                 _font.DrawString(_spriteBatch, msg,
@@ -2650,7 +2654,7 @@ namespace DTXMania.Game.Lib.Stage
             // Draw the tab bar (skip while the search modal is open to avoid overlap).
             // Prefer the shared body font, but still draw when only the tab face loaded.
             if ((_font != null || _tabFont != null)
-                && (_searchFilterModal == null || !_searchFilterModal.IsOpen))
+                && !IsOverlayOpen)
             {
                 DrawTabBar();
             }
@@ -2659,7 +2663,7 @@ namespace DTXMania.Game.Lib.Stage
             // genuinely empty, so a corrupted/locked score DB is not indistinguishable
             // from "no plays yet."
             if (_activeTab == SongSelectionTab.RecentPlays && _font != null
-                && (_searchFilterModal == null || !_searchFilterModal.IsOpen)
+                && !IsOverlayOpen
                 && (_recentPlaysLoadFailed || _showEmptyRecentMessage))
             {
                 string msg = _recentPlaysLoadFailed
@@ -2673,7 +2677,7 @@ namespace DTXMania.Game.Lib.Stage
             // Draw status message for the Bookmarks tab: distinct text for load failure vs.
             // genuinely empty, mirroring the Recent-tab status block above.
             if (_activeTab == SongSelectionTab.Bookmarks && _font != null
-                && (_searchFilterModal == null || !_searchFilterModal.IsOpen)
+                && !IsOverlayOpen
                 && (_bookmarksLoadFailed || _showEmptyBookmarksMessage))
             {
                 string msg = _bookmarksLoadFailed

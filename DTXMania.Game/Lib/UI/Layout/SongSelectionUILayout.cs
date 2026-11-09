@@ -734,9 +734,9 @@ namespace DTXMania.Game.Lib.UI.Layout
         {
             // Centered in 1280x720
             public const int X = 440;
-            public const int Y = 150;
+            public const int Y = 168;
             public const int Width = 400;
-            public const int Height = 420;
+            public const int Height = 384;
 
             public static Rectangle Bounds => new Rectangle(X, Y, Width, Height);
 
