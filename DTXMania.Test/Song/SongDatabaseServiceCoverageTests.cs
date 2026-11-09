@@ -475,8 +475,8 @@ public class SongDatabaseServiceCoverageTests : IDisposable
             "INSERT INTO Payload (Id) VALUES (1);");
         Assert.True(File.Exists(backupPath + "-wal"));
 
-        var destinationSnapshot = await File.ReadAllBytesAsync(backupPath);
-        var walSnapshot = await File.ReadAllBytesAsync(backupPath + "-wal");
+        var destinationSnapshot = await ReadAllBytesSharedAsync(backupPath);
+        var walSnapshot = await ReadAllBytesSharedAsync(backupPath + "-wal");
         var entriesBefore = Directory.GetFileSystemEntries(_tempRoot)
             .OrderBy(entry => entry)
             .ToArray();
@@ -485,8 +485,8 @@ public class SongDatabaseServiceCoverageTests : IDisposable
             () => _databaseService.BackupDatabaseAsync(backupPath));
 
         Assert.NotNull(exception);
-        Assert.Equal(destinationSnapshot, await File.ReadAllBytesAsync(backupPath));
-        Assert.Equal(walSnapshot, await File.ReadAllBytesAsync(backupPath + "-wal"));
+        Assert.Equal(destinationSnapshot, await ReadAllBytesSharedAsync(backupPath));
+        Assert.Equal(walSnapshot, await ReadAllBytesSharedAsync(backupPath + "-wal"));
 
         await using var verify = heldConnection.CreateCommand();
         verify.CommandText = "SELECT COUNT(*) FROM Payload";
@@ -987,6 +987,18 @@ public class SongDatabaseServiceCoverageTests : IDisposable
         await using var command = connection.CreateCommand();
         command.CommandText = sql;
         await command.ExecuteNonQueryAsync();
+    }
+
+    private static async Task<byte[]> ReadAllBytesSharedAsync(string path)
+    {
+        await using var stream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete);
+        var snapshot = new MemoryStream();
+        await stream.CopyToAsync(snapshot);
+        return snapshot.ToArray();
     }
 
     private static void CreateHardLink(string linkPath, string targetPath)
