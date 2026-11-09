@@ -6,6 +6,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
+using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.UI;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -189,8 +190,56 @@ namespace DTXMania.Game.Lib.Song.Components
         public Texture2D? WhitePixel { get; set; }
         public SpriteFont? Font { get; set; }
 
+        private IResourceManager? _resourceManager;
+        private ITexture? _backgroundTexture;
+        private ITexture? _cursorTexture;
+
+        /// <summary>
+        /// Loads the skin's NX popup art: the song-select popup background and the
+        /// orange menu cursor. Missing art falls back to flat panels in the same colours.
+        /// </summary>
+        public void Initialize(IResourceManager? resourceManager)
+        {
+            ReleaseTextures();
+            _resourceManager = resourceManager;
+            if (resourceManager == null)
+                return;
+
+            _backgroundTexture = TryLoad(resourceManager, TexturePath.QuickSettingsBackground);
+            _cursorTexture = TryLoad(resourceManager, TexturePath.QuickSettingsCursor);
+        }
+
+        private static ITexture? TryLoad(IResourceManager resourceManager, string path)
+        {
+            try
+            {
+                return resourceManager.LoadTexture(path);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"QuickSettingsPopup: failed to load {path}: {ex.Message}");
+                return null;
+            }
+        }
+
+        private void ReleaseTextures()
+        {
+            _backgroundTexture?.RemoveReference();
+            _backgroundTexture = null;
+            _cursorTexture?.RemoveReference();
+            _cursorTexture = null;
+        }
+
         /// <summary>Swallow UI input while open so clicks never reach the song list behind.</summary>
         public override bool HandleInput(IInputState inputState) => IsOpen;
+
+        /// <summary>Splits "Name: value" display text into the value part.</summary>
+        internal static string GetValueText(IConfigItem item)
+        {
+            string text = item.GetDisplayText();
+            string prefix = item.Name + ": ";
+            return text.StartsWith(prefix, StringComparison.Ordinal) ? text.Substring(prefix.Length) : text;
+        }
 
         [ExcludeFromCodeCoverage]
         protected override void OnDraw(SpriteBatch spriteBatch, double deltaTime)
@@ -198,38 +247,88 @@ namespace DTXMania.Game.Lib.Song.Components
             if (!IsOpen || WhitePixel == null || Font == null)
                 return;
 
-            var bounds = PopupLayout.Bounds;
-            spriteBatch.Draw(WhitePixel, new Rectangle(0, 0, ScreenLayout.Width, ScreenLayout.Height), new Color(0, 0, 0, 160));
-            spriteBatch.Draw(WhitePixel, bounds, new Color(28, 28, 32));
+            var theme = _resourceManager?.CurrentTheme ?? SkinTheme.Empty;
+            var origin = new Vector2(PopupLayout.X, PopupLayout.Y);
 
-            spriteBatch.DrawString(Font, Title,
-                new Vector2(bounds.X + (bounds.Width - Font.MeasureString(Title).X) / 2, bounds.Y + PopupLayout.TitleY),
-                Color.White);
+            spriteBatch.Draw(WhitePixel, new Rectangle(0, 0, ScreenLayout.Width, ScreenLayout.Height),
+                Color.Black * PopupLayout.BackdropOpacity);
+
+            if (_backgroundTexture != null)
+                _backgroundTexture.Draw(spriteBatch, origin);
+            else
+                spriteBatch.Draw(WhitePixel, PopupLayout.PanelFallbackBounds, PopupLayout.PanelFallbackColor);
+
+            var textColor = theme.GetColor("SongSelect.PopupText", theme.GetColor("UI.TextPrimary", Color.White));
+            var editColor = theme.GetColor("SongSelect.PopupEdit", DTXManiaVisualTheme.FontEffects.DefaultTextColor);
+
+            DrawText(spriteBatch, Title,
+                new Vector2(origin.X + (PopupLayout.Width - Font.MeasureString(Title).X) / 2, origin.Y + PopupLayout.TitleY),
+                textColor);
+
+            DrawCursor(spriteBatch, new Rectangle(
+                (int)origin.X + PopupLayout.CursorX,
+                (int)origin.Y + PopupLayout.FirstRowY + SelectedIndex * PopupLayout.RowHeight,
+                PopupLayout.CursorWidth,
+                PopupLayout.RowHeight));
 
             for (int row = 0; row < RowCount; row++)
             {
-                var rowRect = new Rectangle(
-                    bounds.X + PopupLayout.RowX,
-                    bounds.Y + PopupLayout.FirstRowY + row * PopupLayout.RowHeight,
-                    PopupLayout.RowWidth,
-                    PopupLayout.RowHeight - 4);
+                float rowY = origin.Y + PopupLayout.FirstRowY + row * PopupLayout.RowHeight
+                    + (PopupLayout.RowHeight - Font.LineSpacing) / 2f;
                 bool selected = row == SelectedIndex;
-                var background = selected && IsEditingValue ? new Color(90, 70, 30)
-                    : selected ? new Color(60, 60, 80)
-                    : new Color(40, 40, 50);
-                spriteBatch.Draw(WhitePixel, rowRect, background);
 
-                string text = row < _items.Count ? _items[row].GetDisplayText() : ReturnLabel;
-                var textSize = Font.MeasureString(text);
-                spriteBatch.DrawString(Font, text,
-                    new Vector2(rowRect.X + PopupLayout.RowTextPadding, rowRect.Y + (rowRect.Height - textSize.Y) / 2),
-                    selected ? Color.White : Color.LightGray);
+                if (row == _items.Count)
+                {
+                    DrawText(spriteBatch, ReturnLabel, new Vector2(origin.X + PopupLayout.NameX, rowY), textColor);
+                    continue;
+                }
+
+                var item = _items[row];
+                DrawText(spriteBatch, item.Name, new Vector2(origin.X + PopupLayout.NameX, rowY), textColor);
+                DrawText(spriteBatch, GetValueText(item), new Vector2(origin.X + PopupLayout.ValueX, rowY),
+                    selected && IsEditingValue ? editColor : textColor);
             }
 
-            const string hint = "HT/LT move   CY change   LC close";
-            spriteBatch.DrawString(Font, hint,
-                new Vector2(bounds.X + (bounds.Width - Font.MeasureString(hint).X) / 2, bounds.Y + PopupLayout.HintY),
-                Color.Gray);
+            string hint = IsEditingValue ? "HT/LT: Change   CY: Done" : "HT/LT: Move   CY: Change   LC: Close";
+            DrawText(spriteBatch, hint,
+                new Vector2(origin.X + (PopupLayout.Width - Font.MeasureString(hint).X * PopupLayout.HintScale) / 2,
+                    origin.Y + PopupLayout.HintY),
+                textColor * 0.75f, PopupLayout.HintScale);
+        }
+
+        /// <summary>NX draws the 32x32 cursor as a 16px left cap, a repeated middle slice and a 16px right cap.</summary>
+        [ExcludeFromCodeCoverage]
+        private void DrawCursor(SpriteBatch spriteBatch, Rectangle bounds)
+        {
+            if (_cursorTexture == null)
+            {
+                spriteBatch.Draw(WhitePixel!, bounds, PopupLayout.CursorFallbackColor);
+                return;
+            }
+
+            const int cap = 16;
+            int middleWidth = bounds.Width - cap * 2;
+            _cursorTexture.Draw(spriteBatch, new Rectangle(bounds.X, bounds.Y, cap, bounds.Height),
+                new Rectangle(0, 0, cap, 32), Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+            _cursorTexture.Draw(spriteBatch, new Rectangle(bounds.X + cap, bounds.Y, middleWidth, bounds.Height),
+                new Rectangle(8, 0, cap, 32), Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+            _cursorTexture.Draw(spriteBatch, new Rectangle(bounds.Right - cap, bounds.Y, cap, bounds.Height),
+                new Rectangle(cap, 0, cap, 32), Color.White, 0f, Vector2.Zero, SpriteEffects.None, 0f);
+        }
+
+        [ExcludeFromCodeCoverage]
+        private void DrawText(SpriteBatch spriteBatch, string text, Vector2 position, Color color, float scale = 1f)
+        {
+            spriteBatch.DrawString(Font!, text, position + DTXManiaVisualTheme.FontEffects.DefaultShadowOffset,
+                DTXManiaVisualTheme.FontEffects.DefaultShadowColor, 0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
+            spriteBatch.DrawString(Font!, text, position, color, 0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                ReleaseTextures();
+            base.Dispose(disposing);
         }
     }
 }

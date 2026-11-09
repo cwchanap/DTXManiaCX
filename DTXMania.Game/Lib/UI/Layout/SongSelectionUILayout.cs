@@ -728,26 +728,36 @@ namespace DTXMania.Game.Lib.UI.Layout
         }
 
         /// <summary>
-        /// Layout constants for the Quick Settings popup (bass drum x2, NX quick config).
+        /// Layout constants for the Quick Settings popup (bass drum x2). Positions follow
+        /// DTXManiaNX's CActSelectPopupMenu on its 360x460 popup background art.
         /// </summary>
         public static class QuickSettingsPopup
         {
-            // Centered in 1280x720
-            public const int X = 440;
-            public const int Y = 168;
-            public const int Width = 400;
-            public const int Height = 384;
+            // NX body origin; the background art is 360x460.
+            public const int X = 460;
+            public const int Y = 150;
+            public const int Width = 360;
+            public const int Height = 460;
 
             public static Rectangle Bounds => new Rectangle(X, Y, Width, Height);
 
-            // Relative to the popup's top-left
-            public const int TitleY = 12;
-            public const int FirstRowY = 52;
-            public const int RowHeight = 36;
-            public const int RowX = 16;
-            public const int RowWidth = Width - RowX * 2;
-            public const int RowTextPadding = 10;
-            public const int HintY = Height - 30;
+            // Relative to the popup's top-left (NX: title y+4, rows from y+38, 32px apart,
+            // cursor at x+12 and 336px wide, names at x+18, values at x+200).
+            public const int TitleY = 6;
+            public const int FirstRowY = 38;
+            public const int RowHeight = 32;
+            public const int CursorX = 12;
+            public const int CursorWidth = 336;
+            public const int NameX = 24;
+            public const int ValueX = 200;
+            public const int HintY = 350;
+            public const float HintScale = 0.8f;
+
+            // Dim behind the popup, and stand-ins when the skin has no popup art.
+            public const float BackdropOpacity = 0.45f;
+            public static Rectangle PanelFallbackBounds => new Rectangle(X, Y, Width, 392);
+            public static readonly Color PanelFallbackColor = new Color(46, 18, 138);
+            public static readonly Color CursorFallbackColor = new Color(255, 140, 40);
         }
 
         #endregion

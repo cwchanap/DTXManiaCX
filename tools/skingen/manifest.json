@@ -2971,6 +2971,13 @@
       },
       "width": 256
     },
+    "Graphics/ScreenConfig menu cursor.png": {
+      "height": 32,
+      "note": "optional: CX Neon falls back to the NX art for the Quick Settings popup",
+      "optional": true,
+      "recipe": null,
+      "width": 32
+    },
     "Graphics/ScreenPlayDrums chip fire_BD.png": {
       "height": 128,
       "optional": false,
@@ -3469,6 +3476,13 @@
         "type": "sheet"
       },
       "width": 600
+    },
+    "Graphics/ScreenSelect sort menu background.png": {
+      "height": 460,
+      "note": "optional: CX Neon falls back to the NX art for the Quick Settings popup",
+      "optional": true,
+      "recipe": null,
+      "width": 360
     },
     "Graphics/drumkit_set.png": {
       "height": 430,
