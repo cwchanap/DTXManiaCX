@@ -412,6 +412,150 @@ public class SongDatabaseServiceCoverageTests : IDisposable
     }
 
     [Fact]
+    public async Task RestoreDatabaseAsync_WhenSourceVersionIsLegacyZero_ShouldPreserveExistingDatabase()
+    {
+        await _databaseService.InitializeDatabaseAsync();
+        await AddSongAsync("Kept", "Coverage Bot", "kept-v0.dtx");
+
+        var backupPath = Path.Combine(_tempRoot, "legacy-v0-backup.db");
+        await using (var legacy = new Microsoft.Data.Sqlite.SqliteConnection(
+            $"Data Source={backupPath};Pooling=False"))
+        {
+            await legacy.OpenAsync();
+            await using var createTable = legacy.CreateCommand();
+            createTable.CommandText = "CREATE TABLE Legacy (Id INTEGER PRIMARY KEY);";
+            await createTable.ExecuteNonQueryAsync();
+        }
+        Assert.Equal(0L, await ReadUserVersionAsync(backupPath));
+
+        await Assert.ThrowsAsync<InvalidDataException>(
+            () => _databaseService.RestoreDatabaseAsync(backupPath));
+
+        Assert.Single(await _databaseService.GetSongsAsync());
+        Assert.Equal(
+            (long)SongDatabaseService.CurrentSongSchemaVersion,
+            await ReadUserVersionAsync(_databasePath));
+    }
+
+    [Fact]
+    public async Task RestoreDatabaseAsync_WhenSourceVersionMismatch_ShouldPreserveExistingDatabase()
+    {
+        await _databaseService.InitializeDatabaseAsync();
+        await AddSongAsync("Kept", "Coverage Bot", "kept-mismatch.dtx");
+
+        var backupPath = Path.Combine(_tempRoot, "mismatch-backup.db");
+        await _databaseService.BackupDatabaseAsync(backupPath);
+        await SetUserVersionAsync(backupPath, 999);
+
+        await Assert.ThrowsAsync<InvalidDataException>(
+            () => _databaseService.RestoreDatabaseAsync(backupPath));
+
+        Assert.Single(await _databaseService.GetSongsAsync());
+        Assert.Equal(
+            (long)SongDatabaseService.CurrentSongSchemaVersion,
+            await ReadUserVersionAsync(_databasePath));
+    }
+
+    [Fact]
+    public async Task BackupDatabaseAsync_WhenDestinationHasLiveWal_ShouldPreserveExistingBackup()
+    {
+        await _databaseService.InitializeDatabaseAsync();
+        await AddSongAsync("Backed Up", "Coverage Bot", "live-wal-dest.dtx");
+
+        var backupPath = Path.Combine(_tempRoot, "live-wal-backup.db");
+        await using var heldConnection = new Microsoft.Data.Sqlite.SqliteConnection(
+            $"Data Source={backupPath};Pooling=False");
+        await heldConnection.OpenAsync();
+        await ExecuteNonQueryAsync(heldConnection, "PRAGMA journal_mode=WAL;");
+        await ExecuteNonQueryAsync(
+            heldConnection,
+            "CREATE TABLE Payload (Id INTEGER PRIMARY KEY);");
+        await ExecuteNonQueryAsync(
+            heldConnection,
+            "INSERT INTO Payload (Id) VALUES (1);");
+        Assert.True(File.Exists(backupPath + "-wal"));
+
+        var destinationSnapshot = await File.ReadAllBytesAsync(backupPath);
+        var walSnapshot = await File.ReadAllBytesAsync(backupPath + "-wal");
+        var entriesBefore = Directory.GetFileSystemEntries(_tempRoot)
+            .OrderBy(entry => entry)
+            .ToArray();
+
+        var exception = await Record.ExceptionAsync(
+            () => _databaseService.BackupDatabaseAsync(backupPath));
+
+        Assert.NotNull(exception);
+        Assert.Equal(destinationSnapshot, await File.ReadAllBytesAsync(backupPath));
+        Assert.Equal(walSnapshot, await File.ReadAllBytesAsync(backupPath + "-wal"));
+
+        await using var verify = heldConnection.CreateCommand();
+        verify.CommandText = "SELECT COUNT(*) FROM Payload";
+        Assert.Equal(1L, (long)(await verify.ExecuteScalarAsync())!);
+
+        var entriesAfter = Directory.GetFileSystemEntries(_tempRoot)
+            .OrderBy(entry => entry)
+            .ToArray();
+        Assert.Equal(entriesBefore, entriesAfter);
+    }
+
+    [Theory]
+    [InlineData("-wal")]
+    [InlineData("-shm")]
+    [InlineData("-journal")]
+    public async Task BackupDatabaseAsync_WhenDestinationHasJournalSidecar_ShouldPreserveExistingBackup(
+        string sidecarSuffix)
+    {
+        await _databaseService.InitializeDatabaseAsync();
+
+        var backupPath = Path.Combine(_tempRoot, "sidecar-backup.db");
+        var backupBytes = new byte[] { 3, 1, 4, 1, 5 };
+        var sidecarBytes = new byte[] { 9, 2, 6 };
+        await File.WriteAllBytesAsync(backupPath, backupBytes);
+        await File.WriteAllBytesAsync(backupPath + sidecarSuffix, sidecarBytes);
+
+        var exception = await Record.ExceptionAsync(
+            () => _databaseService.BackupDatabaseAsync(backupPath));
+
+        Assert.NotNull(exception);
+        Assert.Equal(backupBytes, await File.ReadAllBytesAsync(backupPath));
+        Assert.Equal(sidecarBytes, await File.ReadAllBytesAsync(backupPath + sidecarSuffix));
+    }
+
+    [Fact]
+    public async Task TryGetFileIdentity_WhenMetadataChanges_ShouldRemainStable()
+    {
+        var filePath = Path.Combine(_tempRoot, "identity-meta.db");
+        await File.WriteAllTextAsync(filePath, "x");
+
+        Assert.True(_databaseService.TryGetFileIdentity(filePath, out var baseline));
+
+        File.SetAttributes(filePath, File.GetAttributes(filePath) | FileAttributes.ReadOnly);
+        Assert.True(_databaseService.TryGetFileIdentity(filePath, out var afterModeChange));
+        Assert.Equal(baseline, afterModeChange);
+        File.SetAttributes(filePath, File.GetAttributes(filePath) & ~FileAttributes.ReadOnly);
+
+        var linkPath = Path.Combine(_tempRoot, "identity-meta-link.db");
+        CreateHardLink(linkPath, filePath);
+        Assert.True(_databaseService.TryGetFileIdentity(filePath, out var afterLinkChange));
+        Assert.Equal(baseline, afterLinkChange);
+        Assert.True(_databaseService.TryGetFileIdentity(linkPath, out var linkIdentity));
+        Assert.Equal(baseline, linkIdentity);
+    }
+
+    [Fact]
+    public async Task TryGetFileIdentity_ForDistinctFiles_ShouldDiffer()
+    {
+        var firstPath = Path.Combine(_tempRoot, "identity-first.db");
+        var secondPath = Path.Combine(_tempRoot, "identity-second.db");
+        await File.WriteAllTextAsync(firstPath, "x");
+        await File.WriteAllTextAsync(secondPath, "x");
+
+        Assert.True(_databaseService.TryGetFileIdentity(firstPath, out var firstIdentity));
+        Assert.True(_databaseService.TryGetFileIdentity(secondPath, out var secondIdentity));
+        Assert.NotEqual(firstIdentity, secondIdentity);
+    }
+
+    [Fact]
     public async Task SearchSongsAsync_ShouldMatchTitleAndArtist()
     {
         await _databaseService.InitializeDatabaseAsync();
@@ -677,6 +821,37 @@ public class SongDatabaseServiceCoverageTests : IDisposable
     {
         using var context = _databaseService.CreateContext();
         return await context.SongScores.SingleAsync(score => score.ChartId == chartId && score.Instrument == instrument);
+    }
+
+    private static async Task<long> ReadUserVersionAsync(string databasePath)
+    {
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        await using var connection = new Microsoft.Data.Sqlite.SqliteConnection(
+            $"Data Source={databasePath};Pooling=False");
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "PRAGMA user_version;";
+        return (long)(await command.ExecuteScalarAsync())!;
+    }
+
+    private static async Task SetUserVersionAsync(string databasePath, long version)
+    {
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        await using var connection = new Microsoft.Data.Sqlite.SqliteConnection(
+            $"Data Source={databasePath};Pooling=False");
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"PRAGMA user_version = {version};";
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private static async Task ExecuteNonQueryAsync(
+        Microsoft.Data.Sqlite.SqliteConnection connection,
+        string sql)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        await command.ExecuteNonQueryAsync();
     }
 
     private static void CreateHardLink(string linkPath, string targetPath)
