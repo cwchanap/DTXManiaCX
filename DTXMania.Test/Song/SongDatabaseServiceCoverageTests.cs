@@ -522,6 +522,141 @@ public class SongDatabaseServiceCoverageTests : IDisposable
     }
 
     [Fact]
+    public async Task BackupDatabaseAsync_WhenDestinationHasHeldDeleteModeConnection_ShouldUpdateDestinationInPlace()
+    {
+        await _databaseService.InitializeDatabaseAsync();
+        await AddSongAsync("In Place", "Coverage Bot", "in-place.dtx");
+
+        var backupPath = Path.Combine(_tempRoot, "held-delete-backup.db");
+        await using var heldConnection = new Microsoft.Data.Sqlite.SqliteConnection(
+            $"Data Source={backupPath};Pooling=False");
+        await heldConnection.OpenAsync();
+        await ExecuteNonQueryAsync(heldConnection, "PRAGMA journal_mode=DELETE;");
+        await ExecuteNonQueryAsync(
+            heldConnection,
+            "CREATE TABLE Payload (Id INTEGER PRIMARY KEY);");
+        await ExecuteNonQueryAsync(
+            heldConnection,
+            "INSERT INTO Payload (Id) VALUES (1);");
+        Assert.False(File.Exists(backupPath + "-journal"));
+        Assert.False(File.Exists(backupPath + "-wal"));
+        Assert.False(File.Exists(backupPath + "-shm"));
+
+        await _databaseService.BackupDatabaseAsync(backupPath);
+
+        await using var verify = heldConnection.CreateCommand();
+        verify.CommandText = "SELECT Title FROM Songs";
+        Assert.Equal("In Place", (string)(await verify.ExecuteScalarAsync())!);
+        Assert.False(File.Exists(backupPath + "-journal"));
+        Assert.False(File.Exists(backupPath + "-wal"));
+        Assert.False(File.Exists(backupPath + "-shm"));
+    }
+
+    [Fact]
+    public async Task BackupDatabaseAsync_WhenDestinationConnectionWritesDuringBackup_ShouldUpdateDestinationInPlace()
+    {
+        var servicePath = Path.Combine(_tempRoot, "interleave-src.db");
+        var backupPath = Path.Combine(_tempRoot, "interleave-backup.db");
+
+        await using var heldConnection = new Microsoft.Data.Sqlite.SqliteConnection(
+            $"Data Source={backupPath};Pooling=False");
+        await heldConnection.OpenAsync();
+        await ExecuteNonQueryAsync(heldConnection, "PRAGMA journal_mode=DELETE;");
+        await ExecuteNonQueryAsync(
+            heldConnection,
+            "CREATE TABLE Payload (Id INTEGER PRIMARY KEY);");
+        await ExecuteNonQueryAsync(
+            heldConnection,
+            "INSERT INTO Payload (Id) VALUES (1);");
+
+        var journalObservedDuringBackup = false;
+        using var service = new InterleavedWriteDatabaseService(servicePath, async () =>
+        {
+            await ExecuteNonQueryAsync(heldConnection, "BEGIN IMMEDIATE;");
+            await ExecuteNonQueryAsync(
+                heldConnection,
+                "INSERT INTO Payload (Id) VALUES (2);");
+            journalObservedDuringBackup = File.Exists(backupPath + "-journal");
+            await ExecuteNonQueryAsync(heldConnection, "COMMIT;");
+        });
+        await service.InitializeDatabaseAsync();
+        await service.AddSongAsync(
+            CreateSong("Interleaved", "Coverage Bot"),
+            CreateChart("interleaved.dtx", 40));
+
+        await service.BackupDatabaseAsync(backupPath);
+
+        Assert.True(journalObservedDuringBackup);
+        await using var verify = heldConnection.CreateCommand();
+        verify.CommandText = "SELECT Title FROM Songs";
+        Assert.Equal("Interleaved", (string)(await verify.ExecuteScalarAsync())!);
+    }
+
+    [Fact]
+    public async Task BackupDatabaseAsync_WhenDestinationHoldsOpenWriteTransaction_ShouldFailAndPreserveDestination()
+    {
+        var servicePath = Path.Combine(_tempRoot, "busy-src.db");
+        var backupPath = Path.Combine(_tempRoot, "busy-backup.db");
+
+        await using var heldConnection = new Microsoft.Data.Sqlite.SqliteConnection(
+            $"Data Source={backupPath};Pooling=False");
+        await heldConnection.OpenAsync();
+        await ExecuteNonQueryAsync(heldConnection, "PRAGMA journal_mode=DELETE;");
+        await ExecuteNonQueryAsync(
+            heldConnection,
+            "CREATE TABLE Payload (Id INTEGER PRIMARY KEY);");
+        await ExecuteNonQueryAsync(
+            heldConnection,
+            "INSERT INTO Payload (Id) VALUES (1);");
+
+        using var service = new InterleavedWriteDatabaseService(servicePath, async () =>
+        {
+            await ExecuteNonQueryAsync(heldConnection, "BEGIN IMMEDIATE;");
+            await ExecuteNonQueryAsync(
+                heldConnection,
+                "INSERT INTO Payload (Id) VALUES (2);");
+        });
+        await service.InitializeDatabaseAsync();
+        await service.AddSongAsync(
+            CreateSong("Busy", "Coverage Bot"),
+            CreateChart("busy.dtx", 40));
+
+        var exception = await Record.ExceptionAsync(
+            () => service.BackupDatabaseAsync(backupPath));
+
+        Assert.NotNull(exception);
+        Assert.True(File.Exists(backupPath + "-journal"));
+
+        await ExecuteNonQueryAsync(heldConnection, "COMMIT;");
+
+        await using var verify = heldConnection.CreateCommand();
+        verify.CommandText = "SELECT COUNT(*) FROM Payload";
+        Assert.Equal(2L, (long)(await verify.ExecuteScalarAsync())!);
+
+        await using var noSnapshot = heldConnection.CreateCommand();
+        noSnapshot.CommandText =
+            "SELECT COUNT(*) FROM sqlite_master WHERE name = 'Songs'";
+        Assert.Equal(0L, (long)(await noSnapshot.ExecuteScalarAsync())!);
+    }
+
+    [Fact]
+    public async Task BackupDatabaseAsync_WhenDestinationIsNotSqlite_ShouldPreserveDestination()
+    {
+        await _databaseService.InitializeDatabaseAsync();
+        await AddSongAsync("Kept", "Coverage Bot", "non-sqlite-dest.dtx");
+
+        var backupPath = Path.Combine(_tempRoot, "not-a-database.db");
+        var foreignBytes = new byte[] { 1, 2, 3 };
+        await File.WriteAllBytesAsync(backupPath, foreignBytes);
+
+        var exception = await Record.ExceptionAsync(
+            () => _databaseService.BackupDatabaseAsync(backupPath));
+
+        Assert.NotNull(exception);
+        Assert.Equal(foreignBytes, await File.ReadAllBytesAsync(backupPath));
+    }
+
+    [Fact]
     public async Task TryGetFileIdentity_WhenMetadataChanges_ShouldRemainStable()
     {
         var filePath = Path.Combine(_tempRoot, "identity-meta.db");
@@ -960,6 +1095,27 @@ public class SongDatabaseServiceCoverageTests : IDisposable
         {
             ObservedTempPath = tempBackupPath;
             throw new IOException("Simulated snapshot failure");
+        }
+    }
+
+    private sealed class InterleavedWriteDatabaseService : SongDatabaseService
+    {
+        private readonly Func<Task> _interleave;
+
+        public InterleavedWriteDatabaseService(
+            string databasePath,
+            Func<Task> interleave)
+            : base(databasePath)
+        {
+            _interleave = interleave;
+        }
+
+        internal override async Task WriteSnapshotToTempFileAsync(
+            SongDbContext context,
+            string tempBackupPath)
+        {
+            await base.WriteSnapshotToTempFileAsync(context, tempBackupPath);
+            await _interleave();
         }
     }
 }
