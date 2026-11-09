@@ -338,7 +338,7 @@ namespace DTXMania.Game.Lib.Song.Entities
                 using var context = new SongDbContext(_options);
                 await WriteSnapshotToTempFileAsync(context, tempBackupPath);
 
-                File.Move(tempBackupPath, backupPath, overwrite: true);
+                await CopySnapshotToDestinationAsync(tempBackupPath, backupPath);
             }
             finally
             {
@@ -397,6 +397,28 @@ namespace DTXMania.Game.Lib.Song.Entities
             var backupSql =
                 $"VACUUM INTO '{tempBackupPath.Replace("'", "''")}'";
             return context.Database.ExecuteSqlRawAsync(backupSql);
+        }
+
+        private static async Task CopySnapshotToDestinationAsync(
+            string snapshotPath,
+            string destinationPath)
+        {
+            await using var source = new SqliteConnection(
+                new SqliteConnectionStringBuilder
+                {
+                    DataSource = snapshotPath,
+                    Pooling = false,
+                    Mode = SqliteOpenMode.ReadOnly,
+                }.ToString());
+            await using var destination = new SqliteConnection(
+                new SqliteConnectionStringBuilder
+                {
+                    DataSource = destinationPath,
+                    Pooling = false,
+                }.ToString());
+            await source.OpenAsync();
+            await destination.OpenAsync();
+            source.BackupDatabase(destination);
         }
 
         private bool PathsReferToSameFile(string firstPath, string secondPath)
