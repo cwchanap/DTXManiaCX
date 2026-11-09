@@ -433,6 +433,9 @@ namespace DTXMania.Game.Lib.Stage
             _selectionPhase = SongSelectionPhase.FadeIn;
             _phaseStartTime = 0;
             _elapsedTime = 0;
+            // The stage is cached and its clock restarts, so a hit left over from the
+            // last visit must not pair with the first hit of this one.
+            _lastDoubleHitPadLane = -1;
         }
 
         public override void Deactivate()
@@ -4054,8 +4057,9 @@ namespace DTXMania.Game.Lib.Stage
         /// </summary>
         private bool IsPadDoubleHit(int lane)
         {
+            double sinceLastHit = _elapsedTime - _lastDoubleHitPadTime;
             bool isDoubleHit = _lastDoubleHitPadLane == lane
-                && _elapsedTime - _lastDoubleHitPadTime <= PadDoubleHitWindowSeconds;
+                && sinceLastHit >= 0 && sinceLastHit <= PadDoubleHitWindowSeconds;
             _lastDoubleHitPadLane = isDoubleHit ? -1 : lane;
             _lastDoubleHitPadTime = _elapsedTime;
             return isDoubleHit;
