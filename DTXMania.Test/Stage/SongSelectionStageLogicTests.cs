@@ -1588,7 +1588,7 @@ namespace DTXMania.Test.Stage
             Assert.Equal(75, playHistoryPanel.PlaySpeedPercent);
             Assert.True(previewImagePanel!.Visible);
             Assert.Empty(previewImagePanel.ActiveSongRootPaths);
-            Assert.Equal(7, mainPanel.Children.Count);
+            Assert.Equal(8, mainPanel.Children.Count);
             Assert.Same(titleLabel, mainPanel.Children[0]);
             Assert.Same(breadcrumbLabel, mainPanel.Children[1]);
             // Profile must draw above the full-screen song-list wash and neighbouring art.
@@ -1597,6 +1597,7 @@ namespace DTXMania.Test.Stage
             Assert.Same(playHistoryPanel, mainPanel.Children[4]);
             Assert.Same(previewImagePanel, mainPanel.Children[5]);
             Assert.Same(playbackProfileLabel, mainPanel.Children[6]);
+            Assert.Same(GetPrivateField<QuickSettingsPopup>(stage, "_quickSettingsPopup"), mainPanel.Children[7]);
             Assert.True(mainPanel.IsActive);
             Assert.Single(uiManager.RootContainers);
             Assert.Same(mainPanel, uiManager.RootContainers[0]);
@@ -1636,9 +1637,10 @@ namespace DTXMania.Test.Stage
             Assert.Same(textInputSource.Object, storedTextInputSource);
             // The modal should be the 8th child (after the labels, song list, status,
             // history, and preview).
-            Assert.Equal(8, mainPanel!.Children.Count);
+            Assert.Equal(9, mainPanel!.Children.Count);
             Assert.Same(GetPrivateField<UILabel>(stage, "_playbackProfileLabel"), mainPanel.Children[6]);
             Assert.Same(searchFilterModal, mainPanel.Children[7]);
+            Assert.Same(GetPrivateField<QuickSettingsPopup>(stage, "_quickSettingsPopup"), mainPanel.Children[8]);
         }
 
         [Theory]
