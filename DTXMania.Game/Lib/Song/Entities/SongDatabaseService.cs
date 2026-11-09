@@ -276,6 +276,11 @@ namespace DTXMania.Game.Lib.Song.Entities
             }
         }
 
+        private static bool HasJournalSidecar(string databasePath) =>
+            File.Exists(databasePath + "-wal")
+            || File.Exists(databasePath + "-shm")
+            || File.Exists(databasePath + "-journal");
+
         private static void DeleteDatabaseFileSidecars(string databasePath)
         {
             foreach (var suffix in new[] { "-wal", "-shm", "-journal" })
@@ -302,6 +307,12 @@ namespace DTXMania.Game.Lib.Song.Entities
                 throw new ArgumentException(
                     $"Backup destination must differ from the database file: {backupPath}",
                     nameof(backupPath));
+            }
+
+            if (File.Exists(backupPath) && HasJournalSidecar(backupPath))
+            {
+                throw new IOException(
+                    $"Backup destination has outstanding SQLite journal state and cannot be replaced safely: {backupPath}");
             }
 
             var backupDirectory = Path.GetDirectoryName(Path.GetFullPath(backupPath))
@@ -363,6 +374,15 @@ namespace DTXMania.Game.Lib.Song.Entities
                     Pooling = false,
                 }.ToString());
             await source.OpenAsync();
+
+            await using var versionProbe = source.CreateCommand();
+            versionProbe.CommandText = "PRAGMA user_version;";
+            var backupVersion = (long)(await versionProbe.ExecuteScalarAsync())!;
+            if (backupVersion != CurrentSongSchemaVersion)
+            {
+                throw new InvalidDataException(
+                    $"Backup schema version {backupVersion} does not match required version {CurrentSongSchemaVersion}: {backupPath}");
+            }
 
             using var context = new SongDbContext(_options);
             var destination = (SqliteConnection)context.Database.GetDbConnection();
@@ -495,11 +515,21 @@ namespace DTXMania.Game.Lib.Song.Entities
                     return true;
                 }
 
-                if (fstat(handle.DangerousGetHandle(), out var stat) != 0)
+                if (!BitConverter.IsLittleEndian)
                 {
                     return false;
                 }
-                identity = (stat.Device, stat.Inode);
+
+                var statBuffer = new byte[StatBufferSize];
+                if (fstat(handle.DangerousGetHandle(), statBuffer) != 0)
+                {
+                    return false;
+                }
+                identity = OperatingSystem.IsMacOS()
+                    ? (BitConverter.ToUInt32(statBuffer, DarwinDeviceOffset),
+                        BitConverter.ToUInt64(statBuffer, DarwinInodeOffset))
+                    : (BitConverter.ToUInt64(statBuffer, PosixDeviceOffset),
+                        BitConverter.ToUInt64(statBuffer, PosixInodeOffset));
                 return true;
             }
             catch (Exception exception) when (exception
@@ -513,7 +543,7 @@ namespace DTXMania.Game.Lib.Song.Entities
         }
 
         [DllImport("libc", SetLastError = true)]
-        private static extern int fstat(IntPtr fd, out StatBuffer buffer);
+        private static extern int fstat(IntPtr fd, [Out] byte[] buffer);
 
         [DllImport("kernel32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
@@ -521,12 +551,11 @@ namespace DTXMania.Game.Lib.Song.Entities
             SafeFileHandle hFile,
             out ByHandleFileInformation lpFileInformation);
 
-        [StructLayout(LayoutKind.Sequential, Size = 256)]
-        private struct StatBuffer
-        {
-            public ulong Device;
-            public ulong Inode;
-        }
+        private const int StatBufferSize = 256;
+        private const int PosixDeviceOffset = 0;
+        private const int PosixInodeOffset = 8;
+        private const int DarwinDeviceOffset = 0;
+        private const int DarwinInodeOffset = 8;
 
         [StructLayout(LayoutKind.Sequential)]
         private struct ByHandleFileInformation
