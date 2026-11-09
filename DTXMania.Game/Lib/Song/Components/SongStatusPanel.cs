@@ -1268,7 +1268,7 @@ namespace DTXMania.Game.Lib.Song.Components
             int iconH = _skillIconTexture.Height;
 
             // Rank symbol (clamp to valid range 0-7: SS through F)
-            int normalizedBestRank = SongScore.NormalizeStoredBestRank(score.BestRank);
+            int normalizedBestRank = SongScore.NormalizeRankPercentage(score.BestRank);
             int rankIndex = SongScore.ComputeRankIndex(normalizedBestRank);
             _skillIconTexture.Draw(spriteBatch, new Vector2(x + RankIconOffsetX, rankY),
                 new Rectangle(RankIconWidth * rankIndex, 0, RankIconWidth, iconH));

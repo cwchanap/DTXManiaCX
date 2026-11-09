@@ -887,7 +887,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 return ClearStatus.FullCombo;
 
             return SongScore.ComputeRankIndex(
-                    SongScore.NormalizeStoredBestRank(score.BestRank)) <= 2
+                    SongScore.NormalizeRankPercentage(score.BestRank)) <= 2
                 ? ClearStatus.Clear
                 : ClearStatus.Failed;
         }

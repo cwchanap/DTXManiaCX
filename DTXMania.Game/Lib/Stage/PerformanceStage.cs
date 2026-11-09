@@ -950,25 +950,6 @@ namespace DTXMania.Game.Lib.Stage
 
         #region Phase 2 - Chart Loading and Gameplay
 
-        /// <summary>
-        /// Initializes gameplay using pre-parsed chart data and loads audio
-        /// </summary>
-        private Task InitializeGameplayAsync()
-        {
-            // Compatibility entry point used by deterministic tests and older callers
-            // that initialize directly without the normal OnActivate freeze, so capture
-            // the configured visual/gameplay gates here before core initialization.
-            FreezeRunConfiguration();
-
-            if (_playbackModifiers.PlaySpeedPercent == 0)
-                _playbackModifiers = new PlaybackModifiers(100, 0);
-
-            return InitializeGameplayCoreAsync(
-                _activationGeneration,
-                CancellationToken.None,
-                throwOnFailure: true);
-        }
-
         private async Task InitializeGameplayCoreAsync(
             int generation,
             CancellationToken cancellationToken,

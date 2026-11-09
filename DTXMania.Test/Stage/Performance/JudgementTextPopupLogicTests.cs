@@ -94,7 +94,7 @@ public class JudgementTextPopupLogicTests
         var popup = Assert.Single(GetActivePopups(manager));
         Assert.Equal("Great", popup.Text);
         Assert.Equal(
-            new Vector2(PerformanceUILayout.GetLaneX(judgementEvent.Lane), PerformanceUILayout.JudgementLineY - 50),
+            new Vector2(PerformanceUILayout.GetLaneX(judgementEvent.Lane), PerformanceUILayout.JudgelineY - 50),
             popup.CurrentPosition);
     }
 
@@ -345,7 +345,7 @@ public class JudgementTextPopupLogicTests
         var position = ReflectionHelpers.InvokePrivateMethod<Vector2>(manager, "GetLaneCenterPosition", laneIndex);
 
         Assert.Equal(
-            new Vector2(PerformanceUILayout.ScreenWidth / 2, PerformanceUILayout.JudgementLineY - 50),
+            new Vector2(PerformanceUILayout.ScreenWidth / 2, PerformanceUILayout.JudgelineY - 50),
             position);
     }
 

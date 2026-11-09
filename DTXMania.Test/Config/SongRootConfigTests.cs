@@ -36,7 +36,6 @@ public sealed class SongRootConfigTests
             manager.LoadConfig();
 
             Assert.Equal([replacementRoot], manager.Config.SongRoots);
-            Assert.Equal(replacementRoot, manager.Config.DTXPath);
         });
     }
 
@@ -62,7 +61,6 @@ public sealed class SongRootConfigTests
             manager.LoadConfig();
 
             Assert.Equal([rootZero, rootTwo, rootTen], manager.Config.SongRoots);
-            Assert.Equal(rootZero, manager.Config.DTXPath);
         });
     }
 
@@ -112,7 +110,6 @@ public sealed class SongRootConfigTests
             manager.LoadConfig();
 
             Assert.Equal([indexedRoot], manager.Config.SongRoots);
-            Assert.Equal(indexedRoot, manager.Config.DTXPath);
         });
     }
 
@@ -130,10 +127,9 @@ public sealed class SongRootConfigTests
             manager.LoadConfig();
 
             Assert.Equal([legacyRoot], manager.Config.SongRoots);
-            Assert.Equal(legacyRoot, manager.Config.DTXPath);
 
-            // The migration persists SongRoot.0 to the database — DTXPath stays
-            // an in-memory mirror only — and leaves the legacy INI untouched.
+            // The migration persists SongRoot.0 to the database — DTXPath is a
+            // legacy input key only — and leaves the legacy INI untouched.
             var rows = new SqliteConfigStore(Path.Combine(root, "config.db")).Load();
             Assert.Equal(legacyRoot, rows["SongRoot.0"]);
             Assert.False(rows.ContainsKey("DTXPath"));
@@ -192,7 +188,7 @@ public sealed class SongRootConfigTests
     }
 
     [Fact]
-    public void FlushPendingSave_ShouldWriteDenseIndexesAndFirstRootMirror()
+    public void FlushPendingSave_ShouldWriteDenseIndexes()
     {
         WithTemporaryAppDataRoot(root =>
         {
@@ -203,13 +199,11 @@ public sealed class SongRootConfigTests
             manager.Config.SongRoots.Clear();
             manager.Config.SongRoots.Add(firstRoot);
             manager.Config.SongRoots.Add(secondRoot);
-            manager.Config.DTXPath = Path.Combine(root, "roots", "stale-mirror");
 
             manager.SetNoFail(!manager.Config.NoFail); // marks a deferred save
             manager.FlushPendingSave();
 
             var rows = new SqliteConfigStore(Path.Combine(root, "config.db")).Load();
-            Assert.Equal(firstRoot, manager.Config.DTXPath);
             Assert.Equal(firstRoot, rows["SongRoot.0"]);
             Assert.Equal(secondRoot, rows["SongRoot.1"]);
             Assert.DoesNotContain(rows.Keys, key => key.StartsWith("SongRoot.2", System.StringComparison.Ordinal));
@@ -287,7 +281,6 @@ public sealed class SongRootConfigTests
             manager.LoadConfig();
 
             Assert.Equal([defaultRoot], manager.Config.SongRoots);
-            Assert.Equal(defaultRoot, manager.Config.DTXPath);
         });
     }
 
@@ -309,7 +302,6 @@ public sealed class SongRootConfigTests
             manager.LoadConfig();
 
             Assert.Equal([validRoot], manager.Config.SongRoots);
-            Assert.Equal(validRoot, manager.Config.DTXPath);
         });
     }
 
@@ -372,7 +364,6 @@ public sealed class SongRootConfigTests
             manager.LoadConfig();
 
             Assert.Equal([defaultRoot], manager.Config.SongRoots);
-            Assert.Equal(defaultRoot, manager.Config.DTXPath);
             Assert.True(Directory.Exists(defaultRoot));
         });
     }

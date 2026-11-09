@@ -105,7 +105,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             ArgumentNullException.ThrowIfNull(resourceManager);
             ArgumentNullException.ThrowIfNull(graphicsDevice);
             _graphicsDevice = graphicsDevice;
-            _position = PerformanceUILayout.ScorePosition;
+            _position = PerformanceUILayout.Score.FirstDigitPosition;
 
             // Initialize with default score
             Score = 0;

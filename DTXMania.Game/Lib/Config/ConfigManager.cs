@@ -736,20 +736,17 @@ namespace DTXMania.Game.Lib.Config
                     Config.SongRoots.Add(root);
                 }
 
-                Config.DTXPath = Config.SongRoots[0];
                 return SongRootsLoadSource.Indexed;
             }
 
             if (!string.IsNullOrWhiteSpace(legacyDtxPath))
             {
                 Config.SongRoots.Add(legacyDtxPath);
-                Config.DTXPath = legacyDtxPath;
                 return SongRootsLoadSource.LegacyDTXPath;
             }
 
             var defaultSongsPath = AppPaths.GetDefaultSongsPath();
             Config.SongRoots.Add(defaultSongsPath);
-            Config.DTXPath = defaultSongsPath;
             return SongRootsLoadSource.ManagedDefault;
         }
 
@@ -757,16 +754,12 @@ namespace DTXMania.Game.Lib.Config
         /// Builds the logical key/value snapshot persisted to the SQLite
         /// store (formerly the body of the INI <c>SaveConfig</c>). The
         /// duplicate <c>DTXPath</c> representation is deliberately excluded:
-        /// <c>DTXPath</c> is a legacy input/in-memory mirror only, and
+        /// <c>DTXPath</c> is a legacy input key only, and
         /// <c>SongRoot.0</c> is the persisted form.
         /// </summary>
         private IReadOnlyDictionary<string, string> BuildPersistedEntries()
         {
             var songRoots = Config.SongRoots.ToArray();
-            if (songRoots.Length > 0)
-            {
-                Config.DTXPath = songRoots[0];
-            }
 
             var entries = new Dictionary<string, string>(StringComparer.Ordinal);
 
@@ -923,10 +916,8 @@ namespace DTXMania.Game.Lib.Config
                     validation.Diagnostics);
             }
 
-            var oldDtxPath = Config.DTXPath;
             Config.SongRoots.Clear();
             Config.SongRoots.AddRange(validation.CanonicalRoots);
-            Config.DTXPath = validation.CanonicalRoots.FirstOrDefault() ?? string.Empty;
 
             try
             {
@@ -936,7 +927,6 @@ namespace DTXMania.Game.Lib.Config
             {
                 Config.SongRoots.Clear();
                 Config.SongRoots.AddRange(oldRoots);
-                Config.DTXPath = oldDtxPath;
                 _logger.LogError(
                     ex,
                     "Failed to persist song roots to {Path}; restored the in-memory configuration.",
@@ -1769,8 +1759,6 @@ namespace DTXMania.Game.Lib.Config
 
             Config.SongRoots.Clear();
             Config.SongRoots.AddRange(resolvedSongRoots);
-
-            Config.DTXPath = Config.SongRoots[0];
 
             // SkinPath: persist the "Default" token when the configured path is
             // empty, the app-data default, or a validating bundled root candidate.

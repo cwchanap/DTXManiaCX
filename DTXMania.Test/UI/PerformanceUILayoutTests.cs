@@ -241,28 +241,6 @@ namespace DTXMania.Test.UI
 
         #endregion
 
-        #region Legacy Compatibility Tests
-
-        [Fact]
-        public void ScorePosition_ShouldMatchScoreFirstDigitPosition()
-        {
-            Assert.Equal(PerformanceUILayout.Score.FirstDigitPosition, PerformanceUILayout.ScorePosition);
-        }
-
-        [Fact]
-        public void ComboPosition_ShouldMatchComboBasePosition()
-        {
-            Assert.Equal(PerformanceUILayout.Combo.BasePosition, PerformanceUILayout.ComboPosition);
-        }
-
-        [Fact]
-        public void GaugePosition_ShouldMatchGaugeFramePosition()
-        {
-            Assert.Equal(PerformanceUILayout.Gauge.FramePosition, PerformanceUILayout.GaugePosition);
-        }
-
-        #endregion
-
         #region LaneType Enum Tests
 
         [Fact]

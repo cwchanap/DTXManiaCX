@@ -110,7 +110,7 @@ namespace DTXMania.Test.UI
 
             var expectedX = PerformanceUILayout.GetLaneX(laneIndex)
                 - (glyphCount * PerformanceUILayout.HitTimingFeedback.GlyphWidth) / 2f;
-            var expectedY = PerformanceUILayout.JudgementLineY
+            var expectedY = PerformanceUILayout.JudgelineY
                 - PerformanceUILayout.SpriteJudgementTextAssets.JudgementLineOffsetY
                 + 34;
 
@@ -234,31 +234,7 @@ namespace DTXMania.Test.UI
 
         #endregion
 
-        #region Legacy Asset Layout Tests
-
-        [Fact]
-        public void JudgementTextAssets_FrameConstants_ShouldBeValid()
-        {
-            Assert.Equal(0, PerformanceUILayout.JudgementTextAssets.PerfectFrame);
-            Assert.Equal(1, PerformanceUILayout.JudgementTextAssets.GreatFrame);
-            Assert.Equal(2, PerformanceUILayout.JudgementTextAssets.GoodFrame);
-            Assert.Equal(3, PerformanceUILayout.JudgementTextAssets.PoorFrame);
-            Assert.Equal(4, PerformanceUILayout.JudgementTextAssets.MissFrame);
-        }
-
-        [Fact]
-        public void TimingIndicatorAssets_FrameConstants_ShouldBeValid()
-        {
-            Assert.Equal(0, PerformanceUILayout.TimingIndicatorAssets.EarlyFrame);
-            Assert.Equal(1, PerformanceUILayout.TimingIndicatorAssets.LateFrame);
-        }
-
-        [Fact]
-        public void ExplosionAssets_TotalFrames_ShouldMatchRowsTimesCols()
-        {
-            Assert.Equal(PerformanceUILayout.ExplosionAssets.AtlasRows * PerformanceUILayout.ExplosionAssets.AtlasCols,
-                PerformanceUILayout.ExplosionAssets.TotalFrames);
-        }
+        #region Shared Asset Layout Tests
 
         [Fact]
         public void LaneStrips_SourceRects_AllShouldHavePositiveWidth()
@@ -273,20 +249,6 @@ namespace DTXMania.Test.UI
         public void LaneCovers_CoverSourceRects_ShouldNotBeEmpty()
         {
             Assert.NotEmpty(PerformanceUILayout.LaneCovers.CoverSourceRects);
-        }
-
-        [Fact]
-        public void LifeGaugeAssets_Background_ShouldBeAccessible()
-        {
-            var bg = PerformanceUILayout.LifeGaugeAssets.Background;
-            // Should not throw
-            Assert.True(bg.Width >= 0);
-        }
-
-        [Fact]
-        public void SongProgressAssets_Background_ShouldMatchProgress()
-        {
-            Assert.Equal(PerformanceUILayout.Progress.FrameBounds, PerformanceUILayout.SongProgressAssets.Background);
         }
 
         #endregion
@@ -361,12 +323,6 @@ namespace DTXMania.Test.UI
         }
 
         [Fact]
-        public void JudgementLineY_ShouldMatchJudgelineY()
-        {
-            Assert.Equal(PerformanceUILayout.JudgelineY, PerformanceUILayout.JudgementLineY);
-        }
-
-        [Fact]
         public void FullCombo_GetCenteredPosition_ShouldCenterOnScreen()
         {
             var pos = PerformanceUILayout.FullCombo.GetCenteredPosition(100, 50);
@@ -391,13 +347,6 @@ namespace DTXMania.Test.UI
             Assert.Equal(expected, PerformanceUILayout.GetLaneRightX(laneIndex));
         }
 
-        [Fact]
-        public void GaugeSize_WidthAndHeight_ShouldMatchConstants()
-        {
-            Assert.Equal(200, PerformanceUILayout.GaugeSize.X);
-            Assert.Equal(PerformanceUILayout.Gauge.FillHeight, PerformanceUILayout.GaugeSize.Y);
-        }
-
         #endregion
 
         #region NxAttackEffectAssets Edge Case Tests
@@ -411,7 +360,7 @@ namespace DTXMania.Test.UI
             var origin = PerformanceUILayout.NxAttackEffectAssets.GetEffectOrigin(laneIndex);
 
             Assert.Equal(PerformanceUILayout.GetLaneX(laneIndex), origin.X);
-            Assert.Equal(PerformanceUILayout.JudgementLineY, origin.Y);
+            Assert.Equal(PerformanceUILayout.JudgelineY, origin.Y);
         }
 
         [Fact]
@@ -527,7 +476,7 @@ namespace DTXMania.Test.UI
             var position = PerformanceUILayout.SpriteJudgementTextAssets.GetLaneTextPosition(laneIndex, source);
 
             var expectedX = PerformanceUILayout.GetLaneX(laneIndex) - source.Width / 2f;
-            var expectedY = PerformanceUILayout.JudgementLineY
+            var expectedY = PerformanceUILayout.JudgelineY
                 - PerformanceUILayout.SpriteJudgementTextAssets.JudgementLineOffsetY;
 
             Assert.Equal(expectedX, position.X);

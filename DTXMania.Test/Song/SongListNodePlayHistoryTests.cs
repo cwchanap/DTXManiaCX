@@ -280,8 +280,7 @@ namespace DTXMania.Test.Song
             var node = new SongListNode();
             node.DatabaseSongId = 1;
 
-            var chart = new SongChart { Id = 1, DrumLevel = 55 };
-            chart.SetDifficultyLevel("DRUMS", 55);
+            var chart = new SongChart { Id = 1, DrumLevel = 55, HasDrumChart = true };
 
             var song = new SongEntity
             {
@@ -304,8 +303,7 @@ namespace DTXMania.Test.Song
             var node = new SongListNode();
             node.DatabaseSongId = 1;
 
-            var chart = new SongChart { Id = 1, GuitarLevel = 40 };
-            chart.SetDifficultyLevel("GUITAR", 40);
+            var chart = new SongChart { Id = 1, GuitarLevel = 40, HasGuitarChart = true };
 
             var song = new SongEntity
             {
@@ -328,8 +326,7 @@ namespace DTXMania.Test.Song
             var node = new SongListNode();
             node.DatabaseSongId = 1;
 
-            var chart = new SongChart { Id = 1, BassLevel = 35 };
-            chart.SetDifficultyLevel("BASS", 35);
+            var chart = new SongChart { Id = 1, BassLevel = 35, HasBassChart = true };
 
             var song = new SongEntity
             {

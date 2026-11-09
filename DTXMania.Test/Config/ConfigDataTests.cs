@@ -15,7 +15,7 @@ public class ConfigDataTests
         // Assert
         Assert.Equal("NX1.5.0-MG", config.DTXManiaVersion);
         Assert.Equal("System", GetLastPathSegment(config.SkinPath));
-        Assert.Equal("DTXFiles", GetLastPathSegment(config.DTXPath));
+        Assert.Equal("DTXFiles", GetLastPathSegment(config.SongRoots[0]));
         Assert.Equal(1280, config.ScreenWidth);
         Assert.Equal(720, config.ScreenHeight);
         Assert.False(config.FullScreen);
@@ -77,12 +77,11 @@ public class ConfigDataTests
     }
 
     [Fact]
-    public void DefaultConfig_ShouldContainManagedSongRootAndMirror()
+    public void DefaultConfig_ShouldContainManagedSongRoot()
     {
         var config = new ConfigData();
 
         Assert.Equal([AppPaths.GetDefaultSongsPath()], config.SongRoots);
-        Assert.Equal(config.SongRoots[0], config.DTXPath);
     }
 
     [Theory]
@@ -190,11 +189,11 @@ public class ConfigDataTests
 
         // Act
         config.SkinPath = skinPath;
-        config.DTXPath = dtxPath;
+        config.SongRoots[0] = dtxPath;
 
         // Assert
         Assert.Equal(skinPath, config.SkinPath);
-        Assert.Equal(dtxPath, config.DTXPath);
+        Assert.Equal(dtxPath, config.SongRoots[0]);
     }
 
     [Theory]

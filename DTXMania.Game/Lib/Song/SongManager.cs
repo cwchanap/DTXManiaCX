@@ -3955,60 +3955,6 @@ namespace DTXMania.Game.Lib.Song
         }
 
         /// <summary>
-        /// Counts the chart files full enumeration would import across the active
-        /// roots by delegating to the shared inventory scanner. Kept as a private
-        /// compatibility seam for existing coverage of the inventory contract.
-        /// </summary>
-        private async Task<int> CountDTXFilesAsync(string[] searchPaths)
-        {
-            try
-            {
-                var inventory = await ScanChartInventoryAsync(
-                    searchPaths, CancellationToken.None).ConfigureAwait(false);
-                Debug.WriteLine($"SongManager: Inventory counted {inventory.Charts.Count} chart files");
-                return inventory.Charts.Count;
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"SongManager: Error counting chart files: {ex.Message}");
-                return -1;
-            }
-        }
-
-        /// <summary>
-        /// Checks one root against a supplied watermark using the shared inventory
-        /// scanner. Kept as a private compatibility seam for existing coverage of
-        /// the inventory contract; live freshness checks use per-root watermarks.
-        /// </summary>
-        private async Task<bool> CheckDirectoryForChangesAsync(
-            string directoryPath,
-            DateTime lastEnumerationTime)
-        {
-            try
-            {
-                if (string.IsNullOrEmpty(directoryPath) || !Directory.Exists(directoryPath))
-                    return true;
-
-                var inventory = await ScanChartInventoryAsync(
-                    new[] { directoryPath }, CancellationToken.None).ConfigureAwait(false);
-                var normalizedRoot = SongPathIdentity.Normalize(directoryPath);
-                return InventoryHasChangesSince(
-                    inventory,
-                    new[] { normalizedRoot },
-                    new Dictionary<string, DateTime>(SongPathIdentity.CanonicalComparer)
-                    {
-                        [normalizedRoot] = lastEnumerationTime
-                    });
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"SongManager: Error checking directory {directoryPath}: {ex.Message}");
-                Debug.WriteLine($"SongManager: Stack trace: {ex.StackTrace}");
-                return true;
-            }
-        }
-
-        /// <summary>
         /// Walks the active song roots once, mirroring full enumeration's
         /// directory and set.def discovery rules, and returns the chart inventory
         /// that would be imported plus the set.def and directory mtimes used by

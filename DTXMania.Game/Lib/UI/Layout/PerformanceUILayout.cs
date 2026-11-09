@@ -39,12 +39,7 @@ namespace DTXMania.Game.Lib.UI.Layout
         /// Judgeline Y position (non-reverse layout), matching NX default drums judge line.
         /// </summary>
         public const int JudgelineY = 561;
-        
-        /// <summary>
-        /// Legacy judgement line Y position (compatibility)
-        /// </summary>
-        public const int JudgementLineY = JudgelineY;
-        
+
         /// <summary>
         /// Ready state pulse frequency for text animation
         /// </summary>
@@ -467,30 +462,6 @@ namespace DTXMania.Game.Lib.UI.Layout
 
         #endregion
         
-        #region Legacy Compatibility Properties
-        
-        /// <summary>
-        /// Legacy score position (compatibility)
-        /// </summary>
-        public static readonly Vector2 ScorePosition = Score.FirstDigitPosition;
-        
-        /// <summary>
-        /// Legacy combo position (compatibility)
-        /// </summary>
-        public static readonly Vector2 ComboPosition = Combo.BasePosition;
-        
-        /// <summary>
-        /// Legacy gauge position (compatibility)
-        /// </summary>
-        public static readonly Vector2 GaugePosition = Gauge.FramePosition;
-        
-        /// <summary>
-        /// Legacy gauge size (compatibility)
-        /// </summary>
-        public static readonly Vector2 GaugeSize = new Vector2(200, Gauge.FillHeight);
-        
-        #endregion
-        
         #region Ready Display Constants
         
         /// <summary>
@@ -523,7 +494,7 @@ namespace DTXMania.Game.Lib.UI.Layout
         /// <summary>
         /// Time for an x1.0 note to travel from the top of the screen to the judgement line.
         /// </summary>
-        public const double NoteDefaultLookAheadMs = JudgementLineY / NoteBaseScrollPixelsPerMs;
+        public const double NoteDefaultLookAheadMs = JudgelineY / NoteBaseScrollPixelsPerMs;
         public const int NoteDefaultScrollSpeed = 100; // Default scroll speed percentage
 
         // Scroll-speed indicator (in-game toast shown when player adjusts scroll speed)
@@ -1113,7 +1084,7 @@ namespace DTXMania.Game.Lib.UI.Layout
 
             public static Vector2 GetEffectOrigin(int laneIndex)
             {
-                return new Vector2(GetLaneX(laneIndex), JudgementLineY);
+                return new Vector2(GetLaneX(laneIndex), JudgelineY);
             }
         }
         
@@ -1137,57 +1108,8 @@ namespace DTXMania.Game.Lib.UI.Layout
         }
         
         #endregion
-        
-        #region Legacy Asset Layouts (for backwards compatibility)
-        
-        /// <summary>
-        /// Legacy compatibility - keeping some existing structures for backwards compatibility
-        /// </summary>
-        public static class JudgementLineAssets
-        {
-            public static readonly Rectangle Bounds = HitBar.Bounds;
-        }
-        
-        public static class LifeGaugeAssets
-        {
-            public static readonly Rectangle Background = Gauge.FramePosition.ToRectangle();
-            public static readonly Rectangle Fill = new Rectangle((int)Gauge.FillOrigin.X, (int)Gauge.FillOrigin.Y, 200, Gauge.FillHeight); // estimated width
-        }
-        
-        public static class SongProgressAssets
-        {
-            public static readonly Rectangle Background = Progress.FrameBounds;
-            public static readonly Rectangle Fill = Progress.BarBounds;
-        }
-        
-        public static class ComboDigitsAssets
-        {
-            public static readonly Rectangle Bounds = new Rectangle((int)Combo.BasePosition.X - 100, (int)Combo.BasePosition.Y, 200, 60); // estimated
-            public const int AtlasRows = 1;
-            public const int AtlasCols = 11;
-            public static readonly Rectangle Padding = new Rectangle(2, 2, 2, 2);
-        }
-        
-        public static class ScoreDigitsAssets
-        {
-            public static readonly Rectangle Bounds = new Rectangle((int)Score.FirstDigitPosition.X, (int)Score.FirstDigitPosition.Y, (int)Score.DigitSize.X * Score.MaxDigits, (int)Score.DigitSize.Y);
-            public const int AtlasRows = 1;
-            public const int AtlasCols = 12;
-            public static readonly Rectangle Padding = new Rectangle(2, 2, 2, 2);
-        }
-        
-        public static class JudgementTextAssets
-        {
-            public static readonly Rectangle Bounds = new Rectangle((int)(0.39f * ScreenWidth), (int)(0.77f * ScreenHeight), (int)(0.22f * ScreenWidth), (int)(0.07f * ScreenHeight));
-            public const int AtlasRows = 1;
-            public const int AtlasCols = 5;
-            public static readonly Rectangle Padding = new Rectangle(2, 2, 2, 2);
-            public const int PerfectFrame = 0;
-            public const int GreatFrame = 1;
-            public const int GoodFrame = 2;
-            public const int PoorFrame = 3;
-            public const int MissFrame = 4;
-        }
+
+        #region Judgement Feedback Asset Layouts
 
         public static class HitTimingFeedback
         {
@@ -1247,7 +1169,7 @@ namespace DTXMania.Game.Lib.UI.Layout
                     throw new ArgumentOutOfRangeException(nameof(glyphCount));
 
                 var x = GetLaneX(laneIndex) - (glyphCount * GlyphWidth) / 2f;
-                var y = (JudgementLineY - SpriteJudgementTextAssets.JudgementLineOffsetY) + 34;
+                var y = (JudgelineY - SpriteJudgementTextAssets.JudgementLineOffsetY) + 34;
                 return new Vector2(x, y);
             }
         }
@@ -1304,7 +1226,7 @@ namespace DTXMania.Game.Lib.UI.Layout
             public static Vector2 GetLaneTextPosition(int laneIndex, Rectangle source)
             {
                 var x = GetLaneX(laneIndex) - source.Width / 2f;
-                var y = JudgementLineY - JudgementLineOffsetY;
+                var y = JudgelineY - JudgementLineOffsetY;
                 return new Vector2(x, y);
             }
 
@@ -1317,43 +1239,6 @@ namespace DTXMania.Game.Lib.UI.Layout
             {
                 return rectangles.Max(r => r.Bottom);
             }
-        }
-        
-        public static class TimingIndicatorAssets
-        {
-            public static readonly Rectangle EarlyBounds = new Rectangle((int)(0.335f * ScreenWidth), (int)(0.77f * ScreenHeight), (int)(0.05f * ScreenWidth), (int)(0.05f * ScreenHeight));
-            public static readonly Rectangle LateBounds = new Rectangle((int)(0.615f * ScreenWidth), (int)(0.77f * ScreenHeight), (int)(0.05f * ScreenWidth), (int)(0.05f * ScreenHeight));
-            public const int AtlasRows = 1;
-            public const int AtlasCols = 2;
-            public static readonly Rectangle Padding = new Rectangle(2, 2, 2, 2);
-            public const int EarlyFrame = 0;
-            public const int LateFrame = 1;
-        }
-        
-        public static class OverlayAssets
-        {
-            public static readonly Rectangle PauseOverlay = new Rectangle(0, 0, ScreenWidth, ScreenHeight);
-            public static readonly Rectangle DangerOverlay = new Rectangle(0, 0, ScreenWidth, ScreenHeight);
-        }
-        
-        public static class NotesAssets
-        {
-            public static readonly Rectangle Padding = new Rectangle(2, 2, 2, 2);
-        }
-        
-        public static class LongNotesAssets
-        {
-            public static readonly Rectangle Padding = new Rectangle(2, 2, 2, 2);
-        }
-        
-        public static class ExplosionAssets
-        {
-            public const int AtlasRows = 2;
-            public const int AtlasCols = 4;
-            public static readonly Rectangle Padding = new Rectangle(2, 2, 2, 2);
-            public const int AnimationFps = 30;
-            public const bool AnimationLoop = false;
-            public const int TotalFrames = 8;
         }
         
         #endregion

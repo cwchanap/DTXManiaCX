@@ -1730,7 +1730,7 @@ namespace DTXMania.Game.Lib.Song.Entities
             var normalizedRunRank = SongScoreEntity.RunRankBucket(summary.PlayingSkill);
             var normalizedBestRank = isFirstPlay
                 ? 0
-                : SongScoreEntity.NormalizeStoredBestRank(score.BestRank);
+                : SongScoreEntity.NormalizeRankPercentage(score.BestRank);
             if (isFirstPlay || normalizedRunRank > normalizedBestRank)
                 score.BestRank = normalizedRunRank;
             else
@@ -2085,9 +2085,9 @@ namespace DTXMania.Game.Lib.Song.Entities
             if (roots == null || roots.Count == 0)
                 return Array.Empty<(int, string)>();
 
-            // Normalize defensively so blank or malformed roots (which
-            // CountDTXFilesAsync also skips) do not abort the lookup. Mirrors
-            // the active-root pre-normalization in GetActiveChartCountAsync.
+            // Normalize defensively so blank or malformed roots (which the
+            // chart-inventory scanner also skips) do not abort the lookup.
+            // Mirrors the active-root pre-normalization in GetActiveChartCountAsync.
             var normalizedRoots = roots
                 .Select(root =>
                 {
@@ -2141,9 +2141,9 @@ namespace DTXMania.Game.Lib.Song.Entities
             if (roots == null || roots.Count == 0)
                 return 0;
 
-            // Normalize defensively so blank or malformed roots (which
-            // CountDTXFilesAsync also skips) do not abort the count. Mirrors the
-            // active-root pre-normalization in ImportSongsAsync.
+            // Normalize defensively so blank or malformed roots (which the
+            // chart-inventory scanner also skips) do not abort the count.
+            // Mirrors the active-root pre-normalization in ImportSongsAsync.
             var normalizedRoots = roots
                 .Select(root =>
                 {

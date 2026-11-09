@@ -83,7 +83,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// <summary>
         /// Judgement line Y position
         /// </summary>
-        public int JudgementY => PerformanceUILayout.JudgementLineY;
+        public int JudgementY => PerformanceUILayout.JudgelineY;
 
         /// <summary>
         /// Whether the renderer is ready to draw

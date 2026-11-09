@@ -9,34 +9,16 @@ namespace DTXMania.Game.Lib.Config
         public string DTXManiaVersion { get; set; } = "NX1.5.0-MG";
         public string SkinPath { get; set; } = AppPaths.GetDefaultSystemSkinRoot();
 
-        private string _dtxPath = AppPaths.GetDefaultSongsPath();
-
         /// <summary>
-        /// The primary song-library path. Setting this keeps the first
-        /// <see cref="SongRoots"/> entry in sync when it is still tracking the
-        /// previous value, so object-initializer assignments such as
-        /// <c>new ConfigData { DTXPath = "/x" }</c> cannot leave
-        /// <c>SongRoots[0]</c> stale. Multi-root configurations (where
-        /// <c>SongRoots[0]</c> no longer equals the prior DTXPath) are left
-        /// untouched.
+        /// Song-library roots in priority order. The sole in-memory
+        /// representation; the legacy <c>DTXPath</c> config key is mapped into
+        /// this list at load/import time.
         /// </summary>
-        public string DTXPath
-        {
-            get => _dtxPath;
-            set
-            {
-                var previous = _dtxPath;
-                _dtxPath = value;
-                if (SongRoots.Count > 0 && SongRoots[0] == previous)
-                    SongRoots[0] = value;
-            }
-        }
-
         public List<string> SongRoots { get; } = new();
 
         public ConfigData()
         {
-            SongRoots.Add(DTXPath);
+            SongRoots.Add(AppPaths.GetDefaultSongsPath());
         }
 
         // Skin settings
