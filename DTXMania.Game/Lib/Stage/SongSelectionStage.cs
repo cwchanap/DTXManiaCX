@@ -844,7 +844,9 @@ namespace DTXMania.Game.Lib.Stage
             _quickSettingsPopup = new QuickSettingsPopup
             {
                 WhitePixel = _whitePixel,
-                Font = _statusPanel?.Font
+                // Same face as the tab strip: the skin's display font (CX Neon: Orbitron),
+                // else the shared UI font as NX does.
+                Font = _tabFont?.SpriteFont ?? _statusPanel?.Font
             };
             _quickSettingsPopup.Initialize(_resourceManager);
             _quickSettingsPopup.Closed += OnQuickSettingsClosed;
