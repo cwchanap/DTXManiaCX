@@ -846,6 +846,7 @@ namespace DTXMania.Game.Lib.Stage
                 WhitePixel = _whitePixel,
                 Font = _statusPanel?.Font
             };
+            _quickSettingsPopup.Initialize(_resourceManager);
             _quickSettingsPopup.Closed += OnQuickSettingsClosed;
             _mainPanel.AddChild(_quickSettingsPopup);
 

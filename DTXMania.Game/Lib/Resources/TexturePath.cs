@@ -127,6 +127,12 @@ namespace DTXMania.Game.Lib.Resources
         /// NX: drawn at (700,570) on song selection.
         /// </summary>
         public const string PlayHistoryPanel = "Graphics/5_play history panel.png";
+
+        /// <summary>Song-select popup background (360x460, NX quick config / sort menu art).</summary>
+        public const string QuickSettingsBackground = "Graphics/ScreenSelect sort menu background.png";
+
+        /// <summary>Song-select popup row cursor (32x32, drawn as 16px caps around a stretched middle).</summary>
+        public const string QuickSettingsCursor = "Graphics/ScreenConfig menu cursor.png";
         
         /// <summary>
         /// Difficulty panel texture for song status panel
