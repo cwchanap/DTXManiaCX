@@ -258,6 +258,28 @@ namespace DTXMania.Test.Stage
             Assert.False(GetPrivateField<bool>(stage, "_showEmptyFilterMessage"));
         }
 
+        [Theory]
+        [InlineData(100, 75)]   // speed changed: the played-status filter is rebuilt for 0.75x
+        [InlineData(75, null)]  // unchanged: the filter is left alone
+        public void OnQuickSettingsClosed_RebuildsFilterOnlyWhenPlaySpeedChanged(int speedAtOpen, int? expectedFilterSpeed)
+        {
+            var stage = CreateStage();
+            var filterService = new PassthroughFilterService();
+            var configManager = new Mock<IConfigManager>();
+            configManager.SetupGet(manager => manager.Config).Returns(new ConfigData { PlaySpeedPercent = 75 });
+            AttachCoreUi(stage);
+            SetPrivateField(stage, "_filterCriteria",
+                new SongFilterCriteria(null, null, null, PlayedStatus.Played, SongSortCriteria.Title, false));
+            SetPrivateField(stage, "_currentSongList", new List<SongListNode> { CreateScoreNode("TestSong") });
+            SetPrivateField(stage, "_filterService", filterService);
+            SetPrivateField(stage, "_configManager", configManager.Object);
+            SetPrivateField(stage, "_quickSettingsPlaySpeedAtOpen", speedAtOpen);
+
+            InvokePrivateMethod(stage, "OnQuickSettingsClosed", null!, EventArgs.Empty);
+
+            Assert.Equal(expectedFilterSpeed, filterService.PlaySpeedPercent);
+        }
+
         [Fact]
         public void RebuildFilteredView_WhenFilterHasCriteria_ShouldApplyFilter()
         {

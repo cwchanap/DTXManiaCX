@@ -10,8 +10,9 @@ namespace DTXMania.Game.Lib.Stage
     /// A hit on a real pad (MIDI or gamepad, never a keyboard drum key) becomes the same
     /// command as the matching keyboard system key. Gameplay and the drum-binding screen
     /// ignore pads, so there a hit stays a hit and system keys are keyboard only.
-    /// Song select adds its own pad actions in <see cref="SongSelectionStage"/>:
-    /// bass drum opens Config, hi-hat steps the difficulty, floor tom switches tabs.
+    /// Song select adds its own pad actions in <see cref="SongSelectionStage"/>, where "x2"
+    /// means two hits within 500 ms: bass drum x2 opens or closes Quick Settings, hi-hat x2
+    /// steps the difficulty, floor tom switches tabs and floor tom x2 opens Search &amp; Filter.
     /// </summary>
     public static class DrumPadSystemKeys
     {

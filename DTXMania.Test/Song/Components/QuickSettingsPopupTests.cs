@@ -178,6 +178,8 @@ public sealed class QuickSettingsPopupTests
     public void Initialize_LoadsSkinArtAndReleasesItOnDispose()
     {
         var background = new Mock<ITexture>();
+        background.SetupGet(x => x.Width).Returns(360);
+        background.SetupGet(x => x.Height).Returns(460);
         var resources = new Mock<IResourceManager>();
         resources.Setup(x => x.LoadTexture(TexturePath.QuickSettingsBackground)).Returns(background.Object);
         resources.Setup(x => x.LoadTexture(TexturePath.QuickSettingsCursor)).Throws(new System.IO.FileNotFoundException("missing"));
@@ -188,6 +190,24 @@ public sealed class QuickSettingsPopupTests
         popup.Dispose();
 
         background.Verify(x => x.RemoveReference(), Times.Once);
+    }
+
+    [Fact]
+    public void Initialize_TreatsOnePixelFallbackAsMissingArt()
+    {
+        var placeholder = new Mock<ITexture>();
+        placeholder.SetupGet(x => x.Width).Returns(1);
+        placeholder.SetupGet(x => x.Height).Returns(1);
+        var resources = new Mock<IResourceManager>();
+        resources.Setup(x => x.LoadTexture(It.IsAny<string>())).Returns(placeholder.Object);
+        var popup = new QuickSettingsPopup();
+
+        popup.Initialize(resources.Object);
+        popup.Dispose();
+
+        // Dropped right away (one per texture) and never held, so never released later.
+        placeholder.Verify(x => x.Dispose(), Times.Exactly(2));
+        placeholder.Verify(x => x.RemoveReference(), Times.Never);
     }
 
     [Fact]

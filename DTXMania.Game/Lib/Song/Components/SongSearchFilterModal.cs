@@ -246,6 +246,22 @@ namespace DTXMania.Game.Lib.Song.Components
             }
         }
 
+        /// <summary>
+        /// Drum pads have no left/right, so a pad Enter on a value field steps it forward.
+        /// Levels wrap from the top back to empty, so both bounds stay adjustable by pad.
+        /// </summary>
+        public void StepFocusedValue()
+        {
+            if (!_isOpen) return;
+
+            if (_focusedField == Field.MinLevel && _draft.MinLevel >= LevelMax)
+                _draft = _draft with { MinLevel = null };
+            else if (_focusedField == Field.MaxLevel && _draft.MaxLevel >= LevelMax)
+                _draft = _draft with { MaxLevel = null };
+            else
+                AdjustFocusedField(+1);
+        }
+
         private const int LevelStep = 5;
         private const int LevelMin = 0;
         private const int LevelMax = 99;

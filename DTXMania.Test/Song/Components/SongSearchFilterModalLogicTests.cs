@@ -24,6 +24,37 @@ namespace DTXMania.Test.Song.Components
             Assert.Equal("abc", modal.CurrentDraft.SearchQuery);
         }
 
+        [Theory]
+        [InlineData(SongSearchFilterModal.Field.MinLevel)]
+        [InlineData(SongSearchFilterModal.Field.MaxLevel)]
+        public void StepFocusedValue_OnLevel_WrapsFromTopBackToEmpty(SongSearchFilterModal.Field field)
+        {
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
+            modal.Open(SongFilterCriteria.Default with { MinLevel = 95, MaxLevel = 95 });
+            while (modal.FocusedField != field)
+                modal.FocusNext();
+            int? Level() => field == SongSearchFilterModal.Field.MinLevel ? modal.CurrentDraft.MinLevel : modal.CurrentDraft.MaxLevel;
+
+            modal.StepFocusedValue();
+            Assert.Equal(99, Level());
+
+            modal.StepFocusedValue();
+            Assert.Null(Level());
+
+            modal.StepFocusedValue();
+            Assert.Equal(5, Level());
+        }
+
+        [Fact]
+        public void StepFocusedValue_WhenClosed_DoesNothing()
+        {
+            var modal = new SongSearchFilterModal(new FakeTextInputSource());
+
+            modal.StepFocusedValue();
+
+            Assert.Equal(SongFilterCriteria.Default, modal.CurrentDraft);
+        }
+
         [Fact]
         public void Cancel_WhenInvoked_ShouldRaiseCancelledAndClose()
         {
