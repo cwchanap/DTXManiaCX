@@ -2,8 +2,11 @@ using System.Collections.Generic;
 using System.Linq;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
+using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song.Components;
+using Moq;
 using Xunit;
+using PopupLayout = DTXMania.Game.Lib.UI.Layout.SongSelectionUILayout.QuickSettingsPopup;
 
 namespace DTXMania.Test.Song.Components;
 
@@ -127,5 +130,87 @@ public sealed class QuickSettingsPopupTests
         playSpeed.NextValue();
 
         Assert.Equal(before, config.Config.PlaySpeedPercent);
+    }
+
+    [Fact]
+    public void MoveLeftAndRight_StepTheSelectedValue()
+    {
+        var popup = OpenPopup();
+        popup.HandleCommand(InputCommandType.MoveDown); // Number
+
+        popup.HandleCommand(InputCommandType.MoveRight);
+        popup.HandleCommand(InputCommandType.MoveRight);
+        popup.HandleCommand(InputCommandType.MoveLeft);
+
+        Assert.Equal(6, _number);
+        Assert.Equal(2, popup.Items.Count);
+    }
+
+    [Fact]
+    public void ClosedPopup_IgnoresCommandsAndRepeatCloses()
+    {
+        var popup = new QuickSettingsPopup();
+        int closed = 0;
+        popup.Closed += (_, _) => closed++;
+
+        popup.HandleCommand(InputCommandType.Activate);
+        popup.Close();
+
+        Assert.False(popup.IsOpen);
+        Assert.Equal(0, closed);
+        Assert.False(popup.HandleInput(null!));
+        Assert.Throws<System.ArgumentNullException>(() => popup.Open(null!));
+    }
+
+    [Fact]
+    public void GetValueText_StripsTheNamePrefix()
+    {
+        var item = new ToggleConfigItem("No Fail", () => true, _ => { });
+        var custom = new Mock<IConfigItem>();
+        custom.SetupGet(x => x.Name).Returns("Other");
+        custom.Setup(x => x.GetDisplayText()).Returns("no prefix");
+
+        Assert.Equal("ON", QuickSettingsPopup.GetValueText(item));
+        Assert.Equal("no prefix", QuickSettingsPopup.GetValueText(custom.Object));
+    }
+
+    [Fact]
+    public void Initialize_LoadsSkinArtAndReleasesItOnDispose()
+    {
+        var background = new Mock<ITexture>();
+        var resources = new Mock<IResourceManager>();
+        resources.Setup(x => x.LoadTexture(TexturePath.QuickSettingsBackground)).Returns(background.Object);
+        resources.Setup(x => x.LoadTexture(TexturePath.QuickSettingsCursor)).Throws(new System.IO.FileNotFoundException("missing"));
+        var popup = new QuickSettingsPopup();
+
+        popup.Initialize(null);
+        popup.Initialize(resources.Object);
+        popup.Dispose();
+
+        background.Verify(x => x.RemoveReference(), Times.Once);
+    }
+
+    [Fact]
+    public void CreateItems_EveryItemReadsAndWritesConfig()
+    {
+        var config = new ConfigManager();
+        var items = QuickSettingsPopup.CreateItems(config, () => true);
+
+        foreach (var item in items)
+        {
+            string before = item.GetDisplayText();
+            item.NextValue();
+            Assert.StartsWith(item.Name + ": ", item.GetDisplayText());
+            Assert.NotEqual(before, item.GetDisplayText());
+        }
+    }
+
+    [Fact]
+    public void Layout_FitsRowsCursorAndFallbackPanelInsideThePopup()
+    {
+        Assert.True(PopupLayout.CursorX + PopupLayout.CursorWidth <= PopupLayout.Width);
+        Assert.True(PopupLayout.FirstRowY + 8 * PopupLayout.RowHeight <= PopupLayout.HintY);
+        Assert.True(PopupLayout.Bounds.Contains(PopupLayout.PanelFallbackBounds));
+        Assert.NotEqual(PopupLayout.PanelFallbackColor, PopupLayout.CursorFallbackColor);
     }
 }

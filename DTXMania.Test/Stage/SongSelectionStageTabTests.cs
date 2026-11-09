@@ -243,6 +243,25 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void HandlePadLaneHit_OnFloorTomTwiceEndingOnAllSongs_OpensSearchInPlace()
+        {
+            var stage = CreateStage();
+            var display = new SongListDisplay();
+            AttachCoreUi(stage, display);
+            SetPrivateField(stage, "_activeTab", SongSelectionTab.Bookmarks);
+            var modal = new SongSearchFilterModal(new Mock<ITextInputSource>().Object);
+            SetPrivateField(stage, "_searchFilterModal", modal);
+
+            SetPrivateField(stage, "_elapsedTime", 1.0);
+            InvokePrivateMethod(stage, "HandlePadLaneHit", 7); // wraps to All Songs
+            SetPrivateField(stage, "_elapsedTime", 1.2);
+            InvokePrivateMethod(stage, "HandlePadLaneHit", 7);
+
+            Assert.Equal(SongSelectionTab.AllSongs, GetPrivateField<SongSelectionTab>(stage, "_activeTab"));
+            Assert.True(modal.IsOpen);
+        }
+
+        [Fact]
         public void OnPadLaneHit_WhenModalOpen_DoesNotSwitchTab()
         {
             var stage = CreateStage();

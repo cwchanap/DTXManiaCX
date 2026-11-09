@@ -303,6 +303,87 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void OnQuickSettingsClosed_SavesConfigAndClearsQueuedInput()
+        {
+            var stage = CreateStage();
+            var inputManager = new QueuedInputManager();
+            var config = new Mock<IConfigManager>();
+            config.SetupGet(x => x.Config).Returns(new ConfigData());
+            config.Setup(x => x.FlushPendingSave()).Throws(new IOException("disk full"));
+            AttachCoreUi(stage);
+            SetPrivateField(stage, "_configManager", config.Object);
+            SetPrivateField(stage, "_inputManager", inputManager);
+            inputManager.Enqueue(new InputCommand(InputCommandType.Back, 0.0));
+
+            // A failed save is logged, never thrown into the input loop.
+            InvokePrivateMethod(stage, "OnQuickSettingsClosed", null!, EventArgs.Empty);
+
+            config.Verify(x => x.FlushPendingSave(), Times.Once);
+            Assert.False(inputManager.HasPendingCommands);
+        }
+
+        [Fact]
+        public void HandlePadLaneHit_BassDrumTwiceWithoutConfig_LeavesQuickSettingsClosed()
+        {
+            var stage = CreateStage();
+            var popup = new QuickSettingsPopup();
+            SetPrivateField(stage, "_quickSettingsPopup", popup);
+            SetPrivateField(stage, "_configManager", null);
+            int bassDrum = (int)PerformanceUILayout.LaneType.DB;
+
+            SetPrivateField(stage, "_elapsedTime", 1.0);
+            InvokePrivateMethod(stage, "HandlePadLaneHit", bassDrum);
+            SetPrivateField(stage, "_elapsedTime", 1.1);
+            InvokePrivateMethod(stage, "HandlePadLaneHit", bassDrum);
+
+            Assert.False(popup.IsOpen);
+        }
+
+        [Fact]
+        public void OnPadLaneHit_OnPadRelease_DoesNothing()
+        {
+            var stage = CreateStage();
+            AttachCoreUi(stage);
+            SetPrivateField(stage, "_activeTab", SongSelectionTab.AllSongs);
+
+            var release = new LaneHitEventArgs(7, new DTXMania.Game.Lib.Input.ButtonState("MIDI.43", false));
+            InvokePrivateMethod(stage, "OnPadLaneHit", stage, release);
+
+            Assert.Equal(SongSelectionTab.AllSongs, GetPrivateField<SongSelectionTab>(stage, "_activeTab"));
+        }
+
+        [Fact]
+        public void IsOverlayOpen_TracksQuickSettings()
+        {
+            var stage = CreateStage();
+            var popup = new QuickSettingsPopup();
+            SetPrivateField(stage, "_quickSettingsPopup", popup);
+            var isOverlayOpen = typeof(SongSelectionStage).GetProperty("IsOverlayOpen",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+
+            Assert.False((bool)isOverlayOpen.GetValue(stage)!);
+            popup.Open(Array.Empty<IConfigItem>());
+            Assert.True((bool)isOverlayOpen.GetValue(stage)!);
+        }
+
+        [Fact]
+        public void SubscribePadLaneHits_AttachesAndDetachesFromModularInput()
+        {
+            var stage = CreateStage();
+            using var input = new InputManagerCompat(new ConfigManager(), new TestMidiDeviceBackend());
+            SetPrivateField(stage, "_inputManager", input);
+            int StageHandlers() => (GetPrivateField<EventHandler<LaneHitEventArgs>>(input.ModularInputManager, "OnLaneHit")
+                ?.GetInvocationList() ?? Array.Empty<Delegate>()).Count(d => ReferenceEquals(d.Target, stage));
+
+            InvokePrivateMethod(stage, "SubscribePadLaneHits");
+            InvokePrivateMethod(stage, "SubscribePadLaneHits");
+            Assert.Equal(1, StageHandlers());
+
+            InvokePrivateMethod(stage, "UnsubscribePadLaneHits");
+            Assert.Equal(0, StageHandlers());
+        }
+
+        [Fact]
         public void HandleInput_WhenQuickSettingsOpen_RoutesCommandsToPopup()
         {
             var stage = CreateStage();
