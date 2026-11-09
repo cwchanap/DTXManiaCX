@@ -40,8 +40,6 @@ namespace DTXMania.Test.Song
                     nameof(SongManager.InitializeDatabaseServiceAsync))
                 .ToArray();
 
-            // The observer overloads were removed with the startup profiler, so a
-            // single public entry point remains instead of forwarding wrappers.
             Assert.Single(overloads);
         }
 

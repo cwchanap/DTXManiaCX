@@ -655,7 +655,7 @@ namespace DTXMania.Game.Lib.Song
             CancellationToken cancellationToken = default)
         {
             // Acquire the enumeration slot atomically. Direct callers of this
-            // public entry point keep the historical throwing contract:
+            // public/internal entry point keep the historical throwing contract:
             // a concurrent enumeration surfaces as InvalidOperationException.
             if (!TryBeginEnumeration(cancellationToken, out var linked))
             {
@@ -2100,8 +2100,9 @@ namespace DTXMania.Game.Lib.Song
         }
 
         /// <summary>
-        /// Builds the list of encodings used to read SET.def files. Used by
-        /// <see cref="ReadSetDefLines"/> (synchronous database-load path).
+        /// Builds the list of encodings used to read SET.def files. Shared by
+        /// <see cref="ReadSetDefLines"/> (synchronous database-load path) and
+        /// <see cref="ParseSetDefinitionAsync"/> (async enumeration path) so the two never drift.
         /// </summary>
         /// <remarks>
         /// NOTE: this is <b>not</b> a true encoding fallback chain as written today.
@@ -2141,7 +2142,7 @@ namespace DTXMania.Game.Lib.Song
         /// <remarks>
         /// Synchronous by design: the only caller is <see cref="GetSetDefLabelsByFile"/>, which
         /// runs on the synchronous database-load path. The async enumeration path reads via
-        /// <see cref="ReadAllLinesCoreAsync"/> in <see cref="ParseSetDefinitionIntoBatchAsync"/>.
+        /// <see cref="File.ReadAllLinesAsync"/> in <see cref="ParseSetDefinitionAsync"/>.
         /// </remarks>
         private static string[]? ReadSetDefLines(string setDefPath)
         {
@@ -2169,7 +2170,7 @@ namespace DTXMania.Game.Lib.Song
         /// <summary>
         /// Parses the #TITLE and #Ln(LABEL|FILE) commands out of SET.def lines into the
         /// title plus a per-difficulty (label, file) map keyed by the L-slot number. Shared by
-        /// enumeration (ParseSetDefinitionIntoBatchAsync) and the database-load path so the difficulty
+        /// enumeration (ParseSetDefinitionAsync) and the database-load path so the difficulty
         /// badge can recover the authentic difficulty label from the SET.def.
         /// </summary>
         private (string title, Dictionary<int, (string label, string file)> difficulties) ParseSetDefContent(

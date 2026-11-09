@@ -482,8 +482,6 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame
         base.Update(gameTime);
     }
 
-    internal virtual void RequestGameExit() => Exit();
-
     private void DrainMainThreadActions()
     {
         // Cap at 64 actions per frame to prevent frame starvation

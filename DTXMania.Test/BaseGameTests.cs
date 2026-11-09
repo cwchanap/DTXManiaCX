@@ -1646,6 +1646,14 @@ namespace DTXMania.Test
             Assert.Null(result);
         }
 
+        [Fact]
+        public void BaseGame_ShouldNotDeclareProfilerExitSeam()
+        {
+            Assert.Null(typeof(BaseGame).GetMethod(
+                "RequestGameExit",
+                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public));
+        }
+
         private static IConfigManager CreateConfigManager(ConfigData config)
         {
             var configManager = new Mock<IConfigManager>();
@@ -1968,8 +1976,6 @@ namespace DTXMania.Test
 
             public List<string> CallOrder => _callOrder ??= new List<string>();
 
-            public int RequestGameExitCallCount { get; private set; }
-
             public int CompleteBaseUpdateCallCount { get; private set; }
 
             internal override void SetDrawRenderTarget(RenderTarget2D? renderTarget)
@@ -2008,11 +2014,6 @@ namespace DTXMania.Test
             internal override void CompleteBaseUpdate(GameTime gameTime)
             {
                 CompleteBaseUpdateCallCount++;
-            }
-
-            internal override void RequestGameExit()
-            {
-                RequestGameExitCallCount++;
             }
 
             public void InvokeBaseDraw(GameTime gameTime)

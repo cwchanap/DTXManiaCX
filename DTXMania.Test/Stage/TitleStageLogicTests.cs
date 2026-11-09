@@ -957,11 +957,6 @@ namespace DTXMania.Test.Stage
             return sound;
         }
 
-        /// <summary>
-        /// Minimal <see cref="IStageGame"/> stub: <c>GraphicsDevice</c> returns null so the
-        /// title stage's GPU seams (overridden in <see cref="ControlledTitleStage"/>) can be
-        /// exercised without a live graphics device.
-        /// </summary>
         private sealed class NullGraphicsStageGame : IStageGame
         {
             public GraphicsDevice GraphicsDevice => null!;
