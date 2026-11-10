@@ -46,7 +46,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task InitializeDatabaseAsync_WhenFresh_CreatesSchemaMetadataAndStampsVersion()
+        public async Task InitializeDatabaseAsync_WhenFresh_ShouldCreateSchemaMetadataAndStampVersion()
         {
             using var service = new SongDatabaseService(_dbPath);
 
@@ -91,7 +91,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task InitializeDatabaseAsync_JapaneseTitleAndPath_RoundTrips()
+        public async Task InitializeDatabaseAsync_JapaneseTitleAndPath_ShouldRoundTrip()
         {
             using var service = new SongDatabaseService(_dbPath);
             await service.InitializeDatabaseAsync();
@@ -124,7 +124,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task InitializeDatabaseAsync_WhenReopeningCurrentVersion_PreservesLibraryState()
+        public async Task InitializeDatabaseAsync_WhenReopeningCurrentVersion_ShouldPreserveLibraryState()
         {
             var watermark = new DateTime(2026, 11, 7, 12, 0, 0, DateTimeKind.Utc);
             var canonicalRoot = SongPathIdentity.Normalize(_tempRoot);
@@ -211,7 +211,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task InitializeDatabaseAsync_WhenVersionIsLegacyZero_PurgesOnceAndRebuilds()
+        public async Task InitializeDatabaseAsync_WhenVersionIsLegacyZero_ShouldPurgeOnceAndRebuild()
         {
             await CreateLegacyVersionZeroDatabaseAsync();
 
@@ -240,7 +240,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task InitializeDatabaseAsync_WhenVersionMismatch_PurgesAndRebuilds()
+        public async Task InitializeDatabaseAsync_WhenVersionMismatch_ShouldPurgeAndRebuild()
         {
             using (var first = new SongDatabaseService(_dbPath))
             {
@@ -267,7 +267,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task InitializeDatabaseAsync_WhenFileIsNotSqlite_PurgesAndRebuilds()
+        public async Task InitializeDatabaseAsync_WhenFileIsNotSqlite_ShouldPurgeAndRebuild()
         {
             await File.WriteAllTextAsync(_dbPath, "not a SQLite database");
 
@@ -282,7 +282,52 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task InitializeDatabaseAsync_WhenProbeFailsWithNonCorruptionError_Propagates()
+        public async Task InitializeDatabaseAsync_WhenDatabaseCorruptInLaterPages_ShouldPurgeAndRebuild()
+        {
+            using (var first = new SongDatabaseService(_dbPath))
+            {
+                await first.InitializeDatabaseAsync();
+                for (int i = 0; i < 20; i++)
+                {
+                    await first.AddSongAsync(
+                        new SongEntity { Title = $"Song {i}", Artist = "Artist" },
+                        new SongChart
+                        {
+                            FilePath = Path.Combine(_tempRoot, $"song_{i}.dtx"),
+                            HasDrumChart = true,
+                            DrumLevel = 30
+                        });
+                }
+            }
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+
+            // Corrupt database pages beyond page 1 header (header is at offset 0-100)
+            await using (var fileStream = new FileStream(_dbPath, FileMode.Open, FileAccess.ReadWrite))
+            {
+                Assert.True(fileStream.Length > 4096, "Database should have multiple pages");
+                fileStream.Seek(4096, SeekOrigin.Begin);
+                var garbage = new byte[512];
+                Array.Fill<byte>(garbage, 0xFF);
+                await fileStream.WriteAsync(garbage);
+            }
+
+            // Verify user_version header on page 1 is still 1
+            Assert.Equal(
+                SongDatabaseService.CurrentSongSchemaVersion,
+                await ReadUserVersionAsync(_dbPath));
+
+            using var service = new CountingPurgeService(_dbPath);
+            await service.InitializeDatabaseAsync();
+
+            Assert.Equal(1, service.PurgeCalls);
+            Assert.Equal(
+                SongDatabaseService.CurrentSongSchemaVersion,
+                await ReadUserVersionAsync(_dbPath));
+            Assert.True(await service.DatabaseExistsAsync());
+        }
+
+        [Fact]
+        public async Task InitializeDatabaseAsync_WhenProbeFailsWithNonCorruptionError_ShouldPropagate()
         {
             using (var first = new SongDatabaseService(_dbPath))
             {
@@ -306,7 +351,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task InitializeDatabaseAsync_WhenPurgeFails_PropagatesWithoutInitialization()
+        public async Task InitializeDatabaseAsync_WhenPurgeFails_ShouldPropagateWithoutInitialization()
         {
             await CreateLegacyVersionZeroDatabaseAsync();
 
@@ -326,7 +371,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task InitializeDatabaseAsync_WhenDatabasePathIsDirectory_PropagatesWithoutDeleting()
+        public async Task InitializeDatabaseAsync_WhenDatabasePathIsDirectory_ShouldPropagateWithoutDeleting()
         {
             var directoryDbPath = Path.Combine(_tempRoot, "not-a-db");
             Directory.CreateDirectory(directoryDbPath);
@@ -341,7 +386,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task InitializeDatabaseAsync_WhenResettingSongDatabase_ConfigDatabaseIsUntouched()
+        public async Task InitializeDatabaseAsync_WhenResettingSongDatabase_ShouldLeaveConfigDatabaseUntouched()
         {
             var configPath = Path.Combine(_tempRoot, "config.db");
             var configStore = new SqliteConfigStore(configPath);
@@ -361,7 +406,7 @@ namespace DTXMania.Test.Song
         }
 
         [Fact]
-        public async Task CurrentSongSchemaHash_WhenSchemaChanges_FailsWithBumpInstruction()
+        public async Task CurrentSongSchemaHash_WhenSchemaChanges_ShouldFailWithBumpInstruction()
         {
             Assert.Equal(1, SongDatabaseService.CurrentSongSchemaVersion);
 

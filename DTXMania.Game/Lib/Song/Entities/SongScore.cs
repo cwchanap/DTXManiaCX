@@ -71,7 +71,7 @@ namespace DTXMania.Game.Lib.Song.Entities
         #region Performance Data
         
         public int BestScore { get; set; }
-        public int BestRank { get; set; } // Canonical rank bucket on the 0-100 scale; normalize legacy persisted ordinals before comparing.
+        public int BestRank { get; set; } // Canonical rank bucket on the 0-100 scale.
         public double BestSkillPoint { get; set; }
         public double BestAchievementRate { get; set; }
         
@@ -216,7 +216,7 @@ namespace DTXMania.Game.Lib.Song.Entities
             int normalizedRank = NormalizeRankPercentage(rank);
             int currentBestRank = hadPreviousPlays ? NormalizeRankPercentage(BestRank) : 0;
             
-            // Normalize any legacy ordinal stored in BestRank
+            // Normalize any stored percentage to its canonical bucket
             if (hadPreviousPlays)
                 BestRank = currentBestRank;
 
