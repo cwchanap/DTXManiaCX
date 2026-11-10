@@ -85,7 +85,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             _resourceManager = resourceManager ?? throw new ArgumentNullException(nameof(resourceManager));
             _graphicsDevice = graphicsDevice ?? throw new ArgumentNullException(nameof(graphicsDevice));
             _position = PerformanceUILayout.Gauge.FramePosition;
-            _size = new Vector2(200, PerformanceUILayout.Gauge.FillHeight);
+            _size = new Vector2(PerformanceUILayout.Gauge.FillWidth, PerformanceUILayout.Gauge.FillHeight);
             
             // Initialize with default value (50% life)
             SetValue(0.5f);

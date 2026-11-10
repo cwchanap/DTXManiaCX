@@ -17,9 +17,7 @@ public sealed class DTXPathCompatibilityArchitectureTests
         var gameDirectory = FindGameDirectory();
         var allowedFiles = new HashSet<string>(StringComparer.Ordinal)
         {
-            "Lib/Config/ConfigData.cs",
             "Lib/Config/ConfigManager.cs",
-            "Lib/Stage/ConfigStage.cs",
         };
 
         var offenders = Directory.EnumerateFiles(

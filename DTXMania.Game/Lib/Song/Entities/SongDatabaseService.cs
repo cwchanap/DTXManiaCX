@@ -125,6 +125,8 @@ namespace DTXMania.Game.Lib.Song.Entities
                     }
                 }
 
+                bool needsRecreation = true;
+
                 if (InitializationDatabaseFileExists())
                 {
                     var storedVersion = await ReadSchemaVersionOrMismatchAsync();
@@ -134,14 +136,21 @@ namespace DTXMania.Game.Lib.Song.Entities
                         System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Database schema version {storedVersion} does not match required version {CurrentSongSchemaVersion}, recreating database");
                         await PurgeDatabaseAsync();
                     }
+                    else
+                    {
+                        needsRecreation = false;
+                    }
                 }
 
-                using var context = CreateInitializationContext();
+                if (needsRecreation)
+                {
+                    using var context = CreateInitializationContext();
 
-                // Ensure database is created first
-                await EnsureCreatedForInitializationAsync(context);
-                await EnsureEnumerationMetadataTableAsync(context);
-                await StampSchemaVersionAsync(context);
+                    // Ensure database is created first
+                    await EnsureCreatedForInitializationAsync(context);
+                    await EnsureEnumerationMetadataTableAsync(context);
+                    await StampSchemaVersionAsync(context);
+                }
 
                 // Mark as initialized after successful creation
                 lock (_initializationLock)
@@ -189,7 +198,20 @@ namespace DTXMania.Game.Lib.Song.Entities
                 await connection.OpenAsync();
                 using var command = connection.CreateCommand();
                 command.CommandText = "PRAGMA user_version;";
-                return (long)(await command.ExecuteScalarAsync())!;
+                var version = (long)(await command.ExecuteScalarAsync())!;
+                if (version != CurrentSongSchemaVersion)
+                {
+                    return version;
+                }
+
+                command.CommandText = "PRAGMA quick_check(1);";
+                var checkResult = (string?)(await command.ExecuteScalarAsync());
+                if (!string.Equals(checkResult, "ok", StringComparison.OrdinalIgnoreCase))
+                {
+                    return -1;
+                }
+
+                return version;
             }
             catch (SqliteException ex) when (
                 ex.SqliteErrorCode == SqliteCorruptErrorCode
@@ -276,11 +298,6 @@ namespace DTXMania.Game.Lib.Song.Entities
             }
         }
 
-        private static bool HasJournalSidecar(string databasePath) =>
-            File.Exists(databasePath + "-wal")
-            || File.Exists(databasePath + "-shm")
-            || File.Exists(databasePath + "-journal");
-
         private static void DeleteDatabaseFileSidecars(string databasePath)
         {
             foreach (var suffix in new[] { "-wal", "-shm", "-journal" })
@@ -293,306 +310,6 @@ namespace DTXMania.Game.Lib.Song.Entities
             }
         }
 
-
-        /// Backup the database to a specified path
-        public async Task BackupDatabaseAsync(string backupPath)
-        {
-            if (!File.Exists(_databasePath))
-            {
-                throw new FileNotFoundException($"Database file not found: {_databasePath}");
-            }
-
-            if (PathsReferToSameFile(_databasePath, backupPath))
-            {
-                throw new ArgumentException(
-                    $"Backup destination must differ from the database file: {backupPath}",
-                    nameof(backupPath));
-            }
-
-            if (File.Exists(backupPath) && HasJournalSidecar(backupPath))
-            {
-                throw new IOException(
-                    $"Backup destination has outstanding SQLite journal state and cannot be replaced safely: {backupPath}");
-            }
-
-            var backupDirectory = Path.GetDirectoryName(Path.GetFullPath(backupPath))
-                ?? Directory.GetCurrentDirectory();
-            var tempBackupPath = Path.Combine(backupDirectory, Path.GetRandomFileName());
-            (ulong, ulong)? tempFileIdentity = null;
-            try
-            {
-                using (var reservation = new FileStream(
-                    tempBackupPath,
-                    FileMode.CreateNew,
-                    FileAccess.Write,
-                    FileShare.None))
-                {
-                    if (TryGetOpenFileIdentity(
-                            reservation.SafeFileHandle,
-                            out var createdIdentity))
-                    {
-                        tempFileIdentity = createdIdentity;
-                    }
-                }
-
-                using var context = new SongDbContext(_options);
-                await WriteSnapshotToTempFileAsync(context, tempBackupPath);
-
-                await CopySnapshotToDestinationAsync(tempBackupPath, backupPath);
-            }
-            finally
-            {
-                if (tempFileIdentity.HasValue
-                    && TryGetFileIdentity(tempBackupPath, out var currentIdentity)
-                    && currentIdentity == tempFileIdentity.Value)
-                {
-                    File.Delete(tempBackupPath);
-                }
-            }
-        }
-
-
-        /// Restore database from a backup
-        public async Task RestoreDatabaseAsync(string backupPath)
-        {
-            if (!File.Exists(backupPath))
-            {
-                throw new FileNotFoundException($"Backup file not found: {backupPath}");
-            }
-
-            if (PathsReferToSameFile(_databasePath, backupPath))
-            {
-                throw new ArgumentException(
-                    $"Restore source must differ from the database file: {backupPath}",
-                    nameof(backupPath));
-            }
-
-            await using var source = new SqliteConnection(
-                new SqliteConnectionStringBuilder
-                {
-                    DataSource = backupPath,
-                    Pooling = false,
-                }.ToString());
-            await source.OpenAsync();
-
-            await using var versionProbe = source.CreateCommand();
-            versionProbe.CommandText = "PRAGMA user_version;";
-            var backupVersion = (long)(await versionProbe.ExecuteScalarAsync())!;
-            if (backupVersion != CurrentSongSchemaVersion)
-            {
-                throw new InvalidDataException(
-                    $"Backup schema version {backupVersion} does not match required version {CurrentSongSchemaVersion}: {backupPath}");
-            }
-
-            using var context = new SongDbContext(_options);
-            var destination = (SqliteConnection)context.Database.GetDbConnection();
-            await destination.OpenAsync();
-            source.BackupDatabase(destination);
-        }
-
-        internal virtual Task WriteSnapshotToTempFileAsync(
-            SongDbContext context,
-            string tempBackupPath)
-        {
-            var backupSql =
-                $"VACUUM INTO '{tempBackupPath.Replace("'", "''")}'";
-            return context.Database.ExecuteSqlRawAsync(backupSql);
-        }
-
-        private static async Task CopySnapshotToDestinationAsync(
-            string snapshotPath,
-            string destinationPath)
-        {
-            await using var source = new SqliteConnection(
-                new SqliteConnectionStringBuilder
-                {
-                    DataSource = snapshotPath,
-                    Pooling = false,
-                    Mode = SqliteOpenMode.ReadOnly,
-                }.ToString());
-            await using var destination = new SqliteConnection(
-                new SqliteConnectionStringBuilder
-                {
-                    DataSource = destinationPath,
-                    Pooling = false,
-                }.ToString());
-            await source.OpenAsync();
-            await destination.OpenAsync();
-            source.BackupDatabase(destination);
-        }
-
-        private bool PathsReferToSameFile(string firstPath, string secondPath)
-        {
-            var comparison = OperatingSystem.IsLinux()
-                ? StringComparison.Ordinal
-                : StringComparison.OrdinalIgnoreCase;
-            var firstFullPath = Path.GetFullPath(firstPath);
-            var secondFullPath = Path.GetFullPath(secondPath);
-            if (string.Equals(firstFullPath, secondFullPath, comparison))
-            {
-                return true;
-            }
-
-            if (string.Equals(
-                    ResolveLinkTargets(firstFullPath),
-                    ResolveLinkTargets(secondFullPath),
-                    comparison))
-            {
-                return true;
-            }
-
-            if (!File.Exists(firstFullPath) || !File.Exists(secondFullPath))
-            {
-                return false;
-            }
-
-            if (!TryGetFileIdentity(firstFullPath, out var firstIdentity))
-            {
-                throw new IOException(
-                    $"Cannot determine file identity for '{firstFullPath}'");
-            }
-            if (!TryGetFileIdentity(secondFullPath, out var secondIdentity))
-            {
-                throw new IOException(
-                    $"Cannot determine file identity for '{secondFullPath}'");
-            }
-            return firstIdentity == secondIdentity;
-        }
-
-        private static string ResolveLinkTargets(string fullPath)
-        {
-            var root = Path.GetPathRoot(fullPath) ?? string.Empty;
-            var resolved = root;
-            var segments = fullPath.Substring(root.Length).Split(
-                new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
-                StringSplitOptions.RemoveEmptyEntries);
-
-            for (var i = 0; i < segments.Length; i++)
-            {
-                var candidate = Path.Combine(resolved, segments[i]);
-                FileSystemInfo? linkTarget;
-                if (i + 1 < segments.Length)
-                {
-                    linkTarget = Directory.Exists(candidate)
-                        ? Directory.ResolveLinkTarget(candidate, returnFinalTarget: true)
-                        : null;
-                }
-                else
-                {
-                    linkTarget = File.Exists(candidate)
-                        ? File.ResolveLinkTarget(candidate, returnFinalTarget: true)
-                        : Directory.Exists(candidate)
-                            ? Directory.ResolveLinkTarget(candidate, returnFinalTarget: true)
-                            : null;
-                }
-
-                resolved = linkTarget == null
-                    ? candidate
-                    : ResolveLinkTargets(linkTarget.FullName);
-            }
-
-            return resolved;
-        }
-
-        internal virtual bool TryGetFileIdentity(
-            string fullPath,
-            out (ulong, ulong) identity)
-        {
-            identity = default;
-            try
-            {
-                using var stream = new FileStream(
-                    fullPath,
-                    FileMode.Open,
-                    FileAccess.Read,
-                    FileShare.ReadWrite | FileShare.Delete);
-                return TryGetOpenFileIdentity(stream.SafeFileHandle, out identity);
-            }
-            catch (Exception exception) when (exception
-                is IOException
-                or UnauthorizedAccessException
-                or DllNotFoundException
-                or EntryPointNotFoundException)
-            {
-                return false;
-            }
-        }
-
-        internal virtual bool TryGetOpenFileIdentity(
-            SafeFileHandle handle,
-            out (ulong, ulong) identity)
-        {
-            identity = default;
-            try
-            {
-                if (OperatingSystem.IsWindows())
-                {
-                    if (!GetFileInformationByHandle(handle, out var info))
-                    {
-                        return false;
-                    }
-                    identity = (
-                        info.dwVolumeSerialNumber,
-                        ((ulong)info.nFileIndexHigh << 32) | info.nFileIndexLow);
-                    return true;
-                }
-
-                if (!BitConverter.IsLittleEndian)
-                {
-                    return false;
-                }
-
-                var statBuffer = new byte[StatBufferSize];
-                if (fstat(handle.DangerousGetHandle(), statBuffer) != 0)
-                {
-                    return false;
-                }
-                identity = OperatingSystem.IsMacOS()
-                    ? (BitConverter.ToUInt32(statBuffer, DarwinDeviceOffset),
-                        BitConverter.ToUInt64(statBuffer, DarwinInodeOffset))
-                    : (BitConverter.ToUInt64(statBuffer, PosixDeviceOffset),
-                        BitConverter.ToUInt64(statBuffer, PosixInodeOffset));
-                return true;
-            }
-            catch (Exception exception) when (exception
-                is IOException
-                or UnauthorizedAccessException
-                or DllNotFoundException
-                or EntryPointNotFoundException)
-            {
-                return false;
-            }
-        }
-
-        [DllImport("libc", SetLastError = true)]
-        private static extern int fstat(IntPtr fd, [Out] byte[] buffer);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool GetFileInformationByHandle(
-            SafeFileHandle hFile,
-            out ByHandleFileInformation lpFileInformation);
-
-        private const int StatBufferSize = 256;
-        private const int PosixDeviceOffset = 0;
-        private const int PosixInodeOffset = 8;
-        private const int DarwinDeviceOffset = 0;
-        private const int DarwinInodeOffset = 8;
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct ByHandleFileInformation
-        {
-            public uint dwFileAttributes;
-            public System.Runtime.InteropServices.ComTypes.FILETIME ftCreationTime;
-            public System.Runtime.InteropServices.ComTypes.FILETIME ftLastAccessTime;
-            public System.Runtime.InteropServices.ComTypes.FILETIME ftLastWriteTime;
-            public uint dwVolumeSerialNumber;
-            public uint nFileSizeHigh;
-            public uint nFileSizeLow;
-            public uint nNumberOfLinks;
-            public uint nFileIndexHigh;
-            public uint nFileIndexLow;
-        }
         /// Get database statistics
         public async Task<DatabaseStats> GetDatabaseStatsAsync()
         {

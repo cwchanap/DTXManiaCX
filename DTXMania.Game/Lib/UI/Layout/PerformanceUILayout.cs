@@ -287,6 +287,7 @@ namespace DTXMania.Game.Lib.UI.Layout
         {
             public static readonly Vector2 FramePosition = new Vector2(294, 626);
             public static readonly Vector2 FillOrigin = new Vector2(314, 635); // FramePos + (20,9)
+            public const int FillWidth = 200;
             public const int FillHeight = 31;
             
             /// <summary>

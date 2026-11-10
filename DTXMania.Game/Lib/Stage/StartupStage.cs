@@ -874,26 +874,7 @@ namespace DTXMania.Game.Lib.Stage
             _songManager.PublishEmptyLibrary();
         }
 
-        private Task InitializeDatabaseServiceAsync()
-        {
-            long activationGeneration;
-            CancellationToken cancellationToken;
-            lock (_activationGate)
-            {
-                activationGeneration = _activationGeneration;
-                cancellationToken =
-                    _cancellationTokenSource?.Token ??
-                    CancellationToken.None;
-            }
-
-            return InitializeDatabaseServiceForActivationAsync(
-                activationGeneration,
-                cancellationToken);
-        }
-
-        private async Task InitializeDatabaseServiceForActivationAsync(
-            long activationGeneration,
-            CancellationToken cancellationToken)
+        private async Task InitializeDatabaseServiceAsync()
         {
             try
             {

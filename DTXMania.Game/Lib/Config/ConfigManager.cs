@@ -754,7 +754,7 @@ namespace DTXMania.Game.Lib.Config
         /// Builds the logical key/value snapshot persisted to the SQLite
         /// store (formerly the body of the INI <c>SaveConfig</c>). The
         /// duplicate <c>DTXPath</c> representation is deliberately excluded:
-        /// <c>DTXPath</c> is a legacy input/in-memory mirror only, and
+        /// <c>DTXPath</c> is a legacy INI bootstrap input only, and
         /// <c>SongRoot.0</c> is the persisted form.
         /// </summary>
         private IReadOnlyDictionary<string, string> BuildPersistedEntries()
