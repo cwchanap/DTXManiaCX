@@ -114,8 +114,14 @@ fi
 NO_SKIN_PUBLISH="$TMP/publish-no-skin"
 mkdir -p "$NO_SKIN_PUBLISH"
 printf '#!/bin/sh\nexit 0\n' > "$NO_SKIN_PUBLISH/DTXMania.Game.Mac"
-if bash "$SCRIPT_DIR/build-dmg.sh" "$NO_SKIN_PUBLISH" "0.0.0-test" "$ICO" "$TMP/out-no-skin" >/dev/null 2>&1; then
+NO_SKIN_STDERR="$TMP/no-skin-stderr.txt"
+if bash "$SCRIPT_DIR/build-dmg.sh" "$NO_SKIN_PUBLISH" "0.0.0-test" "$ICO" "$TMP/out-no-skin" >/dev/null 2>"$NO_SKIN_STDERR"; then
     echo "FAIL: expected build-dmg.sh to fail when the publish output lacks System/" >&2
+    exit 1
+fi
+if ! grep -q "publish output is missing System/" "$NO_SKIN_STDERR"; then
+    echo "FAIL: build-dmg.sh failed for a different reason; stderr was:" >&2
+    cat "$NO_SKIN_STDERR" >&2
     exit 1
 fi
 
