@@ -5,6 +5,7 @@ using DTXMania.Automation.Support;
 using DTXMania.Automation.Telemetry;
 using DTXMania.E2E.Fixtures;
 using DTXMania.E2E.Support;
+using static DTXMania.E2E.Support.E2EStageHelpers;
 
 namespace DTXMania.E2E;
 
@@ -139,21 +140,6 @@ public sealed class MidiGameplaySmokeTests
             "#00513: 01",
             string.Empty
         });
-    }
-
-    private static async Task<GameStateSnapshot> WaitForStageAsync(
-        JsonRpcGameClient client,
-        string expectedStageType,
-        TimeSpan timeout,
-        CancellationToken cancellationToken)
-    {
-        return await Eventually.UntilAsync(
-            token => client.GetGameStateAsync(token),
-            state => string.Equals(state.StageType, expectedStageType, StringComparison.Ordinal),
-            timeout,
-            TimeSpan.FromMilliseconds(500),
-            expectedStageType,
-            cancellationToken);
     }
 
     private static async Task<GameStateSnapshot> WaitForPerformanceReadyAsync(

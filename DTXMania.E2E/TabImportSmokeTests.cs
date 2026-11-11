@@ -5,6 +5,7 @@ using DTXMania.Automation.Telemetry;
 using DTXMania.E2E.Fixtures;
 using DTXMania.E2E.Support;
 using DTXMania.Game.Lib.Config;
+using static DTXMania.E2E.Support.E2EStageHelpers;
 
 namespace DTXMania.E2E;
 
@@ -91,7 +92,7 @@ public sealed class TabImportSmokeTests
         }
         catch
         {
-            await SaveScreenshotAsync(client, fixture, "failure-tab-import.png", CancellationToken.None);
+            await TryWriteScreenshotAsync(client, fixture, "failure-tab-import.png");
             throw;
         }
         finally
@@ -142,43 +143,4 @@ public sealed class TabImportSmokeTests
             "</part></score-partwise>";
     }
 
-    private static Task<GameStateSnapshot> WaitForStageAsync(
-        JsonRpcGameClient client,
-        string expectedStageType,
-        TimeSpan timeout,
-        CancellationToken cancellationToken)
-    {
-        return Eventually.UntilAsync(
-            token => client.GetGameStateAsync(token),
-            state => string.Equals(state.StageType, expectedStageType, StringComparison.Ordinal),
-            timeout,
-            TimeSpan.FromMilliseconds(500),
-            expectedStageType,
-            cancellationToken);
-    }
-
-    private static async Task SaveScreenshotAsync(
-        JsonRpcGameClient client,
-        E2EFixture fixture,
-        string fileName,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-            using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
-                cancellationToken, timeoutCts.Token);
-            var imageData = await client.TakeScreenshotBase64Async(cancellation.Token);
-            if (string.IsNullOrWhiteSpace(imageData))
-                return;
-
-            Directory.CreateDirectory(fixture.ArtifactRoot);
-            await File.WriteAllBytesAsync(
-                Path.Combine(fixture.ArtifactRoot, fileName), Convert.FromBase64String(imageData), cancellation.Token);
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[E2E] Screenshot capture skipped for '{fileName}': {ex.GetType().Name}: {ex.Message}");
-        }
-    }
 }

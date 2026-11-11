@@ -31,7 +31,8 @@ public static class E2EFixtureBuilder
         bool enableAutoPlayLanes = true,
         DrumsNoteDisplayStyle noteDisplayStyle = DrumsNoteDisplayStyle.Lanes,
         bool includeBackgroundVideo = false,
-        bool useBundledDefaultSkin = false)
+        bool useBundledDefaultSkin = false,
+        int extraChartBars = 0)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(runRoot);
         ArgumentException.ThrowIfNullOrWhiteSpace(repoRoot);
@@ -63,7 +64,10 @@ public static class E2EFixtureBuilder
                 enableAutoPlayLanes,
                 noteDisplayStyle),
             Encoding.UTF8);
-        File.WriteAllText(paths.ChartPath, BuildChart(includeBackgroundVideo), Encoding.UTF8);
+        File.WriteAllText(
+            paths.ChartPath,
+            BuildChart(includeBackgroundVideo, extraChartBars),
+            Encoding.UTF8);
         var audioPath = Path.Combine(paths.SongDirectory, AudioFileName);
         WriteDeterministicWave(audioPath);
         if (includeBackgroundVideo)
@@ -182,7 +186,7 @@ public static class E2EFixtureBuilder
         return string.Join('\n', lines);
     }
 
-    private static string BuildChart(bool includeBackgroundVideo = false)
+    private static string BuildChart(bool includeBackgroundVideo = false, int extraChartBars = 0)
     {
         var lines = new List<string>
         {
@@ -215,6 +219,12 @@ public static class E2EFixtureBuilder
             // video is active whenever a mid-song screenshot lands.
             lines.Add("#00054: 01");
             lines.Add("#00154: 01");
+        }
+        // Each extra bar is two seconds at 120 BPM. Used by tests that need a
+        // Performance window wide enough for a slow-runner screenshot.
+        for (var bar = 2; bar < 2 + extraChartBars; bar++)
+        {
+            lines.Add($"#{bar:D3}01: 0100000000000000");
         }
         lines.Add(string.Empty);
         return string.Join('\n', lines);

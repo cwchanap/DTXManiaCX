@@ -7,6 +7,7 @@ using DTXMania.E2E.Support;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Song.Entities;
 using Microsoft.EntityFrameworkCore;
+using static DTXMania.E2E.Support.E2EStageHelpers;
 
 namespace DTXMania.E2E;
 
@@ -195,7 +196,7 @@ public sealed class GameplayAutoPlaySmokeTests
         }
         catch
         {
-            await SaveScreenshotAsync(client, fixture, "failure-fullautoplay.png", CancellationToken.None);
+            await TryWriteScreenshotAsync(client, fixture, "failure-fullautoplay.png");
             throw;
         }
         finally
@@ -280,7 +281,7 @@ public sealed class GameplayAutoPlaySmokeTests
         }
         catch
         {
-            await SaveScreenshotAsync(client, fixture, "failure-tabautoplay.png", CancellationToken.None);
+            await TryWriteScreenshotAsync(client, fixture, "failure-tabautoplay.png");
             throw;
         }
         finally
@@ -401,11 +402,10 @@ public sealed class GameplayAutoPlaySmokeTests
         }
         catch
         {
-            await SaveScreenshotAsync(
+            await TryWriteScreenshotAsync(
                 client,
                 fixture,
-                $"failure-{artifactSuffix}.png",
-                CancellationToken.None);
+                $"failure-{artifactSuffix}.png");
             throw;
         }
         finally
@@ -583,64 +583,6 @@ public sealed class GameplayAutoPlaySmokeTests
     {
         await E2EArtifactWriter.WriteTextAsync(fixture, $"game-stdout-{artifactSuffix}.log", process.StandardOutput);
         await E2EArtifactWriter.WriteTextAsync(fixture, $"game-stderr-{artifactSuffix}.log", process.StandardError);
-    }
-
-    private static async Task<GameStateSnapshot> WaitForStageAsync(
-        JsonRpcGameClient client,
-        string expectedStageType,
-        TimeSpan timeout,
-        CancellationToken cancellationToken)
-    {
-        return await Eventually.UntilAsync(
-            token => client.GetGameStateAsync(token),
-            state => string.Equals(state.StageType, expectedStageType, StringComparison.Ordinal),
-            timeout,
-            TimeSpan.FromMilliseconds(500),
-            expectedStageType,
-            cancellationToken);
-    }
-
-    /// <summary>
-    /// Captures a screenshot via the JSON-RPC takeScreenshot endpoint and saves it
-    /// as a PNG artifact. Used both for proactive stage screenshots (e.g. SongSelect
-    /// status-panel visual verification) and for failure diagnostics.
-    /// </summary>
-    /// <returns>
-    /// The artifact path when a PNG was written, or null when the capture was
-    /// skipped (empty data or an exception). Callers for whom the image is
-    /// required evidence — not a best-effort diagnostic — must assert on it.
-    /// </returns>
-    private static async Task<string?> SaveScreenshotAsync(
-        JsonRpcGameClient client,
-        E2EFixture fixture,
-        string fileName,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            // The timer-backed CTS must have its own 'using' — wrapping it inline in
-            // CreateLinkedTokenSource leaks it because only the linked CTS is disposed.
-            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-            using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
-                cancellationToken, timeoutCts.Token);
-            var imageData = await client.TakeScreenshotBase64Async(cancellation.Token);
-            if (string.IsNullOrWhiteSpace(imageData))
-                return null;
-
-            var imageBytes = Convert.FromBase64String(imageData);
-            Directory.CreateDirectory(fixture.ArtifactRoot);
-            var screenshotPath = Path.Combine(fixture.ArtifactRoot, fileName);
-            await File.WriteAllBytesAsync(screenshotPath, imageBytes, cancellation.Token);
-            return screenshotPath;
-        }
-        catch (Exception ex)
-        {
-            // Screenshot artifacts should never hide the original E2E assertion or launch error,
-            // but log the reason so a missing CI artifact is explainable (e.g. the test's own
-            // cancellation budget surfaced here as OperationCanceledException).
-            Console.WriteLine($"[E2E] Screenshot capture skipped for '{fileName}': {ex.GetType().Name}: {ex.Message}");
-            return null;
-        }
     }
 
 }

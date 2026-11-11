@@ -133,6 +133,32 @@ public sealed class E2EFixtureBuilderTests
     }
 
     [Fact]
+    public void Build_WithExtraChartBars_ShouldAppendBars()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "dtx-e2e-fixture-" + Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            var fixture = E2EFixtureBuilder.Build(
+                root,
+                Directory.GetCurrentDirectory(),
+                apiPort: 18080,
+                extraChartBars: 3);
+
+            var chart = File.ReadAllText(fixture.ChartPath);
+            Assert.Contains("#00201:", chart);
+            Assert.Contains("#00401:", chart);
+            Assert.DoesNotContain("#00501:", chart);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Build_WithBundledDefaultSkin_ShouldUseDefaultTokenAndNoFixtureSkin()
     {
         var root = Path.Combine(Path.GetTempPath(), "dtx-e2e-fixture-" + Guid.NewGuid().ToString("N"));

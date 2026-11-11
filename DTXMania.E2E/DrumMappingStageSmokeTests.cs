@@ -4,6 +4,7 @@ using DTXMania.Automation.Support;
 using DTXMania.Automation.Telemetry;
 using DTXMania.E2E.Fixtures;
 using DTXMania.E2E.Support;
+using static DTXMania.E2E.Support.E2EStageHelpers;
 
 namespace DTXMania.E2E;
 
@@ -95,7 +96,7 @@ public sealed class DrumMappingStageSmokeTests
         catch (Exception ex)
         {
             await E2EArtifactWriter.WriteTextAsync(fixture, "failure.txt", ex.ToString());
-            await TryWriteScreenshotAsync(client, fixture);
+            await TryWriteScreenshotAsync(client, fixture, "drum-failure-screenshot.png");
             throw;
         }
         finally
@@ -185,7 +186,7 @@ public sealed class DrumMappingStageSmokeTests
         catch (Exception ex)
         {
             await E2EArtifactWriter.WriteTextAsync(fixture, "failure.txt", ex.ToString());
-            await TryWriteScreenshotAsync(client, fixture);
+            await TryWriteScreenshotAsync(client, fixture, "drum-failure-screenshot.png");
             throw;
         }
         finally
@@ -205,40 +206,6 @@ public sealed class DrumMappingStageSmokeTests
         return string.Join('\n', manager.Config.KeyBindings
             .OrderBy(kvp => kvp.Key, StringComparer.Ordinal)
             .Select(kvp => $"{kvp.Key}={kvp.Value}"));
-    }
-
-    private static async Task<GameStateSnapshot> WaitForStageAsync(
-        JsonRpcGameClient client,
-        string expectedStageType,
-        TimeSpan timeout,
-        CancellationToken cancellationToken)
-    {
-        return await Eventually.UntilAsync(
-            token => client.GetGameStateAsync(token),
-            state => string.Equals(state.StageType, expectedStageType, StringComparison.Ordinal),
-            timeout,
-            TimeSpan.FromMilliseconds(500),
-            expectedStageType,
-            cancellationToken);
-    }
-
-    private static async Task TryWriteScreenshotAsync(JsonRpcGameClient client, E2EFixture fixture)
-    {
-        try
-        {
-            using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-            var imageData = await client.TakeScreenshotBase64Async(cancellation.Token);
-            if (string.IsNullOrWhiteSpace(imageData))
-                return;
-
-            var imageBytes = Convert.FromBase64String(imageData);
-            Directory.CreateDirectory(fixture.ArtifactRoot);
-            await File.WriteAllBytesAsync(Path.Combine(fixture.ArtifactRoot, "drum-failure-screenshot.png"), imageBytes, cancellation.Token);
-        }
-        catch
-        {
-            // Failure artifacts should never hide the original E2E assertion or launch error.
-        }
     }
 
 }
