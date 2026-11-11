@@ -55,6 +55,20 @@
     <None Update="BundledSongs\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- Bundled CX Neon base skin (System/Theme.ini, Graphics/, Sounds/). LinkBase
+       keeps each file's path relative to the skin root; the Exclude list drops
+       OS junk that MSBuild globs would otherwise copy even though Git ignores it. -->
+  <ItemGroup>
+    <None Include="..\System\Theme.ini" Link="System\Theme.ini"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\System\Graphics\**\*" LinkBase="System\Graphics"
+          Exclude="..\System\Graphics\**\*.log;..\System\Graphics\**\.DS_Store;..\System\Graphics\**\desktop.ini;..\System\Graphics\**\Thumbs.db"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\System\Sounds\**\*" LinkBase="System\Sounds"
+          Exclude="..\System\Sounds\**\*.log;..\System\Sounds\**\.DS_Store;..\System\Sounds\**\desktop.ini;..\System\Sounds\**\Thumbs.db"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
   
   <Target Name="RestoreDotnetTools" BeforeTargets="Restore">
     <Message Text="Restoring dotnet tools" Importance="High" />

@@ -8,6 +8,7 @@ using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage.Config;
+using DTXMania.Game.Lib.Utilities;
 using DTXMania.Test.Helpers;
 using DTXMania.Test.TestData;
 using Xunit;
@@ -23,9 +24,9 @@ namespace DTXMania.Test.Config
         public ConfigStageSkinSwitcherTests()
         {
             _tempBase = Path.Combine(Path.GetTempPath(), "dtx-skinswitch-" + Guid.NewGuid().ToString("N"));
-            // The skin root's leaf must literally be "System" so SkinManager.GetSkinName maps the
-            // base root to "Default". The root itself is then the "Default" skin; CXNeon is a
-            // custom skin under it, so discovery yields the options ["Default", "CXNeon"].
+            // The writable skin root hosts the custom CXNeon skin, mirroring
+            // app-data. The discovered "Default" is the bundled System root from
+            // the test output, so the dropdown yields ["Default", "CXNeon"].
             _skinRoot = Path.Combine(_tempBase, "System");
             CreateSkin(_skinRoot);
             CreateSkin(Path.Combine(_skinRoot, "CXNeon"));
@@ -51,15 +52,16 @@ namespace DTXMania.Test.Config
             var inputManager = new InputManagerCompat(configManager, new TestMidiDeviceBackend());
             var resourceManager = new MockResourceManager();
             // Simulate the real ResourceManager's initialized state: the
-            // effective skin path is the absolute default System root, not the
-            // relative "System/" placeholder the mock defaults to. Without this,
-            // SkinManager.GetSkinName's path-equality check (which replaced the
-            // old literal-"System" segment check) can't match the mock's
-            // relative path against SkinManager._defaultSkinPath, and the
-            // dropdown mislabels the default skin as "System" instead of
-            // "Default". Tests that need a non-default starting skin override
-            // this by calling SetSkinPath again after CreateStage.
-            resourceManager.SetSkinPath(_skinRoot + Path.DirectorySeparatorChar);
+            // effective skin path is the absolute default root, not the
+            // relative "System/" placeholder the mock defaults to. That root is
+            // the bundled System skin (the game output ships it, and a
+            // referencing test project inherits it); the fixture's own System
+            // root only hosts the custom CXNeon skin, mirroring app-data.
+            // Without this, the fixture root looks like an external skin and
+            // the dropdown mislabels the current skin.
+            var defaultSkinRoot = AppPaths.GetBundledSystemSkinRootCandidates()
+                .First(SkinManager.ValidateSkinPath);
+            resourceManager.SetSkinPath(defaultSkinRoot + Path.DirectorySeparatorChar);
             var game = ReflectionHelpers.CreateGame();
             ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager);
             ReflectionHelpers.SetProperty(game, nameof(BaseGame.InputManager), inputManager);

@@ -129,6 +129,56 @@ namespace DTXMania.Test.Resources
                 "\n  Run `python tools/skingen/generate_source.py` then add the asset to manifest.json.");
         }
 
+        /// <summary>
+        /// The bundled skin must reach the build output (and so every published
+        /// artifact) with its full relative layout. MSBuild globs also pick up
+        /// physical junk that .gitignore hides, so the game projects exclude it
+        /// explicitly; this guard fails when a copy item regresses, a Link
+        /// collapses nested directories, or junk leaks into the output.
+        /// </summary>
+        [Fact]
+        public void BundledSystemSkin_ShouldBeCopiedToBuildOutputWithIntactLayoutAndNoJunk()
+        {
+            var repoPack = Path.Combine(FindRepoRoot(), "System");
+            var outputPack = Path.Combine(AppContext.BaseDirectory, "System");
+
+            Assert.True(Directory.Exists(outputPack),
+                $"Bundled System skin was not copied to the build output: {outputPack}");
+
+            var expected = RelativeFiles(repoPack)
+                .Where(p => p == "Theme.ini" ||
+                            p.StartsWith("Graphics/", StringComparison.Ordinal) ||
+                            p.StartsWith("Sounds/", StringComparison.Ordinal))
+                .Where(p => !IsJunk(Path.GetFileName(p)))
+                .ToList();
+            var actual = RelativeFiles(outputPack).ToList();
+            Assert.NotEmpty(expected);
+
+            var missing = expected.Except(actual, StringComparer.Ordinal).OrderBy(p => p).ToList();
+            Assert.True(missing.Count == 0,
+                $"Bundled System skin in {outputPack} is missing {missing.Count} files:\n  " +
+                string.Join("\n  ", missing));
+
+            var unexpected = actual.Except(expected, StringComparer.Ordinal).OrderBy(p => p).ToList();
+            Assert.True(unexpected.Count == 0,
+                $"Bundled System skin in {outputPack} contains {unexpected.Count} files absent from the source pack:\n  " +
+                string.Join("\n  ", unexpected));
+        }
+
+        private static IEnumerable<string> RelativeFiles(string root)
+        {
+            return Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
+                .Select(f => Path.GetRelativePath(root, f).Replace(Path.DirectorySeparatorChar, '/'));
+        }
+
+        private static bool IsJunk(string fileName)
+        {
+            return string.Equals(fileName, ".DS_Store", StringComparison.Ordinal)
+                || string.Equals(fileName, "desktop.ini", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(fileName, "Thumbs.db", StringComparison.OrdinalIgnoreCase)
+                || fileName.EndsWith(".log", StringComparison.OrdinalIgnoreCase);
+        }
+
         private static string FindRepoRoot()
         {
             var dir = new DirectoryInfo(AppContext.BaseDirectory);

@@ -760,15 +760,20 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
-        public void ResolveBundledSystemSkinRoot_WhenNoBundledCandidateExists_ShouldReturnNull()
+        public void ResolveBundledSystemSkinRoot_ShouldResolveBundledSystemFromAppBaseDirectory()
         {
-            // The private wrapper delegates to the internal static method using the real
-            // AppPaths candidates, none of which exist in the test environment.
+            // The game output ships System/, and a referencing test project
+            // inherits it, so the private wrapper (which takes its candidates
+            // from AppPaths) must resolve that bundled root. The no-candidate
+            // null case is covered by
+            // ResolveBundledSystemSkinRootFromCandidates_WithNoValidatingDirectory.
             var resourceManager = CreateResourceManager();
 
             var result = InvokePrivateMethod<string>(resourceManager, "ResolveBundledSystemSkinRoot");
 
-            Assert.Null(result);
+            Assert.Equal(
+                NormalizeDirectory(Path.Combine(AppContext.BaseDirectory, "System")),
+                result);
         }
 
         #endregion
