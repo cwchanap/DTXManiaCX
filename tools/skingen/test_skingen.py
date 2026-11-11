@@ -44,8 +44,15 @@ class BootstrapTests(unittest.TestCase):
     def test_bootstrap_preserves_authored_fields_and_adds_null_dim_entries(self):
         # bootstrap only fills gaps from TexturePath.cs: authored dimensions,
         # optionality and recipes survive, and a new entry is left for the
-        # author to measure (no reference pack is read any more).
+        # author to measure. It must never infer dimensions from the pack.
         with tempfile.TemporaryDirectory() as tmp:
+            # The guard is only meaningful while this is a real pack image:
+            # old bootstrap behaviour measured existing references only.
+            self.assertTrue(
+                os.path.exists(os.path.join(
+                    skingen.REPO_ROOT, "System", "Graphics", "1_background.jpg")),
+                "bootstrap regression guard needs an existing pack image")
+
             manifest_path = os.path.join(tmp, "manifest.json")
             authored = {"Graphics/keep.png": {
                 "width": 12, "height": 7, "optional": False,
@@ -54,20 +61,33 @@ class BootstrapTests(unittest.TestCase):
                 json.dump({"assets": authored}, f)
 
             original_scan = skingen.scan_texture_paths
+            original_read_dims = skingen.read_dims
             skingen.scan_texture_paths = lambda: [
                 "Graphics/keep.png",
+                # A real pack image with null authored dimensions: old
+                # bootstrap behaviour measured it and filled in its size.
+                "Graphics/1_background.jpg",
                 "Graphics/new.png",
                 "Graphics/7_background.mp4",
             ]
+
+            def fail_if_measured(_path):
+                raise AssertionError(
+                    "bootstrap must not infer dimensions from pack assets")
+
+            skingen.read_dims = fail_if_measured
             try:
                 skingen.bootstrap(manifest_path)
             finally:
                 skingen.scan_texture_paths = original_scan
+                skingen.read_dims = original_read_dims
 
             with open(manifest_path, encoding="utf-8") as f:
                 assets = json.load(f)["assets"]
 
             self.assertEqual(assets["Graphics/keep.png"], authored["Graphics/keep.png"])
+            self.assertIsNone(assets["Graphics/1_background.jpg"]["width"])
+            self.assertIsNone(assets["Graphics/1_background.jpg"]["height"])
             self.assertIsNone(assets["Graphics/new.png"]["width"])
             self.assertIsNone(assets["Graphics/new.png"]["height"])
             self.assertFalse(assets["Graphics/new.png"]["optional"])

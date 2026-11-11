@@ -43,6 +43,13 @@ public sealed class DefaultSkinFirstRunSmokeTests
             repoRoot,
             apiPort,
             useBundledDefaultSkin: true);
+        // The CI artifact root is shared by every E2E fixture, whose generic
+        // log/config names would overwrite this run's provenance. Scope this
+        // test's artifacts to its own subdirectory (uploaded recursively).
+        fixture = fixture with
+        {
+            ArtifactRoot = Path.Combine(fixture.ArtifactRoot, "default-skin")
+        };
         await using var bundle = E2EGameLaunch.CreateClientBundle(fixture);
         var process = bundle.Process;
         var client = bundle.Client;
