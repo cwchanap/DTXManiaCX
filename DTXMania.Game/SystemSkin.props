@@ -1,0 +1,16 @@
+<Project>
+  <!-- Bundled CX Neon base skin (System/Theme.ini, Graphics/, Sounds/), imported
+       by both game project files. LinkBase keeps each file's path relative to
+       the skin root; the Exclude list drops OS junk that MSBuild globs would
+       otherwise copy even though Git ignores it. -->
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)..\System\Theme.ini" Link="System\Theme.ini"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="$(MSBuildThisFileDirectory)..\System\Graphics\**\*" LinkBase="System\Graphics"
+          Exclude="$(MSBuildThisFileDirectory)..\System\Graphics\**\*.log;$(MSBuildThisFileDirectory)..\System\Graphics\**\.DS_Store;$(MSBuildThisFileDirectory)..\System\Graphics\**\desktop.ini;$(MSBuildThisFileDirectory)..\System\Graphics\**\Thumbs.db"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="$(MSBuildThisFileDirectory)..\System\Sounds\**\*" LinkBase="System\Sounds"
+          Exclude="$(MSBuildThisFileDirectory)..\System\Sounds\**\*.log;$(MSBuildThisFileDirectory)..\System\Sounds\**\.DS_Store;$(MSBuildThisFileDirectory)..\System\Sounds\**\desktop.ini;$(MSBuildThisFileDirectory)..\System\Sounds\**\Thumbs.db"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
