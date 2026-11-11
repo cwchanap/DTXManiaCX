@@ -52,9 +52,10 @@ namespace DTXMania.Test.Resources
             // Arrange & Act
             using var skinManager = new SkinManager(_mockResourceManager.Object, "TestSkins/");
 
-            // Assert
+            // Assert — "TestSkins/" is normally absent, so the bundled System
+            // root inherited from the game project output is discovered.
             Assert.NotNull(skinManager);
-            Assert.Empty(skinManager.AvailableSystemSkins);
+            Assert.NotEmpty(skinManager.AvailableSystemSkins);
         }
 
         [Fact]
@@ -406,9 +407,11 @@ namespace DTXMania.Test.Resources
             var defaultOption = options.Single(o => o.Name == "Default");
             var customOption = options.Single(o => o.Name != "Default");
             Assert.NotEqual(defaultOption.Path, customOption.Path);
-            // The bare "Default" label maps to the actual default root.
+            // The bare "Default" label maps to the actual default root (the
+            // bundled System skin when the game output ships it).
+            Assert.NotNull(skinManager.DefaultSkinPath);
             Assert.Equal(
-                Path.GetFullPath(_testSkinRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                Path.GetFullPath(skinManager.DefaultSkinPath!).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
                 Path.GetFullPath(defaultOption.Path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
                 StringComparer.OrdinalIgnoreCase);
             // The suffixed label maps to the custom <root>/Default/ directory.
@@ -479,8 +482,9 @@ namespace DTXMania.Test.Resources
 
             Assert.True(switched);
             Assert.NotNull(capturedPath);
+            Assert.NotNull(skinManager.DefaultSkinPath);
             Assert.Equal(
-                Path.GetFullPath(_testSkinRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                Path.GetFullPath(skinManager.DefaultSkinPath!).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
                 Path.GetFullPath(capturedPath!).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
                 StringComparer.OrdinalIgnoreCase);
         }
