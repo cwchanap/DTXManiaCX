@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Text.Json;
 using DTXMania.Automation.JsonRpc;
 using DTXMania.Automation.Process;
 using DTXMania.Automation.Support;
@@ -86,34 +87,32 @@ public sealed class DefaultSkinFirstRunSmokeTests
             await Task.Delay(500, cancellation.Token);
             await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
 
-            await Eventually.UntilAsync(
-                token => client.GetGameStateAsync(token),
-                state =>
-                    string.Equals(state.StageType, "Performance", StringComparison.Ordinal) &&
-                    state.PerformanceReady,
-                TimeSpan.FromSeconds(60),
-                TimeSpan.FromMilliseconds(250),
-                "Performance ready with the bundled Default skin",
-                cancellation.Token);
-            await Task.Delay(500, cancellation.Token);
-            await CaptureRequiredScreenshotAsync(
+            await CapturePerformanceScreenshotAsync(
                 client, fixture, "performance-default-skin.png", cancellation.Token);
 
-            // The authoritative store must still hold the logical token (not an
-            // absolute bundled path), and the only writable skin root must be the
-            // sandbox app-data System directory.
-            var persisted = E2EConfigPersistence.LoadPersistedConfig(fixture);
-            Assert.Equal(ConfigManager.DefaultSkinPathToken, persisted.Config.SkinPath);
+            // Read the raw stored rows before any normalizing reader. ConfigManager
+            // .LoadConfig supplies defaults and rewrites the database when values
+            // migrate, so using it here could manufacture the very "Default" row this
+            // assertion exists to prove. SqliteConfigStore.Load opens read-only.
+            var storedEntries = new SqliteConfigStore(fixture.ConfigDatabasePath).Load();
+            Assert.True(
+                storedEntries.ContainsKey("SkinPath"),
+                "The game did not persist a SkinPath row.");
+            Assert.Equal(ConfigManager.DefaultSkinPathToken, storedEntries["SkinPath"]);
+            Assert.True(
+                storedEntries.ContainsKey("SystemSkinRoot"),
+                "The game did not persist a SystemSkinRoot row.");
+            var storedSystemSkinRoot = storedEntries["SystemSkinRoot"];
             Assert.Equal(
                 Path.GetFullPath(Path.Combine(fixture.AppDataRoot, "System")),
-                Path.GetFullPath(persisted.Config.SystemSkinRoot));
+                Path.GetFullPath(storedSystemSkinRoot));
             await E2EArtifactWriter.WriteJsonAsync(
                 fixture,
                 "default-skin-config.json",
                 new
                 {
-                    persisted.Config.SkinPath,
-                    persisted.Config.SystemSkinRoot,
+                    StoredSkinPath = storedEntries["SkinPath"],
+                    StoredSystemSkinRoot = storedSystemSkinRoot,
                     FixtureSkinRootExists = Directory.Exists(fixture.SkinRoot),
                     AppDataThemeIniExists = File.Exists(
                         Path.Combine(fixture.AppDataRoot, "System", "Theme.ini"))
@@ -146,6 +145,71 @@ public sealed class DefaultSkinFirstRunSmokeTests
             TimeSpan.FromMilliseconds(500),
             expectedStageType,
             cancellationToken);
+    }
+
+    /// <summary>
+    /// Captures the gameplay evidence only while Performance is actually current.
+    /// AutoPlay can finish the fixture chart and reach Result while a delayed CI
+    /// continuation is pending, and a Result frame would pass every PNG assertion.
+    /// The state is therefore rechecked immediately before and after the capture.
+    /// </summary>
+    private static async Task CapturePerformanceScreenshotAsync(
+        JsonRpcGameClient client,
+        E2EFixture fixture,
+        string fileName,
+        CancellationToken cancellationToken)
+    {
+        await Eventually.UntilAsync(
+            token => client.GetGameStateAsync(token),
+            IsPerformanceCaptureState,
+            TimeSpan.FromSeconds(60),
+            TimeSpan.FromMilliseconds(250),
+            "Performance ready with the bundled Default skin and no pending transition",
+            cancellationToken);
+        await Task.Delay(500, cancellationToken);
+
+        AssertPerformanceCaptureState(
+            await client.GetGameStateAsync(cancellationToken),
+            "before capture");
+        await CaptureRequiredScreenshotAsync(client, fixture, fileName, cancellationToken);
+        AssertPerformanceCaptureState(
+            await client.GetGameStateAsync(cancellationToken),
+            "after capture");
+    }
+
+    /// <summary>
+    /// True only when the game is in Performance, has prepared audio, and is not
+    /// transitioning — i.e. a frame captured now is genuinely gameplay.
+    /// </summary>
+    internal static bool IsPerformanceCaptureState(GameStateSnapshot state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        return string.Equals(state.StageType, "Performance", StringComparison.Ordinal)
+            && state.PerformanceReady
+            && !IsTransitioning(state);
+    }
+
+    private static void AssertPerformanceCaptureState(GameStateSnapshot state, string phase)
+    {
+        Assert.True(
+            IsPerformanceCaptureState(state),
+            $"Refusing {phase} gameplay evidence: expected Performance (ready, not transitioning), " +
+            $"observed stage='{state.StageType}', performanceReady={state.PerformanceReady}, " +
+            $"isTransitioning={IsTransitioning(state)}, stagePhase='{GetStagePhase(state)}'.");
+    }
+
+    private static bool IsTransitioning(GameStateSnapshot state)
+    {
+        return state.Telemetry.TryGetProperty("isTransitioning", out var value)
+            && value.ValueKind == JsonValueKind.True;
+    }
+
+    private static string GetStagePhase(GameStateSnapshot state)
+    {
+        return state.Telemetry.TryGetProperty("stagePhase", out var value)
+            && value.ValueKind == JsonValueKind.String
+            ? value.GetString() ?? "unknown"
+            : "unknown";
     }
 
     /// <summary>
@@ -226,5 +290,63 @@ public sealed class DefaultSkinFirstRunSmokeTests
         {
             // Failure artifacts must never hide the original E2E assertion.
         }
+    }
+}
+
+/// <summary>
+/// Fast E2E-Support coverage for the gameplay capture guard: the graphical
+/// smoke must refuse a Performance screenshot when the stage already advanced
+/// (the AutoPlay chart can reach Result while a delayed test continuation is
+/// still pending).
+/// </summary>
+[Trait("Category", "E2E-Support")]
+public sealed class DefaultSkinFirstRunSmokeTestsSupport
+{
+    [Fact]
+    public void IsPerformanceCaptureState_WhenReadyWithoutTransition_ShouldAccept()
+    {
+        Assert.True(DefaultSkinFirstRunSmokeTests.IsPerformanceCaptureState(
+            Snapshot("Performance", performanceReady: true, isTransitioning: false)));
+    }
+
+    [Fact]
+    public void IsPerformanceCaptureState_WhenTransitioning_ShouldReject()
+    {
+        Assert.False(DefaultSkinFirstRunSmokeTests.IsPerformanceCaptureState(
+            Snapshot("Performance", performanceReady: true, isTransitioning: true)));
+    }
+
+    [Fact]
+    public void IsPerformanceCaptureState_WhenStageAdvancedToResult_ShouldReject()
+    {
+        Assert.False(DefaultSkinFirstRunSmokeTests.IsPerformanceCaptureState(
+            Snapshot("Result", performanceReady: false, isTransitioning: false)));
+    }
+
+    [Fact]
+    public void IsPerformanceCaptureState_WhenPerformanceNotReady_ShouldReject()
+    {
+        Assert.False(DefaultSkinFirstRunSmokeTests.IsPerformanceCaptureState(
+            Snapshot("Performance", performanceReady: false, isTransitioning: false)));
+    }
+
+    private static GameStateSnapshot Snapshot(
+        string stageType,
+        bool performanceReady,
+        bool isTransitioning)
+    {
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(new
+        {
+            stageType,
+            performanceReady,
+            isTransitioning
+        }));
+        return new GameStateSnapshot
+        {
+            CustomData = new Dictionary<string, JsonElement>
+            {
+                ["telemetry"] = document.RootElement.Clone()
+            }
+        };
     }
 }
