@@ -1,6 +1,7 @@
 using DTXMania.Game.Lib;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
+using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.Stage.Performance;
 using Microsoft.Extensions.Logging;
@@ -96,6 +97,23 @@ namespace DTXMania.Test.GameApi
             Assert.Equal("Title", telemetry.StageType);
             Assert.Equal("Normal", telemetry.StagePhase);
             Assert.False(telemetry.IsTransitioning);
+        }
+
+        [Fact]
+        public async Task GetGameStateAsync_ShouldIncludeActiveSkinPath()
+        {
+            var resourceManager = new Mock<IResourceManager>();
+            resourceManager.Setup(rm => rm.GetCurrentEffectiveSkinPath()).Returns("/app/System/");
+
+            var gameContext = new Mock<IGameContext>();
+            gameContext.SetupGet(g => g.ResourceManager).Returns(resourceManager.Object);
+
+            var api = new GameApiImplementation(gameContext.Object);
+
+            var state = await api.GetGameStateAsync();
+
+            var telemetry = Assert.IsType<GameTelemetrySnapshot>(state.CustomData["telemetry"]);
+            Assert.Equal("/app/System/", telemetry.SkinPath);
         }
 
         [Fact]

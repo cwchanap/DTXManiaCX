@@ -13,6 +13,7 @@ using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Graphics;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.Input;
+using DTXMania.Game.Lib.Resources;
 
 namespace DTXMania.Game.Lib;
 
@@ -22,6 +23,7 @@ public interface IGameContext
     IConfigManager? ConfigManager { get; }
     IInputManagerCompat? InputManager { get; }
     IGraphicsManager? GraphicsManager { get; }
+    IResourceManager? ResourceManager { get; }
 
     /// <summary>
     /// Queues an action to run on the game's main thread during the next Update() tick.
@@ -135,6 +137,7 @@ public class GameApiImplementation : IGameApi, IDisposable
             MidiAvailable = inputManager?.MidiAvailable
         };
 
+        GameTelemetrySnapshot telemetry = baseTelemetry;
         if (currentStage is IStageTelemetryProvider provider)
         {
             try
@@ -149,7 +152,7 @@ public class GameApiImplementation : IGameApi, IDisposable
                 };
 
                 provider.PopulateTelemetry(providerTelemetry);
-                return providerTelemetry;
+                telemetry = providerTelemetry;
             }
             catch (Exception ex)
             {
@@ -157,7 +160,11 @@ public class GameApiImplementation : IGameApi, IDisposable
             }
         }
 
-        return baseTelemetry;
+        // The effective skin root is app-wide state, not stage state, so it is
+        // applied after any provider snapshot. E2E uses it to prove a clean run
+        // rendered the bundled Default skin rather than an app-data fallback.
+        telemetry.SkinPath = _game.ResourceManager?.GetCurrentEffectiveSkinPath();
+        return telemetry;
     }
 
     private static string SanitizeExceptionMessage(Exception ex)
