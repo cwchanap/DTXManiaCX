@@ -26,7 +26,7 @@ Inspect:
 ## 1. Canonical asset move, path retarget and .gitignore (one coherent change)
 
 - [ ] Remove tracked old NX `System/Graphics/**` and `System/Theme.ini`. Move existing committed `System/CXNeon/{Graphics,Sounds,Theme.ini}` to `System/{Graphics,Sounds,Theme.ini}`; move/rewrite `System/CXNeon/README.md` as `System/README.md` and remove the empty nested directory. Do not regenerate assets.
-- [ ] Change `.gitignore` from `System/*` + unignore allowlist to normal tracking of `System/` while ignoring only junk (e.g. `desktop.ini`, `*.log`, `.DS_Store`). Run `git status --untracked-files=all -- System/`; inspect and remove **known NX leftovers** from the working directory without staging unrelated files. A clean checkout should have only the accepted pack under `System`.
+- [ ] Change `.gitignore` from `System/*` + unignore allowlist to normal tracking of `System/` while ignoring only junk (e.g. `desktop.ini`, `Thumbs.db`, `*.log`, `.DS_Store`). Run `git status --untracked-files=all -- System/`; inspect and remove **known NX leftovers** from the working directory without staging unrelated files. A clean checkout should have only the accepted pack under `System`. Gitignore alone does **not** prevent ignored physical files being copied by MSBuild; section 2 separately excludes them.
 - [ ] In `tools/skingen/skingen.py`, set default compose/validate pack root to `System`. Delete `NX_PACK_ROOT` and the bootstrap branch that auto-measures null dimensions from NX art; retain authored manifest dimensions/requiredness and update help/docstring. Update path-sensitive `tools/skingen/test_skingen.py` tests, including lag atlas.
 - [ ] Set `tools/sfxgen/manifest.json` output to `System/Sounds`; retarget `tools/practicegen/practicegen.py` click source to `System/Sounds`. No new SFX generation or changes to click audio.
 - [ ] Retarget all `DTXMania.Test/Resources/CxNeonPackTests.cs` source paths to root `System`; remove early-return guards that let missing `Graphics`, `Sounds` or `Theme.ini` pass vacuously. Preserve checks for all runtime and Theme.ini-only assets.
@@ -48,8 +48,23 @@ Confirm moved assets match original bytes (Git rename detection/checksums where 
 
 ## 2. Copy assets by existing MSBuild conventions and test immediately
 
-- [ ] In **both** `DTXMania.Game.Mac.csproj` and `DTXMania.Game.Windows.csproj`, add three `None Include` patterns for `../System/Theme.ini`, `../System/Graphics/**`, `../System/Sounds/**`, linked to the relative `System/...` destination. Set `CopyToOutputDirectory=PreserveNewest` and `CopyToPublishDirectory=PreserveNewest`. Mirror the existing OFL/BundledSongs item pattern; **no shared target**.
-- [ ] Build a dev output and inspect `<game-bin>/System`. Run existing skingen validation with `--pack <game-bin>/System`, plus checks for Theme.ini/required OGG files.
+- [ ] In **both** `DTXMania.Game.Mac.csproj` and `DTXMania.Game.Windows.csproj`, use the **exact three standard `None Include` items below** (adjust paths to repository conventions if needed), mirroring the existing OFL/BundledSongs pattern. The theme has a file `Link`; the wildcard items require **`LinkBase`** to preserve `%(RecursiveDir)%(Filename)%(Extension)`. Do not set a single directory `Link` that collapses all entries. The `Exclude` patterns are required because MSBuild globs include ignored physical filesystem junk. No shared target or post-build script:
+
+```xml
+<ItemGroup>
+  <None Include="..\\System\\Theme.ini" Link="System\\Theme.ini"
+        CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  <None Include="..\\System\\Graphics\\**\\*" LinkBase="System\\Graphics"
+        Exclude="..\\System\\Graphics\\**\\*.log;..\\System\\Graphics\\**\\.DS_Store;..\\System\\Graphics\\**\\desktop.ini;..\\System\\Graphics\\**\\Thumbs.db"
+        CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  <None Include="..\\System\\Sounds\\**\\*" LinkBase="System\\Sounds"
+        Exclude="..\\System\\Sounds\\**\\*.log;..\\System\\Sounds\\**\\.DS_Store;..\\System\\Sounds\\**\\desktop.ini;..\\System\\Sounds\\**\\Thumbs.db"
+        CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+</ItemGroup>
+```
+
+  Verify actual paths in `bin/**/System` and `publish/**/System` retain the required nested files, and none of `desktop.ini`, `Thumbs.db`, `*.log`, or `.DS_Store` are copied. If a project already has an equivalent item, extend it instead of duplicating it.
+- [ ] Build a dev output and inspect `<game-bin>/System`. Run existing skingen validation with `--pack <game-bin>/System`, plus checks for Theme.ini/required OGG files. Inspect representative nested Graphics paths and Sounds names for intact relative layout, and confirm that junk files (including locally ignored OS metadata) are absent.
 - [ ] **Immediately run the full macOS unit suite.** A test project referencing the game may also receive `System` under its own output; some previous tests relied on it being absent. Fix only those broken assumptions with existing `ConfigManager.ResolveSkinPath(..., baseDir)` / `AppPaths.GetBundledSystemSkinRootCandidates(baseDir)` test seams or the ResourceManager test override. Do not suppress copying into test output or modify runtime resolution to satisfy a test.
 - [ ] Ensure an existing custom app-data skin and the persistent `Default` token remain intact. Prefer no production runtime changes.
 
@@ -64,7 +79,8 @@ python3 tools/skingen/skingen.py validate --pack <game-bin>/System
 ## 3. Simplify installers/DMG and validate the published assets
 
 - [ ] `installer/windows/dtxmania.iss`: remove `SystemSkinDir` define and its second `[Files] Source:` item. Retain the recursive `SourceDir` item (publish output already includes `System`) and **keep** `[InstallDelete] {app}\System` for upgrades. Update the Inno build-and-test smoke to invoke `iscc` without `/DSystemSkinDir`. Gate: successful Inno compilation and exactly one skin source entry; no installer extraction framework.
-- [ ] `installer/macos/build-dmg.sh`: simplify to `build-dmg.sh <publish_dir> <version> <ico_path> <output_dir>`. After the copy into `Contents/MacOS`, move `MacOS/System` to `Contents/Resources/System` and assert required content exists. Update `installer/macos/test-build-dmg.sh` and the release caller to the same signature. Check no duplicate `Contents/MacOS/System`.
+- [ ] `installer/macos/build-dmg.sh`: simplify to `build-dmg.sh <publish_dir> <version> <ico_path> <output_dir>`. After copying publish into `Contents/MacOS`, **move** `MacOS/System` to `Contents/Resources/System` and assert required content exists. Update `release.yml`'s caller.
+- [ ] **Update `installer/macos/test-build-dmg.sh` fixture and invocation in the same change.** Create fake skin files under `$PUBLISH/System/Graphics/1_Background.png` rather than a standalone `$SYSTEM` directory; also supply a fake `$PUBLISH/System/Theme.ini` and `$PUBLISH/System/Sounds/Decide.ogg` if the new builder validates these. Call `bash "$SCRIPT_DIR/build-dmg.sh" "$PUBLISH" "0.0.0-test" "$ICO" "$OUTPUT"` (four arguments; remove `"$SYSTEM"`). Assert the app has `Contents/Resources/System/{Graphics,Sounds,Theme.ini}` and **does not** have `Contents/MacOS/System`. Keep the existing icon/FFmpeg smoke coverage unchanged.
 - [ ] In `build-and-test.yml`, remove the obsolete post-publish “Bundle CX Neon skin” and self-referential “Assert no NX-derived assets” steps. Keep source-pack integrity gates and add/retarget **published** pack validation. Do not leave “pack missing -> exit 0” shortcuts.
 - [ ] In `release.yml`, remove both Windows/macOS “Stage base System skin” jobs/steps and `SYSTEM_SKIN_DIR` hand-offs; keep source and published-pack validators. Publish now supplies the skin directly. Update any other current packaging callers (including direct archive jobs) to avoid double copying.
 - [ ] Add only a minimal `validate --out-dir <path>` argument for `tools/sfxgen/sfxgen.py`'s **existing** validator, so both source and published `Sounds` can be validated. Reuse `skingen.py validate --pack <published-System>`. No new NX equality-assertion script: asset rights are protected by removing the NX source tree and reviewing the tracked inventory.
@@ -84,7 +100,7 @@ python tools/skingen/skingen.py validate --pack ./publish/win-check/System
 python tools/sfxgen/sfxgen.py validate --out-dir ./publish/win-check/System/Sounds
 ```
 
-Installer compile smoke must pass without `SystemSkinDir`. Verify macOS `.app` has one skin at `Contents/Resources/System` and no `Contents/MacOS/System`.
+Installer compile smoke must pass without `SystemSkinDir`. Verify macOS `.app` has one skin at `Contents/Resources/System` and no `Contents/MacOS/System`; the updated test fixture must invoke the four-argument builder. Inspect published `System/` on both platforms for nested asset hierarchy and absence of junk files despite `.gitignore` exclusions.
 
 ## 4. Bounded docs cleanup (do not enlarge scope)
 
@@ -102,6 +118,6 @@ Installer compile smoke must pass without `SystemSkinDir`. Verify macOS `.app` h
 - [ ] **Previously installed dev machines:** document **manual optional** cleanup only. A stale `<appdata>/System/CXNeon` symlink or NX artwork under `<appdata>/System/{Graphics,Sounds,Script}` can override the new default. After checking personal customizations, remove these old local items and reselect `Default`. No automatic deletion or config migration.
 - [ ] Review full branch diff for unexpected binary files, Git rename detection, missing assets and stale references. Use CI/manual `workflow_dispatch` if draft PR conditions skip normal PR builds; do not mark Ready simply to run CI.
 
-**Final acceptance:** one CX Neon default, no NX-derived files in the active repo tree or publish/install outputs, one copy in each output/artifact, original asset bytes preserved, current source+published asset validation, no regressions in custom skins, tests/E2E green, docs corrected and `AGENTS.md` still a symlink.
+**Final acceptance:** one CX Neon default, no NX-derived files in the active repo tree or publish/install outputs, one copy in each output/artifact, original asset bytes preserved, wildcard `LinkBase` retains nested structure, MSBuild excludes ignored OS junk, the four-argument DMG fixture passes, current source+published asset validation succeeds, no regressions in custom skins, tests/E2E green, docs corrected and `AGENTS.md` still a symlink.
 
 **Stop condition:** If unrelated behavior, newly generated art/SFX or other architecture is required, leave it out of this ticket and record a follow-up. Do **not** create another PR for HPA-798.
