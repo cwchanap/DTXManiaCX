@@ -1,5 +1,5 @@
 {
-  "output_dir": "System/CXNeon/Sounds",
+  "output_dir": "System/Sounds",
   "sounds": [
     {
       "file": "Move.ogg",

@@ -4,7 +4,7 @@
 Commands:
   generate    Call ElevenLabs for each manifest sound (or --only NAME),
               save MP3 to raw/, then loudness-normalize + encode OGG/Vorbis
-              into System/CXNeon/Sounds/. Requires ELEVENLABS_API_KEY and ffmpeg.
+              into System/Sounds/. Requires ELEVENLABS_API_KEY and ffmpeg.
   validate    Check that every manifest sound exists in the output directory
               and is a runtime-compatible OGG/Vorbis file (rejects missing,
               empty, directory, corrupt/truncated, non-Vorbis, and unsupported

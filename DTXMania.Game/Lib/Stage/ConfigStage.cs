@@ -604,7 +604,7 @@ namespace DTXMania.Game.Lib.Stage
                     .ToList();
 
                 // Include the current skin when it lives outside the discovered system
-                // skins (e.g. a dev-preview checkout path like System/CXNeon). Detect
+                // skins (e.g. a dev-preview skin directory outside app-data). Detect
                 // by comparing normalized full paths — not leaf names — so an external
                 // skin whose leaf matches a system skin is still captured. Without
                 // this, DropdownConfigItem defaults to index 0 while displaying the

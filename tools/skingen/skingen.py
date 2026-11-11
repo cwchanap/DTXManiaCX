@@ -2,9 +2,9 @@
 """skingen - CX Neon skin image pipeline.
 
 Commands:
-  bootstrap   Build/refresh manifest.json from TexturePath.cs constants,
-              reading reference dimensions from the NX pack (System/Graphics).
-              Authored fields (recipe, optional overrides) are preserved.
+  bootstrap   Build/refresh manifest.json from TexturePath.cs constants.
+              Authored dimensions, optionality and recipes are preserved; new
+              entries start with null dimensions for the author to fill in.
   validate    Check a pack directory against manifest.json: every non-optional
               asset exists, and matches declared dimensions when set.
   compose     (Task 6) Build the pack from source art per manifest recipes.
@@ -23,8 +23,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 TEXTUREPATH_CS = os.path.join(REPO_ROOT, "DTXMania.Game", "Lib", "Resources", "TexturePath.cs")
-NX_PACK_ROOT = os.path.join(REPO_ROOT, "System")
-DEFAULT_TARGET_PACK = os.path.join(REPO_ROOT, "System", "CXNeon")
+DEFAULT_TARGET_PACK = os.path.join(REPO_ROOT, "System")
 MANIFEST_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "manifest.json")
 STYLE_MD_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "STYLE.md")
 DESCRIPTORS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "descriptors.json")
@@ -111,20 +110,12 @@ def read_dims(file_path):
 def bootstrap(manifest_path):
     manifest = load_manifest(manifest_path)
     assets = manifest.setdefault("assets", {})
-    added, missing_reference = 0, []
+    added = 0
 
     for rel in scan_texture_paths():
         entry = assets.setdefault(rel, {"width": None, "height": None, "optional": False, "recipe": None})
         if rel in ALWAYS_OPTIONAL:
             entry["optional"] = True
-        reference = os.path.join(NX_PACK_ROOT, rel.replace("/", os.sep))
-        if os.path.exists(reference):
-            if entry.get("width") is None:
-                entry["width"], entry["height"] = read_dims(reference)
-        elif entry.get("width") is None and not entry.get("optional"):
-            # No NX reference to measure: keep required, author must fill dims.
-            entry["note"] = "missing from NX reference pack; set target dimensions manually"
-            missing_reference.append(rel)
         added += 1
 
     # Atomic write: serialize to a temp file in the same directory, then
@@ -132,8 +123,6 @@ def bootstrap(manifest_path):
     _atomic_write_json(manifest_path, manifest)
 
     print("bootstrap: %d assets in manifest" % added)
-    for rel in missing_reference:
-        print("  ! no NX reference for %s (dims left null)" % rel)
     return 0
 
 
@@ -546,7 +535,7 @@ def main(argv=None):
 
     validate = sub.add_parser("validate")
     validate.add_argument("--pack", default=DEFAULT_TARGET_PACK,
-                          help="pack root containing Graphics/ (default: System/CXNeon)")
+                          help="pack root containing Graphics/ (default: System)")
 
     compose_cmd = sub.add_parser("compose")
     compose_cmd.add_argument("--source", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "source"))
