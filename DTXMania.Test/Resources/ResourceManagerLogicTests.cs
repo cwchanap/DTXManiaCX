@@ -760,20 +760,22 @@ namespace DTXMania.Test.Resources
         }
 
         [Fact]
-        public void ResolveBundledSystemSkinRoot_ShouldResolveBundledSystemFromAppBaseDirectory()
+        public void ResolveBundledSystemSkinRootFromCandidates_WithFakeInstallBaseDir_ShouldResolveInstallSystem()
         {
-            // The game output ships System/, and a referencing test project
-            // inherits it, so the private wrapper (which takes its candidates
-            // from AppPaths) must resolve that bundled root. The no-candidate
-            // null case is covered by
+            // Use a temporary fake installation so the candidate list comes from
+            // the AppPaths baseDir seam. This is independent of whichever real
+            // bundled candidate happens to validate under AppContext.BaseDirectory
+            // (on macOS a validating ../Resources/System takes precedence). The
+            // no-candidate null case is covered by
             // ResolveBundledSystemSkinRootFromCandidates_WithNoValidatingDirectory.
-            var resourceManager = CreateResourceManager();
+            var installDir = Path.Combine(_testDataPath, "FakeInstall");
+            var systemRoot = Path.Combine(installDir, "System");
+            CreateSkinRoot(systemRoot);
 
-            var result = InvokePrivateMethod<string>(resourceManager, "ResolveBundledSystemSkinRoot");
+            var result = ResourceManager.ResolveBundledSystemSkinRootFromCandidates(
+                AppPaths.GetBundledSystemSkinRootCandidates(installDir));
 
-            Assert.Equal(
-                NormalizeDirectory(Path.Combine(AppContext.BaseDirectory, "System")),
-                result);
+            Assert.Equal(NormalizeDirectory(systemRoot), result);
         }
 
         #endregion
