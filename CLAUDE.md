@@ -52,7 +52,8 @@ dotnet test DTXMania.Automation.Tests/DTXMania.Automation.Tests.csproj
 # dtx-video gameplay recorder
 dotnet test DTXMania.VideoRecorder.Tests/DTXMania.VideoRecorder.Tests.csproj
 
-# CX Neon pipelines (skingen needs Pillow; sfxgen validation needs ffmpeg)
+# CX Neon pipelines (skingen needs Pillow; sfxgen validation needs ffmpeg + ffprobe;
+# sfxgen tests need ffmpeg with Vorbis and libopus encoders or the audio cases skip)
 python3 -m unittest discover -s tools/skingen -p "test_*.py"
 python3 -m unittest discover -s tools/sfxgen -p "test_*.py"
 python3 -m unittest discover -s tools/practicegen -p "test_*.py"
