@@ -122,6 +122,28 @@ namespace DTXMania.Test.GameApi
         }
 
         [Fact]
+        public async Task GetGameStateAsync_WhenEffectiveSkinPathIsEmpty_ShouldReportNullSkinPath()
+        {
+            // GetCurrentEffectiveSkinPath reads skin fields lock-free while the
+            // update thread may clear _boxDefSkinPath mid-read, so a torn read
+            // can return "". Path.GetFullPath("") throws ArgumentException,
+            // which would degrade the whole game-state response to "Error".
+            var resourceManager = new Mock<IResourceManager>();
+            resourceManager.Setup(rm => rm.GetCurrentEffectiveSkinPath()).Returns(string.Empty);
+
+            var gameContext = new Mock<IGameContext>();
+            gameContext.SetupGet(g => g.ResourceManager).Returns(resourceManager.Object);
+
+            var api = new GameApiImplementation(gameContext.Object);
+
+            var state = await api.GetGameStateAsync();
+
+            Assert.NotEqual("Error", state.CurrentStage);
+            var telemetry = Assert.IsType<GameTelemetrySnapshot>(state.CustomData["telemetry"]);
+            Assert.Null(telemetry.SkinPath);
+        }
+
+        [Fact]
         public async Task GetGameStateAsync_WhenStageProvidesTelemetry_ShouldIncludeStageDetails()
         {
             var stage = new Mock<IStage>();
