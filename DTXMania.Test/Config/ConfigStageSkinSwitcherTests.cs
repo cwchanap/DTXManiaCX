@@ -59,9 +59,10 @@ namespace DTXMania.Test.Config
             // root only hosts the custom CXNeon skin, mirroring app-data.
             // Without this, the fixture root looks like an external skin and
             // the dropdown mislabels the current skin.
-            var defaultSkinRoot = AppPaths.GetBundledSystemSkinRootCandidates()
-                .First(SkinManager.ValidateSkinPath);
-            resourceManager.SetSkinPath(defaultSkinRoot + Path.DirectorySeparatorChar);
+            var defaultSkinRoot = SkinManager.ResolveBundledSystemSkinRootFromCandidates(
+                AppPaths.GetBundledSystemSkinRootCandidates());
+            Assert.NotNull(defaultSkinRoot);
+            resourceManager.SetSkinPath(defaultSkinRoot);
             var game = ReflectionHelpers.CreateGame();
             ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager);
             ReflectionHelpers.SetProperty(game, nameof(BaseGame.InputManager), inputManager);

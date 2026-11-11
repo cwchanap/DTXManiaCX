@@ -4,6 +4,7 @@ using System.Linq;
 using Xunit;
 using Moq;
 using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.Utilities;
 
 namespace DTXMania.Test.Resources
 {
@@ -408,11 +409,12 @@ namespace DTXMania.Test.Resources
             var customOption = options.Single(o => o.Name != "Default");
             Assert.NotEqual(defaultOption.Path, customOption.Path);
             // The bare "Default" label maps to the actual default root (the
-            // bundled System skin when the game output ships it).
+            // bundled System skin when the game output ships it), resolved
+            // independently of the option list so a wrong root cannot pass.
             Assert.NotNull(skinManager.DefaultSkinPath);
             Assert.Equal(
-                Path.GetFullPath(skinManager.DefaultSkinPath!).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-                Path.GetFullPath(defaultOption.Path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                NormalizeForComparison(ExpectedDefaultRoot()),
+                NormalizeForComparison(defaultOption.Path),
                 StringComparer.OrdinalIgnoreCase);
             // The suffixed label maps to the custom <root>/Default/ directory.
             Assert.Contains("Default", customOption.Name, StringComparison.OrdinalIgnoreCase);
@@ -484,8 +486,8 @@ namespace DTXMania.Test.Resources
             Assert.NotNull(capturedPath);
             Assert.NotNull(skinManager.DefaultSkinPath);
             Assert.Equal(
-                Path.GetFullPath(skinManager.DefaultSkinPath!).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-                Path.GetFullPath(capturedPath!).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                NormalizeForComparison(ExpectedDefaultRoot()),
+                NormalizeForComparison(capturedPath!),
                 StringComparer.OrdinalIgnoreCase);
         }
 
@@ -577,6 +579,23 @@ namespace DTXMania.Test.Resources
 
             // Don't create required files - this makes it invalid
             return skinPath + Path.DirectorySeparatorChar;
+        }
+
+        /// <summary>
+        /// The root SkinManager must pick as "Default": the bundled System skin
+        /// when this test process has one, otherwise the writable test root.
+        /// </summary>
+        private string ExpectedDefaultRoot()
+        {
+            return SkinManager.ResolveBundledSystemSkinRootFromCandidates(
+                       AppPaths.GetBundledSystemSkinRootCandidates())
+                   ?? Path.GetFullPath(_testSkinRoot);
+        }
+
+        private static string NormalizeForComparison(string path)
+        {
+            return Path.GetFullPath(path)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         }
 
         #endregion
