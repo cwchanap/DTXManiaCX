@@ -1,8 +1,10 @@
 # CX Neon asset pipelines — delegation HOWTO
 
-The CX Neon pack (`System/CXNeon/`) is produced by two pipelines. Generation
-is intentionally decoupled: you can produce assets whenever you like (in any
-order, in batches) and the validators tell you exactly what is still missing.
+`System/` is the canonical CX Neon skin: `Theme.ini`, `Graphics/` and `Sounds/`
+are committed there and shipped with release builds. The pack is produced by
+two pipelines. Generation is intentionally decoupled: you can produce assets
+whenever you like (in any order, in batches) and the validators tell you
+exactly what is still missing.
 
 ## Images (`tools/skingen/`)
 
@@ -13,7 +15,7 @@ A complete original pack can be produced without an external image API:
 ```bash
 pip install "Pillow>=10,<12"               # required by generate_source.py and skingen.py
 python3 tools/skingen/generate_source.py   # writes source/ + wires copy recipes
-python3 tools/skingen/skingen.py compose   # builds System/CXNeon/Graphics/
+python3 tools/skingen/skingen.py compose   # builds System/Graphics/
 python3 tools/skingen/skingen.py validate
 ```
 
@@ -48,7 +50,7 @@ replaced later by dropping AI art over the matching files in
    video) — including the manifest-optional-but-code-referenced assets listed
    in `PROMPTS.md`.
 4. Commit `tools/skingen/source/`, `manifest.json`, and the generated
-   `System/CXNeon/Graphics/` files together.
+   `System/Graphics/` files together.
 
 Regenerating `PROMPTS.md` after editing `STYLE.md`/`descriptors.json`:
 
@@ -77,57 +79,27 @@ single derived file (e.g. `fire_HH.png`) without a prior full compose.
    ```bash
    python3 tools/sfxgen/sfxgen.py validate
    ```
-4. Commit `System/CXNeon/Sounds/*.ogg` (raw MP3s in `tools/sfxgen/raw/` are
+4. Commit `System/Sounds/*.ogg` (raw MP3s in `tools/sfxgen/raw/` are
    gitignored intermediates).
 
-## In-game preview / skin switcher
+## Previewing the pack and custom skins
 
-The config **Skin** dropdown discovers skins under `SystemSkinRoot` (default:
-app-data `System/`). Subfolders that pass validation (`Graphics/1_background.jpg`
-or `2_background.jpg`) appear as named skins (e.g. `CXNeon`); the root itself
-is `Default`.
+`dotnet run`/`dotnet build` copy `System/` next to the executable (the macOS
+`.app` keeps it at `Contents/Resources/System`), so the committed pack is the
+`Default` skin with no local install step. The config **Skin** dropdown also
+discovers skins under `SystemSkinRoot` (default: app-data `System/`); subfolders
+that pass validation (`Graphics/1_background.jpg` or `2_background.jpg`) appear
+as named skins and take precedence while selected. Rebuilding the pack updates
+`Default` directly.
 
-Recommended local install (symlink so pack regenerations are live):
-
-```bash
-# macOS / Linux
-just install-cx-neon
-
-# or manually:
-APP_SYSTEM="$HOME/Library/Application Support/DTXManiaCX/System"   # macOS
-# APP_SYSTEM="$LOCALAPPDATA/DTXManiaCX/System"                     # Windows
-ln -sfn "$(pwd)/System/CXNeon" "$APP_SYSTEM/CXNeon"
-```
-
-Then either:
-
-- Launch the game and switch **System → Skin → CXNeon** in the config menu
-  (persists `SkinPath` to the config database on change), or
-- Run `just install-cx-neon true` (patches the `SkinPath` /
-  `LastUsedSkin` rows in `config.db` transactionally via `sqlite3` once the
-  game has launched at least once; falls back to the `Config.ini` bootstrap
-  input when no database exists yet), or
-- Patch the authoritative rows directly (quit the game first):
-
-  ```bash
-  sqlite3 "$HOME/Library/Application Support/DTXManiaCX/config.db" <<'SQL'
-  BEGIN;
-  INSERT INTO ConfigEntries (Key, Value) VALUES ('SkinPath', '/Users/you/Library/Application Support/DTXManiaCX/System/CXNeon/')
-      ON CONFLICT(Key) DO UPDATE SET Value = excluded.Value;
-  INSERT INTO ConfigEntries (Key, Value) VALUES ('LastUsedSkin', 'CXNeon')
-      ON CONFLICT(Key) DO UPDATE SET Value = excluded.Value;
-  COMMIT;
-  SQL
-  ```
+Developer machines that used the old nested pack or NX-era app-data art may
+still have a stale `<appdata>/System/CXNeon` symlink, or NX files under
+`<appdata>/System/{Graphics,Sounds,Script}`, that shadow the new default. Check
+your own customizations, remove those old local items manually, then reselect
+`Default`. The game never deletes app-data skins automatically.
 
 `Config.ini` is bootstrap/import input only (read once, when `config.db` does
 not exist yet); editing it after the first launch has no effect.
-
-`ConfigManager` resolves a *relative* `SkinPath` under the app-data root — not
-the repository checkout — so a bare `System/CXNeon/` only works after the pack
-is installed under app-data as above. An absolute path to the worktree
-`System/CXNeon/` also works for a one-off preview, but that skin only stays in
-the dropdown while it is the active external skin.
 
 Stages can be screenshotted through the MCP server's `game_*` tools
 (`game_click`, `game_drag`, `game_get_state`, `game_send_key`) for visual review.

@@ -15,7 +15,7 @@ namespace DTXMania.Game.Lib.Song
 
     /// <summary>
     /// Drum-only projection of a DTXManiaNX &lt;chart&gt;.score.ini file. Holds only the
-    /// fields the importer consumes. See docs/superpowers/specs/2026-06-08-nx-score-import-design.md.
+    /// fields the importer consumes.
     /// </summary>
     public sealed class NxScoreData
     {

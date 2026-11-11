@@ -1554,7 +1554,7 @@ namespace DTXMania.Game.Lib.Song.Components
             // NX units times the themed draw scale. CX Neon ships a 2x sheet
             // (264x40) so sourceFactor = 40/20 = 2. A future skin authoring at
             // non-NX cell metrics would need a [Fonts] BpmNumber.CellSize
-            // override key; see docs/superpowers/specs/2026-07-10-cx-neon-skin-design.md.
+            // override key; see System/README.md.
             float sourceFactor = _bpmNumberTexture.Height / 20f;
             float scale = StatusNumberScale;
             foreach (var c in text)
