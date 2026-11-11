@@ -114,11 +114,7 @@ public sealed class DefaultSkinFirstRunSmokeTests
             await WaitForStageAsync(client, "Title", TimeSpan.FromSeconds(45), cancellation.Token);
             await Task.Delay(500, cancellation.Token);
             await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
-            await WaitForStageAsync(client, "SongSelect", TimeSpan.FromSeconds(45), cancellation.Token);
-            await Task.Delay(500, cancellation.Token);
-            await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
-            await Task.Delay(500, cancellation.Token);
-            await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
+            await StartSongViaStatusPanelAsync(client, E2EFixtureBuilder.SongTitle, cancellation.Token);
 
             await CapturePerformanceScreenshotAsync(
                 client, fixture, "performance-default-skin.png", cancellation.Token);

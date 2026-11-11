@@ -326,9 +326,7 @@ public sealed class GameplayAutoPlaySmokeTests
                 $"song-select-{artifactSuffix}.png",
                 cancellationToken);
 
-            await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellationToken);
-            await Task.Delay(500, cancellationToken);
-            await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellationToken);
+            await StartSongViaStatusPanelAsync(client, E2EFixtureBuilder.SongTitle, cancellationToken);
 
             await WaitForStageAsync(client, "Performance", TimeSpan.FromSeconds(60), cancellationToken);
             var performanceState = await Eventually.UntilAsync(
@@ -520,9 +518,7 @@ public sealed class GameplayAutoPlaySmokeTests
         JsonRpcGameClient client,
         CancellationToken cancellationToken)
     {
-        await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellationToken);
-        await Task.Delay(500, cancellationToken);
-        await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellationToken);
+        await StartSongViaStatusPanelAsync(client, E2EFixtureBuilder.SongTitle, cancellationToken);
     }
 
     /// <summary>

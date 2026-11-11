@@ -55,11 +55,7 @@ public sealed class TabImportSmokeTests
 
             await WaitForStageAsync(client, "Title", TimeSpan.FromSeconds(45), cancellation.Token);
             await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
-            await WaitForStageAsync(client, "SongSelect", TimeSpan.FromSeconds(45), cancellation.Token);
-
-            await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
-            await Task.Delay(500, cancellation.Token);
-            await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
+            await StartSongViaStatusPanelAsync(client, TabSongTitle, cancellation.Token);
 
             await Eventually.UntilAsync(
                 token => client.GetGameStateAsync(token),

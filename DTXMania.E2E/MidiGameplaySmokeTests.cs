@@ -16,6 +16,7 @@ public sealed class MidiGameplaySmokeTests
     private const int MidiLane = 5;
     private const int MidiVelocityThreshold = 20;
     private const double TargetNoteTimeMs = 10_000.0;
+    private const string MidiSongTitle = "E2E MIDI Gameplay Smoke";
 
     [Fact(Timeout = 180_000)]
     public async Task SimulatedMidiNote_ShouldRegisterGameplayJudgement()
@@ -45,10 +46,7 @@ public sealed class MidiGameplaySmokeTests
             await WaitForStageAsync(client, "Title", TimeSpan.FromSeconds(45), cancellation.Token);
             await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
 
-            await WaitForStageAsync(client, "SongSelect", TimeSpan.FromSeconds(45), cancellation.Token);
-            await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
-            await Task.Delay(500, cancellation.Token);
-            await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
+            await StartSongViaStatusPanelAsync(client, MidiSongTitle, cancellation.Token);
 
             await WaitForPerformanceReadyAsync(client, TimeSpan.FromSeconds(60), cancellation.Token);
             await WaitForSongClockAsync(client, TimeSpan.FromSeconds(15), cancellation.Token);
@@ -131,7 +129,7 @@ public sealed class MidiGameplaySmokeTests
     {
         return string.Join('\n', new[]
         {
-            "#TITLE: E2E MIDI Gameplay Smoke",
+            $"#TITLE: {MidiSongTitle}",
             "#ARTIST: CI",
             "#BPM: 120",
             "#DLEVEL: 10",
