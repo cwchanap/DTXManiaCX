@@ -15,9 +15,8 @@ namespace DTXMania.Test.Stage.Performance
     /// <summary>
     /// Cold/warm-cache preparation benchmark for <see cref="PreparedGameplayAudioSet"/>.
     ///
-    /// This is the Phase B benchmark artifact required by the play-speed/pitch plan
-    /// (docs/superpowers/plans/2026-07-22-play-speed-pitch-adjustment.md, "Preparation
-    /// performance gate"). It measures the real serial decode path that the default
+    /// This is the Phase B benchmark artifact for the play-speed/pitch preparation
+    /// performance gate. It measures the real serial decode path that the default
     /// profile exercises (LoadDefaultSound + new SoundEffect, one ffmpeg spawn
     /// per MP3 source) against a dense 128-chip fixture, plus a non-default profile
     /// cold/warm pair through FfmpegAudioVariantProcessor + PlaybackAudioVariantCache.

@@ -11,3 +11,10 @@ skins live in the app-data `System/` folder and take precedence when selected.
 To (re)build the asset packs, see `tools/README.md`. Do not hand-edit files in
 `Graphics/` or `Sounds/`; regenerate them through the pipelines so the
 manifests stay the single source of truth.
+
+Developer machines that previously used the old nested pack or NX-era app-data
+art may still have a stale `<appdata>/System/CXNeon` symlink, or NX files under
+`<appdata>/System/{Graphics,Sounds,Script}`, that shadow this default. Check
+your own customizations, remove those old local items manually, then reselect
+`Default` in **Config → Skin**. The game never deletes app-data skins
+automatically.

@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
 Bravura notation glyph font (SIL OFL) for the scrolling drum staff notation
-strip. SMuFL Private Use Area glyphs only - see
-docs/superpowers/specs/2026-10-19-hpa-409-bravura-notation-font-design.md.
+strip. SMuFL Private Use Area glyphs only.
 
 Pinned source: https://github.com/steinbergmedia/bravura/releases/tag/bravura-1.482
 (font version 1.482, unmodified Bravura.otf).
