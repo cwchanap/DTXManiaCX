@@ -30,7 +30,8 @@ public static class E2EFixtureBuilder
         int pitchSemitones = PitchRange.Default,
         bool enableAutoPlayLanes = true,
         DrumsNoteDisplayStyle noteDisplayStyle = DrumsNoteDisplayStyle.Lanes,
-        bool includeBackgroundVideo = false)
+        bool includeBackgroundVideo = false,
+        bool useBundledDefaultSkin = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(runRoot);
         ArgumentException.ThrowIfNullOrWhiteSpace(repoRoot);
@@ -38,10 +39,15 @@ public static class E2EFixtureBuilder
         var paths = CreateRunPaths(runRoot, repoRoot);
 
         Directory.CreateDirectory(paths.AppDataRoot);
-        Directory.CreateDirectory(paths.SkinRoot);
-        Directory.CreateDirectory(Path.Combine(paths.SkinRoot, "Graphics"));
-        Directory.CreateDirectory(Path.Combine(paths.SkinRoot, "Sounds"));
-        Directory.CreateDirectory(Path.Combine(paths.SkinRoot, "Script"));
+        // HPA-798: the clean-first-run shape has no fixture skin at all and selects
+        // the bundled "Default" token, so the sandbox exercises the real bundled root.
+        if (!useBundledDefaultSkin)
+        {
+            Directory.CreateDirectory(paths.SkinRoot);
+            Directory.CreateDirectory(Path.Combine(paths.SkinRoot, "Graphics"));
+            Directory.CreateDirectory(Path.Combine(paths.SkinRoot, "Sounds"));
+            Directory.CreateDirectory(Path.Combine(paths.SkinRoot, "Script"));
+        }
         Directory.CreateDirectory(paths.SongDirectory);
         Directory.CreateDirectory(paths.ArtifactRoot);
 
@@ -49,7 +55,8 @@ public static class E2EFixtureBuilder
             paths.LegacyConfigPath,
             BuildConfig(
                 paths.DtxRoot,
-                paths.SkinRoot,
+                useBundledDefaultSkin ? ConfigManager.DefaultSkinPathToken : paths.SkinRoot,
+                useBundledDefaultSkin ? Path.Combine(paths.AppDataRoot, "System") : paths.SkinRoot,
                 apiPort,
                 PlaySpeedRange.SnapAndClamp(playSpeedPercent),
                 PitchRange.SnapAndClamp(pitchSemitones),
@@ -67,9 +74,12 @@ public static class E2EFixtureBuilder
                 overwrite: true);
         }
         // Ship hit_fx.png so the sandbox skin matches the bundled System skin.
-        File.WriteAllBytes(
-            Path.Combine(paths.SkinRoot, "Graphics", "hit_fx.png"),
-            Convert.FromBase64String(HitEffectPngBase64));
+        if (!useBundledDefaultSkin)
+        {
+            File.WriteAllBytes(
+                Path.Combine(paths.SkinRoot, "Graphics", "hit_fx.png"),
+                Convert.FromBase64String(HitEffectPngBase64));
+        }
 
         // HPA-190: only the legacy bootstrap INI is written pre-launch. The
         // game creates the authoritative config.db on first launch, which is
@@ -121,7 +131,8 @@ public static class E2EFixtureBuilder
 
     private static string BuildConfig(
         string dtxRoot,
-        string systemRoot,
+        string skinPath,
+        string systemSkinRoot,
         int apiPort,
         int playSpeedPercent,
         int pitchSemitones,
@@ -131,12 +142,12 @@ public static class E2EFixtureBuilder
         var lines = new List<string>
         {
             "[System]",
-            $"SkinPath={systemRoot}",
+            $"SkinPath={skinPath}",
             $"DTXPath={dtxRoot}",
             string.Empty,
             "[Skin]",
             "UseBoxDefSkin=False",
-            $"SystemSkinRoot={systemRoot}",
+            $"SystemSkinRoot={systemSkinRoot}",
             string.Empty,
             "[Display]",
             "ScreenWidth=1280",

@@ -133,6 +133,48 @@ public sealed class E2EFixtureBuilderTests
     }
 
     [Fact]
+    public void Build_WithBundledDefaultSkin_ShouldUseDefaultTokenAndNoFixtureSkin()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "dtx-e2e-fixture-" + Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            // HPA-798 clean-first-run shape: no fixture skin directory exists and
+            // the bootstrap config selects the bundled "Default" skin token, exactly
+            // like a fresh install that has never picked a custom skin.
+            var fixture = E2EFixtureBuilder.Build(
+                root,
+                Directory.GetCurrentDirectory(),
+                apiPort: 18080,
+                useBundledDefaultSkin: true);
+
+            Assert.False(Directory.Exists(fixture.SkinRoot));
+
+            var config = File.ReadAllText(fixture.LegacyConfigPath);
+            Assert.Contains($"SkinPath={ConfigManager.DefaultSkinPathToken}", config);
+            Assert.Contains(
+                $"SystemSkinRoot={Path.Combine(fixture.AppDataRoot, "System")}",
+                config);
+
+            var configManager = new ConfigManager(
+                fixture.ConfigDatabasePath,
+                fixture.LegacyConfigPath);
+            configManager.LoadConfig();
+
+            Assert.Equal(ConfigManager.DefaultSkinPathToken, configManager.Config.SkinPath);
+            Assert.Equal(
+                Path.GetFullPath(Path.Combine(fixture.AppDataRoot, "System")),
+                configManager.Config.SystemSkinRoot);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Build_WithoutAutoPlayLanes_ShouldImportEmptyLaneSetThroughConfigManager()
     {
         var root = Path.Combine(Path.GetTempPath(), "dtx-e2e-fixture-" + Guid.NewGuid().ToString("N"));
