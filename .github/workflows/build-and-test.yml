@@ -468,8 +468,13 @@ jobs:
         if [ "$RUNNER_OS" = "Windows" ]; then choco install ffmpeg -y --no-progress; fi
         python tools/skingen/skingen.py validate
         python tools/sfxgen/sfxgen.py validate
-        python tools/skingen/skingen.py validate --pack "$system_dir"
-        python tools/sfxgen/sfxgen.py validate --out-dir "$system_dir/Sounds"
+        # The published copy is produced by CopyToOutput/ToPublish items, so
+        # byte equality with the validated source pack is the complete check.
+        # Decoding every asset a second time adds no coverage.
+        if ! diff -r System "$system_dir"; then
+          echo "::error::Published System skin differs from the validated source pack." >&2
+          exit 1
+        fi
 
     - name: Upload artifacts
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9

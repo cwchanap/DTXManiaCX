@@ -436,19 +436,21 @@ jobs:
             --verbosity normal
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-          # Published pack: publish now supplies System/ directly, so validate
-          # the artifact the installer ships. No self-skip — a missing published
-          # skin means the MSBuild copy items broke.
+          # Published pack: publish copies System/ verbatim from the source pack
+          # validated above, so compare bytes instead of decoding every asset a
+          # second time. No self-skip — a missing published skin means the
+          # MSBuild copy items broke.
           $publishedSystem = 'publish/win/System'
           foreach ($required in @('Theme.ini', 'Graphics', 'Sounds')) {
             if (-not (Test-Path (Join-Path $publishedSystem $required))) {
               throw "Published System skin is incomplete (missing $required under $publishedSystem)."
             }
           }
-          python tools/skingen/skingen.py validate --pack $publishedSystem
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python tools/sfxgen/sfxgen.py validate --out-dir (Join-Path $publishedSystem 'Sounds')
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --no-index --quiet -- System $publishedSystem
+          if ($LASTEXITCODE -ne 0) {
+            git diff --no-index --stat -- System $publishedSystem
+            throw "Published System skin differs from the validated source pack."
+          }
 
       - name: Compile installer
         shell: pwsh
@@ -622,9 +624,10 @@ jobs:
             --filter 'FullyQualifiedName~CxNeonPackTests' \
             --verbosity normal
 
-          # Published pack: publish now supplies System/ directly, so validate
-          # the artifact the .app ships. No self-skip — a missing published skin
-          # means the MSBuild copy items broke.
+          # Published pack: publish copies System/ verbatim from the source pack
+          # validated above, so compare bytes instead of decoding every asset a
+          # second time. No self-skip — a missing published skin means the
+          # MSBuild copy items broke.
           published_system="publish/mac/System"
           for required in Theme.ini Graphics Sounds; do
             if [ ! -e "$published_system/$required" ]; then
@@ -632,8 +635,10 @@ jobs:
               exit 1
             fi
           done
-          python tools/skingen/skingen.py validate --pack "$published_system"
-          python tools/sfxgen/sfxgen.py validate --out-dir "$published_system/Sounds"
+          if ! diff -r System "$published_system"; then
+            echo "::error::Published System skin differs from the validated source pack." >&2
+            exit 1
+          fi
 
       - name: Build .app bundle and DMG
         run: |
