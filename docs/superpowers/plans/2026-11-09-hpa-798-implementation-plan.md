@@ -3,7 +3,8 @@
 **Design:** [HPA-798 reviewed design](../specs/2026-11-09-hpa-798-design.md)
 **Linear:** https://linear.app/cwchanap/issue/HPA-798/repo-make-cx-neon-the-system-skin-and-refresh-claudemd-and-docs  
 **PR:** https://github.com/cwchanap/DTXManiaCX/pull/235  
-**Status:** Reviewed planning baseline (2026-11-09). Implementation is locally complete on PR #235: macOS tests, source/published asset validators and DMG smoke pass locally. Windows CI, Windows gameplay E2E and Inno installer verification remain pending hosted execution. This plan is retained as the historical baseline, not a live status tracker.  
+**Status:** Reviewed planning baseline (2026-11-09). Implementation is locally complete on PR #235: macOS tests, source/published asset validators and DMG smoke pass locally. Windows CI, Windows gameplay E2E and Inno installer verification remain pending hosted execution. This plan is retained as the historical baseline, not a live status tracker.
+
 **Budget:** <=3 engineer days, **one PR for this ticket**, not one PR per section.
 
 ## Agent brief
