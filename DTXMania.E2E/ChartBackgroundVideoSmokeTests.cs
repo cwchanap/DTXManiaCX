@@ -50,11 +50,7 @@ public sealed class ChartBackgroundVideoSmokeTests
 
             await WaitForStageAsync(client, "Title", TimeSpan.FromSeconds(45), cancellation.Token);
             await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
-            await WaitForStageAsync(client, "SongSelect", TimeSpan.FromSeconds(45), cancellation.Token);
-
-            await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
-            await Task.Delay(500, cancellation.Token);
-            await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
+            await StartSongViaStatusPanelAsync(client, VideoSongTitle, cancellation.Token);
 
             await WaitForPerformanceReadyAsync(client, TimeSpan.FromSeconds(60), cancellation.Token);
 

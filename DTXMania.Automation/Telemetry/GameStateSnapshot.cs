@@ -28,6 +28,18 @@ public sealed class GameStateSnapshot
 
     public string? SelectedSongTitle => GetTelemetryString("selectedSongTitle");
 
+    /// <summary>
+    /// True while SongSelect has its status panel open (first Enter after a
+    /// song is highlighted). Published only by SongSelect telemetry.
+    /// </summary>
+    public bool InStatusPanel => GetTelemetryBool("inStatusPanel") ?? false;
+
+    /// <summary>
+    /// True while the stage manager is mid transition. Base telemetry, so it
+    /// is published regardless of which stage owns the rest of the snapshot.
+    /// </summary>
+    public bool IsTransitioning => GetTelemetryBool("isTransitioning") ?? false;
+
     public string? CompletionReason => GetTelemetryString("completionReason");
 
     public string? ScoreSaveStatus => GetTelemetryString("scoreSaveStatus");
