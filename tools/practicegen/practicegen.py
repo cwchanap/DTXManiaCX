@@ -25,7 +25,7 @@ from dataclasses import dataclass
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 OUTPUT_DIR = os.path.join(REPO_ROOT, "DTXMania.Game", "BundledSongs", "Practice")
-CLICK_SOURCE_DIR = os.path.join(REPO_ROOT, "System", "CXNeon", "Sounds")
+CLICK_SOURCE_DIR = os.path.join(REPO_ROOT, "System", "Sounds")
 
 # (WAV id, file written beside each chart, CX Neon source file)
 ACCENT_CLICK = ("01", "click-accent.ogg", "Metronome Accent.ogg")

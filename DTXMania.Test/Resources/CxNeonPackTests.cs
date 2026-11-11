@@ -12,17 +12,11 @@ using Xunit;
 namespace DTXMania.Test.Resources
 {
     /// <summary>
-    /// Release-readiness gate for the original CX Neon pack. Asset generation
-    /// is delegated and happens incrementally (images and sounds may land in
-    /// separate batches — see tools/README.md). Each tree is gated
-    /// independently: the texture check passes vacuously until
-    /// System/CXNeon/Graphics exists, and the sound check passes vacuously
-    /// until System/CXNeon/Sounds exists. This mirrors the CI workflow, which
-    /// skips validation/bundling until both trees are present, and avoids
-    /// failing every normal CI run when one batch lands before the other.
-    /// Once a tree exists it must be complete: releases bundle it as the base
-    /// System skin, and a missing file would render as a white box (textures)
-    /// or fall back to silent audio (sounds) with no further fallback.
+    /// Release-readiness gate for the original CX Neon pack, which lives at the
+    /// repository root System/ directory and ships as the base skin. Every
+    /// runtime texture and sound must be present: a missing file would render
+    /// as a white box (textures) or fall back to silent audio (sounds) with no
+    /// further fallback, so absence is always a failure (no self-skip).
     /// </summary>
     [Trait("Category", "Resources")]
     public class CxNeonPackTests
@@ -30,17 +24,15 @@ namespace DTXMania.Test.Resources
         [Fact]
         public void CxNeonTheme_SelectedMenuText_ShouldUseReadableLightColor()
         {
-            var theme = SkinTheme.Load(Path.Combine(FindRepoRoot(), "System", "CXNeon", "Theme.ini"));
+            var theme = SkinTheme.Load(Path.Combine(FindRepoRoot(), "System", "Theme.ini"));
 
             Assert.Equal(Color.White, ConfigStage.ResolveSelectedMenuTextColor(theme));
         }
 
         [Fact]
-        public void CxNeonPack_ShouldExpectEveryRequiredTextureWhenGraphicsTreeExists()
+        public void CxNeonPack_ShouldExpectEveryRequiredTexture()
         {
-            var packRoot = Path.Combine(FindRepoRoot(), "System", "CXNeon");
-            if (!Directory.Exists(Path.Combine(packRoot, "Graphics")))
-                return; // texture tree not yet produced — see tools/README.md
+            var packRoot = Path.Combine(FindRepoRoot(), "System");
 
             var required = TexturePath.GetAllTexturePaths()
                 .Where(p => p != TexturePath.PerformanceBackgroundVideo);
@@ -51,16 +43,14 @@ namespace DTXMania.Test.Resources
                 .ToList();
 
             Assert.True(missing.Count == 0,
-                $"CX Neon Graphics tree is present but incomplete ({missing.Count} missing textures):\n  " +
+                $"CX Neon pack is missing {missing.Count} required textures:\n  " +
                 string.Join("\n  ", missing));
         }
 
         [Fact]
-        public void CxNeonPack_ShouldExpectEveryRequiredSoundWhenSoundsTreeExists()
+        public void CxNeonPack_ShouldExpectEveryRequiredSound()
         {
-            var packRoot = Path.Combine(FindRepoRoot(), "System", "CXNeon");
-            if (!Directory.Exists(Path.Combine(packRoot, "Sounds")))
-                return; // sound tree not yet produced — see tools/README.md
+            var packRoot = Path.Combine(FindRepoRoot(), "System");
 
             var required = SoundPath.GetAllSoundPaths();
 
@@ -70,7 +60,7 @@ namespace DTXMania.Test.Resources
                 .ToList();
 
             Assert.True(missing.Count == 0,
-                $"CX Neon Sounds tree is present but incomplete ({missing.Count} missing sounds):\n  " +
+                $"CX Neon pack is missing {missing.Count} required sounds:\n  " +
                 string.Join("\n  ", missing));
         }
 
@@ -88,10 +78,8 @@ namespace DTXMania.Test.Resources
         public void CxNeonPack_ShouldExpectEveryThemeReferencedTextureInPackAndManifest()
         {
             var repoRoot = FindRepoRoot();
-            var packRoot = Path.Combine(repoRoot, "System", "CXNeon");
+            var packRoot = Path.Combine(repoRoot, "System");
             var themePath = Path.Combine(packRoot, "Theme.ini");
-            if (!File.Exists(themePath))
-                return; // no Theme.ini — nothing theme-only to guard
 
             var manifestPath = Path.Combine(repoRoot, "tools", "skingen", "manifest.json");
             var manifestKeys = new HashSet<string>(StringComparer.Ordinal);

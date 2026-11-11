@@ -3,16 +3,11 @@ bin
 
 Config.ini
 
-# Skin assets: track the committed art under System/Graphics (NX, dev-only)
-# and the original CX Neon pack under System/CXNeon; ignore the rest of System/.
-System/*
-!System/Graphics/
-!System/CXNeon/
-!System/Theme.ini
-# ...but never the non-asset junk that collects inside it.
-System/Graphics/desktop.ini
-System/Graphics/debug.log
-System/Graphics/*.log
+# Skin assets under System/ are tracked: that directory is the bundled CX Neon
+# base skin. Ignore only OS/editor junk that collects inside it.
+System/**/desktop.ini
+System/**/Thumbs.db
+System/**/*.log
 
 Font/
 /DTXManiaNX

@@ -40,11 +40,45 @@ class ScanTexturePathTests(unittest.TestCase):
                          "\n  ".join(missing))
 
 
+class BootstrapTests(unittest.TestCase):
+    def test_bootstrap_preserves_authored_fields_and_adds_null_dim_entries(self):
+        # bootstrap only fills gaps from TexturePath.cs: authored dimensions,
+        # optionality and recipes survive, and a new entry is left for the
+        # author to measure (no reference pack is read any more).
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest_path = os.path.join(tmp, "manifest.json")
+            authored = {"Graphics/keep.png": {
+                "width": 12, "height": 7, "optional": False,
+                "recipe": {"type": "copy", "source": "keep.png"}}}
+            with open(manifest_path, "w", encoding="utf-8") as f:
+                json.dump({"assets": authored}, f)
+
+            original_scan = skingen.scan_texture_paths
+            skingen.scan_texture_paths = lambda: [
+                "Graphics/keep.png",
+                "Graphics/new.png",
+                "Graphics/7_background.mp4",
+            ]
+            try:
+                skingen.bootstrap(manifest_path)
+            finally:
+                skingen.scan_texture_paths = original_scan
+
+            with open(manifest_path, encoding="utf-8") as f:
+                assets = json.load(f)["assets"]
+
+            self.assertEqual(assets["Graphics/keep.png"], authored["Graphics/keep.png"])
+            self.assertIsNone(assets["Graphics/new.png"]["width"])
+            self.assertIsNone(assets["Graphics/new.png"]["height"])
+            self.assertFalse(assets["Graphics/new.png"]["optional"])
+            self.assertTrue(assets["Graphics/7_background.mp4"]["optional"])
+
+
 class LagAtlasTests(unittest.TestCase):
     ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     ATLAS_PATHS = (
         os.path.join(ROOT, "tools", "skingen", "source", "7_lag numbers.png"),
-        os.path.join(ROOT, "System", "CXNeon", "Graphics", "7_lag numbers.png"),
+        os.path.join(ROOT, "System", "Graphics", "7_lag numbers.png"),
     )
     GLYPH_WIDTH = 15
     GLYPH_HEIGHT = 19
