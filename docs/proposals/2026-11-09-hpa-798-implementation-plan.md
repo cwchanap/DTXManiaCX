@@ -52,13 +52,13 @@ Confirm moved assets match original bytes (Git rename detection/checksums where 
 
 ```xml
 <ItemGroup>
-  <None Include="..\\System\\Theme.ini" Link="System\\Theme.ini"
+  <None Include="..\System\Theme.ini" Link="System\Theme.ini"
         CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-  <None Include="..\\System\\Graphics\\**\\*" LinkBase="System\\Graphics"
-        Exclude="..\\System\\Graphics\\**\\*.log;..\\System\\Graphics\\**\\.DS_Store;..\\System\\Graphics\\**\\desktop.ini;..\\System\\Graphics\\**\\Thumbs.db"
+  <None Include="..\System\Graphics\**\*" LinkBase="System\Graphics"
+        Exclude="..\System\Graphics\**\*.log;..\System\Graphics\**\.DS_Store;..\System\Graphics\**\desktop.ini;..\System\Graphics\**\Thumbs.db"
         CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-  <None Include="..\\System\\Sounds\\**\\*" LinkBase="System\\Sounds"
-        Exclude="..\\System\\Sounds\\**\\*.log;..\\System\\Sounds\\**\\.DS_Store;..\\System\\Sounds\\**\\desktop.ini;..\\System\\Sounds\\**\\Thumbs.db"
+  <None Include="..\System\Sounds\**\*" LinkBase="System\Sounds"
+        Exclude="..\System\Sounds\**\*.log;..\System\Sounds\**\.DS_Store;..\System\Sounds\**\desktop.ini;..\System\Sounds\**\Thumbs.db"
         CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
 </ItemGroup>
 ```
