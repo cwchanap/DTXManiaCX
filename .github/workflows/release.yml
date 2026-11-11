@@ -446,10 +446,17 @@ jobs:
               throw "Published System skin is incomplete (missing $required under $publishedSystem)."
             }
           }
-          git diff --no-index --quiet -- System $publishedSystem
-          if ($LASTEXITCODE -ne 0) {
-            git diff --no-index --stat -- System $publishedSystem
-            throw "Published System skin differs from the validated source pack."
+          # Compare the published payload only: SystemSkin.props ships
+          # Theme.ini, Graphics/, and Sounds/, so diffing the whole System/
+          # directory would fail on source-only files like README.md.
+          foreach ($entry in @('Theme.ini', 'Graphics', 'Sounds')) {
+            $sourceEntry = Join-Path 'System' $entry
+            $publishedEntry = Join-Path $publishedSystem $entry
+            git diff --no-index --quiet -- $sourceEntry $publishedEntry
+            if ($LASTEXITCODE -ne 0) {
+              git diff --no-index --stat -- $sourceEntry $publishedEntry
+              throw "Published System skin differs from the validated source pack ($entry)."
+            }
           }
 
       - name: Compile installer
@@ -635,10 +642,15 @@ jobs:
               exit 1
             fi
           done
-          if ! diff -r System "$published_system"; then
-            echo "::error::Published System skin differs from the validated source pack." >&2
-            exit 1
-          fi
+          # Compare the published payload only: SystemSkin.props ships
+          # Theme.ini, Graphics/, and Sounds/, so diffing the whole System/
+          # directory would fail on source-only files like README.md.
+          for entry in Theme.ini Graphics Sounds; do
+            if ! diff -r "System/$entry" "$published_system/$entry"; then
+              echo "::error::Published System skin differs from the validated source pack ($entry)." >&2
+              exit 1
+            fi
+          done
 
       - name: Build .app bundle and DMG
         run: |
