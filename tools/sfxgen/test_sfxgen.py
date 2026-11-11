@@ -1,3 +1,5 @@
+import contextlib
+import io
 import json
 import os
 import shutil
@@ -311,6 +313,49 @@ class ValidateTests(unittest.TestCase):
             errors = sfxgen.validate_pack(manifest_path, tmp)
 
         self.assertTrue(any("duration" in error.lower() for error in errors))
+
+
+class ValidateOutDirTests(unittest.TestCase):
+    """`validate --out-dir` reuses validate_pack against published assets."""
+
+    def _validate(self, out_dir):
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            result = sfxgen.main([
+                "--manifest", sfxgen.MANIFEST_PATH,
+                "validate", "--out-dir", out_dir,
+            ])
+        return result, stdout.getvalue()
+
+    def test_validate_out_dir_passes_for_complete_pack(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for sound in sfxgen.load_sounds(sfxgen.MANIFEST_PATH):
+                seconds = sound["duration_seconds"] if sound["generator"] == "ffmpeg_sine" else 0.1
+                _make_silent_ogg(os.path.join(tmp, sound["file"]), seconds=seconds)
+
+            result, output = self._validate(tmp)
+
+        self.assertEqual(0, result, output)
+        self.assertIn("validate: 0 problem(s)", output)
+
+    def test_validate_out_dir_fails_for_missing_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = os.path.join(tmp, "no-such-dir")
+
+            result, output = self._validate(missing)
+
+        self.assertEqual(1, result)
+        self.assertIn("MISSING  Move.ogg", output)
+
+    def test_validate_out_dir_fails_for_incomplete_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _make_silent_ogg(os.path.join(tmp, "Move.ogg"))
+
+            result, output = self._validate(tmp)
+
+        self.assertEqual(1, result)
+        self.assertIn("MISSING  Decide.ogg", output)
+        self.assertNotIn("Move.ogg", output)
 
 
 class FfmpegCommandTests(unittest.TestCase):

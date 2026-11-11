@@ -14,18 +14,6 @@
   #error "SourceDir must be defined (pass an absolute /DSourceDir=<path\to\publish\win> to iscc; Inno Setup resolves Source: relative to this .iss file's directory)"
 #endif
 
-; SystemSkinDir is the absolute path to the flattened CX Neon skin shipped
-; into the application directory ({app}\System) on install. The release
-; workflow flattens the CX Neon pack (System/CXNeon/{Graphics,Sounds,Theme.ini})
-; into a staging dir and passes it here so releases ship the layout
-; ResourceManager expects, not the nested System/CXNeon/ source tree. Defaults
-; to the repo's System\CXNeon for local/dev builds that invoke iscc without
-; the define — pointing at System\ (the parent) would copy both the NX
-; Graphics\ tree and the CXNeon\ subtree, producing a hybrid install.
-#ifndef SystemSkinDir
-  #define SystemSkinDir "..\..\System\CXNeon"
-#endif
-
 #define MyAppName      "DTXManiaCX"
 #define MyAppPublisher "DTXManiaCX"
 #define MyAppExeName   "DTXMania.Game.Windows.exe"
@@ -65,11 +53,12 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [InstallDelete]
 ; Remove the entire installer-owned default skin tree before copying the new
 ; release. [Files] with ignoreversion only overwrites/creates files — files
-; dropped from SystemSkinDir in a newer release (e.g. obsolete NX assets from
-; prior installs) would otherwise survive the upgrade and produce a hybrid
-; skin. This runs before [Files] on every install (a no-op on fresh installs
-; where {app}\System does not yet exist). Per-user custom skins live under
-; %LOCALAPPDATA%\DTXManiaCX\System\{SkinName}\ and are never touched here.
+; dropped from the publish output's System\ in a newer release (e.g. obsolete
+; NX assets from prior installs) would otherwise survive the upgrade and
+; produce a hybrid skin. This runs before [Files] on every install (a no-op on
+; fresh installs where {app}\System does not yet exist). Per-user custom skins
+; live under %LOCALAPPDATA%\DTXManiaCX\System\{SkinName}\ and are never touched
+; here.
 Type: filesandordirs; Name: "{app}\System"
 ; Same for the bundled practice charts (part of the publish output): a chart
 ; renamed or dropped in a newer release would otherwise linger as a duplicate
@@ -77,19 +66,16 @@ Type: filesandordirs; Name: "{app}\System"
 Type: filesandordirs; Name: "{app}\BundledSongs"
 
 [Files]
-; Self-contained game files from the win-x64 publish output
-Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
-
-; Default System skin → application directory ({app}\System). The default skin
-; is application-managed content, not user data: it is replaced on every upgrade
-; and removed on uninstall. Custom skins live under per-user app-data
+; Self-contained game files from the win-x64 publish output. The publish output
+; already contains the canonical default skin at System\ (Theme.ini, Graphics\,
+; Sounds\), so this single recursive item is the only skin source. The default
+; skin is application-managed content, not user data: it is replaced on every
+; upgrade and removed on uninstall. Custom skins live under per-user app-data
 ; (%LOCALAPPDATA%\DTXManiaCX\System\{SkinName}\) and are never touched by the
-; installer. Shipping to {app}\System avoids the mixed-skin problem where
-; onlyifdoesntexist + uninsneveruninstall left old NX assets behind after an
-; upgrade, producing a hybrid of NX artwork and CX Neon layout overrides.
-; AppPaths.GetBundledSystemSkinRootCandidates() includes {baseDir}\System, so
-; ResourceManager and SkinManager resolve this as the bundled/default skin root.
-Source: "{#SystemSkinDir}\*"; DestDir: "{app}\System"; Flags: recursesubdirs createallsubdirs ignoreversion
+; installer. AppPaths.GetBundledSystemSkinRootCandidates() includes
+; {baseDir}\System, so ResourceManager and SkinManager resolve it as the
+; bundled/default skin root.
+Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

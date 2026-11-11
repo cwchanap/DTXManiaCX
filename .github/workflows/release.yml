@@ -373,10 +373,11 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Validate CX Neon pack completeness and integrity
+      - name: Validate source and published System skin
         shell: pwsh
         run: |
-          # Two complementary gates run before staging (see tools/README.md):
+          # Two complementary source gates run before packaging (see
+          # tools/README.md):
           #
           # 1. skingen/sfxgen validate — integrity: every manifest asset exists
           #    on disk, decodes as an image/audio file, and matches the expected
@@ -388,10 +389,9 @@ jobs:
           #    exists, including manifest-optional-but-code-referenced assets
           #    that skingen validate skips.
           #
-          # Both self-skip when the pack is absent (no System/CXNeon/Graphics).
-          if (-not (Test-Path 'System/CXNeon/Graphics') -or -not (Test-Path 'System/CXNeon/Sounds')) {
-            Write-Host 'CX Neon pack not yet produced — skipping pack validation.'
-            exit 0
+          # Fail-closed: the pack is committed, so absence is a regression.
+          if (-not (Test-Path 'System/Graphics') -or -not (Test-Path 'System/Sounds')) {
+            throw 'System skin missing from repo (System/Graphics or Sounds). Run tools/skingen/ and tools/sfxgen/ to produce it before releasing.'
           }
           # $ErrorActionPreference does not propagate to native commands in
           # pwsh, so a non-zero exit from pip/choco/python/dotnet would be
@@ -436,33 +436,19 @@ jobs:
             --verbosity normal
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Stage base System skin (flatten CX Neon; fail if pack is missing)
-        shell: pwsh
-        run: |
-          # Flatten the CX Neon pack into the base System layout the
-          # ResourceManager expects (Graphics/, Sounds/, Theme.ini at the System
-          # root) and pass the staging dir to Inno Setup via SystemSkinDir.
-          #
-          # Fail-closed: the CX Neon pack is complete and committed, so a missing
-          # Graphics/ or Sounds/ is a real regression, not an interim state. The
-          # prior ::warning:: fallback shipped repo-root System\ — which contains
-          # NX/GITADORA-derived assets the project no longer has rights to
-          # redistribute — and was only acceptable while the pack was being
-          # produced. Produce the pack via tools/skingen/ and tools/sfxgen/ before
-          # cutting a release.
-          $dest = Join-Path $PWD 'publish\system-skin'
-          if (-not (Test-Path 'System/CXNeon/Graphics') -or -not (Test-Path 'System/CXNeon/Sounds')) {
-            $missing = @()
-            if (-not (Test-Path 'System/CXNeon/Graphics')) { $missing += 'Graphics' }
-            if (-not (Test-Path 'System/CXNeon/Sounds'))   { $missing += 'Sounds' }
-            throw "CX Neon pack incomplete ($($missing -join ', ') missing under System/CXNeon/). Refusing to ship repo-root System\ (NX/GITADORA-derived assets). Produce the pack via tools/skingen/ and tools/sfxgen/ before releasing."
+          # Published pack: publish now supplies System/ directly, so validate
+          # the artifact the installer ships. No self-skip — a missing published
+          # skin means the MSBuild copy items broke.
+          $publishedSystem = 'publish/win/System'
+          foreach ($required in @('Theme.ini', 'Graphics', 'Sounds')) {
+            if (-not (Test-Path (Join-Path $publishedSystem $required))) {
+              throw "Published System skin is incomplete (missing $required under $publishedSystem)."
+            }
           }
-          New-Item -ItemType Directory -Force -Path $dest | Out-Null
-          Copy-Item -Path 'System/CXNeon/Graphics' -Destination "$dest/Graphics" -Recurse -Force
-          Copy-Item -Path 'System/CXNeon/Sounds'   -Destination "$dest/Sounds"   -Recurse -Force
-          Copy-Item -Path 'System/CXNeon/Theme.ini' -Destination "$dest/Theme.ini" -Force
-          "SYSTEM_SKIN_DIR=$dest" | Out-File -FilePath $env:GITHUB_ENV -Append
-          Write-Host "Staged base System skin at: $dest"
+          python tools/skingen/skingen.py validate --pack $publishedSystem
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tools/sfxgen/sfxgen.py validate --out-dir (Join-Path $publishedSystem 'Sounds')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Compile installer
         shell: pwsh
@@ -471,9 +457,10 @@ jobs:
           if (-not (Test-Path $iscc)) { throw "ISCC.exe not found at $iscc" }
           # SourceDir MUST be absolute: Inno Setup resolves Source: paths relative
           # to the .iss file's directory (installer/windows/), not the ISCC cwd.
-          # SystemSkinDir is the staged base System skin (see previous step).
+          # The publish output already contains System/, so one recursive [Files]
+          # entry ships the skin — no separate staging define.
           $sourceDir = Join-Path $PWD "publish\win"
-          & $iscc /DMyAppVersion="$env:APP_VERSION" "/DSourceDir=$sourceDir" "/DSystemSkinDir=$env:SYSTEM_SKIN_DIR" "installer\windows\dtxmania.iss"
+          & $iscc /DMyAppVersion="$env:APP_VERSION" "/DSourceDir=$sourceDir" "installer\windows\dtxmania.iss"
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
@@ -601,9 +588,10 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Validate CX Neon pack completeness and integrity
+      - name: Validate source and published System skin
         run: |
-          # Two complementary gates run before staging (see tools/README.md):
+          # Two complementary source gates run before packaging (see
+          # tools/README.md):
           #
           # 1. skingen/sfxgen validate — integrity: every manifest asset exists
           #    on disk, decodes as an image/audio file, and matches the expected
@@ -615,11 +603,11 @@ jobs:
           #    exists, including manifest-optional-but-code-referenced assets
           #    that skingen validate skips.
           #
-          # Both self-skip when the pack is absent (no System/CXNeon/Graphics).
-          # Mirrors the build-and-test.yml bundle leg.
-          if [ ! -d "System/CXNeon/Graphics" ] || [ ! -d "System/CXNeon/Sounds" ]; then
-            echo "CX Neon pack not yet produced — skipping pack validation."
-            exit 0
+          # Fail-closed: the pack is committed, so absence is a regression.
+          # Mirrors the windows-installer leg.
+          if [ ! -d "System/Graphics" ] || [ ! -d "System/Sounds" ]; then
+            echo "::error::System skin missing from repo (System/Graphics or Sounds). Run tools/skingen/ and tools/sfxgen/ to produce it before releasing." >&2
+            exit 1
           fi
           pip install "Pillow>=10,<12"
           # sfxgen validate decodes every OGG via ffmpeg. The arm64 ffmpeg built
@@ -634,33 +622,18 @@ jobs:
             --filter 'FullyQualifiedName~CxNeonPackTests' \
             --verbosity normal
 
-      - name: Stage base System skin (flatten CX Neon; fail if pack is missing)
-        run: |
-          # Flatten the CX Neon pack into the base System layout the
-          # ResourceManager expects (Graphics/, Sounds/, Theme.ini at the System
-          # root) and pass the staging dir to build-dmg.sh.
-          #
-          # Fail-closed: the CX Neon pack is complete and committed, so a missing
-          # Graphics/ or Sounds/ is a real regression, not an interim state. The
-          # prior ::warning:: fallback shipped repo-root System/ — which contains
-          # NX/GITADORA-derived assets the project no longer has rights to
-          # redistribute — and was only acceptable while the pack was being
-          # produced. Produce the pack via tools/skingen/ and tools/sfxgen/ before
-          # cutting a release. Mirrors the windows-installer leg.
-          if [ ! -d "System/CXNeon/Graphics" ] || [ ! -d "System/CXNeon/Sounds" ]; then
-            missing=""
-            [ ! -d "System/CXNeon/Graphics" ] && missing="Graphics"
-            [ ! -d "System/CXNeon/Sounds" ]   && missing="${missing:+$missing, }Sounds"
-            echo "::error::CX Neon pack incomplete (${missing:-unknown} missing under System/CXNeon/). Refusing to ship repo-root System/ (NX/GITADORA-derived assets). Produce the pack via tools/skingen/ and tools/sfxgen/ before releasing." >&2
-            exit 1
-          fi
-          dest="$PWD/publish/system-skin"
-          mkdir -p "$dest"
-          cp -R System/CXNeon/Graphics "$dest/Graphics"
-          cp -R System/CXNeon/Sounds   "$dest/Sounds"
-          cp System/CXNeon/Theme.ini   "$dest/Theme.ini"
-          echo "SYSTEM_SKIN_DIR=$dest" >> "$GITHUB_ENV"
-          echo "Staged base System skin at: $dest"
+          # Published pack: publish now supplies System/ directly, so validate
+          # the artifact the .app ships. No self-skip — a missing published skin
+          # means the MSBuild copy items broke.
+          published_system="publish/mac/System"
+          for required in Theme.ini Graphics Sounds; do
+            if [ ! -e "$published_system/$required" ]; then
+              echo "::error::Published System skin is incomplete (missing $required under $published_system)." >&2
+              exit 1
+            fi
+          done
+          python tools/skingen/skingen.py validate --pack "$published_system"
+          python tools/sfxgen/sfxgen.py validate --out-dir "$published_system/Sounds"
 
       - name: Build .app bundle and DMG
         run: |
@@ -668,7 +641,6 @@ jobs:
           test -x ./publish/mac/runtimes/osx-arm64/MMTools/ffprobe
           bash installer/macos/build-dmg.sh \
             ./publish/mac \
-            "$SYSTEM_SKIN_DIR" \
             "$APP_VERSION" \
             DTXMania.Game/Icon.ico \
             ./output
