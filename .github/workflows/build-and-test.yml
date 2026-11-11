@@ -470,11 +470,16 @@ jobs:
         python tools/sfxgen/sfxgen.py validate
         # The published copy is produced by CopyToOutput/ToPublish items, so
         # byte equality with the validated source pack is the complete check.
-        # Decoding every asset a second time adds no coverage.
-        if ! diff -r System "$system_dir"; then
-          echo "::error::Published System skin differs from the validated source pack." >&2
-          exit 1
-        fi
+        # Decoding every asset a second time adds no coverage. Compare the
+        # published payload only: SystemSkin.props ships Theme.ini, Graphics/,
+        # and Sounds/, so diffing the whole System/ directory would fail on
+        # source-only files like README.md that never ship.
+        for entry in Theme.ini Graphics Sounds; do
+          if ! diff -r "System/$entry" "$system_dir/$entry"; then
+            echo "::error::Published System skin differs from the validated source pack ($entry)." >&2
+            exit 1
+          fi
+        done
 
     - name: Upload artifacts
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
