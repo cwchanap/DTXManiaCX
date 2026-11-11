@@ -168,7 +168,7 @@ public class GameApiImplementation : IGameApi, IDisposable
         // CWD at lookup), so export an absolute path — telemetry clients resolve
         // paths against their own working directory.
         var effectiveSkinPath = _game.ResourceManager?.GetCurrentEffectiveSkinPath();
-        telemetry.SkinPath = effectiveSkinPath == null ? null : Path.GetFullPath(effectiveSkinPath);
+        telemetry.SkinPath = string.IsNullOrEmpty(effectiveSkinPath) ? null : Path.GetFullPath(effectiveSkinPath);
         return telemetry;
     }
 
