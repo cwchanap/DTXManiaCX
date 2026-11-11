@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using Moq;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Xunit;
@@ -102,8 +103,11 @@ namespace DTXMania.Test.GameApi
         [Fact]
         public async Task GetGameStateAsync_ShouldIncludeActiveSkinPath()
         {
+            // box.def skin paths may be stored relative; the API exports the
+            // absolute resolution so telemetry clients in other processes can
+            // locate the skin from their own working directory.
             var resourceManager = new Mock<IResourceManager>();
-            resourceManager.Setup(rm => rm.GetCurrentEffectiveSkinPath()).Returns("/app/System/");
+            resourceManager.Setup(rm => rm.GetCurrentEffectiveSkinPath()).Returns("System/");
 
             var gameContext = new Mock<IGameContext>();
             gameContext.SetupGet(g => g.ResourceManager).Returns(resourceManager.Object);
@@ -113,7 +117,8 @@ namespace DTXMania.Test.GameApi
             var state = await api.GetGameStateAsync();
 
             var telemetry = Assert.IsType<GameTelemetrySnapshot>(state.CustomData["telemetry"]);
-            Assert.Equal("/app/System/", telemetry.SkinPath);
+            Assert.True(Path.IsPathFullyQualified(telemetry.SkinPath!));
+            Assert.Equal(Path.GetFullPath("System/"), telemetry.SkinPath);
         }
 
         [Fact]
