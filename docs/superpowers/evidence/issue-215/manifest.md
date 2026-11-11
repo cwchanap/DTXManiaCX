@@ -1,6 +1,6 @@
 # Issue #215 — committed visual evidence
 
-This directory contains **eight historical before/after pair PNGs**, plus **three final-fix-wave full-resolution PNGs and their telemetry JSONs** listed below. Only these images/JSONs and this manifest are committed here. Pair frames are reduced to 640×360 each; the new single-frame exports are 1280×720 virtual-target captures. Resizing/annotation is evidence assembly, not production artwork.
+This directory contains **four historical before/after pair PNGs**, plus **one final-fix-wave full-resolution PNG and its telemetry JSON** listed below. Only these images/JSONs and this manifest are committed here. Pair frames are reduced to 640×360 each; the new single-frame export is a 1280×720 virtual-target capture. Resizing/annotation is evidence assembly, not production artwork.
 
 ## Historical matched-fixture pairs (Tasks 1–4)
 
@@ -8,10 +8,6 @@ Before: Mac game rebuilt from `a8de75f8` in an archived source copy inside this 
 
 | Committed pair | Observed change at that revision |
 | --- | --- |
-| [NX normal Result](nx-result-normal-pair.png) | Overlapping white level/skill values become separated charcoal rows; playback group moves onto the top-left plate. This AutoPlay run reports `NotStarted`, not `Saved`. |
-| [NX failed-save Result](nx-result-failedsave-pair.png) | Extended plate improves retry guidance contrast. **Historical defect:** this version dims the left edge of FAILED; the final-fix-wave image below supersedes it. |
-| [NX missing jacket](nx-missing-jacket-pair.png) | Empty score-bar slots acquire the colorful skin default; profile becomes foreground below BPM/left of preview. Large missing-preview white panel is unchanged. |
-| [NX real jacket](nx-real-jacket-pair.png) | Selected real dark jacket remains intact; adjacent missing previews acquire the colorful NX default. |
 | [CXNeon normal Result](cxneon-result-normal-pair.png) | Group retains (830,310), with a translucent dark plate; skin value styling is unchanged. AutoPlay save status is `NotStarted`. |
 | [CXNeon failed-save Result](cxneon-result-failedsave-pair.png) | Extended plate improves orange retry/leave guidance contrast while retaining the background beam/particles. |
 | [CXNeon missing jacket](cxneon-missing-jacket-pair.png) | Empty score-bar slots acquire the dark gridded-disc default; profile clears BPM/preview. |
@@ -21,15 +17,13 @@ The A/B/C fixtures have no PREIMAGE, a valid `jacket.png`, and a nonexistent `ab
 
 ## Final fix wave — genuine Saved status and FAILED clearance
 
-These captures use the reviewed branch plus the final geometry fixes. Opened all three PNGs as image attachments for visual inspection.
+This capture uses the reviewed branch plus the final geometry fixes. Opened the PNG as an image attachment for visual inspection.
 
 | Committed full-resolution capture | Telemetry | Inspection |
 | --- | --- | --- |
-| [NX Saved Result](nx-result-saved-1280x720.png) | [state](nx-result-saved-1280x720-state.json) | `SongComplete`, `scoreSaveStatus=Saved`, no error. Green `SCORE SAVE: SAVED` is readable on the short 60%-black plate; level/play/skill rows remain separate. NX plate now ends at X=420. |
 | [CXNeon Saved Result](cxneon-result-saved-1280x720.png) | [state](cxneon-result-saved-1280x720-state.json) | `SongComplete`, `scoreSaveStatus=Saved`, no error. Green Saved row is readable; group remains at (830,310) on its unchanged 432px-wide plate, with no jacket/value-panel collision. |
-| [NX failed-save Result after fix](nx-result-failedsave-1280x720.png) | [state](nx-result-failedsave-1280x720-state.json) | `PlayerFailed`, `scoreSaveStatus=Failed`, SQLite error 8. Red FAILED is no longer darkened by the plate; retry/leave and WITHOUT SAVING remain readable. The existing long diagnostic still truncates in its two-line bounds. |
 
-**AutoPlay cannot produce Saved in this codebase.** `PerformanceSummary.IsSavable` rejects every run with `UsedAutoPlay=true`, before database saving is attempted. The NX fixture first seeds the played chart's writable speed-100/drums score row (`PlayCount=1`, `BestScore=1000`), then completes a genuine **non-AutoPlay / NoFail** run (no input, 32 misses). That run saves successfully. Replaying the same writable, previously-scored chart with all ten AutoPlay lanes enabled yields 32 perfects and **`NotStarted`**, confirming that a prior score does not bypass the guard. CXNeon's Saved capture likewise uses non-AutoPlay / NoFail. No production save behavior or telemetry was altered to manufacture Saved evidence.
+**AutoPlay cannot produce Saved in this codebase.** `PerformanceSummary.IsSavable` rejects every run with `UsedAutoPlay=true`, before database saving is attempted. The CXNeon Saved capture uses a genuine **non-AutoPlay / NoFail** run (no input, every note missed); that run saves successfully. Replaying the same chart with all ten AutoPlay lanes enabled yields perfects and **`NotStarted`**, confirming that a prior score does not bypass the guard. No production save behavior or telemetry was altered to manufacture Saved evidence.
 
 ## Second-size native-window attempt — blocked by macOS capture access
 
