@@ -71,7 +71,7 @@ dotnet run --project MCP/MCP.csproj -- --test  # Test mode without MCP client
 ```bash
 # Support tests only (in-process, no game launch). The E2E project targets
 # net10.0-windows7.0, but these tests also run on macOS with
-# -p:EnableWindowsTargeting=true (verified: 19 tests pass)
+# -p:EnableWindowsTargeting=true (verified: 25 tests pass)
 dotnet test DTXMania.E2E/DTXMania.E2E.csproj --filter "Category=E2E-Support" -p:EnableWindowsTargeting=true
 
 # Full gameplay smoke (launches the game out-of-process, drives it via JSON-RPC)
