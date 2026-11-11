@@ -6,6 +6,8 @@ Commands:
               save MP3 to raw/, then loudness-normalize + encode OGG/Vorbis
               into System/Sounds/. Requires ELEVENLABS_API_KEY and ffmpeg.
   validate    Check that every manifest sound exists in the output directory
+              (default: the manifest output_dir; --out-dir overrides it, e.g.
+              for a published System/Sounds)
               and is a runtime-compatible OGG/Vorbis file (rejects missing,
               empty, directory, corrupt/truncated, non-Vorbis, and unsupported
               sample-rate payloads that would fall back to silent audio).
@@ -311,10 +313,13 @@ def main(argv=None):
     generate = sub.add_parser("generate")
     generate.add_argument("--only", default=None, help="generate a single file, e.g. 'Decide.ogg'")
 
-    sub.add_parser("validate")
+    validate = sub.add_parser("validate")
+    validate.add_argument("--out-dir", default=None,
+                          help="directory holding the manifest's sound files "
+                               "(default: the manifest output_dir)")
 
     args = parser.parse_args(argv)
-    out_dir = output_dir(args.manifest)
+    out_dir = getattr(args, "out_dir", None) or output_dir(args.manifest)
 
     if args.command == "generate":
         failures = []

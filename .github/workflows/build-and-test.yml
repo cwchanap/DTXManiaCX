@@ -64,14 +64,16 @@ jobs:
 
         # Compile against tiny throwaway payloads. This exercises the real Inno
         # parser and [Code] compiler without duplicating the release publish.
+        # The payload mirrors the publish output's bundled System/ skin so the
+        # single recursive [Files] entry is the only skin source.
         $smokeRoot = Join-Path $env:RUNNER_TEMP "dtxmania-installer-smoke"
         $sourceDir = Join-Path $smokeRoot "app"
-        $skinDir = Join-Path $smokeRoot "skin"
-        New-Item -ItemType Directory -Force -Path $sourceDir, $skinDir | Out-Null
+        $systemDir = Join-Path $sourceDir "System"
+        New-Item -ItemType Directory -Force -Path $systemDir | Out-Null
         Set-Content -Path (Join-Path $sourceDir "payload.txt") -Value "installer smoke"
-        Set-Content -Path (Join-Path $skinDir "Theme.ini") -Value "[Theme]"
+        Set-Content -Path (Join-Path $systemDir "Theme.ini") -Value "[Theme]"
 
-        & $iscc "/DMyAppVersion=0.0.0-ci" "/DSourceDir=$sourceDir" "/DSystemSkinDir=$skinDir" "installer\windows\dtxmania.iss"
+        & $iscc "/DMyAppVersion=0.0.0-ci" "/DSourceDir=$sourceDir" "installer\windows\dtxmania.iss"
         if ($LASTEXITCODE -ne 0) { throw "Windows installer script failed to compile" }
 
     - name: Run tests on Windows
@@ -436,16 +438,28 @@ jobs:
       with:
         python-version: '3.11'
 
-    - name: Validate CX Neon pack is complete
+    - name: Validate source and published System skin
       shell: bash
       run: |
-        # Skip validation when the pack has not been produced yet (matches the
-        # vacuous-pass behavior of CxNeonPackTests). The pack is excluded from
-        # the bundled release until both Graphics/ and Sounds/ exist.
-        if [ ! -d "System/CXNeon/Graphics" ] || [ ! -d "System/CXNeon/Sounds" ]; then
-          echo "CX Neon pack not yet produced — skipping validation."
-          exit 0
+        # Source pack: skingen/sfxgen `validate` decode every committed System
+        # asset and check it matches the manifest dimensions. Fail-closed: the
+        # pack is committed, so a missing Graphics/ or Sounds/ is a regression,
+        # not an interim state.
+        if [ ! -d "System/Graphics" ] || [ ! -d "System/Sounds" ]; then
+          echo "::error::System skin missing from repo (System/Graphics or Sounds). Run tools/skingen/ and tools/sfxgen/ to produce it before merging." >&2
+          exit 1
         fi
+        # Published pack: publish now supplies System/ directly (both game
+        # projects copy it), so validate the artifact users actually receive.
+        # No self-skip: a missing published skin means the MSBuild copy items
+        # broke.
+        system_dir="./publish/${{ matrix.output }}/System"
+        for required in Theme.ini Graphics Sounds; do
+          if [ ! -e "$system_dir/$required" ]; then
+            echo "::error::Published System skin is incomplete (missing $required under $system_dir)." >&2
+            exit 1
+          fi
+        done
         pip install "Pillow>=10,<12"
         # sfxgen validate decodes every OGG via ffmpeg, which is not guaranteed
         # to be on PATH on either runner. Install a full OGG/Vorbis-capable build
@@ -454,53 +468,8 @@ jobs:
         if [ "$RUNNER_OS" = "Windows" ]; then choco install ffmpeg -y --no-progress; fi
         python tools/skingen/skingen.py validate
         python tools/sfxgen/sfxgen.py validate
-
-    - name: Bundle CX Neon skin as the base System skin
-      shell: bash
-      run: |
-        # Skip bundling when the pack has not been produced yet (matches the
-        # vacuous-pass behavior of CxNeonPackTests and the validate step above).
-        # The pack is excluded from the bundled release until both Graphics/
-        # and Sounds/ exist, so users never see a selectable-but-blank skin.
-        if [ ! -d "System/CXNeon/Graphics" ] || [ ! -d "System/CXNeon/Sounds" ]; then
-          echo "CX Neon pack not yet produced — skipping bundle."
-          exit 0
-        fi
-        dest="./publish/${{ matrix.output }}/System"
-        mkdir -p "$dest"
-        cp -R System/CXNeon/Graphics "$dest/Graphics"
-        cp -R System/CXNeon/Sounds "$dest/Sounds"
-        cp System/CXNeon/Theme.ini "$dest/Theme.ini"
-
-    - name: Assert no NX-derived assets in the release
-      shell: bash
-      run: |
-        # The only System content allowed in the artifact is what we just
-        # copied from System/CXNeon. Fail if anything else snuck in.
-        # Skip when the CX Neon pack was not bundled (see previous step).
-        system_dir="./publish/${{ matrix.output }}/System"
-        if [ ! -d "$system_dir" ]; then
-          echo "No System dir in release artifact — skipping NX-asset assertion."
-          exit 0
-        fi
-        # GITHUB_WORKSPACE is a Windows-style path (e.g. D:\a\...) on the
-        # windows-latest leg. Git Bash does not translate the backslash prefix
-        # when it is interpolated into a POSIX [ -f ] test, so every bundled
-        # CX Neon file would be reported as unexpected and the assertion would
-        # fail once the pack ships. cygpath -u converts to a POSIX path on
-        # Windows; on macOS GITHUB_WORKSPACE is already POSIX and cygpath is
-        # absent, so fall back to the raw value.
-        if command -v cygpath >/dev/null 2>&1; then
-          workspace="$(cygpath -u "$GITHUB_WORKSPACE")"
-        else
-          workspace="$GITHUB_WORKSPACE"
-        fi
-        unexpected=$(cd "$system_dir" && find . -type f | while read -r f; do
-          [ -f "$workspace/System/CXNeon/${f#./}" ] || echo "$f"
-        done)
-        if [ -n "$unexpected" ]; then
-          echo "Unexpected System files in release artifact:"; echo "$unexpected"; exit 1
-        fi
+        python tools/skingen/skingen.py validate --pack "$system_dir"
+        python tools/sfxgen/sfxgen.py validate --out-dir "$system_dir/Sounds"
 
     - name: Upload artifacts
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9

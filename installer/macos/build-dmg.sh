@@ -2,7 +2,11 @@
 # Builds a DTXMania.app bundle and packages it into a DMG.
 #
 # Usage:
-#   build-dmg.sh <publish_dir> <system_dir> <version> <ico_path> <output_dir>
+#   build-dmg.sh <publish_dir> <version> <ico_path> <output_dir>
+#
+# The publish output already contains the canonical default skin at System/
+# (Theme.ini, Graphics/, Sounds/); this script moves it from Contents/MacOS to
+# Contents/Resources/System, where the game's bundled-skin lookup expects it.
 #
 # Produces:
 #   <output_dir>/DTXMania.app
@@ -10,16 +14,15 @@
 
 set -euo pipefail
 
-if [[ "$#" -ne 5 ]]; then
-    echo "Usage: $0 <publish_dir> <system_dir> <version> <ico_path> <output_dir>" >&2
+if [[ "$#" -ne 4 ]]; then
+    echo "Usage: $0 <publish_dir> <version> <ico_path> <output_dir>" >&2
     exit 2
 fi
 
 PUBLISH_DIR="$1"
-SYSTEM_DIR="$2"
-VERSION="$3"
-ICO_PATH="$4"
-OUTPUT_DIR="$5"
+VERSION="$2"
+ICO_PATH="$3"
+OUTPUT_DIR="$4"
 
 APP_NAME="DTXMania"
 EXEC_NAME="DTXMania.Game.Mac"
@@ -37,12 +40,26 @@ mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 # Copy published output (executable, dlls, runtime, Content) into MacOS/
 cp -R "$PUBLISH_DIR/." "$MACOS_DIR/"
 
-# Default skin — bundled into Contents/Resources/System. The game's ResourceManager
-# resolves this as a read-only fallback when the writable app-data System skin
-# (~/Library/Application Support/DTXManiaCX/System) is missing assets, so a clean
-# DMG install launches with the bundled skin without any first-run copy step.
-if [[ -d "$SYSTEM_DIR" ]]; then
-    cp -R "$SYSTEM_DIR" "$RESOURCES_DIR/System"
+# Default skin — the publish output ships System/ next to the executable, but
+# the game's ResourceManager resolves the bundled skin at Contents/Resources/System
+# (a read-only fallback when the writable app-data System skin is missing
+# assets). Move it there so the app has exactly one skin copy and no
+# Contents/MacOS/System. Fail closed: publish always supplies System/, so a
+# missing or incomplete one is a packaging regression, not an optional state.
+if [[ ! -d "$MACOS_DIR/System" ]]; then
+    echo "error: publish output is missing System/ (expected $MACOS_DIR/System)" >&2
+    exit 1
+fi
+mv "$MACOS_DIR/System" "$RESOURCES_DIR/System"
+for required in Theme.ini Graphics Sounds; do
+    if [[ ! -e "$RESOURCES_DIR/System/$required" ]]; then
+        echo "error: bundled skin is incomplete (missing Contents/Resources/System/$required)" >&2
+        exit 1
+    fi
+done
+if [[ -e "$MACOS_DIR/System" ]]; then
+    echo "error: duplicate skin copy left at Contents/MacOS/System" >&2
+    exit 1
 fi
 
 # Convert ICO to icns (best-effort). iconutil needs an .iconset of sized PNGs;
