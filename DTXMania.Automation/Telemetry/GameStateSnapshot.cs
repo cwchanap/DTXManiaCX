@@ -82,6 +82,12 @@ public sealed class GameStateSnapshot
 
     public string? NoteDisplayStyle => GetTelemetryString("noteDisplayStyle");
 
+    /// <summary>
+    /// Effective skin root the game is rendering with (bundled Default root or
+    /// a selected custom skin).
+    /// </summary>
+    public string? SkinPath => GetTelemetryString("skinPath");
+
     private string? GetTelemetryString(string propertyName) =>
         Telemetry.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String
             ? value.GetString()

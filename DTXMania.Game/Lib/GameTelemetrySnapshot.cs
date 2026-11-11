@@ -11,6 +11,7 @@ public sealed class GameTelemetrySnapshot
     public string StageType { get; set; } = "Unknown";
     public string StagePhase { get; set; } = "Unknown";
     public bool IsTransitioning { get; set; }
+    public string? SkinPath { get; set; }
 
     public string? SelectedSongTitle { get; set; }
     public int? SelectedDifficulty { get; set; }
