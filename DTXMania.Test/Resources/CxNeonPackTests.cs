@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -131,25 +132,26 @@ namespace DTXMania.Test.Resources
 
         /// <summary>
         /// The bundled skin must reach the build output (and so every published
-        /// artifact) with its full relative layout. MSBuild globs also pick up
-        /// physical junk that .gitignore hides, so the game projects exclude it
-        /// explicitly; this guard fails when a copy item regresses, a Link
-        /// collapses nested directories, or junk leaks into the output.
+        /// artifact) with its full relative layout. The expected set is the
+        /// <em>tracked</em> pack, not whatever happens to sit on disk: MSBuild
+        /// globs also copy untracked leftovers (e.g. NX-era sounds from an old
+        /// checkout), and .gitignore-hidden junk must not ship. This guard fails
+        /// when a copy item regresses, a Link collapses nested directories, or
+        /// the output differs from the committed pack.
         /// </summary>
         [Fact]
         public void BundledSystemSkin_ShouldBeCopiedToBuildOutputWithIntactLayoutAndNoJunk()
         {
-            var repoPack = Path.Combine(FindRepoRoot(), "System");
+            var repoRoot = FindRepoRoot();
             var outputPack = Path.Combine(AppContext.BaseDirectory, "System");
 
             Assert.True(Directory.Exists(outputPack),
                 $"Bundled System skin was not copied to the build output: {outputPack}");
 
-            var expected = RelativeFiles(repoPack)
+            var expected = TrackedPackFiles(repoRoot)
                 .Where(p => p == "Theme.ini" ||
                             p.StartsWith("Graphics/", StringComparison.Ordinal) ||
                             p.StartsWith("Sounds/", StringComparison.Ordinal))
-                .Where(p => !IsJunk(Path.GetFileName(p)))
                 .ToList();
             var actual = RelativeFiles(outputPack).ToList();
             Assert.NotEmpty(expected);
@@ -171,12 +173,50 @@ namespace DTXMania.Test.Resources
                 .Select(f => Path.GetRelativePath(root, f).Replace(Path.DirectorySeparatorChar, '/'));
         }
 
-        private static bool IsJunk(string fileName)
+        /// <summary>
+        /// Lists the pack files Git tracks, so local leftovers cannot satisfy
+        /// the expected set. Fails closed: the test project always runs inside
+        /// a Git checkout (CI and local dev), so a missing Git binary is a
+        /// broken environment, not a reason to skip.
+        /// </summary>
+        private static IReadOnlyList<string> TrackedPackFiles(string repoRoot)
         {
-            return string.Equals(fileName, ".DS_Store", StringComparison.Ordinal)
-                || string.Equals(fileName, "desktop.ini", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(fileName, "Thumbs.db", StringComparison.OrdinalIgnoreCase)
-                || fileName.EndsWith(".log", StringComparison.OrdinalIgnoreCase);
+            using var process = new Process
+            {
+                StartInfo = new ProcessStartInfo("git")
+                {
+                    WorkingDirectory = repoRoot,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                }
+            };
+            process.StartInfo.ArgumentList.Add("ls-files");
+            process.StartInfo.ArgumentList.Add("-z");
+            process.StartInfo.ArgumentList.Add("--");
+            process.StartInfo.ArgumentList.Add("System");
+
+            process.Start();
+            var stdout = process.StandardOutput.ReadToEndAsync();
+            var stderr = process.StandardError.ReadToEndAsync();
+            if (!process.WaitForExit(30_000))
+            {
+                process.Kill(entireProcessTree: true);
+                throw new InvalidOperationException("git ls-files timed out after 30 seconds.");
+            }
+            if (process.ExitCode != 0)
+            {
+                throw new InvalidOperationException(
+                    $"git ls-files failed ({process.ExitCode}): {stderr.GetAwaiter().GetResult()}");
+            }
+
+            const string packPrefix = "System/";
+            return stdout.GetAwaiter().GetResult()
+                .Split('\0', StringSplitOptions.RemoveEmptyEntries)
+                .Where(p => p.StartsWith(packPrefix, StringComparison.Ordinal))
+                .Select(p => p[packPrefix.Length..])
+                .ToList();
         }
 
         private static string FindRepoRoot()
