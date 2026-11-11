@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -163,7 +164,11 @@ public class GameApiImplementation : IGameApi, IDisposable
         // The effective skin root is app-wide state, not stage state, so it is
         // applied after any provider snapshot. E2E uses it to prove a clean run
         // rendered the bundled Default skin rather than an app-data fallback.
-        telemetry.SkinPath = _game.ResourceManager?.GetCurrentEffectiveSkinPath();
+        // box.def skins may be stored relative (resolved against this process's
+        // CWD at lookup), so export an absolute path — telemetry clients resolve
+        // paths against their own working directory.
+        var effectiveSkinPath = _game.ResourceManager?.GetCurrentEffectiveSkinPath();
+        telemetry.SkinPath = effectiveSkinPath == null ? null : Path.GetFullPath(effectiveSkinPath);
         return telemetry;
     }
 
