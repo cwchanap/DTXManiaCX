@@ -5,6 +5,7 @@ using DTXMania.Automation.Support;
 using DTXMania.Automation.Telemetry;
 using DTXMania.E2E.Fixtures;
 using DTXMania.E2E.Support;
+using static DTXMania.E2E.Support.E2EStageHelpers;
 
 namespace DTXMania.E2E;
 
@@ -93,7 +94,7 @@ public sealed class ChartBackgroundVideoSmokeTests
         }
         catch
         {
-            await SaveScreenshotAsync(client, fixture, "failure-video-smoke.png", CancellationToken.None);
+            await TryWriteScreenshotAsync(client, fixture, "failure-video-smoke.png");
             throw;
         }
         finally
@@ -140,21 +141,6 @@ public sealed class ChartBackgroundVideoSmokeTests
         });
     }
 
-    private static Task<GameStateSnapshot> WaitForStageAsync(
-        JsonRpcGameClient client,
-        string expectedStageType,
-        TimeSpan timeout,
-        CancellationToken cancellationToken)
-    {
-        return Eventually.UntilAsync(
-            token => client.GetGameStateAsync(token),
-            state => string.Equals(state.StageType, expectedStageType, StringComparison.Ordinal),
-            timeout,
-            TimeSpan.FromMilliseconds(500),
-            expectedStageType,
-            cancellationToken);
-    }
-
     private static Task<GameStateSnapshot> WaitForPerformanceReadyAsync(
         JsonRpcGameClient client,
         TimeSpan timeout,
@@ -170,28 +156,4 @@ public sealed class ChartBackgroundVideoSmokeTests
             cancellationToken);
     }
 
-    private static async Task SaveScreenshotAsync(
-        JsonRpcGameClient client,
-        E2EFixture fixture,
-        string fileName,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-            using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
-                cancellationToken, timeoutCts.Token);
-            var imageData = await client.TakeScreenshotBase64Async(cancellation.Token);
-            if (string.IsNullOrWhiteSpace(imageData))
-                return;
-
-            var imageBytes = Convert.FromBase64String(imageData);
-            Directory.CreateDirectory(fixture.ArtifactRoot);
-            await File.WriteAllBytesAsync(Path.Combine(fixture.ArtifactRoot, fileName), imageBytes, cancellation.Token);
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[E2E] Screenshot capture skipped for '{fileName}': {ex.GetType().Name}: {ex.Message}");
-        }
-    }
 }

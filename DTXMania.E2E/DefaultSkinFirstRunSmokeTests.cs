@@ -7,6 +7,8 @@ using DTXMania.Automation.Telemetry;
 using DTXMania.E2E.Fixtures;
 using DTXMania.E2E.Support;
 using DTXMania.Game.Lib.Config;
+using DTXMania.Game.Lib.Resources;
+using static DTXMania.E2E.Support.E2EStageHelpers;
 
 namespace DTXMania.E2E;
 
@@ -42,7 +44,11 @@ public sealed class DefaultSkinFirstRunSmokeTests
             runRoot,
             repoRoot,
             apiPort,
-            useBundledDefaultSkin: true);
+            useBundledDefaultSkin: true,
+            // The generated chart runs ~4s; this test needs a wide window to
+            // capture a Performance frame on a slow runner without the stage
+            // reaching Result first.
+            extraChartBars: 8);
         // The CI artifact root is shared by every E2E fixture, whose generic
         // log/config names would overwrite this run's provenance. Scope this
         // test's artifacts to its own subdirectory (uploaded recursively).
@@ -69,6 +75,26 @@ public sealed class DefaultSkinFirstRunSmokeTests
             // fixture skin directory was never created and app-data holds no skin.
             Assert.False(Directory.Exists(fixture.SkinRoot));
             Assert.False(File.Exists(Path.Combine(fixture.AppDataRoot, "System", "Theme.ini")));
+
+            // Prove the game actually resolved that bundled root. Without this,
+            // missing build-output art would render placeholders and still pass
+            // the PNG size checks below.
+            var titleState = await client.GetGameStateAsync(cancellation.Token);
+            var activeSkinPath = titleState.SkinPath;
+            Assert.False(
+                string.IsNullOrWhiteSpace(activeSkinPath),
+                "Telemetry did not report the active skin path.");
+            Assert.True(
+                SkinManager.ValidateSkinPath(activeSkinPath!),
+                $"The active skin root has no valid skin assets: {activeSkinPath}");
+            Assert.Equal(
+                "System",
+                Path.GetFileName(Path.TrimEndingDirectorySeparator(activeSkinPath!)));
+            var appDataPrefix = Path.GetFullPath(fixture.AppDataRoot) + Path.DirectorySeparatorChar;
+            Assert.False(
+                Path.GetFullPath(activeSkinPath!).StartsWith(
+                    appDataPrefix, StringComparison.OrdinalIgnoreCase),
+                $"The game fell back to the empty app-data skin root: {activeSkinPath}");
 
             await CaptureRequiredScreenshotAsync(
                 client, fixture, "title-default-skin.png", cancellation.Token);
@@ -120,6 +146,7 @@ public sealed class DefaultSkinFirstRunSmokeTests
                 {
                     StoredSkinPath = storedEntries["SkinPath"],
                     StoredSystemSkinRoot = storedSystemSkinRoot,
+                    ActiveSkinPath = activeSkinPath,
                     FixtureSkinRootExists = Directory.Exists(fixture.SkinRoot),
                     AppDataThemeIniExists = File.Exists(
                         Path.Combine(fixture.AppDataRoot, "System", "Theme.ini"))
@@ -128,7 +155,7 @@ public sealed class DefaultSkinFirstRunSmokeTests
         catch (Exception ex)
         {
             await E2EArtifactWriter.WriteTextAsync(fixture, "failure.txt", ex.ToString());
-            await TryWriteScreenshotAsync(client, fixture);
+            await TryWriteScreenshotAsync(client, fixture, "default-skin-failure.png");
             throw;
         }
         finally
@@ -137,21 +164,6 @@ public sealed class DefaultSkinFirstRunSmokeTests
             await E2EArtifactWriter.WriteTextAsync(fixture, "game-stdout.log", process.StandardOutput);
             await E2EArtifactWriter.WriteTextAsync(fixture, "game-stderr.log", process.StandardError);
         }
-    }
-
-    private static async Task<GameStateSnapshot> WaitForStageAsync(
-        JsonRpcGameClient client,
-        string expectedStageType,
-        TimeSpan timeout,
-        CancellationToken cancellationToken)
-    {
-        return await Eventually.UntilAsync(
-            token => client.GetGameStateAsync(token),
-            state => string.Equals(state.StageType, expectedStageType, StringComparison.Ordinal),
-            timeout,
-            TimeSpan.FromMilliseconds(500),
-            expectedStageType,
-            cancellationToken);
     }
 
     /// <summary>
@@ -230,7 +242,7 @@ public sealed class DefaultSkinFirstRunSmokeTests
         CancellationToken cancellationToken)
     {
         var path = await SaveScreenshotAsync(client, fixture, fileName, cancellationToken);
-        Assert.NotNull(path);
+        Assert.True(path is not null, $"takeScreenshot returned no image data for {fileName}.");
 
         var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
         // A solid-colour 1280x720 frame compresses to a couple of KB; rendered
@@ -248,56 +260,6 @@ public sealed class DefaultSkinFirstRunSmokeTests
             $"{fileName} must be a complete PNG (trailing IEND chunk).");
     }
 
-    private static async Task<string?> SaveScreenshotAsync(
-        JsonRpcGameClient client,
-        E2EFixture fixture,
-        string fileName,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-            using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
-                cancellationToken, timeoutCts.Token);
-            var imageData = await client.TakeScreenshotBase64Async(cancellation.Token);
-            if (string.IsNullOrWhiteSpace(imageData))
-                return null;
-
-            var imageBytes = Convert.FromBase64String(imageData);
-            Directory.CreateDirectory(fixture.ArtifactRoot);
-            var screenshotPath = Path.Combine(fixture.ArtifactRoot, fileName);
-            await File.WriteAllBytesAsync(screenshotPath, imageBytes, cancellation.Token);
-            return screenshotPath;
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine(
-                $"[E2E] Screenshot capture skipped for '{fileName}': {ex.GetType().Name}: {ex.Message}");
-            return null;
-        }
-    }
-
-    private static async Task TryWriteScreenshotAsync(JsonRpcGameClient client, E2EFixture fixture)
-    {
-        try
-        {
-            using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-            var imageData = await client.TakeScreenshotBase64Async(cancellation.Token);
-            if (string.IsNullOrWhiteSpace(imageData))
-                return;
-
-            var imageBytes = Convert.FromBase64String(imageData);
-            Directory.CreateDirectory(fixture.ArtifactRoot);
-            await File.WriteAllBytesAsync(
-                Path.Combine(fixture.ArtifactRoot, "default-skin-failure.png"),
-                imageBytes,
-                cancellation.Token);
-        }
-        catch
-        {
-            // Failure artifacts must never hide the original E2E assertion.
-        }
-    }
 }
 
 /// <summary>

@@ -4,6 +4,7 @@ using DTXMania.Automation.Support;
 using DTXMania.Automation.Telemetry;
 using DTXMania.E2E.Fixtures;
 using DTXMania.E2E.Support;
+using static DTXMania.E2E.Support.E2EStageHelpers;
 
 namespace DTXMania.E2E;
 
@@ -36,7 +37,8 @@ public sealed class PreparedChartRecordingSmokeTests
                 TimeSpan.FromMilliseconds(500),
                 cancellation.Token);
 
-            await WaitForStageAsync(client, "Title", TimeSpan.FromSeconds(45), cancellation.Token);
+            await WaitForStageAsync(
+                client, "Title", TimeSpan.FromSeconds(45), cancellation.Token, pollIntervalMilliseconds: 100);
             await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
 
             var songSelect = await Eventually.UntilAsync(
@@ -106,7 +108,8 @@ public sealed class PreparedChartRecordingSmokeTests
                 client,
                 "SongTransition",
                 TimeSpan.FromSeconds(5),
-                cancellation.Token);
+                cancellation.Token,
+                pollIntervalMilliseconds: 100);
             Assert.Equal("SongTransition", transition.StageType);
             await E2EArtifactWriter.WriteJsonAsync(fixture, "song-transition-state.json", transition);
 
@@ -114,7 +117,8 @@ public sealed class PreparedChartRecordingSmokeTests
                 client,
                 "Performance",
                 TimeSpan.FromSeconds(15),
-                cancellation.Token);
+                cancellation.Token,
+                pollIntervalMilliseconds: 100);
             Assert.Equal("Performance", performance.StageType);
             await E2EArtifactWriter.WriteJsonAsync(fixture, "performance-state.json", performance);
         }
@@ -141,16 +145,4 @@ public sealed class PreparedChartRecordingSmokeTests
         }
     }
 
-    private static Task<GameStateSnapshot> WaitForStageAsync(
-        JsonRpcGameClient client,
-        string expectedStageType,
-        TimeSpan timeout,
-        CancellationToken cancellationToken) =>
-        Eventually.UntilAsync(
-            token => client.GetGameStateAsync(token),
-            state => string.Equals(state.StageType, expectedStageType, StringComparison.Ordinal),
-            timeout,
-            TimeSpan.FromMilliseconds(100),
-            expectedStageType,
-            cancellationToken);
 }
