@@ -5809,6 +5809,20 @@ public class PerformanceStageDeterministicTests
     }
 
     /// <summary>
+    /// Already-disposed timer used by the lifecycle cases moved from the
+    /// retired performance-stage bucket: finalization and return-to-song-select
+    /// must tolerate a timer whose Stop/Dispose paths were already taken.
+    /// </summary>
+    private static SongTimer CreateDisposedSongTimer()
+    {
+#pragma warning disable SYSLIB0050
+        var timer = (SongTimer)FormatterServices.GetUninitializedObject(typeof(SongTimer));
+#pragma warning restore SYSLIB0050
+        ReflectionHelpers.SetPrivateField(timer, "_disposed", true);
+        return timer;
+    }
+
+    /// <summary>
     /// Creates a real SoundEffectInstance without invoking its constructor
     /// (which requires a native audio device). Pan/Volume backing fields are
     /// usable on the uninitialized instance, letting StartSong's per-WAV
@@ -6771,7 +6785,7 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetPrivateField(stage, "_scoreManager", new ScoreManager(chartManager.TotalNotes));
         ReflectionHelpers.SetPrivateField(stage, "_comboManager", comboManager);
         ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", gaugeManager);
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreateStoppedSongTimer());
+        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreateDisposedSongTimer());
 
         ReflectionHelpers.InvokePrivateMethod(stage, "FinalizePerformance", CompletionReason.SongComplete);
 
@@ -7098,7 +7112,7 @@ public class PerformanceStageDeterministicTests
         {
             IsActive = true
         };
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreateStoppedSongTimer());
+        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreateDisposedSongTimer());
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
 
         ReflectionHelpers.InvokePrivateMethod(stage, "ReturnToSongSelect");
@@ -7116,7 +7130,7 @@ public class PerformanceStageDeterministicTests
         var stage = CreateStage();
         var stageManager = new Mock<IStageManager>();
         stage.StageManager = stageManager.Object;
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreateStoppedSongTimer());
+        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreateDisposedSongTimer());
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", null);
 
         var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "ReturnToSongSelect"));

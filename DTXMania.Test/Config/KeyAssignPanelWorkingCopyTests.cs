@@ -389,6 +389,7 @@ public class KeyAssignPanelWorkingCopyTests
         };
     }
 
+    [Trait("Category", "Unit")]
     [Fact]
     public void SystemPanel_Actions_ShouldMatchExactNineRowOrdering()
     {
@@ -413,6 +414,7 @@ public class KeyAssignPanelWorkingCopyTests
         }, actions);
     }
 
+    [Trait("Category", "Unit")]
     [Fact]
     public void SystemPanel_MoveUpFromTop_ShouldWrapToFooterCancel()
     {
@@ -425,6 +427,7 @@ public class KeyAssignPanelWorkingCopyTests
         Assert.Equal(ReflectionHelpers.GetStaticIntField(typeof(SystemKeyAssignPanel), "FooterCancel"), ReflectionHelpers.GetPrivateField<int>(panel, "_selectedIndex"));
     }
 
+    [Trait("Category", "Unit")]
     [Fact]
     public void SystemPanel_ActivateFooterCancel_ShouldCloseWithoutSaving()
     {
@@ -449,6 +452,7 @@ public class KeyAssignPanelWorkingCopyTests
         Assert.False(panel.IsActive);
     }
 
+    [Trait("Category", "Unit")]
     [Fact]
     public void SystemPanel_HeldKeyDuringCapture_ShouldRemainAwaitingKey()
     {
@@ -463,6 +467,7 @@ public class KeyAssignPanelWorkingCopyTests
         Assert.Equal("AwaitingKey", GetStateName(panel));
     }
 
+    [Trait("Category", "Unit")]
     [Fact]
     public void SystemPanel_DisplayLabels_ShouldHandleJoinedAndUnboundMappings()
     {
@@ -488,6 +493,7 @@ public class KeyAssignPanelWorkingCopyTests
         Assert.Equal("(unbound)", unboundLabel);
     }
 
+    [Trait("Category", "Unit")]
     [Fact]
     public void SystemPanel_RebindingAction_ShouldReplacePreviousKey()
     {
@@ -505,6 +511,7 @@ public class KeyAssignPanelWorkingCopyTests
         Assert.Equal("Browsing", GetStateName(panel));
     }
 
+    [Trait("Category", "Unit")]
     [Fact]
     public void SystemPanel_Draw_WithFont_ShouldCallDrawString()
     {
@@ -527,6 +534,7 @@ public class KeyAssignPanelWorkingCopyTests
             Times.AtLeastOnce);
     }
 
+    [Trait("Category", "Unit")]
     [Fact]
     public void SystemPanel_Draw_WhenInactive_ShouldNotDraw()
     {
@@ -548,6 +556,7 @@ public class KeyAssignPanelWorkingCopyTests
             Times.Never);
     }
 
+    [Trait("Category", "Unit")]
     [Fact]
     public void SystemPanel_ConflictTimeoutAndDraw_ShouldRecoverWithoutResources()
     {
@@ -580,6 +589,7 @@ public class KeyAssignPanelWorkingCopyTests
 
     // ---- Patch coverage: whitePixel rendering + conflict message drawing ----
 
+    [Trait("Category", "Unit")]
     [Fact]
     public void SystemPanel_Draw_WithWhitePixel_ShouldDrawBackdropBoardAndSelectionBar()
     {
@@ -611,6 +621,7 @@ public class KeyAssignPanelWorkingCopyTests
         Assert.Contains(panel.WhitePixelDraws, d => d.Color == new Color(120, 92, 30, 190));
     }
 
+    [Trait("Category", "Unit")]
     [Fact]
     public void SystemPanel_Draw_WithWhitePixel_ShouldDrawFooterButtonBackgrounds()
     {
@@ -642,6 +653,7 @@ public class KeyAssignPanelWorkingCopyTests
         Assert.True(borderDraws.Count() >= 3, "expected at least 3 BoardBorderColor draws (board + 2 footer buttons)");
     }
 
+    [Trait("Category", "Unit")]
     [Fact]
     public void SystemPanel_Draw_WithConflictMessage_ShouldDrawConflictText()
     {
@@ -689,6 +701,7 @@ public class KeyAssignPanelWorkingCopyTests
         return tex;
     }
 
+    [Trait("Category", "Unit")]
     [Theory]
     [InlineData(InputCommandType.MoveUp, "Move Up")]
     [InlineData(InputCommandType.MoveDown, "Move Down")]
@@ -730,6 +743,7 @@ public class KeyAssignPanelWorkingCopyTests
 
     #region SystemKeyAssignPanel Tests
 
+    [Trait("Category", "Unit")]
     [Fact]
     public void SystemPanel_Update_WhenShowingConflict_ShouldCountDownTimer()
     {
@@ -749,6 +763,7 @@ public class KeyAssignPanelWorkingCopyTests
         Assert.Equal("ShowingConflict", GetStateName(panel));
     }
 
+    [Trait("Category", "Unit")]
     [Fact]
     public void SystemPanel_Update_WhenAwaitingKeyAndCancelKeyPressed_ShouldReturnToBrowsing()
     {
@@ -767,6 +782,7 @@ public class KeyAssignPanelWorkingCopyTests
         Assert.False(snapshot.ContainsKey(Keys.Back));
     }
 
+    [Trait("Category", "Unit")]
     [Fact]
     public void SystemPanel_Update_WhenAwaitingKeyAndNewKeyPressed_ShouldAssignKey()
     {
@@ -785,6 +801,7 @@ public class KeyAssignPanelWorkingCopyTests
         Assert.Equal(InputCommandType.MoveUp, snapshot[Keys.W]);
     }
 
+    [Trait("Category", "Unit")]
     [Fact]
     public void SystemPanel_AssignKey_WhenSameKeyAlreadyBoundToSameAction_ShouldReturnToBrowsing()
     {
@@ -804,6 +821,7 @@ public class KeyAssignPanelWorkingCopyTests
         Assert.Equal(InputCommandType.MoveUp, after[Keys.Up]);
     }
 
+    [Trait("Category", "Unit")]
     [Fact]
     public void SystemPanel_TryUnbindSelectedAction_WhenRequiredCommand_ShouldShowConflict()
     {
@@ -818,6 +836,7 @@ public class KeyAssignPanelWorkingCopyTests
         Assert.NotNull(ReflectionHelpers.GetPrivateField<string>(panel, "_conflictMessage"));
     }
 
+    [Trait("Category", "Unit")]
     [Fact]
     public void SystemPanel_Update_WhenUnbindPressed_ShouldRemoveBinding()
     {
@@ -838,6 +857,7 @@ public class KeyAssignPanelWorkingCopyTests
         Assert.False(after.ContainsKey(Keys.PageUp));
     }
 
+    [Trait("Category", "Unit")]
     [Fact]
     public void SystemPanel_Update_WhenMoveLeftCommandPressed_ShouldUnbindOptionalAction()
     {

@@ -21,6 +21,7 @@ namespace DTXMania.Test.Song
     /// Unit tests for SongManager class
     /// Tests song database management and enumeration using singleton pattern
     /// </summary>
+    [Trait("Category", "Unit")]
     [Collection("SongManager")]
     public class SongManagerTests : IDisposable
     {
