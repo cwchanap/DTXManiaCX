@@ -3,7 +3,7 @@
 **Design:** [revised HPA-797 design](./2026-11-11-hpa-797-design.md)  
 **Linear:** https://linear.app/cwchanap/issue/HPA-797/tests-slim-the-unit-tests-merge-the-mac-test-project-add-an-e2e  
 **Reviews addressed:** [initial](https://github.com/cwchanap/DTXManiaCX/pull/236#pullrequestreview-5870335264) and [follow-up](https://github.com/cwchanap/DTXManiaCX/pull/236#pullrequestreview-5870550476)  
-**Status:** Planning only; no implementation, tests or screenshot generation performed in this draft.  
+**Status:** At drafting time this plan was planning only, with no implementation, tests or screenshot generation. Implementation and local verification now exist on this branch; final Windows acceptance (CI plus manual screenshot review) remains pending.  
 **Delivery:** **One PR (this same branch)**, target ~2 engineer days; <=3 engineer days max. Commit coherent stages of work to this branch; do not split into separate PRs.
 
 ## Agent directions
