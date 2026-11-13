@@ -438,21 +438,28 @@ public sealed class FolderPickerContractTests
     {
         // A preceding blocking request keeps the dispatcher busy so the target
         // request sits in the queue and is cancelled before the dispatcher
-        // dequeues it. This deterministically exercises the `request.IsCompleted`
-        // branch in DispatchRequests rather than relying on a race between
-        // cancellation and dequeue.
+        // dequeues it. A sentinel request queued behind the target proves the
+        // dispatcher really serviced the target: it is serial and FIFO, so the
+        // sentinel cannot be shown unless the cancelled request was dequeued and
+        // skipped first. Awaiting the cancelled task alone proves nothing, because
+        // cancellation already completed it and disposing the dispatcher drains
+        // the queue.
         var blockingDialog = new BlockingDialog();
-        var factory = new QueuedFactory(blockingDialog);
+        var sentinelDialog = new ImmediateFolderPickerDialog(
+            FolderPickerResult.Selected("/tmp/sentinel-songs"));
+        var factory = new QueuedFolderPickerDialogFactory(blockingDialog, sentinelDialog);
         using var picker = new StaFolderPickerDispatcher(factory);
 
         // Start the blocking request and wait for the dispatcher to enter Show().
         var firstRequest = picker.PickFolderAsync(null, CancellationToken.None);
         await blockingDialog.ShowEntered.Task.WaitAsync(AsyncTimeout);
 
-        // Enqueue the target request and cancel it while the dispatcher is busy.
+        // Enqueue the target request and cancel it while the dispatcher is busy,
+        // then queue the sentinel behind it.
         using var cancellation = new CancellationTokenSource();
         var secondRequest = picker.PickFolderAsync(null, cancellation.Token);
         cancellation.Cancel();
+        var sentinelRequest = picker.PickFolderAsync(null, CancellationToken.None);
 
         // Release the blocking dialog so the dispatcher dequeues the target.
         blockingDialog.Release();
@@ -461,6 +468,12 @@ public sealed class FolderPickerContractTests
 
         var secondResult = await secondRequest.WaitAsync(AsyncTimeout);
         Assert.Equal(FolderPickerStatus.Cancelled, secondResult.Status);
+
+        // Only now is the `request.IsCompleted` branch in DispatchRequests proven
+        // to have run; disposing first would have drained the target instead.
+        var sentinelResult = await sentinelRequest.WaitAsync(AsyncTimeout);
+        Assert.Equal(FolderPickerStatus.Selected, sentinelResult.Status);
+        Assert.Equal("/tmp/sentinel-songs", sentinelResult.Path);
     }
 
     [Fact]
