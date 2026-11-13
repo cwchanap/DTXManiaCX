@@ -30,15 +30,19 @@ namespace DTXMania.Test.Song
         private readonly SongDatabaseService _databaseService;
         private readonly string _testDbPath;
         private readonly string _databasePath;
-        private readonly string _tempRoot;
+        private readonly string _tempRoot = Path.Combine(
+            Path.GetTempPath(),
+            "DTXManiaCX_Tests",
+            nameof(SongDatabaseServiceTests),
+            Guid.NewGuid().ToString("N"));
 
         public SongDatabaseServiceTests()
         {
-            // Use unique database path for each test instance
-            _testDbPath = Path.Combine(Path.GetTempPath(), $"test_song_db_{Guid.NewGuid()}.db");
+            // Isolate chart files and the database per test and per process.
+            Directory.CreateDirectory(_tempRoot);
+            _testDbPath = Path.Combine(_tempRoot, "songs.db");
             _databaseService = new SongDatabaseService(_testDbPath);
             _databasePath = _testDbPath;
-            _tempRoot = Path.GetTempPath();
         }
 
         public void Dispose()
@@ -46,17 +50,23 @@ namespace DTXMania.Test.Song
             // Clean up after each test
             _databaseService?.Dispose();
 
-            // Clean up test database file
-            if (File.Exists(_testDbPath))
+            try
             {
-                try
+                // Never recursively delete the shared temp directory itself; only
+                // this test's own child directory.
+                var sharedTemp = Path.GetFullPath(Path.GetTempPath())
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                var testRoot = Path.GetFullPath(_tempRoot)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                if (!string.Equals(sharedTemp, testRoot, StringComparison.OrdinalIgnoreCase)
+                    && Directory.Exists(testRoot))
                 {
-                    File.Delete(_testDbPath);
+                    Directory.Delete(testRoot, true);
                 }
-                catch
-                {
-                    // Ignore errors during cleanup
-                }
+            }
+            catch
+            {
+                // Best-effort cleanup for temp test assets.
             }
         }
 

@@ -16,6 +16,7 @@ namespace DTXMania.Test.Resources
     /// Basic unit tests for ManagedFont interfaces and data structures
     /// Tests core functionality without MonoGame dependencies
     /// </summary>
+    [Trait("Category", "Unit")]
     [Collection("ManagedFont")]
     public class ManagedFontTests : IDisposable
     {
