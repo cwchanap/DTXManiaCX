@@ -1,3 +1,4 @@
+using System.Text.Json;
 using DTXMania.Automation.JsonRpc;
 using DTXMania.Automation.Process;
 using DTXMania.Automation.Support;
@@ -200,37 +201,12 @@ public sealed class GameplayAutoPlaySmokeTests
             // song clock to advance past the bar-1 #AVI retrigger (2000ms at 120 BPM;
             // the one-second video then stays active until ~3000ms) while unjudged
             // notes remain — after the last judgement the staff is empty.
-            var tabState = await Eventually.UntilAsync(
-                token => client.GetGameStateAsync(token),
-                state =>
-                    state.PerformanceReady &&
-                    state.AutoPlayEnabled &&
-                    string.Equals(state.NoteDisplayStyle, nameof(DrumsNoteDisplayStyle.Tab), StringComparison.Ordinal) &&
-                    state.TotalNotes > 0 &&
-                    state.TotalJudgements < state.TotalNotes &&
-                    state.CurrentSongTimeMs >= BarOneVideoRetriggerSongTimeMs,
-                TimeSpan.FromSeconds(120),
-                TimeSpan.FromMilliseconds(100),
-                "effective Tab mid-song with unjudged notes past the video retrigger",
-                cancellation.Token);
-            // The tour capture must come from the shipped bundled skin, not an
-            // empty app-data fallback that would render placeholder art.
-            Assert.False(
-                string.IsNullOrWhiteSpace(tabState.SkinPath),
-                "Telemetry did not report the active skin path.");
-            Assert.Equal(
-                "System",
-                Path.GetFileName(Path.TrimEndingDirectorySeparator(tabState.SkinPath!)));
-            // 07-tab-performance.png is this test's required visual evidence —
-            // unlike the best-effort diagnostic captures, a skipped capture or a
-            // truncated frame must fail here rather than let the run pass without
-            // the artifact it exists to produce.
-            await CaptureRequiredScreenshotAsync(
+            await CaptureTabScreenshotAsync(
                 client,
                 fixture,
                 "07-tab-performance.png",
-                cancellation.Token,
-                tourRoot);
+                tourRoot,
+                cancellation.Token);
 
             // Polling until Tab is part of the predicate asserts ACTUAL effective Tab
             // through the last judgement; a silent fallback to Lanes fails the poll.
@@ -492,6 +468,82 @@ public sealed class GameplayAutoPlaySmokeTests
     }
 
     /// <summary>
+    /// Captures the required Tab tour frame only while the run is genuinely
+    /// mid-song in effective Tab notation. The qualifying snapshot alone is not
+    /// enough: the game keeps running while this continuation awaits, so the
+    /// full predicate is re-read and re-asserted immediately before and after
+    /// the capture. A fallback to Lanes, a finished staff, Result or a pending
+    /// transition fails the run instead of publishing a green empty-staff PNG.
+    /// </summary>
+    private static async Task CaptureTabScreenshotAsync(
+        JsonRpcGameClient client,
+        E2EFixture fixture,
+        string fileName,
+        string destinationDirectory,
+        CancellationToken cancellationToken)
+    {
+        await Eventually.UntilAsync(
+            token => client.GetGameStateAsync(token),
+            IsTabCaptureState,
+            TimeSpan.FromSeconds(120),
+            TimeSpan.FromMilliseconds(100),
+            "effective Tab mid-song with unjudged notes past the video retrigger and no pending transition",
+            cancellationToken);
+
+        var acceptedState = await client.GetGameStateAsync(cancellationToken);
+        AssertTabCaptureState(acceptedState, "before capture");
+
+        // The tour capture must come from the shipped bundled skin, not an
+        // empty app-data fallback that would render placeholder art.
+        Assert.False(
+            string.IsNullOrWhiteSpace(acceptedState.SkinPath),
+            "Telemetry did not report the active skin path.");
+        Assert.Equal(
+            "System",
+            Path.GetFileName(Path.TrimEndingDirectorySeparator(acceptedState.SkinPath!)));
+
+        await CaptureRequiredScreenshotAsync(
+            client, fixture, fileName, cancellationToken, destinationDirectory);
+        AssertTabCaptureState(
+            await client.GetGameStateAsync(cancellationToken),
+            "after capture");
+    }
+
+    /// <summary>
+    /// True only while the run is a real mid-song Tab frame: effective Tab
+    /// notation, gameplay ready with AutoPlay, the bar-1 BGA retrigger already
+    /// reached, chart notes still unjudged and no pending transition.
+    /// </summary>
+    internal static bool IsTabCaptureState(GameStateSnapshot state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        return string.Equals(state.StageType, "Performance", StringComparison.Ordinal)
+            && state.PerformanceReady
+            && state.AutoPlayEnabled
+            && !state.IsTransitioning
+            && string.Equals(
+                state.NoteDisplayStyle,
+                nameof(DrumsNoteDisplayStyle.Tab),
+                StringComparison.Ordinal)
+            && state.CurrentSongTimeMs >= BarOneVideoRetriggerSongTimeMs
+            && state.TotalNotes > 0
+            && state.TotalJudgements < state.TotalNotes;
+    }
+
+    private static void AssertTabCaptureState(GameStateSnapshot state, string phase)
+    {
+        Assert.True(
+            IsTabCaptureState(state),
+            $"Refusing {phase} Tab evidence: expected mid-song effective Tab Performance " +
+            $"(ready, AutoPlay, unjudged notes, past the video retrigger, not transitioning), " +
+            $"observed stage='{state.StageType}', noteDisplayStyle='{state.NoteDisplayStyle}', " +
+            $"currentSongTimeMs={state.CurrentSongTimeMs}, totalNotes={state.TotalNotes}, " +
+            $"totalJudgements={state.TotalJudgements}, performanceReady={state.PerformanceReady}, " +
+            $"autoPlayEnabled={state.AutoPlayEnabled}, isTransitioning={state.IsTransitioning}, " +
+            $"stagePhase='{GetStagePhase(state)}'.");
+    }
+
+    /// <summary>
     /// Waits until every chart note has been automatically judged. When
     /// <paramref name="requiredNoteDisplayStyle"/> is set the run must report that
     /// effective display style through the last judgement — a mid-song fallback
@@ -528,4 +580,135 @@ public sealed class GameplayAutoPlaySmokeTests
         await E2EArtifactWriter.WriteTextAsync(fixture, $"game-stderr-{artifactSuffix}.log", process.StandardError);
     }
 
+}
+
+/// <summary>
+/// Fast E2E-Support coverage for the Tab tour capture guard: the required
+/// mid-song Tab screenshot must be refused once the staff is empty, notation
+/// fell back to Lanes, the stage advanced, or a transition is pending.
+/// </summary>
+[Trait("Category", "E2E-Support")]
+public sealed class GameplayAutoPlaySmokeTestsSupport
+{
+    [Fact]
+    public void IsTabCaptureState_WhenMidSongEffectiveTabWithUnjudgedNotes_ShouldAccept()
+    {
+        Assert.True(GameplayAutoPlaySmokeTests.IsTabCaptureState(
+            Snapshot(
+                "Performance",
+                performanceReady: true,
+                autoPlayEnabled: true,
+                isTransitioning: false)));
+    }
+
+    [Fact]
+    public void IsTabCaptureState_WhenLanesNotationEffective_ShouldReject()
+    {
+        Assert.False(GameplayAutoPlaySmokeTests.IsTabCaptureState(
+            Snapshot(
+                "Performance",
+                performanceReady: true,
+                autoPlayEnabled: true,
+                isTransitioning: false,
+                noteDisplayStyle: "Lanes")));
+    }
+
+    [Fact]
+    public void IsTabCaptureState_WhenTransitioning_ShouldReject()
+    {
+        Assert.False(GameplayAutoPlaySmokeTests.IsTabCaptureState(
+            Snapshot(
+                "Performance",
+                performanceReady: true,
+                autoPlayEnabled: true,
+                isTransitioning: true)));
+    }
+
+    [Fact]
+    public void IsTabCaptureState_WhenStageAdvancedToResult_ShouldReject()
+    {
+        Assert.False(GameplayAutoPlaySmokeTests.IsTabCaptureState(
+            Snapshot(
+                "Result",
+                performanceReady: false,
+                autoPlayEnabled: false,
+                isTransitioning: false)));
+    }
+
+    [Fact]
+    public void IsTabCaptureState_WhenEveryNoteAlreadyJudged_ShouldReject()
+    {
+        Assert.False(GameplayAutoPlaySmokeTests.IsTabCaptureState(
+            Snapshot(
+                "Performance",
+                performanceReady: true,
+                autoPlayEnabled: true,
+                isTransitioning: false,
+                totalNotes: 6,
+                totalJudgements: 6)));
+    }
+
+    [Fact]
+    public void IsTabCaptureState_WhenBeforeVideoRetrigger_ShouldReject()
+    {
+        Assert.False(GameplayAutoPlaySmokeTests.IsTabCaptureState(
+            Snapshot(
+                "Performance",
+                performanceReady: true,
+                autoPlayEnabled: true,
+                isTransitioning: false,
+                currentSongTimeMs: 1_000)));
+    }
+
+    [Fact]
+    public void IsTabCaptureState_WhenPerformanceNotReady_ShouldReject()
+    {
+        Assert.False(GameplayAutoPlaySmokeTests.IsTabCaptureState(
+            Snapshot(
+                "Performance",
+                performanceReady: false,
+                autoPlayEnabled: true,
+                isTransitioning: false)));
+    }
+
+    [Fact]
+    public void IsTabCaptureState_WhenAutoPlayDisabled_ShouldReject()
+    {
+        Assert.False(GameplayAutoPlaySmokeTests.IsTabCaptureState(
+            Snapshot(
+                "Performance",
+                performanceReady: true,
+                autoPlayEnabled: false,
+                isTransitioning: false)));
+    }
+
+    private static GameStateSnapshot Snapshot(
+        string stageType,
+        bool performanceReady,
+        bool autoPlayEnabled,
+        bool isTransitioning,
+        string noteDisplayStyle = "Tab",
+        int totalNotes = 6,
+        int totalJudgements = 3,
+        double currentSongTimeMs = 2_000)
+    {
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(new
+        {
+            stageType,
+            performanceReady,
+            autoPlayEnabled,
+            isTransitioning,
+            noteDisplayStyle,
+            totalNotes,
+            totalJudgements,
+            currentSongTimeMs
+        }));
+        return new GameStateSnapshot
+        {
+            CustomData = new Dictionary<string, JsonElement>
+            {
+                ["telemetry"] = document.RootElement.Clone()
+            }
+        };
+    }
 }
