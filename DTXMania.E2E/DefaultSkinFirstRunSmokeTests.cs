@@ -1,4 +1,3 @@
-using System.Buffers.Binary;
 using System.Text.Json;
 using DTXMania.Automation.JsonRpc;
 using DTXMania.Automation.Process;
@@ -8,6 +7,7 @@ using DTXMania.E2E.Fixtures;
 using DTXMania.E2E.Support;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.Song.Entities;
 using static DTXMania.E2E.Support.E2EStageHelpers;
 
 namespace DTXMania.E2E;
@@ -17,24 +17,16 @@ namespace DTXMania.E2E;
 /// renders the bundled CX Neon <c>Default</c> skin and persists the logical
 /// <c>Default</c> token. The only validating skin on disk is the bundled
 /// <c>System</c> root copied next to the game by its project file, so rendered
-/// Title/Config/Performance screenshots necessarily come from it.
+/// Title/Config/Performance screenshots necessarily come from it. The same
+/// journey supplies six of the seven HPA-797 tour screenshots.
 /// </summary>
 [Trait("Category", "E2E")]
 public sealed class DefaultSkinFirstRunSmokeTests
 {
-    private const int VirtualWidth = 1280;
-    private const int VirtualHeight = 720;
-
-    private static readonly byte[] PngSignature =
-        { 0x89, (byte)'P', (byte)'N', (byte)'G', 0x0D, 0x0A, 0x1A, 0x0A };
-
-    private static readonly byte[] PngIEndChunk =
-        { 0x00, 0x00, 0x00, 0x00, (byte)'I', (byte)'E', (byte)'N', (byte)'D', 0xAE, 0x42, 0x60, 0x82 };
-
-    [Fact(Timeout = 240_000)]
+    [Fact(Timeout = 300_000)]
     public async Task FirstRun_ShouldRenderBundledDefaultSkinAndPersistDefaultToken()
     {
-        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(210));
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(270));
         var repoRoot = E2EGameLaunch.ResolveRepoRoot();
         var runRoot = Path.Combine(
             Path.GetTempPath(),
@@ -45,9 +37,9 @@ public sealed class DefaultSkinFirstRunSmokeTests
             repoRoot,
             apiPort,
             useBundledDefaultSkin: true,
-            // The generated chart runs ~4s; this test needs a wide window to
-            // capture a Performance frame on a slow runner without the stage
-            // reaching Result first.
+            // Each extra bar is two seconds at 120 BPM. The wide window keeps a
+            // mid-song Lanes frame available on a slow runner and leaves time to
+            // reach the completed Result stage for the tour capture.
             extraChartBars: 8);
         // The CI artifact root is shared by every E2E fixture, whose generic
         // log/config names would overwrite this run's provenance. Scope this
@@ -56,6 +48,9 @@ public sealed class DefaultSkinFirstRunSmokeTests
         {
             ArtifactRoot = Path.Combine(fixture.ArtifactRoot, "default-skin")
         };
+        // Only the required tour PNGs go to the shared sibling folder; logs,
+        // fixture copies and failure screenshots stay in this test's root.
+        var tourRoot = ResolveTourArtifactRoot(fixture);
         await using var bundle = E2EGameLaunch.CreateClientBundle(fixture);
         var process = bundle.Process;
         var client = bundle.Client;
@@ -97,7 +92,7 @@ public sealed class DefaultSkinFirstRunSmokeTests
                 $"The game fell back to the empty app-data skin root: {activeSkinPath}");
 
             await CaptureRequiredScreenshotAsync(
-                client, fixture, "title-default-skin.png", cancellation.Token);
+                client, fixture, "01-title.png", cancellation.Token, tourRoot);
 
             // Title menu: Down moves GAME START -> CONFIG, Enter opens it.
             await client.SendKeyAsync("Down", TimeSpan.FromMilliseconds(50), cancellation.Token);
@@ -106,7 +101,22 @@ public sealed class DefaultSkinFirstRunSmokeTests
             await WaitForStageAsync(client, "Config", TimeSpan.FromSeconds(45), cancellation.Token);
             await Task.Delay(1_000, cancellation.Token);
             await CaptureRequiredScreenshotAsync(
-                client, fixture, "config-default-skin.png", cancellation.Token);
+                client, fixture, "02-config.png", cancellation.Token, tourRoot);
+
+            // Jump to the drum-mapping stage through the API (the menu wiring is
+            // unit-tested), then wait out the fade so the capture is not a
+            // half-transitioned frame.
+            await client.ChangeStageAsync("DrumConfig", cancellation.Token);
+            await WaitForSettledStageAsync(
+                client, "DrumConfig", TimeSpan.FromSeconds(45), cancellation.Token);
+            await CaptureRequiredScreenshotAsync(
+                client, fixture, "03-drum-config.png", cancellation.Token, tourRoot);
+
+            // Back exits DrumConfig and returns to Config, flushing any deferred
+            // binding save on the way out.
+            await client.SendKeyAsync("Escape", TimeSpan.FromMilliseconds(50), cancellation.Token);
+            await WaitForSettledStageAsync(
+                client, "Config", TimeSpan.FromSeconds(45), cancellation.Token);
 
             // Back returns to Title through the real Config exit path, then the
             // normal Title -> SongSelect -> Performance journey renders gameplay.
@@ -114,10 +124,46 @@ public sealed class DefaultSkinFirstRunSmokeTests
             await WaitForStageAsync(client, "Title", TimeSpan.FromSeconds(45), cancellation.Token);
             await Task.Delay(500, cancellation.Token);
             await client.SendKeyAsync("Enter", TimeSpan.FromMilliseconds(50), cancellation.Token);
+            await WaitForSettledStageAsync(
+                client, "SongSelect", TimeSpan.FromSeconds(45), cancellation.Token);
+            // SongSelect publishes its stage type before the async song list has
+            // selected a node; wait for the real selection so the capture shows
+            // the populated list rather than an empty one.
+            await Eventually.UntilAsync(
+                token => client.GetGameStateAsync(token),
+                state => string.Equals(state.StageType, "SongSelect", StringComparison.Ordinal)
+                    && !state.InStatusPanel
+                    && string.Equals(
+                        state.SelectedSongTitle,
+                        E2EFixtureBuilder.SongTitle,
+                        StringComparison.Ordinal),
+                TimeSpan.FromSeconds(45),
+                TimeSpan.FromMilliseconds(250),
+                $"SongSelect showing '{E2EFixtureBuilder.SongTitle}' before the status panel",
+                cancellation.Token);
+            await CaptureRequiredScreenshotAsync(
+                client, fixture, "04-song-select.png", cancellation.Token, tourRoot);
+
             await StartSongViaStatusPanelAsync(client, E2EFixtureBuilder.SongTitle, cancellation.Token);
 
-            await CapturePerformanceScreenshotAsync(
-                client, fixture, "performance-default-skin.png", cancellation.Token);
+            await CaptureLanesScreenshotAsync(
+                client,
+                fixture,
+                "05-lanes-performance.png",
+                tourRoot,
+                cancellation.Token);
+
+            // AutoPlay finishes the extended fixture chart. StageCompleted is not
+            // screenshot readiness: the game writes result-*.png only after the
+            // Result reveal completes, so that file is polled independently.
+            var resultState = await WaitForCompletedResultAsync(client, cancellation.Token);
+            Assert.Equal(E2EFixtureBuilder.SongTitle, resultState.SelectedSongTitle);
+            Assert.True(resultState.TotalNotes > 0, "Expected generated chart to contain notes.");
+            Assert.Equal(resultState.TotalNotes, resultState.TotalJudgements);
+            var gameResultScreenshotPath = await WaitForResultScreenshotAsync(
+                fixture, cancellation.Token);
+            await CopyValidatedPngAsync(
+                gameResultScreenshotPath, "06-result.png", tourRoot, cancellation.Token);
 
             // Read the raw stored rows before any normalizing reader. ConfigManager
             // .LoadConfig supplies defaults and rewrites the database when values
@@ -163,148 +209,159 @@ public sealed class DefaultSkinFirstRunSmokeTests
     }
 
     /// <summary>
-    /// Captures the gameplay evidence only while Performance is actually current.
-    /// AutoPlay can finish the fixture chart and reach Result while a delayed CI
-    /// continuation is pending, and a Result frame would pass every PNG assertion.
-    /// The state is therefore rechecked immediately before and after the capture.
+    /// Captures the Lanes tour frame only while the run is genuinely mid-song in
+    /// effective Lanes notation. PerformanceReady alone is also true during the
+    /// READY count-in, and AutoPlay can finish the chart and reach Result while
+    /// a delayed CI continuation is pending, so the accepted state is rechecked
+    /// immediately before and after the capture.
     /// </summary>
-    private static async Task CapturePerformanceScreenshotAsync(
+    private static async Task CaptureLanesScreenshotAsync(
         JsonRpcGameClient client,
         E2EFixture fixture,
         string fileName,
+        string destinationDirectory,
         CancellationToken cancellationToken)
     {
         await Eventually.UntilAsync(
             token => client.GetGameStateAsync(token),
-            IsPerformanceCaptureState,
-            TimeSpan.FromSeconds(60),
+            IsLanesCaptureState,
+            TimeSpan.FromSeconds(90),
             TimeSpan.FromMilliseconds(250),
-            "Performance ready with the bundled Default skin and no pending transition",
+            "mid-song Lanes gameplay with unjudged notes and no pending transition",
             cancellationToken);
-        await Task.Delay(500, cancellationToken);
 
-        AssertPerformanceCaptureState(
+        AssertLanesCaptureState(
             await client.GetGameStateAsync(cancellationToken),
             "before capture");
-        await CaptureRequiredScreenshotAsync(client, fixture, fileName, cancellationToken);
-        AssertPerformanceCaptureState(
+        await CaptureRequiredScreenshotAsync(
+            client, fixture, fileName, cancellationToken, destinationDirectory);
+        AssertLanesCaptureState(
             await client.GetGameStateAsync(cancellationToken),
             "after capture");
     }
 
     /// <summary>
-    /// True only when the game is in Performance, has prepared audio, and is not
-    /// transitioning — i.e. a frame captured now is genuinely gameplay.
+    /// True only when the game is mid-song in effective Lanes notation with
+    /// chart notes still unjudged: a frame captured now is genuine gameplay
+    /// with visible notes, not READY or the completed Result.
     /// </summary>
-    internal static bool IsPerformanceCaptureState(GameStateSnapshot state)
+    internal static bool IsLanesCaptureState(GameStateSnapshot state)
     {
         ArgumentNullException.ThrowIfNull(state);
         return string.Equals(state.StageType, "Performance", StringComparison.Ordinal)
             && state.PerformanceReady
-            && !IsTransitioning(state);
+            && !state.IsTransitioning
+            && string.Equals(
+                state.NoteDisplayStyle,
+                nameof(DrumsNoteDisplayStyle.Lanes),
+                StringComparison.Ordinal)
+            && state.CurrentSongTimeMs >= 1_000
+            && state.TotalNotes > 0
+            && state.TotalJudgements < state.TotalNotes;
     }
 
-    private static void AssertPerformanceCaptureState(GameStateSnapshot state, string phase)
+    private static void AssertLanesCaptureState(GameStateSnapshot state, string phase)
     {
         Assert.True(
-            IsPerformanceCaptureState(state),
-            $"Refusing {phase} gameplay evidence: expected Performance (ready, not transitioning), " +
-            $"observed stage='{state.StageType}', performanceReady={state.PerformanceReady}, " +
-            $"isTransitioning={IsTransitioning(state)}, stagePhase='{GetStagePhase(state)}'.");
+            IsLanesCaptureState(state),
+            $"Refusing {phase} Lanes evidence: expected mid-song Lanes Performance " +
+            $"(ready, unjudged notes, not transitioning), observed stage='{state.StageType}', " +
+            $"noteDisplayStyle='{state.NoteDisplayStyle}', currentSongTimeMs={state.CurrentSongTimeMs}, " +
+            $"totalNotes={state.TotalNotes}, totalJudgements={state.TotalJudgements}, " +
+            $"performanceReady={state.PerformanceReady}, isTransitioning={state.IsTransitioning}, " +
+            $"stagePhase='{GetStagePhase(state)}'.");
     }
-
-    private static bool IsTransitioning(GameStateSnapshot state)
-    {
-        return state.Telemetry.TryGetProperty("isTransitioning", out var value)
-            && value.ValueKind == JsonValueKind.True;
-    }
-
-    private static string GetStagePhase(GameStateSnapshot state)
-    {
-        return state.Telemetry.TryGetProperty("stagePhase", out var value)
-            && value.ValueKind == JsonValueKind.String
-            ? value.GetString() ?? "unknown"
-            : "unknown";
-    }
-
-    /// <summary>
-    /// Captures a stage screenshot that is required evidence: a skipped capture,
-    /// an empty frame or a truncated image fails the run.
-    /// </summary>
-    private static async Task CaptureRequiredScreenshotAsync(
-        JsonRpcGameClient client,
-        E2EFixture fixture,
-        string fileName,
-        CancellationToken cancellationToken)
-    {
-        var path = await SaveScreenshotAsync(client, fixture, fileName, cancellationToken);
-        Assert.True(path is not null, $"takeScreenshot returned no image data for {fileName}.");
-
-        var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
-        // A solid-colour 1280x720 frame compresses to a couple of KB; rendered
-        // stage art is far larger. The exact threshold is deliberately loose.
-        Assert.True(
-            bytes.Length > 8 * 1024,
-            $"{fileName} should contain rendered stage content ({bytes.Length} bytes).");
-        Assert.True(
-            bytes.AsSpan(0, PngSignature.Length).SequenceEqual(PngSignature),
-            $"{fileName} must be a PNG.");
-        Assert.Equal(VirtualWidth, BinaryPrimitives.ReadInt32BigEndian(bytes.AsSpan(16, 4)));
-        Assert.Equal(VirtualHeight, BinaryPrimitives.ReadInt32BigEndian(bytes.AsSpan(20, 4)));
-        Assert.True(
-            bytes.AsSpan(bytes.Length - PngIEndChunk.Length).SequenceEqual(PngIEndChunk),
-            $"{fileName} must be a complete PNG (trailing IEND chunk).");
-    }
-
 }
 
 /// <summary>
 /// Fast E2E-Support coverage for the gameplay capture guard: the graphical
-/// smoke must refuse a Performance screenshot when the stage already advanced
-/// (the AutoPlay chart can reach Result while a delayed test continuation is
-/// still pending).
+/// smoke must refuse a Lanes screenshot when the run is not genuinely mid-song
+/// in effective Lanes notation (READY, Tab fallback, the completed Result, or a
+/// pending transition would all otherwise pass every PNG assertion).
 /// </summary>
 [Trait("Category", "E2E-Support")]
 public sealed class DefaultSkinFirstRunSmokeTestsSupport
 {
     [Fact]
-    public void IsPerformanceCaptureState_WhenReadyWithoutTransition_ShouldAccept()
+    public void IsLanesCaptureState_WhenMidSongLanesWithUnjudgedNotes_ShouldAccept()
     {
-        Assert.True(DefaultSkinFirstRunSmokeTests.IsPerformanceCaptureState(
+        Assert.True(DefaultSkinFirstRunSmokeTests.IsLanesCaptureState(
             Snapshot("Performance", performanceReady: true, isTransitioning: false)));
     }
 
     [Fact]
-    public void IsPerformanceCaptureState_WhenTransitioning_ShouldReject()
+    public void IsLanesCaptureState_WhenTabNotationEffective_ShouldReject()
     {
-        Assert.False(DefaultSkinFirstRunSmokeTests.IsPerformanceCaptureState(
+        Assert.False(DefaultSkinFirstRunSmokeTests.IsLanesCaptureState(
+            Snapshot(
+                "Performance",
+                performanceReady: true,
+                isTransitioning: false,
+                noteDisplayStyle: "Tab")));
+    }
+
+    [Fact]
+    public void IsLanesCaptureState_WhenSongClockNotStarted_ShouldReject()
+    {
+        Assert.False(DefaultSkinFirstRunSmokeTests.IsLanesCaptureState(
+            Snapshot(
+                "Performance",
+                performanceReady: true,
+                isTransitioning: false,
+                currentSongTimeMs: 0)));
+    }
+
+    [Fact]
+    public void IsLanesCaptureState_WhenEveryNoteAlreadyJudged_ShouldReject()
+    {
+        Assert.False(DefaultSkinFirstRunSmokeTests.IsLanesCaptureState(
+            Snapshot(
+                "Performance",
+                performanceReady: true,
+                isTransitioning: false,
+                totalNotes: 14,
+                totalJudgements: 14)));
+    }
+
+    [Fact]
+    public void IsLanesCaptureState_WhenTransitioning_ShouldReject()
+    {
+        Assert.False(DefaultSkinFirstRunSmokeTests.IsLanesCaptureState(
             Snapshot("Performance", performanceReady: true, isTransitioning: true)));
     }
 
     [Fact]
-    public void IsPerformanceCaptureState_WhenStageAdvancedToResult_ShouldReject()
+    public void IsLanesCaptureState_WhenStageAdvancedToResult_ShouldReject()
     {
-        Assert.False(DefaultSkinFirstRunSmokeTests.IsPerformanceCaptureState(
+        Assert.False(DefaultSkinFirstRunSmokeTests.IsLanesCaptureState(
             Snapshot("Result", performanceReady: false, isTransitioning: false)));
     }
 
     [Fact]
-    public void IsPerformanceCaptureState_WhenPerformanceNotReady_ShouldReject()
+    public void IsLanesCaptureState_WhenPerformanceNotReady_ShouldReject()
     {
-        Assert.False(DefaultSkinFirstRunSmokeTests.IsPerformanceCaptureState(
+        Assert.False(DefaultSkinFirstRunSmokeTests.IsLanesCaptureState(
             Snapshot("Performance", performanceReady: false, isTransitioning: false)));
     }
 
     private static GameStateSnapshot Snapshot(
         string stageType,
         bool performanceReady,
-        bool isTransitioning)
+        bool isTransitioning,
+        string noteDisplayStyle = "Lanes",
+        int totalNotes = 14,
+        int totalJudgements = 3,
+        double currentSongTimeMs = 2_000)
     {
         using var document = JsonDocument.Parse(JsonSerializer.Serialize(new
         {
             stageType,
             performanceReady,
-            isTransitioning
+            isTransitioning,
+            noteDisplayStyle,
+            totalNotes,
+            totalJudgements,
+            currentSongTimeMs
         }));
         return new GameStateSnapshot
         {

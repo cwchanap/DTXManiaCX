@@ -364,6 +364,42 @@ jobs:
         DTXMANIA_E2E_ARTIFACT_ROOT: TestResults/e2e
       run: dotnet test DTXMania.E2E/DTXMania.E2E.csproj --configuration Debug --verbosity normal --logger trx --results-directory ./TestResults/e2e --filter "Category=E2E"
 
+    - name: Verify HPA-797 screenshot tour
+      shell: bash
+      run: |
+        tour=TestResults/e2e/hpa-797-tour
+        required=(
+          01-title.png
+          02-config.png
+          03-drum-config.png
+          04-song-select.png
+          05-lanes-performance.png
+          06-result.png
+          07-tab-performance.png
+        )
+        # Required captures already validate PNG integrity in the tests; this
+        # checks the uploaded artifact really contains all seven distinct files.
+        for name in "${required[@]}"; do
+          file="$tour/$name"
+          if [ ! -s "$file" ]; then
+            echo "::error::Missing or empty HPA-797 tour screenshot: $file" >&2
+            exit 1
+          fi
+          if [ "$(head -c 8 "$file" | od -An -tx1 | tr -d ' \n')" != "89504e470d0a1a0a" ]; then
+            echo "::error::HPA-797 tour screenshot is not a PNG: $file" >&2
+            exit 1
+          fi
+          if [ "$(tail -c 12 "$file" | od -An -tx1 | tr -d ' \n')" != "0000000049454e44ae426082" ]; then
+            echo "::error::HPA-797 tour screenshot is incomplete (no trailing IEND): $file" >&2
+            exit 1
+          fi
+        done
+        png_count=$(find "$tour" -maxdepth 1 -name '*.png' | wc -l | tr -d ' ')
+        if [ "$png_count" -ne "${#required[@]}" ]; then
+          echo "::error::Expected ${#required[@]} HPA-797 tour screenshots, found $png_count in $tour" >&2
+          exit 1
+        fi
+
     - name: Run E2E support tests
       run: dotnet test DTXMania.E2E/DTXMania.E2E.csproj --configuration Debug --verbosity normal --logger trx --results-directory ./TestResults/e2e-support --filter "Category=E2E-Support"
 
