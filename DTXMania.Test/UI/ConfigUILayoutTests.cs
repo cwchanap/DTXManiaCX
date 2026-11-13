@@ -91,4 +91,10 @@ public class ConfigUILayoutTests
         Assert.Equal(248, ConfigUILayout.DescriptionWrapWidth);
         Assert.True(ConfigUILayout.DescriptionBodyPos.Y > ConfigUILayout.DescriptionTitlePos.Y);
     }
+
+    [Fact]
+    public void InstructionsPosition_ShouldKeepDescendersInsideTheFrame()
+    {
+        Assert.Equal(new Vector2(16, 692), ConfigUILayout.InstructionsPos);
+    }
 }

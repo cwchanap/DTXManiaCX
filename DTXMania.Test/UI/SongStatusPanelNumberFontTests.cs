@@ -4,6 +4,10 @@ using DTXMania.Game.Lib.UI.Layout;
 using Microsoft.Xna.Framework;
 using Xunit;
 
+using Moq;
+using DTXMania.Game.Lib.Resources;
+using Microsoft.Xna.Framework.Graphics;
+using DTXMania.Test.TestData;
 namespace DTXMania.Test.UI
 {
     /// <summary>
@@ -117,5 +121,60 @@ namespace DTXMania.Test.UI
         {
             Assert.Equal(Color.White, InvokeDrumLaneColor(lane));
         }
-    }
+            [Fact]
+        public void DrawBpmNumberBitmap_WithScaledThemeAndDoubleResolutionSheet_ShouldScaleSourceAndDestination()
+        {
+            var panel = new SongStatusPanel();
+            var texture = new Mock<ITexture>();
+            texture.SetupGet(value => value.Height).Returns(40);
+
+            var resourceManager = new Mock<IResourceManager>();
+            resourceManager.SetupGet(value => value.CurrentTheme).Returns(
+                SkinTheme.Parse(new[] { "SongSelect.StatusNumberScale=1.5" }));
+
+            ReflectionHelpers.SetPrivateField(panel, "_bpmNumberTexture", texture.Object);
+            ReflectionHelpers.SetPrivateField(panel, "_resourceManager", resourceManager.Object);
+
+            ReflectionHelpers.InvokePrivateMethod(
+                panel,
+                "DrawBpmNumberBitmap",
+                (SpriteBatch)null!,
+                10f,
+                20f,
+                "1:A2");
+
+            VerifyBitmapDraw(texture, new Rectangle(10, 20, 18, 30), new Rectangle(24, 0, 24, 40));
+            VerifyBitmapDraw(texture, new Rectangle(28, 20, 9, 30), new Rectangle(246, 0, 12, 40));
+            // The unsupported 'A' advances by one digit cell but does not draw.
+            VerifyBitmapDraw(texture, new Rectangle(55, 20, 18, 30), new Rectangle(48, 0, 24, 40));
+
+            texture.Verify(value => value.Draw(
+                    It.IsAny<SpriteBatch>(),
+                    It.IsAny<Rectangle>(),
+                    It.IsAny<Rectangle?>(),
+                    It.IsAny<Color>(),
+                    It.IsAny<float>(),
+                    It.IsAny<Vector2>(),
+                    It.IsAny<SpriteEffects>(),
+                    It.IsAny<float>()),
+                Times.Exactly(3));
+        }
+
+        private static void VerifyBitmapDraw(
+            Mock<ITexture> texture,
+            Rectangle destination,
+            Rectangle source)
+        {
+            texture.Verify(value => value.Draw(
+                    It.IsAny<SpriteBatch>(),
+                    destination,
+                    It.Is<Rectangle?>(candidate => candidate.HasValue && candidate.Value == source),
+                    Color.White,
+                    0f,
+                    Vector2.Zero,
+                    SpriteEffects.None,
+                    0f),
+                Times.Once);
+        }
+}
 }
