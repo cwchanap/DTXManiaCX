@@ -11,13 +11,23 @@ namespace DTXMania.Test.Helpers
     public class TestGraphicsDeviceService : IDisposable
     {
         private readonly Microsoft.Xna.Framework.Game? _game;
+        private readonly Exception? _deviceCreationError;
 
         public GraphicsDevice? GraphicsDevice { get; private set; }
+
+        /// <summary>
+        /// The device a device-required test needs. Throws when tests are opted in
+        /// but no device could be created, so the test fails instead of passing.
+        /// </summary>
+        public GraphicsDevice RequiredDevice =>
+            GraphicsDevice ?? throw new InvalidOperationException(
+                $"{GraphicsTestGate.OptInVariable}=1 was set but no GraphicsDevice could be created.",
+                _deviceCreationError);
 
         public TestGraphicsDeviceService()
         {
             _game = null;
-            if (!IsGraphicsTestEnabled())
+            if (!GraphicsTestGate.IsEnabled)
             {
                 GraphicsDevice = null;
                 return;
@@ -30,17 +40,13 @@ namespace DTXMania.Test.Helpers
 
                 GraphicsDevice = _game.GraphicsDevice;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                // If we can't create a real graphics device (e.g., in CI), create a null one
-                // Tests should handle null graphics devices gracefully
+                // Device-required tests surface this through RequiredDevice; tests that
+                // do not need graphics keep working without a device.
+                _deviceCreationError = ex;
                 GraphicsDevice = null;
             }
-        }
-
-        private static bool IsGraphicsTestEnabled()
-        {
-            return string.Equals(Environment.GetEnvironmentVariable("DTXMANIACX_ENABLE_GRAPHICS_TESTS"), "1", StringComparison.OrdinalIgnoreCase);
         }
 
         public void Dispose()

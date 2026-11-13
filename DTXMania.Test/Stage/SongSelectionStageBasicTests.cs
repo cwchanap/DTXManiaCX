@@ -46,9 +46,6 @@ namespace DTXMania.Test.Stage
         public void InitialState_ShouldBeInactive()
         {
             // Arrange
-            if (!IsGraphicsTestEnabled())
-                return;
-
             var stage = CreateStageWithFakeGraphicsManager();
 
             // Assert
@@ -59,9 +56,6 @@ namespace DTXMania.Test.Stage
         public void Deactivate_WithoutActivation_ShouldNotThrowAndRemainInactive()
         {
             // Arrange
-            if (!IsGraphicsTestEnabled())
-                return;
-
             var stage = CreateStageWithFakeGraphicsManager();
 
             // Act
@@ -75,9 +69,6 @@ namespace DTXMania.Test.Stage
         public void Deactivate_MultipleCallsShouldBeIdempotent()
         {
             // Arrange
-            if (!IsGraphicsTestEnabled())
-                return;
-
             var stage = CreateStageWithFakeGraphicsManager();
 
             // Act
@@ -92,9 +83,6 @@ namespace DTXMania.Test.Stage
         public void Deactivate_WhenBackgroundMusicIsSet_ShouldDisposeBackgroundMusicInstance()
         {
             // Arrange
-            if (!IsGraphicsTestEnabled())
-                return;
-
             var stage = CreateStageWithFakeGraphicsManager();
             var mockSound = new Mock<ISound>();
             var mockSoundInstance = new Mock<ISoundInstance>();
@@ -208,11 +196,6 @@ namespace DTXMania.Test.Stage
             method!.Invoke(target, args);
         }
 
-        private static bool IsGraphicsTestEnabled()
-        {
-            return string.Equals(Environment.GetEnvironmentVariable("DTXMANIACX_ENABLE_GRAPHICS_TESTS"), "1", StringComparison.OrdinalIgnoreCase);
-        }
-
         private sealed class ProbeInputManager : InputManager
         {
             public bool WasDisposed { get; private set; }
@@ -228,7 +211,7 @@ namespace DTXMania.Test.Stage
 
         #region Reflection-Based Shape Tests
 
-        // Behavioural activation/fade-in lifecycle tests live in SongSelectionStageTests.cs (graphics-dependent and excluded for MAC_BUILD).
+        // Behavioural activation/fade-in lifecycle tests live in SongSelectionStageTests.cs (graphics-dependent, so GraphicsFacts there).
 
         [Fact]
         public void Type_Property_ShouldExistAndReturnStageType()

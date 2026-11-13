@@ -1,68 +1,46 @@
 using DTXMania.Game.Lib.Stage;
-using DTXMania.Game;
-using Microsoft.Xna.Framework;
-using Microsoft.Xna.Framework.Audio;
 using Microsoft.Xna.Framework.Graphics;
 using Moq;
 using System;
 using System.Collections.Generic;
-using System.Threading.Tasks;
 using Xunit;
 using DTXMania.Test.Helpers;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Config;
-using DTXMania.Game.Lib.Song;
 
 namespace DTXMania.Test.Stage
 {
-#if !MAC_BUILD
     /// <summary>
     /// Unit tests for SongSelectionStage functionality
     /// Tests constructor validation, lifecycle management, resource handling, and UI initialization
-    /// Note: These tests are excluded from Mac build due to graphics device limitations on macOS CI
+    /// Methods that activate the stage need a real GraphicsDevice and are GraphicsFacts, so a
+    /// headless run reports them Skipped instead of passing without rendering.
     /// </summary>
     public class SongSelectionStageTests : IDisposable
     {
-#if !MAC_BUILD
-        private readonly TestGraphicsDeviceService? _graphicsDeviceService;
-#endif
-    private readonly Mock<BaseGame>? _mockGame;
-    private readonly Mock<IConfigManager>? _mockConfigManager;
-    private readonly Mock<IResourceManager>? _mockResourceManager;
-    private readonly bool _skipAll;
+        private readonly TestGraphicsDeviceService _graphicsDeviceService;
+        private readonly Mock<IStageGame> _mockGame;
+        private readonly Mock<IConfigManager> _mockConfigManager;
+        private readonly Mock<IResourceManager> _mockResourceManager;
 
         public SongSelectionStageTests()
         {
-#if !MAC_BUILD
             _graphicsDeviceService = new TestGraphicsDeviceService();
-#endif
-            _skipAll = !IsGraphicsTestEnabled();
-            if (_skipAll)
-            {
-                return;
-            }
-
-            _mockGame = new Mock<BaseGame>();
+            _mockGame = new Mock<IStageGame>();
             _mockConfigManager = new Mock<IConfigManager>();
             _mockResourceManager = new Mock<IResourceManager>();
 
-            // Setup basic mock behaviors
-#if !MAC_BUILD
-            if (_graphicsDeviceService?.GraphicsDevice != null)
+            _mockGame.Setup(g => g.ConfigManager).Returns(_mockConfigManager.Object);
+
+            if (_graphicsDeviceService.GraphicsDevice is { } device)
             {
-                _mockGame?.Setup(g => g.GraphicsDevice).Returns(_graphicsDeviceService.GraphicsDevice);
+                _mockGame.Setup(g => g.GraphicsDevice).Returns(device);
             }
-#endif
-            
-            // Note: ConfigManager is not virtual in BaseGame, so we can't mock it
-            // The tests will need to work without mocking ConfigManager
         }
 
         public void Dispose()
         {
-#if !MAC_BUILD
-            _graphicsDeviceService?.Dispose();
-#endif
+            _graphicsDeviceService.Dispose();
         }
 
         #region Constructor Tests
@@ -71,9 +49,6 @@ namespace DTXMania.Test.Stage
         public void Constructor_WithValidGame_ShouldCreateInstance()
         {
             // Arrange & Act
-            if (ShouldSkip())
-                return;
-
             var stage = new SongSelectionStage(_mockGame.Object);
 
             // Assert
@@ -92,29 +67,12 @@ namespace DTXMania.Test.Stage
 
         #region Activation Tests
 
-        [Fact]
+        [GraphicsFact]
         public void Activate_WithValidParameters_ShouldInitializeCorrectly()
         {
             // Arrange
-            if (ShouldSkip())
-                return;
-
+            RequireGraphicsDevice();
             var stage = new SongSelectionStage(_mockGame.Object);
-            
-#if MAC_BUILD
-            // On Mac build, skip graphics-dependent activation
-            Assert.Equal(StagePhase.Inactive, stage.CurrentPhase);
-            Assert.Equal(StageType.SongSelect, stage.Type);
-            return;
-#else
-            // Skip test if graphics device is not available (CI environment)
-            if (_graphicsDeviceService?.GraphicsDevice == null)
-            {
-                // Verify initial state without graphics
-                Assert.Equal(StagePhase.Inactive, stage.CurrentPhase);
-                Assert.Equal(StageType.SongSelect, stage.Type);
-                return;
-            }
             var sharedData = new Dictionary<string, object>();
 
             // Setup mocks for resource loading
@@ -132,31 +90,17 @@ namespace DTXMania.Test.Stage
             {
                 // Log the exception for debugging but don't fail the test if it's a graphics-related issue
                 System.Diagnostics.Debug.WriteLine($"Activation test failed (expected in headless environment): {ex.Message}");
-                
+
                 // Still verify basic properties work
                 Assert.Equal(StageType.SongSelect, stage.Type);
             }
-#endif
         }
 
-        [Fact]
+        [GraphicsFact]
         public void Activate_WithNullSharedData_ShouldInitializeWithDefaults()
         {
-#if MAC_BUILD
-            // Skip graphics-dependent test on Mac build
-            Assert.True(true, "Skipped on Mac build");
-            return;
-#else
-            // Skip test if graphics device is not available
-            if (_graphicsDeviceService?.GraphicsDevice == null)
-            {
-                return;
-            }
-
-            if (ShouldSkip())
-                return;
-
             // Arrange
+            RequireGraphicsDevice();
             var stage = new SongSelectionStage(_mockGame.Object);
             SetupResourceManagerMocks();
 
@@ -173,40 +117,26 @@ namespace DTXMania.Test.Stage
                 // Log for debugging but don't fail in headless environment
                 System.Diagnostics.Debug.WriteLine($"Activation with null data test failed: {ex.Message}");
             }
-#endif
         }
 
-        [Fact]
+        [GraphicsFact]
         public void Activate_WhenResourceLoadingFails_ShouldHandleGracefully()
         {
-#if MAC_BUILD
-            // Skip graphics-dependent test on Mac build
-            Assert.True(true, "Skipped on Mac build");
-            return;
-#else
-            // Skip test if graphics device is not available
-            if (_graphicsDeviceService?.GraphicsDevice == null)
-            {
-                return;
-            }
-
-            if (ShouldSkip())
-                return;
-
             // Arrange
+            RequireGraphicsDevice();
             var stage = new SongSelectionStage(_mockGame.Object);
-            
+
             // Setup mocks to throw exceptions during resource loading
-            _mockResourceManager?.Setup(rm => rm.LoadTexture(It.IsAny<string>()))
+            _mockResourceManager.Setup(rm => rm.LoadTexture(It.IsAny<string>()))
                 .Throws(new Exception("Resource loading failed"));
-            _mockResourceManager?.Setup(rm => rm.LoadFont(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<FontStyle>()))
+            _mockResourceManager.Setup(rm => rm.LoadFont(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<FontStyle>()))
                 .Throws(new Exception("Font loading failed"));
 
             try
             {
                 // Act & Assert - Should not throw exception
                 stage.Activate();
-                
+
                 // Stage should still be in FadeIn phase even if resources fail to load
                 Assert.Equal(StagePhase.FadeIn, stage.CurrentPhase);
             }
@@ -215,31 +145,17 @@ namespace DTXMania.Test.Stage
                 // In headless environment, this may throw due to graphics initialization
                 System.Diagnostics.Debug.WriteLine($"Resource failure test completed with exception: {ex.Message}");
             }
-#endif
         }
 
         #endregion
 
         #region Deactivation Tests
 
-        [Fact]
+        [GraphicsFact]
         public void Deactivate_AfterActivation_ShouldCleanupResources()
         {
-#if MAC_BUILD
-            // Skip graphics-dependent test on Mac build
-            Assert.True(true, "Skipped on Mac build");
-            return;
-#else
-            // Skip test if graphics device is not available
-            if (_graphicsDeviceService?.GraphicsDevice == null)
-            {
-                return;
-            }
-
-            if (ShouldSkip())
-                return;
-
             // Arrange
+            RequireGraphicsDevice();
             var stage = new SongSelectionStage(_mockGame.Object);
             SetupResourceManagerMocks();
 
@@ -258,16 +174,12 @@ namespace DTXMania.Test.Stage
                 // Log for debugging
                 System.Diagnostics.Debug.WriteLine($"Deactivation test failed: {ex.Message}");
             }
-#endif
         }
 
         [Fact]
         public void Deactivate_WithoutActivation_ShouldHandleGracefully()
         {
             // Arrange
-            if (ShouldSkip())
-                return;
-
             var stage = new SongSelectionStage(_mockGame.Object);
 
             // Act & Assert - Should not throw exception
@@ -279,9 +191,6 @@ namespace DTXMania.Test.Stage
         public void Deactivate_MultipleCallsShouldBeIdempotent()
         {
             // Arrange
-            if (ShouldSkip())
-                return;
-
             var stage = new SongSelectionStage(_mockGame.Object);
 
             // Act
@@ -296,30 +205,17 @@ namespace DTXMania.Test.Stage
 
         #region Song List Initialization Tests
 
-        [Fact]
+        [GraphicsFact]
         public void SongListInitialization_WhenSongManagerInitialized_ShouldLoadSongs()
         {
-#if MAC_BUILD
-            // Skip graphics-dependent test on Mac build
-            Assert.True(true, "Skipped on Mac build");
-            return;
-#else
-            // Skip test if graphics device is not available
-            if (_graphicsDeviceService?.GraphicsDevice == null)
-            {
-                return;
-            }
-
-            if (ShouldSkip())
-                return;
-
             // Arrange
+            RequireGraphicsDevice();
             var stage = new SongSelectionStage(_mockGame.Object);
             SetupResourceManagerMocks();
-            
+
             // Setup SongManager mock (this would require mocking the singleton)
             // For now, we'll test the basic initialization path
-            
+
             try
             {
                 // Act
@@ -332,7 +228,6 @@ namespace DTXMania.Test.Stage
             {
                 System.Diagnostics.Debug.WriteLine($"Song list initialization test failed: {ex.Message}");
             }
-#endif
         }
 
         #endregion
@@ -343,9 +238,6 @@ namespace DTXMania.Test.Stage
         public void SetBackgroundMusic_WithValidParameters_ShouldConfigureBackground()
         {
             // Arrange
-            if (ShouldSkip())
-                return;
-
             var stage = new SongSelectionStage(_mockGame.Object);
             var mockSound = new Mock<ISound>();
             var mockSoundInstance = new Mock<ISoundInstance>();
@@ -358,9 +250,6 @@ namespace DTXMania.Test.Stage
         public void SetBackgroundMusic_WithNullParameters_ShouldHandleGracefully()
         {
             // Arrange
-            if (ShouldSkip())
-                return;
-
             var stage = new SongSelectionStage(_mockGame.Object);
 
             // Act & Assert - Should not throw exception
@@ -375,33 +264,17 @@ namespace DTXMania.Test.Stage
         public void PhaseTransition_InitialState_ShouldBeInactive()
         {
             // Arrange
-            if (ShouldSkip())
-                return;
-
             var stage = new SongSelectionStage(_mockGame.Object);
 
             // Act & Assert
             Assert.Equal(StagePhase.Inactive, stage.CurrentPhase);
         }
 
-        [Fact]
+        [GraphicsFact]
         public void PhaseTransition_AfterActivation_ShouldBeFadeIn()
         {
-#if MAC_BUILD
-            // Skip graphics-dependent test on Mac build
-            Assert.True(true, "Skipped on Mac build");
-            return;
-#else
-            // Skip test if graphics device is not available
-            if (_graphicsDeviceService?.GraphicsDevice == null)
-            {
-                return;
-            }
-
-            if (ShouldSkip())
-                return;
-
             // Arrange
+            RequireGraphicsDevice();
             var stage = new SongSelectionStage(_mockGame.Object);
             SetupResourceManagerMocks();
 
@@ -417,7 +290,6 @@ namespace DTXMania.Test.Stage
             {
                 System.Diagnostics.Debug.WriteLine($"Phase transition test failed: {ex.Message}");
             }
-#endif
         }
 
         #endregion
@@ -428,11 +300,8 @@ namespace DTXMania.Test.Stage
         public void Navigation_MovingThroughSongList_ShouldUpdateSelection()
         {
             // Arrange
-            if (ShouldSkip())
-                return;
-
             var stage = new SongSelectionStage(_mockGame.Object);
-            
+
             // Act & Assert - Test basic navigation functionality
             // This tests the stage can handle navigation input even without full initialization
             Assert.Equal(StagePhase.Inactive, stage.CurrentPhase);
@@ -443,9 +312,6 @@ namespace DTXMania.Test.Stage
         public void SelectSong_WithValidSong_ShouldTransitionToGameplay()
         {
             // Arrange
-            if (ShouldSkip())
-                return;
-
             var stage = new SongSelectionStage(_mockGame.Object);
             
             // Act & Assert - Test song selection trigger
@@ -457,9 +323,6 @@ namespace DTXMania.Test.Stage
         public void HandleInput_EscapeKey_ShouldTriggerBackAction()
         {
             // Arrange
-            if (ShouldSkip())
-                return;
-
             var stage = new SongSelectionStage(_mockGame.Object);
             
             // Act & Assert - Test ESC key handling
@@ -475,9 +338,6 @@ namespace DTXMania.Test.Stage
         public void Update_WithValidDeltaTime_ShouldUpdateComponents()
         {
             // Arrange
-            if (ShouldSkip())
-                return;
-
             var stage = new SongSelectionStage(_mockGame.Object);
             
             // Act & Assert - Test update loop handling
@@ -489,9 +349,6 @@ namespace DTXMania.Test.Stage
         public void Draw_WithGraphicsContext_ShouldRenderWithoutErrors()
         {
             // Arrange
-            if (ShouldSkip())
-                return;
-
             var stage = new SongSelectionStage(_mockGame.Object);
             
             // Act & Assert - Test rendering capabilities
@@ -503,13 +360,11 @@ namespace DTXMania.Test.Stage
 
         #region Error Handling Tests
         
-        [Fact]
+        [GraphicsFact]
         public void ErrorHandling_InvalidSharedData_ShouldHandleGracefully()
         {
             // Arrange
-            if (ShouldSkip())
-                return;
-
+            RequireGraphicsDevice();
             var stage = new SongSelectionStage(_mockGame.Object);
             var invalidData = new Dictionary<string, object>
             {
@@ -536,15 +391,12 @@ namespace DTXMania.Test.Stage
         public void ErrorHandling_MissingResources_ShouldContinueOperation()
         {
             // Arrange
-            if (ShouldSkip())
-                return;
-
             var stage = new SongSelectionStage(_mockGame.Object);
             
             // Mock resource manager to simulate missing resources
-            _mockResourceManager?.Setup(rm => rm.LoadTexture(It.IsAny<string>()))
+            _mockResourceManager.Setup(rm => rm.LoadTexture(It.IsAny<string>()))
                 .Returns((ITexture)null!);
-            _mockResourceManager?.Setup(rm => rm.LoadFont(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<FontStyle>()))
+            _mockResourceManager.Setup(rm => rm.LoadFont(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<FontStyle>()))
                 .Returns((IFont)null!);
             
             // Act & Assert - Should handle missing resources gracefully
@@ -555,21 +407,11 @@ namespace DTXMania.Test.Stage
 
         #region Performance Tests
         
-        [Fact]
+        [GraphicsFact]
         public void Performance_MultipleActivationsDeactivations_ShouldNotLeak()
         {
-            if (ShouldSkip())
-                return;
+            RequireGraphicsDevice();
 
-            // Skip test if graphics device is not available (CI environment)
-            if (_graphicsDeviceService?.GraphicsDevice == null)
-            {
-                // Verify initial state without graphics
-                var stageNoGfx = new SongSelectionStage(_mockGame.Object);
-                Assert.Equal(StagePhase.Inactive, stageNoGfx.CurrentPhase);
-                return;
-            }
-            
             // Arrange
             var stage = new SongSelectionStage(_mockGame.Object);
             
@@ -595,13 +437,11 @@ namespace DTXMania.Test.Stage
             }
         }
         
-        [Fact]
+        [GraphicsFact]
         public void Performance_LargeSharedDataSet_ShouldHandleEfficiently()
         {
             // Arrange
-            if (ShouldSkip())
-                return;
-
+            RequireGraphicsDevice();
             var stage = new SongSelectionStage(_mockGame.Object);
             var largeDataSet = new Dictionary<string, object>();
             
@@ -628,22 +468,10 @@ namespace DTXMania.Test.Stage
 
         #region Integration Tests
         
-        [Fact]
+        [GraphicsFact]
         public void Integration_FullLifecycleWithMocks_ShouldCompleteSuccessfully()
         {
-#if MAC_BUILD
-            // Skip graphics-dependent test on Mac build
-            Assert.True(true, "Skipped on Mac build");
-            return;
-#else
-            // Skip if graphics not available
-            if (_graphicsDeviceService?.GraphicsDevice == null)
-            {
-                return;
-            }
-
-            if (ShouldSkip())
-                return;
+            RequireGraphicsDevice();
             
             // Arrange
             var stage = new SongSelectionStage(_mockGame.Object);
@@ -667,21 +495,22 @@ namespace DTXMania.Test.Stage
                 // Log for debugging but expected in test environment
                 System.Diagnostics.Debug.WriteLine($"Integration test exception (expected): {ex.Message}");
             }
-#endif
         }
         
         #endregion
 
         #region Helper Methods
 
+        private GraphicsDevice RequireGraphicsDevice()
+        {
+            return _graphicsDeviceService.RequiredDevice;
+        }
+
         private void SetupResourceManagerMocks()
         {
             // Setup basic resource manager mocks
             var mockTexture = new Mock<ITexture>();
             var mockFont = new Mock<IFont>();
-
-            if (_mockResourceManager == null)
-                return;
 
             _mockResourceManager.Setup(rm => rm.LoadTexture(It.IsAny<string>()))
                 .Returns(mockTexture.Object);
@@ -692,17 +521,6 @@ namespace DTXMania.Test.Stage
             // This might require additional setup depending on the implementation
         }
 
-        private bool ShouldSkip()
-        {
-            return _skipAll || _mockGame == null;
-        }
-
-        private static bool IsGraphicsTestEnabled()
-        {
-            return string.Equals(Environment.GetEnvironmentVariable("DTXMANIACX_ENABLE_GRAPHICS_TESTS"), "1", StringComparison.OrdinalIgnoreCase);
-        }
-
         #endregion
     }
-#endif
 }

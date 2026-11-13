@@ -20,26 +20,17 @@ namespace DTXMania.Test.Graphics
     {
         private readonly ITestOutputHelper _output;
         private readonly TestGraphicsDeviceService _graphicsService;
-        private readonly GraphicsDevice? _graphicsDevice;
+        private readonly GraphicsDevice _graphicsDevice;
         private readonly SpriteBatch? _spriteBatch;
         private readonly string _snapshotDirectory;
-        private readonly bool _skipAll;
 
         public GPURenderingSnapshotTests(ITestOutputHelper output)
         {
             _output = output;
             _graphicsService = new TestGraphicsDeviceService();
-            var graphicsDevice = _graphicsService.GraphicsDevice;
-            if (graphicsDevice == null || graphicsDevice.IsDisposed)
-            {
-                _skipAll = true;
-                _graphicsDevice = null;
-                _spriteBatch = null;
-                _snapshotDirectory = string.Empty;
-                return;
-            }
-
-            _graphicsDevice = graphicsDevice;
+            // Device tests are opted in; failing here is the truthful result when the
+            // opt-in cannot create a device.
+            _graphicsDevice = _graphicsService.RequiredDevice;
             _spriteBatch = new SpriteBatch(_graphicsDevice);
             
             // Create snapshot directory for test outputs
@@ -51,20 +42,12 @@ namespace DTXMania.Test.Graphics
             _output.WriteLine($"Snapshot Directory: {_snapshotDirectory}");
         }
 
-        private bool EnsureGraphicsReady()
-        {
-            return !_skipAll && _graphicsDevice != null && !_graphicsDevice.IsDisposed;
-        }
-
         #region Basic Rendering Tests
 
-        [Fact]
+        [GraphicsFact]
         public async Task GPU_BasicRendering_ClearScreen_VerifyBlackSnapshot()
         {
             // Arrange
-            if (!EnsureGraphicsReady())
-                return;
-
             const int width = 800;
             const int height = 600;
             var renderTarget = new RenderTarget2D(_graphicsDevice, width, height);
@@ -109,13 +92,10 @@ namespace DTXMania.Test.Graphics
             }
         }
 
-        [Fact]
+        [GraphicsFact]
         public async Task GPU_ColoredRendering_SolidColors_VerifyColorAccuracy()
         {
             // Arrange
-            if (!EnsureGraphicsReady())
-                return;
-
             const int width = 400;
             const int height = 300;
             var renderTarget = new RenderTarget2D(_graphicsDevice, width, height);
@@ -167,13 +147,10 @@ namespace DTXMania.Test.Graphics
 
         #region Sprite Rendering Tests
 
-        [Fact]
+        [GraphicsFact]
         public async Task GPU_SpriteRendering_BasicSprites_VerifyCorrectPlacement()
         {
             // Arrange
-            if (!EnsureGraphicsReady())
-                return;
-
             const int width = 800;
             const int height = 600;
             var renderTarget = new RenderTarget2D(_graphicsDevice, width, height);
@@ -230,16 +207,13 @@ namespace DTXMania.Test.Graphics
             }
         }
 
-        [Theory]
+        [GraphicsTheory]
         [InlineData(0.5f, "Half")]
         [InlineData(2.0f, "Double")]
         [InlineData(0.25f, "Quarter")]
         public async Task GPU_SpriteScaling_VariousScales_VerifyCorrectSizing(float scale, string scaleName)
         {
             // Arrange
-            if (!EnsureGraphicsReady())
-                return;
-
             const int width = 400;
             const int height = 300;
             var renderTarget = new RenderTarget2D(_graphicsDevice, width, height);
@@ -293,13 +267,10 @@ namespace DTXMania.Test.Graphics
 
         #region Performance and Stress Tests
 
-        [Fact]
+        [GraphicsFact]
         public async Task GPU_BatchRendering_ManySprites_VerifyPerformanceAndAccuracy()
         {
             // Arrange
-            if (!EnsureGraphicsReady())
-                return;
-
             const int width = 1024;
             const int height = 768;
             const int spriteCount = 1000;
@@ -367,13 +338,10 @@ namespace DTXMania.Test.Graphics
             }
         }
 
-        [Fact]
+        [GraphicsFact]
         public async Task GPU_RenderTargetStress_MultipleTargets_VerifyNoMemoryLeaks()
         {
             // Arrange
-            if (!EnsureGraphicsReady())
-                return;
-
             const int targetCount = 20;
             const int width = 256;
             const int height = 256;
@@ -452,13 +420,10 @@ namespace DTXMania.Test.Graphics
 
         #region Visual Regression Detection
 
-        [Fact]
+        [GraphicsFact]
         public async Task GPU_VisualRegression_ConsistentRendering_DetectChanges()
         {
             // Arrange
-            if (!EnsureGraphicsReady())
-                return;
-
             const int width = 400;
             const int height = 300;
             var renderTarget = new RenderTarget2D(_graphicsDevice, width, height);

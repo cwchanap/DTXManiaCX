@@ -16,37 +16,26 @@ namespace DTXMania.Test.Stage.Performance;
 /// <summary>
 /// Device-backed Draw-path tests for the notation strip renderer (HPA-410). These run the real
 /// Draw pipeline — white-texture creation, SpriteBatch rect draws and the nine-argument
-/// IFont.DrawString calls — on a real GraphicsDevice, so the file is Windows-only and excluded
-/// from the Mac test project (same convention as Graphics/GPURenderingSnapshotTests.cs).
-/// Like every other device test in this repo, the fixture is env-gated by
-/// DTXMANIACX_ENABLE_GRAPHICS_TESTS (unset on CI/Mac), and when no device can be created the
-/// tests silently return — the GPURenderingSnapshotTests convention — so they only execute on
-/// a local dev machine with DTXMANIACX_ENABLE_GRAPHICS_TESTS=1.
+/// IFont.DrawString calls — on a real GraphicsDevice, so every method is a GraphicsFact: it is
+/// Skipped unless DTXMANIACX_ENABLE_GRAPHICS_TESTS=1, and a missing device is a failure rather
+/// than a silent return.
 /// </summary>
 [Collection("GraphicsTests")]
 public class NotationStripRendererDrawTests : IDisposable
 {
     private readonly TestGraphicsDeviceService _graphicsService;
-    private readonly SpriteBatch? _spriteBatch;
+    private readonly SpriteBatch _spriteBatch;
 
     public NotationStripRendererDrawTests()
     {
         _graphicsService = new TestGraphicsDeviceService();
-        _spriteBatch = _graphicsService.GraphicsDevice is { IsDisposed: false } device
-            ? new SpriteBatch(device)
-            : null;
+        _spriteBatch = new SpriteBatch(_graphicsService.RequiredDevice);
     }
 
     public void Dispose()
     {
-        _spriteBatch?.Dispose();
+        _spriteBatch.Dispose();
         _graphicsService.Dispose();
-    }
-
-    // Same silent-skip contract as GPURenderingSnapshotTests: no device (e.g., in CI) → return.
-    private bool EnsureGraphicsReady()
-    {
-        return _spriteBatch != null && !_spriteBatch.IsDisposed;
     }
 
     #region Fixtures
@@ -147,18 +136,16 @@ public class NotationStripRendererDrawTests : IDisposable
 
     #endregion
 
-    [Fact]
+    [GraphicsFact]
     public void Draw_ReadyRendererWithRealChart_ShouldDrawGlyphsAndLabelsWithContractedDepths()
     {
-        if (!EnsureGraphicsReady())
-            return;
         var bravura = CreateFontMock();
         var labels = CreateFontMock();
         using var renderer = CreateReadyRenderer(bravura, labels);
 
         var exception = Record.Exception(() =>
         {
-            BeginProductionBatch(_spriteBatch!);
+            BeginProductionBatch(_spriteBatch);
             renderer.Draw(_spriteBatch, nowMs: 600, speedPercent: 100);
             _spriteBatch.End();
         });
@@ -194,16 +181,14 @@ public class NotationStripRendererDrawTests : IDisposable
         VerifyNoFourArgDrawString(labels);
     }
 
-    [Fact]
+    [GraphicsFact]
     public void Draw_WithNonPositiveSpeed_ShouldNotDrawAnyText()
     {
-        if (!EnsureGraphicsReady())
-            return;
         var bravura = CreateFontMock();
         var labels = CreateFontMock();
         using var renderer = CreateReadyRenderer(bravura, labels);
 
-        BeginProductionBatch(_spriteBatch!);
+        BeginProductionBatch(_spriteBatch);
         renderer.Draw(_spriteBatch, nowMs: 600, speedPercent: 0);
         _spriteBatch.End();
 
@@ -211,11 +196,9 @@ public class NotationStripRendererDrawTests : IDisposable
         VerifyNoDrawString(labels);
     }
 
-    [Fact]
+    [GraphicsFact]
     public void Draw_WhenNotReady_ShouldNotDrawAnyText()
     {
-        if (!EnsureGraphicsReady())
-            return;
         // Partial Bravura font: SMuFL private-use glyphs unresolved, so coverage fails.
         var bravura = new Mock<IFont>();
         bravura.Setup(f => f.SupportsCharacter(It.Is<char>(c => c < 0xE000))).Returns(true);
@@ -227,7 +210,7 @@ public class NotationStripRendererDrawTests : IDisposable
 
         Assert.False(renderer.IsReady);
 
-        BeginProductionBatch(_spriteBatch!);
+        BeginProductionBatch(_spriteBatch);
         renderer.Draw(_spriteBatch, nowMs: 600, speedPercent: 100);
         _spriteBatch.End();
 

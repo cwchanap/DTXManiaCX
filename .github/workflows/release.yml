@@ -626,7 +626,7 @@ jobs:
           brew install ffmpeg
           python tools/skingen/skingen.py validate
           python tools/sfxgen/sfxgen.py validate
-          dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj \
+          dotnet test DTXMania.Test/DTXMania.Test.csproj \
             --configuration Release \
             --filter 'FullyQualifiedName~CxNeonPackTests' \
             --verbosity normal
