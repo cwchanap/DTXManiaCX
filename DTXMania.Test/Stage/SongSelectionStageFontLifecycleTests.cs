@@ -68,5 +68,63 @@ namespace DTXMania.Test.Stage
                 throw _renderTargetException;
             }
         }
+
+        [Fact]
+        public void InitializeUI_WithThemedHistoryFont_ShouldLoadAndRetainConfiguredFace()
+        {
+            var resourceManager = new Mock<IResourceManager>();
+            var historyFont = new Mock<IFont>();
+            var uiFont = new Mock<IFont>();
+            resourceManager.SetupGet(value => value.CurrentTheme).Returns(SkinTheme.Parse(new[]
+            {
+                "SongSelect.HistoryFontFamily=ShareTechMono",
+                "SongSelect.HistoryFontSize=18",
+                "SongSelect.HistoryTextScale=1.0"
+            }));
+            resourceManager.Setup(value => value.LoadFont("ShareTechMono", 18))
+                .Returns(historyFont.Object);
+            var stage = CreateStage(resourceManager);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "InitializeUI", uiFont.Object);
+
+            Assert.Same(historyFont.Object,
+                ReflectionHelpers.GetPrivateField<IFont>(stage, "_historyFont"));
+            resourceManager.Verify(value => value.LoadFont("ShareTechMono", 18), Times.Once);
+        }
+
+        [Fact]
+        public void InitializeUI_WhenThemedHistoryFontFails_ShouldContinueWithSharedFont()
+        {
+            var resourceManager = new Mock<IResourceManager>();
+            var uiFont = new Mock<IFont>();
+            resourceManager.SetupGet(value => value.CurrentTheme).Returns(SkinTheme.Parse(new[]
+            {
+                "SongSelect.HistoryFontFamily=BrokenHistory",
+                "SongSelect.HistoryFontSize=21"
+            }));
+            resourceManager.Setup(value => value.LoadFont("BrokenHistory", 21))
+                .Throws(new System.InvalidOperationException("history font unavailable"));
+            var stage = CreateStage(resourceManager);
+
+            var exception = Record.Exception(() =>
+                ReflectionHelpers.InvokePrivateMethod(stage, "InitializeUI", uiFont.Object));
+
+            Assert.Null(exception);
+            Assert.Null(ReflectionHelpers.GetPrivateField<IFont>(stage, "_historyFont"));
+            resourceManager.Verify(value => value.LoadFont("BrokenHistory", 21), Times.Once);
+        }
+
+        private static SongSelectionStage CreateStage(Mock<IResourceManager> resourceManager)
+        {
+            var game = new Mock<IStageGame>();
+            game.SetupGet(value => value.GraphicsDevice)
+                .Returns(ReflectionHelpers.CreateUninitialized<GraphicsDevice>());
+            game.SetupGet(value => value.ResourceManager).Returns(resourceManager.Object);
+
+            var stage = ReflectionHelpers.CreateUninitialized<SongSelectionStage>();
+            ReflectionHelpers.SetPrivateField(stage, "_game", game.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+            return stage;
+        }
     }
 }
