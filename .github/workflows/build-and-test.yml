@@ -114,13 +114,15 @@ jobs:
           Where-Object { Test-Path $_ } |
           Select-Object -First 1
 
-        if ($coveragePath) {
-          "CODECOV_FILE=$coveragePath" | Out-File -FilePath $env:GITHUB_ENV -Append
-          Write-Host "Coverage report found: $coveragePath"
+        if (-not $coveragePath) {
+          # Fail closed: without the report the project coverage gate silently
+          # disappears, which is how the artifact gap went unnoticed before.
+          Write-Error "coverage.cobertura.xml not found in TestResults; the Windows coverage gate cannot run."
+          exit 1
         }
-        else {
-          Write-Warning "coverage.cobertura.xml not found in TestResults. Skipping Codecov upload."
-        }
+
+        "CODECOV_FILE=$coveragePath" | Out-File -FilePath $env:GITHUB_ENV -Append
+        Write-Host "Coverage report found: $coveragePath"
 
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v7
@@ -129,7 +131,7 @@ jobs:
         token: ${{ secrets.CODECOV_TOKEN }}
         files: ${{ env.CODECOV_FILE }}
         flags: unit,windows
-        fail_ci_if_error: false
+        fail_ci_if_error: true
         verbose: true
 
     - name: Setup Python for tool tests
@@ -215,7 +217,7 @@ jobs:
         key: macos-arm64-ffmpeg-${{ hashFiles('tools/ffmpeg/macos-arm64/build-runtime.sh') }}
     
     - name: Restore dependencies
-      run: dotnet restore DTXMania.Test/DTXMania.Test.Mac.csproj
+      run: dotnet restore DTXMania.Test/DTXMania.Test.csproj
 
     - name: Build Game Mac project
       run: dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj --configuration Debug --no-restore
@@ -229,10 +231,10 @@ jobs:
           file -b "$bin" | grep -qi arm64
         done
 
-    - name: Build Test.Mac project
-      run: dotnet build DTXMania.Test/DTXMania.Test.Mac.csproj --configuration Debug --no-restore
+    - name: Build unit test project
+      run: dotnet build DTXMania.Test/DTXMania.Test.csproj --configuration Debug --no-restore
 
-    - name: Verify Test.Mac bundled FFmpeg runtime
+    - name: Verify unit test project bundled FFmpeg runtime
       shell: bash
       run: |
         runtime="DTXMania.Test/bin/Debug/net10.0/runtimes/osx-arm64/MMTools"
@@ -245,7 +247,7 @@ jobs:
       env:
         ALSOFT_DRIVERS: 'null'
       run: >
-        dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj
+        dotnet test DTXMania.Test/DTXMania.Test.csproj
         --configuration Debug
         --no-build
         --filter "FullyQualifiedName~FfmpegAudioVariantProcessorTests|FullyQualifiedName~FfmpegBundledRuntimeTests|FullyQualifiedName~ManagedSoundTests"
@@ -254,7 +256,7 @@ jobs:
     - name: Run tests on macOS
       env:
         ALSOFT_DRIVERS: 'null'
-      run: dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --configuration Debug --no-build --verbosity normal --collect:"XPlat Code Coverage" --settings ./coverlet.runsettings --results-directory ./TestResults --logger trx
+      run: dotnet test DTXMania.Test/DTXMania.Test.csproj --configuration Debug --no-build --verbosity normal --results-directory ./TestResults --logger trx
 
     - name: Run Automation tests on macOS
       run: dotnet test DTXMania.Automation.Tests/DTXMania.Automation.Tests.csproj --configuration Debug --verbosity normal --logger trx --results-directory ./TestResults/Automation
@@ -268,18 +270,6 @@ jobs:
         DTXMANIA_E2E_GAME_PROJECT: DTXMania.Game/DTXMania.Game.Mac.csproj
         DTXMANIA_E2E_ARTIFACT_ROOT: TestResults/e2e-audio
       run: dotnet test DTXMania.E2E/DTXMania.E2E.csproj --configuration Debug --verbosity normal --logger trx --results-directory ./TestResults/e2e-audio --filter "Category=AudioE2E"
-
-    - name: Require coverage report on macOS
-      if: always()
-      shell: bash
-      run: |
-        coverage_file=$(find TestResults DTXMania.Test/TestResults -type f -name "coverage.cobertura.xml" 2>/dev/null | head -n 1 || true)
-        if [ -n "$coverage_file" ]; then
-          echo "Coverage report found: $coverage_file"
-        else
-          echo "::error::coverage.cobertura.xml not found in macOS TestResults directories; DTXMania.Test.Mac may not have executed." >&2
-          exit 1
-        fi
 
     - name: Upload test results
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9

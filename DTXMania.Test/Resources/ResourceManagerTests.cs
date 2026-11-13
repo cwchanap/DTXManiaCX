@@ -64,13 +64,12 @@ namespace DTXMania.Test.Resources
             Assert.Throws<ArgumentNullException>(() => new ResourceManager(null));
         }
 
-        [Fact]
+        [GraphicsFact]
         public void SetBoxDefSkinPath_WithRelativePath_ShouldPreserveRelativePath()
         {
             // Arrange - Create a mock graphics device
             using var graphicsDeviceService = new TestGraphicsDeviceService();
-            if (graphicsDeviceService.GraphicsDevice == null)
-                return;
+            var graphicsDevice = graphicsDeviceService.RequiredDevice;
 
             // Create a validating skin at a relative path so SetBoxDefSkinPath's
             // validation accepts it. Cleanup removes it after the test.
@@ -79,7 +78,7 @@ namespace DTXMania.Test.Resources
             File.WriteAllText(Path.Combine(relativePath, "Graphics", "1_background.jpg"), "bg");
             try
             {
-                using var resourceManager = new ResourceManager(graphicsDeviceService.GraphicsDevice);
+                using var resourceManager = new ResourceManager(graphicsDevice);
 
                 // Act
                 resourceManager.SetBoxDefSkinPath(relativePath);
@@ -97,15 +96,14 @@ namespace DTXMania.Test.Resources
             }
         }
 
-        [Fact]
+        [GraphicsFact]
         public void SetBoxDefSkinPath_WithAbsolutePath_ShouldNormalizeCorrectly()
         {
             // Arrange
             using var graphicsDeviceService = new TestGraphicsDeviceService();
-            if (graphicsDeviceService.GraphicsDevice == null)
-                return;
+            var graphicsDevice = graphicsDeviceService.RequiredDevice;
 
-            using var resourceManager = new ResourceManager(graphicsDeviceService.GraphicsDevice);
+            using var resourceManager = new ResourceManager(graphicsDevice);
             var absolutePath = Path.GetFullPath(Path.Combine(_testDataPath, "CustomSkin"));
             Directory.CreateDirectory(Path.Combine(absolutePath, "Graphics"));
             File.WriteAllText(Path.Combine(absolutePath, "Graphics", "1_background.jpg"), "bg");
@@ -118,17 +116,16 @@ namespace DTXMania.Test.Resources
             Assert.True(Path.IsPathRooted(effectivePath), "Absolute paths should remain rooted after normalization");
         }
 
-        [Theory]
+        [GraphicsTheory]
         [InlineData("")]
         [InlineData(null)]
         public void SetBoxDefSkinPath_WithEmptyOrNullPath_ShouldClearPath(string path)
         {
             // Arrange
             using var graphicsDeviceService = new TestGraphicsDeviceService();
-            if (graphicsDeviceService.GraphicsDevice == null)
-                return;
+            var graphicsDevice = graphicsDeviceService.RequiredDevice;
 
-            using var resourceManager = new ResourceManager(graphicsDeviceService.GraphicsDevice);
+            using var resourceManager = new ResourceManager(graphicsDevice);
 
             var defaultEffectivePath = resourceManager.GetCurrentEffectiveSkinPath();
             // Use a path that doesn't exist — validation rejects it, so the
@@ -145,15 +142,14 @@ namespace DTXMania.Test.Resources
             Assert.DoesNotContain("songs/test/skin", effectivePath);
         }
 
-        [Fact]
+        [GraphicsFact]
         public void ResourceExists_WhenMissingInCurrentSkinButPresentInFallback_ShouldReturnTrue()
         {
             // Arrange
             using var graphicsDeviceService = new TestGraphicsDeviceService();
-            if (graphicsDeviceService.GraphicsDevice == null)
-                return;
+            var graphicsDevice = graphicsDeviceService.RequiredDevice;
 
-            using var resourceManager = new ResourceManager(graphicsDeviceService.GraphicsDevice);
+            using var resourceManager = new ResourceManager(graphicsDevice);
 
             var currentSkinRoot = Path.Combine(_testDataPath, "System", "Custom");
             var fallbackSkinRoot = Path.Combine(_testDataPath, "System");
@@ -175,14 +171,13 @@ namespace DTXMania.Test.Resources
             Assert.True(exists);
         }
 
-        [Fact]
+        [GraphicsFact]
         public void TryLoadTexture_WhenFileMissing_ShouldReturnFalseWithFallback()
         {
             using var graphicsDeviceService = new TestGraphicsDeviceService();
-            if (graphicsDeviceService.GraphicsDevice == null)
-                return;
+            var graphicsDevice = graphicsDeviceService.RequiredDevice;
 
-            using var resourceManager = new ResourceManager(graphicsDeviceService.GraphicsDevice);
+            using var resourceManager = new ResourceManager(graphicsDevice);
             var missingPath = Path.Combine(_testDataPath, "no-such-texture.png");
             var raisedForPath = 0;
             resourceManager.ResourceLoadFailed += (_, e) =>
@@ -199,14 +194,13 @@ namespace DTXMania.Test.Resources
             texture.Dispose();
         }
 
-        [Fact]
+        [GraphicsFact]
         public void TryLoadTexture_WhenDecodeFails_ShouldReturnFalseWithFallback()
         {
             using var graphicsDeviceService = new TestGraphicsDeviceService();
-            if (graphicsDeviceService.GraphicsDevice == null)
-                return;
+            var graphicsDevice = graphicsDeviceService.RequiredDevice;
 
-            using var resourceManager = new ResourceManager(graphicsDeviceService.GraphicsDevice);
+            using var resourceManager = new ResourceManager(graphicsDevice);
             var corruptPath = Path.Combine(_testDataPath, "corrupt.png");
             File.WriteAllText(corruptPath, "not a real png");
 
@@ -217,14 +211,13 @@ namespace DTXMania.Test.Resources
             texture.Dispose();
         }
 
-        [Fact]
+        [GraphicsFact]
         public void TryLoadTexture_WhenFileValid_ShouldReturnTrue()
         {
             using var graphicsDeviceService = new TestGraphicsDeviceService();
-            if (graphicsDeviceService.GraphicsDevice == null)
-                return;
+            var graphicsDevice = graphicsDeviceService.RequiredDevice;
 
-            using var resourceManager = new ResourceManager(graphicsDeviceService.GraphicsDevice);
+            using var resourceManager = new ResourceManager(graphicsDevice);
             var pngPath = Path.Combine(_testDataPath, "real.png");
             File.WriteAllBytes(pngPath, OnePixelPng);
 
@@ -235,14 +228,13 @@ namespace DTXMania.Test.Resources
             texture.RemoveReference();
         }
 
-        [Fact]
+        [GraphicsFact]
         public void TryLoadSound_WhenFileMissing_ShouldReturnFalseWithFallback()
         {
             using var graphicsDeviceService = new TestGraphicsDeviceService();
-            if (graphicsDeviceService.GraphicsDevice == null)
-                return;
+            var graphicsDevice = graphicsDeviceService.RequiredDevice;
 
-            using var resourceManager = new ResourceManager(graphicsDeviceService.GraphicsDevice);
+            using var resourceManager = new ResourceManager(graphicsDevice);
             var missingPath = Path.Combine(_testDataPath, "no-such-sound.wav");
 
             var loaded = resourceManager.TryLoadSound(missingPath, out var sound);
@@ -252,14 +244,13 @@ namespace DTXMania.Test.Resources
             sound.Dispose();
         }
 
-        [Fact]
+        [GraphicsFact]
         public void TryLoadSound_WhenFileValid_ShouldReturnTrue()
         {
             using var graphicsDeviceService = new TestGraphicsDeviceService();
-            if (graphicsDeviceService.GraphicsDevice == null)
-                return;
+            var graphicsDevice = graphicsDeviceService.RequiredDevice;
 
-            using var resourceManager = new ResourceManager(graphicsDeviceService.GraphicsDevice);
+            using var resourceManager = new ResourceManager(graphicsDevice);
             var wavPath = Path.Combine(_testDataPath, "blip.wav");
             File.WriteAllBytes(wavPath, MinimalWav());
 

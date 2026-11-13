@@ -19,17 +19,21 @@ DTXManiaCX is a port of DTXMania (a drum simulation game) to .NET 10 using MonoG
 # Build
 dotnet build DTXMania.Game/DTXMania.Game.Mac.csproj
 
-# Run tests (Mac-specific project excludes graphics-dependent tests)
-dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj
+# Run tests (same unit project as Windows; device tests report Skipped)
+dotnet test DTXMania.Test/DTXMania.Test.csproj
+
+# Opt in to the device-required graphics tests (needs a real GPU/display;
+# macOS cannot create one inside the xUnit process and aborts the run)
+DTXMANIACX_ENABLE_GRAPHICS_TESTS=1 dotnet test DTXMania.Test/DTXMania.Test.csproj
 
 # Run specific test class
-dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "FullyQualifiedName~ConfigManagerTests"
+dotnet test DTXMania.Test/DTXMania.Test.csproj --filter "FullyQualifiedName~ConfigManagerTests"
 
 # Run tests by xUnit trait (e.g. Category=Integration, Category=Unit)
-dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --filter "Category=Integration"
+dotnet test DTXMania.Test/DTXMania.Test.csproj --filter "Category=Integration"
 
 # Run with coverage
-dotnet test DTXMania.Test/DTXMania.Test.Mac.csproj --collect:"XPlat Code Coverage" --settings coverlet.runsettings --results-directory ./TestResults
+dotnet test DTXMania.Test/DTXMania.Test.csproj --collect:"XPlat Code Coverage" --settings coverlet.runsettings --results-directory ./TestResults
 
 # Run application
 dotnet run --project DTXMania.Game/DTXMania.Game.Mac.csproj
@@ -81,8 +85,7 @@ DTXMANIA_E2E_GAME_PROJECT=DTXMania.Game/DTXMania.Game.Mac.csproj \
 ```
 
 ### Test Projects
-- `DTXMania.Test.csproj` - Full test suite (Windows CI, references all tests)
-- `DTXMania.Test.Mac.csproj` - Mac-safe subset with `EnableDefaultCompileItems=false` and a `**/*.cs` wildcard include plus an exclusion list for graphics-dependent tests and helpers; see the project file for the current list. Defines `MAC_BUILD` constant.
+- `DTXMania.Test.csproj` - The only unit test project, run unchanged on Windows and macOS. Everything compiles on both; tests that need a real `GraphicsDevice` use `[GraphicsFact]`/`[GraphicsTheory]` and report **Skipped** unless `DTXMANIACX_ENABLE_GRAPHICS_TESTS=1`. With the opt-in set, a device that cannot be created fails the test instead of passing it.
 - `DTXMania.E2E.csproj` - End-to-end tests (`net10.0-windows7.0`). References the matching game `.csproj` for shared types but runs the game out-of-process. Two trait categories: `E2E` (full gameplay smoke, launches the game) and `E2E-Support` (in-process unit tests for the harness itself: fixtures, JSON-RPC client, telemetry).
 - `DTXMania.Automation.Tests.csproj` / `DTXMania.VideoRecorder.Tests.csproj` - Cross-platform (`net10.0`) suites for the automation library and the `dtx-video` recorder.
 - `MCP.Tests.csproj` - Tests for the MCP server (not run by the CI workflow).
@@ -264,7 +267,7 @@ DTXMania.Game.Lib.Utilities - AppPaths, CacheManager, PathValidator
 
 GitHub Actions (`.github/workflows/build-and-test.yml`):
 - **Windows job**: Builds Windows project, runs full test suite (`DTXMania.Test.csproj`) with `ALSOFT_DRIVERS=null` for audio driver workaround and Coverlet MSBuild coverage; also runs the Automation and VideoRecorder test suites, the `tools/` Python unit tests, and the committed `System` pack validation (`skingen`/`sfxgen validate`)
-- **macOS job**: Builds Mac project, runs Mac test suite (`DTXMania.Test.Mac.csproj`) with XPlat Code Coverage using `coverlet.runsettings`, plus the same automation/recorder/tool/pack gates
+- **macOS job**: Builds the Mac project, verifies the bundled FFmpeg runtime, runs the same unit project as Windows (`DTXMania.Test.csproj`, no coverage collection — Windows coverage is authoritative), plus the same automation/recorder/tool/pack gates
 - **Gameplay E2E job** (Windows): Restores the E2E project with `--runtime win-x64`, runs the `Category=E2E` smoke test (launches the game with `ALSOFT_DRIVERS=null`) then the `Category=E2E-Support` tests, uploading artifacts from `TestResults/e2e`
 - **Artifacts job**: Manual dispatch only, builds and publishes release artifacts for both platforms and validates the source and published `System` skin
 
@@ -273,4 +276,4 @@ GitHub Actions (`.github/workflows/build-and-test.yml`):
 - **Missing Assets**: Check skin directory structure and SkinManager fallback chain
 - **Stale local skin**: an old `<appdata>/System/CXNeon` symlink or NX-era `<appdata>/System/{Graphics,Sounds,Script}` art can shadow the bundled default; check local customizations, remove those items manually and reselect `Default`. Nothing is deleted automatically.
 - **MCP Connection**: Ensure GameApiServer is running before starting MCP server; check the `GameApiPort` row in `config.db`
-- **macOS Test Crashes**: SDL threading errors are expected for graphics tests; the Mac .csproj excludes them. If adding new tests that need GraphicsDevice, exclude them from `DTXMania.Test.Mac.csproj`
+- **macOS Test Crashes**: SDL/AppKit abort the process when a graphics test creates a device off the main thread on macOS. Device tests are `[GraphicsFact]`/`[GraphicsTheory]`, so they stay Skipped unless `DTXMANIACX_ENABLE_GRAPHICS_TESTS=1`; do not set that variable in a macOS CI job

@@ -3,8 +3,7 @@
 
 mac_project     := "DTXMania.Game/DTXMania.Game.Mac.csproj"
 windows_project := "DTXMania.Game/DTXMania.Game.Windows.csproj"
-mac_test        := "DTXMania.Test/DTXMania.Test.Mac.csproj"
-windows_test    := "DTXMania.Test/DTXMania.Test.csproj"
+test_project    := "DTXMania.Test/DTXMania.Test.csproj"
 e2e_project     := "DTXMania.E2E/DTXMania.E2E.csproj"
 automation_test := "DTXMania.Automation.Tests/DTXMania.Automation.Tests.csproj"
 mcp_project     := "MCP/MCP.csproj"
@@ -43,25 +42,17 @@ build-windows:
 
 # ── Test ──────────────────────────────────────────────────────
 
-# Run tests on the current platform
+# Run the unit test suite (same project on every OS)
 test:
-    dotnet test {{ if os() == "windows" { windows_test } else { mac_test } }}
-
-# Run the Mac test suite (Mac-safe subset)
-test-mac:
-    dotnet test {{ mac_test }}
-
-# Run the full Windows test suite
-test-windows:
-    dotnet test {{ windows_test }}
+    dotnet test {{ test_project }}
 
 # Run tests filtered by an xUnit trait, e.g. just test-trait Category=Audio
 test-trait filter:
-    dotnet test {{ mac_test }} --filter "{{ filter }}"
+    dotnet test {{ test_project }} --filter "{{ filter }}"
 
-# Run the Mac tests with code coverage (results in ./TestResults)
+# Run the unit tests with code coverage (results in ./TestResults)
 test-cov:
-    dotnet test {{ mac_test }} --collect:"XPlat Code Coverage" --settings coverlet.runsettings --results-directory ./TestResults
+    dotnet test {{ test_project }} --collect:"XPlat Code Coverage" --settings coverlet.runsettings --results-directory ./TestResults
 
 # ── E2E (the E2E project targets net10.0-windows7.0, so Windows-only) ──
 

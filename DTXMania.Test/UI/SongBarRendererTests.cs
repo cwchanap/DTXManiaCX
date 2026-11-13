@@ -68,83 +68,72 @@ namespace DTXMania.Test.UI
             };
 
         }
-        [Fact]
+        [GraphicsFact]
         public void Constructor_WithNullGraphicsDevice_ShouldThrow()
         {
             // Arrange
-            if (_graphicsService.GraphicsDevice == null)
-                return;
+            var graphicsDevice = _graphicsService.RequiredDevice;
 
-            using var titleRT = new RenderTarget2D(_graphicsService.GraphicsDevice, 400, 24);
+            using var titleRT = new RenderTarget2D(graphicsDevice, 400, 24);
 
             // Act & Assert
             Assert.Throws<ArgumentNullException>(() => new SongBarRenderer(null, _resourceManager!, titleRT));
         }
-        [Fact]
+        [GraphicsFact]
         public void Constructor_WithNullResourceManager_ShouldThrow()
         {
             // Arrange
-            if (_graphicsService.GraphicsDevice == null)
-                return;
+            var graphicsDevice = _graphicsService.RequiredDevice;
 
-            using var sharedRT = new RenderTarget2D(_graphicsService.GraphicsDevice, 512, 512);
+            using var sharedRT = new RenderTarget2D(graphicsDevice, 512, 512);
 
             // Act & Assert
-            Assert.Throws<ArgumentNullException>(() => new SongBarRenderer(_graphicsService.GraphicsDevice, null, sharedRT));
+            Assert.Throws<ArgumentNullException>(() => new SongBarRenderer(graphicsDevice, null, sharedRT));
         }
 
-        [Fact]
+        [GraphicsFact]
         public void Constructor_WithNullRenderTarget_ShouldThrow()
         {
-            // Act & Assert
-            if (_graphicsService.GraphicsDevice == null)
-                return;
+            // Arrange
+            var graphicsDevice = _graphicsService.RequiredDevice;
 
-            Assert.Throws<ArgumentNullException>(() => new SongBarRenderer(_graphicsService.GraphicsDevice, _resourceManager!, null));
+            // Act & Assert
+            Assert.Throws<ArgumentNullException>(() => new SongBarRenderer(graphicsDevice, _resourceManager!, null));
         }
 
-        [Fact]
+        [GraphicsFact]
         public void GenerateTitleTexture_WithNullSongNode_ShouldReturnNull()
         {
             // Act
-            if (_renderer == null)
-                return;
-
-            var texture = _renderer.GenerateTitleTexture(null);
+            var texture = Renderer.GenerateTitleTexture(null);
 
             // Assert
             Assert.Null(texture);
         }
 
-        [Fact]
+        [GraphicsFact]
         public void GenerateTitleTexture_WithoutFont_ShouldReturnNull()
         {
             // Act
-            if (_renderer == null)
-                return;
-
-            var texture = _renderer.GenerateTitleTexture(_testSongNode);
+            var texture = Renderer.GenerateTitleTexture(_testSongNode);
 
             // Assert
             Assert.Null(texture);
         }
 
-        [Fact]
+        [GraphicsFact]
         public void GenerateTitleTexture_CalledTwice_ShouldReturnCachedTexture()
         {
             // Arrange
-            if (_renderer == null)
-                return;
-
             var font = CreateTestFont();
             if (font != null)
             {
-                _renderer.SetFont(font);
+                Renderer.SetFont(font);
             }
 
             // Act
-            var texture1 = _renderer.GenerateTitleTexture(_testSongNode);
-            var texture2 = _renderer.GenerateTitleTexture(_testSongNode);
+            var texture1 = Renderer.GenerateTitleTexture(_testSongNode);
+            var texture2 = Renderer.GenerateTitleTexture(_testSongNode);
 
             // Assert
             if (font == null)
@@ -159,40 +148,31 @@ namespace DTXMania.Test.UI
             Assert.Same(texture1, texture2); // Should be cached
         }
 
-        [Fact]
+        [GraphicsFact]
         public void GeneratePreviewImageTexture_WithValidNode_ShouldAttemptLoad()
         {
             // Act
-            if (_renderer == null)
-                return;
-
-            var exception = Record.Exception(() => _renderer.GeneratePreviewImageTexture(_testSongNode));
+            var exception = Record.Exception(() => Renderer.GeneratePreviewImageTexture(_testSongNode));
 
             // Assert - May be null if file doesn't exist, but should not throw
             // The mock resource manager will return null for non-existent files
             Assert.Null(exception);
         }
 
-        [Fact]
+        [GraphicsFact]
         public void GeneratePreviewImageTexture_WithNullNode_ShouldReturnNull()
         {
             // Act
-            if (_renderer == null)
-                return;
-
-            var texture = _renderer.GeneratePreviewImageTexture(null);
+            var texture = Renderer.GeneratePreviewImageTexture(null);
 
             // Assert
             Assert.Null(texture);
         }
 
-        [Fact]
+        [GraphicsFact]
         public void GeneratePreviewImageTexture_WithNodeWithoutPreviewImage_ShouldReturnNull()
         {
             // Arrange
-            if (_renderer == null)
-                return;
-
             var nodeWithoutPreview = new SongListNode
             {
                 Type = NodeType.Score,
@@ -202,55 +182,46 @@ namespace DTXMania.Test.UI
             };
 
             // Act
-            var texture = _renderer.GeneratePreviewImageTexture(nodeWithoutPreview);
+            var texture = Renderer.GeneratePreviewImageTexture(nodeWithoutPreview);
 
             // Assert
             Assert.Null(texture);
         }
 
-        [Fact]
+        [GraphicsFact]
         public void GenerateClearLampTexture_WithScoreNode_ShouldReturnTexture()
         {
             // Act
-            if (_renderer == null)
-                return;
-
-            var texture = _renderer.GenerateClearLampTexture(_testSongNode, 0);
+            var texture = Renderer.GenerateClearLampTexture(_testSongNode, 0);
 
             // Assert
             Assert.NotNull(texture);
         }
 
-        [Fact]
+        [GraphicsFact]
         public void GenerateClearLampTexture_WithNonScoreNode_ShouldReturnNull()
         {
             // Arrange
-            if (_renderer == null)
-                return;
-
             var boxNode = new SongListNode { Type = NodeType.Box, Title = "Test Box" };
 
             // Act
-            var texture = _renderer.GenerateClearLampTexture(boxNode, 0);
+            var texture = Renderer.GenerateClearLampTexture(boxNode, 0);
 
             // Assert
             Assert.Null(texture);
         }
 
-        [Fact]
+        [GraphicsFact]
         public void GenerateClearLampTexture_WithNullNode_ShouldReturnNull()
         {
             // Act
-            if (_renderer == null)
-                return;
-
-            var texture = _renderer.GenerateClearLampTexture(null, 0);
+            var texture = Renderer.GenerateClearLampTexture(null, 0);
 
             // Assert
             Assert.Null(texture);
         }
 
-        [Theory]
+        [GraphicsTheory]
         [InlineData(0)]
         [InlineData(1)]
         [InlineData(2)]
@@ -259,10 +230,7 @@ namespace DTXMania.Test.UI
         public void GenerateClearLampTexture_WithDifferentDifficulties_ShouldReturnTexture(int difficulty)
         {
             // Act
-            if (_renderer == null)
-                return;
-
-            var texture = _renderer.GenerateClearLampTexture(_testSongNode, difficulty);
+            var texture = Renderer.GenerateClearLampTexture(_testSongNode, difficulty);
 
             // Assert
             Assert.NotNull(texture);
@@ -270,25 +238,23 @@ namespace DTXMania.Test.UI
 
 
 
-        [Fact]
+        [GraphicsFact]
         public void SetFont_ShouldClearTitleCache()
         {
             // Arrange
-            if (_renderer == null)
-                return;
-
+            RequireGraphicsDevice();
             var font1 = CreateTestFont();
             var font2 = CreateTestFont();
 
             if (font1 == null || font2 == null)
                 return;
 
-            _renderer.SetFont(font1);
-            var texture1 = _renderer.GenerateTitleTexture(_testSongNode);
+            Renderer.SetFont(font1);
+            var texture1 = Renderer.GenerateTitleTexture(_testSongNode);
 
             // Act
-            _renderer.SetFont(font2);
-            var texture2 = _renderer.GenerateTitleTexture(_testSongNode);
+            Renderer.SetFont(font2);
+            var texture2 = Renderer.GenerateTitleTexture(_testSongNode);
 
             // Assert
             Assert.NotNull(texture1);
@@ -296,7 +262,7 @@ namespace DTXMania.Test.UI
             Assert.NotSame(texture1, texture2);
             // Textures should be different since font changed and cache was cleared
         }
-        [Theory]
+        [GraphicsTheory]
         [InlineData(NodeType.Score)]
         [InlineData(NodeType.Box)]
         [InlineData(NodeType.BackBox)]
@@ -304,14 +270,12 @@ namespace DTXMania.Test.UI
         public void GenerateTitleTexture_WithDifferentNodeTypes_ShouldGenerateAppropriateText(NodeType nodeType)
         {
             // Arrange
-            if (_renderer == null)
-                return;
-
+            RequireGraphicsDevice();
             var font = CreateTestFont();
             if (font == null)
                 return;
 
-            _renderer.SetFont(font);
+            Renderer.SetFont(font);
 
             var node = new SongListNode
             {
@@ -320,7 +284,7 @@ namespace DTXMania.Test.UI
             };
 
             // Act
-            var texture = _renderer.GenerateTitleTexture(node);
+            var texture = Renderer.GenerateTitleTexture(node);
 
             // Assert
             Assert.NotNull(texture);
@@ -330,6 +294,15 @@ namespace DTXMania.Test.UI
 
 
 
+
+        private void RequireGraphicsDevice()
+        {
+            _ = _graphicsService.RequiredDevice;
+        }
+
+        private SongBarRenderer Renderer =>
+            _renderer ?? throw new InvalidOperationException(
+                $"{GraphicsTestGate.OptInVariable}=1 was set but no GraphicsDevice could be created.");
 
         private SpriteFont? CreateTestFont()
         {
