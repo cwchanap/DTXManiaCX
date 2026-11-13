@@ -1,4 +1,7 @@
 using DTXMania.Game.Lib.Stage;
+using DTXMania.Game.Lib.Graphics;
+using DTXMania.Game.Lib.UI.Layout;
+using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Moq;
 using System;
@@ -22,6 +25,10 @@ namespace DTXMania.Test.Stage
         private readonly Mock<IStageGame> _mockGame;
         private readonly Mock<IConfigManager> _mockConfigManager;
         private readonly Mock<IResourceManager> _mockResourceManager;
+        private readonly Mock<IGraphicsManager> _mockGraphicsManager;
+        private readonly RenderTargetManager? _renderTargetManager;
+        private readonly Texture2D? _fontTexture;
+        private readonly SpriteFont? _spriteFont;
 
         public SongSelectionStageTests()
         {
@@ -29,17 +36,34 @@ namespace DTXMania.Test.Stage
             _mockGame = new Mock<IStageGame>();
             _mockConfigManager = new Mock<IConfigManager>();
             _mockResourceManager = new Mock<IResourceManager>();
+            _mockGraphicsManager = new Mock<IGraphicsManager>();
 
             _mockGame.Setup(g => g.ConfigManager).Returns(_mockConfigManager.Object);
+            _mockGame.Setup(g => g.ResourceManager).Returns(_mockResourceManager.Object);
+            // Lazy so a device test fails with the explicit opt-in message when the opt-in
+            // could not create a device; logic tests never touch GraphicsDevice.
+            _mockGame.Setup(g => g.GraphicsDevice).Returns(() => _graphicsDeviceService.RequiredDevice);
 
+            // Device-required fixtures: a real render-target manager and real texture/font
+            // objects, so activation runs the production host path instead of null fallbacks.
             if (_graphicsDeviceService.GraphicsDevice is { } device)
             {
-                _mockGame.Setup(g => g.GraphicsDevice).Returns(device);
+                _renderTargetManager = new RenderTargetManager(device);
+                _mockGraphicsManager.Setup(g => g.GraphicsDevice).Returns(device);
+                _mockGraphicsManager.Setup(g => g.RenderTargetManager).Returns(_renderTargetManager);
+
+                _mockGame.Setup(g => g.GraphicsManager).Returns(_mockGraphicsManager.Object);
+
+                _spriteFont = TestFontFactory.Create(device, out var fontTexture);
+                _fontTexture = fontTexture;
+                ConfigureResourceManager();
             }
         }
 
         public void Dispose()
         {
+            _renderTargetManager?.Dispose();
+            _fontTexture?.Dispose();
             _graphicsDeviceService.Dispose();
         }
 
@@ -71,80 +95,58 @@ namespace DTXMania.Test.Stage
         public void Activate_WithValidParameters_ShouldInitializeCorrectly()
         {
             // Arrange
-            RequireGraphicsDevice();
             var stage = new SongSelectionStage(_mockGame.Object);
             var sharedData = new Dictionary<string, object>();
 
-            // Setup mocks for resource loading
-            SetupResourceManagerMocks();
+            // Act
+            stage.Activate(sharedData);
 
-            try
-            {
-                // Act
-                stage.Activate(sharedData);
+            // Assert
+            Assert.Equal(StagePhase.FadeIn, stage.CurrentPhase);
+            Assert.Equal(StageType.SongSelect, stage.Type);
 
-                // Assert
-                Assert.Equal(StagePhase.FadeIn, stage.CurrentPhase);
-            }
-            catch (Exception ex)
-            {
-                // Log the exception for debugging but don't fail the test if it's a graphics-related issue
-                System.Diagnostics.Debug.WriteLine($"Activation test failed (expected in headless environment): {ex.Message}");
-
-                // Still verify basic properties work
-                Assert.Equal(StageType.SongSelect, stage.Type);
-            }
+            // Activation must go through the host's resource manager, not fall back to nulls.
+            _mockResourceManager.Verify(rm => rm.LoadFont(
+                SongSelectionUILayout.Background.DefaultFontName,
+                SongSelectionUILayout.Background.DefaultFontSize,
+                FontStyle.Regular), Times.AtLeastOnce);
+            _mockResourceManager.Verify(rm => rm.LoadTexture(It.IsAny<string>()), Times.AtLeastOnce);
         }
 
         [GraphicsFact]
         public void Activate_WithNullSharedData_ShouldInitializeWithDefaults()
         {
             // Arrange
-            RequireGraphicsDevice();
             var stage = new SongSelectionStage(_mockGame.Object);
-            SetupResourceManagerMocks();
 
-            try
-            {
-                // Act
-                stage.Activate(null);
+            // Act
+            stage.Activate(null);
 
-                // Assert
-                Assert.Equal(StagePhase.FadeIn, stage.CurrentPhase);
-            }
-            catch (Exception ex)
-            {
-                // Log for debugging but don't fail in headless environment
-                System.Diagnostics.Debug.WriteLine($"Activation with null data test failed: {ex.Message}");
-            }
+            // Assert
+            Assert.Equal(StagePhase.FadeIn, stage.CurrentPhase);
+            Assert.Equal(StageType.SongSelect, stage.Type);
         }
 
         [GraphicsFact]
         public void Activate_WhenResourceLoadingFails_ShouldHandleGracefully()
         {
             // Arrange
-            RequireGraphicsDevice();
             var stage = new SongSelectionStage(_mockGame.Object);
 
             // Setup mocks to throw exceptions during resource loading
             _mockResourceManager.Setup(rm => rm.LoadTexture(It.IsAny<string>()))
                 .Throws(new Exception("Resource loading failed"));
+            _mockResourceManager.Setup(rm => rm.LoadTexture(It.IsAny<string>(), It.IsAny<bool>()))
+                .Throws(new Exception("Resource loading failed"));
+            _mockResourceManager.Setup(rm => rm.LoadFont(It.IsAny<string>(), It.IsAny<int>()))
+                .Throws(new Exception("Font loading failed"));
             _mockResourceManager.Setup(rm => rm.LoadFont(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<FontStyle>()))
                 .Throws(new Exception("Font loading failed"));
 
-            try
-            {
-                // Act & Assert - Should not throw exception
-                stage.Activate();
+            // Act & Assert - should not throw, and the stage still completes activation
+            stage.Activate();
 
-                // Stage should still be in FadeIn phase even if resources fail to load
-                Assert.Equal(StagePhase.FadeIn, stage.CurrentPhase);
-            }
-            catch (Exception ex)
-            {
-                // In headless environment, this may throw due to graphics initialization
-                System.Diagnostics.Debug.WriteLine($"Resource failure test completed with exception: {ex.Message}");
-            }
+            Assert.Equal(StagePhase.FadeIn, stage.CurrentPhase);
         }
 
         #endregion
@@ -155,25 +157,16 @@ namespace DTXMania.Test.Stage
         public void Deactivate_AfterActivation_ShouldCleanupResources()
         {
             // Arrange
-            RequireGraphicsDevice();
             var stage = new SongSelectionStage(_mockGame.Object);
-            SetupResourceManagerMocks();
+            stage.Activate();
 
-            try
-            {
-                stage.Activate();
+            // Act
+            stage.Deactivate();
 
-                // Act
-                stage.Deactivate();
-
-                // Assert
-                Assert.Equal(StagePhase.Inactive, stage.CurrentPhase);
-            }
-            catch (Exception ex)
-            {
-                // Log for debugging
-                System.Diagnostics.Debug.WriteLine($"Deactivation test failed: {ex.Message}");
-            }
+            // Assert
+            Assert.Equal(StagePhase.Inactive, stage.CurrentPhase);
+            _mockGraphicsManager.Verify(g => g.RenderTargetManager, Times.AtLeastOnce);
+            Assert.Null(_renderTargetManager!.GetRenderTarget("SongSelectionStage_Main"));
         }
 
         [Fact]
@@ -209,25 +202,13 @@ namespace DTXMania.Test.Stage
         public void SongListInitialization_WhenSongManagerInitialized_ShouldLoadSongs()
         {
             // Arrange
-            RequireGraphicsDevice();
             var stage = new SongSelectionStage(_mockGame.Object);
-            SetupResourceManagerMocks();
 
-            // Setup SongManager mock (this would require mocking the singleton)
-            // For now, we'll test the basic initialization path
+            // Act
+            stage.Activate();
 
-            try
-            {
-                // Act
-                stage.Activate();
-
-                // Assert - Stage should initialize even with empty song list
-                Assert.Equal(StagePhase.FadeIn, stage.CurrentPhase);
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Song list initialization test failed: {ex.Message}");
-            }
+            // Assert - Stage should initialize even with empty song list
+            Assert.Equal(StagePhase.FadeIn, stage.CurrentPhase);
         }
 
         #endregion
@@ -274,22 +255,13 @@ namespace DTXMania.Test.Stage
         public void PhaseTransition_AfterActivation_ShouldBeFadeIn()
         {
             // Arrange
-            RequireGraphicsDevice();
             var stage = new SongSelectionStage(_mockGame.Object);
-            SetupResourceManagerMocks();
 
-            try
-            {
-                // Act
-                stage.Activate();
+            // Act
+            stage.Activate();
 
-                // Assert
-                Assert.Equal(StagePhase.FadeIn, stage.CurrentPhase);
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Phase transition test failed: {ex.Message}");
-            }
+            // Assert
+            Assert.Equal(StagePhase.FadeIn, stage.CurrentPhase);
         }
 
         #endregion
@@ -364,7 +336,6 @@ namespace DTXMania.Test.Stage
         public void ErrorHandling_InvalidSharedData_ShouldHandleGracefully()
         {
             // Arrange
-            RequireGraphicsDevice();
             var stage = new SongSelectionStage(_mockGame.Object);
             var invalidData = new Dictionary<string, object>
             {
@@ -373,18 +344,10 @@ namespace DTXMania.Test.Stage
             };
             
             // Act & Assert - Should not crash with invalid data
-            try
-            {
-                stage.Activate(invalidData);
-                // In headless environment, this may throw graphics exceptions
-                // but should not crash due to data validation
-                Assert.Equal(StageType.SongSelect, stage.Type);
-            }
-            catch (Exception ex) when (ex.Message.Contains("graphics") || ex.Message.Contains("GraphicsDevice"))
-            {
-                // Expected in headless environment
-                Assert.Equal(StageType.SongSelect, stage.Type);
-            }
+            stage.Activate(invalidData);
+
+            Assert.Equal(StagePhase.FadeIn, stage.CurrentPhase);
+            Assert.Equal(StageType.SongSelect, stage.Type);
         }
         
         [Fact]
@@ -410,38 +373,24 @@ namespace DTXMania.Test.Stage
         [GraphicsFact]
         public void Performance_MultipleActivationsDeactivations_ShouldNotLeak()
         {
-            RequireGraphicsDevice();
-
             // Arrange
             var stage = new SongSelectionStage(_mockGame.Object);
             
-            try
+            // Act - Multiple activation/deactivation cycles
+            for (int i = 0; i < 5; i++)
             {
-                // Act - Multiple activation/deactivation cycles
-                for (int i = 0; i < 5; i++)
-                {
-                    stage.Activate();
-                    stage.Deactivate();
-                }
-                
-                // Assert - Should remain in consistent state
-                Assert.Equal(StagePhase.Inactive, stage.CurrentPhase);
+                stage.Activate();
+                stage.Deactivate();
             }
-            catch (Exception ex)
-            {
-                // Expected in headless environment
-                System.Diagnostics.Debug.WriteLine($"Performance test failed (expected in headless environment): {ex.Message}");
-                
-                // Still verify basic properties work
-                Assert.Equal(StagePhase.Inactive, stage.CurrentPhase);
-            }
+            
+            // Assert - Should remain in consistent state
+            Assert.Equal(StagePhase.Inactive, stage.CurrentPhase);
         }
         
         [GraphicsFact]
         public void Performance_LargeSharedDataSet_ShouldHandleEfficiently()
         {
             // Arrange
-            RequireGraphicsDevice();
             var stage = new SongSelectionStage(_mockGame.Object);
             var largeDataSet = new Dictionary<string, object>();
             
@@ -452,16 +401,10 @@ namespace DTXMania.Test.Stage
             }
             
             // Act & Assert - Should handle large data sets without performance issues
-            try
-            {
-                stage.Activate(largeDataSet);
-                Assert.Equal(StageType.SongSelect, stage.Type);
-            }
-            catch (Exception ex) when (ex.Message.Contains("graphics"))
-            {
-                // Expected in headless environment
-                Assert.Equal(StageType.SongSelect, stage.Type);
-            }
+            stage.Activate(largeDataSet);
+
+            Assert.Equal(StagePhase.FadeIn, stage.CurrentPhase);
+            Assert.Equal(StageType.SongSelect, stage.Type);
         }
         
         #endregion
@@ -471,54 +414,47 @@ namespace DTXMania.Test.Stage
         [GraphicsFact]
         public void Integration_FullLifecycleWithMocks_ShouldCompleteSuccessfully()
         {
-            RequireGraphicsDevice();
-            
             // Arrange
             var stage = new SongSelectionStage(_mockGame.Object);
-            SetupResourceManagerMocks();
             
-            try
-            {
-                // Act - Full lifecycle
-                stage.Activate();
-                Assert.Equal(StagePhase.FadeIn, stage.CurrentPhase);
-                
-                // Simulate some updates (in real scenario)
-                // stage.Update(0.016); // 60 FPS
-                
-                stage.Deactivate();
-                Assert.Equal(StagePhase.Inactive, stage.CurrentPhase);
-                
-            }
-            catch (Exception ex)
-            {
-                // Log for debugging but expected in test environment
-                System.Diagnostics.Debug.WriteLine($"Integration test exception (expected): {ex.Message}");
-            }
+            // Act - Full lifecycle
+            stage.Activate();
+
+            // Assert
+            Assert.Equal(StagePhase.FadeIn, stage.CurrentPhase);
+            
+            stage.Deactivate();
+            Assert.Equal(StagePhase.Inactive, stage.CurrentPhase);
         }
         
         #endregion
 
         #region Helper Methods
 
-        private GraphicsDevice RequireGraphicsDevice()
+        private void ConfigureResourceManager()
         {
-            return _graphicsDeviceService.RequiredDevice;
-        }
-
-        private void SetupResourceManagerMocks()
-        {
-            // Setup basic resource manager mocks
+            // ITexture.Texture is consumed by some components, so back the mock with the
+            // real 1x1 white atlas the test font already samples.
             var mockTexture = new Mock<ITexture>();
+            mockTexture.Setup(t => t.Texture).Returns(_fontTexture);
+            mockTexture.Setup(t => t.Width).Returns(1);
+            mockTexture.Setup(t => t.Height).Returns(1);
+
             var mockFont = new Mock<IFont>();
+            mockFont.Setup(f => f.SpriteFont).Returns(_spriteFont);
+            mockFont.Setup(f => f.Size).Returns(SongSelectionUILayout.Background.DefaultFontSize);
+            mockFont.Setup(f => f.LineSpacing).Returns(_spriteFont!.LineSpacing);
+            mockFont.Setup(f => f.SupportsCharacter(It.IsAny<char>())).Returns(true);
+            mockFont.Setup(f => f.MeasureString(It.IsAny<string>()))
+                .Returns<string>(text => _spriteFont.MeasureString(text));
 
-            _mockResourceManager.Setup(rm => rm.LoadTexture(It.IsAny<string>()))
-                .Returns(mockTexture.Object);
-            _mockResourceManager.Setup(rm => rm.LoadFont(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<FontStyle>()))
-                .Returns(mockFont.Object);
-
-            // Mock the ResourceManagerFactory if needed
-            // This might require additional setup depending on the implementation
+            _mockResourceManager.Setup(rm => rm.LoadTexture(It.IsAny<string>())).Returns(mockTexture.Object);
+            _mockResourceManager.Setup(rm => rm.LoadTexture(It.IsAny<string>(), It.IsAny<bool>())).Returns(mockTexture.Object);
+            _mockResourceManager.Setup(rm => rm.CreateTextureFromColor(It.IsAny<Color>())).Returns(mockTexture.Object);
+            _mockResourceManager.Setup(rm => rm.LoadFont(It.IsAny<string>(), It.IsAny<int>())).Returns(mockFont.Object);
+            _mockResourceManager.Setup(rm => rm.LoadFont(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<FontStyle>())).Returns(mockFont.Object);
+            _mockResourceManager.Setup(rm => rm.LoadSound(It.IsAny<string>())).Returns(new Mock<ISound>().Object);
+            _mockResourceManager.Setup(rm => rm.CurrentTheme).Returns(SkinTheme.Empty);
         }
 
         #endregion

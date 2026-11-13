@@ -6,6 +6,7 @@ using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Test.Helpers;
 using System;
+using System.Collections.Generic;
 using DTXMania.Game.Lib.Song.Entities;
 
 namespace DTXMania.Test.UI
@@ -18,17 +19,21 @@ namespace DTXMania.Test.UI
         private readonly MockResourceManager? _resourceManager;
         private readonly TestGraphicsDeviceService _graphicsService;
         private readonly SongBarRenderer? _renderer;
+        private readonly List<Texture2D> _fontTextures = new();
         private RenderTarget2D? _sharedRenderTarget;
         private readonly SongListNode _testSongNode;
 
         public SongBarRendererTests()
         {
             _graphicsService = new TestGraphicsDeviceService();
-            if (_graphicsService.GraphicsDevice != null)
+            if (_graphicsService.GraphicsDevice is { } graphicsDevice)
             {
-                _resourceManager = new MockResourceManager(_graphicsService.GraphicsDevice);
-                _sharedRenderTarget = new RenderTarget2D(_graphicsService.GraphicsDevice, 512, 512);
-                _renderer = new SongBarRenderer(_graphicsService.GraphicsDevice, _resourceManager, _sharedRenderTarget);
+                _resourceManager = new MockResourceManager(graphicsDevice);
+                // CreateTitleTexture reads a 1020x76 region, so the shared target must be at
+                // least that large (production passes the 1024x1024 stage target).
+                _sharedRenderTarget = new RenderTarget2D(graphicsDevice, 1024, 1024);
+                _renderer = new SongBarRenderer(graphicsDevice, _resourceManager, _sharedRenderTarget);
+                _renderer.SetFont(CreateTestFont());
             }
 
             // Create test song and chart
@@ -114,8 +119,12 @@ namespace DTXMania.Test.UI
         [GraphicsFact]
         public void GenerateTitleTexture_WithoutFont_ShouldReturnNull()
         {
+            // Arrange - the fixture renderer has a font, so build one that does not.
+            var graphicsDevice = _graphicsService.RequiredDevice;
+            using var renderer = new SongBarRenderer(graphicsDevice, _resourceManager!, _sharedRenderTarget!);
+
             // Act
-            var texture = Renderer.GenerateTitleTexture(_testSongNode);
+            var texture = renderer.GenerateTitleTexture(_testSongNode);
 
             // Assert
             Assert.Null(texture);
@@ -124,25 +133,13 @@ namespace DTXMania.Test.UI
         [GraphicsFact]
         public void GenerateTitleTexture_CalledTwice_ShouldReturnCachedTexture()
         {
-            // Arrange
-            var font = CreateTestFont();
-            if (font != null)
-            {
-                Renderer.SetFont(font);
-            }
+            // Arrange - the fixture renderer already carries a usable font.
 
             // Act
             var texture1 = Renderer.GenerateTitleTexture(_testSongNode);
             var texture2 = Renderer.GenerateTitleTexture(_testSongNode);
 
             // Assert
-            if (font == null)
-            {
-                Assert.Null(texture1);
-                Assert.Null(texture2);
-                return;
-            }
-
             Assert.NotNull(texture1);
             Assert.NotNull(texture2);
             Assert.Same(texture1, texture2); // Should be cached
@@ -151,12 +148,11 @@ namespace DTXMania.Test.UI
         [GraphicsFact]
         public void GeneratePreviewImageTexture_WithValidNode_ShouldAttemptLoad()
         {
-            // Act
-            var exception = Record.Exception(() => Renderer.GeneratePreviewImageTexture(_testSongNode));
+            // Act - the referenced preview file does not exist; the renderer must not throw.
+            var texture = Renderer.GeneratePreviewImageTexture(_testSongNode);
 
-            // Assert - May be null if file doesn't exist, but should not throw
-            // The mock resource manager will return null for non-existent files
-            Assert.Null(exception);
+            // Assert
+            Assert.Null(texture);
         }
 
         [GraphicsFact]
@@ -241,13 +237,9 @@ namespace DTXMania.Test.UI
         [GraphicsFact]
         public void SetFont_ShouldClearTitleCache()
         {
-            // Arrange
-            RequireGraphicsDevice();
-            var font1 = CreateTestFont();
-            var font2 = CreateTestFont();
-
-            if (font1 == null || font2 == null)
-                return;
+            // Arrange - two distinct real fonts.
+            var font1 = CreateTestFont(lineSpacing: 30);
+            var font2 = CreateTestFont(lineSpacing: 40);
 
             Renderer.SetFont(font1);
             var texture1 = Renderer.GenerateTitleTexture(_testSongNode);
@@ -269,14 +261,7 @@ namespace DTXMania.Test.UI
         [InlineData(NodeType.Random)]
         public void GenerateTitleTexture_WithDifferentNodeTypes_ShouldGenerateAppropriateText(NodeType nodeType)
         {
-            // Arrange
-            RequireGraphicsDevice();
-            var font = CreateTestFont();
-            if (font == null)
-                return;
-
-            Renderer.SetFont(font);
-
+            // Arrange - the fixture renderer already carries a usable font.
             var node = new SongListNode
             {
                 Type = nodeType,
@@ -295,21 +280,15 @@ namespace DTXMania.Test.UI
 
 
 
-        private void RequireGraphicsDevice()
-        {
-            _ = _graphicsService.RequiredDevice;
-        }
-
         private SongBarRenderer Renderer =>
             _renderer ?? throw new InvalidOperationException(
                 $"{GraphicsTestGate.OptInVariable}=1 was set but no GraphicsDevice could be created.");
 
-        private SpriteFont? CreateTestFont()
+        private SpriteFont CreateTestFont(int lineSpacing = 38)
         {
-            // Create a minimal test font
-            // In a real test environment, you'd load an actual font file
-            // For now, we'll return null and handle it gracefully in the renderer
-            return null; // The renderer should handle null fonts gracefully
+            var font = TestFontFactory.Create(_graphicsService.RequiredDevice, out var texture, lineSpacing);
+            _fontTextures.Add(texture);
+            return font;
         }
 
 
@@ -348,6 +327,9 @@ namespace DTXMania.Test.UI
             _renderer?.Dispose();
             _sharedRenderTarget?.Dispose();
             _sharedRenderTarget = null;
+            foreach (var texture in _fontTextures)
+                texture.Dispose();
+            _fontTextures.Clear();
             _resourceManager?.Dispose();
             _graphicsService?.Dispose();
         }
