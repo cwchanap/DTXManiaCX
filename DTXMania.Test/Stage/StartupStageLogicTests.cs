@@ -21,6 +21,8 @@ using Microsoft.Xna.Framework.Graphics;
 using Moq;
 using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 
+using Xunit;
+using static DTXMania.Test.TestData.ReflectionHelpers;
 namespace DTXMania.Test.Stage
 {
     [Trait("Category", "Unit")]
@@ -1949,5 +1951,325 @@ namespace DTXMania.Test.Stage
         }
 
         #endregion
+
+        [Fact]
+        public void Dispose_WithRunningTask_ShouldCancelWithoutWaiting()
+        {
+            var tcs = new TaskCompletionSource<bool>();
+            var stage = CreateStage(currentAsyncTask: tcs.Task);
+            ReflectionHelpers.SetPrivateField(stage, "_currentPhase", StagePhase.Inactive);
+
+            InvokeDispose(stage, true);
+
+            Assert.Null(ReflectionHelpers.GetPrivateField<Task>(stage, "_currentAsyncTask"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<CancellationTokenSource>(stage, "_cancellationTokenSource"));
+            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_disposed"));
+
+            tcs.TrySetResult(true);
+        }
+
+        [Fact]
+        public void Dispose_WithoutCurrentTask_ShouldDisposeResourcesCleanly()
+        {
+            var font = new Mock<IFont>();
+            var boldFont = new Mock<IFont>();
+            var stage = CreateStage();
+            ReflectionHelpers.SetPrivateField(stage, "_currentPhase", StagePhase.Inactive);
+            ReflectionHelpers.SetPrivateField(stage, "_font", font.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_boldFont", boldFont.Object);
+
+            InvokeDispose(stage, true);
+
+            font.Verify(f => f.RemoveReference(), Times.Once);
+            boldFont.Verify(f => f.RemoveReference(), Times.Once);
+            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_disposed"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<IFont>(stage, "_font"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<IFont>(stage, "_boldFont"));
+        }
+
+        [Theory]
+        [InlineData(StartupPhase.SystemSounds, StartupPhase.ConfigValidation)]
+        [InlineData(StartupPhase.ConfigValidation, StartupPhase.SongListDB)]
+        [InlineData(StartupPhase.SongListDB, StartupPhase.SongsDB)]
+        [InlineData(StartupPhase.SongsDB, StartupPhase.LoadScoreCache)]
+        [InlineData(StartupPhase.LoadScoreCache, StartupPhase.LoadScoreFiles)]
+        [InlineData(StartupPhase.LoadScoreFiles, StartupPhase.EnumerateSongs)]
+        [InlineData(StartupPhase.EnumerateSongs, StartupPhase.BuildSongLists)]
+        [InlineData(StartupPhase.BuildSongLists, StartupPhase.SaveSongsDB)]
+        [InlineData(StartupPhase.SaveSongsDB, StartupPhase.Complete)]
+        [InlineData(StartupPhase.Complete, StartupPhase.Complete)]
+        public void GetNextPhase_ShouldReturnCorrectSequence(StartupPhase current, StartupPhase expected)
+        {
+            var stage = CreateStage();
+
+            var result = ReflectionHelpers.InvokePrivateMethod<StartupPhase>(stage, "GetNextPhase", current);
+
+            Assert.Equal(expected, result);
+        }
+
+        [Theory]
+        [InlineData(StartupPhase.SystemSounds, false)]
+        [InlineData(StartupPhase.ConfigValidation, false)]
+        [InlineData(StartupPhase.SongListDB, true)]
+        [InlineData(StartupPhase.SongsDB, false)]
+        [InlineData(StartupPhase.LoadScoreCache, false)]
+        [InlineData(StartupPhase.LoadScoreFiles, false)]
+        [InlineData(StartupPhase.EnumerateSongs, true)]
+        [InlineData(StartupPhase.BuildSongLists, false)]
+        [InlineData(StartupPhase.SaveSongsDB, false)]
+        [InlineData(StartupPhase.Complete, false)]
+        public void HasAsyncOperation_ForAsyncPhases_ShouldReturnCorrectValue(StartupPhase phase, bool expected)
+        {
+            var stage = CreateStage();
+
+            var result = ReflectionHelpers.InvokePrivateMethod<bool>(stage, "HasAsyncOperation", phase);
+
+            Assert.Equal(expected, result);
+        }
+
+        [Fact]
+        public void OnUpdate_WhenCompleteAfterRenderedFrame_ShouldTransitionToTitle()
+        {
+            var stageManager = new Mock<IStageManager>();
+            var game = ReflectionHelpers.CreateGame();
+            ReflectionHelpers.SetPrivateField(game, "<StageManager>k__BackingField", stageManager.Object);
+            var stage = CreateStage(
+                phase: StartupPhase.Complete,
+                elapsedTime: 0.0,
+                phaseStartTime: 0.0,
+                game: game);
+            ReflectionHelpers.SetPrivateField(stage, "_hasRenderedStartupFrame", true);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnUpdate", 0.2);
+
+            stageManager.Verify(manager => manager.ChangeStage(
+                StageType.Title,
+                It.Is<IStageTransition>(transition => transition is StartupToTitleTransition)),
+                Times.Once);
+        }
+
+        [Fact]
+        public void OnUpdate_WhenCompleteBeforeRenderedFrame_ShouldNotTransition()
+        {
+            var stageManager = new Mock<IStageManager>();
+            var game = ReflectionHelpers.CreateGame();
+            ReflectionHelpers.SetPrivateField(game, "<StageManager>k__BackingField", stageManager.Object);
+            var stage = CreateStage(
+                phase: StartupPhase.Complete,
+                elapsedTime: 0.0,
+                phaseStartTime: 0.05,
+                game: game);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnUpdate", 0.01);
+
+            stageManager.Verify(manager => manager.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>()), Times.Never);
+        }
+
+        [Fact]
+        public void Dispose_WhenAsyncTaskFaults_ShouldSwallowExceptionAndReleaseState()
+        {
+            var stage = CreateStage(currentAsyncTask: Task.FromException(new InvalidOperationException("boom")));
+
+            var exception = Record.Exception(() => InvokeDispose(stage, true));
+
+            Assert.Null(exception);
+            Assert.Null(ReflectionHelpers.GetPrivateField<Task>(stage, "_currentAsyncTask"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<CancellationTokenSource>(stage, "_cancellationTokenSource"));
+            Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_disposed"));
+        }
+
+        [Fact]
+        public void Dispose_WhenNotDisposing_ShouldNotReleaseResources()
+        {
+            var font = new Mock<IFont>();
+            var stage = CreateStage();
+            ReflectionHelpers.SetPrivateField(stage, "_currentPhase", StagePhase.Inactive);
+            ReflectionHelpers.SetPrivateField(stage, "_font", font.Object);
+
+            InvokeDispose(stage, false);
+
+            font.Verify(f => f.RemoveReference(), Times.Never);
+        }
+
+        [Fact]
+        public void DrawStatusLine_WithFullSizeDisplayFont_ShouldCenterAndDrawNormally()
+        {
+            var stage = CreateStageWithTheme(
+                "Startup.StatusCenterX=640",
+                "Startup.StatusY=452",
+                "Startup.StatusMaxWidth=560",
+                "Startup.StatusText=#AABBCC");
+            var font = new Mock<IFont>();
+            font.Setup(value => value.MeasureString("Ready")).Returns(new Vector2(200, 17));
+
+            ReflectionHelpers.SetPrivateField(stage, "_boldFont", font.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_statusFallbackFont", null);
+            ReflectionHelpers.SetPrivateField(stage, "_currentProgressMessage", "Ready");
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "DrawStatusLine");
+
+            font.Verify(value => value.DrawString(
+                stage.SpriteBatchStub,
+                "Ready",
+                new Vector2(540, 452),
+                new Color(0xAA, 0xBB, 0xCC)), Times.Once);
+        }
+
+        [Fact]
+        public void DrawStatusLine_WithWideNonAsciiText_ShouldUseFallbackFontAndScaledDraw()
+        {
+            var stage = CreateStageWithTheme(
+                "Startup.StatusCenterX=640",
+                "Startup.StatusY=452",
+                "Startup.StatusMaxWidth=560",
+                "Startup.StatusText=#F1F5F9");
+            var displayFont = new Mock<IFont>();
+            var fallbackFont = new Mock<IFont>();
+            const string message = "Scanning: 星空のオルゴール.dtx";
+            fallbackFont.Setup(value => value.MeasureString(message)).Returns(new Vector2(800, 17));
+
+            ReflectionHelpers.SetPrivateField(stage, "_boldFont", displayFont.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_statusFallbackFont", fallbackFont.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_currentProgressMessage", message);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "DrawStatusLine");
+
+            displayFont.Verify(value => value.DrawString(
+                It.IsAny<SpriteBatch>(), It.IsAny<string>(), It.IsAny<Vector2>(), It.IsAny<Color>()), Times.Never);
+            fallbackFont.Verify(value => value.DrawString(
+                stage.SpriteBatchStub,
+                message,
+                new Vector2(360, 452),
+                new Color(0xF1, 0xF5, 0xF9),
+                0f,
+                Vector2.Zero,
+                It.Is<Vector2>(scale => Math.Abs(scale.X - 0.7f) < 0.001f && Math.Abs(scale.Y - 0.7f) < 0.001f),
+                SpriteEffects.None,
+                0f), Times.Once);
+        }
+
+        [Fact]
+        public void DrawStatusLine_WithoutFonts_ShouldDrawCenteredFallbackRectangle()
+        {
+            var stage = CreateStageWithTheme(
+                "Startup.StatusCenterX=640",
+                "Startup.StatusY=452",
+                "Startup.StatusText=#22D3EE");
+            ReflectionHelpers.SetPrivateField(stage, "_boldFont", null);
+            ReflectionHelpers.SetPrivateField(stage, "_statusFallbackFont", null);
+            ReflectionHelpers.SetPrivateField(stage, "_currentProgressMessage", "TEST");
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "DrawStatusLine");
+
+            Assert.Contains(stage.DrawCalls, call =>
+                call.Destination == new Rectangle(624, 452, 32, 12) &&
+                call.Color == new Color(0x22, 0xD3, 0xEE));
+        }
+
+        [Fact]
+        public void DrawStatusLine_WithEmptyMessage_ShouldNotDraw()
+        {
+            var stage = CreateStageWithTheme("Startup.StatusCenterX=640");
+            var font = new Mock<IFont>();
+            ReflectionHelpers.SetPrivateField(stage, "_boldFont", font.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_currentProgressMessage", string.Empty);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "DrawStatusLine");
+
+            font.VerifyNoOtherCalls();
+            Assert.Empty(stage.DrawCalls);
+        }
+
+        [Fact]
+        public void DrawCurrentProgress_WithoutWhitePixel_ShouldReturnWithoutDrawing()
+        {
+            var stage = CreateStageWithTheme("Startup.ProgressReadoutY=506");
+            ReflectionHelpers.SetPrivateField(stage, "_whitePixel", null);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "DrawCurrentProgress");
+
+            Assert.Empty(stage.DrawCalls);
+        }
+
+        [Fact]
+        public void DrawCurrentProgress_WithThemedLedger_ShouldDrawRailStepAndPercent()
+        {
+            var stage = CreateStageWithTheme(
+                "Startup.ProgressBarWidth=560",
+                "Startup.ProgressBarHeight=6",
+                "Startup.ProgressBarY=490",
+                "Startup.ProgressBarBack=#1E293B",
+                "Startup.ProgressBarFill=#22D3EE",
+                "Startup.ProgressReadoutY=506",
+                "Startup.ProgressReadoutText=#94A3B8");
+            var font = new Mock<IFont>();
+            font.Setup(value => value.MeasureString("55%")).Returns(new Vector2(30, 14));
+
+            ReflectionHelpers.SetPrivateField(stage, "_font", font.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_startupPhase", StartupPhase.LoadScoreFiles);
+            ReflectionHelpers.SetPrivateField(stage, "_elapsedTime", 0.35d);
+            ReflectionHelpers.SetPrivateField(stage, "_phaseStartTime", 0d);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "DrawCurrentProgress");
+
+            Assert.Contains(stage.DrawCalls, call =>
+                call.Destination == new Rectangle(360, 490, 560, 6) &&
+                call.Color == new Color(0x1E, 0x29, 0x3B));
+            Assert.Contains(stage.DrawCalls, call =>
+                call.Destination == new Rectangle(360, 490, 308, 6) &&
+                call.Color == new Color(0x22, 0xD3, 0xEE));
+            font.Verify(value => value.DrawString(
+                stage.SpriteBatchStub,
+                "STEP 06 / 10",
+                new Vector2(360, 506),
+                new Color(0x94, 0xA3, 0xB8)), Times.Once);
+            font.Verify(value => value.DrawString(
+                stage.SpriteBatchStub,
+                "55%",
+                new Vector2(890, 506),
+                new Color(0x94, 0xA3, 0xB8)), Times.Once);
+        }
+
+        private static DrawingStartupStage CreateStageWithTheme(params string[] themeLines)
+        {
+            var stage = new DrawingStartupStage(ReflectionHelpers.CreateGame());
+            var resourceManager = new Mock<IResourceManager>();
+            resourceManager.SetupGet(value => value.CurrentTheme).Returns(SkinTheme.Parse(themeLines));
+
+            ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", stage.SpriteBatchStub);
+            ReflectionHelpers.SetPrivateField(stage, "_whitePixel", stage.WhitePixelStub);
+            ReflectionHelpers.SetPrivateField(stage, "_progressMessages", new List<string>());
+
+            return stage;
+        }
+
+        private sealed record DrawCall(Rectangle Destination, Color Color);
+
+        private sealed class DrawingStartupStage : StartupStage
+        {
+            public DrawingStartupStage(BaseGame game) : base(game)
+            {
+            }
+
+            public SpriteBatch SpriteBatchStub { get; } =
+                (SpriteBatch)RuntimeHelpers.GetUninitializedObject(typeof(SpriteBatch));
+
+            public Texture2D WhitePixelStub { get; } =
+                (Texture2D)RuntimeHelpers.GetUninitializedObject(typeof(Texture2D));
+
+            public List<DrawCall> DrawCalls { get; } = new();
+
+            protected override Viewport GetViewportCore() => new(0, 0, 1280, 720);
+
+            protected override void DrawSolidRectCore(
+                SpriteBatch spriteBatch,
+                Texture2D texture,
+                Rectangle destination,
+                Color color)
+            {
+                DrawCalls.Add(new DrawCall(destination, color));
+            }
+        }
     }
 }

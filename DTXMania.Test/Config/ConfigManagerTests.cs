@@ -1686,4 +1686,19 @@ Key.Bad=abc
         var rows = ReadRows(dir);
         Assert.DoesNotContain(rows.Keys, key => key.StartsWith("SongRoot.", StringComparison.Ordinal));
     }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public void NormalizeSkinPathForComparison_WithMissingPath_ShouldReturnEmpty(string? path)
+    {
+        var method = typeof(ConfigManager).GetMethod(
+            "NormalizeSkinPathForComparison",
+            BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+
+        var result = method!.Invoke(null, new object?[] { path });
+
+        Assert.Equal(string.Empty, result);
+    }
 }
