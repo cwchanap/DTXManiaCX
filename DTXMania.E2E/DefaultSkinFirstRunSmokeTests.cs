@@ -37,9 +37,10 @@ public sealed class DefaultSkinFirstRunSmokeTests
             repoRoot,
             apiPort,
             useBundledDefaultSkin: true,
-            // Each extra bar is two seconds at 120 BPM. The wide window keeps a
-            // mid-song Lanes frame available on a slow runner and leaves time to
-            // reach the completed Result stage for the tour capture.
+            // The chart's drum notes end after bar 1; extraChartBars adds only
+            // BGM (channel 01) events, so it lengthens the run to Result but does
+            // NOT widen the unjudged-note window the Lanes capture depends on.
+            // That capture must happen in the chart's early drum-note window.
             extraChartBars: 8);
         // The CI artifact root is shared by every E2E fixture, whose generic
         // log/config names would overwrite this run's provenance. Scope this
