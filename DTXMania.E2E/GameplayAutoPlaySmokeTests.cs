@@ -133,61 +133,12 @@ public sealed class GameplayAutoPlaySmokeTests
 
             // HPA-16: the production Result draw must write exactly one PNG under
             // the game-owned Screenshots root (DTXMANIA_APPDATA_ROOT pins it to
-            // fixture.AppDataRoot). The budget covers the ~1.15s of reveal still
-            // pending after StageCompleted, PNG encoding on the draw thread, and
-            // the asynchronous directory/file write.
+            // fixture.AppDataRoot). StageCompleted is not screenshot readiness:
+            // the capture is requested only after the Result reveal completes and
+            // the PNG is written asynchronously, so the helper polls for a
+            // complete image (signature + trailing IEND) rather than existence.
             var screenshotsRoot = Path.Combine(fixture.AppDataRoot, "Screenshots");
-            // The production path writes the PNG with File.WriteAllBytesAsync,
-            // which opens with FileShare.Read, so a concurrent reader can open
-            // the file mid-write and read partial bytes without throwing. The
-            // directory entry can also become enumerable before the write task
-            // has completed. Poll until the file is fully readable and is a
-            // complete PNG, not merely until it exists or starts with the
-            // signature; otherwise the read can race with an in-progress write
-            // and see an empty/partial file, a transient sharing error, or a
-            // truncated image that happens to begin with the PNG magic bytes.
-            // The signature proves the file is a PNG; the trailing IEND chunk
-            // (length 0 + type "IEND" + its constant CRC) proves the write has
-            // reached the end of the encoded image, since WriteAllBytesAsync
-            // emits the full buffer in a single write.
-            var pngSignature = new byte[] { 0x89, (byte)'P', (byte)'N', (byte)'G', 0x0D, 0x0A, 0x1A, 0x0A };
-            var pngIEndChunk = new byte[] { 0x00, 0x00, 0x00, 0x00, (byte)'I', (byte)'E', (byte)'N', (byte)'D', 0xAE, 0x42, 0x60, 0x82 };
-            var screenshotPath = await Eventually.UntilAsync(
-                async token =>
-                {
-                    if (!Directory.Exists(screenshotsRoot))
-                        return (string?)null;
-
-                    var paths = Directory.EnumerateFiles(screenshotsRoot, "result-*.png").ToList();
-                    if (paths.Count != 1)
-                        return (string?)null;
-
-                    var path = paths[0];
-                    try
-                    {
-                        var bytes = await File.ReadAllBytesAsync(path, token).ConfigureAwait(false);
-                        if (bytes.Length < pngSignature.Length + pngIEndChunk.Length)
-                            return (string?)null;
-                        if (!bytes.AsSpan(0, pngSignature.Length).SequenceEqual(pngSignature))
-                            return (string?)null;
-                        if (!bytes.AsSpan(bytes.Length - pngIEndChunk.Length).SequenceEqual(pngIEndChunk))
-                            return (string?)null;
-                        return path;
-                    }
-                    catch (IOException)
-                    {
-                        // Write still in progress / file locked: treat as
-                        // not-yet-ready and let Eventually retry.
-                        return (string?)null;
-                    }
-                },
-                path => path is not null,
-                TimeSpan.FromSeconds(10),
-                TimeSpan.FromMilliseconds(250),
-                "exactly one readable automatic result screenshot that is a complete PNG (signature + trailing IEND chunk) under the game-owned Screenshots root",
-                cancellation.Token);
-
-            Assert.NotNull(screenshotPath);
+            await WaitForResultScreenshotAsync(fixture, cancellation.Token);
 
             // The accepted one-shot must not re-fire on later Result draws: let
             // further fully revealed frames run, then confirm the count is still one.
@@ -222,8 +173,18 @@ public sealed class GameplayAutoPlaySmokeTests
             apiPort,
             noteDisplayStyle: DrumsNoteDisplayStyle.Tab,
             enableAutoPlayLanes: true,
-            // The performance-tab.png capture then doubles as strip-over-BGA evidence.
-            includeBackgroundVideo: true);
+            // The 07-tab-performance.png capture then doubles as strip-over-BGA evidence.
+            includeBackgroundVideo: true,
+            // The Tab tour capture must show the shipped CX Neon skin, not the
+            // sandbox fallback skin.
+            useBundledDefaultSkin: true);
+        // Keep this test's logs, fixture copies and failure screenshot out of the
+        // shared tour folder and out of the other tests' common artifact names.
+        fixture = fixture with
+        {
+            ArtifactRoot = Path.Combine(fixture.ArtifactRoot, "tab-autoplay")
+        };
+        var tourRoot = ResolveTourArtifactRoot(fixture);
         await using var bundle = E2EGameLaunch.CreateClientBundle(fixture);
         var process = bundle.Process;
         var client = bundle.Client;
@@ -239,7 +200,7 @@ public sealed class GameplayAutoPlaySmokeTests
             // song clock to advance past the bar-1 #AVI retrigger (2000ms at 120 BPM;
             // the one-second video then stays active until ~3000ms) while unjudged
             // notes remain — after the last judgement the staff is empty.
-            await Eventually.UntilAsync(
+            var tabState = await Eventually.UntilAsync(
                 token => client.GetGameStateAsync(token),
                 state =>
                     state.PerformanceReady &&
@@ -252,15 +213,24 @@ public sealed class GameplayAutoPlaySmokeTests
                 TimeSpan.FromMilliseconds(100),
                 "effective Tab mid-song with unjudged notes past the video retrigger",
                 cancellation.Token);
-            // performance-tab.png is this test's required visual evidence — unlike
-            // the best-effort diagnostic captures, a skipped capture must fail here
-            // rather than let the run pass without the artifact it exists to produce.
-            var tabScreenshotPath = await SaveScreenshotAsync(
-                client, fixture, "performance-tab.png", cancellation.Token);
-            Assert.NotNull(tabScreenshotPath);
-            Assert.True(
-                new FileInfo(tabScreenshotPath).Length > 0,
-                "performance-tab.png must be a non-empty PNG.");
+            // The tour capture must come from the shipped bundled skin, not an
+            // empty app-data fallback that would render placeholder art.
+            Assert.False(
+                string.IsNullOrWhiteSpace(tabState.SkinPath),
+                "Telemetry did not report the active skin path.");
+            Assert.Equal(
+                "System",
+                Path.GetFileName(Path.TrimEndingDirectorySeparator(tabState.SkinPath!)));
+            // 07-tab-performance.png is this test's required visual evidence —
+            // unlike the best-effort diagnostic captures, a skipped capture or a
+            // truncated frame must fail here rather than let the run pass without
+            // the artifact it exists to produce.
+            await CaptureRequiredScreenshotAsync(
+                client,
+                fixture,
+                "07-tab-performance.png",
+                cancellation.Token,
+                tourRoot);
 
             // Polling until Tab is part of the predicate asserts ACTUAL effective Tab
             // through the last judgement; a silent fallback to Lanes fails the poll.
@@ -546,29 +516,6 @@ public sealed class GameplayAutoPlaySmokeTests
             requiredNoteDisplayStyle == null
                 ? "all chart notes automatically judged"
                 : $"all chart notes automatically judged while {requiredNoteDisplayStyle} notation is effective",
-            cancellationToken);
-    }
-
-    /// <summary>
-    /// Waits for the completed Result stage. StageCompleted is NOT screenshot
-    /// readiness: it is published as soon as Result has a PerformanceSummary,
-    /// roughly 1.15 seconds before the reveal completes on an un-fast-forwarded
-    /// result. Callers awaiting a game-owned screenshot file poll for it
-    /// independently; this wait exists for journey completion only.
-    /// </summary>
-    private static async Task<GameStateSnapshot> WaitForCompletedResultAsync(
-        JsonRpcGameClient client,
-        CancellationToken cancellationToken)
-    {
-        await WaitForStageAsync(client, "Result", TimeSpan.FromSeconds(120), cancellationToken);
-        return await Eventually.UntilAsync(
-            token => client.GetGameStateAsync(token),
-            state =>
-                string.Equals(state.StageType, "Result", StringComparison.Ordinal) &&
-                state.StageCompleted,
-            TimeSpan.FromSeconds(30),
-            TimeSpan.FromMilliseconds(250),
-            "Result stage completion",
             cancellationToken);
     }
 
