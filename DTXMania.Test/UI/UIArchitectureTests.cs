@@ -18,6 +18,7 @@ namespace DTXMania.Test.UI
     /// Unit tests for the UI architecture
     /// Tests major functionality and DTXMania pattern compliance
     /// </summary>
+    [Trait("Category", "Unit")]
     public class UIArchitectureTests
     {
         #region UIElement Tests
