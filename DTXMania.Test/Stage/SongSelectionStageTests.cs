@@ -382,7 +382,7 @@ namespace DTXMania.Test.Stage
                 stage.Activate();
                 stage.Deactivate();
             }
-            
+
             // Assert - Should remain in consistent state
             Assert.Equal(StagePhase.Inactive, stage.CurrentPhase);
         }
@@ -422,7 +422,7 @@ namespace DTXMania.Test.Stage
 
             // Assert
             Assert.Equal(StagePhase.FadeIn, stage.CurrentPhase);
-            
+
             stage.Deactivate();
             Assert.Equal(StagePhase.Inactive, stage.CurrentPhase);
         }
