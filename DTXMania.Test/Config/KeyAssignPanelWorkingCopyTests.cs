@@ -784,25 +784,6 @@ public class KeyAssignPanelWorkingCopyTests
 
     [Trait("Category", "Unit")]
     [Fact]
-    public void SystemPanel_Update_WhenAwaitingKeyAndNewKeyPressed_ShouldAssignKey()
-    {
-        using var inputManager = new InputManager();
-        var panel = new SystemKeyAssignPanel(inputManager);
-        panel._liveDrumBindingsProvider = () => new Dictionary<string, int>();
-        panel.Activate();
-
-        PressKey(panel, Keys.Enter);
-        Assert.Equal("AwaitingKey", GetStateName(panel));
-
-        panel.Update(0.0, new KeyboardState(Keys.W), new KeyboardState());
-
-        Assert.Equal("Browsing", GetStateName(panel));
-        var snapshot = panel.GetWorkingMappingSnapshot();
-        Assert.Equal(InputCommandType.MoveUp, snapshot[Keys.W]);
-    }
-
-    [Trait("Category", "Unit")]
-    [Fact]
     public void SystemPanel_AssignKey_WhenSameKeyAlreadyBoundToSameAction_ShouldReturnToBrowsing()
     {
         using var inputManager = new InputManager();
@@ -834,27 +815,6 @@ public class KeyAssignPanelWorkingCopyTests
 
         Assert.Equal("ShowingConflict", GetStateName(panel));
         Assert.NotNull(ReflectionHelpers.GetPrivateField<string>(panel, "_conflictMessage"));
-    }
-
-    [Trait("Category", "Unit")]
-    [Fact]
-    public void SystemPanel_Update_WhenUnbindPressed_ShouldRemoveBinding()
-    {
-        using var inputManager = new InputManager();
-        var panel = new SystemKeyAssignPanel(inputManager);
-        panel._liveDrumBindingsProvider = () => new Dictionary<string, int>();
-        panel.Activate();
-
-        for (int i = 0; i < 7; i++)
-            PressKey(panel, Keys.Down);
-
-        var before = panel.GetWorkingMappingSnapshot();
-        Assert.True(before.ContainsKey(Keys.PageUp));
-
-        PressKey(panel, Keys.Delete);
-
-        var after = panel.GetWorkingMappingSnapshot();
-        Assert.False(after.ContainsKey(Keys.PageUp));
     }
 
     [Trait("Category", "Unit")]

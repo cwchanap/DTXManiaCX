@@ -9,6 +9,7 @@ using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Moq;
+using static DTXMania.Test.Helpers.TestFontFactory;
 using static DTXMania.Test.TestData.ReflectionHelpers;
 namespace DTXMania.Test.Stage.Performance
 {
@@ -208,6 +209,7 @@ namespace DTXMania.Test.Stage.Performance
                 new SkillMeterDisplay(rm.Object, CreateUninitialized<GraphicsDevice>()));
 
             Assert.Null(GetPrivateField<ITexture>(display, "_backgroundTexture"));
+            Assert.Same(gaugeTexture, GetPrivateField<ITexture>(display, "_gaugeTexture"));
             display.Dispose();
         }
 
@@ -251,6 +253,12 @@ namespace DTXMania.Test.Stage.Performance
             display.Draw(null!);
         }
 
+        // These Draw tests drive the real branches (background frame + label, gauge
+        // bar, font overlay) through an uninitialized SpriteBatch — the batch is only
+        // ever passed through to the ITexture.Draw / IFont seams, which are mocked,
+        // so no GraphicsDevice is needed. The null-batch early-return is covered by
+        // the guard tests above.
+
         [Fact]
         public void Draw_WithNoTextures_ShouldNotThrow()
         {
@@ -261,36 +269,46 @@ namespace DTXMania.Test.Stage.Performance
             SetPrivateField(display, "_font", null);
             display.Skill = 50.0;
 
-            var exception = Record.Exception(() => display.Draw(null!));
+            var exception = Record.Exception(() => display.Draw(CreateUninitializedSpriteBatch()));
             Assert.Null(exception);
         }
 
         [Fact]
-        public void Draw_WithBackgroundTextureAndNoGauge_ShouldNotThrow()
+        public void Draw_WithBackgroundTextureAndNoGauge_ShouldDrawFrameAndLabelOnly()
         {
             var display = CreateUninitializedDisplay();
             SetPrivateField(display, "_disposed", false);
-            SetPrivateField(display, "_backgroundTexture", new Mock<ITexture>().Object);
+            var backgroundTexture = new Mock<ITexture>();
+            SetPrivateField(display, "_backgroundTexture", backgroundTexture.Object);
             SetPrivateField(display, "_gaugeTexture", null);
             SetPrivateField(display, "_font", null);
             display.Skill = 0.0;
+            var spriteBatch = CreateUninitializedSpriteBatch();
 
-            var exception = Record.Exception(() => display.Draw(null!));
+            var exception = Record.Exception(() => display.Draw(spriteBatch));
             Assert.Null(exception);
+            backgroundTexture.Verify(
+                t => t.Draw(spriteBatch, It.IsAny<Vector2>(), It.IsAny<Rectangle?>()),
+                Times.Exactly(2));
         }
 
         [Fact]
-        public void Draw_WithGaugeTextureAndPositiveSkill_ShouldNotThrow()
+        public void Draw_WithGaugeTextureAndPositiveSkill_ShouldDrawGaugeBar()
         {
             var display = CreateUninitializedDisplay();
             SetPrivateField(display, "_disposed", false);
             SetPrivateField(display, "_backgroundTexture", new Mock<ITexture>().Object);
-            SetPrivateField(display, "_gaugeTexture", new Mock<ITexture>().Object);
+            var gaugeTexture = new Mock<ITexture>();
+            SetPrivateField(display, "_gaugeTexture", gaugeTexture.Object);
             SetPrivateField(display, "_font", null);
             display.Skill = 75.0;
+            var spriteBatch = CreateUninitializedSpriteBatch();
 
-            var exception = Record.Exception(() => display.Draw(null!));
+            var exception = Record.Exception(() => display.Draw(spriteBatch));
             Assert.Null(exception);
+            gaugeTexture.Verify(
+                t => t.Draw(spriteBatch, It.IsAny<Vector2>(), It.IsAny<Rectangle?>()),
+                Times.Once);
         }
 
         [Fact]
@@ -300,10 +318,12 @@ namespace DTXMania.Test.Stage.Performance
             SetPrivateField(display, "_disposed", false);
             SetPrivateField(display, "_backgroundTexture", new Mock<ITexture>().Object);
             SetPrivateField(display, "_gaugeTexture", new Mock<ITexture>().Object);
-            SetPrivateField(display, "_font", null);
+            // Non-null font enters the numeric-overlay branch; the uninitialized
+            // ManagedFont's null _spriteFont makes the shadow draw a safe no-op.
+            SetPrivateField(display, "_font", CreateUninitialized<ManagedFont>());
             display.Skill = 42.5;
 
-            var exception = Record.Exception(() => display.Draw(null!));
+            var exception = Record.Exception(() => display.Draw(CreateUninitializedSpriteBatch()));
             Assert.Null(exception);
         }
 
@@ -312,13 +332,22 @@ namespace DTXMania.Test.Stage.Performance
         {
             var display = CreateUninitializedDisplay();
             SetPrivateField(display, "_disposed", false);
-            SetPrivateField(display, "_backgroundTexture", new Mock<ITexture>().Object);
-            SetPrivateField(display, "_gaugeTexture", new Mock<ITexture>().Object);
+            var backgroundTexture = new Mock<ITexture>();
+            var gaugeTexture = new Mock<ITexture>();
+            SetPrivateField(display, "_backgroundTexture", backgroundTexture.Object);
+            SetPrivateField(display, "_gaugeTexture", gaugeTexture.Object);
             SetPrivateField(display, "_font", null);
             display.Skill = 0.0;
+            var spriteBatch = CreateUninitializedSpriteBatch();
 
-            var exception = Record.Exception(() => display.Draw(null!));
+            var exception = Record.Exception(() => display.Draw(spriteBatch));
             Assert.Null(exception);
+            gaugeTexture.Verify(
+                t => t.Draw(It.IsAny<SpriteBatch>(), It.IsAny<Vector2>(), It.IsAny<Rectangle?>()),
+                Times.Never);
+            backgroundTexture.Verify(
+                t => t.Draw(spriteBatch, It.IsAny<Vector2>(), It.IsAny<Rectangle?>()),
+                Times.Exactly(2));
         }
 
         #endregion
@@ -447,39 +476,11 @@ namespace DTXMania.Test.Stage.Performance
 
         #endregion
 
-        private static T WithManagedFontUnavailable<T>(Func<T> action)
+        private static SpriteBatch CreateUninitializedSpriteBatch()
         {
-            var managedFontType = typeof(ManagedFont);
-            var factoryLock = managedFontType
-                .GetField("_fontFactoryLock", BindingFlags.Static | BindingFlags.NonPublic)!
-                .GetValue(null)!;
-
-            lock (factoryLock)
-            {
-                var contentManagerField = managedFontType.GetField("_contentManager", BindingFlags.Static | BindingFlags.NonPublic)!;
-                var originalContentManager = contentManagerField.GetValue(null);
-
-                var loadedFontsField = managedFontType.GetField("_loadedFonts", BindingFlags.Static | BindingFlags.NonPublic)!;
-                var loadedFonts = (System.Collections.IDictionary)loadedFontsField.GetValue(null)!;
-                var originalEntries = new System.Collections.DictionaryEntry[loadedFonts.Count];
-                loadedFonts.CopyTo(originalEntries, 0);
-
-                try
-                {
-                    contentManagerField.SetValue(null, null);
-                    loadedFonts.Clear();
-                    return action();
-                }
-                finally
-                {
-                    loadedFonts.Clear();
-                    foreach (System.Collections.DictionaryEntry entry in originalEntries)
-                    {
-                        loadedFonts[entry.Key] = entry.Value;
-                    }
-                    contentManagerField.SetValue(null, originalContentManager);
-                }
-            }
+            var spriteBatch = CreateUninitialized<SpriteBatch>();
+            GC.SuppressFinalize(spriteBatch);
+            return spriteBatch;
         }
     }
 }

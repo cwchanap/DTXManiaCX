@@ -8,7 +8,6 @@ using DTXMania.Game.Lib.Stage.Config;
 using DTXMania.Game.Platform;
 using DTXMania.Test.TestData;
 
-using System.Reflection;
 using Xunit;
 namespace DTXMania.Test.Config;
 
@@ -270,6 +269,7 @@ public sealed class FolderPickerContractTests
     private sealed class BlockingFolderPickerDialog : IStaFolderPickerDialog
     {
         private readonly ManualResetEventSlim _closed = new(false);
+        private FolderPickerResult? _releaseResult;
 
         internal TaskCompletionSource<bool> Opened { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -282,7 +282,13 @@ public sealed class FolderPickerContractTests
             if (!_closed.Wait(TimeSpan.FromSeconds(3)))
                 throw new TimeoutException("The test dialog was not closed after cancellation.");
 
-            return FolderPickerResult.Cancelled();
+            return _releaseResult ?? FolderPickerResult.Cancelled();
+        }
+
+        internal void Release(FolderPickerResult result)
+        {
+            _releaseResult = result;
+            _closed.Set();
         }
 
         public void Close()
@@ -394,36 +400,43 @@ public sealed class FolderPickerContractTests
     [Fact]
     public void Constructor_WhenConfigureThreadCallbackIsSupplied_ShouldInvokeItBeforeStarting()
     {
-        var configured = false;
-        var factory = new QueuedFactory(
-            new ImmediateDialog(FolderPickerResult.Selected("/tmp/songs")));
+        ThreadState? threadStateDuringConfigure = null;
+        var factory = new QueuedFolderPickerDialogFactory(
+            new ImmediateFolderPickerDialog(FolderPickerResult.Selected("/tmp/songs")));
         using var picker = new StaFolderPickerDispatcher(
             factory,
-            thread => configured = true);
+            thread => threadStateDuringConfigure = thread.ThreadState);
 
-        Assert.True(configured);
+        Assert.Equal(ThreadState.Unstarted, threadStateDuringConfigure & ThreadState.Unstarted);
     }
 
     [Fact]
     public void DispatcherApartmentState_ShouldReflectTheDispatcherThreadApartment()
     {
-        var factory = new QueuedFactory(
-            new ImmediateDialog(FolderPickerResult.Selected("/tmp/songs")));
-        using var picker = new StaFolderPickerDispatcher(factory);
+        var factory = new QueuedFolderPickerDialogFactory(
+            new ImmediateFolderPickerDialog(FolderPickerResult.Selected("/tmp/songs")));
+        using var picker = new StaFolderPickerDispatcher(
+            factory,
+            thread =>
+            {
+                // ApartmentState is only supported on Windows; requesting STA there
+                // proves the property reflects the dispatcher thread's configured
+                // state rather than echoing a re-read of the same thread.
+                if (OperatingSystem.IsWindows())
+                {
+                    thread.SetApartmentState(ApartmentState.STA);
+                }
+            });
 
-        // Compare the property against the dispatcher thread's actual apartment
-        // state, retrieved via reflection, instead of asserting a tautological
-        // membership check.
-        var dispatcherThread = (Thread)typeof(StaFolderPickerDispatcher)
-            .GetField("_dispatcherThread", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .GetValue(picker)!;
-        Assert.Equal(dispatcherThread.GetApartmentState(), picker.DispatcherApartmentState);
+        Assert.Equal(
+            OperatingSystem.IsWindows() ? ApartmentState.STA : ApartmentState.Unknown,
+            picker.DispatcherApartmentState);
     }
 
     [Fact]
     public async Task ShowRequest_WhenDialogShowThrows_ShouldCompleteRequestAsFailed()
     {
-        var factory = new QueuedFactory(new ThrowingDialog("dialog blew up"));
+        var factory = new QueuedFolderPickerDialogFactory(new ThrowingDialog("dialog blew up"));
         using var picker = new StaFolderPickerDispatcher(factory);
 
         var result = await picker.PickFolderAsync(null, CancellationToken.None)
@@ -444,7 +457,7 @@ public sealed class FolderPickerContractTests
         // skipped first. Awaiting the cancelled task alone proves nothing, because
         // cancellation already completed it and disposing the dispatcher drains
         // the queue.
-        var blockingDialog = new BlockingDialog();
+        var blockingDialog = new BlockingFolderPickerDialog();
         var sentinelDialog = new ImmediateFolderPickerDialog(
             FolderPickerResult.Selected("/tmp/sentinel-songs"));
         var factory = new QueuedFolderPickerDialogFactory(blockingDialog, sentinelDialog);
@@ -452,7 +465,7 @@ public sealed class FolderPickerContractTests
 
         // Start the blocking request and wait for the dispatcher to enter Show().
         var firstRequest = picker.PickFolderAsync(null, CancellationToken.None);
-        await blockingDialog.ShowEntered.Task.WaitAsync(AsyncTimeout);
+        await blockingDialog.Opened.Task.WaitAsync(AsyncTimeout);
 
         // Enqueue the target request and cancel it while the dispatcher is busy,
         // then queue the sentinel behind it.
@@ -462,7 +475,7 @@ public sealed class FolderPickerContractTests
         var sentinelRequest = picker.PickFolderAsync(null, CancellationToken.None);
 
         // Release the blocking dialog so the dispatcher dequeues the target.
-        blockingDialog.Release();
+        blockingDialog.Release(FolderPickerResult.Selected("/tmp/songs"));
         var firstResult = await firstRequest.WaitAsync(AsyncTimeout);
         Assert.Equal(FolderPickerStatus.Selected, firstResult.Status);
 
@@ -493,43 +506,6 @@ public sealed class FolderPickerContractTests
 
     #region Test Doubles
 
-    private sealed class QueuedFactory : IStaFolderPickerDialogFactory
-    {
-        private readonly IStaFolderPickerDialog _dialog;
-        public QueuedFactory(IStaFolderPickerDialog dialog) => _dialog = dialog;
-
-        public void InitializeDispatcherThread() { }
-        public IStaFolderPickerDialog CreateDialog() => _dialog;
-        public void CloseOnDispatcher(IStaFolderPickerDialog dialog) => dialog.Close();
-    }
-
-    private sealed class ImmediateDialog : IStaFolderPickerDialog
-    {
-        private readonly FolderPickerResult _result;
-        public ImmediateDialog(FolderPickerResult result) => _result = result;
-        public FolderPickerResult Show(string? initialDirectory) => _result;
-        public void Close() { }
-        public void Dispose() { }
-    }
-
-    private sealed class BlockingDialog : IStaFolderPickerDialog
-    {
-        private readonly TaskCompletionSource<FolderPickerResult> _release = new();
-        public TaskCompletionSource<bool> ShowEntered { get; } =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public FolderPickerResult Show(string? initialDirectory)
-        {
-            ShowEntered.TrySetResult(true);
-            return _release.Task.GetAwaiter().GetResult();
-        }
-
-        public void Release() => _release.TrySetResult(
-            FolderPickerResult.Selected("/tmp/songs"));
-        public void Close() => _release.TrySetResult(FolderPickerResult.Cancelled());
-        public void Dispose() { }
-    }
-
     private sealed class ThrowingDialog : IStaFolderPickerDialog
     {
         private readonly string _message;
@@ -542,16 +518,10 @@ public sealed class FolderPickerContractTests
 
     private sealed class CreateThrowingFactory : IStaFolderPickerDialogFactory
     {
-        public TaskCompletionSource<bool> CreateAttempted { get; } =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-
         public void InitializeDispatcherThread() { }
 
-        public IStaFolderPickerDialog CreateDialog()
-        {
-            CreateAttempted.TrySetResult(true);
+        public IStaFolderPickerDialog CreateDialog() =>
             throw new InvalidOperationException("CreateDialog failed");
-        }
 
         public void CloseOnDispatcher(IStaFolderPickerDialog dialog) { }
     }
