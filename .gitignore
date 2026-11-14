@@ -30,3 +30,6 @@ screenshots/
 # Python
 __pycache__/
 *.py[cod]
+
+# .NET SDK machine-local artifacts
+/Library/

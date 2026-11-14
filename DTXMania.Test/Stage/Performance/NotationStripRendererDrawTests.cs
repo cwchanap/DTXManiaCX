@@ -24,17 +24,25 @@ namespace DTXMania.Test.Stage.Performance;
 public class NotationStripRendererDrawTests : IDisposable
 {
     private readonly TestGraphicsDeviceService _graphicsService;
-    private readonly SpriteBatch _spriteBatch;
+    private readonly SpriteBatch? _spriteBatch;
 
     public NotationStripRendererDrawTests()
     {
         _graphicsService = new TestGraphicsDeviceService();
-        _spriteBatch = new SpriteBatch(_graphicsService.RequiredDevice);
+        try
+        {
+            _spriteBatch = new SpriteBatch(_graphicsService.RequiredDevice);
+        }
+        catch
+        {
+            Dispose();
+            throw;
+        }
     }
 
     public void Dispose()
     {
-        _spriteBatch.Dispose();
+        _spriteBatch?.Dispose();
         _graphicsService.Dispose();
     }
 

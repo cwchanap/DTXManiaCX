@@ -7,6 +7,7 @@ using DTXMania.Game.Lib.Resources;
 using DTXMania.Test.Helpers;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using DTXMania.Game.Lib.Song.Entities;
 
 namespace DTXMania.Test.UI
@@ -14,8 +15,12 @@ namespace DTXMania.Test.UI
     /// <summary>
     /// Unit tests for SongBarRenderer component (Phase 4 enhancement)
     /// </summary>
+    [Collection("GraphicsTests")]
     public class SongBarRendererTests : IDisposable
     {
+        private static readonly byte[] OnePixelPng = Convert.FromBase64String(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==");
+
         private readonly MockResourceManager? _resourceManager;
         private readonly TestGraphicsDeviceService _graphicsService;
         private readonly SongBarRenderer? _renderer;
@@ -26,14 +31,22 @@ namespace DTXMania.Test.UI
         public SongBarRendererTests()
         {
             _graphicsService = new TestGraphicsDeviceService();
-            if (_graphicsService.GraphicsDevice is { } graphicsDevice)
+            try
             {
-                _resourceManager = new MockResourceManager(graphicsDevice);
-                // CreateTitleTexture reads a 1020x76 region, so the shared target must be at
-                // least that large (production passes the 1024x1024 stage target).
-                _sharedRenderTarget = new RenderTarget2D(graphicsDevice, 1024, 1024);
-                _renderer = new SongBarRenderer(graphicsDevice, _resourceManager, _sharedRenderTarget);
-                _renderer.SetFont(CreateTestFont());
+                if (_graphicsService.GraphicsDevice is { } graphicsDevice)
+                {
+                    _resourceManager = new MockResourceManager(graphicsDevice);
+                    // CreateTitleTexture reads a 1020x76 region, so the shared target must be at
+                    // least that large (production passes the 1024x1024 stage target).
+                    _sharedRenderTarget = new RenderTarget2D(graphicsDevice, 1024, 1024);
+                    _renderer = new SongBarRenderer(graphicsDevice, _resourceManager, _sharedRenderTarget);
+                    _renderer.SetFont(CreateTestFont());
+                }
+            }
+            catch
+            {
+                Dispose();
+                throw;
             }
 
             // Create test song and chart
@@ -148,11 +161,72 @@ namespace DTXMania.Test.UI
         [GraphicsFact]
         public void GeneratePreviewImageTexture_WithValidNode_ShouldAttemptLoad()
         {
-            // Act - the referenced preview file does not exist; the renderer must not throw.
-            var texture = Renderer.GeneratePreviewImageTexture(_testSongNode);
+            var tempDir = Path.Combine(Path.GetTempPath(), $"SongBarRendererPreview_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                var previewPath = Path.Combine(tempDir, "preview.png");
+                File.WriteAllBytes(previewPath, OnePixelPng);
 
-            // Assert
-            Assert.Null(texture);
+                var node = new SongListNode
+                {
+                    Type = NodeType.Score,
+                    Title = _testSongNode.Title,
+                    DatabaseSong = _testSongNode.DatabaseSong,
+                    DatabaseChart = new SongChart
+                    {
+                        FilePath = Path.Combine(tempDir, "test.dtx"),
+                        Bpm = 120.0,
+                        DrumLevel = 85,
+                        PreviewImage = "preview.png"
+                    }
+                };
+
+                var texture1 = Renderer.GeneratePreviewImageTexture(node);
+                var texture2 = Renderer.GeneratePreviewImageTexture(node);
+
+                Assert.NotNull(texture1);
+                Assert.Same(texture1, texture2);
+                texture1.RemoveReference();
+                texture2.RemoveReference();
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                    Directory.Delete(tempDir, recursive: true);
+            }
+        }
+
+        [GraphicsFact]
+        public void GeneratePreviewImageTexture_WithMissingPreviewFileInSongDirectory_ShouldReturnNull()
+        {
+            var tempDir = Path.Combine(Path.GetTempPath(), $"SongBarRendererMissingPreview_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                var node = new SongListNode
+                {
+                    Type = NodeType.Score,
+                    Title = _testSongNode.Title,
+                    DatabaseSong = _testSongNode.DatabaseSong,
+                    DatabaseChart = new SongChart
+                    {
+                        FilePath = Path.Combine(tempDir, "test.dtx"),
+                        Bpm = 120.0,
+                        DrumLevel = 85,
+                        PreviewImage = "missing-preview.png"
+                    }
+                };
+
+                var texture = Renderer.GeneratePreviewImageTexture(node);
+
+                Assert.Null(texture);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                    Directory.Delete(tempDir, recursive: true);
+            }
         }
 
         [GraphicsFact]
@@ -281,8 +355,7 @@ namespace DTXMania.Test.UI
 
 
         private SongBarRenderer Renderer =>
-            _renderer ?? throw new InvalidOperationException(
-                $"{GraphicsTestGate.OptInVariable}=1 was set but no GraphicsDevice could be created.");
+            _renderer ?? throw _graphicsService.CreateMissingDeviceException();
 
         private SpriteFont CreateTestFont(int lineSpacing = 38)
         {

@@ -87,17 +87,6 @@ jobs:
     - name: Run Video recorder tests on Windows
       run: dotnet test DTXMania.VideoRecorder.Tests/DTXMania.VideoRecorder.Tests.csproj --configuration Debug --verbosity normal --logger trx --results-directory ./TestResults/VideoRecorder
 
-    - name: Upload test results
-      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-      if: always()
-      with:
-        name: test-results-windows
-        # Coverlet writes relative to DTXMania.Test, so the Cobertura report
-        # lands outside ./TestResults and needs its own path here.
-        path: |
-          ./TestResults
-          DTXMania.Test/TestResults/Coverage/coverage.cobertura.xml
-
     - name: Locate coverage report
       shell: pwsh
       if: always()
@@ -121,8 +110,26 @@ jobs:
           exit 1
         }
 
+        # Coverlet writes relative to DTXMania.Test, so copy into ./TestResults/Coverage/
+        # so Upload test results can keep a single ./TestResults root without moving
+        # the artifact root up to the workspace directory.
+        $artifactCoverageDir = Join-Path $PWD "TestResults/Coverage"
+        $artifactCoveragePath = Join-Path $artifactCoverageDir "coverage.cobertura.xml"
+        if ([System.IO.Path]::GetFullPath($coveragePath) -ne [System.IO.Path]::GetFullPath($artifactCoveragePath)) {
+          New-Item -ItemType Directory -Force -Path $artifactCoverageDir | Out-Null
+          Copy-Item -Path $coveragePath -Destination $artifactCoveragePath -Force
+          $coveragePath = $artifactCoveragePath
+        }
+
         "CODECOV_FILE=$coveragePath" | Out-File -FilePath $env:GITHUB_ENV -Append
         Write-Host "Coverage report found: $coveragePath"
+
+    - name: Upload test results
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      if: always()
+      with:
+        name: test-results-windows
+        path: ./TestResults
 
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v7
@@ -131,7 +138,9 @@ jobs:
         token: ${{ secrets.CODECOV_TOKEN }}
         files: ${{ env.CODECOV_FILE }}
         flags: unit,windows
-        fail_ci_if_error: true
+        # Dependabot and fork PRs do not receive Actions secrets, so keep the upload
+        # strict for push and same-repo maintainer PRs without breaking Dependabot.
+        fail_ci_if_error: ${{ github.event_name != 'pull_request' || (github.event.pull_request.user.login != 'dependabot[bot]' && github.event.pull_request.head.repo.fork == false) }}
         verbose: true
 
     - name: Setup Python for tool tests
@@ -256,7 +265,41 @@ jobs:
     - name: Run tests on macOS
       env:
         ALSOFT_DRIVERS: 'null'
-      run: dotnet test DTXMania.Test/DTXMania.Test.csproj --configuration Debug --no-build --verbosity normal --results-directory ./TestResults --logger trx
+      run: dotnet test DTXMania.Test/DTXMania.Test.csproj --configuration Debug --no-build --verbosity normal --results-directory ./TestResults --logger "trx;LogFileName=unit-macos.trx"
+
+    - name: Verify macOS unit tests executed
+      shell: bash
+      run: |
+        # dotnet test exits 0 when zero tests are discovered or executed.
+        trx="./TestResults/unit-macos.trx"
+        if [ ! -s "$trx" ]; then
+          echo "::error::macOS unit test TRX report missing or empty: $trx" >&2
+          exit 1
+        fi
+        python3 - "$trx" <<'EOF'
+        import sys
+        import xml.etree.ElementTree as ET
+
+        tree = ET.parse(sys.argv[1])
+        counters = next(
+            (el for el in tree.getroot().iter() if el.tag.endswith("Counters")),
+            None,
+        )
+        if counters is None:
+            sys.exit("TRX report has no Counters element.")
+
+        total = int(counters.attrib.get("total", "0"))
+        executed = int(counters.attrib.get("executed", "0"))
+        passed = int(counters.attrib.get("passed", "0"))
+        failed = int(counters.attrib.get("failed", "0"))
+        error = int(counters.attrib.get("error", "0"))
+        print(f"macOS unit TRX counters: total={total}, executed={executed}, passed={passed}, failed={failed}, error={error}")
+        if total <= 0 or executed <= 0 or passed <= 0 or failed > 0 or error > 0:
+            sys.exit(
+                f"Expected non-zero passing unit tests without failures "
+                f"(total={total}, executed={executed}, passed={passed}, failed={failed}, error={error})."
+            )
+        EOF
 
     - name: Run Automation tests on macOS
       run: dotnet test DTXMania.Automation.Tests/DTXMania.Automation.Tests.csproj --configuration Debug --verbosity normal --logger trx --results-directory ./TestResults/Automation

@@ -241,7 +241,7 @@ public sealed class E2EFixtureBuilderTests
     }
 
     [Fact]
-    public void Build_WithVideoAndNoDrumNoteTail_ShouldKeepSingleBarOneRetrigger()
+    public void Build_WithVideoAndNoDrumNoteTail_ShouldEmitConsistentBarOneRetrigger()
     {
         var root = Path.Combine(Path.GetTempPath(), "dtx-e2e-fixture-" + Guid.NewGuid().ToString("N"));
         var repoRoot = Path.Combine(Path.GetTempPath(), "dtx-e2e-repo-" + Guid.NewGuid().ToString("N"));
@@ -261,8 +261,7 @@ public sealed class E2EFixtureBuilderTests
                 includeBackgroundVideo: true);
 
             var chart = File.ReadAllText(fixture.ChartPath);
-            Assert.Contains("#00154: 01\n", chart);
-            Assert.DoesNotContain("#00154: 0101", chart);
+            Assert.Contains("#00154: 0101\n", chart);
             Assert.DoesNotContain("#00211:", chart);
         }
         finally
@@ -272,6 +271,38 @@ public sealed class E2EFixtureBuilderTests
                 Directory.Delete(root, recursive: true);
             if (Directory.Exists(repoRoot))
                 Directory.Delete(repoRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Build_WithDrumNoteTailAndExtraChartBars_ShouldConcatenateWithoutOverlap()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "dtx-e2e-fixture-" + Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            var fixture = E2EFixtureBuilder.Build(
+                root,
+                Directory.GetCurrentDirectory(),
+                apiPort: 18080,
+                drumNoteTailBars: 2,
+                extraChartBars: 3);
+
+            var chart = File.ReadAllText(fixture.ChartPath);
+            Assert.Contains("#00211:", chart);
+            Assert.Contains("#00311:", chart);
+            Assert.DoesNotContain("#00201:", chart);
+            Assert.DoesNotContain("#00301:", chart);
+            Assert.Contains("#00401:", chart);
+            Assert.Contains("#00501:", chart);
+            Assert.Contains("#00601:", chart);
+            Assert.DoesNotContain("#00701:", chart);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
         }
     }
 

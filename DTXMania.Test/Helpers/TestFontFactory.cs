@@ -7,8 +7,8 @@ namespace DTXMania.Test.Helpers
     /// <summary>
     /// Builds a real SpriteFont over a 1x1 atlas. Device tests need a usable font but the
     /// Content Pipeline is unavailable in unit tests, so every printable ASCII character maps
-    /// to the same one-pixel glyph with a one-pixel advance. Callers own both the returned
-    /// font and the texture it samples.
+    /// to the same one-pixel glyph with a two-pixel advance (width 1, right bearing 1). Callers
+    /// own both the returned font and the texture it samples.
     /// </summary>
     public static class TestFontFactory
     {

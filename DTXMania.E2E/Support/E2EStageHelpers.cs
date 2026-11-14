@@ -4,6 +4,7 @@ using DTXMania.Automation.JsonRpc;
 using DTXMania.Automation.Support;
 using DTXMania.Automation.Telemetry;
 using DTXMania.E2E.Fixtures;
+using DTXMania.Game.Lib.Resources;
 
 namespace DTXMania.E2E.Support;
 
@@ -316,5 +317,160 @@ internal static class E2EStageHelpers
         {
             // Failure artifacts must never hide the original E2E assertion.
         }
+    }
+
+    /// <summary>
+    /// Verifies that the active skin path reported by telemetry points to the
+    /// validating bundled <c>System</c> root next to the executable, rather than
+    /// the sandbox's <c>&lt;runRoot&gt;/System</c> or <c>&lt;appdata&gt;/System</c>.
+    /// </summary>
+    internal static void AssertBundledSystemSkin(E2EFixture fixture, string? activeSkinPath)
+    {
+        ArgumentNullException.ThrowIfNull(fixture);
+        Assert.False(
+            string.IsNullOrWhiteSpace(activeSkinPath),
+            "Telemetry did not report the active skin path.");
+        Assert.True(
+            SkinManager.ValidateSkinPath(activeSkinPath!),
+            $"The active skin root has no valid skin assets: {activeSkinPath}");
+        Assert.Equal(
+            "System",
+            Path.GetFileName(Path.TrimEndingDirectorySeparator(activeSkinPath!)));
+
+        var normalizedSkinPath = Path.GetFullPath(activeSkinPath!);
+        var appDataPrefix = Path.GetFullPath(fixture.AppDataRoot) + Path.DirectorySeparatorChar;
+        Assert.False(
+            normalizedSkinPath.StartsWith(appDataPrefix, StringComparison.OrdinalIgnoreCase),
+            $"The game fell back to the app-data skin root: {activeSkinPath}");
+
+        var runRootPrefix = Path.GetFullPath(fixture.RunRoot) + Path.DirectorySeparatorChar;
+        Assert.False(
+            normalizedSkinPath.StartsWith(runRootPrefix, StringComparison.OrdinalIgnoreCase),
+            $"The game used a sandbox skin root instead of the bundled System root: {activeSkinPath}");
+    }
+
+    /// <summary>
+    /// Shared mid-song capture helper for Lanes and Tab tour frames: polls until
+    /// <see cref="IsMidSongCaptureState"/> matches, asserts the predicate and
+    /// optionally the bundled skin before capturing, captures a complete PNG,
+    /// then re-asserts the predicate so a finished staff or stage change fails.
+    /// </summary>
+    internal static async Task CaptureMidSongScreenshotAsync(
+        JsonRpcGameClient client,
+        E2EFixture fixture,
+        string fileName,
+        string destinationDirectory,
+        string expectedNoteDisplayStyle,
+        double minSongTimeMs,
+        TimeSpan timeout,
+        TimeSpan pollInterval,
+        string waitDescription,
+        CancellationToken cancellationToken,
+        bool requireAutoPlay = true,
+        bool requireBundledSkin = false)
+    {
+        await Eventually.UntilAsync(
+            token => client.GetGameStateAsync(token),
+            state => IsMidSongCaptureState(
+                state,
+                expectedNoteDisplayStyle,
+                minSongTimeMs,
+                requireAutoPlay),
+            timeout,
+            pollInterval,
+            waitDescription,
+            cancellationToken);
+
+        var acceptedState = await client.GetGameStateAsync(cancellationToken);
+        AssertMidSongCaptureState(
+            acceptedState,
+            "before capture",
+            expectedNoteDisplayStyle,
+            minSongTimeMs,
+            requireAutoPlay);
+
+        if (requireBundledSkin)
+        {
+            AssertBundledSystemSkin(fixture, acceptedState.SkinPath);
+        }
+
+        await CaptureRequiredScreenshotAsync(
+            client, fixture, fileName, cancellationToken, destinationDirectory);
+
+        AssertMidSongCaptureState(
+            await client.GetGameStateAsync(cancellationToken),
+            "after capture",
+            expectedNoteDisplayStyle,
+            minSongTimeMs,
+            requireAutoPlay);
+    }
+
+    internal static bool IsMidSongCaptureState(
+        GameStateSnapshot state,
+        string expectedNoteDisplayStyle,
+        double minSongTimeMs,
+        bool requireAutoPlay = true)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        return string.Equals(state.StageType, "Performance", StringComparison.Ordinal)
+            && state.PerformanceReady
+            && (!requireAutoPlay || state.AutoPlayEnabled)
+            && !state.IsTransitioning
+            && string.Equals(
+                state.NoteDisplayStyle,
+                expectedNoteDisplayStyle,
+                StringComparison.Ordinal)
+            && state.CurrentSongTimeMs >= minSongTimeMs
+            && state.TotalNotes > 0
+            && state.TotalJudgements < state.TotalNotes;
+    }
+
+    internal static void AssertMidSongCaptureState(
+        GameStateSnapshot state,
+        string phase,
+        string expectedNoteDisplayStyle,
+        double minSongTimeMs,
+        bool requireAutoPlay = true)
+    {
+        Assert.True(
+            IsMidSongCaptureState(state, expectedNoteDisplayStyle, minSongTimeMs, requireAutoPlay),
+            $"Refusing {phase} {expectedNoteDisplayStyle} evidence: expected mid-song {expectedNoteDisplayStyle} Performance " +
+            $"(ready, unjudged notes, songTimeMs >= {minSongTimeMs}, not transitioning" +
+            (requireAutoPlay ? ", AutoPlay" : string.Empty) +
+            $"), observed stage='{state.StageType}', noteDisplayStyle='{state.NoteDisplayStyle}', " +
+            $"currentSongTimeMs={state.CurrentSongTimeMs}, totalNotes={state.TotalNotes}, " +
+            $"totalJudgements={state.TotalJudgements}, performanceReady={state.PerformanceReady}, " +
+            $"autoPlayEnabled={state.AutoPlayEnabled}, isTransitioning={state.IsTransitioning}, " +
+            $"stagePhase='{GetStagePhase(state)}'.");
+    }
+
+    internal static GameStateSnapshot CreateTelemetrySnapshot(
+        string stageType,
+        bool performanceReady,
+        bool isTransitioning,
+        string noteDisplayStyle,
+        int totalNotes,
+        int totalJudgements,
+        double currentSongTimeMs,
+        bool autoPlayEnabled = true)
+    {
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(new
+        {
+            stageType,
+            performanceReady,
+            autoPlayEnabled,
+            isTransitioning,
+            noteDisplayStyle,
+            totalNotes,
+            totalJudgements,
+            currentSongTimeMs
+        }));
+        return new GameStateSnapshot
+        {
+            CustomData = new Dictionary<string, JsonElement>
+            {
+                ["telemetry"] = document.RootElement.Clone()
+            }
+        };
     }
 }

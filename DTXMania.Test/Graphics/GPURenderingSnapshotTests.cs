@@ -28,18 +28,26 @@ namespace DTXMania.Test.Graphics
         {
             _output = output;
             _graphicsService = new TestGraphicsDeviceService();
-            // Device tests are opted in; failing here is the truthful result when the
-            // opt-in cannot create a device.
-            _graphicsDevice = _graphicsService.RequiredDevice;
-            _spriteBatch = new SpriteBatch(_graphicsDevice);
-            
-            // Create snapshot directory for test outputs
-            _snapshotDirectory = Path.Combine(Directory.GetCurrentDirectory(), "TestSnapshots");
-            Directory.CreateDirectory(_snapshotDirectory);
-            
-            _output.WriteLine($"GPU Rendering Tests initialized");
-            _output.WriteLine($"Graphics Device: {_graphicsDevice.Adapter.Description}");
-            _output.WriteLine($"Snapshot Directory: {_snapshotDirectory}");
+            try
+            {
+                // Device tests are opted in; failing here is the truthful result when the
+                // opt-in cannot create a device.
+                _graphicsDevice = _graphicsService.RequiredDevice;
+                _spriteBatch = new SpriteBatch(_graphicsDevice);
+
+                // Create snapshot directory for test outputs
+                _snapshotDirectory = Path.Combine(Directory.GetCurrentDirectory(), "TestSnapshots");
+                Directory.CreateDirectory(_snapshotDirectory);
+
+                _output.WriteLine($"GPU Rendering Tests initialized");
+                _output.WriteLine($"Graphics Device: {_graphicsDevice.Adapter.Description}");
+                _output.WriteLine($"Snapshot Directory: {_snapshotDirectory}");
+            }
+            catch
+            {
+                Dispose();
+                throw;
+            }
         }
 
         #region Basic Rendering Tests

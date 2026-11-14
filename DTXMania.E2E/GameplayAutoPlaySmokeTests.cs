@@ -490,31 +490,19 @@ public sealed class GameplayAutoPlaySmokeTests
         string destinationDirectory,
         CancellationToken cancellationToken)
     {
-        await Eventually.UntilAsync(
-            token => client.GetGameStateAsync(token),
-            IsTabCaptureState,
+        await CaptureMidSongScreenshotAsync(
+            client,
+            fixture,
+            fileName,
+            destinationDirectory,
+            nameof(DrumsNoteDisplayStyle.Tab),
+            BarOneVideoRetriggerSongTimeMs,
             TimeSpan.FromSeconds(120),
             TimeSpan.FromMilliseconds(100),
             "effective Tab mid-song with unjudged notes past the video retrigger and no pending transition",
-            cancellationToken);
-
-        var acceptedState = await client.GetGameStateAsync(cancellationToken);
-        AssertTabCaptureState(acceptedState, "before capture");
-
-        // The tour capture must come from the shipped bundled skin, not an
-        // empty app-data fallback that would render placeholder art.
-        Assert.False(
-            string.IsNullOrWhiteSpace(acceptedState.SkinPath),
-            "Telemetry did not report the active skin path.");
-        Assert.Equal(
-            "System",
-            Path.GetFileName(Path.TrimEndingDirectorySeparator(acceptedState.SkinPath!)));
-
-        await CaptureRequiredScreenshotAsync(
-            client, fixture, fileName, cancellationToken, destinationDirectory);
-        AssertTabCaptureState(
-            await client.GetGameStateAsync(cancellationToken),
-            "after capture");
+            cancellationToken,
+            requireAutoPlay: true,
+            requireBundledSkin: true);
     }
 
     /// <summary>
@@ -522,34 +510,12 @@ public sealed class GameplayAutoPlaySmokeTests
     /// notation, gameplay ready with AutoPlay, the bar-1 BGA retrigger already
     /// reached, chart notes still unjudged and no pending transition.
     /// </summary>
-    internal static bool IsTabCaptureState(GameStateSnapshot state)
-    {
-        ArgumentNullException.ThrowIfNull(state);
-        return string.Equals(state.StageType, "Performance", StringComparison.Ordinal)
-            && state.PerformanceReady
-            && state.AutoPlayEnabled
-            && !state.IsTransitioning
-            && string.Equals(
-                state.NoteDisplayStyle,
-                nameof(DrumsNoteDisplayStyle.Tab),
-                StringComparison.Ordinal)
-            && state.CurrentSongTimeMs >= BarOneVideoRetriggerSongTimeMs
-            && state.TotalNotes > 0
-            && state.TotalJudgements < state.TotalNotes;
-    }
-
-    private static void AssertTabCaptureState(GameStateSnapshot state, string phase)
-    {
-        Assert.True(
-            IsTabCaptureState(state),
-            $"Refusing {phase} Tab evidence: expected mid-song effective Tab Performance " +
-            $"(ready, AutoPlay, unjudged notes, past the video retrigger, not transitioning), " +
-            $"observed stage='{state.StageType}', noteDisplayStyle='{state.NoteDisplayStyle}', " +
-            $"currentSongTimeMs={state.CurrentSongTimeMs}, totalNotes={state.TotalNotes}, " +
-            $"totalJudgements={state.TotalJudgements}, performanceReady={state.PerformanceReady}, " +
-            $"autoPlayEnabled={state.AutoPlayEnabled}, isTransitioning={state.IsTransitioning}, " +
-            $"stagePhase='{GetStagePhase(state)}'.");
-    }
+    internal static bool IsTabCaptureState(GameStateSnapshot state) =>
+        IsMidSongCaptureState(
+            state,
+            nameof(DrumsNoteDisplayStyle.Tab),
+            BarOneVideoRetriggerSongTimeMs,
+            requireAutoPlay: true);
 
     /// <summary>
     /// Waits until every chart note has been automatically judged. When
@@ -698,25 +664,14 @@ public sealed class GameplayAutoPlaySmokeTestsSupport
         string noteDisplayStyle = "Tab",
         int totalNotes = 6,
         int totalJudgements = 3,
-        double currentSongTimeMs = 2_000)
-    {
-        using var document = JsonDocument.Parse(JsonSerializer.Serialize(new
-        {
+        double currentSongTimeMs = 2_000) =>
+        CreateTelemetrySnapshot(
             stageType,
             performanceReady,
-            autoPlayEnabled,
             isTransitioning,
             noteDisplayStyle,
             totalNotes,
             totalJudgements,
-            currentSongTimeMs
-        }));
-        return new GameStateSnapshot
-        {
-            CustomData = new Dictionary<string, JsonElement>
-            {
-                ["telemetry"] = document.RootElement.Clone()
-            }
-        };
-    }
+            currentSongTimeMs,
+            autoPlayEnabled);
 }
