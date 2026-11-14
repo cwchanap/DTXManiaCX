@@ -1,21 +1,22 @@
-using DTXMania.Game.Lib.Stage.Performance;
-using Microsoft.Xna.Framework;
-using Xunit;
-
 using System;
 using System.Reflection;
 using System.Runtime.Serialization;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song.Entities;
+using DTXMania.Game.Lib.Stage.Performance;
+using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Moq;
+using Xunit;
 using static DTXMania.Test.Helpers.TestFontFactory;
 using static DTXMania.Test.TestData.ReflectionHelpers;
+
 namespace DTXMania.Test.Stage.Performance
 {
     /// <summary>
     /// Pure logic tests for SkillPanelDisplay formatting helpers — runs on all platforms.
     /// </summary>
+    [Collection("ManagedFont")]
     [Trait("Category", "Unit")]
     public class SkillPanelDisplayLogicTests
     {

@@ -10,7 +10,6 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Moq;
 using Xunit;
-
 using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 
 namespace DTXMania.Test.UI;

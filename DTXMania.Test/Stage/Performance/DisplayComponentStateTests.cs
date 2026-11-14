@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Runtime.Serialization;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage.Performance;
+using DTXMania.Test.Helpers;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Moq;
@@ -46,7 +47,7 @@ namespace DTXMania.Test.Stage.Performance
         [Fact]
         public void ComboDisplay_Constructor_WhenFontFactoryUnavailable_ShouldInitializeHiddenDefaultState()
         {
-            using var display = WithManagedFontFactoryUnavailable(() =>
+            using var display = TestFontFactory.WithManagedFontUnavailable(() =>
                 new ComboDisplay(new Mock<IResourceManager>().Object, CreateGraphicsDeviceStub()));
 
             Assert.Equal(0, display.Combo);
@@ -101,7 +102,7 @@ namespace DTXMania.Test.Stage.Performance
         {
             var resourceManager = new Mock<IResourceManager>();
 
-            var ex = WithManagedFontFactoryUnavailable(() =>
+            var ex = TestFontFactory.WithManagedFontUnavailable(() =>
                 Assert.Throws<InvalidOperationException>(() => new ScoreDisplay(resourceManager.Object, CreateGraphicsDeviceStub())));
 
             Assert.Contains("font could not be loaded", ex.Message);
@@ -119,7 +120,7 @@ namespace DTXMania.Test.Stage.Performance
                 .Setup(r => r.LoadTexture(TexturePath.ScoreNumbers))
                 .Returns(new Mock<ITexture>().Object);
 
-            using var display = WithManagedFontFactoryUnavailable(() =>
+            using var display = TestFontFactory.WithManagedFontUnavailable(() =>
                 new ScoreDisplay(resourceManager.Object, CreateGraphicsDeviceStub()));
 
             Assert.NotNull(GetPrivateField<ITexture>(display, "_scoreNumbersTexture"));
@@ -744,45 +745,6 @@ namespace DTXMania.Test.Stage.Performance
                 type = type.BaseType;
             }
             throw new InvalidOperationException($"Field '{fieldName}' not found on {target.GetType().Name}");
-        }
-
-        private static void WithManagedFontFactoryUnavailable(Action action)
-        {
-            WithManagedFontFactoryUnavailable(() => { action(); return true; });
-        }
-
-        private static T WithManagedFontFactoryUnavailable<T>(Func<T> action)
-        {
-            var managedFontType = typeof(ManagedFont);
-            var factoryLock = managedFontType
-                .GetField("_fontFactoryLock", BindingFlags.Static | BindingFlags.NonPublic)!
-                .GetValue(null)!;
-            var contentManagerField = managedFontType.GetField("_contentManager", BindingFlags.Static | BindingFlags.NonPublic)!;
-            var originalContentManager = contentManagerField.GetValue(null);
-
-            var loadedFontsField = managedFontType.GetField("_loadedFonts", BindingFlags.Static | BindingFlags.NonPublic)!;
-            var loadedFonts = (System.Collections.IDictionary)loadedFontsField.GetValue(null)!;
-            var originalEntries = new System.Collections.DictionaryEntry[loadedFonts.Count];
-            loadedFonts.CopyTo(originalEntries, 0);
-
-            lock (factoryLock)
-            {
-                try
-                {
-                    contentManagerField.SetValue(null, null);
-                    loadedFonts.Clear();
-                    return action();
-                }
-                finally
-                {
-                    loadedFonts.Clear();
-                    foreach (System.Collections.DictionaryEntry entry in originalEntries)
-                    {
-                        loadedFonts[entry.Key] = entry.Value;
-                    }
-                    contentManagerField.SetValue(null, originalContentManager);
-                }
-            }
         }
 
         private static void SetPrivateField(object target, string fieldName, object value)

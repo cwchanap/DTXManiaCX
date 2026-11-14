@@ -1,15 +1,13 @@
-using DTXMania.Game.Lib.Resources;
-using Microsoft.Xna.Framework;
 using System;
-using Xunit;
-
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
-using System.Runtime.Serialization;
-using DTXMania.Test.TestData;
+using DTXMania.Game.Lib.Resources;
+using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
-using Moq;
+using Xunit;
+
 namespace DTXMania.Test.Resources
 {
     /// <summary>
@@ -138,196 +136,198 @@ namespace DTXMania.Test.Resources
             // No cleanup needed for this test class
         }
 
-    // Arithmetic contract for DrawStringWithGradient's per-line lerp: each line's
-    // progress is its top offset divided by the total measured text height.
-    [Fact]
-    public void GradientLineProgress_ForMultiLineText_ShouldAdvanceByLineSpacingOverTextHeight()
-    {
-        var spriteFont = CreateSpriteFont(
-            [('A', 10), ('B', 10), (' ', 8)],
-            lineSpacing: 16);
-        var font = new ManagedFont(spriteFont, "GradientFont", 16);
-
-        var textSize = font.MeasureString("A\nB");
-        Assert.True(textSize.Y > 0);
-
-        var lines = "A\nB".Split('\n');
-        Assert.Equal(2, lines.Length);
-
-        float positionY = 10f;
-        float currentY = positionY;
-
-        var progressPerLine = new List<float>();
-        foreach (var line in lines)
+        [Fact]
+        public void DrawStringWithGradient_ForMultiLineText_ShouldInterpolateLineColorsByLineSpacingOverTextHeight()
         {
-            progressPerLine.Add((currentY - positionY) / textSize.Y);
-            currentY += font.LineSpacing;
+            var spriteFont = CreateSpriteFont(
+                [('A', 10), ('B', 10), (' ', 8)],
+                lineSpacing: 16);
+            var font = new RecordingManagedFont(spriteFont, "GradientFont", 16);
+            var textSize = font.MeasureString("A\nB");
+            Assert.True(textSize.Y > 0);
+
+            var topColor = new Color(0, 100, 200, 255);
+            var bottomColor = new Color(200, 0, 100, 255);
+            var startPosition = new Vector2(12f, 10f);
+
+            font.DrawStringWithGradient((SpriteBatch)null!, "A\nB", startPosition, topColor, bottomColor);
+
+            Assert.Equal(2, font.DrawCalls.Count);
+            Assert.Equal("A", font.DrawCalls[0].Text);
+            Assert.Equal(startPosition, font.DrawCalls[0].Position);
+            Assert.Equal(Color.Lerp(topColor, bottomColor, 0f), font.DrawCalls[0].Color);
+
+            Assert.Equal("B", font.DrawCalls[1].Text);
+            Assert.Equal(new Vector2(startPosition.X, startPosition.Y + font.LineSpacing), font.DrawCalls[1].Position);
+            Assert.Equal(Color.Lerp(topColor, bottomColor, (float)font.LineSpacing / textSize.Y), font.DrawCalls[1].Color);
         }
 
-        Assert.Equal(0f, progressPerLine[0]);
-        Assert.Equal((float)font.LineSpacing / textSize.Y, progressPerLine[1]);
-    }
-
-    // Arithmetic contract for DrawStringWrapped's Center alignment: the line is
-    // offset from bounds.X by half the width not taken by the line.
-    [Fact]
-    public void WrappedLineCenterX_ShouldOffsetByHalfTheFreeWidth()
-    {
-        var spriteFont = CreateSpriteFont(
-            [('A', 10), ('B', 10), ('C', 10), (' ', 8)],
-            lineSpacing: 16);
-        var font = new ManagedFont(spriteFont, "WrapFont", 16);
-
-        var lines = InvokePrivate<List<string>>(font, "WrapText", "A BC", 100f);
-        Assert.Single(lines);
-
-        var lineSize = font.MeasureString(lines[0]);
-        var bounds = new Rectangle(0, 0, 100, 100);
-        var expectedX = bounds.X + (int)((bounds.Width - lineSize.X) / 2);
-
-        Assert.True(expectedX > 0, "Center alignment should offset X from left edge");
-        Assert.Equal((int)((100 - lineSize.X) / 2), expectedX);
-    }
-
-    // Arithmetic contract for DrawStringWrapped's Right alignment: the line's
-    // left edge sits at bounds.Right minus the measured line width.
-    [Fact]
-    public void WrappedLineRightX_ShouldAlignToBoundsRight()
-    {
-        var spriteFont = CreateSpriteFont(
-            [('A', 10), ('B', 10), (' ', 8)],
-            lineSpacing: 16);
-        var font = new ManagedFont(spriteFont, "WrapFont", 16);
-
-        var lines = InvokePrivate<List<string>>(font, "WrapText", "A B", 200f);
-        Assert.Single(lines);
-
-        var lineSize = font.MeasureString(lines[0]);
-        var bounds = new Rectangle(0, 0, 200, 100);
-        var expectedX = bounds.Right - (int)lineSize.X;
-
-        Assert.True(expectedX > 0, "Right alignment should offset X from left edge");
-        Assert.Equal(200 - (int)lineSize.X, expectedX);
-    }
-
-    [Theory]
-    [InlineData("A\u2603B", "A?B")]
-    [InlineData("X\u2605Y", "X?Y")]
-    public void SanitizeText_WithUnsupportedCharacters_ShouldSubstituteDefaultCharacter(string input, string expected)
-    {
-        var spriteFont = CreateSpriteFont(
-            [('A', 10), ('B', 10), ('X', 10), ('Y', 10), ('?', 8)],
-            defaultCharacter: '?');
-        var font = new ManagedFont(spriteFont, "SanitizeFont", 16);
-
-        var sanitized = InvokePrivate<string>(font, "SanitizeText", input);
-
-        Assert.Equal(expected, sanitized);
-    }
-
-    [Fact]
-    public void WrappedLineFitting_ShouldStopWhenNextLineWouldExceedBoundsBottom()
-    {
-        var spriteFont = CreateSpriteFont(
-            [('A', 10), ('B', 10), (' ', 8)],
-            lineSpacing: 16);
-        var font = new ManagedFont(spriteFont, "WrapFont", 16);
-
-        var lines = InvokePrivate<List<string>>(font, "WrapText", "A B A B A B", 20f);
-        Assert.True(lines.Count > 1, "Text should wrap to multiple lines on narrow width");
-
-        var boundsHeight = 20;
-        var linesThatFit = 0;
-        var currentY = 0;
-        foreach (var line in lines)
+        [Fact]
+        public void DrawStringWrapped_WithCenterAlignment_ShouldOffsetByHalfTheFreeWidth()
         {
-            if (currentY + font.LineSpacing > boundsHeight)
-                break;
-            linesThatFit++;
-            currentY += (int)font.LineSpacing;
+            var spriteFont = CreateSpriteFont(
+                [('A', 10), ('B', 10), ('C', 10), (' ', 8)],
+                lineSpacing: 16);
+            var font = new RecordingManagedFont(spriteFont, "WrapFont", 16);
+            var bounds = new Rectangle(10, 20, 100, 100);
+
+            font.DrawStringWrapped((SpriteBatch)null!, "A BC", bounds, Color.White, TextAlignment.Center);
+
+            var call = Assert.Single(font.DrawCalls);
+            var lineSize = font.MeasureString("A BC");
+            var expectedX = bounds.X + (int)((bounds.Width - lineSize.X) / 2);
+            Assert.Equal("A BC", call.Text);
+            Assert.True(expectedX > bounds.X, "Center alignment should offset X from bounds.X");
+            Assert.Equal(new Vector2(expectedX, bounds.Y), call.Position);
+            Assert.Equal(Color.White, call.Color);
         }
 
-        Assert.True(linesThatFit < lines.Count, "Bounds bottom should limit number of drawn lines");
-        Assert.True(linesThatFit <= 1, "With boundsHeight=20 and lineSpacing=16, at most 1 line fits");
-    }
-
-    [Fact]
-    public void SupportsCharacter_WithPuaGlyphInSpriteFontCharacters_ShouldBeSupported()
-    {
-        // HPA-409 regression: the legacy range scan never probes the SMuFL
-        // Private Use Area (E000-F8FF), so the cache must union
-        // SpriteFont.Characters; otherwise notation glyphs report as
-        // unsupported and Bravura-Notation silently falls back. Exercised
-        // through the IFont.SupportsCharacter seam, GPU-free.
-        var spriteFont = CreateSpriteFont([('A', 10), ('\uE0A4', 12)]); // E0A4 = NoteheadBlack
-        IFont font = new ManagedFont(spriteFont, "Bravura-Notation", 40);
-
-        Assert.True(font.SupportsCharacter('\uE0A4'), "PUA glyph present in Characters must be supported");
-        Assert.False(font.SupportsCharacter('\uE0A5'), "PUA code point absent from Characters must stay unsupported");
-    }
-
-    [Fact]
-    public void SanitizeText_WhenNoReplacementCharacterExists_ShouldDropUnsupportedCharacters()
-    {
-        // Bravura-Notation bakes SMuFL PUA glyphs only, with no
-        // DefaultCharacter: unsupported text must be dropped rather than
-        // appended as an unsupported '?' that rethrows inside the draw/measure
-        // catch block.
-        var spriteFont = CreateSpriteFont([('\uE0A4', 12), ('\uE4E5', 10)]);
-        var font = new ManagedFont(spriteFont, "Bravura-Notation", 40);
-
-        var sanitized = InvokePrivate<string>(font, "SanitizeText", "A\uE0A4B\uE4E5C");
-
-        Assert.Equal("\uE0A4\uE4E5", sanitized);
-    }
-
-    [Fact]
-    public void MeasureString_WhenGlyphOnlyFontCannotRepresentText_ShouldReturnZero()
-    {
-        // Same glyph-only case through the public MeasureString path: the
-        // first call throws ArgumentException, the retry must get the fully
-        // sanitized (empty) string instead of throwing again.
-        var spriteFont = CreateSpriteFont([('\uE0A4', 12)]);
-        var font = new ManagedFont(spriteFont, "Bravura-Notation", 40);
-
-        Assert.Equal(Vector2.Zero, font.MeasureString("ABC"));
-    }
-
-    #region Helpers
-
-    private static SpriteFont CreateSpriteFont((char character, int width)[] glyphs, int lineSpacing = 16, char? defaultCharacter = null)
-    {
-        var texture = (Texture2D)RuntimeHelpers.GetUninitializedObject(typeof(Texture2D));
-        var glyphBounds = new List<Rectangle>();
-        var cropping = new List<Rectangle>();
-        var characters = new List<char>();
-        var kerning = new List<Vector3>();
-        var x = 0;
-
-        foreach (var (character, width) in glyphs.OrderBy(g => g.character))
+        [Fact]
+        public void DrawStringWrapped_WithRightAlignment_ShouldAlignToBoundsRight()
         {
-            glyphBounds.Add(new Rectangle(x, 0, width, lineSpacing));
-            cropping.Add(new Rectangle(0, 0, width, lineSpacing));
-            characters.Add(character);
-            kerning.Add(new Vector3(0, width, 0));
-            x += width;
+            var spriteFont = CreateSpriteFont(
+                [('A', 10), ('B', 10), (' ', 8)],
+                lineSpacing: 16);
+            var font = new RecordingManagedFont(spriteFont, "WrapFont", 16);
+            var bounds = new Rectangle(10, 25, 200, 100);
+
+            font.DrawStringWrapped((SpriteBatch)null!, "A B", bounds, Color.Cyan, TextAlignment.Right);
+
+            var call = Assert.Single(font.DrawCalls);
+            var lineSize = font.MeasureString("A B");
+            var expectedX = bounds.Right - (int)lineSize.X;
+            Assert.Equal("A B", call.Text);
+            Assert.True(expectedX > bounds.X, "Right alignment should offset X from bounds.X");
+            Assert.Equal(new Vector2(expectedX, bounds.Y), call.Position);
+            Assert.Equal(Color.Cyan, call.Color);
         }
 
-        return (SpriteFont)Activator.CreateInstance(
-            typeof(SpriteFont),
-            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
-            binder: null,
-            args: [texture, glyphBounds, cropping, characters, lineSpacing, 0f, kerning, defaultCharacter],
-            culture: null)!;
-    }
+        [Theory]
+        [InlineData("A\u2603B", "A?B")]
+        [InlineData("X\u2605Y", "X?Y")]
+        public void SanitizeText_WithUnsupportedCharacters_ShouldSubstituteDefaultCharacter(string input, string expected)
+        {
+            var spriteFont = CreateSpriteFont(
+                [('A', 10), ('B', 10), ('X', 10), ('Y', 10), ('?', 8)],
+                defaultCharacter: '?');
+            var font = new ManagedFont(spriteFont, "SanitizeFont", 16);
 
-    private static T InvokePrivate<T>(object target, string methodName, params object?[] args)
-    {
-        var method = typeof(ManagedFont).GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.NotNull(method);
-        return (T)method!.Invoke(target, args)!;
-    }
+            var sanitized = InvokePrivate<string>(font, "SanitizeText", input);
 
-    #endregion
-}
+            Assert.Equal(expected, sanitized);
+        }
+
+        [Fact]
+        public void DrawStringWrapped_WhenNextLineWouldExceedBoundsBottom_ShouldStopDrawing()
+        {
+            var spriteFont = CreateSpriteFont(
+                [('A', 10), ('B', 10), (' ', 8)],
+                lineSpacing: 16);
+            var font = new RecordingManagedFont(spriteFont, "WrapFont", 16);
+            var wrappedLines = InvokePrivate<List<string>>(font, "WrapText", "A B A B A B", 20f);
+            Assert.True(wrappedLines.Count > 1, "Text should wrap to multiple lines on narrow width");
+
+            var bounds = new Rectangle(5, 10, 20, 20);
+            font.DrawStringWrapped((SpriteBatch)null!, "A B A B A B", bounds, Color.Yellow);
+
+            var call = Assert.Single(font.DrawCalls);
+            Assert.Equal(wrappedLines[0], call.Text);
+            Assert.Equal(new Vector2(bounds.X, bounds.Y), call.Position);
+            Assert.Equal(Color.Yellow, call.Color);
+        }
+
+        [Fact]
+        public void SupportsCharacter_WithPuaGlyphInSpriteFontCharacters_ShouldBeSupported()
+        {
+            // HPA-409 regression: the legacy range scan never probes the SMuFL
+            // Private Use Area (E000-F8FF), so the cache must union
+            // SpriteFont.Characters; otherwise notation glyphs report as
+            // unsupported and Bravura-Notation silently falls back. Exercised
+            // through the IFont.SupportsCharacter seam, GPU-free.
+            var spriteFont = CreateSpriteFont([('A', 10), ('\uE0A4', 12)]); // E0A4 = NoteheadBlack
+            IFont font = new ManagedFont(spriteFont, "Bravura-Notation", 40);
+
+            Assert.True(font.SupportsCharacter('\uE0A4'), "PUA glyph present in Characters must be supported");
+            Assert.False(font.SupportsCharacter('\uE0A5'), "PUA code point absent from Characters must stay unsupported");
+        }
+
+        [Fact]
+        public void SanitizeText_WhenNoReplacementCharacterExists_ShouldDropUnsupportedCharacters()
+        {
+            // Bravura-Notation bakes SMuFL PUA glyphs only, with no
+            // DefaultCharacter: unsupported text must be dropped rather than
+            // appended as an unsupported '?' that rethrows inside the draw/measure
+            // catch block.
+            var spriteFont = CreateSpriteFont([('\uE0A4', 12), ('\uE4E5', 10)]);
+            var font = new ManagedFont(spriteFont, "Bravura-Notation", 40);
+
+            var sanitized = InvokePrivate<string>(font, "SanitizeText", "A\uE0A4B\uE4E5C");
+
+            Assert.Equal("\uE0A4\uE4E5", sanitized);
+        }
+
+        [Fact]
+        public void MeasureString_WhenGlyphOnlyFontCannotRepresentText_ShouldReturnZero()
+        {
+            // Same glyph-only case through the public MeasureString path: the
+            // first call throws ArgumentException, the retry must get the fully
+            // sanitized (empty) string instead of throwing again.
+            var spriteFont = CreateSpriteFont([('\uE0A4', 12)]);
+            var font = new ManagedFont(spriteFont, "Bravura-Notation", 40);
+
+            Assert.Equal(Vector2.Zero, font.MeasureString("ABC"));
+        }
+
+        #region Helpers
+
+        private sealed class RecordingManagedFont : ManagedFont
+        {
+            public RecordingManagedFont(SpriteFont spriteFont, string sourcePath, int size)
+                : base(spriteFont, sourcePath, size)
+            {
+            }
+
+            public List<(string Text, Vector2 Position, Color Color)> DrawCalls { get; } = new();
+
+            public override void DrawString(SpriteBatch spriteBatch, string text, Vector2 position, Color color)
+            {
+                DrawCalls.Add((text, position, color));
+            }
+        }
+
+        private static SpriteFont CreateSpriteFont((char character, int width)[] glyphs, int lineSpacing = 16, char? defaultCharacter = null)
+        {
+            var texture = (Texture2D)RuntimeHelpers.GetUninitializedObject(typeof(Texture2D));
+            var glyphBounds = new List<Rectangle>();
+            var cropping = new List<Rectangle>();
+            var characters = new List<char>();
+            var kerning = new List<Vector3>();
+            var x = 0;
+
+            foreach (var (character, width) in glyphs.OrderBy(g => g.character))
+            {
+                glyphBounds.Add(new Rectangle(x, 0, width, lineSpacing));
+                cropping.Add(new Rectangle(x, 0, width, lineSpacing));
+                characters.Add(character);
+                kerning.Add(new Vector3(0, width, 0));
+                x += width;
+            }
+
+            return (SpriteFont)Activator.CreateInstance(
+                typeof(SpriteFont),
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                binder: null,
+                args: [texture, glyphBounds, cropping, characters, lineSpacing, 0f, kerning, defaultCharacter],
+                culture: null)!;
+        }
+
+        private static T InvokePrivate<T>(object target, string methodName, params object?[] args)
+        {
+            var method = typeof(ManagedFont).GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+            return (T)method!.Invoke(target, args)!;
+        }
+
+        #endregion
+    }
 }

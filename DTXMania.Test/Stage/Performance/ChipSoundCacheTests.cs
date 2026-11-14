@@ -1,12 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.Serialization;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage.Performance;
+using Microsoft.Xna.Framework.Audio;
 using Moq;
 using Xunit;
-
-using System.Runtime.Serialization;
-using Microsoft.Xna.Framework.Audio;
 namespace DTXMania.Test.Stage.Performance
 {
     [Trait("Category", "Unit")]

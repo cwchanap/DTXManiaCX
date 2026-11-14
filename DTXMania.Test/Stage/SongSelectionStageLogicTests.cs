@@ -9,27 +9,25 @@ using System.Threading;
 using System.Threading.Tasks;
 using DTXMania.Game;
 using DTXMania.Game.Lib.Config;
+using DTXMania.Game.Lib.Graphics;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Entities;
+using DTXMania.Game.Lib.Song.Filtering;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.UI.Components;
 using DTXMania.Game.Lib.UI.Layout;
+using DTXMania.Game.Lib.Utilities;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Audio;
 using Microsoft.Xna.Framework.Graphics;
 using Moq;
-using static DTXMania.Test.TestData.ReflectionHelpers;
 using static DTXMania.Test.Stage.SongSelectionStageTestFactory;
-
+using static DTXMania.Test.TestData.ReflectionHelpers;
 using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
-
-using DTXMania.Game.Lib.Graphics;
-using DTXMania.Game.Lib.Song.Filtering;
-using DTXMania.Game.Lib.Utilities;
 namespace DTXMania.Test.Stage
 {
     [Collection("SongManager")]
@@ -1108,31 +1106,31 @@ namespace DTXMania.Test.Stage
 
             InvokePrivateMethod(stage, "HandleActivateInput");
 
-        Assert.True(GetPrivateField<bool>(stage, "_isInStatusPanel"));
-        Assert.True(statusPanel.Visible);
-    }
+            Assert.True(GetPrivateField<bool>(stage, "_isInStatusPanel"));
+            Assert.True(statusPanel.Visible);
+        }
 
-    [Fact]
-    public void ExecuteInputCommand_Activate_ShouldDelegateToActivateHandler()
-    {
-        var stage = CreateStage();
-        var statusPanel = new SongStatusPanel { Visible = false };
-        var selectedSong = CreateScoreNode("Song");
+        [Fact]
+        public void ExecuteInputCommand_Activate_ShouldDelegateToActivateHandler()
+        {
+            var stage = CreateStage();
+            var statusPanel = new SongStatusPanel { Visible = false };
+            var selectedSong = CreateScoreNode("Song");
 
-        AttachCoreUi(stage, statusPanel: statusPanel);
-        SetPrivateField(stage, "_selectedSong", selectedSong);
-        SetPrivateField(stage, "_isInStatusPanel", false);
+            AttachCoreUi(stage, statusPanel: statusPanel);
+            SetPrivateField(stage, "_selectedSong", selectedSong);
+            SetPrivateField(stage, "_isInStatusPanel", false);
 
-        InvokePrivateMethod(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.Activate, 0.0));
+            InvokePrivateMethod(stage, "ExecuteInputCommand", new InputCommand(InputCommandType.Activate, 0.0));
 
-        Assert.True(GetPrivateField<bool>(stage, "_isInStatusPanel"));
-        Assert.True(statusPanel.Visible);
-    }
+            Assert.True(GetPrivateField<bool>(stage, "_isInStatusPanel"));
+            Assert.True(statusPanel.Visible);
+        }
 
-    [Fact]
-    public void HandleActivateInput_WhenInStatusPanel_ShouldSelectSong()
-    {
-        var game = CreateGame(totalGameTime: 2.0, lastStageTransitionTime: 0.0);
+        [Fact]
+        public void HandleActivateInput_WhenInStatusPanel_ShouldSelectSong()
+        {
+            var game = CreateGame(totalGameTime: 2.0, lastStageTransitionTime: 0.0);
             var stage = CreateStage(game);
             var stageManager = new Mock<IStageManager>();
             var selectedSong = CreateScoreNode("Song", songId: 99);

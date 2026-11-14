@@ -506,29 +506,29 @@ namespace DTXMania.Test.Song
 
         #region Database Integration Tests
 
-    [Fact]
-    public void PopulateScoresFromDatabase_WithNullDatabaseSongId_ShouldLeaveScoresEmpty()
-    {
-        using var databaseService = CreateDatabaseService();
-        var node = new SongListNode
+        [Fact]
+        public void PopulateScoresFromDatabase_WithNullDatabaseSongId_ShouldLeaveScoresEmpty()
         {
-            DatabaseSongId = null,
-            DatabaseSong = new SongEntity()
-        };
+            using var databaseService = CreateDatabaseService();
+            var node = new SongListNode
+            {
+                DatabaseSongId = null,
+                DatabaseSong = new SongEntity()
+            };
 
-        node.PopulateScoresFromDatabase(databaseService);
+            node.PopulateScoresFromDatabase(databaseService);
 
-        Assert.False(node.Scores.Any(score => score != null));
-    }
+            Assert.False(node.Scores.Any(score => score != null));
+        }
 
-    [Fact]
-    public void PopulateScoresFromDatabase_WithAvailableInstruments_ShouldPopulateScores()
-    {
-        using var databaseService = CreateDatabaseService();
-        var chart = new SongChart
+        [Fact]
+        public void PopulateScoresFromDatabase_WithAvailableInstruments_ShouldPopulateScores()
         {
-            DrumLevel = 7,
-            GuitarLevel = 5,
+            using var databaseService = CreateDatabaseService();
+            var chart = new SongChart
+            {
+                DrumLevel = 7,
+                GuitarLevel = 5,
                 BassLevel = 4,
                 HasDrumChart = true,
                 HasGuitarChart = true,
@@ -539,332 +539,332 @@ namespace DTXMania.Test.Song
                 Charts = { chart }
             };
             var node = new SongListNode
-        {
-            DatabaseSongId = 1,
-            DatabaseSong = song
-        };
+            {
+                DatabaseSongId = 1,
+                DatabaseSong = song
+            };
 
-        node.PopulateScoresFromDatabase(databaseService);
+            node.PopulateScoresFromDatabase(databaseService);
 
-        var populatedScores = node.Scores.Where(score => score != null).ToList();
-        Assert.Equal(3, populatedScores.Count);
-        Assert.Contains(populatedScores, score => score!.Instrument == EInstrumentPart.DRUMS && score.DifficultyLevel == 7);
-        Assert.Contains(populatedScores, score => score!.Instrument == EInstrumentPart.GUITAR && score.DifficultyLevel == 5);
-        Assert.Contains(populatedScores, score => score!.Instrument == EInstrumentPart.BASS && score.DifficultyLevel == 4);
-    }
+            var populatedScores = node.Scores.Where(score => score != null).ToList();
+            Assert.Equal(3, populatedScores.Count);
+            Assert.Contains(populatedScores, score => score!.Instrument == EInstrumentPart.DRUMS && score.DifficultyLevel == 7);
+            Assert.Contains(populatedScores, score => score!.Instrument == EInstrumentPart.GUITAR && score.DifficultyLevel == 5);
+            Assert.Contains(populatedScores, score => score!.Instrument == EInstrumentPart.BASS && score.DifficultyLevel == 4);
+        }
 
-    private static SongDatabaseService CreateDatabaseService() => new(":memory:");
+        private static SongDatabaseService CreateDatabaseService() => new(":memory:");
 
-    #endregion
+        #endregion
 
         #region PopulatePlayHistoryFromCharts Tests
 
-    [Fact]
-    public void PopulatePlayHistoryFromCharts_WithNullCharts_ShouldNotThrow()
-    {
-        var node = new SongListNode { Type = NodeType.Score, Title = "Test" };
-        node.Scores[0] = new SongScore
+        [Fact]
+        public void PopulatePlayHistoryFromCharts_WithNullCharts_ShouldNotThrow()
         {
-            Instrument = EInstrumentPart.DRUMS,
-            DifficultyLevel = 50
-        };
+            var node = new SongListNode { Type = NodeType.Score, Title = "Test" };
+            node.Scores[0] = new SongScore
+            {
+                Instrument = EInstrumentPart.DRUMS,
+                DifficultyLevel = 50
+            };
 
-        node.PopulatePlayHistoryFromCharts(null!);
+            node.PopulatePlayHistoryFromCharts(null!);
 
-        Assert.Equal(0, node.Scores[0]!.PlayCount);
-    }
+            Assert.Equal(0, node.Scores[0]!.PlayCount);
+        }
 
-    [Fact]
-    public void PopulatePlayHistoryFromCharts_WithPersistedScores_ShouldCopyPlayHistory()
-    {
-        var chart = new SongChart
+        [Fact]
+        public void PopulatePlayHistoryFromCharts_WithPersistedScores_ShouldCopyPlayHistory()
         {
-            HasDrumChart = true,
-            DrumLevel = 60
-        };
-        var persistedScore = new SongScore
+            var chart = new SongChart
+            {
+                HasDrumChart = true,
+                DrumLevel = 60
+            };
+            var persistedScore = new SongScore
+            {
+                Instrument = EInstrumentPart.DRUMS,
+                Chart = chart, // EF Core sets this navigation automatically; required for DifficultyLevel matching
+                PlayCount = 7,
+                BestRank = 80,
+                BestScore = 950000,
+                ClearCount = 3,
+                FullCombo = true,
+                MaxCombo = 120
+            };
+            chart.Scores.Add(persistedScore);
+
+            var song = new SongEntity { Title = "Test" };
+            var node = SongListNode.CreateSongNode(song, chart);
+
+            // The persisted score should have been populated
+            Assert.Equal(7, node.Scores[0]!.PlayCount);
+            Assert.Equal(80, node.Scores[0]!.BestRank);
+            Assert.Equal(950000, node.Scores[0]!.BestScore);
+            Assert.Equal(3, node.Scores[0]!.ClearCount);
+            Assert.True(node.Scores[0]!.FullCombo);
+            Assert.Equal(120, node.Scores[0]!.MaxCombo);
+        }
+
+        [Fact]
+        public void PopulatePlayHistoryFromCharts_WithNoPersistedScores_ShouldKeepDefaults()
         {
-            Instrument = EInstrumentPart.DRUMS,
-            Chart = chart, // EF Core sets this navigation automatically; required for DifficultyLevel matching
-            PlayCount = 7,
-            BestRank = 80,
-            BestScore = 950000,
-            ClearCount = 3,
-            FullCombo = true,
-            MaxCombo = 120
-        };
-        chart.Scores.Add(persistedScore);
+            var chart = new SongChart
+            {
+                HasDrumChart = true,
+                DrumLevel = 60
+            };
+            // chart.Scores is empty - no persisted data
 
-        var song = new SongEntity { Title = "Test" };
-        var node = SongListNode.CreateSongNode(song, chart);
+            var song = new SongEntity { Title = "Test" };
+            var node = SongListNode.CreateSongNode(song, chart);
 
-        // The persisted score should have been populated
-        Assert.Equal(7, node.Scores[0]!.PlayCount);
-        Assert.Equal(80, node.Scores[0]!.BestRank);
-        Assert.Equal(950000, node.Scores[0]!.BestScore);
-        Assert.Equal(3, node.Scores[0]!.ClearCount);
-        Assert.True(node.Scores[0]!.FullCombo);
-        Assert.Equal(120, node.Scores[0]!.MaxCombo);
-    }
+            Assert.Equal(0, node.Scores[0]!.PlayCount);
+            Assert.Equal(0, node.Scores[0]!.BestRank);
+        }
 
-    [Fact]
-    public void PopulatePlayHistoryFromCharts_WithNoPersistedScores_ShouldKeepDefaults()
-    {
-        var chart = new SongChart
+        [Fact]
+        public void PopulatePlayHistoryFromCharts_WithMultipleInstruments_ShouldMatchByInstrument()
         {
-            HasDrumChart = true,
-            DrumLevel = 60
-        };
-        // chart.Scores is empty - no persisted data
+            var chart = new SongChart
+            {
+                HasDrumChart = true,
+                DrumLevel = 60,
+                HasGuitarChart = true,
+                GuitarLevel = 70,
+                HasBassChart = true,
+                BassLevel = 50
+            };
+            chart.Scores.Add(new SongScore
+            {
+                Instrument = EInstrumentPart.DRUMS,
+                Chart = chart, // Required for DifficultyLevel matching
+                PlayCount = 5,
+                BestRank = 90,
+                BestScore = 800000
+            });
+            chart.Scores.Add(new SongScore
+            {
+                Instrument = EInstrumentPart.GUITAR,
+                Chart = chart, // Required for DifficultyLevel matching
+                PlayCount = 2,
+                BestRank = 70,
+                BestScore = 600000
+            });
+            // No persisted bass score
 
-        var song = new SongEntity { Title = "Test" };
-        var node = SongListNode.CreateSongNode(song, chart);
+            var song = new SongEntity { Title = "Test" };
+            var node = SongListNode.CreateSongNode(song, chart);
 
-        Assert.Equal(0, node.Scores[0]!.PlayCount);
-        Assert.Equal(0, node.Scores[0]!.BestRank);
-    }
+            // Drums - has persisted data
+            Assert.Equal(5, node.Scores[0]!.PlayCount);
+            Assert.Equal(90, node.Scores[0]!.BestRank);
+            Assert.Equal(800000, node.Scores[0]!.BestScore);
 
-    [Fact]
-    public void PopulatePlayHistoryFromCharts_WithMultipleInstruments_ShouldMatchByInstrument()
-    {
-        var chart = new SongChart
+            // Guitar - has persisted data
+            Assert.Equal(2, node.Scores[1]!.PlayCount);
+            Assert.Equal(70, node.Scores[1]!.BestRank);
+            Assert.Equal(600000, node.Scores[1]!.BestScore);
+
+            // Bass - no persisted data, stays default
+            Assert.Equal(0, node.Scores[2]!.PlayCount);
+        }
+
+        [Fact]
+        public void PopulatePlayHistoryFromCharts_WithNullScoresEntry_ShouldSkip()
         {
-            HasDrumChart = true,
-            DrumLevel = 60,
-            HasGuitarChart = true,
-            GuitarLevel = 70,
-            HasBassChart = true,
-            BassLevel = 50
-        };
-        chart.Scores.Add(new SongScore
+            var node = new SongListNode { Type = NodeType.Score, Title = "Test" };
+            // Scores[0] is null
+            var chart = new SongChart { HasDrumChart = true, DrumLevel = 60 };
+
+            node.PopulatePlayHistoryFromCharts(new[] { chart });
+
+            Assert.Null(node.Scores[0]);
+        }
+
+        [Fact]
+        public void PopulatePlayHistoryFromCharts_WithMultipleCharts_ShouldMatchByInstrumentAndDifficulty()
         {
-            Instrument = EInstrumentPart.DRUMS,
-            Chart = chart, // Required for DifficultyLevel matching
-            PlayCount = 5,
-            BestRank = 90,
-            BestScore = 800000
-        });
-        chart.Scores.Add(new SongScore
+            // chart1 has DRUMS at level 60 with a persisted score
+            var chart1 = new SongChart { HasDrumChart = true, DrumLevel = 60 };
+            chart1.Scores.Add(new SongScore
+            {
+                Instrument = EInstrumentPart.DRUMS,
+                Chart = chart1, // Required for DifficultyLevel matching
+                PlayCount = 10,
+                BestRank = 95
+            });
+
+            // chart2 has DRUMS at level 80 with its own persisted score
+            var chart2 = new SongChart { HasDrumChart = true, DrumLevel = 80 };
+            chart2.Scores.Add(new SongScore
+            {
+                Instrument = EInstrumentPart.DRUMS,
+                Chart = chart2, // Required for DifficultyLevel matching
+                PlayCount = 25,
+                BestRank = 88
+            });
+
+            var node = new SongListNode { Type = NodeType.Score, Title = "Test" };
+            node.Scores[0] = new SongScore
+            {
+                Instrument = EInstrumentPart.DRUMS,
+                DifficultyLevel = 60
+            };
+            node.Scores[1] = new SongScore
+            {
+                Instrument = EInstrumentPart.DRUMS,
+                DifficultyLevel = 80
+            };
+
+            node.PopulatePlayHistoryFromCharts(new[] { chart1, chart2 });
+
+            // Each slot should match the persisted score with the same instrument AND difficulty level
+            Assert.Equal(10, node.Scores[0]!.PlayCount);
+            Assert.Equal(95, node.Scores[0]!.BestRank);
+            Assert.Equal(25, node.Scores[1]!.PlayCount);
+            Assert.Equal(88, node.Scores[1]!.BestRank);
+        }
+
+        [Fact]
+        public void PopulatePlayHistoryFromCharts_WithMultipleCharts_NoMatchingDifficulty_ShouldKeepDefaults()
         {
-            Instrument = EInstrumentPart.GUITAR,
-            Chart = chart, // Required for DifficultyLevel matching
-            PlayCount = 2,
-            BestRank = 70,
-            BestScore = 600000
-        });
-        // No persisted bass score
+            // Only chart1 has a persisted DRUMS score at level 60
+            var chart1 = new SongChart { HasDrumChart = true, DrumLevel = 60 };
+            chart1.Scores.Add(new SongScore
+            {
+                Instrument = EInstrumentPart.DRUMS,
+                Chart = chart1, // Required for DifficultyLevel matching
+                PlayCount = 10,
+                BestRank = 95
+            });
 
-        var song = new SongEntity { Title = "Test" };
-        var node = SongListNode.CreateSongNode(song, chart);
+            // chart2 has DRUMS at level 80 but no persisted score
+            var chart2 = new SongChart { HasDrumChart = true, DrumLevel = 80 };
 
-        // Drums - has persisted data
-        Assert.Equal(5, node.Scores[0]!.PlayCount);
-        Assert.Equal(90, node.Scores[0]!.BestRank);
-        Assert.Equal(800000, node.Scores[0]!.BestScore);
+            var node = new SongListNode { Type = NodeType.Score, Title = "Test" };
+            node.Scores[0] = new SongScore
+            {
+                Instrument = EInstrumentPart.DRUMS,
+                DifficultyLevel = 60
+            };
+            node.Scores[1] = new SongScore
+            {
+                Instrument = EInstrumentPart.DRUMS,
+                DifficultyLevel = 80
+            };
 
-        // Guitar - has persisted data
-        Assert.Equal(2, node.Scores[1]!.PlayCount);
-        Assert.Equal(70, node.Scores[1]!.BestRank);
-        Assert.Equal(600000, node.Scores[1]!.BestScore);
+            node.PopulatePlayHistoryFromCharts(new[] { chart1, chart2 });
 
-        // Bass - no persisted data, stays default
-        Assert.Equal(0, node.Scores[2]!.PlayCount);
-    }
+            // Slot 0 matches chart1's persisted score (same instrument + level 60)
+            Assert.Equal(10, node.Scores[0]!.PlayCount);
+            Assert.Equal(95, node.Scores[0]!.BestRank);
+            // Slot 1 has no matching persisted score (level 80, no data) — stays default
+            Assert.Equal(0, node.Scores[1]!.PlayCount);
+            Assert.Equal(0, node.Scores[1]!.BestRank);
+        }
 
-    [Fact]
-    public void PopulatePlayHistoryFromCharts_WithNullScoresEntry_ShouldSkip()
-    {
-        var node = new SongListNode { Type = NodeType.Score, Title = "Test" };
-        // Scores[0] is null
-        var chart = new SongChart { HasDrumChart = true, DrumLevel = 60 };
-
-        node.PopulatePlayHistoryFromCharts(new[] { chart });
-
-        Assert.Null(node.Scores[0]);
-    }
-
-    [Fact]
-    public void PopulatePlayHistoryFromCharts_WithMultipleCharts_ShouldMatchByInstrumentAndDifficulty()
-    {
-        // chart1 has DRUMS at level 60 with a persisted score
-        var chart1 = new SongChart { HasDrumChart = true, DrumLevel = 60 };
-        chart1.Scores.Add(new SongScore
+        [Fact]
+        public void PopulatePlayHistoryFromCharts_WithDuplicateDifficulty_ShouldMatchByChartId()
         {
-            Instrument = EInstrumentPart.DRUMS,
-            Chart = chart1, // Required for DifficultyLevel matching
-            PlayCount = 10,
-            BestRank = 95
-        });
+            // Two charts both have DRUMS at level 60 — matching by instrument+level alone
+            // would return the first chart's score for both slots.
+            var chart1 = new SongChart { Id = 10, HasDrumChart = true, DrumLevel = 60 };
+            chart1.Scores.Add(new SongScore
+            {
+                Instrument = EInstrumentPart.DRUMS,
+                ChartId = 10,
+                Chart = chart1,
+                PlayCount = 5,
+                BestScore = 100000
+            });
 
-        // chart2 has DRUMS at level 80 with its own persisted score
-        var chart2 = new SongChart { HasDrumChart = true, DrumLevel = 80 };
-        chart2.Scores.Add(new SongScore
+            var chart2 = new SongChart { Id = 20, HasDrumChart = true, DrumLevel = 60 };
+            chart2.Scores.Add(new SongScore
+            {
+                Instrument = EInstrumentPart.DRUMS,
+                ChartId = 20,
+                Chart = chart2,
+                PlayCount = 25,
+                BestScore = 900000
+            });
+
+            var node = new SongListNode { Type = NodeType.Score, Title = "Test" };
+            // Slot 0 linked to chart1, slot 1 linked to chart2
+            node.Scores[0] = new SongScore
+            {
+                ChartId = 10,
+                Instrument = EInstrumentPart.DRUMS,
+                DifficultyLevel = 60
+            };
+            node.Scores[1] = new SongScore
+            {
+                ChartId = 20,
+                Instrument = EInstrumentPart.DRUMS,
+                DifficultyLevel = 60
+            };
+
+            node.PopulatePlayHistoryFromCharts(new[] { chart1, chart2 });
+
+            // Each slot should match its own chart's persisted score, not the first one
+            Assert.Equal(5, node.Scores[0]!.PlayCount);
+            Assert.Equal(100000, node.Scores[0]!.BestScore);
+            Assert.Equal(25, node.Scores[1]!.PlayCount);
+            Assert.Equal(900000, node.Scores[1]!.BestScore);
+        }
+
+        [Fact]
+        public void PopulatePlayHistoryFromCharts_SameChartIdDifferentInstruments_ShouldMatchByInstrument()
         {
-            Instrument = EInstrumentPart.DRUMS,
-            Chart = chart2, // Required for DifficultyLevel matching
-            PlayCount = 25,
-            BestRank = 88
-        });
+            // A single chart (ChartId=10) has persisted scores for both DRUMS and GUITAR.
+            var chart = new SongChart { Id = 10, HasDrumChart = true, DrumLevel = 60, HasGuitarChart = true, GuitarLevel = 70 };
+            chart.Scores.Add(new SongScore
+            {
+                Instrument = EInstrumentPart.DRUMS,
+                ChartId = 10,
+                Chart = chart,
+                PlayCount = 8,
+                BestScore = 950000,
+                BestRank = 90
+            });
+            chart.Scores.Add(new SongScore
+            {
+                Instrument = EInstrumentPart.GUITAR,
+                ChartId = 10,
+                Chart = chart,
+                PlayCount = 3,
+                BestScore = 600000,
+                BestRank = 70
+            });
 
-        var node = new SongListNode { Type = NodeType.Score, Title = "Test" };
-        node.Scores[0] = new SongScore
-        {
-            Instrument = EInstrumentPart.DRUMS,
-            DifficultyLevel = 60
-        };
-        node.Scores[1] = new SongScore
-        {
-            Instrument = EInstrumentPart.DRUMS,
-            DifficultyLevel = 80
-        };
+            var node = new SongListNode { Type = NodeType.Score, Title = "Test" };
+            node.Scores[0] = new SongScore
+            {
+                ChartId = 10,
+                Instrument = EInstrumentPart.DRUMS,
+                DifficultyLevel = 60
+            };
+            node.Scores[1] = new SongScore
+            {
+                ChartId = 10,
+                Instrument = EInstrumentPart.GUITAR,
+                DifficultyLevel = 70
+            };
 
-        node.PopulatePlayHistoryFromCharts(new[] { chart1, chart2 });
+            node.PopulatePlayHistoryFromCharts(new[] { chart });
 
-        // Each slot should match the persisted score with the same instrument AND difficulty level
-        Assert.Equal(10, node.Scores[0]!.PlayCount);
-        Assert.Equal(95, node.Scores[0]!.BestRank);
-        Assert.Equal(25, node.Scores[1]!.PlayCount);
-        Assert.Equal(88, node.Scores[1]!.BestRank);
-    }
+            // Each slot should match the persisted score for its own instrument
+            Assert.Equal(8, node.Scores[0]!.PlayCount);
+            Assert.Equal(950000, node.Scores[0]!.BestScore);
+            Assert.Equal(90, node.Scores[0]!.BestRank);
 
-    [Fact]
-    public void PopulatePlayHistoryFromCharts_WithMultipleCharts_NoMatchingDifficulty_ShouldKeepDefaults()
-    {
-        // Only chart1 has a persisted DRUMS score at level 60
-        var chart1 = new SongChart { HasDrumChart = true, DrumLevel = 60 };
-        chart1.Scores.Add(new SongScore
-        {
-            Instrument = EInstrumentPart.DRUMS,
-            Chart = chart1, // Required for DifficultyLevel matching
-            PlayCount = 10,
-            BestRank = 95
-        });
+            Assert.Equal(3, node.Scores[1]!.PlayCount);
+            Assert.Equal(600000, node.Scores[1]!.BestScore);
+            Assert.Equal(70, node.Scores[1]!.BestRank);
+        }
 
-        // chart2 has DRUMS at level 80 but no persisted score
-        var chart2 = new SongChart { HasDrumChart = true, DrumLevel = 80 };
-
-        var node = new SongListNode { Type = NodeType.Score, Title = "Test" };
-        node.Scores[0] = new SongScore
-        {
-            Instrument = EInstrumentPart.DRUMS,
-            DifficultyLevel = 60
-        };
-        node.Scores[1] = new SongScore
-        {
-            Instrument = EInstrumentPart.DRUMS,
-            DifficultyLevel = 80
-        };
-
-        node.PopulatePlayHistoryFromCharts(new[] { chart1, chart2 });
-
-        // Slot 0 matches chart1's persisted score (same instrument + level 60)
-        Assert.Equal(10, node.Scores[0]!.PlayCount);
-        Assert.Equal(95, node.Scores[0]!.BestRank);
-        // Slot 1 has no matching persisted score (level 80, no data) — stays default
-        Assert.Equal(0, node.Scores[1]!.PlayCount);
-        Assert.Equal(0, node.Scores[1]!.BestRank);
-    }
-
-    [Fact]
-    public void PopulatePlayHistoryFromCharts_WithDuplicateDifficulty_ShouldMatchByChartId()
-    {
-        // Two charts both have DRUMS at level 60 — matching by instrument+level alone
-        // would return the first chart's score for both slots.
-        var chart1 = new SongChart { Id = 10, HasDrumChart = true, DrumLevel = 60 };
-        chart1.Scores.Add(new SongScore
-        {
-            Instrument = EInstrumentPart.DRUMS,
-            ChartId = 10,
-            Chart = chart1,
-            PlayCount = 5,
-            BestScore = 100000
-        });
-
-        var chart2 = new SongChart { Id = 20, HasDrumChart = true, DrumLevel = 60 };
-        chart2.Scores.Add(new SongScore
-        {
-            Instrument = EInstrumentPart.DRUMS,
-            ChartId = 20,
-            Chart = chart2,
-            PlayCount = 25,
-            BestScore = 900000
-        });
-
-        var node = new SongListNode { Type = NodeType.Score, Title = "Test" };
-        // Slot 0 linked to chart1, slot 1 linked to chart2
-        node.Scores[0] = new SongScore
-        {
-            ChartId = 10,
-            Instrument = EInstrumentPart.DRUMS,
-            DifficultyLevel = 60
-        };
-        node.Scores[1] = new SongScore
-        {
-            ChartId = 20,
-            Instrument = EInstrumentPart.DRUMS,
-            DifficultyLevel = 60
-        };
-
-        node.PopulatePlayHistoryFromCharts(new[] { chart1, chart2 });
-
-        // Each slot should match its own chart's persisted score, not the first one
-        Assert.Equal(5, node.Scores[0]!.PlayCount);
-        Assert.Equal(100000, node.Scores[0]!.BestScore);
-        Assert.Equal(25, node.Scores[1]!.PlayCount);
-        Assert.Equal(900000, node.Scores[1]!.BestScore);
-    }
-
-    [Fact]
-    public void PopulatePlayHistoryFromCharts_SameChartIdDifferentInstruments_ShouldMatchByInstrument()
-    {
-        // A single chart (ChartId=10) has persisted scores for both DRUMS and GUITAR.
-        var chart = new SongChart { Id = 10, HasDrumChart = true, DrumLevel = 60, HasGuitarChart = true, GuitarLevel = 70 };
-        chart.Scores.Add(new SongScore
-        {
-            Instrument = EInstrumentPart.DRUMS,
-            ChartId = 10,
-            Chart = chart,
-            PlayCount = 8,
-            BestScore = 950000,
-            BestRank = 90
-        });
-        chart.Scores.Add(new SongScore
-        {
-            Instrument = EInstrumentPart.GUITAR,
-            ChartId = 10,
-            Chart = chart,
-            PlayCount = 3,
-            BestScore = 600000,
-            BestRank = 70
-        });
-
-        var node = new SongListNode { Type = NodeType.Score, Title = "Test" };
-        node.Scores[0] = new SongScore
-        {
-            ChartId = 10,
-            Instrument = EInstrumentPart.DRUMS,
-            DifficultyLevel = 60
-        };
-        node.Scores[1] = new SongScore
-        {
-            ChartId = 10,
-            Instrument = EInstrumentPart.GUITAR,
-            DifficultyLevel = 70
-        };
-
-        node.PopulatePlayHistoryFromCharts(new[] { chart });
-
-        // Each slot should match the persisted score for its own instrument
-        Assert.Equal(8, node.Scores[0]!.PlayCount);
-        Assert.Equal(950000, node.Scores[0]!.BestScore);
-        Assert.Equal(90, node.Scores[0]!.BestRank);
-
-        Assert.Equal(3, node.Scores[1]!.PlayCount);
-        Assert.Equal(600000, node.Scores[1]!.BestScore);
-        Assert.Equal(70, node.Scores[1]!.BestRank);
-    }
-
-    #endregion
+        #endregion
 
         #region Note Tests
 

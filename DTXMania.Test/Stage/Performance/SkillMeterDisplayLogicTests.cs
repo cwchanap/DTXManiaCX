@@ -1,21 +1,22 @@
 using System;
-using DTXMania.Game.Lib.Stage.Performance;
-using Xunit;
-
 using System.Reflection;
 using System.Runtime.Serialization;
 using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Moq;
+using Xunit;
 using static DTXMania.Test.Helpers.TestFontFactory;
 using static DTXMania.Test.TestData.ReflectionHelpers;
+
 namespace DTXMania.Test.Stage.Performance
 {
     /// <summary>
     /// Pure logic tests for SkillMeterDisplay math helpers — runs on all platforms.
     /// </summary>
+    [Collection("ManagedFont")]
     [Trait("Category", "Unit")]
     public class SkillMeterDisplayLogicTests
     {
@@ -475,12 +476,5 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         #endregion
-
-        private static SpriteBatch CreateUninitializedSpriteBatch()
-        {
-            var spriteBatch = CreateUninitialized<SpriteBatch>();
-            GC.SuppressFinalize(spriteBatch);
-            return spriteBatch;
-        }
     }
 }

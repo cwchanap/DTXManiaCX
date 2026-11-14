@@ -1,13 +1,12 @@
 using System.Reflection;
+using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.UI.Layout;
-using Microsoft.Xna.Framework;
-using Xunit;
-
-using Moq;
-using DTXMania.Game.Lib.Resources;
-using Microsoft.Xna.Framework.Graphics;
 using DTXMania.Test.TestData;
+using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
+using Moq;
+using Xunit;
 namespace DTXMania.Test.UI
 {
     /// <summary>
@@ -121,7 +120,8 @@ namespace DTXMania.Test.UI
         {
             Assert.Equal(Color.White, InvokeDrumLaneColor(lane));
         }
-            [Fact]
+
+        [Fact]
         public void DrawBpmNumberBitmap_WithScaledThemeAndDoubleResolutionSheet_ShouldScaleSourceAndDestination()
         {
             var panel = new SongStatusPanel();
@@ -176,5 +176,5 @@ namespace DTXMania.Test.UI
                     0f),
                 Times.Once);
         }
-}
+    }
 }

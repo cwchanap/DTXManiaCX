@@ -18,7 +18,6 @@ using Microsoft.Xna.Framework.Audio;
 using Moq;
 using Xunit;
 using static DTXMania.Test.TestData.ReflectionHelpers;
-
 using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
 

@@ -38,9 +38,6 @@ namespace DTXMania.Test.Resources
                     // Ignore cleanup errors
                 }
             }
-
-            if (Directory.Exists(_root))
-                Directory.Delete(_root, recursive: true);
         }
 
         [Fact]
@@ -603,18 +600,13 @@ namespace DTXMania.Test.Resources
 
         #endregion
 
-        private readonly string _root = Path.Combine(
-            Path.GetTempPath(),
-            "DTXManiaCX_SkinManagerPatchCoverage",
-            Guid.NewGuid().ToString("N"));
-
         [Theory]
         [InlineData(null)]
         [InlineData("")]
         public void SwitchToSkinPath_WithMissingPath_ShouldRejectWithoutMutatingResources(string? path)
         {
             var resourceManager = new Mock<IResourceManager>();
-            using var manager = new SkinManager(resourceManager.Object, _root);
+            using var manager = new SkinManager(resourceManager.Object, _testSkinRoot);
 
             Assert.False(manager.SwitchToSkinPath(path!));
             resourceManager.Verify(value => value.SetBoxDefSkinPath(It.IsAny<string>()), Times.Never);
@@ -625,7 +617,7 @@ namespace DTXMania.Test.Resources
         public void SwitchToSkinPath_WithRelativePath_ShouldRejectWithoutValidationSideEffects()
         {
             var resourceManager = new Mock<IResourceManager>();
-            using var manager = new SkinManager(resourceManager.Object, _root);
+            using var manager = new SkinManager(resourceManager.Object, _testSkinRoot);
 
             Assert.False(manager.SwitchToSkinPath(Path.Combine("relative", "skin")));
             resourceManager.Verify(value => value.SetBoxDefSkinPath(It.IsAny<string>()), Times.Never);
@@ -635,10 +627,10 @@ namespace DTXMania.Test.Resources
         [Fact]
         public void SwitchToSkinPath_WithInvalidAbsolutePath_ShouldRejectWithoutMutatingResources()
         {
-            var invalidPath = Path.Combine(_root, "InvalidSkin");
+            var invalidPath = Path.Combine(_testSkinRoot, "InvalidSkin");
             Directory.CreateDirectory(invalidPath);
             var resourceManager = new Mock<IResourceManager>();
-            using var manager = new SkinManager(resourceManager.Object, _root);
+            using var manager = new SkinManager(resourceManager.Object, _testSkinRoot);
 
             Assert.False(manager.SwitchToSkinPath(invalidPath));
             resourceManager.Verify(value => value.SetBoxDefSkinPath(It.IsAny<string>()), Times.Never);
@@ -650,7 +642,7 @@ namespace DTXMania.Test.Resources
         {
             var validPath = CreateValidSkin("ExternalSkin");
             var resourceManager = new Mock<IResourceManager>();
-            using var manager = new SkinManager(resourceManager.Object, _root);
+            using var manager = new SkinManager(resourceManager.Object, _testSkinRoot);
 
             Assert.True(manager.SwitchToSkinPath(validPath));
             resourceManager.Verify(value => value.SetBoxDefSkinPath(""), Times.Once);
@@ -664,7 +656,7 @@ namespace DTXMania.Test.Resources
             var resourceManager = new Mock<IResourceManager>();
             resourceManager.Setup(value => value.SetSkinPath(validPath))
                 .Throws(new InvalidOperationException("switch failed"));
-            using var manager = new SkinManager(resourceManager.Object, _root);
+            using var manager = new SkinManager(resourceManager.Object, _testSkinRoot);
 
             Assert.False(manager.SwitchToSkinPath(validPath));
             resourceManager.Verify(value => value.SetBoxDefSkinPath(""), Times.Once);
@@ -677,7 +669,7 @@ namespace DTXMania.Test.Resources
         public void SwitchToSystemSkin_WithMissingName_ShouldRejectWithoutMutatingResources(string? name)
         {
             var resourceManager = new Mock<IResourceManager>();
-            using var manager = new SkinManager(resourceManager.Object, _root);
+            using var manager = new SkinManager(resourceManager.Object, _testSkinRoot);
 
             Assert.False(manager.SwitchToSystemSkin(name!));
             resourceManager.Verify(value => value.SetBoxDefSkinPath(It.IsAny<string>()), Times.Never);
@@ -691,7 +683,7 @@ namespace DTXMania.Test.Resources
             var resourceManager = new Mock<IResourceManager>();
             resourceManager.Setup(value => value.SetSkinPath(It.IsAny<string>()))
                 .Throws(new InvalidOperationException("switch failed"));
-            using var manager = new SkinManager(resourceManager.Object, _root);
+            using var manager = new SkinManager(resourceManager.Object, _testSkinRoot);
             manager.RefreshAvailableSkins();
 
             Assert.False(manager.SwitchToSystemSkin("DiscoveredSkin"));
@@ -701,7 +693,7 @@ namespace DTXMania.Test.Resources
 
         private string CreateValidSkin(string name)
         {
-            var path = Path.Combine(_root, name);
+            var path = Path.Combine(_testSkinRoot, name);
             var graphics = Path.Combine(path, "Graphics");
             Directory.CreateDirectory(graphics);
             File.WriteAllText(Path.Combine(graphics, "1_background.jpg"), "test");

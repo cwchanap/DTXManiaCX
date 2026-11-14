@@ -253,23 +253,23 @@ public class DefaultGraphicsGeneratorLogicTests
         Assert.Equal(("Generated_Panel_20x8", 20, 8), generator.CreateGeneratedTextureCalls[0]);
     }
 
-        [Fact]
-        public void GenerateBPMBackground_WhenLabelsEnabled_ShouldDrawPlaceholderAreas()
-        {
-            var generator = CreateTestableGenerator();
-            var texture = CreateTextureMock("Generated_BPMBackground_8x8");
-            generator.CreateGeneratedTextureHandler = _ => texture.Object;
+    [Fact]
+    public void GenerateBPMBackground_WhenLabelsEnabled_ShouldDrawPlaceholderAreas()
+    {
+        var generator = CreateTestableGenerator();
+        var texture = CreateTextureMock("Generated_BPMBackground_8x8");
+        generator.CreateGeneratedTextureHandler = _ => texture.Object;
 
-            var result = generator.GenerateBPMBackground(8, 8, withLabels: true);
+        var result = generator.GenerateBPMBackground(8, 8, withLabels: true);
 
-            Assert.Same(texture.Object, result);
-            Assert.Equal("Generated_BPMBackground_8x8", result.SourcePath);
-            Assert.Equal(14, generator.DrawCalls.Count);
-            Assert.Equal(new Rectangle(5, 5, 0, 0), generator.DrawCalls[^2].Destination);
-            Assert.Equal(new Rectangle(5, 4, 0, 0), generator.DrawCalls[^1].Destination);
-            Assert.Single(generator.CreateGeneratedTextureCalls);
-            Assert.Equal(("Generated_BPMBackground_8x8", 8, 8), generator.CreateGeneratedTextureCalls[0]);
-        }
+        Assert.Same(texture.Object, result);
+        Assert.Equal("Generated_BPMBackground_8x8", result.SourcePath);
+        Assert.Equal(14, generator.DrawCalls.Count);
+        Assert.Equal(new Rectangle(5, 5, 0, 0), generator.DrawCalls[^2].Destination);
+        Assert.Equal(new Rectangle(5, 4, 0, 0), generator.DrawCalls[^1].Destination);
+        Assert.Single(generator.CreateGeneratedTextureCalls);
+        Assert.Equal(("Generated_BPMBackground_8x8", 8, 8), generator.CreateGeneratedTextureCalls[0]);
+    }
 
     [Fact]
     public void GenerateButton_WhenPressed_ShouldDrawGradientAndBorder()

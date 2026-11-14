@@ -1,13 +1,12 @@
 using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.UI.Layout;
-using Microsoft.Xna.Framework;
-using Xunit;
-
-using DTXMania.Game.Lib.Song;
 using DTXMania.Test.TestData;
+using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Moq;
+using Xunit;
 namespace DTXMania.Test.Stage
 {
     /// <summary>

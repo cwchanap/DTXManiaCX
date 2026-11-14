@@ -4,13 +4,12 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Stage.Config;
 using Xunit;
-
-using System.Reflection;
 namespace DTXMania.Test.Config;
 
 [Collection("SongManager")]

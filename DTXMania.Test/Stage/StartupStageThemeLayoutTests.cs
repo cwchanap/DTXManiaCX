@@ -1,15 +1,14 @@
-using DTXMania.Game.Lib.Resources;
-using DTXMania.Game.Lib.Stage;
-using Microsoft.Xna.Framework;
-using Moq;
-using Xunit;
-
 using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using DTXMania.Game;
-using Microsoft.Xna.Framework.Graphics;
+using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.Stage;
 using DTXMania.Test.TestData;
+using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
+using Moq;
+using Xunit;
 namespace DTXMania.Test.Stage
 {
     /// <summary>
@@ -327,7 +326,8 @@ namespace DTXMania.Test.Stage
             Assert.Equal("LoadScoreFiles (57.1%)",
                 StartupStage.FormatPhaseReadout(StartupPhase.LoadScoreFiles, 0.5714));
         }
-            [Fact]
+
+        [Fact]
         public void StartupActivation_WhenThemedBoldFaceFails_ShouldUseSerifFallbackAndIgnoreStatusFallbackFailure()
         {
             var game = ReflectionHelpers.CreateGame();
@@ -445,23 +445,6 @@ namespace DTXMania.Test.Stage
             "Startup.TextFontSize=15",
             "Startup.StatusFontSize=17"
         });
-
-        private static void VerifyBitmapDraw(
-            Mock<ITexture> texture,
-            Rectangle destination,
-            Rectangle source)
-        {
-            texture.Verify(value => value.Draw(
-                    It.IsAny<SpriteBatch>(),
-                    destination,
-                    It.Is<Rectangle?>(candidate => candidate.HasValue && candidate.Value == source),
-                    Color.White,
-                    0f,
-                    Vector2.Zero,
-                    SpriteEffects.None,
-                    0f),
-                Times.Once);
-        }
 
         private sealed class CoverageStartupStage : StartupStage
         {

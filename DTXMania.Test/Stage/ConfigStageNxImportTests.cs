@@ -478,7 +478,7 @@ public class ConfigStageNxImportTests : IDisposable
         {
             InitializeStageMenu(stage, includePanels: false);
             var font = new Mock<IFont>();
-            var spriteBatch = CreateUninitializedSpriteBatch();
+            var spriteBatch = ReflectionHelpers.CreateUninitializedSpriteBatch();
             ReflectionHelpers.SetPrivateField(stage, "_font", font.Object);
             ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", spriteBatch);
             ReflectionHelpers.SetPrivateField(stage, "_importStatus", "Importing... 1 / 5");
@@ -497,7 +497,7 @@ public class ConfigStageNxImportTests : IDisposable
         {
             InitializeStageMenu(stage, includePanels: false);
             var font = new Mock<IFont>();
-            var spriteBatch = CreateUninitializedSpriteBatch();
+            var spriteBatch = ReflectionHelpers.CreateUninitializedSpriteBatch();
             ReflectionHelpers.SetPrivateField(stage, "_font", font.Object);
             ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", spriteBatch);
             ReflectionHelpers.SetPrivateField(stage, "_importStatus", "");
@@ -719,14 +719,5 @@ public class ConfigStageNxImportTests : IDisposable
             IProgress<SongLibraryReloadProgress>? progress,
             CancellationToken cancellationToken) =>
             _reload(configuredRoots, progress, cancellationToken);
-    }
-
-    private static SpriteBatch CreateUninitializedSpriteBatch()
-    {
-#pragma warning disable SYSLIB0050
-        var sb = (SpriteBatch)System.Runtime.Serialization.FormatterServices.GetUninitializedObject(typeof(SpriteBatch));
-#pragma warning restore SYSLIB0050
-        GC.SuppressFinalize(sb);
-        return sb;
     }
 }

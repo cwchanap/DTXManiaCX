@@ -1,7 +1,5 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.Reflection;
 using DTXMania.Game.Lib.Resources;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -41,41 +39,21 @@ namespace DTXMania.Test.Helpers
         /// <summary>
         /// Runs <paramref name="action"/> with ManagedFont's static font factory forced
         /// unavailable (ContentManager null, font cache emptied), so code under test takes its
-        /// font-unavailable path. The lock and finally-based restore keep ManagedFont's private
-        /// static state intact for other tests.
+        /// font-unavailable path. Captures and restores ManagedFont's static state; callers must
+        /// be in <c>[Collection("ManagedFont")]</c> so static mutations are serialized.
         /// </summary>
         internal static T WithManagedFontUnavailable<T>(Func<T> action)
         {
-            var managedFontType = typeof(ManagedFont);
-            var factoryLock = managedFontType
-                .GetField("_fontFactoryLock", BindingFlags.Static | BindingFlags.NonPublic)!
-                .GetValue(null)!;
-
-            lock (factoryLock)
+            var state = ManagedFont.CaptureFontFactoryStateForTesting();
+            try
             {
-                var contentManagerField = managedFontType.GetField("_contentManager", BindingFlags.Static | BindingFlags.NonPublic)!;
-                var originalContentManager = contentManagerField.GetValue(null);
-
-                var loadedFontsField = managedFontType.GetField("_loadedFonts", BindingFlags.Static | BindingFlags.NonPublic)!;
-                var loadedFonts = (IDictionary)loadedFontsField.GetValue(null)!;
-                var originalEntries = new DictionaryEntry[loadedFonts.Count];
-                loadedFonts.CopyTo(originalEntries, 0);
-
-                try
-                {
-                    contentManagerField.SetValue(null, null);
-                    loadedFonts.Clear();
-                    return action();
-                }
-                finally
-                {
-                    loadedFonts.Clear();
-                    foreach (DictionaryEntry entry in originalEntries)
-                    {
-                        loadedFonts[entry.Key] = entry.Value;
-                    }
-                    contentManagerField.SetValue(null, originalContentManager);
-                }
+                ManagedFont.ResetFontFactoryForTesting();
+                return action();
+            }
+            finally
+            {
+                ManagedFont.RestoreFontFactoryStateForTesting(
+                    state.ContentManager, state.DefaultFont, state.LoadedFonts);
             }
         }
     }
