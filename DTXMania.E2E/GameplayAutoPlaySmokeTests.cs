@@ -178,7 +178,14 @@ public sealed class GameplayAutoPlaySmokeTests
             includeBackgroundVideo: true,
             // The Tab tour capture must show the shipped CX Neon skin, not the
             // sandbox fallback skin.
-            useBundledDefaultSkin: true);
+            useBundledDefaultSkin: true,
+            // The capture predicate also needs unjudged notes past the bar-1
+            // retrigger: without a tail the last drum note judges at ~2.6s,
+            // leaving under a second for the whole screenshot round-trip on a
+            // slow runner. The tail repeats the drum pattern (and restarts the
+            // one-second clip each bar) so the staff stays busy for ~8 more
+            // seconds of capture headroom.
+            drumNoteTailBars: 4);
         // Keep this test's logs, fixture copies and failure screenshot out of the
         // shared tour folder and out of the other tests' common artifact names.
         fixture = fixture with
@@ -199,8 +206,9 @@ public sealed class GameplayAutoPlaySmokeTests
             // READY (before StartSong), when channel-54 video triggers have not been
             // scheduled and the frame cannot prove strip-over-BGA order. Wait for the
             // song clock to advance past the bar-1 #AVI retrigger (2000ms at 120 BPM;
-            // the one-second video then stays active until ~3000ms) while unjudged
-            // notes remain — after the last judgement the staff is empty.
+            // the drum-note tail keeps restarting the one-second video each second)
+            // while unjudged notes remain — after the last judgement the staff is
+            // empty.
             await CaptureTabScreenshotAsync(
                 client,
                 fixture,

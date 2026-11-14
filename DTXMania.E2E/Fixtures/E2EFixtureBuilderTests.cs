@@ -159,6 +159,123 @@ public sealed class E2EFixtureBuilderTests
     }
 
     [Fact]
+    public async Task Build_WithDrumNoteTailBars_ShouldExtendDrumNotesAndVideoRetriggers()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "dtx-e2e-fixture-" + Guid.NewGuid().ToString("N"));
+        var repoRoot = Path.Combine(Path.GetTempPath(), "dtx-e2e-repo-" + Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            // includeBackgroundVideo copies the committed rawvideo fixture out
+            // of the repo tree; a stub stands in because the test cwd is the
+            // build output directory, not the repo root.
+            var videoDirectory = Path.Combine(repoRoot, "DTXMania.Test", "TestData", "Video");
+            Directory.CreateDirectory(videoDirectory);
+            File.WriteAllBytes(
+                Path.Combine(videoDirectory, E2EFixtureBuilder.BackgroundVideoFileName),
+                new byte[] { 0x01 });
+
+            var fixture = E2EFixtureBuilder.Build(
+                root,
+                repoRoot,
+                apiPort: 18080,
+                includeBackgroundVideo: true,
+                drumNoteTailBars: 2);
+
+            var chart = File.ReadAllText(fixture.ChartPath);
+            Assert.Contains("#00211: 0100000000000000", chart);
+            Assert.Contains("#00212: 0001000000000000", chart);
+            Assert.Contains("#00213: 0000010000000000", chart);
+            Assert.Contains("#00311: 0100000000000000", chart);
+            Assert.DoesNotContain("#00411:", chart);
+
+            // Bar 1 re-triggers mid-bar and every tail bar restarts the
+            // one-second clip twice, so the video stays active through the
+            // widened capture window instead of ending at ~3s.
+            Assert.Contains("#00154: 0101", chart);
+            Assert.Contains("#00254: 0101", chart);
+            Assert.Contains("#00354: 0101", chart);
+            Assert.DoesNotContain("#00454:", chart);
+            Assert.True(File.Exists(
+                Path.Combine(fixture.SongDirectory, E2EFixtureBuilder.BackgroundVideoFileName)));
+
+            var parsedChart = await DTXChartParser.ParseAsync(fixture.ChartPath);
+            Assert.Equal(12, parsedChart.TotalNotes);
+            Assert.Equal(
+                new[] { 0.0, 2000.0, 3000.0, 4000.0, 5000.0, 6000.0, 7000.0 },
+                parsedChart.VideoEvents.Select(videoEvent => videoEvent.TimeMs).ToArray());
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+            if (Directory.Exists(repoRoot))
+                Directory.Delete(repoRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Build_WithDrumNoteTailBarsAndNoVideo_ShouldNotEmitVideoTriggers()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "dtx-e2e-fixture-" + Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            var fixture = E2EFixtureBuilder.Build(
+                root,
+                Directory.GetCurrentDirectory(),
+                apiPort: 18080,
+                drumNoteTailBars: 1);
+
+            var chart = File.ReadAllText(fixture.ChartPath);
+            Assert.Contains("#00211: 0100000000000000", chart);
+            Assert.DoesNotContain("54:", chart);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Build_WithVideoAndNoDrumNoteTail_ShouldKeepSingleBarOneRetrigger()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "dtx-e2e-fixture-" + Guid.NewGuid().ToString("N"));
+        var repoRoot = Path.Combine(Path.GetTempPath(), "dtx-e2e-repo-" + Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            var videoDirectory = Path.Combine(repoRoot, "DTXMania.Test", "TestData", "Video");
+            Directory.CreateDirectory(videoDirectory);
+            File.WriteAllBytes(
+                Path.Combine(videoDirectory, E2EFixtureBuilder.BackgroundVideoFileName),
+                new byte[] { 0x01 });
+
+            var fixture = E2EFixtureBuilder.Build(
+                root,
+                repoRoot,
+                apiPort: 18080,
+                includeBackgroundVideo: true);
+
+            var chart = File.ReadAllText(fixture.ChartPath);
+            Assert.Contains("#00154: 01\n", chart);
+            Assert.DoesNotContain("#00154: 0101", chart);
+            Assert.DoesNotContain("#00211:", chart);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+            if (Directory.Exists(repoRoot))
+                Directory.Delete(repoRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Build_WithBundledDefaultSkin_ShouldUseDefaultTokenAndNoFixtureSkin()
     {
         var root = Path.Combine(Path.GetTempPath(), "dtx-e2e-fixture-" + Guid.NewGuid().ToString("N"));
