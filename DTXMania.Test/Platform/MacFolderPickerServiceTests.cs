@@ -3,13 +3,12 @@
 using System;
 using System.Diagnostics;
 using System.IO;
-using DTXMania.Game.Lib.Stage.Config;
-using DTXMania.Game.Platform;
-using Xunit;
-
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using DTXMania.Game.Lib.Stage.Config;
+using DTXMania.Game.Platform;
+using Xunit;
 namespace DTXMania.Test.Platform;
 
 [Trait("Category", "Unit")]

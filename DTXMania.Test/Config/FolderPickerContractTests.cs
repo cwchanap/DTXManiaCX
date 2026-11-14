@@ -7,7 +7,6 @@ using System.Threading.Tasks;
 using DTXMania.Game.Lib.Stage.Config;
 using DTXMania.Game.Platform;
 using DTXMania.Test.TestData;
-
 using Xunit;
 namespace DTXMania.Test.Config;
 

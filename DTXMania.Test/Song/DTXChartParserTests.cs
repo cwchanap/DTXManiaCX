@@ -1,14 +1,14 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
+using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Entities;
 using Xunit;
 
-using System.Reflection;
-using DTXMania.Game.Lib.Input;
 namespace DTXMania.Test.Song
 {
     /// <summary>
@@ -16,7 +16,6 @@ namespace DTXMania.Test.Song
     /// Tests chart parsing functionality for Phase 2 implementation
     /// </summary>
     [Trait("Category", "Unit")]
-    [Collection("SongManager")]
     public class DTXChartParserTests : IDisposable
     {
         private readonly string _testDataPath;
@@ -27,7 +26,6 @@ namespace DTXMania.Test.Song
             // Get the test data directory
             _testDataPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestData");
             _sampleDtxPath = Path.Combine(_testDataPath, "sample.dtx");
-            Directory.CreateDirectory(_tempDir);
         }
 
         [Fact]
@@ -615,15 +613,30 @@ namespace DTXMania.Test.Song
             Path.GetTempPath(),
             $"DTXMania_DTXParserTest_{Guid.NewGuid():N}");
 
+        private string EnsureTempDir()
+        {
+            Directory.CreateDirectory(_tempDir);
+            return _tempDir;
+        }
+
         public void Dispose()
         {
             if (Directory.Exists(_tempDir))
-                Directory.Delete(_tempDir, true);
+            {
+                try
+                {
+                    Directory.Delete(_tempDir, true);
+                }
+                catch
+                {
+                    // Best-effort temp cleanup
+                }
+            }
         }
 
         private string CreateTempDtx(string content)
         {
-            var path = Path.Combine(_tempDir, $"{Guid.NewGuid():N}.dtx");
+            var path = Path.Combine(EnsureTempDir(), $"{Guid.NewGuid():N}.dtx");
             File.WriteAllText(path, content);
             return path;
         }
@@ -940,7 +953,7 @@ namespace DTXMania.Test.Song
         [Fact]
         public async Task ParseAsync_WithAbsoluteWavPath_ShouldPreserveAbsoluteBackgroundAudioPath()
         {
-            var absoluteWavPath = Path.Combine(_tempDir, $"{Guid.NewGuid():N}.ogg");
+            var absoluteWavPath = Path.Combine(EnsureTempDir(), $"{Guid.NewGuid():N}.ogg");
             File.WriteAllBytes(absoluteWavPath, Array.Empty<byte>());
 
             var content =
@@ -957,7 +970,7 @@ namespace DTXMania.Test.Song
         public async Task ParseAsync_WithExistingDtxRelativeWavPath_ShouldResolveToDtxDirectory()
         {
             var fileName = $"{Guid.NewGuid():N}.ogg";
-            var expectedPath = Path.Combine(_tempDir, fileName);
+            var expectedPath = Path.Combine(EnsureTempDir(), fileName);
             File.WriteAllBytes(expectedPath, Array.Empty<byte>());
 
             var content =
@@ -974,7 +987,7 @@ namespace DTXMania.Test.Song
         public async Task ParseAsync_WithNonExistentFile_ShouldThrow()
         {
             await Assert.ThrowsAsync<FileNotFoundException>(
-                () => DTXChartParser.ParseAsync(Path.Combine(_tempDir, "nonexistent.dtx")));
+                () => DTXChartParser.ParseAsync(Path.Combine(EnsureTempDir(), "nonexistent.dtx")));
         }
 
         [Fact]
@@ -1195,7 +1208,7 @@ namespace DTXMania.Test.Song
         [Fact]
         public async Task ParseSongEntitiesAsync_UnsupportedExtension_ShouldReturnFileNameAsTitle()
         {
-            var txtPath = Path.Combine(_tempDir, "testfile.txt");
+            var txtPath = Path.Combine(EnsureTempDir(), "testfile.txt");
             File.WriteAllText(txtPath, "#TITLE: Test\n");
 
             var (song, chart) = await DTXChartParser.ParseSongEntitiesAsync(txtPath);
@@ -1207,7 +1220,7 @@ namespace DTXMania.Test.Song
         public async Task ParseSongEntitiesAsync_NonExistentFile_ShouldThrow()
         {
             await Assert.ThrowsAsync<FileNotFoundException>(
-                () => DTXChartParser.ParseSongEntitiesAsync(Path.Combine(_tempDir, "nonexistent.dtx")));
+                () => DTXChartParser.ParseSongEntitiesAsync(Path.Combine(EnsureTempDir(), "nonexistent.dtx")));
         }
 
         [Fact]
@@ -1331,7 +1344,7 @@ namespace DTXMania.Test.Song
             // On macOS/Linux, Path.GetFileName("Audio\\bgm.ogg") returns the whole string
             // because backslash is not a directory separator. Verify that common BGM detection
             // still works when WAV definitions use Windows-style backslash paths.
-            var audioDir = Path.Combine(_tempDir, "Audio");
+            var audioDir = Path.Combine(EnsureTempDir(), "Audio");
             Directory.CreateDirectory(audioDir);
             File.WriteAllText(Path.Combine(audioDir, "bgm.ogg"), "fake");
 
@@ -1418,7 +1431,7 @@ namespace DTXMania.Test.Song
         [Fact]
         public async Task ParseSongEntitiesAsync_ParseHeaderFails_ShouldUseFilenameAsTitle()
         {
-            var txtPath = Path.Combine(_tempDir, "fallback_test.txt");
+            var txtPath = Path.Combine(EnsureTempDir(), "fallback_test.txt");
             File.WriteAllText(txtPath, "#BPM: 120.0\n#DLEVEL: 5\n");
 
             var (song, chart) = await DTXChartParser.ParseSongEntitiesAsync(txtPath);

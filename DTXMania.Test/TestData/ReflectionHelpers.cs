@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using DTXMania.Game;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Update;
+using Microsoft.Xna.Framework.Graphics;
 
 namespace DTXMania.Test.TestData
 {
@@ -39,6 +40,13 @@ namespace DTXMania.Test.TestData
         internal static T CreateUninitialized<T>() where T : class
         {
             return (T)RuntimeHelpers.GetUninitializedObject(typeof(T));
+        }
+
+        internal static SpriteBatch CreateUninitializedSpriteBatch()
+        {
+            var spriteBatch = CreateUninitialized<SpriteBatch>();
+            GC.SuppressFinalize(spriteBatch);
+            return spriteBatch;
         }
 
         internal static T? GetPrivateField<T>(object target, string fieldName)

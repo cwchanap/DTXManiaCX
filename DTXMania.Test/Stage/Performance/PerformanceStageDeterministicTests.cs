@@ -18,16 +18,16 @@ using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Game.Lib.UI;
 using DTXMania.Game.Lib.UI.Layout;
+using DTXMania.Game.Lib.Utilities;
 using DTXMania.Test.Helpers;
 using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Audio;
 using Microsoft.Xna.Framework.Graphics;
 using Moq;
-
-using DTXMania.Game.Lib.Utilities;
 using Xunit;
 using static DTXMania.Test.TestData.ReflectionHelpers;
+
 namespace DTXMania.Test.Stage.Performance;
 
 [Trait("Category", "Unit")]
@@ -2674,17 +2674,20 @@ public class PerformanceStageDeterministicTests
     {
         var stage = CreateStage();
         var stageManager = new Mock<IStageManager>();
+        var songTimer = CreatePlayingSongTimer();
         var judgementManager = new JudgementManager(new MockInputManagerCompat(), CreateChartManagerWithSingleNote())
         {
             IsActive = true
         };
 
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreateStoppedSongTimer());
+        Assert.True(songTimer.IsPlaying);
+        ReflectionHelpers.SetPrivateField(stage, "_songTimer", songTimer);
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
         stage.StageManager = stageManager.Object;
 
         ReflectionHelpers.InvokePrivateMethod(stage, "ReturnToSongSelect");
 
+        Assert.False(songTimer.IsPlaying);
         Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_inputPaused"));
         Assert.False(judgementManager.IsActive);
         stageManager.Verify(
@@ -6092,32 +6095,6 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void ReturnToSongSelect_ShouldStopTimerDeactivateJudgementPauseInputAndChangeStage()
-    {
-        var stage = CreateStage();
-        var stageManager = new Mock<IStageManager>();
-        stage.StageManager = stageManager.Object;
-        var judgementManager = new JudgementManager(new MockInputManagerCompat(), CreateChartManagerWithSingleNote())
-        {
-            IsActive = true
-        };
-        var songTimer = CreateStoppedSongTimer();
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", songTimer);
-        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "ReturnToSongSelect");
-
-        Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_inputPaused"));
-        Assert.False(judgementManager.IsActive);
-        stageManager.Verify(
-            x => x.ChangeStage(
-                StageType.SongSelect,
-                It.Is<IStageTransition>(t => t is DTXManiaFadeTransition),
-                null),
-            Times.Once);
-    }
-
-    [Fact]
     public void ReturnToSongSelect_WhenSongTimerNull_ShouldNotThrow()
     {
         var stage = CreateStage();
@@ -6264,15 +6241,18 @@ public class PerformanceStageDeterministicTests
         var scoreManager = new ScoreManager(chartManager.TotalNotes);
         var comboManager = new ComboManager();
         var gaugeManager = new GaugeManager();
+        var songTimer = CreatePlayingSongTimer();
+        Assert.True(songTimer.IsPlaying);
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", chartManager);
         ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
         ReflectionHelpers.SetPrivateField(stage, "_scoreManager", scoreManager);
         ReflectionHelpers.SetPrivateField(stage, "_comboManager", comboManager);
         ReflectionHelpers.SetPrivateField(stage, "_gaugeManager", gaugeManager);
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreateStoppedSongTimer());
+        ReflectionHelpers.SetPrivateField(stage, "_songTimer", songTimer);
 
         ReflectionHelpers.InvokePrivateMethod(stage, "FinalizePerformance", CompletionReason.SongComplete);
 
+        Assert.False(songTimer.IsPlaying);
         Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_stageCompleted"));
         Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_inputPaused"));
         Assert.False(judgementManager.IsActive);
@@ -6312,21 +6292,6 @@ public class PerformanceStageDeterministicTests
         stage.StageManager = stageManager.Object;
         ReflectionHelpers.SetPrivateField(stage, "_stageCompleted", true);
         ReflectionHelpers.SetPrivateField(stage, "_parsedChart", new ParsedChart("already-done.dtx") { DurationMs = 1000.0 });
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "CheckStageCompletion", 5000.0);
-
-        stageManager.Verify(
-            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
-            Times.Never);
-    }
-
-    [Fact]
-    public void CheckStageCompletion_WhenParsedChartNull_ShouldNotTransition()
-    {
-        var stage = CreateStage();
-        var stageManager = new Mock<IStageManager>();
-        stage.StageManager = stageManager.Object;
-        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", null);
 
         ReflectionHelpers.InvokePrivateMethod(stage, "CheckStageCompletion", 5000.0);
 
@@ -6409,50 +6374,6 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.InvokePrivateMethod(stage, "DrawGameplayState");
 
         Assert.False(fallbackInvoked);
-    }
-
-    [Fact]
-    public void FinalizePerformance_WhenAllManagersNull_ShouldBuildZeroedSummary()
-    {
-        var stage = CreateStage();
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "FinalizePerformance", CompletionReason.SongComplete);
-
-        var summary = ReflectionHelpers.GetPrivateField<PerformanceSummary>(stage, "_performanceSummary");
-        Assert.NotNull(summary);
-        Assert.Equal(0, summary.Score);
-        Assert.Equal(0, summary.MaxCombo);
-        Assert.Equal(0, summary.PerfectCount);
-        Assert.Equal(0, summary.GreatCount);
-        Assert.Equal(0, summary.GoodCount);
-        Assert.Equal(0, summary.PoorCount);
-        Assert.Equal(0, summary.MissCount);
-        Assert.Equal(0, summary.TotalNotes);
-        Assert.Equal(0.0f, summary.FinalLife);
-        Assert.True(summary.ClearFlag);
-        Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_stageCompleted"));
-        Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_inputPaused"));
-    }
-
-    [Fact]
-    public void FinalizePerformance_ShouldStopSongTimerAndDeactivateJudgementManager()
-    {
-        var stage = CreateStage();
-        var stageManager = new Mock<IStageManager>();
-        stage.StageManager = stageManager.Object;
-        var judgementManager = new JudgementManager(new MockInputManagerCompat(), CreateChartManagerWithSingleNote())
-        {
-            IsActive = true
-        };
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreateStoppedSongTimer());
-        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
-        ReflectionHelpers.SetPrivateField(stage, "_chartManager", CreateChartManagerWithSingleNote());
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "FinalizePerformance", CompletionReason.SongComplete);
-
-        Assert.False(judgementManager.IsActive);
-        Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_stageCompleted"));
-        Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_inputPaused"));
     }
 
     [Fact]
@@ -6562,12 +6483,6 @@ public class PerformanceStageDeterministicTests
 
         protected override SpriteBatch? CreateSpriteBatch(GraphicsDevice graphicsDevice) => null;
     }
-
-
-
-
-
-
 
     private sealed class ScrollSpeedInputManagerCompat : MockInputManagerCompat
     {
@@ -7072,85 +6987,6 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void HandleInput_WhenScrollSpeedIncreasePressed_ShouldAdjustScrollSpeed()
-    {
-        var configManager = new Mock<IConfigManager>();
-        var game = ReflectionHelpers.CreateGame();
-        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager.Object);
-        var stage = CreateStage(game);
-        var inputManager = new ScrollSpeedInputCompat(InputCommandType.IncreaseScrollSpeed);
-        ReflectionHelpers.SetPrivateField(stage, "_inputManager", inputManager);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
-
-        configManager.Verify(x => x.AdjustScrollSpeed(1), Times.Once);
-    }
-
-    [Fact]
-    public void HandleInput_WhenScrollSpeedDecreasePressed_ShouldAdjustScrollSpeed()
-    {
-        var configManager = new Mock<IConfigManager>();
-        var game = ReflectionHelpers.CreateGame();
-        ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager.Object);
-        var stage = CreateStage(game);
-        var inputManager = new ScrollSpeedInputCompat(InputCommandType.DecreaseScrollSpeed);
-        ReflectionHelpers.SetPrivateField(stage, "_inputManager", inputManager);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
-
-        configManager.Verify(x => x.AdjustScrollSpeed(-1), Times.Once);
-    }
-
-    [Fact]
-    public void ReturnToSongSelect_ShouldStopTimerAndDeactivateJudgement()
-    {
-        var stage = CreateStage();
-        var stageManager = new Mock<IStageManager>();
-        stage.StageManager = stageManager.Object;
-        var chartManager = CreateChartManagerWithSingleNote();
-        var judgementManager = new JudgementManager(new MockInputManagerCompat(), chartManager)
-        {
-            IsActive = true
-        };
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreateDisposedSongTimer());
-        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", judgementManager);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "ReturnToSongSelect");
-
-        Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_inputPaused"));
-        Assert.False(judgementManager.IsActive);
-        stageManager.Verify(
-            x => x.ChangeStage(StageType.SongSelect, It.Is<IStageTransition>(t => t is DTXManiaFadeTransition), null),
-            Times.Once);
-    }
-
-    [Fact]
-    public void ReturnToSongSelect_WhenJudgementManagerNull_ShouldNotThrow()
-    {
-        var stage = CreateStage();
-        var stageManager = new Mock<IStageManager>();
-        stage.StageManager = stageManager.Object;
-        ReflectionHelpers.SetPrivateField(stage, "_songTimer", CreateDisposedSongTimer());
-        ReflectionHelpers.SetPrivateField(stage, "_judgementManager", null);
-
-        var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "ReturnToSongSelect"));
-
-        Assert.Null(exception);
-        Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_inputPaused"));
-    }
-
-    [Fact]
-    public void ExtractSharedData_WithNullSharedData_ShouldNotThrow()
-    {
-        var stage = CreateStage();
-        ReflectionHelpers.SetPrivateField(stage, "_sharedData", null);
-
-        var exception = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "ExtractSharedData"));
-
-        Assert.Null(exception);
-    }
-
-    [Fact]
     public void ExtractSharedData_WithParsedChart_ShouldSetParsedChart()
     {
         var stage = CreateStage();
@@ -7278,27 +7114,5 @@ public class PerformanceStageDeterministicTests
             Width = width,
             Height = height
         };
-    }
-
-
-
-    private sealed class ScrollSpeedInputCompat : MockInputManagerCompat
-    {
-        private readonly InputCommandType _activeCommand;
-
-        public ScrollSpeedInputCompat(InputCommandType activeCommand)
-        {
-            _activeCommand = activeCommand;
-        }
-
-        public override bool IsCommandPressed(InputCommandType command)
-        {
-            return command == _activeCommand;
-        }
-
-        public override bool IsBackActionTriggered()
-        {
-            return false;
-        }
     }
 }

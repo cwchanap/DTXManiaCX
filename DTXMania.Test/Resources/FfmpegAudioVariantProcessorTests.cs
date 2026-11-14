@@ -10,9 +10,8 @@ using System.Threading.Tasks;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Test.Utilities;
-using Xunit;
-
 using Moq;
+using Xunit;
 namespace DTXMania.Test.Resources
 {
     [Collection("FfmpegRuntimeState")]

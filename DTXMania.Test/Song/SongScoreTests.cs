@@ -1,10 +1,8 @@
 using System;
 using System.Globalization;
 using DTXMania.Game.Lib.Song;
-using Xunit;
 using DTXMania.Game.Lib.Song.Entities;
-
-// Type alias for EF Core entity
+using Xunit;
 using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
 
 namespace DTXMania.Test.Song

@@ -15,8 +15,8 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using Moq;
-
 using Xunit;
+using static DTXMania.Test.TestData.ReflectionHelpers;
 namespace DTXMania.Test.Config;
 
 [Trait("Category", "Unit")]
@@ -898,14 +898,6 @@ public sealed class SongFolderPanelTests
 
     private static void Press(SongFolderPanel panel, Keys key) =>
         panel.Update(0, new KeyboardState(key), new KeyboardState());
-
-    private static SpriteBatch CreateUninitializedSpriteBatch()
-    {
-#pragma warning disable SYSLIB0050
-        return (SpriteBatch)System.Runtime.Serialization.FormatterServices
-            .GetUninitializedObject(typeof(SpriteBatch));
-#pragma warning restore SYSLIB0050
-    }
 
     private sealed class QueuedFolderPicker : IFolderPickerService
     {

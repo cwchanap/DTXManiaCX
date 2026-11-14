@@ -1,17 +1,16 @@
-using Moq;
-using Xunit;
+using System;
+using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.Song;
+using DTXMania.Game.Lib.Song.Components;
+using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.UI;
 using DTXMania.Game.Lib.UI.Components;
-using DTXMania.Game.Lib.Song.Components;
-using DTXMania.Game.Lib.Song;
-using Microsoft.Xna.Framework;
-using System;
-using DTXMania.Game.Lib.Song.Entities;
-using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
-using DTXMania.Game.Lib.Resources;
-
-using Microsoft.Xna.Framework.Graphics;
 using DTXMania.Test;
+using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
+using Moq;
+using Xunit;
+using SongScore = DTXMania.Game.Lib.Song.Entities.SongScore;
 namespace DTXMania.Test.UI
 {
     /// <summary>

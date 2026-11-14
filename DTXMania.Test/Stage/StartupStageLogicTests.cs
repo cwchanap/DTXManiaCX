@@ -19,10 +19,10 @@ using DTXMania.Test.TestData;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Moq;
-using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
-
 using Xunit;
+using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 using static DTXMania.Test.TestData.ReflectionHelpers;
+
 namespace DTXMania.Test.Stage
 {
     [Trait("Category", "Unit")]
@@ -292,7 +292,7 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void PerformPhaseOperationSync_ConfigValidation_WithNullConfig_ShouldLeaveSongPathsUnchanged()
         {
-            var stage = CreateStage(configData: null);
+            var stage = CreateStage(configData: null, allowNullConfig: true);
             ReflectionHelpers.SetPrivateField(stage, "_songPaths", new[] { "existing" });
 
             ReflectionHelpers.InvokePrivateMethod(stage, "PerformPhaseOperationSync", StartupPhase.ConfigValidation, 0.0);
@@ -1204,12 +1204,14 @@ namespace DTXMania.Test.Stage
             Task? currentAsyncTask = null,
             string currentProgressMessage = "",
             ConfigData? configData = null,
+            bool allowNullConfig = false,
             BaseGame? game = null)
         {
 #pragma warning disable SYSLIB0050
             var stage = (StartupStage)FormatterServices.GetUninitializedObject(typeof(StartupStage));
 #pragma warning restore SYSLIB0050
 
+            var effectiveConfigData = allowNullConfig ? configData : (configData ?? new ConfigData());
             ReflectionHelpers.SetPrivateField(stage, "_game", game ?? ReflectionHelpers.CreateGame());
             ReflectionHelpers.SetPrivateField(stage, "_currentPhase", StagePhase.Normal);
             ReflectionHelpers.SetPrivateField(stage, "_disposed", false);
@@ -1219,7 +1221,7 @@ namespace DTXMania.Test.Stage
             ReflectionHelpers.SetPrivateField(stage, "_currentProgressMessage", currentProgressMessage);
             ReflectionHelpers.SetPrivateField(stage, "_startupPhase", phase);
             ReflectionHelpers.SetPrivateField(stage, "_songManager", null);
-            ReflectionHelpers.SetPrivateField(stage, "_configManager", CreateConfigManager(configData));
+            ReflectionHelpers.SetPrivateField(stage, "_configManager", CreateConfigManager(effectiveConfigData));
             ReflectionHelpers.SetPrivateField(stage, "_activationGate", new object());
             ReflectionHelpers.SetPrivateField(stage, "_currentAsyncTask", currentAsyncTask);
             ReflectionHelpers.SetPrivateField(stage, "_cancellationTokenSource", new CancellationTokenSource());

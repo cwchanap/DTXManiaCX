@@ -475,7 +475,7 @@ namespace DTXMania.Game.Lib.Resources
 
         #region Text Rendering
 
-        public void DrawString(SpriteBatch spriteBatch, string text, Vector2 position, XnaColor color)
+        public virtual void DrawString(SpriteBatch spriteBatch, string text, Vector2 position, XnaColor color)
         {
             if (_disposed || string.IsNullOrEmpty(text))
                 return;

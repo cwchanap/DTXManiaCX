@@ -2282,67 +2282,67 @@ public sealed class SongManagerBulkEnumerationTests : IDisposable
         Assert.Contains("incomplete enumeration", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
-        [Fact]
-        public async Task EnumerateAndImportSongsAsync_WhenCompleteBatchHasNoActiveRoots_ShouldNotImportOrPublish()
+    [Fact]
+    public async Task EnumerateAndImportSongsAsync_WhenCompleteBatchHasNoActiveRoots_ShouldNotImportOrPublish()
+    {
+        await SeedPublishedLibraryAsync();
+        var before = _manager.GetLibrarySnapshot();
+        var importCalls = 0;
+        var publishEvents = 0;
+        _manager.ImportSongsCoreAsync = (_, _, _, _) =>
         {
-            await SeedPublishedLibraryAsync();
-            var before = _manager.GetLibrarySnapshot();
-            var importCalls = 0;
-            var publishEvents = 0;
-            _manager.ImportSongsCoreAsync = (_, _, _, _) =>
+            importCalls++;
+            return Task.FromResult(SongBulkImportResult.Empty);
+        };
+        _manager.SongLibraryPublished += (_, _) => publishEvents++;
+        _manager.BuildEnumerationBatchCoreAsync = (_, _, _) =>
+            Task.FromResult(new SongEnumerationBatch
             {
-                importCalls++;
-                return Task.FromResult(SongBulkImportResult.Empty);
-            };
-            _manager.SongLibraryPublished += (_, _) => publishEvents++;
-            _manager.BuildEnumerationBatchCoreAsync = (_, _, _) =>
-                Task.FromResult(new SongEnumerationBatch
-                {
-                    ActiveRoots = Array.Empty<string>(),
-                    DiscoveredChartPaths = new HashSet<string>(StringComparer.Ordinal),
-                    Candidates = new List<SongImportCandidate>(),
-                    RootNodes = new List<SongListNode>(),
-                    PendingSongs = new List<PendingSongNode>(),
-                    Errors = new List<SongEnumerationError>(),
-                    IsComplete = true,
-                });
+                ActiveRoots = Array.Empty<string>(),
+                DiscoveredChartPaths = new HashSet<string>(StringComparer.Ordinal),
+                Candidates = new List<SongImportCandidate>(),
+                RootNodes = new List<SongListNode>(),
+                PendingSongs = new List<PendingSongNode>(),
+                Errors = new List<SongEnumerationError>(),
+                IsComplete = true,
+            });
 
-            var result = await _manager.EnumerateAndImportSongsAsync(
-                new[] { _songsRoot }, null, CancellationToken.None);
-            var after = _manager.GetLibrarySnapshot();
+        var result = await _manager.EnumerateAndImportSongsAsync(
+            new[] { _songsRoot }, null, CancellationToken.None);
+        var after = _manager.GetLibrarySnapshot();
 
-            Assert.Equal(SongEnumerationOutcome.NoActiveRoots, result.Outcome);
-            Assert.Same(SongBulkImportResult.Empty, result.Import);
-            Assert.Equal(0, importCalls);
-            Assert.Equal(0, publishEvents);
-            Assert.Equal(before.Version, after.Version);
-            Assert.Equal(before.RootSongs, after.RootSongs);
-            Assert.Equal(before.ActiveRoots, after.ActiveRoots);
-            Assert.False(_manager.IsEnumerating);
-        }
+        Assert.Equal(SongEnumerationOutcome.NoActiveRoots, result.Outcome);
+        Assert.Same(SongBulkImportResult.Empty, result.Import);
+        Assert.Equal(0, importCalls);
+        Assert.Equal(0, publishEvents);
+        Assert.Equal(before.Version, after.Version);
+        Assert.Equal(before.RootSongs, after.RootSongs);
+        Assert.Equal(before.ActiveRoots, after.ActiveRoots);
+        Assert.False(_manager.IsEnumerating);
+    }
 
-        [Fact]
-        public async Task RefreshSongListFromDatabaseAsync_WhenCurrentRootBecomesUnavailable_ShouldPreservePublishedSnapshot()
-        {
-            await SeedPublishedLibraryAsync();
-            var before = _manager.GetLibrarySnapshot();
-            var publishEvents = 0;
-            _manager.SongLibraryPublished += (_, _) => publishEvents++;
-            Directory.Delete(_songsRoot, recursive: true);
+    [Fact]
+    public async Task RefreshSongListFromDatabaseAsync_WhenCurrentRootBecomesUnavailable_ShouldPreservePublishedSnapshot()
+    {
+        await SeedPublishedLibraryAsync();
+        var before = _manager.GetLibrarySnapshot();
+        var publishEvents = 0;
+        _manager.SongLibraryPublished += (_, _) => publishEvents++;
+        Directory.Delete(_songsRoot, recursive: true);
 
-            await _manager.RefreshSongListFromDatabaseAsync();
+        await _manager.RefreshSongListFromDatabaseAsync();
 
-            var after = _manager.GetLibrarySnapshot();
-            Assert.Equal(0, publishEvents);
-            Assert.Equal(before.Version, after.Version);
-            Assert.Equal(before.RootSongs, after.RootSongs);
-            Assert.Equal(before.ActiveRoots, after.ActiveRoots);
-            Assert.Equal(before.EnumeratedFileCount, after.EnumeratedFileCount);
-            Assert.Equal(before.DiscoveredScoreCount, after.DiscoveredScoreCount);
-        }
+        var after = _manager.GetLibrarySnapshot();
+        Assert.Equal(0, publishEvents);
+        Assert.Equal(before.Version, after.Version);
+        Assert.Equal(before.RootSongs, after.RootSongs);
+        Assert.Equal(before.ActiveRoots, after.ActiveRoots);
+        Assert.Equal(before.EnumeratedFileCount, after.EnumeratedFileCount);
+        Assert.Equal(before.DiscoveredScoreCount, after.DiscoveredScoreCount);
+    }
 
-        [Fact]
-        public async Task RefreshSongListFromDatabaseAsync_WhenDatabaseNotInitialized_ShouldReturnEarly()
+    [Fact]
+    public async Task RefreshSongListFromDatabaseAsync_WhenDatabaseNotInitialized_ShouldReturnEarly()
     {
         // Without InitializeDatabaseServiceAsync, DatabaseService is null.
         // Should not throw.

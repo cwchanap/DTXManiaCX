@@ -79,7 +79,8 @@ namespace DTXMania.Test.Stage
             return (SongTransitionStage)FormatterServices.GetUninitializedObject(typeof(SongTransitionStage));
 #pragma warning restore SYSLIB0050
         }
-            [Fact]
+
+        [Fact]
         public void LoadDisplayFonts_WhenTitleFaceFails_ShouldStillLoadArtistFaceAndReleasePreviousFonts()
         {
             var stage = new SongTransitionStage(ReflectionHelpers.CreateGame());

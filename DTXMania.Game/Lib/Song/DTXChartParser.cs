@@ -168,7 +168,7 @@ namespace DTXMania.Game.Lib.Song
             // the parser is fully defensive (no throw on malformed input) and Encoding.UTF8
             // uses replacement fallback (invalid bytes become U+FFFD, no throw). The
             // per-attempt instantiation is defensive hardening for a future strict-encoding
-            // or test-seam scenario. See DTXChartParserAdditionalTests for the mechanical
+            // or test-seam scenario. See DTXChartParserTests for the mechanical
             // proof of why shared state would duplicate notes.
             //
             // Failure detection uses a `parsed` flag (set true only after a full,

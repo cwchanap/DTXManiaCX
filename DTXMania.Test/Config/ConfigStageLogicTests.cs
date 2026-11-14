@@ -4,10 +4,13 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.Serialization;
+using System.Threading;
+using System.Threading.Tasks;
 using DTXMania.Game;
 using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.Stage.Config;
 using DTXMania.Game.Lib.Stage.KeyAssign;
@@ -19,10 +22,6 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using Moq;
-
-using System.Threading;
-using System.Threading.Tasks;
-using DTXMania.Game.Lib.Song;
 using Xunit;
 using static DTXMania.Test.Stage.ConfigStageTestFactory;
 using static DTXMania.Test.TestData.ReflectionHelpers;
@@ -44,7 +43,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void SetupConfigItems_ShouldShowConfiguredSongFolderCount()
     {
-        var (stage, configManager, inputManager) = CreateStage();
+        var (stage, configManager, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             configManager.Config.SongRoots.Clear();
@@ -64,7 +63,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void SetupConfigItems_SongFoldersDescription_ShouldExplainApplyTriggersOneLiveReload()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
@@ -81,7 +80,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void SetupConfigItems_RandomSelectFromSubBox_ShouldDescribeAndDisplayToggleState()
     {
-        var (stage, configManager, inputManager) = CreateStage();
+        var (stage, configManager, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
@@ -164,7 +163,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void SongFoldersItem_WhenActivated_ShouldOpenOverlayWithoutMutatingConfig()
     {
-        var (stage, configManager, inputManager) = CreateStage();
+        var (stage, configManager, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             configManager.Config.SongRoots.Clear();
@@ -220,7 +219,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void SongFoldersPanel_InjectedSubFrameTaps_ShouldMoveCursorThroughStageUpdate()
     {
-        var (stage, configManager, inputManager) = CreateStage();
+        var (stage, configManager, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             var panel = OpenSongFoldersPanel(stage, configManager);
@@ -241,7 +240,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void SongFoldersPanel_InjectedKeyHeldAcrossFrames_ShouldMoveCursorOnce()
     {
-        var (stage, configManager, inputManager) = CreateStage();
+        var (stage, configManager, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             var panel = OpenSongFoldersPanel(stage, configManager);
@@ -259,7 +258,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void SongFoldersPanel_InjectedEnterOnCancelRow_ShouldCloseOverlay()
     {
-        var (stage, configManager, inputManager) = CreateStage();
+        var (stage, configManager, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             var panel = OpenSongFoldersPanel(stage, configManager);
@@ -278,7 +277,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void SongFoldersPanel_InjectedEscape_ShouldCloseOverlayWithoutLeavingConfig()
     {
-        var (stage, configManager, inputManager) = CreateStage();
+        var (stage, configManager, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             var panel = OpenSongFoldersPanel(stage, configManager);
@@ -301,7 +300,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void SystemKeyAssignPanel_InjectedSubFrameTaps_ShouldNavigateThroughStageUpdate()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             var panel = OpenSystemKeyAssignPanel(stage);
@@ -316,7 +315,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void SystemKeyAssignPanel_InjectedKeyWhileAwaitingCapture_ShouldBindIt()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             var panel = OpenSystemKeyAssignPanel(stage);
@@ -334,7 +333,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void MoveRightPressedOnResolution_ShouldMutateConfigViaSetter()
     {
-        var (stage, configManager, inputManager) = CreateStage();
+        var (stage, configManager, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             configManager.Config.ScreenWidth = 1280;
@@ -353,7 +352,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void MoveRightPressedOnPlaySpeed_ShouldMutateOnlyGameplaySpeed()
     {
-        var (stage, configManager, inputManager) = CreateStage();
+        var (stage, configManager, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             configManager.Config.PlaySpeedPercent = PlaySpeedRange.Default;
@@ -372,7 +371,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void MoveRightPressedOnPitch_ShouldMutateOnlyPitch()
     {
-        var (stage, configManager, inputManager) = CreateStage();
+        var (stage, configManager, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             configManager.Config.PitchSemitones = PitchRange.Default;
@@ -391,7 +390,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void MoveRightPressedOnPlaySpeed_WhenFfmpegUnavailable_ShouldKeepDefault()
     {
-        var (stage, configManager, inputManager) = CreateStage(ffmpegAvailable: false);
+        var (stage, configManager, inputManager) = CreateStageWithConfig(ffmpegAvailable: false);
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
@@ -407,7 +406,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void MoveRightPressedOnPitch_WhenFfmpegUnavailable_ShouldKeepDefault()
     {
-        var (stage, configManager, inputManager) = CreateStage(ffmpegAvailable: false);
+        var (stage, configManager, inputManager) = CreateStageWithConfig(ffmpegAvailable: false);
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
@@ -423,7 +422,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void PlaybackModifiers_WhenFfmpegUnavailable_ShouldAllowResetToDefaults()
     {
-        var (stage, configManager, inputManager) = CreateStage(ffmpegAvailable: false);
+        var (stage, configManager, inputManager) = CreateStageWithConfig(ffmpegAvailable: false);
         using (inputManager)
         {
             configManager.Config.PlaySpeedPercent = PlaySpeedRange.Max;
@@ -446,7 +445,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void PlaybackModifierDescriptions_WhenUnavailableProfileIsNonDefault_ShouldWarnToReset()
     {
-        var (stage, configManager, inputManager) = CreateStage(ffmpegAvailable: false);
+        var (stage, configManager, inputManager) = CreateStageWithConfig(ffmpegAvailable: false);
         using (inputManager)
         {
             configManager.Config.PlaySpeedPercent = 105;
@@ -467,7 +466,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void MoveLeftPressedOnResolution_ShouldMutateConfigViaSetter()
     {
-        var (stage, configManager, inputManager) = CreateStage();
+        var (stage, configManager, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             configManager.Config.ScreenWidth = 1920;
@@ -486,7 +485,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void ActivatePressedOnToggleItem_ShouldMutateConfigViaSetter()
     {
-        var (stage, configManager, inputManager) = CreateStage();
+        var (stage, configManager, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             configManager.Config.FullScreen = false;
@@ -503,7 +502,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void ActivatePressedOnDrumKeyMapping_ShouldChangeToDrumConfigStage()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: true);
@@ -548,7 +547,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void BackCommandPressed_ShouldFlushAndReturnToTitleStage()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
@@ -569,7 +568,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void BackCommandPressed_ShouldReturnToTitleStage()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
@@ -591,7 +590,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void PanelIsActiveOnDeactivate_ShouldDeactivatePanelAndClearKeyboardState()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: true);
@@ -613,7 +612,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void OnUpdate_WithActivePanel_ShouldForwardKeyboardStatesToPanelAndSkipMenuHandling()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
@@ -697,7 +696,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void OnDraw_WhenSpriteBatchMissing_ShouldReturnWithoutThrowing()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", null);
@@ -790,7 +789,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void HandleInput_WithNullActivePanel_ShouldHandleInputNormally()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
@@ -808,7 +807,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void HandleInput_MoveLeftOnNavigationItem_ShouldNotMutateConfig()
     {
-        var (stage, configManager, inputManager) = CreateStage();
+        var (stage, configManager, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
@@ -826,7 +825,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void HandleInput_MoveRightOnNavigationItem_ShouldNotMutateConfig()
     {
-        var (stage, configManager, inputManager) = CreateStage();
+        var (stage, configManager, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
@@ -844,7 +843,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void HandleInput_MoveLeftOnNavigationItem_ShouldNotChangeStage()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: true);
@@ -869,7 +868,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void HandleInput_MoveRightOnNavigationItem_ShouldNotOpenPanel()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: true);
@@ -889,7 +888,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void HandleInput_ActivateOnSystemKeyMapping_ShouldOpenPanel()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: true);
@@ -908,7 +907,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void IsConfigNavigationCommandPressed_RuntimeBindingPressed_ShouldReturnTrue()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
@@ -930,7 +929,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void IsConfigNavigationCommandPressed_NoPressedKeys_ShouldReturnFalse()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
@@ -946,7 +945,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void IsPanelCommandPressed_RuntimeBindingPressedByKeyboard_ShouldReturnTrue()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
@@ -966,7 +965,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void IsPanelCommandPressed_NoMatchingBinding_ShouldReturnFalse()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
@@ -986,7 +985,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void OnPanelSaved_WithNullSender_ShouldNotMutateSystemBindings()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: true);
@@ -1002,7 +1001,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void OnPanelSaved_WithUnmatchedSender_ShouldNotMutateSystemBindings()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: true);
@@ -1017,7 +1016,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void OnPanelClosed_WithNullSender_ShouldClearActivePanel()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: true);
@@ -1033,7 +1032,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void OnPanelClosed_WithSystemPanelSender_ShouldClearActivePanel()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: true);
@@ -1052,7 +1051,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void SystemPanelBackCommand_ShouldClosePanelWithoutMutatingSystemBindings()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: true);
@@ -1078,7 +1077,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void SystemPanelSaveCommand_ShouldPersistSystemBindingsAndClosePanel()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: true);
@@ -1121,7 +1120,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void OnPanelSaved_WithSystemPanel_ShouldPersistSystemBindingsToConfig()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: true);
@@ -1146,7 +1145,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void OpenPanel_WithNullPanel_ShouldNotCrash()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
@@ -1164,7 +1163,7 @@ public class ConfigStageLogicTests
     [InlineData("Auto Add Gauge", nameof(ConfigData.AutoAddGauge))]
     public void ActivatePressedOnToggle_ShouldMutateConfigViaSetter(string itemName, string propertyName)
     {
-        var (stage, configManager, inputManager) = CreateStage();
+        var (stage, configManager, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             var property = typeof(ConfigData).GetProperty(propertyName);
@@ -1183,7 +1182,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void ActivatePressedOnRisky_ShouldMutateConfigViaSetter()
     {
-        var (stage, configManager, inputManager) = CreateStage();
+        var (stage, configManager, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             configManager.Config.Risky = 3;
@@ -1200,7 +1199,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void ActivatePressedOnDamageLevel_ShouldMutateConfigViaSetter()
     {
-        var (stage, configManager, inputManager) = CreateStage();
+        var (stage, configManager, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             configManager.Config.DamageLevel = GaugeDamageLevel.Low;
@@ -1217,7 +1216,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void AudioLatencyConfigItem_ShouldIncrementBy10Ms()
     {
-        var (stage, configManager, inputManager) = CreateStage();
+        var (stage, configManager, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             configManager.Config.AudioLatencyOffsetMs = 200;
@@ -1234,7 +1233,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void AudioLatencyConfigItem_AtZero_ShouldNotDecrementBelowMin()
     {
-        var (stage, configManager, inputManager) = CreateStage();
+        var (stage, configManager, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             configManager.Config.AudioLatencyOffsetMs = 0;
@@ -1251,7 +1250,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void AudioLatencyConfigItem_At500_ShouldNotIncrementAboveMax()
     {
-        var (stage, configManager, inputManager) = CreateStage();
+        var (stage, configManager, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             configManager.Config.AudioLatencyOffsetMs = 500;
@@ -1330,7 +1329,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void SetupConfigItems_ShouldBuildSystemDrumsExitCategories()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
@@ -1390,7 +1389,7 @@ public class ConfigStageLogicTests
     public void LaneDisplayItem_ShouldUseOptionTableLabelOrder()
     {
         var expectedLabels = new[] { "ALL ON", "LANE OFF", "LINE OFF", "ALL OFF" };
-        var (stage, configManager, inputManager) = CreateStage();
+        var (stage, configManager, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             Assert.Equal(expectedLabels, DrumsLaneDisplayModeExtensions.Labels);
@@ -1419,7 +1418,7 @@ public class ConfigStageLogicTests
         DrumsLaneDisplayMode mode,
         string expectedLabel)
     {
-        var (stage, configManager, inputManager) = CreateStage();
+        var (stage, configManager, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             configManager.Config.LaneDisplayMode = mode;
@@ -1471,7 +1470,7 @@ public class ConfigStageLogicTests
         DrumsNoteDisplayStyle style,
         string expectedLabel)
     {
-        var (stage, configManager, inputManager) = CreateStage();
+        var (stage, configManager, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             configManager.Config.NoteDisplayStyle = style;
@@ -1569,7 +1568,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void ScrollSpeedItem_ShouldKeepRangeFormatterAndBehavior()
     {
-        var (stage, configManager, inputManager) = CreateStage();
+        var (stage, configManager, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
@@ -1601,7 +1600,7 @@ public class ConfigStageLogicTests
     [InlineData(10, "All")]
     public void AutoPlayMaster_ShouldDisplayStateForEnabledLaneCount(int enabledLaneCount, string expectedState)
     {
-        var (stage, configManager, inputManager) = CreateStage();
+        var (stage, configManager, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             for (var lane = 0; lane < enabledLaneCount; lane++)
@@ -1622,7 +1621,7 @@ public class ConfigStageLogicTests
     [InlineData(10)]
     public void AutoPlayMaster_WhenActivated_ShouldEnableOrClearAllLanes(int initialEnabledLaneCount)
     {
-        var (stage, configManager, inputManager) = CreateStage();
+        var (stage, configManager, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             for (var lane = 0; lane < initialEnabledLaneCount; lane++)
@@ -1644,7 +1643,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void LaneAutoPlayItem_WhenActivated_ShouldMutateOnlyItsMatchingLane()
     {
-        var (stage, configManager, inputManager) = CreateStage();
+        var (stage, configManager, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
@@ -1660,7 +1659,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void LeftPedalAutoPlayItem_ShouldDescribeSharedDtxChannels()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
@@ -1675,7 +1674,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void EveryConfigCategoryAndItem_ShouldHaveNonEmptyDescription()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
@@ -1693,7 +1692,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void MenuActivateOnSettingsCategory_ShouldMoveFocusToItems()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: true);
@@ -1730,7 +1729,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void ItemsBackCommand_ShouldReturnFocusToMenu_WithoutLeavingStage()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
@@ -1752,7 +1751,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void MenuMoveDown_ShouldWrapAcrossCategories()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
@@ -1891,7 +1890,7 @@ public class ConfigStageLogicTests
         // Spec-required: the item selection within each category must persist when the player
         // navigates away and returns. Each ConfigCategory owns its own SelectedIndex which is
         // never reset on focus/category changes.
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
@@ -1921,7 +1920,7 @@ public class ConfigStageLogicTests
     {
         // HandleMenuInput accepts both Activate and MoveRight to enter the item list.
         // Activate is covered above; this verifies the MoveRight path.
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: true);
@@ -1939,7 +1938,7 @@ public class ConfigStageLogicTests
     public void MenuMoveUp_ShouldWrapAcrossCategories()
     {
         // MoveDown wrap is covered above; this verifies MoveUp wraps from first to last.
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
@@ -2330,7 +2329,7 @@ public class ConfigStageLogicTests
         // (Menu -> enter Items -> edit a toggle -> Back to Menu -> navigate to Exit -> activate Exit).
         // Each step asserts the state carried over from the previous one, catching interaction
         // bugs that the per-transition unit tests above can miss in isolation.
-        var (stage, configManager, inputManager) = CreateStage();
+        var (stage, configManager, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: true);
@@ -2390,7 +2389,7 @@ public class ConfigStageLogicTests
         // Defensive guard: SetupConfigItems always populates _categories, but if that invariant
         // ever breaks the modular-arithmetic (% Count) and index access in the handlers would
         // throw DivideByZero/ArgumentOutOfRange. The HandleInput guard must swallow both.
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
@@ -2505,7 +2504,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void UpdateItemScroll_EmptyCategories_ShouldEarlyReturnAndLeaveScrollUnchanged()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             // No SetupConfigItems: leave _categories empty so the guard returns immediately.
@@ -2522,7 +2521,7 @@ public class ConfigStageLogicTests
     public void UpdateItemScroll_LargeDelta_ShouldSnapToTarget()
     {
         // A wrap/multi-row jump (|delta| > 1.5) snaps instead of scrolling the whole list.
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
@@ -2543,7 +2542,7 @@ public class ConfigStageLogicTests
     {
         // |delta| <= 1.5 eases: factor = min(1, dt*15). dt=0.04 -> factor=0.6, delta=1.0 ->
         // scroll advances by 0.6 and does NOT yet reach the target.
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
@@ -2563,7 +2562,7 @@ public class ConfigStageLogicTests
     {
         // dt=1.0 -> factor=min(1,15)=1.0, so the full delta is applied in one step, then the
         // sub-0.01 residual snaps to the exact target.
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
@@ -2583,7 +2582,7 @@ public class ConfigStageLogicTests
     {
         // After the ease step the residual is < 0.01, so the value clamps to the exact target
         // rather than leaving a tiny fractional drift.
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
@@ -2602,7 +2601,7 @@ public class ConfigStageLogicTests
     public void UpdateItemScroll_EmptyCategory_ShouldTargetZero()
     {
         // A category with no items (e.g. Exit) targets 0 regardless of SelectedIndex.
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             InitializeStageMenu(stage, includePanels: false);
@@ -2793,7 +2792,7 @@ public class ConfigStageLogicTests
         return tex;
     }
 
-    private static (ConfigStage Stage, ConfigManager ConfigManager, InputManagerCompat InputManager) CreateStage(
+    private static (ConfigStage Stage, ConfigManager ConfigManager, InputManagerCompat InputManager) CreateStageWithConfig(
         ConfigManager? configManager = null,
         bool ffmpegAvailable = true)
     {
@@ -3117,7 +3116,7 @@ public class ConfigStageLogicTests
                 SongRootUpdateStatus.Updated,
                 new[] { "/new" },
                 Array.Empty<SongRootDiagnostic>()));
-        var (stage, inputManager) = DTXMania.Test.Stage.ConfigStageTestFactory.CreateStage(config.Object);
+        var (stage, inputManager) = CreateStage(config.Object);
         using (inputManager)
         {
             // Pre-acquire the coordinator lease so ApplySongRoots sees a busy state.
@@ -3165,7 +3164,7 @@ public class ConfigStageLogicTests
                 SongLibraryReloadOutcome.Published,
                 unavailableRootCount: 0,
                 discoveredScoreCount: 5);
-            var (stage, inputManager) = DTXMania.Test.Stage.ConfigStageTestFactory.CreateStage(
+            var (stage, inputManager) = CreateStage(
                 config.Object,
                 reloadService);
             using (inputManager)
@@ -3208,7 +3207,7 @@ public class ConfigStageLogicTests
                     new[] { tempRoot },
                     Array.Empty<SongRootDiagnostic>()));
             // A runner that returns null causes StartSongOperation to return false.
-            var (stage, inputManager) = DTXMania.Test.Stage.ConfigStageTestFactory.CreateStage(
+            var (stage, inputManager) = CreateStage(
                 config.Object,
                 new DelegateReloadService(SongLibraryReloadOutcome.Published, 0, 0),
                 backgroundRunner: _ => null!);
@@ -3232,7 +3231,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void CompleteSongOperation_WhenTaskIsCanceled_ShouldEnqueueCancelledStatus()
     {
-        var (stage, inputManager) = DTXMania.Test.Stage.ConfigStageTestFactory.CreateStage();
+        var (stage, inputManager) = CreateStage();
         using (inputManager)
         {
             var coordinator = GetCoordinator(stage);
@@ -3259,7 +3258,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void CompleteSongOperation_WhenTaskIsFaulted_ShouldEnqueueFailureStatus()
     {
-        var (stage, inputManager) = DTXMania.Test.Stage.ConfigStageTestFactory.CreateStage();
+        var (stage, inputManager) = CreateStage();
         using (inputManager)
         {
             var coordinator = GetCoordinator(stage);
@@ -3286,7 +3285,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void CompleteSongOperation_WhenTaskSucceeds_ShouldEnqueueCompletionStatus()
     {
-        var (stage, inputManager) = DTXMania.Test.Stage.ConfigStageTestFactory.CreateStage();
+        var (stage, inputManager) = CreateStage();
         using (inputManager)
         {
             var coordinator = GetCoordinator(stage);
@@ -3313,7 +3312,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void CompleteSongOperation_WhenTaskIsCanceledForNxImport_ShouldEnqueueNxCancelledStatus()
     {
-        var (stage, inputManager) = DTXMania.Test.Stage.ConfigStageTestFactory.CreateStage();
+        var (stage, inputManager) = CreateStage();
         using (inputManager)
         {
             var coordinator = GetCoordinator(stage);
@@ -3340,7 +3339,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void DrainSongOperationUpdates_WhenUpdateGenerationDiffers_ShouldDiscardStaleUpdate()
     {
-        var (stage, inputManager) = DTXMania.Test.Stage.ConfigStageTestFactory.CreateStage();
+        var (stage, inputManager) = CreateStage();
         using (inputManager)
         {
             var coordinator = GetCoordinator(stage);
@@ -3370,7 +3369,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void CancelSongOperationForDeactivation_WhenOperationIsActive_ShouldCancelItsToken()
     {
-        var (stage, inputManager) = DTXMania.Test.Stage.ConfigStageTestFactory.CreateStage();
+        var (stage, inputManager) = CreateStage();
         using (inputManager)
         {
             using var cts = new CancellationTokenSource();
@@ -3388,7 +3387,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void CancelSongOperationForDeactivation_WhenCtsIsAlreadyDisposed_ShouldNotThrow()
     {
-        var (stage, inputManager) = DTXMania.Test.Stage.ConfigStageTestFactory.CreateStage();
+        var (stage, inputManager) = CreateStage();
         using (inputManager)
         {
             using var cts = new CancellationTokenSource();
@@ -3453,7 +3452,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void FlushPendingSaveSafely_WhenConfigManagerThrows_SwallowsAndDoesNotPropagate()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             // Swap in an IConfigManager whose FlushPendingSave propagates; the safety wrapper
@@ -3472,7 +3471,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void OnDeactivate_ShouldReleaseFontReferences()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             var font = new Mock<IFont>();
@@ -3492,7 +3491,7 @@ public class ConfigStageLogicTests
     [Fact]
     public void Dispose_WhenDisposing_ShouldReleaseFontReferences()
     {
-        var (stage, _, inputManager) = CreateStage();
+        var (stage, _, inputManager) = CreateStageWithConfig();
         using (inputManager)
         {
             var font = new Mock<IFont>();
