@@ -32,7 +32,8 @@ public static class E2EFixtureBuilder
         DrumsNoteDisplayStyle noteDisplayStyle = DrumsNoteDisplayStyle.Lanes,
         bool includeBackgroundVideo = false,
         bool useBundledDefaultSkin = false,
-        int extraChartBars = 0)
+        int extraChartBars = 0,
+        int drumNoteTailBars = 0)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(runRoot);
         ArgumentException.ThrowIfNullOrWhiteSpace(repoRoot);
@@ -66,7 +67,7 @@ public static class E2EFixtureBuilder
             Encoding.UTF8);
         File.WriteAllText(
             paths.ChartPath,
-            BuildChart(includeBackgroundVideo, extraChartBars),
+            BuildChart(includeBackgroundVideo, extraChartBars, drumNoteTailBars),
             Encoding.UTF8);
         var audioPath = Path.Combine(paths.SongDirectory, AudioFileName);
         WriteDeterministicWave(audioPath);
@@ -186,7 +187,10 @@ public static class E2EFixtureBuilder
         return string.Join('\n', lines);
     }
 
-    private static string BuildChart(bool includeBackgroundVideo = false, int extraChartBars = 0)
+    private static string BuildChart(
+        bool includeBackgroundVideo = false,
+        int extraChartBars = 0,
+        int drumNoteTailBars = 0)
     {
         var lines = new List<string>
         {
@@ -216,9 +220,26 @@ public static class E2EFixtureBuilder
         if (includeBackgroundVideo)
         {
             // Channel 54 = #AVI trigger: start at bar 0, retrigger at bar 1 so the
-            // video is active whenever a mid-song screenshot lands.
+            // one-second video is active whenever a mid-song screenshot lands.
+            // With a drum-note tail the window outlives that clip, so bar 1
+            // re-triggers mid-bar and every tail bar restarts it each second.
             lines.Add("#00054: 01");
-            lines.Add("#00154: 01");
+            lines.Add(drumNoteTailBars > 0 ? "#00154: 0101" : "#00154: 01");
+        }
+        // Drum-note tail bars keep unjudged notes on the staff well past the
+        // bar-1 boundary, so a mid-song capture predicate cannot run out of
+        // notes while a slow screenshot round-trip is in flight. Each tail bar
+        // repeats the bar-1 pattern; the Lanes journey relies on the base
+        // chart's early drum-note window and is not given a tail.
+        for (var bar = 2; bar < 2 + drumNoteTailBars; bar++)
+        {
+            lines.Add($"#{bar:D3}11: 0100000000000000");
+            lines.Add($"#{bar:D3}12: 0001000000000000");
+            lines.Add($"#{bar:D3}13: 0000010000000000");
+            if (includeBackgroundVideo)
+            {
+                lines.Add($"#{bar:D3}54: 0101");
+            }
         }
         // Each extra bar is two seconds at 120 BPM. Used by tests that need a
         // Performance window wide enough for a slow-runner screenshot.
