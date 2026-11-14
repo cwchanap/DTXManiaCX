@@ -354,7 +354,7 @@ public sealed class SongLibraryReloadServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ReloadAsync_WhenPublishedWithDiscoveredChartsButNoScores_ShouldReportChartCountAndZeroScoreCount()
+    public async Task ReloadAsync_WhenPublishedWithCandidates_ShouldReportDiscoveredScoreCount()
     {
         var service = new SongLibraryReloadService(
             (_, _, _) =>
@@ -364,9 +364,13 @@ public sealed class SongLibraryReloadServiceTests : IDisposable
                     ActiveRoots = new[] { "/songs" },
                     DiscoveredChartPaths = new HashSet<string>(StringComparer.Ordinal)
                     {
-                        "/songs/a.dtx",
+                        "/songs/a.dtx", "/songs/b.dtx",
                     },
-                    Candidates = new List<SongImportCandidate>(capacity: 2),
+                    Candidates = new List<SongImportCandidate>
+                    {
+                        CreateCandidate("/songs/a.dtx", 0),
+                        CreateCandidate("/songs/b.dtx", 1),
+                    },
                     RootNodes = new List<SongListNode>(),
                     PendingSongs = new List<PendingSongNode>(),
                     Errors = new List<SongEnumerationError>(),
@@ -382,7 +386,19 @@ public sealed class SongLibraryReloadServiceTests : IDisposable
             new[] { "/songs" }, progress: null, CancellationToken.None);
 
         Assert.Equal(SongLibraryReloadOutcome.Published, result.Outcome);
-        Assert.Equal(1, result.EnumeratedFileCount);
-        Assert.Equal(0, result.DiscoveredScoreCount);
+        Assert.Equal(2, result.EnumeratedFileCount);
+        Assert.Equal(2, result.DiscoveredScoreCount);
+    }
+
+    private static SongImportCandidate CreateCandidate(string chartPath, int groupOrder)
+    {
+        var song = new global::DTXMania.Game.Lib.Song.Entities.Song { Title = $"Song {groupOrder}" };
+        var chart = new global::DTXMania.Game.Lib.Song.Entities.SongChart
+        {
+            Song = song,
+            FilePath = chartPath,
+        };
+        song.Charts.Add(chart);
+        return new SongImportCandidate(song, chart, chartPath, $"group-{groupOrder}", groupOrder);
     }
 }

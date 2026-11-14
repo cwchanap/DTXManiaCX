@@ -138,8 +138,10 @@ namespace DTXMania.Test.Resources
             // No cleanup needed for this test class
         }
 
+    // Arithmetic contract for DrawStringWithGradient's per-line lerp: each line's
+    // progress is its top offset divided by the total measured text height.
     [Fact]
-    public void DrawStringWithGradient_WithSpriteFontAndMultiLineText_ShouldComputePerLineLerpColor()
+    public void GradientLineProgress_ForMultiLineText_ShouldAdvanceByLineSpacingOverTextHeight()
     {
         var spriteFont = CreateSpriteFont(
             [('A', 10), ('B', 10), (' ', 8)],
@@ -152,25 +154,24 @@ namespace DTXMania.Test.Resources
         var lines = "A\nB".Split('\n');
         Assert.Equal(2, lines.Length);
 
-        var topColor = Color.White;
-        var bottomColor = Color.Black;
         float positionY = 10f;
         float currentY = positionY;
 
-        var expectedColors = new List<float>();
+        var progressPerLine = new List<float>();
         foreach (var line in lines)
         {
-            var progress = (currentY - positionY) / textSize.Y;
-            expectedColors.Add(progress);
+            progressPerLine.Add((currentY - positionY) / textSize.Y);
             currentY += font.LineSpacing;
         }
 
-        Assert.Equal(0f / textSize.Y, expectedColors[0]);
-        Assert.Equal((float)font.LineSpacing / textSize.Y, expectedColors[1]);
+        Assert.Equal(0f, progressPerLine[0]);
+        Assert.Equal((float)font.LineSpacing / textSize.Y, progressPerLine[1]);
     }
 
+    // Arithmetic contract for DrawStringWrapped's Center alignment: the line is
+    // offset from bounds.X by half the width not taken by the line.
     [Fact]
-    public void DrawStringWrapped_CenterAlignment_ShouldComputeOffsetX()
+    public void WrappedLineCenterX_ShouldOffsetByHalfTheFreeWidth()
     {
         var spriteFont = CreateSpriteFont(
             [('A', 10), ('B', 10), ('C', 10), (' ', 8)],
@@ -188,8 +189,10 @@ namespace DTXMania.Test.Resources
         Assert.Equal((int)((100 - lineSize.X) / 2), expectedX);
     }
 
+    // Arithmetic contract for DrawStringWrapped's Right alignment: the line's
+    // left edge sits at bounds.Right minus the measured line width.
     [Fact]
-    public void DrawStringWrapped_RightAlignment_ShouldComputeOffsetX()
+    public void WrappedLineRightX_ShouldAlignToBoundsRight()
     {
         var spriteFont = CreateSpriteFont(
             [('A', 10), ('B', 10), (' ', 8)],
@@ -207,30 +210,23 @@ namespace DTXMania.Test.Resources
         Assert.Equal(200 - (int)lineSize.X, expectedX);
     }
 
-    [Fact]
-    public void DrawString_WhenArgumentExceptionThrown_ShouldSanitizeText()
+    [Theory]
+    [InlineData("A\u2603B", "A?B")]
+    [InlineData("X\u2605Y", "X?Y")]
+    public void SanitizeText_WithUnsupportedCharacters_ShouldSubstituteDefaultCharacter(string input, string expected)
     {
-        var spriteFont = CreateSpriteFont([('A', 10), ('B', 10), ('?', 8)], defaultCharacter: '?');
+        var spriteFont = CreateSpriteFont(
+            [('A', 10), ('B', 10), ('X', 10), ('Y', 10), ('?', 8)],
+            defaultCharacter: '?');
         var font = new ManagedFont(spriteFont, "SanitizeFont", 16);
 
-        var sanitized = InvokePrivate<string>(font, "SanitizeText", "A\u2603B");
+        var sanitized = InvokePrivate<string>(font, "SanitizeText", input);
 
-        Assert.Equal("A?B", sanitized);
+        Assert.Equal(expected, sanitized);
     }
 
     [Fact]
-    public void DrawString_AdvancedOverload_WhenArgumentExceptionThrown_ShouldSanitizeText()
-    {
-        var spriteFont = CreateSpriteFont([('X', 10), ('Y', 10), ('?', 8)], defaultCharacter: '?');
-        var font = new ManagedFont(spriteFont, "SanitizeFont", 16);
-
-        var sanitized = InvokePrivate<string>(font, "SanitizeText", "X\u2605Y");
-
-        Assert.Equal("X?Y", sanitized);
-    }
-
-    [Fact]
-    public void DrawStringWrapped_ShouldStopAtBoundsBottom()
+    public void WrappedLineFitting_ShouldStopWhenNextLineWouldExceedBoundsBottom()
     {
         var spriteFont = CreateSpriteFont(
             [('A', 10), ('B', 10), (' ', 8)],
