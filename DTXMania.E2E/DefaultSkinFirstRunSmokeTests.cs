@@ -37,11 +37,11 @@ public sealed class DefaultSkinFirstRunSmokeTests
             repoRoot,
             apiPort,
             useBundledDefaultSkin: true,
-            // The chart's drum notes end after bar 1; extraChartBars adds only
-            // BGM (channel 01) events, so it lengthens the run to Result but does
-            // NOT widen the unjudged-note window the Lanes capture depends on.
-            // That capture must happen in the chart's early drum-note window.
-            extraChartBars: 8);
+            // Repeat the drum pattern past bar 1 so the Lanes capture keeps
+            // unjudged notes for ~8 extra seconds on slow runners, then add
+            // extraChartBars of BGM tail for Result completion headroom.
+            drumNoteTailBars: 4,
+            extraChartBars: 4);
         // The CI artifact root is shared by every E2E fixture, whose generic
         // log/config names would overwrite this run's provenance. Scope this
         // test's artifacts to its own subdirectory (uploaded recursively).
@@ -77,20 +77,7 @@ public sealed class DefaultSkinFirstRunSmokeTests
             // the PNG size checks below.
             var titleState = await client.GetGameStateAsync(cancellation.Token);
             var activeSkinPath = titleState.SkinPath;
-            Assert.False(
-                string.IsNullOrWhiteSpace(activeSkinPath),
-                "Telemetry did not report the active skin path.");
-            Assert.True(
-                SkinManager.ValidateSkinPath(activeSkinPath!),
-                $"The active skin root has no valid skin assets: {activeSkinPath}");
-            Assert.Equal(
-                "System",
-                Path.GetFileName(Path.TrimEndingDirectorySeparator(activeSkinPath!)));
-            var appDataPrefix = Path.GetFullPath(fixture.AppDataRoot) + Path.DirectorySeparatorChar;
-            Assert.False(
-                Path.GetFullPath(activeSkinPath!).StartsWith(
-                    appDataPrefix, StringComparison.OrdinalIgnoreCase),
-                $"The game fell back to the empty app-data skin root: {activeSkinPath}");
+            AssertBundledSystemSkin(fixture, activeSkinPath);
 
             await CaptureRequiredScreenshotAsync(
                 client, fixture, "01-title.png", cancellation.Token, tourRoot);
@@ -223,22 +210,18 @@ public sealed class DefaultSkinFirstRunSmokeTests
         string destinationDirectory,
         CancellationToken cancellationToken)
     {
-        await Eventually.UntilAsync(
-            token => client.GetGameStateAsync(token),
-            IsLanesCaptureState,
+        await CaptureMidSongScreenshotAsync(
+            client,
+            fixture,
+            fileName,
+            destinationDirectory,
+            nameof(DrumsNoteDisplayStyle.Lanes),
+            minSongTimeMs: 1_000,
             TimeSpan.FromSeconds(90),
             TimeSpan.FromMilliseconds(250),
             "mid-song Lanes gameplay with unjudged notes and no pending transition",
-            cancellationToken);
-
-        AssertLanesCaptureState(
-            await client.GetGameStateAsync(cancellationToken),
-            "before capture");
-        await CaptureRequiredScreenshotAsync(
-            client, fixture, fileName, cancellationToken, destinationDirectory);
-        AssertLanesCaptureState(
-            await client.GetGameStateAsync(cancellationToken),
-            "after capture");
+            cancellationToken,
+            requireAutoPlay: false);
     }
 
     /// <summary>
@@ -246,32 +229,12 @@ public sealed class DefaultSkinFirstRunSmokeTests
     /// chart notes still unjudged: a frame captured now is genuine gameplay
     /// with visible notes, not READY or the completed Result.
     /// </summary>
-    internal static bool IsLanesCaptureState(GameStateSnapshot state)
-    {
-        ArgumentNullException.ThrowIfNull(state);
-        return string.Equals(state.StageType, "Performance", StringComparison.Ordinal)
-            && state.PerformanceReady
-            && !state.IsTransitioning
-            && string.Equals(
-                state.NoteDisplayStyle,
-                nameof(DrumsNoteDisplayStyle.Lanes),
-                StringComparison.Ordinal)
-            && state.CurrentSongTimeMs >= 1_000
-            && state.TotalNotes > 0
-            && state.TotalJudgements < state.TotalNotes;
-    }
-
-    private static void AssertLanesCaptureState(GameStateSnapshot state, string phase)
-    {
-        Assert.True(
-            IsLanesCaptureState(state),
-            $"Refusing {phase} Lanes evidence: expected mid-song Lanes Performance " +
-            $"(ready, unjudged notes, not transitioning), observed stage='{state.StageType}', " +
-            $"noteDisplayStyle='{state.NoteDisplayStyle}', currentSongTimeMs={state.CurrentSongTimeMs}, " +
-            $"totalNotes={state.TotalNotes}, totalJudgements={state.TotalJudgements}, " +
-            $"performanceReady={state.PerformanceReady}, isTransitioning={state.IsTransitioning}, " +
-            $"stagePhase='{GetStagePhase(state)}'.");
-    }
+    internal static bool IsLanesCaptureState(GameStateSnapshot state) =>
+        IsMidSongCaptureState(
+            state,
+            nameof(DrumsNoteDisplayStyle.Lanes),
+            minSongTimeMs: 1_000,
+            requireAutoPlay: false);
 }
 
 /// <summary>
@@ -345,6 +308,41 @@ public sealed class DefaultSkinFirstRunSmokeTestsSupport
             Snapshot("Performance", performanceReady: false, isTransitioning: false)));
     }
 
+    [Fact]
+    public void AssertBundledSystemSkin_WhenAppDataOrSandboxSystem_ShouldReject()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "dtx-skin-guard-" + Guid.NewGuid().ToString("N"));
+        var externalRoot = Path.Combine(Path.GetTempPath(), "dtx-bundled-skin-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var fixture = E2EFixtureBuilder.Build(root, Directory.GetCurrentDirectory(), apiPort: 18080);
+
+            var appDataSystem = Path.Combine(fixture.AppDataRoot, "System");
+            Directory.CreateDirectory(Path.Combine(appDataSystem, "Graphics"));
+            File.WriteAllText(Path.Combine(appDataSystem, "Graphics", "1_background.jpg"), "fake");
+
+            File.WriteAllText(Path.Combine(fixture.SkinRoot, "Graphics", "1_background.jpg"), "fake");
+
+            Assert.ThrowsAny<Exception>(() =>
+                AssertBundledSystemSkin(fixture, appDataSystem));
+            Assert.ThrowsAny<Exception>(() =>
+                AssertBundledSystemSkin(fixture, fixture.SkinRoot));
+
+            var bundledRoot = Path.Combine(externalRoot, "System");
+            Directory.CreateDirectory(Path.Combine(bundledRoot, "Graphics"));
+            File.WriteAllText(Path.Combine(bundledRoot, "Graphics", "1_background.jpg"), "fake");
+
+            AssertBundledSystemSkin(fixture, bundledRoot);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+            if (Directory.Exists(externalRoot))
+                Directory.Delete(externalRoot, recursive: true);
+        }
+    }
+
     private static GameStateSnapshot Snapshot(
         string stageType,
         bool performanceReady,
@@ -352,24 +350,13 @@ public sealed class DefaultSkinFirstRunSmokeTestsSupport
         string noteDisplayStyle = "Lanes",
         int totalNotes = 14,
         int totalJudgements = 3,
-        double currentSongTimeMs = 2_000)
-    {
-        using var document = JsonDocument.Parse(JsonSerializer.Serialize(new
-        {
+        double currentSongTimeMs = 2_000) =>
+        CreateTelemetrySnapshot(
             stageType,
             performanceReady,
             isTransitioning,
             noteDisplayStyle,
             totalNotes,
             totalJudgements,
-            currentSongTimeMs
-        }));
-        return new GameStateSnapshot
-        {
-            CustomData = new Dictionary<string, JsonElement>
-            {
-                ["telemetry"] = document.RootElement.Clone()
-            }
-        };
-    }
+            currentSongTimeMs);
 }

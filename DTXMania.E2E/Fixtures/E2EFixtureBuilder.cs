@@ -219,18 +219,15 @@ public static class E2EFixtureBuilder
         });
         if (includeBackgroundVideo)
         {
-            // Channel 54 = #AVI trigger: start at bar 0, retrigger at bar 1 so the
-            // one-second video is active whenever a mid-song screenshot lands.
-            // With a drum-note tail the window outlives that clip, so bar 1
-            // re-triggers mid-bar and every tail bar restarts it each second.
+            // Channel 54 = #AVI trigger: start at bar 0 and retrigger twice per bar
+            // from bar 1 onward so the one-second video stays active across every
+            // two-second bar regardless of whether a tail is appended.
             lines.Add("#00054: 01");
-            lines.Add(drumNoteTailBars > 0 ? "#00154: 0101" : "#00154: 01");
+            lines.Add("#00154: 0101");
         }
         // Drum-note tail bars keep unjudged notes on the staff well past the
         // bar-1 boundary, so a mid-song capture predicate cannot run out of
-        // notes while a slow screenshot round-trip is in flight. Each tail bar
-        // repeats the bar-1 pattern; the Lanes journey relies on the base
-        // chart's early drum-note window and is not given a tail.
+        // notes while a slow screenshot round-trip is in flight.
         for (var bar = 2; bar < 2 + drumNoteTailBars; bar++)
         {
             lines.Add($"#{bar:D3}11: 0100000000000000");
@@ -241,9 +238,10 @@ public static class E2EFixtureBuilder
                 lines.Add($"#{bar:D3}54: 0101");
             }
         }
-        // Each extra bar is two seconds at 120 BPM. Used by tests that need a
-        // Performance window wide enough for a slow-runner screenshot.
-        for (var bar = 2; bar < 2 + extraChartBars; bar++)
+        // Each extra bar is two seconds at 120 BPM, appended after any drum-note
+        // tail bars so the two extensions add up rather than overlap. Used by
+        // tests that need a Performance window wide enough for completion waits.
+        for (var bar = 2 + drumNoteTailBars; bar < 2 + drumNoteTailBars + extraChartBars; bar++)
         {
             lines.Add($"#{bar:D3}01: 0100000000000000");
         }

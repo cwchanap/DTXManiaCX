@@ -16,13 +16,29 @@ namespace DTXMania.Test.Helpers
         public GraphicsDevice? GraphicsDevice { get; private set; }
 
         /// <summary>
-        /// The device a device-required test needs. Throws when tests are opted in
-        /// but no device could be created, so the test fails instead of passing.
+        /// The device a device-required test needs. Throws when no device is available
+        /// (either because the opt-in env var was not set or because device creation
+        /// failed despite the opt-in), so the test fails instead of silently passing.
         /// </summary>
         public GraphicsDevice RequiredDevice =>
-            GraphicsDevice ?? throw new InvalidOperationException(
+            GraphicsDevice ?? throw CreateMissingDeviceException();
+
+        /// <summary>
+        /// Builds a diagnostic exception explaining why no <see cref="GraphicsDevice"/>
+        /// is available, distinguishing missing opt-in from device initialization failure.
+        /// </summary>
+        public InvalidOperationException CreateMissingDeviceException()
+        {
+            if (!GraphicsTestGate.IsEnabled)
+            {
+                return new InvalidOperationException(
+                    $"{GraphicsTestGate.OptInVariable} is not set to 1, so no GraphicsDevice was created.");
+            }
+
+            return new InvalidOperationException(
                 $"{GraphicsTestGate.OptInVariable}=1 was set but no GraphicsDevice could be created.",
                 _deviceCreationError);
+        }
 
         public TestGraphicsDeviceService()
         {
@@ -42,6 +58,18 @@ namespace DTXMania.Test.Helpers
             }
             catch (Exception ex)
             {
+                // Dispose the partially initialized TestGame immediately so callers that
+                // throw out of a test constructor before Dispose() runs do not leak it.
+                try
+                {
+                    _game?.Dispose();
+                }
+                catch
+                {
+                    // Swallow disposal errors in headless/CI environments
+                }
+                _game = null;
+
                 // Device-required tests surface this through RequiredDevice; tests that
                 // do not need graphics keep working without a device.
                 _deviceCreationError = ex;

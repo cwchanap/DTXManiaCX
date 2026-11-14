@@ -14,6 +14,7 @@ namespace DTXMania.Test.UI
     /// Unit tests for SongStatusPanel component
     /// Tests the enhanced Phase 5 functionality including note counts, duration, and improved difficulty display
     /// </summary>
+    [Collection("GraphicsTests")]
     public class SongStatusPanelTests : IDisposable
     {
         private readonly TestGraphicsDeviceService _graphicsDeviceService;

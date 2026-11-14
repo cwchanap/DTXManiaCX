@@ -252,8 +252,8 @@ namespace DTXMania.Game.Lib.Resources
         // capture/restore previously lived in ManagedFontLogicTests; exposing
         // the same operations as internal methods here keeps the seam stable
         // across renames and lets tests reset isolated state without relying
-        // on private field names. InternalsVisibleTo("DTXMania.Test") and
-        // ("DTXMania.Test.Mac") grant access.
+        // on private field names. InternalsVisibleTo("DTXMania.Test") grants
+        // access.
         /// <summary>
         /// Snapshot the current font-factory statics so a test can restore
         /// them after mutating the cache. The returned dictionary is a copy;

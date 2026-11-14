@@ -10,6 +10,7 @@ using Xunit;
 using DTXMania.Test.Helpers;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Config;
+using DTXMania.Game.Lib.Song;
 
 namespace DTXMania.Test.Stage
 {
@@ -18,7 +19,11 @@ namespace DTXMania.Test.Stage
     /// Tests constructor validation, lifecycle management, resource handling, and UI initialization
     /// Methods that activate the stage need a real GraphicsDevice and are GraphicsFacts, so a
     /// headless run reports them Skipped instead of passing without rendering.
+    /// Placed in the SongManager collection (DisableParallelization = true) because Activate()
+    /// subscribes to SongManager.Instance; DisableParallelization also keeps this class from
+    /// running concurrently with GraphicsTests.
     /// </summary>
+    [Collection("SongManager")]
     public class SongSelectionStageTests : IDisposable
     {
         private readonly TestGraphicsDeviceService _graphicsDeviceService;
@@ -29,42 +34,66 @@ namespace DTXMania.Test.Stage
         private readonly RenderTargetManager? _renderTargetManager;
         private readonly Texture2D? _fontTexture;
         private readonly SpriteFont? _spriteFont;
+        private readonly List<SongSelectionStage> _createdStages = new();
 
         public SongSelectionStageTests()
         {
+            SongManager.ResetInstanceForTesting();
             _graphicsDeviceService = new TestGraphicsDeviceService();
-            _mockGame = new Mock<IStageGame>();
-            _mockConfigManager = new Mock<IConfigManager>();
-            _mockResourceManager = new Mock<IResourceManager>();
-            _mockGraphicsManager = new Mock<IGraphicsManager>();
-
-            _mockGame.Setup(g => g.ConfigManager).Returns(_mockConfigManager.Object);
-            _mockGame.Setup(g => g.ResourceManager).Returns(_mockResourceManager.Object);
-            // Lazy so a device test fails with the explicit opt-in message when the opt-in
-            // could not create a device; logic tests never touch GraphicsDevice.
-            _mockGame.Setup(g => g.GraphicsDevice).Returns(() => _graphicsDeviceService.RequiredDevice);
-
-            // Device-required fixtures: a real render-target manager and real texture/font
-            // objects, so activation runs the production host path instead of null fallbacks.
-            if (_graphicsDeviceService.GraphicsDevice is { } device)
+            try
             {
-                _renderTargetManager = new RenderTargetManager(device);
-                _mockGraphicsManager.Setup(g => g.GraphicsDevice).Returns(device);
-                _mockGraphicsManager.Setup(g => g.RenderTargetManager).Returns(_renderTargetManager);
+                _mockGame = new Mock<IStageGame>();
+                _mockConfigManager = new Mock<IConfigManager>();
+                _mockResourceManager = new Mock<IResourceManager>();
+                _mockGraphicsManager = new Mock<IGraphicsManager>();
 
-                _mockGame.Setup(g => g.GraphicsManager).Returns(_mockGraphicsManager.Object);
+                _mockGame.Setup(g => g.ConfigManager).Returns(_mockConfigManager.Object);
+                _mockGame.Setup(g => g.ResourceManager).Returns(_mockResourceManager.Object);
+                // Lazy so a device test fails with the explicit opt-in message when the opt-in
+                // could not create a device; logic tests never touch GraphicsDevice.
+                _mockGame.Setup(g => g.GraphicsDevice).Returns(() => _graphicsDeviceService.RequiredDevice);
 
-                _spriteFont = TestFontFactory.Create(device, out var fontTexture);
-                _fontTexture = fontTexture;
-                ConfigureResourceManager();
+                // Device-required fixtures: a real render-target manager and real texture/font
+                // objects, so activation runs the production host path instead of null fallbacks.
+                if (_graphicsDeviceService.GraphicsDevice is { } device)
+                {
+                    _renderTargetManager = new RenderTargetManager(device);
+                    _mockGraphicsManager.Setup(g => g.GraphicsDevice).Returns(device);
+                    _mockGraphicsManager.Setup(g => g.RenderTargetManager).Returns(_renderTargetManager);
+
+                    _mockGame.Setup(g => g.GraphicsManager).Returns(_mockGraphicsManager.Object);
+
+                    _spriteFont = TestFontFactory.Create(device, out var fontTexture);
+                    _fontTexture = fontTexture;
+                    ConfigureResourceManager();
+                }
+            }
+            catch
+            {
+                Dispose();
+                throw;
             }
         }
 
         public void Dispose()
         {
+            foreach (var stage in _createdStages)
+            {
+                stage.Deactivate();
+            }
+            _createdStages.Clear();
+            SongManager.ResetInstanceForTesting();
+
             _renderTargetManager?.Dispose();
             _fontTexture?.Dispose();
             _graphicsDeviceService.Dispose();
+        }
+
+        private SongSelectionStage CreateStage()
+        {
+            var stage = new SongSelectionStage(_mockGame.Object);
+            _createdStages.Add(stage);
+            return stage;
         }
 
         #region Constructor Tests
@@ -73,7 +102,7 @@ namespace DTXMania.Test.Stage
         public void Constructor_WithValidGame_ShouldCreateInstance()
         {
             // Arrange & Act
-            var stage = new SongSelectionStage(_mockGame.Object);
+            var stage = CreateStage();
 
             // Assert
             Assert.NotNull(stage);
@@ -95,7 +124,7 @@ namespace DTXMania.Test.Stage
         public void Activate_WithValidParameters_ShouldInitializeCorrectly()
         {
             // Arrange
-            var stage = new SongSelectionStage(_mockGame.Object);
+            var stage = CreateStage();
             var sharedData = new Dictionary<string, object>();
 
             // Act
@@ -117,7 +146,7 @@ namespace DTXMania.Test.Stage
         public void Activate_WithNullSharedData_ShouldInitializeWithDefaults()
         {
             // Arrange
-            var stage = new SongSelectionStage(_mockGame.Object);
+            var stage = CreateStage();
 
             // Act
             stage.Activate(null);
@@ -131,7 +160,7 @@ namespace DTXMania.Test.Stage
         public void Activate_WhenResourceLoadingFails_ShouldHandleGracefully()
         {
             // Arrange
-            var stage = new SongSelectionStage(_mockGame.Object);
+            var stage = CreateStage();
 
             // Setup mocks to throw exceptions during resource loading
             _mockResourceManager.Setup(rm => rm.LoadTexture(It.IsAny<string>()))
@@ -157,7 +186,7 @@ namespace DTXMania.Test.Stage
         public void Deactivate_AfterActivation_ShouldCleanupResources()
         {
             // Arrange
-            var stage = new SongSelectionStage(_mockGame.Object);
+            var stage = CreateStage();
             stage.Activate();
 
             // Act
@@ -173,7 +202,7 @@ namespace DTXMania.Test.Stage
         public void Deactivate_WithoutActivation_ShouldHandleGracefully()
         {
             // Arrange
-            var stage = new SongSelectionStage(_mockGame.Object);
+            var stage = CreateStage();
 
             // Act & Assert - Should not throw exception
             stage.Deactivate();
@@ -184,7 +213,7 @@ namespace DTXMania.Test.Stage
         public void Deactivate_MultipleCallsShouldBeIdempotent()
         {
             // Arrange
-            var stage = new SongSelectionStage(_mockGame.Object);
+            var stage = CreateStage();
 
             // Act
             stage.Deactivate();
@@ -202,7 +231,7 @@ namespace DTXMania.Test.Stage
         public void SongListInitialization_WhenSongManagerInitialized_ShouldLoadSongs()
         {
             // Arrange
-            var stage = new SongSelectionStage(_mockGame.Object);
+            var stage = CreateStage();
 
             // Act
             stage.Activate();
@@ -219,7 +248,7 @@ namespace DTXMania.Test.Stage
         public void SetBackgroundMusic_WithValidParameters_ShouldConfigureBackground()
         {
             // Arrange
-            var stage = new SongSelectionStage(_mockGame.Object);
+            var stage = CreateStage();
             var mockSound = new Mock<ISound>();
             var mockSoundInstance = new Mock<ISoundInstance>();
 
@@ -231,7 +260,7 @@ namespace DTXMania.Test.Stage
         public void SetBackgroundMusic_WithNullParameters_ShouldHandleGracefully()
         {
             // Arrange
-            var stage = new SongSelectionStage(_mockGame.Object);
+            var stage = CreateStage();
 
             // Act & Assert - Should not throw exception
             stage.SetBackgroundMusic(null, null);
@@ -245,7 +274,7 @@ namespace DTXMania.Test.Stage
         public void PhaseTransition_InitialState_ShouldBeInactive()
         {
             // Arrange
-            var stage = new SongSelectionStage(_mockGame.Object);
+            var stage = CreateStage();
 
             // Act & Assert
             Assert.Equal(StagePhase.Inactive, stage.CurrentPhase);
@@ -255,7 +284,7 @@ namespace DTXMania.Test.Stage
         public void PhaseTransition_AfterActivation_ShouldBeFadeIn()
         {
             // Arrange
-            var stage = new SongSelectionStage(_mockGame.Object);
+            var stage = CreateStage();
 
             // Act
             stage.Activate();
@@ -272,7 +301,7 @@ namespace DTXMania.Test.Stage
         public void Navigation_MovingThroughSongList_ShouldUpdateSelection()
         {
             // Arrange
-            var stage = new SongSelectionStage(_mockGame.Object);
+            var stage = CreateStage();
 
             // Act & Assert - Test basic navigation functionality
             // This tests the stage can handle navigation input even without full initialization
@@ -284,7 +313,7 @@ namespace DTXMania.Test.Stage
         public void SelectSong_WithValidSong_ShouldTransitionToGameplay()
         {
             // Arrange
-            var stage = new SongSelectionStage(_mockGame.Object);
+            var stage = CreateStage();
             
             // Act & Assert - Test song selection trigger
             // This verifies the stage can handle song selection without full setup
@@ -295,7 +324,7 @@ namespace DTXMania.Test.Stage
         public void HandleInput_EscapeKey_ShouldTriggerBackAction()
         {
             // Arrange
-            var stage = new SongSelectionStage(_mockGame.Object);
+            var stage = CreateStage();
             
             // Act & Assert - Test ESC key handling
             // This verifies basic input handling capabilities
@@ -310,7 +339,7 @@ namespace DTXMania.Test.Stage
         public void Update_WithValidDeltaTime_ShouldUpdateComponents()
         {
             // Arrange
-            var stage = new SongSelectionStage(_mockGame.Object);
+            var stage = CreateStage();
             
             // Act & Assert - Test update loop handling
             // Without graphics initialization, this tests the basic update structure
@@ -321,7 +350,7 @@ namespace DTXMania.Test.Stage
         public void Draw_WithGraphicsContext_ShouldRenderWithoutErrors()
         {
             // Arrange
-            var stage = new SongSelectionStage(_mockGame.Object);
+            var stage = CreateStage();
             
             // Act & Assert - Test rendering capabilities
             // This tests the stage structure for drawing
@@ -336,7 +365,7 @@ namespace DTXMania.Test.Stage
         public void ErrorHandling_InvalidSharedData_ShouldHandleGracefully()
         {
             // Arrange
-            var stage = new SongSelectionStage(_mockGame.Object);
+            var stage = CreateStage();
             var invalidData = new Dictionary<string, object>
             {
                 { "invalid_key", "invalid_value" },
@@ -354,7 +383,7 @@ namespace DTXMania.Test.Stage
         public void ErrorHandling_MissingResources_ShouldContinueOperation()
         {
             // Arrange
-            var stage = new SongSelectionStage(_mockGame.Object);
+            var stage = CreateStage();
             
             // Mock resource manager to simulate missing resources
             _mockResourceManager.Setup(rm => rm.LoadTexture(It.IsAny<string>()))
@@ -374,7 +403,7 @@ namespace DTXMania.Test.Stage
         public void Performance_MultipleActivationsDeactivations_ShouldNotLeak()
         {
             // Arrange
-            var stage = new SongSelectionStage(_mockGame.Object);
+            var stage = CreateStage();
             
             // Act - Multiple activation/deactivation cycles
             for (int i = 0; i < 5; i++)
@@ -391,7 +420,7 @@ namespace DTXMania.Test.Stage
         public void Performance_LargeSharedDataSet_ShouldHandleEfficiently()
         {
             // Arrange
-            var stage = new SongSelectionStage(_mockGame.Object);
+            var stage = CreateStage();
             var largeDataSet = new Dictionary<string, object>();
             
             // Create a large shared data set
@@ -415,7 +444,7 @@ namespace DTXMania.Test.Stage
         public void Integration_FullLifecycleWithMocks_ShouldCompleteSuccessfully()
         {
             // Arrange
-            var stage = new SongSelectionStage(_mockGame.Object);
+            var stage = CreateStage();
             
             // Act - Full lifecycle
             stage.Activate();
