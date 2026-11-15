@@ -212,4 +212,28 @@ public sealed class Hpa796GuardSourceLexingTests
 
         Assert.Contains("new Texture2D(device, 1, 1)", stripped);
     }
+
+    // --- review finding round 3: empty ordinary string literal ---
+
+    [Fact]
+    public void StripComments_ShouldKeepCodeAfterEmptyOrdinaryString()
+    {
+        // "" is a complete empty literal: scanning must resume after both
+        // delimiters, not hunt for a second closing quote and blank the
+        // rest of the file over real code.
+        var stripped =
+            Strip("var s = \"\"; var texture = new Texture2D(device, 1, 1);");
+
+        Assert.Contains("new Texture2D(device, 1, 1)", stripped);
+    }
+
+    [Fact]
+    public void TextureScan_ShouldCatchOneByOneAllocationAfterEmptyOrdinaryString()
+    {
+        var matches =
+            Hpa796ArchitectureGuardTests.FindRawOneByOneTextureInstantiationLines(
+                Strip("var s = \"\"; var texture = new Texture2D(device, 1, 1);"));
+
+        Assert.Single(matches);
+    }
 }

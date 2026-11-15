@@ -425,6 +425,9 @@ public sealed class Hpa796ArchitectureGuardTests
     {
         var closing = source[openQuote];
         var position = openQuote + quoteRunLength;
+        if (quoteRunLength >= 2)
+            return position; // "" empty literal: the run covered both delimiters
+
         while (position < source.Length)
         {
             var c = source[position];
