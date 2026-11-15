@@ -1154,6 +1154,46 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void OnDeactivate_ShouldReleaseCachedWhitePixel_AndBalancedReactivateAcquiresFreshReference()
+        {
+            // HPA-796 round trip: OnActivate acquires the cached pixel on every activation and
+            // OnDeactivate previously released only the fonts, so a Startup → Title → Startup
+            // round trip overwrote the outstanding reference. Each deactivation must release
+            // its activation's reference.
+            var game = ReflectionHelpers.CreateGame();
+            var stage = new GraphicsControlledStartupStage(game);
+            var firstPixelResource = new Mock<ITexture>();
+            firstPixelResource.SetupGet(t => t.Texture).Returns(stage.WhitePixelStub);
+            var secondPixelResource = new Mock<ITexture>();
+            secondPixelResource.SetupGet(t => t.Texture).Returns(stage.WhitePixelStub);
+            var pendingPixels = new Queue<ITexture>(new[] { firstPixelResource.Object, secondPixelResource.Object });
+            var resourceManager = new Mock<IResourceManager>();
+            resourceManager.Setup(manager => manager.CreateTextureFromColor(Color.White))
+                .Returns(() => pendingPixels.Dequeue());
+            ReflectionHelpers.SetPrivateField(game, "<ResourceManager>k__BackingField", resourceManager.Object);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnActivate");
+            Assert.Same(firstPixelResource.Object, ReflectionHelpers.GetPrivateField<ITexture>(stage, "_whitePixelResource"));
+            Assert.Same(stage.WhitePixelStub, ReflectionHelpers.GetPrivateField<Texture2D>(stage, "_whitePixel"));
+            firstPixelResource.Verify(t => t.RemoveReference(), Times.Never);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnDeactivate");
+            firstPixelResource.Verify(t => t.RemoveReference(), Times.Once);
+            Assert.Null(ReflectionHelpers.GetPrivateField<ITexture>(stage, "_whitePixelResource"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<Texture2D>(stage, "_whitePixel"));
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnActivate");
+            resourceManager.Verify(manager => manager.CreateTextureFromColor(Color.White), Times.Exactly(2));
+            Assert.Same(secondPixelResource.Object, ReflectionHelpers.GetPrivateField<ITexture>(stage, "_whitePixelResource"));
+            secondPixelResource.Verify(t => t.RemoveReference(), Times.Never);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnDeactivate");
+            secondPixelResource.Verify(t => t.RemoveReference(), Times.Once);
+            Assert.Null(ReflectionHelpers.GetPrivateField<ITexture>(stage, "_whitePixelResource"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<Texture2D>(stage, "_whitePixel"));
+        }
+
+        [Fact]
         public void Dispose_WhenNotDisposed_ShouldReleaseFontReferences()
         {
             var font = new Mock<IFont>();

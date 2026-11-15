@@ -271,6 +271,14 @@ namespace DTXMania.Game.Lib.Stage
             // forward are process-owned and must survive title deactivation.
             _crashReportNotification = null;
             _updateNotification = null;
+
+            // HPA-796: release the cached white pixel acquired on activation so a
+            // Title → Config → Title round trip cannot overwrite an outstanding
+            // reference. Dispose's null-safe release still guards disposal without
+            // deactivation.
+            _whitePixelResource?.RemoveReference();
+            _whitePixelResource = null;
+            _whitePixel = null;
         }
 
         protected override void OnTransitionInStarted(IStageTransition transition)

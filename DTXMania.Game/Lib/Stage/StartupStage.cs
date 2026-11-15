@@ -512,6 +512,14 @@ namespace DTXMania.Game.Lib.Stage
             _boldFont = null;
             _statusFallbackFont?.RemoveReference();
             _statusFallbackFont = null;
+
+            // HPA-796: release the cached white pixel acquired on activation (previously only
+            // the fonts were released here, so a Startup → Title → Startup round trip overwrote
+            // an outstanding reference). Dispose's null-safe release still guards disposal
+            // without deactivation.
+            _whitePixelResource?.RemoveReference();
+            _whitePixelResource = null;
+            _whitePixel = null;
         }
 
         private void BeginActivationScope()
@@ -610,8 +618,8 @@ namespace DTXMania.Game.Lib.Stage
                 RetireActivationScope();
 
                 // Cleanup MonoGame resources - using reference counting for managed textures
-                // Font refs are released in OnDeactivate (called by BaseStage.Dispose → Deactivate)
-                // but guard against disposal without deactivation
+                // Font and cached white pixel refs are released in OnDeactivate (called by
+                // BaseStage.Dispose → Deactivate) but guard against disposal without deactivation
                 _font?.RemoveReference();
                 _boldFont?.RemoveReference();
                 _statusFallbackFont?.RemoveReference();

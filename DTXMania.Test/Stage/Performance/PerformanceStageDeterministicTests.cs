@@ -819,29 +819,70 @@ public class PerformanceStageDeterministicTests
     {
         // HPA-796: the stage owns the cached white pixel; the Tab HUD and the judgement
         // line renderer only borrow its raw texture. RemoveReference must therefore fire
-        // strictly after both children were disposed and cleared.
+        // strictly after both children were disposed and cleared — disposal itself, not
+        // just field nulling, is probed at release time.
         PerformanceStage? stage = null;
-        var childrenClearedBeforeRelease = new List<bool>();
-        var whitePixel = new ProbingWhitePixelResource(() => childrenClearedBeforeRelease.Add(
+        var tabHud = new TrackingTabHudDisplay(CreateUninitialized<GraphicsDevice>());
+        var judgementLine = new TrackingJudgementLineRenderer(
+            CreateUninitialized<GraphicsDevice>(),
+            null);
+        var childrenReleasedBeforePixel = new List<bool>();
+        var whitePixel = new ProbingWhitePixelResource(() => childrenReleasedBeforePixel.Add(
             stage != null &&
+            tabHud.WasDisposed &&
+            judgementLine.WasDisposed &&
             ReflectionHelpers.GetPrivateField<object>(stage, "_tabHudDisplay") == null &&
             ReflectionHelpers.GetPrivateField<object>(stage, "_judgementLineRenderer") == null));
 
         stage = CreateTabStageWithPendingChart(CreateNotationResourceManager(completeBravura: true).Object);
-        ReflectionHelpers.SetPrivateField(
-            stage,
-            "_tabHudDisplay",
-            new TabHudDisplay(CreateUninitialized<GraphicsDevice>(), null, "t", "a"));
+        ReflectionHelpers.SetPrivateField(stage, "_tabHudDisplay", tabHud);
+        ReflectionHelpers.SetPrivateField(stage, "_judgementLineRenderer", judgementLine);
         ReflectionHelpers.SetPrivateField(stage, "_fallbackWhiteTextureResource", whitePixel);
         ReflectionHelpers.SetPrivateField(stage, "_fallbackWhiteTexture", whitePixel.Texture);
 
         ReflectionHelpers.InvokePrivateMethod(stage, "CleanupComponents");
 
-        Assert.NotEmpty(childrenClearedBeforeRelease);
-        Assert.All(childrenClearedBeforeRelease, Assert.True);
+        Assert.NotEmpty(childrenReleasedBeforePixel);
+        Assert.All(childrenReleasedBeforePixel, Assert.True);
         Assert.Equal(1, whitePixel.RemoveReferenceCount);
         Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_fallbackWhiteTextureResource"));
         Assert.Null(ReflectionHelpers.GetPrivateField<Texture2D>(stage, "_fallbackWhiteTexture"));
+    }
+
+    /// <summary>TabHudDisplay double that records its own disposal without a GPU.</summary>
+    private sealed class TrackingTabHudDisplay : TabHudDisplay
+    {
+        public TrackingTabHudDisplay(GraphicsDevice graphicsDevice)
+            : base(graphicsDevice, null, "t", "a")
+        {
+            GC.SuppressFinalize(this);
+        }
+
+        public bool WasDisposed { get; private set; }
+
+        protected override void Dispose(bool disposing)
+        {
+            WasDisposed = true;
+            base.Dispose(disposing);
+        }
+    }
+
+    /// <summary>JudgementLineRenderer double that records its own disposal without a GPU.</summary>
+    private sealed class TrackingJudgementLineRenderer : JudgementLineRenderer
+    {
+        public TrackingJudgementLineRenderer(GraphicsDevice graphicsDevice, Texture2D? whiteTexture)
+            : base(graphicsDevice, whiteTexture!)
+        {
+            GC.SuppressFinalize(this);
+        }
+
+        public bool WasDisposed { get; private set; }
+
+        protected override void Dispose(bool disposing)
+        {
+            WasDisposed = true;
+            base.Dispose(disposing);
+        }
     }
 
     private sealed class ProbingWhitePixelResource : ITexture
