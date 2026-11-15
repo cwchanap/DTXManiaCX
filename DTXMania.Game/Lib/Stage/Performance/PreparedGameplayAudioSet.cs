@@ -182,8 +182,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
                         }
                         catch (Exception ex) when (ex is not OperationCanceledException)
                         {
-                            Debug.WriteLine(
-                                $"[PreparedGameplayAudioSet] Skipping failed default-profile sound '{sourcePath}': {ex.Message}");
                         }
 
                         completed++;
@@ -366,8 +364,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
             if (File.Exists(fullPath))
                 return fullPath;
 
-            Debug.WriteLine(
-                $"[PreparedGameplayAudioSet] Referenced audio source was not found: {fullPath}");
             return null;
         }
 

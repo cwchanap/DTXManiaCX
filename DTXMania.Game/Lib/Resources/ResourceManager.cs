@@ -8,6 +8,8 @@ using DTXMania.Game.Lib.Utilities;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace DTXMania.Game.Lib.Resources
 {
@@ -20,6 +22,7 @@ namespace DTXMania.Game.Lib.Resources
         #region Private Fields
 
         private readonly GraphicsDevice _graphicsDevice;
+        private readonly ILogger<ResourceManager> _logger;
         private readonly ConcurrentDictionary<string, ITexture> _textureCache;
         private readonly ConcurrentDictionary<string, IFont> _fontCache;
         private readonly ConcurrentDictionary<string, ISound> _soundCache;
@@ -73,9 +76,12 @@ namespace DTXMania.Game.Lib.Resources
 
         #region Constructor
 
-        public ResourceManager(GraphicsDevice graphicsDevice)
+        #nullable enable
+        public ResourceManager(GraphicsDevice graphicsDevice, ILogger<ResourceManager>? logger = null)
+        #nullable restore
         {
             _graphicsDevice = graphicsDevice ?? throw new ArgumentNullException(nameof(graphicsDevice));
+            _logger = logger ?? NullLogger<ResourceManager>.Instance;
             _textureCache = new ConcurrentDictionary<string, ITexture>();
             _fontCache = new ConcurrentDictionary<string, IFont>();
             _soundCache = new ConcurrentDictionary<string, ISound>();
@@ -443,7 +449,6 @@ namespace DTXMania.Game.Lib.Resources
                 }
                 else
                 {
-                    Debug.WriteLine($"Warning: Skin path validation failed for {requestedPath}; falling back to {_fallbackSkinPath}");
                     _currentSkinPath = _fallbackSkinPath;
                 }
 
@@ -545,7 +550,7 @@ namespace DTXMania.Game.Lib.Resources
                 if (_textureCache.TryRemove(key, out var texture))
                 {
                     try { texture.Dispose(); }
-                    catch (Exception ex) { Debug.WriteLine($"ResourceManager: Error disposing texture during skin switch: {ex.Message}"); }
+                    catch (Exception) { }
                 }
             }
 
@@ -558,16 +563,9 @@ namespace DTXMania.Game.Lib.Resources
                 if (_soundCache.TryRemove(key, out var sound))
                 {
                     try { sound.Dispose(); }
-                    catch (Exception ex) { Debug.WriteLine($"ResourceManager: Error disposing sound during skin switch: {ex.Message}"); }
+                    catch (Exception) { }
                 }
             }
-
-            // Only log when something was actually evicted. SwitchToSystemSkin
-            // calls SetBoxDefSkinPath("") then SetSkinPath, which can trigger
-            // eviction twice — the second call finds an empty cache and would
-            // produce a misleading "evicted" log line.
-            if (textureCount > 0 || soundCount > 0)
-                Debug.WriteLine($"ResourceManager: Evicted skin-dependent cache ({textureCount} textures, {soundCount} sounds)");
         }
 
         /// <summary>
@@ -689,14 +687,12 @@ namespace DTXMania.Game.Lib.Resources
                     }
                     else
                     {
-                        Debug.WriteLine($"Warning: Box.def skin path validation failed for {candidate}; clearing override");
                         _boxDefSkinPath = "";
                     }
                 }
 
                 if (oldPath != _boxDefSkinPath)
                 {
-                    Debug.WriteLine($"Box.def skin path changed: {oldPath} -> {_boxDefSkinPath}");
                 }
                 _currentTheme = null;
 
@@ -719,7 +715,6 @@ namespace DTXMania.Game.Lib.Resources
             {
                 var oldEffective = EffectiveSkinPathNoLock();
                 _useBoxDefSkin = useBoxDefSkin;
-                Debug.WriteLine($"Box.def skin usage: {(_useBoxDefSkin ? "enabled" : "disabled")}");
                 _currentTheme = null;
 
                 if (!string.Equals(oldEffective, EffectiveSkinPathNoLock(), AppPaths.SkinPathComparison))
@@ -908,7 +903,6 @@ namespace DTXMania.Game.Lib.Resources
                 }
                 _soundCache.Clear();
 
-                Debug.WriteLine("ResourceManager: All resources unloaded");
             }
         }
 
@@ -958,7 +952,6 @@ namespace DTXMania.Game.Lib.Resources
                     }
                 }
 
-                Debug.WriteLine($"ResourceManager: Unloaded resources matching pattern: {pathPattern}");
             }
         }
 
@@ -1022,7 +1015,6 @@ namespace DTXMania.Game.Lib.Resources
                     }
                 }
 
-                Debug.WriteLine($"ResourceManager: Collected {unusedTextures.Count} textures, {unusedFonts.Count} fonts, and {unusedSounds.Count} sounds");
             }
         }
 
@@ -1036,13 +1028,23 @@ namespace DTXMania.Game.Lib.Resources
         protected virtual void OnResourceLoadFailed(ResourceLoadFailedEventArgs e)
         {
             ResourceLoadFailed?.Invoke(this, e);
-            Debug.WriteLine($"Resource load failed: {e.Path} - {e.ErrorMessage}");
+
+            // Expected optional-asset misses (skin/path probes) stay at Debug so
+            // ordinary Release runs stay quiet; genuine decode/I/O failures are
+            // worth exactly one Warning with the original exception.
+            if (e.Exception is FileNotFoundException)
+            {
+                _logger.LogDebug(e.Exception, "Optional resource not found: {Path}", e.Path);
+            }
+            else
+            {
+                _logger.LogWarning(e.Exception, "Resource load failed: {Path}", e.Path);
+            }
         }
 
         protected virtual void OnSkinChanged(SkinChangedEventArgs e)
         {
             SkinChanged?.Invoke(this, e);
-            Debug.WriteLine($"Skin changed: {e.OldSkinPath} -> {e.NewSkinPath}");
         }
 
         #endregion
@@ -1089,12 +1091,10 @@ namespace DTXMania.Game.Lib.Resources
             if (_bundledSystemSkinRoot != null && ValidateSkinPath(_bundledSystemSkinRoot))
             {
                 _currentSkinPath = _fallbackSkinPath = _bundledSystemSkinRoot;
-                Debug.WriteLine($"ResourceManager: Using bundled default skin path: {_bundledSystemSkinRoot}");
             }
             else if (ValidateSkinPath(appDataSystemPath))
             {
                 _currentSkinPath = _fallbackSkinPath = appDataSystemPath;
-                Debug.WriteLine($"ResourceManager: Using app-data default skin path: {appDataSystemPath}");
             }
             else
             {
@@ -1104,7 +1104,6 @@ namespace DTXMania.Game.Lib.Resources
                 // (if non-null but non-validating) stays as _bundledSystemSkinRoot
                 // for ResolvePath's third-tier fallback.
                 _currentSkinPath = _fallbackSkinPath = appDataSystemPath;
-                Debug.WriteLine($"ResourceManager: Fallback to app-data skin path: {appDataSystemPath} (validation failed)");
                 CreateDefaultSkinStructure();
             }
         }
@@ -1128,11 +1127,10 @@ namespace DTXMania.Game.Lib.Resources
                 if (!Directory.Exists(fontsPath))
                     Directory.CreateDirectory(fontsPath);
 
-                Debug.WriteLine("ResourceManager: Created default skin directory structure");
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"ResourceManager: Failed to create default skin structure: {ex.Message}");
+                _logger.LogWarning(ex, "Failed to create default skin structure");
             }
         }
 
@@ -1147,7 +1145,6 @@ namespace DTXMania.Game.Lib.Resources
             // Convert to full path relative to current working directory
             var fullPath = Path.GetFullPath(combinedPath);
 
-            Debug.WriteLine($"ResourceManager: Resolved '{relativePath}' with skin '{skinPath}' to '{fullPath}'");
             return fullPath;
         }
 
@@ -1187,13 +1184,11 @@ namespace DTXMania.Game.Lib.Resources
                         var normalized = candidate.EndsWith(Path.DirectorySeparatorChar.ToString())
                             ? candidate
                             : candidate + Path.DirectorySeparatorChar;
-                        Debug.WriteLine($"ResourceManager: Using bundled System skin root: {normalized}");
                         return normalized;
                     }
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
-                    Debug.WriteLine($"ResourceManager: Bundled candidate '{candidate}' check failed: {ex.Message}");
                 }
             }
             return null;
@@ -1216,9 +1211,8 @@ namespace DTXMania.Game.Lib.Resources
             {
                 return Path.GetFullPath(Path.Combine(_bundledSystemSkinRoot, relativePath));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Debug.WriteLine($"ResourceManager: Bundled resolution of '{relativePath}' failed: {ex.Message}");
                 return null;
             }
         }
@@ -1276,13 +1270,11 @@ namespace DTXMania.Game.Lib.Resources
             };
 
             var isValid = validationFiles.Any(File.Exists);
-            Debug.WriteLine($"ResourceManager: Validating skin path '{skinPath}' - {(isValid ? "VALID" : "INVALID")}");
 
             if (!isValid)
             {
                 foreach (var file in validationFiles)
                 {
-                    Debug.WriteLine($"  Missing: {file}");
                 }
             }
 
@@ -1312,7 +1304,7 @@ namespace DTXMania.Game.Lib.Resources
             catch (Exception ex)
             {
                 // If even Arial fails, return null - calling code should handle this
-                Debug.WriteLine($"ResourceManager: {ex.GetType().Name} creating fallback font for '{originalPath}': {ex.Message}");
+                _logger.LogWarning(ex, "Fallback font creation failed for '{Path}'", originalPath);
                 return null;
             }
         }
@@ -1334,7 +1326,7 @@ namespace DTXMania.Game.Lib.Resources
             catch (Exception ex)
             {
                 // If even silent sound fails, return null - calling code should handle this
-                Debug.WriteLine($"ResourceManager: {ex.GetType().Name} creating fallback sound for '{originalPath}': {ex.Message}");
+                _logger.LogWarning(ex, "Fallback sound creation failed for '{Path}'", originalPath);
                 return null;
             }
         }
@@ -1380,7 +1372,6 @@ namespace DTXMania.Game.Lib.Resources
         {
             if (!_disposed)
             {
-                Debug.WriteLine("ResourceManager: Dispose leak detected - ResourceManager was not properly disposed");
             }
             Dispose(false);
         }

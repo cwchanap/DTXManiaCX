@@ -96,9 +96,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 _font = ManagedFont.CreateFont(_graphicsDevice, "NotoSerifJP", 24, FontStyle.Bold);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SkillPanelDisplay: Failed to create font: {ex.Message}");
                 _font = null;
             }
 
@@ -106,9 +105,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 _maxBadgeTexture = resourceManager.LoadTexture(TexturePath.SkillMax);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SkillPanelDisplay: Failed to load MAX badge: {ex.Message}");
                 _maxBadgeTexture = null;
             }
 
@@ -352,9 +350,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 return resourceManager.LoadTexture(path);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SkillPanelDisplay: Failed to load {displayName}: {ex.Message}");
                 return null;
             }
         }

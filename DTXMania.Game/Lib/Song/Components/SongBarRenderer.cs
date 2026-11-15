@@ -469,7 +469,6 @@ namespace DTXMania.Game.Lib.Song.Components
             stopwatch.Stop();
             if (stopwatch.Elapsed.TotalMilliseconds > 2.0) // Log if priority generation takes more than 2ms
             {
-                System.Diagnostics.Debug.WriteLine($"SongBarRenderer: Priority generation for '{songNode.DisplayTitle}' took {stopwatch.Elapsed.TotalMilliseconds:F2}ms");
             }
 
             return barInfo;
@@ -594,9 +593,8 @@ namespace DTXMania.Game.Lib.Song.Components
                 var cacheKey = GetTitleCacheKey(songNode);
                 return new ManagedTexture(_graphicsDevice, texture2D, $"title_{cacheKey}");
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"Failed to create title texture: {ex.Message}");
                 return null;
             }
         }
@@ -612,9 +610,8 @@ namespace DTXMania.Game.Lib.Song.Components
                 var resolvedPreviewImagePath = GetResolvedPreviewImagePath(songNode);
                 return LoadPreviewImage(resolvedPreviewImagePath, out _);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"Failed to load preview image: {ex.Message}");
             }
 
             return null;
@@ -649,9 +646,8 @@ namespace DTXMania.Game.Lib.Song.Components
                 // callers fall back to the skin default instead of failing the draw.
                 return Path.GetFullPath(Path.Combine(songDirectory, previewImage));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"Invalid preview image path '{previewImage}': {ex.Message}");
                 return null;
             }
         }
@@ -678,7 +674,6 @@ namespace DTXMania.Game.Lib.Song.Components
             {
                 if (new FileInfo(resolvedPreviewImagePath).Length > MAX_PREVIEW_IMAGE_SIZE_BYTES)
                 {
-                    System.Diagnostics.Debug.WriteLine($"Skipping large preview image: {resolvedPreviewImagePath}");
                     return null;
                 }
 
@@ -690,7 +685,6 @@ namespace DTXMania.Game.Lib.Song.Components
                 if (TryReadImageDimensions(resolvedPreviewImagePath, out var imageWidth, out var imageHeight)
                     && (long)imageWidth * imageHeight > MAX_PREVIEW_IMAGE_DECODED_BYTES / 4)
                 {
-                    System.Diagnostics.Debug.WriteLine($"Skipping oversized decoded preview image ({imageWidth}x{imageHeight}): {resolvedPreviewImagePath}");
                     return null;
                 }
 
@@ -710,9 +704,8 @@ namespace DTXMania.Game.Lib.Song.Components
 
                 return texture;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"Failed to load preview image: {ex.Message}");
                 return null;
             }
         }
@@ -774,9 +767,8 @@ namespace DTXMania.Game.Lib.Song.Components
                 if (header[0] == 0xFF && header[1] == 0xD8)
                     return TryReadJpegDimensions(stream, out width, out height);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"Could not read preview image header '{path}': {ex.Message}");
             }
             return false;
         }

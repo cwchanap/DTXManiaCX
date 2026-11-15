@@ -202,13 +202,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
                         _padSpriteSheet = _resourceManager.LoadTexture(path);
                         if (_padSpriteSheet != null)
                         {
-                            Debug.WriteLine($"PadRenderer loaded texture from: {path}");
                             break;
                         }
                     }
-                    catch (Exception ex)
+                    catch (Exception)
                     {
-                        Debug.WriteLine($"PadRenderer: {ex.GetType().Name} loading texture from '{path}': {ex.Message}");
                         // Continue trying other paths
                     }
                 }
@@ -218,10 +216,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     CalculateCellDimensions();
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 // Failed to load pad texture, pads won't be rendered
-                Debug.WriteLine($"PadRenderer: All pad texture paths failed, falling back to solid-color rendering. {ex.GetType().Name}: {ex.Message}");
                 _padSpriteSheet = null;
             }
         }
@@ -237,14 +234,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
             var texW = _padSpriteSheet.Width;
             var texH = _padSpriteSheet.Height;
             
-            Debug.WriteLine($"PadRenderer texture dimensions: {texW}x{texH}");
 
             // Use defined sprite sheet dimensions
             _spriteColumns = SpriteSheetColumns;
             _cellWidth = texW / SpriteSheetColumns;
             _cellHeight = texH / SpriteSheetRows;
             
-            Debug.WriteLine($"PadRenderer cell dimensions: {_cellWidth}x{_cellHeight} (columns={_spriteColumns}, rows={SpriteSheetRows})");
         }
 
         /// <summary>

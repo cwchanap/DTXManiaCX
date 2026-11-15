@@ -249,11 +249,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
                 return texture;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 texture?.RemoveReference();
-                System.Diagnostics.Debug.WriteLine(
-                    $"SpriteJudgementTextPopupManager: {ex.GetType().Name} loading {TexturePath.JudgeStringsXg}: {ex.Message}");
                 return null;
             }
         }
@@ -269,10 +267,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 if (!IsInvalidSpriteTexture(spriteTexture))
                     return true;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine(
-                    $"SpriteJudgementTextPopupManager: {ex.GetType().Name} validating held {TexturePath.JudgeStringsXg}: {ex.Message}");
             }
 
             ReleaseHeldSpriteTexture();
@@ -310,10 +306,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 spriteTexture.RemoveReference();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine(
-                    $"SpriteJudgementTextPopupManager: {ex.GetType().Name} releasing {TexturePath.JudgeStringsXg}: {ex.Message}");
             }
         }
 
@@ -345,8 +339,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
             if (!invalid)
                 return false;
 
-            System.Diagnostics.Debug.WriteLine(
-                $"SpriteJudgementTextPopupManager: {exception.GetType().Name} drawing {TexturePath.JudgeStringsXg}: {exception.Message}");
             ReleaseHeldSpriteTexture();
             MigrateActivePopupsToFontFallback();
             return true;

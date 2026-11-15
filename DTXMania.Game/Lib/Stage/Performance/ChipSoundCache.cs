@@ -92,10 +92,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     CleanupStoppedInstances();
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine(
-                    $"[ChipSoundCache] Play failed for '{wavId}': {ex.Message}");
             }
         }
 

@@ -330,11 +330,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     FontStyle.Regular
                 );
                 
-                System.Diagnostics.Debug.WriteLine("ComboDisplay: Fonts loaded successfully");
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"ComboDisplay: Failed to load fonts: {ex.Message}");
                 _comboFont = null;
                 _labelFont = null;
             }
@@ -346,9 +344,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 _comboTexture = _resourceManager.LoadTexture(TexturePath.ComboDisplay);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"ComboDisplay: Failed to load combo texture: {ex.Message}");
                 _comboTexture = null;
             }
 
@@ -356,9 +353,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 _comboTextureAlt = _resourceManager.LoadTexture(TexturePath.ComboDisplayAlt);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"ComboDisplay: Failed to load combo alt texture: {ex.Message}");
                 _comboTextureAlt = null;
             }
         }

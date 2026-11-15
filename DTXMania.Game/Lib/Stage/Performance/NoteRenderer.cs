@@ -355,10 +355,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
             }
 
             // Optional: Draw note value for debugging (can be removed in final version)
-            #if DEBUG
-            // This would require a font to be loaded, so we'll skip it for now
-            // DrawNoteDebugInfo(spriteBatch, note, noteRect);
-            #endif
         }
 
         /// <summary>

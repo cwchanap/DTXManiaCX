@@ -250,12 +250,6 @@ namespace DTXMania.Game.Lib.Song
             Exception exception)
         {
             var exceptionType = exception.GetType().FullName ?? exception.GetType().Name;
-            Debug.WriteLine(
-                $"SongRootPolicy: Failed to read configured song root. " +
-                $"Root path: {normalizedRoot}; " +
-                $"Exception type: {exceptionType}; " +
-                $"HResult: {exception.HResult}; " +
-                $"Exception message: {exception.Message}");
             return new SongRootProbeResult(
                 availability,
                 reason,

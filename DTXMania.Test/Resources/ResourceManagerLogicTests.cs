@@ -6,6 +6,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Utilities;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using static DTXMania.Test.TestData.ReflectionHelpers;
 
@@ -1873,6 +1874,7 @@ namespace DTXMania.Test.Resources
             SetPrivateField(resourceManager, "_boxDefSkinPath", string.Empty);
             SetPrivateField(resourceManager, "_useBoxDefSkin", true);
             SetPrivateField(resourceManager, "_disposed", false);
+            SetPrivateField(resourceManager, "_logger", NullLogger<ResourceManager>.Instance);
 
             return resourceManager;
         }
@@ -1894,6 +1896,7 @@ namespace DTXMania.Test.Resources
             SetPrivateField(resourceManager, "_boxDefSkinPath", string.Empty);
             SetPrivateField(resourceManager, "_useBoxDefSkin", true);
             SetPrivateField(resourceManager, "_disposed", false);
+            SetPrivateField(resourceManager, "_logger", NullLogger<ResourceManager>.Instance);
             SetPrivateField(resourceManager, "_currentSkinPath", NormalizeDirectory(currentSkinPath ?? AppPaths.GetDefaultSystemSkinRoot()));
             SetPrivateField(resourceManager, "_fallbackSkinPath", NormalizeDirectory(fallbackSkinPath ?? currentSkinPath ?? AppPaths.GetDefaultSystemSkinRoot()));
             return resourceManager;

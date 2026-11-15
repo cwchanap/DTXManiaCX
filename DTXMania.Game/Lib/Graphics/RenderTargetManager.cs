@@ -129,9 +129,8 @@ namespace DTXMania.Game.Lib.Graphics
                         info.DepthFormat,
                         info.MultiSampleCount);
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
-                    System.Diagnostics.Debug.WriteLine($"RenderTargetManager: {ex.GetType().Name} recreating '{name}' ({info.Width}x{info.Height}): {ex.Message}");
                 }
 
                 _renderTargets[name] = info;

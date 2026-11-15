@@ -240,9 +240,8 @@ namespace DTXMania.Game.Lib.Stage
                 // Try to load a background texture using layout constants
                 _backgroundTexture = _resourceManager.LoadTexture(SongTransitionUILayout.Background.DefaultBackgroundPath);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to load background texture: {ex.GetType().Name}: {ex.Message}");
             }
         }
 
@@ -345,10 +344,9 @@ namespace DTXMania.Game.Lib.Stage
                 // Load title font using layout configuration
                 _titleFont = _resourceManager.LoadFont("NotoSerifJP", SongTransitionUILayout.SongTitle.FontSize);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 // Title font load failed, continue without it
-                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to load title font: {ex.GetType().Name}: {ex.Message}");
             }
             
             try
@@ -363,10 +361,9 @@ namespace DTXMania.Game.Lib.Stage
                 // Load artist font using layout configuration
                 _artistFont = _resourceManager.LoadFont("NotoSerifJP", SongTransitionUILayout.Artist.FontSize);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 // Artist font load failed, continue without it
-                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to load artist font: {ex.GetType().Name}: {ex.Message}");
             }
 
             LoadDisplayFonts();
@@ -392,9 +389,8 @@ namespace DTXMania.Game.Lib.Stage
                 if (titleFamily.Length > 0)
                     _titleDisplayFont = _resourceManager.LoadFont(titleFamily, ResolveTitleFontSize(theme));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to load title display font: {ex.GetType().Name}: {ex.Message}");
             }
 
             try
@@ -403,9 +399,8 @@ namespace DTXMania.Game.Lib.Stage
                 if (artistFamily.Length > 0)
                     _artistDisplayFont = _resourceManager.LoadFont(artistFamily, ResolveArtistFontSize(theme));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to load artist display font: {ex.GetType().Name}: {ex.Message}");
             }
         }
         
@@ -530,9 +525,8 @@ namespace DTXMania.Game.Lib.Stage
                 _levelNumberFont = _resourceManager.LoadFont(
                     ResolveLevelFontFamily(theme), ResolveLevelFontSize(theme));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongTransitionStage: Failed to load level number font: {ex.GetType().Name}: {ex.Message}");
                 // Restore old font on failure
                 _levelNumberFont = oldFont;
                 oldFont = null; // prevent double-release in finally

@@ -13,6 +13,8 @@ using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Song.Entities;
 using DTXMania.Game.Lib.Song.Import;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using SongEntity = DTXMania.Game.Lib.Song.Entities.Song;
 using SongScoreEntity = DTXMania.Game.Lib.Song.Entities.SongScore;
 
@@ -77,6 +79,19 @@ namespace DTXMania.Game.Lib.Song
         private string[] _currentSearchPaths = Array.Empty<string>();
         private string[] _pendingSearchPaths = Array.Empty<string>();
         private long _publicationVersion;
+
+        // Wired once from Game1.CreateLoadContentServices via ConfigureLogger;
+        // defaults to a null logger so independent tests stay silent.
+        private ILogger<SongManager> _logger = NullLogger<SongManager>.Instance;
+
+        /// <summary>
+        /// Supplies the singleton's logger (no constructor injection seam).
+        /// Null restores the null logger used by independent tests.
+        /// </summary>
+        internal void ConfigureLogger(ILogger<SongManager>? logger)
+        {
+            _logger = logger ?? NullLogger<SongManager>.Instance;
+        }
 
         internal SongRootPolicy RootPolicy { get; set; } =
             SongRootPolicy.ForCurrentPlatform();
@@ -361,23 +376,20 @@ namespace DTXMania.Game.Lib.Song
 
                 if (db == null)
                 {
-                    Debug.WriteLine("SongManager: Cannot initialize database service - service instance is null");
                     return false;
                 }
 
                 if (purgeDatabaseFirst)
                 {
-                    Debug.WriteLine("SongManager: Purging existing database for fresh rebuild (explicitly requested)");
                     await db.PurgeDatabaseAsync().ConfigureAwait(false);
                 }
 
                 await db.InitializeDatabaseAsync().ConfigureAwait(false);
-                Debug.WriteLine("SongManager: Database service initialized successfully");
                 return true;
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"SongManager: Error during database service initialization: {ex.Message}");
+                _logger.LogWarning(ex, "Error during database service initialization");
                 return false;
             }
         }
@@ -392,7 +404,6 @@ namespace DTXMania.Game.Lib.Song
                 var db = GetDatabaseServiceSnapshot();
                 if (db == null)
                 {
-                    Debug.WriteLine("SongManager: Cannot load score cache - database service not initialized");
                     return false;
                 }
 
@@ -401,19 +412,17 @@ namespace DTXMania.Game.Lib.Song
 
                 if (!needsEnumeration)
                 {
-                    Debug.WriteLine("SongManager: Building song list from database cache");
                     await BuildHierarchyFromDatabaseOnceAsync(searchPaths).ConfigureAwait(false);
                     return true;
                 }
                 else
                 {
-                    Debug.WriteLine("SongManager: Score cache is empty or outdated, enumeration needed");
                     return false;
                 }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"SongManager: Error during score cache loading: {ex.Message}");
+                _logger.LogWarning(ex, "Error during score cache loading");
                 return false;
             }
         }
@@ -466,17 +475,15 @@ namespace DTXMania.Game.Lib.Song
                 {
                     if (_rootSongs.Count == 0)
                     {
-                        Debug.WriteLine("SongManager: No songs to build lists from");
                         return false;
                     }
                 }
 
-                Debug.WriteLine($"SongManager: Building song lists complete. {_rootSongs.Count} root nodes organized");
                 return true;
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"SongManager: Error during song list building: {ex.Message}");
+                _logger.LogWarning(ex, "Error during song list building");
                 return false;
             }
         }
@@ -490,7 +497,6 @@ namespace DTXMania.Game.Lib.Song
             {
                 if (_databaseService == null)
                 {
-                    Debug.WriteLine("SongManager: Cannot save songs DB - database service not initialized");
                     return false;
                 }
 
@@ -501,7 +507,7 @@ namespace DTXMania.Game.Lib.Song
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"SongManager: Error during songs DB save: {ex.Message}");
+                _logger.LogWarning(ex, "Error during songs DB save");
                 return false;
             }
         }
@@ -515,7 +521,6 @@ namespace DTXMania.Game.Lib.Song
             {
                 _isInitialized = true;
             }
-            Debug.WriteLine("SongManager: Marked as initialized");
         }
 
         /// <summary>
@@ -547,7 +552,6 @@ namespace DTXMania.Game.Lib.Song
             }
             else
             {
-                Debug.WriteLine("SongManager: RefreshSongListFromDatabaseAsync skipped — no current search paths.");
             }
         }
 
@@ -570,7 +574,7 @@ namespace DTXMania.Game.Lib.Song
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"SongManager: Error checking database existence: {ex.Message}");
+                _logger.LogWarning(ex, "Error checking database existence");
                 return false;
             }
         }
@@ -589,7 +593,7 @@ namespace DTXMania.Game.Lib.Song
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"SongManager: Error getting database stats: {ex.Message}");
+                _logger.LogWarning(ex, "Error getting database stats");
                 return null;
             }
         }
@@ -904,7 +908,6 @@ namespace DTXMania.Game.Lib.Song
                     diagnostic.Message,
                     IsRootFailure: true);
                 errors.Add(error);
-                Debug.WriteLine($"SongManager: skipping song root: {error.Message}");
             }
 
             var activeRoots = new List<string>();
@@ -925,7 +928,6 @@ namespace DTXMania.Game.Lib.Song
                     message,
                     IsRootFailure: true);
                 errors.Add(error);
-                Debug.WriteLine($"SongManager: skipping song root: {error.Message}");
             }
 
             return new SongEnumerationBatchBuilder(activeRoots, errors);
@@ -1174,8 +1176,6 @@ namespace DTXMania.Game.Lib.Song
                 // path point anywhere on disk.
                 if (Path.IsPathRooted(fileName))
                 {
-                    Debug.WriteLine(
-                        $"SongManager: Rejecting absolute set.def chart reference: {fileName}");
                     continue;
                 }
 
@@ -1202,8 +1202,6 @@ namespace DTXMania.Game.Lib.Song
                         path,
                         normalizedSetDefDirectory))
                 {
-                    Debug.WriteLine(
-                        $"SongManager: Rejecting set.def chart reference outside its directory: {path}");
                     continue;
                 }
 
@@ -1363,7 +1361,6 @@ namespace DTXMania.Game.Lib.Song
         {
             builder.DiscoveredChartPaths.Remove(path);
             builder.RejectedChartPaths.Add(path);
-            Debug.WriteLine($"SongManager: Skipping tab without a playable drum part: {path} ({exception.Message})");
         }
 
         private static (
@@ -1589,8 +1586,7 @@ namespace DTXMania.Game.Lib.Song
                 try { ((EventHandler<TArgs>)handler)(sender, args); }
                 catch (Exception ex)
                 {
-                    Debug.WriteLine(
-                        $"SongManager: {eventName} subscriber threw: {ex.Message}");
+                    Instance._logger.LogWarning(ex, "{EventName} subscriber threw", eventName);
                 }
             }
         }
@@ -1607,8 +1603,7 @@ namespace DTXMania.Game.Lib.Song
                 try { ((EventHandler)handler)(sender, args); }
                 catch (Exception ex)
                 {
-                    Debug.WriteLine(
-                        $"SongManager: {eventName} subscriber threw: {ex.Message}");
+                    Instance._logger.LogWarning(ex, "{EventName} subscriber threw", eventName);
                 }
             }
         }
@@ -1652,7 +1647,6 @@ namespace DTXMania.Game.Lib.Song
             var db = GetDatabaseServiceSnapshot();
             if (db == null)
             {
-                Debug.WriteLine("SongManager: Cannot build song list - database service not initialized");
                 return;
             }
 
@@ -1669,8 +1663,6 @@ namespace DTXMania.Game.Lib.Song
 
                 if (availableRoots.Length == 0)
                 {
-                    Debug.WriteLine(
-                        "SongManager: Database hierarchy refresh skipped — no active search roots.");
                     return;
                 }
 
@@ -1721,7 +1713,7 @@ namespace DTXMania.Game.Lib.Song
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"SongManager: Error building song list from database: {ex.Message}");
+                _logger.LogWarning(ex, "Error building song list from database");
             }
         }
 
@@ -1784,7 +1776,6 @@ namespace DTXMania.Game.Lib.Song
                 // Check if the file still exists at the recorded path
                 if (!File.Exists(firstChart.FilePath))
                 {
-                    Debug.WriteLine($"SongManager: Skipping song '{firstSong.Title}' - file no longer exists at {firstChart.FilePath}");
                     continue;
                 }
 
@@ -1909,7 +1900,7 @@ namespace DTXMania.Game.Lib.Song
                     }
                     catch (Exception ex)
                     {
-                        Debug.WriteLine($"SongManager: Error parsing box.def at {boxDefPath}: {ex.Message}");
+                        _logger.LogWarning(ex, "Error parsing box.def at {BoxDefPath}", boxDefPath);
                     }
                 }
 
@@ -2028,7 +2019,7 @@ namespace DTXMania.Game.Lib.Song
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"SongManager: Error normalizing SET.def line '{line}': {ex.Message}");
+                _logger.LogWarning(ex, "Error normalizing SET.def line '{Line}'", line);
                 return "";
             }
         }
@@ -2126,7 +2117,6 @@ namespace DTXMania.Game.Lib.Song
             }
             catch (ArgumentException)
             {
-                Debug.WriteLine("SongManager: Shift_JIS encoding not available for SET.def parsing");
             }
             return encodings;
         }
@@ -2157,11 +2147,11 @@ namespace DTXMania.Game.Lib.Song
                 // unexpected exceptions (OOM, contract changes) propagate instead of being masked.
                 catch (IOException ex)
                 {
-                    Debug.WriteLine($"SongManager: Failed to read SET.def with {encoding.EncodingName}: {ex.Message}");
+                    Instance._logger.LogWarning(ex, "Failed to read SET.def with {EncodingName}", encoding.EncodingName);
                 }
                 catch (UnauthorizedAccessException ex)
                 {
-                    Debug.WriteLine($"SongManager: Failed to read SET.def with {encoding.EncodingName}: {ex.Message}");
+                    Instance._logger.LogWarning(ex, "Failed to read SET.def with {EncodingName}", encoding.EncodingName);
                 }
             }
             return null;
@@ -2348,7 +2338,7 @@ namespace DTXMania.Game.Lib.Song
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"SongManager: Error parsing box.def {boxDefPath}: {ex.Message}");
+                _logger.LogWarning(ex, "Error parsing box.def {BoxDefPath}", boxDefPath);
                 return null;
             }
         }
@@ -2569,7 +2559,7 @@ namespace DTXMania.Game.Lib.Song
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"SongManager: Error getting top scores: {ex.Message}");
+                _logger.LogWarning(ex, "Error getting top scores");
                 return new List<SongScoreEntity>();
             }
         }
@@ -2588,7 +2578,7 @@ namespace DTXMania.Game.Lib.Song
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"SongManager: Error updating score: {ex.Message}");
+                _logger.LogWarning(ex, "Error updating score");
                 return false;
             }
         }
@@ -2647,8 +2637,7 @@ namespace DTXMania.Game.Lib.Song
             }
             catch (Exception ex)
             {
-                Debug.WriteLine(
-                    $"SongManager: In-memory score refresh failed after successful save for chart {chartId}: {ex.Message}");
+                _logger.LogWarning(ex, "In-memory score refresh failed after successful save for chart {ChartId}", chartId);
                 outcome = ScoreRefreshOutcome.NoMatch;
             }
 
@@ -2986,7 +2975,6 @@ namespace DTXMania.Game.Lib.Song
             var db = GetDatabaseServiceSnapshot();
             if (db == null)
             {
-                Debug.WriteLine("SongManager: ImportNxScoresAsync called with no database service.");
                 result.DbUnavailable = true;
                 return result;
             }
@@ -3039,7 +3027,7 @@ namespace DTXMania.Game.Lib.Song
                     result.Errors++;
                     // Clear tracked entities so a failed merge does not poison the next chart.
                     context.ChangeTracker.Clear();
-                    Debug.WriteLine($"SongManager: NX import error for {chart.FilePath}: {ex.Message}");
+                    _logger.LogWarning(ex, "NX import error for {ChartPath}", chart.FilePath);
                 }
 
                 progress?.Report(new NxImportProgress
@@ -3052,7 +3040,6 @@ namespace DTXMania.Game.Lib.Song
                 });
             }
 
-            Debug.WriteLine($"SongManager: NX import complete — scanned {result.Scanned}, imported {result.Imported}, skipped {result.Skipped}, errors {result.Errors} in {sw.ElapsedMilliseconds}ms.");
             return result;
         }
 
@@ -3208,7 +3195,7 @@ namespace DTXMania.Game.Lib.Song
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"SongManager: Error searching songs: {ex.Message}");
+                _logger.LogWarning(ex, "Error searching songs");
                 return new List<SongEntity>();
             }
         }
@@ -3248,7 +3235,7 @@ namespace DTXMania.Game.Lib.Song
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"SongManager: Error getting songs by genre: {ex.Message}");
+                _logger.LogWarning(ex, "Error getting songs by genre");
                 return new List<SongEntity>();
             }
         }
@@ -3262,14 +3249,12 @@ namespace DTXMania.Game.Lib.Song
             {
                 if (forceEnumeration)
                 {
-                    Debug.WriteLine("SongManager: Force enumeration requested");
                     return true;
                 }
 
                 // Check if database service exists and is accessible
                 if (_databaseService == null || !await _databaseService.DatabaseExistsAsync())
                 {
-                    Debug.WriteLine("SongManager: Database doesn't exist, enumeration needed");
                     return true;
                 }
 
@@ -3277,11 +3262,9 @@ namespace DTXMania.Game.Lib.Song
                 var stats = await _databaseService.GetDatabaseStatsAsync();
                 if (stats.SongCount == 0)
                 {
-                    Debug.WriteLine("SongManager: Database is empty, enumeration needed");
                     return true;
                 }
 
-                Debug.WriteLine($"SongManager: Database contains {stats.SongCount} songs, checking for filesystem changes...");
 
                 // Check for filesystem changes by comparing directory modification times
                 // Cache freshness must evaluate the same canonical root set as database
@@ -3294,17 +3277,14 @@ namespace DTXMania.Game.Lib.Song
                 var changeDetected = await DetectFilesystemChangesAsync(canonicalRoots);
                 if (changeDetected)
                 {
-                    Debug.WriteLine("SongManager: Filesystem changes detected, enumeration needed");
                     return true;
                 }
 
-                Debug.WriteLine("SongManager: No changes detected, enumeration not needed");
                 return false;
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"SongManager: Error checking enumeration need: {ex.Message}");
-                Debug.WriteLine($"SongManager: Stack trace: {ex.StackTrace}");
+                _logger.LogWarning(ex, "Error checking enumeration need");
                 return true; // Default to enumeration if we can't determine
             }
         }
@@ -3344,26 +3324,23 @@ namespace DTXMania.Game.Lib.Song
                         if (!string.IsNullOrEmpty(newPath))
                         {
                             // Found the file in a new location - update database
-                            Debug.WriteLine($"SongManager: File moved detected: '{chart.FilePath}' -> '{newPath}'");
                             await UpdateChartFilePathAsync(chart.Id, newPath);
                             updatedFiles++;
                         }
                         else
                         {
                             missingFiles++;
-                            Debug.WriteLine($"SongManager: Missing file detected: {chart.FilePath}");
                         }
                     }
                 }
 
-                Debug.WriteLine($"SongManager: File existence check - {missingFiles} missing, {updatedFiles} updated, {totalFiles} total files");
 
                 // Return true if we had missing files OR updated file paths (both require re-enumeration)
                 return missingFiles > 0 || updatedFiles > 0;
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"SongManager: Error checking database file existence: {ex.Message}");
+                _logger.LogWarning(ex, "Error checking database file existence");
                 // If we can't check, assume no changes to avoid unnecessary re-enumeration
                 return false;
             }
@@ -3419,7 +3396,7 @@ namespace DTXMania.Game.Lib.Song
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"SongManager: Error finding moved file {originalPath}: {ex.Message}");
+                _logger.LogWarning(ex, "Error finding moved file {OriginalPath}", originalPath);
                 return null;
             }
         }
@@ -3449,7 +3426,7 @@ namespace DTXMania.Game.Lib.Song
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"SongManager: Error comparing files {originalPath} vs {candidatePath}: {ex.Message}");
+                _logger.LogWarning(ex, "Error comparing files {OriginalPath} vs {CandidatePath}", originalPath, candidatePath);
                 return false;
             }
         }
@@ -3474,7 +3451,7 @@ namespace DTXMania.Game.Lib.Song
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"SongManager: Error updating chart file path for ID {chartId}: {ex.Message}");
+                _logger.LogWarning(ex, "Error updating chart file path for ID {ChartId}", chartId);
             }
         }
 
@@ -3490,11 +3467,9 @@ namespace DTXMania.Game.Lib.Song
                 var lastEnumerationTime = await GetLastEnumerationTimestampAsync();
                 if (lastEnumerationTime == null)
                 {
-                    Debug.WriteLine("SongManager: No last enumeration timestamp found - first time enumeration");
                     return true; // First time enumeration
                 }
 
-                Debug.WriteLine($"SongManager: Last enumeration was at {lastEnumerationTime:yyyy-MM-dd HH:mm:ss} UTC");
 
                 // Probe canonical roots once and carry only currently available
                 // roots through every downstream check. A missing or inaccessible
@@ -3512,8 +3487,6 @@ namespace DTXMania.Game.Lib.Song
                         continue;
                     if (RootPolicy.Probe(searchPath).Availability == SongRootAvailability.Available)
                         availableRoots.Add(searchPath);
-                    else
-                        Debug.WriteLine($"SongManager: Configured root unavailable, skipping freshness check: {searchPath}");
                 }
 
                 // Walk the available roots once, mirroring full enumeration's
@@ -3541,11 +3514,9 @@ namespace DTXMania.Game.Lib.Song
                 var databaseChartCount = await GetActiveDatabaseChartCountAsync(availableRoots)
                     + await GetRejectedChartCountAsync(availableRoots).ConfigureAwait(false);
 
-                Debug.WriteLine($"SongManager: Current chart files: {currentFileCount}, Database charts: {databaseChartCount}");
 
                 if (currentFileCount != databaseChartCount)
                 {
-                    Debug.WriteLine($"SongManager: File count mismatch detected - files: {currentFileCount}, database: {databaseChartCount}");
                     return true;
                 }
 
@@ -3556,7 +3527,6 @@ namespace DTXMania.Game.Lib.Song
                 var filesMovedOrDeleted = await CheckDatabaseFilesStillExist(availableRoots);
                 if (filesMovedOrDeleted)
                 {
-                    Debug.WriteLine($"SongManager: Some files have been moved or deleted since last enumeration");
                     return true;
                 }
 
@@ -3570,17 +3540,14 @@ namespace DTXMania.Game.Lib.Song
                         availableRoots,
                         rootWatermarks))
                 {
-                    Debug.WriteLine("SongManager: Changes detected in song directories");
                     return true;
                 }
 
-                Debug.WriteLine("SongManager: No changes detected in any search path");
                 return false;
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"SongManager: Error detecting filesystem changes: {ex.Message}");
-                Debug.WriteLine($"SongManager: Stack trace: {ex.StackTrace}");
+                _logger.LogWarning(ex, "Error detecting filesystem changes");
                 return true; // Default to enumeration on error
             }
         }
@@ -3729,15 +3696,11 @@ namespace DTXMania.Game.Lib.Song
                         subdirectory, inventory, seenCharts, cancellationToken);
                 }
             }
-            catch (UnauthorizedAccessException ex)
+            catch (UnauthorizedAccessException)
             {
-                Debug.WriteLine(
-                    $"SongManager: Skipping inaccessible directory during inventory scan: {directoryPath}: {ex.Message}");
             }
-            catch (IOException ex)
+            catch (IOException)
             {
-                Debug.WriteLine(
-                    $"SongManager: Skipping unreadable directory during inventory scan: {directoryPath}: {ex.Message}");
             }
         }
 
@@ -3799,8 +3762,6 @@ namespace DTXMania.Game.Lib.Song
             {
                 if (!rootWatermarks.ContainsKey(root))
                 {
-                    Debug.WriteLine(
-                        $"SongManager: No enumeration watermark found for returning root: {root}");
                     return true;
                 }
             }
@@ -3814,7 +3775,6 @@ namespace DTXMania.Game.Lib.Song
                         out var watermark) &&
                     dir.LastWriteTimeUtc > watermark)
                 {
-                    Debug.WriteLine($"SongManager: Directory modified: {dir.Path} at {dir.LastWriteTimeUtc:yyyy-MM-dd HH:mm:ss}");
                     return true;
                 }
             }
@@ -3829,7 +3789,6 @@ namespace DTXMania.Game.Lib.Song
                     (setDef.CreationTimeUtc > watermark ||
                      setDef.LastWriteTimeUtc > watermark))
                 {
-                    Debug.WriteLine($"SongManager: set.def modified: {setDef.Path} at {setDef.LastWriteTimeUtc:yyyy-MM-dd HH:mm:ss}");
                     return true;
                 }
             }
@@ -3845,7 +3804,6 @@ namespace DTXMania.Game.Lib.Song
                      chart.LastWriteTimeUtc > watermark))
                 {
                     var reason = chart.CreationTimeUtc > watermark ? "new" : "modified";
-                    Debug.WriteLine($"SongManager: {reason.ToUpper()} chart detected: {chart.Path} at {chart.LastWriteTimeUtc:yyyy-MM-dd HH:mm:ss}");
                     return true;
                 }
             }
@@ -3913,24 +3871,20 @@ namespace DTXMania.Game.Lib.Song
             {
                 if (_databaseService == null)
                 {
-                    Debug.WriteLine("SongManager: Database service is null");
                     return null;
                 }
 
                 var timestamp = await _databaseService.GetLastSuccessfulEnumerationUtcAsync();
                 if (timestamp == null)
                 {
-                    Debug.WriteLine("SongManager: No last enumeration timestamp recorded - first time enumeration");
                     return null;
                 }
 
-                Debug.WriteLine($"SongManager: Last successful enumeration at {timestamp.Value:yyyy-MM-dd HH:mm:ss} UTC");
                 return timestamp;
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"SongManager: Error getting last enumeration timestamp: {ex.Message}");
-                Debug.WriteLine($"SongManager: Stack trace: {ex.StackTrace}");
+                _logger.LogWarning(ex, "Error getting last enumeration timestamp");
                 return null;
             }
         }
@@ -3959,8 +3913,6 @@ namespace DTXMania.Game.Lib.Song
                 if (containingRoot != null)
                 {
                     dirtyRoots.Add(containingRoot);
-                    Debug.WriteLine(
-                        $"SongManager: Suppressing watermark advance for root with recoverable error: {containingRoot} ({error.Message})");
                 }
             }
 
@@ -4036,19 +3988,17 @@ namespace DTXMania.Game.Lib.Song
                     .ConfigureAwait(false);
                 if (success)
                 {
-                    Debug.WriteLine($"SongManager: Enumeration watermark persisted at {startUtc:yyyy-MM-dd HH:mm:ss} UTC (scan start)");
                 }
                 else
                 {
                     // A failed write leaves the previous watermark in place (or
                     // none), so the next freshness check remains conservative.
                     // No partial state is possible because the write is atomic.
-                    Debug.WriteLine($"SongManager: Enumeration watermark write failed; previous watermark retained.");
                 }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"SongManager: Error updating enumeration watermark: {ex.Message}");
+                _logger.LogWarning(ex, "Error updating enumeration watermark");
             }
         }
 
@@ -4144,7 +4094,7 @@ namespace DTXMania.Game.Lib.Song
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"SongManager: Error creating song node from database entities: {ex.Message}");
+                _logger.LogWarning(ex, "Error creating song node from database entities");
                 return null;
             }
         }

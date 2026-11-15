@@ -305,10 +305,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 texture.RemoveReference();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine(
-                    $"NxAttackEffectManager: {ex.GetType().Name} releasing {path}: {ex.Message}");
             }
         }
 
@@ -640,10 +638,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
                 return resourceManager.LoadTexture(path);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine(
-                    $"NxAttackEffectManager: {ex.GetType().Name} loading {path}: {ex.Message}");
                 return null;
             }
         }

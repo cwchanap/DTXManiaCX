@@ -283,9 +283,8 @@ namespace DTXMania.Game.Lib.Song.Components
                 if (_resourceManager.ResourceExists(path))
                     _defaultPreviewTexture = _resourceManager.LoadTexture(path);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"PreviewImagePanel: Could not load default preview texture: {ex.GetType().Name}: {ex.Message}");
                 _defaultPreviewTexture = null;
             }
         }
@@ -312,9 +311,8 @@ namespace DTXMania.Game.Lib.Song.Components
                     }
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"PreviewImagePanel: Failed to load preimage panel texture: {ex.Message}");
                 _preimagePanelTexture = null;
             }
 
@@ -433,10 +431,8 @@ namespace DTXMania.Game.Lib.Song.Components
                     }
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine(
-                    $"PreviewImagePanel: Failed to load preview image: {ex.Message}");
                 // Try to use default texture as fallback, but check if it's valid first
                 if (_defaultPreviewTexture != null)
                 {
@@ -516,12 +512,10 @@ namespace DTXMania.Game.Lib.Song.Components
                     }
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 // Working directory can be unavailable (e.g., deleted temp dirs in
                 // tests). Preserve a deterministic root-first fallback in that case.
-                System.Diagnostics.Debug.WriteLine(
-                    $"PreviewImagePanel: Path resolution failed for '{songDirectory}': {ex.Message}");
                 foreach (var activeRoot in _activeSongRootPaths)
                 {
                     try
@@ -531,10 +525,8 @@ namespace DTXMania.Game.Lib.Song.Components
                         if (System.IO.Directory.Exists(fromActiveRoot))
                             return fromActiveRoot;
                     }
-                    catch (Exception fallbackException)
+                    catch (Exception)
                     {
-                        System.Diagnostics.Debug.WriteLine(
-                            $"PreviewImagePanel: Active-root fallback failed for '{songDirectory}': {fallbackException.Message}");
                     }
                 }
 
@@ -543,10 +535,8 @@ namespace DTXMania.Game.Lib.Song.Components
                     return System.IO.Path.GetFullPath(
                         System.IO.Path.Combine(AppContext.BaseDirectory, songDirectory));
                 }
-                catch (Exception fallbackException)
+                catch (Exception)
                 {
-                    System.Diagnostics.Debug.WriteLine(
-                        $"PreviewImagePanel: Base-directory fallback failed for '{songDirectory}': {fallbackException.Message}");
                 }
             }
 
@@ -628,9 +618,8 @@ namespace DTXMania.Game.Lib.Song.Components
                     ClearDisposedTextureReference(textureToUse);
                     DrawPlaceholder(spriteBatch, contentBounds);
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
-                    System.Diagnostics.Debug.WriteLine($"PreviewImagePanel: Draw failed unexpectedly: {ex.GetType().Name}: {ex.Message}");
                     DrawPlaceholder(spriteBatch, contentBounds);
                 }
             }

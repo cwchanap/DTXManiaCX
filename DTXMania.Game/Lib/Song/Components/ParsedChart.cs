@@ -333,15 +333,6 @@ namespace DTXMania.Game.Lib.Song.Components
             VideoEvents.Clear();
             VideoEvents.AddRange(stableSortedVideoEvents);
 
-            // Debug: Report parsing summary
-#if DEBUG
-            var maxMeasure = highestOccupiedBar;
-            var totalNotes = Notes.Count;
-            var totalBGMEvents = BGMEvents.Count;
-            var lastNoteTime = Notes.Count > 0 ? Notes.Max(n => n.TimeMs) : 0;
-            System.Diagnostics.Debug.WriteLine($"ParsedChart.FinalizeChart: {totalNotes} notes, {totalBGMEvents} BGM events, max measure: {maxMeasure}, last note time: {lastNoteTime:F1}ms, BPM: {Bpm}");
-#endif
-
             var maxEventTimeMs = 0.0;
             if (Notes.Count > 0)
                 maxEventTimeMs = Math.Max(maxEventTimeMs, Notes.Max(note => note.TimeMs));

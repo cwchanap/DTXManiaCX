@@ -84,9 +84,8 @@ namespace DTXMania.Game.Lib.Song.Components
             {
                 _panelTexture = resourceManager.LoadTexture(TexturePath.PlayHistoryPanel);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"PlayHistoryPanel: Failed to load panel texture: {ex.Message}");
                 _panelTexture = null;
             }
         }
@@ -188,9 +187,6 @@ namespace DTXMania.Game.Lib.Song.Components
                     // The background texture was disposed out from under us (texture-
                     // lifecycle defect). Release our handle so we stop trying to draw a
                     // dead texture, and surface the condition so it isn't invisible.
-                    System.Diagnostics.Debug.WriteLine(
-                        "PlayHistoryPanel: Panel texture was disposed unexpectedly during draw; " +
-                        "releasing handle. This signals a texture-lifecycle defect upstream.");
                     ReleaseTexture();
                 }
             }

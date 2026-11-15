@@ -256,9 +256,8 @@ namespace DTXMania.Game.Lib.Stage
                     _stageBackgroundTexture = _game.ResourceManager.LoadTexture(texturePath);
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"BaseStage: Failed to load background for {Type}: {ex.Message}");
                 _stageBackgroundTexture = null;
             }
         }

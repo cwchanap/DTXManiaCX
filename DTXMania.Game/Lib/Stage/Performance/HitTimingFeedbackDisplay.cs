@@ -214,7 +214,7 @@ public sealed class HitTimingFeedbackDisplay : IDisposable
 
             return texture;
         }
-        catch (Exception ex)
+        catch (Exception)
         {
             try
             {
@@ -224,8 +224,6 @@ public sealed class HitTimingFeedbackDisplay : IDisposable
             {
             }
 
-            System.Diagnostics.Debug.WriteLine(
-                $"HitTimingFeedbackDisplay: {ex.GetType().Name} loading {TexturePath.LagNumbers}: {ex.Message}");
             return null;
         }
     }
@@ -241,10 +239,8 @@ public sealed class HitTimingFeedbackDisplay : IDisposable
             if (!IsInvalidTexture(texture))
                 return true;
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            System.Diagnostics.Debug.WriteLine(
-                $"HitTimingFeedbackDisplay: {ex.GetType().Name} validating held {TexturePath.LagNumbers}: {ex.Message}");
         }
 
         ReleaseHeldTexture();
@@ -277,10 +273,8 @@ public sealed class HitTimingFeedbackDisplay : IDisposable
         {
             texture.RemoveReference();
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            System.Diagnostics.Debug.WriteLine(
-                $"HitTimingFeedbackDisplay: {ex.GetType().Name} releasing {TexturePath.LagNumbers}: {ex.Message}");
         }
     }
 
@@ -298,8 +292,6 @@ public sealed class HitTimingFeedbackDisplay : IDisposable
         if (!invalid)
             return false;
 
-        System.Diagnostics.Debug.WriteLine(
-            $"HitTimingFeedbackDisplay: {exception.GetType().Name} drawing {TexturePath.LagNumbers}: {exception.Message}");
         ReleaseHeldTexture();
         TryReloadTexture();
         return true;

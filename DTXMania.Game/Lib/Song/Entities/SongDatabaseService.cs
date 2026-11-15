@@ -120,7 +120,6 @@ namespace DTXMania.Game.Lib.Song.Entities
                 {
                     if (_isInitialized)
                     {
-                        System.Diagnostics.Debug.WriteLine("SongDatabaseService: Database already initialized, skipping.");
                         return;
                     }
                 }
@@ -133,7 +132,6 @@ namespace DTXMania.Game.Lib.Song.Entities
 
                     if (storedVersion != CurrentSongSchemaVersion)
                     {
-                        System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Database schema version {storedVersion} does not match required version {CurrentSongSchemaVersion}, recreating database");
                         await PurgeDatabaseAsync();
                     }
                     else
@@ -158,11 +156,9 @@ namespace DTXMania.Game.Lib.Song.Entities
                     _isInitialized = true;
                 }
 
-                System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Database initialized successfully at: {_databasePath}");
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"Unexpected error during database initialization: {ex.Message}");
                 throw;
             }
             finally
@@ -280,7 +276,6 @@ namespace DTXMania.Game.Lib.Song.Entities
                 if (File.Exists(_databasePath))
                 {
                     File.Delete(_databasePath);
-                    System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Database file purged: {_databasePath}");
                 }
                 DeleteDatabaseFileSidecars(_databasePath);
 
@@ -291,9 +286,8 @@ namespace DTXMania.Game.Lib.Song.Entities
                 }
 
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Error purging database: {ex.Message}");
                 throw;
             }
         }
@@ -375,10 +369,6 @@ namespace DTXMania.Game.Lib.Song.Entities
                         identity.FilePath,
                         out _)))
                 {
-                    Debug.WriteLine(
-                        "SongDatabaseService: retaining chart " +
-                        $"{identity.Id} with malformed path " +
-                        $"'{identity.FilePath}'");
                 }
 
                 // Pre-normalize active roots once to avoid redundant Normalize
@@ -763,10 +753,6 @@ namespace DTXMania.Game.Lib.Song.Entities
                     }
 
                     conflicts++;
-                    Debug.WriteLine(
-                        "SongDatabaseService: ambiguous import group " +
-                        $"'{group.Key}' matched song ids " +
-                        $"[{string.Join(",", matchedSongIds)}]");
                     var songChangedById = matchedCharts
                         .Select(chart => chart.Song)
                         .DistinctBy(song => song.Id)
@@ -881,10 +867,8 @@ namespace DTXMania.Game.Lib.Song.Entities
                         request.Candidates.Count,
                         request.Candidates.Count));
                 }
-                catch (Exception progressException)
+                catch (Exception)
                 {
-                    Debug.WriteLine(
-                        $"SongDatabaseService: Committed progress callback failed: {progressException.Message}");
                 }
                 return new SongBulkImportResult(
                     chartsByPath,
@@ -903,10 +887,8 @@ namespace DTXMania.Game.Lib.Song.Entities
                     await transaction.RollbackAsync(CancellationToken.None)
                         .ConfigureAwait(false);
                 }
-                catch (Exception rollbackException)
+                catch (Exception)
                 {
-                    Debug.WriteLine(
-                        $"SongDatabaseService: rollback failed: {rollbackException.Message}");
                 }
 
                 throw;
@@ -1236,9 +1218,8 @@ namespace DTXMania.Game.Lib.Song.Entities
 
                 return song.Id;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Error in AddSongAsync: {ex.Message}");
                 throw;
             }
         }
@@ -2085,9 +2066,8 @@ namespace DTXMania.Game.Lib.Song.Entities
                 }
                 return parsed.ToUniversalTime();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Warning - Could not read last enumeration timestamp: {ex.Message}");
                 return null;
             }
         }
@@ -2122,10 +2102,8 @@ namespace DTXMania.Game.Lib.Song.Entities
 
                 return parsed.ToUniversalTime();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine(
-                    $"SongDatabaseService: Warning - Could not read root enumeration timestamp: {ex.Message}");
                 return null;
             }
         }
@@ -2147,12 +2125,11 @@ namespace DTXMania.Game.Lib.Song.Entities
                     LastSuccessfulEnumerationKey,
                     utc.ToUniversalTime().ToString("o"));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 // Swallow-only: a failed write leaves the previous timestamp in
                 // place (or none), which only makes the next freshness check more
                 // conservative. Never abort the post-enumeration path over metadata.
-                System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Warning - Could not persist last enumeration timestamp: {ex.Message}");
             }
         }
 
@@ -2188,12 +2165,10 @@ namespace DTXMania.Game.Lib.Song.Entities
                         value);
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 // A failed root watermark leaves the previous value in place (or
                 // none), so the next freshness check remains conservative.
-                System.Diagnostics.Debug.WriteLine(
-                    $"SongDatabaseService: Warning - Could not persist root enumeration timestamps: {ex.Message}");
             }
         }
 
@@ -2231,10 +2206,8 @@ namespace DTXMania.Game.Lib.Song.Entities
                         count.ToString(CultureInfo.InvariantCulture));
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Debug.WriteLine(
-                    $"SongDatabaseService: Warning - Could not persist rejected chart counts: {ex.Message}");
             }
         }
 
@@ -2273,10 +2246,8 @@ namespace DTXMania.Game.Lib.Song.Entities
 
                 return total;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Debug.WriteLine(
-                    $"SongDatabaseService: Warning - Could not read rejected chart counts: {ex.Message}");
                 return 0;
             }
         }
@@ -2335,10 +2306,8 @@ namespace DTXMania.Game.Lib.Song.Entities
                 await transaction.CommitAsync().ConfigureAwait(false);
                 return true;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine(
-                    $"SongDatabaseService: Warning - Could not atomically persist enumeration watermark: {ex.Message}");
                 return false;
             }
         }
@@ -2396,9 +2365,8 @@ namespace DTXMania.Game.Lib.Song.Entities
                     await CleanupOrphanedSongsAsync(context);
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Error during stale chart cleanup: {ex.Message}");
                 throw;
             }
         }
@@ -2420,9 +2388,8 @@ namespace DTXMania.Game.Lib.Song.Entities
                     await context.SaveChangesAsync();
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongDatabaseService: Error cleaning up orphaned songs: {ex.Message}");
             }
         }
 

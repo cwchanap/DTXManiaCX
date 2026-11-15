@@ -77,7 +77,6 @@ namespace DTXMania.Game.Lib.Resources
 
                 if (!Directory.Exists(fullSystemSkinRoot))
                 {
-                    Debug.WriteLine($"SkinDiscoveryService: System skin root not found: {fullSystemSkinRoot}");
                     return skins;
                 }
 
@@ -97,9 +96,8 @@ namespace DTXMania.Game.Lib.Resources
                 // Sort by name
                 skins.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Debug.WriteLine($"SkinDiscoveryService: Error discovering skins: {ex.Message}");
             }
 
             return skins;
@@ -166,9 +164,8 @@ namespace DTXMania.Game.Lib.Resources
 
                 return skinInfo;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Debug.WriteLine($"SkinDiscoveryService: Error analyzing skin {skinPath}: {ex.Message}");
                 return null;
             }
         }
@@ -247,9 +244,8 @@ namespace DTXMania.Game.Lib.Resources
                     }
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Debug.WriteLine($"SkinDiscoveryService: Error reading skin metadata: {ex.Message}");
             }
         }
 

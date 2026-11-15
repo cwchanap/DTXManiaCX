@@ -8,6 +8,8 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Audio;
 using Microsoft.Xna.Framework.Graphics;
@@ -54,6 +56,7 @@ namespace DTXMania.Game.Lib.Stage
         private IResourceManager _resourceManager;
         private UIManager _uiManager;
         private InputManagerCompat _inputManager;
+        private ILogger<PerformanceStage> _logger = NullLogger<PerformanceStage>.Instance;
 
         // Stage data - initialized via ExtractSharedData
         private SongListNode _selectedSong = null!;
@@ -258,6 +261,8 @@ namespace DTXMania.Game.Lib.Stage
             _resourceManager = game.ResourceManager;
             _uiManager = new UIManager();
             _inputManager = game.InputManager;
+            _logger = game.LoggerFactory?.CreateLogger<PerformanceStage>()
+                ?? NullLogger<PerformanceStage>.Instance;
         }
 
         protected virtual IAudioVariantProcessor CreateAudioVariantProcessor()
@@ -548,10 +553,6 @@ namespace DTXMania.Game.Lib.Stage
             _gaugeFailureEnabled = !(config?.NoFail ?? false);
             _autoPlayNoteIndex = 0;
 
-            System.Diagnostics.Debug.WriteLine(
-                $"[AutoPlay] FreezeRunConfiguration: lanes={string.Join(",", _autoPlayLanes.OrderBy(lane => lane))}, " +
-                $"chartLoaded={_chartManager != null}, " +
-                $"notesCount={_chartManager?.AllNotes.Count ?? -1}");
         }
 
         private void InitializeComponents()
@@ -650,7 +651,9 @@ namespace DTXMania.Game.Lib.Stage
                     _selectedSong?.DatabaseSong?.DisplayArtist,
                     _fallbackWhiteTexture,
                     palette,
-                    art);
+                    art,
+                    logger: _game.LoggerFactory?.CreateLogger<TabHudDisplay>()
+                        ?? NullLogger<TabHudDisplay>.Instance);
                 return _tabHudDisplay.IsReady
                     ? TabHudBuildResult.Ready
                     : TabHudBuildResult.Failed;
@@ -1528,8 +1531,9 @@ namespace DTXMania.Game.Lib.Stage
             }
             catch (Exception ex)
             {
-                // Font initialization failed, fallback will be used
-                System.Diagnostics.Trace.WriteLine($"[PerformanceStage] InitializeReadyFont failed: {ex.Message}");
+                // Font initialization failed, fallback will be used; keep the
+                // Release-visible diagnostic (logger is Console-backed).
+                _logger.LogError(ex, "InitializeReadyFont failed; the null-font fallback will be used");
                 _readyFont?.RemoveReference();
                 _readyFont = null;
                 _scrollSpeedFont?.RemoveReference();
@@ -1789,10 +1793,8 @@ namespace DTXMania.Game.Lib.Stage
                         _bgmSounds[bgmEvent.WavId] = sound;
                     }
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
-                    System.Diagnostics.Debug.WriteLine(
-                        $"[PerformanceStage] Failed to load BGM WAV id '{bgmEvent.WavId}': {ex.Message}");
                 }
             }
         }
@@ -1937,10 +1939,8 @@ namespace DTXMania.Game.Lib.Stage
                     if (instance != null)
                         _activeBgmInstances.Add(instance);
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
-                    System.Diagnostics.Debug.WriteLine(
-                        $"[PerformanceStage] BGM playback failed for WAV id '{bgmEvent.WavId}': {ex.Message}");
                 }
             }
         }
@@ -2998,16 +2998,15 @@ namespace DTXMania.Game.Lib.Stage
         /// <param name="exception">Optional exception to include in the log</param>
         private void LogPerformanceError(string message, Exception? exception = null)
         {
-            // Use Console.WriteLine to ensure logs are visible in all build configurations
-            // (Debug.WriteLine is compiled out in Release builds)
+            // Routed through the stage logger (Console-backed in production) so
+            // the error stays visible in all build configurations.
             if (exception != null)
             {
-                Console.WriteLine($"[PerformanceError] {message}: {exception.Message}");
-                Console.WriteLine($"[PerformanceError] Stack trace: {exception.StackTrace}");
+                _logger.LogError(exception, "{Message}", message);
             }
             else
             {
-                Console.WriteLine($"[PerformanceError] {message}");
+                _logger.LogError("{Message}", message);
             }
         }
 

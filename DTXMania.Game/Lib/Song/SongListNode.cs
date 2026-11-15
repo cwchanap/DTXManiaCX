@@ -206,9 +206,8 @@ namespace DTXMania.Game.Lib.Song
                     }
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongListNode: Error populating scores from database: {ex.Message}");
             }
         }
 

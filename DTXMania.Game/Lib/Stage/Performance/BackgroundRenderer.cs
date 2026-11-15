@@ -73,19 +73,16 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
             try
             {
-                System.Diagnostics.Debug.WriteLine("BackgroundRenderer: Starting async background load");
 
                 // Load background texture using ResourceManager
                 _backgroundTexture = _resourceManager.LoadTexture(TexturePath.PerformanceBackground);
-                System.Diagnostics.Debug.WriteLine("BackgroundRenderer: Background texture loaded successfully");
 
                 // Since the async wrapper is removed, this task completes synchronously.
                 // For true async loading, ResourceManager would need a LoadTextureAsync method.
                 await Task.CompletedTask;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"BackgroundRenderer: Failed to load background texture: {ex.Message}");
                 _loadingFailed = true;
                 _backgroundTexture = null;
             }

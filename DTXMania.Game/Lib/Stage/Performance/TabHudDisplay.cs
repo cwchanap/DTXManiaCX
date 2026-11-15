@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using Microsoft.Extensions.Logging;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTXMania.Game.Lib.Resources;
@@ -89,6 +90,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private Color _popupColor;
         private string? _popupTimingText;
         private bool _popupTimingIsSlow;
+        private readonly ILogger<TabHudDisplay>? _logger;
 
         // Per-lane key flash slots (HPA-509): one timer+color per lane, overwritten by
         // manual input / judged hits (lane color) / Miss (danger) — never a queue.
@@ -118,13 +120,15 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private Vector2 _cachedTimingSize;
 
         public TabHudDisplay(GraphicsDevice graphicsDevice, SongChart? chart, string? title, string? artist,
-            Texture2D? whiteTexture = null, SkinPalette? palette = null, TabModeArt? art = null)
+            Texture2D? whiteTexture = null, SkinPalette? palette = null, TabModeArt? art = null,
+            ILogger<TabHudDisplay>? logger = null)
         {
             _graphicsDevice = graphicsDevice ?? throw new ArgumentNullException(nameof(graphicsDevice));
             _chart = chart;
             _title = title ?? string.Empty;
             _artist = artist ?? string.Empty;
             _whiteTexture = whiteTexture;
+            _logger = logger;
             Palette = palette ?? SkinPalette.Default;
             _art = art ?? TabModeArt.None;
 
@@ -193,10 +197,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
             }
             catch (Exception ex)
             {
-                // Log and let the stage fall back to the Lanes HUD (IsReady stays
-                // false). Console.WriteLine (not Debug.WriteLine) keeps the failure
-                // diagnosable in Release builds, matching LogPerformanceError.
-                Console.WriteLine($"[PerformanceError] TabHudDisplay: failed to acquire fonts: {ex.Message}");
+                // Log (Error, Release-visible through the Console-backed stage
+                // logger) and let the stage fall back to the Lanes HUD (IsReady
+                // stays false). The original exception is preserved; direct font
+                // creation never goes through ResourceManager, so this is not
+                // reported by OnResourceLoadFailed.
+                _logger?.LogError(ex, "TabHudDisplay: failed to acquire fonts");
                 Dispose(true);
             }
         }

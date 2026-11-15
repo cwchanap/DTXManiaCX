@@ -87,16 +87,13 @@ namespace DTXMania.Game.Lib.Resources
             try
             {
                 _availableSystemSkins = DiscoverSystemSkins();
-                Debug.WriteLine($"SkinManager: Found {_availableSystemSkins.Length} system skins");
 
                 foreach (var skin in _availableSystemSkins)
                 {
-                    Debug.WriteLine($"  - {GetSkinName(skin, _defaultSkinPath)}");
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Debug.WriteLine($"SkinManager: Error refreshing skins: {ex.Message}");
                 _availableSystemSkins = new string[0];
             }
         }
@@ -214,7 +211,6 @@ namespace DTXMania.Game.Lib.Resources
             var skinPath = GetSkinPathFromName(skinName);
             if (skinPath == null)
             {
-                Debug.WriteLine($"SkinManager: Skin '{skinName}' not found");
                 return false;
             }
 
@@ -226,7 +222,6 @@ namespace DTXMania.Game.Lib.Resources
             // config database and force ResourceManager onto fallback assets.
             if (!ValidateSkinPath(skinPath))
             {
-                Debug.WriteLine($"SkinManager: Skin '{skinName}' no longer valid on disk: {skinPath}");
                 return false;
             }
 
@@ -238,12 +233,10 @@ namespace DTXMania.Game.Lib.Resources
                 // Set the new system skin
                 _resourceManager.SetSkinPath(skinPath);
 
-                Debug.WriteLine($"SkinManager: Switched to system skin '{skinName}' at {skinPath}");
                 return true;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Debug.WriteLine($"SkinManager: Error switching to skin '{skinName}': {ex.Message}");
                 return false;
             }
         }
@@ -266,13 +259,11 @@ namespace DTXMania.Game.Lib.Resources
             // differently depending on the process working directory.
             if (!Path.IsPathRooted(skinPath))
             {
-                Debug.WriteLine($"SkinManager: External skin path must be absolute: {skinPath}");
                 return false;
             }
 
             if (!ValidateSkinPath(skinPath))
             {
-                Debug.WriteLine($"SkinManager: External skin path no longer valid on disk: {skinPath}");
                 return false;
             }
 
@@ -281,12 +272,10 @@ namespace DTXMania.Game.Lib.Resources
                 _resourceManager.SetBoxDefSkinPath("");
                 _resourceManager.SetSkinPath(skinPath);
 
-                Debug.WriteLine($"SkinManager: Switched to skin at {skinPath}");
                 return true;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Debug.WriteLine($"SkinManager: Error switching to skin path '{skinPath}': {ex.Message}");
                 return false;
             }
         }
@@ -306,19 +295,16 @@ namespace DTXMania.Game.Lib.Resources
 
             if (!ValidateSkinPath(boxDefSkinPath))
             {
-                Debug.WriteLine($"SkinManager: Invalid box.def skin path: {boxDefSkinPath}");
                 return false;
             }
 
             try
             {
                 _resourceManager.SetBoxDefSkinPath(boxDefSkinPath);
-                Debug.WriteLine($"SkinManager: Set box.def skin: {boxDefSkinPath}");
                 return true;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Debug.WriteLine($"SkinManager: Error setting box.def skin: {ex.Message}");
                 return false;
             }
         }
@@ -379,23 +365,20 @@ namespace DTXMania.Game.Lib.Resources
                 // Handle custom skin case (System/SkinName/ -> "SkinName")
                 return lastSegment;
             }
-            catch (ArgumentException ex)
+            catch (ArgumentException)
             {
                 // NormalizeSkinNamePath rejects malformed and platform-invalid
                 // paths. Returning "" is the documented contract for invalid
                 // inputs; log so a malformed path is observable instead of
                 // silently relabeled.
-                Debug.WriteLine($"SkinManager: GetSkinName could not normalize '{skinPathFullName}': {ex.Message}");
                 return "";
             }
-            catch (PathTooLongException ex)
+            catch (PathTooLongException)
             {
-                Debug.WriteLine($"SkinManager: GetSkinName path too long '{skinPathFullName}': {ex.Message}");
                 return "";
             }
-            catch (System.Security.SecurityException ex)
+            catch (System.Security.SecurityException)
             {
-                Debug.WriteLine($"SkinManager: GetSkinName access denied for '{skinPathFullName}': {ex.Message}");
                 return "";
             }
         }
@@ -448,7 +431,6 @@ namespace DTXMania.Game.Lib.Resources
                 if (seen.Add(normalizedDefault))
                 {
                     skinPaths.Add(normalizedDefault);
-                    Debug.WriteLine($"SkinManager: Found default skin: {normalizedDefault}");
                 }
             }
             _defaultSkinPath = defaultRoot != null ? NormalizePath(Path.GetFullPath(defaultRoot)) : null;
@@ -473,12 +455,10 @@ namespace DTXMania.Game.Lib.Resources
                         if (seen.Add(normalizedPath))
                         {
                             skinPaths.Add(normalizedPath);
-                            Debug.WriteLine($"SkinManager: Found custom skin: {normalizedPath}");
                         }
                     }
                     else
                     {
-                        Debug.WriteLine($"SkinManager: Invalid skin: {normalizedPath}");
                     }
                 }
             }
@@ -529,13 +509,11 @@ namespace DTXMania.Game.Lib.Resources
                     if (ValidateSkinPath(candidate))
                     {
                         var normalized = NormalizePath(Path.GetFullPath(candidate));
-                        Debug.WriteLine($"SkinManager: Using bundled System skin root: {normalized}");
                         return normalized;
                     }
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
-                    Debug.WriteLine($"SkinManager: Bundled candidate '{candidate}' check failed: {ex.Message}");
                 }
             }
             return null;

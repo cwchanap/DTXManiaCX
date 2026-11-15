@@ -5,6 +5,8 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Audio;
 using Microsoft.Xna.Framework.Graphics;
@@ -347,19 +349,17 @@ namespace DTXMania.Game.Lib.Stage
                 uiFont = _resourceManager.LoadFont(SongSelectionUILayout.Background.DefaultFontName, 
                     SongSelectionUILayout.Background.DefaultFontSize, FontStyle.Regular);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 // Only log critical errors
-                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to load UI font: {ex.Message}");
 
                 // Create a simple fallback font for testing
                 try
                 {
                     uiFont = CreateFallbackFont();
                 }
-                catch (Exception fallbackEx)
+                catch (Exception)
                 {
-                    System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Fallback font creation failed: {fallbackEx.Message}");
                 }
             }            // Load DTXManiaNX background graphics (Phase 3)
             LoadUIGraphics();
@@ -372,10 +372,9 @@ namespace DTXMania.Game.Lib.Stage
             {
                 InitializeStageRenderTargets();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 // RT init failed (device-lost, OOM) — release all acquired resources
-                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: RT init failed: {ex.Message}");
                 uiFont?.RemoveReference();
                 uiFont = null;
                 _headerPanelTexture?.RemoveReference();
@@ -403,9 +402,8 @@ namespace DTXMania.Game.Lib.Stage
                 if (tabFamily.Length > 0)
                     _tabFont = _resourceManager.LoadFont(tabFamily, ResolveTabFontSize(theme));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to load tab font: {ex.Message}");
                 _tabFont = null;
             }
 
@@ -493,8 +491,6 @@ namespace DTXMania.Game.Lib.Stage
                             if (task.IsFaulted)
                             {
                                 // Log the exception for debugging but don't throw
-                                System.Diagnostics.Debug.WriteLine(
-                                    $"SongSelectionStage.Deactivate: Task faulted during deactivation: {task.Exception?.GetBaseException().Message}");
                             }
 
                             // This continuation never touches UI-owned state. The worker queues
@@ -609,7 +605,9 @@ namespace DTXMania.Game.Lib.Stage
             _ownsInputManager = inputManager == null;
             if (_ownsInputManager)
             {
-                Trace.TraceWarning(
+                var logger = _game?.LoggerFactory?.CreateLogger<SongSelectionStage>()
+                    ?? NullLogger<SongSelectionStage>.Instance;
+                logger.LogWarning(
                     "SongSelectionStage: No shared InputManager available; MCP key injection will not work. " +
                     "This should not occur in production — IStageGame.InputManager should be provided by the host.");
             }
@@ -626,9 +624,8 @@ namespace DTXMania.Game.Lib.Stage
                 return _resourceManager.LoadFont(SongSelectionUILayout.Background.DefaultFontName, 
                     SongSelectionUILayout.Background.DefaultFontSize, FontStyle.Regular);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Fallback font unavailable: {ex.GetType().Name}: {ex.Message}");
                 return null;
             }
         }
@@ -643,27 +640,24 @@ namespace DTXMania.Game.Lib.Stage
             {
                 // Main background is now loaded by BaseStage
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to load background: {ex.Message}");
             }
 
             try
             {
                 _headerPanelTexture = _resourceManager.LoadTexture(TexturePath.SongSelectionHeaderPanel);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to load header panel: {ex.Message}");
             }
 
             try
             {
                 _footerPanelTexture = _resourceManager.LoadTexture(TexturePath.SongSelectionFooterPanel);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to load footer panel: {ex.Message}");
             }
         }
 
@@ -735,9 +729,8 @@ namespace DTXMania.Game.Lib.Stage
                     _stageRenderTarget);
                 _songListDisplay.SetEnhancedRendering(true); // Explicitly enable enhanced rendering
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to initialize enhanced rendering: {ex.Message}");
                 _songListDisplay.SetEnhancedRendering(false);
             }
 
@@ -780,9 +773,8 @@ namespace DTXMania.Game.Lib.Stage
                 if (historyFamily.Length > 0)
                     _historyFont = _resourceManager.LoadFont(historyFamily, ResolveHistoryFontSize(historyTheme));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to load history font: {ex.Message}");
                 _historyFont = null;
             }
 
@@ -804,9 +796,8 @@ namespace DTXMania.Game.Lib.Stage
                 _previewImagePanel.Initialize(_resourceManager);
                 _previewImagePanel.Visible = true;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to initialize preview image panel: {ex.Message}");
             }
 
             // Wire up events
@@ -841,11 +832,9 @@ namespace DTXMania.Game.Lib.Stage
                     _mainPanel.AddChild(_searchFilterModal);
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 // Window unavailable in headless/test environments; modal will be skipped
-                System.Diagnostics.Debug.WriteLine(
-                    $"SongSelectionStage: search-filter modal init skipped: {ex.Message}");
             }
 
             // Clean up if modal construction left _textInputSource orphaned
@@ -905,7 +894,6 @@ namespace DTXMania.Game.Lib.Stage
                             // Just check if it's initialized and return the song list
                             if (!songManager.IsInitialized)
                             {
-                                Debug.WriteLine("SongSelectionStage: SongManager not initialized from StartupStage - this should not happen");
                             }
                             
                             // Check for cancellation after initialization
@@ -929,9 +917,8 @@ namespace DTXMania.Game.Lib.Stage
                                 null,
                                 Array.Empty<SongListNode>());
                         }
-                        catch (Exception ex)
+                        catch (Exception)
                         {
-                            System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Failed to initialize SongManager: {ex.Message}");
                             result = new SongInitializationResult(
                                 initializationActivationVersion,
                                 initializationGeneration,
@@ -961,9 +948,8 @@ namespace DTXMania.Game.Lib.Stage
                     ReconcileLibrarySnapshot(songManager.GetLibrarySnapshot());
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Error loading songs: {ex.Message}");
 
                 // Fallback to empty list
                 ClearNavigationForPendingLibrary();
@@ -1180,9 +1166,8 @@ namespace DTXMania.Game.Lib.Stage
                         ReapplyPersistedFilterIfActive();
                     }
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
-                    System.Diagnostics.Debug.WriteLine($"SongSelectionStage: Error processing completed song initialization: {ex.Message}");
                     if (_appliedLibrarySnapshot == null)
                     {
                         _currentSongList = new List<SongListNode>();
@@ -1688,10 +1673,8 @@ namespace DTXMania.Game.Lib.Stage
                 _preparedPreviewState = PreparedPreviewState.Playing;
                 return PreparedSuccess();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine(
-                    $"SongSelectionStage: Failed to start prepared preview: {ex.Message}");
                 DisposePreviewInstance();
                 return MarkPreparedPreviewFailed("The prepared chart preview could not be started.");
             }
@@ -2432,10 +2415,8 @@ namespace DTXMania.Game.Lib.Stage
                     SynchronizeActivePlaySpeed());
                 _showEmptyFilterMessage = _filteredView.Count == 0;
             }
-            catch (System.Exception ex)
+            catch (System.Exception)
             {
-                System.Diagnostics.Debug.WriteLine(
-                    $"SongSelectionStage: filter projection failed: {ex.Message}");
                 // Reset filter state entirely so breadcrumb and list stay consistent.
                 _filterCriteria = SongFilterCriteria.Default;
                 _filteredView = null;
@@ -3443,18 +3424,14 @@ namespace DTXMania.Game.Lib.Stage
                             }
                         }
                     }
-                    catch (Exception ex)
+                    catch (Exception)
                     {
-                        System.Diagnostics.Debug.WriteLine(
-                            $"SongSelectionStage: Failed to play preview sound: {ex.Message}");
                         try
                         {
                             _previewSoundInstance?.Dispose();
                         }
-                        catch (Exception disposeEx)
+                        catch (Exception)
                         {
-                            System.Diagnostics.Debug.WriteLine(
-                                $"SongSelectionStage: Failed to dispose preview sound instance: {disposeEx.Message}");
                         }
 
                         _previewSoundInstance = null;
@@ -3480,10 +3457,8 @@ namespace DTXMania.Game.Lib.Stage
                         float progress = (float)(_bgmFadeOutTimer / BGM_FADE_OUT_DURATION);
                         _backgroundMusicInstance.Volume = SongSelectionUILayout.Audio.BgmMaxVolume - (progress * SongSelectionUILayout.Audio.BgmFadeRange); // Fade to 10%
                     }
-                    catch (Exception ex)
+                    catch (Exception)
                     {
-                        System.Diagnostics.Debug.WriteLine(
-                            $"SongSelectionStage: BGM fade out failed: {ex.Message}");
                         _isBgmFadingOut = false; // Stop retrying on error
                     }
                 }
@@ -3507,10 +3482,8 @@ namespace DTXMania.Game.Lib.Stage
                         float progress = (float)(_bgmFadeInTimer / BGM_FADE_IN_DURATION);
                         _backgroundMusicInstance.Volume = SongSelectionUILayout.Audio.BgmMinVolume + (progress * SongSelectionUILayout.Audio.BgmFadeRange); // Fade back to 100%
                     }
-                    catch (Exception ex)
+                    catch (Exception)
                     {
-                        System.Diagnostics.Debug.WriteLine(
-                            $"SongSelectionStage: BGM fade in failed: {ex.Message}");
                         _isBgmFadingIn = false; // Stop retrying on error
                     }
                 }
@@ -3574,10 +3547,8 @@ namespace DTXMania.Game.Lib.Stage
                 ReleaseManagedSound(ref _previewSound);
                 return false;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine(
-                    $"SongSelectionStage: Failed to load preview sound: {ex.Message}");
                 ReleaseManagedSound(ref _previewSound);
                 return false;
             }
@@ -3598,10 +3569,8 @@ namespace DTXMania.Game.Lib.Stage
                         _previewSoundInstance.Stop();
                     }
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
-                    System.Diagnostics.Debug.WriteLine(
-                        $"SongSelectionStage: Error stopping preview sound: {ex.Message}");
                 }
                 finally
                 {
@@ -3629,10 +3598,8 @@ namespace DTXMania.Game.Lib.Stage
             {
                 _previewSoundInstance.Dispose();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine(
-                    $"SongSelectionStage: Error disposing preview sound instance: {ex.Message}");
             }
             finally
             {
@@ -3851,8 +3818,6 @@ namespace DTXMania.Game.Lib.Stage
 
                 if (completion.Error != null)
                 {
-                    System.Diagnostics.Debug.WriteLine(
-                        $"SongSelectionStage: {completion.Kind} load failed:\n{completion.Error}");
                     if (completion.Kind == TabLoadKind.RecentPlays)
                     {
                         _recentPlaysLoadFailed = true;
@@ -3943,8 +3908,6 @@ namespace DTXMania.Game.Lib.Stage
             {
                 if (task.IsFaulted || task.IsCanceled)
                 {
-                    Debug.WriteLine(
-                        $"SongSelectionStage: bookmark persist failed:\n{task.Exception}");
                     _pendingBookmarkReverts.Enqueue((songId, !newState, toggleVersion));
                 }
             }, TaskScheduler.Default);
@@ -4093,10 +4056,8 @@ namespace DTXMania.Game.Lib.Stage
             {
                 _configManager?.FlushPendingSave();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine(
-                    $"SongSelectionStage: quick settings save failed: {ex.Message}");
             }
 
             int playSpeedPercent = SynchronizeActivePlaySpeed();
@@ -4194,11 +4155,9 @@ namespace DTXMania.Game.Lib.Stage
                 {
                     _backgroundMusic.RemoveReference();
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
                     // Log but don't throw - cleanup should be best-effort
-                    System.Diagnostics.Debug.WriteLine(
-                        $"SongSelectionStage.SetBackgroundMusic: Error releasing previous BGM reference: {ex.Message}");
                 }
             }
             
@@ -4209,20 +4168,16 @@ namespace DTXMania.Game.Lib.Stage
                 {
                     _backgroundMusicInstance.Stop();
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
-                    System.Diagnostics.Debug.WriteLine(
-                        $"SongSelectionStage.SetBackgroundMusic: Error stopping previous BGM instance: {ex.Message}");
                 }
 
                 try
                 {
                     _backgroundMusicInstance.Dispose();
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
-                    System.Diagnostics.Debug.WriteLine(
-                        $"SongSelectionStage.SetBackgroundMusic: Error disposing previous BGM instance: {ex.Message}");
                 }
             }
             

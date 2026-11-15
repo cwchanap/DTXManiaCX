@@ -220,9 +220,8 @@ namespace DTXMania.Game.Lib.Song.Components
             {
                 texture = resourceManager.LoadTexture(path);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"QuickSettingsPopup: failed to load {path}: {ex.Message}");
                 return null;
             }
 

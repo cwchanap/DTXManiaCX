@@ -112,11 +112,9 @@ namespace DTXMania.Game.Lib.Resources
                 {
                     spriteFont = _contentManager.Load<SpriteFont>(assetName);
                     _loadedFonts[assetName] = spriteFont;
-                    System.Diagnostics.Debug.WriteLine($"ManagedFont: Loaded {assetName} for requested size {requestedSize} style {style}");
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
-                    System.Diagnostics.Debug.WriteLine($"ManagedFont: Failed to load {assetName}, falling back to default. Error: {ex.Message}");
 
                     if (_defaultFont == null)
                     {
@@ -489,7 +487,6 @@ namespace DTXMania.Game.Lib.Resources
                 catch (ArgumentException)
                 {
                     // Handle unsupported characters - improved character detection should make this more accurate
-                    System.Diagnostics.Debug.WriteLine($"ManagedFont: Sanitizing text due to unsupported characters: {text}");
                     var sanitizedText = SanitizeText(text);
                     spriteBatch.DrawString(_spriteFont, sanitizedText, position, color);
                 }
@@ -509,7 +506,6 @@ namespace DTXMania.Game.Lib.Resources
             catch (ArgumentException)
             {
                 // Handle unsupported characters - improved character detection should make this more accurate
-                System.Diagnostics.Debug.WriteLine($"ManagedFont: Sanitizing text due to unsupported characters: {text}");
                 var sanitizedText = SanitizeText(text);
                 spriteBatch.DrawString(_spriteFont, sanitizedText, position, color, rotation, origin, scale, effects, layerDepth);
             }
@@ -931,7 +927,6 @@ namespace DTXMania.Game.Lib.Resources
         {
             if (!_disposed)
             {
-                Debug.WriteLine($"ManagedFont: Dispose leak detected for font: {_sourcePath}");
             }
             Dispose(false);
         }

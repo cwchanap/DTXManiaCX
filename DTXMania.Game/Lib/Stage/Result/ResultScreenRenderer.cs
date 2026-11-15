@@ -79,8 +79,6 @@ namespace DTXMania.Game.Lib.Stage.Result
             _rankBackgroundTexture = LoadTextureIfAvailable(GetRankBackgroundPath(model.Rank));
             var rankTexturePath = GetRankTexturePath(model.Rank);
             _rankTexture = LoadTextureIfAvailable(rankTexturePath);
-            if (_rankTexture == null)
-                Trace.WriteLine($"ResultScreenRenderer: Missing rank badge '{rankTexturePath ?? "(unknown)"}' for rank {model.Rank}.");
             _plateTexture = model.PlateKind == ResultPlateKind.Failed
                 ? null
                 : LoadTextureIfAvailable(GetPlateTexturePath(model.PlateKind));
@@ -156,9 +154,8 @@ namespace DTXMania.Game.Lib.Stage.Result
 
                 return texture;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Trace.WriteLine($"ResultScreenRenderer: Failed to load texture '{path}': {ex.Message}");
                 return null;
             }
         }
@@ -169,9 +166,8 @@ namespace DTXMania.Game.Lib.Stage.Result
             {
                 return _resources.ResourceExists(path);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Trace.WriteLine($"ResultScreenRenderer: Failed to check texture '{path}': {ex.Message}");
                 return false;
             }
         }

@@ -103,7 +103,6 @@ namespace DTXMania.Game.Lib.Stage
 
         protected override void OnActivate()
         {
-            System.Diagnostics.Debug.WriteLine("Activating Title Stage");
 
             // Initialize graphics resources
             var graphicsDevice = _game.GraphicsDevice;
@@ -145,7 +144,6 @@ namespace DTXMania.Game.Lib.Stage
 
             _updateNotification = new GameUpdateNotification(_game.GameUpdateService);
 
-            System.Diagnostics.Debug.WriteLine("Title Stage activated successfully");
         }
 
         protected override void OnFirstUpdate(double deltaTime)
@@ -253,7 +251,6 @@ namespace DTXMania.Game.Lib.Stage
 
         protected override void OnDeactivate()
         {
-            System.Diagnostics.Debug.WriteLine("Deactivating Title Stage");
 
             // Reset stage state for potential reactivation
             _elapsedTime = 0;
@@ -283,7 +280,6 @@ namespace DTXMania.Game.Lib.Stage
 
         protected override void OnTransitionInStarted(IStageTransition transition)
         {
-            System.Diagnostics.Debug.WriteLine($"Title Stage: Transition in started with {transition.GetType().Name}");
 
             // Handle special transition from startup
             if (transition is StartupToTitleTransition)
@@ -298,7 +294,6 @@ namespace DTXMania.Game.Lib.Stage
 
         protected override void OnTransitionCompleted()
         {
-            System.Diagnostics.Debug.WriteLine("Title Stage: Transition completed");
             _titlePhase = TitlePhase.Normal;
 
             // One-shot update check fires exactly when the title becomes interactive (NOT in
@@ -313,7 +308,6 @@ namespace DTXMania.Game.Lib.Stage
         {
             if (disposing)
             {
-                System.Diagnostics.Debug.WriteLine("Disposing Title Stage resources");
 
                 // Cleanup MonoGame resources - using reference counting for managed textures
                 _menuTexture?.RemoveReference();
@@ -357,11 +351,9 @@ namespace DTXMania.Game.Lib.Stage
             {
                 // Use ResourceManager to load background texture with proper skin path resolution
                 // Background loading is now handled by BaseStage
-                System.Diagnostics.Debug.WriteLine("Loaded title background using ResourceManager");
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"Failed to load title background: {ex.Message}");
                 // ResourceManager will handle fallback automatically, so _backgroundTexture should still be valid
             }
         }
@@ -373,11 +365,9 @@ namespace DTXMania.Game.Lib.Stage
                 // Use ResourceManager to load menu texture with proper skin path resolution
                 _menuTexture =
                     _resourceManager.LoadTexture(TexturePath.TitleMenu);
-                System.Diagnostics.Debug.WriteLine("Loaded menu texture using ResourceManager");
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"Failed to load menu texture: {ex.Message}");
                 // Menu texture is optional - we'll draw text-based menu as fallback
             }
         }
@@ -390,11 +380,9 @@ namespace DTXMania.Game.Lib.Stage
                 _versionFont = null;
                 _versionFont =
                     _resourceManager.LoadFont("NotoSerifJP", 14);
-                System.Diagnostics.Debug.WriteLine("Loaded version info font using ResourceManager");
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"Failed to load version font: {ex.Message}");
                 // Font is optional - version info simply isn't drawn without it
             }
         }
@@ -406,22 +394,18 @@ namespace DTXMania.Game.Lib.Stage
                 // Load DTXMania-style sound effects (OGG format)
                 _cursorMoveSound =
                     _resourceManager.LoadSound(SoundPath.CursorMove);
-                System.Diagnostics.Debug.WriteLine("Loaded cursor move sound");
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"Failed to load cursor move sound: {ex.Message}");
             }
 
             try
             {
                 _selectSound =
                     _resourceManager.LoadSound(SoundPath.Decide);
-                System.Diagnostics.Debug.WriteLine("Loaded select sound");
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"Failed to load select sound: {ex.Message}");
             }
 
             try
@@ -429,21 +413,17 @@ namespace DTXMania.Game.Lib.Stage
                 // Load game start sound (note: file name has space)
                 _gameStartSound =
                     _resourceManager.LoadSound(SoundPath.GameStart);
-                System.Diagnostics.Debug.WriteLine("Loaded game start sound");
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"Failed to load game start sound, trying fallback: {ex.Message}");
                 try
                 {
                     // Fallback to decide sound if Game start.ogg doesn't exist
                     _gameStartSound =
                         _resourceManager.LoadSound(SoundPath.Decide);
-                    System.Diagnostics.Debug.WriteLine("Loaded game start sound (fallback to Decide.ogg)");
                 }
-                catch (Exception fallbackEx)
+                catch (Exception)
                 {
-                    System.Diagnostics.Debug.WriteLine($"Failed to load game start fallback sound: {fallbackEx.Message}");
                 }
             }
         }
@@ -538,7 +518,6 @@ namespace DTXMania.Game.Lib.Stage
                 _isMovingUp = true;
                 _menuMoveTimer = 0;
                 PlayCursorMoveSound();
-                System.Diagnostics.Debug.WriteLine($"Menu cursor moved up to: {_menuItems[_currentMenuIndex]}");
             }
         }
 
@@ -561,7 +540,6 @@ namespace DTXMania.Game.Lib.Stage
                 _isMovingDown = true;
                 _menuMoveTimer = 0;
                 PlayCursorMoveSound();
-                System.Diagnostics.Debug.WriteLine($"Menu cursor moved down to: {_menuItems[_currentMenuIndex]}");
             }
         }
 
@@ -570,7 +548,6 @@ namespace DTXMania.Game.Lib.Stage
             if (_currentMenuIndex < 0 || _currentMenuIndex >= _menuItems.Length)
                 return;
 
-            System.Diagnostics.Debug.WriteLine($"Selected menu item: {_menuItems[_currentMenuIndex]}");
 
             // Check global debounce for all menu selections
             if (!_game.CanPerformStageTransition())
@@ -581,7 +558,6 @@ namespace DTXMania.Game.Lib.Stage
                 case 0: // GAME START
                     _game.MarkStageTransition();
                     PlayGameStartSound();
-                    System.Diagnostics.Debug.WriteLine("Starting game - transitioning to Song Selection Stage");
                     // Use DTXMania-style fade transition for game start
                     ChangeStage(StageType.SongSelect, new DTXManiaFadeTransition(0.7));
                     break;
@@ -589,7 +565,6 @@ namespace DTXMania.Game.Lib.Stage
                 case 1: // CONFIG
                     _game.MarkStageTransition();
                     PlaySelectSound();
-                    System.Diagnostics.Debug.WriteLine("Opening config - transitioning to Config Stage");
                     // Use crossfade transition for config
                     ChangeStage(StageType.Config, new CrossfadeTransition(0.5));
                     break;
@@ -597,7 +572,6 @@ namespace DTXMania.Game.Lib.Stage
                 case 2: // EXIT
                     _game.MarkStageTransition();
                     PlaySelectSound();
-                    System.Diagnostics.Debug.WriteLine("Exiting game");
                     _game.RequestExit();
                     break;
             }
@@ -633,7 +607,6 @@ namespace DTXMania.Game.Lib.Stage
                         {
                             _currentMenuIndex = _hoveredMenuIndex;
                             PlayCursorMoveSound();
-                            System.Diagnostics.Debug.WriteLine($"Mouse hover changed cursor to: {_menuItems[_currentMenuIndex]}");
                         }
                         break;
                     }
@@ -668,9 +641,8 @@ namespace DTXMania.Game.Lib.Stage
             {
                 _cursorMoveSound?.Play(0.7f); // Play at 70% volume
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"Failed to play cursor move sound: {ex.Message}");
             }
         }
 
@@ -680,9 +652,8 @@ namespace DTXMania.Game.Lib.Stage
             {
                 _selectSound?.Play(0.8f); // Play at 80% volume
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"Failed to play select sound: {ex.Message}");
             }
         }
 
@@ -692,9 +663,8 @@ namespace DTXMania.Game.Lib.Stage
             {
                 _gameStartSound?.Play(0.9f); // Play at 90% volume
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"Failed to play game start sound: {ex.Message}");
             }
         }
 
