@@ -90,6 +90,10 @@ namespace DTXMania.Game.Lib.Stage
 
         private SpriteBatch _spriteBatch;
         private Texture2D _whitePixel;
+
+        // HPA-796: the stage's cached white pixel (ITexture) acquired once per activation;
+        // _whitePixel above is its borrowed raw texture.
+        private ITexture _whitePixelResource;
         private IFont _font;
         private IFont _boldFont;
         private IResourceManager _resourceManager;
@@ -390,7 +394,8 @@ namespace DTXMania.Game.Lib.Stage
             // StageManager reuses this instance.
             _spriteBatch?.Dispose();
             _spriteBatch = null!;
-            _whitePixel?.Dispose();
+            _whitePixelResource?.RemoveReference();
+            _whitePixelResource = null;
             _whitePixel = null!;
             _itemClipRasterizer?.Dispose();
             _itemClipRasterizer = null;
@@ -411,7 +416,9 @@ namespace DTXMania.Game.Lib.Stage
                     disposableFolderPicker.Dispose();
                 _songFolderPicker = null;
 
-                _whitePixel?.Dispose();
+                _whitePixelResource?.RemoveReference();
+                _whitePixelResource = null;
+                _whitePixel = null;
                 _spriteBatch?.Dispose();
                 _itemClipRasterizer?.Dispose();
 
@@ -445,10 +452,11 @@ namespace DTXMania.Game.Lib.Stage
             // CreateItemClipRasterizer seam so headless tests can assert ScissorTestEnable is set.
             _itemClipRasterizer = CreateItemClipRasterizer();
 
-            _whitePixel = new Texture2D(graphicsDevice, 1, 1);
-            _whitePixel.SetData(new[] { Color.White });
-
             _resourceManager = _game.ResourceManager;
+
+            // HPA-796: acquire the cached white pixel once per activation; no private 1×1 texture.
+            _whitePixelResource = _resourceManager.CreateTextureFromColor(Color.White);
+            _whitePixel = _whitePixelResource?.Texture;
 
             try
             {
@@ -461,7 +469,8 @@ namespace DTXMania.Game.Lib.Stage
                 _font = null;
                 _boldFont?.RemoveReference();
                 _boldFont = null;
-                _whitePixel?.Dispose();
+                _whitePixelResource?.RemoveReference();
+                _whitePixelResource = null;
                 _whitePixel = null;
                 _spriteBatch?.Dispose();
                 _spriteBatch = null;

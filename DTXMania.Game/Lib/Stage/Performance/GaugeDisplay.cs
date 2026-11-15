@@ -3,6 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.UI;
 using DTXMania.Game.Lib.UI.Layout;
 
 namespace DTXMania.Game.Lib.Stage.Performance
@@ -19,6 +20,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private readonly IResourceManager _resourceManager;
         private readonly GraphicsDevice _graphicsDevice;
         private Texture2D _whiteTexture;
+
+        // HPA-796: the cached white pixel reference; _whiteTexture above is its borrowed raw texture.
+        private ITexture _whiteTextureResource;
         private readonly Vector2 _position;
         private readonly Vector2 _size;
         private float _currentValue = 0.5f; // 50% life as default
@@ -165,13 +169,15 @@ namespace DTXMania.Game.Lib.Stage.Performance
         {
             try
             {
-                _whiteTexture = new Texture2D(_graphicsDevice, 1, 1);
-                _whiteTexture.SetData(new[] { Color.White });
-                System.Diagnostics.Debug.WriteLine("GaugeDisplay: White texture created");
+                // HPA-796: borrow the cached white pixel from the ResourceManager instead
+                // of allocating a private 1×1 texture.
+                _whiteTextureResource = _resourceManager.CreateTextureFromColor(Color.White);
+                _whiteTexture = _whiteTextureResource?.Texture;
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"GaugeDisplay: Failed to create white texture: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"GaugeDisplay: Failed to acquire white texture: {ex.Message}");
+                _whiteTextureResource = null;
                 _whiteTexture = null;
             }
         }
@@ -200,23 +206,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
         [ExcludeFromCodeCoverage]
         private void DrawFrame(SpriteBatch spriteBatch, Rectangle frameRect)
         {
-            // Draw frame as four rectangles (top, bottom, left, right)
-            
-            // Top
-            var topRect = new Rectangle(frameRect.X, frameRect.Y, frameRect.Width, FrameThickness);
-            spriteBatch.Draw(_whiteTexture, topRect, _frameColor);
-            
-            // Bottom
-            var bottomRect = new Rectangle(frameRect.X, frameRect.Bottom - FrameThickness, frameRect.Width, FrameThickness);
-            spriteBatch.Draw(_whiteTexture, bottomRect, _frameColor);
-            
-            // Left
-            var leftRect = new Rectangle(frameRect.X, frameRect.Y, FrameThickness, frameRect.Height);
-            spriteBatch.Draw(_whiteTexture, leftRect, _frameColor);
-            
-            // Right
-            var rightRect = new Rectangle(frameRect.Right - FrameThickness, frameRect.Y, FrameThickness, frameRect.Height);
-            spriteBatch.Draw(_whiteTexture, rightRect, _frameColor);
+            // HPA-796: the 2px overlapping-corner frame matches the shared Border geometry
+            // exactly (top, bottom, left, right; same simple-overload draw semantics).
+            ChamferedBox.Border(spriteBatch, _whiteTexture, frameRect, FrameThickness, _frameColor);
         }
 
         #endregion
@@ -235,8 +227,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 if (disposing)
                 {
-                    // Dispose managed resources
-                    _whiteTexture?.Dispose();
+                    // Release the cached white pixel reference (HPA-796); the raw texture
+                    // is borrowed from the ResourceManager cache and never disposed here.
+                    _whiteTextureResource?.RemoveReference();
+                    _whiteTextureResource = null;
                     _whiteTexture = null;
                 }
 

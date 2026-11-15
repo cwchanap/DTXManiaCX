@@ -261,7 +261,7 @@ namespace DTXMania.Test.UI
         [Fact]
         public void InitializeGraphicsGenerator_WithNullRenderTarget_ShouldDisableGenerator()
         {
-            var ex = Record.Exception(() => _songBar.InitializeGraphicsGenerator(null!, null!));
+            var ex = Record.Exception(() => _songBar.InitializeGraphicsGenerator(null!, null!, null!));
 
             Assert.Null(ex);
             Assert.Null(GetField<object?>(_songBar, "_graphicsGenerator"));

@@ -985,9 +985,11 @@ namespace DTXMania.Test.Stage
         public void OnActivate_ShouldInitializeGraphicsStateAndResetProgress()
         {
             var game = ReflectionHelpers.CreateGame();
-            var resourceManager = new Mock<IResourceManager>();
-            ReflectionHelpers.SetPrivateField(game, "<ResourceManager>k__BackingField", resourceManager.Object);
             var stage = new GraphicsControlledStartupStage(game);
+            var resourceManager = new Mock<IResourceManager>();
+            resourceManager.Setup(manager => manager.CreateTextureFromColor(Color.White))
+                .Returns(CreateWhitePixelResource(stage.WhitePixelStub));
+            ReflectionHelpers.SetPrivateField(game, "<ResourceManager>k__BackingField", resourceManager.Object);
             ReflectionHelpers.SetPrivateField(stage, "_progressMessages", new List<string> { "stale" });
             ReflectionHelpers.SetPrivateField(stage, "_startupPhase", StartupPhase.BuildSongLists);
             ReflectionHelpers.SetPrivateField(stage, "_elapsedTime", 12.0);
@@ -1076,6 +1078,9 @@ namespace DTXMania.Test.Stage
         {
             var game = ReflectionHelpers.CreateGame();
             var resourceManager = new Mock<IResourceManager>();
+            var whitePixelResource = new Mock<ITexture>();
+            resourceManager.Setup(manager => manager.CreateTextureFromColor(Color.White))
+                .Returns(whitePixelResource.Object);
             ReflectionHelpers.SetPrivateField(game, "<ResourceManager>k__BackingField", resourceManager.Object);
             var regularFont = new Mock<IFont>();
             var stage = new FontControlledStartupStage(game)
@@ -1088,10 +1093,30 @@ namespace DTXMania.Test.Stage
 
             Assert.IsType<InvalidOperationException>(exception.InnerException);
             regularFont.Verify(f => f.RemoveReference(), Times.Once);
+            whitePixelResource.Verify(t => t.RemoveReference(), Times.Once);
             Assert.True(stage.SpriteBatchStub.IsDisposed);
-            Assert.True(stage.WhitePixelStub.IsDisposed);
             Assert.Null(ReflectionHelpers.GetPrivateField<IFont>(stage, "_font"));
             Assert.Null(ReflectionHelpers.GetPrivateField<IFont>(stage, "_boldFont"));
+        }
+
+        // HPA-796: fixture-owned managed pixel — the stage borrows its raw texture from
+        // the ResourceManager-acquired ITexture instead of overriding a factory seam.
+        private static ITexture CreateWhitePixelResource(Texture2D raw)
+        {
+            var resource = new Mock<ITexture>();
+            resource.SetupGet(t => t.Texture).Returns(raw);
+            return resource.Object;
+        }
+
+        // Uninitialized MonoGame GPU stubs must never reach their finalizers: the finalizer
+        // calls GraphicsDevice.RemoveResourceReference(null) and aborts the test host.
+        private static T CreateGpuStub<T>() where T : class
+        {
+#pragma warning disable SYSLIB0050
+            var stub = (T)RuntimeHelpers.GetUninitializedObject(typeof(T));
+#pragma warning restore SYSLIB0050
+            GC.SuppressFinalize(stub);
+            return stub;
         }
 
         [Fact]
@@ -1280,7 +1305,20 @@ namespace DTXMania.Test.Stage
                 game,
                 "<ConfigManager>k__BackingField",
                 CreateConfigManager(configData));
-            return new LifecycleControlledStartupStage(game);
+
+            var stage = new LifecycleControlledStartupStage(game);
+
+            // HPA-796: OnActivate acquires the cached white pixel through the ResourceManager;
+            // the lifecycle stage borrows the stub pixel like every other controlled seam.
+            var whitePixelResourceManager = new Mock<IResourceManager>();
+            whitePixelResourceManager.Setup(manager => manager.CreateTextureFromColor(Color.White))
+                .Returns(CreateWhitePixelResource(stage.WhitePixelStub));
+            ReflectionHelpers.SetPrivateField(
+                game,
+                "<ResourceManager>k__BackingField",
+                whitePixelResourceManager.Object);
+
+            return stage;
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
@@ -1555,17 +1593,11 @@ namespace DTXMania.Test.Stage
             {
             }
 
-            public GraphicsDevice GraphicsDeviceStub { get; } =
-                (GraphicsDevice)RuntimeHelpers.GetUninitializedObject(
-                    typeof(GraphicsDevice));
+            public GraphicsDevice GraphicsDeviceStub { get; } = CreateGpuStub<GraphicsDevice>();
 
-            public SpriteBatch SpriteBatchStub { get; } =
-                (SpriteBatch)RuntimeHelpers.GetUninitializedObject(
-                    typeof(SpriteBatch));
+            public SpriteBatch SpriteBatchStub { get; } = CreateGpuStub<SpriteBatch>();
 
-            public Texture2D WhitePixelStub { get; } =
-                (Texture2D)RuntimeHelpers.GetUninitializedObject(
-                    typeof(Texture2D));
+            public Texture2D WhitePixelStub { get; } = CreateGpuStub<Texture2D>();
 
             public Task StartSongLoadForTest()
             {
@@ -1597,12 +1629,6 @@ namespace DTXMania.Test.Stage
                 GraphicsDevice graphicsDevice)
             {
                 return SpriteBatchStub;
-            }
-
-            protected override Texture2D CreateWhitePixelCore(
-                GraphicsDevice graphicsDevice)
-            {
-                return WhitePixelStub;
             }
 
             protected override IFont CreateFontCore(
@@ -1653,11 +1679,11 @@ namespace DTXMania.Test.Stage
             {
             }
 
-            public GraphicsDevice GraphicsDeviceStub { get; } = (GraphicsDevice)RuntimeHelpers.GetUninitializedObject(typeof(GraphicsDevice));
+            public GraphicsDevice GraphicsDeviceStub { get; } = CreateGpuStub<GraphicsDevice>();
 
-            public SpriteBatch SpriteBatchStub { get; } = (SpriteBatch)RuntimeHelpers.GetUninitializedObject(typeof(SpriteBatch));
+            public SpriteBatch SpriteBatchStub { get; } = CreateGpuStub<SpriteBatch>();
 
-            public Texture2D WhitePixelStub { get; } = (Texture2D)RuntimeHelpers.GetUninitializedObject(typeof(Texture2D));
+            public Texture2D WhitePixelStub { get; } = CreateGpuStub<Texture2D>();
 
             public Viewport ViewportValue { get; set; } = new(0, 0, 1280, 720);
 
@@ -1692,11 +1718,6 @@ namespace DTXMania.Test.Stage
             protected override SpriteBatch CreateSpriteBatchCore(GraphicsDevice graphicsDevice)
             {
                 return SpriteBatchStub;
-            }
-
-            protected override Texture2D CreateWhitePixelCore(GraphicsDevice graphicsDevice)
-            {
-                return WhitePixelStub;
             }
 
             protected override IFont CreateFontCore(IResourceManager resourceManager, string fontFamily, int size, FontStyle style)
@@ -2254,11 +2275,9 @@ namespace DTXMania.Test.Stage
             {
             }
 
-            public SpriteBatch SpriteBatchStub { get; } =
-                (SpriteBatch)RuntimeHelpers.GetUninitializedObject(typeof(SpriteBatch));
+            public SpriteBatch SpriteBatchStub { get; } = CreateGpuStub<SpriteBatch>();
 
-            public Texture2D WhitePixelStub { get; } =
-                (Texture2D)RuntimeHelpers.GetUninitializedObject(typeof(Texture2D));
+            public Texture2D WhitePixelStub { get; } = CreateGpuStub<Texture2D>();
 
             public List<DrawCall> DrawCalls { get; } = new();
 

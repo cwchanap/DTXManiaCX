@@ -814,6 +814,112 @@ public class PerformanceStageDeterministicTests
         return stage;
     }
 
+    [Fact]
+    public void CleanupComponents_ShouldDisposeChildrenBeforeReleasingCachedWhitePixel()
+    {
+        // HPA-796: the stage owns the cached white pixel; the Tab HUD and the judgement
+        // line renderer only borrow its raw texture. RemoveReference must therefore fire
+        // strictly after both children were disposed and cleared.
+        PerformanceStage? stage = null;
+        var childrenClearedBeforeRelease = new List<bool>();
+        var whitePixel = new ProbingWhitePixelResource(() => childrenClearedBeforeRelease.Add(
+            stage != null &&
+            ReflectionHelpers.GetPrivateField<object>(stage, "_tabHudDisplay") == null &&
+            ReflectionHelpers.GetPrivateField<object>(stage, "_judgementLineRenderer") == null));
+
+        stage = CreateTabStageWithPendingChart(CreateNotationResourceManager(completeBravura: true).Object);
+        ReflectionHelpers.SetPrivateField(
+            stage,
+            "_tabHudDisplay",
+            new TabHudDisplay(CreateUninitialized<GraphicsDevice>(), null, "t", "a"));
+        ReflectionHelpers.SetPrivateField(stage, "_fallbackWhiteTextureResource", whitePixel);
+        ReflectionHelpers.SetPrivateField(stage, "_fallbackWhiteTexture", whitePixel.Texture);
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "CleanupComponents");
+
+        Assert.NotEmpty(childrenClearedBeforeRelease);
+        Assert.All(childrenClearedBeforeRelease, Assert.True);
+        Assert.Equal(1, whitePixel.RemoveReferenceCount);
+        Assert.Null(ReflectionHelpers.GetPrivateField<object>(stage, "_fallbackWhiteTextureResource"));
+        Assert.Null(ReflectionHelpers.GetPrivateField<Texture2D>(stage, "_fallbackWhiteTexture"));
+    }
+
+    private sealed class ProbingWhitePixelResource : ITexture
+    {
+        private readonly Action _onRemoveReference;
+
+        public ProbingWhitePixelResource(Action onRemoveReference)
+        {
+            _onRemoveReference = onRemoveReference;
+        }
+
+        public Texture2D Texture => null!;
+
+        public string SourcePath => "__Color|white";
+
+        public int Width => 1;
+
+        public int Height => 1;
+
+        public Vector2 Size => Vector2.One;
+
+        public bool IsDisposed { get; private set; }
+
+        public int ReferenceCount => 0;
+
+        public long MemoryUsage => 0;
+
+        public int Transparency { get; set; } = 255;
+
+        public Vector3 ScaleRatio { get; set; } = Vector3.One;
+
+        public float ZAxisRotation { get; set; }
+
+        public bool AdditiveBlending { get; set; }
+
+        public int RemoveReferenceCount { get; private set; }
+
+        public void AddReference()
+        {
+        }
+
+        public void RemoveReference()
+        {
+            RemoveReferenceCount++;
+            _onRemoveReference();
+        }
+
+        public ITexture Clone() => this;
+
+        public Color[] GetColorData() => Array.Empty<Color>();
+
+        public void SetColorData(Color[] colorData)
+        {
+        }
+
+        public void SaveToFile(string filePath)
+        {
+        }
+
+        public void Draw(SpriteBatch spriteBatch, Vector2 position)
+        {
+        }
+
+        public void Draw(SpriteBatch spriteBatch, Vector2 position, Rectangle? sourceRectangle)
+        {
+        }
+
+        public void Draw(SpriteBatch spriteBatch, Rectangle destinationRectangle, Rectangle? sourceRectangle, Color color, float rotation, Vector2 origin, SpriteEffects effects, float layerDepth)
+        {
+        }
+
+        public void Draw(SpriteBatch spriteBatch, Vector2 position, Vector2 scale, float rotation, Vector2 origin)
+        {
+        }
+
+        public void Dispose() => IsDisposed = true;
+    }
+
     private static PerformanceStage CreateTabStageWithPendingChart(IResourceManager resourceManager)
     {
         var stage = CreateStageWithConfig(new ConfigData { NoteDisplayStyle = DrumsNoteDisplayStyle.Tab });

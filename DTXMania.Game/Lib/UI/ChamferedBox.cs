@@ -46,6 +46,14 @@ namespace DTXMania.Game.Lib.UI
             if (border.A == 0)
                 return;
 
+            // HPA-796: a zero chamfer is an ordinary rectangle border (overlapping corners);
+            // only the chamfered diagonals below stay Draw-specific.
+            if (c == 0)
+            {
+                Border(spriteBatch, whitePixel, r, 1, border, borderDepth);
+                return;
+            }
+
             Fill(spriteBatch, whitePixel, new Rectangle(r.X + c, r.Y, r.Width - 2 * c, 1), border, borderDepth);
             Fill(spriteBatch, whitePixel, new Rectangle(r.X + c, r.Bottom - 1, r.Width - 2 * c, 1), border, borderDepth);
             Fill(spriteBatch, whitePixel, new Rectangle(r.X, r.Y + c, 1, r.Height - 2 * c), border, borderDepth);
@@ -59,10 +67,49 @@ namespace DTXMania.Game.Lib.UI
             }
         }
 
+        /// <summary>
+        /// Draws a plain filled rectangle from the white pixel. Public so callers with
+        /// matching fill geometry reuse it instead of inlining their own primitive.
+        /// </summary>
         [ExcludeFromCodeCoverage]
-        private static void Fill(SpriteBatch spriteBatch, Texture2D whitePixel, Rectangle rect, Color color, float depth)
+        public static void Fill(SpriteBatch spriteBatch, Texture2D whitePixel, Rectangle rect, Color color, float depth)
         {
             spriteBatch.Draw(whitePixel, rect, null, color, 0f, Vector2.Zero, SpriteEffects.None, depth);
+        }
+
+        /// <summary>
+        /// Draws a rectangular border of <paramref name="thickness"/> pixels with overlapping
+        /// corners (the verticals span the full height, the horizontals the full width), the
+        /// shared geometry of the former per-renderer border helpers. A transparent
+        /// <paramref name="color"/> skips the draw.
+        /// </summary>
+        [ExcludeFromCodeCoverage]
+        public static void Border(
+            SpriteBatch spriteBatch,
+            Texture2D whitePixel,
+            Rectangle r,
+            int thickness,
+            Color color,
+            float depth = 0f)
+        {
+            if (color.A == 0)
+                return;
+
+            foreach (var edge in BorderRects(r, thickness))
+                Fill(spriteBatch, whitePixel, edge, color, depth);
+        }
+
+        /// <summary>Exact edge rectangles of <see cref="Border"/>: top, bottom, left, right.</summary>
+        internal static Rectangle[] BorderRects(Rectangle r, int thickness)
+        {
+            int t = System.Math.Max(1, thickness);
+            return new[]
+            {
+                new Rectangle(r.X, r.Y, r.Width, t),
+                new Rectangle(r.X, r.Bottom - t, r.Width, t),
+                new Rectangle(r.X, r.Y, t, r.Height),
+                new Rectangle(r.Right - t, r.Y, t, r.Height),
+            };
         }
     }
 }

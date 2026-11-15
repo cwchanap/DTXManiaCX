@@ -56,6 +56,7 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
         private readonly IResourceManager _resourceManager;
         private readonly ILogger? _logger;
         private readonly SkinPalette _palette;
+        private readonly ITexture _whiteResource;
         private readonly Texture2D _white;
         private readonly Texture2D _circle;
         private readonly Texture2D _glow;
@@ -74,8 +75,10 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             _logger = logger;
             _palette = SkinPalette.Resolve(resourceManager.CurrentTheme);
 
-            _white = new Texture2D(device, 1, 1);
-            _white.SetData(new[] { Color.White });
+            // HPA-796: the white pixel comes from the ResourceManager cache; the radial/ring
+            // textures below stay renderer-local (special geometry, out of HPA-796 scope).
+            _whiteResource = resourceManager.CreateTextureFromColor(Color.White);
+            _white = _whiteResource?.Texture;
             _circle = CreateRadialTexture(device, 64, soft: false);
             _glow = CreateRadialTexture(device, 128, soft: true);
             _ring = CreateRingTexture(device, 128, thickness: 3f);
@@ -502,7 +505,7 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
             if (_disposed)
                 return;
             _disposed = true;
-            _white.Dispose();
+            _whiteResource?.RemoveReference();
             _circle.Dispose();
             _glow.Dispose();
             _ring.Dispose();

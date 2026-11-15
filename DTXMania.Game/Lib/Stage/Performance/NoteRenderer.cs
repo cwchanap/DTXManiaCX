@@ -54,6 +54,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private readonly GraphicsDevice _graphicsDevice;
         private readonly IResourceManager _resourceManager;
         private Texture2D _whiteTexture;
+
+        // HPA-796: the cached white pixel reference; _whiteTexture above is its borrowed raw texture.
+        private ITexture _whiteTextureResource;
         private ManagedSpriteTexture _drumChipsTexture;
         private bool _disposed = false;
 
@@ -637,29 +640,23 @@ namespace DTXMania.Game.Lib.Stage.Performance
         }
 
         /// <summary>
-        /// Creates a white texture for drawing colored rectangles
+        /// Acquires the shared cached white pixel for drawing colored rectangles
+        /// (HPA-796; also the reacquire path after stage transitions).
         /// </summary>
         private void CreateWhiteTexture()
         {
             try
             {
-                // Clean up existing texture if it exists
-                if (_whiteTexture != null)
-                {
-                    _whiteTexture.Dispose();
-                }
-
-                _whiteTexture = new Texture2D(_graphicsDevice, 1, 1);
-                _whiteTexture.SetData(new[] { Color.White });
+                // Drop a stale reference before reacquiring through the cache.
+                _whiteTextureResource?.RemoveReference();
+                _whiteTextureResource = _resourceManager.CreateTextureFromColor(Color.White);
+                _whiteTexture = _whiteTextureResource?.Texture;
             }
             catch (Exception ex)
             {
-                // Log the full exception details for debugging purposes.
-                // Failing to create this texture is a critical error for the renderer.
-
-                // Rethrow the exception to ensure the error is not silently ignored.
-                // This prevents the Note-renderer from being instantiated in an invalid state
-                // where it would fail silently during the render loop.
+                // Failing to acquire this texture is a critical error for the renderer.
+                // Rethrow so the NoteRenderer is not instantiated in an invalid state where
+                // it would fail silently during the render loop.
                 throw new InvalidOperationException("Failed to create essential rendering resources for NoteRenderer.", ex);
             }
         }
@@ -811,7 +808,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
         {
             if (!_disposed && disposing)
             {
-                _whiteTexture?.Dispose();
+                // HPA-796: release the cached white pixel reference; the raw texture is
+                // borrowed from the ResourceManager cache and never disposed here.
+                _whiteTextureResource?.RemoveReference();
+                _whiteTextureResource = null;
+                _whiteTexture = null;
                 _drumChipsTexture?.RemoveReference();
                 _drumChipsTexture = null;
                 _disposed = true;

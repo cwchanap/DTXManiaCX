@@ -233,16 +233,11 @@ namespace DTXMania.Game.Lib.UI.Components
             if (_borderThickness <= 0)
                 return;
 
+            // HPA-796: the untextured branch drew nothing (comment-only no-op) — deleted.
+            // The textured branch keeps its whole-bounds placement unchanged.
             if (_borderTexture != null)
             {
-                // Draw textured border (would need more complex logic for proper border rendering)
-                // This is a simplified version
                 spriteBatch.Draw(_borderTexture, bounds, _borderColor);
-            }
-            else
-            {
-                // Note: Border drawing would require line drawing utilities or border textures
-                // This would typically be provided by the graphics manager
             }
         }
 

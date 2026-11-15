@@ -686,6 +686,7 @@ namespace DTXMania.Test.Stage
             var inputManager = new TrackingInputManager();
             inputManager.Enqueue(new InputCommand(InputCommandType.Back, 0.0));
             SetPrivateField(stage, "_inputManager", inputManager);
+            SetPrivateField(stage, "_resourceManager", CreateWhitePixelResourceManager(() => stage.WhitePixelRequested = true).Object);
             SetPrivateField(stage, "_transitionPayload", new PerformanceResult(new PerformanceSummary { Score = 123456 }, null, 0));
 
             var exception = Record.Exception(() => InvokePrivateMethod(stage, "OnActivate"));
@@ -712,6 +713,7 @@ namespace DTXMania.Test.Stage
                     DatabaseSong = new SongEntity { Charts = new List<SongChart>() }
                 };
                 SetPrivateField(stage, "_inputManager", null);
+                SetPrivateField(stage, "_resourceManager", CreateWhitePixelResourceManager().Object);
                 SetPrivateField(stage, "_transitionPayload", new PerformanceResult(summary, song, 0));
 
                 var exception = Record.Exception(() => InvokePrivateMethod(stage, "OnActivate"));
@@ -733,7 +735,11 @@ namespace DTXMania.Test.Stage
             var stage = (InspectableResultStage)FormatterServices.GetUninitializedObject(typeof(InspectableResultStage));
 #pragma warning restore SYSLIB0050
             SetPrivateField(stage, "_game", DTXMania.Test.TestData.ReflectionHelpers.CreateGame());
+#pragma warning disable SYSLIB0050
             stage.WhitePixelToReturn = (Texture2D)FormatterServices.GetUninitializedObject(typeof(Texture2D));
+#pragma warning restore SYSLIB0050
+            GC.SuppressFinalize(stage.WhitePixelToReturn);
+            SetPrivateField(stage, "_resourceManager", CreateWhitePixelResourceManager(rawPixel: stage.WhitePixelToReturn).Object);
             stage.FontExceptionToThrow = new InvalidOperationException("font load failed");
 
             InvokePrivateMethod(stage, "InitializeComponents");
@@ -747,10 +753,14 @@ namespace DTXMania.Test.Stage
         {
 #pragma warning disable SYSLIB0050
             var stage = (InspectableResultStage)FormatterServices.GetUninitializedObject(typeof(InspectableResultStage));
-            SetPrivateField(stage, "_spriteBatch", (SpriteBatch)FormatterServices.GetUninitializedObject(typeof(SpriteBatch)));
+            var stubSpriteBatch = (SpriteBatch)FormatterServices.GetUninitializedObject(typeof(SpriteBatch));
             var whitePixel = (Texture2D)FormatterServices.GetUninitializedObject(typeof(Texture2D));
-            SetPrivateField(stage, "_whitePixel", whitePixel);
 #pragma warning restore SYSLIB0050
+            // Uninitialized MonoGame stubs must never be finalized (host crash).
+            GC.SuppressFinalize(stubSpriteBatch);
+            GC.SuppressFinalize(whitePixel);
+            SetPrivateField(stage, "_spriteBatch", stubSpriteBatch);
+            SetPrivateField(stage, "_whitePixel", whitePixel);
             SetPrivateField(stage, "_game", DTXMania.Test.TestData.ReflectionHelpers.CreateGame());
             stage.ViewportToReturn = new Viewport(0, 0, 640, 480);
 
@@ -768,7 +778,6 @@ namespace DTXMania.Test.Stage
         {
 #pragma warning disable SYSLIB0050
             var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
-            var whitePixel = (TrackingTexture2D)FormatterServices.GetUninitializedObject(typeof(TrackingTexture2D));
 #pragma warning restore SYSLIB0050
             var fontMock = new Mock<IFont>();
             var smallFontMock = new Mock<IFont>();
@@ -777,8 +786,9 @@ namespace DTXMania.Test.Stage
             var newRecordSoundMock = new Mock<ISound>();
             var resourceManager = new Mock<IResourceManager>();
             var renderer = new ResultScreenRenderer(resourceManager.Object, null, null, null);
+            var whitePixelResource = new Mock<ITexture>();
 
-            SetPrivateField(stage, "_whitePixel", whitePixel);
+            SetPrivateField(stage, "_whitePixelResource", whitePixelResource.Object);
             SetPrivateField(stage, "_resultFont", fontMock.Object);
             SetPrivateField(stage, "_smallResultFont", smallFontMock.Object);
             SetPrivateField(stage, "_largeResultFont", largeFontMock.Object);
@@ -788,13 +798,17 @@ namespace DTXMania.Test.Stage
 
             InvokePrivateMethod(stage, "CleanupComponents");
 
-            Assert.True(whitePixel.WasDisposed);
+            // HPA-796: the raw pixel is borrowed — the cached ITexture reference is released,
+            // not disposed.
+            whitePixelResource.Verify(r => r.RemoveReference(), Times.Once);
+            whitePixelResource.Verify(r => r.Dispose(), Times.Never);
             fontMock.Verify(f => f.RemoveReference(), Times.Once);
             smallFontMock.Verify(f => f.RemoveReference(), Times.Once);
             largeFontMock.Verify(f => f.RemoveReference(), Times.Once);
             resultSoundMock.Verify(s => s.RemoveReference(), Times.Once);
             newRecordSoundMock.Verify(s => s.RemoveReference(), Times.Once);
             Assert.Throws<ObjectDisposedException>(() => renderer.Load(ResultScreenModel.Create(null, null, 0, null, null)));
+            Assert.Null(GetPrivateField<ITexture>(stage, "_whitePixelResource"));
             Assert.Null(GetPrivateField<Texture2D>(stage, "_whitePixel"));
             Assert.Null(GetPrivateField<IFont>(stage, "_resultFont"));
             Assert.Null(GetPrivateField<IFont>(stage, "_smallResultFont"));
@@ -810,18 +824,18 @@ namespace DTXMania.Test.Stage
 #pragma warning disable SYSLIB0050
             var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
             var spriteBatch = (TrackingSpriteBatch)FormatterServices.GetUninitializedObject(typeof(TrackingSpriteBatch));
-            var whitePixel = (TrackingTexture2D)FormatterServices.GetUninitializedObject(typeof(TrackingTexture2D));
 #pragma warning restore SYSLIB0050
             var fontMock = new Mock<IFont>();
             var smallFontMock = new Mock<IFont>();
             var largeFontMock = new Mock<IFont>();
             var resultSoundMock = new Mock<ISound>();
             var newRecordSoundMock = new Mock<ISound>();
+            var whitePixelResource = new Mock<ITexture>();
 
             SetPrivateField(stage, "_game", DTXMania.Test.TestData.ReflectionHelpers.CreateGame());
             SetPrivateField(stage, "_spriteBatch", spriteBatch);
             SetPrivateField(stage, "_uiManager", new UIManager());
-            SetPrivateField(stage, "_whitePixel", whitePixel);
+            SetPrivateField(stage, "_whitePixelResource", whitePixelResource.Object);
             SetPrivateField(stage, "_resultFont", fontMock.Object);
             SetPrivateField(stage, "_smallResultFont", smallFontMock.Object);
             SetPrivateField(stage, "_largeResultFont", largeFontMock.Object);
@@ -832,7 +846,8 @@ namespace DTXMania.Test.Stage
             InvokeDispose(stage, true);
 
             Assert.True(spriteBatch.WasDisposed);
-            Assert.True(whitePixel.WasDisposed);
+            whitePixelResource.Verify(r => r.RemoveReference(), Times.Once);
+            whitePixelResource.Verify(r => r.Dispose(), Times.Never);
             fontMock.Verify(f => f.RemoveReference(), Times.Once);
             smallFontMock.Verify(f => f.RemoveReference(), Times.Once);
             largeFontMock.Verify(f => f.RemoveReference(), Times.Once);
@@ -1160,6 +1175,7 @@ namespace DTXMania.Test.Stage
             if (loggerFactory != null)
                 gameMock.Setup(g => g.LoggerFactory).Returns(loggerFactory);
             SetPrivateField(stage, "_game", gameMock.Object);
+            SetPrivateField(stage, "_resourceManager", CreateWhitePixelResourceManager().Object);
             stage.UseRealPersistence = useRealPersistence;
 
             var reveal = new ResultRevealState();
@@ -1283,20 +1299,6 @@ namespace DTXMania.Test.Stage
             }
         }
 
-        private sealed class TrackingTexture2D : Texture2D
-        {
-            public TrackingTexture2D() : base(null!, 1, 1)
-            {
-            }
-
-            public bool WasDisposed { get; private set; }
-
-            protected override void Dispose(bool disposing)
-            {
-                WasDisposed = true;
-            }
-        }
-
         private sealed class InspectableResultStage : ResultStage
         {
             public InspectableResultStage(IStageGame game)
@@ -1324,19 +1326,13 @@ namespace DTXMania.Test.Stage
 
             public Color? DrawTextureColor { get; private set; }
 
-            public bool WhitePixelRequested { get; private set; }
+            public bool WhitePixelRequested { get; internal set; }
 
             public bool ResultFontRequested { get; private set; }
 
             public bool SmallResultFontRequested { get; private set; }
 
             public bool LargeResultFontRequested { get; private set; }
-
-            internal override Texture2D CreateWhitePixel()
-            {
-                WhitePixelRequested = true;
-                return WhitePixelToReturn!;
-            }
 
             internal override IFont CreateResultFont()
             {
@@ -1482,8 +1478,7 @@ namespace DTXMania.Test.Stage
 #pragma warning disable SYSLIB0050
             var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
 #pragma warning restore SYSLIB0050
-            var whitePixel = (Texture2D)FormatterServices.GetUninitializedObject(typeof(Texture2D));
-            GC.SuppressFinalize(whitePixel);
+            var whitePixelResource = new Mock<ITexture>();
             var font = new Mock<IFont>();
             var smallFont = new Mock<IFont>();
             var largeFont = new Mock<IFont>();
@@ -1492,7 +1487,7 @@ namespace DTXMania.Test.Stage
             var resourceManager = new Mock<IResourceManager>();
             var renderer = new ResultScreenRenderer(resourceManager.Object, null, null, null);
 
-            SetPrivateField(stage, "_whitePixel", whitePixel);
+            SetPrivateField(stage, "_whitePixelResource", whitePixelResource.Object);
             SetPrivateField(stage, "_resultFont", font.Object);
             SetPrivateField(stage, "_smallResultFont", smallFont.Object);
             SetPrivateField(stage, "_largeResultFont", largeFont.Object);
@@ -1507,7 +1502,11 @@ namespace DTXMania.Test.Stage
             largeFont.Verify(f => f.RemoveReference(), Times.Once);
             resultSound.Verify(s => s.RemoveReference(), Times.Once);
             newRecordSound.Verify(s => s.RemoveReference(), Times.Once);
+            // HPA-796: the borrowed raw pixel is released (RemoveReference), not disposed.
+            whitePixelResource.Verify(t => t.RemoveReference(), Times.Once);
+            whitePixelResource.Verify(t => t.Dispose(), Times.Never);
             Assert.Throws<ObjectDisposedException>(() => renderer.Load(ResultScreenModel.Create(null, null, 0, null, null)));
+            Assert.Null(GetPrivateField<ITexture>(stage, "_whitePixelResource"));
             Assert.Null(GetPrivateField<Texture2D>(stage, "_whitePixel"));
             Assert.Null(GetPrivateField<IFont>(stage, "_resultFont"));
             Assert.Null(GetPrivateField<IFont>(stage, "_smallResultFont"));
@@ -1540,6 +1539,7 @@ namespace DTXMania.Test.Stage
             var stage = (InspectableNullInputResultStage)FormatterServices.GetUninitializedObject(typeof(InspectableNullInputResultStage));
 #pragma warning restore SYSLIB0050
             SetPrivateField(stage, "_inputManager", null);
+            SetPrivateField(stage, "_resourceManager", CreateWhitePixelResourceManager(() => stage.WhitePixelRequested = true).Object);
             SetPrivateField(stage, "_transitionPayload", new PerformanceResult(new PerformanceSummary { Score = 123456 }, null, 0));
 
             var exception = Record.Exception(() => InvokePrivateMethod(stage, "OnActivate"));
@@ -1547,6 +1547,28 @@ namespace DTXMania.Test.Stage
             Assert.Null(exception);
             Assert.True(stage.WhitePixelRequested);
             Assert.True(stage.ResultFontRequested);
+        }
+
+        // HPA-796: fixture-owned managed pixel — acquisition is observed through an
+        // IResourceManager mock instead of the deleted CreateWhitePixel factory seam.
+        private static Mock<IResourceManager> CreateWhitePixelResourceManager(
+            Action? onAcquired = null,
+            Texture2D? rawPixel = null)
+        {
+            var resource = new Mock<ITexture>();
+#pragma warning disable SYSLIB0050
+            var borrowedPixel = rawPixel ?? (Texture2D)FormatterServices.GetUninitializedObject(typeof(Texture2D));
+#pragma warning restore SYSLIB0050
+            // An uninitialized MonoGame texture reaching its finalizer crashes the test host
+            // (GraphicsDevice.RemoveResourceReference(null)); stubs must never be finalized.
+            GC.SuppressFinalize(borrowedPixel);
+            resource.SetupGet(t => t.Texture).Returns(borrowedPixel);
+            var resourceManager = new Mock<IResourceManager>();
+            var setup = resourceManager.Setup(manager => manager.CreateTextureFromColor(Color.White));
+            if (onAcquired != null)
+                setup.Callback(onAcquired);
+            setup.Returns(resource.Object);
+            return resourceManager;
         }
 
         [Fact]
@@ -1566,6 +1588,7 @@ namespace DTXMania.Test.Stage
             };
 
             SetPrivateField(stage, "_inputManager", null);
+            SetPrivateField(stage, "_resourceManager", CreateWhitePixelResourceManager().Object);
             SetPrivateField(stage, "_transitionPayload", new PerformanceResult(summary, null, 0));
 
             var exception = Record.Exception(() => InvokePrivateMethod(stage, "OnActivate"));
@@ -1609,14 +1632,8 @@ namespace DTXMania.Test.Stage
         {
             public InspectableNullInputResultStage(BaseGame game) : base(game) { }
 
-            public bool WhitePixelRequested { get; private set; }
+            public bool WhitePixelRequested { get; internal set; }
             public bool ResultFontRequested { get; private set; }
-
-            internal override Texture2D CreateWhitePixel()
-            {
-                WhitePixelRequested = true;
-                return null!;
-            }
 
             internal override IFont CreateResultFont()
             {
@@ -1709,6 +1726,7 @@ namespace DTXMania.Test.Stage
                     }
                 };
                 SetPrivateField(stage, "_inputManager", null);
+                SetPrivateField(stage, "_resourceManager", CreateWhitePixelResourceManager(() => stage.WhitePixelRequested = true).Object);
                 SetPrivateField(stage, "_transitionPayload", new PerformanceResult(summary, song, 0));
 
                 var exception = Record.Exception(() => InvokePrivateMethod(stage, "OnActivate"));

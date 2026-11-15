@@ -446,20 +446,26 @@ namespace DTXMania.Test.Stage
             "Startup.StatusFontSize=17"
         });
 
+        // Uninitialized MonoGame GPU stubs must never reach their finalizers: the finalizer
+        // calls GraphicsDevice.RemoveResourceReference(null) and aborts the test host.
+        private static T CreateGpuStub<T>() where T : class
+        {
+#pragma warning disable SYSLIB0050
+            var stub = (T)RuntimeHelpers.GetUninitializedObject(typeof(T));
+#pragma warning restore SYSLIB0050
+            GC.SuppressFinalize(stub);
+            return stub;
+        }
+
         private sealed class CoverageStartupStage : StartupStage
         {
             public CoverageStartupStage(BaseGame game) : base(game)
             {
             }
 
-            public GraphicsDevice GraphicsDeviceStub { get; } =
-                (GraphicsDevice)RuntimeHelpers.GetUninitializedObject(typeof(GraphicsDevice));
+            public GraphicsDevice GraphicsDeviceStub { get; } = CreateGpuStub<GraphicsDevice>();
 
-            public SpriteBatch SpriteBatchStub { get; } =
-                (SpriteBatch)RuntimeHelpers.GetUninitializedObject(typeof(SpriteBatch));
-
-            public Texture2D WhitePixelStub { get; } =
-                (Texture2D)RuntimeHelpers.GetUninitializedObject(typeof(Texture2D));
+            public SpriteBatch SpriteBatchStub { get; } = CreateGpuStub<SpriteBatch>();
 
             public IFont ThemedRegularFont { get; set; } = null!;
 
@@ -480,8 +486,6 @@ namespace DTXMania.Test.Stage
             protected override GraphicsDevice GetGraphicsDeviceCore() => GraphicsDeviceStub;
 
             protected override SpriteBatch CreateSpriteBatchCore(GraphicsDevice graphicsDevice) => SpriteBatchStub;
-
-            protected override Texture2D CreateWhitePixelCore(GraphicsDevice graphicsDevice) => WhitePixelStub;
 
             protected override IFont CreateFontCore(
                 IResourceManager resourceManager,

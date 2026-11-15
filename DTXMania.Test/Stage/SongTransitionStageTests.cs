@@ -41,6 +41,27 @@ namespace DTXMania.Test.Stage
             Assert.NotNull(stage);
         }
 
+        [Fact]
+        public void Deactivate_ShouldReleaseCachedWhitePixelReference_AndNotDisposeBorrowedRawPixel()
+        {
+            // HPA-796: OnActivate acquires the cached pixel from the ResourceManager; the
+            // raw texture is borrowed, so Deactivate releases the ITexture reference and
+            // never disposes the texture itself.
+            var stage = (SongTransitionStage)FormatterServices.GetUninitializedObject(typeof(SongTransitionStage));
+            var rawPixel = (Texture2D)FormatterServices.GetUninitializedObject(typeof(Texture2D));
+            GC.SuppressFinalize(rawPixel);
+            var whitePixelResource = new Mock<ITexture>();
+            ReflectionHelpers.SetPrivateField(stage, "_whitePixelResource", whitePixelResource.Object);
+            ReflectionHelpers.SetPrivateField(stage, "_whitePixel", rawPixel);
+
+            stage.Deactivate();
+
+            whitePixelResource.Verify(resource => resource.RemoveReference(), Times.Once);
+            whitePixelResource.Verify(resource => resource.Dispose(), Times.Never);
+            Assert.Null(ReflectionHelpers.GetPrivateField<ITexture>(stage, "_whitePixelResource"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<Texture2D>(stage, "_whitePixel"));
+        }
+
         #endregion
 
         #region Type Property Tests

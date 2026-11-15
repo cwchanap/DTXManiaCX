@@ -66,6 +66,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private bool _disposed;
         private Texture2D _fallbackTexture;
 
+        // HPA-796: the cached white pixel reference held by this renderer; _fallbackTexture is its borrowed raw texture.
+        private ITexture _fallbackTextureResource;
+
         /// <summary>
         /// Base depth for pad rendering (configurable to ensure proper layering)
         /// </summary>
@@ -168,13 +171,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 Vector2.Zero,
                 SpriteEffects.None,
                 BaseDepth);
-        }
-
-        protected virtual Texture2D CreateFallbackTextureCore()
-        {
-            var texture = new Texture2D(_graphicsDevice, 1, 1);
-            texture.SetData(new[] { Color.White });
-            return texture;
         }
 
         [ExcludeFromCodeCoverage]
@@ -310,10 +306,12 @@ namespace DTXMania.Game.Lib.Stage.Performance
         /// </summary>
         private void DrawFallbackPad(SpriteBatch spriteBatch, PadVisual pad, Rectangle destRect, int laneIndex = -1)
         {
-            // Create fallback texture if needed
+            // Acquire the shared cached white pixel once (HPA-796): the ResourceManager
+            // owns the master texture; this renderer holds one reference until Dispose.
             if (_fallbackTexture == null)
             {
-                _fallbackTexture = CreateFallbackTextureCore();
+                _fallbackTextureResource = _resourceManager.CreateTextureFromColor(Color.White);
+                _fallbackTexture = _fallbackTextureResource?.Texture;
             }
 
             // Draw colored rectangle fallback
@@ -374,8 +372,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 _padSpriteSheet?.RemoveReference();
                 _padSpriteSheet = null;
-                
-                _fallbackTexture?.Dispose();
+
+                _fallbackTextureResource?.RemoveReference();
+                _fallbackTextureResource = null;
                 _fallbackTexture = null;
                 
                 _disposed = true;

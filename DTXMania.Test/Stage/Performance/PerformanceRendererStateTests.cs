@@ -137,13 +137,15 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void BackgroundRenderer_Dispose_ShouldReleaseLoadedTextureAndResetFlags()
+        public void BackgroundRenderer_Dispose_ShouldReleaseLoadedTextureAndCachedPixelReferences()
         {
             var resourceManager = new Mock<IResourceManager>();
             var renderer = new BackgroundRenderer(resourceManager.Object);
             var texture = new TrackingTextureResource();
+            var whitePixelResource = new TrackingTextureResource();
             var fallbackTexture = CreateTrackingTexture(1, 1);
             ReflectionHelpers.SetPrivateField(renderer, "_backgroundTexture", texture);
+            ReflectionHelpers.SetPrivateField(renderer, "_whiteTextureResource", whitePixelResource);
             ReflectionHelpers.SetPrivateField(renderer, "_whiteTexture", fallbackTexture);
             ReflectionHelpers.SetPrivateField(renderer, "_isLoading", true);
             ReflectionHelpers.SetPrivateField(renderer, "_loadingFailed", true);
@@ -151,8 +153,13 @@ namespace DTXMania.Test.Stage.Performance
             renderer.Dispose();
 
             Assert.Equal(1, texture.RemoveReferenceCount);
-            Assert.True(fallbackTexture.WasDisposed);
+            // HPA-796: the fallback pixel is borrowed from the cached ITexture — the
+            // renderer releases its reference and never disposes the raw texture.
+            Assert.Equal(1, whitePixelResource.RemoveReferenceCount);
+            Assert.False(whitePixelResource.IsDisposed);
+            Assert.False(fallbackTexture.WasDisposed);
             Assert.Null(ReflectionHelpers.GetPrivateField<ITexture>(renderer, "_backgroundTexture"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<ITexture>(renderer, "_whiteTextureResource"));
             Assert.Null(ReflectionHelpers.GetPrivateField<Texture2D>(renderer, "_whiteTexture"));
             Assert.False(renderer.IsLoading);
             Assert.False(renderer.LoadingFailed);
@@ -275,9 +282,30 @@ namespace DTXMania.Test.Stage.Performance
         [Fact]
         public void JudgementLineRenderer_Constructor_WithNullGraphicsDevice_ShouldThrowArgumentNullException()
         {
-            var exception = Assert.Throws<ArgumentNullException>(() => new JudgementLineRenderer(null!));
+            var exception = Assert.Throws<ArgumentNullException>(() => new JudgementLineRenderer(null!, null!));
 
             Assert.Equal("graphicsDevice", exception.ParamName);
+        }
+
+        [Fact]
+        public void JudgementLineRenderer_Constructor_ShouldBorrowWhitePixelWithoutOwningIt()
+        {
+            // HPA-796: the stage owns the cached pixel; the renderer must neither replace
+            // it with its own allocation nor dispose it on teardown.
+#pragma warning disable SYSLIB0050
+            var whitePixel = (Texture2D)RuntimeHelpers.GetUninitializedObject(typeof(Texture2D));
+#pragma warning restore SYSLIB0050
+            // Uninitialized MonoGame stubs must never be finalized (host crash).
+            GC.SuppressFinalize(whitePixel);
+
+            var renderer = new JudgementLineRenderer(CreateUninitialized<GraphicsDevice>(), whitePixel);
+
+            Assert.Same(whitePixel, ReflectionHelpers.GetPrivateField<Texture2D>(renderer, "_whiteTexture"));
+
+            renderer.Dispose();
+
+            Assert.False(whitePixel.IsDisposed);
+            Assert.Null(ReflectionHelpers.GetPrivateField<Texture2D>(renderer, "_whiteTexture"));
         }
 
         [Fact]
@@ -345,21 +373,10 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void JudgementLineRenderer_CreateWhiteTexture_WhenGraphicsDeviceIsMissing_ShouldClearTextureAndThrow()
+        public void JudgementLineRenderer_Dispose_ShouldClearBorrowedPixelAndGraphicsDevice_WithoutDisposingTheTexture()
         {
-            var renderer = CreateUninitialized<JudgementLineRenderer>();
-            ReflectionHelpers.SetPrivateField(renderer, "_whiteTexture", CreateTrackingTexture(1, 1));
-            ReflectionHelpers.SetPrivateField(renderer, "_graphicsDevice", null);
-
-            var exception = Assert.ThrowsAny<Exception>(() => ReflectionHelpers.InvokePrivateMethod(renderer, "CreateWhiteTexture"));
-
-            Assert.NotNull(exception);
-            Assert.Null(ReflectionHelpers.GetPrivateField<Texture2D>(renderer, "_whiteTexture"));
-        }
-
-        [Fact]
-        public void JudgementLineRenderer_Dispose_ShouldReleaseTextureAndClearGraphicsDevice()
-        {
+            // HPA-796: the white pixel is borrowed from the stage's cached ITexture — disposal
+            // drops the local reference and never disposes the texture itself.
             var renderer = CreateUninitialized<JudgementLineRenderer>();
             var texture = CreateTrackingTexture(1, 1);
             ReflectionHelpers.SetPrivateField(renderer, "_whiteTexture", texture);
@@ -367,7 +384,7 @@ namespace DTXMania.Test.Stage.Performance
 
             renderer.Dispose();
 
-            Assert.True(texture.WasDisposed);
+            Assert.False(texture.WasDisposed);
             Assert.Null(ReflectionHelpers.GetPrivateField<Texture2D>(renderer, "_whiteTexture"));
             Assert.Null(ReflectionHelpers.GetPrivateField<GraphicsDevice>(renderer, "_graphicsDevice"));
             Assert.True(ReflectionHelpers.GetPrivateField<bool>(renderer, "_disposed"));

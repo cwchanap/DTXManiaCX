@@ -22,6 +22,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private bool _disposed = false;
         private Texture2D _whiteTexture;
 
+        // HPA-796: the cached white pixel reference; _whiteTexture above is its borrowed raw texture.
+        private ITexture _whiteTextureResource;
+
         #endregion
 
         #region Properties
@@ -147,12 +150,13 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         private void DrawFallbackBackground(SpriteBatch spriteBatch, Rectangle area, float depth)
         {
-            // Create a simple 1x1 white texture for drawing colored rectangles
-            // This is a temporary solution - in a real implementation, we'd cache this texture
             if (_whiteTexture == null)
             {
-                _whiteTexture = new Texture2D(spriteBatch.GraphicsDevice, 1, 1);
-                _whiteTexture.SetData(new[] { Color.White });
+                // HPA-796: borrow the cached white pixel from the ResourceManager instead of
+                // allocating a private 1×1 texture (this renderer owns the reference until
+                // Dispose because it has no owning-stage seam for a forwarded pixel).
+                _whiteTextureResource = _resourceManager.CreateTextureFromColor(Color.White);
+                _whiteTexture = _whiteTextureResource?.Texture;
             }
 
             if (_whiteTexture != null)
@@ -177,10 +181,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 if (disposing)
                 {
-                    // Dispose managed resources - using reference counting for managed textures
+                    // Release references - using reference counting for managed textures
                     _backgroundTexture?.RemoveReference();
                     _backgroundTexture = null;
-                    _whiteTexture?.Dispose();
+                    _whiteTextureResource?.RemoveReference();
+                    _whiteTextureResource = null;
                     _whiteTexture = null;
                     
                     // Reset state variables to initial values for proper reactivation

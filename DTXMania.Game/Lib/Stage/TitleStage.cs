@@ -25,6 +25,9 @@ namespace DTXMania.Game.Lib.Stage
         private SpriteBatch _spriteBatch;
         private ITexture _menuTexture;
         private Texture2D _whitePixel;
+
+        // HPA-796: the stage's cached white pixel (ITexture); _whitePixel is its borrowed raw texture.
+        private ITexture _whitePixelResource;
         private IResourceManager _resourceManager;
         private IFont _versionFont;
 
@@ -94,17 +97,6 @@ namespace DTXMania.Game.Lib.Stage
             return new SpriteBatch(graphicsDevice);
         }
 
-        protected virtual Texture2D CreateTitleWhitePixel(
-            GraphicsDevice graphicsDevice)
-        {
-            return new Texture2D(graphicsDevice, 1, 1);
-        }
-
-        protected virtual void SetTitleWhitePixelData(Texture2D texture)
-        {
-            texture.SetData(new[] { Color.White });
-        }
-
         #endregion
 
         #region BaseStage Implementation
@@ -117,12 +109,12 @@ namespace DTXMania.Game.Lib.Stage
             var graphicsDevice = _game.GraphicsDevice;
             _spriteBatch = CreateTitleSpriteBatch(graphicsDevice);
 
-            // Create white pixel for drawing rectangles
-            _whitePixel = CreateTitleWhitePixel(graphicsDevice);
-            SetTitleWhitePixelData(_whitePixel);
-
             // Initialize ResourceManager using factory
             _resourceManager = _game.ResourceManager;
+
+            // HPA-796: acquire the cached white pixel once per activation; no private 1×1 texture
+            _whitePixelResource = _resourceManager.CreateTextureFromColor(Color.White);
+            _whitePixel = _whitePixelResource?.Texture;
 
             // Load background texture (DTXManiaNX uses 2_background.jpg)
 
@@ -318,7 +310,7 @@ namespace DTXMania.Game.Lib.Stage
                 // Cleanup MonoGame resources - using reference counting for managed textures
                 _menuTexture?.RemoveReference();
                 _versionFont?.RemoveReference();
-                _whitePixel?.Dispose();
+                _whitePixelResource?.RemoveReference();
                 _spriteBatch?.Dispose();
                 // NOTE: _resourceManager is the shared game-level instance
                 // (_game.ResourceManager assigned in InitializeResources), not a
@@ -333,6 +325,7 @@ namespace DTXMania.Game.Lib.Stage
                 _menuTexture = null;
                 _versionFont = null;
                 _whitePixel = null;
+                _whitePixelResource = null;
                 _spriteBatch = null;
                 _resourceManager = null;
                 _cursorMoveSound = null;

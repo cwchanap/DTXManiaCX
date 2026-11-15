@@ -65,6 +65,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
         private IFont _bravuraFont;
         private IFont _labelFont;
         private Texture2D _whiteTexture;
+
+        // HPA-796: the cached white pixel reference; _whiteTexture above is its borrowed raw texture.
+        private ITexture _whiteTextureResource;
         private bool _disposed;
 
         /// <summary>True when both fonts are acquired and the Bravura coverage check passed.</summary>
@@ -135,7 +138,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             if (!IsReady || spriteBatch == null || speedPercent <= 0)
                 return;
 
-            if (_whiteTexture == null && !EnsureWhiteTexture(spriteBatch.GraphicsDevice))
+            if (_whiteTexture == null && !EnsureWhiteTexture())
                 return;
 
             double pxPerMs = NotationStrip.ScrollPixelsPerMs * (speedPercent / 100.0);
@@ -169,20 +172,23 @@ namespace DTXMania.Game.Lib.Stage.Performance
             _bravuraFont = null;
             _labelFont?.RemoveReference();
             _labelFont = null;
-            _whiteTexture?.Dispose();
+            _whiteTextureResource?.RemoveReference();
+            _whiteTextureResource = null;
             _whiteTexture = null;
         }
 
-        private bool EnsureWhiteTexture(GraphicsDevice graphicsDevice)
+        private bool EnsureWhiteTexture()
         {
             try
             {
-                _whiteTexture = new Texture2D(graphicsDevice, 1, 1);
-                _whiteTexture.SetData(new[] { Color.White });
+                // HPA-796: borrow the cached white pixel instead of allocating a 1×1 texture.
+                _whiteTextureResource = _resourceManager.CreateTextureFromColor(Color.White);
+                _whiteTexture = _whiteTextureResource?.Texture;
                 return true;
             }
             catch (Exception)
             {
+                _whiteTextureResource = null;
                 _whiteTexture = null;
                 return false;
             }

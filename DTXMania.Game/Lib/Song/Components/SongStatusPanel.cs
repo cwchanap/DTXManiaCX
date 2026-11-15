@@ -207,7 +207,8 @@ namespace DTXMania.Game.Lib.Song.Components
             
             if (renderTarget != null)
             {
-                _graphicsGenerator = new DefaultGraphicsGenerator(graphicsDevice, renderTarget);
+                // HPA-796: the generator borrows the stage-owned WhitePixel; it never owns it.
+                _graphicsGenerator = new DefaultGraphicsGenerator(graphicsDevice, renderTarget, WhitePixel);
                 System.Diagnostics.Debug.WriteLine("SongStatusPanel: DefaultGraphicsGenerator created successfully");
             }
             else
