@@ -12,6 +12,7 @@ namespace DTXMania.Test.Song;
 // NullLogger). Verified against the subscriber-failure guard path, which must
 // warn once with the subscriber's original exception.
 [Trait("Category", "Unit")]
+[Collection("SongManager")] // serializes singleton ConfigureLogger use
 public class SongManagerConfigureLoggerTests
 {
     private static void InvokeSafeInvokeWithThrowingHandler(EventHandler throwingHandler, string eventName)

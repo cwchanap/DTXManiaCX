@@ -140,11 +140,7 @@ namespace DTXMania.Game.Lib.Input
         public override bool IsKeyPressed(int keyCode)
         {
             // Use the modular input manager's logic
-            var result = _modularInputManager?.IsKeyPressed(keyCode) ?? base.IsKeyPressed(keyCode);
-            if (result)
-            {
-            }
-            return result;
+            return _modularInputManager?.IsKeyPressed(keyCode) ?? base.IsKeyPressed(keyCode);
         }
 
         public override bool IsKeyDown(int keyCode)

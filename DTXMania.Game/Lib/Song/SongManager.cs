@@ -2136,6 +2136,7 @@ namespace DTXMania.Game.Lib.Song
         /// </remarks>
         private static string[]? ReadSetDefLines(string setDefPath)
         {
+            Exception? lastError = null;
             foreach (var encoding in BuildSetDefEncodings())
             {
                 try
@@ -2145,14 +2146,15 @@ namespace DTXMania.Game.Lib.Song
                 // Only realistic failures here are I/O (the path is pre-validated and UTF-8 uses
                 // DecoderReplacementFallback, so encoding mismatches never throw). Let genuinely
                 // unexpected exceptions (OOM, contract changes) propagate instead of being masked.
-                catch (IOException ex)
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
-                    Instance._logger.LogWarning(ex, "Failed to read SET.def with {EncodingName}", encoding.EncodingName);
+                    lastError = ex;
                 }
-                catch (UnauthorizedAccessException ex)
-                {
-                    Instance._logger.LogWarning(ex, "Failed to read SET.def with {EncodingName}", encoding.EncodingName);
-                }
+            }
+            // One record per unreadable SET.def, after every encoding has been retried.
+            if (lastError is not null)
+            {
+                Instance._logger.LogWarning(lastError, "Failed to read SET.def: {Path}", setDefPath);
             }
             return null;
         }
