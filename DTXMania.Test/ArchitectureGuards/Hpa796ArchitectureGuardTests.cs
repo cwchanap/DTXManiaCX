@@ -164,14 +164,34 @@ public sealed class Hpa796ArchitectureGuardTests
     // open a block over code, guard-relevant text inside message strings
     // cannot trip the regex guards, and documented intent plus
     // commented-out code stay inert while line numbers stay accurate.
-    // Known cheap-guard limit: combined interpolated+verbatim prefixes
-    // (@$"…" / $@"…") are lexed as plain strings, and interpolated holes
-    // containing string literals close the literal early; worst case is a
-    // false negative, never a false positive.
+    // Interpolation holes keep their expressions executable (see
+    // BlankInterpolatedStringContents), so a hole can neither hide a real
+    // violation nor leak its nested literals as apparent code.
+    // Known cheap-guard limit: multi-dollar raw interpolated strings
+    // ($$"""…""" with doubled-brace holes) are not modelled and their text
+    // is partially preserved; no game source uses them.
     internal static string StripCommentsAndLiteralContents(string source)
     {
         var output = source.ToCharArray();
-        var position = 0;
+        LexCode(source, output, 0, trackHoleBraces: false);
+        return new string(output);
+    }
+
+    // Lexes one code region starting at start: comments and string/char
+    // literal contents are blanked to whitespace (delimiters and newlines
+    // kept) while executable text is preserved. Inside an interpolation
+    // hole (trackHoleBraces) the scan stops at the '}' closing the hole;
+    // bare braces (e.g. anonymous types) nest and literals or comments
+    // cannot smuggle braces past the count. Returns the index of that
+    // closing brace, or source.Length elsewhere/when unterminated.
+    private static int LexCode(
+        string source,
+        char[] output,
+        int start,
+        bool trackHoleBraces)
+    {
+        var position = start;
+        var holeDepth = trackHoleBraces ? 1 : 0;
         while (position < source.Length)
         {
             var c = source[position];
@@ -200,17 +220,46 @@ public sealed class Hpa796ArchitectureGuardTests
             else if (c == '"')
             {
                 var quoteRunLength = CountQuoteRun(source, position);
-                position = quoteRunLength >= 3
-                    ? BlankRawStringContents(source, output, position, quoteRunLength)
-                    : BlankQuotedLiteral(source, output, position, isVerbatim: false);
+                var interpolated = IsInterpolatedString(source, position);
+                if (quoteRunLength >= 3)
+                {
+                    position = BlankRawStringContents(
+                        source, output, position, quoteRunLength, interpolated);
+                }
+                else if (interpolated)
+                {
+                    position = BlankInterpolatedStringContents(
+                        source, output, position, quoteRunLength, isVerbatim: false);
+                }
+                else
+                {
+                    position = BlankQuotedLiteral(
+                        source, output, position, quoteRunLength, isVerbatim: false);
+                }
             }
             else if (c == '\'')
             {
-                position = BlankQuotedLiteral(source, output, position, isVerbatim: false);
+                position = BlankQuotedLiteral(source, output, position, 1, isVerbatim: false);
             }
             else if (c == '@' && Peek(source, position + 1) == '"')
             {
-                position = BlankQuotedLiteral(source, output, position + 1, isVerbatim: true);
+                position = IsInterpolatedString(source, position + 1)
+                    ? BlankInterpolatedStringContents(
+                        source, output, position + 1, 1, isVerbatim: true)
+                    : BlankQuotedLiteral(source, output, position + 1, 1, isVerbatim: true);
+            }
+            else if (c == '{' && trackHoleBraces)
+            {
+                holeDepth++;
+                position++;
+            }
+            else if (c == '}' && trackHoleBraces)
+            {
+                holeDepth--;
+                if (holeDepth == 0)
+                    return position;
+
+                position++;
             }
             else
             {
@@ -218,7 +267,83 @@ public sealed class Hpa796ArchitectureGuardTests
             }
         }
 
-        return new string(output);
+        return position;
+    }
+
+    // True when the quote at quoteIndex opens an interpolated string, i.e.
+    // it is prefixed by "$" ($"…", $@"…", @$"…").
+    private static bool IsInterpolatedString(string source, int quoteIndex)
+    {
+        var i = quoteIndex - 1;
+        if (i >= 0 && source[i] == '@')
+            i--;
+
+        return i >= 0 && source[i] == '$';
+    }
+
+    // Blanks an interpolated string's literal text while keeping each
+    // interpolation hole ({expression}) executable: the hole is lexed as
+    // code (nested strings, chars and comments inside stay blanked, bare
+    // braces from anonymous types nest), so a real violation in a hole is
+    // still caught and a nested literal cannot end the outer string scan
+    // early and leak its text as apparent code.
+    private static int BlankInterpolatedStringContents(
+        string source,
+        char[] output,
+        int openQuote,
+        int quoteRunLength,
+        bool isVerbatim)
+    {
+        var position = openQuote + quoteRunLength;
+        if (quoteRunLength >= 2)
+            return position; // $"" — the run covers the empty literal
+
+        while (position < source.Length)
+        {
+            var c = source[position];
+            if (c == '\\' && !isVerbatim)
+            {
+                output[position] = ' ';
+                if (position + 1 < source.Length)
+                    output[position + 1] = ' ';
+                position += 2;
+                continue;
+            }
+
+            if (c == '"')
+            {
+                if (isVerbatim && Peek(source, position + 1) == '"')
+                {
+                    output[position++] = ' ';
+                    output[position++] = ' ';
+                    continue;
+                }
+
+                return position + 1; // closing quote
+            }
+
+            if (c == '{')
+            {
+                if (Peek(source, position + 1) == '{')
+                {
+                    position += 2; // "{{" literal brace escape
+                    continue;
+                }
+
+                position = LexCode(source, output, position + 1, trackHoleBraces: true) + 1;
+                continue;
+            }
+
+            if (c == '}' && Peek(source, position + 1) == '}')
+            {
+                position += 2; // "}}" literal brace escape
+                continue;
+            }
+
+            output[position++] = c == '\n' ? '\n' : ' ';
+        }
+
+        return position; // unterminated literal: blanked to end of file
     }
 
     internal static IReadOnlyList<(int Line, string Snippet)> FindRawOneByOneTextureInstantiationLines(
@@ -295,10 +420,11 @@ public sealed class Hpa796ArchitectureGuardTests
         string source,
         char[] output,
         int openQuote,
+        int quoteRunLength,
         bool isVerbatim)
     {
         var closing = source[openQuote];
-        var position = openQuote + 1;
+        var position = openQuote + quoteRunLength;
         while (position < source.Length)
         {
             var c = source[position];
@@ -332,11 +458,13 @@ public sealed class Hpa796ArchitectureGuardTests
     // Blanks the contents of a raw string whose delimiter is quoteRunLength
     // quotes; the opening run is already copied through, the closing run
     // (first quote run of at least that length) is kept verbatim.
+    // Interpolated raw strings keep their holes executable via LexCode.
     private static int BlankRawStringContents(
         string source,
         char[] output,
         int openQuote,
-        int quoteRunLength)
+        int quoteRunLength,
+        bool interpolated)
     {
         var position = openQuote + quoteRunLength;
         while (position < source.Length)
@@ -350,6 +478,24 @@ public sealed class Hpa796ArchitectureGuardTests
                 for (var i = position; i < position + runEnd; i++)
                     output[i] = ' ';
                 position += runEnd;
+                continue;
+            }
+
+            if (interpolated && source[position] == '{')
+            {
+                if (Peek(source, position + 1) == '{')
+                {
+                    position += 2; // "{{" literal brace escape
+                    continue;
+                }
+
+                position = LexCode(source, output, position + 1, trackHoleBraces: true) + 1;
+                continue;
+            }
+
+            if (interpolated && source[position] == '}' && Peek(source, position + 1) == '}')
+            {
+                position += 2; // "}}" literal brace escape
                 continue;
             }
 
