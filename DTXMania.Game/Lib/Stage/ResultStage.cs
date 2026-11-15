@@ -297,13 +297,15 @@ namespace DTXMania.Game.Lib.Stage
             _selectedSong = null;
             _selectedDifficulty = 0;
 
-            if (_sharedData != null && _sharedData.TryGetValue("performanceSummary", out var summaryObj) && summaryObj is PerformanceSummary summary)
+            if (_transitionPayload is PerformanceResult result)
             {
-                _performanceSummary = summary;
+                _performanceSummary = result.Summary;
+                _selectedSong = result.Song;
+                _selectedDifficulty = result.Difficulty;
             }
             else
             {
-                // Fallback: create default summary if none provided
+                // Fallback: create default summary when activated without a performance result
                 _performanceSummary = new PerformanceSummary
                 {
                     Score = 0,
@@ -311,20 +313,7 @@ namespace DTXMania.Game.Lib.Stage
                     ClearFlag = false,
                     CompletionReason = CompletionReason.Unknown
                 };
-                System.Diagnostics.Debug.WriteLine("ResultStage: No performance summary provided, using default");
-            }
-
-            if (_sharedData != null
-                && _sharedData.TryGetValue("selectedSong", out var songObj)
-                && songObj is DTXMania.Game.Lib.Song.SongListNode song)
-            {
-                _selectedSong = song;
-            }
-            if (_sharedData != null
-                && _sharedData.TryGetValue("selectedDifficulty", out var difficultyObj)
-                && difficultyObj is int difficulty)
-            {
-                _selectedDifficulty = difficulty;
+                System.Diagnostics.Debug.WriteLine("ResultStage: No performance result payload, using default");
             }
         }
 
@@ -717,7 +706,7 @@ namespace DTXMania.Game.Lib.Stage
         {
             // Return to song selection stage
             StageManager?.ChangeStage(StageType.SongSelect,
-                new DTXManiaFadeTransition(0.5), null);
+                new DTXManiaFadeTransition(0.5));
         }
 
         #endregion

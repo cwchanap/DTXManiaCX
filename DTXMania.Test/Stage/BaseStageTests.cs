@@ -4,6 +4,7 @@ using DTXMania.Game.Lib.Config;
 using DTXMania.Game.Lib.Graphics;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.UI.Components;
 using DTXMania.Test.TestData;
@@ -26,15 +27,15 @@ namespace DTXMania.Test.Stage
             resourceManager.Setup(x => x.LoadTexture(TexturePath.TitleBackground)).Returns(backgroundTexture.Object);
 
             var stage = new TestStage(ReflectionHelpers.CreateGame(resourceManager.Object), StageType.Title, TexturePath.TitleBackground);
-            var sharedData = new Dictionary<string, object> { ["songId"] = 42 };
+            var payload = new SongPlayRequest(new SongListNode { Title = "Song" }, 2);
 
-            stage.Activate(sharedData);
+            stage.Activate(payload);
 
             Assert.Equal(StagePhase.FadeIn, stage.CurrentPhase);
             Assert.True(stage.IsActive);
             Assert.Equal(1, stage.ActivateCalls);
             Assert.True(stage.BackgroundReady);
-            Assert.Equal(42, stage.ReadSharedData("songId", -1));
+            Assert.Same(payload, stage.LastPayload);
             resourceManager.Verify(x => x.LoadTexture(TexturePath.TitleBackground), Times.Once);
         }
 
@@ -92,21 +93,21 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void Deactivate_ShouldCleanupBackgroundResetStateAndClearSharedData()
+        public void Deactivate_ShouldCleanupBackgroundResetStateAndClearPayload()
         {
             var resourceManager = new Mock<IResourceManager>();
             var backgroundTexture = new Mock<ITexture>();
             resourceManager.Setup(x => x.LoadTexture(It.IsAny<string>())).Returns(backgroundTexture.Object);
 
             var stage = new TestStage(ReflectionHelpers.CreateGame(resourceManager.Object), StageType.Title, TexturePath.TitleBackground);
-            stage.Activate(new Dictionary<string, object> { ["songId"] = 7 });
+            stage.Activate(new SongPlayRequest(new SongListNode { Title = "Song" }, 0));
 
             stage.Deactivate();
 
             Assert.Equal(StagePhase.Inactive, stage.CurrentPhase);
             Assert.False(stage.IsActive);
             Assert.Equal(1, stage.DeactivateCalls);
-            Assert.False(stage.ContainsSharedData("songId"));
+            Assert.Null(stage.LastPayload);
             backgroundTexture.Verify(x => x.RemoveReference(), Times.Once);
         }
 
@@ -133,19 +134,6 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void SharedDataHelpers_ShouldReturnDefaultsForMissingOrInvalidValues()
-        {
-            var stage = new TestStage(ReflectionHelpers.CreateGame(new Mock<IResourceManager>().Object), StageType.Title, null);
-
-            stage.WriteSharedData("difficulty", "hard");
-
-            Assert.True(stage.ContainsSharedData("difficulty"));
-            Assert.Equal("hard", stage.ReadSharedData("difficulty", string.Empty));
-            Assert.Equal(3, stage.ReadSharedData("missing", 3));
-            Assert.Equal(9, stage.ReadSharedData("difficulty", 9));
-        }
-
-        [Fact]
         public void ChangeStage_ShouldForwardDefaultInstantTransition()
         {
             var stageManager = new Mock<IStageManager>();
@@ -164,22 +152,22 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void ChangeStage_WithSharedDataAndNullTransition_ShouldUseInstantTransition()
+        public void ChangeStage_WithPayloadAndNullTransition_ShouldUseInstantTransition()
         {
             var stageManager = new Mock<IStageManager>();
             var stage = new TestStage(ReflectionHelpers.CreateGame(new Mock<IResourceManager>().Object), StageType.Title, null)
             {
                 StageManager = stageManager.Object,
             };
-            var sharedData = new Dictionary<string, object> { ["mode"] = "preview" };
+            var payload = new SongPlayRequest(new SongListNode { Title = "Song" }, 1);
 
-            stage.ForwardChangeStage(StageType.SongTransition, null!, sharedData);
+            stage.ForwardChangeStage(StageType.SongTransition, null!, payload);
 
             stageManager.Verify(
                 x => x.ChangeStage(
                     StageType.SongTransition,
                     It.Is<IStageTransition>(transition => transition is InstantTransition),
-                    sharedData),
+                    payload),
                 Times.Once);
         }
 
@@ -262,33 +250,6 @@ namespace DTXMania.Test.Stage
 
             Assert.Null(ex);
             Assert.Equal(StagePhase.Inactive, stage.CurrentPhase);
-        }
-
-        [Fact]
-        public void SharedDataHelpers_EmptyKey_ShouldBeGuarded()
-        {
-            var stage = new TestStage(ReflectionHelpers.CreateGame(new Mock<IResourceManager>().Object), StageType.Title, null);
-            stage.Activate();
-
-            // SetSharedData with empty key should be silently ignored
-            stage.WriteSharedData("", "ignored");
-            Assert.False(stage.ContainsSharedData(""));
-
-            // GetSharedData with empty key should return default
-            Assert.Equal(-1, stage.ReadSharedData("", -1));
-
-            // HasSharedData with null key should return false (null is IsNullOrEmpty)
-            Assert.False(stage.ContainsSharedData(null!));
-        }
-
-        [Fact]
-        public void SharedDataHelpers_BeforeActivation_ShouldReturnDefault()
-        {
-            // _sharedData is null before any Activate call
-            var stage = new TestStage(ReflectionHelpers.CreateGame(new Mock<IResourceManager>().Object), StageType.Title, null);
-
-            Assert.Equal(-1, stage.ReadSharedData("missing", -1));
-            Assert.False(stage.ContainsSharedData("missing"));
         }
 
         [Theory]
@@ -389,29 +350,16 @@ namespace DTXMania.Test.Stage
             public Action? UpdateAction { get; init; }
             public Action? DrawAction { get; init; }
 
-            public T ReadSharedData<T>(string key, T defaultValue)
-            {
-                return GetSharedData(key, defaultValue);
-            }
-
-            public void WriteSharedData(string key, object value)
-            {
-                SetSharedData(key, value);
-            }
-
-            public bool ContainsSharedData(string key)
-            {
-                return HasSharedData(key);
-            }
+            public StageTransitionPayload LastPayload => _transitionPayload;
 
             public void ForwardChangeStage(StageType stageType, IStageTransition? transition = null)
             {
                 ChangeStage(stageType, transition);
             }
 
-            public void ForwardChangeStage(StageType stageType, IStageTransition? transition, Dictionary<string, object> sharedData)
+            public void ForwardChangeStage(StageType stageType, IStageTransition? transition, StageTransitionPayload payload)
             {
-                ChangeStage(stageType, transition!, sharedData);
+                ChangeStage(stageType, transition!, payload);
             }
 
             protected override string? GetBackgroundTexturePath()

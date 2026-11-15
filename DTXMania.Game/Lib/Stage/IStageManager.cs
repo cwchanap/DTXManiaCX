@@ -15,7 +15,7 @@ namespace DTXMania.Game.Lib.Stage
 
         void ChangeStage(StageType stageType);
         void ChangeStage(StageType stageType, IStageTransition transition);
-        void ChangeStage(StageType stageType, IStageTransition transition, Dictionary<string, object> sharedData);
+        void ChangeStage(StageType stageType, IStageTransition transition, StageTransitionPayload payload);
         void Update(double deltaTime);
         void Draw(double deltaTime);
     }    /// <summary>
@@ -76,7 +76,7 @@ namespace DTXMania.Game.Lib.Stage
         IStageManager StageManager { get; set; }
 
         void Activate();
-        void Activate(Dictionary<string, object> sharedData);
+        void Activate(StageTransitionPayload payload);
         void Deactivate();
         void Update(double deltaTime);
         void Draw(double deltaTime);

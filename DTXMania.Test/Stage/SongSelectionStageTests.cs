@@ -1,4 +1,5 @@
 using DTXMania.Game.Lib.Stage;
+using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Game.Lib.Graphics;
 using DTXMania.Game.Lib.UI.Layout;
 using Microsoft.Xna.Framework;
@@ -125,10 +126,9 @@ namespace DTXMania.Test.Stage
         {
             // Arrange
             var stage = CreateStage();
-            var sharedData = new Dictionary<string, object>();
 
             // Act
-            stage.Activate(sharedData);
+            stage.Activate(new SongPlayRequest(new SongListNode { Title = "Song" }, 0));
 
             // Assert
             Assert.Equal(StagePhase.FadeIn, stage.CurrentPhase);
@@ -143,7 +143,7 @@ namespace DTXMania.Test.Stage
         }
 
         [GraphicsFact]
-        public void Activate_WithNullSharedData_ShouldInitializeWithDefaults()
+        public void Activate_WithNullPayload_ShouldInitializeWithDefaults()
         {
             // Arrange
             var stage = CreateStage();
@@ -362,18 +362,13 @@ namespace DTXMania.Test.Stage
         #region Error Handling Tests
         
         [GraphicsFact]
-        public void ErrorHandling_InvalidSharedData_ShouldHandleGracefully()
+        public void ErrorHandling_UnrelatedPayload_ShouldHandleGracefully()
         {
             // Arrange
             var stage = CreateStage();
-            var invalidData = new Dictionary<string, object>
-            {
-                { "invalid_key", "invalid_value" },
-                { "null_value", null }
-            };
-            
-            // Act & Assert - Should not crash with invalid data
-            stage.Activate(invalidData);
+
+            // Act & Assert - Should not crash with a payload this stage does not consume
+            stage.Activate(new PerformanceResult(new PerformanceSummary(), null, 0));
 
             Assert.Equal(StagePhase.FadeIn, stage.CurrentPhase);
             Assert.Equal(StageType.SongSelect, stage.Type);
@@ -404,7 +399,7 @@ namespace DTXMania.Test.Stage
         {
             // Arrange
             var stage = CreateStage();
-            
+
             // Act - Multiple activation/deactivation cycles
             for (int i = 0; i < 5; i++)
             {
@@ -415,27 +410,7 @@ namespace DTXMania.Test.Stage
             // Assert - Should remain in consistent state
             Assert.Equal(StagePhase.Inactive, stage.CurrentPhase);
         }
-        
-        [GraphicsFact]
-        public void Performance_LargeSharedDataSet_ShouldHandleEfficiently()
-        {
-            // Arrange
-            var stage = CreateStage();
-            var largeDataSet = new Dictionary<string, object>();
-            
-            // Create a large shared data set
-            for (int i = 0; i < 1000; i++)
-            {
-                largeDataSet.Add($"key_{i}", $"value_{i}");
-            }
-            
-            // Act & Assert - Should handle large data sets without performance issues
-            stage.Activate(largeDataSet);
 
-            Assert.Equal(StagePhase.FadeIn, stage.CurrentPhase);
-            Assert.Equal(StageType.SongSelect, stage.Type);
-        }
-        
         #endregion
 
         #region Integration Tests

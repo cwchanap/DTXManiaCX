@@ -58,7 +58,6 @@ namespace DTXMania.Game.Lib.Stage
         // Stage data - initialized via ExtractSharedData
         private SongListNode _selectedSong = null!;
         private int _selectedDifficulty;
-        private int _songId;
 
         // Performance components - initialized in InitializeComponents
         private BackgroundRenderer _backgroundRenderer = null!;
@@ -513,28 +512,11 @@ namespace DTXMania.Game.Lib.Stage
 
         private void ExtractSharedData()
         {
-            if (_sharedData != null)
+            if (_transitionPayload is SongPlayRequest request)
             {
-                if (_sharedData.TryGetValue("selectedSong", out var songObj) && songObj is SongListNode song)
-                {
-                    _selectedSong = song;
-                }
-
-                if (_sharedData.TryGetValue("selectedDifficulty", out var difficultyObj) && difficultyObj is int difficulty)
-                {
-                    _selectedDifficulty = difficulty;
-                }
-
-                if (_sharedData.TryGetValue("songId", out var songIdObj) && songIdObj is int songId)
-                {
-                    _songId = songId;
-                }
-
-                // Extract parsed chart data if available
-                if (_sharedData.TryGetValue("parsedChart", out var chartObj) && chartObj is ParsedChart parsedChart)
-                {
-                    _parsedChart = parsedChart;
-                }
+                _selectedSong = request.Song;
+                _selectedDifficulty = request.Difficulty;
+                _parsedChart = request.Chart;
             }
         }
 
@@ -879,7 +861,7 @@ namespace DTXMania.Game.Lib.Stage
 
             // Return to song selection stage
             StageManager?.ChangeStage(StageType.SongSelect,
-                new DTXManiaFadeTransition(0.5), null);
+                new DTXManiaFadeTransition(0.5));
         }
 
         /// <summary>
@@ -2902,18 +2884,8 @@ namespace DTXMania.Game.Lib.Stage
         private void TransitionToResultStage()
         {
             // No debounce needed here since this is an automatic transition based on game completion
-            var sharedData = new Dictionary<string, object>
-            {
-                { "performanceSummary", _performanceSummary }
-            };
-
-            if (_selectedSong != null)
-            {
-                sharedData["selectedSong"] = _selectedSong;
-            }
-            sharedData["selectedDifficulty"] = _selectedDifficulty;
-
-            StageManager?.ChangeStage(StageType.Result, new InstantTransition(), sharedData);
+            StageManager?.ChangeStage(StageType.Result, new InstantTransition(),
+                new PerformanceResult(_performanceSummary, _selectedSong, _selectedDifficulty));
         }
 
         #endregion

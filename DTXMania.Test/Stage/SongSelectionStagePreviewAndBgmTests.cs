@@ -710,7 +710,7 @@ namespace DTXMania.Test.Stage
                 x => x.ChangeStage(
                     StageType.SongTransition,
                     It.IsAny<IStageTransition>(),
-                    It.IsAny<Dictionary<string, object>>()),
+                    It.IsAny<StageTransitionPayload>()),
                 Times.Once);
         }
 

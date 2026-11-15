@@ -6,6 +6,7 @@ using DTXMania.Game.Lib.Diagnostics.CrashReporting;
 using DTXMania.Game.Lib.Graphics;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.UI.Components;
 using DTXMania.Test.TestData;
@@ -103,22 +104,22 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void ChangeStage_WithInstantTransition_ShouldDeactivatePreviousStageAndPassSharedData()
+        public void ChangeStage_WithInstantTransition_ShouldDeactivatePreviousStageAndPassPayload()
         {
-            var sharedData = new Dictionary<string, object> { ["Mode"] = "Config" };
+            var payload = new SongPlayRequest(new SongListNode { Title = "Song" }, 2);
             SetCurrentStage(_titleStage);
 
-            _stageManager.ChangeStage(StageType.Config, new InstantTransition(), sharedData);
+            _stageManager.ChangeStage(StageType.Config, new InstantTransition(), payload);
 
             Assert.Same(_configStage, _stageManager.CurrentStage);
             Assert.False(_stageManager.IsTransitioning);
             Assert.Equal(1, _titleStage.TransitionOutCount);
             Assert.Equal(1, _titleStage.DeactivateCount);
-            Assert.Equal(1, _configStage.ActivateWithSharedDataCount);
-            Assert.Equal("Config", _configStage.GetSharedData<string>("Mode"));
+            Assert.Equal(1, _configStage.ActivateWithPayloadCount);
+            Assert.Same(payload, _configStage.LastPayload);
             Assert.Equal(1, _configStage.TransitionInCount);
             Assert.Equal(1, _configStage.TransitionCompleteCount);
-            Assert.Null(ReflectionHelpers.GetPrivateField<object>(_stageManager, "_pendingSharedData"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<object>(_stageManager, "_pendingPayload"));
             Assert.Null(ReflectionHelpers.GetPrivateField<object>(_stageManager, "_currentTransition"));
             Assert.Null(ReflectionHelpers.GetPrivateField<object>(_stageManager, "_previousStage"));
         }
@@ -162,21 +163,20 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void Update_WhenTransitionCompletes_ShouldActivateTargetAndUpdateIt()
         {
-            var sharedData = new Dictionary<string, object> { ["Screen"] = "Options" };
             var transition = new TestTransition(isComplete: false, fadeOutAlpha: 1.0f)
             {
                 CompleteAfterUpdate = true
             };
             SetCurrentStage(_titleStage);
 
-            _stageManager.ChangeStage(StageType.Config, transition, sharedData);
+            _stageManager.ChangeStage(StageType.Config, transition);
             _stageManager.Update(0.25);
 
             Assert.False(_stageManager.IsTransitioning);
             Assert.Same(_configStage, _stageManager.CurrentStage);
             Assert.Equal(1, _titleStage.DeactivateCount);
-            Assert.Equal(1, _configStage.ActivateWithSharedDataCount);
-            Assert.Equal("Options", _configStage.GetSharedData<string>("Screen"));
+            Assert.Equal(1, _configStage.ActivateCount);
+            Assert.Null(_configStage.LastPayload);
             Assert.Equal(1, _configStage.TransitionInCount);
             Assert.Equal(1, _configStage.TransitionCompleteCount);
             Assert.Equal(1, _configStage.UpdateCount);
@@ -413,8 +413,6 @@ namespace DTXMania.Test.Stage
 
         private sealed class TestStage : IStage
         {
-            private readonly Dictionary<string, object> _sharedData = new();
-
             public TestStage(StageType type)
             {
                 Type = type;
@@ -424,7 +422,8 @@ namespace DTXMania.Test.Stage
             public StagePhase CurrentPhase { get; private set; } = StagePhase.Inactive;
             public IStageManager StageManager { get; set; } = null!;
             public int ActivateCount { get; private set; }
-            public int ActivateWithSharedDataCount { get; private set; }
+            public int ActivateWithPayloadCount { get; private set; }
+            public StageTransitionPayload LastPayload { get; private set; }
             public int DeactivateCount { get; private set; }
             public int UpdateCount { get; private set; }
             public int DrawCount { get; private set; }
@@ -439,13 +438,10 @@ namespace DTXMania.Test.Stage
                 CurrentPhase = StagePhase.Normal;
             }
 
-            public void Activate(Dictionary<string, object> sharedData)
+            public void Activate(StageTransitionPayload payload)
             {
-                ActivateWithSharedDataCount++;
-                foreach (var pair in sharedData ?? new Dictionary<string, object>())
-                {
-                    _sharedData[pair.Key] = pair.Value;
-                }
+                ActivateWithPayloadCount++;
+                LastPayload = payload;
 
                 Activate();
             }
@@ -487,11 +483,6 @@ namespace DTXMania.Test.Stage
             public void Dispose()
             {
                 DisposeCount++;
-            }
-
-            public T GetSharedData<T>(string key)
-            {
-                return (T)_sharedData[key];
             }
         }
 

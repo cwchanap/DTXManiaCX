@@ -296,9 +296,9 @@ namespace DTXMania.Game.Lib.Stage
 
         #region Stage Lifecycle
 
-        public override void Activate(Dictionary<string, object> sharedData = null)
+        public override void Activate(StageTransitionPayload payload = null)
         {
-            base.Activate(sharedData);
+            base.Activate(payload);
 
             // Use game's shared InputManager (supports MCP key injection)
             AssignInputManager(_game.InputManager);
@@ -2318,17 +2318,12 @@ namespace DTXMania.Game.Lib.Stage
         private void StartSongSelection(SongListNode songNode)
         {
             _game.MarkStageTransition();
-            
-            // Create shared data to pass song information to the transition stage
-            var sharedData = new Dictionary<string, object>
-            {
-                ["selectedSong"] = songNode,
-                ["selectedDifficulty"] = _currentDifficulty,
-                ["songId"] = songNode.DatabaseSongId ?? 0
-            };
-            
+
+            // Hand the typed play request to the transition stage
+            var request = new SongPlayRequest(songNode, _currentDifficulty);
+
             // Transition immediately to SongTransitionStage
-            StageManager.ChangeStage(StageType.SongTransition, new InstantTransition(), sharedData);
+            StageManager.ChangeStage(StageType.SongTransition, new InstantTransition(), request);
         }
 
         internal static List<SongListNode> CollectRandomCandidates(

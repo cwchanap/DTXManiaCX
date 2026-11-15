@@ -103,7 +103,6 @@ namespace DTXMania.Test.Stage
             ReflectionHelpers.SetPrivateField(stage, "_elapsedTime", SongTransitionUILayout.Timing.FadeOutDuration);
             ReflectionHelpers.SetPrivateField(stage, "_selectedSong", CreateSongNode(new SongChart { DrumLevel = 65, HasDrumChart = true }));
             ReflectionHelpers.SetPrivateField(stage, "_selectedDifficulty", 2);
-            ReflectionHelpers.SetPrivateField(stage, "_songId", 123);
 
             InvokePrivateMethod(stage, "UpdatePhase");
 
@@ -111,10 +110,9 @@ namespace DTXMania.Test.Stage
                 x => x.ChangeStage(
                     StageType.Performance,
                     It.Is<IStageTransition>(transition => transition is InstantTransition),
-                    It.Is<Dictionary<string, object>>(sharedData =>
-                        (SongListNode)sharedData["selectedSong"] == ReflectionHelpers.GetPrivateField<SongListNode>(stage, "_selectedSong") &&
-                        (int)sharedData["selectedDifficulty"] == 2 &&
-                        (int)sharedData["songId"] == 123)),
+                    It.Is<SongPlayRequest>(request =>
+                        ReferenceEquals(request.Song, ReflectionHelpers.GetPrivateField<SongListNode>(stage, "_selectedSong")) &&
+                        request.Difficulty == 2)),
                 Times.Once);
         }
 
@@ -133,7 +131,7 @@ namespace DTXMania.Test.Stage
                 x => x.ChangeStage(
                     StageType.Performance,
                     It.IsAny<IStageTransition>(),
-                    It.IsAny<Dictionary<string, object>>()),
+                    It.IsAny<StageTransitionPayload>()),
                 Times.Once);
             Assert.Equal(2.0, ReflectionHelpers.GetPrivateField<double>(game, "_lastStageTransitionTime"));
         }
@@ -176,12 +174,12 @@ namespace DTXMania.Test.Stage
                 x => x.ChangeStage(
                     It.IsAny<StageType>(),
                     It.IsAny<IStageTransition>(),
-                    It.IsAny<Dictionary<string, object>>()),
+                    It.IsAny<StageTransitionPayload>()),
                 Times.Never);
         }
 
         [Fact]
-        public void PerformTransition_WhenParsedChartLoaded_ShouldIncludeParsedChartInSharedData()
+        public void PerformTransition_WhenParsedChartLoaded_ShouldAttachChartToRequest()
         {
             var stageManager = new Mock<IStageManager>();
             var stage = CreateStage();
@@ -191,7 +189,6 @@ namespace DTXMania.Test.Stage
             stage.StageManager = stageManager.Object;
             ReflectionHelpers.SetPrivateField(stage, "_selectedSong", selectedSong);
             ReflectionHelpers.SetPrivateField(stage, "_selectedDifficulty", 1);
-            ReflectionHelpers.SetPrivateField(stage, "_songId", 77);
             ReflectionHelpers.SetPrivateField(stage, "_parsedChart", parsedChart);
 
             InvokePrivateMethod(stage, "PerformTransition");
@@ -200,14 +197,13 @@ namespace DTXMania.Test.Stage
                 x => x.ChangeStage(
                     StageType.Performance,
                     It.Is<IStageTransition>(transition => transition is InstantTransition),
-                    It.Is<Dictionary<string, object>>(sharedData =>
-                        sharedData.ContainsKey("parsedChart") &&
-                        ReferenceEquals(sharedData["parsedChart"], parsedChart))),
+                    It.Is<SongPlayRequest>(request =>
+                        ReferenceEquals(request.Chart, parsedChart))),
                 Times.Once);
         }
 
         [Fact]
-        public void PerformTransition_WhenParsedChartIsNull_ShouldOmitParsedChartFromSharedData()
+        public void PerformTransition_WhenParsedChartIsNull_ShouldLeaveRequestChartNull()
         {
             var stageManager = new Mock<IStageManager>();
             var stage = CreateStage();
@@ -216,7 +212,6 @@ namespace DTXMania.Test.Stage
             stage.StageManager = stageManager.Object;
             ReflectionHelpers.SetPrivateField(stage, "_selectedSong", selectedSong);
             ReflectionHelpers.SetPrivateField(stage, "_selectedDifficulty", 1);
-            ReflectionHelpers.SetPrivateField(stage, "_songId", 77);
             ReflectionHelpers.SetPrivateField(stage, "_parsedChart", null);
 
             InvokePrivateMethod(stage, "PerformTransition");
@@ -225,17 +220,15 @@ namespace DTXMania.Test.Stage
                 x => x.ChangeStage(
                     StageType.Performance,
                     It.Is<IStageTransition>(transition => transition is InstantTransition),
-                    It.Is<Dictionary<string, object>>(sharedData =>
-                        sharedData.Count == 3 &&
-                        ReferenceEquals(sharedData["selectedSong"], selectedSong) &&
-                        (int)sharedData["selectedDifficulty"] == 1 &&
-                        (int)sharedData["songId"] == 77 &&
-                        !sharedData.ContainsKey("parsedChart"))),
+                    It.Is<SongPlayRequest>(request =>
+                        ReferenceEquals(request.Song, selectedSong) &&
+                        request.Difficulty == 1 &&
+                        request.Chart == null)),
                 Times.Once);
         }
 
         [Fact]
-        public void PerformTransition_WhenSelectedSongMissing_ShouldPassEmptySharedData()
+        public void PerformTransition_WhenSelectedSongMissing_ShouldPassNullPayload()
         {
             var stageManager = new Mock<IStageManager>();
             var stage = CreateStage();
@@ -247,7 +240,7 @@ namespace DTXMania.Test.Stage
                 x => x.ChangeStage(
                     StageType.Performance,
                     It.Is<IStageTransition>(transition => transition is InstantTransition),
-                    It.Is<Dictionary<string, object>>(sharedData => sharedData.Count == 0)),
+                    It.Is<SongPlayRequest>(request => request == null)),
                 Times.Once);
         }
 
@@ -265,7 +258,7 @@ namespace DTXMania.Test.Stage
                 x => x.ChangeStage(
                     It.IsAny<StageType>(),
                     It.IsAny<IStageTransition>(),
-                    It.IsAny<Dictionary<string, object>>()),
+                    It.IsAny<StageTransitionPayload>()),
                 Times.Never);
         }
 
@@ -305,25 +298,19 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void Activate_WhenSharedDataProvided_ShouldCaptureSelectionBeforeGraphicsInitialization()
+        public void Activate_WhenSongPlayRequestProvided_ShouldCaptureSelectionBeforeGraphicsInitialization()
         {
             var resourceManager = new Mock<IResourceManager>();
             var game = ReflectionHelpers.CreateGame();
             var selectedSong = CreateSongNode(new SongChart { DrumLevel = 42, HasDrumChart = true });
             ReflectionHelpers.SetPrivateField(game, "<ResourceManager>k__BackingField", resourceManager.Object);
             var stage = CreateStage(game);
-            var sharedData = new Dictionary<string, object>
-            {
-                ["selectedSong"] = selectedSong,
-                ["selectedDifficulty"] = 3,
-                ["songId"] = 99
-            };
+            var payload = new SongPlayRequest(selectedSong, 3);
 
-            Record.Exception(() => stage.Activate(sharedData));
+            Record.Exception(() => stage.Activate(payload));
 
             Assert.Same(selectedSong, ReflectionHelpers.GetPrivateField<SongListNode>(stage, "_selectedSong"));
             Assert.Equal(3, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedDifficulty"));
-            Assert.Equal(99, ReflectionHelpers.GetPrivateField<int>(stage, "_songId"));
         }
 
         [Fact]
@@ -381,7 +368,7 @@ namespace DTXMania.Test.Stage
                 x => x.ChangeStage(
                     StageType.Performance,
                     It.IsAny<IStageTransition>(),
-                    It.IsAny<Dictionary<string, object>>()),
+                    It.IsAny<StageTransitionPayload>()),
                 Times.Once);
             Assert.Equal(3.0, ReflectionHelpers.GetPrivateField<double>(game, "_lastStageTransitionTime"));
         }
@@ -406,7 +393,7 @@ namespace DTXMania.Test.Stage
                 x => x.ChangeStage(
                     It.IsAny<StageType>(),
                     It.IsAny<IStageTransition>(),
-                    It.IsAny<Dictionary<string, object>>()),
+                    It.IsAny<StageTransitionPayload>()),
                 Times.Never);
             Assert.Equal(0.0, ReflectionHelpers.GetPrivateField<double>(game, "_lastStageTransitionTime"));
         }
@@ -957,7 +944,7 @@ namespace DTXMania.Test.Stage
                 x => x.ChangeStage(
                     StageType.Performance,
                     It.IsAny<IStageTransition>(),
-                    It.IsAny<Dictionary<string, object>>()),
+                    It.IsAny<StageTransitionPayload>()),
                 Times.Once);
             Assert.False(inputManager.HasPendingCommands);
         }

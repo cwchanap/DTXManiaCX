@@ -79,7 +79,7 @@ public sealed class ResultStageScoreSaveTests
             manager => manager.ChangeStage(
                 It.IsAny<StageType>(),
                 It.IsAny<IStageTransition>(),
-                It.IsAny<Dictionary<string, object>>()),
+                It.IsAny<StageTransitionPayload>()),
             Times.Never);
     }
 
@@ -102,8 +102,7 @@ public sealed class ResultStageScoreSaveTests
         stageManager.Verify(
             manager => manager.ChangeStage(
                 StageType.SongSelect,
-                It.IsAny<IStageTransition>(),
-                null),
+                It.IsAny<IStageTransition>()),
             Times.Once);
     }
 

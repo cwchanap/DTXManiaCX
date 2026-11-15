@@ -34,91 +34,32 @@ namespace DTXMania.Test.Stage.Performance;
 public class PerformanceStageDeterministicTests
 {
     [Fact]
-    public void ExtractSharedData_WhenSharedDataMissing_ShouldLeaveStageDataUnchanged()
+    public void ExtractSharedData_WhenPayloadMissing_ShouldLeaveStageDataUnchanged()
     {
         var stage = CreateStage();
 
-        ReflectionHelpers.SetPrivateField(stage, "_sharedData", null);
+        ReflectionHelpers.SetPrivateField(stage, "_transitionPayload", null);
 
         ReflectionHelpers.InvokePrivateMethod(stage, "ExtractSharedData");
 
         Assert.Null(ReflectionHelpers.GetPrivateField<SongListNode>(stage, "_selectedSong"));
         Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedDifficulty"));
-        Assert.Equal(0, ReflectionHelpers.GetPrivateField<int>(stage, "_songId"));
         Assert.Null(ReflectionHelpers.GetPrivateField<ParsedChart>(stage, "_parsedChart"));
     }
 
     [Fact]
-    public void ExtractSharedData_WhenValidValuesExist_ShouldAssignAllFields()
+    public void ExtractSharedData_WhenSongPlayRequestExists_ShouldAssignAllFields()
     {
         var stage = CreateStage();
         var selectedSong = new SongListNode { Title = "Song" };
         var parsedChart = new ParsedChart("test.dtx");
-        var sharedData = new Dictionary<string, object>
-        {
-            ["selectedSong"] = selectedSong,
-            ["selectedDifficulty"] = 3,
-            ["songId"] = 42,
-            ["parsedChart"] = parsedChart
-        };
-
-        ReflectionHelpers.SetPrivateField(stage, "_sharedData", sharedData);
+        ReflectionHelpers.SetPrivateField(stage, "_transitionPayload", new SongPlayRequest(selectedSong, 3, parsedChart));
 
         ReflectionHelpers.InvokePrivateMethod(stage, "ExtractSharedData");
 
         Assert.Same(selectedSong, ReflectionHelpers.GetPrivateField<SongListNode>(stage, "_selectedSong"));
         Assert.Equal(3, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedDifficulty"));
-        Assert.Equal(42, ReflectionHelpers.GetPrivateField<int>(stage, "_songId"));
         Assert.Same(parsedChart, ReflectionHelpers.GetPrivateField<ParsedChart>(stage, "_parsedChart"));
-    }
-
-    [Fact]
-    public void ExtractSharedData_WhenEntriesHaveUnexpectedTypes_ShouldPreserveExistingValues()
-    {
-        var stage = CreateStage();
-        var existingSong = new SongListNode { Title = "Existing" };
-        var existingChart = new ParsedChart("existing.dtx");
-        var sharedData = new Dictionary<string, object>
-        {
-            ["selectedSong"] = "not-a-song",
-            ["selectedDifficulty"] = "hard",
-            ["songId"] = "42",
-            ["parsedChart"] = new object()
-        };
-
-        ReflectionHelpers.SetPrivateField(stage, "_selectedSong", existingSong);
-        ReflectionHelpers.SetPrivateField(stage, "_selectedDifficulty", 2);
-        ReflectionHelpers.SetPrivateField(stage, "_songId", 17);
-        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", existingChart);
-        ReflectionHelpers.SetPrivateField(stage, "_sharedData", sharedData);
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "ExtractSharedData");
-
-        Assert.Same(existingSong, ReflectionHelpers.GetPrivateField<SongListNode>(stage, "_selectedSong"));
-        Assert.Equal(2, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedDifficulty"));
-        Assert.Equal(17, ReflectionHelpers.GetPrivateField<int>(stage, "_songId"));
-        Assert.Same(existingChart, ReflectionHelpers.GetPrivateField<ParsedChart>(stage, "_parsedChart"));
-    }
-
-    [Fact]
-    public void ExtractSharedData_WhenKeysAreAbsent_ShouldPreserveExistingValues()
-    {
-        var stage = CreateStage();
-        var existingSong = new SongListNode { Title = "Existing" };
-        var existingChart = new ParsedChart("existing.dtx");
-
-        ReflectionHelpers.SetPrivateField(stage, "_selectedSong", existingSong);
-        ReflectionHelpers.SetPrivateField(stage, "_selectedDifficulty", 1);
-        ReflectionHelpers.SetPrivateField(stage, "_songId", 8);
-        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", existingChart);
-        ReflectionHelpers.SetPrivateField(stage, "_sharedData", new Dictionary<string, object>());
-
-        ReflectionHelpers.InvokePrivateMethod(stage, "ExtractSharedData");
-
-        Assert.Same(existingSong, ReflectionHelpers.GetPrivateField<SongListNode>(stage, "_selectedSong"));
-        Assert.Equal(1, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedDifficulty"));
-        Assert.Equal(8, ReflectionHelpers.GetPrivateField<int>(stage, "_songId"));
-        Assert.Same(existingChart, ReflectionHelpers.GetPrivateField<ParsedChart>(stage, "_parsedChart"));
     }
 
     [Fact]
@@ -2408,10 +2349,10 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(new ConfigData { NoFail = false }));
         var stage = CreateStage(game);
         var stageManager = new Mock<IStageManager>();
-        Dictionary<string, object>? capturedSharedData = null;
+        StageTransitionPayload? capturedPayload = null;
         stageManager
-            .Setup(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()))
-            .Callback<StageType, IStageTransition, Dictionary<string, object>>((_, _, sharedData) => capturedSharedData = sharedData);
+            .Setup(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()))
+            .Callback<StageType, IStageTransition, StageTransitionPayload>((_, _, payload) => capturedPayload = payload);
         stage.StageManager = stageManager.Object;
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", CreateChartManagerWithSingleNote());
         ReflectionHelpers.SetPrivateField(stage, "_scoreManager", new ScoreManager(1));
@@ -2423,11 +2364,11 @@ public class PerformanceStageDeterministicTests
 
         Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_stageCompleted"));
         Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_inputPaused"));
-        var summary = Assert.IsType<PerformanceSummary>(capturedSharedData!["performanceSummary"]);
+        var summary = Assert.IsType<PerformanceResult>(capturedPayload!).Summary;
         Assert.Equal(CompletionReason.PlayerFailed, summary.CompletionReason);
         Assert.False(summary.ClearFlag);
         Assert.Equal(1, summary.TotalNotes);
-        stageManager.Verify(x => x.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()), Times.Once);
+        stageManager.Verify(x => x.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()), Times.Once);
     }
 
     [Fact]
@@ -2435,10 +2376,10 @@ public class PerformanceStageDeterministicTests
     {
         var stage = CreateStage();
         var stageManager = new Mock<IStageManager>();
-        Dictionary<string, object>? capturedSharedData = null;
+        StageTransitionPayload? capturedPayload = null;
         stageManager
-            .Setup(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()))
-            .Callback<StageType, IStageTransition, Dictionary<string, object>>((_, _, sharedData) => capturedSharedData = sharedData);
+            .Setup(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()))
+            .Callback<StageType, IStageTransition, StageTransitionPayload>((_, _, payload) => capturedPayload = payload);
         stage.StageManager = stageManager.Object;
         ReflectionHelpers.SetPrivateField(stage, "_parsedChart", new ParsedChart("complete-test.dtx") { DurationMs = 1000.0 });
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", CreateChartManagerWithSingleNote());
@@ -2454,10 +2395,10 @@ public class PerformanceStageDeterministicTests
 
         ReflectionHelpers.InvokePrivateMethod(stage, "CheckStageCompletion", 5000.0);
 
-        var summary = Assert.IsType<PerformanceSummary>(capturedSharedData!["performanceSummary"]);
+        var summary = Assert.IsType<PerformanceResult>(capturedPayload!).Summary;
         Assert.Equal(CompletionReason.SongComplete, summary.CompletionReason);
         Assert.True(summary.ClearFlag);
-        stageManager.Verify(x => x.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()), Times.Once);
+        stageManager.Verify(x => x.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()), Times.Once);
     }
 
     [Fact]
@@ -2467,10 +2408,10 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(new ConfigData { NoFail = false }));
         var stage = CreateStage(game);
         var stageManager = new Mock<IStageManager>();
-        Dictionary<string, object>? capturedSharedData = null;
+        StageTransitionPayload? capturedPayload = null;
         stageManager
-            .Setup(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()))
-            .Callback<StageType, IStageTransition, Dictionary<string, object>>((_, _, sharedData) => capturedSharedData = sharedData);
+            .Setup(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()))
+            .Callback<StageType, IStageTransition, StageTransitionPayload>((_, _, payload) => capturedPayload = payload);
         stage.StageManager = stageManager.Object;
         ReflectionHelpers.SetPrivateField(stage, "_parsedChart", new ParsedChart("complete-failed-test.dtx") { DurationMs = 1000.0 });
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", CreateChartManagerWithSingleNote());
@@ -2490,10 +2431,10 @@ public class PerformanceStageDeterministicTests
 
         ReflectionHelpers.InvokePrivateMethod(stage, "CheckStageCompletion", 5000.0);
 
-        var summary = Assert.IsType<PerformanceSummary>(capturedSharedData!["performanceSummary"]);
+        var summary = Assert.IsType<PerformanceResult>(capturedPayload!).Summary;
         Assert.Equal(CompletionReason.SongComplete, summary.CompletionReason);
         Assert.True(summary.ClearFlag);
-        stageManager.Verify(x => x.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()), Times.Once);
+        stageManager.Verify(x => x.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()), Times.Once);
     }
 
     [Theory]
@@ -2693,8 +2634,7 @@ public class PerformanceStageDeterministicTests
         stageManager.Verify(
             x => x.ChangeStage(
                 StageType.SongSelect,
-                It.Is<IStageTransition>(transition => transition is DTXManiaFadeTransition),
-                null),
+                It.Is<IStageTransition>(transition => transition is DTXManiaFadeTransition)),
             Times.Once);
     }
 
@@ -2737,8 +2677,7 @@ public class PerformanceStageDeterministicTests
         stageManager.Verify(
             x => x.ChangeStage(
                 StageType.SongSelect,
-                It.IsAny<IStageTransition>(),
-                null),
+                It.IsAny<IStageTransition>()),
             Times.Once);
     }
 
@@ -2756,7 +2695,7 @@ public class PerformanceStageDeterministicTests
 
         Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_inputPaused"));
         stageManager.Verify(
-            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
+            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()),
             Times.Never);
     }
 
@@ -2771,10 +2710,10 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager.Object);
         var stage = CreateStage(game);
         var stageManager = new Mock<IStageManager>();
-        Dictionary<string, object>? capturedSharedData = null;
+        StageTransitionPayload? capturedPayload = null;
         stageManager
-            .Setup(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()))
-            .Callback<StageType, IStageTransition, Dictionary<string, object>>((_, _, sharedData) => capturedSharedData = sharedData);
+            .Setup(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()))
+            .Callback<StageType, IStageTransition, StageTransitionPayload>((_, _, payload) => capturedPayload = payload);
         stage.StageManager = stageManager.Object;
         var chartManager = CreateChartManagerWithSingleNote();
         var scoreManager = new ScoreManager(1);
@@ -2795,10 +2734,10 @@ public class PerformanceStageDeterministicTests
             new JudgementEvent(noteRef: 1, lane: 0, deltaMs: 0.0, type: JudgementType.Miss));
 
         Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_stageCompleted"));
-        var summary = Assert.IsType<PerformanceSummary>(capturedSharedData!["performanceSummary"]);
+        var summary = Assert.IsType<PerformanceResult>(capturedPayload!).Summary;
         Assert.Equal(CompletionReason.PlayerFailed, summary.CompletionReason);
         stageManager.Verify(
-            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
+            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()),
             Times.Once);
     }
 
@@ -2815,7 +2754,7 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.InvokePrivateMethod(stage, "OnPlayerFailed", null, new FailureEventArgs { FinalLife = 0.0f, JudgementType = JudgementType.Miss });
 
         stageManager.Verify(
-            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
+            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()),
             Times.Never);
     }
 
@@ -4422,10 +4361,10 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager.Object);
         var stage = CreateStage(game);
         var stageManager = new Mock<IStageManager>();
-        Dictionary<string, object>? capturedSharedData = null;
+        StageTransitionPayload? capturedPayload = null;
         stageManager
-            .Setup(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()))
-            .Callback<StageType, IStageTransition, Dictionary<string, object>>((_, _, sharedData) => capturedSharedData = sharedData);
+            .Setup(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()))
+            .Callback<StageType, IStageTransition, StageTransitionPayload>((_, _, payload) => capturedPayload = payload);
         stage.StageManager = stageManager.Object;
         ReflectionHelpers.SetPrivateField(stage, "_parsedChart", new ParsedChart("nofail-test.dtx") { DurationMs = 5000.0 });
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", CreateChartManagerWithSingleNote());
@@ -4443,11 +4382,11 @@ public class PerformanceStageDeterministicTests
 
         ReflectionHelpers.InvokePrivateMethod(stage, "CheckStageCompletion", 1000.0);
 
-        var summary = Assert.IsType<PerformanceSummary>(capturedSharedData!["performanceSummary"]);
+        var summary = Assert.IsType<PerformanceResult>(capturedPayload!).Summary;
         Assert.Equal(CompletionReason.PlayerFailed, summary.CompletionReason);
         Assert.False(summary.ClearFlag);
         stageManager.Verify(
-            x => x.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
+            x => x.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()),
             Times.Once);
     }
 
@@ -4458,10 +4397,10 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), CreateConfigManager(new ConfigData { NoFail = false }));
         var stage = CreateStage(game);
         var stageManager = new Mock<IStageManager>();
-        Dictionary<string, object>? capturedSharedData = null;
+        StageTransitionPayload? capturedPayload = null;
         stageManager
-            .Setup(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()))
-            .Callback<StageType, IStageTransition, Dictionary<string, object>>((_, _, sharedData) => capturedSharedData = sharedData);
+            .Setup(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()))
+            .Callback<StageType, IStageTransition, StageTransitionPayload>((_, _, payload) => capturedPayload = payload);
         stage.StageManager = stageManager.Object;
         ReflectionHelpers.SetPrivateField(stage, "_parsedChart", new ParsedChart("failed-test.dtx") { DurationMs = 5000.0 });
         ReflectionHelpers.SetPrivateField(stage, "_chartManager", CreateChartManagerWithSingleNote());
@@ -4476,10 +4415,10 @@ public class PerformanceStageDeterministicTests
 
         ReflectionHelpers.InvokePrivateMethod(stage, "CheckStageCompletion", 1000.0);
 
-        var summary = Assert.IsType<PerformanceSummary>(capturedSharedData!["performanceSummary"]);
+        var summary = Assert.IsType<PerformanceResult>(capturedPayload!).Summary;
         Assert.Equal(CompletionReason.PlayerFailed, summary.CompletionReason);
         Assert.False(summary.ClearFlag);
-        stageManager.Verify(x => x.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()), Times.Once);
+        stageManager.Verify(x => x.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()), Times.Once);
     }
 
     [Fact]
@@ -4500,7 +4439,7 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.InvokePrivateMethod(stage, "CheckStageCompletion", 5000.0);
 
         stageManager.Verify(
-            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
+            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()),
             Times.Never);
     }
 
@@ -4517,7 +4456,7 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.InvokePrivateMethod(stage, "CheckStageCompletion", 5000.0);
 
         stageManager.Verify(
-            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
+            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()),
             Times.Never);
     }
 
@@ -4536,7 +4475,7 @@ public class PerformanceStageDeterministicTests
 
         Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_stageCompleted"));
         stageManager.Verify(
-            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
+            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()),
             Times.Never);
     }
 
@@ -4555,7 +4494,7 @@ public class PerformanceStageDeterministicTests
 
         Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_stageCompleted"));
         stageManager.Verify(
-            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
+            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()),
             Times.Never);
     }
 
@@ -5927,7 +5866,7 @@ public class PerformanceStageDeterministicTests
         var game = ReflectionHelpers.CreateGame();
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager.Object);
         var stage = CreateStage(game);
-        ReflectionHelpers.SetPrivateField(stage, "_sharedData", null);
+        ReflectionHelpers.SetPrivateField(stage, "_transitionPayload", null);
         ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
         ReflectionHelpers.SetPrivateField(stage, "_scheduledBGMEvents", new List<BGMEvent>());
 
@@ -5949,7 +5888,7 @@ public class PerformanceStageDeterministicTests
         var game = ReflectionHelpers.CreateGame();
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), null);
         var stage = CreateStage(game);
-        ReflectionHelpers.SetPrivateField(stage, "_sharedData", null);
+        ReflectionHelpers.SetPrivateField(stage, "_transitionPayload", null);
 
         ReflectionHelpers.InvokePrivateMethod(stage, "ExtractSharedData");
         ReflectionHelpers.InvokePrivateMethod(stage, "FreezeRunConfiguration");
@@ -6230,10 +6169,10 @@ public class PerformanceStageDeterministicTests
     {
         var stage = CreateStage();
         var stageManager = new Mock<IStageManager>();
-        Dictionary<string, object>? capturedSharedData = null;
+        StageTransitionPayload? capturedPayload = null;
         stageManager
-            .Setup(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()))
-            .Callback<StageType, IStageTransition, Dictionary<string, object>>((_, _, sharedData) => capturedSharedData = sharedData);
+            .Setup(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()))
+            .Callback<StageType, IStageTransition, StageTransitionPayload>((_, _, payload) => capturedPayload = payload);
         stage.StageManager = stageManager.Object;
 
         var chartManager = CreateChartManagerWithSingleNote();
@@ -6261,7 +6200,7 @@ public class PerformanceStageDeterministicTests
         Assert.Equal(CompletionReason.SongComplete, summary.CompletionReason);
         Assert.True(summary.ClearFlag);
         Assert.Equal(chartManager.TotalNotes, summary.TotalNotes);
-        stageManager.Verify(x => x.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()), Times.Once);
+        stageManager.Verify(x => x.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()), Times.Once);
     }
 
     [Fact]
@@ -6296,7 +6235,7 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.InvokePrivateMethod(stage, "CheckStageCompletion", 5000.0);
 
         stageManager.Verify(
-            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
+            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()),
             Times.Never);
     }
 
@@ -6461,7 +6400,7 @@ public class PerformanceStageDeterministicTests
         var game = ReflectionHelpers.CreateGame();
         ReflectionHelpers.SetProperty(game, nameof(BaseGame.ConfigManager), configManager.Object);
         var stage = CreateStage(game);
-        ReflectionHelpers.SetPrivateField(stage, "_sharedData", null);
+        ReflectionHelpers.SetPrivateField(stage, "_transitionPayload", null);
 
         var exception = Record.Exception(() =>
             ReflectionHelpers.InvokePrivateMethod(stage, "OnActivate"));
@@ -6637,7 +6576,7 @@ public class PerformanceStageDeterministicTests
 
         Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_stageCompleted"));
         stageManager.Verify(
-            x => x.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
+            x => x.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()),
             Times.Once);
     }
 
@@ -6659,7 +6598,7 @@ public class PerformanceStageDeterministicTests
 
         Assert.True(ReflectionHelpers.GetPrivateField<bool>(stage, "_stageCompleted"));
         stageManager.Verify(
-            x => x.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
+            x => x.ChangeStage(StageType.Result, It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()),
             Times.Once);
         configManager.VerifyGet(x => x.Config, Times.Never);
     }
@@ -6681,7 +6620,7 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.InvokePrivateMethod(stage, "OnPlayerFailed", null, args);
 
         stageManager.Verify(
-            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
+            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()),
             Times.Never);
     }
 
@@ -6797,10 +6736,10 @@ public class PerformanceStageDeterministicTests
     {
         var stage = CreateStage();
         var stageManager = new Mock<IStageManager>();
-        Dictionary<string, object>? capturedSharedData = null;
+        StageTransitionPayload? capturedPayload = null;
         stageManager
-            .Setup(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()))
-            .Callback<StageType, IStageTransition, Dictionary<string, object>>((_, _, sd) => capturedSharedData = sd);
+            .Setup(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()))
+            .Callback<StageType, IStageTransition, StageTransitionPayload>((_, _, payload) => capturedPayload = payload);
         stage.StageManager = stageManager.Object;
         var summary = new PerformanceSummary
         {
@@ -6817,12 +6756,13 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.InvokePrivateMethod(stage, "TransitionToResultStage");
 
         stageManager.Verify(
-            x => x.ChangeStage(StageType.Result, It.IsAny<InstantTransition>(), It.IsAny<Dictionary<string, object>>()),
+            x => x.ChangeStage(StageType.Result, It.IsAny<InstantTransition>(), It.IsAny<StageTransitionPayload>()),
             Times.Once);
-        Assert.NotNull(capturedSharedData);
-        Assert.Same(summary, capturedSharedData["performanceSummary"]);
-        Assert.Same(selectedSong, capturedSharedData["selectedSong"]);
-        Assert.Equal(2, capturedSharedData["selectedDifficulty"]);
+        Assert.NotNull(capturedPayload);
+        var result = Assert.IsType<PerformanceResult>(capturedPayload);
+        Assert.Same(summary, result.Summary);
+        Assert.Same(selectedSong, result.Song);
+        Assert.Equal(2, result.Difficulty);
     }
 
     [Fact]
@@ -6991,20 +6931,12 @@ public class PerformanceStageDeterministicTests
     {
         var stage = CreateStage();
         var parsedChart = new ParsedChart("shared-test.dtx") { Bpm = 140.0 };
-        var sharedData = new Dictionary<string, object>
-        {
-            ["selectedSong"] = new SongListNode { Title = "Song" },
-            ["selectedDifficulty"] = 2,
-            ["songId"] = 42,
-            ["parsedChart"] = parsedChart
-        };
-        ReflectionHelpers.SetPrivateField(stage, "_sharedData", sharedData);
+        ReflectionHelpers.SetPrivateField(stage, "_transitionPayload", new SongPlayRequest(new SongListNode { Title = "Song" }, 2, parsedChart));
 
         ReflectionHelpers.InvokePrivateMethod(stage, "ExtractSharedData");
 
         Assert.Same(parsedChart, ReflectionHelpers.GetPrivateField<ParsedChart>(stage, "_parsedChart"));
         Assert.Equal(2, ReflectionHelpers.GetPrivateField<int>(stage, "_selectedDifficulty"));
-        Assert.Equal(42, ReflectionHelpers.GetPrivateField<int>(stage, "_songId"));
     }
 
     [Fact]

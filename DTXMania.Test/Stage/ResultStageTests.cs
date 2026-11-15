@@ -37,7 +37,6 @@ namespace DTXMania.Test.Stage
     [Trait("Category", "Unit")]
     public class ResultStageTests
     {
-        private const string PerformanceSummaryKey = "performanceSummary";
         #region Constructor Tests
 
         [Fact]
@@ -124,13 +123,13 @@ namespace DTXMania.Test.Stage
         #region ExtractSharedData Tests
 
         [Fact]
-        public void ExtractSharedData_WithNullSharedData_ShouldCreateDefaultSummary()
+        public void ExtractSharedData_WithNullPayload_ShouldCreateDefaultSummary()
         {
 #pragma warning disable SYSLIB0050
             var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
 #pragma warning restore SYSLIB0050
 
-            SetPrivateField(stage, "_sharedData", null);
+            SetPrivateField(stage, "_transitionPayload", null);
 
             InvokePrivateMethod(stage, "ExtractSharedData");
 
@@ -143,17 +142,13 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void ExtractSharedData_WithMissingPerformanceSummaryKey_ShouldCreateDefaultSummary()
+        public void ExtractSharedData_WithNonResultPayload_ShouldCreateDefaultSummary()
         {
 #pragma warning disable SYSLIB0050
             var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
 #pragma warning restore SYSLIB0050
 
-            var sharedData = new Dictionary<string, object>
-            {
-                { "otherKey", "otherValue" }
-            };
-            SetPrivateField(stage, "_sharedData", sharedData);
+            SetPrivateField(stage, "_transitionPayload", new SongPlayRequest(new SongListNode { Title = "Song" }, 0));
 
             InvokePrivateMethod(stage, "ExtractSharedData");
 
@@ -164,7 +159,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void ExtractSharedData_WithValidPerformanceSummary_ShouldUseProvidedSummary()
+        public void ExtractSharedData_WithPerformanceResult_ShouldUseProvidedSummary()
         {
 #pragma warning disable SYSLIB0050
             var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
@@ -178,11 +173,7 @@ namespace DTXMania.Test.Stage
                 CompletionReason = CompletionReason.SongComplete
             };
 
-            var sharedData = new Dictionary<string, object>
-            {
-                { PerformanceSummaryKey, expectedSummary }
-            };
-            SetPrivateField(stage, "_sharedData", sharedData);
+            SetPrivateField(stage, "_transitionPayload", new PerformanceResult(expectedSummary, null, 0));
 
             InvokePrivateMethod(stage, "ExtractSharedData");
 
@@ -195,35 +186,13 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void ExtractSharedData_WithWrongTypeForSummaryKey_ShouldCreateDefaultSummary()
-        {
-#pragma warning disable SYSLIB0050
-            var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
-#pragma warning restore SYSLIB0050
-
-            // Put wrong type under the performanceSummary key
-            var sharedData = new Dictionary<string, object>
-            {
-                { PerformanceSummaryKey, "not a PerformanceSummary" }
-            };
-            SetPrivateField(stage, "_sharedData", sharedData);
-
-            InvokePrivateMethod(stage, "ExtractSharedData");
-
-            var summary = GetPrivateField<PerformanceSummary>(stage, "_performanceSummary");
-            Assert.NotNull(summary);
-            Assert.Equal(0, summary!.Score);
-            Assert.Equal(CompletionReason.Unknown, summary.CompletionReason);
-        }
-
-        [Fact]
         public void ExtractSharedData_DefaultSummary_ShouldHaveZeroJudgementCounts()
         {
 #pragma warning disable SYSLIB0050
             var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
 #pragma warning restore SYSLIB0050
 
-            SetPrivateField(stage, "_sharedData", null);
+            SetPrivateField(stage, "_transitionPayload", null);
             InvokePrivateMethod(stage, "ExtractSharedData");
 
             var summary = GetPrivateField<PerformanceSummary>(stage, "_performanceSummary");
@@ -254,11 +223,7 @@ namespace DTXMania.Test.Stage
                 ClearFlag = false
             };
 
-            var sharedData = new Dictionary<string, object>
-            {
-                { PerformanceSummaryKey, expectedSummary }
-            };
-            SetPrivateField(stage, "_sharedData", sharedData);
+            SetPrivateField(stage, "_transitionPayload", new PerformanceResult(expectedSummary, null, 0));
 
             InvokePrivateMethod(stage, "ExtractSharedData");
 
@@ -272,7 +237,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void ExtractSharedData_WhenSongKeysAreMissing_ShouldClearPreviousSelection()
+        public void ExtractSharedData_WhenResultHasNoSong_ShouldClearPreviousSelection()
         {
 #pragma warning disable SYSLIB0050
             var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
@@ -281,10 +246,7 @@ namespace DTXMania.Test.Stage
 
             SetPrivateField(stage, "_selectedSong", previousSong);
             SetPrivateField(stage, "_selectedDifficulty", 3);
-            SetPrivateField(stage, "_sharedData", new Dictionary<string, object>
-            {
-                { PerformanceSummaryKey, new PerformanceSummary { Score = 1000 } }
-            });
+            SetPrivateField(stage, "_transitionPayload", new PerformanceResult(new PerformanceSummary { Score = 1000 }, null, 0));
 
             InvokePrivateMethod(stage, "ExtractSharedData");
 
@@ -457,7 +419,7 @@ namespace DTXMania.Test.Stage
             InvokePrivateMethod(stage, "ExecuteInputCommand", new DTXMania.Game.Lib.Input.InputCommand(DTXMania.Game.Lib.Input.InputCommandType.Back, 0.0));
 
             stageManager.Verify(
-                manager => manager.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
+                manager => manager.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>()),
                 Times.Never);
             Assert.Equal(0.0, DTXMania.Test.TestData.ReflectionHelpers.GetPrivateField<double>(game, "_lastStageTransitionTime"));
         }
@@ -478,7 +440,7 @@ namespace DTXMania.Test.Stage
             InvokePrivateMethod(stage, "ExecuteInputCommand", new DTXMania.Game.Lib.Input.InputCommand(DTXMania.Game.Lib.Input.InputCommandType.MoveDown, 0.0));
 
             stageManager.Verify(
-                manager => manager.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
+                manager => manager.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>()),
                 Times.Never);
             Assert.Equal(0.0, DTXMania.Test.TestData.ReflectionHelpers.GetPrivateField<double>(game, "_lastStageTransitionTime"));
         }
@@ -501,8 +463,7 @@ namespace DTXMania.Test.Stage
             stageManager.Verify(
                 manager => manager.ChangeStage(
                     StageType.SongSelect,
-                    It.Is<IStageTransition>(transition => transition is DTXManiaFadeTransition),
-                    null),
+                    It.Is<IStageTransition>(transition => transition is DTXManiaFadeTransition)),
                 Times.Once);
             Assert.Equal(2.0, DTXMania.Test.TestData.ReflectionHelpers.GetPrivateField<double>(game, "_lastStageTransitionTime"));
         }
@@ -554,7 +515,7 @@ namespace DTXMania.Test.Stage
 
             Assert.True(reveal.IsComplete);
             stageManager.Verify(
-                manager => manager.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
+                manager => manager.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>()),
                 Times.Never);
             Assert.Equal(0.0, DTXMania.Test.TestData.ReflectionHelpers.GetPrivateField<double>(game, "_lastStageTransitionTime"));
         }
@@ -612,8 +573,7 @@ namespace DTXMania.Test.Stage
             stageManager.Verify(
                 manager => manager.ChangeStage(
                     StageType.SongSelect,
-                    It.Is<IStageTransition>(transition => transition is DTXManiaFadeTransition),
-                    null),
+                    It.Is<IStageTransition>(transition => transition is DTXManiaFadeTransition)),
                 Times.Once);
             Assert.Equal(2.0, DTXMania.Test.TestData.ReflectionHelpers.GetPrivateField<double>(game, "_lastStageTransitionTime"));
         }
@@ -700,7 +660,7 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void ReturnToSongSelect_ShouldUseFadeTransitionWithNullSharedData()
+        public void ReturnToSongSelect_ShouldUseFadeTransition()
         {
 #pragma warning disable SYSLIB0050
             var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
@@ -713,8 +673,7 @@ namespace DTXMania.Test.Stage
             stageManager.Verify(
                 manager => manager.ChangeStage(
                     StageType.SongSelect,
-                    It.Is<IStageTransition>(transition => transition is DTXManiaFadeTransition),
-                    null),
+                    It.Is<IStageTransition>(transition => transition is DTXManiaFadeTransition)),
                 Times.Once);
         }
 
@@ -727,10 +686,7 @@ namespace DTXMania.Test.Stage
             var inputManager = new TrackingInputManager();
             inputManager.Enqueue(new InputCommand(InputCommandType.Back, 0.0));
             SetPrivateField(stage, "_inputManager", inputManager);
-            SetPrivateField(stage, "_sharedData", new Dictionary<string, object>
-            {
-                ["performanceSummary"] = new PerformanceSummary { Score = 123456 }
-            });
+            SetPrivateField(stage, "_transitionPayload", new PerformanceResult(new PerformanceSummary { Score = 123456 }, null, 0));
 
             var exception = Record.Exception(() => InvokePrivateMethod(stage, "OnActivate"));
 
@@ -756,12 +712,7 @@ namespace DTXMania.Test.Stage
                     DatabaseSong = new SongEntity { Charts = new List<SongChart>() }
                 };
                 SetPrivateField(stage, "_inputManager", null);
-                SetPrivateField(stage, "_sharedData", new Dictionary<string, object>
-                {
-                    ["performanceSummary"] = summary,
-                    ["selectedSong"] = song,
-                    ["selectedDifficulty"] = 0
-                });
+                SetPrivateField(stage, "_transitionPayload", new PerformanceResult(summary, song, 0));
 
                 var exception = Record.Exception(() => InvokePrivateMethod(stage, "OnActivate"));
 
@@ -1117,10 +1068,7 @@ namespace DTXMania.Test.Stage
         public void OnActivate_AfterPriorAcceptance_ShouldResetOneShotForNewActivation()
         {
             var stage = CreateScreenshotSchedulingStage(out _);
-            SetPrivateField(stage, "_sharedData", new Dictionary<string, object>
-            {
-                [PerformanceSummaryKey] = new PerformanceSummary { Score = 123456 }
-            });
+            SetPrivateField(stage, "_transitionPayload", new PerformanceResult(new PerformanceSummary { Score = 123456 }, null, 0));
             stage.TryScheduleResultScreenshot();
             Assert.Equal(1, stage.AcceptedPersistenceCalls);
 
@@ -1185,8 +1133,7 @@ namespace DTXMania.Test.Stage
             GetStageManagerMock(stage).Verify(
                 manager => manager.ChangeStage(
                     StageType.SongSelect,
-                    It.Is<IStageTransition>(transition => transition is DTXManiaFadeTransition),
-                    null),
+                    It.Is<IStageTransition>(transition => transition is DTXManiaFadeTransition)),
                 Times.Once);
             Assert.Equal(expectedTransitionTime, DTXMania.Test.TestData.ReflectionHelpers.GetPrivateField<double>(GetPrivateField<BaseGame>(stage, "_game")!, "_lastStageTransitionTime"));
         }
@@ -1477,8 +1424,7 @@ namespace DTXMania.Test.Stage
             stageManager.Verify(
                 m => m.ChangeStage(
                     StageType.SongSelect,
-                    It.IsAny<IStageTransition>(),
-                    It.IsAny<Dictionary<string, object>>()),
+                    It.IsAny<IStageTransition>()),
                 Times.Once);
         }
 
@@ -1502,8 +1448,7 @@ namespace DTXMania.Test.Stage
             stageManager.Verify(
                 m => m.ChangeStage(
                     StageType.SongSelect,
-                    It.Is<IStageTransition>(t => t is DTXManiaFadeTransition),
-                    null),
+                    It.Is<IStageTransition>(t => t is DTXManiaFadeTransition)),
                 Times.Once);
         }
 
@@ -1527,8 +1472,7 @@ namespace DTXMania.Test.Stage
             stageManager.Verify(
                 m => m.ChangeStage(
                     It.IsAny<StageType>(),
-                    It.IsAny<IStageTransition>(),
-                    It.IsAny<Dictionary<string, object>>()),
+                    It.IsAny<IStageTransition>()),
                 Times.Never);
         }
 
@@ -1574,33 +1518,12 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void ExtractSharedData_WithNoSharedData_ShouldCreateDefaultSummary()
-        {
-#pragma warning disable SYSLIB0050
-            var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
-#pragma warning restore SYSLIB0050
-            SetPrivateField(stage, "_sharedData", null);
-
-            InvokePrivateMethod(stage, "ExtractSharedData");
-
-            var summary = GetPrivateField<PerformanceSummary>(stage, "_performanceSummary");
-            Assert.NotNull(summary);
-            Assert.Equal(0, summary.Score);
-            Assert.Equal(0, summary.MaxCombo);
-            Assert.False(summary.ClearFlag);
-            Assert.Equal(CompletionReason.Unknown, summary.CompletionReason);
-        }
-
-        [Fact]
         public void ExtractSharedData_WithNoSong_ShouldLeaveSongNull()
         {
 #pragma warning disable SYSLIB0050
             var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
 #pragma warning restore SYSLIB0050
-            SetPrivateField(stage, "_sharedData", new Dictionary<string, object>
-            {
-                ["performanceSummary"] = new PerformanceSummary { Score = 100 }
-            });
+            SetPrivateField(stage, "_transitionPayload", new PerformanceResult(new PerformanceSummary { Score = 100 }, null, 0));
 
             InvokePrivateMethod(stage, "ExtractSharedData");
 
@@ -1617,10 +1540,7 @@ namespace DTXMania.Test.Stage
             var stage = (InspectableNullInputResultStage)FormatterServices.GetUninitializedObject(typeof(InspectableNullInputResultStage));
 #pragma warning restore SYSLIB0050
             SetPrivateField(stage, "_inputManager", null);
-            SetPrivateField(stage, "_sharedData", new Dictionary<string, object>
-            {
-                ["performanceSummary"] = new PerformanceSummary { Score = 123456 }
-            });
+            SetPrivateField(stage, "_transitionPayload", new PerformanceResult(new PerformanceSummary { Score = 123456 }, null, 0));
 
             var exception = Record.Exception(() => InvokePrivateMethod(stage, "OnActivate"));
 
@@ -1646,10 +1566,7 @@ namespace DTXMania.Test.Stage
             };
 
             SetPrivateField(stage, "_inputManager", null);
-            SetPrivateField(stage, "_sharedData", new Dictionary<string, object>
-            {
-                ["performanceSummary"] = summary
-            });
+            SetPrivateField(stage, "_transitionPayload", new PerformanceResult(summary, null, 0));
 
             var exception = Record.Exception(() => InvokePrivateMethod(stage, "OnActivate"));
 
@@ -1671,18 +1588,15 @@ namespace DTXMania.Test.Stage
 
             SetPrivateField(stage, "_resourceManager", resources.Object);
             SetPrivateField(stage, "_inputManager", null);
-            SetPrivateField(stage, "_sharedData", new Dictionary<string, object>
+            SetPrivateField(stage, "_transitionPayload", new PerformanceResult(new PerformanceSummary
             {
-                ["performanceSummary"] = new PerformanceSummary
-                {
-                    Score = 123456,
-                    ClearFlag = false,
-                    PerfectCount = 5,
-                    TotalNotes = 10,
-                    PlayingSkill = 40.0,
-                    GameSkill = 40.0
-                }
-            });
+                Score = 123456,
+                ClearFlag = false,
+                PerfectCount = 5,
+                TotalNotes = 10,
+                PlayingSkill = 40.0,
+                GameSkill = 40.0
+            }, null, 0));
 
             InvokePrivateMethod(stage, "OnActivate");
 
@@ -1795,12 +1709,7 @@ namespace DTXMania.Test.Stage
                     }
                 };
                 SetPrivateField(stage, "_inputManager", null);
-                SetPrivateField(stage, "_sharedData", new Dictionary<string, object>
-                {
-                    ["performanceSummary"] = summary,
-                    ["selectedSong"] = song,
-                    ["selectedDifficulty"] = 0
-                });
+                SetPrivateField(stage, "_transitionPayload", new PerformanceResult(summary, song, 0));
 
                 var exception = Record.Exception(() => InvokePrivateMethod(stage, "OnActivate"));
 

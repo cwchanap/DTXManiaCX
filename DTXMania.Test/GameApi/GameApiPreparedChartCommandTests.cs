@@ -66,7 +66,7 @@ public sealed class GameApiPreparedChartCommandTests
             manager => manager.ChangeStage(
                 It.IsAny<StageType>(),
                 It.IsAny<IStageTransition>(),
-                It.IsAny<Dictionary<string, object>>()),
+                It.IsAny<StageTransitionPayload>()),
             Times.Never);
 
         queuedActions[0]();
@@ -79,7 +79,7 @@ public sealed class GameApiPreparedChartCommandTests
             manager => manager.ChangeStage(
                 It.IsAny<StageType>(),
                 It.IsAny<IStageTransition>(),
-                It.IsAny<Dictionary<string, object>>()),
+                It.IsAny<StageTransitionPayload>()),
             Times.Never);
     }
 
@@ -165,7 +165,7 @@ public sealed class GameApiPreparedChartCommandTests
             manager => manager.ChangeStage(
                 It.IsAny<StageType>(),
                 It.IsAny<IStageTransition>(),
-                It.IsAny<Dictionary<string, object>>()),
+                It.IsAny<StageTransitionPayload>()),
             Times.Never);
     }
 
@@ -197,7 +197,7 @@ public sealed class GameApiPreparedChartCommandTests
             manager => manager.ChangeStage(
                 It.IsAny<StageType>(),
                 It.IsAny<IStageTransition>(),
-                It.IsAny<Dictionary<string, object>>()),
+                It.IsAny<StageTransitionPayload>()),
             Times.Never);
     }
 
@@ -249,7 +249,7 @@ public sealed class GameApiPreparedChartCommandTests
             manager => manager.ChangeStage(
                 It.IsAny<StageType>(),
                 It.IsAny<IStageTransition>(),
-                It.IsAny<Dictionary<string, object>>()),
+                It.IsAny<StageTransitionPayload>()),
             Times.Never);
     }
 
@@ -397,8 +397,8 @@ public sealed class GameApiPreparedChartCommandTests
                 manager => manager.ChangeStage(
                     It.IsAny<StageType>(),
                     It.IsAny<IStageTransition>(),
-                    It.IsAny<Dictionary<string, object>>()))
-            .Callback<StageType, IStageTransition, Dictionary<string, object>>((_, _, _) =>
+                    It.IsAny<StageTransitionPayload>()))
+            .Callback<StageType, IStageTransition, StageTransitionPayload>((_, _, _) =>
             {
                 enteredChangeStage.Set();
                 releaseChangeStage.Wait(TimeSpan.FromSeconds(5));
@@ -438,7 +438,7 @@ public sealed class GameApiPreparedChartCommandTests
             manager => manager.ChangeStage(
                 It.Is<StageType>(t => t == StageType.SongTransition),
                 It.IsAny<IStageTransition>(),
-                It.IsAny<Dictionary<string, object>>()),
+                It.IsAny<StageTransitionPayload>()),
             Times.Once);
     }
 

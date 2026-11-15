@@ -1216,7 +1216,7 @@ namespace DTXMania.Test.Stage
             ReflectionHelpers.SetPrivateField(stage, "_currentPhase", StagePhase.Normal);
             ReflectionHelpers.SetPrivateField(stage, "_disposed", false);
             ReflectionHelpers.SetPrivateField(stage, "_isFirstUpdate", false);
-            ReflectionHelpers.SetPrivateField(stage, "_sharedData", new Dictionary<string, object>());
+            
             ReflectionHelpers.SetPrivateField(stage, "_progressMessages", new List<string>());
             ReflectionHelpers.SetPrivateField(stage, "_currentProgressMessage", currentProgressMessage);
             ReflectionHelpers.SetPrivateField(stage, "_startupPhase", phase);
