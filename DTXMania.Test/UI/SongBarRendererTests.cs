@@ -4,7 +4,9 @@ using Microsoft.Xna.Framework.Graphics;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.UI;
 using DTXMania.Test.Helpers;
+using DTXMania.Test.TestData;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -117,6 +119,26 @@ namespace DTXMania.Test.UI
 
             // Act & Assert
             Assert.Throws<ArgumentNullException>(() => new SongBarRenderer(graphicsDevice, _resourceManager!, null));
+        }
+
+        [GraphicsFact]
+        public void Constructor_ShouldLendCachedWhitePixelToGraphicsGenerator()
+        {
+            // HPA-796 positive propagation (GPU-only: the generator chain needs a live device):
+            // the renderer owns the cached pixel (RemoveReference on Dispose) and lends the
+            // SAME raw Texture2D to its DefaultGraphicsGenerator, which never allocates its own.
+            var graphicsDevice = _graphicsService.RequiredDevice;
+            using var sharedRT = new RenderTarget2D(graphicsDevice, 512, 512);
+            using var renderer = new SongBarRenderer(graphicsDevice, _resourceManager!, sharedRT);
+
+            var whitePixelResource = ReflectionHelpers.GetPrivateField<ITexture>(renderer, "_whitePixelResource");
+            Assert.NotNull(whitePixelResource);
+            var rawPixel = ReflectionHelpers.GetPrivateField<Texture2D>(renderer, "_whitePixel");
+            Assert.Same(whitePixelResource.Texture, rawPixel);
+
+            var generator = ReflectionHelpers.GetPrivateField<DefaultGraphicsGenerator>(renderer, "_graphicsGenerator");
+            Assert.NotNull(generator);
+            Assert.Same(rawPixel, ReflectionHelpers.GetPrivateField<Texture2D>(generator, "_whitePixel"));
         }
 
         [GraphicsFact]

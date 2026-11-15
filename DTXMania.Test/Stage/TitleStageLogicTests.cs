@@ -957,6 +957,68 @@ namespace DTXMania.Test.Stage
             Assert.Null(ReflectionHelpers.GetPrivateField<ISound>(stage, "_gameStartSound"));
         }
 
+        [Fact]
+        public void OnDeactivate_ShouldReleaseCachedWhitePixel_AndBalancedReactivateAcquiresFreshReference()
+        {
+            // HPA-796 round trip: Title → Config → Title previously overwrote the outstanding
+            // cached-pixel reference (release happened only in Dispose). Each deactivation
+            // must release its activation's reference so re-activation starts balanced.
+            var rawPixel = CreateUninitializedTexture2DStub();
+            var firstPixelResource = new Mock<ITexture>();
+            firstPixelResource.SetupGet(t => t.Texture).Returns(rawPixel);
+            var secondPixelResource = new Mock<ITexture>();
+            secondPixelResource.SetupGet(t => t.Texture).Returns(rawPixel);
+            var pendingPixels = new Queue<ITexture>(new[] { firstPixelResource.Object, secondPixelResource.Object });
+            var game = new NullGraphicsStageGame
+            {
+                WhitePixelResourceManager = CreateQueuedWhitePixelResourceManager(pendingPixels).Object
+            };
+            var stage = new ControlledTitleStage(game);
+
+            stage.InvokeOnActivate();
+            Assert.Same(firstPixelResource.Object, ReflectionHelpers.GetPrivateField<ITexture>(stage, "_whitePixelResource"));
+            Assert.Same(rawPixel, ReflectionHelpers.GetPrivateField<Texture2D>(stage, "_whitePixel"));
+            firstPixelResource.Verify(t => t.RemoveReference(), Times.Never);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnDeactivate");
+            firstPixelResource.Verify(t => t.RemoveReference(), Times.Once);
+            Assert.Null(ReflectionHelpers.GetPrivateField<ITexture>(stage, "_whitePixelResource"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<Texture2D>(stage, "_whitePixel"));
+
+            stage.InvokeOnActivate();
+            Assert.Same(secondPixelResource.Object, ReflectionHelpers.GetPrivateField<ITexture>(stage, "_whitePixelResource"));
+            Assert.Same(rawPixel, ReflectionHelpers.GetPrivateField<Texture2D>(stage, "_whitePixel"));
+            secondPixelResource.Verify(t => t.RemoveReference(), Times.Never);
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "OnDeactivate");
+            secondPixelResource.Verify(t => t.RemoveReference(), Times.Once);
+            Assert.Null(ReflectionHelpers.GetPrivateField<ITexture>(stage, "_whitePixelResource"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<Texture2D>(stage, "_whitePixel"));
+        }
+
+        /// <summary>
+        /// Round-trip fixture: the manager hands out one distinct cached-pixel reference per
+        /// acquisition, mirroring the real per-activation <c>CreateTextureFromColor</c> contract.
+        /// </summary>
+        private static Mock<IResourceManager> CreateQueuedWhitePixelResourceManager(Queue<ITexture> pixels)
+        {
+            var resourceManager = new Mock<IResourceManager>();
+            resourceManager.Setup(manager => manager.CreateTextureFromColor(Color.White))
+                .Returns(() => pixels.Dequeue());
+            return resourceManager;
+        }
+
+        // Uninitialized MonoGame GPU stubs must never reach their finalizers: the finalizer
+        // calls GraphicsDevice.RemoveResourceReference(null) and aborts the test host.
+        private static Texture2D CreateUninitializedTexture2DStub()
+        {
+#pragma warning disable SYSLIB0050
+            var stub = (Texture2D)FormatterServices.GetUninitializedObject(typeof(Texture2D));
+#pragma warning restore SYSLIB0050
+            GC.SuppressFinalize(stub);
+            return stub;
+        }
+
         private static TitleStage CreateStage(BaseGame? game = null)
         {
             return new TitleStage(game ?? ReflectionHelpers.CreateGame());

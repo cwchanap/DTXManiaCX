@@ -535,6 +535,23 @@ public class DefaultGraphicsGeneratorLogicTests
         Assert.Equal(0, generator.SetRenderTargetCount);
     }
 
+    [Fact]
+    public void Dispose_ShouldDisposeGeneratedTexturesButNeverTheBorrowedWhitePixel()
+    {
+        // HPA-796 borrow contract: consumers dispose the generator BEFORE the owning stage
+        // releases its pixel; the generator must not dispose the borrowed pixel itself.
+        var generator = CreateGenerator();
+        var whitePixel = CreateTrackingWhitePixel();
+        ReflectionHelpers.SetPrivateField(generator, "_whitePixel", whitePixel);
+        var generated = CreateTextureMock("Generated_Tracked");
+        GetTextureCache(generator)["tracked"] = generated.Object;
+
+        generator.Dispose();
+
+        generated.Verify(t => t.Dispose(), Times.Once);
+        Assert.Equal(0, whitePixel.DisposeCalls);
+    }
+
     private static DefaultGraphicsGenerator CreateGenerator(GraphicsDevice? graphicsDevice = null)
     {
         var generator = (DefaultGraphicsGenerator)RuntimeHelpers.GetUninitializedObject(typeof(DefaultGraphicsGenerator));
@@ -572,6 +589,32 @@ public class DefaultGraphicsGeneratorLogicTests
         var texture = new Mock<ITexture>();
         texture.SetupGet(x => x.SourcePath).Returns(sourcePath);
         return texture;
+    }
+
+    // Uninitialized MonoGame GPU stubs must never reach their finalizers: the finalizer
+    // calls GraphicsDevice.RemoveResourceReference(null) and aborts the test host.
+    private static TrackingWhitePixel CreateTrackingWhitePixel()
+    {
+#pragma warning disable SYSLIB0050
+        var pixel = (TrackingWhitePixel)RuntimeHelpers.GetUninitializedObject(typeof(TrackingWhitePixel));
+#pragma warning restore SYSLIB0050
+        GC.SuppressFinalize(pixel);
+        return pixel;
+    }
+
+    /// <summary>Texture2D double whose Dispose calls are observable without a GPU.</summary>
+    private sealed class TrackingWhitePixel : Texture2D
+    {
+        public TrackingWhitePixel() : base(null!, 1, 1)
+        {
+        }
+
+        public int DisposeCalls { get; private set; }
+
+        protected override void Dispose(bool disposing)
+        {
+            DisposeCalls++;
+        }
     }
 
     private static void SetAutoProperty(object target, string propertyName, object value)
