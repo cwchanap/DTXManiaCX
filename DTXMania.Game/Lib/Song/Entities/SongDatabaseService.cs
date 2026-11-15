@@ -364,13 +364,6 @@ namespace DTXMania.Game.Lib.Song.Entities
                     .ToListAsync(cancellationToken)
                     .ConfigureAwait(false);
 
-                foreach (var identity in chartIdentities.Where(identity =>
-                    !SongPathIdentity.TryNormalize(
-                        identity.FilePath,
-                        out _)))
-                {
-                }
-
                 // Pre-normalize active roots once to avoid redundant Normalize
                 // calls per chart per root in the containment check below.
                 var normalizedActiveRoots = request.ActiveRoots
