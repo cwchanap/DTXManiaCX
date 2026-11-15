@@ -569,7 +569,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 _barRenderer.SetFont(_font);
             }            // Initialize graphics generator for default styling
             _graphicsGenerator?.Dispose();
-            _graphicsGenerator = new DefaultGraphicsGenerator(graphicsDevice, sharedRenderTarget);
+            _graphicsGenerator = new DefaultGraphicsGenerator(graphicsDevice, sharedRenderTarget, WhitePixel);
 
             // Pre-generate common bar textures so draw-time never switches render targets
             _graphicsGenerator.PreGenerateCommonTextures(
@@ -580,7 +580,7 @@ namespace DTXMania.Game.Lib.Song.Components
             // Initialize graphics generators for cached song bars
             foreach (var songBar in _songBarCache.Values)
             {
-                songBar.InitializeGraphicsGenerator(graphicsDevice, sharedRenderTarget);
+                songBar.InitializeGraphicsGenerator(graphicsDevice, sharedRenderTarget, WhitePixel);
             }
         }
 

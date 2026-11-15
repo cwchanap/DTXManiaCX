@@ -62,6 +62,10 @@ namespace DTXMania.Game.Lib.Stage
         
         // Background and styling
         private Texture2D _whitePixel;
+
+        // HPA-796: the stage's cached white pixel (ITexture) acquired once per activation;
+        // _whitePixel above is its borrowed raw texture.
+        private ITexture _whitePixelResource;
         private ITexture _backgroundTexture;
         
         // Sound
@@ -114,9 +118,10 @@ namespace DTXMania.Game.Lib.Stage
                 _inputManager = CreateConfiguredInputManager();
             }
             
-            // Create white pixel for drawing
-            _whitePixel = new Texture2D(_game.GraphicsDevice, 1, 1);
-            _whitePixel.SetData(new[] { Color.White });
+            // HPA-796: acquire the cached white pixel once per activation from the
+            // ResourceManager cache; no private 1×1 texture.
+            _whitePixelResource = _resourceManager.CreateTextureFromColor(Color.White);
+            _whitePixel = _whitePixelResource?.Texture;
             
             // Load background
             LoadBackground();
@@ -153,12 +158,11 @@ namespace DTXMania.Game.Lib.Stage
                 _inputManager = null;
             }
             
-            // Clean up graphics resources
-            if (_whitePixel != null)
-            {
-                _whitePixel?.Dispose();
-                _whitePixel = null;
-            }
+            // Clean up graphics resources — the raw pixel is borrowed; release the
+            // cached reference instead of disposing the texture (HPA-796).
+            _whitePixelResource?.RemoveReference();
+            _whitePixelResource = null;
+            _whitePixel = null;
             if (_spriteBatch != null)
             {
                 _spriteBatch?.Dispose();

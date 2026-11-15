@@ -132,13 +132,14 @@ namespace DTXMania.Game.Lib.Song.Components
         }        /// <summary>
         /// Initialize graphics generator for fallback rendering
         /// </summary>
-        public void InitializeGraphicsGenerator(GraphicsDevice graphicsDevice, RenderTarget2D renderTarget)
+        /// <param name="whitePixel">Borrowed stage-owned white pixel; the generator never owns it.</param>
+        public void InitializeGraphicsGenerator(GraphicsDevice graphicsDevice, RenderTarget2D renderTarget, Texture2D whitePixel)
         {
             _graphicsGenerator?.Dispose();
             
             if (renderTarget != null)
             {
-                _graphicsGenerator = new DefaultGraphicsGenerator(graphicsDevice, renderTarget);
+                _graphicsGenerator = new DefaultGraphicsGenerator(graphicsDevice, renderTarget, whitePixel);
             }
             else
             {

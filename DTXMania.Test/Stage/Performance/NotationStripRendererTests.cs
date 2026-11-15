@@ -4,6 +4,9 @@ using DTXMania.Game.Lib.Resources;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song.Notation;
 using DTXMania.Game.Lib.Stage.Performance;
+using DTXMania.Test.TestData;
+using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
 using Moq;
 using Xunit;
 
@@ -120,6 +123,32 @@ public class NotationStripRendererTests
         bravura.Verify(f => f.RemoveReference(), Times.Once);
         labels.Verify(f => f.RemoveReference(), Times.Once);
         Assert.False(renderer.IsReady);
+    }
+
+    [Fact]
+    public void Dispose_ShouldReleaseCachedWhitePixelReference_AndNeverDisposeTheBorrowedRawPixel()
+    {
+        // HPA-796: EnsureWhiteTexture acquires through the ResourceManager cache; teardown
+        // releases that reference and leaves the borrowed raw texture alone.
+        var bravura = CreateFontMock();
+        var labels = CreateFontMock();
+        var resources = CreateResourceManager(bravura, labels);
+        var whitePixelResource = new Mock<ITexture>();
+        resources.Setup(manager => manager.CreateTextureFromColor(Color.White))
+            .Returns(whitePixelResource.Object);
+        using var renderer = new NotationStripRenderer(resources.Object, EmptyChart(), TerminalOnlyMeasureLines());
+
+        Assert.True(ReflectionHelpers.InvokePrivateMethod<bool>(renderer, "EnsureWhiteTexture"));
+
+        whitePixelResource.VerifyGet(manager => manager.Texture, Times.Once);
+        Assert.Same(whitePixelResource.Object, ReflectionHelpers.GetPrivateField<ITexture>(renderer, "_whiteTextureResource"));
+
+        renderer.Dispose();
+
+        whitePixelResource.Verify(resource => resource.RemoveReference(), Times.Once);
+        whitePixelResource.Verify(resource => resource.Dispose(), Times.Never);
+        Assert.Null(ReflectionHelpers.GetPrivateField<ITexture>(renderer, "_whiteTextureResource"));
+        Assert.Null(ReflectionHelpers.GetPrivateField<Texture2D>(renderer, "_whiteTexture"));
     }
 
     [Fact]

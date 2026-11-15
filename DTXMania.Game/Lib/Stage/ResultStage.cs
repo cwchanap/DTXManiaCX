@@ -55,6 +55,9 @@ namespace DTXMania.Game.Lib.Stage
         private ISound _resultSound;
         private ISound _newRecordSound;
         private Texture2D _whitePixel;
+
+        // HPA-796: the stage's cached white pixel (ITexture); _whitePixel is its borrowed raw texture.
+        private ITexture _whitePixelResource;
         private bool _newRecordSoundPlayed;
         private bool _resultScreenshotRequested;
 
@@ -319,8 +322,10 @@ namespace DTXMania.Game.Lib.Stage
 
         private void InitializeComponents()
         {
-            // Create white pixel texture for backgrounds
-            _whitePixel = CreateWhitePixel();
+            // HPA-796: acquire the cached white pixel once per activation; the result
+            // renderer borrows the raw texture and never disposes it.
+            _whitePixelResource = _resourceManager.CreateTextureFromColor(Color.White);
+            _whitePixel = _whitePixelResource?.Texture;
 
             // Initialize fonts and renderer (core visual components)
             try
@@ -362,14 +367,6 @@ namespace DTXMania.Game.Lib.Stage
                 _resultSound = null;
                 _newRecordSound = null;
             }
-        }
-
-        [ExcludeFromCodeCoverage]
-        internal virtual Texture2D CreateWhitePixel()
-        {
-            var whitePixel = new Texture2D(_spriteBatch.GraphicsDevice, 1, 1);
-            whitePixel.SetData(new[] { Color.White });
-            return whitePixel;
         }
 
         [ExcludeFromCodeCoverage]
@@ -432,8 +429,12 @@ namespace DTXMania.Game.Lib.Stage
 
         private void CleanupComponents()
         {
-            // Cleanup resources
-            _whitePixel?.Dispose();
+            // Cleanup resources — child renderers are disposed first; the cached white
+            // pixel is released only afterwards (HPA-796 ownership order).
+            _resultRenderer?.Dispose();
+            _resultRenderer = null;
+            _whitePixelResource?.RemoveReference();
+            _whitePixelResource = null;
             _whitePixel = null;
             _resultFont?.RemoveReference();
             _resultFont = null;
@@ -445,8 +446,6 @@ namespace DTXMania.Game.Lib.Stage
             _countResultFont = null;
             _largeResultFont?.RemoveReference();
             _largeResultFont = null;
-            _resultRenderer?.Dispose();
-            _resultRenderer = null;
             _resultSound?.RemoveReference();
             _resultSound = null;
             _newRecordSound?.RemoveReference();

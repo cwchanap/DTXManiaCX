@@ -26,8 +26,6 @@ namespace DTXMania.Test.Stage.Performance
         {
             public List<SpriteSheetDrawCall> SpriteSheetDrawCalls { get; } = new();
             public List<FallbackDrawCall> FallbackDrawCalls { get; } = new();
-            public int CreateFallbackTextureCalls { get; private set; }
-            public Texture2D? NextFallbackTexture { get; set; }
 
             public TestablePadRenderer(GraphicsDevice graphicsDevice, IResourceManager resourceManager)
                 : base(graphicsDevice, resourceManager)
@@ -37,12 +35,6 @@ namespace DTXMania.Test.Stage.Performance
             protected override void DrawPadSpriteCore(ITexture texture, SpriteBatch spriteBatch, Rectangle destination, Rectangle source, Color tint)
             {
                 SpriteSheetDrawCalls.Add(new SpriteSheetDrawCall(destination, source, tint));
-            }
-
-            protected override Texture2D CreateFallbackTextureCore()
-            {
-                CreateFallbackTextureCalls++;
-                return NextFallbackTexture ?? (Texture2D)RuntimeHelpers.GetUninitializedObject(typeof(Texture2D));
             }
 
             protected override void DrawFallbackTextureCore(SpriteBatch spriteBatch, Texture2D texture, Rectangle destination, Color color)
@@ -320,10 +312,8 @@ namespace DTXMania.Test.Stage.Performance
         {
             var resourceManager = new Mock<IResourceManager>();
             resourceManager.Setup(x => x.LoadTexture(It.IsAny<string>())).Returns((ITexture)null!);
-            var renderer = new TestablePadRenderer(CreateGraphicsDeviceStub(), resourceManager.Object)
-            {
-                NextFallbackTexture = (Texture2D)RuntimeHelpers.GetUninitializedObject(typeof(Texture2D))
-            };
+            resourceManager.Setup(x => x.CreateTextureFromColor(Color.White)).Returns(CreateWhitePixelResource().Object);
+            var renderer = new TestablePadRenderer(CreateGraphicsDeviceStub(), resourceManager.Object);
             var spriteSheet = new Mock<ITexture>();
             var spriteBatch = (SpriteBatch)RuntimeHelpers.GetUninitializedObject(typeof(SpriteBatch));
 
@@ -335,7 +325,7 @@ namespace DTXMania.Test.Stage.Performance
 
             Assert.Empty(renderer.SpriteSheetDrawCalls);
             Assert.Equal(PerformanceUILayout.LaneCount, renderer.FallbackDrawCalls.Count);
-            Assert.Equal(1, renderer.CreateFallbackTextureCalls);
+            resourceManager.Verify(x => x.CreateTextureFromColor(Color.White), Times.Once);
         }
 
         [Fact]
@@ -343,10 +333,9 @@ namespace DTXMania.Test.Stage.Performance
         {
             var resourceManager = new Mock<IResourceManager>();
             resourceManager.Setup(x => x.LoadTexture(It.IsAny<string>())).Returns((ITexture)null!);
-            var renderer = new TestablePadRenderer(CreateGraphicsDeviceStub(), resourceManager.Object)
-            {
-                NextFallbackTexture = (Texture2D)RuntimeHelpers.GetUninitializedObject(typeof(Texture2D))
-            };
+            var whitePixelResource = CreateWhitePixelResource();
+            resourceManager.Setup(x => x.CreateTextureFromColor(Color.White)).Returns(whitePixelResource.Object);
+            var renderer = new TestablePadRenderer(CreateGraphicsDeviceStub(), resourceManager.Object);
             var spriteBatch = (SpriteBatch)RuntimeHelpers.GetUninitializedObject(typeof(SpriteBatch));
             GetPadVisuals(renderer)[2].State = PadState.Pressed;
 
@@ -354,9 +343,25 @@ namespace DTXMania.Test.Stage.Performance
 
             Assert.Empty(renderer.SpriteSheetDrawCalls);
             Assert.Equal(PerformanceUILayout.LaneCount, renderer.FallbackDrawCalls.Count);
-            Assert.Equal(1, renderer.CreateFallbackTextureCalls);
+            resourceManager.Verify(x => x.CreateTextureFromColor(Color.White), Times.Once);
             Assert.Equal(Color.Red, renderer.FallbackDrawCalls[2].Color);
             Assert.Equal(Color.Yellow, renderer.FallbackDrawCalls[0].Color);
+        }
+
+        /// <summary>
+        /// HPA-796: fixture-owned managed pixel replacing the deleted CreateFallbackTextureCore
+        /// seam — the renderer acquires it lazily through CreateTextureFromColor.
+        /// </summary>
+        private static Mock<ITexture> CreateWhitePixelResource()
+        {
+#pragma warning disable SYSLIB0050
+            var rawPixel = (Texture2D)RuntimeHelpers.GetUninitializedObject(typeof(Texture2D));
+#pragma warning restore SYSLIB0050
+            // Uninitialized MonoGame stubs must never be finalized (host crash).
+            GC.SuppressFinalize(rawPixel);
+            var resource = new Mock<ITexture>();
+            resource.SetupGet(t => t.Texture).Returns(rawPixel);
+            return resource;
         }
 
         private static PadRenderer CreateRenderer()

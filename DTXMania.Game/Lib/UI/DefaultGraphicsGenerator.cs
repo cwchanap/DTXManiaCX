@@ -26,16 +26,18 @@ namespace DTXMania.Game.Lib.UI
 
         #region Constructor
 
-        public DefaultGraphicsGenerator(GraphicsDevice graphicsDevice, RenderTarget2D renderTarget)
+        public DefaultGraphicsGenerator(GraphicsDevice graphicsDevice, RenderTarget2D renderTarget, Texture2D whitePixel)
         {
             _graphicsDevice = graphicsDevice ?? throw new ArgumentNullException(nameof(graphicsDevice));
             _generatedTextures = new Dictionary<string, ITexture>();
             _renderTarget = renderTarget ?? throw new ArgumentNullException(nameof(renderTarget));
-            _spriteBatch = new SpriteBatch(_graphicsDevice);
 
-            // Create white pixel texture for drawing primitives
-            _whitePixel = new Texture2D(_graphicsDevice, 1, 1);
-            _whitePixel.SetData(new[] { Color.White });
+            // HPA-796: white pixel is borrowed from the owning stage/renderer and lent to
+            // every generator instance; the generator never allocates or disposes its own.
+            // Validate everything BEFORE creating the SpriteBatch so a rejected constructor
+            // never leaves an unmanaged GPU object behind.
+            _whitePixel = whitePixel ?? throw new ArgumentNullException(nameof(whitePixel));
+            _spriteBatch = new SpriteBatch(_graphicsDevice);
         }
 
         #endregion
@@ -239,7 +241,7 @@ namespace DTXMania.Game.Lib.UI
 
         protected virtual void DrawSolidRectangle(Rectangle destination, Color color)
         {
-            _spriteBatch.Draw(_whitePixel, destination, color);
+            ChamferedBox.Fill(_spriteBatch, _whitePixel, destination, color, 0f);
         }
 
         /// <summary>
@@ -411,14 +413,11 @@ namespace DTXMania.Game.Lib.UI
 
         private void DrawRectangleBorder(Rectangle bounds, Color color, int thickness)
         {
-            // Top
-            DrawSolidRectangle(new Rectangle(bounds.X, bounds.Y, bounds.Width, thickness), color);
-            // Bottom
-            DrawSolidRectangle(new Rectangle(bounds.X, bounds.Bottom - thickness, bounds.Width, thickness), color);
-            // Left
-            DrawSolidRectangle(new Rectangle(bounds.X, bounds.Y, thickness, bounds.Height), color);
-            // Right
-            DrawSolidRectangle(new Rectangle(bounds.Right - thickness, bounds.Y, thickness, bounds.Height), color);
+            // HPA-796: exact edge rectangles come from the shared ChamferedBox.Border
+            // geometry (top, bottom, left, right, overlapping corners); the draws stay on
+            // the DrawSolidRectangle seam.
+            foreach (var edge in ChamferedBox.BorderRects(bounds, thickness))
+                DrawSolidRectangle(edge, color);
         }
 
         private ITexture CreateEnhancedClearLampTexture(int difficulty, ClearStatus clearStatus)
@@ -578,7 +577,6 @@ namespace DTXMania.Game.Lib.UI
             _generatedTextures.Clear();
 
             _spriteBatch?.Dispose();
-            _whitePixel?.Dispose();
 
             _disposed = true;
         }

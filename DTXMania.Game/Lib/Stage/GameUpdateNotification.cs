@@ -7,6 +7,7 @@ using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.UI;
 using DTXMania.Game.Lib.Update;
 
 namespace DTXMania.Game.Lib.Stage
@@ -410,10 +411,8 @@ namespace DTXMania.Game.Lib.Stage
         [ExcludeFromCodeCoverage]
         private static void DrawHollowRect(SpriteBatch spriteBatch, Texture2D whitePixel, Rectangle rect, Color color)
         {
-            spriteBatch.Draw(whitePixel, new Rectangle(rect.X, rect.Y, rect.Width, 1), color);
-            spriteBatch.Draw(whitePixel, new Rectangle(rect.X, rect.Bottom - 1, rect.Width, 1), color);
-            spriteBatch.Draw(whitePixel, new Rectangle(rect.X, rect.Y, 1, rect.Height), color);
-            spriteBatch.Draw(whitePixel, new Rectangle(rect.Right - 1, rect.Y, 1, rect.Height), color);
+            // HPA-796: the shared 1px overlapping-corner border primitive (same edge order).
+            ChamferedBox.Border(spriteBatch, whitePixel, rect, 1, color);
         }
 
         private static Rectangle[] BuildActionRects()

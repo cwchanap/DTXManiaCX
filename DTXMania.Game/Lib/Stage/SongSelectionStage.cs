@@ -41,6 +41,10 @@ namespace DTXMania.Game.Lib.Stage
         private IFont _historyFont;
         private Texture2D _whitePixel;
 
+        // HPA-796: the stage owns one cached white pixel for this activation (RemoveReference
+        // on teardown); _whitePixel above is the borrowed raw texture lent to the UI components.
+        private ITexture _whitePixelResource;
+
         // DTXManiaNX Background Graphics (Phase 3) - Main background now handled by BaseStage
         private ITexture _headerPanelTexture;
         private ITexture _footerPanelTexture;        // Song management
@@ -378,7 +382,8 @@ namespace DTXMania.Game.Lib.Stage
                 _headerPanelTexture = null;
                 _footerPanelTexture?.RemoveReference();
                 _footerPanelTexture = null;
-                _whitePixel?.Dispose();
+                _whitePixelResource?.RemoveReference();
+                _whitePixelResource = null;
                 _whitePixel = null;
                 _spriteBatch?.Dispose();
                 _spriteBatch = null;
@@ -570,7 +575,9 @@ namespace DTXMania.Game.Lib.Stage
             ReleaseManagedSound(ref _gameStartSound);
 
             // Clean up graphics resources
-            _whitePixel?.Dispose();
+            _whitePixelResource?.RemoveReference();
+            _whitePixelResource = null;
+            _whitePixel = null;
             _spriteBatch?.Dispose();
 
             // Clean up stage RenderTargets
@@ -3310,9 +3317,11 @@ namespace DTXMania.Game.Lib.Stage
             _spriteBatch = new SpriteBatch(_game.GraphicsDevice);
             _resourceManager = _game.ResourceManager;
 
-            // Create white pixel for drawing
-            _whitePixel = new Texture2D(_game.GraphicsDevice, 1, 1);
-            _whitePixel.SetData(new[] { Color.White });
+            // HPA-796: acquire the cached white pixel once per activation from the
+            // ResourceManager cache (survives skin switches) instead of allocating a
+            // private 1×1 texture.
+            _whitePixelResource = _resourceManager.CreateTextureFromColor(Color.White);
+            _whitePixel = _whitePixelResource?.Texture;
         }
 
         /// <summary>

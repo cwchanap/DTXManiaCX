@@ -527,30 +527,57 @@ namespace DTXMania.Test.Stage.Performance
         }
 
         [Fact]
-        public void GaugeDisplay_Dispose_ShouldDisposeWhiteTextureAndClearReference()
+        public void GaugeDisplay_Constructor_ShouldAcquireCachedWhitePixelFromResourceManager()
+        {
+            // HPA-796: the gauge borrows the cached pixel's raw texture instead of allocating
+            // its own 1×1 texture; one acquisition, held until Dispose releases the reference.
+            var resourceManager = new Mock<IResourceManager>();
+            var whitePixel = CreateTrackingTexture2D();
+            var whitePixelResource = new Mock<ITexture>();
+            whitePixelResource.SetupGet(t => t.Texture).Returns(whitePixel);
+            resourceManager
+                .Setup(manager => manager.CreateTextureFromColor(Color.White))
+                .Returns(whitePixelResource.Object);
+
+            var display = new GaugeDisplay(resourceManager.Object, CreateGraphicsDeviceStub());
+
+            resourceManager.Verify(manager => manager.CreateTextureFromColor(Color.White), Times.Once);
+            Assert.Same(whitePixelResource.Object, GetPrivateField<ITexture>(display, "_whiteTextureResource"));
+            Assert.Same(whitePixel, GetPrivateField<Texture2D>(display, "_whiteTexture"));
+        }
+
+        [Fact]
+        public void GaugeDisplay_Dispose_ShouldReleaseCachedWhitePixelAndClearReference()
         {
             var display = CreateUninitialized<GaugeDisplay>();
-            var whiteTexture = CreateTrackingTexture2D();
-            SetPrivateField(display, "_whiteTexture", whiteTexture);
+            var whitePixel = CreateTrackingTexture2D();
+            var whitePixelResource = new Mock<ITexture>();
+            SetPrivateField(display, "_whiteTextureResource", whitePixelResource.Object);
+            SetPrivateField(display, "_whiteTexture", whitePixel);
 
             display.Dispose();
 
-            Assert.True(whiteTexture.WasDisposed);
+            // HPA-796: the raw pixel is borrowed — the cached ITexture reference is released,
+            // never the texture itself.
+            whitePixelResource.Verify(resource => resource.RemoveReference(), Times.Once);
+            whitePixelResource.Verify(resource => resource.Dispose(), Times.Never);
+            Assert.False(whitePixel.WasDisposed);
+            Assert.Null(GetPrivateField<ITexture>(display, "_whiteTextureResource"));
             Assert.Null(GetPrivateField<Texture2D?>(display, "_whiteTexture"));
             Assert.True(GetPrivateField<bool>(display, "_disposed"));
         }
 
         [Fact]
-        public void GaugeDisplay_Dispose_WhenAlreadyDisposed_ShouldNotDisposeTextureTwice()
+        public void GaugeDisplay_Dispose_WhenAlreadyDisposed_ShouldNotReleaseReferenceTwice()
         {
             var display = CreateUninitialized<GaugeDisplay>();
-            var whiteTexture = CreateTrackingTexture2D();
-            SetPrivateField(display, "_whiteTexture", whiteTexture);
+            var whitePixelResource = new Mock<ITexture>();
+            SetPrivateField(display, "_whiteTextureResource", whitePixelResource.Object);
 
             display.Dispose();
             display.Dispose();
 
-            Assert.Equal(1, whiteTexture.DisposeCount);
+            whitePixelResource.Verify(resource => resource.RemoveReference(), Times.Once);
         }
 
         #endregion

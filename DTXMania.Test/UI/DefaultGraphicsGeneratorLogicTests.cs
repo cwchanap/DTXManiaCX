@@ -30,7 +30,8 @@ public class DefaultGraphicsGeneratorLogicTests
         public TestableDefaultGraphicsGenerator()
             : base(
                 (GraphicsDevice)RuntimeHelpers.GetUninitializedObject(typeof(GraphicsDevice)),
-                (RenderTarget2D)RuntimeHelpers.GetUninitializedObject(typeof(RenderTarget2D)))
+                (RenderTarget2D)RuntimeHelpers.GetUninitializedObject(typeof(RenderTarget2D)),
+                (Texture2D)RuntimeHelpers.GetUninitializedObject(typeof(Texture2D)))
         {
         }
 
@@ -66,16 +67,27 @@ public class DefaultGraphicsGeneratorLogicTests
     public void Constructor_WhenGraphicsDeviceIsNull_ShouldThrowArgumentNullException()
     {
         var renderTarget = (RenderTarget2D)RuntimeHelpers.GetUninitializedObject(typeof(RenderTarget2D));
+        var whitePixel = (Texture2D)RuntimeHelpers.GetUninitializedObject(typeof(Texture2D));
 
-        Assert.Throws<ArgumentNullException>(() => new DefaultGraphicsGenerator(null!, renderTarget));
+        Assert.Throws<ArgumentNullException>(() => new DefaultGraphicsGenerator(null!, renderTarget, whitePixel));
     }
 
     [Fact]
     public void Constructor_WhenRenderTargetIsNull_ShouldThrowArgumentNullException()
     {
         var graphicsDevice = (GraphicsDevice)RuntimeHelpers.GetUninitializedObject(typeof(GraphicsDevice));
+        var whitePixel = (Texture2D)RuntimeHelpers.GetUninitializedObject(typeof(Texture2D));
 
-        Assert.Throws<ArgumentNullException>(() => new DefaultGraphicsGenerator(graphicsDevice, null!));
+        Assert.Throws<ArgumentNullException>(() => new DefaultGraphicsGenerator(graphicsDevice, null!, whitePixel));
+    }
+
+    [Fact]
+    public void Constructor_WhenWhitePixelIsNull_ShouldThrowArgumentNullException()
+    {
+        var graphicsDevice = (GraphicsDevice)RuntimeHelpers.GetUninitializedObject(typeof(GraphicsDevice));
+        var renderTarget = (RenderTarget2D)RuntimeHelpers.GetUninitializedObject(typeof(RenderTarget2D));
+
+        Assert.Throws<ArgumentNullException>(() => new DefaultGraphicsGenerator(graphicsDevice, renderTarget, null!));
     }
 
     [Fact]

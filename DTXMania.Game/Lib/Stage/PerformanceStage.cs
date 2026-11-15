@@ -162,6 +162,10 @@ namespace DTXMania.Game.Lib.Stage
         internal sealed record LastLaneHit(int Lane, string? ButtonId, double SongTimeMs);
         private LastLaneHit? _lastLaneHit;
         private Texture2D _fallbackWhiteTexture = null!;
+
+        // HPA-796: the stage's cached white pixel (ITexture) acquired once per activation;
+        // _fallbackWhiteTexture above is its borrowed raw texture.
+        private ITexture _fallbackWhiteTextureResource;
         private Action<Rectangle, Color, float>? _fallbackRectangleDrawer = null;
         
         // UI state tracking
@@ -552,6 +556,11 @@ namespace DTXMania.Game.Lib.Stage
 
         private void InitializeComponents()
         {
+            // HPA-796: acquire the cached white pixel BEFORE constructing renderers —
+            // JudgementLineRenderer (and later the Tab HUD) borrow its raw texture.
+            _fallbackWhiteTextureResource = _resourceManager.CreateTextureFromColor(Color.White);
+            _fallbackWhiteTexture = _fallbackWhiteTextureResource?.Texture;
+
             // Initialize background renderer
             _backgroundRenderer = new BackgroundRenderer(_resourceManager);
 
@@ -561,7 +570,7 @@ namespace DTXMania.Game.Lib.Stage
             // Initialize lane background and judgement line renderers
             var graphicsDevice = _spriteBatch.GraphicsDevice;
             _laneBackgroundRenderer = new LaneBackgroundRenderer(_resourceManager);
-            _judgementLineRenderer = new JudgementLineRenderer(graphicsDevice);
+            _judgementLineRenderer = new JudgementLineRenderer(graphicsDevice, _fallbackWhiteTexture);
 
             // Initialize score and combo displays
             _scoreDisplay = new ScoreDisplay(_resourceManager, graphicsDevice);
@@ -605,9 +614,8 @@ namespace DTXMania.Game.Lib.Stage
             // Load performance UI assets using DTXManiaNX layout
             LoadPerformanceUIAssets();
 
-            // Create a reusable white texture for fallback rendering
-            _fallbackWhiteTexture = new Texture2D(graphicsDevice, 1, 1);
-            _fallbackWhiteTexture.SetData(new[] { Color.White });
+            // HPA-796: the fallback white pixel was already acquired at the top of this
+            // method (before the renderers that borrow it); no private 1×1 texture here.
         }
 
         // HPA-509: the three outcomes of a Tab HUD build. NotAttempted means no
@@ -734,8 +742,10 @@ namespace DTXMania.Game.Lib.Stage
             // Cleanup performance UI assets
             CleanupPerformanceUIAssets();
 
-            // Cleanup fallback texture
-            _fallbackWhiteTexture?.Dispose();
+            // Cleanup fallback texture — released only after every borrowing child
+            // renderer above was disposed.
+            _fallbackWhiteTextureResource?.RemoveReference();
+            _fallbackWhiteTextureResource = null;
             _fallbackWhiteTexture = null;
 
             foreach (var instance in _activeBgmInstances ?? Enumerable.Empty<SoundEffectInstance>())

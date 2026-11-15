@@ -225,22 +225,29 @@ namespace DTXMania.Test.Stage
         [Fact]
         public void OnActivate_ShouldRunGpuSetupOperationsInOrder()
         {
-            var stage = new ControlledTitleStage(new NullGraphicsStageGame());
+            var gpuOperations = new List<string>();
+            var game = new NullGraphicsStageGame
+            {
+                WhitePixelResourceManager = CreateGpuTrackingResourceManager(gpuOperations, throwOnWhitePixelAcquisition: false).Object
+            };
+            var stage = new ControlledTitleStage(game, gpuOperations);
 
             stage.InvokeOnActivate();
 
             Assert.Equal(
-                new[] { "sprite_batch", "white_pixel", "white_pixel_data" },
-                stage.GpuOperations);
+                new[] { "sprite_batch", "white_pixel" },
+                gpuOperations);
         }
 
         [Fact]
         public void OnActivate_WhenGpuSetupThrows_ShouldPropagate()
         {
-            var stage = new ControlledTitleStage(new NullGraphicsStageGame())
+            var gpuOperations = new List<string>();
+            var game = new NullGraphicsStageGame
             {
-                ThrowWhenSettingWhitePixelData = true
+                WhitePixelResourceManager = CreateGpuTrackingResourceManager(gpuOperations, throwOnWhitePixelAcquisition: true).Object
             };
+            var stage = new ControlledTitleStage(game, gpuOperations);
 
             var exception = Assert.Throws<InvalidOperationException>(
                 stage.InvokeOnActivate);
@@ -912,12 +919,12 @@ namespace DTXMania.Test.Stage
             var selectSound = CreateSoundReturningInstance();
             var gameStartSound = CreateSoundReturningInstance();
 #pragma warning disable SYSLIB0050
-            var whitePixel = (TrackingTexture2D)FormatterServices.GetUninitializedObject(typeof(TrackingTexture2D));
             var spriteBatch = (TrackingSpriteBatch)FormatterServices.GetUninitializedObject(typeof(TrackingSpriteBatch));
 #pragma warning restore SYSLIB0050
+            var whitePixelResource = new Mock<ITexture>();
 
             ReflectionHelpers.SetPrivateField(stage, "_menuTexture", menuTexture.Object);
-            ReflectionHelpers.SetPrivateField(stage, "_whitePixel", whitePixel);
+            ReflectionHelpers.SetPrivateField(stage, "_whitePixelResource", whitePixelResource.Object);
             ReflectionHelpers.SetPrivateField(stage, "_spriteBatch", spriteBatch);
             ReflectionHelpers.SetPrivateField(stage, "_resourceManager", resourceManager.Object);
             ReflectionHelpers.SetPrivateField(stage, "_cursorMoveSound", cursorSound.Object);
@@ -935,9 +942,13 @@ namespace DTXMania.Test.Stage
             cursorSound.Verify(x => x.Dispose(), Times.Once);
             selectSound.Verify(x => x.Dispose(), Times.Once);
             gameStartSound.Verify(x => x.Dispose(), Times.Once);
-            Assert.True(whitePixel.WasDisposed);
+            // HPA-796: the raw pixel is borrowed — the cached ITexture reference is
+            // released instead of disposing the texture.
+            whitePixelResource.Verify(x => x.RemoveReference(), Times.Once);
+            whitePixelResource.Verify(x => x.Dispose(), Times.Never);
             Assert.True(spriteBatch.WasDisposed);
             Assert.Null(ReflectionHelpers.GetPrivateField<ITexture>(stage, "_menuTexture"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<ITexture>(stage, "_whitePixelResource"));
             Assert.Null(ReflectionHelpers.GetPrivateField<Texture2D>(stage, "_whitePixel"));
             Assert.Null(ReflectionHelpers.GetPrivateField<SpriteBatch>(stage, "_spriteBatch"));
             Assert.Null(ReflectionHelpers.GetPrivateField<IResourceManager>(stage, "_resourceManager"));
@@ -964,7 +975,12 @@ namespace DTXMania.Test.Stage
             public IConfigManager ConfigManager { get; } = new ConfigManager();
             public InputManagerCompat InputManager => null!;
             public IGraphicsManager GraphicsManager => null!;
-            public IResourceManager ResourceManager => null!;
+
+            /// <summary>Test-injected manager; the stage acquires the cached white pixel from it.</summary>
+            public IResourceManager? WhitePixelResourceManager { get; init; }
+
+            public IResourceManager ResourceManager => WhitePixelResourceManager!;
+
             public ILoggerFactory LoggerFactory => NullLoggerFactory.Instance;
             public bool CanPerformStageTransition() => false;
             public void MarkStageTransition() { }
@@ -975,42 +991,57 @@ namespace DTXMania.Test.Stage
 
         private sealed class ControlledTitleStage : TitleStage
         {
-            public ControlledTitleStage(IStageGame game)
+            private readonly List<string> _gpuOperations;
+
+            /// <param name="gpuOperations">
+            /// Shared op log; the white-pixel acquisition recorded by the injected
+            /// <c>IResourceManager</c> mock must land in the same list so the test can
+            /// assert the sprite-batch-before-pixel ordering (HPA-796).
+            /// </param>
+            public ControlledTitleStage(IStageGame game, List<string>? gpuOperations = null)
                 : base(game)
             {
+                _gpuOperations = gpuOperations ?? new List<string>();
             }
 
-            public List<string> GpuOperations { get; } = new();
-            public bool ThrowWhenSettingWhitePixelData { get; init; }
+            public List<string> GpuOperations => _gpuOperations;
 
             public void InvokeOnActivate() => OnActivate();
 
             protected override SpriteBatch CreateTitleSpriteBatch(
                 GraphicsDevice graphicsDevice)
             {
-                GpuOperations.Add("sprite_batch");
+                _gpuOperations.Add("sprite_batch");
 #pragma warning disable SYSLIB0050
-                return (SpriteBatch)FormatterServices.GetUninitializedObject(
+                var spriteBatch = (SpriteBatch)FormatterServices.GetUninitializedObject(
                     typeof(SpriteBatch));
 #pragma warning restore SYSLIB0050
+                // The uninitialized MonoGame stub must never reach its finalizer: it would
+                // call GraphicsDevice.RemoveResourceReference(null) and crash the test host.
+                GC.SuppressFinalize(spriteBatch);
+                return spriteBatch;
             }
+        }
 
-            protected override Texture2D CreateTitleWhitePixel(
-                GraphicsDevice graphicsDevice)
-            {
-                GpuOperations.Add("white_pixel");
-#pragma warning disable SYSLIB0050
-                return (Texture2D)FormatterServices.GetUninitializedObject(
-                    typeof(Texture2D));
-#pragma warning restore SYSLIB0050
-            }
+        /// <summary>
+        /// HPA-796: the deleted white-pixel factory seams are replaced by an
+        /// IResourceManager mock that records (or throws on) the cached-pixel acquisition.
+        /// </summary>
+        private static Mock<IResourceManager> CreateGpuTrackingResourceManager(
+            List<string> gpuOperations,
+            bool throwOnWhitePixelAcquisition)
+        {
+            var resourceManager = new Mock<IResourceManager>();
+            var setup = resourceManager
+                .Setup(manager => manager.CreateTextureFromColor(Color.White))
+                .Callback(() => gpuOperations.Add("white_pixel"));
 
-            protected override void SetTitleWhitePixelData(Texture2D texture)
-            {
-                GpuOperations.Add("white_pixel_data");
-                if (ThrowWhenSettingWhitePixelData)
-                    throw new InvalidOperationException("gpu setup failed");
-            }
+            if (throwOnWhitePixelAcquisition)
+                setup.Throws(new InvalidOperationException("gpu setup failed"));
+            else
+                setup.Returns(new Mock<ITexture>().Object);
+
+            return resourceManager;
         }
 
         private sealed class TestInputManager : IInputManager
@@ -1080,20 +1111,6 @@ namespace DTXMania.Test.Stage
         private sealed class TrackingSpriteBatch : SpriteBatch
         {
             public TrackingSpriteBatch() : base(null!)
-            {
-            }
-
-            public bool WasDisposed { get; private set; }
-
-            protected override void Dispose(bool disposing)
-            {
-                WasDisposed = true;
-            }
-        }
-
-        private sealed class TrackingTexture2D : Texture2D
-        {
-            public TrackingTexture2D() : base(null!, 1, 1)
             {
             }
 

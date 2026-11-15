@@ -54,6 +54,10 @@ namespace DTXMania.Game.Lib.Song.Components
         private readonly IResourceManager _resourceManager;
         private SpriteFont _font;
         private Texture2D _whitePixel;        // Texture caches using consolidated cache manager
+
+        // HPA-796: the renderer owns one cached white pixel from the ResourceManager
+        // (RemoveReference on Dispose); _whitePixel above is the borrowed raw texture.
+        private ITexture _whitePixelResource;
         private readonly CacheManager<string, ITexture> _titleTextureCache;
         private readonly CacheManager<string, ITexture> _previewImageCache;
         // CacheManager cannot hold nulls, so failed loads get their own
@@ -108,9 +112,14 @@ namespace DTXMania.Game.Lib.Song.Components
             _failedPreviewPaths = new HashSet<string>(AppPaths.SkinPathComparer);
             _clearLampCache = new CacheManager<string, ITexture>();
 
+            // Acquire the shared cached white pixel once for this renderer's lifetime;
+            // the generator (and generated textures) borrow its raw texture.
+            _whitePixelResource = _resourceManager.CreateTextureFromColor(Color.White);
+            _whitePixel = _whitePixelResource?.Texture;
+
             // Create graphics generator that will live for the lifetime of SongBarRenderer
             // This ensures generated textures remain valid while cached
-            _graphicsGenerator = new DefaultGraphicsGenerator(_graphicsDevice, _clearLampRenderTarget);
+            _graphicsGenerator = new DefaultGraphicsGenerator(_graphicsDevice, _clearLampRenderTarget, _whitePixel);
 
             Initialize();
         }
@@ -483,12 +492,9 @@ namespace DTXMania.Game.Lib.Song.Components
 
         private void Initialize()
         {
-            // Create white pixel texture
-            _whitePixel = new Texture2D(_graphicsDevice, 1, 1);
-            _whitePixel.SetData(new[] { Color.White });
-
             // Note: RenderTargets are now provided via constructor
             // _titleRenderTarget and _clearLampRenderTarget are set in constructor
+            // Note: the white pixel is acquired in the constructor from the ResourceManager
 
             // Create sprite batch for rendering
             _spriteBatch = new SpriteBatch(_graphicsDevice);
@@ -1030,12 +1036,13 @@ namespace DTXMania.Game.Lib.Song.Components
                 }
 
                 _spriteBatch?.Dispose();
-                _whitePixel?.Dispose();
 
                 _titleRenderTarget = null;
                 _clearLampRenderTarget = null;
                 _spriteBatch = null;
                 _whitePixel = null;
+                _whitePixelResource?.RemoveReference();
+                _whitePixelResource = null;
                 _graphicsGenerator = null;
                 _disposed = true;
             }

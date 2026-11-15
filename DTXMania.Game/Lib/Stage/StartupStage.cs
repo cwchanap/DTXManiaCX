@@ -46,6 +46,9 @@ namespace DTXMania.Game.Lib.Stage
         private double _elapsedTime;
         private SpriteBatch _spriteBatch;
         private Texture2D _whitePixel;
+
+        // HPA-796: the stage's cached white pixel (ITexture); _whitePixel is its borrowed raw texture.
+        private ITexture _whitePixelResource;
         private IResourceManager _resourceManager;
         private IFont _font;
         private IFont _boldFont;
@@ -301,13 +304,6 @@ namespace DTXMania.Game.Lib.Stage
             return new SpriteBatch(graphicsDevice);
         }
 
-        protected virtual Texture2D CreateWhitePixelCore(GraphicsDevice graphicsDevice)
-        {
-            var whitePixel = new Texture2D(graphicsDevice, 1, 1);
-            whitePixel.SetData(new[] { Color.White });
-            return whitePixel;
-        }
-
         protected virtual IFont CreateFontCore(IResourceManager resourceManager, string fontFamily, int size, FontStyle style)
         {
             return resourceManager.LoadFont(fontFamily.Length > 0 ? fontFamily : "NotoSerifJP", size, style);
@@ -372,10 +368,13 @@ namespace DTXMania.Game.Lib.Stage
             // Initialize graphics resources
             var graphicsDevice = GetGraphicsDeviceCore();
             _spriteBatch = CreateSpriteBatchCore(graphicsDevice);
-            _whitePixel = CreateWhitePixelCore(graphicsDevice);
 
             // Initialize ResourceManager using factory
             _resourceManager = _game.ResourceManager;
+
+            // HPA-796: acquire the cached white pixel once per activation; no private 1×1 texture
+            _whitePixelResource = _resourceManager.CreateTextureFromColor(Color.White);
+            _whitePixel = _whitePixelResource?.Texture;
 
             try
             {
@@ -416,7 +415,8 @@ namespace DTXMania.Game.Lib.Stage
             catch
             {
                 ReleaseStartupFonts();
-                _whitePixel?.Dispose();
+                _whitePixelResource?.RemoveReference();
+                _whitePixelResource = null;
                 _whitePixel = null;
                 _spriteBatch?.Dispose();
                 _spriteBatch = null;
@@ -615,13 +615,14 @@ namespace DTXMania.Game.Lib.Stage
                 _font?.RemoveReference();
                 _boldFont?.RemoveReference();
                 _statusFallbackFont?.RemoveReference();
-                _whitePixel?.Dispose();
+                _whitePixelResource?.RemoveReference();
                 _spriteBatch?.Dispose();
 
                 _font = null;
                 _boldFont = null;
                 _statusFallbackFont = null;
                 _whitePixel = null;
+                _whitePixelResource = null;
                 _spriteBatch = null;
                 _resourceManager = null;
             }

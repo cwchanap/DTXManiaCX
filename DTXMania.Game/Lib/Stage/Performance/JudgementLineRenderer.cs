@@ -57,17 +57,15 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         #region Constructor
 
-        public JudgementLineRenderer(GraphicsDevice graphicsDevice)
+        /// <param name="graphicsDevice">Graphics device for rendering</param>
+        /// <param name="whiteTexture">
+        /// Borrowed 1×1 white pixel owned by the PerformanceStage (its cached
+        /// <c>ITexture</c>). The renderer draws it but never disposes or replaces it.
+        /// </param>
+        public JudgementLineRenderer(GraphicsDevice graphicsDevice, Texture2D whiteTexture)
         {
             _graphicsDevice = graphicsDevice ?? throw new ArgumentNullException(nameof(graphicsDevice));
-            try
-            {
-                CreateWhiteTexture();
-            }
-            catch (Exception ex)
-            {
-                throw new InvalidOperationException("JudgementLineRenderer could not be initialized because the white texture could not be created.", ex);
-            }
+            _whiteTexture = whiteTexture;
         }
 
         #endregion
@@ -160,21 +158,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
             );
         }
 
-        private void CreateWhiteTexture()
-        {
-            try
-            {
-                _whiteTexture = new Texture2D(_graphicsDevice, 1, 1);
-                _whiteTexture.SetData(new[] { Color.White });
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"JudgementLineRenderer: Failed to create white texture: {ex.Message}");
-                _whiteTexture = null;
-                throw;
-            }
-        }
-
         #endregion
 
         #region IDisposable Implementation
@@ -191,8 +174,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 if (disposing)
                 {
-                    // Dispose managed resources
-                    _whiteTexture?.Dispose();
+                    // HPA-796: _whiteTexture is borrowed from the stage — drop the
+                    // reference only; the owning stage releases the cached texture.
                     _whiteTexture = null;
                     _graphicsDevice = null;
                 }

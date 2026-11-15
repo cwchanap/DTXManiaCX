@@ -521,6 +521,26 @@ public class NoteRendererLogicTests
     }
 
     [Fact]
+    public void Dispose_ShouldReleaseCachedWhitePixelReference_AndNotDisposeBorrowedRawPixel()
+    {
+        // HPA-796: the white pixel is borrowed from the cached ITexture; disposal releases
+        // the reference and must leave the raw texture untouched.
+        var renderer = CreateRenderer();
+        var whitePixel = ReflectionHelpers.CreateUninitialized<Texture2D>();
+        GC.SuppressFinalize(whitePixel);
+        var whitePixelResource = new Mock<ITexture>();
+        ReflectionHelpers.SetPrivateField(renderer, "_whiteTexture", whitePixel);
+        ReflectionHelpers.SetPrivateField(renderer, "_whiteTextureResource", whitePixelResource.Object);
+
+        renderer.Dispose();
+
+        whitePixelResource.Verify(resource => resource.RemoveReference(), Times.Once);
+        whitePixelResource.Verify(resource => resource.Dispose(), Times.Never);
+        Assert.Null(ReflectionHelpers.GetPrivateField<ITexture>(renderer, "_whiteTextureResource"));
+        Assert.Null(ReflectionHelpers.GetPrivateField<Texture2D>(renderer, "_whiteTexture"));
+    }
+
+    [Fact]
     public void LoadDrumChipsTexture_WhenSpriteConstructionThrows_ShouldReleaseReferenceAndLeaveTextureNull()
     {
         // A zero-width drum-chips texture yields spriteWidth == 0 (Width / 12 columns),
