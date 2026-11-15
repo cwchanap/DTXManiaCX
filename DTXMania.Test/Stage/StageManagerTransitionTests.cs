@@ -423,7 +423,7 @@ namespace DTXMania.Test.Stage
             public IStageManager StageManager { get; set; } = null!;
             public int ActivateCount { get; private set; }
             public int ActivateWithPayloadCount { get; private set; }
-            public StageTransitionPayload LastPayload { get; private set; }
+            public StageTransitionPayload? LastPayload { get; private set; }
             public int DeactivateCount { get; private set; }
             public int UpdateCount { get; private set; }
             public int DrawCount { get; private set; }
@@ -438,7 +438,7 @@ namespace DTXMania.Test.Stage
                 CurrentPhase = StagePhase.Normal;
             }
 
-            public void Activate(StageTransitionPayload payload)
+            public void Activate(StageTransitionPayload? payload)
             {
                 ActivateWithPayloadCount++;
                 LastPayload = payload;

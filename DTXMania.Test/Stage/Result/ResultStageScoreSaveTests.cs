@@ -75,11 +75,16 @@ public sealed class ResultStageScoreSaveTests
 
         Assert.Equal(ResultSaveState.Saving, stage.ScoreSaveState);
         Assert.Equal(1, stage.SaveCalls);
+        // No transition may be issued on any ChangeStage overload while a score save is in progress.
+        stageManager.Verify(manager => manager.ChangeStage(It.IsAny<StageType>()), Times.Never);
+        stageManager.Verify(
+            manager => manager.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>()),
+            Times.Never);
         stageManager.Verify(
             manager => manager.ChangeStage(
                 It.IsAny<StageType>(),
                 It.IsAny<IStageTransition>(),
-                It.IsAny<StageTransitionPayload>()),
+                It.IsAny<StageTransitionPayload?>()),
             Times.Never);
     }
 

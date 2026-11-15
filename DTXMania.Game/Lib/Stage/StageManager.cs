@@ -36,7 +36,10 @@ namespace DTXMania.Game.Lib.Stage
         // Transition state
         private bool _isTransitioning = false;
         private StageType _targetStageType;
-        private StageTransitionPayload _pendingPayload;
+        // Payload contract is nullability-annotated; the rest of this legacy file stays in its original (oblivious) nullable context.
+        #nullable enable
+        private StageTransitionPayload? _pendingPayload;
+        #nullable restore
 
         public IStage CurrentStage => _currentStage;
         public StagePhase CurrentPhase => _currentStage?.CurrentPhase ?? StagePhase.Inactive;
@@ -96,7 +99,9 @@ namespace DTXMania.Game.Lib.Stage
             ChangeStage(stageType, transition, null);
         }
 
-        public void ChangeStage(StageType stageType, IStageTransition transition, StageTransitionPayload payload)
+        #nullable enable
+        public void ChangeStage(StageType stageType, IStageTransition transition, StageTransitionPayload? payload)
+        #nullable restore
         {
             if (_disposed)
             {

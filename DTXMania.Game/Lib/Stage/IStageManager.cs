@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.Collections.Generic;
 
@@ -15,7 +16,7 @@ namespace DTXMania.Game.Lib.Stage
 
         void ChangeStage(StageType stageType);
         void ChangeStage(StageType stageType, IStageTransition transition);
-        void ChangeStage(StageType stageType, IStageTransition transition, StageTransitionPayload payload);
+        void ChangeStage(StageType stageType, IStageTransition transition, StageTransitionPayload? payload);
         void Update(double deltaTime);
         void Draw(double deltaTime);
     }    /// <summary>
@@ -76,7 +77,7 @@ namespace DTXMania.Game.Lib.Stage
         IStageManager StageManager { get; set; }
 
         void Activate();
-        void Activate(StageTransitionPayload payload);
+        void Activate(StageTransitionPayload? payload);
         void Deactivate();
         void Update(double deltaTime);
         void Draw(double deltaTime);
