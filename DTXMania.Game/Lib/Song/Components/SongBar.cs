@@ -144,7 +144,6 @@ namespace DTXMania.Game.Lib.Song.Components
             }
             else
             {
-                System.Diagnostics.Debug.WriteLine("SongBar: Cannot initialize DefaultGraphicsGenerator without RenderTarget. Default graphics disabled.");
                 _graphicsGenerator = null;
             }
         }

@@ -116,9 +116,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 _scoreNumbersTexture = resourceManager.LoadTexture(TexturePath.ScoreNumbers);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"ScoreDisplay: Failed to load score numbers texture: {ex.Message}");
                 _scoreNumbersTexture = null;
             }
 
@@ -232,9 +231,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 _scoreFont = CreateScoreFont();
                 _titleFont = CreateTitleFont();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"ScoreDisplay: Failed to load font: {ex.Message}");
                 // If _scoreFont was created before _titleFont threw, dispose it so the fallback
                 // font resource is not leaked on the font-failure path. _titleFont is disposed
                 // defensively too in case a future change assigns it before the failure point.

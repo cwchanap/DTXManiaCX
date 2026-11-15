@@ -152,7 +152,6 @@ namespace DTXMania.Game.Lib.Stage
                 _inputManager.ResetKeyRepeatStates();
             }
 
-            System.Diagnostics.Trace.WriteLine($"ResultStage activated with performance summary: {_performanceSummary}");
         }
 
         protected override void OnDeactivate()
@@ -310,7 +309,6 @@ namespace DTXMania.Game.Lib.Stage
             {
                 // Fallback: create default summary when activated without a performance result
                 _performanceSummary = CreateDefaultSummary();
-                System.Diagnostics.Debug.WriteLine("ResultStage: No performance result payload, using default");
             }
         }
 
@@ -342,7 +340,9 @@ namespace DTXMania.Game.Lib.Stage
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Trace.WriteLine($"ResultStage: Failed to initialize result renderer: {ex.Message}");
+                var logger = _game?.LoggerFactory?.CreateLogger<ResultStage>()
+                    ?? NullLogger<ResultStage>.Instance;
+                logger.LogWarning(ex, "Failed to initialize result renderer; result visuals are disabled for this run");
                 _resultFont?.RemoveReference();
                 _smallResultFont?.RemoveReference();
                 _largeResultFont?.RemoveReference();
@@ -365,7 +365,9 @@ namespace DTXMania.Game.Lib.Stage
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Trace.WriteLine($"ResultStage: Failed to load result sounds: {ex.Message}");
+                var logger = _game?.LoggerFactory?.CreateLogger<ResultStage>()
+                    ?? NullLogger<ResultStage>.Instance;
+                logger.LogWarning(ex, "Failed to load result sounds");
                 _resultSound = null;
                 _newRecordSound = null;
             }
@@ -736,9 +738,8 @@ namespace DTXMania.Game.Lib.Stage
 
                 return _resourceManager.LoadSound(path);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Trace.WriteLine($"ResultStage: Failed to load sound '{path}': {ex.Message}");
                 return null;
             }
         }

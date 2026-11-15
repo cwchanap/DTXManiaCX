@@ -52,9 +52,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 _backgroundTexture = resourceManager.LoadTexture(TexturePath.PerfGraphMain);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SkillMeterDisplay: Failed to load background texture: {ex.Message}");
                 _backgroundTexture = null;
             }
 
@@ -62,9 +61,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 _gaugeTexture = resourceManager.LoadTexture(TexturePath.PerfGraphGauge);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SkillMeterDisplay: Failed to load gauge texture: {ex.Message}");
                 _gaugeTexture = null;
             }
 
@@ -72,9 +70,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 _font = ManagedFont.CreateFont(_graphicsDevice, "NotoSerifJP", 12, FontStyle.Bold);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SkillMeterDisplay: Failed to create font: {ex.Message}");
                 _font = null;
             }
         }

@@ -172,7 +172,6 @@ namespace DTXMania.Game.Lib.Utilities
                 }
                 var count = _cache.Count;
                 _cache.Clear();
-                Debug.WriteLine($"CacheManager: Cleared {count} items");
             }
         }
 
@@ -201,7 +200,6 @@ namespace DTXMania.Game.Lib.Utilities
                     }
                 }
 
-                Debug.WriteLine($"CacheManager: Removed {keysToRemove.Count} items by pattern");
             }
         }
 

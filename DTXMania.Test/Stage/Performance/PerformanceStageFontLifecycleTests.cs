@@ -6,6 +6,7 @@ using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.Stage.Performance;
 using DTXMania.Test.TestData;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
 
@@ -87,6 +88,7 @@ namespace DTXMania.Test.Stage.Performance
             var stage = (PerformanceStage)FormatterServices.GetUninitializedObject(typeof(PerformanceStage));
 #pragma warning restore SYSLIB0050
             ReflectionHelpers.SetPrivateField(stage, "_game", ReflectionHelpers.CreateGame());
+            ReflectionHelpers.SetPrivateField(stage, "_logger", NullLogger<PerformanceStage>.Instance);
             return stage;
         }
     }

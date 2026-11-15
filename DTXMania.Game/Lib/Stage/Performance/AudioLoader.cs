@@ -78,17 +78,14 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
                 // For DTX audio files, we need to bypass the ResourceManager's skin system
                 // and load the sound directly since these files are not part of the skin
-                System.Diagnostics.Debug.WriteLine($"AudioLoader: Loading audio directly from: {audioPath}");
                 _loadedSound = await Task.Run(() => new ManagedSound(audioPath));
                 _loadedSound.AddReference(); // Ensure proper reference counting
                 _ownsLoadedSound = true;
                 LoadedAudioPath = audioPath;
 
-                System.Diagnostics.Debug.WriteLine($"AudioLoader: Successfully loaded audio: {Path.GetFileName(audioPath)}");
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"AudioLoader: Failed to load audio {audioPath}: {ex.Message}");
                 UnloadCurrentSound();
                 throw new InvalidOperationException($"Failed to load background music: {audioPath}", ex);
             }
@@ -109,7 +106,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
         {
             if (!IsLoaded)
             {
-                System.Diagnostics.Debug.WriteLine("AudioLoader: Cannot create SongTimer - no audio loaded");
                 logger?.Invoke("AudioLoader: Cannot create SongTimer - no audio loaded");
                 return null;
             }
@@ -119,7 +115,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 var soundInstance = _loadedSound?.CreateInstance();
                 if (soundInstance == null)
                 {
-                    System.Diagnostics.Debug.WriteLine("AudioLoader: Failed to create sound instance");
                     logger?.Invoke("AudioLoader: Failed to create sound instance");
                     return null;
                 }
@@ -128,12 +123,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 {
                     Pitch = runtimePitch
                 };
-                System.Diagnostics.Debug.WriteLine($"AudioLoader: Created SongTimer for {Path.GetFileName(LoadedAudioPath)}");
                 return songTimer;
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"AudioLoader: Failed to create SongTimer: {ex.Message}");
                 logger?.Invoke($"AudioLoader: Failed to create SongTimer: {ex.Message}");
                 return null;
             }
@@ -149,12 +142,9 @@ namespace DTXMania.Game.Lib.Stage.Performance
         {
             if (string.IsNullOrEmpty(backgroundAudioPath))
             {
-                System.Diagnostics.Debug.WriteLine("AudioLoader: No background audio specified for chart");
                 return;
             }
 
-            System.Diagnostics.Debug.WriteLine($"AudioLoader: Received background audio path: '{backgroundAudioPath}'");
-            System.Diagnostics.Debug.WriteLine($"AudioLoader: Chart path: '{chartPath}'");
 
             // The background audio path should already be resolved by DTXChartParser
             // Just use it directly without further path manipulation
@@ -173,7 +163,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 _loadedSound = null;
                 _ownsLoadedSound = false;
                 LoadedAudioPath = "";
-                System.Diagnostics.Debug.WriteLine("AudioLoader: Unloaded current sound");
             }
         }
 

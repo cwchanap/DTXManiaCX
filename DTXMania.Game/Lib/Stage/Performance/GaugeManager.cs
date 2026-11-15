@@ -158,7 +158,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     JudgementType = judgementEvent.Type
                 });
 
-                System.Diagnostics.Debug.WriteLine($"Player failed! Life: {_currentLife:F1}% (Trigger: {judgementEvent.Type})");
             }
 
             // Raise gauge changed event

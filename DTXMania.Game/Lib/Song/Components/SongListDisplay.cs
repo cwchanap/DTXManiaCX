@@ -546,9 +546,8 @@ namespace DTXMania.Game.Lib.Song.Components
             {
                 _scrollbarTexture = _resourceManager.LoadTexture(TexturePath.Scrollbar);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongListDisplay: Failed to load scrollbar texture: {ex.Message}");
                 _scrollbarTexture = null;
             }
 
@@ -560,7 +559,6 @@ namespace DTXMania.Game.Lib.Song.Components
             else
             {
                 // Cannot create without RenderTarget - log error and disable enhanced rendering
-                System.Diagnostics.Debug.WriteLine("SongListDisplay: Cannot initialize SongBarRenderer without RenderTarget. Enhanced rendering disabled.");
                 _barRenderer = null;
                 return;
             }
@@ -619,9 +617,8 @@ namespace DTXMania.Game.Lib.Song.Components
             {
                 _commentBarTexture = _resourceManager.LoadTexture(TexturePath.CommentBar);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongListDisplay: Failed to load comment bar texture: {ex.Message}");
                 _commentBarTexture = null;
             }
         }
@@ -664,7 +661,6 @@ namespace DTXMania.Game.Lib.Song.Components
             // Require both selected and unselected textures to be loaded for consistent visuals
             // If only one exists, we'd have inconsistent rendering (skin texture vs programmatic fallback)
             _skinBarTexturesLoaded = barScoreExists && barScoreSelectedExists;
-            System.Diagnostics.Debug.WriteLine($"SongListDisplay: Skin bar textures loaded: {_skinBarTexturesLoaded} (BarScore: {barScoreExists}, BarScoreSelected: {barScoreSelectedExists})");
         }
 
         /// <summary>
@@ -1602,7 +1598,6 @@ namespace DTXMania.Game.Lib.Song.Components
             stopwatch.Stop();
             if (stopwatch.Elapsed.TotalMilliseconds > 2.0) // Log if processing takes more than 2ms
             {
-                System.Diagnostics.Debug.WriteLine($"SongListDisplay: Immediate selected song texture generation took {stopwatch.Elapsed.TotalMilliseconds:F2}ms");
             }
         }/// <summary>
          /// Pre-generate textures for adjacent songs (±5 from current selection)
@@ -1768,7 +1763,6 @@ namespace DTXMania.Game.Lib.Song.Components
             stopwatch.Stop();
             if (processedCount > 0 && stopwatch.Elapsed.TotalMilliseconds > 5.0) // Log if processing takes more than 5ms
             {
-                System.Diagnostics.Debug.WriteLine($"SongListDisplay: Processed {processedCount} textures in {stopwatch.Elapsed.TotalMilliseconds:F2}ms");
             }
         }
 

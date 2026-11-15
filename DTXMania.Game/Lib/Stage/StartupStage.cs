@@ -356,7 +356,6 @@ namespace DTXMania.Game.Lib.Stage
 
         protected override void OnActivate()
         {
-            System.Diagnostics.Debug.WriteLine("Activating Startup Stage");
 
             BeginActivationScope();
             _hasRenderedStartupFrame = false;
@@ -406,9 +405,8 @@ namespace DTXMania.Game.Lib.Stage
                 {
                     _statusFallbackFont = CreateStatusFallbackFontCore(_resourceManager, ResolveStatusFontSize(theme));
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
-                    System.Diagnostics.Debug.WriteLine($"StartupStage: status fallback font unavailable: {ex.Message}");
                     _statusFallbackFont = null;
                 }
             }
@@ -436,7 +434,6 @@ namespace DTXMania.Game.Lib.Stage
             // Add initial messages (DTXMania pattern)
             _progressMessages.Add("DTXMania powered by YAMAHA Silent Session Drums");
 
-            System.Diagnostics.Debug.WriteLine("Startup Stage activated successfully");
             _game.ReportStartupActivated();
         }
 
@@ -501,7 +498,6 @@ namespace DTXMania.Game.Lib.Stage
 
         protected override void OnDeactivate()
         {
-            System.Diagnostics.Debug.WriteLine("Deactivating Startup Stage");
 
             RetireActivationScope();
 
@@ -613,7 +609,6 @@ namespace DTXMania.Game.Lib.Stage
         {
             if (disposing)
             {
-                System.Diagnostics.Debug.WriteLine("Disposing Startup Stage resources");
 
                 RetireActivationScope();
 
@@ -645,11 +640,9 @@ namespace DTXMania.Game.Lib.Stage
             try
             {
                 // Use ResourceManager to load background texture with proper skin path resolution
-                System.Diagnostics.Debug.WriteLine("Loaded startup background using ResourceManager");
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"Failed to load startup background: {ex.Message}");
                 // ResourceManager will handle fallback automatically, so _backgroundTexture should still be valid
             }
         }
@@ -695,9 +688,6 @@ namespace DTXMania.Game.Lib.Stage
                         $"{currentPhaseInfo.message.Replace("...", "")} - Error";
                     if (_currentAsyncTask.IsFaulted)
                     {
-                        System.Diagnostics.Debug.WriteLine(
-                            $"{_startupPhase} task failed: " +
-                            $"{_currentAsyncTask.Exception?.InnerException?.Message}");
                     }
                 }
 
@@ -718,8 +708,6 @@ namespace DTXMania.Game.Lib.Stage
                 {
                     _startupPhase = nextPhase;
                     _phaseStartTime = _elapsedTime;
-                    System.Diagnostics.Debug.WriteLine(
-                        $"Startup phase changed to: {_startupPhase}");
                 }
             }
         }
@@ -734,7 +722,6 @@ namespace DTXMania.Game.Lib.Stage
             {
                 case StartupPhase.SystemSounds:
                     // Load system sounds (placeholder)
-                    System.Diagnostics.Debug.WriteLine("Loading system sounds...");
                     break;
 
                 case StartupPhase.ConfigValidation:
@@ -748,11 +735,9 @@ namespace DTXMania.Game.Lib.Stage
                         bool isValid = config.ScreenWidth > 0 &&
                                     config.ScreenHeight > 0;
 
-                        System.Diagnostics.Debug.WriteLine($"Configuration validation: {(isValid ? "PASSED" : "FAILED")}");
                     }
                     else
                     {
-                        System.Diagnostics.Debug.WriteLine("Configuration validation: FAILED (config not loaded)");
                     }
                     break;
 
@@ -760,45 +745,32 @@ namespace DTXMania.Game.Lib.Stage
                     // Initialize database service
                     if (_currentAsyncTask == null)
                     {
-                        System.Diagnostics.Debug.WriteLine("Starting database service initialization...");
                         _currentAsyncTask =
                             InitializeDatabaseServiceAsync();
                     }
                     break;
 
                 case StartupPhase.SongsDB:
-                    System.Diagnostics.Debug.WriteLine(
-                        "SongsDB display phase complete.");
                     break;
 
                 case StartupPhase.LoadScoreCache:
-                    System.Diagnostics.Debug.WriteLine(
-                        "LoadScoreCache display phase complete.");
                     break;
 
                 case StartupPhase.LoadScoreFiles:
-                    System.Diagnostics.Debug.WriteLine(
-                        "LoadScoreFiles display phase complete.");
                     break;
 
                 case StartupPhase.EnumerateSongs:
                     if (_currentAsyncTask == null)
                     {
-                        System.Diagnostics.Debug.WriteLine(
-                            "Starting song load path selection...");
                         _currentAsyncTask = RunSongLoadAsync();
                     }
                     break;
 
                 case StartupPhase.BuildSongLists:
-                    System.Diagnostics.Debug.WriteLine(
-                        "Song hierarchy already produced by selected load path.");
                     break;
 
                 case StartupPhase.SaveSongsDB:
                     MarkSongManagerInitialized();
-                    System.Diagnostics.Debug.WriteLine(
-                        "SongManager fully initialized.");
                     break;
             }
         }
@@ -892,11 +864,9 @@ namespace DTXMania.Game.Lib.Stage
                 bool success = await InitializeDatabaseServiceCoreAsync(
                         databasePath)
                     .ConfigureAwait(false);
-                System.Diagnostics.Debug.WriteLine($"Database service initialization: {(success ? "SUCCESS" : "FAILED")}");
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"Error during database service initialization: {ex.GetType().Name}: {ex.Message}");
             }
         }
 
@@ -1095,11 +1065,8 @@ namespace DTXMania.Game.Lib.Stage
                         cancellationToken)
                     .ConfigureAwait(false);
             }
-            catch (Exception fallbackException)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine(
-                    "StartupStage: committed cache fallback failed: " +
-                    fallbackException.Message);
             }
         }
 

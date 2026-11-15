@@ -41,9 +41,8 @@ namespace DTXMania.Game.Lib.Resources
             {
                 return Parse(File.ReadAllLines(themeFilePath));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Trace.WriteLine($"SkinTheme: Failed to read {themeFilePath}: {ex.Message}");
                 return Empty;
             }
         }
@@ -161,7 +160,6 @@ namespace DTXMania.Game.Lib.Resources
 
         private static void WarnMalformed(string key, string raw)
         {
-            Trace.WriteLine($"SkinTheme: Malformed value for '{key}': '{raw}' — using fallback");
         }
     }
 }

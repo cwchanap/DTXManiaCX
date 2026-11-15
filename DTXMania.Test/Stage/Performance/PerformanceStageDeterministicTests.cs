@@ -21,6 +21,8 @@ using DTXMania.Game.Lib.UI.Layout;
 using DTXMania.Game.Lib.Utilities;
 using DTXMania.Test.Helpers;
 using DTXMania.Test.TestData;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Audio;
 using Microsoft.Xna.Framework.Graphics;
@@ -4764,6 +4766,7 @@ public class PerformanceStageDeterministicTests
     public void LogPerformanceError_WithAndWithoutException_ShouldNotThrow()
     {
         var stage = CreateStage();
+        ReflectionHelpers.SetPrivateField(stage, "_logger", NullLogger<PerformanceStage>.Instance);
 
         var withoutException = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "LogPerformanceError", "plain message", null));
         var withException = Record.Exception(() => ReflectionHelpers.InvokePrivateMethod(stage, "LogPerformanceError", "failure", new InvalidOperationException("boom")));
@@ -5677,6 +5680,7 @@ public class PerformanceStageDeterministicTests
 #pragma warning restore SYSLIB0050
         ReflectionHelpers.SetPrivateField(stage, "_game", game ?? ReflectionHelpers.CreateGame());
         ReflectionHelpers.SetPrivateField(stage, "_autoPlayLanes", new HashSet<int>());
+        ReflectionHelpers.SetPrivateField(stage, "_logger", NullLogger<PerformanceStage>.Instance);
         return stage;
     }
 
@@ -5712,6 +5716,7 @@ public class PerformanceStageDeterministicTests
 #pragma warning restore SYSLIB0050
         ReflectionHelpers.SetPrivateField(stage, "_game", game ?? ReflectionHelpers.CreateGame());
         ReflectionHelpers.SetPrivateField(stage, "_autoPlayLanes", new HashSet<int>());
+        ReflectionHelpers.SetPrivateField(stage, "_logger", NullLogger<PerformanceStage>.Instance);
         return stage;
     }
 
@@ -6970,48 +6975,44 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
-    public void LogPerformanceError_WithException_ShouldWriteToConsole()
+    public void LogPerformanceError_WithException_ShouldLogErrorWithOriginalException()
     {
         var stage = CreateStage();
+        var logger = new Mock<ILogger<PerformanceStage>>();
+        ReflectionHelpers.SetPrivateField(stage, "_logger", logger.Object);
+
         var exception = new InvalidOperationException("test error");
-        using var writer = new StringWriter();
-        var originalOut = Console.Out;
-        Console.SetOut(writer);
+        ReflectionHelpers.InvokePrivateMethod(stage, "LogPerformanceError", "TestMessage", exception);
 
-        try
-        {
-            ReflectionHelpers.InvokePrivateMethod(stage, "LogPerformanceError", "TestMessage", exception);
-        }
-        finally
-        {
-            Console.SetOut(originalOut);
-        }
-
-        var output = writer.ToString();
-        Assert.Contains("[PerformanceError] TestMessage: test error", output);
-        Assert.Contains("[PerformanceError] Stack trace:", output);
+        logger.Verify(
+            l => l.Log(
+                LogLevel.Error,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((state, _) =>
+                    state.ToString()!.Contains("TestMessage", StringComparison.Ordinal)),
+                exception,
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
     }
 
     [Fact]
-    public void LogPerformanceError_WithoutException_ShouldWriteToConsole()
+    public void LogPerformanceError_WithoutException_ShouldLogErrorWithoutException()
     {
         var stage = CreateStage();
-        using var writer = new StringWriter();
-        var originalOut = Console.Out;
-        Console.SetOut(writer);
+        var logger = new Mock<ILogger<PerformanceStage>>();
+        ReflectionHelpers.SetPrivateField(stage, "_logger", logger.Object);
 
-        try
-        {
-            ReflectionHelpers.InvokePrivateMethod(stage, "LogPerformanceError", "SimpleMessage", null);
-        }
-        finally
-        {
-            Console.SetOut(originalOut);
-        }
+        ReflectionHelpers.InvokePrivateMethod(stage, "LogPerformanceError", "SimpleMessage", null);
 
-        var output = writer.ToString();
-        Assert.Contains("[PerformanceError] SimpleMessage", output);
-        Assert.DoesNotContain("Stack trace:", output);
+        logger.Verify(
+            l => l.Log(
+                LogLevel.Error,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((state, _) =>
+                    state.ToString()!.Contains("SimpleMessage", StringComparison.Ordinal)),
+                It.IsAny<Exception?>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
     }
 
     [Fact]

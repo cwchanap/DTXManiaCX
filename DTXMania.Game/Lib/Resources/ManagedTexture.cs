@@ -433,7 +433,6 @@ namespace DTXMania.Game.Lib.Resources
         {
             if (!_disposed)
             {
-                Debug.WriteLine($"ManagedTexture: Dispose leak detected for texture: {_sourcePath}");
             }
             Dispose(false);
         }

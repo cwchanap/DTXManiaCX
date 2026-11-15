@@ -198,7 +198,6 @@ namespace DTXMania.Game.Lib.Song.Components
         /// </summary>
         public void InitializeGraphicsGenerator(GraphicsDevice graphicsDevice, RenderTarget2D renderTarget)
         {
-            System.Diagnostics.Debug.WriteLine($"SongStatusPanel: InitializeGraphicsGenerator called. GraphicsDevice: {graphicsDevice != null}, RenderTarget: {renderTarget != null}");
             
             // Cache GraphicsDevice for later use
             _cachedGraphicsDevice = graphicsDevice;
@@ -210,11 +209,9 @@ namespace DTXMania.Game.Lib.Song.Components
             {
                 // HPA-796: the generator borrows the stage-owned WhitePixel; it never owns it.
                 _graphicsGenerator = new DefaultGraphicsGenerator(graphicsDevice, renderTarget, WhitePixel);
-                System.Diagnostics.Debug.WriteLine("SongStatusPanel: DefaultGraphicsGenerator created successfully");
             }
             else
             {
-                System.Diagnostics.Debug.WriteLine("SongStatusPanel: Cannot initialize DefaultGraphicsGenerator without RenderTarget. Default graphics disabled.");
                 _graphicsGenerator = null;
             }
             
@@ -236,7 +233,6 @@ namespace DTXMania.Game.Lib.Song.Components
         /// </summary>
         public void InitializeAuthenticGraphics(IResourceManager resourceManager)
         {
-            System.Diagnostics.Debug.WriteLine($"SongStatusPanel: InitializeAuthenticGraphics called. ResourceManager: {resourceManager != null}");
             
             _resourceManager = resourceManager;
 
@@ -250,7 +246,6 @@ namespace DTXMania.Game.Lib.Song.Components
             LoadNumberFontTextures();
             // Level number font will be loaded when graphics generator is initialized
             
-            System.Diagnostics.Debug.WriteLine("SongStatusPanel: InitializeAuthenticGraphics completed. Waiting for graphics generator...");
         }
 
         private void LoadStatusPanelGraphics()
@@ -265,9 +260,8 @@ namespace DTXMania.Game.Lib.Song.Components
                 // Load DTXManiaNX status panel background
                 _statusPanelTexture = _resourceManager.LoadTexture(TexturePath.SongStatusPanel);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongStatusPanel: Failed to load status panel background: {ex.Message}");
                 _statusPanelTexture = null;
             }
         }
@@ -286,9 +280,8 @@ namespace DTXMania.Game.Lib.Song.Components
             {
                 _bpmBackgroundTexture = _resourceManager.LoadTexture(TexturePath.BpmBackground);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongStatusPanel: Failed to load BPM background texture: {ex.Message}");
                 _bpmBackgroundTexture = null;
             }
         }
@@ -307,10 +300,8 @@ namespace DTXMania.Game.Lib.Song.Components
             {
                 _difficultyPanelTexture = _resourceManager.LoadTexture(TexturePath.DifficultyPanel);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine(
-                    $"SongStatusPanel: Failed to load difficulty panel texture: {ex.Message}");
                 _difficultyPanelTexture = null;
             }
         }
@@ -326,10 +317,8 @@ namespace DTXMania.Game.Lib.Song.Components
             {
                 _difficultyFrameTexture = _resourceManager.LoadTexture(TexturePath.DifficultyFrame);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine(
-                    $"SongStatusPanel: Failed to load difficulty frame texture: {ex.Message}");
                 _difficultyFrameTexture = null;
             }
         }
@@ -349,9 +338,8 @@ namespace DTXMania.Game.Lib.Song.Components
             {
                 _graphPanelDrumsTexture = _resourceManager.LoadTexture(TexturePath.GraphPanelDrums);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongStatusPanel: Failed to load graph panel drums texture: {ex.Message}");
                 _graphPanelDrumsTexture = null;
             }
 
@@ -359,9 +347,8 @@ namespace DTXMania.Game.Lib.Song.Components
             {
                 _graphPanelGuitarBassTexture = _resourceManager.LoadTexture(TexturePath.GraphPanelGuitarBass);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongStatusPanel: Failed to load graph panel guitar/bass texture: {ex.Message}");
                 _graphPanelGuitarBassTexture = null;
             }
         }
@@ -380,9 +367,8 @@ namespace DTXMania.Game.Lib.Song.Components
             {
                 _skillPointPanelTexture = _resourceManager.LoadTexture(TexturePath.SkillPointPanel);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongStatusPanel: Failed to load skill point panel texture: {ex.Message}");
                 _skillPointPanelTexture = null;
             }
         }
@@ -401,9 +387,8 @@ namespace DTXMania.Game.Lib.Song.Components
             {
                 _skillIconTexture = _resourceManager.LoadTexture(TexturePath.SkillIcon);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongStatusPanel: Failed to load skill icon texture: {ex.Message}");
                 _skillIconTexture = null;
             }
         }
@@ -434,9 +419,8 @@ namespace DTXMania.Game.Lib.Song.Components
             {
                 return _resourceManager.LoadTexture(path);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"SongStatusPanel: Failed to load {displayName}: {ex.Message}");
                 return null;
             }
         }
@@ -790,10 +774,8 @@ namespace DTXMania.Game.Lib.Song.Components
                         // Note: Don't dispose here - texture is cached and managed by DefaultGraphicsGenerator
                     }
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
-                    System.Diagnostics.Debug.WriteLine(
-                        $"SongStatusPanel: BPM background generation failed: {ex.GetType().Name}: {ex.Message}");
                     DrawSimpleBPMBackground(spriteBatch, position, size);
                 }
             }

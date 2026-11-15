@@ -14,8 +14,12 @@ public sealed class ResultRendererTraceCollection { }
 [Collection("ResultRendererTrace")]
 public class ResultScreenRendererWarningTests
 {
+    // HPA-796 Task 3: a missing rank badge is an expected optional-asset miss.
+    // The renderer no longer duplicates the failure at the leaf; the owner
+    // (ResourceManager.OnResourceLoadFailed) reports it at Debug, which stays
+    // below Warning in ordinary Release runs.
     [Fact]
-    public void Load_MissingRankBadge_ShouldWarnOnceWithAssetPath()
+    public void Load_MissingRankBadge_ShouldStayBelowWarningAndLoadWithFallback()
     {
         var resources = new Mock<IResourceManager>();
         resources.Setup(r => r.ResourceExists(It.IsAny<string>()))
@@ -28,11 +32,13 @@ public class ResultScreenRendererWarningTests
         Trace.Listeners.Add(listener);
         try
         {
-            renderer.Load(model);
+            var exception = Record.Exception(() => renderer.Load(model));
             Trace.Flush();
-            Assert.Contains("Missing rank badge", output.ToString());
-            Assert.Contains(TexturePath.ResultRankF, output.ToString());
-            Assert.Equal(1, output.ToString().Split("Missing rank badge").Length - 1);
+
+            Assert.Null(exception);
+            Assert.DoesNotContain("Missing rank badge", output.ToString());
+            Assert.DoesNotContain(TexturePath.ResultRankF, output.ToString());
+            Assert.Equal(string.Empty, output.ToString().Trim());
         }
         finally
         {

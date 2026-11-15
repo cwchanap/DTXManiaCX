@@ -58,7 +58,6 @@ namespace DTXMania.Game.Lib.Input
                     _pressedKeys[key] = true;
                     
                     // DEBUG: Log key press detection
-                    System.Diagnostics.Debug.WriteLine($"[KeyboardInputSource] Key pressed: {key} -> ButtonId {buttonId}");
                     
                     yield return new ButtonState(buttonId, true, 1.0f);
                 }

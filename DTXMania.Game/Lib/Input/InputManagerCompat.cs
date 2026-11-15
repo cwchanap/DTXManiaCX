@@ -59,7 +59,6 @@ namespace DTXMania.Game.Lib.Input
 
         private void OnModularLaneHit(object? sender, LaneHitEventArgs e)
         {
-            System.Diagnostics.Debug.WriteLine($"[InputManagerCompat] Lane {e.Lane} hit by {e.Button.Id} (velocity: {e.Button.Velocity:F2})");
 
             // Keyboard drum keys keep their letters; only real pads act as system keys.
             if (!e.Button.IsPressed || KeyBindings.IsKeyboardButtonId(e.Button.Id))
@@ -144,7 +143,6 @@ namespace DTXMania.Game.Lib.Input
             var result = _modularInputManager?.IsKeyPressed(keyCode) ?? base.IsKeyPressed(keyCode);
             if (result)
             {
-                System.Diagnostics.Debug.WriteLine($"[InputManagerCompat] IsKeyPressed({keyCode}) = true");
             }
             return result;
         }

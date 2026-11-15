@@ -174,9 +174,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 _whiteTextureResource = _resourceManager.CreateTextureFromColor(Color.White);
                 _whiteTexture = _whiteTextureResource?.Texture;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"GaugeDisplay: Failed to acquire white texture: {ex.Message}");
                 _whiteTextureResource = null;
                 _whiteTexture = null;
             }

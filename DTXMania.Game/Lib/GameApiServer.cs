@@ -234,12 +234,10 @@ public class GameApiServer : IDisposable, IAsyncDisposable
             _boundPort = ResolveBoundPort();
             _isRunning = true;
 
-            System.Diagnostics.Debug.WriteLine($"Game API server started on http://localhost:{_boundPort}");
             _logger?.LogInformation("Game API server started on port {Port}", _boundPort);
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Failed to start game API server: {ex.Message}");
             _logger?.LogError(ex, "Failed to start game API server");
             throw;
         }
@@ -265,12 +263,10 @@ public class GameApiServer : IDisposable, IAsyncDisposable
             }
 
             _isRunning = false;
-            System.Diagnostics.Debug.WriteLine("Game API server stopped");
             _logger?.LogInformation("Game API server stopped");
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Error stopping game API server: {ex.Message}");
             _logger?.LogError(ex, "Error stopping game API server");
         }
     }

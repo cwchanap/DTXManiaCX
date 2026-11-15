@@ -184,7 +184,6 @@ namespace DTXMania.Game.Lib.Stage.Performance
             }
             else
             {
-                System.Diagnostics.Debug.WriteLine($"JudgementTextPopupManager: No display text registered for JudgementType.{judgementEvent.Type}");
             }
         }
 
@@ -299,9 +298,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 return resourceManager.LoadFont("NotoSerifJP", PerformanceUILayout.Typography.JudgementFontSize);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"JudgementTextPopupManager: {ex.GetType().Name} loading judgement font: {ex.Message}");
                 return null;
             }
         }

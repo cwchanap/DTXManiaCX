@@ -7,10 +7,12 @@ using DTXMania.Game.Lib.Graphics;
 using DTXMania.Game.Lib.Input;
 using DTXMania.Game.Lib.JsonRpc;
 using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Stage;
 using DTXMania.Game.Lib.UI.Components;
 using DTXMania.Game.Lib.Utilities;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
@@ -356,8 +358,14 @@ public class BaseGame : Microsoft.Xna.Framework.Game, IGameContext, IStageGame
 
     internal virtual LoadContentServices CreateLoadContentServices()
     {
-        var resourceManager = ResourceManagerFactory.CreateResourceManager(GraphicsDevice);
+        var resourceManager = ResourceManagerFactory.CreateResourceManager(
+            GraphicsDevice,
+            _loggerFactory.CreateLogger<ResourceManager>());
         ManagedFont.InitializeFontFactory(Content);
+
+        // The SongManager singleton has no constructor seam; wire its logger
+        // here (null logger default keeps independent tests silent).
+        SongManager.Instance.ConfigureLogger(_loggerFactory.CreateLogger<SongManager>());
 
         return new LoadContentServices(
             new SpriteBatch(GraphicsDevice),

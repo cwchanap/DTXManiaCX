@@ -120,9 +120,8 @@ namespace DTXMania.Game.Lib.Song
                     Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
                     _encodingProviderRegistered = true;
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
-                    Debug.WriteLine($"DTXChartParser: Failed to register encoding provider: {ex.Message}");
                 }
             }
         }
@@ -233,7 +232,6 @@ namespace DTXMania.Game.Lib.Song
                 catch (Exception ex) when (ex is IOException or DecoderFallbackException)
                 {
                     lastException = ex;
-                    Debug.WriteLine($"DTXChartParser: Failed to parse with encoding {encoding.EncodingName}: {ex.Message}");
                     // Try next encoding
                     continue;
                 }
@@ -310,9 +308,8 @@ namespace DTXMania.Game.Lib.Song
             }
             // A tab that cannot be converted (e.g. no drum track) has no playable
             // chart, so it propagates and the song scan skips the file (HPA-693).
-            catch (Exception ex) when (!TabChartConverter.IsTabFile(filePath))
+            catch (Exception) when (!TabChartConverter.IsTabFile(filePath))
             {
-                Debug.WriteLine($"DTXChartParser: Failed to parse file header for {filePath}: {ex.Message}");
                 // Return entities with basic file info even if parsing fails
                 if (string.IsNullOrEmpty(song.Title))
                 {
@@ -459,7 +456,6 @@ namespace DTXMania.Game.Lib.Song
             if (!command.StartsWith("#BPM", StringComparison.OrdinalIgnoreCase) ||
                 command.Length != 6)
             {
-                Debug.WriteLine($"DTXChartParser: Ignoring malformed BPM definition '{line}'");
                 return true;
             }
 
@@ -475,7 +471,6 @@ namespace DTXMania.Game.Lib.Song
             }
             else
             {
-                Debug.WriteLine($"DTXChartParser: Ignoring invalid BPM definition '{line}'");
             }
 
             return true;
@@ -499,7 +494,6 @@ namespace DTXMania.Game.Lib.Song
             var colonIndex = line.IndexOf(':');
             if (colonIndex == -1)
             {
-                Debug.WriteLine($"DTXChartParser: Ignoring malformed video definition '{line}'");
                 return true;
             }
 
@@ -509,7 +503,6 @@ namespace DTXMania.Game.Lib.Song
                 : 6;  // #AVIxx
             if (command.Length != expectedLength)
             {
-                Debug.WriteLine($"DTXChartParser: Ignoring malformed video definition '{line}'");
                 return true;
             }
 
@@ -529,7 +522,6 @@ namespace DTXMania.Game.Lib.Song
             // event unresolved so the stage retains the static background.
             if (string.IsNullOrWhiteSpace(value))
             {
-                Debug.WriteLine($"DTXChartParser: Ignoring empty video definition '{line}'");
                 return true;
             }
 
@@ -635,7 +627,6 @@ namespace DTXMania.Game.Lib.Song
 
             if (!line.Contains(':'))
             {
-                Debug.WriteLine($"DTXChartParser: Ignoring malformed timeline row '{line}'");
                 return;
             }
 
@@ -656,8 +647,6 @@ namespace DTXMania.Game.Lib.Song
                 }
                 else
                 {
-                    Debug.WriteLine(
-                        $"DTXChartParser: Ignoring invalid measure length at bar {measure}: '{noteData}'");
                 }
 
                 return;
@@ -734,15 +723,11 @@ namespace DTXMania.Game.Lib.Song
             var pairCount = noteData.Length / 2;
             if (pairCount == 0)
             {
-                Debug.WriteLine(
-                    $"DTXChartParser: Ignoring malformed timing row at bar {measure}, channel {channel:X2}: '{noteData}'");
                 return;
             }
 
             if (noteData.Length % 2 != 0)
             {
-                Debug.WriteLine(
-                    $"DTXChartParser: Ignoring incomplete timing pair at bar {measure}, channel {channel:X2}: '{noteData}'");
             }
 
             for (var i = 0; i < pairCount; i++)
@@ -767,8 +752,6 @@ namespace DTXMania.Game.Lib.Song
                     }
                     else
                     {
-                        Debug.WriteLine(
-                            $"DTXChartParser: Ignoring invalid tempo pair at bar {measure}, channel {channel:X2}, tick {tick}: '{pair}'");
                     }
                 }
                 else
@@ -798,8 +781,6 @@ namespace DTXMania.Game.Lib.Song
                 }
                 else if (!bpmDefinitions.TryGetValue(directive.ReferenceId, out bpm))
                 {
-                    Debug.WriteLine(
-                        $"DTXChartParser: Ignoring unresolved BPM reference at bar {directive.Bar}, tick {directive.Tick}: '{directive.ReferenceId}'");
                     continue;
                 }
 
@@ -866,15 +847,6 @@ namespace DTXMania.Game.Lib.Song
                 // Calculate tick position within the measure
                 // Fixed: Use i (pair index) and pairCount for proper positioning
                 var tick = CalculatePairTick(i, pairCount);
-
-                // Debug logging for timing validation
-#if DEBUG
-                if (chart.Notes.Count < 10) // Only log first 10 notes
-                {
-                    System.Diagnostics.Debug.WriteLine(
-                        $"DTX Parse: Measure {measure}, Channel {channel:X2}, Pair {i}/{pairCount}, Tick {tick}, Value '{pair}'");
-                }
-#endif
 
                 // Create note, recording its authored slot: Tick above is truncated, so notation needs the exact position
                 var note = new Note(laneIndex, measure, tick, channel, pair)
@@ -1109,9 +1081,8 @@ namespace DTXMania.Game.Lib.Song
                         }
                     }
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
-                    Debug.WriteLine($"DTXChartParser: Failed to parse with encoding {encoding.EncodingName}: {ex.Message}");
                     continue;
                 }
             }
@@ -1466,9 +1437,8 @@ namespace DTXMania.Game.Lib.Song
                     chart.Duration = totalDuration;
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Debug.WriteLine($"DTXChartParser: Failed to calculate duration: {ex.Message}");
             }
         }
 
@@ -1501,9 +1471,8 @@ namespace DTXMania.Game.Lib.Song
                     }
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"[DTXChartParser] Error parsing measure line '{line}': {ex.Message}");
             }
             return null;
         }
@@ -1535,9 +1504,8 @@ namespace DTXMania.Game.Lib.Song
                     }
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                System.Diagnostics.Debug.WriteLine($"[DTXChartParser] Error parsing channel from line '{line}': {ex.Message}");
             }
             return null;
         }

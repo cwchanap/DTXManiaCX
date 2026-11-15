@@ -205,14 +205,12 @@ namespace DTXMania.Game.Lib.Song
                 // lineage is a 2000s-era product, so this is valid for 2000-2099.
                 return DateTime.SpecifyKind(new DateTime(2000 + yy, m, d), DateTimeKind.Utc);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 // Log the offending text so a malformed import is visible during
                 // debugging instead of silently collapsing to DateTime.MinValue.
                 // The row text is preserved verbatim by the caller, so the display
                 // is unaffected — this only surfaces the parse failure for diagnosis.
-                System.Diagnostics.Debug.WriteLine(
-                    $"NxScoreIniParser: Failed to parse history date from '{text}': {ex.Message}");
                 return DateTime.SpecifyKind(DateTime.MinValue, DateTimeKind.Utc);
             }
         }
