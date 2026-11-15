@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
 using Xunit;
 
@@ -15,12 +16,18 @@ namespace DTXMania.Test.ArchitectureGuards;
 //    the approved channel. Debug.Assert/Trace.Assert and the pre-logger startup
 //    Console.Error usage stay exempt.
 // 2. Raw 1x1 Texture2D creation is only allowed inside the resource manager so
-//    every texture flows through reference counting and skin fallback.
+//    every texture flows through reference counting and skin fallback. The
+//    constructor arguments are parsed explicitly (regexes only locate the
+//    call), so partial numbers like "1, 128" never match.
 // 3. Stage transitions must keep the typed StageTransitionPayload hand-off; the
 //    former untyped Dictionary<string, object> must not return in the stage
 //    contracts. The nullable Dictionary<string, object?> crash-breadcrumb
 //    telemetry in StageManager.cs is intentionally out of scope (it is not the
 //    stage hand-off).
+//
+// All guards scan sources through StripCommentsAndLiteralContents, a small
+// string-aware lexical pass (see its doc comment), so comment markers inside
+// literals cannot hide violations and stripped comments cannot merge tokens.
 [Trait("Category", "Architecture")]
 public sealed class Hpa796ArchitectureGuardTests
 {
@@ -32,10 +39,10 @@ public sealed class Hpa796ArchitectureGuardTests
         @"\b(?:Debug\s*\.\s*(?:Write|Print)|Console\s*\.\s*Write|Trace\s*\.\s*(?:Write|Trace))",
         RegexOptions.Compiled);
 
-    // Raw 1x1 texture creation. The "\s*" gaps cross line breaks, so splitting
-    // the call across lines cannot evade the guard.
-    private static readonly Regex RawOneByOneTextureRegex = new(
-        @"new\s+Texture2D\s*\([^()]*,\s*1\s*,\s*1",
+    // Locates the start of Texture2D constructor calls; the argument check
+    // itself is done by HasOneByOneDimensions (argument-level, not regex).
+    private static readonly Regex Texture2DNewRegex = new(
+        @"new\s+Texture2D\s*\(",
         RegexOptions.Compiled);
 
     // The untyped stage hand-off that StageTransitionPayload replaced.
@@ -43,14 +50,6 @@ public sealed class Hpa796ArchitectureGuardTests
     // Dictionary<string, object?> telemetry stays out of scope.
     private static readonly Regex UntypedStageHandOffRegex = new(
         @"\bDictionary\s*<\s*string\s*,\s*object\s*>",
-        RegexOptions.Compiled);
-
-    private static readonly Regex BlockCommentRegex = new(
-        @"/\*.*?\*/",
-        RegexOptions.Compiled | RegexOptions.Singleline);
-
-    private static readonly Regex LineCommentRegex = new(
-        @"//[^\r\n]*",
         RegexOptions.Compiled);
 
     [Fact]
@@ -76,10 +75,9 @@ public sealed class Hpa796ArchitectureGuardTests
 
         var offenders = ReadGameSources()
             .Where(file => !allowedFiles.Contains(file.RelativePath))
-            .SelectMany(file => FindMatches(
-                RawOneByOneTextureRegex,
-                StripComments(file.Source),
-                file.RelativePath))
+            .SelectMany(file => FindRawOneByOneTextureInstantiationLines(
+                StripCommentsAndLiteralContents(file.Source))
+                .Select(offender => $"{file.RelativePath}:{offender.Line}: {offender.Snippet}"))
             .ToArray();
 
         Assert.True(offenders.Length == 0,
@@ -103,7 +101,7 @@ public sealed class Hpa796ArchitectureGuardTests
             .Where(file => guardedFiles.Contains(file.RelativePath))
             .SelectMany(file => FindMatches(
                 UntypedStageHandOffRegex,
-                StripComments(file.Source),
+                StripCommentsAndLiteralContents(file.Source),
                 file.RelativePath))
             .ToArray();
 
@@ -135,7 +133,7 @@ public sealed class Hpa796ArchitectureGuardTests
         var offenders = sources
             .SelectMany(file => FindMatches(
                 pattern,
-                StripComments(file.Source),
+                StripCommentsAndLiteralContents(file.Source),
                 file.RelativePath))
             .ToArray();
 
@@ -159,15 +157,207 @@ public sealed class Hpa796ArchitectureGuardTests
             .ToArray();
     }
 
-    // Comments are removed so documented intent cannot trip the guards and
-    // commented-out code cannot hide from them. Newline counts are preserved
-    // so reported line numbers stay accurate.
-    private static string StripComments(string source)
+    // A small string-aware lexical pass: comments and literal contents are
+    // blanked to whitespace (delimiters and newlines kept), so comment
+    // markers inside literals cannot hide real code, stripped comments
+    // cannot merge neighbouring tokens, a "/*" inside a line comment cannot
+    // open a block over code, guard-relevant text inside message strings
+    // cannot trip the regex guards, and documented intent plus
+    // commented-out code stay inert while line numbers stay accurate.
+    // Known cheap-guard limit: combined interpolated+verbatim prefixes
+    // (@$"…" / $@"…") are lexed as plain strings, and interpolated holes
+    // containing string literals close the literal early; worst case is a
+    // false negative, never a false positive.
+    internal static string StripCommentsAndLiteralContents(string source)
     {
-        var withoutBlockComments = BlockCommentRegex.Replace(
-            source,
-            match => new string('\n', match.Value.Count(c => c == '\n')));
-        return LineCommentRegex.Replace(withoutBlockComments, string.Empty);
+        var output = source.ToCharArray();
+        var position = 0;
+        while (position < source.Length)
+        {
+            var c = source[position];
+            if (c == '/' && Peek(source, position + 1) == '/')
+            {
+                while (position < source.Length && source[position] != '\n')
+                    output[position++] = ' ';
+            }
+            else if (c == '/' && Peek(source, position + 1) == '*')
+            {
+                output[position++] = ' ';
+                output[position++] = ' ';
+                while (position < source.Length)
+                {
+                    var commentChar = source[position];
+                    if (commentChar == '*' && Peek(source, position + 1) == '/')
+                    {
+                        output[position++] = ' ';
+                        output[position++] = ' ';
+                        break;
+                    }
+
+                    output[position++] = commentChar == '\n' ? '\n' : ' ';
+                }
+            }
+            else if (c == '"')
+            {
+                var quoteRunLength = CountQuoteRun(source, position);
+                position = quoteRunLength >= 3
+                    ? BlankRawStringContents(source, output, position, quoteRunLength)
+                    : BlankQuotedLiteral(source, output, position, isVerbatim: false);
+            }
+            else if (c == '\'')
+            {
+                position = BlankQuotedLiteral(source, output, position, isVerbatim: false);
+            }
+            else if (c == '@' && Peek(source, position + 1) == '"')
+            {
+                position = BlankQuotedLiteral(source, output, position + 1, isVerbatim: true);
+            }
+            else
+            {
+                position++;
+            }
+        }
+
+        return new string(output);
+    }
+
+    internal static IReadOnlyList<(int Line, string Snippet)> FindRawOneByOneTextureInstantiationLines(
+        string source)
+    {
+        var offenders = new List<(int Line, string Snippet)>();
+        foreach (Match match in Texture2DNewRegex.Matches(source))
+        {
+            if (!HasOneByOneDimensions(source, match.Index + match.Length - 1))
+                continue;
+
+            var lineNumber = 1 + source.AsSpan(0, match.Index).Count('\n');
+            offenders.Add((lineNumber, "new Texture2D(..., 1, 1)"));
+        }
+
+        return offenders;
+    }
+
+    // Parses the full constructor argument list (balanced parens, top-level
+    // commas) so the 1x1 check is anchored to the width/height argument
+    // positions and requires a real argument boundary: "…, 1, 128)" or
+    // "…, 11, 1)" never match, and "…, 1, 1, false, format" does. Runs on
+    // stripped source, so literals cannot smuggle parens or commas.
+    private static bool HasOneByOneDimensions(string source, int openParen)
+    {
+        var arguments = new List<string>();
+        var current = new StringBuilder();
+        var depth = 1;
+        for (var position = openParen + 1; position < source.Length; position++)
+        {
+            var c = source[position];
+            if (c == '(')
+            {
+                depth++;
+            }
+            else if (c == ')')
+            {
+                if (--depth == 0)
+                {
+                    arguments.Add(current.ToString());
+                    return arguments.Count >= 3
+                        && arguments[1].Trim() == "1"
+                        && arguments[2].Trim() == "1";
+                }
+            }
+            else if (c == ',' && depth == 1)
+            {
+                arguments.Add(current.ToString());
+                current.Clear();
+            }
+            else
+            {
+                current.Append(c);
+            }
+        }
+
+        return false; // unterminated constructor call
+    }
+
+    private static char Peek(string source, int index) =>
+        index < source.Length ? source[index] : '\0';
+
+    private static int CountQuoteRun(string source, int start)
+    {
+        var end = start;
+        while (end < source.Length && source[end] == '"')
+            end++;
+        return end - start;
+    }
+
+    // Blanks the contents between the opening quote at openQuote and its
+    // closing delimiter, keeping the delimiters themselves ("\n" preserved).
+    private static int BlankQuotedLiteral(
+        string source,
+        char[] output,
+        int openQuote,
+        bool isVerbatim)
+    {
+        var closing = source[openQuote];
+        var position = openQuote + 1;
+        while (position < source.Length)
+        {
+            var c = source[position];
+            if (c == '\\' && !isVerbatim)
+            {
+                output[position] = ' ';
+                if (position + 1 < source.Length)
+                    output[position + 1] = ' ';
+                position += 2;
+                continue;
+            }
+
+            if (c == closing)
+            {
+                if (isVerbatim && Peek(source, position + 1) == '"')
+                {
+                    output[position++] = ' ';
+                    output[position++] = ' ';
+                    continue;
+                }
+
+                return position + 1;
+            }
+
+            output[position++] = c == '\n' ? '\n' : ' ';
+        }
+
+        return position; // unterminated literal: blanked to end of file
+    }
+
+    // Blanks the contents of a raw string whose delimiter is quoteRunLength
+    // quotes; the opening run is already copied through, the closing run
+    // (first quote run of at least that length) is kept verbatim.
+    private static int BlankRawStringContents(
+        string source,
+        char[] output,
+        int openQuote,
+        int quoteRunLength)
+    {
+        var position = openQuote + quoteRunLength;
+        while (position < source.Length)
+        {
+            if (source[position] == '"')
+            {
+                var runEnd = CountQuoteRun(source, position);
+                if (runEnd >= quoteRunLength)
+                    return position + runEnd;
+
+                for (var i = position; i < position + runEnd; i++)
+                    output[i] = ' ';
+                position += runEnd;
+                continue;
+            }
+
+            output[position] = source[position] == '\n' ? '\n' : ' ';
+            position++;
+        }
+
+        return position; // unterminated raw string: blanked to end of file
     }
 
     private static string FindGameDirectory()
