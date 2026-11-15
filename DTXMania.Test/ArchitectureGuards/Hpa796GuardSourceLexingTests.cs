@@ -136,4 +136,80 @@ public sealed class Hpa796GuardSourceLexingTests
         Assert.Single(matches);
         Assert.Equal(1, matches[0].Line);
     }
+
+    // --- review finding round 2: interpolation holes ---
+
+    [Fact]
+    public void StripComments_ShouldPreserveInterpolationHoleExpression()
+    {
+        // The hole expression is real code: it must survive stripping so the
+        // texture guard can see the prohibited allocation.
+        var stripped = Strip("var text = $\"{new Texture2D(device, 1, 1)}\";");
+
+        Assert.Contains("new Texture2D(device, 1, 1)", stripped);
+    }
+
+    [Fact]
+    public void TextureScan_ShouldCatchOneByOneAllocationInsideInterpolatedHole()
+    {
+        var matches =
+            Hpa796ArchitectureGuardTests.FindRawOneByOneTextureInstantiationLines(
+                Strip("var text = $\"{new Texture2D(device, 1, 1)}\";"));
+
+        Assert.Single(matches);
+    }
+
+    [Fact]
+    public void StripComments_ShouldBlankNestedLiteralInsideInterpolatedHole()
+    {
+        // The inner opening quote must not end the outer string scan and
+        // expose the nested literal as apparent executable code.
+        var stripped = Strip("var text = $\"{Echo(\"Debug.WriteLine\")}\";");
+
+        Assert.DoesNotContain("Debug.WriteLine", stripped);
+        Assert.Contains("Echo(", stripped);
+    }
+
+    [Fact]
+    public void StripComments_ShouldKeepCodeAfterInterpolatedStringWithNestedLiteral()
+    {
+        var stripped = Strip("var text = $\"{Echo(\"Debug.WriteLine\")}\";\nTrace.Write(\"x\");");
+
+        Assert.Contains("Trace.Write(", stripped);
+    }
+
+    [Fact]
+    public void StripComments_ShouldTreatDoubledBracesAsLiteralInInterpolatedString()
+    {
+        var stripped = Strip("var s = $\"{{not code}}\"; Debug.WriteLine(\"x\");");
+
+        Assert.DoesNotContain("not code", stripped);
+        Assert.Contains("Debug.WriteLine(", stripped);
+    }
+
+    [Fact]
+    public void StripComments_ShouldKeepScanningAfterFormatSpecifierHole()
+    {
+        var stripped = Strip("var s = $\"{value:N2}\"; Debug.WriteLine(\"x\");");
+
+        Assert.Contains("Debug.WriteLine(", stripped);
+    }
+
+    [Fact]
+    public void StripComments_ShouldPreserveHoleInsideRawInterpolatedString()
+    {
+        var stripped =
+            Strip("var s = $\"\"\"{new Texture2D(device, 1, 1)}\"\"\";");
+
+        Assert.Contains("new Texture2D(device, 1, 1)", stripped);
+    }
+
+    [Fact]
+    public void StripComments_ShouldPreserveHoleInsideVerbatimInterpolatedString()
+    {
+        var stripped =
+            Strip("var s = $@\"a\"\"{new Texture2D(device, 1, 1)}\"\"b\";");
+
+        Assert.Contains("new Texture2D(device, 1, 1)", stripped);
+    }
 }
