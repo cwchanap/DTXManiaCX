@@ -1,6 +1,6 @@
 # HPA-796 — Reviewed implementation plan (single PR)
 
-**Design:** [HPA-796 revised design](./2026-11-14-hpa-796-design.md)  
+**Design:** [HPA-796 revised design](../../proposals/2026-11-14-hpa-796-design.md)  
 **Review addressed:** https://github.com/cwchanap/DTXManiaCX/pull/240#pullrequestreview-5908533829  
 **Linear:** https://linear.app/cwchanap/issue/HPA-796/cleanup-log-through-ilogger-share-drawing-primitives-type-the-stage  
 **Branch:** `plan/hpa-796-logging-primitives-stage-payloads`  
