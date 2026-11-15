@@ -34,7 +34,6 @@ namespace DTXMania.Game.Lib.Stage
         // Song information
         private SongListNode _selectedSong;
         private int _selectedDifficulty;
-        private int _songId;
         
         // UI Components
         private UIManager _uiManager;
@@ -91,27 +90,15 @@ namespace DTXMania.Game.Lib.Stage
 
         #region Stage Lifecycle
 
-        public override void Activate(Dictionary<string, object> sharedData = null)
+        public override void Activate(StageTransitionPayload payload = null)
         {
-            base.Activate(sharedData);
-            
-            // Get song information from shared data
-            if (sharedData != null)
+            base.Activate(payload);
+
+            // Get song information from the typed play request
+            if (payload is SongPlayRequest request)
             {
-                if (sharedData.TryGetValue("selectedSong", out var songObj) && songObj is SongListNode song)
-                {
-                    _selectedSong = song;
-                }
-                
-                if (sharedData.TryGetValue("selectedDifficulty", out var difficultyObj) && difficultyObj is int difficulty)
-                {
-                    _selectedDifficulty = difficulty;
-                }
-                
-                if (sharedData.TryGetValue("songId", out var songIdObj) && songIdObj is int songId)
-                {
-                    _songId = songId;
-                }
+                _selectedSong = request.Song;
+                _selectedDifficulty = request.Difficulty;
             }
             
             // Initialize graphics resources
@@ -1185,23 +1172,15 @@ namespace DTXMania.Game.Lib.Stage
 
         private void PerformTransition()
         {
-            // Create shared data for performance stage
-            var sharedData = new Dictionary<string, object>();
+            // Forward the play request, attaching the chart parsed during this transition
+            SongPlayRequest request = null;
             if (_selectedSong != null)
             {
-                sharedData["selectedSong"] = _selectedSong;
-                sharedData["selectedDifficulty"] = _selectedDifficulty;
-                sharedData["songId"] = _songId;
-
-                // Pass parsed chart data if available
-                if (_parsedChart != null)
-                {
-                    sharedData["parsedChart"] = _parsedChart;
-                }
+                request = new SongPlayRequest(_selectedSong, _selectedDifficulty) with { Chart = _parsedChart };
             }
-            
+
             // Transition to performance stage immediately
-            StageManager?.ChangeStage(StageType.Performance, new InstantTransition(), sharedData);
+            StageManager?.ChangeStage(StageType.Performance, new InstantTransition(), request);
         }
 
         #endregion

@@ -19,7 +19,7 @@ namespace DTXMania.Game.Lib.Stage
         protected StagePhase _currentPhase = StagePhase.Inactive;
         protected bool _disposed = false;
         protected bool _isFirstUpdate = true;
-        protected Dictionary<string, object> _sharedData;
+        protected StageTransitionPayload _transitionPayload;
 
         // Background system
         private ITexture _stageBackgroundTexture;
@@ -56,15 +56,15 @@ namespace DTXMania.Game.Lib.Stage
             Activate(null);
         }
 
-        public virtual void Activate(Dictionary<string, object> sharedData)
+        public virtual void Activate(StageTransitionPayload payload)
         {
             if (_currentPhase != StagePhase.Inactive)
             {
                 return;
             }
 
-            // Store shared data
-            _sharedData = sharedData ?? new Dictionary<string, object>();
+            // Store typed transition payload
+            _transitionPayload = payload;
 
             // Reset state
             _isFirstUpdate = true;
@@ -94,7 +94,7 @@ namespace DTXMania.Game.Lib.Stage
             // Reset state
             _currentPhase = StagePhase.Inactive;
             _isFirstUpdate = true;
-            _sharedData?.Clear();
+            _transitionPayload = null;
         }
 
         public virtual void Update(double deltaTime)
@@ -194,44 +194,6 @@ namespace DTXMania.Game.Lib.Stage
         #region Protected Helper Methods
 
         /// <summary>
-        /// Get shared data of specified type
-        /// </summary>
-        protected T GetSharedData<T>(string key, T defaultValue = default(T))
-        {
-            if (string.IsNullOrEmpty(key) || _sharedData == null || !_sharedData.ContainsKey(key))
-                return defaultValue;
-
-            try
-            {
-                return (T)_sharedData[key];
-            }
-            catch
-            {
-                return defaultValue;
-            }
-        }
-
-        /// <summary>
-        /// Set shared data
-        /// </summary>
-        protected void SetSharedData(string key, object value)
-        {
-            if (string.IsNullOrEmpty(key))
-                return;
-
-            _sharedData ??= new Dictionary<string, object>();
-            _sharedData[key] = value;
-        }
-
-        /// <summary>
-        /// Check if shared data exists
-        /// </summary>
-        protected bool HasSharedData(string key)
-        {
-            return !string.IsNullOrEmpty(key) && _sharedData != null && _sharedData.ContainsKey(key);
-        }
-
-        /// <summary>
         /// Change to another stage with optional transition
         /// </summary>
         protected void ChangeStage(StageType stageType, IStageTransition transition = null)
@@ -240,11 +202,11 @@ namespace DTXMania.Game.Lib.Stage
         }
 
         /// <summary>
-        /// Change to another stage with shared data
+        /// Change to another stage with a typed transition payload
         /// </summary>
-        protected void ChangeStage(StageType stageType, IStageTransition transition, Dictionary<string, object> sharedData)
+        protected void ChangeStage(StageType stageType, IStageTransition transition, StageTransitionPayload payload)
         {
-            StageManager?.ChangeStage(stageType, transition ?? new InstantTransition(), sharedData);
+            StageManager?.ChangeStage(stageType, transition ?? new InstantTransition(), payload);
         }
 
         #endregion
@@ -386,9 +348,8 @@ namespace DTXMania.Game.Lib.Stage
                 Deactivate();
             }
 
-            // Clear shared data
-            _sharedData?.Clear();
-            _sharedData = null;
+            // Clear transition payload
+            _transitionPayload = null;
                 }
                 _disposed = true;
             }

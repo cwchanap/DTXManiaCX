@@ -663,10 +663,10 @@ namespace DTXMania.Test.Stage
                 x => x.ChangeStage(
                     StageType.SongTransition,
                     It.Is<IStageTransition>(transition => transition is InstantTransition),
-                    It.Is<Dictionary<string, object>>(sharedData =>
-                        ReferenceEquals(sharedData["selectedSong"], song) &&
-                        (int)sharedData["selectedDifficulty"] == 2 &&
-                        (int)sharedData["songId"] == 17)),
+                    It.Is<SongPlayRequest>(request =>
+                        ReferenceEquals(request.Song, song) &&
+                        request.Difficulty == 2 &&
+                        request.Song.DatabaseSongId == 17)),
                 Times.Once);
             Assert.Equal(2.0, GetPrivateField<double>(game, "_lastStageTransitionTime"));
         }
@@ -686,7 +686,7 @@ namespace DTXMania.Test.Stage
                 x => x.ChangeStage(
                     It.IsAny<StageType>(),
                     It.IsAny<IStageTransition>(),
-                    It.IsAny<Dictionary<string, object>>()),
+                    It.IsAny<StageTransitionPayload>()),
                 Times.Never);
         }
 
@@ -711,7 +711,7 @@ namespace DTXMania.Test.Stage
                 x => x.ChangeStage(
                     StageType.SongTransition,
                     It.IsAny<IStageTransition>(),
-                    It.Is<Dictionary<string, object>>(sharedData => ReferenceEquals(sharedData["selectedSong"], song))),
+                    It.Is<SongPlayRequest>(request => ReferenceEquals(request.Song, song))),
                 Times.Once);
         }
 
@@ -736,7 +736,7 @@ namespace DTXMania.Test.Stage
                 x => x.ChangeStage(
                     It.IsAny<StageType>(),
                     It.IsAny<IStageTransition>(),
-                    It.IsAny<Dictionary<string, object>>()),
+                    It.IsAny<StageTransitionPayload>()),
                 Times.Never);
         }
 
@@ -791,7 +791,7 @@ namespace DTXMania.Test.Stage
                 x => x.ChangeStage(
                     StageType.SongTransition,
                     It.IsAny<IStageTransition>(),
-                    It.Is<Dictionary<string, object>>(sharedData => ReferenceEquals(sharedData["selectedSong"], song))),
+                    It.Is<SongPlayRequest>(request => ReferenceEquals(request.Song, song))),
                 Times.Once);
         }
 
@@ -820,7 +820,7 @@ namespace DTXMania.Test.Stage
                 x => x.ChangeStage(
                     StageType.SongTransition,
                     It.IsAny<IStageTransition>(),
-                    It.Is<Dictionary<string, object>>(sharedData => ReferenceEquals(sharedData["selectedSong"], song))),
+                    It.Is<SongPlayRequest>(request => ReferenceEquals(request.Song, song))),
                 Times.Once);
         }
 
@@ -1146,7 +1146,7 @@ namespace DTXMania.Test.Stage
                 x => x.ChangeStage(
                     StageType.SongTransition,
                     It.IsAny<IStageTransition>(),
-                    It.Is<Dictionary<string, object>>(sharedData => ReferenceEquals(sharedData["selectedSong"], selectedSong))),
+                    It.Is<SongPlayRequest>(request => ReferenceEquals(request.Song, selectedSong))),
                 Times.Once);
         }
 
@@ -1187,7 +1187,7 @@ namespace DTXMania.Test.Stage
                 x => x.ChangeStage(
                     It.IsAny<StageType>(),
                     It.IsAny<IStageTransition>(),
-                    It.IsAny<Dictionary<string, object>>()),
+                    It.IsAny<StageTransitionPayload>()),
                 Times.Never);
         }
 
@@ -1209,7 +1209,7 @@ namespace DTXMania.Test.Stage
                 x => x.ChangeStage(
                     It.IsAny<StageType>(),
                     It.IsAny<IStageTransition>(),
-                    It.IsAny<Dictionary<string, object>>()),
+                    It.IsAny<StageTransitionPayload>()),
                 Times.Never);
         }
 
@@ -2487,7 +2487,7 @@ namespace DTXMania.Test.Stage
                 x => x.ChangeStage(
                     StageType.SongTransition,
                     It.IsAny<IStageTransition>(),
-                    It.Is<Dictionary<string, object>>(sharedData => ReferenceEquals(sharedData["selectedSong"], onlySong))),
+                    It.Is<SongPlayRequest>(request => ReferenceEquals(request.Song, onlySong))),
                 Times.Once);
         }
 
@@ -2506,7 +2506,7 @@ namespace DTXMania.Test.Stage
                 x => x.ChangeStage(
                     It.IsAny<StageType>(),
                     It.IsAny<IStageTransition>(),
-                    It.IsAny<Dictionary<string, object>>()),
+                    It.IsAny<StageTransitionPayload>()),
                 Times.Never);
         }
 
@@ -2525,7 +2525,7 @@ namespace DTXMania.Test.Stage
                 x => x.ChangeStage(
                     It.IsAny<StageType>(),
                     It.IsAny<IStageTransition>(),
-                    It.IsAny<Dictionary<string, object>>()),
+                    It.IsAny<StageTransitionPayload>()),
                 Times.Never);
         }
 
@@ -3398,10 +3398,10 @@ namespace DTXMania.Test.Stage
                 x => x.ChangeStage(
                     StageType.SongTransition,
                     It.Is<IStageTransition>(t => t is InstantTransition),
-                    It.Is<Dictionary<string, object>>(d =>
-                        ReferenceEquals(d["selectedSong"], selectedSong) &&
-                        (int)d["selectedDifficulty"] == 1 &&
-                        (int)d["songId"] == 99)),
+                    It.Is<SongPlayRequest>(request =>
+                        ReferenceEquals(request.Song, selectedSong) &&
+                        request.Difficulty == 1 &&
+                        request.Song.DatabaseSongId == 99)),
                 Times.Once);
         }
 
@@ -3420,7 +3420,7 @@ namespace DTXMania.Test.Stage
 
             Assert.True(GetPrivateField<bool>(stage, "_isInStatusPanel"));
             stageManager.Verify(
-                x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
+                x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()),
                 Times.Never);
         }
 
@@ -3438,7 +3438,7 @@ namespace DTXMania.Test.Stage
 
             Assert.True(GetPrivateField<bool>(stage, "_isInStatusPanel"));
             stageManager.Verify(
-                x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
+                x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()),
                 Times.Never);
         }
 
@@ -3627,10 +3627,10 @@ namespace DTXMania.Test.Stage
                 x => x.ChangeStage(
                     StageType.SongTransition,
                     It.Is<IStageTransition>(t => t is InstantTransition),
-                    It.Is<Dictionary<string, object>>(d =>
-                        ReferenceEquals(d["selectedSong"], song) &&
-                        (int)d["selectedDifficulty"] == 2 &&
-                        (int)d["songId"] == 17)),
+                    It.Is<SongPlayRequest>(request =>
+                        ReferenceEquals(request.Song, song) &&
+                        request.Difficulty == 2 &&
+                        request.Song.DatabaseSongId == 17)),
                 Times.Once);
             Assert.Equal(2.0, GetPrivateField<double>(game, "_lastStageTransitionTime"));
         }
@@ -3647,7 +3647,7 @@ namespace DTXMania.Test.Stage
             InvokePrivateMethod(stage, "SelectSong", new object?[] { null });
 
             stageManager.Verify(
-                x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
+                x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()),
                 Times.Never);
         }
 
@@ -3664,7 +3664,7 @@ namespace DTXMania.Test.Stage
             InvokePrivateMethod(stage, "SelectSong", box);
 
             stageManager.Verify(
-                x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
+                x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()),
                 Times.Never);
         }
 
@@ -3680,7 +3680,7 @@ namespace DTXMania.Test.Stage
             InvokePrivateMethod(stage, "SelectSong", CreateScoreNode("Song", songId: 12));
 
             stageManager.Verify(
-                x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
+                x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()),
                 Times.Never);
         }
 
@@ -3705,7 +3705,7 @@ namespace DTXMania.Test.Stage
                 x => x.ChangeStage(
                     StageType.SongTransition,
                     It.IsAny<IStageTransition>(),
-                    It.Is<Dictionary<string, object>>(d => ReferenceEquals(d["selectedSong"], song))),
+                    It.Is<SongPlayRequest>(request => ReferenceEquals(request.Song, song))),
                 Times.Once);
         }
 
@@ -3732,7 +3732,7 @@ namespace DTXMania.Test.Stage
                 x => x.ChangeStage(
                     StageType.SongTransition,
                     It.IsAny<IStageTransition>(),
-                    It.Is<Dictionary<string, object>>(d => ReferenceEquals(d["selectedSong"], directSong))),
+                    It.Is<SongPlayRequest>(request => ReferenceEquals(request.Song, directSong))),
                 Times.Once);
         }
 
@@ -3762,7 +3762,7 @@ namespace DTXMania.Test.Stage
                 x => x.ChangeStage(
                     StageType.SongTransition,
                     It.IsAny<IStageTransition>(),
-                    It.Is<Dictionary<string, object>>(d => ReferenceEquals(d["selectedSong"], directSong))),
+                    It.Is<SongPlayRequest>(request => ReferenceEquals(request.Song, directSong))),
                 Times.Once);
         }
 
@@ -3790,7 +3790,7 @@ namespace DTXMania.Test.Stage
                 x => x.ChangeStage(
                     It.IsAny<StageType>(),
                     It.IsAny<IStageTransition>(),
-                    It.IsAny<Dictionary<string, object>>()),
+                    It.IsAny<StageTransitionPayload>()),
                 Times.Never);
         }
 
@@ -3819,9 +3819,9 @@ namespace DTXMania.Test.Stage
                 x => x.ChangeStage(
                     StageType.SongTransition,
                     It.IsAny<IStageTransition>(),
-                    It.Is<Dictionary<string, object>>(d =>
-                        ReferenceEquals(d["selectedSong"], nestedSong) &&
-                        (int)d["selectedDifficulty"] == 99)),
+                    It.Is<SongPlayRequest>(request =>
+                        ReferenceEquals(request.Song, nestedSong) &&
+                        request.Difficulty == 99)),
                 Times.Once);
         }
 
@@ -3845,7 +3845,7 @@ namespace DTXMania.Test.Stage
                 x => x.ChangeStage(
                     It.IsAny<StageType>(),
                     It.IsAny<IStageTransition>(),
-                    It.IsAny<Dictionary<string, object>>()),
+                    It.IsAny<StageTransitionPayload>()),
                 Times.Never);
         }
 
@@ -3862,7 +3862,7 @@ namespace DTXMania.Test.Stage
             InvokePrivateMethod(stage, "SelectRandomSong");
 
             stageManager.Verify(
-                x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
+                x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()),
                 Times.Never);
         }
 
@@ -4051,7 +4051,7 @@ namespace DTXMania.Test.Stage
                 x => x.ChangeStage(
                     StageType.SongTransition,
                     It.IsAny<IStageTransition>(),
-                    It.Is<Dictionary<string, object>>(d => ReferenceEquals(d["selectedSong"], song))),
+                    It.Is<SongPlayRequest>(request => ReferenceEquals(request.Song, song))),
                 Times.Once);
         }
 
@@ -4072,7 +4072,7 @@ namespace DTXMania.Test.Stage
                 x => x.ChangeStage(
                     StageType.SongTransition,
                     It.IsAny<IStageTransition>(),
-                    It.Is<Dictionary<string, object>>(d => ReferenceEquals(d["selectedSong"], song))),
+                    It.Is<SongPlayRequest>(request => ReferenceEquals(request.Song, song))),
                 Times.Once);
         }
 

@@ -530,7 +530,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
 
         Assert.False(result.Success);
         Assert.NotNull(GetPrivateField<object>(stage, "_preparedChartSelection"));
-        stageManager.Verify(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()), Times.Never);
+        stageManager.Verify(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()), Times.Never);
     }
 
     [Fact]
@@ -552,7 +552,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
         Assert.False(result.Success);
         Assert.NotNull(GetPrivateField<object>(stage, "_preparedChartSelection"));
         Assert.Equal("Prepared", GetPrivateField<object>(stage, "_preparedPreviewState")?.ToString());
-        stageManager.Verify(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()), Times.Never);
+        stageManager.Verify(x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()), Times.Never);
     }
 
     [Fact]
@@ -576,10 +576,9 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
             x => x.ChangeStage(
                 StageType.SongTransition,
                 It.Is<IStageTransition>(transition => transition is InstantTransition),
-                It.Is<Dictionary<string, object>>(data =>
-                    ReferenceEquals(data["selectedSong"], node)
-                    && (int)data["selectedDifficulty"] == 0
-                    && (int)data["songId"] == 902)),
+                It.Is<SongPlayRequest>(request =>
+                    ReferenceEquals(request.Song, node)
+                    && request.Difficulty == 0)),
             Times.Once);
     }
 
@@ -718,7 +717,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
         Assert.False(result.Success);
         Assert.Equal("No prepared chart is available.", result.Error);
         stageManager.Verify(
-            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
+            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()),
             Times.Never);
     }
 
@@ -742,7 +741,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
         Assert.Equal("The prepared chart is no longer selected.", result.Error);
         Assert.NotNull(GetPrivateField<object>(stage, "_preparedChartSelection"));
         stageManager.Verify(
-            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
+            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()),
             Times.Never);
     }
 
@@ -806,7 +805,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
         Assert.True(result.Success);
         Assert.Null(GetPrivateField<object>(stage, "_preparedChartSelection"));
         stageManager.Verify(
-            x => x.ChangeStage(StageType.SongTransition, It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
+            x => x.ChangeStage(StageType.SongTransition, It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()),
             Times.Once);
     }
 
@@ -1033,7 +1032,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
         InvokePrivateMethod(stage, "SelectSong", (SongListNode?)null);
 
         stageManager.Verify(
-            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
+            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()),
             Times.Never);
     }
 
@@ -1049,7 +1048,7 @@ public sealed class SongSelectionStagePreparedChartLifecycleTests
         InvokePrivateMethod(stage, "SelectSong", box);
 
         stageManager.Verify(
-            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<Dictionary<string, object>>()),
+            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()),
             Times.Never);
     }
 

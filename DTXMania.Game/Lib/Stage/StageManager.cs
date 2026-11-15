@@ -36,7 +36,7 @@ namespace DTXMania.Game.Lib.Stage
         // Transition state
         private bool _isTransitioning = false;
         private StageType _targetStageType;
-        private Dictionary<string, object> _pendingSharedData;
+        private StageTransitionPayload _pendingPayload;
 
         public IStage CurrentStage => _currentStage;
         public StagePhase CurrentPhase => _currentStage?.CurrentPhase ?? StagePhase.Inactive;
@@ -96,7 +96,7 @@ namespace DTXMania.Game.Lib.Stage
             ChangeStage(stageType, transition, null);
         }
 
-        public void ChangeStage(StageType stageType, IStageTransition transition, Dictionary<string, object> sharedData)
+        public void ChangeStage(StageType stageType, IStageTransition transition, StageTransitionPayload payload)
         {
             if (_disposed)
             {
@@ -119,7 +119,7 @@ namespace DTXMania.Game.Lib.Stage
             
             // Store transition information
             _targetStageType = stageType;
-            _pendingSharedData = sharedData;
+            _pendingPayload = payload;
             _currentTransition = transition ?? new InstantTransition();
             _isTransitioning = true;
 
@@ -137,11 +137,11 @@ namespace DTXMania.Game.Lib.Stage
             var transitionTypeName = _currentTransition.GetType().Name;
             var fadeOutAlpha = _currentTransition.GetFadeOutAlpha();
             var fadeInAlpha = _currentTransition.GetFadeInAlpha();
-            var sharedDataCount = sharedData?.Count ?? 0;
+            var payloadTypeName = payload?.GetType().Name ?? "none";
 
             _logger.LogDebug("Transition: {TransitionType} (Duration: {Duration:F3}s, FadeOut: {FadeOutAlpha:F3}, FadeIn: {FadeInAlpha:F3})",
                 transitionTypeName, _currentTransition.Duration, fadeOutAlpha, fadeInAlpha);
-            _logger.LogDebug("SharedData: {SharedDataCount} items", sharedDataCount);
+            _logger.LogDebug("Payload: {PayloadType}", payloadTypeName);
 
             // Start transition
             _currentTransition.Start();
@@ -233,7 +233,7 @@ namespace DTXMania.Game.Lib.Stage
             var newStage = GetOrCreateStage(_targetStageType);
             _currentStage = newStage;
             _logger.LogDebug("Activating new stage: {StageType}", _targetStageType);
-            _currentStage.Activate(_pendingSharedData);
+            _currentStage.Activate(_pendingPayload);
             _currentStage.OnTransitionIn(_currentTransition);
             _currentStage.OnTransitionComplete();
 
@@ -251,7 +251,7 @@ namespace DTXMania.Game.Lib.Stage
             // Clean up transition state
             _isTransitioning = false;
             _currentTransition = null;
-            _pendingSharedData = null;
+            _pendingPayload = null;
             _previousStage = null;
 
             _logger.LogInformation("Stage transition to {StageType} completed", _targetStageType);
