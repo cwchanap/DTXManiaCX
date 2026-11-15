@@ -2694,8 +2694,13 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.InvokePrivateMethod(stage, "HandleInput");
 
         Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_inputPaused"));
+        // No transition may be issued on any ChangeStage overload while debounce blocks the exit.
+        stageManager.Verify(x => x.ChangeStage(It.IsAny<StageType>()), Times.Never);
         stageManager.Verify(
-            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload>()),
+            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>()),
+            Times.Never);
+        stageManager.Verify(
+            x => x.ChangeStage(It.IsAny<StageType>(), It.IsAny<IStageTransition>(), It.IsAny<StageTransitionPayload?>()),
             Times.Never);
     }
 

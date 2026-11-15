@@ -19,7 +19,10 @@ namespace DTXMania.Game.Lib.Stage
         protected StagePhase _currentPhase = StagePhase.Inactive;
         protected bool _disposed = false;
         protected bool _isFirstUpdate = true;
-        protected StageTransitionPayload _transitionPayload;
+        // Payload contract is nullability-annotated; the rest of this legacy file stays in its original (oblivious) nullable context.
+        #nullable enable
+        protected StageTransitionPayload? _transitionPayload;
+        #nullable restore
 
         // Background system
         private ITexture _stageBackgroundTexture;
@@ -56,7 +59,9 @@ namespace DTXMania.Game.Lib.Stage
             Activate(null);
         }
 
-        public virtual void Activate(StageTransitionPayload payload)
+        #nullable enable
+        public virtual void Activate(StageTransitionPayload? payload)
+        #nullable restore
         {
             if (_currentPhase != StagePhase.Inactive)
             {
@@ -204,7 +209,9 @@ namespace DTXMania.Game.Lib.Stage
         /// <summary>
         /// Change to another stage with a typed transition payload
         /// </summary>
-        protected void ChangeStage(StageType stageType, IStageTransition transition, StageTransitionPayload payload)
+        #nullable enable
+        protected void ChangeStage(StageType stageType, IStageTransition transition, StageTransitionPayload? payload)
+        #nullable restore
         {
             StageManager?.ChangeStage(stageType, transition ?? new InstantTransition(), payload);
         }

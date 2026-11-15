@@ -350,7 +350,7 @@ namespace DTXMania.Test.Stage
             public Action? UpdateAction { get; init; }
             public Action? DrawAction { get; init; }
 
-            public StageTransitionPayload LastPayload => _transitionPayload;
+            public StageTransitionPayload? LastPayload => _transitionPayload;
 
             public void ForwardChangeStage(StageType stageType, IStageTransition? transition = null)
             {

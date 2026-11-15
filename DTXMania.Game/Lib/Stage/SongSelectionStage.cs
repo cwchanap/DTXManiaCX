@@ -296,7 +296,10 @@ namespace DTXMania.Game.Lib.Stage
 
         #region Stage Lifecycle
 
-        public override void Activate(StageTransitionPayload payload = null)
+        // Payload contract is nullability-annotated; the rest of this legacy file stays in its original (oblivious) nullable context.
+        #nullable enable
+        public override void Activate(StageTransitionPayload? payload = null)
+        #nullable restore
         {
             base.Activate(payload);
 
