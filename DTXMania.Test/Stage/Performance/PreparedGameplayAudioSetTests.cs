@@ -820,6 +820,113 @@ namespace DTXMania.Test.Stage.Performance
         }
 
 
+        [Fact]
+        public async Task PrepareAsync_DefaultProfile_CorruptChip_ShouldReportEachFailedSourceOnceWithOriginalException()
+        {
+            var directory = CreateTempDirectory();
+            try
+            {
+                var corruptChipA = CreateSource(directory, "corrupt-a.wav");
+                var corruptChipB = CreateSource(directory, "corrupt-b.wav");
+                var healthyChip = CreateSource(directory, "healthy.wav");
+                var healthySound = new Mock<ISound>();
+                var failureA = new InvalidOperationException("Simulated corrupt chip A");
+                var failureB = new InvalidOperationException("Simulated corrupt chip B");
+                var reported = new List<(string Path, Exception Exception)>();
+
+                var prepared = await PreparedGameplayAudioSet.PrepareAsync(
+                    null,
+                    Array.Empty<string>(),
+                    new Dictionary<string, string>
+                    {
+                        ["01"] = corruptChipA,
+                        ["02"] = corruptChipB,
+                        ["03"] = healthyChip,
+                    },
+                    new PlaybackModifiers(100, 0),
+                    processor: null,
+                    cache: null,
+                    progress: null,
+                    CancellationToken.None,
+                    path => path switch
+                    {
+                        var p when p == corruptChipA => throw failureA,
+                        var p when p == corruptChipB => throw failureB,
+                        _ => healthySound.Object,
+                    },
+                    (artifact, path) => throw new InvalidOperationException(
+                        "Prepared factory should not run for default profile."),
+                    reportSoundLoadFailure: (path, exception) =>
+                        reported.Add((path, exception)));
+
+                // Each distinct failed source is reported exactly once, with the
+                // original exception instance preserved for the owner's logger.
+                Assert.Equal(2, reported.Count);
+                Assert.Contains((corruptChipA, (Exception)failureA), reported);
+                Assert.Contains((corruptChipB, (Exception)failureB), reported);
+
+                // Nonfatal fallback still holds: healthy loads survive the corrupt ones.
+                Assert.Null(prepared.MainBackground);
+                Assert.Single(prepared.ChipSoundsByWavId);
+                Assert.Same(healthySound.Object, prepared.ChipSoundsByWavId["03"]);
+
+                prepared.Dispose();
+            }
+            finally
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+
+        [Fact]
+        public async Task PrepareAsync_DefaultProfile_CorruptMainBgm_ShouldReportFailureOnceAndKeepSilentFallback()
+        {
+            var directory = CreateTempDirectory();
+            try
+            {
+                var mainPath = CreateSource(directory, "main.wav");
+                var chipPath = CreateSource(directory, "chip.wav");
+                var chipSound = new Mock<ISound>();
+                var failure = new InvalidOperationException("Simulated corrupt main BGM");
+                var reported = new List<(string Path, Exception Exception)>();
+
+                var prepared = await PreparedGameplayAudioSet.PrepareAsync(
+                    mainPath,
+                    Array.Empty<string>(),
+                    new Dictionary<string, string> { ["01"] = chipPath },
+                    new PlaybackModifiers(100, 0),
+                    processor: null,
+                    cache: null,
+                    progress: null,
+                    CancellationToken.None,
+                    path =>
+                    {
+                        if (path == mainPath)
+                            throw failure;
+                        return chipSound.Object;
+                    },
+                    (artifact, path) => throw new InvalidOperationException(
+                        "Prepared factory should not run for default profile."),
+                    reportSoundLoadFailure: (path, exception) =>
+                        reported.Add((path, exception)));
+
+                var report = Assert.Single(reported);
+                Assert.Equal(mainPath, report.Path);
+                Assert.Same(failure, report.Exception);
+
+                // Invariant #2: silent-clock fallback survives the report.
+                Assert.Null(prepared.MainBackground);
+                Assert.Single(prepared.ChipSoundsByWavId);
+                Assert.Same(chipSound.Object, prepared.ChipSoundsByWavId["01"]);
+
+                prepared.Dispose();
+            }
+            finally
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+
         private static string CreateSource(string directory, string name)
         {
             var path = Path.Combine(directory, name);

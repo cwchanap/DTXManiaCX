@@ -111,6 +111,7 @@ namespace DTXMania.Game.Lib.Stage
         private ISound? _metronomeBeatSound;
         private ISound? _metronomeAccentSound;
         private MetronomePlayer? _metronomePlayer;
+        private HashSet<ISound>? _metronomeFailureReportedSounds;
         private CancellationTokenSource? _initializationCts;
         private Task? _initializationTask;
         private int _activationGeneration;
@@ -313,6 +314,7 @@ namespace DTXMania.Game.Lib.Stage
         {
             var config = _game.ConfigManager.Config;
             _metronomeEnabled = config.Metronome;
+            ResetMetronomeFailureSuppression();
             _playbackModifiers = new PlaybackModifiers(
                 PlaySpeedRange.SnapAndClamp(config.PlaySpeedPercent),
                 PitchRange.SnapAndClamp(config.PitchSemitones));
@@ -560,7 +562,7 @@ namespace DTXMania.Game.Lib.Stage
             // HPA-796: acquire the cached white pixel BEFORE constructing renderers —
             // JudgementLineRenderer (and later the Tab HUD) borrow its raw texture.
             _fallbackWhiteTextureResource = _resourceManager.CreateTextureFromColor(Color.White);
-            _fallbackWhiteTexture = _fallbackWhiteTextureResource?.Texture;
+            _fallbackWhiteTexture = _fallbackWhiteTextureResource?.Texture!;
 
             // Initialize background renderer
             _backgroundRenderer = new BackgroundRenderer(_resourceManager);
@@ -749,7 +751,7 @@ namespace DTXMania.Game.Lib.Stage
             // renderer above was disposed.
             _fallbackWhiteTextureResource?.RemoveReference();
             _fallbackWhiteTextureResource = null;
-            _fallbackWhiteTexture = null;
+            _fallbackWhiteTexture = null!;
 
             foreach (var instance in _activeBgmInstances ?? Enumerable.Empty<SoundEffectInstance>())
             {
@@ -927,12 +929,12 @@ namespace DTXMania.Game.Lib.Stage
                 TaskScheduler.Default);
         }
 
-        private void FailLoading(string message)
+        private void FailLoading(string message, Exception? exception = null)
         {
             _isLoading = false;
             _isReady = false;
             _loadErrorMessage = message;
-            LogPerformanceError(message);
+            LogPerformanceError(message, exception);
         }
 
         private void OnScrollSpeedChanged(object? sender, ScrollSpeedChangedEventArgs e)
@@ -1022,7 +1024,11 @@ namespace DTXMania.Game.Lib.Stage
                     _playbackModifiers.IsDefault ? null : CreateAudioVariantProcessor(),
                     _playbackModifiers.IsDefault ? null : CreateAudioVariantCache(),
                     progress,
-                    cancellationToken);
+                    cancellationToken,
+                    reportSoundLoadFailure: (path, ex) =>
+                        LogPerformanceError(
+                            $"PerformanceStage: Gameplay audio load failed ({path})",
+                            ex));
 
                 lock (AudioLifecycleGate)
                 {
@@ -1075,7 +1081,7 @@ namespace DTXMania.Game.Lib.Stage
             catch (Exception ex)
             {
                 if (generation == _activationGeneration)
-                    FailLoading($"Audio preparation failed: {ex.Message}");
+                    FailLoading($"Audio preparation failed: {ex.Message}", ex);
                 if (throwOnFailure)
                     throw;
             }
@@ -1227,19 +1233,34 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
 
+        /// <summary>
+        /// Clears the once-per-run metronome failure suppression so each new
+        /// activation reports a persistently broken sound again instead of
+        /// staying silent for the rest of the process lifetime.
+        /// </summary>
+        private void ResetMetronomeFailureSuppression()
+        {
+            (_metronomeFailureReportedSounds ??= new HashSet<ISound>()).Clear();
+        }
+
         protected virtual void PlayMetronomeClick(BeatMarker marker)
         {
+            var sound = marker.IsMeasureStart
+                ? _metronomeAccentSound
+                : _metronomeBeatSound;
             try
             {
-                var sound = marker.IsMeasureStart
-                    ? _metronomeAccentSound
-                    : _metronomeBeatSound;
-
                 sound?.SoundEffect?.Play(1.0f, 0.0f, 0.0f);
             }
             catch (Exception ex)
             {
-                LogPerformanceError($"PerformanceStage: Metronome click playback failed: {ex.Message}");
+                // Report once per affected sound per run: a persistently failing
+                // metronome click must not fill the error log on every beat.
+                if (sound != null &&
+                    (_metronomeFailureReportedSounds ??= new HashSet<ISound>()).Add(sound))
+                {
+                    LogPerformanceError($"PerformanceStage: Metronome click playback failed: {ex.Message}", ex);
+                }
             }
         }
 
