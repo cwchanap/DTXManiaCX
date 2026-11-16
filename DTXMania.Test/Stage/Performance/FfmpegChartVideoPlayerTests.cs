@@ -126,7 +126,7 @@ namespace DTXMania.Test.Stage.Performance
             Assert.NotNull(video);
             Assert.Equal(64, video!.Width);
             Assert.Equal(48, video!.Height);
-            Assert.True(video!.FrameRate > 0, "Fixture frame rate must be usable.");
+            Assert.True(video!.RealFrameRate > 0, "Fixture frame rate must be usable.");
         }
 
         [Fact]
@@ -135,13 +135,13 @@ namespace DTXMania.Test.Stage.Performance
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
             var media = await FFProbe.AnalyseAsync(FixturePath, cancellationToken: cts.Token);
             var video = media.PrimaryVideoStream!;
-            var frameBytes = video.Width * video.Height * 4;
+            var frameBytes = video.Width!.Value * video.Height!.Value * 4;
 
             var queue = Channel.CreateBounded<VideoFrame>(
                 new BoundedChannelOptions(3) { FullMode = BoundedChannelFullMode.Wait });
             var sink = new VideoFramePipeSink(
-                video.Width, video.Height,
-                1000.0 / video.FrameRate,
+                video.Width!.Value, video.Height!.Value,
+                1000.0 / video.RealFrameRate,
                 queue.Writer,
                 cts.Token);
 
@@ -149,10 +149,10 @@ namespace DTXMania.Test.Stage.Performance
             var decodeTask = FFMpegArguments
                 .FromFileInput(FixturePath)
                 .OutputToPipe(sink, options => options
-                    .SelectStream(0, channel: FFMpegCore.Enums.Channel.Video)
-                    .DisableChannel(FFMpegCore.Enums.Channel.Audio)
+                    .WithMap(0, FFMpegCore.Enums.StreamType.Video, 0)
+                    .DisableAudio()
                     .WithVideoCodec("rawvideo")
-                    .ForcePixelFormat("rgba")
+                    .WithPixelFormat("rgba")
                     .ForceFormat("rawvideo"))
                 .CancellableThrough(cts.Token)
                 .ProcessAsynchronously();
@@ -176,7 +176,7 @@ namespace DTXMania.Test.Stage.Performance
             cts.Cancel();
             await pump;
 
-            Assert.True(completed);
+            Assert.True(completed.Success);
 
             Assert.True(frames.Count >= 2, $"Expected at least two RGBA frames, got {frames.Count}.");
             Assert.All(frames, frame => Assert.Equal(frameBytes, frame.Rgba.Length));

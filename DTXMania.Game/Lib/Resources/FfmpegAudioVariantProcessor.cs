@@ -643,8 +643,8 @@ namespace DTXMania.Game.Lib.Resources
                         }
 
                         metadata = NormalizeMetadata(
-                            audioStream.SampleRateHz,
-                            audioStream.Channels,
+                            audioStream.SampleRateHz ?? 0,
+                            audioStream.Channels ?? 0,
                             analysis.Duration);
                     }
                     catch (OperationCanceledException)

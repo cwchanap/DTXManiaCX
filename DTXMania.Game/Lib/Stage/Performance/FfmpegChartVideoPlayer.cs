@@ -59,7 +59,10 @@ namespace DTXMania.Game.Lib.Stage.Performance
             _generationToken = generationToken;
         }
 
-        public string GetFormat() => "rawvideo";
+        // v6 renamed GetFormat -> GetStreamArguments (used verbatim before the pipe
+        // target). Empty keeps the 5.x command line: ForceFormat("rawvideo") in the
+        // output options already supplies the format argument.
+        public string GetStreamArguments() => string.Empty;
 
         public async Task ReadAsync(Stream inputStream, CancellationToken cancellationToken)
         {
@@ -480,13 +483,13 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 var media = await FFProbe.AnalyseAsync(videoFilePath, cancellationToken: token)
                     .ConfigureAwait(false);
                 var video = media.PrimaryVideoStream;
-                if (video == null || video.Width <= 0 || video.Height <= 0 || video.FrameRate <= 0)
+                if (video == null || video.Width is not > 0 || video.Height is not > 0 || video.RealFrameRate <= 0)
                 {
                     _log?.Invoke($"Chart video has no usable video stream: {videoFilePath}");
                     return;
                 }
 
-                var frameIntervalMs = 1000.0 / video.FrameRate;
+                var frameIntervalMs = 1000.0 / video.RealFrameRate;
                 var queue = Channel.CreateBounded<VideoFrame>(
                     new BoundedChannelOptions(QueueCapacity)
                     {
@@ -508,20 +511,22 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     if (!token.IsCancellationRequested && ReferenceEquals(_generationCts, generationCts))
                     {
                         _generation = new GenerationState(
-                            queue.Reader, video.Width, video.Height, frameIntervalMs);
+                            queue.Reader, video.Width.Value, video.Height.Value, frameIntervalMs);
                     }
                 }
 
                 var sink = new VideoFramePipeSink(
-                    video.Width, video.Height, frameIntervalMs, queue.Writer, token);
+                    video.Width.Value, video.Height.Value, frameIntervalMs, queue.Writer, token);
 
                 var processor = FFMpegArguments
                     .FromFileInput(videoFilePath)
                     .OutputToPipe(sink, options => options
-                        .SelectStream(0, channel: FFMpegCore.Enums.Channel.Video)
-                        .DisableChannel(FFMpegCore.Enums.Channel.Audio)
+                        // v6: SelectStream/DisableChannel were replaced by
+                        // WithMap/DisableAudio with identical ffmpeg args.
+                        .WithMap(0, FFMpegCore.Enums.StreamType.Video, 0)
+                        .DisableAudio()
                         .WithVideoCodec("rawvideo")
-                        .ForcePixelFormat("rgba")
+                        .WithPixelFormat("rgba")
                         .ForceFormat("rawvideo"))
                     .CancellableThrough(out var cancel);
 
@@ -539,7 +544,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
                     .ProcessAsynchronously(throwOnError: false)
                     .ConfigureAwait(false);
 
-                if (!completed && !token.IsCancellationRequested)
+                if (!completed.Success && !token.IsCancellationRequested)
                 {
                     _log?.Invoke($"Chart video decode failed: {videoFilePath}");
                 }
