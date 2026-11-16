@@ -157,10 +157,6 @@ namespace DTXMania.Game.Lib.Song.Entities
                 }
 
             }
-            catch (Exception)
-            {
-                throw;
-            }
             finally
             {
                 _initializationSemaphore.Release();
@@ -261,34 +257,26 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// </summary>
         public virtual async Task PurgeDatabaseAsync()
         {
-            try
+            // Close any existing connections first
+            using (var context = new SongDbContext(_options))
             {
-                // Close any existing connections first
-                using (var context = new SongDbContext(_options))
-                {
-                    await context.Database.CloseConnectionAsync();
-                }
-
-                // Clear all pooled SQLite connections so the file is no longer locked
-                SqliteConnection.ClearAllPools();
-
-                // Delete the database file completely
-                if (File.Exists(_databasePath))
-                {
-                    File.Delete(_databasePath);
-                }
-                DeleteDatabaseFileSidecars(_databasePath);
-
-                // Reset initialization flag
-                lock (_initializationLock)
-                {
-                    _isInitialized = false;
-                }
-
+                await context.Database.CloseConnectionAsync();
             }
-            catch (Exception)
+
+            // Clear all pooled SQLite connections so the file is no longer locked
+            SqliteConnection.ClearAllPools();
+
+            // Delete the database file completely
+            if (File.Exists(_databasePath))
             {
-                throw;
+                File.Delete(_databasePath);
+            }
+            DeleteDatabaseFileSidecars(_databasePath);
+
+            // Reset initialization flag
+            lock (_initializationLock)
+            {
+                _isInitialized = false;
             }
         }
 
@@ -1110,73 +1098,39 @@ namespace DTXMania.Game.Lib.Song.Entities
                 }
             }
 
-            try
+            using var context = CreateContext();
+
+            // Check if a chart with this file path already exists
+            var existingChart = await context.SongCharts
+                .Include(c => c.Song)
+                .FirstOrDefaultAsync(c => c.FilePath == chart.FilePath);
+
+            if (existingChart != null)
             {
-                using var context = CreateContext();
+                // Song already exists. Hydrate the caller's parsed entity with the
+                // persisted id and bookmark so in-memory nodes built from it reflect
+                // real DB state after a rescan. Without the bookmark copy, a bookmarked
+                // song re-parsed during enumeration keeps its default IsBookmarked ==
+                // false, hiding the star marker and inverting the B-key toggle (it sets
+                // the bookmark instead of clearing it). The new-song branch below gets
+                // the id for free via EF change-tracking; this branch mirrors that.
+                song.Id = existingChart.SongId;
+                if (existingChart.Song != null)
+                    song.IsBookmarked = existingChart.Song.IsBookmarked;
+                return existingChart.SongId;
+            }
 
-                // Check if a chart with this file path already exists
-                var existingChart = await context.SongCharts
-                    .Include(c => c.Song)
-                    .FirstOrDefaultAsync(c => c.FilePath == chart.FilePath);
+            // Check if a song with the same title and artist already exists
+            var existingSong = await context.Songs
+                .FirstOrDefaultAsync(s => s.Title == song.Title && s.Artist == song.Artist);
 
-                if (existingChart != null)
-                {
-                    // Song already exists. Hydrate the caller's parsed entity with the
-                    // persisted id and bookmark so in-memory nodes built from it reflect
-                    // real DB state after a rescan. Without the bookmark copy, a bookmarked
-                    // song re-parsed during enumeration keeps its default IsBookmarked ==
-                    // false, hiding the star marker and inverting the B-key toggle (it sets
-                    // the bookmark instead of clearing it). The new-song branch below gets
-                    // the id for free via EF change-tracking; this branch mirrors that.
-                    song.Id = existingChart.SongId;
-                    if (existingChart.Song != null)
-                        song.IsBookmarked = existingChart.Song.IsBookmarked;
-                    return existingChart.SongId;
-                }
-
-                // Check if a song with the same title and artist already exists
-                var existingSong = await context.Songs
-                    .FirstOrDefaultAsync(s => s.Title == song.Title && s.Artist == song.Artist);
-
-                if (existingSong != null)
-                {
-                    // Song exists, add chart to existing song. Mirror the persisted id and
-                    // bookmark onto the caller's parsed entity for the same reason as the
-                    // duplicate-file-path branch above.
-                    song.Id = existingSong.Id;
-                    song.IsBookmarked = existingSong.IsBookmarked;
-
-                    // Calculate file hash if not already set
-                    if (string.IsNullOrEmpty(chart.FileHash) && !string.IsNullOrEmpty(chart.FilePath))
-                    {
-                        chart.FileHash = CalculateFileHash(chart.FilePath);
-                    }
-
-                    // Link chart to existing song
-                    chart.SongId = existingSong.Id;
-                    chart.Song = existingSong;
-
-                    context.SongCharts.Add(chart);
-                    await context.SaveChangesAsync();
-
-                    // Create initial score records for each available instrument
-                    if (chart.HasDrumChart && chart.DrumLevel > 0)
-                    {
-                        await AddScoreRecordAsync(context, chart.Id, EInstrumentPart.DRUMS);
-                    }
-                    if (chart.HasGuitarChart && chart.GuitarLevel > 0)
-                    {
-                        await AddScoreRecordAsync(context, chart.Id, EInstrumentPart.GUITAR);
-                    }
-                    if (chart.HasBassChart && chart.BassLevel > 0)
-                    {
-                        await AddScoreRecordAsync(context, chart.Id, EInstrumentPart.BASS);
-                    }
-
-                    return existingSong.Id;
-                }
-
-                // No existing song found, create a new one
+            if (existingSong != null)
+            {
+                // Song exists, add chart to existing song. Mirror the persisted id and
+                // bookmark onto the caller's parsed entity for the same reason as the
+                // duplicate-file-path branch above.
+                song.Id = existingSong.Id;
+                song.IsBookmarked = existingSong.IsBookmarked;
 
                 // Calculate file hash if not already set
                 if (string.IsNullOrEmpty(chart.FileHash) && !string.IsNullOrEmpty(chart.FilePath))
@@ -1184,13 +1138,9 @@ namespace DTXMania.Game.Lib.Song.Entities
                     chart.FileHash = CalculateFileHash(chart.FilePath);
                 }
 
-                // Add the song entity
-                context.Songs.Add(song);
-                await context.SaveChangesAsync();
-
-                // Link chart to song and add to context
-                chart.SongId = song.Id;
-                chart.Song = song;
+                // Link chart to existing song
+                chart.SongId = existingSong.Id;
+                chart.Song = existingSong;
 
                 context.SongCharts.Add(chart);
                 await context.SaveChangesAsync();
@@ -1209,12 +1159,43 @@ namespace DTXMania.Game.Lib.Song.Entities
                     await AddScoreRecordAsync(context, chart.Id, EInstrumentPart.BASS);
                 }
 
-                return song.Id;
+                return existingSong.Id;
             }
-            catch (Exception)
+
+            // No existing song found, create a new one
+
+            // Calculate file hash if not already set
+            if (string.IsNullOrEmpty(chart.FileHash) && !string.IsNullOrEmpty(chart.FilePath))
             {
-                throw;
+                chart.FileHash = CalculateFileHash(chart.FilePath);
             }
+
+            // Add the song entity
+            context.Songs.Add(song);
+            await context.SaveChangesAsync();
+
+            // Link chart to song and add to context
+            chart.SongId = song.Id;
+            chart.Song = song;
+
+            context.SongCharts.Add(chart);
+            await context.SaveChangesAsync();
+
+            // Create initial score records for each available instrument
+            if (chart.HasDrumChart && chart.DrumLevel > 0)
+            {
+                await AddScoreRecordAsync(context, chart.Id, EInstrumentPart.DRUMS);
+            }
+            if (chart.HasGuitarChart && chart.GuitarLevel > 0)
+            {
+                await AddScoreRecordAsync(context, chart.Id, EInstrumentPart.GUITAR);
+            }
+            if (chart.HasBassChart && chart.BassLevel > 0)
+            {
+                await AddScoreRecordAsync(context, chart.Id, EInstrumentPart.BASS);
+            }
+
+            return song.Id;
         }
 
         /// Search songs by title or artist
@@ -2311,56 +2292,49 @@ namespace DTXMania.Game.Lib.Song.Entities
         /// </summary>
         public async Task CleanupStaleChartsAsync()
         {
-            try
+            using var context = CreateContext();
+
+            var allCharts = await context.SongCharts.ToListAsync();
+            var stalePaths = new List<int>();
+
+            foreach (var chart in allCharts)
             {
-                using var context = CreateContext();
-                
-                var allCharts = await context.SongCharts.ToListAsync();
-                var stalePaths = new List<int>();
-                
-                foreach (var chart in allCharts)
+                if (!string.IsNullOrEmpty(chart.FilePath) && !File.Exists(chart.FilePath))
                 {
-                    if (!string.IsNullOrEmpty(chart.FilePath) && !File.Exists(chart.FilePath))
-                    {
-                        stalePaths.Add(chart.Id);
-                    }
-                }
-                
-                if (stalePaths.Count > 0)
-                {
-                    // EF Core 10 translates a parameterized collection as one
-                    // SQL parameter per element; EF.Parameter forces the single
-                    // JSON parameter (json_each) translation so a large stale
-                    // set cannot exceed SQLite's variable limit.
-                    // Remove associated scores first
-                    var staleScores = await context.SongScores
-                        .Where(s => EF.Parameter(stalePaths).Contains(s.ChartId))
-                        .ToListAsync();
-
-                    if (staleScores.Count > 0)
-                    {
-                        context.SongScores.RemoveRange(staleScores);
-                    }
-
-                    // Remove the charts
-                    var staleCharts = await context.SongCharts
-                        .Where(c => EF.Parameter(stalePaths).Contains(c.Id))
-                        .ToListAsync();
-                    
-                    if (staleCharts.Count > 0)
-                    {
-                        context.SongCharts.RemoveRange(staleCharts);
-                    }
-                    
-                    await context.SaveChangesAsync();
-                    
-                    // Clean up songs that no longer have any charts
-                    await CleanupOrphanedSongsAsync(context);
+                    stalePaths.Add(chart.Id);
                 }
             }
-            catch (Exception)
+
+            if (stalePaths.Count > 0)
             {
-                throw;
+                // EF Core 10 translates a parameterized collection as one
+                // SQL parameter per element; EF.Parameter forces the single
+                // JSON parameter (json_each) translation so a large stale
+                // set cannot exceed SQLite's variable limit.
+                // Remove associated scores first
+                var staleScores = await context.SongScores
+                    .Where(s => EF.Parameter(stalePaths).Contains(s.ChartId))
+                    .ToListAsync();
+
+                if (staleScores.Count > 0)
+                {
+                    context.SongScores.RemoveRange(staleScores);
+                }
+
+                // Remove the charts
+                var staleCharts = await context.SongCharts
+                    .Where(c => EF.Parameter(stalePaths).Contains(c.Id))
+                    .ToListAsync();
+
+                if (staleCharts.Count > 0)
+                {
+                    context.SongCharts.RemoveRange(staleCharts);
+                }
+
+                await context.SaveChangesAsync();
+
+                // Clean up songs that no longer have any charts
+                await CleanupOrphanedSongsAsync(context);
             }
         }
 
