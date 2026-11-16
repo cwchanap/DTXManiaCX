@@ -161,11 +161,11 @@ namespace DTXMania.Game.Lib.Stage
         // goal here — only internal consistency of the three values.
         internal sealed record LastLaneHit(int Lane, string? ButtonId, double SongTimeMs);
         private LastLaneHit? _lastLaneHit;
-        private Texture2D _fallbackWhiteTexture = null!;
+        private Texture2D? _fallbackWhiteTexture;
 
         // HPA-796: the stage's cached white pixel (ITexture) acquired once per activation;
         // _fallbackWhiteTexture above is its borrowed raw texture.
-        private ITexture _fallbackWhiteTextureResource;
+        private ITexture? _fallbackWhiteTextureResource;
         private Action<Rectangle, Color, float>? _fallbackRectangleDrawer = null;
         
         // UI state tracking
@@ -570,7 +570,7 @@ namespace DTXMania.Game.Lib.Stage
             // Initialize lane background and judgement line renderers
             var graphicsDevice = _spriteBatch.GraphicsDevice;
             _laneBackgroundRenderer = new LaneBackgroundRenderer(_resourceManager);
-            _judgementLineRenderer = new JudgementLineRenderer(graphicsDevice, _fallbackWhiteTexture);
+            _judgementLineRenderer = new JudgementLineRenderer(graphicsDevice, _fallbackWhiteTexture!);
 
             // Initialize score and combo displays
             _scoreDisplay = new ScoreDisplay(_resourceManager, graphicsDevice);

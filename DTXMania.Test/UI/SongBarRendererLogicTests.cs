@@ -957,6 +957,23 @@ public class SongBarRendererLogicTests
         Assert.Null(ReflectionHelpers.GetPrivateField<object>(renderer, "_graphicsGenerator"));
     }
 
+    [Fact]
+    public void Constructor_WhenDefaultGraphicsGeneratorThrows_ShouldReleaseWhitePixelResource()
+    {
+        var graphicsDevice = (GraphicsDevice)RuntimeHelpers.GetUninitializedObject(typeof(GraphicsDevice));
+        GC.SuppressFinalize(graphicsDevice);
+        var renderTarget = (RenderTarget2D)RuntimeHelpers.GetUninitializedObject(typeof(RenderTarget2D));
+        GC.SuppressFinalize(renderTarget);
+        var whitePixelResource = new Mock<ITexture>();
+        var resourceManager = new Mock<IResourceManager>();
+        resourceManager.Setup(m => m.CreateTextureFromColor(Color.White)).Returns(whitePixelResource.Object);
+
+        Assert.Throws<ArgumentNullException>(() =>
+            new SongBarRenderer(graphicsDevice, resourceManager.Object, renderTarget));
+
+        whitePixelResource.Verify(r => r.RemoveReference(), Times.Once);
+    }
+
     private static SongBarRenderer CreateRenderer()
     {
         var renderer = (SongBarRenderer)RuntimeHelpers.GetUninitializedObject(typeof(SongBarRenderer));

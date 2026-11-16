@@ -541,6 +541,32 @@ public class NoteRendererLogicTests
     }
 
     [Fact]
+    public void CreateWhiteTexture_WhenReacquireThrows_ShouldClearPreviousResourceAndNotDoubleReleaseOnDispose()
+    {
+        var renderer = CreateRenderer();
+        var oldPixel = ReflectionHelpers.CreateUninitialized<Texture2D>();
+        GC.SuppressFinalize(oldPixel);
+        var oldResource = new Mock<ITexture>();
+        var resourceManager = new Mock<IResourceManager>();
+        resourceManager.Setup(m => m.CreateTextureFromColor(Color.White))
+            .Throws(new InvalidOperationException("cache-error"));
+        ReflectionHelpers.SetPrivateField(renderer, "_resourceManager", resourceManager.Object);
+        ReflectionHelpers.SetPrivateField(renderer, "_whiteTextureResource", oldResource.Object);
+        ReflectionHelpers.SetPrivateField(renderer, "_whiteTexture", oldPixel);
+
+        var ex = Assert.Throws<TargetInvocationException>(
+            () => ReflectionHelpers.InvokePrivateMethod(renderer, "CreateWhiteTexture"));
+
+        Assert.IsType<InvalidOperationException>(ex.InnerException);
+        Assert.Null(ReflectionHelpers.GetPrivateField<ITexture>(renderer, "_whiteTextureResource"));
+        Assert.Null(ReflectionHelpers.GetPrivateField<Texture2D>(renderer, "_whiteTexture"));
+
+        renderer.Dispose();
+
+        oldResource.Verify(r => r.RemoveReference(), Times.Once);
+    }
+
+    [Fact]
     public void LoadDrumChipsTexture_WhenSpriteConstructionThrows_ShouldReleaseReferenceAndLeaveTextureNull()
     {
         // A zero-width drum-chips texture yields spriteWidth == 0 (Width / 12 columns),

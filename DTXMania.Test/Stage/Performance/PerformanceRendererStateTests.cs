@@ -166,6 +166,21 @@ namespace DTXMania.Test.Stage.Performance
             Assert.True(ReflectionHelpers.GetPrivateField<bool>(renderer, "_disposed"));
         }
 
+        [Fact]
+        public void BackgroundRenderer_Draw_WhenCachedPixelHasNullTexture_ShouldAcquireOnlyOnce()
+        {
+            var resourceManager = new Mock<IResourceManager>();
+            var emptyPixelResource = new Mock<ITexture>();
+            resourceManager.Setup(m => m.CreateTextureFromColor(Color.White)).Returns(emptyPixelResource.Object);
+            var renderer = new BackgroundRenderer(resourceManager.Object);
+            var spriteBatch = CreateUninitialized<SpriteBatch>();
+
+            renderer.Draw(spriteBatch, new Rectangle(0, 0, 100, 100));
+            renderer.Draw(spriteBatch, new Rectangle(0, 0, 100, 100));
+
+            resourceManager.Verify(m => m.CreateTextureFromColor(Color.White), Times.Once);
+        }
+
         #endregion
 
         #region LaneBackgroundRenderer
@@ -285,6 +300,15 @@ namespace DTXMania.Test.Stage.Performance
             var exception = Assert.Throws<ArgumentNullException>(() => new JudgementLineRenderer(null!, null!));
 
             Assert.Equal("graphicsDevice", exception.ParamName);
+        }
+
+        [Fact]
+        public void JudgementLineRenderer_Constructor_WithNullWhiteTexture_ShouldThrowArgumentNullException()
+        {
+            var exception = Assert.Throws<ArgumentNullException>(
+                () => new JudgementLineRenderer(CreateUninitialized<GraphicsDevice>(), null!));
+
+            Assert.Equal("whiteTexture", exception.ParamName);
         }
 
         [Fact]

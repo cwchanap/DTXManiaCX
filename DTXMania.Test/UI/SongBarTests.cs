@@ -5,6 +5,7 @@ using System.Reflection;
 using DTXMania.Game.Lib.Song.Components;
 using DTXMania.Game.Lib.Song;
 using DTXMania.Game.Lib.Resources;
+using DTXMania.Game.Lib.UI;
 using DTXMania.Test.Helpers;
 using DTXMania.Game.Lib.Song.Entities;
 using Moq;
@@ -265,6 +266,26 @@ namespace DTXMania.Test.UI
 
             Assert.Null(ex);
             Assert.Null(GetField<object?>(_songBar, "_graphicsGenerator"));
+        }
+
+        [Fact]
+        public void InitializeGraphicsGenerator_WhenReinitThrowsOnNullWhitePixel_ShouldClearDisposedGenerator()
+        {
+            var previousGenerator = (DefaultGraphicsGenerator)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(DefaultGraphicsGenerator));
+            var generatedTexturesField = typeof(DefaultGraphicsGenerator).GetField("_generatedTextures", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            generatedTexturesField.SetValue(previousGenerator, new System.Collections.Generic.Dictionary<string, ITexture>());
+            var disposedField = typeof(DefaultGraphicsGenerator).GetField("_disposed", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            var field = typeof(SongBar).GetField("_graphicsGenerator", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            field.SetValue(_songBar, previousGenerator);
+            var graphicsDevice = (GraphicsDevice)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(GraphicsDevice));
+            GC.SuppressFinalize(graphicsDevice);
+            var renderTarget = (RenderTarget2D)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(RenderTarget2D));
+            GC.SuppressFinalize(renderTarget);
+
+            Assert.Throws<ArgumentNullException>(() => _songBar.InitializeGraphicsGenerator(graphicsDevice, renderTarget, null!));
+
+            Assert.True((bool)disposedField.GetValue(previousGenerator)!);
+            Assert.Null(field.GetValue(_songBar));
         }
 
         private static Mock<ITexture> CreateTextureMock()

@@ -797,6 +797,35 @@ public class SongListDisplayLogicTests
     }
 
     [Fact]
+    public void InitializeEnhancedRendering_WhenSongBarRendererThrows_ShouldClearDisposedBarRendererAndReleaseWhitePixel()
+    {
+        var display = new SongListDisplay();
+        var previousRenderer = (SongBarRenderer)RuntimeHelpers.GetUninitializedObject(typeof(SongBarRenderer));
+        SetField(previousRenderer, "_pendingDispose", new Queue<ITexture>());
+        SetField(previousRenderer, "_titleTextureCache", new CacheManager<string, ITexture>());
+        SetField(previousRenderer, "_previewImageCache", new CacheManager<string, ITexture>());
+        SetField(previousRenderer, "_clearLampCache", new CacheManager<string, ITexture>());
+        SetField(previousRenderer, "_titleTextureCacheOrder", new Queue<string>());
+        SetField(previousRenderer, "_previewImageCacheOrder", new Queue<string>());
+        SetField(previousRenderer, "_clearLampCacheOrder", new Queue<string>());
+        SetField(previousRenderer, "_failedPreviewPaths", new HashSet<string>());
+        SetField(display, "_barRenderer", previousRenderer);
+        var graphicsDevice = (GraphicsDevice)RuntimeHelpers.GetUninitializedObject(typeof(GraphicsDevice));
+        GC.SuppressFinalize(graphicsDevice);
+        var renderTarget = (RenderTarget2D)RuntimeHelpers.GetUninitializedObject(typeof(RenderTarget2D));
+        GC.SuppressFinalize(renderTarget);
+        var whitePixelResource = new Mock<ITexture>();
+        var resourceManager = new Mock<IResourceManager>();
+        resourceManager.Setup(m => m.CreateTextureFromColor(Color.White)).Returns(whitePixelResource.Object);
+
+        Assert.Throws<ArgumentNullException>(() => display.InitializeEnhancedRendering(graphicsDevice, resourceManager.Object, renderTarget));
+
+        Assert.True(GetField<bool>(previousRenderer, "_disposed"));
+        Assert.Null(GetField<SongBarRenderer?>(display, "_barRenderer"));
+        whitePixelResource.Verify(r => r.RemoveReference(), Times.Once);
+    }
+
+    [Fact]
     public void Update_WhenActive_ShouldAnimateScrollAndTolerateMissingRenderer()
     {
         var display = new SongListDisplay

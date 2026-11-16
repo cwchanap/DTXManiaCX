@@ -10,7 +10,7 @@ namespace DTXMania.Game.Lib.Stage
     /// </summary>
     public interface IStageManager : IDisposable
     {
-        IStage CurrentStage { get; }
+        IStage? CurrentStage { get; }
         StagePhase CurrentPhase { get; }
         bool IsTransitioning { get; }
 
@@ -74,7 +74,7 @@ namespace DTXMania.Game.Lib.Stage
     {
         StageType Type { get; }
         StagePhase CurrentPhase { get; }
-        IStageManager StageManager { get; set; }
+        IStageManager? StageManager { get; set; }
 
         void Activate();
         void Activate(StageTransitionPayload? payload);

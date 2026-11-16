@@ -138,7 +138,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
             if (!IsReady || spriteBatch == null || speedPercent <= 0)
                 return;
 
-            if (_whiteTexture == null && !EnsureWhiteTexture())
+            if (_whiteTexture == null && (_whiteTextureResource != null || !EnsureWhiteTexture() || _whiteTexture == null))
                 return;
 
             double pxPerMs = NotationStrip.ScrollPixelsPerMs * (speedPercent / 100.0);
@@ -179,12 +179,15 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         private bool EnsureWhiteTexture()
         {
+            if (_whiteTextureResource != null)
+                return true;
+
             try
             {
                 // HPA-796: borrow the cached white pixel instead of allocating a 1×1 texture.
                 _whiteTextureResource = _resourceManager.CreateTextureFromColor(Color.White);
                 _whiteTexture = _whiteTextureResource?.Texture;
-                return true;
+                return _whiteTextureResource != null;
             }
             catch (Exception)
             {

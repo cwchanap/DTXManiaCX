@@ -15,6 +15,7 @@ namespace DTXMania.Test.UI
     /// DefaultGraphicsGenerator and, via SongBar.InitializeGraphicsGenerator, to the
     /// generator inside every cached SongBar — no SongBar may allocate its own pixel.
     /// </summary>
+    [Trait("Category", "UI")]
     [Collection("GraphicsTests")]
     public class SongListDisplayGraphicsTests : IDisposable
     {
@@ -49,6 +50,25 @@ namespace DTXMania.Test.UI
             var barGenerator = ReflectionHelpers.GetPrivateField<DefaultGraphicsGenerator>(songBar, "_graphicsGenerator");
             Assert.NotNull(barGenerator);
             Assert.Same(borrowedPixel, ReflectionHelpers.GetPrivateField<Texture2D>(barGenerator!, "_whitePixel"));
+        }
+
+        [GraphicsFact]
+        public void InitializeEnhancedRendering_WhenReinitThrowsOnNullWhitePixel_ShouldClearDisposedGenerator()
+        {
+            var graphicsDevice = _graphicsService.RequiredDevice;
+            using var sharedRT = new RenderTarget2D(graphicsDevice, 512, 512);
+            using var borrowedPixel = new Texture2D(graphicsDevice, 1, 1);
+
+            using var display = new SongListDisplay { WhitePixel = borrowedPixel };
+            var resources = new MockResourceManager(graphicsDevice);
+            display.InitializeEnhancedRendering(graphicsDevice, resources, sharedRT);
+            Assert.NotNull(ReflectionHelpers.GetPrivateField<DefaultGraphicsGenerator>(display, "_graphicsGenerator"));
+
+            display.WhitePixel = null!;
+            Assert.Throws<System.ArgumentNullException>(() =>
+                display.InitializeEnhancedRendering(graphicsDevice, resources, sharedRT));
+
+            Assert.Null(ReflectionHelpers.GetPrivateField<DefaultGraphicsGenerator>(display, "_graphicsGenerator"));
         }
 
         public void Dispose()

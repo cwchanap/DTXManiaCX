@@ -521,6 +521,7 @@ namespace DTXMania.Game.Lib.Song.Components
             RenderTarget2D sharedRenderTarget)
         {
             _barRenderer?.Dispose();
+            _barRenderer = null;
             _resourceManager = resourceManager;
 
             // Release previous textures before loading new ones (reference counting)
@@ -569,6 +570,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 _barRenderer.SetFont(_font);
             }            // Initialize graphics generator for default styling
             _graphicsGenerator?.Dispose();
+            _graphicsGenerator = null;
             _graphicsGenerator = new DefaultGraphicsGenerator(graphicsDevice, sharedRenderTarget, WhitePixel);
 
             // Pre-generate common bar textures so draw-time never switches render targets
@@ -1206,10 +1208,7 @@ namespace DTXMania.Game.Lib.Song.Components
                     var borderColor = Color.Yellow * opacityFactor;
                     var borderThickness = Math.Max(1, (int)(2 * scaleFactor));
 
-                    spriteBatch.Draw(_whitePixel, new Rectangle(itemBounds.X, itemBounds.Y, itemBounds.Width, borderThickness), borderColor);
-                    spriteBatch.Draw(_whitePixel, new Rectangle(itemBounds.X, itemBounds.Bottom - borderThickness, itemBounds.Width, borderThickness), borderColor);
-                    spriteBatch.Draw(_whitePixel, new Rectangle(itemBounds.X, itemBounds.Y, borderThickness, itemBounds.Height), borderColor);
-                    spriteBatch.Draw(_whitePixel, new Rectangle(itemBounds.Right - borderThickness, itemBounds.Y, borderThickness, itemBounds.Height), borderColor);
+                    ChamferedBox.Border(spriteBatch, _whitePixel, itemBounds, borderThickness, borderColor);
                 }
             }
 

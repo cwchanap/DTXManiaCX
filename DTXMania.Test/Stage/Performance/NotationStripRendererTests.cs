@@ -208,4 +208,24 @@ public class NotationStripRendererTests
 
         Assert.Null(exception);
     }
+
+    [Fact]
+    public void Draw_WhenCachedWhitePixelHasNullTexture_ShouldAcquireOnlyOnce()
+    {
+        var bravura = CreateFontMock();
+        var labels = CreateFontMock();
+        var resources = CreateResourceManager(bravura, labels);
+        var emptyPixelResource = new Mock<ITexture>();
+        resources.Setup(manager => manager.CreateTextureFromColor(Color.White))
+            .Returns(emptyPixelResource.Object);
+        using var renderer = new NotationStripRenderer(resources.Object, EmptyChart(), TerminalOnlyMeasureLines());
+#pragma warning disable SYSLIB0050
+        var spriteBatch = (SpriteBatch)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(SpriteBatch));
+#pragma warning restore SYSLIB0050
+
+        renderer.Draw(spriteBatch, nowMs: 0, speedPercent: 100);
+        renderer.Draw(spriteBatch, nowMs: 100, speedPercent: 100);
+
+        resources.Verify(manager => manager.CreateTextureFromColor(Color.White), Times.Once);
+    }
 }

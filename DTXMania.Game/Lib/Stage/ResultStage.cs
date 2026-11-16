@@ -302,23 +302,25 @@ namespace DTXMania.Game.Lib.Stage
 
             if (_transitionPayload is PerformanceResult result)
             {
-                _performanceSummary = result.Summary;
+                _performanceSummary = result.Summary ?? CreateDefaultSummary();
                 _selectedSong = result.Song;
                 _selectedDifficulty = result.Difficulty;
             }
             else
             {
                 // Fallback: create default summary when activated without a performance result
-                _performanceSummary = new PerformanceSummary
-                {
-                    Score = 0,
-                    MaxCombo = 0,
-                    ClearFlag = false,
-                    CompletionReason = CompletionReason.Unknown
-                };
+                _performanceSummary = CreateDefaultSummary();
                 System.Diagnostics.Debug.WriteLine("ResultStage: No performance result payload, using default");
             }
         }
+
+        private static PerformanceSummary CreateDefaultSummary() => new()
+        {
+            Score = 0,
+            MaxCombo = 0,
+            ClearFlag = false,
+            CompletionReason = CompletionReason.Unknown
+        };
 
         private void InitializeComponents()
         {

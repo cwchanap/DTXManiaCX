@@ -46,14 +46,6 @@ namespace DTXMania.Game.Lib.UI
             if (border.A == 0)
                 return;
 
-            // HPA-796: a zero chamfer is an ordinary rectangle border (overlapping corners);
-            // only the chamfered diagonals below stay Draw-specific.
-            if (c == 0)
-            {
-                Border(spriteBatch, whitePixel, r, 1, border, borderDepth);
-                return;
-            }
-
             Fill(spriteBatch, whitePixel, new Rectangle(r.X + c, r.Y, r.Width - 2 * c, 1), border, borderDepth);
             Fill(spriteBatch, whitePixel, new Rectangle(r.X + c, r.Bottom - 1, r.Width - 2 * c, 1), border, borderDepth);
             Fill(spriteBatch, whitePixel, new Rectangle(r.X, r.Y + c, 1, r.Height - 2 * c), border, borderDepth);
@@ -95,21 +87,22 @@ namespace DTXMania.Game.Lib.UI
             if (color.A == 0)
                 return;
 
-            foreach (var edge in BorderRects(r, thickness))
-                Fill(spriteBatch, whitePixel, edge, color, depth);
+            var (top, bottom, left, right) = BorderRects(r, thickness);
+            Fill(spriteBatch, whitePixel, top, color, depth);
+            Fill(spriteBatch, whitePixel, bottom, color, depth);
+            Fill(spriteBatch, whitePixel, left, color, depth);
+            Fill(spriteBatch, whitePixel, right, color, depth);
         }
 
         /// <summary>Exact edge rectangles of <see cref="Border"/>: top, bottom, left, right.</summary>
-        internal static Rectangle[] BorderRects(Rectangle r, int thickness)
+        internal static (Rectangle Top, Rectangle Bottom, Rectangle Left, Rectangle Right) BorderRects(Rectangle r, int thickness)
         {
             int t = System.Math.Max(1, thickness);
-            return new[]
-            {
+            return (
                 new Rectangle(r.X, r.Y, r.Width, t),
                 new Rectangle(r.X, r.Bottom - t, r.Width, t),
                 new Rectangle(r.X, r.Y, t, r.Height),
-                new Rectangle(r.Right - t, r.Y, t, r.Height),
-            };
+                new Rectangle(r.Right - t, r.Y, t, r.Height));
         }
     }
 }

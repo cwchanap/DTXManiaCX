@@ -74,9 +74,6 @@ namespace DTXMania.Game.Lib.Stage
         // Timing
         private double _elapsedTime;
 
-        // Chart data
-        private ParsedChart _parsedChart = null!;
-
         // Note: Using global stage transition debouncing from BaseGame
 
         public override StageType Type => StageType.SongTransition;
@@ -1179,11 +1176,11 @@ namespace DTXMania.Game.Lib.Stage
 
         private void PerformTransition()
         {
-            // Forward the play request, attaching the chart parsed during this transition
+            // Forward the selected song and difficulty to the performance stage
             SongPlayRequest request = null;
             if (_selectedSong != null)
             {
-                request = new SongPlayRequest(_selectedSong, _selectedDifficulty) with { Chart = _parsedChart };
+                request = new SongPlayRequest(_selectedSong, _selectedDifficulty);
             }
 
             // Transition to performance stage immediately

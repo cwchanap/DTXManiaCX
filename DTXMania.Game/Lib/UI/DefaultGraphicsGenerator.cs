@@ -416,8 +416,11 @@ namespace DTXMania.Game.Lib.UI
             // HPA-796: exact edge rectangles come from the shared ChamferedBox.Border
             // geometry (top, bottom, left, right, overlapping corners); the draws stay on
             // the DrawSolidRectangle seam.
-            foreach (var edge in ChamferedBox.BorderRects(bounds, thickness))
-                DrawSolidRectangle(edge, color);
+            var (top, bottom, left, right) = ChamferedBox.BorderRects(bounds, thickness);
+            DrawSolidRectangle(top, color);
+            DrawSolidRectangle(bottom, color);
+            DrawSolidRectangle(left, color);
+            DrawSolidRectangle(right, color);
         }
 
         private ITexture CreateEnhancedClearLampTexture(int difficulty, ClearStatus clearStatus)

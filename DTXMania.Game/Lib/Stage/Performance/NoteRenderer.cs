@@ -649,6 +649,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             {
                 // Drop a stale reference before reacquiring through the cache.
                 _whiteTextureResource?.RemoveReference();
+                _whiteTextureResource = null;
+                _whiteTexture = null;
                 _whiteTextureResource = _resourceManager.CreateTextureFromColor(Color.White);
                 _whiteTexture = _whiteTextureResource?.Texture;
             }

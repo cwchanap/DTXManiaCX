@@ -136,6 +136,7 @@ namespace DTXMania.Game.Lib.Song.Components
         public void InitializeGraphicsGenerator(GraphicsDevice graphicsDevice, RenderTarget2D renderTarget, Texture2D whitePixel)
         {
             _graphicsGenerator?.Dispose();
+            _graphicsGenerator = null;
             
             if (renderTarget != null)
             {

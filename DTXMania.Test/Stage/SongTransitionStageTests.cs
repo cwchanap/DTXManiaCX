@@ -534,17 +534,15 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
-        public void PerformTransition_WithParsedChart_ShouldAttachChartToRequest()
+        public void PerformTransition_WithSelectedSong_ShouldForwardRequestWithNullChart()
         {
             var stageManager = new Mock<IStageManager>();
             var stage = CreateStage();
             var selectedSong = CreateSongNode(new SongChart { DrumLevel = 40, HasDrumChart = true });
-            var parsedChart = new ParsedChart("test.dtx");
 
             stage.StageManager = stageManager.Object;
             ReflectionHelpers.SetPrivateField(stage, "_selectedSong", selectedSong);
             ReflectionHelpers.SetPrivateField(stage, "_selectedDifficulty", 1);
-            ReflectionHelpers.SetPrivateField(stage, "_parsedChart", parsedChart);
 
             ReflectionHelpers.InvokePrivateMethod(stage, "PerformTransition");
 
@@ -555,7 +553,7 @@ namespace DTXMania.Test.Stage
                     It.Is<SongPlayRequest>(request =>
                         ReferenceEquals(request.Song, selectedSong) &&
                         request.Difficulty == 1 &&
-                        ReferenceEquals(request.Chart, parsedChart))),
+                        request.Chart == null)),
                 Times.Once);
         }
 
