@@ -33,3 +33,5 @@ __pycache__/
 
 # .NET SDK machine-local artifacts
 /Library/
+.local/
+DTXMania.Game/Library/
