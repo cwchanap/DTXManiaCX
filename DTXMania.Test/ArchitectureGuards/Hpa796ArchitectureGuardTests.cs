@@ -170,6 +170,41 @@ public sealed class Hpa796ArchitectureGuardTests
     // Known cheap-guard limit: multi-dollar raw interpolated strings
     // ($$"""…""" with doubled-brace holes) are not modelled and their text
     // is partially preserved; no game source uses them.
+    [Fact]
+    public void StripCommentsAndLiteralContents_ApostropheInDirectiveText_ShouldNotBlankFollowingCode()
+    {
+        // Non-verbatim literals cannot span lines in C#, so an apostrophe in
+        // free-text directives (#region/#error/#warning) must not act as an
+        // unterminated char literal that blanks real code below the directive.
+        var source = string.Join(
+            "\n",
+            "#region Don't track this region",
+            "var kept = 1;",
+            "Debug.WriteLine(\"violation\");",
+            "#endregion");
+
+        var stripped = StripCommentsAndLiteralContents(source);
+
+        Assert.Contains("Debug", stripped);
+        Assert.Contains("WriteLine", stripped);
+    }
+
+    [Fact]
+    public void StripCommentsAndLiteralContents_SingleQuoteCharLiteral_ShouldStillBlankLiteralAndRestOfLine()
+    {
+        // A genuine char literal is still blanked; blanking stays bounded to
+        // its own line even when the literal is unterminated on that line.
+        var source = string.Join(
+            "\n",
+            "var literal = 'a';",
+            "var kept = 1;");
+
+        var stripped = StripCommentsAndLiteralContents(source);
+
+        Assert.DoesNotContain("'a'", stripped);
+        Assert.Contains("var kept = 1;", stripped);
+    }
+
     internal static string StripCommentsAndLiteralContents(string source)
     {
         var output = source.ToCharArray();
@@ -450,6 +485,14 @@ public sealed class Hpa796ArchitectureGuardTests
                 }
 
                 return position + 1;
+            }
+
+            if (c == '\n' && !isVerbatim)
+            {
+                // C# non-verbatim literals cannot span lines, so an apostrophe
+                // in #region/#error/#warning directive text must not act as an
+                // unterminated char literal blanking the rest of the file.
+                return position;
             }
 
             output[position++] = c == '\n' ? '\n' : ' ';
