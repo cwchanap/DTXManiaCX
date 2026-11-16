@@ -316,6 +316,164 @@ public class PerformanceStageDeterministicTests
     }
 
     [Fact]
+    public async Task InitializeGameplayCoreAsync_WhenLoadingFailsWithThrowOnFailureFalse_ShouldLogOriginalException()
+    {
+        // The production path runs with throwOnFailure: false, so the catch-all
+        // surfaces the failure via FailLoading. The original exception instance
+        // must reach the error log (identity preserved), not just its message.
+        var stage = CreateThrowingAudioVariantStage();
+        var logger = new Mock<ILogger<PerformanceStage>>();
+        ReflectionHelpers.SetPrivateField(stage, "_logger", logger.Object);
+        var chart = new ParsedChart("variant-failure.dtx");
+        chart.AddNote(new Note(0, 0, 96, 0x11, "01"));
+        chart.FinalizeChart();
+
+        ReflectionHelpers.SetPrivateField(stage, "_parsedChart", chart);
+        ReflectionHelpers.SetPrivateField(stage, "_audioLoader", new AudioLoader(new Mock<IResourceManager>().Object));
+        ReflectionHelpers.SetPrivateField(stage, "_inputManager", null);
+        ReflectionHelpers.SetPrivateField(stage, "_bgmSounds", new Dictionary<string, ISound>());
+        // Non-default profile makes InitializeGameplayCoreAsync call the overridden
+        // CreateAudioVariantProcessor, which throws the stage's sentinel failure.
+        ReflectionHelpers.SetPrivateField(stage, "_playbackModifiers", new PlaybackModifiers(50, 3));
+
+        var generation = ReflectionHelpers.GetPrivateField<int>(stage, "_activationGeneration");
+        var initializeTask = (Task)ReflectionHelpers.InvokePrivateMethod(
+            stage,
+            "InitializeGameplayCoreAsync",
+            generation,
+            CancellationToken.None,
+            false)!;
+        await initializeTask;
+
+        Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isLoading"));
+        Assert.False(ReflectionHelpers.GetPrivateField<bool>(stage, "_isReady"));
+        Assert.Contains(
+            "Audio preparation failed",
+            ReflectionHelpers.GetPrivateField<string>(stage, "_loadErrorMessage"));
+        logger.Verify(
+            l => l.Log(
+                LogLevel.Error,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((state, _) =>
+                    state.ToString()!.Contains("Audio preparation failed", StringComparison.Ordinal)),
+                stage.Failure,
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public void PlayMetronomeClick_WhenBeatSoundPersistentlyFails_ShouldReportOncePerRun()
+    {
+        // A metronome sound whose playback throws on every beat must not fill the
+        // error log: only the first failure per affected sound is reported.
+        var stage = CreateStage();
+        var logger = new Mock<ILogger<PerformanceStage>>();
+        ReflectionHelpers.SetPrivateField(stage, "_logger", logger.Object);
+        var failure = new InvalidOperationException("Simulated metronome playback failure");
+        var beatSound = new Mock<ISound>();
+        beatSound.SetupGet(sound => sound.SoundEffect).Throws(failure);
+        ReflectionHelpers.SetPrivateField(stage, "_metronomeBeatSound", beatSound.Object);
+
+        var marker = new BeatMarker { TimeMs = 100.0, IsMeasureStart = false };
+        ReflectionHelpers.InvokePrivateMethod(stage, "PlayMetronomeClick", marker);
+        ReflectionHelpers.InvokePrivateMethod(stage, "PlayMetronomeClick", marker);
+        ReflectionHelpers.InvokePrivateMethod(stage, "PlayMetronomeClick", marker);
+
+        logger.Verify(
+            l => l.Log(
+                LogLevel.Error,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((state, _) =>
+                    state.ToString()!.Contains("Metronome click playback failed", StringComparison.Ordinal)),
+                failure,
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public void PlayMetronomeClick_WhenEachSoundFails_ShouldReportOncePerAffectedSound()
+    {
+        var stage = CreateStage();
+        var logger = new Mock<ILogger<PerformanceStage>>();
+        ReflectionHelpers.SetPrivateField(stage, "_logger", logger.Object);
+        var beatFailure = new InvalidOperationException("Simulated beat failure");
+        var accentFailure = new InvalidOperationException("Simulated accent failure");
+        var beatSound = new Mock<ISound>();
+        beatSound.SetupGet(sound => sound.SoundEffect).Throws(beatFailure);
+        var accentSound = new Mock<ISound>();
+        accentSound.SetupGet(sound => sound.SoundEffect).Throws(accentFailure);
+        ReflectionHelpers.SetPrivateField(stage, "_metronomeBeatSound", beatSound.Object);
+        ReflectionHelpers.SetPrivateField(stage, "_metronomeAccentSound", accentSound.Object);
+
+        ReflectionHelpers.InvokePrivateMethod(
+            stage,
+            "PlayMetronomeClick",
+            new BeatMarker { TimeMs = 100.0, IsMeasureStart = false });
+        ReflectionHelpers.InvokePrivateMethod(
+            stage,
+            "PlayMetronomeClick",
+            new BeatMarker { TimeMs = 200.0, IsMeasureStart = true });
+        ReflectionHelpers.InvokePrivateMethod(
+            stage,
+            "PlayMetronomeClick",
+            new BeatMarker { TimeMs = 300.0, IsMeasureStart = false });
+        ReflectionHelpers.InvokePrivateMethod(
+            stage,
+            "PlayMetronomeClick",
+            new BeatMarker { TimeMs = 400.0, IsMeasureStart = true });
+
+        logger.Verify(
+            l => l.Log(
+                LogLevel.Error,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((state, _) =>
+                    state.ToString()!.Contains("Metronome click playback failed", StringComparison.Ordinal)),
+                beatFailure,
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
+        logger.Verify(
+            l => l.Log(
+                LogLevel.Error,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((state, _) =>
+                    state.ToString()!.Contains("Metronome click playback failed", StringComparison.Ordinal)),
+                accentFailure,
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public void PlayMetronomeClick_WhenSuppressionReset_ShouldReportNextFailureAgain()
+    {
+        var stage = CreateStage();
+        var logger = new Mock<ILogger<PerformanceStage>>();
+        ReflectionHelpers.SetPrivateField(stage, "_logger", logger.Object);
+        var failure = new InvalidOperationException("Simulated metronome playback failure");
+        var beatSound = new Mock<ISound>();
+        beatSound.SetupGet(sound => sound.SoundEffect).Throws(failure);
+        ReflectionHelpers.SetPrivateField(stage, "_metronomeBeatSound", beatSound.Object);
+        var marker = new BeatMarker { TimeMs = 100.0, IsMeasureStart = false };
+
+        ReflectionHelpers.InvokePrivateMethod(stage, "PlayMetronomeClick", marker);
+        ReflectionHelpers.InvokePrivateMethod(stage, "PlayMetronomeClick", marker);
+
+        // A new activation resets suppression so a persistently broken sound is
+        // reported once per run instead of once per process lifetime.
+        ReflectionHelpers.InvokePrivateMethod(stage, "ResetMetronomeFailureSuppression");
+        ReflectionHelpers.InvokePrivateMethod(stage, "PlayMetronomeClick", marker);
+
+        logger.Verify(
+            l => l.Log(
+                LogLevel.Error,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((state, _) =>
+                    state.ToString()!.Contains("Metronome click playback failed", StringComparison.Ordinal)),
+                failure,
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Exactly(2));
+    }
+
+    [Fact]
     public void LoadPerformanceUIAssets_WhenResourceManagerReturnsNull_ShouldLeaveAllTexturesNull()
     {
         // Each per-asset load is best-effort via TryLoadTexture; a missing skin must not
@@ -4744,7 +4902,8 @@ public class PerformanceStageDeterministicTests
         ReflectionHelpers.InvokePrivateMethod(
             stage,
             "FailLoading",
-            "decode failed");
+            "decode failed",
+            null);
 
         Assert.Null(ReflectionHelpers.GetPrivateField<PerformanceSummary?>(
             stage,
@@ -5709,6 +5868,17 @@ public class PerformanceStageDeterministicTests
         return stage;
     }
 
+    private static ThrowingAudioVariantStage CreateThrowingAudioVariantStage()
+    {
+#pragma warning disable SYSLIB0050
+        var stage = (ThrowingAudioVariantStage)FormatterServices.GetUninitializedObject(typeof(ThrowingAudioVariantStage));
+#pragma warning restore SYSLIB0050
+        ReflectionHelpers.SetPrivateField(stage, "_game", ReflectionHelpers.CreateGame());
+        ReflectionHelpers.SetPrivateField(stage, "_autoPlayLanes", new HashSet<int>());
+        ReflectionHelpers.SetPrivateField(stage, "_logger", NullLogger<PerformanceStage>.Instance);
+        return stage;
+    }
+
     private static InspectablePerformanceStage CreateInspectableStage(BaseGame? game = null)
     {
 #pragma warning disable SYSLIB0050
@@ -5961,6 +6131,25 @@ public class PerformanceStageDeterministicTests
             DrawCount++;
             base.OnDraw(spriteBatch, deltaTime);
         }
+    }
+
+    private sealed class ThrowingAudioVariantStage : PerformanceStage
+    {
+        public ThrowingAudioVariantStage(BaseGame game)
+            : base(game)
+        {
+        }
+
+        // Lazily initialized so instances created via FormatterServices
+        // (which skips property initializers) still expose a real sentinel.
+        private InvalidOperationException? _failure;
+
+        public InvalidOperationException Failure =>
+            _failure ??= new InvalidOperationException(
+                "Simulated variant processor failure",
+                new InvalidDataException("inner chain"));
+
+        protected override IAudioVariantProcessor CreateAudioVariantProcessor() => throw Failure;
     }
 
     private sealed class InspectablePerformanceStage : PerformanceStage

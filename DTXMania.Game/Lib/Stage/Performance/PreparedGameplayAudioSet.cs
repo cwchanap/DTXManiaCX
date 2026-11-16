@@ -58,7 +58,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             PlaybackAudioVariantCache? cache,
             IProgress<AudioPreparationProgress>? progress,
             CancellationToken cancellationToken,
-            long decodedPcmBudgetBytes = DefaultDecodedPcmBudgetBytes)
+            long decodedPcmBudgetBytes = DefaultDecodedPcmBudgetBytes,
+            Action<string, Exception>? reportSoundLoadFailure = null)
         {
             return PrepareAsync(
                 mainBackgroundPath,
@@ -71,7 +72,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
                 cancellationToken,
                 LoadDefaultSound,
                 CreatePreparedSound,
-                decodedPcmBudgetBytes);
+                decodedPcmBudgetBytes,
+                reportSoundLoadFailure);
         }
 
         internal static async Task<PreparedGameplayAudioSet> PrepareAsync(
@@ -85,7 +87,8 @@ namespace DTXMania.Game.Lib.Stage.Performance
             CancellationToken cancellationToken,
             Func<string, ISound> defaultSoundLoader,
             Func<PreparedAudioArtifact, string, ISound> preparedSoundFactory,
-            long decodedPcmBudgetBytes = DefaultDecodedPcmBudgetBytes)
+            long decodedPcmBudgetBytes = DefaultDecodedPcmBudgetBytes,
+            Action<string, Exception>? reportSoundLoadFailure = null)
         {
             ArgumentNullException.ThrowIfNull(scheduledBgmSourcePaths);
             ArgumentNullException.ThrowIfNull(chipSourcePathsByWavId);
@@ -182,6 +185,11 @@ namespace DTXMania.Game.Lib.Stage.Performance
                         }
                         catch (Exception ex) when (ex is not OperationCanceledException)
                         {
+                            // Nonfatal fallback stays (Invariant #2); each distinct
+                            // failed source is reported once so a corrupt chip or main
+                            // BGM is visible to the owner's logger without failing the
+                            // whole performance.
+                            reportSoundLoadFailure?.Invoke(sourcePath, ex);
                         }
 
                         completed++;
