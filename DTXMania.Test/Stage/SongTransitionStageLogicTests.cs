@@ -289,6 +289,34 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void PerformTransition_WhenActivatedWithChart_ShouldForwardSameChartToPerformance()
+        {
+            // The typed play request may carry a pre-parsed chart; the transition
+            // stage must forward it so PerformanceStage does not reparse the file.
+            var resourceManager = new Mock<IResourceManager>();
+            var game = ReflectionHelpers.CreateGame();
+            ReflectionHelpers.SetPrivateField(game, "<ResourceManager>k__BackingField", resourceManager.Object);
+            var stageManager = new Mock<IStageManager>();
+            var stage = CreateStage(game);
+            stage.StageManager = stageManager.Object;
+            var selectedSong = CreateSongNode(new SongChart { DrumLevel = 40, HasDrumChart = true });
+            var parsedChart = new ParsedChart("prepared.dtx");
+            var payload = new SongPlayRequest(selectedSong, 2, parsedChart);
+
+            Record.Exception(() => stage.Activate(payload));
+            InvokePrivateMethod(stage, "PerformTransition");
+
+            stageManager.Verify(
+                x => x.ChangeStage(
+                    StageType.Performance,
+                    It.Is<IStageTransition>(t => t is InstantTransition),
+                    It.Is<SongPlayRequest>(request =>
+                        ReferenceEquals(request, payload) &&
+                        ReferenceEquals(request.Chart, parsedChart))),
+                Times.Once);
+        }
+
+        [Fact]
         public void LoadBackground_WhenReloadFails_ShouldReleaseExistingTextureAndFallbackToNull()
         {
             var stage = CreateStage();

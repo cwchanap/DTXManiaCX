@@ -1180,7 +1180,12 @@ namespace DTXMania.Game.Lib.Stage
             SongPlayRequest request = null;
             if (_selectedSong != null)
             {
-                request = new SongPlayRequest(_selectedSong, _selectedDifficulty);
+                // Reuse the incoming play request so a pre-parsed chart carried
+                // in SongPlayRequest.Chart reaches PerformanceStage instead of
+                // being reparsed; rebuild only when the selection diverged.
+                request = _transitionPayload is SongPlayRequest incoming && ReferenceEquals(incoming.Song, _selectedSong)
+                    ? incoming
+                    : new SongPlayRequest(_selectedSong, _selectedDifficulty);
             }
 
             // Transition to performance stage immediately
