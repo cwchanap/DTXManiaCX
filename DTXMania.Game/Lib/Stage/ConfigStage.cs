@@ -418,7 +418,7 @@ namespace DTXMania.Game.Lib.Stage
 
                 _whitePixelResource?.RemoveReference();
                 _whitePixelResource = null;
-                _whitePixel = null;
+                _whitePixel = null!;
                 _spriteBatch?.Dispose();
                 _itemClipRasterizer?.Dispose();
 
@@ -426,7 +426,7 @@ namespace DTXMania.Game.Lib.Stage
                 _boldFont?.RemoveReference();
                 ReleaseTextures();
 
-                _whitePixel = null;
+                _whitePixel = null!;
                 _spriteBatch = null;
                 _itemClipRasterizer = null;
                 _font = null;
@@ -456,7 +456,7 @@ namespace DTXMania.Game.Lib.Stage
 
             // HPA-796: acquire the cached white pixel once per activation; no private 1×1 texture.
             _whitePixelResource = _resourceManager.CreateTextureFromColor(Color.White);
-            _whitePixel = _whitePixelResource?.Texture;
+            _whitePixel = _whitePixelResource?.Texture!;
 
             try
             {
@@ -471,7 +471,7 @@ namespace DTXMania.Game.Lib.Stage
                 _boldFont = null;
                 _whitePixelResource?.RemoveReference();
                 _whitePixelResource = null;
-                _whitePixel = null;
+                _whitePixel = null!;
                 _spriteBatch?.Dispose();
                 _spriteBatch = null;
                 _itemClipRasterizer?.Dispose();
