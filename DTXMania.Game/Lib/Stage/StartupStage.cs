@@ -372,12 +372,12 @@ namespace DTXMania.Game.Lib.Stage
             // Initialize ResourceManager using factory
             _resourceManager = _game.ResourceManager;
 
-            // HPA-796: acquire the cached white pixel once per activation; no private 1×1 texture
-            _whitePixelResource = _resourceManager.CreateTextureFromColor(Color.White);
-            _whitePixel = _whitePixelResource?.Texture;
-
             try
             {
+                // HPA-796: acquire the cached white pixel once per activation; no private 1×1 texture
+                _whitePixelResource = _resourceManager?.CreateTextureFromColor(Color.White);
+                _whitePixel = _whitePixelResource?.Texture;
+
                 var theme = _resourceManager?.CurrentTheme ?? SkinTheme.Empty;
                 var themedFamily = ResolveTextFontFamily(theme);
                 var statusFamily = ResolveStatusFontFamily(theme);

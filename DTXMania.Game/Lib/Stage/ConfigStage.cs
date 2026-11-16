@@ -89,11 +89,11 @@ namespace DTXMania.Game.Lib.Stage
         private IFolderPickerService? _songFolderPicker;
 
         private SpriteBatch _spriteBatch;
-        private Texture2D _whitePixel;
+        private Texture2D? _whitePixel;
 
         // HPA-796: the stage's cached white pixel (ITexture) acquired once per activation;
         // _whitePixel above is its borrowed raw texture.
-        private ITexture _whitePixelResource;
+        private ITexture? _whitePixelResource;
         private IFont _font;
         private IFont _boldFont;
         private IResourceManager _resourceManager;
@@ -396,7 +396,7 @@ namespace DTXMania.Game.Lib.Stage
             _spriteBatch = null!;
             _whitePixelResource?.RemoveReference();
             _whitePixelResource = null;
-            _whitePixel = null!;
+            _whitePixel = null;
             _itemClipRasterizer?.Dispose();
             _itemClipRasterizer = null;
 

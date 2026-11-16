@@ -65,7 +65,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
         public JudgementLineRenderer(GraphicsDevice graphicsDevice, Texture2D whiteTexture)
         {
             _graphicsDevice = graphicsDevice ?? throw new ArgumentNullException(nameof(graphicsDevice));
-            _whiteTexture = whiteTexture;
+            _whiteTexture = whiteTexture ?? throw new ArgumentNullException(nameof(whiteTexture));
         }
 
         #endregion

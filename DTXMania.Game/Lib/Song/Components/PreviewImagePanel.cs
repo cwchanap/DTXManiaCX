@@ -600,10 +600,7 @@ namespace DTXMania.Game.Lib.Song.Components
             var borderColor = Color.White * 0.4f;
             var borderThickness = 2;
 
-            spriteBatch.Draw(_whitePixel, new Rectangle(bounds.X, bounds.Y, bounds.Width, borderThickness), borderColor);
-            spriteBatch.Draw(_whitePixel, new Rectangle(bounds.X, bounds.Bottom - borderThickness, bounds.Width, borderThickness), borderColor);
-            spriteBatch.Draw(_whitePixel, new Rectangle(bounds.X, bounds.Y, borderThickness, bounds.Height), borderColor);
-            spriteBatch.Draw(_whitePixel, new Rectangle(bounds.Right - borderThickness, bounds.Y, borderThickness, bounds.Height), borderColor);
+            ChamferedBox.Border(spriteBatch, _whitePixel, bounds, borderThickness, borderColor);
         }
 
         private void DrawPreviewContent(SpriteBatch spriteBatch, Rectangle bounds)

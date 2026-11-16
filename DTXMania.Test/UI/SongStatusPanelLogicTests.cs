@@ -98,6 +98,24 @@ public class SongStatusPanelLogicTests
     }
 
     [Fact]
+    public void InitializeGraphicsGenerator_WhenReinitThrowsOnNullWhitePixel_ShouldClearDisposedGenerator()
+    {
+        var panel = new SongStatusPanel();
+        var previousGenerator = (DefaultGraphicsGenerator)RuntimeHelpers.GetUninitializedObject(typeof(DefaultGraphicsGenerator));
+        SetField(previousGenerator, "_generatedTextures", new Dictionary<string, ITexture>());
+        SetField(panel, "_graphicsGenerator", previousGenerator);
+        var graphicsDevice = (GraphicsDevice)RuntimeHelpers.GetUninitializedObject(typeof(GraphicsDevice));
+        GC.SuppressFinalize(graphicsDevice);
+        var renderTarget = (RenderTarget2D)RuntimeHelpers.GetUninitializedObject(typeof(RenderTarget2D));
+        GC.SuppressFinalize(renderTarget);
+
+        Assert.Throws<ArgumentNullException>(() => panel.InitializeGraphicsGenerator(graphicsDevice, renderTarget));
+
+        Assert.True(GetField<bool>(previousGenerator, "_disposed"));
+        Assert.Null(GetField<object?>(panel, "_graphicsGenerator"));
+    }
+
+    [Fact]
     public void InitializeAuthenticGraphics_WithThrowingResourceManager_ShouldNotThrow()
     {
         var panel = new SongStatusPanel();

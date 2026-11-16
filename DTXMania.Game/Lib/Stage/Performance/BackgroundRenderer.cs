@@ -150,7 +150,7 @@ namespace DTXMania.Game.Lib.Stage.Performance
 
         private void DrawFallbackBackground(SpriteBatch spriteBatch, Rectangle area, float depth)
         {
-            if (_whiteTexture == null)
+            if (_whiteTextureResource == null && _whiteTexture == null)
             {
                 // HPA-796: borrow the cached white pixel from the ResourceManager instead of
                 // allocating a private 1×1 texture (this renderer owns the reference until

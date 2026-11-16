@@ -117,11 +117,25 @@ namespace DTXMania.Game.Lib.Song.Components
             _whitePixelResource = _resourceManager.CreateTextureFromColor(Color.White);
             _whitePixel = _whitePixelResource?.Texture;
 
-            // Create graphics generator that will live for the lifetime of SongBarRenderer
-            // This ensures generated textures remain valid while cached
-            _graphicsGenerator = new DefaultGraphicsGenerator(_graphicsDevice, _clearLampRenderTarget, _whitePixel);
+            try
+            {
+                // Create graphics generator that will live for the lifetime of SongBarRenderer
+                // This ensures generated textures remain valid while cached
+                _graphicsGenerator = new DefaultGraphicsGenerator(_graphicsDevice, _clearLampRenderTarget, _whitePixel);
 
-            Initialize();
+                Initialize();
+            }
+            catch
+            {
+                _graphicsGenerator?.Dispose();
+                _graphicsGenerator = null;
+                _spriteBatch?.Dispose();
+                _spriteBatch = null;
+                _whitePixel = null;
+                _whitePixelResource?.RemoveReference();
+                _whitePixelResource = null;
+                throw;
+            }
         }
 
         #endregion

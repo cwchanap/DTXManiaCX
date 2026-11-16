@@ -1099,6 +1099,26 @@ namespace DTXMania.Test.Stage
             Assert.Null(ReflectionHelpers.GetPrivateField<IFont>(stage, "_boldFont"));
         }
 
+        [Fact]
+        public void OnActivate_WhenCreateWhitePixelThrows_ShouldDisposeSpriteBatchAndRethrow()
+        {
+            var game = ReflectionHelpers.CreateGame();
+            var resourceManager = new Mock<IResourceManager>();
+            resourceManager.Setup(manager => manager.CreateTextureFromColor(Color.White))
+                .Throws(new InvalidOperationException("white-pixel-failed"));
+            ReflectionHelpers.SetPrivateField(game, "<ResourceManager>k__BackingField", resourceManager.Object);
+            var stage = new FontControlledStartupStage(game);
+
+            var exception = Assert.Throws<TargetInvocationException>(
+                () => ReflectionHelpers.InvokePrivateMethod(stage, "OnActivate"));
+
+            Assert.IsType<InvalidOperationException>(exception.InnerException);
+            Assert.True(stage.SpriteBatchStub.IsDisposed);
+            Assert.Null(ReflectionHelpers.GetPrivateField<SpriteBatch>(stage, "_spriteBatch"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<ITexture>(stage, "_whitePixelResource"));
+            Assert.Null(ReflectionHelpers.GetPrivateField<Texture2D>(stage, "_whitePixel"));
+        }
+
         // HPA-796: fixture-owned managed pixel — the stage borrows its raw texture from
         // the ResourceManager-acquired ITexture instead of overriding a factory seam.
         private static ITexture CreateWhitePixelResource(Texture2D raw)

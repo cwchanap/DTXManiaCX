@@ -823,9 +823,11 @@ public class PerformanceStageDeterministicTests
         // just field nulling, is probed at release time.
         PerformanceStage? stage = null;
         var tabHud = new TrackingTabHudDisplay(CreateUninitialized<GraphicsDevice>());
+        var borrowedPixelStub = CreateUninitialized<Texture2D>();
+        GC.SuppressFinalize(borrowedPixelStub);
         var judgementLine = new TrackingJudgementLineRenderer(
             CreateUninitialized<GraphicsDevice>(),
-            null);
+            borrowedPixelStub);
         var childrenReleasedBeforePixel = new List<bool>();
         var whitePixel = new ProbingWhitePixelResource(() => childrenReleasedBeforePixel.Add(
             stage != null &&

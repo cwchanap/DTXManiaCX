@@ -77,8 +77,16 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
 
             // HPA-796: the white pixel comes from the ResourceManager cache; the radial/ring
             // textures below stay renderer-local (special geometry, out of HPA-796 scope).
-            _whiteResource = resourceManager.CreateTextureFromColor(Color.White);
-            _white = _whiteResource?.Texture;
+            var whiteResource = resourceManager.CreateTextureFromColor(Color.White)
+                ?? throw new InvalidOperationException("DrumConfigRenderer could not acquire the white pixel texture.");
+            var white = whiteResource.Texture;
+            if (white == null)
+            {
+                whiteResource.RemoveReference();
+                throw new InvalidOperationException("DrumConfigRenderer received a white pixel resource with no Texture2D.");
+            }
+            _whiteResource = whiteResource;
+            _white = white;
             _circle = CreateRadialTexture(device, 64, soft: false);
             _glow = CreateRadialTexture(device, 128, soft: true);
             _ring = CreateRingTexture(device, 128, thickness: 3f);

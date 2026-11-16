@@ -308,11 +308,14 @@ namespace DTXMania.Game.Lib.Stage.Performance
         {
             // Acquire the shared cached white pixel once (HPA-796): the ResourceManager
             // owns the master texture; this renderer holds one reference until Dispose.
-            if (_fallbackTexture == null)
+            if (_fallbackTextureResource == null && _fallbackTexture == null)
             {
                 _fallbackTextureResource = _resourceManager.CreateTextureFromColor(Color.White);
                 _fallbackTexture = _fallbackTextureResource?.Texture;
             }
+
+            if (_fallbackTexture == null)
+                return;
 
             // Draw colored rectangle fallback
             Color padColor = pad.State == PadState.Pressed ? Color.Red : Color.Yellow;

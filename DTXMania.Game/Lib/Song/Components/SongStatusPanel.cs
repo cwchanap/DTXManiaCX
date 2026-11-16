@@ -204,6 +204,7 @@ namespace DTXMania.Game.Lib.Song.Components
             _cachedGraphicsDevice = graphicsDevice;
             
             _graphicsGenerator?.Dispose();
+            _graphicsGenerator = null;
             
             if (renderTarget != null)
             {
@@ -589,10 +590,7 @@ namespace DTXMania.Game.Lib.Song.Components
 
                 var borderColor = DTXManiaVisualTheme.SongSelection.StatusBorder;
                 var borderThickness = SongSelectionUILayout.Spacing.BorderThickness;
-                spriteBatch.Draw(_whitePixel, new Rectangle(bounds.X, bounds.Y, bounds.Width, borderThickness), borderColor);
-                spriteBatch.Draw(_whitePixel, new Rectangle(bounds.X, bounds.Bottom - borderThickness, bounds.Width, borderThickness), borderColor);
-                spriteBatch.Draw(_whitePixel, new Rectangle(bounds.X, bounds.Y, borderThickness, bounds.Height), borderColor);
-                spriteBatch.Draw(_whitePixel, new Rectangle(bounds.Right - borderThickness, bounds.Y, borderThickness, bounds.Height), borderColor);
+                ChamferedBox.Border(spriteBatch, _whitePixel, bounds, borderThickness, borderColor);
             }
         }
 
@@ -825,15 +823,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 // Draw border
                 var borderThickness = SongSelectionUILayout.Spacing.BorderThickness;
                 var borderColor = Color.Blue;
-                
-                // Top border
-                spriteBatch.Draw(_whitePixel, new Rectangle(rect.X, rect.Y, rect.Width, borderThickness), borderColor);
-                // Bottom border
-                spriteBatch.Draw(_whitePixel, new Rectangle(rect.X, rect.Bottom - borderThickness, rect.Width, borderThickness), borderColor);
-                // Left border
-                spriteBatch.Draw(_whitePixel, new Rectangle(rect.X, rect.Y, borderThickness, rect.Height), borderColor);
-                // Right border
-                spriteBatch.Draw(_whitePixel, new Rectangle(rect.Right - borderThickness, rect.Y, borderThickness, rect.Height), borderColor);
+                ChamferedBox.Border(spriteBatch, _whitePixel, rect, borderThickness, borderColor);
             }
         }
 
@@ -889,15 +879,7 @@ namespace DTXMania.Game.Lib.Song.Components
                 // Draw border
                 var borderThickness = SongSelectionUILayout.Spacing.BorderThickness;
                 var borderColor = Color.Gray;
-                
-                // Top border
-                spriteBatch.Draw(_whitePixel, new Rectangle(rect.X, rect.Y, rect.Width, borderThickness), borderColor);
-                // Bottom border
-                spriteBatch.Draw(_whitePixel, new Rectangle(rect.X, rect.Bottom - borderThickness, rect.Width, borderThickness), borderColor);
-                // Left border
-                spriteBatch.Draw(_whitePixel, new Rectangle(rect.X, rect.Y, borderThickness, rect.Height), borderColor);
-                // Right border
-                spriteBatch.Draw(_whitePixel, new Rectangle(rect.Right - borderThickness, rect.Y, borderThickness, rect.Height), borderColor);
+                ChamferedBox.Border(spriteBatch, _whitePixel, rect, borderThickness, borderColor);
             }
         }
 

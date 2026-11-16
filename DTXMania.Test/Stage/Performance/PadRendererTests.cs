@@ -348,6 +348,23 @@ namespace DTXMania.Test.Stage.Performance
             Assert.Equal(Color.Yellow, renderer.FallbackDrawCalls[0].Color);
         }
 
+        [Fact]
+        public void Draw_WhenCachedWhitePixelHasNullTexture_ShouldAcquireOnlyOnce()
+        {
+            var resourceManager = new Mock<IResourceManager>();
+            resourceManager.Setup(x => x.LoadTexture(It.IsAny<string>())).Returns((ITexture)null!);
+            var emptyPixelResource = new Mock<ITexture>();
+            resourceManager.Setup(x => x.CreateTextureFromColor(Color.White)).Returns(emptyPixelResource.Object);
+            var renderer = new TestablePadRenderer(CreateGraphicsDeviceStub(), resourceManager.Object);
+            var spriteBatch = (SpriteBatch)RuntimeHelpers.GetUninitializedObject(typeof(SpriteBatch));
+
+            renderer.Draw(spriteBatch);
+            renderer.Draw(spriteBatch);
+
+            Assert.Empty(renderer.FallbackDrawCalls);
+            resourceManager.Verify(x => x.CreateTextureFromColor(Color.White), Times.Once);
+        }
+
         /// <summary>
         /// HPA-796: fixture-owned managed pixel replacing the deleted CreateFallbackTextureCore
         /// seam — the renderer acquires it lazily through CreateTextureFromColor.

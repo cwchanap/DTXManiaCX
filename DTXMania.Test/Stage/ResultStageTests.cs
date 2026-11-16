@@ -186,6 +186,27 @@ namespace DTXMania.Test.Stage
         }
 
         [Fact]
+        public void ExtractSharedData_WithPerformanceResultWithNullSummary_ShouldUseDefaultSummary()
+        {
+#pragma warning disable SYSLIB0050
+            var stage = (ResultStage)FormatterServices.GetUninitializedObject(typeof(ResultStage));
+#pragma warning restore SYSLIB0050
+            var song = new SongListNode { Title = "Test Song" };
+
+            SetPrivateField(stage, "_transitionPayload", new PerformanceResult(null!, song, 2));
+
+            InvokePrivateMethod(stage, "ExtractSharedData");
+
+            var summary = GetPrivateField<PerformanceSummary>(stage, "_performanceSummary");
+            Assert.NotNull(summary);
+            Assert.Equal(0, summary!.Score);
+            Assert.False(summary.ClearFlag);
+            Assert.Equal(CompletionReason.Unknown, summary.CompletionReason);
+            Assert.Same(song, GetPrivateField<SongListNode>(stage, "_selectedSong"));
+            Assert.Equal(2, GetPrivateField<int>(stage, "_selectedDifficulty"));
+        }
+
+        [Fact]
         public void ExtractSharedData_DefaultSummary_ShouldHaveZeroJudgementCounts()
         {
 #pragma warning disable SYSLIB0050
