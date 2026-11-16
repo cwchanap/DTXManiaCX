@@ -56,8 +56,8 @@ namespace DTXMania.Game.Lib.Stage.DrumConfig
         private readonly IResourceManager _resourceManager;
         private readonly ILogger? _logger;
         private readonly SkinPalette _palette;
-        private readonly ITexture _whiteResource;
-        private readonly Texture2D _white;
+        private readonly ITexture? _whiteResource;
+        private readonly Texture2D _white = null!;
         private readonly Texture2D _circle;
         private readonly Texture2D _glow;
         private readonly Texture2D _ring;
