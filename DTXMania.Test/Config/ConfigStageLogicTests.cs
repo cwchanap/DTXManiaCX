@@ -660,6 +660,8 @@ public class ConfigStageLogicTests
             configManager.Config.FullScreen = true;
             configManager.Config.VSyncWait = false;
 
+            // SongFolderPanel completes picks through the stage's background scope.
+            stage.InstallTestBackgroundScope();
             ReflectionHelpers.InvokePrivateMethod(stage, "OnActivate");
 
             var categories = ReflectionHelpers.GetPrivateField<List<ConfigCategory>>(stage, "_categories");
@@ -687,6 +689,7 @@ public class ConfigStageLogicTests
         {
             ReflectionHelpers.SetPrivateField(stage, "_importStatus", "Imported 5 scores");
 
+            stage.InstallTestBackgroundScope();
             ReflectionHelpers.InvokePrivateMethod(stage, "OnActivate");
 
             Assert.Equal("", ReflectionHelpers.GetPrivateField<string>(stage, "_importStatus"));
@@ -1288,6 +1291,7 @@ public class ConfigStageLogicTests
             var (stage, inputManager) = CreateLifecycleStage(configManager);
             using (inputManager)
             {
+                stage.InstallTestBackgroundScope();
                 ReflectionHelpers.InvokePrivateMethod(stage, "OnActivate");
 
                 // Dirty edit: live-applied to Config, deferred store write (still false).
@@ -2850,7 +2854,12 @@ public class ConfigStageLogicTests
     private static void InitializeStageMenu(ConfigStage stage, bool includePanels)
     {
         // Config is truth; config items read it directly. Only the item list (and optionally the
-        // system panel) need initialization — there is no working copy to load.
+        // system panel) need initialization — there is no working copy to load. SongFolderPanel
+        // needs the stage's background-work scope for picker completions (HPA-799).
+        if (includePanels)
+        {
+            stage.InstallTestBackgroundScope();
+        }
         ReflectionHelpers.InvokePrivateMethod(stage, "SetupConfigItems");
 
         if (includePanels)
@@ -3171,6 +3180,7 @@ public class ConfigStageLogicTests
                 reloadService);
             using (inputManager)
             {
+                stage.InstallTestBackgroundScope();
                 var result = ApplySongRoots(stage, new[] { tempRoot });
 
                 Assert.Equal(SongFolderApplyStatus.Started, result.Status);
@@ -3215,6 +3225,7 @@ public class ConfigStageLogicTests
                 backgroundRunner: _ => null!);
             using (inputManager)
             {
+                stage.InstallTestBackgroundScope();
                 var result = ApplySongRoots(stage, new[] { tempRoot });
 
                 Assert.Equal(SongFolderApplyStatus.PersistenceFailed, result.Status);
@@ -3231,11 +3242,12 @@ public class ConfigStageLogicTests
     }
 
     [Fact]
-    public void CompleteSongOperation_WhenTaskIsCanceled_ShouldEnqueueCancelledStatus()
+    public void CompleteSongOperation_WhenTaskIsCanceled_ShouldPostCancelledStatus()
     {
         var (stage, inputManager) = CreateStage();
         using (inputManager)
         {
+            var scope = stage.InstallTestBackgroundScope();
             var coordinator = GetCoordinator(stage);
             var lease = coordinator.TryAcquire(ConfigSongOperationKind.SongFolderReload)!;
             using var cts = new CancellationTokenSource();
@@ -3246,12 +3258,12 @@ public class ConfigStageLogicTests
                 stage,
                 "CompleteSongOperation",
                 canceledTask,
-                0,
+                scope,
                 lease,
                 cts,
                 ConfigSongOperationKind.SongFolderReload);
 
-            DrainSongOperationUpdates(stage);
+            scope.Drain();
             var status = GetPrivateField<string>(stage, "_songFolderStatus");
             Assert.Contains("cancelled", status, StringComparison.OrdinalIgnoreCase);
         }
@@ -3263,6 +3275,7 @@ public class ConfigStageLogicTests
         var (stage, inputManager) = CreateStage();
         using (inputManager)
         {
+            var scope = stage.InstallTestBackgroundScope();
             var coordinator = GetCoordinator(stage);
             var lease = coordinator.TryAcquire(ConfigSongOperationKind.SongFolderReload)!;
             using var cts = new CancellationTokenSource();
@@ -3273,12 +3286,12 @@ public class ConfigStageLogicTests
                 stage,
                 "CompleteSongOperation",
                 faultedTask,
-                0,
+                scope,
                 lease,
                 cts,
                 ConfigSongOperationKind.SongFolderReload);
 
-            DrainSongOperationUpdates(stage);
+            scope.Drain();
             var status = GetPrivateField<string>(stage, "_songFolderStatus");
             Assert.Contains("reload exploded", status, StringComparison.Ordinal);
         }
@@ -3290,6 +3303,7 @@ public class ConfigStageLogicTests
         var (stage, inputManager) = CreateStage();
         using (inputManager)
         {
+            var scope = stage.InstallTestBackgroundScope();
             var coordinator = GetCoordinator(stage);
             var lease = coordinator.TryAcquire(ConfigSongOperationKind.SongFolderReload)!;
             using var cts = new CancellationTokenSource();
@@ -3300,12 +3314,12 @@ public class ConfigStageLogicTests
                 stage,
                 "CompleteSongOperation",
                 successTask,
-                0,
+                scope,
                 lease,
                 cts,
                 ConfigSongOperationKind.SongFolderReload);
 
-            DrainSongOperationUpdates(stage);
+            scope.Drain();
             var status = GetPrivateField<string>(stage, "_songFolderStatus");
             Assert.Equal("Reloaded 3 song charts.", status);
         }
@@ -3317,6 +3331,7 @@ public class ConfigStageLogicTests
         var (stage, inputManager) = CreateStage();
         using (inputManager)
         {
+            var scope = stage.InstallTestBackgroundScope();
             var coordinator = GetCoordinator(stage);
             var lease = coordinator.TryAcquire(ConfigSongOperationKind.NxScoreImport)!;
             using var cts = new CancellationTokenSource();
@@ -3327,44 +3342,14 @@ public class ConfigStageLogicTests
                 stage,
                 "CompleteSongOperation",
                 canceledTask,
-                0,
+                scope,
                 lease,
                 cts,
                 ConfigSongOperationKind.NxScoreImport);
 
-            DrainSongOperationUpdates(stage);
+            scope.Drain();
             var importStatus = GetPrivateField<string>(stage, "_importStatus");
             Assert.Contains("NX import cancelled", importStatus, StringComparison.Ordinal);
-        }
-    }
-
-    [Fact]
-    public void DrainSongOperationUpdates_WhenUpdateGenerationDiffers_ShouldDiscardStaleUpdate()
-    {
-        var (stage, inputManager) = CreateStage();
-        using (inputManager)
-        {
-            var coordinator = GetCoordinator(stage);
-            var lease = coordinator.TryAcquire(ConfigSongOperationKind.SongFolderReload)!;
-            using var cts = new CancellationTokenSource();
-
-            // Enqueue an update from a prior activation generation.
-            EnqueueSongOperationUpdate(
-                stage,
-                activationGeneration: 0,
-                lease,
-                ConfigSongOperationKind.SongFolderReload,
-                "stale status",
-                isTerminal: false);
-
-            // Bump the activation generation so the stale update is discarded.
-            SetPrivateField(stage, "_activationGeneration", 1);
-            DrainSongOperationUpdates(stage);
-
-            var status = GetPrivateField<string>(stage, "_songFolderStatus");
-            Assert.DoesNotContain("stale status", status);
-
-            lease.Dispose();
         }
     }
 
@@ -3376,13 +3361,10 @@ public class ConfigStageLogicTests
         {
             using var cts = new CancellationTokenSource();
             SetPrivateField(stage, "_songOperationCts", cts);
-            SetPrivateField(stage, "_activationGeneration", 0);
 
             InvokePrivate(stage, "CancelSongOperationForDeactivation");
 
             Assert.True(cts.IsCancellationRequested);
-            // The activation generation is bumped to invalidate stale updates.
-            Assert.Equal(1, GetPrivateField<int>(stage, "_activationGeneration"));
         }
     }
 
@@ -3406,21 +3388,7 @@ public class ConfigStageLogicTests
     #region Helpers
 
     private static void DrainSongOperationUpdates(ConfigStage stage) =>
-        InvokePrivate(stage, "DrainSongOperationUpdates");
-
-    private static void EnqueueSongOperationUpdate(
-        ConfigStage stage,
-        int activationGeneration,
-        ConfigSongOperationLease lease,
-        ConfigSongOperationKind kind,
-        string status,
-        bool isTerminal)
-    {
-        var method = typeof(ConfigStage).GetMethod(
-            "EnqueueSongOperationUpdate", BindingFlags.Instance | BindingFlags.NonPublic);
-        method!.Invoke(stage,
-            new object[] { activationGeneration, lease, kind, status, isTerminal });
-    }
+        stage.BackgroundWork?.Drain();
 
     private static async Task WaitForTerminalUpdateAsync(ConfigStage stage, int timeoutMs = 3000)
     {

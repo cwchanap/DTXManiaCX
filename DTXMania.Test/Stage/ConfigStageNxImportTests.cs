@@ -90,6 +90,11 @@ public class ConfigStageNxImportTests : IDisposable
     private static void InitializeStageMenu(ConfigStage stage, bool includePanels = false)
     {
         // Config is truth; only the item list (and optionally the system panel) need setup.
+        // SongFolderPanel needs the stage's background-work scope for picker completions.
+        if (includePanels)
+        {
+            stage.InstallTestBackgroundScope();
+        }
         ReflectionHelpers.InvokePrivateMethod(stage, "SetupConfigItems");
         if (includePanels)
         {
@@ -136,6 +141,7 @@ public class ConfigStageNxImportTests : IDisposable
             () => Task.CompletedTask);
         using (inputManager)
         {
+            stage.InstallTestBackgroundScope();
             InitializeStageMenu(stage, includePanels: false);
             ReflectionHelpers.InvokePrivateMethod(stage, "StartNxScoreImport");
             await importStarted.Task;
@@ -160,6 +166,7 @@ public class ConfigStageNxImportTests : IDisposable
         var (stage, _, inputManager) = CreateStage();
         using (inputManager)
         {
+            stage.InstallTestBackgroundScope();
             InitializeStageMenu(stage, includePanels: false);
 
             Assert.Null(ReflectionHelpers.GetPrivateField<CancellationTokenSource>(stage, "_songOperationCts"));
@@ -189,6 +196,7 @@ public class ConfigStageNxImportTests : IDisposable
                 throw new InvalidOperationException("cts setup failed"));
         using (inputManager)
         {
+            stage.InstallTestBackgroundScope();
             InitializeStageMenu(stage, includePanels: false);
 
             ReflectionHelpers.InvokePrivateMethod(stage, "StartNxScoreImport");
@@ -226,6 +234,7 @@ public class ConfigStageNxImportTests : IDisposable
             () => Task.CompletedTask);
         using (inputManager)
         {
+            stage.InstallTestBackgroundScope();
             InitializeStageMenu(stage, includePanels: false);
             ReflectionHelpers.InvokePrivateMethod(stage, "StartNxScoreImport");
             await importStarted.Task;
@@ -303,6 +312,7 @@ public class ConfigStageNxImportTests : IDisposable
             () => Task.CompletedTask);
         using (inputManager)
         {
+            stage.InstallTestBackgroundScope();
             var result = ApplySongRoots(stage, new[] { second, first });
 
             Assert.Equal(SongFolderApplyStatus.Started, result.Status);
@@ -354,6 +364,7 @@ public class ConfigStageNxImportTests : IDisposable
                 () => Task.CompletedTask);
             using (inputManager)
             {
+                stage.InstallTestBackgroundScope();
                 ReflectionHelpers.SetPrivateField(stage, "_songFolderPicker", picker.Object);
                 InitializeStageMenu(stage, includePanels: true);
                 var panel = ReflectionHelpers.GetPrivateField<SongFolderPanel>(
@@ -367,7 +378,17 @@ public class ConfigStageNxImportTests : IDisposable
                 PressPanel(panel, Keys.Down);
                 PressPanel(panel, Keys.Enter);
                 await Task.Yield();
-                panel.Update(0, new KeyboardState(), new KeyboardState());
+                // The pick runs on the scope worker; drain until it settles (while a
+                // pick is pending the panel blocks navigation, so Apply is unreachable).
+                SpinWait.SpinUntil(
+                    () =>
+                    {
+                        stage.BackgroundWork!.Drain();
+                        return ReflectionHelpers.GetPrivateField<CancellationTokenSource>(
+                            panel,
+                            "_pickerCancellation") == null;
+                    },
+                    TimeSpan.FromSeconds(5));
 
                 for (var index = 0; index < 5; index++)
                     PressPanel(panel, Keys.Down);
@@ -412,6 +433,7 @@ public class ConfigStageNxImportTests : IDisposable
         var (stage, _, inputManager) = CreateStage();
         using (inputManager)
         {
+            stage.InstallTestBackgroundScope();
             InitializeStageMenu(stage, includePanels: false);
 
             ReflectionHelpers.InvokePrivateMethod(stage, "StartNxScoreImport");
@@ -438,6 +460,7 @@ public class ConfigStageNxImportTests : IDisposable
         var (stage, _, inputManager) = CreateStage();
         using (inputManager)
         {
+            stage.InstallTestBackgroundScope();
             InitializeStageMenu(stage, includePanels: false);
 
             ReflectionHelpers.InvokePrivateMethod(stage, "StartNxScoreImport");
@@ -458,6 +481,7 @@ public class ConfigStageNxImportTests : IDisposable
         var (stage, _, inputManager) = CreateStage();
         using (inputManager)
         {
+            stage.InstallTestBackgroundScope();
             InitializeStageMenu(stage, includePanels: false);
 
             ReflectionHelpers.InvokePrivateMethod(stage, "StartNxScoreImport");
@@ -560,6 +584,7 @@ public class ConfigStageNxImportTests : IDisposable
         var (stage, _, inputManager) = CreateStage();
         using (inputManager)
         {
+            stage.InstallTestBackgroundScope();
             InitializeStageMenu(stage, includePanels: false);
 
             Assert.Empty(manager.RootSongs);
@@ -598,6 +623,7 @@ public class ConfigStageNxImportTests : IDisposable
             () => Task.CompletedTask);
         using (inputManager)
         {
+            stage.InstallTestBackgroundScope();
             InitializeStageMenu(stage, includePanels: false);
             ReflectionHelpers.InvokePrivateMethod(stage, "StartNxScoreImport");
             await importStarted.Task;
@@ -629,6 +655,7 @@ public class ConfigStageNxImportTests : IDisposable
             _ => throw new InvalidOperationException("construction failed"));
         using (constructionInput)
         {
+            constructionStage.InstallTestBackgroundScope();
             InitializeStageMenu(constructionStage, includePanels: false);
             ReflectionHelpers.InvokePrivateMethod(constructionStage, "StartNxScoreImport");
             Assert.False(GetCoordinator(constructionStage).IsBusy);
@@ -645,6 +672,7 @@ public class ConfigStageNxImportTests : IDisposable
             (_, _) => throw new InvalidOperationException("registration failed"));
         using (registrationInput)
         {
+            registrationStage.InstallTestBackgroundScope();
             InitializeStageMenu(registrationStage, includePanels: false);
             ReflectionHelpers.InvokePrivateMethod(registrationStage, "StartNxScoreImport");
             Assert.True(GetCoordinator(registrationStage).IsBusy);
@@ -652,6 +680,85 @@ public class ConfigStageNxImportTests : IDisposable
             terminal.TrySetResult(new ConfigSongOperationCompletion("done"));
             Assert.True(await WaitUntilOperationCompletesAsync(registrationStage, timeoutMs: 5000));
             Assert.False(GetCoordinator(registrationStage).IsBusy);
+        }
+    }
+
+    [Fact]
+    public async Task StartNxScoreImport_WhenCanceled_ShouldPostCancelledTerminalStatus()
+    {
+        var config = new ConfigManager();
+        var importStarted = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var importCompletion = new TaskCompletionSource<NxImportResult>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var operationToken = CancellationToken.None;
+        var (stage, inputManager) = CreateStage(
+            config,
+            new DelegateSongLibraryReloadService(),
+            (_, token) =>
+            {
+                operationToken = token;
+                importStarted.TrySetResult(true);
+                return importCompletion.Task;
+            },
+            () => Task.CompletedTask);
+        using (inputManager)
+        {
+            stage.InstallTestBackgroundScope();
+            InitializeStageMenu(stage, includePanels: false);
+            ReflectionHelpers.InvokePrivateMethod(stage, "StartNxScoreImport");
+            await importStarted.Task;
+
+            ReflectionHelpers.InvokePrivateMethod(stage, "CancelSongOperationForDeactivation");
+            importCompletion.TrySetCanceled(operationToken);
+            Assert.True(await WaitUntilOperationCompletesAsync(stage, timeoutMs: 5000));
+
+            Assert.Equal("NX import cancelled",
+                ReflectionHelpers.GetPrivateField<string>(stage, "_importStatus"));
+        }
+    }
+
+    [Fact]
+    public async Task ProgressReportedAfterTerminal_ShouldNotOverwriteTerminalStatus()
+    {
+        var config = new ConfigManager();
+        IProgress<NxImportProgress>? progress = null;
+        var importStarted = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var importCompletion = new TaskCompletionSource<NxImportResult>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var (stage, inputManager) = CreateStage(
+            config,
+            new DelegateSongLibraryReloadService(),
+            (reportedProgress, _) =>
+            {
+                progress = reportedProgress;
+                importStarted.TrySetResult(true);
+                return importCompletion.Task;
+            },
+            () => Task.CompletedTask);
+        using (inputManager)
+        {
+            stage.InstallTestBackgroundScope();
+            InitializeStageMenu(stage, includePanels: false);
+            ReflectionHelpers.InvokePrivateMethod(stage, "StartNxScoreImport");
+            await importStarted.Task;
+
+            // Queued progress applies before the FIFO-posted terminal, so the
+            // terminal status wins the drain.
+            progress!.Report(new NxImportProgress { Imported = 1, Scanned = 2 });
+            importCompletion.TrySetResult(new NxImportResult());
+            Assert.True(await WaitUntilOperationCompletesAsync(stage, timeoutMs: 5000));
+            Assert.Equal("Imported 0 scores (0 charts scanned)",
+                ReflectionHelpers.GetPrivateField<string>(stage, "_importStatus"));
+
+            // A late progress report must not overwrite the terminal status: the
+            // operation lease is no longer current once the terminal applied.
+            progress.Report(new NxImportProgress { Imported = 9, Scanned = 9 });
+            DrainOperationUpdates(stage);
+
+            Assert.Equal("Imported 0 scores (0 charts scanned)",
+                ReflectionHelpers.GetPrivateField<string>(stage, "_importStatus"));
         }
     }
 
@@ -674,7 +781,7 @@ public class ConfigStageNxImportTests : IDisposable
             "_songOperationCoordinator");
 
     private static void DrainOperationUpdates(ConfigStage stage) =>
-        ReflectionHelpers.InvokePrivateMethod(stage, "OnUpdate", 0d);
+        stage.BackgroundWork?.Drain();
 
     private static async Task<bool> WaitUntilOperationCompletesAsync(ConfigStage stage, int timeoutMs)
     {

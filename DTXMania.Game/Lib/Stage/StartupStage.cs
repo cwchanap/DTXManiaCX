@@ -67,11 +67,6 @@ namespace DTXMania.Game.Lib.Stage
         private readonly SongManager _songManager;
         private readonly IConfigManager _configManager;
 
-        // Task tracking for async operations
-        private readonly object _activationGate = new();
-        private long _activationGeneration;
-        private Task _currentAsyncTask;
-        private CancellationTokenSource _cancellationTokenSource;
         private string[] _songPaths = Constants.SongPaths.Default;
         private readonly string _bundledSongsRoot = BundledSongs.Root;
 
@@ -79,8 +74,11 @@ namespace DTXMania.Game.Lib.Stage
         // no matter how late the first update of that phase arrives).
         private StartupPhase? _operationPerformedForPhase;
 
-        // Filesystem change detection result (cached to avoid duplicate checks)
-        private bool? _needsEnumeration = null;
+        // Terminal outcome of the current async phase's worker chain (HPA-799).
+        // The scope posts exactly one success/error result per phase onto the
+        // update thread; async phases wait for it instead of polling a Task.
+        // Null until the posted result applies.
+        private bool? _asyncPhaseSucceeded;
 
         // Loading simulation (since we don't have actual song loading yet)
         private readonly Dictionary<StartupPhase, (string message, double duration)> _phaseInfo;
@@ -88,8 +86,6 @@ namespace DTXMania.Game.Lib.Stage
 
         private bool _hasRenderedStartupFrame;
         private bool _titleTransitionRequested;
-        private bool _cacheLoadPathSelected;
-        private bool _cacheFallbackAttempted;
 
         #endregion
 
@@ -268,9 +264,6 @@ namespace DTXMania.Game.Lib.Stage
             _songManager = SongManager.Instance;
             _configManager = _game.ConfigManager;
 
-            // Initialize cancellation token source for async operations
-            _cancellationTokenSource = new CancellationTokenSource();
-
             // Initialize phase information (based on DTXManiaNX phases)
             _phaseInfo = new Dictionary<StartupPhase, (string, double)>
             {
@@ -359,12 +352,8 @@ namespace DTXMania.Game.Lib.Stage
         protected override void OnActivate()
         {
 
-            BeginActivationScope();
             _hasRenderedStartupFrame = false;
             _titleTransitionRequested = false;
-            _cacheLoadPathSelected = false;
-            _cacheFallbackAttempted = false;
-            _needsEnumeration = null;
 
             // Initialize graphics resources
             var graphicsDevice = GetGraphicsDeviceCore();
@@ -430,7 +419,6 @@ namespace DTXMania.Game.Lib.Stage
             _startupPhase = StartupPhase.SystemSounds;
             _phaseStartTime = 0;
             _progressMessages.Clear();
-            _currentAsyncTask = null; // Reset task tracking
             _operationPerformedForPhase = null; // Reset per-phase op guard (see PerformPhaseOperationSync)
 
             // Add initial messages (DTXMania pattern)
@@ -501,7 +489,8 @@ namespace DTXMania.Game.Lib.Stage
         protected override void OnDeactivate()
         {
 
-            RetireActivationScope();
+            // The activation scope was retired (and pending work dropped) by
+            // BaseStage.Deactivate before this hook; only UI resources go here.
 
             // Release font references (re-acquired on re-activation)
             _font?.RemoveReference();
@@ -520,99 +509,14 @@ namespace DTXMania.Game.Lib.Stage
             _whitePixel = null;
         }
 
-        private void BeginActivationScope()
-        {
-            Task pendingTask;
-            CancellationTokenSource pendingCancellation;
-            lock (_activationGate)
-            {
-                _activationGeneration++;
-                pendingTask = _currentAsyncTask;
-                pendingCancellation = _cancellationTokenSource;
-                _currentAsyncTask = null;
-                _cancellationTokenSource =
-                    new CancellationTokenSource();
-            }
-
-            CancelAndObserveRetiredOperation(
-                pendingTask,
-                pendingCancellation);
-        }
-
-        private void RetireActivationScope()
-        {
-            Task pendingTask;
-            CancellationTokenSource pendingCancellation;
-            lock (_activationGate)
-            {
-                _activationGeneration++;
-                pendingTask = _currentAsyncTask;
-                pendingCancellation = _cancellationTokenSource;
-                _currentAsyncTask = null;
-                _cancellationTokenSource = null;
-            }
-
-            CancelAndObserveRetiredOperation(
-                pendingTask,
-                pendingCancellation);
-        }
-
-        private static void CancelAndObserveRetiredOperation(
-            Task pendingTask,
-            CancellationTokenSource pendingCancellation)
-        {
-            if (pendingCancellation != null)
-            {
-                try
-                {
-                    pendingCancellation.Cancel();
-                }
-                catch (ObjectDisposedException)
-                {
-                    // A terminal operation may already have released it.
-                }
-            }
-
-            if (pendingTask == null)
-            {
-                pendingCancellation?.Dispose();
-                return;
-            }
-
-            _ = pendingTask.ContinueWith(
-                completed =>
-                {
-                    if (completed.IsFaulted)
-                    {
-                        _ = completed.Exception;
-                    }
-                    pendingCancellation?.Dispose();
-                },
-                CancellationToken.None,
-                TaskContinuationOptions.ExecuteSynchronously,
-                TaskScheduler.Default);
-        }
-
-        private void EnsureCurrentActivation(
-            long activationGeneration,
-            CancellationToken cancellationToken)
-        {
-            if (activationGeneration != _activationGeneration)
-            {
-                throw new OperationCanceledException(
-                    cancellationToken);
-            }
-            cancellationToken.ThrowIfCancellationRequested();
-        }
-
         #endregion
 
         protected override void Dispose(bool disposing)
         {
             if (disposing)
             {
-
-                RetireActivationScope();
+                // BaseStage.Dispose deactivates first, which retires the scope
+                // synchronously before this hook runs.
 
                 // Cleanup MonoGame resources - using reference counting for managed textures
                 // Font and cached white pixel refs are released in OnDeactivate (called by
@@ -659,7 +563,6 @@ namespace DTXMania.Game.Lib.Stage
                 return;
 
             var currentPhaseInfo = _phaseInfo[_startupPhase];
-            _currentProgressMessage = currentPhaseInfo.message;
             PerformPhaseOperationSync(
                 _startupPhase,
                 _elapsedTime - _phaseStartTime);
@@ -667,37 +570,15 @@ namespace DTXMania.Game.Lib.Stage
             bool phaseComplete;
             if (HasAsyncOperation(_startupPhase))
             {
-                if (_currentAsyncTask == null)
+                // Async phases advance only on the scope's posted terminal result
+                // (HPA-799); the worker catches faults before posting, so there is
+                // no task state to poll here.
+                if (_asyncPhaseSucceeded == null)
                 {
                     return;
                 }
 
-                phaseComplete = _currentAsyncTask.IsCompleted;
-
-                if (!_currentAsyncTask.IsCompleted)
-                {
-                    _currentProgressMessage =
-                        $"{currentPhaseInfo.message} (in progress)";
-                }
-                else if (_currentAsyncTask.IsCompletedSuccessfully)
-                {
-                    _currentProgressMessage =
-                        $"{currentPhaseInfo.message.Replace("...", "")} - Complete";
-                }
-                else
-                {
-                    _currentProgressMessage =
-                        $"{currentPhaseInfo.message.Replace("...", "")} - Error";
-                    if (_currentAsyncTask.IsFaulted)
-                    {
-                        // The phase is still advanced below (startup must not hang), so
-                        // this is the only place the failure is surfaced.
-                        Logger.LogWarning(
-                            _currentAsyncTask.Exception?.GetBaseException(),
-                            "Startup phase {Phase} failed; continuing startup",
-                            _startupPhase);
-                    }
-                }
+                phaseComplete = true;
             }
             else
             {
@@ -708,7 +589,6 @@ namespace DTXMania.Game.Lib.Stage
             {
                 _progressMessages.Add(
                     currentPhaseInfo.message.Replace("...", ""));
-                _currentAsyncTask = null;
 
                 var nextPhase = GetNextPhase(_startupPhase);
                 if (nextPhase != _startupPhase)
@@ -724,6 +604,11 @@ namespace DTXMania.Game.Lib.Stage
             if (_operationPerformedForPhase == phase)
                 return;
             _operationPerformedForPhase = phase;
+
+            // Set the default status message on phase ENTRY only (HPA-799): later
+            // updates must not erase Latest progress reports before Draw.
+            _currentProgressMessage = _phaseInfo[phase].message;
+            _asyncPhaseSucceeded = null;
 
             switch (phase)
             {
@@ -749,12 +634,7 @@ namespace DTXMania.Game.Lib.Stage
                     break;
 
                 case StartupPhase.SongListDB:
-                    // Initialize database service
-                    if (_currentAsyncTask == null)
-                    {
-                        _currentAsyncTask =
-                            InitializeDatabaseServiceAsync();
-                    }
+                    StartDatabaseInitialization();
                     break;
 
                 case StartupPhase.SongsDB:
@@ -767,10 +647,7 @@ namespace DTXMania.Game.Lib.Stage
                     break;
 
                 case StartupPhase.EnumerateSongs:
-                    if (_currentAsyncTask == null)
-                    {
-                        _currentAsyncTask = RunSongLoadAsync();
-                    }
+                    StartSongEnumeration();
                     break;
 
                 case StartupPhase.BuildSongLists:
@@ -878,122 +755,143 @@ namespace DTXMania.Game.Lib.Stage
             }
         }
 
-        private Task RunSongLoadAsync()
+        /// <summary>
+        /// Starts the SongListDB phase's worker chain on the stage scope (HPA-799).
+        /// The chain never faults: InitializeDatabaseServiceAsync catches and logs
+        /// all failures, so the phase completes either way (startup continues on
+        /// error as before).
+        /// </summary>
+        private void StartDatabaseInitialization()
         {
-            long activationGeneration;
-            CancellationToken cancellationToken;
-            lock (_activationGate)
-            {
-                activationGeneration = _activationGeneration;
-                cancellationToken =
-                    _cancellationTokenSource?.Token ??
-                    CancellationToken.None;
-            }
+            var scope = BackgroundWork!;
+            var phaseMessage = _phaseInfo[StartupPhase.SongListDB].message;
+            _currentProgressMessage = $"{phaseMessage} (in progress)";
 
-            return RunSongLoadForActivationAsync(
-                activationGeneration,
-                cancellationToken);
+            scope.Run<bool>(
+                _ =>
+                {
+                    InitializeDatabaseServiceAsync().GetAwaiter().GetResult();
+                    return true;
+                },
+                onSuccess: _ =>
+                {
+                    _asyncPhaseSucceeded = true;
+                    _currentProgressMessage =
+                        $"{phaseMessage.Replace("...", "")} - Complete";
+                },
+                onError: exception =>
+                {
+                    _asyncPhaseSucceeded = false;
+                    _currentProgressMessage =
+                        $"{phaseMessage.Replace("...", "")} - Error";
+                    Logger.LogWarning(
+                        exception,
+                        "Startup phase {Phase} failed; continuing startup",
+                        StartupPhase.SongListDB);
+                });
         }
 
-        private async Task RunSongLoadForActivationAsync(
-            long activationGeneration,
+        /// <summary>
+        /// Starts the EnumerateSongs phase's worker chain on the stage scope
+        /// (HPA-799). One worker-local multi-step chain runs needs-enumeration,
+        /// enumeration and the cache fallback; it publishes the library as before
+        /// and posts exactly one terminal result via the scope's success/error
+        /// callbacks. Progress streams through a Latest reporter so at most one
+        /// status update is queued per frame.
+        /// </summary>
+        private void StartSongEnumeration()
+        {
+            // Snapshot update-thread state before Run: the scope field can be
+            // retired (and nulled) while the worker is still finishing.
+            var scope = BackgroundWork!;
+            var songPaths = _songPaths;
+            var phaseMessage = _phaseInfo[StartupPhase.EnumerateSongs].message;
+            _currentProgressMessage = $"{phaseMessage} (in progress)";
+            IProgress<EnumerationProgress> progress = new InlineProgress<EnumerationProgress>(
+                scope.Latest<EnumerationProgress>(ApplyEnumerationProgress));
+
+            scope.Run<bool>(
+                _ =>
+                    RunSongLoadChainAsync(songPaths, progress, scope.Token)
+                        .GetAwaiter()
+                        .GetResult(),
+                onSuccess: _ =>
+                {
+                    _asyncPhaseSucceeded = true;
+                    _currentProgressMessage =
+                        $"{phaseMessage.Replace("...", "")} - Complete";
+                },
+                onError: exception =>
+                {
+                    _asyncPhaseSucceeded = false;
+                    _currentProgressMessage =
+                        $"{phaseMessage.Replace("...", "")} - Error";
+                    // The phase still advances below (startup must not hang), so
+                    // this posted error is the only place the failure is surfaced.
+                    Logger.LogWarning(
+                        exception,
+                        "Startup phase {Phase} failed; continuing startup",
+                        StartupPhase.EnumerateSongs);
+                });
+        }
+
+        /// <summary>
+        /// The worker-local enumeration chain. Activation fencing is the scope
+        /// token: retirement cancels it, and every checkpoint after an await
+        /// rethrows cancellation so stale results are never applied.
+        /// </summary>
+        private async Task<bool> RunSongLoadChainAsync(
+            string[] songPaths,
+            IProgress<EnumerationProgress> progress,
             CancellationToken cancellationToken)
         {
+            // Chain-local guard state: the chain runs once per activation, so a
+            // local preserves the exactly-once cache-fallback contract.
+            var cacheLoadPathSelected = false;
+            var cacheFallbackAttempted = false;
             try
             {
-                if (_songPaths.Length == 0)
+                if (songPaths.Length == 0)
                 {
-                    lock (_activationGate)
-                    {
-                        EnsureCurrentActivation(
-                            activationGeneration,
-                            cancellationToken);
-                    }
-                    // Publish outside the gate so synchronous
-                    // SongLibraryPublished subscribers are not invoked while
-                    // _activationGate is held.
+                    cancellationToken.ThrowIfCancellationRequested();
                     PublishEmptyLibraryCore();
-                    return;
-                }
-
-                Task<bool> needsEnumerationTask;
-                lock (_activationGate)
-                {
-                    EnsureCurrentActivation(
-                        activationGeneration,
-                        cancellationToken);
-                    needsEnumerationTask =
-                        NeedsEnumerationCoreAsync(
-                            _songPaths,
-                            ForceEnumeration);
+                    return true;
                 }
 
                 var needsEnumeration =
-                    await needsEnumerationTask.ConfigureAwait(false);
-                lock (_activationGate)
-                {
-                    EnsureCurrentActivation(
-                        activationGeneration,
-                        cancellationToken);
-                    _needsEnumeration = needsEnumeration;
-                    _cacheLoadPathSelected = !needsEnumeration;
-                }
+                    await NeedsEnumerationCoreAsync(songPaths, ForceEnumeration)
+                        .ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+                cacheLoadPathSelected = !needsEnumeration;
 
                 if (!needsEnumeration)
                 {
-                    await BuildCacheHierarchyForActivationAsync(
-                            activationGeneration,
-                            cancellationToken)
+                    await BuildHierarchyFromDatabaseOnceCoreAsync(songPaths)
                         .ConfigureAwait(false);
-                    return;
+                    cancellationToken.ThrowIfCancellationRequested();
+                    return true;
                 }
 
-                Task<SongEnumerationResult> enumerationTask;
-                lock (_activationGate)
+                var enumerationResult = await EnumerateSongsCoreAsync(
+                        songPaths,
+                        progress,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                if (enumerationResult == null)
                 {
-                    EnsureCurrentActivation(
-                        activationGeneration,
-                        cancellationToken);
-                    enumerationTask = EnumerateSongsCoreAsync(
-                        _songPaths,
-                        CreateEnumerationProgressReporterForActivation(
-                            activationGeneration,
-                            cancellationToken),
-                        cancellationToken);
+                    throw new InvalidOperationException(
+                        "Song enumeration completed without " +
+                        "publishing a hierarchy.");
                 }
 
-                var enumerationResult =
-                    await enumerationTask.ConfigureAwait(false);
-                var shouldPublishEmptyLibrary = false;
-                lock (_activationGate)
+                if (enumerationResult.Outcome ==
+                    SongEnumerationOutcome.NoActiveRoots)
                 {
-                    EnsureCurrentActivation(
-                        activationGeneration,
-                        cancellationToken);
-                    if (enumerationResult == null)
-                    {
-                        throw new InvalidOperationException(
-                            "Song enumeration completed without " +
-                            "publishing a hierarchy.");
-                    }
-                    shouldPublishEmptyLibrary =
-                        enumerationResult.Outcome ==
-                        SongEnumerationOutcome.NoActiveRoots;
-                }
-
-                if (shouldPublishEmptyLibrary)
-                {
-                    lock (_activationGate)
-                    {
-                        EnsureCurrentActivation(
-                            activationGeneration,
-                            cancellationToken);
-                    }
-                    // Publish outside the gate so synchronous
-                    // SongLibraryPublished subscribers are not invoked while
-                    // _activationGate is held.
+                    cancellationToken.ThrowIfCancellationRequested();
                     PublishEmptyLibraryCore();
                 }
+
+                return true;
             }
             catch (OperationCanceledException)
             {
@@ -1001,130 +899,60 @@ namespace DTXMania.Game.Lib.Stage
             }
             catch (Exception)
             {
-                bool isCurrentActivation;
-                bool shouldFallback;
-                lock (_activationGate)
-                {
-                    isCurrentActivation =
-                        activationGeneration == _activationGeneration;
-                    shouldFallback =
-                        isCurrentActivation &&
-                        !_cacheLoadPathSelected;
-                }
-
-                if (!isCurrentActivation)
+                // Cache fallback keeps startup alive on enumeration failures: one
+                // attempt per chain, never after the cache path was selected and
+                // never after retirement. The original failure is rethrown so Run
+                // posts it to the update thread.
+                if (cacheLoadPathSelected ||
+                    cacheFallbackAttempted ||
+                    cancellationToken.IsCancellationRequested)
                 {
                     throw;
                 }
-                if (shouldFallback)
+                cacheFallbackAttempted = true;
+                try
                 {
-                    await TryBuildCacheFallbackOnceForActivationAsync(
-                            activationGeneration,
-                            cancellationToken)
+                    await BuildHierarchyFromDatabaseOnceCoreAsync(songPaths)
                         .ConfigureAwait(false);
+                }
+                catch
+                {
+                    // Fallback failures never mask the original enumeration error.
                 }
                 throw;
             }
         }
 
-        private async Task BuildCacheHierarchyForActivationAsync(
-            long activationGeneration,
-            CancellationToken cancellationToken)
+        private void ApplyEnumerationProgress(EnumerationProgress progress)
         {
-            Task hierarchyTask;
-            lock (_activationGate)
+            var phaseInfo = _phaseInfo[StartupPhase.EnumerateSongs];
+            if (!string.IsNullOrEmpty(progress.CurrentOperation))
             {
-                EnsureCurrentActivation(
-                    activationGeneration,
-                    cancellationToken);
-                hierarchyTask =
-                    BuildHierarchyFromDatabaseOnceCoreAsync(_songPaths);
+                _currentProgressMessage =
+                    $"{phaseInfo.message} {progress.CurrentOperation}";
             }
-
-            await hierarchyTask.ConfigureAwait(false);
-
-            lock (_activationGate)
+            else if (!string.IsNullOrEmpty(progress.CurrentFile))
             {
-                EnsureCurrentActivation(
-                    activationGeneration,
-                    cancellationToken);
+                _currentProgressMessage =
+                    $"{phaseInfo.message} " +
+                    $"[{progress.ProcessedCount} processed, " +
+                    $"{progress.DiscoveredSongs} songs] " +
+                    Path.GetFileName(progress.CurrentFile);
+            }
+            else if (!string.IsNullOrEmpty(progress.CurrentDirectory))
+            {
+                _currentProgressMessage =
+                    $"{phaseInfo.message} Scanning directory: " +
+                    Path.GetFileName(progress.CurrentDirectory);
+            }
+            else
+            {
+                _currentProgressMessage =
+                    $"{phaseInfo.message} " +
+                    $"[{progress.ProcessedCount} processed, " +
+                    $"{progress.DiscoveredSongs} songs found]";
             }
         }
-
-        private async Task TryBuildCacheFallbackOnceForActivationAsync(
-            long activationGeneration,
-            CancellationToken cancellationToken)
-        {
-            lock (_activationGate)
-            {
-                if (activationGeneration != _activationGeneration ||
-                    cancellationToken.IsCancellationRequested ||
-                    _cacheFallbackAttempted)
-                {
-                    return;
-                }
-                _cacheFallbackAttempted = true;
-            }
-
-            try
-            {
-                await BuildCacheHierarchyForActivationAsync(
-                        activationGeneration,
-                        cancellationToken)
-                    .ConfigureAwait(false);
-            }
-            catch (Exception)
-            {
-            }
-        }
-
-        private IProgress<EnumerationProgress>
-            CreateEnumerationProgressReporterForActivation(
-                long activationGeneration,
-                CancellationToken cancellationToken) =>
-            new Progress<EnumerationProgress>(progress =>
-            {
-                lock (_activationGate)
-                {
-                    if (activationGeneration != _activationGeneration ||
-                        cancellationToken.IsCancellationRequested)
-                    {
-                        return;
-                    }
-
-                    var phaseInfo =
-                        _phaseInfo[StartupPhase.EnumerateSongs];
-                    if (!string.IsNullOrEmpty(
-                        progress.CurrentOperation))
-                    {
-                        _currentProgressMessage =
-                            $"{phaseInfo.message} " +
-                            $"{progress.CurrentOperation}";
-                    }
-                    else if (!string.IsNullOrEmpty(progress.CurrentFile))
-                    {
-                        _currentProgressMessage =
-                            $"{phaseInfo.message} " +
-                            $"[{progress.ProcessedCount} processed, " +
-                            $"{progress.DiscoveredSongs} songs] " +
-                            Path.GetFileName(progress.CurrentFile);
-                    }
-                    else if (!string.IsNullOrEmpty(
-                        progress.CurrentDirectory))
-                    {
-                        _currentProgressMessage =
-                            $"{phaseInfo.message} Scanning directory: " +
-                            Path.GetFileName(progress.CurrentDirectory);
-                    }
-                    else
-                    {
-                        _currentProgressMessage =
-                            $"{phaseInfo.message} " +
-                            $"[{progress.ProcessedCount} processed, " +
-                            $"{progress.DiscoveredSongs} songs found]";
-                    }
-                }
-            });
 
         #endregion
 
@@ -1342,6 +1170,23 @@ namespace DTXMania.Game.Lib.Stage
         BuildSongLists = 7,      // 7
         SaveSongsDB = 8,         // 8
         Complete = 9             // 9
+    }
+
+    /// <summary>
+    /// Synchronous <see cref="IProgress{T}"/> adapter that hands each report to the
+    /// stage scope's Latest reporter, so at most one status update per frame is
+    /// queued for the update thread (no SynchronizationContext involved).
+    /// </summary>
+    internal sealed class InlineProgress<T> : IProgress<T>
+    {
+        private readonly Action<T> _report;
+
+        public InlineProgress(Action<T> report)
+        {
+            _report = report ?? throw new ArgumentNullException(nameof(report));
+        }
+
+        public void Report(T value) => _report(value);
     }
 }
 

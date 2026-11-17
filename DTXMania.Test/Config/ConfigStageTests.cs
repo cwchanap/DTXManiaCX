@@ -219,6 +219,7 @@ public class ConfigStageTests
             [Microsoft.Xna.Framework.Input.Keys.Q] = InputCommandType.Back,
         });
 
+        stage.InstallTestBackgroundScope();
         InvokePrivateMethod(stage, "InitializePanels");
 
         var panel = GetPrivateField<SystemKeyAssignPanel>(stage, "_systemPanel");
@@ -244,6 +245,7 @@ public class ConfigStageTests
         using var inputManager = new InputManagerCompat(configManager, new TestMidiDeviceBackend());
         var stage = CreateConfigStage(inputManager, configManager);
 
+        stage.InstallTestBackgroundScope();
         InvokePrivateMethod(stage, "InitializePanels");
 
         var panel = GetPrivateField<SystemKeyAssignPanel>(stage, "_systemPanel");
@@ -286,6 +288,7 @@ public class ConfigStageTests
             [Microsoft.Xna.Framework.Input.Keys.Q] = InputCommandType.Back,
         });
 
+        stage.InstallTestBackgroundScope();
         InvokePrivateMethod(stage, "InitializePanels");
 
         var panel = GetPrivateField<SystemKeyAssignPanel>(stage, "_systemPanel");
